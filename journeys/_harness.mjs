@@ -18,7 +18,7 @@
 //
 // The WebGPU half is `typeshade/runtime` (change 0025, Rule 11.11): the page imports the
 // runtime the tarball ships, loads the run's manifest (`packModule`), binds each binding by its
-// name with the journey's host value, and reads the result back through a `Resident` or the
+// name with the journey's host value, and reads the result back through a `Buffer` or the
 // target texture. The console's lines reach the runtime's sink, and the count of them and of the
 // calls that did not fit is what `submit()` resolves to (change 0028). A run may pack its program
 // under emit options (`emit`, change 0028): the level, `parens` and `fp64Flavor` of surface §69,
@@ -347,7 +347,7 @@ for (const id of journeys) {
 
 /** Runs INSIDE the page, on `typeshade/runtime` as the tarball ships it: no WebGPU of its own. */
 async function runOnGpu(job) {
-  const { createRuntime, resident } = await import('/typeshade/runtime.js');
+  const { array, createRuntime } = await import('/typeshade/runtime.js');
   const events = [];
   const rt = await createRuntime({
     ...(job.tier !== undefined ? { prefer: [job.tier] } : {}),
@@ -386,9 +386,9 @@ async function runOnGpu(job) {
     if (job.tier !== undefined && rt.tier !== job.tier)
       throw new Error(`the runtime runs on ${rt.tier}, not ${job.tier}`);
     if (job.kind === 'compute') {
-      // The binding read back is a Resident: it stays on the device across the repeats, and
+      // The binding read back is a Buffer: it stays on the device across the repeats, and
       // `read()` brings it back.
-      const out = resident(bindings[job.read]);
+      const out = array(bindings[job.read]);
       bindings[job.read] = out;
       const pipeline = await program.compute(job.entry, { constants: job.constants });
       const f = rt.frame();
@@ -540,7 +540,7 @@ async function runOnGpu(job) {
             error: gl.getError(),
           };
           // A kernel pass after the render pass still runs, and writes what it should.
-          const out = resident(new Float32Array(1));
+          const out = array(new Float32Array(1));
           const next = rt.frame();
           next.dispatch(await program.compute('bump'), { out }, 1);
           await next.submit();

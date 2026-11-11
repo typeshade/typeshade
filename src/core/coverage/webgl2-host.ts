@@ -371,7 +371,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     ],
     evidence:
       'src/core/resident.ts:53-72; src/rhi/webgl2.ts (bufferData); changes/0048-partial-buffer-write.md',
-    note: 'Resident: upload once, read back, destroy; a partial write is 0048 (draft); bufferSubData has no caller in src/',
+    note: 'Buffer: upload once, read back, dispose; a partial write is 0048 (draft); bufferSubData has no caller in src/',
     webgpu: typed('journeys/overrides/journey.mjs', 'also: planned (0048, sub-range write)'),
     webgl2: typed('journeys/overrides/journey.mjs', 'also: planned (0048, sub-range write)'),
   },

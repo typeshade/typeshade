@@ -11,7 +11,7 @@ proposals before it recorded as not run.
 ## What the gate measures
 
 The gate runs a fixed corpus through the runtime, as a host runs it: the Vite plugin's module of
-each shader file, `fuse` scopes over `Resident` arrays, on a WebGPU device in headless Chromium.
+each shader file, `fuse` scopes over `Buffer`s, on a WebGPU device in headless Chromium.
 
 | Case      | Source                                            | What runs                                                                                     |
 | --------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------- |

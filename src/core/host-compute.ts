@@ -62,6 +62,7 @@ import {
   argumentOwner,
   callSite,
   commitArguments,
+  isRegionResource,
   isResource,
   joinRecorded,
   recordArgument,
@@ -133,7 +134,7 @@ export function residentsOf(
       if (s === undefined || !isBuffer(b)) continue;
       if (!residentable(b))
         throw new TypeError(
-          `${e.name}(): binding "${b.name}" (${b.s}) takes no Resident: only a storage array with no size does.`,
+          `${e.name}(): binding "${b.name}" (${b.s}) takes no Buffer: only a storage array with no size does.`,
         );
       // A scratch array of a `fuse` scope is for the kernel calls in the body of that scope
       // (change 0058). It holds no host array, so the check of the value below would name
@@ -143,7 +144,7 @@ export function residentsOf(
       const twin = [...states].find(([, t]) => t === s);
       if (twin !== undefined)
         throw new TypeError(
-          `${e.name}(): binding "${b.name}" is the same resident array as binding "${twin[0].name}".`,
+          `${e.name}(): binding "${b.name}" is the same Buffer as binding "${twin[0].name}".`,
         );
       states.set(b, s);
     }
@@ -211,13 +212,13 @@ function countsOf(
   const s = indirectOf(e, workgroups);
   if (s === undefined)
     throw new TypeError(
-      `${at} is a Resident<Uint32Array> that holds the workgroup counts; got ${describe(indirect)}.`,
+      `${at} is a Buffer<u32> that holds the workgroup counts; got ${describe(indirect)}.`,
     );
   if (s.destroyed)
-    throw new TypeError(`${at}: this Resident was destroyed; make a new one with array().`);
+    throw new TypeError(`${at}: this Buffer was disposed; make a new one with array().`);
   const view = s.view();
   if (!(view instanceof Uint32Array))
-    throw new TypeError(`${at} is a Resident<Uint32Array>; got a Resident of ${describe(view)}.`);
+    throw new TypeError(`${at} is a Buffer<u32>; got a Buffer of ${describe(view)}.`);
   if (offset + 3 > view.length)
     throw new TypeError(
       `${e.name}(): "workgroups.offset" is ${offset}, and the three counts from it need ${offset + 3} elements; the array holds ${view.length}.`,
@@ -225,7 +226,7 @@ function countsOf(
   for (const [b, t] of states)
     if (t === s && (b.writes || b.rw === true))
       throw new TypeError(
-        `${at} is also binding "${b.name}", which the entry ${b.writes ? 'writes' : 'binds read_write'}. WebGPU cannot read the counts from a buffer that the same dispatch writes, so pass another Resident.`,
+        `${at} is also binding "${b.name}", which the entry ${b.writes ? 'writes' : 'binds read_write'}. WebGPU cannot read the counts from a buffer that the same dispatch writes, so pass another Buffer.`,
       );
   return { state: s, offset };
 }
@@ -329,10 +330,15 @@ export function callCompute(
       ? e.bindings.filter((b) => isResource((bindings as Record<string, unknown>)[b.name]))
       : [];
   if (fuseSlot.active !== undefined) {
-    // A graph that takes resources is milestone 4's `fuse(fn)` (change 0138, R4).
-    if (resources.length > 0)
+    // Today's `fuse()` records a `Buffer` of scalars, as it recorded a `Resident` (change 0138,
+    // Amendment A10, slice 1); a `Buffer` of structs and a `Uniform` are milestone 4's `fuse(fn)`.
+    const region =
+      typeof bindings === 'object' && bindings !== null
+        ? e.bindings.find((b) => isRegionResource((bindings as Record<string, unknown>)[b.name]))
+        : undefined;
+    if (region !== undefined)
       throw new TypeError(
-        `${e.name}(): binding "${resources[0]!.name}" is a resource, which the body of today's fuse() does not record; call the entry outside it, or pass array(xs).`,
+        `${e.name}(): binding "${region.name}" is a Buffer of structs or a Uniform, which the body of today's fuse() does not record; call the entry outside it, or pass a Buffer of scalars made with array(xs).`,
       );
     return fuseSlot.active.entry(cpu, e, argc, bindings, workgroups, entryHost, reads);
   }
@@ -394,9 +400,10 @@ export function callCompute(
 
 /**
  * A call of a `@compute` entry whose bindings include a resource (change 0138, R2): checked now,
- * recorded with the values it sees, and run once it is submitted. It returns nothing. A uniform
- * binding takes a `Uniform` (an exported binding among them) by its value at the call; a storage
- * array with no size takes a `Buffer` of its class.
+ * recorded with the values it sees, and run once it is submitted. It returns nothing; a call that
+ * writes a plain array returns a promise and fills it when it has run (Amendment A11, Q7). A
+ * uniform binding takes a `Uniform` (an exported binding among them) by its value at the call; a
+ * storage array with no size takes a `Buffer` of its class, or of its scalars.
  *
  * @throws `TypeError` naming the entry and the binding, now: for a written binding that is no
  *   resource, and for a resource where the binding takes none; the error of an earlier recorded
@@ -409,7 +416,7 @@ function recordCompute(
   bindings: Record<string, unknown>,
   workgroups: unknown,
   reads: IncomingReads,
-): undefined {
+): Promise<unknown> | undefined {
   // The generated module calls `callCompute` of `core/host-entry-program.ts`, which calls this.
   const site = callSite(callCompute, 1);
   throwFailure();
@@ -462,12 +469,22 @@ function recordCompute(
     const s = isBuffer(b) && b.writes ? residentState(mapped[b.name]) : undefined;
     return s === undefined ? [] : [s];
   });
-  joinRecorded(`${e.name}()`, site, uploads, written, async () => {
-    const checked = { ...checkEntryCall(e, argc, mapped, workgroups), owner, recorded: true };
-    checkIncoming(entryInputs(e, checked, reads));
-    await runEntry(cpu, e, checked, undefined);
-  });
-  return undefined;
+  // A plain array the call writes makes it wait, and it is filled when the call has run
+  // (Amendment A10, A7's deferred question 4; Amendment A11, Q7).
+  const waits = taken.some((t) => t.waits === true);
+  const done = joinRecorded(
+    `${e.name}()`,
+    site,
+    uploads,
+    written,
+    async () => {
+      const checked = { ...checkEntryCall(e, argc, mapped, workgroups), owner, recorded: true };
+      checkIncoming(entryInputs(e, checked, reads));
+      await runEntry(cpu, e, checked, undefined);
+    },
+    waits,
+  );
+  return waits ? done : undefined;
 }
 
 /** What one tier of the call layer makes of an entry call (Rule 11.8): the reason it cannot run

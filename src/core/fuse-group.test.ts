@@ -928,7 +928,7 @@ describe('F5 and a scratch array the entry holds as a local', () => {
   });
 
   it('counts an array that is not scratch, whatever the facts', () => {
-    // `resident()` arrays are never contracted: the host may read them after the scope.
+    // `array()` arrays are never contracted: the host may read them after the scope.
     const p = plan(chain(), 4, []);
     expect(p.names).toEqual([['add'], ['mul', 'relu']]);
     expect(p.contracted).toEqual([[], []]);

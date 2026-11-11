@@ -170,7 +170,7 @@ describes it.
   kernel chains, nested plans, compute entries, indirect counts, held bounds and rejected draws
   on their supported WebGPU, WebGL2 and CPU tiers. Healthy controls require actual API work; failed dependencies must
   issue no command and preserve error identity. A disabled-admission build must expose every
-  negative control. Pushed held lengths and Resident draws run on WebGPU and CPU: WebGL2 lacks
+  negative control. Pushed held lengths and `Buffer` draws run on WebGPU and CPU: WebGL2 lacks
   atomics and fragment storage buffers. The arm verifies the WebGL2 storage-draw refusal too.
 - The differential gate also runs `scripts/resource-call-arm.ts` (change 0138, milestone 3):
   kernel functions and a `@compute` entry called with `Buffer`s, a `Uniform` and exported
@@ -193,7 +193,7 @@ describes it.
   (`journeys/README.md`).
 - `bun run gate:perf` (after `build`): what the compiled kernels cost on a WebGPU device, measured
   (`scripts/perf-gate.ts`, `docs/performance.md`): a corpus of kernel chains (`chain`, `reduce`,
-  `tonemap`, `batch`, `branch`) run through the Vite plugin's module and `fuse` over `Resident` arrays, each
+  `tonemap`, `batch`, `branch`) run through the Vite plugin's module and `fuse` over `Buffer`s, each
   reported as the median wall time of one run and, where the device has `timestamp-query`, the
   median GPU time of its passes. The chain is also run over a quarter of the elements, and the gate
   fails unless four times the work costs more time: the proof of the instrument. CI runs it on

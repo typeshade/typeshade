@@ -122,7 +122,7 @@ export {
   type GradCheckOptions,
   type GradCheckResult,
 } from './core/passes/grad-check.js';
-export { resident, configure, type Resident } from './core/resident.js';
+export { resident, configure } from './core/resident.js';
 export {
   createDevice,
   type ChunkRate,

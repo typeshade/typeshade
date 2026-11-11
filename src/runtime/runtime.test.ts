@@ -24,10 +24,13 @@ import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { compile } from '../compiler/ts/compile.js';
 import { packModule } from '../compiler/ts/pack.js';
 import type { ConsoleEvent } from '../core/console.js';
-import { configure, resident, residentState } from '../core/resident.js';
+import { configure, copyOf, residentState } from '../core/resident.js';
+import { array } from '../runtime.js';
+
+/** How a call on a resource names a value it copies (change 0138, R2). */
+const CALLER = 'f(): parameter "v"';
 import { DEVICE_VIEW, gpuDevice, imageOf } from '../core/host-entry.js';
 import { createRuntime, runtime, type Frame, type RenderPass, type Runtime } from './runtime.js';
-import { createDevice } from './device.js';
 import { passOf, stencilReferenceOf, type PassHost } from './program.js';
 import type { Texture } from './resources.js';
 import { repack } from '../emit.js';
@@ -1241,16 +1244,16 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     );
   });
 
-  it('binds a Resident as one buffer, uploaded once and again after write()', async () => {
+  it('binds a Buffer of scalars as one buffer, uploaded once and again after set()', async () => {
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device });
     const pipeline = await rt.load(manifest(DRAW)).render();
-    const tint = resident([1, 0, 0, 1] as [number, number, number, number]);
+    const tint = array(Float32Array.of(1, 0, 0, 1));
     const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
     const frame = async () => {
       const f = rt.frame();
       f.pass({ color: [target] }, (p) =>
-        p.draw(pipeline, { tint }, { vertices: new Float32Array(6), count: 3 }),
+        p.draw(pipeline, { tint } as never, { vertices: new Float32Array(6), count: 3 }),
       );
       await f.submit();
     };
@@ -1258,25 +1261,25 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     const buffers = fake.made.buffer;
     const writes = fake.made.writeBuffer;
     await frame();
-    // The Resident's buffer is made once; the second frame writes only the vertices.
+    // The Buffer's buffer is made once; the second frame writes only the vertices.
     expect(fake.made.buffer).toBe(buffers);
     expect(fake.made.writeBuffer! - writes!).toBe(1);
-    tint.write([0, 1, 0, 1]);
+    tint.set([0, 1, 0, 1]);
     await frame();
     expect(fake.made.writeBuffer! - writes!).toBe(3);
-    expect(await tint.read()).toEqual([0, 1, 0, 1]);
-    tint.destroy();
-    await expect(frame()).rejects.toThrow('This Resident was destroyed');
+    expect([...(await tint.read())]).toEqual([0, 1, 0, 1]);
+    tint.dispose();
+    await expect(frame()).rejects.toThrow('This Buffer was disposed');
   });
 
-  // A draw's vertex and index data from a Resident (change 0053, #391): uploaded once, bound as
-  // it is after, and the same device buffer a binding of the handle uses.
-  it("takes a Resident as a draw's indices and vertices, uploaded once and again after write()", async () => {
+  // A draw's vertex and index data from a Buffer (change 0053, #391; change 0138, Amendment A11,
+  // Q3): uploaded once, and bound as it is after.
+  it("takes a Buffer as a draw's indices and vertices, uploaded once and again after set()", async () => {
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device });
     const pipeline = await rt.load(manifest(DRAW)).render();
-    const indices = resident(new Uint32Array([0, 1, 2]));
-    const vertices = resident(new Float32Array(6));
+    const indices = array(new Uint32Array([0, 1, 2]));
+    const vertices = array(new Float32Array(6));
     const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
     const frame = async () => {
       const f = rt.frame();
@@ -1294,14 +1297,14 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     // The second frame makes no buffer and writes only the plain uniform.
     expect(fake.made.buffer).toBe(buffers);
     expect(fake.made.writeBuffer! - writes!).toBe(1);
-    indices.write(new Uint32Array([2, 1, 0]));
+    indices.set(new Uint32Array([2, 1, 0]));
     await frame();
     expect(fake.made.writeBuffer! - writes!).toBe(3);
   });
 
-  // A zeroed Resident (change 0065, surface §69): its first use on WebGPU makes a zeroed buffer
-  // and writes no byte, where a Resident of the same zeros writes them.
-  it("takes a zeroed Resident as a draw's vertices with no upload, and the same zeros as a Resident writes them", async () => {
+  // A zeroed Buffer (change 0065, surface §69): its first use on WebGPU makes a zeroed buffer
+  // and writes no byte, where a Buffer of the same zeros writes them.
+  it("takes a zeroed Buffer as a draw's vertices with no upload, and the same zeros as a Buffer writes them", async () => {
     const draws = async (vertices: object): Promise<{ writes: number; buffers: number }> => {
       const fake = fakeDevice();
       const rt = await createRuntime({ device: fake.device });
@@ -1323,13 +1326,13 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
       expect(fake.made.buffer).toBe(buffers);
       return { writes, buffers };
     };
-    const plain = await draws(resident(new Float32Array(6)));
-    const zeroed = await draws(resident(6, 'f32'));
+    const plain = await draws(array(new Float32Array(6)));
+    const zeroed = await draws(array(6, 'f32'));
     expect(zeroed.writes).toBe(plain.writes - 1);
     expect(zeroed.buffers).toBe(plain.buffers);
   });
 
-  it("refuses a zeroed Resident of the wrong element as a draw's indices, naming the field", async () => {
+  it("refuses a zeroed Buffer of the wrong element as a draw's indices, naming the field", async () => {
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device });
     const pipeline = await rt.load(manifest(DRAW)).render();
@@ -1344,13 +1347,13 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
         } as { count: number }),
       );
     };
-    expect(() => draw(resident(3, 'f32'))).toThrow(
-      /the geometry's indices is a Resident of .*; indices take a Resident of a Uint32Array\.$/,
+    expect(() => draw(array(3, 'f32'))).toThrow(
+      /the geometry's indices is a Buffer of .*; indices take a Buffer<u32>\.$/,
     );
-    expect(() => draw(resident(3, 'u32'))).not.toThrow();
+    expect(() => draw(array(3, 'u32'))).not.toThrow();
   });
 
-  it('binds one device buffer for a Resident that is both the indices and a binding', async () => {
+  it('binds one device buffer for a Buffer that is both the indices and a binding', async () => {
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device });
     const pipeline = await rt.load(manifest(DRAW)).render();
@@ -1359,27 +1362,27 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
       const before = fake.made.buffer ?? 0;
       const f = rt.frame();
       f.pass({ color: [target] }, (p) =>
-        p.draw(
-          pipeline,
-          { tint },
-          { vertices: new Float32Array(6), indices: indices as Uint32Array, count: 3 },
-        ),
+        p.draw(pipeline, { tint } as never, {
+          vertices: new Float32Array(6),
+          indices: indices as Uint32Array,
+          count: 3,
+        }),
       );
       await f.submit();
       return (fake.made.buffer ?? 0) - before;
     };
-    // A first draw fills the runtime's pool, so the counts below are the Residents' alone.
+    // A first draw fills the runtime's pool, so the counts below are the Buffers' alone.
     await made([1, 0, 0, 1], new Uint32Array([0, 1, 2]));
-    const one = resident(new Uint32Array([0, 1, 2, 0]));
+    const one = array(new Uint32Array([0, 1, 2, 0]));
     const shared = await made(one, one);
     const two = await made(
-      resident(new Uint32Array([0, 1, 2, 0])),
-      resident(new Uint32Array([0, 1, 2, 0])),
+      array(new Uint32Array([0, 1, 2, 0])),
+      array(new Uint32Array([0, 1, 2, 0])),
     );
     expect(two - shared).toBe(1);
   });
 
-  it("refuses a Resident the geometry's field does not take, naming the field", async () => {
+  it("refuses a Buffer the geometry's field does not take, naming the field", async () => {
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device });
     const pipeline = await rt.load(manifest(DRAW)).render();
@@ -1391,18 +1394,16 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
       );
     };
     expect(() =>
-      draw({ vertices: new Float32Array(6), indices: resident(new Float32Array(3)), count: 3 }),
-    ).toThrow(
-      /the geometry's indices is a Resident of .*; indices take a Resident of a Uint32Array\.$/,
-    );
-    expect(() => draw({ vertices: resident([1, 2, 3]), count: 3 })).toThrow(
-      /the geometry's vertices is a Resident of .*; vertices take a Resident of a Float32Array, an Int32Array or a Uint32Array\.$/,
+      draw({ vertices: new Float32Array(6), indices: array(new Float32Array(3)), count: 3 }),
+    ).toThrow(/the geometry's indices is a Buffer of .*; indices take a Buffer<u32>\.$/);
+    expect(() => draw({ vertices: array(new Float64Array(3)), count: 3 })).toThrow(
+      /the geometry's vertices is a Buffer of .*; vertices take a Buffer<f32>, a Buffer<i32> or a Buffer<u32>\.$/,
     );
   });
 
   it('keeps the device copy the newer when a later use only reads it', () => {
     const fake = fakeDevice();
-    const s = residentState(resident(new Float32Array(4)))!;
+    const s = residentState(array(new Float32Array(4)))!;
     const d = fake.device as unknown as Parameters<typeof s.bufferFor>[0];
     const layout = undefined as unknown as Parameters<typeof s.bufferFor>[1];
     const bytes = () => new ArrayBuffer(16);
@@ -1416,152 +1417,118 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     expect(s.fresh).toBe('device');
   });
 
-  // A read() of a Resident the device wrote leaves the host copy equal to the device copy (both
-  // alike), so the next use that only reads it uploads nothing (change 0025, Rule 11.8). The fake
-  // device runs no shader: the test stands for the shader by writing the device buffer's bytes.
-  it('uploads nothing when a Resident read back is used again by a call that only reads it', async () => {
+  // The device copy of a Buffer of scalars (change 0025, Rule 11.8), which a kernel call or an entry
+  // call binds. The fake device runs no shader: a test stands for a call that writes the Buffer by
+  // asking for its buffer as a writer, and for the shader by writing the buffer's bytes.
+  const deviceCopy = (length: number) => {
     const fake = fakeDevice();
-    const rt = await createRuntime({ device: fake.device });
-    const pipeline = await rt.load(manifest(SCALE)).compute();
-    const sink = fake.device.createBuffer({ size: 400, usage: 0x80 });
-    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
-    const r = resident(new Float32Array(100));
-    const dispatch = async (xs: object, out: object) => {
-      const f = rt.frame();
-      f.dispatch(pipeline, { params: { scale: 2 }, xs, out }, 2);
-      await f.submit();
-    };
-    // The cost of a frame whose storage arrays are plain device buffers: the uniform alone.
-    await dispatch(plain, sink);
-    const u0 = fake.uploaded.bytes;
-    await dispatch(plain, sink);
-    const control = fake.uploaded.bytes - u0;
-    // The device writes the Resident, the host reads it back, and a reading call uses it.
-    await dispatch(plain, r);
-    expect(residentState(r)!.fresh).toBe('device');
+    const r = array(new Float32Array(length));
+    const s = residentState(r)!;
+    const d = fake.device as unknown as Parameters<typeof s.bufferFor>[0];
+    const layout = { k: 'a', n: null, st: 4, e: { k: 's', t: 'f32' } } as unknown as Parameters<
+      typeof s.bufferFor
+    >[1];
+    const bytes = () => Float32Array.from(s.host as Float32Array).buffer;
+    const use = (writes: boolean) => s.bufferFor(d, layout, bytes, writes);
+    const deviceBytes = () =>
+      new Float32Array((s.gpu!.buffer as unknown as { bytes: ArrayBuffer }).bytes);
+    return { fake, r, s, use, deviceBytes };
+  };
+
+  // A read() of a Buffer the device wrote leaves the host copy equal to the device copy (both
+  // alike), so the next use that only reads it uploads nothing (change 0025, Rule 11.8).
+  it('uploads nothing when a Buffer read back is used again by a call that only reads it', async () => {
+    const { fake, r, s, use } = deviceCopy(100);
+    use(true);
+    expect(s.fresh).toBe('device');
     await r.read();
-    expect(residentState(r)!.fresh).toBe('both');
+    expect(s.fresh).toBe('both');
     const u1 = fake.uploaded.bytes;
-    await dispatch(r, sink);
-    expect(fake.uploaded.bytes - u1).toBe(control);
+    use(false);
+    expect(fake.uploaded.bytes - u1).toBe(0);
     // Reading it again changes nothing either.
     await r.read();
     const u2 = fake.uploaded.bytes;
-    await dispatch(r, sink);
-    expect(fake.uploaded.bytes - u2).toBe(control);
-    r.destroy();
+    use(false);
+    expect(fake.uploaded.bytes - u2).toBe(0);
+    r.dispose();
   });
 
   it('reads the values the device holds after a read, a device write and a read again', async () => {
-    const fake = fakeDevice();
-    const rt = await createRuntime({ device: fake.device });
-    const pipeline = await rt.load(manifest(SCALE)).compute();
-    const sink = fake.device.createBuffer({ size: 400, usage: 0x80 });
-    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
-    const r = resident(new Float32Array(4));
-    const dispatch = async (xs: object, out: object) => {
-      const f = rt.frame();
-      f.dispatch(pipeline, { params: { scale: 2 }, xs, out }, 1);
-      await f.submit();
-    };
-    await dispatch(plain, r);
+    const { fake, r, use, deviceBytes } = deviceCopy(4);
+    use(true);
     expect(await r.read()).toEqual(new Float32Array(4));
     // The device writes 7 into the buffer, as a shader would; the next read must return it.
-    await dispatch(plain, r);
-    const buf = residentState(r)!.gpu!.buffer as unknown as { bytes: ArrayBuffer };
-    new Float32Array(buf.bytes).fill(7);
+    use(true);
+    deviceBytes().fill(7);
     expect(await r.read()).toEqual(new Float32Array([7, 7, 7, 7]));
-    // A host write after the read reaches the device on the next use, and no read returns it stale.
-    r.write(new Float32Array([3, 3, 3, 3]));
+    // A host set after the read reaches the device on the next use, and no read returns it stale.
+    r.set(new Float32Array([3, 3, 3, 3]));
     const u = fake.uploaded.bytes;
-    await dispatch(r, sink);
+    use(false);
     expect(fake.uploaded.bytes - u).toBeGreaterThanOrEqual(16);
-    expect(new Float32Array(buf.bytes)).toEqual(new Float32Array([3, 3, 3, 3]));
+    expect(deviceBytes()).toEqual(new Float32Array([3, 3, 3, 3]));
     expect(await r.read()).toEqual(new Float32Array([3, 3, 3, 3]));
-    r.destroy();
+    r.dispose();
   });
 
   // The tier that runs on the host calls sync() without keep: it may write the host copy in place,
   // so the host copy is the newer one and the next device use must upload it (change 0025).
   it('uploads again after a sync() without keep, as a CPU tier that writes in place needs', async () => {
-    const fake = fakeDevice();
-    const rt = await createRuntime({ device: fake.device });
-    const pipeline = await rt.load(manifest(SCALE)).compute();
-    const sink = fake.device.createBuffer({ size: 400, usage: 0x80 });
-    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
-    const r = resident(new Float32Array(100));
-    const dispatch = async (xs: object, out: object) => {
-      const f = rt.frame();
-      f.dispatch(pipeline, { params: { scale: 2 }, xs, out }, 2);
-      await f.submit();
-    };
-    await dispatch(plain, sink);
-    const u0 = fake.uploaded.bytes;
-    await dispatch(plain, sink);
-    const control = fake.uploaded.bytes - u0;
-    await dispatch(plain, r);
-    const state = residentState(r)!;
-    expect(await state.sync()).toBe(true);
-    expect(state.fresh).toBe('host');
-    const version = state.version;
+    const { fake, r, s, use } = deviceCopy(100);
+    use(true);
+    expect(await s.sync()).toBe(true);
+    expect(s.fresh).toBe('host');
+    const version = s.version;
     const u1 = fake.uploaded.bytes;
-    await dispatch(r, sink);
-    expect(fake.uploaded.bytes - u1).toBe(control + 400);
-    expect(state.version).toBe(version);
-    r.destroy();
+    use(false);
+    expect(fake.uploaded.bytes - u1).toBe(400);
+    expect(s.version).toBe(version);
+    r.dispose();
   });
 
   it('leaves the state at host when a write lands during the download of a read()', async () => {
-    const fake = fakeDevice();
-    const rt = await createRuntime({ device: fake.device });
-    const pipeline = await rt.load(manifest(SCALE)).compute();
-    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
-    const r = resident(new Float32Array(4));
-    const f = rt.frame();
-    f.dispatch(pipeline, { params: { scale: 2 }, xs: plain, out: r }, 1);
-    await f.submit();
-    const state = residentState(r)!;
-    expect(state.fresh).toBe('device');
+    const { r, s, use } = deviceCopy(4);
+    use(true);
+    expect(s.fresh).toBe('device');
     // sync() has taken its epoch when it returns the promise. A change of the state while the
     // download runs must keep the read from marking the copies alike.
-    const reading = state.sync(true);
-    state.fresh = 'host';
+    const reading = s.sync(true);
+    s.fresh = 'host';
     await reading;
-    expect(state.fresh).toBe('host');
-    r.destroy();
+    expect(s.fresh).toBe('host');
+    r.dispose();
   });
 
-  it('gives a read() a copy, and refuses a read() of a destroyed Resident', async () => {
-    const fake = fakeDevice();
-    const rt = await createRuntime({ device: fake.device });
-    const pipeline = await rt.load(manifest(SCALE)).compute();
-    const plain = fake.device.createBuffer({ size: 400, usage: 0x80 });
-    const r = resident(new Float32Array(4));
-    const f = rt.frame();
-    f.dispatch(pipeline, { params: { scale: 2 }, xs: plain, out: r }, 1);
-    await f.submit();
+  it('gives a read() a copy, and refuses a read() of a disposed Buffer', async () => {
+    const { r, s, use } = deviceCopy(4);
+    use(true);
     const [a, b] = await Promise.all([r.read(), r.read()]);
     expect(a).not.toBe(b);
-    expect(residentState(r)!.fresh).toBe('both');
+    expect(s.fresh).toBe('both');
     a.fill(9);
     expect(await r.read()).toEqual(new Float32Array(4));
-    r.destroy();
-    await expect(r.read()).rejects.toThrow(/destroyed/);
+    r.dispose();
+    await expect(r.read()).rejects.toThrow(/disposed/);
   });
 
-  it('holds any host value, and refuses what no binding holds', () => {
-    expect(() => resident({ viewProj: new Array(16).fill(0), time: 0 })).not.toThrow();
-    expect(() => resident(3)).not.toThrow();
-    expect(() => resident(undefined)).toThrow(
-      'resident(): takes a host value (a number, a tuple, a typed array, an array or an object), not a undefined.',
+  it('takes a typed array only, and refuses what no Buffer of scalars holds (change 0138, Amendment A11, Q3 and Q4)', () => {
+    expect(() => array({ viewProj: new Array(16).fill(0), time: 0 } as never)).toThrow(
+      /^array\(\): takes an array; got an object\./,
     );
-    expect(() => resident(new Uint8Array(4))).toThrow('not a Uint8Array, which no binding holds');
-    expect(() => resident([1]).write(null as never)).toThrow(
-      'write(): takes a host value, not null.',
+    expect(() => array(3 as never)).toThrow(/^array\(\): takes an array; got a number\./);
+    expect(() => array(undefined as never)).toThrow(/^array\(\): takes an array; got undefined\./);
+    expect(() => array(new Uint8Array(4) as never)).toThrow(
+      /^array\(\): takes a Float32Array, an Int32Array, a Uint32Array or a Float64Array; got a Uint8Array\./,
+    );
+    expect(() => array(Float32Array.of(1)).set(null as never)).toThrow(
+      'set(): takes a typed array or an array of numbers; got null.',
     );
   });
 
-  it('copies each host value level by level, with no structuredClone (change 0109, Amendment 1)', async () => {
+  // A call on a resource copies each plain value it takes at the call (change 0138, R2; Amendment
+  // A5, default 3), level by level (`copyOf`, change 0109, Amendment 1).
+  it('copies each host value level by level, with no structuredClone (change 0109, Amendment 1)', () => {
     /** Every object `v` reaches, itself included: an array's elements, an object's properties,
      *  a Map's keys and values, a Set's values. */
     const objects = (v: unknown, into = new Set<object>()): Set<object> => {
@@ -1592,24 +1559,20 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
       ]),
       new Set([3, 1, 2]),
     ];
-    // An AudioWorkletGlobalScope has no structuredClone, and resident(), write() and read() do not
-    // need it: each level of the copy is a new value of the same kind, equal to what it copies.
+    // An AudioWorkletGlobalScope has no structuredClone, and the copy does not need it: each level
+    // of the copy is a new value of the same kind, equal to what it copies.
     const saved = globalThis.structuredClone;
     Reflect.deleteProperty(globalThis, 'structuredClone');
     try {
       for (const v of values) {
-        const r = resident(v);
-        const back = await r.read();
+        const back = copyOf(v, CALLER);
         expect(back).toStrictEqual(v);
         const given = objects(v);
         for (const o of objects(back)) expect(given.has(o)).toBe(false);
-        r.write(v);
-        expect(await r.read()).toStrictEqual(v);
-        r.destroy();
       }
       // Each place holds a copy of its own, also where the value given shares one array.
       const p = [0, 0];
-      const [a, b] = await resident([{ pos: p }, { pos: p }]).read();
+      const [a, b] = copyOf([{ pos: p }, { pos: p }], CALLER);
       expect(a!.pos).not.toBe(b!.pos);
     } finally {
       globalThis.structuredClone = saved;
@@ -1617,11 +1580,9 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
   });
 
   describe('a value it cannot copy is refused where it is given, with its place (issue #1002)', () => {
-    // Rule 11.8: a call that cannot run says why. `resident()`, `device.array()` and `write()` copy
-    // a host value level by level, and a level that no prototype and no own property can make
-    // again is refused with the place that holds it and what it is. It was a copy with no word:
-    // a `Date` or an `ArrayBuffer` without its slots, a `DataView` that threw from inside, a cycle
-    // that overflowed the stack, and an own "__proto__" key that set the prototype of the copy.
+    // Rule 11.8: a call that cannot run says why. A call on a resource copies a host value level
+    // by level, and a level that no prototype and no own property can make again is refused with
+    // the place that holds it and what it is.
     const SAID = 'which no binding holds.';
     const world = (born: unknown) => ({ particles: [{ born: 1 }, { born: 2 }, { born }] });
     const REFUSED: readonly (readonly [string, unknown, string])[] = [
@@ -1641,31 +1602,18 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
       ['an array in an array', [[0], [new DataView(new ArrayBuffer(1))]], '[1][0] is a DataView'],
     ];
 
-    it.each(REFUSED)(
-      'refuses %s in resident(), write() and device.array()',
-      async (_n, v, where) => {
-        const lead = 'takes a host value, and';
-        expect(() => resident(v)).toThrow(new TypeError(`resident(): ${lead} ${where}, ${SAID}`));
-        const r = resident({ kept: [1, 2] });
-        expect(() => r.write(v as never)).toThrow(
-          new TypeError(`write(): ${lead} ${where}, ${SAID}`),
-        );
-        // The refused write changed nothing: the handle still holds what it held.
-        expect(await r.read()).toStrictEqual({ kept: [1, 2] });
-        const dev = await createDevice({ prefer: ['cpu'] });
-        expect(() => dev.array(v)).toThrow(new TypeError(`resident(): ${lead} ${where}, ${SAID}`));
-        // The refusal came before a slot was made.
-        expect(dev.statistics.live).toBe(0);
-        await dev.dispose();
-      },
-    );
-
-    it('refuses such a value given whole, as it refuses a Uint8Array', () => {
-      expect(() => resident(new Date(0))).toThrow(
-        'resident(): takes a host value (a number, a tuple, a typed array, an array or an object), not a Date, which no binding holds.',
+    it.each(REFUSED)('refuses %s', (_n, v, where) => {
+      expect(() => copyOf(v, CALLER)).toThrow(
+        new TypeError(`${CALLER}: takes a host value, and ${where}, ${SAID}`),
       );
-      expect(() => resident([1]).write(new DataView(new ArrayBuffer(1)) as never)).toThrow(
-        'write(): takes a host value, not a DataView, which no binding holds.',
+    });
+
+    it('refuses such a value given whole', () => {
+      expect(() => copyOf(new Date(0), CALLER)).toThrow(
+        `${CALLER}: takes a host value, and the value is a Date, ${SAID}`,
+      );
+      expect(() => copyOf(new DataView(new ArrayBuffer(1)), CALLER)).toThrow(
+        `${CALLER}: takes a host value, and the value is a DataView, ${SAID}`,
       );
     });
 
@@ -1682,7 +1630,7 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
       map.set('k', map);
       const set = new Set<unknown>();
       set.add(set);
-      const lead = 'resident(): takes a host value, and';
+      const lead = `${CALLER}: takes a host value, and`;
       for (const [v, where] of [
         [self, 'me refers back to the value'],
         [parent, 'children[0].parent refers back to the value'],
@@ -1691,19 +1639,14 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
         [map, '[0][1] refers back to the value'],
         [set, '[0] refers back to the value'],
       ] as const)
-        expect(() => resident(v)).toThrow(new TypeError(`${lead} ${where}, a cycle, ${SAID}`));
-      const r = resident([1]);
-      expect(() => r.write(self as never)).toThrow(
-        new TypeError(
-          `write(): takes a host value, and me refers back to the value, a cycle, ${SAID}`,
-        ),
-      );
+        expect(() => copyOf(v, CALLER)).toThrow(
+          new TypeError(`${lead} ${where}, a cycle, ${SAID}`),
+        );
     });
 
-    it('takes a value two places hold, which is no cycle, and copies it for each place', async () => {
+    it('takes a value two places hold, which is no cycle, and copies it for each place', () => {
       const shared = [1, 2];
-      const r = resident({ a: shared, b: shared, c: [shared, shared] });
-      const back = await r.read();
+      const back = copyOf({ a: shared, b: shared, c: [shared, shared] }, CALLER);
       expect(back).toStrictEqual({
         a: [1, 2],
         b: [1, 2],
@@ -1715,7 +1658,7 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
       expect(new Set([back.a, back.b, back.c[0], back.c[1]]).size).toBe(4);
     });
 
-    it('copies an own "__proto__" key as a data property, and leaves the prototype of the copy alone', async () => {
+    it('copies an own "__proto__" key as a data property, and leaves the prototype of the copy alone', () => {
       const given = JSON.parse('{"__proto__": {"x": 1}, "y": 2}') as Record<string, unknown>;
       expect(Object.keys(given)).toEqual(['__proto__', 'y']);
       const own = (o: object) => Object.getOwnPropertyDescriptor(o, '__proto__');
@@ -1730,21 +1673,17 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
         expect(own(c)).toMatchObject({ writable: true, enumerable: true, configurable: true });
         expect('x' in c).toBe(false);
       };
-      const r = resident(given);
-      check(await r.read());
-      r.write(given);
-      check(await r.read());
+      check(copyOf(given, CALLER));
       // Below the root too, and in an array of such objects.
-      const nested = resident({ inner: [given] });
-      check((await nested.read()).inner[0]);
+      check(copyOf({ inner: [given] }, CALLER).inner[0]);
     });
 
-    it('keeps the prototype it copies from: a class, a plain object and a value with none', async () => {
+    it('keeps the prototype it copies from: a class, a plain object and a value with none', () => {
       class Pos {
         constructor(public x = 0) {}
       }
       const bare = Object.assign(Object.create(null) as Record<string, unknown>, { x: 1 });
-      const back = await resident({ pos: new Pos(3), bare, plain: { x: 2 } }).read();
+      const back = copyOf({ pos: new Pos(3), bare, plain: { x: 2 } }, CALLER);
       expect(back.pos).toBeInstanceOf(Pos);
       expect(back.pos.x).toBe(3);
       expect(Object.getPrototypeOf(back.bare)).toBeNull();
@@ -2602,9 +2541,9 @@ declare const img: texture_storage_2d<"r32float", "write">;
     expect(() => f.dispatch(pipeline, { xs, out: xs }, [1, 1, 1, 1])).toThrow(
       '"main" (typeshade-input.ts:10): workgroups is an array of length 4; give n or [x, y?, z?], whole numbers.',
     );
-    const r = resident(new Float32Array(4));
+    const r = array(new Float32Array(4));
     expect(() => f.dispatch(pipeline, { xs: r, out: r }, 1)).toThrow(
-      '"main" (typeshade-input.ts:10), binding "out" (array<f32>) is the same resident array as binding "xs".',
+      '"main" (typeshade-input.ts:10), binding "out" (array<f32>) is the same Buffer as binding "xs".',
     );
     expect(() => pipeline.dispatch({}, { xs, out: xs }, 1)).toThrow(
       'dispatch() on WebGL2 records into a frame of the runtime, rt.frame(); got an object.',
@@ -2686,15 +2625,17 @@ function wave(i: u32): f32 {
     );
   });
 
-  it("moves a Resident's version when its host copy may have changed, and not otherwise", async () => {
+  it("moves a Buffer's version when its host copy may have changed, and not otherwise", async () => {
     // A WebGL2 draw keeps the version it uploaded, and uploads again once the version moves.
-    const r = resident(new Float32Array([1, 2]));
+    const r = array(new Float32Array([1, 2]));
     const state = residentState(r)!;
     const before = state.version;
     state.fresh = 'both';
     state.fresh = 'device';
     expect(state.version).toBe(before);
-    r.write(new Float32Array([3, 4]));
+    // set() needs the host copy up to date (Amendment A11, Q1): the state says both are alike.
+    state.fresh = 'both';
+    r.set(new Float32Array([3, 4]));
     expect(state.version).toBe(before + 1);
     await state.sync();
     expect(state.version).toBe(before + 2);

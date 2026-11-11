@@ -1,20 +1,28 @@
-// ═══ An array that stays on the device across kernel calls, and the tiers a call may use ═══
-// ═══ (Rule 11.8, surface §65, change 0013)                                               ═══
+// ═══ The handle of a Buffer of scalars or vectors, and the tiers a call may use ═══
+// ═══ (Rule 11.8, surface §65, change 0013; change 0138, Amendments A10 and A11)  ═══
 //
-// `resident(array)` wraps a typed array or an array of objects once. A kernel function called
-// with it (`core/host-kernel.ts`), or an entry given it for a storage array with no size
-// (`core/host-compute.ts`, `core/host-draw.ts`), uploads it on the first call that runs on WebGPU and then
-// binds the same buffer at every call after, reading nothing back: a chain of calls costs one
-// upload and, at `await r.read()`, one read. On the CPU tier it is an array the handle holds.
+// `array(xs)` of a typed array, and `array(length, element)`, make a `Buffer` of scalars (change
+// 0138, Amendment A10, Q-I). Its handle is one buffer of both layers (change 0025): a kernel
+// function called with it (`core/host-kernel.ts`), or an entry given it for a storage array with
+// no size (`core/host-compute.ts`, `core/host-draw.ts`), uploads it on the first call that runs on
+// WebGPU and then binds the same buffer at every call after, reading nothing back: a chain of
+// calls costs one upload and, at `await b.read()`, one read. On the CPU tier it is the typed array
+// the handle holds. It takes no range of the region of R17: its host copy is a typed array of its
+// own (Amendment A11, Q1). Its members are the members of `Buffer<T>` (`runtime/resource.ts`, A11
+// Q1): `length`, `read()`, `set(data)`, `resize(n)`, `at(i)`, `needsUpdate` and `dispose()`.
 //
-// Every kernel call, entry call and draw that reads a handle runs in the order it was made, one after another, whether or
-// not the caller awaits it; `read()` waits for the calls made before it. A call that fails while
-// nobody awaits it keeps its error on each handle it writes, and `read()` throws it.
+// A call that takes a `Buffer` is a call on a resource (change 0138, R2; A10 Q-I): it is recorded
+// and does not block. Every kernel call, entry call and draw that reads a handle runs in the order
+// it was made, one after another; `read()` waits for the calls made before it. A call that fails
+// keeps its error on each handle it writes, and `read()` throws it. From a call that writes the
+// handle until `read()` brings its values back, `set`, `resize`, `needsUpdate` and the element
+// view's `get` and `set` throw a `TypeError`, as they do for a `Buffer` of structs (A11 Q1).
 //
-// Inside the body of `fuse()` (`typeshade/fuse`, change 0058) the kernel calls are recorded and run
-// together as one item in this order, taken when the body returns. So nothing else may reach the
-// order while the body runs: `read()`, `write()` and `destroy()` of a handle, and every other use
-// of `kernelQueue`, ask the slot of `core/fuse-scope.ts` first and are refused with a `TypeError`.
+// Inside the body of today's `fuse()` (`typeshade/fuse`, change 0058) the kernel calls are recorded
+// and run together as one item in this order, taken when the body returns. So nothing else may
+// reach the order while the body runs: `read()`, `set()` and `dispose()` of a handle, and every
+// other use of `kernelQueue`, ask the slot of `core/fuse-scope.ts` first and are refused with a
+// `TypeError`.
 //
 // `configure({ prefer })` is the tier order a default-owner kernel call or entry call tries:
 // WebGPU, WebGL2, the CPU. A one-entry list makes that tier required.
@@ -53,53 +61,63 @@ import type { Fp64Flavor } from './passes/fp64-lower.js';
 
 declare const residentBrand: unique symbol;
 
-/** What {@link resident} wraps: a host value (Rule 8.21), a typed array for an array with no
- *  size among them. */
-type ResidentValue = unknown;
+/** The element view of a `Buffer` of scalars or vectors (Amendment A11, Q1): `get` reads one
+ *  element and `set` writes it. Not API: `runtime/resource.ts` types it for the author. */
+export interface ElementView {
+  get(): unknown;
+  set(...value: unknown[]): void;
+}
 
 /**
- * A value that stays on the device across calls (Rule 11.8, surface §65), made by
- * {@link resident}: one buffer of both layers (change 0025). Pass it where a kernel function
- * takes an array, as an entry's storage array with no size (surface §67), or as any buffer
- * binding of a program runtime's draw or dispatch (surface §69): the first use on WebGPU uploads
- * it, the uses after bind it as it is, and nothing is read back until {@link Resident.read}. A
- * call whose written arrays are all resident, and that returns nothing, only queues.
- * Generated host calls reject failed content inputs with the same error before execution (0129).
- * Successful calls proved to be write-only clear destination errors, even for partial or zero-trip work.
- * Independent calls continue. Manually encoded program-runtime Frames retain their separate contract.
- *
- * Exported from `typeshade` and `typeshade/runtime`.
+ * The handle of a `Buffer` of scalars or vectors (change 0138, Amendments A10 Q-I and A11): what
+ * `array(xs)`, `array(length, element)`, `device.array()`, a scratch array of today's `fuse` and
+ * the result of a kernel called on a resource make. Its members are the members of `Buffer<T>`
+ * (A11, Q1). Not API: the author's type is `Buffer<T>` of `runtime/resource.ts`. `T` is what
+ * `read()` gives: the typed array of the element's scalar.
  */
-export interface Resident<T = ResidentValue> {
-  /**
-   * Wait for every kernel call made before this one, and return a new array holding what the
-   * handle holds. Each object in it is an instance of the class the handle's object was an
-   * instance of, built without its constructor, and a plain object is a plain object (change
-   * 0109, Amendment 1).
-   *
-   * @throws the error of a queued call that wrote this handle and failed; `TypeError` inside the
-   *   body of `fuse()`, which records kernel calls only (change 0058).
-   */
+export interface Resident<T = unknown> {
+  /** How many elements it holds; a vector is one element (Amendment A11, Q5). */
+  readonly length: number;
+  /** Wait for every call made before this one, and give a new typed array of what it holds. */
   read(): Promise<T>;
-  /**
-   * Replace what the handle holds with a copy of `value`, after every call made before this one;
-   * with none waiting, at once. The copy keeps the class of each object in `value`. The next use
-   * uploads it. A whole write retains any previous call error; it is not a reset.
-   *
-   * @throws `TypeError` inside the body of `fuse()`, as `read()` does, and for a value that holds
-   *   what no binding holds, as `resident()` does; the handle keeps what it held.
-   */
-  write(value: T): void;
-  /** Release the device buffer, after every call made before this one. A use after it throws,
-   *  and `TypeError` inside the body of `fuse()`, as for `read()`. */
-  destroy(): void;
-  readonly [residentBrand]: T;
+  /** Replace what it holds with the numbers of `data`, after every call made before this one;
+   *  its length becomes that of `data`. */
+  set(data: unknown): void;
+  /** Give it `length` elements: the ones that fit keep their values, a new one is zero. */
+  resize(length: number): void;
+  /** Element `index`'s view. */
+  at(index: number): ElementView;
+  /** Whether it holds a change not yet uploaded. */
+  needsUpdate: boolean;
+  /** Release the device buffer, after every call made before this one. */
+  dispose(): void;
+  readonly [residentBrand]?: T;
 }
 
 /** The handle's state, which only the runtime reads. */
 export class ResidentArrayState {
   /** What the handle holds on the host; stale while `fresh` is `'device'`. */
   host: unknown;
+  /** How many scalars one element holds: 1 for a `Buffer` of scalars, `N` for a `Buffer<vecN>`
+   *  (Amendment A11, Q5), whose `length` counts vectors. */
+  components = 1;
+  /** Whether a call that writes the handle was made, and `read()` has not brought its values back
+   *  since (Amendment A11, Q1): the host copy may be stale, so the host's accessors throw. */
+  ahead = false;
+  /** Counts each call made that writes the handle: a `read()` leaves the window of {@link ahead}
+   *  only when no call wrote the handle while it waited. */
+  writes = 0;
+  /** The host values a `set`, `resize` or element `set` gave while calls made before it had not
+   *  run: they take the host copy's place once those calls have run, so each call sees the values
+   *  of its own call (change 0138, Amendment A5, default 3). */
+  next: ArrayBufferView | undefined;
+
+  /** A call that writes the handle was made (change 0138, R2): the host copy is stale until a
+   *  `read()`. */
+  markWritten(): void {
+    this.ahead = true;
+    this.writes++;
+  }
   #fresh: 'host' | 'device' | 'both' = 'host';
   /** Counts every change of {@link fresh}: a `sync` that downloads checks it, to know that no write
    *  set the state while the download ran. */
@@ -237,7 +255,7 @@ export class ResidentArrayState {
    *  alike, so the next use binds it without an upload. */
   bufferFor(d: GpuDevice, layout: Layout, bytes: () => ArrayBuffer, writes: boolean): GpuBuffer {
     if (this.destroyed)
-      throw new TypeError('This Resident was destroyed; make a new one with array().');
+      throw new TypeError('This Buffer was disposed; make a new one with array().');
     if (this.clearPending && !this.#clearBound && this.gpu?.d === d) {
       // A pooled zeroed array has 32-bit host elements. Its next binding can need different
       // padding: twelve scalar scratch words occupy 48 bytes, four vec3 values occupy 64.
@@ -371,7 +389,7 @@ export class ZeroedState extends ResidentArrayState {
   ): GpuBuffer {
     if (this.host !== undefined) return super.bufferFor(d, layout, bytes, writes);
     if (this.destroyed)
-      throw new TypeError('This Resident was destroyed; make a new one with array().');
+      throw new TypeError('This Buffer was disposed; make a new one with array().');
     if (this.gpu === undefined || this.gpu.d !== d) {
       // The buffer is the size of the layout's elements: a number is 4 bytes, and a vector of 3
       // is padded to 16.
@@ -553,108 +571,82 @@ function walkCopy(root: object, caller: string, places: boolean): object {
   return copy(root, undefined, 0);
 }
 
-/** Why `v` is not a host value a Resident can hold, or undefined when it is. */
-function notHostValue(v: unknown): string | undefined {
-  if (typeof v === 'number' || typeof v === 'boolean') return undefined;
-  if (ArrayBuffer.isView(v))
-    return v instanceof Float32Array ||
-      v instanceof Int32Array ||
-      v instanceof Uint32Array ||
-      v instanceof Float64Array
-      ? undefined
-      : `a ${v.constructor.name}, which no binding holds`;
-  if (Array.isArray(v)) return undefined;
-  if (typeof v === 'object' && v !== null) {
-    const kind = slotKind(v);
-    return kind === undefined ? undefined : `${kind}, which no binding holds`;
-  }
-  return v === null ? 'null' : `a ${typeof v}`;
-}
-
-/** The array a zeroed `Resident` of `element` holds. */
+/** The array a zeroed `Buffer` of `element` holds. */
 export type ZeroedArray<E extends ZeroedElement> = E extends 'f32'
   ? Float32Array
   : E extends 'i32'
     ? Int32Array
     : Uint32Array;
 
+/** The typed arrays a `Buffer` of scalars holds (Rule 8.21; Amendment A11, Q2). */
+const TYPED = [Float32Array, Int32Array, Uint32Array, Float64Array] as const;
+type TypedCtor = (typeof TYPED)[number];
+
+/** Whether `v` is one of the typed arrays a `Buffer` of scalars holds. */
+function isTyped(v: unknown): v is Float32Array | Int32Array | Uint32Array | Float64Array {
+  return TYPED.some((C) => v instanceof C);
+}
+
 /**
- * Wrap a host value once so that it stays on the device across calls (Rule 11.8, surface §65):
- * `const dev = resident(new Float32Array(512 * 512)); render(k, 512, dev); const img = await
- * dev.read();`. A kernel or entry call takes the handle where it takes the value, and a program
- * of `typeshade/runtime` takes it as a binding. The handle holds its own copy of `value`, and
- * the copy keeps the class of each object in `value` (change 0109, Amendment 1).
- *
- * With a length and an element, `resident(length, element)` makes a zeroed handle that holds no
- * host copy and writes no byte until a call writes it or the host reads it (surface §65). The
- * element is `'f32'`, `'i32'` or `'u32'`, and it has no default.
+ * A `Buffer` of scalars, as `array(value)` or `array(length, element)` makes one.
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  *
- * @deprecated Write `array(value)` or `array(length, element)` from `typeshade/runtime`, which make
- *   the same `Resident` (change 0138, Amendment A1). The first call prints one warning.
- *
- * @param value - a number, a tuple, a `Float32Array`, `Int32Array`, `Uint32Array` or
- *   `Float64Array`, an array, or an object for a struct.
- * @param element - with a length: `'f32'`, `'i32'` or `'u32'`, the element of the zeros.
- * @returns the handle, whose `write` replaces its contents and `destroy` frees its buffer.
- * @throws `TypeError` for any other value, for a value that holds a `Date`, an `ArrayBuffer`, a
- *   `DataView` or another object with internal slots, or that holds itself, and for a length or an
- *   element a zeroed handle refuses. The message names the place that holds it, as in
- *   `particles[2].born`, and what it is.
+ * @deprecated Write `array(value)` or `array(length, element)` from `typeshade/runtime` (change
+ *   0138, Amendment A1). Change 0138 removes it with slice 1 of milestone 4 (Amendment A10, Q-I).
+ *   The first call prints one warning.
  */
-export function resident<T>(value: T): Resident<T>;
-export function resident<E extends ZeroedElement>(
-  length: number,
-  element: E,
-): Resident<ZeroedArray<E>>;
 export function resident(...args: unknown[]): Resident<unknown> {
-  warnDeprecated(
-    'resident()',
-    'Write array(value) or array(length, element) instead; it makes the same Resident.',
-  );
-  return makeResident('resident()', args);
+  warnDeprecated('array()', 'Write array(value) or array(length, element) instead.');
+  return makeResident('array()', args);
 }
 
-/** What `resident()` and `array()` make from their arguments, with `at` naming the function in
- *  each refusal. Not API: `array()` of `typeshade/runtime` calls it (change 0138, Amendment A1). */
+/** What `array()` and `device.array()` make from their arguments, with `at` naming the function in
+ *  each refusal: a `Buffer` of scalars from a typed array, or a zeroed one from a length and an
+ *  element (change 0138, Amendments A1, A10 Q-I and A11 Q3 and Q4). Not API: `array()` of
+ *  `typeshade/runtime` calls it. */
 export function makeResident(at: string, args: readonly unknown[]): Resident<unknown> {
   if (args.length < 2) return handleOf(hostState(args[0], at));
   return handleOf(zeroedState(args[0], args[1], at));
 }
 
-/** The state of a `resident(value)` handle: a host value, copied. */
-function hostState(value: unknown, at = 'resident()'): ResidentArrayState {
-  const not = notHostValue(value);
-  if (not !== undefined)
+/** The state of an `array(xs)` handle: a typed array, copied (Amendment A11, Q3 and Q4).
+ *  @throws `TypeError` for a value that is not an array, and for an array that is no typed array:
+ *    an array of structs is `array(Class, data)`, and any other value is passed to the call. */
+function hostState(value: unknown, at = 'array()'): ResidentArrayState {
+  if (isTyped(value)) return new ResidentArrayState(value.slice());
+  if (Array.isArray(value) || ArrayBuffer.isView(value))
     throw new TypeError(
-      `${at}: takes a host value (a number, a tuple, a typed array, an array or an object), not ${not}.`,
+      `${at}: takes a Float32Array, an Int32Array, a Uint32Array or a Float64Array; got ${argumentKind(value)}. Write array(Class, data) for an array of structs of an exported class, array(new Float32Array(xs)) for numbers, or pass the array to the call as it is (change 0138, Amendment A11, Q4).`,
     );
-  return new ResidentArrayState(copyOf(value, at));
+  throw new TypeError(
+    `${at}: takes an array; got ${argumentKind(value)}. A value the host keeps on the device is uniform(Class, init); pass any other value to the call as it is (change 0138, Amendment A11, Q3).`,
+  );
 }
 
-/** How a refused argument of `resident()` reads in its message. */
+/** How a refused argument of `array()` reads in its message. */
 function argumentKind(v: unknown): string {
   if (Array.isArray(v)) return 'an array';
   if (v === null) return 'null';
+  if (v === undefined) return 'undefined';
   if (ArrayBuffer.isView(v)) return `a ${v.constructor.name}`;
   if (typeof v === 'object') return 'an object';
   return typeof v === 'string' ? `'${v}'` : `a ${typeof v}`;
 }
 
-/** The state of a `resident(length, element)` handle, after the three refusals R1 to R3. */
-function zeroedState(length: unknown, element: unknown, at = 'resident()'): ZeroedState {
+/** The state of an `array(length, element)` handle, after the three refusals R1 to R3. */
+function zeroedState(length: unknown, element: unknown, at = 'array()'): ZeroedState {
   if (typeof length !== 'number')
     throw new TypeError(
       `${at}: with an element, the first argument is the length, a whole number; got ${argumentKind(length)}.`,
     );
   if (!Number.isInteger(length) || length < 1 || length > MOST_ZEROED)
     throw new TypeError(
-      `${at}: a zeroed Resident takes a length that is a whole number from 1 to ${MOST_ZEROED}; got ${length}.`,
+      `${at}: a zeroed Buffer takes a length that is a whole number from 1 to ${MOST_ZEROED}; got ${length}.`,
     );
   if (element !== 'f32' && element !== 'i32' && element !== 'u32')
     throw new TypeError(
-      `${at}: a zeroed Resident takes the element 'f32', 'i32' or 'u32'; got ${typeof element === 'string' ? `'${element}'` : String(element)}.`,
+      `${at}: a zeroed Buffer takes the element 'f32', 'i32' or 'u32'; got ${typeof element === 'string' ? `'${element}'` : String(element)}.`,
     );
   return new ZeroedState(length, element);
 }
@@ -662,49 +654,280 @@ function zeroedState(length: unknown, element: unknown, at = 'resident()'): Zero
 /** The most elements a zeroed array holds: a kernel indexes an array with a `u32`. */
 const MOST_ZEROED = 0xffffffff;
 
-/** The handle of `state`: the methods of a `Resident`, over the state's queue and buffer. */
-export function handleOf(state: ResidentArrayState): Resident<unknown> {
+/** The typed array kind a handle holds: its host copy's, or a zeroed handle's element. */
+export function typedKind(state: ResidentArrayState): TypedCtor {
+  const v = state.next ?? state.host;
+  for (const C of TYPED) if (v instanceof C) return C;
+  if (state instanceof ZeroedState) return ZEROED_CTOR[state.element];
+  return Float32Array;
+}
+
+const ZEROED_CTOR = { f32: Float32Array, i32: Int32Array, u32: Uint32Array } as const;
+
+/** The element of a typed array kind, as an error names it. */
+const KIND_NAME = new Map<TypedCtor, string>([
+  [Float32Array, 'f32'],
+  [Int32Array, 'i32'],
+  [Uint32Array, 'u32'],
+  [Float64Array, 'f64'],
+]);
+
+/** The scalar a handle holds, as a parameter's type names it: `f32`, `i32`, `u32` or `f64`. */
+export function kindName(state: ResidentArrayState): string {
+  return KIND_NAME.get(typedKind(state))!;
+}
+
+/** How many scalars the handle holds: a zeroed handle that keeps no host copy says so without
+ *  making one. */
+function scalarsOf(state: ResidentArrayState): number {
+  const v = state.next ?? state.host;
+  if (ArrayBuffer.isView(v)) return (v as unknown as ArrayLike<number>).length;
+  if (state instanceof ZeroedState) return state.length;
+  return Array.isArray(v) ? v.length : 0;
+}
+
+/** How many elements a handle holds: its scalars, counted by element (Amendment A11, Q5). */
+export function lengthOf(state: ResidentArrayState): number {
+  return Math.floor(scalarsOf(state) / state.components);
+}
+
+/** The numbers of `data` as the typed array `C` holds them, for `set()` of a handle.
+ *  @throws `TypeError` for `data` that is no typed array and no array of numbers, for a number
+ *    that `C` does not hold, and for a length that is no whole number of elements. */
+function numbersOf(
+  C: TypedCtor,
+  data: unknown,
+  components: number,
+  at: string,
+): Float32Array | Int32Array | Uint32Array | Float64Array {
+  const xs = data as ArrayLike<unknown>;
+  if (!isTyped(data) && !Array.isArray(data))
+    throw new TypeError(
+      `${at}: takes a typed array or an array of numbers; got ${argumentKind(data)}.`,
+    );
+  const kind = KIND_NAME.get(C)!;
+  for (let i = 0; i < xs.length; i++) {
+    const n = xs[i];
+    if (typeof n !== 'number')
+      throw new TypeError(`${at}: element ${i} is ${argumentKind(n)}, not a number.`);
+    if ((kind === 'i32' || kind === 'u32') && !fitsInteger(kind, n))
+      throw new TypeError(
+        `${at}: element ${i} is ${n}, which is not a whole number in the ${kind} range.`,
+      );
+  }
+  if (xs.length % components !== 0)
+    throw new TypeError(
+      `${at}: takes a whole number of ${components}-component elements; got ${xs.length} numbers.`,
+    );
+  return new C(xs as ArrayLike<number>);
+}
+
+/** Whether `n` is a whole number in the range of `kind`. */
+function fitsInteger(kind: 'i32' | 'u32', n: number): boolean {
+  if (!Number.isInteger(n)) return false;
+  return kind === 'i32' ? n >= -0x80000000 && n <= 0x7fffffff : n >= 0 && n <= 0xffffffff;
+}
+
+/** What a device does when a handle it made is read, set or disposed: it counts the bytes and
+ *  keeps its books (change 0071). */
+export interface HandleHooks {
+  readonly read?: (value: unknown) => void;
+  readonly set?: (value: ArrayBufferView) => void;
+  readonly dispose?: () => void;
+}
+
+/** The host values of `state` as the host's accessors see them: the values a `set` gave, or the
+ *  host copy, made of zeros for a zeroed handle that keeps none. */
+function hostValues(state: ResidentArrayState): ArrayLike<number> & { [i: number]: number } {
+  if (state.next !== undefined) return state.next as never;
+  if (state.host === undefined && state instanceof ZeroedState)
+    state.host = ZEROED_ELEMENTS[state.element](state.length);
+  return state.host as never;
+}
+
+/** Give `state` the host values `v` once the calls made before have run (A5, default 3). */
+function setLater(state: ResidentArrayState, v: ArrayBufferView): void {
+  state.next = v;
+  kernelQueue.whenIdle(() => {
+    if (state.next !== v) return;
+    state.next = undefined;
+    state.assign(v);
+  });
+}
+
+/** The handle of `state`: the members of a `Buffer` (Amendment A11, Q1), over the state's queue and
+ *  buffer. `hooks` are a device's books (change 0071). */
+export function handleOf(state: ResidentArrayState, hooks: HandleHooks = {}): Resident<unknown> {
   const live = (): void => {
     if (state.destroyed)
-      throw new TypeError('This Resident was destroyed; make a new one with array().');
+      throw new TypeError('This Buffer was disposed; make a new one with array().');
+  };
+  // The host's accessors read and write the host copy, which a call that wrote the handle left
+  // stale until `read()` (Amendment A11, Q1). A call that failed leaves the window (A7, decision b).
+  const current = (at: string): void => {
+    live();
+    if (state.ahead || state.fresh === 'device')
+      throw new TypeError(
+        `${at}: a call wrote this Buffer, and its values are on the device until \`await read()\` brings them back; await it first.`,
+      );
+  };
+  // Write the host values: in place when no call waits to read them, else in a copy that takes
+  // their place once the calls made before have run.
+  const write = (f: (values: { [i: number]: number }) => void): void => {
+    if (state.next === undefined && kernelQueue.pending === 0 && kernelQueue.held.length === 0) {
+      if (state.clearPending) state.dropClear();
+      f(hostValues(state));
+      (state as { measure?: unknown }).measure = undefined;
+      state.fresh = 'host';
+      return;
+    }
+    const base = hostValues(state) as unknown as Float32Array;
+    const copy = base.slice();
+    f(copy);
+    setLater(state, copy);
   };
   const handle = {
+    get length(): number {
+      return lengthOf(state);
+    },
     read(): Promise<unknown> {
-      fuseSlot.active?.refuse('read()', 'a read of a Resident');
+      fuseSlot.active?.refuse('read()', 'a read of a Buffer');
       return (async () => {
         live();
+        const writes = state.writes;
         await kernelQueue.idle();
         // A recorded call that failed is thrown at the next read() (change 0138, R2).
         throwFailure();
         if (state.error !== undefined) throw state.error;
         // On WebGL2 the read waits on a fence (Amendment A5, default 6).
         await state.fenced();
-        return state.snapshot();
+        const v = await state.snapshot();
+        if (state.writes === writes) state.ahead = false;
+        hooks.read?.(v);
+        return v;
       })();
     },
-    write(v: unknown): void {
-      fuseSlot.active?.refuse('write()', 'a write to a Resident');
-      live();
-      const bad = notHostValue(v);
-      if (bad !== undefined) throw new TypeError(`write(): takes a host value, not ${bad}.`);
-      const copy = copyOf(v, 'write()');
-      kernelQueue.whenIdle(() => {
-        state.assign(copy);
-      });
+    set(data: unknown): void {
+      fuseSlot.active?.refuse('set()', 'a set of a Buffer');
+      current('set()');
+      const v = numbersOf(typedKind(state), data, state.components, 'set()');
+      hooks.set?.(v);
+      // New values in all of it: the failure of an earlier call is gone (the owner's decision of
+      // 2026-11-11, "set(data)나 resize()로 복구").
+      state.error = undefined;
+      setLater(state, v);
     },
-    destroy(): void {
-      fuseSlot.active?.refuse('destroy()', 'the destroy of a Resident');
+    resize(length: unknown): void {
+      fuseSlot.active?.refuse('resize()', 'a resize of a Buffer');
+      current('resize()');
+      if (
+        typeof length !== 'number' ||
+        !Number.isInteger(length) ||
+        length < 0 ||
+        length > 0xffffffff
+      )
+        throw new TypeError(
+          `resize(): takes a length that is a whole number from 0 to 4294967295, got ${argumentKind(length)}.`,
+        );
+      const C = typedKind(state);
+      const v = new C(length * state.components);
+      const base = hostValues(state) as unknown as Float32Array;
+      v.set(base.subarray(0, Math.min(base.length, v.length)) as never);
+      state.error = undefined;
+      setLater(state, v);
+    },
+    at(index: unknown): ElementView {
+      live();
+      const n = lengthOf(state);
+      if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= n)
+        throw new RangeError(
+          `at(): takes a whole number from 0 to ${n - 1}, got ${argumentKind(index)}.`,
+        );
+      const c = state.components;
+      const first = index * c;
+      const kind = KIND_NAME.get(typedKind(state))!;
+      const check = (x: unknown, at: string): number => {
+        if (typeof x !== 'number')
+          throw new TypeError(`${at}: takes a number; got ${argumentKind(x)}.`);
+        if ((kind === 'i32' || kind === 'u32') && !fitsInteger(kind, x))
+          throw new TypeError(`${at}: got ${x}, which is not a whole number in the ${kind} range.`);
+        return x;
+      };
+      return {
+        get(): unknown {
+          current(`at(${index}).get()`);
+          if (state.next === undefined && state.host === undefined && state instanceof ZeroedState)
+            return c === 1 ? 0 : new (typedKind(state))(c);
+          const values = hostValues(state) as unknown as Float32Array;
+          return c === 1 ? values[first] : values.slice(first, first + c);
+        },
+        set(...value: unknown[]): void {
+          fuseSlot.active?.refuse('set()', 'a set of a Buffer');
+          const at = `at(${index}).set()`;
+          current(at);
+          const xs =
+            c > 1 && value.length === 1 && typeof value[0] === 'object' && value[0] !== null
+              ? Array.from(value[0] as ArrayLike<unknown>)
+              : value;
+          if (xs.length !== c)
+            throw new TypeError(
+              `${at}: takes ${c === 1 ? 'one number' : `${c} numbers`}; got ${xs.length}.`,
+            );
+          const nums = xs.map((x) => check(x, at));
+          write((values) => {
+            for (let j = 0; j < c; j++) values[first + j] = nums[j]!;
+          });
+        },
+      };
+    },
+    get needsUpdate(): boolean {
+      live();
+      return state.next !== undefined || state.fresh === 'host';
+    },
+    set needsUpdate(v: boolean) {
+      current('needsUpdate');
+      if (v) write(() => {});
+      else
+        kernelQueue.whenIdle(() => {
+          if (state.gpu !== undefined && state.fresh === 'host' && state.next === undefined)
+            state.fresh = 'both';
+        });
+    },
+    dispose(): void {
+      fuseSlot.active?.refuse('dispose()', 'the dispose of a Buffer');
       if (state.destroyed) return;
-      state.destroyed = true;
-      kernelQueue.whenIdle(() => {
-        if (state.gpu !== undefined) forgetBuffer(state.gpu.d, state.gpu.buffer);
-        state.gpu?.buffer.destroy();
-        state.gpu = undefined;
-      });
+      hooks.dispose?.();
+      disposeState(state);
     },
   } as unknown as Resident<unknown>;
+  const key = (Symbol as { readonly dispose?: symbol }).dispose;
+  if (typeof key === 'symbol')
+    Object.defineProperty(handle, key, {
+      value(): void {
+        handle.dispose();
+      },
+    });
   states.set(handle, state);
   return handle;
+}
+
+/** Mark `state` disposed and release its device buffer after the calls made before. */
+export function disposeState(state: ResidentArrayState): void {
+  if (state.destroyed) return;
+  state.destroyed = true;
+  kernelQueue.whenIdle(() => {
+    if (state.gpu !== undefined) forgetBuffer(state.gpu.d, state.gpu.buffer);
+    state.gpu?.buffer.destroy();
+    state.gpu = undefined;
+  });
+}
+
+/** Replace the host values of `state` with `v` once the calls made before have run: a device
+ *  refills a pooled handle with it (change 0071). Not API. */
+export function refill(state: ResidentArrayState, v: unknown): void {
+  const copy = isTyped(v) ? v.slice() : v;
+  state.error = undefined;
+  kernelQueue.whenIdle(() => state.assign(copy));
 }
 
 // ─── the order of calls ──────────────────────────────────────────────────────────────────────

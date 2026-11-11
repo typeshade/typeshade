@@ -54,7 +54,7 @@ The call contract must, however, make asynchronous GPU readback observable.
 | User                     | Surface                                                                  | Promise                                                              |
 | ------------------------ | ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
 | Application author       | Ordinary imported TypeShade-powered functions or a published npm library | Use results without learning GPU plumbing                            |
-| Numerical/library author | Imported functions plus `resident()`                                     | Reuse device-side values across calls and read explicitly            |
+| Numerical/library author | Imported functions plus `array()`                                        | Reuse device-side values across calls and read explicitly            |
 | Engine author            | `typeshade/runtime`, `packModule()`, `reflect()`                         | Own frame/pass structure and interoperate with GPU resources         |
 | Compiler/back-end author | Typed IR, passes, emitters, CPU oracle                                   | Extend targets and optimization under an explicit semantics contract |
 
@@ -152,7 +152,7 @@ independence or optimize it.
 - Own and select execution tiers (default and explicit, with observable
   rejection/fallback and supported-feature checks).
 - Create/cache GPU programs, pipelines, bind groups and resources.
-- Provide one coherent `Resident` contract across call and program runtimes;
+- Provide one coherent `Buffer` contract across call and program runtimes;
   specify read/write visibility, asynchronous completion, failures and
   destruction.
 - Keep results on the device where possible. Avoid hidden downloads just
@@ -280,7 +280,7 @@ equal results and measured improvement over unplanned execution;
 failing cases explain why optimization did not occur.
 
 **Status after the baseline.** Change 0058 delivered a first slice of P3 for kernel-function calls
-(Rule 11.13, surface §71). `typeshade/fuse` records the calls of a scope with their whole-`Resident`
+(Rule 11.13, surface §71). `typeshade/fuse` records the calls of a scope with their whole-`Buffer`
 reads and writes, the dependencies between them and a barrier between groups, and runs them in one
 submission. It fuses the calls that follow each other at the same index into one dispatch on WebGPU,
 a reduction last among them, and holds an intermediate the host never reads as a local of the fused
@@ -290,7 +290,7 @@ report, in the author's words. The arrays and results are the bits of the calls 
 chain over scratch arrays took 0.56 to 0.93 of the time of the calls apart, and the map chain over
 residents of 1,048,576 elements took 1.00 to 1.04 of it, so no hardware speedup is claimed. The change
 answers two of the decisions below for kernel functions: the minimal resource-access summary is the
-whole-`Resident` reads and writes with the proof's write-at-`i` and read-at-`i` facts, and a fusion
+whole-`Buffer` reads and writes with the proof's write-at-`i` and read-at-`i` facts, and a fusion
 requires exact equality, with no declared tolerance. That initial delivery did not fuse on WebGL2, plan transfers or
 reuse buffers across scopes. Device-owned scratch now borrows compatible buffers from the bounded
 array pool (#992). Change 0128 reports actual WebGPU scratch allocations and reuses, with buffer
@@ -367,7 +367,7 @@ records their results:
 The report also records runtime findings that belong to P2 in this plan.
 The device that the runtime requests keeps the default 128 MiB storage
 binding limit, although the adapter advertises 1 GiB (draft 0051).
-A `Resident.read()` makes the next writable binding upload the host copy
+A `Buffer`'s `read()` makes the next writable binding upload the host copy
 again. Every dispatch is submitted and awaited, except the dispatches of a `fuse` scope (change 0058),
 which share one submission.
 

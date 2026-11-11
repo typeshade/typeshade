@@ -13,12 +13,13 @@ import { guarded } from './empty-bindings-guard.shade.ts';
 import { observeDrawShaders } from './draw-shader-observer.ts';
 import { pureAliasDraws } from './pure-alias.ts';
 import { fillRamp, plasma, ramped, tiled } from './draw.shade.ts';
-import { buildInfo, configure, createDevice, createRuntime, resident } from 'typeshade/runtime';
+import { buildInfo, configure, createDevice, createRuntime, array } from 'typeshade/runtime';
 import 'typeshade/fuse';
 import {
   countMod,
   drift,
   histogram,
+  LayoutItem,
   layoutRead,
   layoutMap,
   layoutTotal,
@@ -50,12 +51,12 @@ export async function run(): Promise<Record<string, number[]>> {
   await scale({ k: 2.5, xs, ys }, 4); // ys is filled in place
   const sums = new Float32Array(4);
   await blockSum({ xs, sums, scratch: new Float32Array(256) }, 4); // WebGPU only: a barrier
-  // Resident bindings (Rule 11.8): the map's output stays on the device and is the block sum's
+  // Buffer bindings (Rule 11.8): the map's output stays on the device and is the block sum's
   // input, the two calls only queue, and each handle is read back once.
-  const devYs = resident(new Float32Array(256));
-  const devSums = resident(new Float32Array(4));
+  const devYs = array(new Float32Array(256));
+  const devSums = array(new Float32Array(4));
   scale({ k: 2.5, xs, ys: devYs }, 4);
-  blockSum({ xs: devYs, sums: devSums, scratch: resident(new Float32Array(256)) }, 4);
+  blockSum({ xs: devYs, sums: devSums, scratch: array(new Float32Array(256)) }, 4);
   // Emulated doubles (change 0013's f64 split): `Float64Array`s in and out, and a result an
   // `f32` would round at the seventh digit.
   const dxs = Float64Array.from({ length: 256 }, (_, i) => 1 + i * 1e-9);
@@ -95,7 +96,7 @@ export async function run(): Promise<Record<string, number[]>> {
   ];
   await dev.dispose();
   // An indirect workgroup count (change 0075): the first entry writes the second call's count
-  // into a Resident, and the second call dispatches it with no read between. WebGPU is required
+  // into a Buffer, and the second call dispatches it with no read between. WebGPU is required
   // for the first run, and the same chain runs again on the CPU tier, which the journey holds it
   // to.
   const onTier = async (tier: 'webgpu' | 'cpu'): Promise<number[]> => {
@@ -270,7 +271,7 @@ export async function draws(): Promise<Record<string, number[] | string>> {
   }
   // A storage array a kernel function wrote on the device and the draw binds as it is (Rule
   // 11.8): the fill only queues, and the draw runs after it. The CPU tier reads the handle's copy.
-  const ramp = resident(new Float32Array(SIZE));
+  const ramp = array(new Float32Array(SIZE));
   fillRamp(ramp);
   for (const kind of [undefined, '2d'] as const) {
     const c = canvas(kind);
@@ -369,11 +370,10 @@ export async function journeys(input: {
   frame: Parameters<typeof fs>[1]['frame'];
 }): Promise<{ particles: number[]; plasma: number[] }> {
   const { sim, frames, frame } = input;
-  // The particles stay on the device across the frames (Rule 11.8): each step only queues, and
-  // the one read is after the last.
-  const dev = resident(input.particles);
-  for (let f = 0; f < frames; f++) step(dev, sim);
-  const particles = await dev.read();
+  // An array of structs of no exported class is plain data (change 0138, Amendment A11, Q4): each
+  // step is a call with plain data, which writes the particles back in place.
+  const particles = input.particles.map((p) => ({ pos: [...p.pos], vel: [...p.vel] }));
+  for (let f = 0; f < frames; f++) await step(particles as never, sim);
   const c = document.createElement('canvas');
   c.width = 64;
   c.height = 64;
@@ -406,9 +406,8 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   const layoutOut = new Float32Array(1024);
   const layoutMapped = new Float32Array(1024);
   let layoutSum = 0;
-  const layoutResidentOut = resident(new Float32Array(1024));
+  const layoutResidentOut = array(new Float32Array(1024));
   const layoutDevice = await createDevice({ prefer: ['webgpu'] });
-  const layoutFusedInput = layoutDevice.array(layoutRows);
   const layoutFusedOut = layoutDevice.array(new Float32Array(1024));
   configure({ prefer: ['webgpu'] });
   let layoutInvalid = 0;
@@ -416,10 +415,12 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     await layoutRead(layoutRows, layoutOut);
     await layoutMap(layoutRows, layoutMapped);
     layoutSum = await layoutTotal(layoutRows);
-    await layoutRead(resident(layoutRows), layoutResidentOut);
+    // An array of structs on the device is a Buffer of its class (change 0138, Amendment A11, Q4).
+    layoutRead(array(LayoutItem, layoutRows), layoutResidentOut);
+    // Today's fuse() takes the rows as a host array the call only reads.
     const report = await layoutDevice.fuse((scope) => {
       const intermediate = scope.scratch(1024);
-      layoutMap(layoutFusedInput, intermediate);
+      layoutMap(layoutRows, intermediate);
       fuseMark(intermediate, layoutFusedOut);
     });
     if (report.dispatches !== 1 || report.groups[0]?.fused !== true)
@@ -461,20 +462,21 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   const dsummary = await dstats(dxs, 3).finally(() => configure({}));
   const ints = Int32Array.from({ length: 70000 }, (_, i) => (i % 7) - 3);
   const total = await tally(ints);
-  // Resident arrays (Rule 11.8): uploaded once, kept on the device across the calls, which only
+  // Buffers (Rule 11.8): uploaded once, kept on the device across the calls, which only
   // queue, and read back once.
-  const dev = resident(new Float32Array(64 * 64));
+  const dev = array(new Float32Array(64 * 64));
   render([1, 0.5, 2, 0.25], 64, dev);
-  const devXs = resident(xs);
-  const devScaled = resident(new Float32Array(xs.length));
-  const devSummary = await stats(devXs, devScaled, 0.5);
+  const devXs = array(xs);
+  const devScaled = array(new Float32Array(xs.length));
+  // A value on Buffers is a Buffer of one element (change 0138, Amendment A10, Q-C).
+  const devSummary = await stats(devXs, devScaled, 0.5).read();
   const bins = new Uint32Array(64);
   await histogram(xs, bins, -1000.123, 64 / 2000.246);
   // Lengths that are no multiple of 4, read inside the iterations (#367), on WebGPU: a plain
-  // array, a scatter's bins and a Resident.
+  // array, a scatter's bins and a Buffer.
   const stamped = new Uint32Array(5);
   const counted = new Uint32Array(5);
-  const devStamped = resident(new Uint32Array(7));
+  const devStamped = array(new Uint32Array(7));
   configure({ prefer: ['webgpu'] });
   const residentStamp = await (async () => {
     await stamp(stamped);

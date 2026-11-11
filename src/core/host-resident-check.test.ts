@@ -56,7 +56,7 @@ function counted<T extends object>(a: T): { value: T; reads: () => number } {
   return { value, reads: () => n };
 }
 
-/** A `Resident` handle whose host copy is `host`, as `resident()` makes one. */
+/** A `Resident` handle whose host copy is `host`, as `array()` makes one. */
 function residentOf(host: unknown): object {
   const handle = {};
   adopt(handle, new ResidentArrayState(host));

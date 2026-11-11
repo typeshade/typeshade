@@ -286,7 +286,7 @@ The repository also contains a lower-level programmatic/IR-oriented authoring su
 **Implementation checkpoint (2026-10-10):** the paragraph this replaces described the
 pre-host-import baseline. A `.shade.ts` module is now importable from ordinary TypeScript
 through `typeshade/vite` (`src/compiler/ts/host-face.ts`, `src/vite.ts`), and the call layer
-provides CPU functions, supported GPU entries, and `Resident` values. The program runtime
+provides CPU functions, supported GPU entries, and `Buffer` values. The program runtime
 also provides multi-pass compute and rendering on WebGPU and WebGL2 (`src/runtime/`).
 A bundler-independent Node.js compiled-module deployment is **not** implied by that Vite
 integration. The [implementation audit and platform plan](computing-platform-plan.md) records

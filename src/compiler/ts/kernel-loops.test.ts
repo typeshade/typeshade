@@ -1070,8 +1070,13 @@ declare const data: storage<array<f32>, "read_write">;
 
   it('is called through the import, asynchronously (the call: host-kernel.test.ts)', () => {
     const f = hostFace(module(RENDER), { fileName: 'm.shade.ts' });
+    // Plain data waits; a call on a resource is recorded and returns at once (change 0138,
+    // Amendment A10, slice 1).
     expect(f.view).toContain(
-      'export declare function render(k: vec4, size: u32, out: array<f32>): Promise<void>;',
+      'export declare function render(k: vec4, size: u32, out: Float32Array): Promise<void>;',
+    );
+    expect(f.view).toContain(
+      'export declare function render(k: vec4 | Buffer<vec4>, size: u32 | Buffer<u32>, out: Buffer<f32>): void;',
     );
     expect(f.view).toContain('export declare function height(');
   });

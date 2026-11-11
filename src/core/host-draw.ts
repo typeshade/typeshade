@@ -132,10 +132,10 @@ function frameOf(e: FragmentEntry, v: unknown): Frame {
       const s = residentState(o[b.name]);
       if (s === undefined) continue;
       if (s.destroyed)
-        throw new TypeError('This Resident was destroyed; make a new one with array().');
+        throw new TypeError('This Buffer was disposed; make a new one with array().');
       if (!isBuffer(b) || b.space !== 'storage' || b.layout.k !== 'a' || b.layout.n !== null)
         throw new TypeError(
-          `${e.name}(): binding "${b.name}" (${b.s}) takes no Resident: only a storage array with no size does.`,
+          `${e.name}(): binding "${b.name}" (${b.s}) takes no Buffer: only a storage array with no size does.`,
         );
       // A scratch array of a `fuse` scope is for the kernel calls in the body of that scope
       // (change 0058). It holds no host array, so the check of the value below would name

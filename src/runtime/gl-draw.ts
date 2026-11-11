@@ -790,7 +790,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       const state = residentState(v);
       if (state !== undefined) {
         if (state.destroyed)
-          throw new TypeError('This Resident was destroyed; make a new one with array().');
+          throw new TypeError('This Buffer was disposed; make a new one with array().');
         residents.push(state);
         binds.push({
           index: s.index,
@@ -879,7 +879,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
         : undefined;
     if (buffer === undefined)
       throw new TypeError(
-        `"${entry.name}"${at(entry)}: the geometry's indices on WebGL2 take a typed array, a Resident or { buffer: WebGLBuffer, format }.`,
+        `"${entry.name}"${at(entry)}: the geometry's indices on WebGL2 take a typed array, a Buffer or { buffer: WebGLBuffer, format }.`,
       );
     const format = host.format === 'uint32' ? 'uint32' : 'uint16';
     return () => ({ buffer, format });
@@ -929,10 +929,10 @@ function bufferSource(
         : host instanceof Float32Array || host instanceof Int32Array || host instanceof Uint32Array;
     if (!takes)
       throw new TypeError(
-        `"${entry.name}"${at(entry)}: the geometry's ${field} is a Resident of ${describe(host)}; ${
+        `"${entry.name}"${at(entry)}: the geometry's ${field} is a Buffer of ${describe(host)}; ${
           field === 'indices'
-            ? 'indices take a Resident of a Uint32Array'
-            : 'vertices take a Resident of a Float32Array, an Int32Array or a Uint32Array'
+            ? 'indices take a Buffer<u32>'
+            : 'vertices take a Buffer<f32>, a Buffer<i32> or a Buffer<u32>'
         }.`,
       );
     return () =>
@@ -947,7 +947,7 @@ function bufferSource(
   const host = typeof v === 'object' && v !== null ? d.rhi.fromNative('buffer', v) : undefined;
   if (host !== undefined) return () => host;
   throw new TypeError(
-    `"${entry.name}"${at(entry)}: the geometry's ${field} on WebGL2 take a typed array, a Resident or a WebGLBuffer; got ${describe(v)}.`,
+    `"${entry.name}"${at(entry)}: the geometry's ${field} on WebGL2 take a typed array, a Buffer or a WebGLBuffer; got ${describe(v)}.`,
   );
 }
 

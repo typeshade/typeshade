@@ -4,7 +4,7 @@
 // three intermediates are scratch arrays: `t` is private to the first dispatch and `v` to the
 // second, so the plan holds both as locals, and `u` is used by both, so it stays a buffer. It
 // writes no WebGPU. The harness runs `run` on each tier.
-import { configure, resident } from 'typeshade/runtime';
+import { configure, array } from 'typeshade/runtime';
 import { fuse } from 'typeshade/fuse';
 import { add, mul, pairsum, relu } from './ops.shade.ts';
 
@@ -12,8 +12,8 @@ import { add, mul, pairsum, relu } from './ops.shade.ts';
 export async function run(tier, { a, b, c }) {
   configure({ prefer: [tier] });
   try {
-    const [ra, rb, rc] = [a, b, c].map((xs) => resident(Float32Array.from(xs)));
-    const out = resident(new Float32Array(a.length));
+    const [ra, rb, rc] = [a, b, c].map((xs) => array(Float32Array.from(xs)));
+    const out = array(new Float32Array(a.length));
     const report = await fuse((scope) => {
       const [t, u, v] = [scope.scratch(a.length), scope.scratch(a.length), scope.scratch(a.length)];
       add(t, ra, rb);

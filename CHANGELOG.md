@@ -284,6 +284,33 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **One `Buffer`, and a kernel on a resource returns resources** (change 0138, Amendments A10 and
+  A11, slice 1; Rules 8.21, 8.22, 8.23, 8.24, 8.29, 11.8, 11.11 and 11.13; surface §26, §64, §65,
+  §67, §69, §71 and §72). Breaking.
+  - `array(xs)` of a `Float32Array`, an `Int32Array`, a `Uint32Array` or a `Float64Array`, and
+    `array(length, element)`, make a `Buffer<f32>`, `Buffer<i32>`, `Buffer<u32>` or `Buffer<f64>`.
+    `Resident` is gone. Every `Buffer` has the same members: `length`, `read()`, `set(data)`,
+    `resize(n)`, `at(i)` with `get` and `set`, `needsUpdate`, `dispose()` and
+    `[Symbol.dispose]()`. `write` is `set`, and `destroy` is `dispose`. `read()` of a scalar
+    `Buffer` gives its typed array. A `Buffer<vecN>` reads its components one after another.
+  - `array()` takes arrays only. A value that is no array is a `TypeError`: keep it with
+    `uniform(Class, init)`, or pass it as plain data. An array of plain objects is a `TypeError`:
+    a `Buffer` of structs is `array(Class, data)`.
+  - A kernel function called on a resource that returns a value returns `Buffer`s at once: one
+    element for a number or a vector, `N` for an `array<T, N>`, and an object of them by field for
+    a struct. A number or vector parameter takes a `Buffer` of one element, so a result is another
+    call's argument. `sum(array(xs))` of `typeshade/algorithms` gives a `Buffer<f32>`:
+    `const [s] = await sum(xs).read()`.
+  - A call on a `Buffer` is a call on a resource: checked at the call, recorded, and not blocking.
+    A `Buffer` that a failed call wrote throws that error at each later call and at its `read()`,
+    until `set(data)` or `resize()`. A call on a resource that writes a plain array waits and
+    gives plain data. A held length's `length` is a `Buffer<u32>`.
+  - The host view types three overloads of a kernel function and of a `@compute` entry: plain
+    data, a call on a resource, and a call on a resource that writes a plain array.
+  - A geometry's `vertices` take a `Buffer<f32>`, `Buffer<i32>` or `Buffer<u32>`, and its
+    `indices` a `Buffer<u32>`. Today's `fuse()` records a call on a scalar `Buffer`, and
+    `scope.scratch()` returns a `Buffer`.
+
 - **A function-local `let` of a written number takes its type from its uses** (change 0134,
   items 1 and 3, part 4a; Rule 5.1, surface §13; `docs/owner-decisions.md` OD-7). An
   unannotated `let` initialized by integer-written numbers, by a constant of no fixed type that

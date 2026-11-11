@@ -338,7 +338,7 @@ async function runInPage(input: {
     const old = Array.from(pixels());
     add('healthy draw', false, equal(old, [128, 0, 0, 255]));
     const de = await poison(color);
-    await color.write(new Float32Array(4).fill(0.25));
+    color.set(new Float32Array(4).fill(0.25));
     let contexts = 0;
     const original = canvas.getContext;
     Object.defineProperty(canvas, 'getContext', {

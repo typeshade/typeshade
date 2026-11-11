@@ -311,23 +311,39 @@ export class ScratchState extends ZeroedState {
   }
 }
 
-/** The handle of a scratch array: `read()` and `write()` are refused, and `destroy()` does
- *  nothing. The plan owns the array and frees it when it has run, so the host has nothing to
- *  release, and a host that destroys every handle it holds stays correct. */
-const handleOf = (): object => ({
-  read: () =>
-    Promise.reject(
-      new TypeError(
-        'read(): this is a scratch array, which the host never reads. Make it with array() to read it after the scope.',
-      ),
-    ),
-  write: () => {
+/** The handle of a scratch array, a `Buffer` (change 0138, Amendment A10, slice 1): `read()`,
+ *  `set()`, `resize()`, `at()` and `needsUpdate` are refused, and `dispose()` does nothing. The
+ *  plan owns the array and frees it when it has run, so the host has nothing to release, and a
+ *  host that disposes every handle it holds stays correct. */
+const handleOf = (length: number): object => {
+  const refuse = (what: string): never => {
     throw new TypeError(
-      'write(): this is a scratch array, which the host never writes. Make it with array() to write it.',
+      `${what}: this is a scratch array, which the host never reads or writes. Make it with array() to use it after the scope.`,
     );
-  },
-  destroy: () => undefined,
-});
+  };
+  const handle = {
+    length,
+    read: () =>
+      Promise.reject(
+        new TypeError(
+          'read(): this is a scratch array, which the host never reads. Make it with array() to read it after the scope.',
+        ),
+      ),
+    set: () => refuse('set()'),
+    resize: () => refuse('resize()'),
+    at: () => refuse('at()'),
+    get needsUpdate(): boolean {
+      return refuse('needsUpdate');
+    },
+    set needsUpdate(_: boolean) {
+      refuse('needsUpdate');
+    },
+    dispose: () => undefined,
+  };
+  const key = (Symbol as { readonly dispose?: symbol }).dispose;
+  if (typeof key === 'symbol') Object.defineProperty(handle, key, { value: () => undefined });
+  return handle;
+};
 
 // ─── recording ───────────────────────────────────────────────────────────────────────────────
 
@@ -448,7 +464,7 @@ class Scope implements FuseRecorder {
       const value = held?.array ?? args[i];
       if (p.k === 'array' && p.writes && residentState(value) === undefined)
         throw new TypeError(
-          `${k.name}(): parameter "${p.name}" is ${describe(value)}, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call ${k.name}() outside fuse().`,
+          `${k.name}(): parameter "${p.name}" is ${describe(value)}, and a call inside fuse() writes only a Buffer. fuse() reads nothing back. Pass array(...), or call ${k.name}() outside fuse().`,
         );
       // A scratch array belongs to the scope that made it.
       const s = residentState(value);
@@ -510,12 +526,12 @@ class Scope implements FuseRecorder {
         // array is: a host array is read by no plan, and written by none.
         if (residentable(b))
           throw new TypeError(
-            `${e.name}(): binding "${b.name}" is ${describe(value)}, and a call inside fuse() takes a storage array with no size only as a Resident. Pass resident(...), or call ${e.name}() outside fuse().`,
+            `${e.name}(): binding "${b.name}" is ${describe(value)}, and a call inside fuse() takes a storage array with no size only as a Buffer. Pass array(...), or call ${e.name}() outside fuse().`,
           );
         // A host value the call writes: fuse() reads nothing back, so none is written.
         if (b.writes)
           throw new TypeError(
-            `${e.name}(): binding "${b.name}" is ${describe(value)}, and a call inside fuse() writes only a Resident. fuse() reads nothing back. Pass resident(...), or call ${e.name}() outside fuse().`,
+            `${e.name}(): binding "${b.name}" is ${describe(value)}, and a call inside fuse() writes only a Buffer. fuse() reads nothing back. Pass array(...), or call ${e.name}() outside fuse().`,
           );
       }
     let settle!: RecordedEntry['settle'];
@@ -570,10 +586,12 @@ class Scope implements FuseRecorder {
         `scratch(): the element is 'f32', 'i32', 'u32' or 'vec4f'; got ${describe(element)}.`,
       );
     const state = new ScratchState(length, element as ScratchElement, this);
+    // A `'vec4f'` scratch array is a `Buffer<vec4f>`: its length counts vectors (Amendment A11, Q5).
+    if (element === 'vec4f') state.components = 4;
     // A scratch array is the scope's owner's: a call of the scope takes it (change 0071).
     state.ownedBy = this.owner;
     this.#scratch.push(state);
-    const handle = handleOf();
+    const handle = handleOf(length);
     adopt(handle, state);
     return handle;
   }
@@ -605,6 +623,8 @@ class Scope implements FuseRecorder {
     try {
       this.#accept(body(this.view));
       this.#plan = buildPlan(this.#calls);
+      // What the plan writes is the device's until `read()` (Amendment A11, Q1).
+      for (const c of this.#calls) for (const st of writtenBy(c)) st.markWritten();
     } catch (error) {
       this.#failure = { error };
     } finally {
@@ -625,7 +645,10 @@ class Scope implements FuseRecorder {
         } catch (error) {
           // Loading failed before the executor could settle calls or release scratch storage.
           for (const c of this.#calls) {
-            for (const s of writtenBy(c)) s.error = error;
+            for (const s of writtenBy(c)) {
+              s.error = error;
+              s.ahead = false;
+            }
             c.settle.reject(error);
           }
           for (const s of this.#scratch) s.release();

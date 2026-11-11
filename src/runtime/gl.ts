@@ -390,10 +390,10 @@ class GlComputePipelineImpl implements ComputePipeline {
       const state = residentState(v);
       if (state !== undefined) {
         if (state.destroyed)
-          throw new TypeError('This Resident was destroyed; make a new one with array().');
+          throw new TypeError('This Buffer was disposed; make a new one with array().');
         const twin = states.get(state);
         if (twin !== undefined)
-          throw new TypeError(`${where} is the same resident array as binding "${twin}".`);
+          throw new TypeError(`${where} is the same Buffer as binding "${twin}".`);
         states.set(state, b.name);
         out.set(b.name, { kind: 'resident', state, layout, writes });
         continue;

@@ -41,7 +41,7 @@
 //   F8    An entry call (Rule 8.24, change 0069) forms a group of its own: no call joins it, and it
 //         joins none. Its dispatch is the entry's, at the workgroup its `@compute` declares.
 //
-// An array is known by its identity: a `Resident` by its state, a host array by the array. One
+// An array is known by its identity: a `Buffer` by its state, a host array by the array. One
 // array has one type in a group: `t` as `array<f32>` in one call and `array<vec2<f32>>` in
 // another is refused, since the fused module binds it once.
 //
@@ -53,7 +53,7 @@
 //   - No call of the group names it without an index (`x.length`, `FuseLoop.bare`).
 //
 // Otherwise it stays a buffer: the entry binds it, F5 counts it, and the scope makes it a zeroed
-// buffer for the plan. A `Resident` made by `resident()` is never contracted, since the host may
+// buffer for the plan. A `Buffer` made by `array()` is never contracted, since the host may
 // read it after the scope. A scratch array counts as a buffer until the last call that names it
 // is in the group, so a call that would fit only once a later call joins is refused at the limit.
 //
@@ -67,7 +67,7 @@ import { KERNEL_TREE, KERNEL_WORKGROUP } from './kernel-tree.js';
 /** One recorded call as the planner reads it, after the call's own check. */
 export interface GroupCall {
   readonly k: KernelFace;
-  /** For each parameter in order, the array bound to it, known by identity: a `Resident`'s state
+  /** For each parameter in order, the array bound to it, known by identity: a `Buffer`'s state
    *  or a host array. Undefined for a parameter that is a value. */
   readonly arrays: readonly (object | undefined)[];
   /** The loop's first index and trip count, from the range function; undefined for a function

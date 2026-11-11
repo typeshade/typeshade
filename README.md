@@ -113,7 +113,7 @@ For a complete compute-entry host, see
 [shader](examples/hosts/host-compute/host-compute.shade.ts). The example covers default calls,
 `entry(bindings, groups, { constants })`, and workgroup selection inside `device.fuse()`.
 Its output is checked on WebGPU, WebGL2 and the CPU tier; the host calculates the group count
-for the selected width and reads its Resident output after the plan.
+for the selected width and reads its `Buffer` output after the plan.
 
 ## Checking shaders from the command line
 

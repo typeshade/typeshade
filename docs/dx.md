@@ -240,10 +240,11 @@ target image.
 <!-- doc-snippets: skip — the import of a .shade.ts, residency, the parallel loop and grad on a function are items 16, B1 to B3, 15 and 18, which the compiler does not take yet -->
 
 ```ts
-import { grad, resident } from 'typeshade'
+import { grad } from 'typeshade'
+import { array } from 'typeshade/runtime'
 import { render, loss, descend } from './scene.shade.ts'
 
-const params = resident(new Float32Array([0.5, 0.5, 0.5, 1.0])) // stays on the GPU
+const params = array(new Float32Array([0.5, 0.5, 0.5, 1.0])) // stays on the GPU
 const dLoss = grad(loss, 'params') // a function, differentiated and checked by the compiler
 for (let step = 0; step < 200; step++) {
   descend(params, dLoss(params, target), 0.05) // queued; the host does not wait

@@ -23,14 +23,8 @@ import * as root from '../index.js';
 import * as runtime from '../runtime.js';
 import { fuse } from '../fuse.js';
 import { fuseSlot } from '../core/fuse-scope.js';
-import {
-  configure,
-  configuredFp64Flavor,
-  kernelQueue,
-  resident,
-  residentState,
-} from '../core/resident.js';
-import type { Resident } from '../core/resident.js';
+import { configure, configuredFp64Flavor, kernelQueue, residentState } from '../core/resident.js';
+import { array } from '../runtime.js';
 import type { GpuDevice } from '../core/host-entry.js';
 import { PROBE_LANES, PROBE_WORDS, probeExpectation } from '../core/subgroup-probe.js';
 import { createDevice } from './device.js';
@@ -81,6 +75,9 @@ async function load(): Promise<Ops> {
 }
 
 const floats = (...xs: number[]): Float32Array => Float32Array.of(...xs);
+/** A call on a Buffer is checked at the call (change 0138, R2; Amendment A10, Q-I): a refusal
+ *  throws there. `attempt` gives it as a rejection, as a call with plain data gives it. */
+const attempt = (f: () => unknown): Promise<unknown> => (async () => f())();
 
 /** A module that emulates `f64`, whose face carries the WGSL of both flavors (change 0073). */
 const DOUBLES = `"use typeshade";
@@ -297,8 +294,9 @@ function fakeGpu(
 }
 
 it('alternates projected ordinary calls and full-layout resident/fused calls from one default face (0085)', async () => {
+  // An array of structs on the device is a Buffer of its class (change 0138, Amendment A11, Q4).
   const source = `"use typeshade";
-class Item { a: f32; b: f32; c: f32; unused: f32; }
+export class Item { a: f32 = 0.; b: f32 = 0.; c: f32 = 0.; unused: f32 = 0.; }
 export function sample(xs: array<Item>, out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = xs[i].a; }
 }
@@ -322,7 +320,7 @@ export function copy(xs: array<f32>, out: array<f32>): void {
   const m = (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Record<
     'sample' | 'copy',
     Call
-  >;
+  > & { readonly Item: abstract new () => { a: number; b: number; c: number; unused: number } };
   const gpu = fakeGpu();
   configure({ runtime: { device: gpu.device }, prefer: ['webgpu'] });
   const rows = [
@@ -336,24 +334,27 @@ export function copy(xs: array<f32>, out: array<f32>): void {
   await m.sample(rows, new Float32Array(2));
   expect(inputSizes()).toEqual([8]);
   expect(gpu.codes.at(-1)).toContain('Item_projected');
-  const input = resident(rows),
-    out = resident(new Float32Array(2));
+  const input = array(m.Item, rows),
+    out = array(new Float32Array(2));
   try {
-    await m.sample(input, out);
+    void m.sample(input, out);
+    await out.read();
     expect(inputSizes()).toEqual([8, 32]);
     expect(gpu.codes.at(-1)).not.toContain('Item_projected');
+    // Today's fuse() records a host array a call only reads, and no Buffer of structs.
     const report = await fuse((scope) => {
       const t = scope.scratch(2);
-      void m.sample(input, t);
+      void m.sample(rows, t);
       void m.copy(t, out);
     });
     expect(report.groups.map((g) => g.fused)).toEqual([true]);
     expect(gpu.codes.at(-1)).not.toContain('Item_projected');
     await m.sample(rows, new Float32Array(2));
-    expect(inputSizes()).toEqual([8, 32, 8]);
+    // The fused call binds the host array in its full layout, 32 bytes, as the Buffer does.
+    expect(inputSizes()).toEqual([8, 32, 32, 8]);
   } finally {
-    input.destroy();
-    out.destroy();
+    input.dispose();
+    out.dispose();
     await kernelQueue.idle();
   }
 });
@@ -631,14 +632,14 @@ describe('two owners', () => {
     const b = await createDevice({ device: gb.device });
     const x = a.array(floats(1, 2));
     const y = b.array(2, 'f32');
-    const z = resident(floats(3, 4));
+    const z = array(floats(3, 4));
     await expect(
       a.fuse(() => {
         void m.relu(y, x);
       }),
     ).rejects.toThrow(
       new TypeError(
-        `relu(): parameter "out" is a Resident of ${(b as { label?: string }).label ?? 'Device #'}`,
+        `relu(): parameter "out" is a Buffer of ${(b as { label?: string }).label ?? 'Device #'}`,
       ).message.replace(/Device #\d*$/, ''),
     );
     await expect(
@@ -646,11 +647,13 @@ describe('two owners', () => {
         void m.relu(x, z);
       }),
     ).rejects.toThrow(
-      'relu(): parameter "x" is a Resident of the default owner (array()), and a call of Device #',
+      'relu(): parameter "x" is a Buffer of the default owner (array()), and a call of Device #',
     );
     // An explicit default-owned Resident conflicts with a device-owned one (0085).
-    await expect(m.relu(x, z)).rejects.toThrow('belongs to the default owner');
-    await expect(m.relu(x, z)).rejects.toThrow('A call takes resources from one owner');
+    await expect(attempt(() => m.relu(x, z))).rejects.toThrow('belongs to the default owner');
+    await expect(attempt(() => m.relu(x, z))).rejects.toThrow(
+      'A call takes resources from one owner',
+    );
     // A default-owner scope refuses a device's array too.
     await expect(
       fuse(() => {
@@ -678,7 +681,9 @@ describe('two owners', () => {
       const host = new Float32Array(3);
       await m.add(host, out, x);
       expect([...host]).toEqual([2, -2, 6]);
-      await expect(m.add(out, x, y)).rejects.toThrow('A call takes resources from one owner');
+      await expect(attempt(() => m.add(out, x, y))).rejects.toThrow(
+        'A call takes resources from one owner',
+      );
       expect([...(await out.read())]).toEqual([1, 0, 3]);
     } finally {
       await a.dispose();
@@ -698,11 +703,15 @@ describe('two owners', () => {
         out = a.array(2, 'f32');
       const y = b.array(floats(3, 4)),
         other = b.array(2, 'f32');
-      await expect(m.add(out, x, y)).rejects.toThrow('A call takes resources from one owner');
+      await expect(attempt(() => m.add(out, x, y))).rejects.toThrow(
+        'A call takes resources from one owner',
+      );
       expect(ga.commands).toEqual([]);
       expect(gb.commands).toEqual([]);
-      await m.relu(out, x);
-      await m.relu(other, y);
+      // Calls on Buffers are recorded, and run when they are submitted (change 0138, R2).
+      void m.relu(out, x);
+      void m.relu(other, y);
+      await kernelQueue.idle();
       expect(ga.dispatches).toBe(1);
       expect(gb.dispatches).toBe(1);
       const plain = new Float32Array(2);
@@ -721,7 +730,7 @@ describe('two owners', () => {
     const x = dev.array(floats(1, 2)),
       out = dev.array(2, 'f32');
     await dev.dispose();
-    await expect(m.relu(out, x)).rejects.toThrow('destroyed');
+    await expect(attempt(() => m.relu(out, x))).rejects.toThrow('disposed');
   });
 
   it('finishes captured calls during disposal and refuses new ones before they queue', async () => {
@@ -745,7 +754,9 @@ describe('two owners', () => {
     const pending = m.relu(host, x);
     const disposal = dev.dispose();
     try {
-      await expect(m.relu(new Float32Array(2), x)).rejects.toThrow('this Device was disposed');
+      await expect(attempt(() => m.relu(new Float32Array(2), x))).rejects.toThrow(
+        'this Device was disposed',
+      );
       release();
       await pending;
       expect([...host]).toEqual([0, 2]);
@@ -789,18 +800,15 @@ describe('an indirect workgroup count and its owner (change 0075)', () => {
     const theirs = dev.array(Uint32Array.of(1, 1, 1));
     // The explicit default-owned output conflicts with the device-owned count (0085).
     await expect(
-      c.mark({ marks: resident(new Uint32Array(2)) }, { indirect: theirs }),
+      attempt(() => c.mark({ marks: array(new Uint32Array(2)) }, { indirect: theirs })),
     ).rejects.toThrow(`mark(): "workgroups.indirect" belongs to ${label}`);
     // A device's scope takes its own arrays only.
     await expect(
       dev.fuse(() => {
-        void c.mark(
-          { marks: dev.array(2, 'u32') },
-          { indirect: resident(Uint32Array.of(1, 1, 1)) },
-        );
+        void c.mark({ marks: dev.array(2, 'u32') }, { indirect: array(Uint32Array.of(1, 1, 1)) });
       }),
     ).rejects.toThrow(
-      `mark(): "workgroups.indirect" is a Resident of the default owner (array()), and a call of ${label} takes the arrays of ${label} only.`,
+      `mark(): "workgroups.indirect" is a Buffer of the default owner (array()), and a call of ${label} takes the arrays of ${label} only.`,
     );
     // Its own array runs, on its tier.
     const marks = dev.array(4, 'u32');
@@ -828,7 +836,7 @@ describe('an indirect workgroup count and its owner (change 0075)', () => {
     }
   });
 
-  it('refuses an entry binding changed to another owner while queued, before a write', async () => {
+  it('takes the bindings an entry call on a Buffer sees at the call: a later change reaches no queued call (Amendment A5, default 3)', async () => {
     const c = await loadCounted();
     const a = await createDevice({ prefer: ['cpu'] }),
       b = await createDevice({ prefer: ['cpu'] });
@@ -848,11 +856,11 @@ describe('an indirect workgroup count and its owner (change 0075)', () => {
     const original = a.array(2, 'u32'),
       replacement = b.array(Uint32Array.of(8, 9));
     const bindings = { marks: original };
-    const call = c.mark(bindings, 1);
+    expect(c.mark(bindings, 1)).toBeUndefined();
     bindings.marks = replacement;
     release();
     try {
-      await expect(call).rejects.toThrow('A call takes resources from one owner');
+      await original.read();
       expect([...(await replacement.read())]).toEqual([8, 9]);
     } finally {
       release();
@@ -957,7 +965,7 @@ describe('the pool', () => {
     expect(await again.read()).toEqual(floats(0, 0));
     expect(gpu.commands.filter((c) => c === 'clear')).toEqual([]);
     // A write after that is the host copy's, as for any array.
-    again.write(floats(7, 8));
+    again.set(floats(7, 8));
     expect(await again.read()).toEqual(floats(7, 8));
     await dev.dispose();
   });
@@ -988,7 +996,7 @@ describe('the pool', () => {
     // The oldest, `one`, left to make room.
     expect(dev.statistics.pooledBytes).toBe(16);
     expect(dev.statistics.live).toBe(2);
-    expect(() => dev.release(one)).toThrow('this Resident was destroyed');
+    expect(() => dev.release(one)).toThrow('this Buffer was disposed');
     await dev.dispose();
   });
 
@@ -1005,15 +1013,13 @@ describe('the pool', () => {
     const other = await createDevice({ prefer: ['cpu'] });
     const theirs = other.array(floats(1));
     expect(() => dev.release(theirs)).toThrow(
-      `release(): this Resident belongs to ${(other as { label?: string }).label ?? 'Device #'}`.replace(
+      `release(): this Buffer belongs to ${(other as { label?: string }).label ?? 'Device #'}`.replace(
         /Device #\d*$/,
         '',
       ),
     );
-    expect(() => dev.release(resident(floats(1)))).toThrow(
-      'belongs to the default owner (array())',
-    );
-    expect(() => dev.release({} as Resident<unknown>)).toThrow('takes a Resident this device made');
+    expect(() => dev.release(array(floats(1)))).toThrow('belongs to the default owner (array())');
+    expect(() => dev.release({} as never)).toThrow('takes a Buffer this device made');
     await dev.dispose();
     await other.dispose();
   });
@@ -1022,13 +1028,13 @@ describe('the pool', () => {
     const dev = await createDevice({ prefer: ['cpu'] });
     const a = dev.array(floats(1, 2, 3));
     expect(dev.statistics.uploadBytes).toBe(12);
-    a.write(floats(4, 5, 6));
+    a.set(floats(4, 5, 6));
     expect(dev.statistics.uploadBytes).toBe(24);
     await a.read();
     expect(dev.statistics.readBytes).toBe(12);
-    const s = dev.array(2.5);
+    // A value that is no typed array is refused before a slot is made (Amendment A11, Q3).
+    expect(() => dev.array(2.5 as never)).toThrow(/takes an array; got a number/);
     expect(dev.statistics.uploadBytes).toBe(24);
-    dev.release(s);
     expect(dev.statistics.live).toBe(1);
     await dev.dispose();
   });
@@ -1294,8 +1300,8 @@ describe('the time budget and chunked plans (change 0074)', () => {
 
   it('leaves the default owner as it was: fuse() of typeshade/fuse reports no chunk', async () => {
     const m = await load();
-    const a = resident(floats(1, -2));
-    const out = resident(2, 'f32');
+    const a = array(floats(1, -2));
+    const out = array(2, 'f32');
     const report = await fuse(() => {
       void m.relu(out, a);
     });
@@ -1395,15 +1401,15 @@ describe('wait, lost and dispose', () => {
     );
     expect(() => dev.release(a)).toThrow('this Device was disposed');
     await expect(dev.fuse(() => undefined)).rejects.toThrow('this Device was disposed');
-    await expect(a.read()).rejects.toThrow('This Resident was destroyed');
+    await expect(a.read()).rejects.toThrow('This Buffer was disposed');
   });
 
   it('a handle the host destroys leaves the books', async () => {
     const dev = await createDevice({ prefer: ['cpu'] });
     const a = dev.array(floats(1, 2));
-    a.destroy();
+    a.dispose();
     expect(dev.statistics.live).toBe(0);
-    expect(() => dev.release(a)).toThrow('this Resident was destroyed');
+    expect(() => dev.release(a)).toThrow('this Buffer was disposed');
     await dev.dispose();
   });
 });
@@ -1583,9 +1589,11 @@ export function mean(xs: array<f32>): f32 {
       expect(gpu.codes.filter((c) => c.includes('fn probe('))).toHaveLength(1);
       const xs = dev.array(new Uint32Array([1, 2, 3, 4, 5]));
       const bins = dev.array(new Uint32Array(8));
-      await m.total(xs);
-      await m.histogram(xs, bins);
-      await m.mean(dev.array(new Float32Array([1, 2])));
+      // Calls on Buffers are recorded, and run when they are submitted (change 0138, R2).
+      void m.total(xs);
+      void m.histogram(xs, bins);
+      void m.mean(dev.array(new Float32Array([1, 2])));
+      await kernelQueue.idle();
       const texts = gpu.codes.filter((c) => !c.includes('fn probe('));
       expect(
         texts.some((c) => c.includes('fn total_loop0(') && c.includes('enable subgroups;')),
@@ -1617,7 +1625,8 @@ export function mean(xs: array<f32>): f32 {
         expect(gpu.codes.filter((c) => c.includes('fn probe('))).toHaveLength(
           options.subgroups === 'off' || !gpu.raw.features.has('subgroups') ? 0 : 1,
         );
-        await m.total(dev.array(new Uint32Array([1, 2, 3])));
+        void m.total(dev.array(new Uint32Array([1, 2, 3])));
+        await kernelQueue.idle();
         expect(gpu.codes.some((c) => c.includes('fn total_loop0(') && c.includes('subgroup'))).toBe(
           false,
         );

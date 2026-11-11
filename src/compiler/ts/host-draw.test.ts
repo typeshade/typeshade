@@ -20,6 +20,7 @@ import { hostFace, type HostExport } from './host-face.js';
 import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import { compile } from './compile.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { array } from '../../runtime.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const ROOT = resolve(__dirname, '../../..');
@@ -317,7 +318,7 @@ function shade(p: vec2): vec4 {
   });
 });
 
-describe('a draw that reads a Resident (Rule 11.8)', () => {
+describe('a draw that reads a Buffer (Rule 11.8)', () => {
   // A kernel function writes the array; the fragment entry shows one element per pixel.
   const SHOWN = `"use typeshade";
 declare const data: storage<array<f32>>;
@@ -346,10 +347,9 @@ export function fill(xs: array<f32>, v: f32) {
 
   it('draws what the calls made before it wrote, and not what a call made after it writes', async () => {
     const m = await load(SHOWN);
-    const rt = await runtime();
     const fill = m.fill as (xs: unknown, v: number) => Promise<void>;
     const show = m.show as (c: unknown, b: unknown) => Promise<void>;
-    const data = rt.resident(new Float32Array(4));
+    const data = array(new Float32Array(4));
     const c = new FakeCanvas(4, 1);
     // None awaited: the draw runs after the first fill and before the second.
     void fill(data, 0.25);
@@ -390,18 +390,17 @@ export function fill(xs: array<f32>, v: f32) {
     }
   });
 
-  it('refuses a Resident for a binding that is not a storage array with no size', async () => {
+  it('refuses a Buffer for a binding that is not a storage array with no size', async () => {
     const m = await load(SHOWN);
-    const rt = await runtime();
     const show = m.show as (c: unknown, b: unknown) => Promise<void>;
     await expect(
       show(new FakeCanvas(4, 1), {
         data: new Float32Array(4),
-        k: rt.resident(new Float32Array(1)),
+        k: array(new Float32Array(1)),
       }),
     ).rejects.toThrow(
       new TypeError(
-        'show(): binding "k" (f32) takes no Resident: only a storage array with no size does.',
+        'show(): binding "k" (f32) takes no Buffer: only a storage array with no size does.',
       ),
     );
   });
@@ -416,22 +415,21 @@ export function fill(xs: array<f32>, v: f32) {
     editor.openDocument('mixed.shade.ts', source);
     expect(editor.getDiagnostics('mixed.shade.ts')).toEqual([]);
     const { createDevice } = await import('../../runtime/device.js');
-    const m = await load(source),
-      rt = await runtime();
+    const m = await load(source);
     const show = m.show as (c: unknown, bindings: unknown) => Promise<void>;
     const a = await createDevice({ prefer: ['cpu'] }),
       b = await createDevice({ prefer: ['cpu'] });
     const c = new FakeCanvas(1, 1);
     const data = a.array(Float32Array.of(1));
     try {
-      for (const other of [b.array(Float32Array.of(1)), rt.resident(Float32Array.of(1))]) {
+      for (const other of [b.array(Float32Array.of(1)), array(Float32Array.of(1))]) {
         await expect(show(c, { data, other, k: 1 })).rejects.toThrow(
           'A call takes resources from one owner',
         );
       }
       const other = a.array(Float32Array.of(1));
-      other.destroy();
-      await expect(show(c, { data, other, k: 1 })).rejects.toThrow('This Resident was destroyed');
+      other.dispose();
+      await expect(show(c, { data, other, k: 1 })).rejects.toThrow('This Buffer was disposed');
       expect(c.kinds).toEqual([]);
       expect(c.pixels).toBeUndefined();
     } finally {
