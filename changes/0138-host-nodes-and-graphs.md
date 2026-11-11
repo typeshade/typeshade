@@ -33,25 +33,27 @@ exports:
   - Buffer
   - Texture
   - Uniform
-  - Node
   - Device
   - HostExport
+  - FuseReport
 exports-removed:
   - resident
   - configure
+  - FuseScope
+  - Resident
 codes:
   - TS8079
 examples: []
 names: []
 downstream:
   - repo: typeshade.github.io
-    what: Every page and Playground starter that shows host code (an entry called as fs(canvas, bindings) or entry(bindings, workgroups), createRuntime, rt.load, frame().pass) is written again in the host forms of this proposal, in English and in Korean, when the compiler pin reaches each milestone; compiler-changes.md records 0138.
+    what: Every page and Playground starter that shows host code (an entry called as fs(canvas, bindings) or entry(bindings, workgroups), createRuntime, rt.load, frame().pass) is written again in the host forms of this proposal, in English and in Korean, when the compiler pin reaches each milestone; the fuse pages, Resident and kernels that write an array change with milestone 4 (Amendment A10); compiler-changes.md records 0138.
   - repo: vscode-typeshade
-    what: The skill's references for host calls, fuse and the runtime name the host forms of this proposal; a snippet that calls an entry with a bindings object changes; compiler-changes.md records 0138 when the pin moves.
+    what: The skill's references for host calls, fuse and the runtime name the host forms of this proposal (fuse(fn) nodes, Buffer in place of Resident, @inout on a kernel that writes an array; Amendment A10); a snippet that calls an entry with a bindings object changes; compiler-changes.md records 0138 when the pin moves.
   - repo: radiance
     what: The path tracer's host code (packages/radiance/src/renderers/PathTracer.ts) moves to the host forms of this proposal before the release that removes the old forms; compiler-changes.md records 0138.
   - repo: typenn
-    what: Kernel calls that await each result move to calls that return resources and one read at the end; fuse scopes move to fuse(fn) nodes; compiler-changes.md records 0138 when the pin moves.
+    what: Kernel calls that await each result move to calls that return resources and one read at the end; fuse scopes (device.fuse with scratch and chunk) move to fuse(fn) nodes; Resident and resident() move to Buffer; kernels that write an array parameter add @inout or return it (Amendment A10); compiler-changes.md records 0138 when the pin moves.
   - repo: typecv
     what: The same migration as typenn; compiler-changes.md records 0138 when the pin moves.
   - repo: typeaudio
@@ -1278,6 +1280,513 @@ Each is a difference between the accepted text (with A5 to A9) and `42550b11`.
   It sets the direction of A7's deferred question 1. No rule and no front-matter entry changes.
 - Status: `status: accepted` does not change.
 
+### A10. Milestone 4: the owner's decisions Q-A to Q-J, conflicts C1 to C3, R4 amended, and the slice plan (2026-11-11)
+
+- [fact] Why. Before milestone 4, the agent wrote a plan for it and an independent review read the
+  plan. The plan named ten questions, Q-A to Q-J. Three of them set two decided texts against each
+  other: the conflicts C1, C2 and C3 below. The owner answered every question on 2026-11-11, in the
+  conversation. Amendment A9 records none of these answers.
+- [fact] The plan and its review are the agent's working notes. They are not in the repository.
+  This amendment records each question with its options, its costs and the owner's words.
+- [fact] Baseline: `main` at `0975a3d8` (the merge of #1248, Amendment A9).
+- [fact] This amendment changes the front matter (`exports` and `exports-removed`, below). It
+  changes no rule text of `docs/language-design.md` and no code. Each slice below changes its rule
+  text in its own pull request.
+
+**The three conflicts.**
+
+| Conflict | Side 1                                                                                                                                                                                         | Side 2                                                                                                                             | Question | Settled by           |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------- |
+| C1       | A9 Q2's option description: "Rule 8.23과 기존 코드가 그대로입니다" (English translation: Rule 8.23 and the existing code stay as they are). Rule 8.23: a kernel's array parameter is in place. | R14: `ps = integrate(ps, dt)` "reads as a new value". A9 Q16: an in-place update "gives the bits of a copy first, then the write". | Q-A      | the owner, Q-A below |
+| C2       | A9 Q1: "하나의 fuse" (English translation: one `fuse`).                                                                                                                                        | R4: "Today's `fuse((scope) => …)` … stays until the deprecation of milestone 9 (Q1)."                                              | Q-D      | the owner, Q-D below |
+| C3       | R4: a captured host number "is read at each call … never fixed at trace time".                                                                                                                 | R4: "`fn` runs once for each new graph shape"; a side effect of `fn` "runs only when it is traced".                                | Q-H      | the owner, Q-H below |
+
+**Q-A. A kernel that returns an array; what an array parameter is (C1).**
+
+- [fact] The question, with one example. The shader file has
+  `step(ps: array<Particle>, dt: f32): array<Particle> { …; return ps; }`. The host writes
+  `const next = step(old, 1 / 60)`. Under side 1, `old` is written in place and `next` is `old`.
+  Under side 2, `next` is a new value and `old` keeps its values.
+- The options the plan listed:
+
+| Option           | What it is                                                                   | Costs                                                                                                                                   |
+| ---------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) new value    | A returned parameter gives a new resource; the argument keeps its old value. | Changes Rule 8.23 (C1). Adding `return ps` to a kernel stops `step(ps, dt);` from updating `ps`, with no type error. One copy per call. |
+| (d) alias        | `return p` returns the same resource, written in place. No copy.             | R14's "otherwise it writes a new resource" and Q16's baseline do not hold for a reader of the old value (C1).                           |
+| (b) `@out` array | `@out out: array<T>`; the host call omits it and gets it back.               | No source for the length; the host's arity differs from the shader's; changes Rule 8.25.                                                |
+| (c) none         | No array returns in milestone 4.                                             | Against R4 ("no scratch, no output arrays") and the Exclusions.                                                                         |
+| (e) fresh array  | The kernel makes a new array of a length it computes.                        | A name the ambient library does not declare (§2.1, §9); OD-3.                                                                           |
+
+- [decision, owner, 2026-11-11] The owner first wrote, in Korean:
+  "프리미티브 타입인 경우 기본적으로 C, Rust와 같이 복사 반환이지만, @out 같이 포인터를 명시한 경우는 포인터 반환, class로 따지면 인스턴스? 개인 의견일 뿐이고, 적절한건 C, rust같은 언어 기준으로"
+  (English translation: for a primitive type, by default a copy is returned, as in C and Rust; where
+  a pointer is stated, as with `@out`, a pointer is returned, an instance in class terms? This is
+  only a personal opinion; what is right is the standard of languages such as C and Rust.)
+- [decision, owner, 2026-11-11] Asked again with the options stated in those terms, the owner chose:
+  "Rust식: 기본 값, @inout만 제자리 (추천)"
+  (English translation: Rust style: a value by default, in place only with `@inout`; recommended).
+- What the decision means:
+  1. A kernel's array parameter with no qualifier is a value, as every other parameter is (OD-5).
+  2. `return ps` gives a new value: the call copies the argument first, then writes the copy. The
+     caller's `ps` keeps its old value.
+  3. A parameter written `@inout ps: array<T>` is the caller's storage. The call updates the
+     caller's array in place.
+  4. A parameter that the body only reads needs no copy. [inference, agent] The value meaning
+     changes nothing for it.
+- [fact] The decision agrees with OD-5 ("every parameter is passed by value unless it carries
+  `@inout` or `@out`"), with R14 and with A9 Q16.
+- [decision, owner, 2026-11-11] This settles C1. It supersedes, by the owner's later choice, the part
+  of A9 Q2's option description that said "Rule 8.23과 기존 코드가 그대로입니다". A9 Q2's decided
+  words stand in this sense: a kernel's result is its return value, and an `@inout` parameter is
+  written in place.
+- Costs recorded:
+  1. Rule 8.23 changes. Its text "passed by reference: the body reads and writes its elements in
+     place" holds only for an `@inout` parameter.
+  2. Every existing kernel that writes an array parameter adds `@inout`: the examples, the kernels
+     of `typeshade/algorithms` and `typeshade/random`, the tests, the downstream repositories and the
+     site.
+  3. One copy for each call that returns an array parameter, until slice 7 (the plan's slice 4) removes the
+     copies it can prove dead (R14).
+  4. [inference, agent] A kernel that writes an array parameter with no qualifier and does not
+     return it writes only its own copy. Unless a diagnostic reports it, an unmigrated kernel loses
+     its writes with no error. A diagnostic needs a code the owner approves (Open, below).
+  5. [inference, agent] R2's plain-data call "writes its in-place arguments (Rule 8.23)". After this
+     decision, it writes only its `@inout` arguments.
+
+**Q-D. Today's `fuse((scope) => …)` and `device.fuse` (C2).**
+
+- [inference, agent] One name cannot keep both meanings at run time: `fuse(fn)` must decide at once
+  whether to run `fn`, and a function does not show which shape it is.
+- The options the plan listed:
+
+| Option                | What it is                                                                                       | Costs                                                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| (a) split by receiver | Top-level `fuse` switches in milestone 4; `device.fuse` keeps the scope shape until milestone 9. | A second meaning of `fuse` that Q1 did not choose. Two recorders. `chunk` has no node form. `FuseScope` and `scratch` stay. |
+| (b) one switch        | Both switch in milestone 4. `chunk` becomes `device.fuse(fn, { chunk })`.                        | R4's milestone-9 sentence changes. typenn, typecv and typeaudio break at their next pin move.                               |
+| (c) another name      | The scope shape stays under another import.                                                      | Two meanings of one name; against Q1.                                                                                       |
+| (d) thenable node     | `await fuse(body)` runs the old shape; `fuse(fn)()` the new one.                                 | An `async` function that returns a node runs it; a trap.                                                                    |
+
+- [decision, owner, 2026-11-11] The owner chose:
+  "둘 다 M4에서 전환 (Q1 우선)"
+  (English translation: both switch in milestone 4; Q1 first).
+- What the decision means:
+  1. The top-level `fuse` and `device.fuse` both return a node in milestone 4.
+  2. Today's chunked plan is written `device.fuse(fn, { chunk })`. Each call of that node runs alone,
+     fenced and timed, as today's chunk plan does. `inspect(node).chunk` gives `elapsedMs`.
+     `device.chunkRates` stays. [proposal, agent] Slice 6 confirms this form.
+  3. `FuseScope`, `scope.scratch()` and `scope.recorded` are removed. `scratch` and `recorded` are
+     members of `FuseScope`, not exports. `exports-removed` gains `FuseScope`.
+  4. The R4 sentence below is amended. This settles C2, and it closes the open part of A9 Q1.
+- Costs recorded:
+  1. typenn, typecv and typeaudio break at their next pin move. All three call `device.fuse`
+     (the plan read their default branches on 2026-11-11: typenn `3a7d66c`, typecv `4189b3c`,
+     typeaudio `5b95ded`; the review could not verify these citations).
+  2. `.github/workflows/downstream.yml` builds typenn at a fixed commit. Its pin moves in step with
+     the switch (Q-G).
+  3. OD-6: no warning release is owed (Rules 13.9 and 13.10). The accepted text changes all the same.
+
+**R4, amended.**
+
+- Before (R4's last sentence):
+  > Today's `fuse((scope) => …)`, which runs once and returns a report, stays until the deprecation
+  > of milestone 9 (Q1).
+- After:
+  > Today's `fuse((scope) => …)` and `device.fuse((scope) => …)`, which run once and return a
+  > report, are replaced in milestone 4: both `fuse(fn)` and `device.fuse(fn)` return a node, and
+  > `FuseScope` is removed (Amendment A10, Q-D).
+- [fact] R4's sentence on captured numbers stays as it is. Q-H below records the deviation from it.
+- [fact] The other sentences of R4 stay as they are.
+
+**Q-H. Numbers, lengths and side effects in a trace (C3).**
+
+- [inference, agent] Take `let s = 2; const g = fuse((x) => k(x, s)); g(a); s = 3; g(a);`. If `fn`
+  does not run again, the runtime cannot see `s = 3`. Only a run of `fn` at each call, or the host
+  transform of R12 (milestone 6), can read it. So R4's two sentences of C3 cannot both hold in
+  milestone 4.
+- [fact] Planner fact F2 compares the actual trip counts of two calls (`src/core/fuse-group.ts:23`).
+  A plan cached without lengths cannot keep today's grouping.
+- The options, as the plan listed them:
+
+| Option                      | What it is                                                                             | Costs                                                                                               |
+| --------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| (a) trace once              | `fn` runs once for each shape; a captured number is fixed at the trace.                | A deviation from R4 until milestone 6. A placeholder's `.length` throws.                            |
+| (b) run `fn` at every call  | `fn` runs at each call with real values; the plan is cached by the recorded structure. | Against R4's "runs only when it is traced": a side effect runs at each call. A trace cost per call. |
+| (c) host transform now      | Bring R12's host transform forward.                                                    | Milestone 6 work in milestone 4.                                                                    |
+| (d) refuse captured numbers | —                                                                                      | Not detectable at run time.                                                                         |
+
+- [decision, owner, 2026-11-11] The owner first answered:
+  "모르겠음"
+  (English translation: I do not know).
+- [decision, owner, 2026-11-11] Asked again with the example above, the owner chose:
+  "2: trace 때 값 고정, M6에서 다시 (추천)"
+  (English translation: 2: the value is fixed at the trace, revisited at milestone 6; recommended).
+- What the decision means:
+  1. `fn` is traced once for each shape.
+  2. A number that `fn` captures is fixed at the trace. A later change of the variable does not
+     reach the graph until `fn` is traced again.
+  3. Trip counts join the plan key. A new length plans again without a new trace.
+  4. [inference, agent, from option (a) of the plan] A number parameter of `fn` is a placeholder bound
+     at each call. A placeholder's `valueOf` and the `.length` of a resource parameter throw, so
+     `fuse((a) => k(a, a.length))` throws. Slice 5 confirms this.
+- This settles C3. The difference from R4 is the open deviation D-j (below), revisited at
+  milestone 6.
+
+**Q-J. What a node call with plain data only gives.**
+
+- [fact] A9 Q1: "Today's immediate use is written `await fuse(fn)()`." Today `await fuse(body)`
+  waits until the plan has run and resolves to a `FuseReport`.
+- The options: (1) the call returns a promise that resolves after the plan has run; (1') as (1), but
+  it resolves to the report when `fn` returns nothing; (2) a separate wait, a new name; (3) the call
+  never waits, a deviation from A9 Q1.
+- [decision, owner, 2026-11-11] The owner chose:
+  "평범한 데이터 호출은 기다림 (추천)"
+  (English translation: a plain-data call waits; recommended).
+- What the decision means: a node called with plain data only (no resource argument, zero arguments
+  included) returns a promise. The promise resolves after its plan has run. The report comes from
+  `inspect` (Q-B). [proposal, agent, from option (1)] The promise resolves to `fn`'s outputs read back
+  as plain data.
+- Cost recorded: two return kinds by argument kind. `const report = await fuse(…)` becomes
+  `await g(); inspect(g)`.
+
+**Q-I. One kind of GPU array: `Buffer` (closes A7's deferred question 3).**
+
+- [fact] At `0975a3d8`, `Buffer<T>` exists only for a class `T` (`src/runtime/resource.ts:895`).
+  `array(xs)` of scalars gives a `Resident` (`src/core/resident.ts`). A7's deferred question 3 asks
+  whether a call whose only resource is a `Resident` is a call on a resource.
+- [decision, owner, 2026-11-11] The owner first wrote, in Korean:
+  "중복이라면, 또는 인지적으로 이해가 안된가면 제거히소 새 형태로 통합"
+  (English translation: if it is a duplicate, or if it is hard to understand, remove it and unify it
+  in the new form).
+- [decision, owner, 2026-11-11] Then the owner chose:
+  "Buffer 하나로 (추천)"
+  (English translation: one `Buffer`; recommended).
+- What the decision means:
+  1. `array(xs)` of scalars returns a `Buffer` of that element: `Buffer<f32>` for a
+     `Float32Array`, and so on.
+  2. The type `Resident` and the function `resident()` are removed. Every GPU array is a `Buffer`,
+     under one set of rules (R2, R3, R7 to R9, R17, A7's decisions (a) and (b)).
+  3. A7's deferred question 3 is closed: a call on a `Buffer` is a call on a resource.
+  4. `exports-removed` gains `Resident`. It already lists `resident` (A1).
+- Costs recorded:
+  1. Existing `Resident` code migrates: the examples, the journeys, the scripts, the tests, the
+     downstream repositories and the site.
+  2. One more slice, early in milestone 4 (slice 1 below).
+  3. [fact] At `0975a3d8`, `src/__api__/surface.md` gives a `Resident` in the shapes of 41 exports of
+     `typeshade/algorithms`, of `fillUniform` and `fillWords` of `typeshade/random`, of `Device`
+     and of `Geometry`. Slice 1 reshapes them. `Device` is in `exports`; the others are not (Open,
+     below).
+
+**Q-C. The result of a kernel called on a resource.**
+
+- The sub-questions and the options of the plan: the type of a node (as `fn`, or a branded type);
+  a scalar result (`Node<T>`, a value type or a `Buffer` of length 1, or a promise); a struct
+  result (one output for each field, or one output); a result as another call's argument (accepted,
+  or refused until a later slice).
+- [decision, owner, 2026-11-11] The owner first chose:
+  "추천안, 단 다른 이름"
+  (English translation: the recommendation, but with another name).
+- [decision, owner, 2026-11-11] Asked which name, the owner chose:
+  "길이 1인 Buffer (새 이름 없음, 추천)"
+  (English translation: a `Buffer` of length 1, no new name; recommended).
+- What the decision means:
+  1. `fuse(fn)` is typed as `fn` itself (but see Open, item 1).
+  2. A scalar result is a `Buffer` of length 1 of the result's type. No new name is added.
+  3. A struct result gives one `Buffer` for each field (R1).
+  4. A node's result is accepted as another call's argument.
+  5. The front matter's `Node` export is not added. It is dropped from `exports`.
+- [fact] This closes D-i's question of what the call returns. It also closes A7's deferred
+  question 1.
+- Costs recorded: one read back for each field of a struct result, unless the runtime joins them; a
+  scalar parameter that the lowering binds from a device value (slice 3).
+- [fact] R12 calls a GPU value `Node<bool>`. That is a description, not an export. Milestone 6 names
+  its type.
+
+**Q-B. The report of a graph.**
+
+- The options: (a) `inspect(node)`, with a nested graph shown flat; (b) group names qualified by the
+  graph's path; (c) a node call that returns `{ value, report }`.
+- [decision, owner, 2026-11-11] The owner chose:
+  "inspect(node), 중첩은 펼쳐서 (추천)"
+  (English translation: `inspect(node)`, a nested graph shown flat; recommended).
+- What the decision means:
+  1. `inspect(g)` gives the `FuseReport` of `g`'s last plan that ran. It gives `undefined` before the
+     first plan has run.
+  2. A nested graph appears flat, in program order. Its groups keep the author's lines.
+  3. `FuseReport` gains a member for warnings (a side effect at the trace, a copy kept). So it is a
+     reshaped export, and it joins `exports`. [proposal, agent] Slice 6 checks whether
+     `mergeReports` needs the same.
+- Cost recorded: two inner graphs that call one kernel are told apart only by line.
+
+**Q-E. A `read()` inside `fn`.**
+
+- The options of the plan: (a) a `read()` inside a trace throws; (b) a `read()` ends the plan and the
+  trace continues, so `fn` is `async`; (c) the read is a hidden output.
+- [decision, owner, 2026-11-11] The owner chose:
+  "read()에서 계획을 나눔"
+  (English translation: split the plan at `read()`).
+- [decision, owner, 2026-11-11] Asked how this meets Q-H, the owner chose:
+  "나누되, 읽은 값으로 분기는 M6 (추천)"
+  (English translation: split, but branching on a read value is milestone 6; recommended).
+- What the decision means:
+  1. `fn` may be `async`. Rule 11.13's synchronous body changes.
+  2. A `read()` inside `fn` ends a plan, and the next calls start the next plan.
+  3. A value read inside `fn` is usable only as an argument of later calls.
+  4. JavaScript control flow on a read value is a `TypeError` until milestone 6 (condition nodes,
+     R12). This is the open deviation D-k (below).
+  5. A new diagnostic code needs the owner's approval. This decision approves none.
+- [fact] A5's open item for milestone 4 ("a `read()` … inside a `fuse(fn)` trace") is closed for
+  `read()`. A `show` inside `fn` stays open for milestone 5.
+
+**Q-F. A returned array's length, class and device.**
+
+- The options: (a) the argument's length and class, on the call's device; (b) a length the host
+  passes at the call.
+- [decision, owner, 2026-11-11] The owner chose:
+  "인자와 같은 길이·종류, 호출의 디바이스 (추천)"
+  (English translation: the same length and kind as the argument, on the call's device;
+  recommended).
+- What the decision means:
+  1. A returned array has its argument's length and class.
+  2. It belongs to the call's device (R3 as amended by A8).
+  3. An array that a loop pushes onto cannot be returned in milestone 4.
+- Cost recorded: no output of another length. A refusal needs a code the owner approves.
+
+**Q-G. The downstream repositories.**
+
+- [decision, owner, 2026-11-11] Q-G follows from Q-D: migrate typenn first, then typecv and
+  typeaudio, at their pin moves.
+- [fact] The site (`typeshade/web`) and vscode-typeshade update their `fuse` pages and references
+  when their pins pass the switch (front matter `downstream`).
+- [inference, agent] Slices 1 and 2 also change what typenn uses (`Resident`, kernels that write an
+  array). So `downstream.yml` can turn red at slices 1 and 2, not only at the switch. It is not a
+  required check.
+
+**The front matter, changed by this amendment.**
+
+- `exports`: `Node` is dropped (Q-C). `FuseReport` is added, as a reshaped export (Q-B).
+- `exports-removed`: `FuseScope` (Q-D) and `Resident` (Q-I) are added. `resident` is already listed
+  (A1). `scratch` is a member of `FuseScope`, not an export, so it is not listed.
+- `downstream`: the entries of typenn, typecv, typeaudio, the site and vscode-typeshade name the
+  `Buffer` and `@inout` migration as well.
+
+**Author examples, before and after.**
+
+1. Today's `fuse(scope => …)` chain becomes a `fuse(fn)` node.
+
+   Before (`main` `0975a3d8`; surface §71, with `array(xs)` in place of the deprecated
+   `resident(xs)`):
+
+   ```ts
+   // ops.shade.ts
+   export function add(out: array<f32>, a: array<f32>, b: array<f32>): void {
+     for (let i: u32 = 0; i < out.length; i++) { out[i] = a[i] + b[i]; }
+   }
+   // mul(out, a, b) and relu(out, x) have the same shape.
+
+   // host.ts
+   import { array } from 'typeshade/runtime';
+   import { fuse } from 'typeshade/fuse';
+   import { add, mul, relu } from './ops.shade.ts';
+
+   const [a, b, c] = [xs, ys, zs].map((v) => array(v));
+   const out = array(new Float32Array(n));
+   const report = await fuse((scope) => {
+     const t = scope.scratch(n);
+     const u = scope.scratch(n);
+     add(t, a, b);
+     mul(u, t, c);
+     relu(out, u);
+   });
+   report.dispatches; // 1
+   const y = await out.read();
+   ```
+
+   After:
+
+   ```ts
+   // ops.shade.ts
+   export function add(a: array<f32>, b: array<f32>): array<f32> {
+     for (let i: u32 = 0; i < a.length; i++) { a[i] = a[i] + b[i]; }
+     return a; // a new value: the caller's a keeps its values (Q-A)
+   }
+   // mul(a, b) and relu(x) the same way.
+
+   // host.ts
+   import { array, fuse, inspect, type Buffer, type f32 } from 'typeshade/runtime';
+   import { add, mul, relu } from './ops.shade.ts';
+
+   type F = Buffer<f32>;
+   const chain = fuse((a: F, b: F, c: F) => relu(mul(add(a, b), c)));
+   const [a, b, c] = [xs, ys, zs].map((v) => array(v)); // Buffer<f32> each (Q-I)
+   const out = chain(a, b, c); // Buffer<f32>, at once (R2)
+   const y = await out.read();
+   inspect(chain)?.dispatches; // the last plan's report (Q-B)
+   ```
+
+   A chunked plan on a device: `await dev.fuse((scope) => { … }, { chunk })` becomes
+   `const g = dev.fuse(fn, { chunk })`, then `g(…)` and, after its plan has run,
+   `inspect(g)?.chunk` (Q-D).
+
+2. A kernel that writes an array: `@inout`, or a `return ps` form.
+
+   Before (`main` `0975a3d8`):
+
+   ```ts
+   // particles.shade.ts
+   export function step(ps: array<Particle>, dt: f32): void {
+     for (let i: u32 = 0; i < ps.length; i++) { ps[i].pos += ps[i].vel * dt; }
+   }
+
+   // host.ts
+   const ps = zeros(Particle, n);
+   step(ps, 1 / 60); // writes ps in place (Rule 8.23)
+   ```
+
+   After, in place:
+
+   ```ts
+   // particles.shade.ts
+   export function step(@inout ps: array<Particle>, dt: f32): void {
+     for (let i: u32 = 0; i < ps.length; i++) { ps[i].pos += ps[i].vel * dt; }
+   }
+
+   // host.ts
+   const ps = zeros(Particle, n);
+   step(ps, 1 / 60); // writes ps in place (@inout)
+   ```
+
+   After, as a new value:
+
+   ```ts
+   // particles.shade.ts
+   export function step(ps: array<Particle>, dt: f32): array<Particle> {
+     for (let i: u32 = 0; i < ps.length; i++) { ps[i].pos += ps[i].vel * dt; }
+     return ps;
+   }
+
+   // host.ts
+   let ps = zeros(Particle, n);
+   const old = ps;
+   ps = step(ps, 1 / 60); // a new Buffer<Particle>; old keeps its values (copy first, then write)
+   ```
+
+   [inference, agent] The Before kernel, left unchanged after slice 2, writes only its own copy, and
+   the host's `ps` does not change (Q-A, cost 4).
+
+3. `array(xs)` gives a `Buffer<f32>`, not a `Resident`.
+
+   Before (`main` `0975a3d8`):
+
+   ```ts
+   import { array } from 'typeshade/runtime';
+   const xs = array(new Float32Array([1, 2, 3])); // Resident<Float32Array>
+   ```
+
+   After:
+
+   ```ts
+   import { array } from 'typeshade/runtime';
+   const xs = array(new Float32Array([1, 2, 3])); // Buffer<f32>
+   ```
+
+   [proposal, agent] What `await xs.read()` of a `Buffer<f32>` gives (a `Float32Array` or
+   `number[]`) is set by slice 1 and shown to the owner before its merge.
+
+4. A scalar result is a `Buffer` of length 1.
+
+   Before (`main` `0975a3d8`):
+
+   ```ts
+   // particles.shade.ts
+   export function energy(ps: array<Particle>): f32 {
+     let s: f32 = 0;
+     for (let i: u32 = 0; i < ps.length; i++) { s += dot(ps[i].vel, ps[i].vel); }
+     return s;
+   }
+
+   // host.ts
+   const e = energy(ps); // TypeError (src/core/host-kernel.ts:738); TS2345 in the editor (D-i)
+   ```
+
+   After:
+
+   ```ts
+   const e = energy(ps); // Buffer<f32> of length 1, at once (Q-C)
+   const slower = damp(ps, e); // damp(ps: array<Particle>, k: f32): array<Particle>; a result is an argument (Q-C)
+   console.log(await e.read()); // the one value
+   ```
+
+**The slices of milestone 4.**
+
+[proposal, agent] The plan below adjusts the plan's slices to the decisions above. Each slice carries
+`Change: 0138` and changes its rule and surface text in the same pull request. A slice that changes
+rule text or `Verifies:` tags waits for the owner's reading before a person runs `doorstop review`.
+Each slice that changes an author-facing form waits for the owner's "merge" after its example before
+and after (`CLAUDE.md`, Merging).
+
+| Slice | Content                                                                                                                                                                                                                                                                                                            | Author-facing form                 | Status      |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- | ----------- |
+| 0     | This amendment (proposal-only).                                                                                                                                                                                                                                                                                    | —                                  | in progress |
+| 1     | One `Buffer` (Q-I): `array(xs)` of scalars gives `Buffer<f32>` and the other element types; `Resident` and `resident()` are removed; `typeshade/algorithms`, `typeshade/random`, `Device` and `Geometry` take a `Buffer`; the examples, journeys, scripts and tests migrate. A7's deferred question 3 closes.      | yes: waits for the owner's "merge" | not started |
+| 2     | Rust-style parameters (Q-A): Rule 8.23 is amended; a kernel's array parameter with no qualifier is a value, and `@inout` is in place; `@inout` is added to every existing kernel that writes an array (examples, `typeshade/algorithms`, `typeshade/random`, tests); the host view follows.                        | yes: waits for the owner's "merge" | not started |
+| 3     | D-i (Q-C): a kernel called on a resource that returns a scalar gives a `Buffer` of length 1; a struct gives one `Buffer` for each field; a result is accepted as another call's argument; the stale text at `src/core/host-kernel.ts:738` is fixed; D-g's separate overload.                                       | yes: waits for the owner's "merge" | not started |
+| 4     | Array returns (Q-A, Q-F): `return ps` of an array parameter; copy first, then write; the result has the argument's length and class, on the call's device; a pushed array is refused. Rule 8.22 is amended.                                                                                                        | yes: waits for the owner's "merge" | not started |
+| 5     | The graph executor, internal (Q-H, Q-E, Q-J): a trace once for each shape; trip counts in the plan key; kernel and `@compute` calls on resources recorded; an `async` `fn` split at `read()`; a `TypeError` for control flow on a read value; the plain-data path that waits; R3's device (D-h). No public change. | no                                 | not started |
+| 6     | The public switch (Q-D, Q-B, Q-G): `fuse(fn)` and `device.fuse(fn[, { chunk }])` return a node; `inspect`; `fuse` from `typeshade/runtime`; `FuseScope` removed; every in-tree caller migrates; the `downstream.yml` pin moves to a migrated typenn commit. typenn migrates first.                                 | yes: waits for the owner's "merge" | not started |
+| 7     | Nesting and in place (R4, R14, Q-B): a graph called in a graph is inlined; in place where nothing reads the old value and the planner's facts allow; the copies of slices 2 and 4 removed where proven dead; the report names each copy kept and shows nested graphs flat.                                         | [proposal, agent] no new form      | not started |
+
+- [proposal, agent] Order: 0, 1, 2, 3, 4, 5, 6, 7. Slice 5 can run beside slices 1 to 4.
+- [fact] Out of milestone 4: rendering and `show` (milestone 5, with slice 2c of A9), condition nodes
+  and the host transform (milestone 6), module-field state (milestone 7).
+
+**New open deviations.**
+
+| ID  | Deviation                                                                                                                                                                        | Disposition | Next action  |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------ |
+| D-j | R4: a host number captured by `fn` "is read at each call … never fixed at trace time". After Q-H, a captured number is fixed at the trace.                                       | open (new)  | Milestone 6. |
+| D-k | A value read inside `fn` (Q-E) is usable only as an argument of later calls. JavaScript control flow on it is a `TypeError`. R12 would run such a branch as ordinary TypeScript. | open (new)  | Milestone 6. |
+
+- [fact] D-a, D-b, D-c, D-e, D-f, D-g, D-h and D-i stay open as A9 records them. Slice 3 is the next
+  action for D-i and D-g. Slice 5 is the next action for D-h's `fuse()` part.
+
+**Open, owner must settle.**
+
+These are points where two decisions, or a decision and an accepted text, may point different ways.
+The agent recommends no side on them (`CLAUDE.md`, "The language design rules are normative").
+
+1. Q-C against Q-J and Q-E: the type of a node.
+   - Q-C: "`fuse(fn)` is typed as `fn` itself".
+   - Q-J: a node called with plain data only returns a promise. Q-E: `fn` may be `async`.
+   - [inference, agent] For a plain-data call, the node's type is not `fn`'s type. Take
+     `fn = (x: Float32Array) => Buffer<f32>`. The node's plain-data call returns a promise.
+   - [fact] The plan's Q-C option (a) wrote `(...a: A) => R` "with an overload for Q-J's plain-data
+     call". The owner's words on Q-C do not name the overload.
+   - Ask: is the node typed as `fn` with an overload for the plain-data call, or as `fn` alone?
+2. Q-E against Q-H: what a `read()` inside `fn` gives at a call after the trace.
+   - Q-H: `fn` is traced once for each shape. Q-E: a value read inside `fn` is an argument of later
+     calls.
+   - [inference, agent] If `fn` does not run again, the host's variable holds the value of the trace,
+     as a captured number does (D-j). The value at a later call reaches the later calls only if the
+     runtime binds it, as it binds a node's result.
+   - Ask: does a read inside `fn` give a placeholder that the runtime binds at each call, or the
+     value read at the trace?
+
+**Open items for the owner (not conflicts).**
+
+| Item                                                                                                                                                                                                                                                                                                 | Source              | Next action                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------- |
+| New diagnostic codes. Candidates: a kernel that writes an array parameter with no qualifier and does not return it (Q-A, cost 4); a returned array that is not a parameter; a returned pushed array (Q-F); two parameters returned on different paths. The front matter `codes` lists only `TS8079`. | Q-A, Q-E, Q-F       | Ask the owner for each code before slice 2 or slice 4. An amendment adds each approved code. |
+| The front matter `exports` does not list the exports that slice 1 reshapes: 41 of `typeshade/algorithms`, `fillUniform`, `fillWords` and `Geometry`. `scripts/changes.ts` refuses slice 1 without them.                                                                                              | Q-I                 | An amendment adds them before slice 1. The owner was not asked.                              |
+| The front matter `rules` does not list Rule 8.25. [inference, agent] Slice 2 likely states the host meaning of an `@inout` kernel parameter in Rule 8.25.                                                                                                                                            | Q-A                 | An amendment adds Rule 8.25 if slice 2 needs it.                                             |
+| No independent review has read this amendment.                                                                                                                                                                                                                                                       | `changes/README.md` | A review before the owner decides on this pull request.                                      |
+
+- Affects: the front matter (`exports`, `exports-removed`, `downstream`); R4 (the milestone-9
+  sentence; D-j); R12 (D-k); R2 (its plain-data call, by Q-A); R14; Rules 8.22, 8.23 and 11.13 (by
+  the slices); A9 Q1 (its open part is closed), A9 Q2 (its option description is superseded in
+  part), A9 Q16; A5's open item for milestone 4 (closed for `read()`); A7's deferred questions 1 and
+  3 (closed); D-g, D-h and D-i (their next actions).
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground
@@ -1293,7 +1802,9 @@ Each is a difference between the accepted text (with A5 to A9) and `42550b11`.
   records 0138.
 - **typenn, typecv, typeaudio.** Kernel calls that await each result, and `fuse` scopes with
   `scratch` and output arrays. Each searches its tree for `await` on a kernel call, `fuse(`,
-  `scratch(` and `createRuntime`. `compiler-changes.md` records 0138 in each.
+  `scratch(` and `createRuntime`. Amendment A10 adds `resident(` and `Resident` (now `Buffer`), and
+  each kernel that writes an array parameter (now `@inout`, or a returned value). typenn migrates
+  first, at its pin move past the switch of milestone 4. `compiler-changes.md` records 0138 in each.
 
 Expected work is described; responsibilities are recorded at acceptance; actual downstream
 changes, pins and records are tracked apart after compiler implementation.
