@@ -42,6 +42,7 @@ export interface FuseRecorder {
     workgroups: unknown,
     host: unknown,
     reads?: IncomingReads,
+    site?: string,
   ): Promise<void>;
   /** Refuse `call`, which `what` describes ("a draw"), because a scope records kernel calls and
    *  entry calls only. Always throws a `TypeError`. */

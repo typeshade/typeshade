@@ -71,7 +71,7 @@ import {
   tentatively,
   type ResidentArrayState,
 } from './resident.js';
-import { throwFailure } from './submission.js';
+import { callSite, throwFailure } from './submission.js';
 import type { RhiDevice, RhiTexture } from '../rhi/rhi.js';
 import { CPU_PROGRAM, type CpuCode, type CpuIoField, type CpuProgram } from '../rhi/cpu-program.js';
 import { GL_IMAGE, type GlImage } from './gl-image.js';
@@ -129,7 +129,7 @@ interface Frame extends Checked {
   readonly residents: Map<string, ResidentArrayState>;
 }
 
-function frameOf(e: FragmentEntry, v: unknown): Frame {
+function frameOf(e: FragmentEntry, v: unknown, site?: string): Frame {
   // A `Resident` stands for the array it holds.
   const residents = new Map<string, ResidentArrayState>();
   let view = v;
@@ -150,7 +150,7 @@ function frameOf(e: FragmentEntry, v: unknown): Frame {
       const refusal = s.outside?.(`${e.name}(): binding "${b.name}"`);
       if (refusal !== undefined) throw refusal;
       // The binding fixes an open element as its scalar (change 0138, Amendment A12, decision 3).
-      decide(s, layoutKind(b.layout), `${e.name}(): binding "${b.name}"`);
+      decide(s, layoutKind(b.layout), `${e.name}(): binding "${b.name}"`, site);
       residents.set(b.name, s);
       o[b.name] = s.view();
     }
@@ -263,7 +263,10 @@ export function callDraw(
         `${e.name}(): "target" is an HTMLCanvasElement or an OffscreenCanvas; got ${describe(target)}.`,
       );
     // A draw the check refuses fixes no open element (Amendment A12, D2).
-    const frame = tentatively(() => frameOf(e, empty && bindings === undefined ? {} : bindings));
+    const site = callSite(callDraw);
+    const frame = tentatively(() =>
+      frameOf(e, empty && bindings === undefined ? {} : bindings, site),
+    );
     let state = canvases.get(target);
     if (state === undefined) canvases.set(target, (state = { chain: Promise.resolve() }));
     const s = state;

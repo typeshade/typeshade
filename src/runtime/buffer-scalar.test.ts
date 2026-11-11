@@ -423,7 +423,7 @@ describe('a kernel called on a resource returns Buffers (Amendment A10, Q-C; Ame
     const m = await load();
     const xs = array(new Float32Array([1]));
     expect(() => m.scale(xs, array(new Uint32Array([1])), array(new Float32Array(1)))).toThrow(
-      'scale(): parameter "k" (f32) takes a Buffer of one f32; got a Buffer of 1 u32 numbers.',
+      'scale(): parameter "k" (f32) takes a Buffer of one f32; got a Buffer of 1 u32 number.',
     );
     expect(() => m.scale(xs, array(new Float32Array(2)), array(new Float32Array(1)))).toThrow(
       'scale(): parameter "k" (f32) takes a Buffer of one f32; got a Buffer of 2 f32 numbers.',

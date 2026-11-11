@@ -523,6 +523,7 @@ class Scope implements FuseRecorder {
     workgroups: unknown,
     lent: unknown,
     incoming?: IncomingReads,
+    site?: string,
   ): Promise<void> {
     const host = lent as EntryHost;
     // The refusals that need no value: the arguments, a `Resident` for a binding it may not
@@ -559,8 +560,8 @@ class Scope implements FuseRecorder {
     // indirect count's `u32` (change 0138, Amendment A12, decision 3 and D3).
     tentatively(() => {
       for (const [b, st] of states)
-        decide(st, layoutKind(b.layout), `${e.name}(): binding "${b.name}"`);
-      decide(indirect, 'u32', `${e.name}(): "workgroups.indirect"`);
+        decide(st, layoutKind(b.layout), `${e.name}(): binding "${b.name}"`, site);
+      decide(indirect, 'u32', `${e.name}(): "workgroups.indirect"`, site);
     });
     let settle!: RecordedEntry['settle'];
     const promise = new Promise<void>((resolve, reject) => {

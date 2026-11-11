@@ -331,10 +331,11 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
     cites the owner's answer to Q12 (Amendment A13). It said `at [0], got undefined undefined`
     before.
   - The caps of `scripts/bundle-budget.json` take the measured gzip bytes: `typeshade/runtime`
-    170,821 (+3,644 over `5711b9ac`), `typeshade/fuse` 115,420 (+1,522), `typeshade/algorithms`
-    70,478 (+5,600) and `typeshade/random` 52,040 (+5,840), for the result `Buffer`s of every kind,
+    171,140 (+3,963 over `5711b9ac`), `typeshade/fuse` 115,509 (+1,611), `typeshade/algorithms`
+    70,608 (+5,730) and `typeshade/random` 52,173 (+5,973), for the result `Buffer`s of every kind,
     the element a first use fixes, the checks of a call on a resource that the generated modules
-    carry (Amendment A12, decision 2; Amendment A13, decision 4) and the refusal above.
+    carry (Amendment A12, decision 2; Amendment A13, decision 4), the refusal above, and a
+    refused dispatch or draw of the program runtime that leaves an element open (A12, D2).
 
 - **The editor's hover names a constant of no fixed type in the language's words, and each read
   at the type it takes there** (change 0134 item 4; Rules 5.1 and 12.7; decision Q3). At the

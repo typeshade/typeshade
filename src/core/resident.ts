@@ -669,6 +669,17 @@ export function plainNumbers(value: unknown, at = 'array()'): number[] | undefin
  *  (Amendment A12, D2); undefined outside such a check. */
 let tentative: (() => void)[] | undefined;
 
+/** The `Buffer`s whose element the check of the call in hand fixed, which its refusal opens again
+ *  (Amendment A12, D2). */
+const fixedHere = new Set<ResidentArrayState>();
+
+/** Whether no use has fixed the element of `state` yet, besides the check of the call in hand,
+ *  which a refusal undoes (Amendment A12, D2). A refusal names such a `Buffer` as one whose
+ *  element is not fixed. Not API. */
+export function isOpenHere(state: ResidentArrayState): boolean {
+  return state.open !== undefined || fixedHere.has(state);
+}
+
 /** Run `check`, the check of a call at the call: an open element it fixes stays fixed when the
  *  call is taken, and is open again when `check` throws, since a refused use fixes nothing
  *  (change 0138, Amendment A12, D2). Not API. */
@@ -679,7 +690,8 @@ export function tentatively<T>(check: () => T): T {
   try {
     const r = check();
     tentative = outer;
-    outer?.push(...undo);
+    if (outer === undefined) fixedHere.clear();
+    else outer.push(...undo);
     return r;
   } catch (e) {
     tentative = outer;
@@ -737,7 +749,7 @@ export function decide(
   state: ResidentArrayState | undefined,
   kind: string | undefined,
   at: string,
-  site?: string,
+  site?: string | (() => string | undefined),
 ): void {
   if (state === undefined) return;
   if (kind !== 'f32' && kind !== 'i32' && kind !== 'u32' && kind !== 'f64') return;
@@ -763,13 +775,17 @@ export function decide(
     state.next = typed;
   } else state.host = typed;
   state.open = undefined;
-  state.fixed = { kind, site };
+  state.fixed = { kind, site: typeof site === 'function' ? site() : site };
+  if (tentative !== undefined) fixedHere.add(state);
   tentative?.push(() => {
+    fixedHere.delete(state);
     state.host = was.host;
     state.next = was.next;
     if (box !== undefined) box.v = was.boxed!;
     state.open = numbers;
     state.fixed = undefined;
+    // A device copy the refused call made holds the fixed element: the next use uploads again.
+    state.fresh = 'host';
   });
 }
 

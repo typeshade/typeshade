@@ -1438,6 +1438,57 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     expect(residentState(xs)!.fixed?.kind).toBe('f32');
   });
 
+  it('a refused dispatch or draw fixes no element, and a later use names the line of the first (change 0138, Amendment A12, D2 and Q10)', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const compute = await rt.load(manifest(SCALE)).compute();
+    // A binding after xs is refused: xs, which the check fixed as f32, is open again (D2).
+    const xs = array([1, 2, 3, 4]);
+    const out = array(4, 'f32');
+    out.dispose();
+    expect(() => rt.frame().dispatch(compute, { params: { scale: 2 }, xs, out }, 1)).toThrow(
+      'This Buffer was disposed',
+    );
+    expect(residentState(xs)!.open).toEqual([1, 2, 3, 4]);
+    expect(residentState(xs)!.fixed).toBeUndefined();
+    // A geometry whose indices are refused leaves its vertices open.
+    const pipeline = await rt.load(manifest(DRAW)).render();
+    const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
+    const vertices = array([0, 0, 1, 0, 0, 1]);
+    expect(() =>
+      rt
+        .frame()
+        .pass({ color: [target] }, (p) =>
+          p.draw(
+            pipeline,
+            { tint: [1, 0, 0, 1] },
+            { vertices, indices: array([0, 1.5, 2]), count: 3 },
+          ),
+        ),
+    ).toThrow('element 1 is 1.5');
+    expect(residentState(vertices)!.fixed).toBeUndefined();
+    // A use of another element after the first names the line of the first use (Q10).
+    const f = rt.frame();
+    f.pass({ color: [target] }, (p) =>
+      p.draw(pipeline, { tint: [1, 0, 0, 1] }, { vertices, count: 3 }),
+    );
+    await f.submit();
+    expect(residentState(vertices)!.fixed?.site).toMatch(/runtime\.test\.ts:\d+:\d+/);
+    expect(() =>
+      rt
+        .frame()
+        .pass({ color: [target] }, (p) =>
+          p.draw(
+            pipeline,
+            { tint: [1, 0, 0, 1] },
+            { vertices: new Float32Array(6), indices: vertices, count: 3 },
+          ),
+        ),
+    ).toThrow(
+      /this Buffer's element is f32, which its first use fixed at .*runtime\.test\.ts:\d+:\d+/,
+    );
+  });
+
   it('keeps the device copy the newer when a later use only reads it', () => {
     const fake = fakeDevice();
     const s = residentState(array(new Float32Array(4)))!;

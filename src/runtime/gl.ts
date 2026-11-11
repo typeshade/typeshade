@@ -38,8 +38,10 @@ import {
   kernelQueue,
   layoutKind,
   residentState,
+  tentatively,
   type ResidentArrayState,
 } from '../core/resident.js';
+import { hostSite } from '../core/submission.js';
 import {
   at,
   CallWords,
@@ -267,7 +269,8 @@ class GlComputePipelineImpl implements ComputePipeline {
         `dispatch() on WebGL2 records into a frame of the runtime, rt.frame(); got ${describe(target)}.`,
       );
     const wg = workgroupsOf(this.e, workgroups);
-    const given = this.#bind(bindings);
+    // A binding the check refuses leaves every element it fixed open (Amendment A12, D2).
+    const given = tentatively(() => this.#bind(bindings));
     const run = async (): Promise<void> => {
       const memory: Record<string, Uint32Array> = {};
       const uniforms: Record<string, unknown> = {};
@@ -398,7 +401,7 @@ class GlComputePipelineImpl implements ComputePipeline {
         if (state.destroyed)
           throw new TypeError('This Buffer was disposed; make a new one with array().');
         // The binding fixes an open element as its scalar (Amendment A12, D-l).
-        decide(state, layoutKind(layout), where);
+        decide(state, layoutKind(layout), where, hostSite);
         const twin = states.get(state);
         if (twin !== undefined)
           throw new TypeError(`${where} is the same Buffer as binding "${twin}".`);

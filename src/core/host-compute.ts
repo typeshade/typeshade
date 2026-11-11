@@ -347,7 +347,16 @@ export function callCompute(
       throw new TypeError(
         `${e.name}(): binding "${region.name}" is a Buffer of structs or a Uniform, which the body of today's fuse() does not record; call the entry outside it, or pass a Buffer of scalars made with array(xs).`,
       );
-    return fuseSlot.active.entry(cpu, e, argc, bindings, workgroups, entryHost, reads);
+    return fuseSlot.active.entry(
+      cpu,
+      e,
+      argc,
+      bindings,
+      workgroups,
+      entryHost,
+      reads,
+      callSite(callCompute, 1),
+    );
   }
   // A call on a resource does not block (change 0138, R2).
   if (resources.length > 0) {

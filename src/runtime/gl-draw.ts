@@ -30,8 +30,10 @@ import {
   kernelQueue,
   layoutKind,
   residentState,
+  tentatively,
   type ResidentArrayState,
 } from '../core/resident.js';
+import { hostSite } from '../core/submission.js';
 import {
   at,
   blendConstantOf,
@@ -685,6 +687,12 @@ export class GlRenderPipelineImpl implements RenderPipeline {
   }
 
   draw(target: object, bindings: Bindings, geometry: Geometry): void {
+    // A draw the checks refuse, its geometry's among them, fixes no open element (change 0138,
+    // Amendment A12, D2).
+    tentatively(() => this.#draw(target, bindings, geometry));
+  }
+
+  #draw(target: object, bindings: Bindings, geometry: Geometry): void {
     if (!(target instanceof GlPass))
       throw new TypeError(`draw() on WebGL2 records into a frame's pass; got ${describe(target)}.`);
     const entry = this.fs ?? this.vs;
@@ -799,7 +807,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
         if (state.destroyed)
           throw new TypeError('This Buffer was disposed; make a new one with array().');
         // The binding fixes an open element as its scalar (Amendment A12, D-l).
-        decide(state, layoutKind(layout), where);
+        decide(state, layoutKind(layout), where, hostSite);
         residents.push(state);
         binds.push({
           index: s.index,
@@ -936,6 +944,7 @@ function bufferSource(
       state,
       geometryKind(field, entry.vertex?.attributes),
       `"${entry.name}"${at(entry)}: the geometry's ${field}`,
+      hostSite,
     );
     const host = state.view();
     const takes =

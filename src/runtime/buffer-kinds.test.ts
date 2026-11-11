@@ -509,8 +509,23 @@ describe('array(number[]): the first use fixes the element (Amendment A12, decis
     // The refused use fixes nothing (A12, D2): a later f32 use fixes f32.
     m.sumf!(xs);
     expect(await read(xs)).toBeInstanceOf(Float32Array);
+    // Once the element is fixed, the refusal is still Q12's, not a call for another element.
+    expect(() => m.addRows64!(ys, xs)).toThrow(onResource);
+    expect(() => m.addRows64!(ys, xs)).not.toThrow('first use fixed');
     // Plain data is the matrix's value.
     expect(await m.rows64!([1, 0, 0, 0, 2, 0, 0, 0, 3])).toBe(6);
+  });
+
+  it('a refusal names an open Buffer as one whose element is not fixed (A12, D2; Rule 12.5)', async () => {
+    const m = await load();
+    const k = array([1, 2]);
+    const out = array(new Float32Array(4));
+    expect(() => m.times!(array(new Float32Array(4)), k, out)).toThrow(
+      'times(): parameter "k" (u32) takes a Buffer of one u32; got a Buffer of 2 numbers whose element is not fixed.',
+    );
+    // It stays open: a later f32 use fixes f32 (D2).
+    m.sumf!(k);
+    expect(await read(k)).toBeInstanceOf(Float32Array);
   });
 
   it("a Buffer that device.array()'s pool hands out again is open again (D5)", async () => {
@@ -557,7 +572,7 @@ describe('the result kinds of a call on a resource (Amendment A12, decision 4)',
     expect(v.at(0).get()).toEqual([true, false]);
     // No array<bool> exists, since a bool has no storage layout.
     expect(() => m.sumf!(b)).toThrow(
-      'sumf(): parameter "xs" (array<f32>) takes no Buffer of 1 bools: no array<bool> exists, since a bool has no storage layout (change 0138, Amendment A12, decision 4).',
+      'sumf(): parameter "xs" (array<f32>) takes no Buffer of 1 bool: no array<bool> exists, since a bool has no storage layout (change 0138, Amendment A12, decision 4).',
     );
   });
 

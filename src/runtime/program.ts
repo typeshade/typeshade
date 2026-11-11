@@ -21,7 +21,8 @@ import {
   type GpuDevice,
   type Layout,
 } from '../core/host-entry.js';
-import { decide, geometryKind, layoutKind, residentState } from '../core/resident.js';
+import { decide, geometryKind, layoutKind, residentState, tentatively } from '../core/resident.js';
+import { hostSite } from '../core/submission.js';
 import type { Buffer } from './resource.js';
 import type { f32, i32, u32 } from './host-types.js';
 import { VERSION } from '../core/version.js';
@@ -1822,6 +1823,16 @@ export class ProgramImpl implements Program {
               .join(', ') || 'nothing'
           }.`,
         );
+    // A binding the check refuses leaves every element it fixed open (Amendment A12, D2).
+    return tentatively(() => this.#groups(shape, entry, values, consoleBuffer));
+  }
+
+  #groups(
+    shape: PipelineShape,
+    entry: PackEntry,
+    values: Bindings,
+    consoleBuffer: RhiBuffer | undefined,
+  ): RhiBindGroup[] {
     return shape.groups.map((g) => {
       const resources: { binding: number; resource: RhiBindResource }[] = [];
       const key: (number | string)[] = [];
@@ -1864,7 +1875,7 @@ export class ProgramImpl implements Program {
         );
       if (state !== undefined) {
         // The binding fixes an open element as its scalar (Amendment A12, D-l).
-        decide(state, s.layout === undefined ? undefined : layoutKind(s.layout), where);
+        decide(state, s.layout === undefined ? undefined : layoutKind(s.layout), where, hostSite);
         // One buffer of both layers (change 0025): the Resident's, uploaded on its first use.
         if (s.layout === undefined)
           throw new TypeError(
@@ -1994,6 +2005,11 @@ export class ComputePipelineImpl implements ComputePipeline {
   }
 
   dispatch(target: object, bindings: Bindings, workgroups: number | readonly number[]): void {
+    // A dispatch the checks refuse fixes no open element (change 0138, Amendment A12, D2).
+    tentatively(() => this.#dispatch(target, bindings, workgroups));
+  }
+
+  #dispatch(target: object, bindings: Bindings, workgroups: number | readonly number[]): void {
     const wg = workgroupsOf(this.e, workgroups);
     const rt = this.program.rt;
     // The checks run before the console buffer is taken, so a refused call leaves no row (R5, R6).
@@ -2082,6 +2098,12 @@ export class RenderPipelineImpl implements RenderPipeline {
   }
 
   draw(target: object, bindings: Bindings, geometry: Geometry): void {
+    // A draw the checks refuse, its geometry's among them, fixes no open element (change 0138,
+    // Amendment A12, D2).
+    tentatively(() => this.#draw(target, bindings, geometry));
+  }
+
+  #draw(target: object, bindings: Bindings, geometry: Geometry): void {
     const rhi = this.program.device;
     // A frame's pass records into its RHI pass; a host's own pass is taken as it is.
     const pass =
@@ -2172,6 +2194,7 @@ export class RenderPipelineImpl implements RenderPipeline {
       state,
       geometryKind(field, entry.vertex?.attributes),
       `"${entry.name}"${at(entry)}: the geometry's ${field}`,
+      hostSite,
     );
     const host = state.view();
     const takes =

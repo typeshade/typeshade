@@ -66,6 +66,7 @@ import {
   kernelQueue,
   layoutKind,
   lengthOf,
+  isOpenHere,
   kindName,
   residentState,
   ResidentArrayState,
@@ -897,23 +898,31 @@ function recordKernel(
 }
 
 /** The element a value parameter of type `t` fixes on an open `Buffer` (change 0138, Amendment
- *  A12, decision 3): the scalar of a number or a vector, `f32` for a matrix (Q3); undefined for
- *  any other type. */
+ *  A12, decision 3): the scalar of a number or a vector, `f32` for a matrix of `f32` (Q3);
+ *  undefined for any other type, a matrix of `f64` among them, which takes no `Buffer` (the
+ *  owner's answer to Q12, Amendment A13). */
 function valueKind(t: HostType): string | undefined {
   if (t.k === 'num') return t.t;
   if (t.k === 'vec') return t.e === 'bool' ? undefined : t.e;
-  if (t.k === 'mat') return t.e;
+  if (t.k === 'mat') return t.e === 'f32' ? 'f32' : undefined;
   return undefined;
 }
 
-/** How a `Buffer`'s element reads in a refusal: `3 f32 numbers`, `1 bool`, `1 mat4x4`. */
+/** How a `Buffer`'s element reads in a refusal: `3 f32 numbers`, `1 bool`, `2 vec3<bool>`,
+ *  `1 mat4x4`, and `2 numbers whose element is not fixed` for a `Buffer<number>` whose element no
+ *  use has fixed, the refused call included (Amendment A12, D2). */
 function heldText(state: ResidentArrayState): string {
   const n = lengthOf(state);
   const e = state.elem;
-  if (e?.k === 'bool') return `${n} bool${state.components > 1 ? ` vectors` : 's'}`;
-  if (e?.k === 'key') return `${n} keys of ${e.m.map((m) => `'${m}'`).join(' | ')}`;
+  const plural = (word: string, count: number): string =>
+    `${count} ${word}${count === 1 ? '' : 's'}`;
+  if (e?.k === 'bool')
+    return state.components > 1 ? `${n} vec${state.components}<bool>` : plural('bool', n);
+  if (e?.k === 'key') return `${plural('key', n)} of ${e.m.map((m) => `'${m}'`).join(' | ')}`;
   if (e?.k === 'mat') return `${n} mat${e.c}x${e.r}`;
-  return `${n * state.components} ${kindName(state)} numbers`;
+  const scalars = n * state.components;
+  if (isOpenHere(state)) return `${plural('number', scalars)} whose element is not fixed`;
+  return `${plural(`${kindName(state)} number`, scalars)}`;
 }
 
 /** Whether two key types have the same members in the same order. */
