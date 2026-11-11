@@ -2,11 +2,16 @@
 //
 // Rule 11.8 states it.
 //
-// A device is opened only by `createDevice()`. `device.use()` makes it the default device until
-// the handle it returns is disposed, which `using` does at the end of the block; uses nest, and
-// the innermost one is the default. `texture()`, `zeros()`, `array()` and `uniform()` make what
-// they make on the default device, and a kernel call or an entry call with no resource of a device
-// runs on it (change 0138, R3; `callDefault` in `core/owner.ts`).
+// A device is opened only by `createDevice()`. `device.use()` makes it the device in use (the
+// default device of Amendment A2) until the handle it returns is disposed, which `using` does at
+// the end of the block; uses nest, and the innermost one is the device in use. `texture()`,
+// `zeros()`, `array()` and `uniform()` make what they make on the device in use, and a kernel call
+// or an entry call with no owned resource runs on it (change 0138, R3; `callDefault` in
+// `core/owner.ts`). A `Uniform` takes no part in the choice of a call's device (Amendment A8).
+// The stack is one for each instance of this module, not one for each async task: while a task
+// awaits inside a block, a resource or a call with no owned resource that another task makes
+// takes the same innermost device.
+// Caution: do not await inside a block while other tasks may make resources or calls.
 // `Device.use()` (`runtime/device.ts`) pushes and ends a use; Amendment A2 declares it.
 
 /** What `use()` holds: the device, and whether its handle was disposed. */

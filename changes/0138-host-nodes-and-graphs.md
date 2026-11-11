@@ -923,6 +923,361 @@ Each is a difference between the accepted text (with A5 and A6) and `76b66224`.
   It also affects the deferred questions. No front-matter entry changes.
 - Status: `status: accepted` does not change.
 
+### A8. Slice 2b, the owner's decisions on it, R3 for a `Uniform`, and the deviations after it (2026-11-11)
+
+- [fact] Why. Pull request [#1238](https://github.com/typeshade/typeshade/pull/1238), merged as
+  `75f114cb`, carries out slice 2b of milestone 3. Its body records three questions with the
+  owner's answers and the dispositions of D-c, D-d and D-e. It also records a new deviation, D-h.
+  Amendment A7 records none of them.
+- [fact] Two independent reviews read #1238, at `fbdb6cef` and at `1fda2689`. The first found no
+  blocking finding and the should-fix findings S1 to S6. Its finding S5 asks for the dispositions
+  in this record (`CLAUDE.md`, Deviations). The second found nothing blocking. It found the
+  should-fix findings R-s1 and R-s2, and it left notes.
+- [fact] An independent review read this amendment at `e8e9fee7`. Its blocking finding B1: the
+  exemption of a `Uniform` (Q-a) differed from R3's text and had no disposition. The owner's
+  decision on B1 is below. This amendment amends R3.
+
+**The slices of milestone 3, after slice 2b.**
+
+This table states the status of each slice at `main` `75f114cb`. It replaces the Status column of
+A7's table. A7's text stays as it is.
+
+| Slice   | Content                                                                                                                               | Status                            |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| 2a      | As in A7.                                                                                                                             | done: #1236, merged as `76b66224` |
+| Text 2a | As A7's row "Text": Rules 6.1, 8.21, 8.23, 8.24, 11.8 and 11.13 and surface §64, §65 and §67 say what slice 2a delivered.             | done: #1240, merged as `6d6a979b` |
+| 2b      | As in A7, with the owner's answers to Q-a, Q-b and Q-c below. D-c stays open, narrowed.                                               | done: #1238, merged as `75f114cb` |
+| Text 2b | The rules and the surface say what slice 2b delivered: the sentences of D-e below. The tests of slice 2b gain their `Verifies:` tags. | not started                       |
+| 2c      | As in A7: `show(image, canvas)` and the held submission of Q14.                                                                       | not started                       |
+
+- [fact] #1240 closed D-e for slice 2a. Its Doorstop review was approved by the owner, and the
+  owner said "merge" on 2026-11-11 (commit `6d6a979b`).
+- [fact] Pull request [#1241](https://github.com/typeshade/typeshade/pull/1241) is a bug fix, not a
+  slice. It was merged as `d61fbca2`, after CI passed 26 of 26 checks on its head `0b35d546`.
+
+**The owner's decisions on #1238 (2026-11-11).**
+
+- [decision, owner, 2026-11-11] On the first review:
+  "Fix S1-S4, then re-review".
+  The description of the option the owner chose also said:
+  "S5 goes to a separate A8 amendment PR".
+  - [fact] Commit `1fda2689` fixes S1 to S4 and S6. The second review read that commit.
+  - [fact] This amendment is the pull request of S5.
+- [decision, owner, 2026-11-11] Q-a, the device of a resource:
+  "Keep the rule, exempt Uniform".
+  - A resource belongs to the device in use when it is made. With no device in use, it belongs to
+    the default owner.
+  - A `Uniform` takes no part in choosing a call's device. Its value is copied at each call (D-b),
+    so it joins a call on any device.
+  - [fact] At `75f114cb`, `Core.owner` is set on a `Uniform` (`src/runtime/resource.ts:156`).
+    `resourceOf` gives the `Uniform` argument no owner (`src/runtime/resource.ts:1668-1672`).
+  - The alternative was to let a `Uniform` take part in the choice too. Cost of the alternative: a
+    `Uniform` made at module top is refused beside a `Buffer` made in a `use()` block (review
+    finding S6).
+  - Cost recorded: when D-b is fixed, a `Uniform` gets a device copy. It then needs one copy for
+    each device, as an exported storage array has.
+- [decision, owner, 2026-11-11] On B1 of the review of this amendment, in Korean:
+  "R3 개정으로 기록"
+  (record it as an amendment of R3). This amendment replaces three sentences of R3.
+  - Before:
+    > A node runs on the device of its input resources. With plain JavaScript values alone it
+    > runs on the default device. A call that mixes devices is a `TypeError`.
+  - After:
+    > A node runs on the device of its input resources. A `Uniform` takes no part in choosing
+    > that device. With plain JavaScript values alone it runs on the default device. A call that
+    > mixes devices among the resources that take part in the choice is a `TypeError`.
+  - Reason, at `75f114cb`: a `Uniform`'s value is copied at each call (D-b). The reason is not
+    part of R3.
+  - The other sentences of R3 stay as they are.
+  - An exported binding also takes no part in the choice, since it belongs to no one device (R3).
+    A node whose only resources are `Uniform`s and exported bindings runs on the device in use,
+    else on the default owner. The agent inferred this clause from R3's order and Q-a. Asked on
+    2026-11-11 to merge A8, the owner chose the option:
+    "추론 구절도 승인, CI 녹색이면 머지 (추천)"
+    (approve the inferred clause too, merge when CI is green; recommended).
+  - [decision, owner, 2026-11-11] The clause is part of the decided text, beside the amended R3.
+  - Cost: as recorded under Q-a above. [proposal, agent] R3 is revisited when D-b is fixed.
+  - [inference, agent] R3's "A resource belongs to one device" holds for a `Uniform` in name only:
+    no code reads its owner at `75f114cb`. When D-b gives a `Uniform` one copy for each device, it
+    belongs to no one device, as an exported binding does.
+- [decision, owner, 2026-11-11] Asked Q-b and Q-c together, the owner chose one option:
+  "Keep both as the PR does (Recommended)".
+  - The description of that option:
+    "Q-b keeps the refusal, and the stuck state on dispose is fixed as S2. Q-c is kept, and the error text is fixed as S1. Cost: none beyond those fixes."
+  - Q-b. A call on one device writes an exported binding. Until that binding's `read()`, a call on
+    another device that takes it is refused with a `TypeError`.
+  - The alternative to Q-b was a hidden read back that blocks inside the call. R2 says a call does
+    not block. Cost recorded: the host awaits `read()` before it calls on another device.
+  - Q-c. `array(xs)` and `array(n, el)` inside a `use()` block make that device's `Resident`. The
+    deprecated `resident(xs)` stays the default owner's.
+  - The alternative to Q-c was the default owner. Cost of the alternative: `array(xs)` beside
+    `zeros()` in one block is a call that mixes devices. Cost recorded: the `Resident` comes from
+    the device's pool.
+- [decision, owner, 2026-11-11] On the merge:
+  "Merge, then A8 + text PR".
+  #1238 was merged as `75f114cb`. This amendment is the A8 of that decision. The text pull request
+  is the row "Text 2b" above.
+- [decision, owner, 2026-11-11] On a call on a resource in a `fuse` body:
+  "Separate bug-fix PR: throw".
+  - [fact] At `75f114cb`, such a call returns a rejected promise. The host view types the call
+    `void`, so the author gets an unhandled rejection.
+  - [fact] #1241 makes the call throw the `TypeError` at the call. It changes the words of Rules
+    8.24 and 11.13 and surface §64 to match.
+- [decision, owner, 2026-11-11] On the Doorstop review of #1241:
+  "Approve, merge when green".
+  - [fact] #1241 was merged as `d61fbca2`.
+- [decision, owner, 2026-11-11] On the scope of D-h, in Korean:
+  "D-h에 fuse()도 포함"
+  (include `fuse()` in D-h). A draw and a default `fuse()` keep the default owner, even inside a
+  `use()` block. Both stay open.
+  - The option the owner chose also said:
+    "fuse()는 마일스톤 4에서 다룹니다"
+    (`fuse()` is handled in milestone 4).
+  - [proposal, agent] The next action for a draw is milestone 5.
+- [decision, owner, 2026-11-11] On the stack of `use()` (first review, N1), the owner chose the
+  option in Korean:
+  "주의로만 기술 (추천)"
+  (describe it as a caution only; recommended).
+  - [fact] The option's description, in Korean, said: describe the current behavior as a fact,
+    and put "do not await inside the block" in as a caution, not as a norm.
+  - [fact] `use()` is one stack for each module instance (`src/runtime/default-device.ts`).
+  - [agent wording of the owner's caution] The rule text first states the effect. While a task
+    awaits inside a `use()` block, a resource that another task makes, or a call with no owned
+    resource that it makes, takes that block's device. Then it gives the caution: do not await
+    inside a `use()` block while other tasks may make resources or calls. An `await` of `read()`
+    with no such task is not refused.
+  - The caution is not a normative promise. A stack for each task may come later. N1 stays an
+    open item.
+
+**The deviations after slice 2b.**
+
+Each was or is a difference between the accepted text (with A5 to A8) and `75f114cb`.
+
+| ID  | Deviation                                                                                                                                                                                                                                                                                                                                                                                   | Disposition                                                | Next action                                                                                                                                                                 |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-a | As in A7.                                                                                                                                                                                                                                                                                                                                                                                   | open, unchanged                                            | As in A7.                                                                                                                                                                   |
+| D-b | As in A7.                                                                                                                                                                                                                                                                                                                                                                                   | open, unchanged                                            | As in A7. Then a `Uniform` needs one copy for each device (the cost under Q-a), and R3 is revisited ([proposal, agent]).                                                    |
+| D-c | A submission of recorded calls flushes, and `read()` waits on a fence (A5, default 6). The WebGL2 pass program and the WebGL2 kernel path still read back inside the call. So the flush has no work pending, and the fence waits on work whose results are on the host. The fence is made at `read()`. A kernel function on a `Buffer` of structs has no WebGL2 tier (Rule 11.8), as in A7. | open (narrowed by #1238)                                   | Move the WebGL2 read back out of the call to `read()`. [proposal, agent; first review of #1238, N3] Place the fence at the end of the submission. No slice is assigned yet. |
+| D-d | A recorded call runs on the default owner. R3 is not carried out.                                                                                                                                                                                                                                                                                                                           | closed by #1238                                            | None.                                                                                                                                                                       |
+| D-e | The rule and surface sentences listed below are no longer true at `75f114cb`. The tests of slice 2b carry no `Verifies:` tag.                                                                                                                                                                                                                                                               | open (closed for slice 2a by #1240; opened again by #1238) | The text pull request of slice 2b, with the Doorstop review that the owner approves.                                                                                        |
+| D-f | As in A7.                                                                                                                                                                                                                                                                                                                                                                                   | open, unchanged                                            | As in A7.                                                                                                                                                                   |
+| D-g | As in A7. Slice 2b did not add the separate overload.                                                                                                                                                                                                                                                                                                                                       | open, unchanged                                            | A separate overload for a call on a resource. No slice is assigned yet.                                                                                                     |
+| D-h | A draw (`callDraw`) and a default `fuse()` with no owned resource run on the default owner. This holds inside a `use()` block too.                                                                                                                                                                                                                                                          | open (new; scope by the owner's decision above)            | `fuse()`: milestone 4 (the owner's option). A draw: milestone 5 ([proposal, agent]).                                                                                        |
+
+- [fact] The sentences of D-e, at `main` `75f114cb`. #1238's body lists them, and the second
+  review's R-s1 adds four of them:
+  1. `docs/language-design.md:1432` (Rule 11.8): "A recorded call runs on the default owner's
+     tiers, …". The same paragraph says that a WebGL2 entry call has no flush and no fence (D-c).
+  2. `docs/language-design.md:1436` (Rule 11.8): "Plain host values select no owner, so a call
+     with none uses the default owner."
+  3. `docs/language-design.md:1436` (Rule 11.8): "creates no global current device". `use()` is
+     now one stack for each module instance, read by every kernel and entry call (R-s1).
+  4. `docs/language-design.md:1439` (Rule 11.8): "The owner of a call does not follow
+     `device.use()` yet".
+  5. `docs/language-design.md:1439` (Rule 11.8): `array()` makes "the `Resident` that
+     `resident()` makes". In a `use()` block it makes that device's `Resident` (Q-c; R-s1).
+  6. `docs/use-typeshade-surface.md:8403-8406` (§64): a recorded call runs on the default owner's
+     tiers, and a WebGL2 entry call has no flush and no fence.
+  7. `docs/use-typeshade-surface.md:8491-8492` (§64): "The calls of a kernel function or an entry
+     do not follow `device.use()`".
+  8. `docs/use-typeshade-surface.md:10362-10364` (§69): a kernel or entry call with no owned
+     resource uses the default owner (R-s1).
+  9. Optional (R-s1): §69's `dispose()` text (`docs/use-typeshade-surface.md:10357-10358`) and the
+     `Device.dispose()` JSDoc do not say that `dispose()` lands what the device wrote into an
+     exported binding.
+- [proposal, agent] The first review's note N1 goes in the same text, as a caution only (the
+  owner's decision above). `use()` is one stack for each module instance. A resource made in another
+  async task, while one task awaits inside a `use()` block, belongs to that block's device.
+- [proposal, agent] The text of slice 2b also states R3 as amended above, in Rule 11.8.
+
+**Open items from the reviews of #1238.**
+
+| Item                                                                                                                                                                                                                                                                                                                      | Source                                       | Next action                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| S3 has no unit test. Only the WebGL2 resource arm of `gate:differential` holds it.                                                                                                                                                                                                                                        | Second review, N-r1                          | A Node test with a WebGL2 stand-in tier. No pull request is assigned.                                                             |
+| A plain `Buffer` written on a WebGPU device and not read before `dispose()` of that device loses the write. Its `read()` then fails with an unclear error. This is code reading; it was not run on WebGPU.                                                                                                                | Second review, N-r2                          | Land owned `Buffer`s too, with a weak registry per owner. No pull request is assigned.                                            |
+| The module-level `exported` set of `src/runtime/resource.ts` holds every exported binding strongly. A module reload keeps old bindings alive.                                                                                                                                                                             | Second review, N-r3                          | None assigned. The review calls it minor.                                                                                         |
+| `use()` is one stack for each module instance, not one for each async task.                                                                                                                                                                                                                                               | First review, N1; the owner's decision above | The text pull request of slice 2b states it as a caution only. A stack for each task may come later; no pull request is assigned. |
+| Inside `use()` of a disposed device, `zeros()` succeeds, and each call on that `Buffer` fails later. `uniform()` also succeeds, and a call on the disposed device fails later. `array()` and `texture()` throw at once. #1238 did not fix it. Observed at `fbdb6cef`; the `uniform()` case at `75f114cb` is code reading. | First review, N2                             | Check that the device in use is usable when a resource takes its owner. No pull request is assigned.                              |
+| The `core/gl-fence.ts` row of `src/AGENTS.md` says that `read()` waits on `gpuDone`. The header of `src/core/gl-fence.ts` does not name `readFence` or its rule for a lost context. `read()` uses `readFence`, which ends the wait on a lost context.                                                                     | Second review, R-s2                          | A documentation fix, in the text pull request of slice 2b or in its own pull request.                                             |
+| The first sentence of the `CHANGELOG.md` entry of #1238 still lists `uniform()` among what belongs to the device in use.                                                                                                                                                                                                  | Second review, N-r4                          | A documentation fix, with the item above.                                                                                         |
+| The refusal table of surface §71 (`fuse`) has no row for the refusal of a call on a resource.                                                                                                                                                                                                                             | #1241, Open items                            | The owner decides whether a follow-up adds a row.                                                                                 |
+
+- [fact] Unchanged and open:
+  1. A7's five deferred questions.
+  2. A7's open item on proposal 0042's row "A resource on a CPU tier".
+  3. The first review's N4: one extra queue step for each submission. The review calls it
+     harmless.
+- Affects: milestone 3's plan (the slice table of A7) and R3. Under R3: Q-a and B1, a `Uniform`;
+  Q-b, an exported binding; Q-c, `array()` in a `use()` block. It also affects D-b, D-c, D-d, D-e,
+  D-g and D-h. No front-matter entry changes.
+- Status: `status: accepted` does not change.
+
+### A9. Slice 2c moves to milestone 5; the slices of milestone 3; what comes next; Q1, Q2 and Q16 (2026-11-11)
+
+- [fact] Why. Pull request [#1247](https://github.com/typeshade/typeshade/pull/1247), merged as
+  `42550b11`, is the text pull request of slice 2b. After it, the only slice of milestone 3 not
+  started was 2c. The owner decided where 2c goes and what comes next, and answered Q1, Q2
+  and Q16 for milestone 4. Amendment A8 records none of them.
+
+**Decision: slice 2c moves to milestone 5.**
+
+- [decision, owner, 2026-11-11] Asked where slice 2c (`show` and the held submission of Q14) goes, the owner chose:
+  "2c를 마일스톤 5로 (추천)"
+  (move slice 2c to milestone 5; recommended).
+- [fact] The facts behind the decision, at `main` `42550b11`:
+  1. `show` does not exist in the code. No module of `src/` exports it.
+  2. The image that `show` puts on a canvas comes from R5 (rendering), which is milestone 5.
+  3. Q5 and Q15 are questions of milestone 5 (the approval record's table).
+  4. Slice 2c in milestone 3 was the agent's plan. A7 records that the owner was not asked about
+     the slices as a separate question.
+  5. The Draft impact estimate already lists `show` under milestone 5 (Rendering).
+- Cost recorded: no back-pressure until milestone 5.
+- [inference, agent] Until then, a `requestAnimationFrame` loop of calls on resources can queue
+  frames faster than the GPU runs them (Q14).
+- [fact] The owner's decisions on Q4 and Q14 in A5 stay as they are. This decision moves only
+  the slice that carries out Q14 and the `show` part of Q4.
+- [inference, agent] Milestone 5 carries out the held submission of Q14 and the submission at
+  `show` (A5, Q4). The submission at `read()` and at the end of the microtask checkpoint is
+  delivered by slice 2a, with deviation D-f.
+
+**The questions of slice 2c, for milestone 5.**
+
+The agent found these questions while it planned slice 2c. [proposal, agent] Ask each of the owner
+before milestone 5 starts, with Q3, Q5 and Q15. Q-3 is near Q15, and Q-4 is near Q5.
+
+| No. | Question                                                                                                                                   | Status |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
+| Q-1 | What is the image that `show` takes: a `Texture`, a `Buffer`, or the result of a full-screen fragment call on the canvas (`fs(canvas)`)?   | open   |
+| Q-2 | What does `show` do when the image's size or format differs from the canvas's?                                                             | open   |
+| Q-3 | What does `show` do when the image is on another device than the canvas? (Near Q15.)                                                       | open   |
+| Q-4 | Do `fs(canvas)` and the passes of the program runtime count as writes to the canvas, so that they take part in the held submission of Q14? | open   |
+| Q-5 | Which moment of the image does `show` show: its value at the `show`, or its value when the held submission is written to the canvas?       | open   |
+
+**The status of milestone 3.**
+
+This table states the status of each slice at `main` `42550b11`. It replaces the Status column of
+A8's table. A7's and A8's text stays as it is.
+
+| Slice   | Content                                                                                                  | Status                                             |
+| ------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| 2a      | As in A7.                                                                                                | done: #1236, merged as `76b66224`                  |
+| Text 2a | As in A8.                                                                                                | done: #1240, merged as `6d6a979b`                  |
+| 2b      | As in A8.                                                                                                | done: #1238, merged as `75f114cb`                  |
+| Text 2b | As in A8: the rules and the surface say what slice 2b delivered. The tests of slice 2b gain `Verifies:`. | done: #1247, merged as `42550b11`                  |
+| 2c      | As in A7: `show(image, canvas)` and the held submission of Q14.                                          | moved to milestone 5 by the owner's decision above |
+
+- [fact] Pull request [#1241](https://github.com/typeshade/typeshade/pull/1241), merged as
+  `d61fbca2`, is a bug fix, not a slice (A8). A call on a resource in a `fuse` body throws at the
+  call.
+- [fact] At `main` `42550b11`, every slice of A7's plan is done or moved (the owner's option).
+  The option called milestone 3 done.
+- [fact] R2's "GPU nodes return resources", which the Draft impact estimate lists under
+  milestone 3, is not carried out for a kernel that returns a value. That gap is deviation D-i
+  below. The deviations and the open items below stay open.
+- [fact] #1247's body records its checks and quotes the owner's approval of its Doorstop review:
+  "승인, PR 열고 A8 뒤 머지 질문". The owner said "merge" in the conversation on 2026-11-11. CI
+  passed 26 of 26 checks on its head `b3440465`.
+
+**The deviations at `42550b11`.**
+
+Each is a difference between the accepted text (with A5 to A9) and `42550b11`.
+
+| ID  | Deviation                                                                                                                                                                                                                                                                                       | Disposition                                            | Next action                                                                                                                                           |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-a | As in A7: one `GPUQueue.submit` for each call on WebGPU.                                                                                                                                                                                                                                        | open, unchanged                                        | One `GPUQueue.submit` for each submission. No slice is assigned.                                                                                      |
+| D-b | As in A7: a `Uniform` is packed again at each call.                                                                                                                                                                                                                                             | open, unchanged                                        | Upload a uniform's dirty range, as a `Buffer` does. Then a `Uniform` needs one copy for each device (A8, Q-a). [proposal, agent, A8] R3 is revisited. |
+| D-c | As in A8: the WebGL2 read back is inside the call, and the fence is made at `read()`.                                                                                                                                                                                                           | open, the remainder that A8 records                    | Move the WebGL2 read back out of the call to `read()`. [proposal, agent] Place the fence at the end of the submission. No slice.                      |
+| D-d | As in A7.                                                                                                                                                                                                                                                                                       | closed by #1238 (A8)                                   | None.                                                                                                                                                 |
+| D-e | Rule and surface sentences that #1238 made false. A8's list is fixed by #1247. The remainder: `docs/use-typeshade-surface.md:9044` (§65), "Plain host values select no owner; a call without an owned resource uses the default owner." Since #1238 such a call runs on the device in use (R3). | open (narrowed by #1247; closed for slice 2a by #1240) | The next text pull request. No pull request is assigned.                                                                                              |
+| D-f | As in A7: the submission comes in the next task.                                                                                                                                                                                                                                                | open, unchanged                                        | The owner decides whether A5 Q4 is read as "the next task", by an amendment, or whether it stays open.                                                |
+| D-g | As in A7: the overload that only queues types a held length beside a `Buffer`.                                                                                                                                                                                                                  | open, unchanged                                        | A separate overload for a call on a resource. No slice is assigned.                                                                                   |
+| D-h | As in A8: a draw and a default `fuse()` keep the default owner.                                                                                                                                                                                                                                 | open, unchanged                                        | `fuse()`: milestone 4 (the owner's option, A8). A draw: milestone 5 ([proposal, agent], A8).                                                          |
+| D-i | R2: a kernel function called on a resource that returns a value does not return a resource. The call throws a `TypeError` (`src/core/host-kernel.ts:738`).                                                                                                                                      | open (new)                                             | Milestone 4, under Q2 and A7's deferred question 1. [inference, agent] This follows from A7's "Q2 is milestone 4".                                    |
+
+**Open items at `42550b11`.**
+
+| Item                                                                                                                                                                                                                                 | Source                       | Next action                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- | ---------------------------------------------------------------------------------------------- |
+| The deprecation warning of `resident()` in `src/core/resident.ts` says that `array()` "makes the same Resident". Inside a `use()` block that is false: `array()` makes that device's (Q-c).                                          | #1247, Open items            | A later bug fix. No pull request is assigned.                                                  |
+| The error text at `src/core/host-kernel.ts:738` (D-i) says the call is "not available yet (change 0138, milestone 3)". The milestone is stale.                                                                                       | Review of A9                 | A later bug fix changes the text. No pull request is assigned.                                 |
+| N-r2, as in A8: a `Buffer` that is not exported, written on a WebGPU device and not read before `dispose()` of that device, loses the write. Code reading; not run on WebGPU.                                                        | Second review of #1238       | Land owned `Buffer`s too (A8). No pull request is assigned.                                    |
+| N2, as in A8: inside `use()` of a disposed device, `zeros()` and `uniform()` succeed, and the call fails later. `array()` and `texture()` throw at once. Observed at `fbdb6cef`; the `uniform()` case at `75f114cb` is code reading. | First review of #1238        | Check that the device in use is usable (A8). No pull request is assigned.                      |
+| N1: `use()` is one stack for each module instance, not one for each async task. #1247 states it as a caution only.                                                                                                                   | First review of #1238; A8    | A stack for each task may come later. No pull request is assigned.                             |
+| N-r4: the first sentence of the `CHANGELOG.md` entry of #1238 still lists `uniform()` among what the device in use makes. #1247 edited the entry and left the sentence.                                                              | Second review of #1238       | A documentation fix. No pull request is assigned.                                              |
+| The refusal table of surface §71 (`fuse`) has no row for the refusal of a call on a resource.                                                                                                                                        | #1241, Open items; A8        | The owner decides whether a follow-up adds a row.                                              |
+| A7's five deferred questions.                                                                                                                                                                                                        | A7                           | As in A7: ask the owner again before a slice that changes the behavior. Question 1 is near Q2. |
+| S3 of #1238 has no unit test. Only the WebGL2 resource arm of `gate:differential` holds it.                                                                                                                                          | Second review of #1238, N-r1 | A Node test with a WebGL2 stand-in tier. No pull request is assigned.                          |
+| A `read()` or a `show` inside a `fuse(fn)` trace.                                                                                                                                                                                    | A5, Open (milestone 4)       | Ask the owner before milestone 4 starts.                                                       |
+| A `show` into a texture.                                                                                                                                                                                                             | A5, Open (milestone 5)       | Ask the owner before milestone 5 starts.                                                       |
+
+- [fact] #1247 closed A8's item R-s2: the `core/gl-fence.ts` row of `src/AGENTS.md` and the
+  header of `src/core/gl-fence.ts` now name `readFence` and its rule for a lost context.
+- [fact] These stay open, as in A8: N-r3 and the first review's N4. A7's open item on proposal
+  0042's row "A resource on a CPU tier" stays open too.
+- [fact] N-r4 stays open with a new next action, in the table above. #1247 edited the
+  `CHANGELOG.md` entry and left its first sentence.
+
+**Decision: what comes next.**
+
+- [decision, owner, 2026-11-11] Asked what comes after milestone 3, the owner chose:
+  "A9 + 사이트 핀 이동 + M4 질문 (추천)"
+  (A9, the site pin move and the milestone 4 questions; recommended).
+  - [fact] The option's description named three parts: this amendment, the site pin, and Q1, Q2
+    and Q16 for milestone 4. The label gives no order.
+  - The description of the site pin part, in Korean:
+    "'마일스톤마다 핀 이동'대로 사이트 핀을 42550b11로 옮깁니다(web PR, 머지·배포는 여쭘)."
+    (English translation: as "move the pin at each milestone" says, move the site pin to
+    `42550b11`; a web pull request, and the merge and deploy are asked of the owner.)
+  - [fact] The site is the repository `typeshade/web`.
+- The parts, with their status at this amendment:
+
+| Part        | What it is                                                                                      | Status                                           |
+| ----------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| A9          | This amendment.                                                                                 | in progress: #1248                               |
+| Site pin    | Move the compiler pin of `typeshade/web` to `42550b11`. The owner is asked to merge and deploy. | in progress: typeshade/web#61                    |
+| Q1, Q2, Q16 | The questions of milestone 4 (the approval record's table).                                     | decided: the owner answered on 2026-11-11, below |
+
+**Before milestone 4: Q1, Q2 and Q16.**
+
+- [decision, owner, 2026-11-11] Q1, asked whether `fuse(fn)` returning a node replaces the
+  immediate scope or whether the two take different names, the owner chose:
+  "하나의 fuse (추천)"
+  (one `fuse`; recommended).
+  - `fuse(fn)` returns a node (R4). Today's immediate use is written `await fuse(fn)()`.
+  - Cost recorded: existing `fuse` code changes, downstream in typenn, typecv and typeaudio too.
+  - Open, a separate question: whether today's shape `fuse((scope) => …)` stays until the
+    deprecation of milestone 9, as R4 says. The owner has not decided it.
+- [decision, owner, 2026-11-11] Q2, asked whether a kernel's result is its return value only, or
+  its return value and today's in-place parameter (Rule 8.23), the owner chose:
+  "반환값 + in-place (추천)"
+  (the return value and in-place; recommended).
+  - A kernel's result is its return value and its in-place parameter (Rule 8.23).
+  - The option's description, in Korean:
+    "지금처럼 파라미터를 제자리에서 쓸 수 있고, 결과를 리소스로 돌려줄 수도 있습니다. Rule 8.23과 기존 코드가 그대로입니다."
+    (English translation: a parameter can be written in place as today, and a result can also be
+    returned as a resource. Rule 8.23 and the existing code stay as they are.)
+  - Cost recorded: two ways to give an output, and the graph tracks both.
+  - [inference, agent] The decided words set the direction of A7's deferred question 1. A kernel
+    function that returns a value and takes a resource returns a resource (R2). Question 1 stays
+    open until the owner closes it.
+- [decision, owner, 2026-11-11] Q16, asked what "run apart" means for the new graph features of
+  milestone 4, the owner chose:
+  "호출 순서대로 하나씩 (추천)"
+  (one by one, in call order; recommended).
+  - A composed node gives the bits that its inner calls give when they run one by one, in program
+    order, as plain kernel calls (Rule 11.13).
+  - An in-place update (R14) gives the bits of a copy first, then the write.
+  - Cost recorded: the planner may not make an optimization that breaks this baseline.
+  - Open under Q16: the condition node (milestone 6) and `show` into a canvas (milestone 5).
+- [fact] The questions of milestone 4 in the approval record's table (Q1, Q2 and Q16) are
+  decided. A5's open item for milestone 4 stays open: a `read()` or a `show` inside a `fuse(fn)`
+  trace. The parts of Q1 and Q16 named above stay open too.
+- Affects: milestone 3's plan (the slice tables of A7 and A8) and milestone 5's scope (slice 2c,
+  Q-1 to Q-5, and the delivery of Q14). It also affects D-e, D-i, R-s2, Q1, Q2, Q16, R4 and R14.
+  It sets the direction of A7's deferred question 1. No rule and no front-matter entry changes.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground

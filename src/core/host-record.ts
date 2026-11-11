@@ -65,9 +65,9 @@ export function isResource(v: unknown): boolean {
   return resourceOf(v) !== undefined;
 }
 
-/** The owner an argument of a call on a resource brings (change 0138, R3): the device a `Buffer` or
- *  a `Uniform` belongs to, the owner of a `Resident` or of a device's texture, or undefined for an
- *  exported binding and a plain value. `at` names the argument for a destroyed `Resident`. */
+/** The owner an argument of a call on a resource brings (change 0138, R3): the device a `Buffer`
+ *  belongs to, the owner of a `Resident` or of a device's texture, or undefined for an exported
+ *  binding, a `Uniform` and a plain value. `at` names the argument for a destroyed `Resident`. */
 export function argumentOwner(v: unknown, at?: string): CallOwner | undefined {
   const r = resourceOf(v);
   return r !== undefined ? r.owner : resourceOwner(v, at);

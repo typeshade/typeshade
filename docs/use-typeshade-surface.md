@@ -8549,9 +8549,12 @@ takes it, and its `read()`, throw it until `set(data)` or `resize()` gives the b
 
 In the body of today's `fuse` scope, a call that takes a resource throws a `TypeError` at the call
 (milestone 4 of change 0138). A draw takes no resource yet. A recorded call runs
-on the default owner's tiers, not on the device of its data (R3; deviation D-d of change 0138,
-open). On WebGL2 an entry call reads back inside the call, with no flush and no fence (Amendment A5,
-default 6; deviation D-c of change 0138, open).
+on the device of its owned resources (R3; the default device, below). On WebGL2 the end of a
+submission flushes each context that its recorded calls used. A `read()` of what such a call wrote
+waits on a fence (Amendment A5, default 6). A lost context ends the wait, since the values are on
+the host already. A call with plain data only places no flush and no fence. The WebGL2 tier still
+reads back inside the call, and the fence is made at `read()`, not at the end of the submission:
+deviation D-c of change 0138 is closed in form only, and that remainder is open.
 
 **Exported bindings** (change 0138, R10; Rule 6.1). A binding the shader module exports is a host
 resource. `export declare const camera: uniform<Camera>` is a `Uniform<Camera>` in the host, and
@@ -8633,11 +8636,36 @@ exported resource as an argument (above). For an exported storage array of a sta
 question 5 of change 0138).
 
 **The default device** (change 0138, Amendment A2; Rule 11.8). A device is opened by
-`createDevice()` alone. `using _ = device.use()` makes it the default device until the end of the
-block, uses nesting, and `texture({ size, format })` makes a texture on it; with no device in use,
-`texture()` throws a `TypeError`. Where the `lib` declares no `Symbol.dispose`, call `dispose()` on
-the handle `use()` returns. The calls of a kernel function or an entry do not follow `device.use()`
-yet.
+`createDevice()` alone. `using _ = device.use()` makes it the device in use until the end of the
+block (the default device of Amendment A2), uses nesting, and `texture({ size, format })` makes a
+texture on it; with no device in use, `texture()` throws a `TypeError`. Where the `lib` declares no `Symbol.dispose`, call `dispose()` on
+the handle `use()` returns.
+
+Data decides the device of a call (change 0138, R3):
+
+- `zeros()`, `array()` and `uniform()` make what they make on the device in use, or on the default
+  owner when no device is in use. What they make stays that device's after the block.
+- In a block, `array(xs)` and `array(length, element)` make that device's `Resident`, as
+  `device.array()` does. The deprecated `resident()` stays the default owner's.
+- A kernel call or an entry call runs on the device of its owned resources (its `Buffer`s, its
+  `Resident`s and the textures a device made), else on the device in use, else on the default
+  owner.
+- A `Uniform` takes no part in that choice (Amendment A8). A call copies its value, so it joins a
+  call on any device (deviation D-b of change 0138).
+- A call that takes owned resources of two devices is a `TypeError` at the call that names both.
+  It changes no `Buffer`.
+- An exported binding belongs to no one device. Each device whose call takes an exported storage
+  array keeps its own copy. That copy takes the dirty ranges the host set since its last call, and
+  the whole array after `read()` lands what a call on another device wrote.
+- After a call on one device writes an exported storage array, a call on another device is a
+  `TypeError` until `read()`.
+- A draw, and every call of a `fuse()` scope of `typeshade/fuse`, keep the default owner, in a
+  block too (deviation D-h of change 0138, open).
+
+The uses are one stack for each instance of the runtime module, not one for each async task. So
+while a task awaits inside a block, a resource that another task makes, or a call with no owned
+resource that it makes, takes that block's device. Caution, not a promise of Rule 11.8: do not
+await inside a block while other tasks may make resources or calls.
 
 **The name** (Rule 3.8). A shader module a host imports is named `*.shade.ts`. The plugin refuses
 a `.ts` the bundle reads that begins with `"use typeshade"` under any other name, with the
@@ -9103,8 +9131,9 @@ ID, user agent, storage or automatic sending is added. The host controls inspect
 0138, Amendment A1: it replaces `resident(value)`, which still works, warns once and is removed
 after a deprecation release; `array(length, element)` replaces `resident(length, element)` the same
 way): a typed array, an array of objects, or any other host value (Rule 8.21), such as a
-struct a frame's draws share. A kernel function takes the handle wherever it takes the array
-(Rule 11.8). The first call on WebGPU uploads it; the calls after bind the same buffer and read
+struct a frame's draws share. Inside a block of `device.use()` it makes that device's `Resident`,
+as `device.array(value)` does (§64, the default device). A kernel function takes the handle
+wherever it takes the array (Rule 11.8). The first call on WebGPU uploads it; the calls after bind the same buffer and read
 nothing back, and `await dev.read()` returns a new copy of what it holds. `dev.write(value)`
 replaces what it holds with a copy of `value` and `dev.destroy()` releases its buffer, each after
 the calls made before it. A copy keeps the class of each object in the value: a plain object
@@ -10502,14 +10531,18 @@ exclusive. `dev.limits` is the device's limits, as `rt.limits` is, and empty on 
 (`queue.onSubmittedWorkDone()` on WebGPU). `createDevice({ timeBudgetMs })` sets the time one
 chunk of a long kernel may take, 250 ms by default, which `dev.timeBudgetMs` reports (change 0074).
 `dev.chunkSize(key, max, min)` sizes the next chunk of `key` under it, and `dev.chunkRates` holds
-what the device measured of each key, as `ChunkRate` rows (§65). `dev.dispose()` waits for the plans in flight,
-destroys every array the device holds, each once, and the WebGPU device it requested; a
-`GPUDevice` or a runtime you handed in is left as it is, and a use after `dispose()` is a
-`TypeError`. Two devices in one context are independent: each has its tier, its arrays, its pool
+what the device measured of each key, as `ChunkRate` rows (§65). `dev.dispose()` waits for the
+plans in flight. It lands what a call of the device wrote into each exported storage array, and
+drops the device's copy of it (§64). Then it destroys every array the device holds, each once, and
+the WebGPU device it requested; a `GPUDevice` or a runtime you handed in is left as it is, and a
+use after `dispose()` is a `TypeError`. Two devices in one context are independent: each has its tier, its arrays, its pool
 and its plans, so two libraries built on the call layer share a page. `configure()`, `resident()`
 and `fuse()` describe the default owner. An ordinary kernel, compute-entry or draw call selects
 the unique owner of its resident arrays and device-created textures, including an indirect
-workgroup count (§67). Without an owned resource, it uses the default owner.
+workgroup count (§67). A kernel call or an entry call also selects the owner of its `Buffer`s.
+Without an owned resource, a kernel call or an entry call uses the device in use, or the default
+owner when no device is in use (§64, the default device). A draw, and a call of `fuse()`, use the
+default owner (deviation D-h of change 0138, open).
 Disposal waits for captured calls; new calls after disposal starts are refused.
 
 **Instance requirements.** Set custom WebGPU requirements when opening an owner (change 0085):

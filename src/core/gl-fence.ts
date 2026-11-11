@@ -1,9 +1,10 @@
 // ═══ A WebGL2 fence, polled while the host yields to the page (change 0054; change 0138, A5) ═══
 //
-// A read back of the WebGL2 tier waits for the GPU on a fence (`gl-compute.ts`), and so does a
-// `read()` of a resource that a recorded call wrote on WebGL2 (change 0138, Amendment A5, default
-// 6). A module of its own, so a resource reaches no pass program to wait on a fence. Like the rest
-// of `typeshade/runtime` it imports nothing.
+// A read back of the WebGL2 tier waits for the GPU on a fence (`gpuDone`, `gl-compute.ts`). A
+// `read()` of a resource that a recorded call wrote on WebGL2 waits on a fence of its own
+// (`readFence`, change 0138, Amendment A5, default 6), which a lost context ends with no error. A
+// module of its own, so a resource reaches no pass program to wait on a fence. Like the rest of
+// `typeshade/runtime` it imports nothing.
 
 /** Give the page one turn. A `MessageChannel` message runs on the next task with no delay;
  *  a nested `setTimeout(0)` waits at least 4 ms, which a pass with several read-backs pays each
