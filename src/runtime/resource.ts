@@ -19,15 +19,27 @@
 //
 // The layout is the compiler's: the generated module puts each exported class's layouts on the
 // class under `Symbol.for('typeshade.layout')` (`classModule` in `compiler/ts/host-face.ts`), so
-// the runtime computes no layout itself. No call takes a resource yet: the upload of the dirty
-// ranges at submission is a later part of milestone 3 (R2), which reads `dirtyRanges` below.
+// the runtime computes no layout itself.
+//
+// A call of a kernel function or a `@compute` entry takes a resource (milestone 3, R2): a uniform
+// as the value it holds at the call, and a storage array through a device copy of its own, a
+// `RegionState` behind a hidden `Resident` handle. At the call, the array's dirty ranges are
+// copied out of the region and the resource is marked clean; when the call runs, the copy is
+// written to the device copy: on WebGPU each range is one `writeBuffer`, and on the CPU tier each
+// element is read into the tier's value (Amendment A5, default 3: each call sees the values of its
+// own call). A call that writes the array leaves its values on the device until `read()`, which
+// lands them in the array's range of the region (R17). Until then `get` throws, and `set` writes
+// with no comparison, since the region does not hold what the device holds.
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
 import type { Layout, LayoutNumber } from '../core/host-entry.js';
-import { describe } from '../core/host-entry.js';
+import { describe, pack } from '../core/host-entry.js';
 import {
+  handleOf,
+  kernelQueue,
   makeResident,
+  ResidentArrayState,
   type Resident,
   type ZeroedArray,
   type ZeroedElement,
@@ -36,6 +48,7 @@ import type { array as HostArray, f32, f64, i32, u32 } from './host-types.js';
 import type { Texture } from './resources.js';
 import { globalRegion, type Range, type Region } from './region.js';
 import { defaultDevice } from './default-device.js';
+import { throwFailure } from '../core/submission.js';
 
 // ─── the layouts a generated class carries ───────────────────────────────────────────────────
 
@@ -113,6 +126,11 @@ class Core {
   #n = 0;
   /** The bytes the resource's value takes of its range, which is rounded up. */
   bytes: number;
+  /** Whether a call wrote the resource and the host has not read it back since (change 0138,
+   *  R2): the region does not hold what the device holds. */
+  ahead = false;
+  /** The device copy a call of a storage array uses (milestone 3), made at its first call. */
+  state: RegionState | undefined;
 
   constructor(region: Region, bytes: number, name: string, remedy: string, stride = 0) {
     this.region = region;
@@ -174,6 +192,15 @@ class Core {
     this.slot.range = next;
     this.bytes = bytes;
     this.markAll();
+  }
+
+  /** Throw when a call wrote the resource and the host has not read it back: `at` is what reads
+   *  it, `camera.pos.get()` (change 0138, R2). */
+  current(at: string): void {
+    if (this.ahead)
+      throw new TypeError(
+        `${at}: a call wrote ${this.name}, and its values are on the device until \`await ${this.name}.read()\` brings them back; get() reads the host's copy, which does not hold them yet.`,
+      );
   }
 
   /** Throw when the resource was freed: a freed range may be another resource's now. */
@@ -390,13 +417,15 @@ class Leaf {
       const lo = Math.fround(x - hi);
       const j = this.#l.k === 'v' ? i : 2 * i;
       const k = this.#l.k === 'v' ? ((this.#l as { lo?: number }).lo ?? 0) / 4 + i : j + 1;
-      if (Object.is(view[j], hi) && Object.is(view[k], lo)) return false;
+      if (!this.#core.ahead && Object.is(view[j], hi) && Object.is(view[k], lo)) return false;
       view[j] = hi;
       view[k] = lo;
       return true;
     }
     const j = this.#index(i);
-    if (Object.is(view[j], x)) return false;
+    // The region does not hold what a call wrote on the device, so a value equal to it may still
+    // differ from the device's: it is written and marked (change 0138, R2).
+    if (!this.#core.ahead && Object.is(view[j], x)) return false;
     view[j] = x;
     return true;
   }
@@ -443,6 +472,7 @@ class Leaf {
    *  region (Rule 4.4), so its `get` joins them: a number, or a new `Float64Array`. */
   get(): unknown {
     const view = this.#lanes();
+    this.#core.current(`${this.#path}.get()`);
     if (this.#t === 'f64') {
       if (this.#l.k === 's') return view[0]! + view[1]!;
       const out = new Float64Array(this.#count);
@@ -503,6 +533,7 @@ class ArrayField {
   get(): Typed {
     const core = this.#core;
     core.live();
+    core.current(`${this.#path}.get()`);
     const e = this.#l.e;
     if ((e.k !== 's' && e.k !== 'v') || e.t === 'f64')
       throw new TypeError(
@@ -954,15 +985,70 @@ class BufferRoot {
     );
   }
 
-  /** Every element, each an instance of the class. */
+  /** Every element, each an instance of the class. A read submits every call recorded before it
+   *  (change 0138, Amendment A5, Q4 and default 2), and waits for the calls that took the array;
+   *  what they wrote lands in the array's range of the region (R17). */
   read(): Promise<unknown[]> {
     const core = this.#core;
     this.#sized('read()');
-    const dv = new DataView(core.region.buffer, core.range.offset, core.range.size);
+    try {
+      throwFailure();
+    } catch (e) {
+      return Promise.reject(e);
+    }
+    kernelQueue.submit();
+    const state = core.state;
+    if (state === undefined)
+      return Promise.resolve(this.#decode(core.region.buffer, core.range.offset));
+    return (async () => {
+      // What the host set since the last call is the newest write: the device copy takes it first.
+      const last = captureOf(core, state, this.#length);
+      if (last !== undefined) await kernelQueue.run(async () => state.apply(last));
+      await kernelQueue.idle();
+      throwFailure();
+      if (state.error !== undefined) throw state.error;
+      await state.sync(true);
+      core.live();
+      const st = this.#l.st;
+      const bytes = state.length * st;
+      const back = new ArrayBuffer(Math.max(4, bytes));
+      pack(new DataView(back), 0, { ...this.#l, n: state.length }, state.host, '');
+      // A `set` made while the read waited is newer than the device's value: then the read lands
+      // nothing, and the array stays ahead of the region until a later read.
+      if (!core.dirty && state.length === this.#length) {
+        new Uint8Array(core.region.buffer, core.range.offset, bytes).set(
+          new Uint8Array(back, 0, bytes),
+        );
+        core.ahead = false;
+      }
+      return this.#decode(back, 0, state.length);
+    })();
+  }
+
+  /** Every element laid out at `offset` of `buffer`, each an instance of the class. */
+  #decode(buffer: ArrayBuffer, offset: number, length = this.#length): unknown[] {
+    const dv = new DataView(buffer, offset, length * this.#l.st);
     const out: unknown[] = [];
-    for (let i = 0; i < this.#length; i++)
+    for (let i = 0; i < length; i++)
       out.push(readValue(dv, i * this.#l.st, this.#l.e, this.#proto));
-    return Promise.resolve(out);
+    return out;
+  }
+
+  /** What a call takes for the array (change 0138, R2): the hidden handle of its device copy, the
+   *  values the call sees, copied now, and the element layout. `writes`: the call writes it. */
+  record(writes: boolean): RecordedBuffer {
+    const core = this.#core;
+    this.#sized('a call');
+    const state = (core.state ??= new RegionState(this.#l, this.#proto));
+    state.handle ??= handleOf(state);
+    const snapshot = captureOf(core, state, this.#length);
+    if (writes) core.ahead = true;
+    return {
+      handle: state.handle,
+      layout: this.#l,
+      name: core.name,
+      upload: snapshot === undefined ? undefined : () => state.apply(snapshot),
+    };
   }
 
   /** Give the array `length` elements: the ones that fit keep their values. */
@@ -1036,6 +1122,8 @@ class BufferRoot {
   }
   dispose(): void {
     dispose(this.#core);
+    // The device copy goes after the calls recorded before (`Resident.destroy()`).
+    this.#core.state?.handle?.destroy();
   }
 }
 
@@ -1075,6 +1163,7 @@ export function makeUniform(
   const core = new Core(region, l.u.sz, name, `uniform(${l.name})`);
   const root = new Root(core, 0, l.u, name);
   adopt(root, core);
+  uniformLayouts.set(root, l.u);
   if (init !== undefined) root.set(init);
   core.markAll();
   return root;
@@ -1260,3 +1349,138 @@ export function texture(options: {
     );
   return device.texture(options);
 }
+
+// ─── a call on a resource (change 0138, milestone 3) ─────────────────────────────────────────
+
+/** The values a call sees of a storage array (Amendment A5, default 3): every byte, when the device
+ *  copy has none of its own yet or another length, or only the dirty ranges. */
+type Snapshot =
+  | { readonly full: ArrayBuffer; readonly length: number }
+  | { readonly ranges: readonly (readonly [number, Uint8Array])[] };
+
+/** What a call takes for a storage array: the hidden handle of its device copy, which the call
+ *  layer runs as it runs a `Resident`, and the write of the values the call sees, run when the call
+ *  runs. Not API. */
+export interface RecordedBuffer {
+  readonly handle: object;
+  readonly layout: Layout & { readonly k: 'a' };
+  readonly name: string;
+  readonly upload: (() => void) | undefined;
+}
+
+/**
+ * The device copy of a storage array (change 0138, R2, R8): the state of a `Resident` whose host
+ * value is the CPU tier's array of elements and whose device buffer is WebGPU's, apart from the
+ * region, which is the host's. A call writes the values it sees into it ({@link apply}); a read
+ * brings it back into the region.
+ */
+class RegionState extends ResidentArrayState {
+  readonly layout: Layout & { readonly k: 'a' };
+  readonly proto: object;
+  /** How many elements the device copy holds. */
+  length = 0;
+  /** How many elements the last values copied out of the region for a call held, or -1 before
+   *  the first: what the device copy will hold once the calls recorded so far have run. */
+  captured = -1;
+  /** The hidden `Resident` handle the call layer takes. */
+  handle: ReturnType<typeof handleOf> | undefined;
+
+  constructor(layout: Layout & { readonly k: 'a' }, proto: object) {
+    super(undefined);
+    this.layout = layout;
+    this.proto = proto;
+  }
+
+  /** Write the values a call sees into the device copy: each dirty range of the region, as it
+   *  was at the call. On WebGPU, where the device's copy is the newer, each range is one
+   *  `writeBuffer` (R8); elsewhere each element the range holds is read into the CPU tier's
+   *  array, and a device buffer equal to it takes the same range. */
+  apply(s: Snapshot): void {
+    const st = this.layout.st;
+    const e = this.layout.e;
+    if ('full' in s) {
+      const dv = new DataView(s.full);
+      const host: unknown[] = [];
+      for (let i = 0; i < s.length; i++) host.push(readValue(dv, i * st, e, this.proto));
+      this.host = host;
+      this.length = s.length;
+      // The host copy is the newer; an upload of the whole array follows at the next WebGPU use.
+      this.fresh = 'host';
+      return;
+    }
+    const gpu = this.gpu;
+    const device = gpu !== undefined && this.fresh !== 'host';
+    if (device)
+      for (const [from, bytes] of s.ranges)
+        gpu.d.queue.writeBuffer(gpu.buffer, from, bytes.slice().buffer as ArrayBuffer);
+    if (this.fresh === 'device' && gpu !== undefined) return;
+    // The CPU tier's array takes each element the ranges hold.
+    const host = this.host as unknown[];
+    for (const [from, bytes] of s.ranges) {
+      const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      for (let at = 0; at + st <= bytes.byteLength; at += st)
+        host[(from + at) / st] = readValue(dv, at, e, this.proto);
+    }
+    const both = this.fresh === 'both' && device;
+    this.fresh = 'host';
+    // Set without moving the version back: the device buffer took the same ranges.
+    if (both) this.fresh = 'both';
+  }
+}
+
+/** The values a call of `core`'s storage array of `length` elements sees, copied out of the region
+ *  now, and the array marked clean; undefined when the device copy holds them already. */
+function captureOf(core: Core, state: RegionState, length: number): Snapshot | undefined {
+  core.live();
+  const region = core.region;
+  const offset = core.range.offset;
+  const bytes = length * state.layout.st;
+  if (state.captured !== length) {
+    state.captured = length;
+    const full = new Uint8Array(region.buffer, offset, bytes).slice().buffer as ArrayBuffer;
+    core.clean();
+    return { full, length };
+  }
+  if (!core.dirty) return undefined;
+  const ranges = core
+    .ranges()
+    .map(
+      ([from, to]) =>
+        [
+          from,
+          new Uint8Array(region.buffer, offset + from, Math.min(to, bytes) - from).slice(),
+        ] as const,
+    )
+    .filter(([, b]) => b.byteLength > 0);
+  core.clean();
+  return { ranges };
+}
+
+/** What a call takes for `v` when it is a resource (change 0138, R2): a uniform's value as it is
+ *  now, or a storage array recorded for the call; undefined for any other value. Not API: the call
+ *  layer reads it. */
+export function resourceOf(
+  v: unknown,
+):
+  | { readonly kind: 'uniform'; readonly name: string; value(): unknown }
+  | { readonly kind: 'buffer'; readonly name: string; record(writes: boolean): RecordedBuffer }
+  | undefined {
+  if (typeof v !== 'object' || v === null) return undefined;
+  const core = cores.get(v);
+  if (core === undefined) return undefined;
+  if (v instanceof BufferRoot)
+    return { kind: 'buffer', name: core.name, record: (w) => v.record(w) };
+  const layout = uniformLayouts.get(v);
+  if (layout === undefined) return undefined;
+  return {
+    kind: 'uniform',
+    name: core.name,
+    value: () => {
+      core.live();
+      return readValue(new DataView(core.region.buffer, core.range.offset, layout.sz), 0, layout);
+    },
+  };
+}
+
+/** The struct layout of each uniform, which a call reads its value by. */
+const uniformLayouts = new WeakMap<object, Layout & { k: 'o' }>();

@@ -19,6 +19,18 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **A call on a resource does not block** (change 0138, milestone 3, R2; Amendment A5). A kernel
+  function that returns nothing, or a `@compute` entry, called with a `Buffer` or a `Uniform`
+  (an exported binding among them) is recorded and returns nothing: `age(ps, dt)` then
+  `await ps.read()`. The runtime submits the recorded calls when the current microtask checkpoint
+  ends, at a `read()`, and before a call with plain data only. Each call sees the values of its
+  own call: a `set` between two calls reaches the second only. On WebGPU each dirty range of a
+  `Buffer` is one `writeBuffer`. A recorded call that fails throws at the next `read()` or call,
+  with the line of the call. Between a call that writes a `Buffer` and its `read()`, `get`
+  throws, since the host's copy does not hold what the device holds. A call with plain data
+  keeps its meaning. Not yet: a kernel that returns a value on a resource, `using device.use()`
+  for calls (R3), `show` and its back-pressure (Q14).
+
 - **An entry's I/O without what the compiler knows** (change 0135). A built-in value takes its
   type from WGSL: `vi: builtin<"vertex_index">` is a `u32`, and an option is the second
   argument, `builtin<"position", { invariant: true }>`. `builtin<"clip_distances", array<f32, N>>`

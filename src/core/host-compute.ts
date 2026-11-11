@@ -51,6 +51,8 @@ import { fuseSlot } from './fuse-scope.js';
 import { checkIncoming, type IncomingReads } from './host-failure.js';
 import { defaultOwner, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
+import { callSite, isResource, joinRecorded, recordArgument } from './host-record.js';
+import { throwFailure } from './submission.js';
 import { glContext } from './gl-context.js';
 import { runGlCompute, type GlComputeReport } from './gl-compute.js';
 import type { PlanRun } from './host-kernel.js';
@@ -302,20 +304,50 @@ export function callCompute(
     prepared = false;
     refusal = err;
   }
-  if (fuseSlot.active !== undefined)
+  const resources =
+    typeof bindings === 'object' && bindings !== null
+      ? e.bindings.filter((b) => isResource((bindings as Record<string, unknown>)[b.name]))
+      : [];
+  if (fuseSlot.active !== undefined) {
+    // A graph that takes resources is milestone 4's `fuse(fn)` (change 0138, R4).
+    if (resources.length > 0)
+      return Promise.reject(
+        new TypeError(
+          `${e.name}(): binding "${resources[0]!.name}" is a resource, which the body of today's fuse() does not record; call the entry outside it, or pass array(xs).`,
+        ),
+      );
     return fuseSlot.active.entry(cpu, e, argc, bindings, workgroups, entryHost, reads);
+  }
+  // A call on a resource does not block (change 0138, R2).
+  if (resources.length > 0) {
+    if (!prepared) throw refusal;
+    return recordCompute(
+      cpu,
+      e,
+      argc,
+      bindings as Record<string, unknown>,
+      workgroups,
+      reads,
+    ) as never;
+  }
+  // A recorded call that failed is thrown at the next call (Amendment A5, default 7).
+  try {
+    throwFailure();
+  } catch (err) {
+    return Promise.reject(err);
+  }
   const written: ResidentArrayState[] = [];
-  const resources: [string, CallOwner | undefined][] = [];
+  const owners: [string, CallOwner | undefined][] = [];
   let owner: CallOwner;
   try {
     if (typeof bindings === 'object' && bindings !== null)
       for (const b of e.bindings) {
         const value = (bindings as Record<string, unknown>)[b.name];
         const s = residentState(value);
-        resources.push([`binding "${b.name}"`, resourceOwner(value)]);
+        owners.push([`binding "${b.name}"`, resourceOwner(value)]);
         if (s !== undefined && isBuffer(b) && b.writes) written.push(s);
       }
-    resources.push([
+    owners.push([
       '"workgroups.indirect"',
       resourceOwner(
         typeof workgroups === 'object' && workgroups !== null && 'indirect' in workgroups
@@ -324,7 +356,7 @@ export function callCompute(
         `${e.name}(): "workgroups.indirect"`,
       ),
     ]);
-    owner = inferOwner(`${e.name}()`, resources);
+    owner = inferOwner(`${e.name}()`, owners);
   } catch (err) {
     return Promise.reject(err);
   }
@@ -340,6 +372,63 @@ export function callCompute(
     (err: unknown) => written.forEach((s) => (s.error = err)),
   );
   return call;
+}
+
+/**
+ * A call of a `@compute` entry whose bindings include a resource (change 0138, R2): checked now,
+ * recorded with the values it sees, and run once it is submitted. It returns nothing. A uniform
+ * binding takes a `Uniform` (an exported binding among them) by its value at the call; a storage
+ * array with no size takes a `Buffer` of its class.
+ *
+ * @throws `TypeError` naming the entry and the binding, now: for a written binding that is no
+ *   resource, and for a resource where the binding takes none; the error of an earlier recorded
+ *   call that failed (Amendment A5, default 7).
+ */
+function recordCompute(
+  cpu: GeneratedCpu,
+  e: ComputeEntry,
+  argc: number,
+  bindings: Record<string, unknown>,
+  workgroups: unknown,
+  reads: IncomingReads,
+): undefined {
+  // The generated module calls `callCompute` of `core/host-entry-program.ts`, which calls this.
+  const site = callSite(callCompute, 1);
+  throwFailure();
+  const uploads: (() => void)[] = [];
+  const mapped: Record<string, unknown> = { ...bindings };
+  for (const b of e.bindings) {
+    if (!(b.name in bindings)) continue;
+    const at = `${e.name}(): binding "${b.name}"`;
+    const buffer = isBuffer(b);
+    const unsized = buffer && b.layout.k === 'a' && b.layout.n === null;
+    const r = recordArgument(
+      at,
+      bindings[b.name],
+      unsized ? (b.layout as { st: number; e: unknown }) : undefined,
+      buffer && b.writes,
+      buffer,
+    );
+    if (r.upload !== undefined) uploads.push(r.upload);
+    mapped[b.name] = r.value;
+  }
+  const owner = inferOwner(
+    `${e.name}()`,
+    e.bindings.map((b): [string, CallOwner | undefined] => [
+      `binding "${b.name}"`,
+      resourceOwner(mapped[b.name]),
+    ]),
+  );
+  const written = e.bindings.flatMap((b) => {
+    const s = isBuffer(b) && b.writes ? residentState(mapped[b.name]) : undefined;
+    return s === undefined ? [] : [s];
+  });
+  joinRecorded(`${e.name}()`, site, uploads, written, async () => {
+    const checked = { ...checkEntryCall(e, argc, mapped, workgroups), owner };
+    checkIncoming(entryInputs(e, checked, reads));
+    await runEntry(cpu, e, checked, undefined);
+  });
+  return undefined;
 }
 
 /** What one tier of the call layer makes of an entry call (Rule 11.8): the reason it cannot run
