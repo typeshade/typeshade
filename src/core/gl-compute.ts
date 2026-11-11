@@ -59,6 +59,9 @@ import { atomicStep } from './scalar-arith.js';
 import { runPassesAsync, type PassInvocation } from './phase-schedule.js';
 import { byteSize, pack } from './host-entry.js';
 import { layoutFromPack } from './manifest-types.js';
+import { gpuDone } from './gl-fence.js';
+
+export { gpuDone };
 
 /** What a dispatch takes besides the program. */
 export interface GlComputeInput {
@@ -276,37 +279,6 @@ interface Rect {
   readonly x: number;
   readonly w: number;
   readonly h: number;
-}
-
-/** Give the page one turn. A `MessageChannel` message runs on the next task with no delay;
- *  a nested `setTimeout(0)` waits at least 4 ms, which a pass with several read-backs pays each
- *  time. */
-function yieldToPage(): Promise<void> {
-  return new Promise((settle) => {
-    const channel = new MessageChannel();
-    channel.port1.onmessage = () => {
-      channel.port1.close();
-      settle();
-    };
-    channel.port2.postMessage(undefined);
-  });
-}
-
-/** Settle once the GPU has run every command given to `gl` so far: a fence, polled while the host
- *  yields to the page. */
-export async function gpuDone(gl: WebGL2RenderingContext): Promise<void> {
-  const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
-  gl.flush();
-  for (;;) {
-    const state = gl.clientWaitSync(fence, 0, 0);
-    if (state === gl.ALREADY_SIGNALED || state === gl.CONDITION_SATISFIED) break;
-    if (state === gl.WAIT_FAILED) {
-      gl.deleteSync(fence);
-      throw new Error('typeshade/webgl2: a read-back fence failed (was the context lost?)');
-    }
-    await yieldToPage();
-  }
-  gl.deleteSync(fence);
 }
 
 /** A dispatch's pixel pack buffer, kept across its read-backs and grown when one needs more. */

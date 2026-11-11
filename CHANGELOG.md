@@ -19,6 +19,25 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **Data decides the device of a call** (change 0138, milestone 3, R3; Amendment A5, default 6).
+  `zeros()`, `array()` and `uniform()` make what they make on the device in use
+  (`using _ = (await createDevice(…)).use()`), or on the default owner when none is in use, and
+  it stays that device's after the block. A kernel call or an entry call runs on the device of its
+  resources; with none of a device (plain values, exported bindings) it runs on the device in use,
+  where it ran on the default owner before. A call that mixes devices is a `TypeError` at the
+  call that names both, and changes no `Buffer`. An exported binding belongs to no one device: a
+  storage array keeps a device copy for each device whose call reads it, and each copy takes
+  every dirty range the host set since its own last call. Between a call that writes an exported
+  binding and its `read()`, a call on another device is refused with a `TypeError` that says to
+  await `read()` first; a device disposed in that time lands the values first and drops its copy.
+  A `Uniform` joins a call on any device, since its value is copied at each call. On WebGL2 the end
+  of a submission of recorded calls flushes the context, and `read()` of what such a call wrote
+  waits on a fence (`core/gl-fence.ts`); a lost context ends the wait, since the values are on the
+  host already. A call with plain data places no flush and no fence. A draw keeps today's owner. Measured bundle budgets move
+  (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime` 166484 to 167177,
+  `typeshade/fuse` 113593 to 113898, `typeshade/algorithms` 64741 to 64878 and `typeshade/random`
+  46043 to 46200: the call layer each one carries settles a call's device at the call now.
+
 - **A call on a resource does not block** (change 0138, milestone 3, R2; Amendment A5). A kernel
   function that returns nothing, or a `@compute` entry, called with a `Buffer` or a `Uniform`
   (an exported binding among them) is checked at the call, recorded, and returns nothing:
