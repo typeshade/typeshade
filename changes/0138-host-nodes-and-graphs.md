@@ -1092,16 +1092,19 @@ Each was or is a difference between the accepted text (with A5 to A8) and `75f11
 
 **Open items from the reviews of #1238.**
 
-| Item                                                                                                                                                                                                                                                                                                                      | Source                                       | Next action                                                                                                                       |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| S3 has no unit test. Only the WebGL2 resource arm of `gate:differential` holds it.                                                                                                                                                                                                                                        | Second review, N-r1                          | A Node test with a WebGL2 stand-in tier. No pull request is assigned.                                                             |
-| A plain `Buffer` written on a WebGPU device and not read before `dispose()` of that device loses the write. Its `read()` then fails with an unclear error. This is code reading; it was not run on WebGPU.                                                                                                                | Second review, N-r2                          | Land owned `Buffer`s too, with a weak registry per owner. No pull request is assigned.                                            |
-| The module-level `exported` set of `src/runtime/resource.ts` holds every exported binding strongly. A module reload keeps old bindings alive.                                                                                                                                                                             | Second review, N-r3                          | None assigned. The review calls it minor.                                                                                         |
-| `use()` is one stack for each module instance, not one for each async task.                                                                                                                                                                                                                                               | First review, N1; the owner's decision above | The text pull request of slice 2b states it as a caution only. A stack for each task may come later; no pull request is assigned. |
-| Inside `use()` of a disposed device, `zeros()` succeeds, and each call on that `Buffer` fails later. `uniform()` also succeeds, and a call on the disposed device fails later. `array()` and `texture()` throw at once. #1238 did not fix it. Observed at `fbdb6cef`; the `uniform()` case at `75f114cb` is code reading. | First review, N2                             | Check that the device in use is usable when a resource takes its owner. No pull request is assigned.                              |
-| The `core/gl-fence.ts` row of `src/AGENTS.md` says that `read()` waits on `gpuDone`. The header of `src/core/gl-fence.ts` does not name `readFence` or its rule for a lost context. `read()` uses `readFence`, which ends the wait on a lost context.                                                                     | Second review, R-s2                          | A documentation fix, in the text pull request of slice 2b or in its own pull request.                                             |
-| The first sentence of the `CHANGELOG.md` entry of #1238 still lists `uniform()` among what belongs to the device in use.                                                                                                                                                                                                  | Second review, N-r4                          | A documentation fix, with the item above.                                                                                         |
-| The refusal table of surface §71 (`fuse`) has no row for the refusal of a call on a resource.                                                                                                                                                                                                                             | #1241, Open items                            | The owner decides whether a follow-up adds a row.                                                                                 |
+| Item                                                                                                                                                                                                                                 | Source                       | Next action                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- | ---------------------------------------------------------------------------------------------- |
+| The deprecation warning of `resident()` in `src/core/resident.ts` says that `array()` "makes the same Resident". Inside a `use()` block that is false: `array()` makes that device's (Q-c).                                          | #1247, Open items            | A later bug fix. No pull request is assigned.                                                  |
+| The error text at `src/core/host-kernel.ts:738` (D-i) says the call is "not available yet (change 0138, milestone 3)". The milestone is stale.                                                                                       | Review of A9                 | A later bug fix changes the text. No pull request is assigned.                                 |
+| N-r2, as in A8: a `Buffer` that is not exported, written on a WebGPU device and not read before `dispose()` of that device, loses the write. Code reading; not run on WebGPU.                                                        | Second review of #1238       | Land owned `Buffer`s too (A8). No pull request is assigned.                                    |
+| N2, as in A8: inside `use()` of a disposed device, `zeros()` and `uniform()` succeed, and the call fails later. `array()` and `texture()` throw at once. Observed at `fbdb6cef`; the `uniform()` case at `75f114cb` is code reading. | First review of #1238        | Check that the device in use is usable (A8). No pull request is assigned.                      |
+| N1: `use()` is one stack for each module instance, not one for each async task. #1247 states it as a caution only.                                                                                                                   | First review of #1238; A8    | A stack for each task may come later. No pull request is assigned.                             |
+| N-r4: the first sentence of the `CHANGELOG.md` entry of #1238 still lists `uniform()` among what the device in use makes. #1247 edited the entry and left the sentence.                                                              | Second review of #1238       | A documentation fix. No pull request is assigned.                                              |
+| The refusal table of surface §71 (`fuse`) has no row for the refusal of a call on a resource.                                                                                                                                        | #1241, Open items; A8        | The owner decides whether a follow-up adds a row.                                              |
+| A7's five deferred questions.                                                                                                                                                                                                        | A7                           | As in A7: ask the owner again before a slice that changes the behavior. Question 1 is near Q2. |
+| S3 of #1238 has no unit test. Only the WebGL2 resource arm of `gate:differential` holds it.                                                                                                                                          | Second review of #1238, N-r1 | A Node test with a WebGL2 stand-in tier. No pull request is assigned.                          |
+| A `read()` or a `show` inside a `fuse(fn)` trace.                                                                                                                                                                                    | A5, Open (milestone 4)       | Ask the owner before milestone 4 starts.                                                       |
+| A `show` into a texture.                                                                                                                                                                                                             | A5, Open (milestone 5)       | Ask the owner before milestone 5 starts.                                                       |
 
 - [fact] Unchanged and open:
   1. A7's five deferred questions.
@@ -1113,7 +1116,7 @@ Each was or is a difference between the accepted text (with A5 to A8) and `75f11
   D-g and D-h. No front-matter entry changes.
 - Status: `status: accepted` does not change.
 
-### A9. Slice 2c moves to milestone 5; milestone 3 is done; what comes next; Q1, Q2 and Q16 (2026-11-11)
+### A9. Slice 2c moves to milestone 5; the slices of milestone 3; what comes next; Q1, Q2 and Q16 (2026-11-11)
 
 - [fact] Why. Pull request [#1247](https://github.com/typeshade/typeshade/pull/1247), merged as
   `42550b11`, is the text pull request of slice 2b. After it, the only slice of milestone 3 not
@@ -1131,8 +1134,10 @@ Each was or is a difference between the accepted text (with A5 to A8) and `75f11
   3. Q5 and Q15 are questions of milestone 5 (the approval record's table).
   4. Slice 2c in milestone 3 was the agent's plan. A7 records that the owner was not asked about
      the slices as a separate question.
-- Cost recorded: no back-pressure until milestone 5. A `requestAnimationFrame` loop of calls on
-  resources can queue frames faster than the GPU runs them until then.
+  5. The Draft impact estimate already lists `show` under milestone 5 (Rendering).
+- Cost recorded: no back-pressure until milestone 5.
+- [inference, agent] Until then, a `requestAnimationFrame` loop of calls on resources can queue
+  frames faster than the GPU runs them (Q14).
 - [fact] The owner's decisions on Q4 and Q14 in A5 stay as they are. This decision moves only
   the slice that carries out Q14 and the `show` part of Q4.
 - [inference, agent] Milestone 5 carries out the held submission of Q14 and the submission at
@@ -1141,8 +1146,8 @@ Each was or is a difference between the accepted text (with A5 to A8) and `75f11
 
 **The questions of slice 2c, for milestone 5.**
 
-The agent found these questions while it planned slice 2c. Each is asked of the owner before
-milestone 5 starts, with Q3, Q5 and Q15.
+The agent found these questions while it planned slice 2c. [proposal, agent] Ask each of the owner
+before milestone 5 starts, with Q3, Q5 and Q15. Q-3 is near Q15, and Q-4 is near Q5.
 
 | No. | Question                                                                                                                                   | Status |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
@@ -1168,27 +1173,32 @@ A8's table. A7's and A8's text stays as it is.
 - [fact] Pull request [#1241](https://github.com/typeshade/typeshade/pull/1241), merged as
   `d61fbca2`, is a bug fix, not a slice (A8). A call on a resource in a `fuse` body throws at the
   call.
-- [fact] With 2c moved, the implementation of milestone 3 is done at `main` `42550b11`. The
-  deviations and the open items below stay open.
-- [fact] #1247's body records its checks. The owner approved its Doorstop review and said
-  "merge" on 2026-11-11. CI passed 26 of 26 checks on its head `b3440465`.
+- [fact] At `main` `42550b11`, every slice of A7's plan is done or moved (the owner's option).
+  The option called milestone 3 done.
+- [fact] R2's "GPU nodes return resources", which the Draft impact estimate lists under
+  milestone 3, is not carried out for a kernel that returns a value. That gap is deviation D-i
+  below. The deviations and the open items below stay open.
+- [fact] #1247's body records its checks and quotes the owner's approval of its Doorstop review:
+  "승인, PR 열고 A8 뒤 머지 질문". The owner said "merge" in the conversation on 2026-11-11. CI
+  passed 26 of 26 checks on its head `b3440465`.
 
-**The deviations after milestone 3.**
+**The deviations at `42550b11`.**
 
 Each is a difference between the accepted text (with A5 to A9) and `42550b11`.
 
-| ID  | Disposition                             | Next action                                                                                                                      |
-| --- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| D-a | open, unchanged                         | One `GPUQueue.submit` for each submission. No slice is assigned.                                                                 |
-| D-b | open, unchanged                         | Upload a uniform's dirty range, as a `Buffer` does. Then a `Uniform` needs one copy for each device, and R3 is revisited (A8).   |
-| D-c | open, the remainder that A8 records     | Move the WebGL2 read back out of the call to `read()`. [proposal, agent] Place the fence at the end of the submission. No slice. |
-| D-d | closed by #1238 (A8)                    | None.                                                                                                                            |
-| D-e | closed by #1247 (for slice 2a by #1240) | None.                                                                                                                            |
-| D-f | open, unchanged                         | The owner decides whether A5 Q4 is read as "the next task", by an amendment, or whether it stays open.                           |
-| D-g | open, unchanged                         | A separate overload for a call on a resource. No slice is assigned.                                                              |
-| D-h | open, unchanged                         | `fuse()`: milestone 4 (the owner's option, A8). A draw: milestone 5 ([proposal, agent], A8).                                     |
+| ID  | Deviation                                                                                                                                                                                                                                                                                       | Disposition                                            | Next action                                                                                                                                           |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-a | As in A7: one `GPUQueue.submit` for each call on WebGPU.                                                                                                                                                                                                                                        | open, unchanged                                        | One `GPUQueue.submit` for each submission. No slice is assigned.                                                                                      |
+| D-b | As in A7: a `Uniform` is packed again at each call.                                                                                                                                                                                                                                             | open, unchanged                                        | Upload a uniform's dirty range, as a `Buffer` does. Then a `Uniform` needs one copy for each device (A8, Q-a). [proposal, agent, A8] R3 is revisited. |
+| D-c | As in A8: the WebGL2 read back is inside the call, and the fence is made at `read()`.                                                                                                                                                                                                           | open, the remainder that A8 records                    | Move the WebGL2 read back out of the call to `read()`. [proposal, agent] Place the fence at the end of the submission. No slice.                      |
+| D-d | As in A7.                                                                                                                                                                                                                                                                                       | closed by #1238 (A8)                                   | None.                                                                                                                                                 |
+| D-e | Rule and surface sentences that #1238 made false. A8's list is fixed by #1247. The remainder: `docs/use-typeshade-surface.md:9044` (§65), "Plain host values select no owner; a call without an owned resource uses the default owner." Since #1238 such a call runs on the device in use (R3). | open (narrowed by #1247; closed for slice 2a by #1240) | The next text pull request. No pull request is assigned.                                                                                              |
+| D-f | As in A7: the submission comes in the next task.                                                                                                                                                                                                                                                | open, unchanged                                        | The owner decides whether A5 Q4 is read as "the next task", by an amendment, or whether it stays open.                                                |
+| D-g | As in A7: the overload that only queues types a held length beside a `Buffer`.                                                                                                                                                                                                                  | open, unchanged                                        | A separate overload for a call on a resource. No slice is assigned.                                                                                   |
+| D-h | As in A8: a draw and a default `fuse()` keep the default owner.                                                                                                                                                                                                                                 | open, unchanged                                        | `fuse()`: milestone 4 (the owner's option, A8). A draw: milestone 5 ([proposal, agent], A8).                                                          |
+| D-i | R2: a kernel function called on a resource that returns a value does not return a resource. The call throws a `TypeError` (`src/core/host-kernel.ts:738`).                                                                                                                                      | open (new)                                             | Milestone 4, under Q2 and A7's deferred question 1. [inference, agent] This follows from A7's "Q2 is milestone 4".                                    |
 
-**Open items after milestone 3.**
+**Open items at `42550b11`.**
 
 | Item                                                                                                                                                                                        | Source                       | Next action                                                                                    |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -1202,22 +1212,24 @@ Each is a difference between the accepted text (with A5 to A9) and `42550b11`.
 
 - [fact] #1247 closed A8's item R-s2: the `core/gl-fence.ts` row of `src/AGENTS.md` and the
   header of `src/core/gl-fence.ts` now name `readFence` and its rule for a lost context.
-- [fact] Unchanged and open, as in A8: N-r3, N-r4, the first review's N4, and A7's open item on
-  proposal 0042's row "A resource on a CPU tier". #1247 edited the `CHANGELOG.md` entry of N-r4;
-  its first sentence still lists `uniform()` among what the device in use makes.
+- [fact] These stay open, as in A8: N-r3 and the first review's N4. A7's open item on proposal
+  0042's row "A resource on a CPU tier" stays open too.
 
 **Decision: what comes next.**
 
 - [decision, owner, 2026-11-11] Asked what comes after milestone 3, the owner chose:
   "A9 + 사이트 핀 이동 + M4 질문 (추천)"
-  (this amendment, then move the site's pin, then the questions before milestone 4; recommended).
-- [fact] The order is:
-  1. This amendment, A9.
-  2. Move the compiler pin of typeshade.github.io. The downstream work of this proposal for that
-     repository applies there (What it owes downstream).
-  3. Ask the owner Q1, Q2 and Q16, the questions of milestone 4 (the approval record's table),
-     before milestone 4 starts.
-- [fact] The owner answered Q1, Q2 and Q16 in the conversation on 2026-11-11, below.
+  (A9, the site pin move and the milestone 4 questions; recommended).
+  - [fact] The option's description named three parts: this amendment; a move of the site's
+    compiler pin to `42550b11` in a pull request of `typeshade/web`, "merge and deploy asked";
+    and Q1, Q2 and Q16 for milestone 4. The label gives no order.
+- The parts, with their status at this amendment:
+
+| Part        | What it is                                                                                      | Status                                           |
+| ----------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| A9          | This amendment.                                                                                 | in progress: #1248                               |
+| Site pin    | Move the compiler pin of `typeshade/web` to `42550b11`. The owner is asked to merge and deploy. | in progress: typeshade/web#61                    |
+| Q1, Q2, Q16 | The questions of milestone 4 (the approval record's table).                                     | decided: the owner answered on 2026-11-11, below |
 
 **Before milestone 4: Q1, Q2 and Q16.**
 
@@ -1234,10 +1246,12 @@ Each is a difference between the accepted text (with A5 to A9) and `42550b11`.
   "반환값 + in-place (추천)"
   (the return value and in-place; recommended).
   - A kernel's result is its return value and its in-place parameter (Rule 8.23).
+  - The option also said: "a result can also be returned as a resource" and "Rule 8.23 and
+    existing code stay".
   - Cost recorded: two ways to give an output, and the graph tracks both.
-  - [inference, agent] This sets the direction of A7's deferred question 1: a kernel function
-    that returns a value and takes a resource returns a resource (R2). The status of question 1
-    stays open until the owner closes it.
+  - [inference, agent] The decided words set the direction of A7's deferred question 1. A kernel
+    function that returns a value and takes a resource returns a resource (R2). Question 1 stays
+    open until the owner closes it.
 - [decision, owner, 2026-11-11] Q16, asked what "run apart" means for the new graph features of
   milestone 4, the owner chose:
   "호출 순서대로 하나씩 (추천)"
@@ -1247,11 +1261,12 @@ Each is a difference between the accepted text (with A5 to A9) and `42550b11`.
   - An in-place update (R14) gives the bits of a copy first, then the write.
   - Cost recorded: the planner may not make an optimization that breaks this baseline.
   - Open under Q16: the condition node (milestone 6) and `show` into a canvas (milestone 5).
-- [fact] With these answers, the questions of milestone 4 in the approval record's table (Q1, Q2
-  and Q16) are decided. The parts of Q1 and Q16 named above stay open.
-- Affects: milestone 3's plan (the slice tables of A7 and A8), milestone 5's scope (slice 2c and
-  questions Q-1 to Q-5), the dispositions of D-e and R-s2, Q1, Q2, Q16 (for milestone 4), R4,
-  R14 and A7's deferred question 1 (direction only). No rule and no front-matter entry changes.
+- [fact] The questions of milestone 4 in the approval record's table (Q1, Q2 and Q16) are
+  decided. A5's open item for milestone 4 stays open: a `read()` or a `show` inside a `fuse(fn)`
+  trace. The parts of Q1 and Q16 named above stay open too.
+- Affects: milestone 3's plan (the slice tables of A7 and A8) and milestone 5's scope (slice 2c,
+  Q-1 to Q-5, and the delivery of Q14). It also affects D-e, D-i, R-s2, Q1, Q2, Q16, R4 and R14.
+  It sets the direction of A7's deferred question 1. No rule and no front-matter entry changes.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
