@@ -18,6 +18,8 @@ import { Region } from './region.js';
 import {
   array,
   dirtyRange,
+  dirtyRanges,
+  DIRTY_RANGE_LIMIT,
   makeBuffer,
   makeUniform,
   markClean,
@@ -237,10 +239,14 @@ describe('a storage array (R9)', () => {
     expect(ps.length).toBe(3);
     markClean(ps);
     ps.at(1).vel.set(1, 2, 3);
-    // Element 1's vel: its stride is 32 bytes and vel is at 16.
-    expect(dirtyRange(ps)).toMatchObject({ from: 48, to: 60 });
+    // A storage array keeps a dirty range for each element written (R9; Amendment A5, D2):
+    // element 1's vel marks element 1, whose stride is 32 bytes.
+    expect(dirtyRange(ps)).toMatchObject({ from: 32, to: 64 });
+    expect(dirtyRanges(ps)).toEqual([[32, 64]]);
     ps.at(2).set({ life: 4 });
-    expect(dirtyRange(ps)).toMatchObject({ from: 48, to: 96 });
+    // Element 2 touches element 1's range, so the two are one range.
+    expect(dirtyRanges(ps)).toEqual([[32, 96]]);
+    expect(dirtyRange(ps)).toMatchObject({ from: 32, to: 96 });
     const read = await ps.read();
     expect(read).toHaveLength(3);
     expect(read[1]).toBeInstanceOf(Particle);
@@ -255,6 +261,69 @@ describe('a storage array (R9)', () => {
       { life: 1, pos: [0, 0, 0] },
       { life: 0, pos: [1, 1, 1] },
     ]);
+  });
+
+  it('keeps a dirty range for each element written, joined past the limit (D2)', async () => {
+    const { Particle } = (await load()) as { Particle: new () => object };
+    const region = new Region();
+    const n = 4 * DIRTY_RANGE_LIMIT;
+    const ps = makeBuffer(region, Particle, n, undefined, 'zeros()') as Buffer<{ life: number }>;
+    // A new array is dirty over its whole range, as one range.
+    expect(dirtyRanges(ps)).toEqual([[0, 32 * n]]);
+    markClean(ps);
+    expect(dirtyRanges(ps)).toEqual([]);
+    expect(dirtyRange(ps)).toBeUndefined();
+    // Elements apart are ranges apart, sorted, whatever the order of the writes.
+    ps.at(6).life.set(1);
+    ps.at(2).life.set(1);
+    ps.at(4).life.set(1);
+    expect(dirtyRanges(ps)).toEqual([
+      [64, 96],
+      [128, 160],
+      [192, 224],
+    ]);
+    // A write that changes nothing marks nothing (R8).
+    ps.at(10).life.set(0);
+    expect(dirtyRanges(ps)).toHaveLength(3);
+    // Element 3 touches 2 and 4: the three are one range. Element 5 joins it to 6.
+    ps.at(3).life.set(1);
+    ps.at(5).life.set(1);
+    expect(dirtyRanges(ps)).toEqual([[64, 224]]);
+    // Up to the limit, each element apart keeps its range.
+    markClean(ps);
+    for (let i = 0; i < DIRTY_RANGE_LIMIT; i++) ps.at(2 * i).life.set(2);
+    expect(dirtyRanges(ps)).toHaveLength(DIRTY_RANGE_LIMIT);
+    expect(dirtyRanges(ps)[DIRTY_RANGE_LIMIT - 1]).toEqual([
+      64 * (DIRTY_RANGE_LIMIT - 1),
+      64 * (DIRTY_RANGE_LIMIT - 1) + 32,
+    ]);
+    // One more is past the limit: every range is joined into one, from the first to the last.
+    ps.at(n - 1).life.set(2);
+    expect(dirtyRanges(ps)).toEqual([[0, 32 * n]]);
+    ps.at(1).life.set(3);
+    expect(dirtyRanges(ps)).toEqual([[0, 32 * n]]);
+    // `needsUpdate` marks the whole array, as one range, and a resize does the same.
+    markClean(ps);
+    ps.needsUpdate = true;
+    expect(dirtyRanges(ps)).toEqual([[0, 32 * n]]);
+    ps.needsUpdate = false;
+    expect(dirtyRanges(ps)).toEqual([]);
+    ps.at(0).life.set(9);
+    ps.resize(2);
+    expect(dirtyRanges(ps)).toEqual([[0, 64]]);
+  });
+
+  it('a uniform keeps one dirty range, widened (R8)', async () => {
+    const { Camera } = (await load()) as { Camera: new () => object };
+    const cam = makeUniform(new Region(), Camera, undefined) as Uniform<{
+      pos: readonly [number, number, number];
+      count: number;
+    }>;
+    markClean(cam);
+    cam.pos.set(1, 0, 0);
+    cam.count.set(3);
+    expect(dirtyRanges(cam)).toHaveLength(1);
+    expect(dirtyRanges(cam)[0]![0]).toBe(0);
   });
 
   it('the public functions use the one global region', async () => {

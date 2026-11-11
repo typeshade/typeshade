@@ -62,12 +62,17 @@ export function collectBindings(
   // 7.10, change 0093), read by `fromType` and `fromCall` below.
   structsHere = (n) => byName.get(n);
   let next = firstBinding;
+  // The names the file exports by a list, `export { camera }`, and each exported binding with the
+  // node its diagnostics stand on (change 0138, Amendment A5, D3).
+  const listed = exportedByList(sourceFile);
+  const exported = new Map<BindingDecl, ts.Node>();
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
     const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
     const isLet = (stmt.declarationList.flags & ts.NodeFlags.Let) !== 0;
     if (!isConst && !isLet) continue;
     const declared = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false;
+    const isExported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
     for (const decl of stmt.declarationList.declarations) {
       if (!ts.isIdentifier(decl.name)) continue;
       if (decl.initializer && isResourceCall(decl.initializer)) {
@@ -82,6 +87,7 @@ export function collectBindings(
         if (b) {
           checkHostShareable(b, byName, sourceFile, decl, diagnostics);
           out.push(b);
+          if (isExported || listed.has(b.name)) exported.set(b, decl);
           recordDeclaration(symbols, sourceFile, decl.name, {
             name: b.name,
             kind: 'binding',
@@ -112,6 +118,7 @@ export function collectBindings(
         if (b) {
           checkHostShareable(b, byName, sourceFile, decl.type, diagnostics);
           out.push(b);
+          if (isExported || listed.has(b.name)) exported.set(b, decl.type);
           recordDeclaration(symbols, sourceFile, decl.name, {
             name: b.name,
             kind: 'binding',
@@ -164,7 +171,84 @@ export function collectBindings(
       );
     } else seen.set(key, b.name);
   }
+  for (const [b, node] of exported)
+    if (out.includes(b)) refuseReservedFields(b, byName, sourceFile, node, diagnostics);
   return out;
+}
+
+/** The local names a file exports by a list with no module, `export { camera, ps as all }`. */
+function exportedByList(sourceFile: ts.SourceFile): Set<string> {
+  const out = new Set<string>();
+  for (const stmt of sourceFile.statements)
+    if (
+      ts.isExportDeclaration(stmt) &&
+      stmt.moduleSpecifier === undefined &&
+      stmt.exportClause !== undefined &&
+      ts.isNamedExports(stmt.exportClause)
+    )
+      for (const el of stmt.exportClause.elements) out.add((el.propertyName ?? el.name).text);
+  return out;
+}
+
+/** The names a host accessor holds of its own (change 0138, R7 and R8; `STRUCT_OWN` and
+ *  `ROOT_OWN` in `src/runtime/resource.ts`): `set` on every struct, and `needsUpdate` and
+ *  `dispose` on the struct of a uniform itself. */
+const ACCESSOR_OWN = ['set'];
+const UNIFORM_OWN = ['set', 'needsUpdate', 'dispose'];
+
+/** Refuse a field of an exported binding's struct that has the name of a member of its host
+ *  accessor (`TS8079`, Rule 6.1, change 0138, Amendment A5, D3). The host reaches a field as a
+ *  property of the accessor (`camera.pos.set(…)`), so a field named `set`, or `needsUpdate` or
+ *  `dispose` on a uniform's struct, has no accessor; the runtime refuses the class with a
+ *  `TypeError` when it makes the resource, and this says so where the author writes it. Only the
+ *  shapes that are host resources are read (`resourceFaces` in `host-face.ts`): a uniform of a
+ *  struct, and a storage array of structs whose size is no override. A struct this file did not
+ *  collect is skipped. */
+function refuseReservedFields(
+  binding: BindingDecl,
+  structs: ReadonlyMap<string, StructDecl>,
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  const t = binding.type;
+  let root: ShaderType;
+  let resource: string;
+  if (binding.space === 'uniform' && t.kind === 'struct') {
+    root = t;
+    resource = 'Uniform';
+  } else if (
+    binding.space === 'storage' &&
+    t.kind === 'array' &&
+    t.elem.kind === 'struct' &&
+    t.sizeOverride === undefined
+  ) {
+    root = t.elem;
+    resource = 'Buffer';
+  } else return;
+  const host = `${resource}<${authorTypeText(root)}>`;
+  const seen = new Set<string>();
+  const walk = (s: ShaderType, own: readonly string[]): void => {
+    if (s.kind === 'array') return walk(s.elem, ACCESSOR_OWN);
+    if (s.kind !== 'struct' || seen.has(s.name)) return;
+    seen.add(s.name);
+    const decl = structs.get(s.name);
+    if (decl === undefined) return;
+    const shown = authorTypeText(s);
+    for (const f of decl.fields) {
+      if (own.includes(f.name))
+        diagnostics.push(
+          makeDiagnostic(
+            sourceFile,
+            node,
+            `"${shown}.${f.name}" is named like the host accessor's own ${f.name === 'needsUpdate' ? 'property' : 'method'} "${f.name}": "${binding.name}" is a binding the module exports, a ${host} in the host, whose fields are properties of that accessor. Rename the field (Rule 6.1).`,
+            TS_CODES.HOST_RESERVED_FIELD,
+          ),
+        );
+      else walk(f.type, ACCESSOR_OWN);
+    }
+  };
+  walk(root, resource === 'Uniform' ? UNIFORM_OWN : ACCESSOR_OWN);
 }
 
 /** The structs of the file being collected, set by {@link collectBindings}. */

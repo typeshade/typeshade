@@ -103,6 +103,21 @@ init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` o
   initial 45,353 to 45,961 and split total 166,395 to 167,003. The floors and the other caps do
   not change.
 
+- **Host resources before non-blocking calls** (change 0138, milestone 3, Amendment A5, D1 to
+  D7). A field of the class of an exported binding named like a member of its host accessor is
+  refused with the new code `TS8079`, in the compiler and in the editor with the same text:
+  `set` on the class and on every struct it holds, and `needsUpdate` or `dispose` on the class of
+  an exported `uniform<T>`. The host's editor reports `TS8079` in the text of the type error on
+  `uniform(Class)`, `zeros(Class, n)` and `array(Class, data)` for such a class, and the runtime
+  keeps its `TypeError`. A storage array keeps a dirty range for each element written, joined
+  when two touch, and joined into one past 16 ranges; a uniform keeps its one widened range. The
+  types of `Uniform` and `Buffer` declare `[Symbol.dispose]` where the host's `lib` has
+  `Symbol.dispose`, so `using u = uniform(Camera)` type-checks. An exported binding's type has
+  no `dispose()`: the view declares `Omit<Uniform<Camera>, 'dispose' | keyof Disposable>`.
+  `HostExport` has the kind `resource`, so `HostFace.exports` reports an exported binding with
+  its class and length, not as `never`. A scalar field's `get()` returns its number (an `f64`
+  its joined number) and a vector, matrix or array field its `Readonly` view, as before.
+
 - **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
   `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
   fused locals and CPU or WebGL2 plans report zero. Older reports may omit the member;
