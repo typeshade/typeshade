@@ -3186,6 +3186,77 @@ this amendment.
   kind, a union read type and `set` on an open element); A11's slice status table.
 - Status: `status: accepted` does not change.
 
+### A13. Slice 1: an `f64` place, a `Record` in an `array<S, N>` result, and Q8 item 2 (2026-11-11)
+
+- [fact] Why. #1257 implements A12 at head `da043f1d`. Its implementation found three points that
+  A12 does not decide. The owner answered each on 2026-11-11, in the conversation. This amendment
+  records the answers and the deviations they make.
+- [fact] Baseline: `main` at `29f62fe7` (#1265, Amendment A12).
+- [fact] This amendment changes no front matter, no rule text of `docs/language-design.md` and no
+  code. #1257 changes its rule and surface text in its own commits.
+
+**Decision 1. An `f64` place fixes the element of a `Buffer<number>` to `f64`.**
+
+- [fact] At `da043f1d`, a `Buffer<number>` whose first use is an `f64` place is refused at that call
+  with a `TypeError`, and the element stays open (Rule 8.21 in #1257: "an `f64` place fixes nothing
+  and refuses it"). The editor accepts the call, because `number` fits `f64`. Example:
+  `sum64(array([1]))`, where `sum64` takes an `array<f64>`.
+- [fact] A12 decision 3 lists the places that fix the element. The list has no `f64` place. A12 Q8
+  types `read()` of a `Buffer<number>` as `Float32Array | Int32Array | Uint32Array`.
+- [fact] OD-7 says that a number's type is inferred from its uses.
+- [decision, owner, 2026-11-11] The owner picked the recommended option in the question UI: "f64
+  자리가 f64로 고정 (추천)". The record has no other words.
+- What it means:
+  1. An `f64` place fixes the element to `f64`: an `array<f64>` parameter, and an `f64` number or
+     vector parameter. The checks, Q10, D2 and D5 of A12 apply to it as to every other place.
+  2. A12 Q8 item 4 becomes: `read()` of a `Buffer<number>` is typed
+     `Float32Array | Int32Array | Uint32Array | Float64Array`.
+  3. [inference, agent] Q9 says what `read()` gives before the first use. It does not say that the
+     numbers are kept rounded. An `f64` use gets the numbers the author wrote, not ones rounded to
+     `f32`. #1257 states how it keeps them.
+  4. Rule 12.7: #1257 tests the `f64` place on both halves on the same source.
+
+**Decision 2. A `Record` field in the struct of an `array<S, N>` result stays refused (D-p, open).**
+
+- [fact] At `da043f1d`, a call on a resource whose result is an `array<S, N>` and whose `S` holds a
+  `Record` field is refused at the call with a `TypeError`, on both halves. A12's list of kinds that
+  stay refused does not name it.
+- [decision, owner, 2026-11-11] The owner picked the recommended option in the question UI: "거부
+  유지, 편차로 기록 (추천)". The record has no other words.
+- [fact] Deviation D-p: open. The author calls such a function with plain data and awaits it. No
+  slice is assigned to close it.
+
+**Decision 3. A12 Q8 item 2 is not spelled in the host view (D-q, closed by this amendment).**
+
+- [fact] A12 Q8 item 2 says that `Buffer<number>` joins each parameter type that takes a
+  `Buffer<f32>`, `Buffer<i32>` or `Buffer<u32>`. At `da043f1d`, the host view does not write
+  `| Buffer<number>`.
+- [fact] Measured by the agent that implemented #1257: TypeScript already accepts a `Buffer<number>`
+  in those places. Writing the union lets a `Buffer<i32>` pass where a `Buffer<f32>` is taken.
+- [decision, owner, 2026-11-11] The owner picked the recommended option in the question UI: "적지
+  않음, 편차로 기록 (추천)". The record has no other words.
+- What it means: A12 Q8 item 2 becomes: a `Buffer<number>` passes in each of those places, and the
+  host view does not write the union. Deviation D-q is closed: this amendment makes it part of the
+  approved text.
+
+**Open items.**
+
+| Item                                                                | Source     | Next action                                                    |
+| ------------------------------------------------------------------- | ---------- | -------------------------------------------------------------- |
+| D-p: a `Record` field in the struct of an `array<S, N>` result.     | Decision 2 | Open. No slice is assigned. Ask the owner when one is planned. |
+| The `f64` place of decision 1 in #1257's code, tests and rule text. | Decision 1 | #1257 implements it before its merge.                          |
+| D-l, D-m and the other open items of A12.                           | A12        | Unchanged.                                                     |
+
+**Open, owner must settle.**
+
+- [fact] Nothing for A13's own decisions.
+- [inference, agent] No decision of this amendment conflicts with an entry of
+  `docs/owner-decisions.md` (OD-1 to OD-8). Decision 1 follows OD-7.
+
+- Affects: A12 decision 3 (the places that fix the element) and Q8 items 2 and 4; A12's list of kinds
+  that stay refused (D-p).
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground
