@@ -48,6 +48,13 @@ Both fp64 flavors must run on WebGPU and WebGL2, with no WebGL2 skip. The CPU or
 the same cases. Normal-range results use a tolerance of `1e-12`; workgroup-tail elements
 must keep their initial zero. The packed harness also checks the compiler and language service.
 
+`untyped-constants/` checks a `const` of a written number at the type and the exact value of
+each read, against a plain-JavaScript reference (change 0134 item 2). An integer run reads
+`2654435761`, `16777217` and `-16777219` through a conversion, beside a `u32` and from a static
+field, each a value `f32` does not hold, with tolerance 0. A double run reads `const C = 0.1`,
+`K / 3` and `const M = K / 3` beside an `f64` with tolerance `1e-12`, which their `f32`
+roundings do not meet, on WebGPU, on WebGL2 (required) and on the CPU oracle.
+
 ## A journey
 
 The import journey also checks private kernel input projection (change 0082): helper reads

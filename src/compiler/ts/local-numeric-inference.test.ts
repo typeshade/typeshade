@@ -28,9 +28,18 @@ describe('integer locals constrained by declared contexts', () => {
     expect(result.eval!('run')).toBe(1);
   });
   it('uses an unsigned demand', () => {
-    const source = `"use typeshade"; function g(n: u32): u32 {return n;} export function run(): u32 {const n=3; return g(n);}`;
+    const source = `"use typeshade"; function g(n: u32): u32 {return n;} export function run(): u32 {let n=3; return g(n);}`;
     expect(compileTsSource(source).diagnostics).toEqual([]);
     expect(localType(source, 'n')).toBe('u32');
+  });
+  it('gives a const no type of its own: the read takes the unsigned type (change 0134)', () => {
+    // A function-local `const` of a written number left this inference: it is a constant of no
+    // fixed type, and each read takes the type the written number would take there.
+    const source = `"use typeshade"; function g(n: u32): u32 {return n;} export function run(): u32 {const n=3; return g(n);}`;
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.wgsl).toContain('return g(3u);');
+    expect(result.eval!('run')).toBe(3);
   });
   it.each([
     ['a(n);', 'b(n);'],

@@ -1041,6 +1041,38 @@ export function pick(i: i32): vec4 {
 }
 ```
 
+**A constant of a written number has no fixed type** (Rules 5.1 and 5.2, change 0134). A
+`const` with no annotation whose initializer is written numbers, or `+`, `-`, `*` and `/` over
+written numbers and such constants, takes its type where it is read. An integer-written one is
+an `i32`, a `u32`, an `f32` or an `f64` at each read. A float-written one (`const C = 0.1`) is
+an `f32` or an `f64`. Each read takes the type the written number would take in the same place:
+
+```ts
+"use typeshade";
+
+const K = 3;
+const N = 8;
+const C = 0.1;
+const M = K * 2; // a constant of no fixed type too; its value is ECMAScript's, 6
+
+export function sum(vi: u32, x: f32, d: f64, xs: array<f32, 8>): f32 {
+  let a = 0.;
+  for (let j = 0; j < N; j++) {
+    a += xs[j]; // N is an i32 beside j
+  }
+  const n = vi * K + u32(M); // K is 3u here; u32(M) converts the written number, 6u
+  return a + x * K + f32(d * C) + f32(n); // K is an f32 here; C carries the full double
+}
+```
+
+The emitted text keeps the declaration `const K: f32 = 3.0;`, and a read that takes `f32`
+names it. A read of another type writes the value: `vi * 3u`. So a constant that `f32` does
+not hold exactly is read at its exact value through a conversion or beside an `f64`:
+`const PRIME = 2654435761; vi * u32(PRIME)` multiplies by `2654435761u`. To keep the `f32`
+value, write the type: `const PRIME: f32 = 2654435761`. A function-local `const` and a static
+field that no code writes follow the same rule. §13 gives the rule for a `/` over such a
+constant.
+
 The value must be **constant**: a literal, a **whole** constant declared earlier in the file,
 a constructor over those, arithmetic over those with a divisor that is not zero, or a **math
 builtin** over those (`const K: f32 = sin(1.)`, `const UP: vec3 = normalize(vec3(1., 1., 0.))`,
@@ -1316,8 +1348,8 @@ literal. A shadowed local is a separate declaration, and a call from a closure c
 the outer local's type. Uses that demand conflicting concrete types, such as `i32` and
 `f32`, are refused with `TS8003`: write an annotation and cast the arguments that need
 another type. The initializer still has to fit the chosen integer type. Explicit annotations,
-casts, float-written initializers, module constants and loop induction variables keep their
-existing rules. For `new Hit(objectIndex)` or `hit.accept(objectIndex)`, the declared
+casts, float-written initializers and loop induction variables keep their existing rules. A
+`const` of a written number is a constant of no fixed type (below, and §12). For `new Hit(objectIndex)` or `hit.accept(objectIndex)`, the declared
 parameter supplies the same demand. An inherited constructor or method supplies its
 signature; an override supplies its own. `let selected: i32 = objectIndex` and
 `selected = objectIndex` take the explicitly typed destination's demand. Conversely,
@@ -1329,8 +1361,68 @@ Calls through unresolved names or function values and direct calls to generic fu
 do not establish an integer type. A concrete member parameter such as `index: i32` can
 establish a demand inside a generic class; an unresolved parameter such as `index: T` cannot.
 
+**A `const` of a written number takes its type at each read** (Rules 5.1 and 5.2, change 0134;
+§12 shows the forms). `const k = 1` in a function, `const K = 3` at module scope and a static
+field that no code writes are read as the written number is: `vi * K` is `vi * 3u`, `x * K`
+is an `f32` product, and `xs[K]` is an index. A `/` needs one more rule, because a written
+`7 / 2` is `3.5` and an integer division is `3`. A `/` is an integer division only when one
+operand has an integer type the author wrote. So `vi / K` with a `u32` `vi` divides integers,
+and `x / K` with an `f32` `x` divides floats. A `/` whose operands have no declared type is
+refused where another line reads the constant it reaches as an integer:
+
+```ts
+const N = 8;
+const HALF = N / 2; // refused when a loop bound reads N as an i32
+// TS8003: "N" is an i32 where another line reads it, and no operand of "N / 2" has a declared
+// type, so the "/" does not say which division it is. Write "f32(N) / 2" for the float
+// division.
+```
+
+A value keeps where it came from (Amendment A3 of change 0134). A value computed from such a
+constant carries its origin through every expression and binding: an operator, a builtin
+(`max(k, 1)`, `Math.max(k, 1)`, `select(1, k, c)`), `as`, `!`, a conditional, a member
+(`vec2(k, 1).x`), a derived constant (`const M = N * 2`), a `let` (`let y = N`) or a pattern
+binding (`const [a, b] = [N, 1]`), a variable that a closure captures, the start of a loop
+counter, and a call of a function, a method, a getter or a closure that writes no result type
+and returns such a value. A generic function's parameter declares no type, so `id(k) / 2` is
+refused. A value loses the origin only where it passes a declared type: an annotation, a
+declared parameter, field or result, a conversion, or a typed constructor (`vec3u(k, 1, 2)`,
+Amendment A4). A variable of written numbers alone (`let w = 3`) declares no type either, so
+`(k + w) / 2` carries the origin of `k`. The other read is any
+place that types the constant an integer: an argument, a typed declaration, a loop bound, an
+index, a conversion `i32(N)` or `u32(N)`, and a read in a file that imports the constant. When
+only a file that imports the constant reads it so, the refusal stands on that read, with the `/`
+as its related place (§68).
+`f32(N)` and `f64(N)` are no such read, and a float-written constant (`const C = 7.5`) is never
+read as an integer.
+
+A float-written literal or a float-written constant in either operand makes a float division,
+which is accepted: `const STEP = 6.283185307179586 / N`, `TAU / N`, `1.0 / W`,
+`(N * 0.5) / 2`. A loop counter whose start carries such a constant keeps the type it had
+before change 0134: `for (let j = N; …)` keeps the `f32` of the constant's declaration, and
+with `const k = 7; h(k);` the start `k + 1` or `Math.max(k, 1)` gives a `u32` counter, the type
+its declared uses give `k`. The counter carries the constant, so a `/` over it is refused. A
+start through a `let` or a function result takes that value's type, which items 1 and 3 of
+change 0134 will infer.
+
+The sentence names one edit, the one that compiles where the quotient stands. Where an integer
+position reads the quotient (`xs[k / 2]`, `r + k / 2`, `let j: u32 = …`), it names the
+constant with the type that position asks (`const k: u32 = 7`), or, where another read asks
+another type, the `/` with each value converted to it (`i32(k) / 2`). Anywhere else it names
+the `/` with each value converted to `f32`, a bitwise operation converted as a whole
+(`f32(k | 1) / 2`). A `/=` names the variable with its type written (`let y: f32 = k`). The
+compiler checks the edit before it names it. Where none of these compiles, the program holds
+another mistake (`h(x + k / 2)` passes an `f32` sum to a `u32`). The sentence names the edit
+that adds fewest errors, and a mismatch around the `/` stays only where that edit leaves it, so
+the mistake is one diagnostic (Rule 12.4).
+
+The quotient's own read is not another read (Amendment A4). `let j: u32 = N / 2` is `4u`, as the written
+`8 / 2` is there, and `x * (N / 2)` is the ECMAScript value where no other line reads `N` as an
+integer. Arithmetic other than `/` has the written number's value at every read: with `const k
+= 7` that an argument reads as a `u32`, `f32(k - 8)` is `-1`.
+
 **No window is open on the default.** Everything above is about a position or use that
-DECLARES a type. Where nothing establishes one (`let i = 0`, `const K = 5`), the literal takes
+DECLARES a type. Where nothing establishes one for a variable (`let i = 0`), the literal takes
 `f32` today, so `xs[i]` is `Index must be i32 or u32`. Change 0134 decided that a number takes
 its type from every place it reaches, with no default for an author to learn. It supersedes
 #148's flip of this default to `i32` and retired the warning `TS8053`, which announced that <!-- doc-refs: skip — a retired code, named as retired -->

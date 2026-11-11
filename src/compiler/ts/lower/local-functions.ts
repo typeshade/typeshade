@@ -14,6 +14,7 @@
 // reference once the body writes it (closures.ts, Rule 8.17). A `function` declaration written
 // in a body is one too, callable anywhere in its block, as TypeScript hoists it.
 
+import { hasNoWrittenResult } from '../abstract-const.js';
 import ts from 'typescript';
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -188,8 +189,17 @@ export function collectLocalFunctions(
       refuse();
       continue;
     }
-    // With no return type written, the body says it (Rule 8.19): `void` until it is lowered.
-    const ret = parseReturnType(node.type, sourceFile, diagnostics, structs, undefined);
+    // With no return type written, the body says it (Rule 8.19): `void` until it is lowered. A
+    // result type the editor's projection wrote is not the author's (change 0134): the function
+    // infers, as `compile()` reads it, so a call reads the origin its body returns.
+    const infers = hasNoWrittenResult(node, sourceFile);
+    const ret = parseReturnType(
+      infers ? undefined : node.type,
+      sourceFile,
+      diagnostics,
+      structs,
+      undefined,
+    );
     if (!ret) {
       refuse();
       continue;
@@ -210,7 +220,7 @@ export function collectLocalFunctions(
       localName: local,
       ownerName,
       decl,
-      infers: node.type === undefined,
+      infers,
       ...(fnAt.size > 0 ? { takesFunctions: fnAt } : {}),
     });
   }
@@ -474,7 +484,13 @@ export function captureBindings(
       captures.push({
         key: k,
         byName: false,
-        binding: { kind: 'param', name: param.name, type: held.type, mutable: true },
+        binding: {
+          kind: 'param',
+          name: param.name,
+          type: held.type,
+          mutable: true,
+          ...(held.carries !== undefined ? { carries: held.carries } : {}),
+        },
       });
       continue;
     }
@@ -493,6 +509,11 @@ export function captureBindings(
         type: of.type,
         mutable: of.mutable,
         ...(of.constValue !== undefined ? { constValue: of.constValue } : {}),
+        // A captured constant of no fixed type is still one in the local function (change 0134).
+        ...(of.abstract !== undefined ? { abstract: of.abstract } : {}),
+        // A captured variable that carries a constant's origin carries it in the local
+        // function too (Amendment A3, "보수적 추적 규칙": every binding).
+        ...(of.carries !== undefined ? { carries: of.carries } : {}),
         irName: param.name,
         capture: {
           of,

@@ -1,6 +1,7 @@
 // Implements: Rule 6.2, the remedy a read-only resource names (docs/language-design.md; traced in reqs/).
 // === Lowering context / symbol table ===
 
+import type { AbstractConst, Carried } from './abstract-const.js';
 import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import type { ShaderType } from '../../core/ir/types.js';
@@ -360,6 +361,13 @@ export function writtenText(node: ts.Node): string {
   return LINKED_ORIGIN.written(node.getStart(sf), node.getEnd())?.text ?? node.getText(sf);
 }
 
+/** The text from `start` to `end` of `sf` as its own file writes it, where the linker joined
+ *  files into `sf`; the text of `sf` itself otherwise or where the range maps to no one file. */
+export function writtenRange(sf: ts.SourceFile, start: number, end: number): string {
+  if (LINKED_ORIGIN?.sourceFile !== sf) return sf.text.slice(start, end);
+  return LINKED_ORIGIN.written(start, end)?.text ?? sf.text.slice(start, end);
+}
+
 /** Whether `a` and `b` were written in one file: one file of the program a linked source joins,
  *  or the one source being lowered. */
 export function sameFile(a: ts.Node, b: ts.Node): boolean {
@@ -619,6 +627,13 @@ export interface Binding {
   readonly type: ShaderType;
   readonly mutable: boolean;
   readonly constValue?: number | boolean;
+  /** For a constant of no fixed type (Rules 5.1 and 5.2, change 0134 item 2): its record, which
+   *  each read of the name is marked with (`abstract-const.ts`). */
+  readonly abstract?: AbstractConst;
+  /** For a `let` with no annotation that was initialized from constants of no fixed type
+   *  (`let y = k`): those constants, which a `/` over the variable reaches (Amendment A2 of
+   *  change 0134). */
+  readonly carries?: Carried;
   /** Integer-only proof for bounds checks, derived from the emitted initializer. Unlike
    * constValue, this never approximates an f32 subtree with the CPU's double precision. */
   readonly indexConstValue?: number;

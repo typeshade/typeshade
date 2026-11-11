@@ -8,6 +8,7 @@
 // TypeScript's checker enforces and this surface, which does not run the checker, enforces for
 // it. `C.K` and `this.K` in a static member name the class's statics.
 
+import { markAbstractRead } from '../abstract-const.js';
 import ts from 'typescript';
 import type { Expr, FuncDecl, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -573,7 +574,7 @@ export function lowerSuperAccessorRead(
     }
     return b.kind === 'modvar'
       ? { op: 'varref', type: b.type, name: irNameOf(b) }
-      : { op: 'constref', type: b.type, name: b.name };
+      : markAbstractRead({ op: 'constref', type: b.type, name: b.name }, node, b.abstract);
   }
   const statik = inStaticMember(scope);
   const recv = statik ? undefined : superReceiver(node, sourceFile, scope, diagnostics);
