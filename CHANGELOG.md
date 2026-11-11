@@ -2110,16 +2110,24 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 - **A conversion that starts a `for` counter declares the counter's type** (Rule 7.5). A header
   name with no annotation is an `i32` (or a `u32` beside a `u32` bound) only when its value is
-  written as an integer, and any other value gives it the value's type. `u32(x)` with an `f32`
-  `x` counted in `u32`, but `u32(3)` counted in `i32`: the fold made it a literal of its type
-  (#1217), and the header read the literal as a written integer. It now counts in `u32`.
-  **Newly accepted:** `for (let j = u32(3); j < 8; j++) { a += f32(h(j)); }` with
-  `function h(a: u32): u32` was refused (`Argument 1 of "h" type mismatch.`) and gives 25.
-  **Newly refused:** each compiled as an `i32` loop before. `for (let j = u32(0); j < ii; j++)`
-  with an `i32` `ii` is refused (`Type mismatch: cannot compare u32 and i32`), as with
-  `u32(x)`; `for (let j = u32(0); j < 8; j++) { hi(j) }` with `function hi(a: i32): i32` is
-  refused (`Argument 1 of "hi" type mismatch.`); `for (let j = u32(3); j >= 0; j--)` leaves the
-  range of `u32` (`TS8006`). Write `i32(…)`, or no conversion, for an `i32` counter.
+  written as an integer, and any other value gives it the value's type. `u32(x)` and `f32(vi)`
+  counted in their own type, but `u32(3)` and `f32(3)` counted in `i32`: the fold made each a
+  literal of its type (#1217), and the header read the literal as a written integer. A start
+  `u32(…)`, `i32(…)` or `f32(…)` now gives the counter the conversion's type. With
+  `function h(a: u32): u32`, `function hi(a: i32): i32` and `function hf(a: f32): f32`:
+  **Newly accepted:** a `u32(n)` counter where a `u32` is asked (`h(j)`, `j < vi` with a `u32`
+  `vi`, `j < u32(8)`): `for (let j = u32(3); j < 8; j++) { a += f32(h(j)); }` was refused and
+  gives 25; an `f32(n)` counter where an `f32` is asked (`hf(j)`, `j < 8.`).
+  **Newly refused:** every place where the counter was used as an `i32`, each an `i32` loop
+  before, is refused as it is for `u32(x)`: a unary minus of a `u32` (`a += f32(-j)` with a
+  `u32(3)` start was -25), a comparison with an `i32` bound (`j < ii`), an `i32` argument
+  (`hi(j)`) and an assignment to an `i32` (`let q: i32 = j`). A `u32(n)` counter that counts down
+  to `j >= 0` leaves the range of `u32` (`TS8006`).
+  **Values that change:** unsigned arithmetic that goes below zero now wraps:
+  `for (let j = u32(2); j < 6; j++) { a += f32(j - 3); }` was 2 and is 4294967296 (the `f32` sum
+  of 4294967295, 0, 1 and 2). An `f32(n)` counter divides as a float:
+  `for (let j = f32(3); j < 8; j++) { a += f32(j / 2); }` was 11 and is 12.5.
+  Write `i32(…)`, or no conversion, for an `i32` counter.
 
 - **A struct that holds itself is refused instead of overflowing the stack** (Rules 12.4, 12.6
   and 12.7, #1204). A struct that holds itself, directly, through other structs, through an

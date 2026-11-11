@@ -459,7 +459,17 @@ function lowerHeaderCounter(
     bound !== undefined &&
     (isIntegerLiteralTree(bound) || (boundType !== undefined && isIntScalar(boundType)));
   const floatWritten = ts.isNumericLiteral(start) && !isIntegerWritten(start);
-  if (annotated !== undefined || !floatWritten || intBound) {
+  // A conversion is a value of its type, not a value written as an integer (Rule 7.5): the
+  // counter takes that type, as `u32(x)` with an `f32` `x` always did. The fold gives the
+  // conversion of a written number a literal of its type (#1217), which the block below would
+  // otherwise retarget to `i32`: `u32(3)` and `f32(3)` counted in `i32`.
+  const conversion =
+    decl.type === undefined &&
+    ts.isCallExpression(start) &&
+    ts.isIdentifier(start.expression) &&
+    ['i32', 'u32', 'f32'].includes(start.expression.text) &&
+    scope.resolveCallee(start.expression.text) === undefined;
+  if (!conversion && (annotated !== undefined || !floatWritten || intBound)) {
     // The induction variable's declared type, or i32 when there is no annotation. `for (let j:
     // i32 = -1; …)` reaches this with a PrefixUnaryExpression rather than a NumericLiteral, which
     // the `init.op === 'lit'` special case this replaces never matched — so the initializer kept
@@ -473,18 +483,7 @@ function lowerHeaderCounter(
       typeKey(boundType) === 'u32'
         ? boundType
         : undefined;
-    // A conversion declares its type, as an annotation does: `for (let j = u32(3); …)` counts
-    // in `u32`. The fold gives the conversion of a written number a literal of its type
-    // (#1217), which the line below would retarget to `i32`.
-    const converted =
-      decl.type === undefined &&
-      ts.isCallExpression(start) &&
-      ts.isIdentifier(start.expression) &&
-      (start.expression.text === 'i32' || start.expression.text === 'u32') &&
-      isIntScalar(init.type)
-        ? init.type
-        : undefined;
-    const counterType = annotated ?? converted ?? hint ?? i32T;
+    const counterType = annotated ?? hint ?? i32T;
     init = retargetDeclaredIntLit(init, written, counterType);
     // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk would
     // otherwise add a second one about a start value the author has already been told about.
