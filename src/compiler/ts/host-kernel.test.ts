@@ -115,9 +115,11 @@ describe('the host view of a kernel function (Rule 8.21)', () => {
     expect(f.view).toContain(
       'export declare function render(k: vec4 | Buffer<vec4>, size: u32 | Buffer<u32>, out: Float32Array | Buffer<f32>): Promise<void>;',
     );
-    // An array of structs of no class is no Buffer (Amendment A11, Q4): no call on a resource
-    // that does not wait.
-    expect(f.view).not.toMatch(/function drift\([^)]*\): void/);
+    // A host makes no Buffer of structs of no class (Amendment A11, Q4), but a result's
+    // Buffer<S> is an argument of an array<S> (Amendment A12, Q6).
+    expect(f.view).toContain(
+      'export declare function drift(ps: Buffer<{ pos: vec4; vel: vec4 }>, dt: f32 | Buffer<f32>): void;',
+    );
     // A helper stays synchronous (0009).
     expect(f.view).toContain('export declare function height(p: vec2, k: vec4): f32;');
   });

@@ -40,7 +40,6 @@ import {
 } from '../core/host-entry.js';
 import type { CallOwner } from '../core/owner.js';
 import type { Fp64Flavor } from '../core/passes/fp64-lower.js';
-import type { f32 } from './host-types.js';
 import { probeSubgroups, type SubgroupObservation } from '../core/subgroup-probe.js';
 import {
   checkFp64Flavor,
@@ -196,7 +195,7 @@ export interface Device {
   array<T extends ScalarArray>(value: T): Buffer<ElementOfTyped<T>>;
   /** A `Buffer<f32>` of the numbers of `value`, as `array(value)` makes one: a `number[]` is held
    *  as a `Float32Array` (change 0138; the owner's decision of 2026-11-11). */
-  array(value: readonly number[]): Buffer<f32>;
+  array(value: readonly number[]): Buffer<number>;
   /** A zeroed `Buffer` of `length` numbers of `element`, as `array(length, element)` makes one
    *  (change 0065), owned by this device: taken from the pool and zeroed on the device when a
    *  released array of the same element and length is there, and made new otherwise. */
@@ -433,10 +432,10 @@ class DeviceImpl implements Device {
   }
 
   array<T extends ScalarArray>(value: T): Buffer<ElementOfTyped<T>>;
-  array(value: readonly number[]): Buffer<f32>;
+  array(value: readonly number[]): Buffer<number>;
   array<E extends ZeroedElement>(length: number, element: E): Buffer<ZeroedBufferElement<E>>;
-  array(...args: unknown[]): Buffer<never> {
-    return this.arrayAs(`${this.label}.array()`, args) as never;
+  array(...args: unknown[]): unknown {
+    return this.arrayAs(`${this.label}.array()`, args);
   }
 
   /** `array()` with the refusals worded for `at`: `array()` of `typeshade/runtime` makes a device's
@@ -445,12 +444,18 @@ class DeviceImpl implements Device {
     this.#usable('array()');
     const zeroed = args.length >= 2;
     const [given, element] = args as [unknown, unknown];
-    // A `number[]` is a `Buffer<f32>`, pooled as its `Float32Array` is.
-    const value = zeroed ? given : (plainNumbers(given, at) ?? given);
+    // A `number[]` makes a `Buffer` whose element its first use fixes (Amendment A12, decision 3),
+    // pooled by its 4-byte words as a `Float32Array` is; a pooled one starts open again (D5).
+    const numbers = zeroed ? undefined : plainNumbers(given, at);
+    const value = zeroed ? given : (numbers ?? given);
     // The refusals of `array()` come first, so a wrong value makes no slot.
     const probe = makeResident(at, zeroed ? [value, element] : [value]);
     const probeState = residentState(probe)!;
-    const el: PooledElement | undefined = zeroed ? (element as ZeroedElement) : elementOf(value);
+    const el: PooledElement | undefined = zeroed
+      ? (element as ZeroedElement)
+      : numbers !== undefined
+        ? 'f32'
+        : elementOf(value);
     const length = zeroed
       ? (value as number)
       : el !== undefined
@@ -681,7 +686,8 @@ class DeviceImpl implements Device {
   /** The handle of a kernel's result on a resource (Amendment A10, Q-C): one of the device's
    *  arrays, in its books as `array()` puts one. */
   #result(state: ResidentArrayState): Resident<unknown> {
-    const el = elementOf(state.host);
+    // A `Buffer` of `bool`, of a key or of a matrix is not pooled: no `array()` makes one again.
+    const el = state.elem === undefined ? elementOf(state.host) : undefined;
     const length = el !== undefined ? (state.host as ArrayLike<number>).length : 0;
     const slot: Slot = {
       state,

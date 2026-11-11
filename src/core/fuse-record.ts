@@ -33,8 +33,11 @@ import type { KernelFace } from './host-kernel.js';
 import { defaultOwner, foreignOwner, type CallOwner } from './owner.js';
 import {
   adopt,
+  decide,
   kernelQueue,
+  layoutKind,
   residentState,
+  tentatively,
   ZEROED_ELEMENTS,
   ZeroedState,
   type ResidentArrayState,
@@ -454,14 +457,40 @@ class Scope implements FuseRecorder {
     argc: number,
     args: readonly unknown[],
     incoming?: IncomingReads,
+    site?: string,
   ): Promise<unknown> {
     const bad = arityError(k, argc);
     if (bad !== undefined) throw bad;
+    // The call fixes an open element where it takes an array, and a held length's `u32`; a
+    // refused call fixes nothing (change 0138, Amendment A12, decision 3 and D2).
+    tentatively(() => this.#takes(k, args, site));
+    let settle!: RecordedCall['settle'];
+    const promise = new Promise<unknown>((resolve, reject) => {
+      settle = { resolve, reject };
+    });
+    // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
+    promise.catch(() => undefined);
+    this.#calls.push({ kind: 'kernel', cpu, k, argc, args, incoming, promise, settle });
+    return promise;
+  }
+
+  /** Check what a kernel call inside the scope takes, before it is recorded. */
+  #takes(k: KernelFace, args: readonly unknown[], site: string | undefined): void {
     for (const [i, p] of k.params.entries()) {
       // A held length (change 0094): its array is what the call writes, and its length a
       // Resident of the scope's owner, which the plan's check of the call holds to the rest.
       const held = p.k === 'array' ? heldArgument(args[i]) : undefined;
       const value = held?.array ?? args[i];
+      if (p.k === 'array') {
+        decide(
+          residentState(value),
+          layoutKind(p.layout),
+          `${k.name}(): parameter "${p.name}"`,
+          site,
+        );
+        if (held !== undefined)
+          decide(residentState(held.length), 'u32', `${k.name}(): "${p.name}.length"`, site);
+      }
       if (p.k === 'array' && p.writes && residentState(value) === undefined)
         throw new TypeError(
           `${k.name}(): parameter "${p.name}" is ${describe(value)}, and a call inside fuse() writes only a Buffer. fuse() reads nothing back. Pass array(...), or call ${k.name}() outside fuse().`,
@@ -484,14 +513,6 @@ class Scope implements FuseRecorder {
         if (foreign !== undefined) throw foreign;
       }
     }
-    let settle!: RecordedCall['settle'];
-    const promise = new Promise<unknown>((resolve, reject) => {
-      settle = { resolve, reject };
-    });
-    // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
-    promise.catch(() => undefined);
-    this.#calls.push({ kind: 'kernel', cpu, k, argc, args, incoming, promise, settle });
-    return promise;
   }
 
   entry(
@@ -534,6 +555,13 @@ class Scope implements FuseRecorder {
             `${e.name}(): binding "${b.name}" is ${describe(value)}, and a call inside fuse() writes only a Buffer. fuse() reads nothing back. Pass array(...), or call ${e.name}() outside fuse().`,
           );
       }
+    // Once every check passed, the call fixes an open element: a storage array's scalar, and an
+    // indirect count's `u32` (change 0138, Amendment A12, decision 3 and D3).
+    tentatively(() => {
+      for (const [b, st] of states)
+        decide(st, layoutKind(b.layout), `${e.name}(): binding "${b.name}"`);
+      decide(indirect, 'u32', `${e.name}(): "workgroups.indirect"`);
+    });
     let settle!: RecordedEntry['settle'];
     const promise = new Promise<void>((resolve, reject) => {
       settle = { resolve, reject };

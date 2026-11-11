@@ -517,6 +517,18 @@ function argType(t: HostType, named: ReadonlyMap<string, string>): string {
   }
 }
 
+/** The `Buffer`s a value parameter of type `t`, spelled `spelled`, takes on a call on a resource
+ *  (change 0138, Amendment A10, Q-C; Amendment A12, decision 4): a `Buffer` of one element for a
+ *  number, a vector, a `bool` or a key; for a matrix a `Buffer` of it or of `f32` (Q3). A
+ *  `Buffer<number>` (Q8) passes where a `Buffer` of `f32`, `i32` or `u32` does (`scalarBuffers`).
+ *  Undefined for any other type. */
+function bufferArgument(t: HostType, spelled: string): string | undefined {
+  if (t.k === 'num' || t.k === 'vec' || t.k === 'bool' || t.k === 'key')
+    return `Buffer<${spelled}>`;
+  if (t.k === 'mat' && t.e === 'f32') return `Buffer<${spelled}> | Buffer<f32>`;
+  return undefined;
+}
+
 /** No struct name: the spelling of a struct by its fields. */
 const NO_NAMES: ReadonlyMap<string, string> = new Map();
 
@@ -821,43 +833,95 @@ const unsizedType = (
 const plainArray = (l: Layout & { k: 'a' }, t?: ShaderType, naming?: Naming): string =>
   bindingTsType(l, false, true, t, naming);
 
-/** The `Buffer`s an array with no size of scalars or vectors takes on a call on a resource (change
- *  0138, Amendments A10, Q-I, and A11, Q5): a `Buffer` of the element, and for a vector also a
- *  `Buffer` of its scalar; undefined for an array of structs, which takes a `Buffer` only of a
- *  class (A11, Q4; `resourceTypes`). */
-const scalarBuffers = (l: Layout & { k: 'a' }): string | undefined =>
-  l.e.k === 's'
-    ? `Buffer<${l.e.t}>`
-    : l.e.k === 'v'
-      ? `Buffer<${vecName(l.e.n, l.e.t)}> | Buffer<${l.e.t}>`
-      : undefined;
+/** The `Buffer`s an array with no size of scalars, vectors or matrices takes on a call on a
+ *  resource (change 0138, Amendments A10, Q-I, and A11, Q5): a `Buffer` of the element, and for a
+ *  vector also a `Buffer` of its scalar, and for a matrix a `Buffer<f32>` (Amendment A12, B2-1);
+ *  undefined for an array of structs (`resourceTypes`, and a result's `Buffer<S>`, A12 Q6). A
+ *  `Buffer<number>`, whose element the call fixes (A12, Q8), is a `Buffer<f32>`, a `Buffer<i32>`
+ *  and a `Buffer<u32>` to TypeScript already: `number` is each of them, so it is not spelled, and
+ *  spelling it would let a `Buffer<i32>` pass where a `Buffer<f32>` is taken. */
+const scalarBuffers = (l: Layout & { k: 'a' }): string | undefined => {
+  // A matrix takes a `Buffer` of it and of `f32` (Amendment A12, B2-1).
+  if (l.e.k === 's') return `Buffer<${l.e.t}>`;
+  if (l.e.k === 'v') return `Buffer<${vecName(l.e.n, l.e.t)}> | Buffer<${l.e.t}>`;
+  if (l.e.k === 'm') return `Buffer<${matName(l.e.c, l.e.r, 'f32')}> | Buffer<f32>`;
+  return undefined;
+};
 
 /** The `Buffer`s a kernel function called on a resource returns for its result (change 0138,
- *  Amendment A10, Q-C): a `Buffer` of one element for a number or a vector, a `Buffer` of `N`
- *  elements for an `array<T, N>` of them, and for a struct an object of them with the struct's
- *  own fields (Amendment A11, Q6). Undefined for a result no `Buffer` holds yet: a `bool`, a key, a
- *  matrix, a `Record`, an array of structs, and a struct that holds one. */
+ *  Amendment A10, Q-C): a `Buffer` of one element for a number, a vector, a `bool`, a key or a
+ *  matrix of `f32` (Amendment A12, Q1, Q2 and Q4), a `Buffer` of `N` elements for an `array<T, N>`
+ *  of them or of structs (A12, Q6), and for a struct or a `Record` an object of them with its own
+ *  fields or members (Amendment A11, Q6; A12, Q5). Undefined for a result no `Buffer` holds: a
+ *  matrix of `f64`, an `array<Record<K, T>, N>`, a nested sized array, a struct of a `Record`
+ *  field as an array's element, and a struct that holds one (A12, decision 4). */
 function bufferResult(t: HostType, named: ReadonlyMap<string, string>): string | undefined {
+  const element = (e: HostType): string | undefined => {
+    if (e.k === 'mat' && e.e === 'f64') return undefined;
+    if (e.k === 'struct') return structElement(e) ? `Buffer<${argType(e, named)}>` : undefined;
+    return e.k === 'num' || e.k === 'bool' || e.k === 'key' || e.k === 'vec' || e.k === 'mat'
+      ? `Buffer<${argType(e, named)}>`
+      : undefined;
+  };
   switch (t.k) {
-    case 'num':
-      return `Buffer<${argType(t, named)}>`;
-    case 'vec':
-      return t.e === 'bool' ? undefined : `Buffer<${argType(t, named)}>`;
     case 'arr':
-      return t.e.k === 'num' || (t.e.k === 'vec' && t.e.e !== 'bool')
-        ? `Buffer<${argType(t.e, named)}>`
-        : undefined;
-    case 'struct': {
+      return element(t.e);
+    case 'struct':
+    case 'rec': {
       const fields: string[] = [];
-      for (const [n, ft] of t.f) {
+      const of: readonly (readonly [string, HostType])[] =
+        t.k === 'struct' ? t.f : t.m.map((m) => [m, t.e] as const);
+      for (const [n, ft] of of) {
         const b = bufferResult(ft, named);
         if (b === undefined) return undefined;
-        fields.push(`readonly ${n}: ${b}`);
+        fields.push(`readonly ${t.k === 'rec' ? JSON.stringify(n) : n}: ${b}`);
       }
       return `{ ${fields.join('; ')} }`;
     }
-    default:
+    case 'void':
       return undefined;
+    default:
+      return element(t);
+  }
+}
+
+/** The `Buffer<S>` a result of an `array<S, N>` gives, spelled as a result spells `S`, for an
+ *  `array<S>` parameter `type` whose `S` holds a key (Amendment A12, Q4 and Q6): the plain array
+ *  holds the key's id, and the result's `S` its member. Undefined for any other parameter. */
+function keyedResult(
+  type: ShaderType | undefined,
+  naming: Naming,
+  named: ReadonlyMap<string, string>,
+): string | undefined {
+  if (type?.kind !== 'array') return undefined;
+  const h = hostTypeOf(type.elem, naming.structs);
+  if ('none' in h || !holdsKey(h)) return undefined;
+  return `Buffer<${argType(h, named)}>`;
+}
+
+/** Whether a result of type `t` holds an `array<S, N>` of structs, whose `Buffer<S>` reads
+ *  instances of an exported class (Amendment A12, Q6). */
+function holdsStructs(t: HostType): boolean {
+  if (t.k === 'arr') return t.e.k === 'struct';
+  if (t.k === 'struct') return t.f.some(([, ft]) => holdsStructs(ft));
+  if (t.k === 'rec') return holdsStructs(t.e);
+  return false;
+}
+
+/** Whether a struct can be the element of a result `Buffer<S>` (Amendment A12, Q6): no field of
+ *  it, at any depth, is a `Record` or a matrix of `f64`. */
+function structElement(t: HostType): boolean {
+  switch (t.k) {
+    case 'rec':
+      return false;
+    case 'mat':
+      return t.e === 'f32';
+    case 'arr':
+      return structElement(t.e);
+    case 'struct':
+      return t.f.every(([, ft]) => structElement(ft));
+    default:
+      return true;
   }
 }
 
@@ -1565,6 +1629,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     if (p.type.kind === 'array' && p.type.size === undefined) {
       const layout = layoutOf(p.type, 'std430', c.structs, authorTypeText);
       if ('none' in layout) return never(name, `parameter "${p.name}": ${layout.none}`);
+      // An `array<K>` takes a `Buffer<K>` of the same key (change 0138, Amendment A12, B2-2).
+      const keys = p.type.elem.kind === 'scalar' ? keysOf(p.type.elem) : undefined;
       params.push({
         name: p.name,
         k: 'array',
@@ -1572,6 +1638,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         writes: written.has(p.name),
         s: spell(p.type),
         ...(pushedArrays.has(p.name) ? { pushed: true as const } : {}),
+        ...(keys !== undefined ? { keys } : {}),
       });
       continue;
     }
@@ -2785,7 +2852,7 @@ function programType(pack: Pack, types?: ViewTypes): string {
 
 /** The workgroup count of an entry call in the host view (Rule 8.24): `n`, `[x, y?, z?]`, or the
  *  three counts at element `offset` of a `Buffer<u32>` (change 0075; change 0138, Amendment A10,
- *  Q-I). */
+ *  Q-I), which a `Buffer<number>` is too: the call fixes it as `u32` (Amendment A12, D3). */
 const WORKGROUPS =
   'number | readonly [number, number?, number?] | { readonly indirect: Buffer<u32>; readonly offset?: number }';
 
@@ -2969,10 +3036,7 @@ function viewText(
                 // A uniform of the class (change 0138, R2), and for a number or a vector a
                 // `Buffer` of one element, another call's result (Amendment A10, Q-C).
                 const u = resource(t, 'uniform');
-                const one =
-                  p.type.k === 'num' || (p.type.k === 'vec' && p.type.e !== 'bool')
-                    ? `Buffer<${t}>`
-                    : undefined;
+                const one = bufferArgument(p.type, t);
                 return `${p.name}: ${[t, u, one].filter((x) => x !== undefined).join(' | ')}`;
               }
               // A storage texture is a device's texture; a sampled one any image (change 0077).
@@ -2986,20 +3050,27 @@ function viewText(
               const type = types.param(f.fn, p.name);
               const plain = plainArray(p.layout, type, types.naming);
               // A `Buffer` of the scalars (Amendment A10, Q-I), or of the class (R2).
+              const element =
+                p.layout.e.k === 'o'
+                  ? bindingTsType(
+                      p.layout.e,
+                      p.writes,
+                      false,
+                      type?.kind === 'array' ? type.elem : undefined,
+                      types.naming,
+                    )
+                  : undefined;
               const buffers = [
                 scalarBuffers(p.layout),
-                p.layout.e.k === 'o'
-                  ? resource(
-                      bindingTsType(
-                        p.layout.e,
-                        p.writes,
-                        false,
-                        type?.kind === 'array' ? type.elem : undefined,
-                        types.naming,
-                      ),
-                      'buffer',
-                    )
+                // A `Buffer<K>` of the same key (Amendment A12, B2-2).
+                p.keys !== undefined ? `Buffer<${keyTypeText(p.keys)}>` : undefined,
+                // A `Buffer` of the class (R2), and a result's `Buffer<S>` (Amendment A12, Q6).
+                element !== undefined
+                  ? (resource(element, 'buffer') ?? `Buffer<${element}>`)
                   : undefined,
+                // A result's `Buffer<S>` of an `S` that holds a key is spelled with its members,
+                // where the plain array holds ids (Rule 8.21; A12, Q4 and Q6).
+                element !== undefined ? keyedResult(type, types.naming, args) : undefined,
               ].filter((x) => x !== undefined);
               const either = buffers.length === 0 ? plain : `${plain} | ${buffers.join(' | ')}`;
               const array =
@@ -3037,8 +3108,8 @@ function viewText(
           f.result.k === 'void'
             ? ''
             : buffers === undefined
-              ? ` Its result is ${f.result.s}, which no Buffer holds yet, so a call on a resource that does not wait is refused.`
-              : ' Called on a resource, it returns its result at once as Buffers: one element for a number or a vector, and for a struct an object of them by field; another call takes each as an argument, and read() gives its values (Amendment A10, Q-C).';
+              ? ` Its result is ${f.result.s}, which no Buffer holds, so a call on a resource that does not wait is refused.`
+              : ' Called on a resource, it returns its result at once as Buffers: one element for a number, a vector, a bool, a key or a matrix, N for an array<T, N>, and for a struct or a Record an object of them by field; another call takes each as an argument, and read() gives its values (Amendment A10, Q-C; Amendment A12, decision 4).';
         out.push(
           ...above(
             `A kernel function (Rule 8.22). ${where}.${counted}${pushes}${callForms}${returns}`,
@@ -3442,8 +3513,14 @@ function moduleText(
         const id = `__ts_e${t++}`;
         const reads = `__ts_reads${t}`;
         const ps = e.face.params.map((_, i) => `__ts_p${i}`);
+        // A result `Buffer<S>` reads instances of `S`'s exported class (change 0138, Amendment
+        // A12, Q6): the face is handed the classes' prototypes.
+        const face =
+          classes.length > 0 && holdsStructs(e.face.result)
+            ? `{ ...${JSON.stringify(e.face)}, P: () => __ts_P }`
+            : JSON.stringify(e.face);
         out.push(
-          `const ${id} = ${JSON.stringify(e.face)};`,
+          `const ${id} = ${face};`,
           `const ${reads} = ${JSON.stringify([...contentReads.get(e.face.fn)!.params])};`,
           ...callable(e.name, ps, [
             `return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}], ${reads});`,

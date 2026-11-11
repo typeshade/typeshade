@@ -26,6 +26,7 @@
 import { copyOf, kernelQueue, residentState, type ResidentArrayState } from './resident.js';
 import { resourceOwner, type CallOwner } from './owner.js';
 import { callSite, failedAt, noteFailure } from './submission.js';
+import type { Layout } from './host-entry.js';
 
 /** What a call takes for a storage array: the hidden handle of its device copy, which the call
  *  layer runs as it runs a `Resident`. `commit` copies out the values the call sees, once every
@@ -59,7 +60,25 @@ export type ResourceOf = (v: unknown) =>
 /** The reader of resources, which `runtime/resource.ts` installs when it loads. The call layer
  *  imports no resource, so `typeshade/fuse`, which borrows it, reaches no program runtime (Rule
  *  11.11); where no resource module is loaded, no value is a resource. */
-export const resources: { of: ResourceOf } = { of: () => undefined };
+export const resources: { of: ResourceOf; structs?: StructResults } = { of: () => undefined };
+
+/** What makes the result `Buffer<S>` of an `array<S, N>` (change 0138, Amendment A12, Q6 and
+ *  Q7): a `Buffer` of the region laid out by `layout`, whose `read()` gives instances of `proto`,
+ *  made at the call on `owner`. `state` is the copy the call writes, `upload` gives it the
+ *  region's values when the call runs, and `fill` writes the result's values into it after.
+ *  `typeshade/runtime` sets it, as it sets {@link resources.of}. */
+export type StructResults = (
+  layout: Layout & { readonly k: 'a' },
+  proto: object,
+  name: string,
+  length: number,
+  owner: CallOwner,
+) => {
+  readonly value: unknown;
+  readonly state: ResidentArrayState;
+  readonly upload: (() => void) | undefined;
+  fill(values: readonly unknown[]): void;
+};
 
 const resourceOf = (v: unknown): ReturnType<ResourceOf> => resources.of(v);
 
@@ -126,7 +145,7 @@ export function recordArgument(
     const recorded = r.prepare(writes, owner);
     if (
       recorded.layout.st !== array.st ||
-      JSON.stringify(recorded.layout.e) !== JSON.stringify(array.e)
+      JSON.stringify(recorded.layout.e, noMembers) !== JSON.stringify(array.e, noMembers)
     ) {
       recorded.done();
       throw new TypeError(
@@ -152,6 +171,12 @@ export function recordArgument(
   // as it is.
   if (residentState(v) !== undefined || !copy) return { value: v };
   return { value: copyOf(v, at) };
+}
+
+/** A key's members in a layout are the host's to decode, not the device's (Amendment A12, Q4): a
+ *  `Buffer<S>` whose `S` holds a key is laid out as the parameter's `array<S>`. */
+function noMembers(key: string, value: unknown): unknown {
+  return key === 'm' ? undefined : value;
 }
 
 /**

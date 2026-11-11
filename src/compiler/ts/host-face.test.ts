@@ -512,7 +512,7 @@ describe("the host view carries the author's JSDoc (change 0108)", () => {
     `An \`@compute([${shape}])\` entry: \`workgroups\` counts workgroups, dispatched as written, or is \`{ indirect, offset? }\`, the three counts at element \`offset\` of a Buffer<u32> a call wrote (change 0075). The shape shown is its default; options.constants selects declared overrides without changing workgroups (Rules 8.24 and 11.8).`;
   // What a kernel function called on a resource returns for a value (change 0138, Amendment A10, Q-C).
   const RETURNS =
-    'Called on a resource, it returns its result at once as Buffers: one element for a number or a vector, and for a struct an object of them by field; another call takes each as an argument, and read() gives its values (Amendment A10, Q-C).';
+    'Called on a resource, it returns its result at once as Buffers: one element for a number, a vector, a bool, a key or a matrix, N for an array<T, N>, and for a struct or a Record an object of them by field; another call takes each as an argument, and read() gives its values (Amendment A10, Q-C; Amendment A12, decision 4).';
   const FRAGMENT =
     'A full-screen `@fragment` entry: draws one frame into `target`, filling its width by height, on WebGPU, then WebGL2, then the CPU. The first draw into a canvas decides its tier. The promise resolves when the frame is submitted; nothing is read back (Rule 8.24).';
   const GENERIC =

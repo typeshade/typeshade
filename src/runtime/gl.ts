@@ -33,7 +33,13 @@ import {
   type PackEntry,
   type PackGlCompute,
 } from '../core/manifest-types.js';
-import { kernelQueue, residentState, type ResidentArrayState } from '../core/resident.js';
+import {
+  decide,
+  kernelQueue,
+  layoutKind,
+  residentState,
+  type ResidentArrayState,
+} from '../core/resident.js';
 import {
   at,
   CallWords,
@@ -391,6 +397,8 @@ class GlComputePipelineImpl implements ComputePipeline {
       if (state !== undefined) {
         if (state.destroyed)
           throw new TypeError('This Buffer was disposed; make a new one with array().');
+        // The binding fixes an open element as its scalar (Amendment A12, D-l).
+        decide(state, layoutKind(layout), where);
         const twin = states.get(state);
         if (twin !== undefined)
           throw new TypeError(`${where} is the same Buffer as binding "${twin}".`);

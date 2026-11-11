@@ -21,7 +21,7 @@ import {
   type GpuDevice,
   type Layout,
 } from '../core/host-entry.js';
-import { residentState } from '../core/resident.js';
+import { decide, geometryKind, layoutKind, residentState } from '../core/resident.js';
 import type { Buffer } from './resource.js';
 import type { f32, i32, u32 } from './host-types.js';
 import { VERSION } from '../core/version.js';
@@ -340,14 +340,17 @@ export interface Geometry {
   readonly instances?: number;
   /** The vertex buffer, laid out as the manifest's vertex entry reads it (its `@location`
    *  inputs, tightly packed): a typed array, uploaded at each draw; a `Buffer<f32>`, `Buffer<i32>`
-   *  or `Buffer<u32>`, uploaded once (change 0138, Amendment A11, Q3); or the host's `GPUBuffer`.
+   *  or `Buffer<u32>`, uploaded once (change 0138, Amendment A11, Q3), a `Buffer<number>` among
+   *  them, whose element the attributes' scalar fixes (Amendment A12, D3); or the host's
+   *  `GPUBuffer`.
    *  Omitted for a vertex entry with no `@location` input, such as a full-screen triangle drawn
    *  from `vertex_index`.
    *  Escape hatch (Rule 11.17): a host `GPUBuffer`, or on WebGL2 a `WebGLBuffer`, bound
    *  as it is. */
   readonly vertices?: ArrayBufferView | Buffer<f32> | Buffer<i32> | Buffer<u32> | object;
   /** The index buffer: a `Uint16Array` or `Uint32Array`, uploaded at each draw; a `Buffer<u32>`,
-   *  uploaded once, its format `uint32`; or `{ buffer, format }`, the host's
+   *  uploaded once, its format `uint32`, a `Buffer<number>` among them, which it fixes as `u32`
+   *  (Amendment A12, D3); or `{ buffer, format }`, the host's
    *  `GPUBuffer` bound as it is.
    *  Escape hatch (Rule 11.17): a host `GPUBuffer`, or on WebGL2 a `WebGLBuffer`, as the
    *  `buffer` of `{ buffer, format }`. */
@@ -1860,6 +1863,8 @@ export class ProgramImpl implements Program {
           `${where} is a Buffer, which the program runtime's CPU tier does not bind yet; pass its host value (change 0120, milestone M4).`,
         );
       if (state !== undefined) {
+        // The binding fixes an open element as its scalar (Amendment A12, D-l).
+        decide(state, s.layout === undefined ? undefined : layoutKind(s.layout), where);
         // One buffer of both layers (change 0025): the Resident's, uploaded on its first use.
         if (s.layout === undefined)
           throw new TypeError(
@@ -2162,6 +2167,12 @@ export class RenderPipelineImpl implements RenderPipeline {
   #resident(v: unknown, field: 'indices' | 'vertices', entry: PackEntry): RhiBuffer | undefined {
     const state = residentState(v);
     if (state === undefined) return undefined;
+    // The geometry fixes an open element (change 0138, Amendment A12, D3).
+    decide(
+      state,
+      geometryKind(field, entry.vertex?.attributes),
+      `"${entry.name}"${at(entry)}: the geometry's ${field}`,
+    );
     const host = state.view();
     const takes =
       field === 'indices'

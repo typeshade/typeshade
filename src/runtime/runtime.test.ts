@@ -1401,6 +1401,43 @@ describe('one resource model with the call layer (change 0025 step 3, Rule 11.8)
     );
   });
 
+  it('a geometry and a buffer binding fix the element of a Buffer of a number[] (change 0138, Amendment A12, D3 and D-l)', async () => {
+    const fake = fakeDevice();
+    const rt = await createRuntime({ device: fake.device });
+    const pipeline = await rt.load(manifest(DRAW)).render();
+    const target = rt.texture({ size: [4, 4], format: 'rgba8unorm' });
+    const vertices = array([0, 0, 1, 0, 0, 1]);
+    const indices = array([0, 1, 2]);
+    const f = rt.frame();
+    f.pass({ color: [target] }, (p) =>
+      p.draw(pipeline, { tint: [1, 0, 0, 1] }, { vertices, indices, count: 3 }),
+    );
+    await f.submit();
+    // The attributes are float32: vertices are f32. Indices are u32.
+    expect(residentState(vertices)!.fixed?.kind).toBe('f32');
+    expect(residentState(indices)!.fixed?.kind).toBe('u32');
+    expect(await indices.read()).toBeInstanceOf(Uint32Array);
+    // An index that is no u32 is refused, and fixes nothing (D2).
+    const bad = array([0, 1.5, 2]);
+    expect(() =>
+      rt
+        .frame()
+        .pass({ color: [target] }, (p) =>
+          p.draw(pipeline, { tint: [1, 0, 0, 1] }, { indices: bad, vertices, count: 3 }),
+        ),
+    ).toThrow(
+      "the geometry's indices (u32): element 1 is 1.5, which is not a whole number in the u32 range.",
+    );
+    expect(residentState(bad)!.open).toEqual([0, 1.5, 2]);
+    // A storage binding fixes its scalar (D-l).
+    const compute = await rt.load(manifest(SCALE)).compute();
+    const xs = array([1, 2, 3, 4]);
+    const g = rt.frame();
+    g.dispatch(compute, { params: { scale: 2 }, xs, out: array(4, 'f32') }, 1);
+    await g.submit();
+    expect(residentState(xs)!.fixed?.kind).toBe('f32');
+  });
+
   it('keeps the device copy the newer when a later use only reads it', () => {
     const fake = fakeDevice();
     const s = residentState(array(new Float32Array(4)))!;

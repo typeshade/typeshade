@@ -99,7 +99,7 @@ export function stats(xs: array<f32>): Stats {
   return { hist: h, count: n };
 }
 
-/** Whether the sum of xs is positive: a bool, which no Buffer holds yet. */
+/** Whether the sum of xs is positive: a bool, a Buffer<bool> on a resource (Amendment A12, Q1). */
 export function positive(xs: array<f32>): bool {
   let s = 0.;
   for (const x of xs) {
@@ -108,7 +108,7 @@ export function positive(xs: array<f32>): bool {
   return s > 0.;
 }
 
-/** A matrix of the first element of xs, which no Buffer holds yet. */
+/** A matrix of the first element of xs, a Buffer<mat2x2> on a resource (Amendment A12, Q2). */
 export function basis(xs: array<f32>): mat2x2 {
   return mat2x2(xs[0], 0., 0., xs[0]);
 }
@@ -248,7 +248,7 @@ describe('a Buffer of scalars has the members of every Buffer (Amendment A11, Q1
     expect([...(await b.read())]).toEqual([30, 20]);
   });
 
-  it("takes an array of numbers as a Buffer<f32> (the owner's decision of 2026-11-11)", async () => {
+  it('takes an array of numbers as a Buffer whose element its first use fixes (Amendment A12, decision 3)', async () => {
     const xs = array([1, 2, 3]);
     expect(xs.length).toBe(3);
     const values = await xs.read();
@@ -264,7 +264,7 @@ describe('a Buffer of scalars has the members of every Buffer (Amendment A11, Q1
       const ys = d.array([0.5, 1.5]);
       expect(await ys.read()).toBeInstanceOf(Float32Array);
       expect([...(await ys.read())]).toEqual([0.5, 1.5]);
-      // Released, it is pooled as its Float32Array is.
+      // Released, it is pooled by its 4-byte words, as a Float32Array is.
       d.release(ys);
       expect([...(await d.array(new Float32Array([7, 8])).read())]).toEqual([7, 8]);
       expect(d.statistics.reuses).toBe(1);
@@ -451,7 +451,7 @@ describe('a host program over the view (tsc)', () => {
       'const bad: number = sum(xs);',
       'xs.at(0).set(1);',
       'const v: Float32Array = await xs.read();',
-      'const n: Buffer<f32> = array([1, 2, 3]);',
+      'const n: Buffer<number> = array([1, 2, 3]);',
       'array(5);',
       'array({ x: 1 });',
       'array([{ x: 1 }]);',
@@ -499,13 +499,13 @@ describe('a host program over the view (tsc)', () => {
       'const bad: number = sum(xs);: TS2322',
       'xs.at(0).set(1);: ',
       'const v: Float32Array = await xs.read();: ',
-      'const n: Buffer<f32> = array([1, 2, 3]);: ',
+      'const n: Buffer<number> = array([1, 2, 3]);: ',
       'array(5);: TS2769',
       'array({ x: 1 });: TS2769',
       'array([{ x: 1 }]);: TS2769',
       "array([1, 'a']);: TS2769",
-      'positive(xs);: TS2345',
-      'basis(xs);: TS2345',
+      'positive(xs);: ',
+      'basis(xs);: ',
       'const q: boolean = await positive(new Float32Array(4));: ',
     ]);
   });

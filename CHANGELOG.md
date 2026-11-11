@@ -284,22 +284,36 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
-- **One `Buffer`, and a kernel on a resource returns resources** (change 0138, Amendments A10 and
-  A11, slice 1; Rules 8.21, 8.22, 8.23, 8.24, 8.29, 11.8, 11.11 and 11.13; surface §26, §64, §65,
-  §67, §69, §71 and §72). Breaking.
+- **One `Buffer`, and a kernel on a resource returns resources** (change 0138, Amendments A10,
+  A11 and A12, slice 1; Rules 8.21, 8.22, 8.23, 8.24, 8.29, 11.8, 11.11 and 11.13; surface §26,
+  §64, §65, §67, §69, §71 and §72). Breaking.
   - `array(xs)` of a `Float32Array`, an `Int32Array`, a `Uint32Array` or a `Float64Array`, and
     `array(length, element)`, make a `Buffer<f32>`, `Buffer<i32>`, `Buffer<u32>` or `Buffer<f64>`.
     `Resident` and the deprecated `resident()` are gone. Every `Buffer` has the same members: `length`, `read()`, `set(data)`,
     `resize(n)`, `at(i)` with `get` and `set`, `needsUpdate`, `dispose()` and
     `[Symbol.dispose]()`. `write` is `set`, and `destroy` is `dispose`. `read()` of a scalar
     `Buffer` gives its typed array. A `Buffer<vecN>` reads its components one after another.
+  - `array(xs)` of a `number[]` makes a `Buffer<number>` whose element its first use fixes
+    (Amendment A12, decision 3; OD-7): `scan(array([1, 2, 3]))` into an `array<u32>` makes it a
+    `Buffer<u32>`. A held length, an indirect count, a geometry's indices and vertices and a
+    program runtime's buffer binding fix it too. Where nothing decides, it is `f32`. A read before
+    the first use gives `f32` values, and `set`, `resize` and `at(i).set` keep it open. A refused
+    use fixes nothing, and a later use of another element is a `TypeError` that names the line of
+    the first use. A `Buffer` that the pool of `device.array()` hands out again is open again.
   - `array()` takes arrays only. A value that is no array is a `TypeError`: keep it with
     `uniform(Class, init)`, or pass it as plain data. An array of plain objects is a `TypeError`:
     a `Buffer` of structs is `array(Class, data)`.
   - A kernel function called on a resource that returns a value returns `Buffer`s at once: one
     element for a number or a vector, `N` for an `array<T, N>`, and an object of them by field for
     a struct. A number or vector parameter takes a `Buffer` of one element, so a result is another
-    call's argument. `sum(array(xs))` of `typeshade/algorithms` gives a `Buffer<f32>`:
+    call's argument.
+    A `bool`, a key, a matrix of `f32`, a `Record`, an `array<S, N>` of structs and a struct of
+    them are held too (Amendment A12, decision 4): a `Buffer<bool>` reads a `boolean[]`, a
+    `Buffer<K>` its member strings, a matrix `Buffer` a `Float32Array` with no padding, a `Record`
+    is an object of `Buffer`s, and an `array<S, N>` is one `Buffer<S>` that reads an `S[]` and is
+    an argument of an `array<S>`. A matrix parameter takes a `Buffer` of the matrix or a
+    `Buffer<f32>` of its components, an `array<matCxR>` takes either and the call pads it, and an
+    `array<K>` takes a `Buffer<K>`. `sum(array(xs))` of `typeshade/algorithms` gives a `Buffer<f32>`:
     `const [s] = await sum(xs).read()`.
   - A call on a `Buffer` is a call on a resource: checked at the call, recorded, and not blocking.
     A `Buffer` that a failed call wrote throws that error at each later call and at its `read()`,

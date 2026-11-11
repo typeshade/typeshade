@@ -68,6 +68,16 @@ export interface ElementView {
   set(...value: unknown[]): void;
 }
 
+/** What one element of a `Buffer` is when it is no number (change 0138, Amendment A12, decision
+ *  4): a `bool` (Q1), a key with its members in id order (Q4), or a matrix of `f32` (Q2). */
+export type ElementKind =
+  | { readonly k: 'bool' }
+  | { readonly k: 'key'; readonly m: readonly string[] }
+  | { readonly k: 'mat'; readonly c: number; readonly r: number };
+
+/** The elements a use can fix for a `Buffer` whose element is open (Amendment A12, Q8). */
+export type OpenKind = 'f32' | 'i32' | 'u32';
+
 /**
  * The handle of a `Buffer` of scalars or vectors (change 0138, Amendments A10 Q-I and A11): what
  * `array(xs)`, `array(length, element)`, `device.array()`, a scratch array of today's `fuse` and
@@ -111,6 +121,20 @@ export class ResidentArrayState {
    *  run: they take the host copy's place once those calls have run, so each call sees the values
    *  of its own call (change 0138, Amendment A5, default 3). */
   next: ArrayBufferView | undefined;
+  /** The box of the newest `set` that waits in {@link next}: a use that fixes an open element
+   *  (Amendment A12, decision 3) replaces the values it will assign. */
+  nextBox: { v: ArrayBufferView } | undefined;
+  /** What one element is, when it is no number: a `bool` or a `vecN<bool>`, one `u32` word of 0 or
+   *  1 for each component (Amendment A12, Q1); a key, one `u32` id (Q4); a matrix of `c` columns
+   *  and `r` rows, its components column-major with no padding (Q2). Undefined for a number. */
+  elem: ElementKind | undefined;
+  /** The numbers as the host gave them, while no use has fixed the element of a `Buffer` that
+   *  `array()` made of a `number[]` (Amendment A12, decision 3; Q9 and Q11): the host copy holds
+   *  them rounded to `f32` meanwhile. Undefined once a use fixed it, and for every other handle. */
+  open: number[] | undefined;
+  /** The element a use fixed for a `Buffer` that was open, and the line of that use, which a later
+   *  use of another element names (Amendment A12, Q10). */
+  fixed: { readonly kind: OpenKind; readonly site: string | undefined } | undefined;
 
   /** A call that writes the handle was made (change 0138, R2): the host copy is stale until a
    *  `read()`. */
@@ -596,15 +620,15 @@ export function makeResident(at: string, args: readonly unknown[]): Resident<unk
   return handleOf(zeroedState(args[0], args[1], at));
 }
 
-/** The state of an `array(xs)` handle: a typed array, copied, or a `number[]` as a `Float32Array`
- *  (Amendment A11, Q3 and Q4; the owner's decision of 2026-11-11 on the review of #1257, S5).
+/** The state of an `array(xs)` handle: a typed array, copied, or a `number[]` whose element the
+ *  first use fixes (change 0138, Amendment A11, Q3 and Q4; Amendment A12, decision 3).
  *  @throws `TypeError` for a value that is not an array, and for an array that holds anything but
  *    numbers: an array of structs is `array(Class, data)`, and any other value is passed to the
  *    call. */
 function hostState(value: unknown, at = 'array()'): ResidentArrayState {
   if (isTyped(value)) return new ResidentArrayState(value.slice());
   const numbers = plainNumbers(value, at);
-  if (numbers !== undefined) return new ResidentArrayState(numbers);
+  if (numbers !== undefined) return openState(numbers);
   if (Array.isArray(value) || ArrayBuffer.isView(value))
     throw new TypeError(
       `${at}: takes an array of numbers, a Float32Array, an Int32Array, a Uint32Array or a Float64Array; got ${argumentKind(value)}. Write array(Class, data) for an array of structs of an exported class, or pass the array to the call as it is (change 0138, Amendment A11, Q4).`,
@@ -614,18 +638,131 @@ function hostState(value: unknown, at = 'array()'): ResidentArrayState {
   );
 }
 
-/** A `number[]` as the `Float32Array` of its `Buffer<f32>` (the owner's decision of 2026-11-11 on
- *  the review of #1257, S5), or undefined for any other value, an array of objects among them.
- *  Not API: `device.array()` pools by it.
+/** A state whose element is open (Amendment A12, decision 3): the host copy holds `numbers`
+ *  rounded to `f32` (Q9), and the state keeps them as given until a use fixes the element. */
+function openState(numbers: readonly number[]): ResidentArrayState {
+  const state = new ResidentArrayState(new Float32Array(numbers));
+  state.open = [...numbers];
+  return state;
+}
+
+/** The numbers of a `number[]`, copied, or undefined for any other value, an array of objects
+ *  among them (Amendment A12, decision 3). Not API: `device.array()` pools by it.
  *  @throws `TypeError` for an array of numbers that holds anything else too. */
-export function plainNumbers(value: unknown, at = 'array()'): Float32Array | undefined {
+export function plainNumbers(value: unknown, at = 'array()'): number[] | undefined {
   if (!Array.isArray(value)) return undefined;
   if (value.length > 0 && typeof value[0] !== 'number') return undefined;
   value.forEach((n: unknown, i) => {
     if (typeof n !== 'number')
       throw new TypeError(`${at}: element ${i} is ${argumentKind(n)}, not a number.`);
   });
-  return new Float32Array(value as number[]);
+  return [...(value as number[])];
+}
+
+/** The fixes of open elements that the check of the call in hand made, which a refusal undoes
+ *  (Amendment A12, D2); undefined outside such a check. */
+let tentative: (() => void)[] | undefined;
+
+/** Run `check`, the check of a call at the call: an open element it fixes stays fixed when the
+ *  call is taken, and is open again when `check` throws, since a refused use fixes nothing
+ *  (change 0138, Amendment A12, D2). Not API. */
+export function tentatively<T>(check: () => T): T {
+  const outer = tentative;
+  const undo: (() => void)[] = [];
+  tentative = undo;
+  try {
+    const r = check();
+    tentative = outer;
+    outer?.push(...undo);
+    return r;
+  } catch (e) {
+    tentative = outer;
+    for (const u of undo.reverse()) u();
+    throw e;
+  }
+}
+
+/** The element of a parameter's layout that a use fixes on an open `Buffer`: the scalar of a
+ *  number or a vector, and `f32` for a matrix (Amendment A12, decision 3, and D1); undefined for
+ *  a struct, which takes no `Buffer` of numbers. */
+export function layoutKind(l: Layout): string | undefined {
+  if (l.k === 's' || l.k === 'v') return l.t;
+  if (l.k === 'm') return 'f32';
+  if (l.k === 'a') return layoutKind(l.e);
+  return undefined;
+}
+
+/** The element a geometry's `field` fixes on an open `Buffer` (change 0138, Amendment A12, D3):
+ *  `u32` for indices; for vertices the scalar every vertex attribute's format has (`float32…` an
+ *  `f32`, `uint32…` a `u32`, `sint32…` an `i32`), and undefined where they differ, which leaves
+ *  the element open and `f32`. Not API. */
+export function geometryKind(
+  field: 'vertices' | 'indices',
+  attributes: readonly { readonly format: string }[] | undefined,
+): string | undefined {
+  if (field === 'indices') return 'u32';
+  const kinds = new Set(
+    (attributes ?? []).map((a) =>
+      a.format.startsWith('float32')
+        ? 'f32'
+        : a.format.startsWith('uint32')
+          ? 'u32'
+          : a.format.startsWith('sint32')
+            ? 'i32'
+            : '',
+    ),
+  );
+  return kinds.size === 1 ? [...kinds][0] : undefined;
+}
+
+/**
+ * The use `at`, which takes `state` where an element `kind` is taken, fixes the element of an open
+ * `Buffer` (change 0138, Amendment A12, decision 3): each number is checked as a plain argument
+ * of that type is, and the host copy holds them as `kind` from now on. Inside
+ * {@link tentatively}, a refusal of the call undoes the fix (D2). A `Buffer` a use fixed before is
+ * refused for another element `kind` (Q10). A `kind` that no `Buffer<number>` takes (`f64`, or none)
+ * leaves it open, and the check of the call refuses it. Not API.
+ * @throws `TypeError` that names the index of a number `kind` does not hold, and for a fixed
+ *   element of another kind, naming that element and the line of its first use.
+ */
+export function decide(
+  state: ResidentArrayState | undefined,
+  kind: string | undefined,
+  at: string,
+  site?: string,
+): void {
+  if (state === undefined) return;
+  if (kind !== 'f32' && kind !== 'i32' && kind !== 'u32') return;
+  const fixed = state.fixed;
+  if (fixed !== undefined && fixed.kind !== kind)
+    throw new TypeError(
+      `${at} takes a Buffer of ${kind}; this Buffer's element is ${fixed.kind}, which its first use fixed${fixed.site === undefined ? '' : ` at ${fixed.site}`} (change 0138, Amendment A12, Q10). Make another Buffer, or pass a typed array to array() to state the element.`,
+    );
+  const numbers = state.open;
+  if (numbers === undefined) return;
+  numbers.forEach((n, i) => {
+    if (kind !== 'f32' && !fitsInteger(kind, n))
+      throw new TypeError(
+        `${at} (${kind}): element ${i} is ${n}, which is not a whole number in the ${kind} range.`,
+      );
+  });
+  const typed = new ZEROED_CTOR[kind](numbers);
+  const box =
+    state.nextBox !== undefined && state.next === state.nextBox.v ? state.nextBox : undefined;
+  const was = { host: state.host, next: state.next, boxed: box?.v };
+  if (box !== undefined) {
+    box.v = typed;
+    state.next = typed;
+  } else state.host = typed;
+  state.open = undefined;
+  state.fixed = { kind, site };
+  tentative?.push(() => {
+    state.host = was.host;
+    state.next = was.next;
+    if (box !== undefined) box.v = was.boxed!;
+    state.open = numbers;
+    state.fixed = undefined;
+  });
 }
 
 /** How a refused argument of `array()` reads in its message. */
@@ -703,6 +840,7 @@ function numbersOf(
   data: unknown,
   components: number,
   at: string,
+  open = false,
 ): Float32Array | Int32Array | Uint32Array | Float64Array {
   const xs = data as ArrayLike<unknown>;
   if (!isTyped(data) && !Array.isArray(data))
@@ -714,7 +852,7 @@ function numbersOf(
     const n = xs[i];
     if (typeof n !== 'number')
       throw new TypeError(`${at}: element ${i} is ${argumentKind(n)}, not a number.`);
-    if ((kind === 'i32' || kind === 'u32') && !fitsInteger(kind, n))
+    if (!open && (kind === 'i32' || kind === 'u32') && !fitsInteger(kind, n))
       throw new TypeError(
         `${at}: element ${i} is ${n}, which is not a whole number in the ${kind} range.`,
       );
@@ -724,6 +862,54 @@ function numbersOf(
       `${at}: takes a whole number of ${components}-component elements; got ${xs.length} numbers.`,
     );
   return new C(xs as ArrayLike<number>);
+}
+
+/** What `read()` gives of the words `v` of a `Buffer` of `elem`: a `boolean[]` for a `bool`, the
+ *  components one after another (Amendment A12, Q1); the member strings for a key (Q4); `v` for
+ *  a number or a matrix. */
+function decoded(elem: ElementKind | undefined, v: Uint32Array): unknown {
+  if (elem?.k === 'bool') return Array.from(v, (w) => w !== 0);
+  if (elem?.k === 'key') return Array.from(v, (w) => elem.m[w]);
+  return v;
+}
+
+/** The word of one component `x` of a `bool` or a key element (Amendment A12, Q1 and Q4).
+ *  @throws `TypeError` for a value that is no `boolean`, or no member of the key. */
+function wordOf(
+  elem: ElementKind & { readonly k: 'bool' | 'key' },
+  x: unknown,
+  at: string,
+): number {
+  if (elem.k === 'bool') {
+    if (typeof x !== 'boolean')
+      throw new TypeError(`${at}: takes a boolean; got ${argumentKind(x)}.`);
+    return x ? 1 : 0;
+  }
+  const id = typeof x === 'string' ? elem.m.indexOf(x) : -1;
+  if (id < 0)
+    throw new TypeError(
+      `${at}: takes one of ${elem.m.map((m) => `'${m}'`).join(', ')}; got ${argumentKind(x)}.`,
+    );
+  return id;
+}
+
+/** The words of `data` for `set()` of a `Buffer` of `bool` or of a key (Amendment A12, Q1, Q4).
+ *  @throws `TypeError` for `data` that is no array, for a value {@link wordOf} refuses, and for a
+ *    length that is no whole number of elements. */
+function wordsOf(
+  elem: ElementKind & { readonly k: 'bool' | 'key' },
+  data: unknown,
+  components: number,
+  at: string,
+): Uint32Array {
+  if (!Array.isArray(data))
+    throw new TypeError(`${at}: takes an array; got ${argumentKind(data)}.`);
+  const words = data.map((x: unknown, i) => wordOf(elem, x, `${at}: element ${i}`));
+  if (words.length % components !== 0)
+    throw new TypeError(
+      `${at}: takes a whole number of ${components}-component elements; got ${words.length} values.`,
+    );
+  return new Uint32Array(words);
 }
 
 /** Whether `n` is a whole number in the range of `kind`. */
@@ -753,11 +939,17 @@ function hostValues(state: ResidentArrayState): ArrayLike<number> & { [i: number
  *  `set` takes its place in the order: a call made between two of them sees the first one's
  *  values, so the first is assigned though a later one waits. */
 function setLater(state: ResidentArrayState, v: ArrayBufferView, after?: () => void): void {
+  // A use that fixes an open element replaces the values in the box (Amendment A12, decision 3).
+  const box = { v };
   state.next = v;
+  state.nextBox = box;
   kernelQueue.whenIdle(() => {
-    if (state.next === v) state.next = undefined;
+    if (state.next === box.v) {
+      state.next = undefined;
+      state.nextBox = undefined;
+    }
     after?.();
-    state.assign(v);
+    state.assign(box.v);
   });
 }
 
@@ -819,13 +1011,19 @@ export function handleOf(state: ResidentArrayState, hooks: HandleHooks = {}): Re
         const v = await state.snapshot();
         if (state.writes === writes) state.ahead = false;
         hooks.read?.(v);
-        return v;
+        // A `bool` reads as a `boolean[]` and a key as its member strings (Amendment A12, Q1, Q4).
+        return decoded(state.elem, v as Uint32Array);
       })();
     },
     set(data: unknown): void {
       fuseSlot.active?.refuse('set()', 'a set of a Buffer');
       current('set()');
-      const v = numbersOf(typedKind(state), data, state.components, 'set()');
+      const v =
+        state.elem?.k === 'bool' || state.elem?.k === 'key'
+          ? wordsOf(state.elem, data, state.components, 'set()')
+          : numbersOf(typedKind(state), data, state.components, 'set()', state.open !== undefined);
+      // An open element stays open: the numbers replace the numbers (Amendment A12, Q11).
+      if (state.open !== undefined) state.open = Array.from(data as ArrayLike<number>);
       hooks.set?.(v);
       // New values in all of it: the failure of an earlier call is gone (the owner's decision of
       // 2026-11-11, "set(data)나 resize()로 복구").
@@ -848,6 +1046,9 @@ export function handleOf(state: ResidentArrayState, hooks: HandleHooks = {}): Re
       const v = new C(length * state.components);
       const base = hostValues(state) as unknown as Float32Array;
       v.set(base.subarray(0, Math.min(base.length, v.length)) as never);
+      // An open element stays open: the numbers that fit, then zeros (Amendment A12, Q11).
+      if (state.open !== undefined)
+        state.open = Array.from({ length }, (_, i) => state.open![i] ?? 0);
       state.error = undefined;
       setLater(state, v);
     },
@@ -861,7 +1062,9 @@ export function handleOf(state: ResidentArrayState, hooks: HandleHooks = {}): Re
       const c = state.components;
       const first = index * c;
       const kind = KIND_NAME.get(typedKind(state))!;
+      const elem = state.elem;
       const check = (x: unknown, at: string): number => {
+        if (elem?.k === 'bool' || elem?.k === 'key') return wordOf(elem, x, at);
         if (typeof x !== 'number')
           throw new TypeError(`${at}: takes a number; got ${argumentKind(x)}.`);
         if ((kind === 'i32' || kind === 'u32') && !fitsInteger(kind, x))
@@ -882,6 +1085,10 @@ export function handleOf(state: ResidentArrayState, hooks: HandleHooks = {}): Re
           if (state.next === undefined && state.host === undefined && state instanceof ZeroedState)
             return c === 1 ? 0 : new (typedKind(state))(c);
           const values = hostValues(state) as unknown as Float32Array;
+          if (elem?.k === 'bool' || elem?.k === 'key') {
+            const words = decoded(elem, values.subarray(first, first + c) as never) as unknown[];
+            return c === 1 ? words[0] : words;
+          }
           return c === 1 ? values[first] : values.slice(first, first + c);
         },
         set(...value: unknown[]): void {
@@ -897,6 +1104,8 @@ export function handleOf(state: ResidentArrayState, hooks: HandleHooks = {}): Re
               `${at}: takes ${c === 1 ? 'one number' : `${c} numbers`}; got ${xs.length}.`,
             );
           const nums = xs.map((x) => check(x, at));
+          // An open element stays open (Amendment A12, Q11).
+          if (state.open !== undefined) nums.forEach((x, j) => (state.open![first + j] = x));
           write((values) => {
             for (let j = 0; j < c; j++) values[first + j] = nums[j]!;
           });
@@ -948,8 +1157,10 @@ export function disposeState(state: ResidentArrayState): void {
 /** Replace the host values of `state` with `v` once the calls made before have run: a device
  *  refills a pooled handle with it (change 0071). Not API. */
 export function refill(state: ResidentArrayState, v: unknown): void {
-  const copy = isTyped(v) ? v.slice() : v;
   renew(state);
+  // A `number[]` gives the new handle an open element, as a new `Buffer` has (Amendment A12, D5).
+  if (Array.isArray(v)) state.open = [...(v as number[])];
+  const copy = isTyped(v) ? v.slice() : Array.isArray(v) ? new Float32Array(v as number[]) : v;
   if (!ArrayBuffer.isView(copy)) {
     kernelQueue.whenIdle(() => state.assign(copy));
     return;
@@ -962,10 +1173,14 @@ export function refill(state: ResidentArrayState, v: unknown): void {
 }
 
 /** A pooled state given to a new handle: no call of the new handle wrote it, so it is out of the
- *  window of the released one (the review of #1257, S1). Not API. */
+ *  window of the released one (the review of #1257, S1), and its element is no longer what a use
+ *  of the released one fixed (Amendment A12, D5). Not API. */
 export function renew(state: ResidentArrayState): void {
   state.error = undefined;
   state.ahead = false;
+  // What the released handle's first use fixed is not the new handle's (Amendment A12, D5).
+  state.open = undefined;
+  state.fixed = undefined;
 }
 
 // ─── the order of calls ──────────────────────────────────────────────────────────────────────

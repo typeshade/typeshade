@@ -24,7 +24,14 @@ import {
   type PackGlDraw,
   type PackGlVertex,
 } from '../core/manifest-types.js';
-import { kernelQueue, residentState, type ResidentArrayState } from '../core/resident.js';
+import {
+  decide,
+  geometryKind,
+  kernelQueue,
+  layoutKind,
+  residentState,
+  type ResidentArrayState,
+} from '../core/resident.js';
 import {
   at,
   blendConstantOf,
@@ -791,6 +798,8 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       if (state !== undefined) {
         if (state.destroyed)
           throw new TypeError('This Buffer was disposed; make a new one with array().');
+        // The binding fixes an open element as its scalar (Amendment A12, D-l).
+        decide(state, layoutKind(layout), where);
         residents.push(state);
         binds.push({
           index: s.index,
@@ -922,6 +931,12 @@ function bufferSource(
   const usage = field === 'indices' ? 'index' : 'vertex';
   const state = residentState(v);
   if (state !== undefined) {
+    // The geometry fixes an open element (change 0138, Amendment A12, D3).
+    decide(
+      state,
+      geometryKind(field, entry.vertex?.attributes),
+      `"${entry.name}"${at(entry)}: the geometry's ${field}`,
+    );
     const host = state.view();
     const takes =
       field === 'indices'

@@ -57,7 +57,14 @@ import {
   resourceOwner,
   type CallOwner,
 } from './owner.js';
-import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
+import {
+  decide,
+  kernelQueue,
+  layoutKind,
+  residentState,
+  tentatively,
+  type ResidentArrayState,
+} from './resident.js';
 import {
   argumentOwner,
   callSite,
@@ -345,13 +352,9 @@ export function callCompute(
   // A call on a resource does not block (change 0138, R2).
   if (resources.length > 0) {
     if (!prepared) throw refusal;
-    return recordCompute(
-      cpu,
-      e,
-      argc,
-      bindings as Record<string, unknown>,
-      workgroups,
-      reads,
+    // A use the check refuses fixes no open element (Amendment A12, D2).
+    return tentatively(() =>
+      recordCompute(cpu, e, argc, bindings as Record<string, unknown>, workgroups, reads),
     ) as never;
   }
   // A recorded call that failed is thrown at the next call (Amendment A5, default 7).
@@ -443,6 +446,17 @@ function recordCompute(
   // takes it, as a binding does (A7, decision b; Amendment A10, Q-I).
   const countsError = residentState(indirect)?.error;
   if (countsError !== undefined) throw countsError;
+  // An indirect count fixes an open element as `u32`, and a storage array with no size as its
+  // scalar (change 0138, Amendment A12, decision 3 and D3).
+  decide(residentState(indirect), 'u32', `${e.name}(): "workgroups.indirect"`, site);
+  for (const b of e.bindings)
+    if (isBuffer(b) && b.layout.k === 'a' && b.layout.n === null)
+      decide(
+        residentState(bindings[b.name]),
+        layoutKind(b.layout),
+        `${e.name}(): binding "${b.name}"`,
+        site,
+      );
   // Each binding is taken with nothing changed yet; a refusal ends the check of what was taken.
   const taken: RecordedArgument[] = [];
   try {

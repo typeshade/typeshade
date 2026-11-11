@@ -63,7 +63,14 @@ import { fuseSlot } from './fuse-scope.js';
 import { checkIncoming, type IncomingReads } from './host-failure.js';
 import { defaultOwner, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
 import { TIERS, type Tier } from './tiers.js';
-import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
+import {
+  decide,
+  kernelQueue,
+  layoutKind,
+  residentState,
+  tentatively,
+  type ResidentArrayState,
+} from './resident.js';
 import { throwFailure } from './submission.js';
 import type { RhiDevice, RhiTexture } from '../rhi/rhi.js';
 import { CPU_PROGRAM, type CpuCode, type CpuIoField, type CpuProgram } from '../rhi/cpu-program.js';
@@ -142,6 +149,8 @@ function frameOf(e: FragmentEntry, v: unknown): Frame {
       // "undefined": the handle says what it is.
       const refusal = s.outside?.(`${e.name}(): binding "${b.name}"`);
       if (refusal !== undefined) throw refusal;
+      // The binding fixes an open element as its scalar (change 0138, Amendment A12, decision 3).
+      decide(s, layoutKind(b.layout), `${e.name}(): binding "${b.name}"`);
       residents.set(b.name, s);
       o[b.name] = s.view();
     }
@@ -253,7 +262,8 @@ export function callDraw(
       throw new TypeError(
         `${e.name}(): "target" is an HTMLCanvasElement or an OffscreenCanvas; got ${describe(target)}.`,
       );
-    const frame = frameOf(e, empty && bindings === undefined ? {} : bindings);
+    // A draw the check refuses fixes no open element (Amendment A12, D2).
+    const frame = tentatively(() => frameOf(e, empty && bindings === undefined ? {} : bindings));
     let state = canvases.get(target);
     if (state === undefined) canvases.set(target, (state = { chain: Promise.resolve() }));
     const s = state;

@@ -445,6 +445,27 @@ class Leaf {
     return l.k === 'm' ? Math.floor(i / l.r) * (l.cs / 4) + (i % l.r) : i;
   }
 
+  /** The word of lane `i` of a value `v` the host gives a `bool` or a key field (Amendment A12,
+   *  Q4 and Q7), or the number of any other field. */
+  #word(v: unknown, i: number): number {
+    const l = this.#l;
+    const at = i < 0 ? this.#path : `${this.#path}[${i}]`;
+    if (l.k !== 'm' && l.b === 1) {
+      if (typeof v !== 'boolean')
+        throw new TypeError(`${at}: takes a boolean, got ${describe(v)}.`);
+      return v ? 1 : 0;
+    }
+    if (l.k === 's' && l.m !== undefined) {
+      const id = typeof v === 'string' ? l.m.indexOf(v) : -1;
+      if (id < 0)
+        throw new TypeError(
+          `${at}: takes one of ${l.m.map((m) => `'${m}'`).join(', ')}, got ${describe(v)}.`,
+        );
+      return id;
+    }
+    return numberOf(this.#t, v, this.#path, i);
+  }
+
   /** Write `x` to lane `i` of `view`; whether a number changed. */
   #put(view: Typed, i: number, x: number): boolean {
     if (this.#t === 'f64') {
@@ -485,12 +506,10 @@ class Leaf {
         throw new TypeError(
           `${this.#path}.set(): takes ${count} numbers, got ${describe(src)}${Array.isArray(src) ? '' : ` of length ${String(src.length)}`}.`,
         );
-      for (let i = 0; i < count; i++)
-        if (this.#put(view, i, numberOf(this.#t, src[i], this.#path, i))) changed = true;
+      for (let i = 0; i < count; i++) if (this.#put(view, i, this.#word(src[i], i))) changed = true;
     } else if (n === count) {
       for (let i = 0; i < count; i++)
-        if (this.#put(view, i, numberOf(this.#t, arguments[i], this.#path, count > 1 ? i : -1)))
-          changed = true;
+        if (this.#put(view, i, this.#word(arguments[i], count > 1 ? i : -1))) changed = true;
     } else
       throw new TypeError(
         count === 1
@@ -514,7 +533,12 @@ class Leaf {
       for (let i = 0; i < out.length; i++) out[i] = view[i]! + view[lo + i]!;
       return out;
     }
-    return this.#l.k === 's' ? view[0] : view;
+    const l = this.#l;
+    // A `bool` field reads as a `boolean`, and a key's id as its member (Amendment A12, Q4, Q7).
+    if (l.k !== 'm' && l.b === 1)
+      return l.k === 's' ? view[0] !== 0 : Array.from(view, (w) => w !== 0);
+    if (l.k === 's' && l.m !== undefined) return l.m[view[0]!];
+    return l.k === 's' ? view[0] : view;
   }
 }
 
@@ -699,19 +723,25 @@ function readNumber(dv: DataView, at: number, t: LayoutNumber): number {
       : dv.getUint32(at, true);
 }
 
-/** The host value (Rule 8.21) laid out by `l` at `at`: a number, a tuple, an array or an object. */
-function readValue(dv: DataView, at: number, l: Layout, proto?: object): unknown {
+/** The host value (Rule 8.21) laid out by `l` at `at`: a number, a tuple, an array or an object.
+ *  With `decode`, a `bool` word is a `boolean` and a key's id its member (Amendment A12, Q4 and
+ *  Q7), as the host reads them; without, each stays the word a call takes. */
+function readValue(dv: DataView, at: number, l: Layout, proto?: object, decode = false): unknown {
   switch (l.k) {
-    case 's':
-      return readNumber(dv, at, l.t);
+    case 's': {
+      const x = readNumber(dv, at, l.t);
+      if (!decode) return x;
+      return l.b === 1 ? x !== 0 : l.m !== undefined ? l.m[x] : x;
+    }
     case 'v': {
-      const out: number[] = [];
-      for (let i = 0; i < l.n; i++)
-        out.push(
+      const out: (number | boolean)[] = [];
+      for (let i = 0; i < l.n; i++) {
+        const x =
           l.t === 'f64'
             ? dv.getFloat32(at + 4 * i, true) + dv.getFloat32(at + (l.lo ?? 0) + 4 * i, true)
-            : readNumber(dv, at + 4 * i, l.t),
-        );
+            : readNumber(dv, at + 4 * i, l.t);
+        out.push(decode && l.b === 1 ? x !== 0 : x);
+      }
       return out;
     }
     case 'm': {
@@ -722,12 +752,13 @@ function readValue(dv: DataView, at: number, l: Layout, proto?: object): unknown
     }
     case 'a': {
       const out: unknown[] = [];
-      for (let i = 0; i < (l.n ?? 0); i++) out.push(readValue(dv, at + i * l.st, l.e));
+      for (let i = 0; i < (l.n ?? 0); i++)
+        out.push(readValue(dv, at + i * l.st, l.e, undefined, decode));
       return out;
     }
     case 'o': {
       const o = (proto === undefined ? {} : Object.create(proto)) as Record<string, unknown>;
-      for (const [name, off, fl] of l.f) o[name] = readValue(dv, at + off, fl);
+      for (const [name, off, fl] of l.f) o[name] = readValue(dv, at + off, fl, undefined, decode);
       return o;
     }
   }
@@ -836,18 +867,22 @@ interface ArrayFieldOf<E> {
 
 /** The accessor of a field of type `T`. */
 type FieldOf<T> = T extends boolean
-  ? never
-  : T extends number
-    ? ScalarField<T>
-    : T extends readonly number[]
-      ? number extends T['length']
-        ? ArrayFieldOf<T[number]>
-        : TupleField<T>
-      : T extends readonly (infer E)[]
-        ? ArrayFieldOf<E>
-        : T extends object
-          ? StructOf<T>
-          : never;
+  ? ScalarField<boolean>
+  : T extends readonly boolean[]
+    ? number extends T['length']
+      ? never
+      : BoolTupleField<T>
+    : T extends number
+      ? ScalarField<T>
+      : T extends readonly number[]
+        ? number extends T['length']
+          ? ArrayFieldOf<T[number]>
+          : TupleField<T>
+        : T extends readonly (infer E)[]
+          ? ArrayFieldOf<E>
+          : T extends object
+            ? StructOf<T>
+            : never;
 
 /** The accessor of a struct: one accessor for each field, and `set` from some of them. */
 type StructOf<T> = { readonly [K in DataKeys<T>]: FieldOf<T[K]> } & {
@@ -913,27 +948,73 @@ declare module '../core/fuse-plan.js' {
   }
 }
 
-/** What `read()` of a `Buffer<T>` gives: the typed array of the scalar for a scalar or a vector
- *  `T`, the components one after another (Amendment A11, Q2 and Q5); `T[]` for a struct (R9). */
-type BufferRead<T> = T extends number
-  ? ViewOf<T>
-  : T extends readonly number[]
-    ? ViewOf<T[number]>
-    : T[];
+/** Whether `T` is `number` itself, the element of a `Buffer` that `array()` made of a `number[]`,
+ *  which its first use fixes (Amendment A12, decision 3): `number` is an `f32`, an `i32` and a
+ *  `u32` at once, which no name of the family is. */
+type IsOpen<T> = [T] extends [f32]
+  ? [T] extends [u32]
+    ? [T] extends [i32]
+      ? true
+      : false
+    : false
+  : false;
 
-/** What `set(data)` of a `Buffer<T>` takes: numbers for a scalar or a vector `T`, the components
- *  one after another; some of each struct's fields for a struct. */
-type BufferData<T> = T extends number | readonly number[]
-  ? ScalarArray | readonly number[]
-  : readonly Some<T>[];
+/** What `read()` of a `Buffer<T>` gives: the typed array of the scalar for a scalar, a vector or a
+ *  matrix `T`, the components one after another (Amendment A11, Q2 and Q5; Amendment A12, Q2);
+ *  any of the three for an element no use has fixed (A12, Q8); a `boolean[]` for a `bool` or a
+ *  `vecN<bool>` (A12, Q1); the member strings for a key (A12, Q4); `T[]` for a struct (R9). */
+type BufferRead<T> =
+  IsOpen<T> extends true
+    ? Float32Array | Int32Array | Uint32Array
+    : [T] extends [boolean]
+      ? boolean[]
+      : [T] extends [readonly boolean[]]
+        ? boolean[]
+        : [T] extends [string]
+          ? T[]
+          : [T] extends [number]
+            ? ViewOf<T>
+            : [T] extends [readonly number[]]
+              ? ViewOf<T[number]>
+              : T[];
 
-/** What `at(i)` of a `Buffer<T>` gives: the element view of a scalar or a vector (Amendment A11,
- *  Q1), or the struct's accessor. */
-type BufferElement<T> = T extends number
-  ? ScalarField<T>
-  : T extends readonly number[]
-    ? TupleField<T>
-    : StructOf<T>;
+/** What `set(data)` of a `Buffer<T>` takes: numbers for a scalar, a vector or a matrix `T`, the
+ *  components one after another; booleans for a `bool`, member strings for a key (Amendment A12,
+ *  Q1 and Q4); some of each struct's fields for a struct. */
+type BufferData<T> = [T] extends [boolean]
+  ? readonly boolean[]
+  : [T] extends [readonly boolean[]]
+    ? readonly boolean[]
+    : [T] extends [string]
+      ? readonly T[]
+      : [T] extends [number | readonly number[]]
+        ? ScalarArray | readonly number[]
+        : readonly Some<T>[];
+
+/** A `vecN<bool>` element or field: its components as booleans (Amendment A12, Q1 and Q7). */
+interface BoolTupleField<T extends readonly boolean[]> {
+  /** Write its components. */
+  set(...components: T): void;
+  /** Write the components of one array. */
+  set(components: readonly boolean[]): void;
+  /** Its components, a new `boolean[]`. */
+  get(): boolean[];
+}
+
+/** What `at(i)` of a `Buffer<T>` gives: the element view of a scalar, a vector or a matrix
+ *  (Amendment A11, Q1), of a `bool` or a key (Amendment A12, Q1 and Q4), or the struct's
+ *  accessor. */
+type BufferElement<T> = [T] extends [boolean]
+  ? ScalarField<boolean>
+  : [T] extends [readonly boolean[]]
+    ? BoolTupleField<T & readonly boolean[]>
+    : [T] extends [string]
+      ? ScalarField<T>
+      : [T] extends [number]
+        ? ScalarField<T>
+        : [T] extends [readonly number[]]
+          ? TupleField<T & readonly number[]>
+          : StructOf<T>;
 
 /**
  * An array on the device of `length` elements `T` (change 0138, R9; Amendments A10, Q-I, and A11):
@@ -1170,7 +1251,7 @@ class BufferRoot {
     const dv = new DataView(buffer, offset, length * this.#l.st);
     const out: unknown[] = [];
     for (let i = 0; i < length; i++)
-      out.push(readValue(dv, i * this.#l.st, this.#l.e, this.#proto));
+      out.push(readValue(dv, i * this.#l.st, this.#l.e, this.#proto, true));
     return out;
   }
 
@@ -1450,7 +1531,7 @@ export function array<T extends object>(
   data: readonly Some<T>[],
 ): Buffer<T>;
 export function array<T extends ScalarArray>(value: T): Buffer<ElementOfTyped<T>>;
-export function array(value: readonly number[]): Buffer<f32>;
+export function array(value: readonly number[]): Buffer<number>;
 export function array<E extends ZeroedElement>(
   length: number,
   element: E,
@@ -1755,6 +1836,47 @@ const uniformLayouts = new WeakMap<object, Layout & { k: 'o' }>();
 
 // The call layer reads resources through this, and imports no resource itself.
 resources.of = resourceOf;
+
+/** The words a copy of the region holds for host value `v` laid out by `l`: a `bool` is 0 or 1
+ *  and a key its id (Amendment A12, Q4 and Q7), as a call takes them; a number stays a number. */
+function rawOf(l: Layout, v: unknown): unknown {
+  switch (l.k) {
+    case 's':
+      return l.b === 1 ? (v === true ? 1 : 0) : l.m !== undefined ? l.m.indexOf(v as string) : v;
+    case 'v':
+      return Array.from(v as ArrayLike<unknown>, (x) => (l.b === 1 ? (x === true ? 1 : 0) : x));
+    case 'm':
+      return Array.from(v as ArrayLike<number>);
+    case 'a':
+      return Array.from(v as ArrayLike<unknown>, (x) => rawOf(l.e, x));
+    case 'o': {
+      const o: Record<string, unknown> = {};
+      for (const [name, , fl] of l.f) o[name] = rawOf(fl, (v as Record<string, unknown>)[name]);
+      return o;
+    }
+  }
+}
+
+// The result `Buffer<S>` of an `array<S, N>` (change 0138, Amendment A12, Q6 and Q7): a `Buffer`
+// of the region, written by the call that returns it, so it is ahead of the region until `read()`.
+resources.structs = (layout, proto, name, length, owner) => {
+  const core = new Core(globalRegion(), length * layout.st, name, `array(Class, data)`, layout.st);
+  const buffer = new BufferRoot(core, layout, length, proto, {});
+  const recorded = buffer.prepare(true, owner);
+  recorded.done();
+  const upload = recorded.commit();
+  const state = core.states.get(owner)!;
+  return {
+    value: buffer,
+    state,
+    upload,
+    fill: (values) => {
+      state.host = values.map((v) => rawOf(layout.e, v));
+      state.length = length;
+      state.fresh = 'host';
+    },
+  };
+};
 
 /** The storage arrays a shader module exports, which keep a copy for each device (R3). They live
  *  as long as their module, so the set holds them. */
