@@ -2737,6 +2737,9 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
   of scalars or vectors is taken (the scalar decides: `array<u32>` and `array<vec3<u32>>` give `u32`),
   a number or vector parameter (A10 Q-C), a held length (`u32`), an indirect workgroup count (`u32`),
   and a program runtime's vertex or index buffer (the attribute's scalar, or `u32` for indices).
+  [Added after the delta review, D1] Three more takers decide: a matrix parameter (`f32`, Q3), an
+  `array<matCxR>` parameter (`f32`, B2-1), and a program runtime's buffer binding that takes a scalar
+  `Buffer` (the binding's scalar, D-l).
 - [inference, agent] At the use that fixes the type, each number is checked as a plain argument of that
   type is checked (Rule 8.21): a number that does not fit (`1.5` or `-1` for a `u32`) is a `TypeError`
   that names its index, and the call changes nothing.
@@ -2746,7 +2749,8 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
 - [inference, agent] Rule 12.7 needs the editor to agree. The type of `array` gains an overload for a
   `readonly number[]`. What it returns is Q8.
 - The design points with more than one reasonable answer are Q8 to Q11 below. The owner answered
-  them on 2026-11-11 ("The owner's answers to Q8 to Q11", below). Each option is checked against every entry of `docs/owner-decisions.md`. OD-1 (a
+  them on 2026-11-11 ("The owner's answers to Q8 to Q11", below). Each option is checked against
+  every entry of `docs/owner-decisions.md`. OD-1 (a
   language of its own), OD-2 (stage attributes), OD-5 (parameter qualifiers), OD-6 (no release) and
   OD-8 (library decorators) do not touch an element type. The column "OD check" names only OD-3,
   OD-4 and OD-7. No option reverses an entry.
@@ -2811,6 +2815,50 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
 - [fact] No answer reverses an entry of `docs/owner-decisions.md`. The OD check of each chosen option
   is in its table above.
 
+**After the delta review: D2, D3 and D5.**
+
+- [fact] The delta review of A12 at `ee976421` asked three more points. The owner picked the
+  recommended option of each in the question UI on 2026-11-11.
+- D2. A refused first use.
+  - [decision, owner, 2026-11-11] The owner chose, in Korean:
+
+    "고정하지 않음 (추천)"
+
+    (English translation: it does not fix it; recommended.)
+
+  - What it means: a first use that the call refuses (for example `1.5` into a `u32`) does not fix the
+    element type. The element stays open. This follows A7, Decision (b): a refused call changes
+    nothing.
+- D3. The places that are not parameters.
+  - [decision, owner, 2026-11-11] The owner chose, in Korean:
+
+    "받음, 그 자리가 타입을 고정 (추천)"
+
+    (English translation: accept it, and that place fixes the type; recommended.)
+
+  - What it means: a held length's `length`, an indirect workgroup count, and a geometry's vertices
+    and indices also take a `Buffer<number>`. That place fixes the type: `u32` for a held length, an
+    indirect count and indices, and for vertices the element type that the geometry needs.
+- D5. A `Buffer` that the pool hands out again.
+  - [decision, owner, 2026-11-11] The owner chose, in Korean:
+
+    "재사용하면 다시 열린 타입 (추천)"
+
+    (English translation: when reused, the type is open again; recommended.)
+
+  - What it means: a `Buffer` that `device.array()`'s pool hands out again starts with an open element
+    type, as a new one does.
+- [fact] Rule 12.7, the editor half of decision 3 (Q8 and D3). The host view and the runtime types
+  change so:
+  1. `array(xs: readonly number[]): Buffer<number>`, and the same overload of `device.array()`.
+  2. `Buffer<number>` joins each parameter type that takes a `Buffer<f32>`, `Buffer<i32>` or
+     `Buffer<u32>`: an array with no size of scalars or vectors, a number or vector parameter, a matrix
+     parameter and an `array<matCxR>` parameter.
+  3. `Buffer<number>` joins the type of a held length's `length`, of an indirect workgroup count, of a
+     geometry's vertices and indices, and of a program runtime's buffer binding.
+  4. `read()` of a `Buffer<number>` is typed `Float32Array | Int32Array | Uint32Array`.
+  5. Slice 1 tests each place on both halves on the same source: the runtime value and the `tsc` type.
+
 **Decision 4. The result kinds that A11 left open are implemented in slice 1.**
 
 - [fact] At `51f5bf8c`, a call on a resource refuses, with a `TypeError` at the call, a result that no
@@ -2836,8 +2884,8 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
      option (c). The owner did not choose (c).
   2. `array<array<T, M>, N>`, a nested sized array.
 - [fact] At `b14f2373`, `resultPlan` (`src/core/host-kernel.ts`) refuses both, and `array<K, N>` too.
-  `array<K, N>`, `array<bool, N>` and `array<matCxR, N>` follow from frame item 2 and are no longer
-  refused.
+- [inference, agent] `array<K, N>`, `array<bool, N>` and `array<matCxR, N>` follow from frame item 2.
+  Slice 1 implements them, so they are no longer refused after slice 1.
 
 **Decision 4: the facts that the design rests on (`51f5bf8c`).**
 
@@ -3041,12 +3089,12 @@ Each is a difference between the accepted text (with A10 and A11) and #1257 at `
 #1257's body records it, and D-l as `b14f2373` delivers it. D-o is a difference in the process of
 this amendment.
 
-| ID  | Deviation                                                                                                                                                                                                                                                                                                                                                                   | Disposition                                                                                                                                                    | Next action                                                                                                                                                                                                                                                                                           |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D-l | A11, "Q3, the program runtime": the program runtime's bindings take plain values each frame. At `b14f2373`, the program runtime binds a scalar `Buffer` to any buffer binding: a uniform, a sized storage binding, and a storage array with no size. It is the only read-back path of a compute dispatch (decision 1; finding S7 of the review of #1257).                   | open (new; the owner's disposition, decision 1)                                                                                                                | Milestone 5 builds the read-back path and closes it.                                                                                                                                                                                                                                                  |
-| D-m | A10 Q-C, meaning 2: a scalar result of a call on a resource is a `Buffer` of length 1. Inside today's `fuse()`, which A10 keeps until slice 5, a value-returning call still returns a promise of its value. The host view types it as a `Buffer`. `examples/hosts/loop-fuse/host.ts` casts `total(u)`, and `journeys/_host-import/src/gpu.ts` casts `dsum` and `pushAbove`. | open (new)                                                                                                                                                     | Slice 5 switches `fuse` and removes the difference and the casts.                                                                                                                                                                                                                                     |
-| D-n | Change 0129 (`implemented`) keeps a successful write-only recovery. At `51f5bf8c`, a failed `Buffer` is refused at the next call that takes it (A7, Decision (b)). So a write-only call recovers it only when the call was queued before the failure was known. Inside today's `fuse()`, a plan's earlier write-only call still supplies it (0129).                         | closed: made part of the approved text by this amendment, as a consequence of A7, Decision (b)                                                                 | #1257 qualifies the sentence of Rule 11.8 ("proven write-only destinations can recover") and those of surface §65, §67 and §71 on write-only recovery: outside today's `fuse()`, a write-only call recovers a failed `Buffer` only when it was queued before the failure was known. Before its merge. |
-| D-o | `changes/README.md`, Independent review: "A proposal whose record has no independent review is not ready for the owner's decision." The owner answered Q1 to Q7 and D-n before an independent review read A12.                                                                                                                                                              | closed: the review ran afterwards, at `0ec970d3`, and this revision answers each finding (below). The owner answered the three points it raised for the owner. | None. The owner answered Q8 to Q11 after the review, on 2026-11-11.                                                                                                                                                                                                                                   |
+| ID  | Deviation                                                                                                                                                                                                                                                                                                                                                                   | Disposition                                                                                                                                                                                            | Next action                                                                                                                                                                                                                                                                                           |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-l | A11, "Q3, the program runtime": the program runtime's bindings take plain values each frame. At `b14f2373`, the program runtime binds a scalar `Buffer` to any buffer binding: a uniform, a sized storage binding, and a storage array with no size. It is the only read-back path of a compute dispatch (decision 1; finding S7 of the review of #1257).                   | open (new; the owner's disposition, decision 1)                                                                                                                                                        | Milestone 5 builds the read-back path and closes it.                                                                                                                                                                                                                                                  |
+| D-m | A10 Q-C, meaning 2: a scalar result of a call on a resource is a `Buffer` of length 1. Inside today's `fuse()`, which A10 keeps until slice 5, a value-returning call still returns a promise of its value. The host view types it as a `Buffer`. `examples/hosts/loop-fuse/host.ts` casts `total(u)`, and `journeys/_host-import/src/gpu.ts` casts `dsum` and `pushAbove`. | open (new)                                                                                                                                                                                             | Slice 5 switches `fuse` and removes the difference and the casts.                                                                                                                                                                                                                                     |
+| D-n | Change 0129 (`implemented`) keeps a successful write-only recovery. At `51f5bf8c`, a failed `Buffer` is refused at the next call that takes it (A7, Decision (b)). So a write-only call recovers it only when the call was queued before the failure was known. Inside today's `fuse()`, a plan's earlier write-only call still supplies it (0129).                         | closed: made part of the approved text by this amendment, as a consequence of A7, Decision (b)                                                                                                         | #1257 qualifies the sentence of Rule 11.8 ("proven write-only destinations can recover") and those of surface §65, §67 and §71 on write-only recovery: outside today's `fuse()`, a write-only call recovers a failed `Buffer` only when it was queued before the failure was known. Before its merge. |
+| D-o | `changes/README.md`, Independent review: "A proposal whose record has no independent review is not ready for the owner's decision." The owner answered Q1 to Q7 and D-n before an independent review read A12. The owner also answered Q8 to Q11, and D2, D3 and D5, before a review read their text.                                                                       | closed: the review at `0ec970d3` read Q1 to Q7; the delta review at `ee976421` read Q8 to Q11; the next review reads the answers to D2, D3 and D5. Each review's findings are answered in this record. | The next review reads this revision and records its result here.                                                                                                                                                                                                                                      |
 
 - [decision, owner, 2026-11-11] D-n: the owner picked the recommended option in the question UI: made
   part of the approved text, as a consequence of A7, Decision (b). The record has no other words.
@@ -3077,8 +3125,9 @@ this amendment.
 
 **Open, owner must settle.**
 
-- [fact] Nothing for A12's own decisions. The owner answered Q8 to Q11 on 2026-11-11. The open items above that wait on the owner are read
-  with #1257's example before and after.
+- [fact] Nothing for A12's own decisions. The owner answered Q8 to Q11 and D2, D3 and D5 on
+  2026-11-11. The open items above that wait on the owner are read with #1257's example before and
+  after.
 - [fact] Decision 3 as first drafted conflicted with OD-7. The owner resolved it on 2026-11-11 ("OD-7
   적용: 첫 쓰임이 타입 결정").
 - [inference, agent] No other decision of this amendment conflicts with an entry of
@@ -3111,13 +3160,28 @@ this amendment.
 | N4. Q-F and `array<S, N>`.                                                | Fixed: Q-F does not apply; `N` and `S` come from the type.                                                                                                                                       |
 | N5. `step` is not declared.                                               | Fixed: declared in Example 2.                                                                                                                                                                    |
 
-- [fact] No review has read the revision that answers these findings.
+- [fact] A delta review read A12 at `ee976421` on 2026-11-11, by the same reviewer. Verdict: approve
+  with should-fix. It found no blocking finding, 5 should-fix findings and 3 notes.
+
+| Finding                                                 | Answer                                                                                                    |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| D1. Three takers missing from the uses that decide.     | Fixed: a matrix parameter, an `array<matCxR>` parameter and a program runtime's buffer binding are added. |
+| D2. A refused first use.                                | The owner answered: "고정하지 않음 (추천)".                                                               |
+| D3. Rule 12.7 does not cover Q8; places not parameters. | The owner answered: "받음, 그 자리가 타입을 고정 (추천)". The editor types of Q8 and D3 are stated.       |
+| D4. D-o is closed while the deviation happened again.   | Fixed: D-o names Q8 to Q11 and D2, D3 and D5, and its disposition names the reviews.                      |
+| D5. `device.array()` and the pool.                      | The owner answered: "재사용하면 다시 열린 타입 (추천)".                                                   |
+| E1. A fact that slice 1 makes true.                     | Fixed: "no longer refused after slice 1", labelled [inference, agent].                                    |
+| E2. Affects.                                            | Fixed: A10 Q-I meaning 1 and A11 Q1 and Q2 are added.                                                     |
+| E3. Long lines.                                         | Fixed: wrapped.                                                                                           |
+
+- [fact] No review has read the revision that answers the delta review.
 
 - Affects: A11 Q3 (decision 1, D-l; decision 3, the reading of "takes an array", and OD-7); A11's
   open items (the sized array of structs, by decision 4); A10 Q-C meanings 2 and 3 (decision 4
   extends them to new kinds; D-m); A11 Q5 (B2-1 extends its rule to an array of matrices); change
   0129's write-only recovery and Rule 11.8 (D-n, closed); the bundle sizes of the configuration and
-  validation record (decision 2); A11's slice status table.
+  validation record (decision 2); A10 Q-I meaning 1 and A11 Q1 and Q2 (`Buffer<number>`: an element
+  kind, a union read type and `set` on an open element); A11's slice status table.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
