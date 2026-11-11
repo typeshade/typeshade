@@ -1267,6 +1267,18 @@ read)`, and `const C = 0.1 (f32 or f64 where it is read)` for a float-written co
   - Not part of this change, filed by the session's coordinator: issue #1261 (`K | J` emits an
     `f32` variable) and issue #1262 (a workgroup size given by a module constant is refused with
     `TS8037`).
+- The second review of pull request #1260 at `c4f1d3c6` (2026-11-11) found the emit and the
+  diagnostics identical to `main` over 295 sources, and three hovers to fix, each with a test in
+  `abstract-const-hover.test.ts`:
+  - A float-written constant folded to an integer step or label (`j += C` with
+    `const C = 2.0`, `i += C * 2` with `const C = 1.5`, `case C`) reads in the declaration
+    words, as `u32(C)` does: the fold converts the written number (`noteFoldedRead` checks that
+    every written number is integer-written).
+  - A `switch` label records the selector's type only once it is accepted: a label refused with
+    `TS8017` (`case -K` on a `u32` selector) keeps the `f32` read it was lowered as.
+  - Every name an import or an export binds is marked as an alias, as TypeScript marks it:
+    `import { K }`, `import { K as Q }`, and `import { R }` of a re-export `export { K as R }`
+    read `(alias) const … = 4 (…)` at the import.
 
 Not delivered yet: the second part of items 1 and 3 (4b), the hover of a function its callers
 decide and of its copies (item 4, with 4b), the document part of item 5, item 5 for `journeys/`

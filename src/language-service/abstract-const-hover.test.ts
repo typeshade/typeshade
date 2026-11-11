@@ -188,7 +188,8 @@ export function t(vi: u32, x: f32): f32 {
     expect(hoverLine(service, files, A, 'vi * K', 5)).toBe('const K: u32');
     // The name this document writes for it (the owner's decision of 2026-11-10).
     expect(hoverLine(service, files, A, '* KK', 2)).toBe('const KK: f32');
-    expect(hoverLine(service, files, A, '{ K', 2)).toBe(`const K = 7 (${INT})`);
+    // An import binding is an alias of the constant, marked as TypeScript marks one.
+    expect(hoverLine(service, files, A, '{ K', 2)).toBe(`(alias) const K = 7 (${INT})`);
   });
 
   it('names the declaration in its own file, where only its importers make it an integer', () => {
@@ -310,5 +311,81 @@ export function t(vi: u32): u32 {
     expect(hoverLine(service, files, A, 'as Q', 3)).toBe(`(alias) const Q = 4 (${INT})`);
     expect(hoverLine(service, files, A, 'K as', 0)).toBe(`const K = 4 (${INT})`);
     expect(hoverLine(service, files, A, 'vi * Q', 5)).toBe('const Q: u32');
+  });
+});
+
+describe('a fold the hover names only where the written number is an integer (re-review of #1260)', () => {
+  it('names a float-written constant folded to an integer step in the declaration words', () => {
+    const files = {
+      [A]: `"use typeshade";
+const C = 1.5;
+const D = 2.0;
+export function t(n: i32, m: u32): f32 {
+  let s = 0.0;
+  for (let i = 0; i < n; i += C * 2) { s += 1.0; }
+  for (let j: u32 = 0; j < m; j += D) { s += 1.0; }
+  return s;
+}`,
+    };
+    const service = accepted(files);
+    const wgsl = compiled(files, A).wgsl!;
+    // The fold converts the written number, 3 and 2: no one type is the read's.
+    expect(wgsl).toContain('i += 3)');
+    expect(hoverLine(service, files, A, 'C * 2', 0)).toBe(`const C = 1.5 (${FLOAT})`);
+    expect(wgsl).toContain('j += 2u)');
+    expect(hoverLine(service, files, A, 'j += D', 5)).toBe(`const D = 2.0 (${FLOAT})`);
+  });
+
+  it('names a float-written switch label in the declaration words', () => {
+    const files = {
+      [A]: `"use typeshade";
+const C = 2.0;
+export function t(vi: u32): f32 {
+  switch (vi) { case C: return 1.0; default: return 0.0; }
+}`,
+    };
+    const service = accepted(files);
+    expect(compiled(files, A).wgsl).toContain('case 2u:');
+    expect(hoverLine(service, files, A, 'case C', 5)).toBe(`const C = 2.0 (${FLOAT})`);
+  });
+
+  it('does not name a refused switch label at the selector type', () => {
+    const files = {
+      [A]: `"use typeshade";
+const K = 4;
+export function t(vi: u32): f32 {
+  switch (vi) { case -K: return 1.0; default: return 0.0; }
+}`,
+    };
+    const service = opened(files);
+    const refusal = 'TS8017: switch case -4 does not fit a u32 selector.';
+    expect(compiled(files, A).diagnostics.map((d) => `${String(d.code)}: ${d.message}`)).toEqual([
+      refusal,
+    ]);
+    expect(editor(service, A)).toEqual([refusal]);
+    // The refused label is not read at the selector's `u32`: it stays the `f32` read it was
+    // lowered as, the constant's emitted declaration.
+    expect(hoverLine(service, files, A, '-K', 1)).toBe('const K: f32');
+  });
+
+  it('marks every import binding as an alias, through a re-export too', () => {
+    const MID = '/p/mid.shade.ts';
+    const files = {
+      [LIB]: `"use typeshade";
+export const K = 4;
+`,
+      [MID]: `"use typeshade";
+export { K as R } from "./lib.shade.ts";
+`,
+      [A]: `"use typeshade";
+import { R } from "./mid.shade.ts";
+export function t(vi: u32): u32 {
+  return vi * R;
+}`,
+    };
+    const service = accepted(files);
+    expect(compiled(files, A).wgsl).toContain('(vi * 4u)');
+    expect(hoverLine(service, files, A, '{ R', 2)).toBe(`(alias) const R = 4 (${INT})`);
+    expect(hoverLine(service, files, A, 'vi * R', 5)).toBe('const R: u32');
   });
 });

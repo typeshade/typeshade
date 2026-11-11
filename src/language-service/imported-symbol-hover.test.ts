@@ -712,8 +712,9 @@ export function fs(): vec4 {
     expect(compiled(files, LIB).wgsl).toContain('const K: f32 = 0.5;');
     const service = opened(files);
     const inImport = (needle: string) => hoverAt(service, files, MAIN, needle, 0, 'import {');
-    // An import names no read: the constant of no fixed type reads in the language's words.
-    expect(inImport('K,')).toBe(bare('const K = 0.5 (f32 or f64 where it is read)'));
+    // An import names no read: the constant of no fixed type reads in the language's words, as
+    // an alias, the mark TypeScript gives every import binding.
+    expect(inImport('K,')).toBe(bare('(alias) const K = 0.5 (f32 or f64 where it is read)'));
     expect(inImport('g }')).toBe(bare('function g(@inout a: f32): f32'));
     expect(inImport('J,')).toBe(bare('const J: u32'));
     expect(hoverAt(service, files, LIB, 'K = ')).toBe(
@@ -1244,7 +1245,7 @@ export function fs(): vec4 {
     expect(compiled(files, UNUSED).wgsl).not.toContain('const K');
     const service = opened(files);
     const imports = (needle: string) => hoverAt(service, files, UNUSED, needle, 0, 'import {');
-    expect(imports('K,')).toBe(bare('const K = 0.5 (f32 or f64 where it is read)'));
+    expect(imports('K,')).toBe(bare('(alias) const K = 0.5 (f32 or f64 where it is read)'));
     // A module variable is \`let\`, as in the declaring file.
     expect(imports('frame,')).toBe(bare('let frame: u32'));
     expect(hoverAt(service, files, LIB, 'frame: u32')).toBe(bare('let frame: u32'));
@@ -1294,7 +1295,7 @@ export function fs(): vec4 {
     const service = opened(files, createTypeshadeLanguageServiceWith({}, analyze));
     runs = [];
     expect(hoverAt(service, files, UNUSED, 'K,', 0, 'import {')).toBe(
-      bare('const K = 0.5 (f32 or f64 where it is read)'),
+      bare('(alias) const K = 0.5 (f32 or f64 where it is read)'),
     );
     // The hovered document and the declaring document. \`other.shade.ts\` links the declaring
     // file too, and is not analysed.

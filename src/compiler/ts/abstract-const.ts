@@ -383,9 +383,15 @@ export function unpeekedReads<T>(lower: () => T): T {
 
 /** Records that the reads in `node` were folded to a value of `type` where they stand (a loop's
  *  step folded to its counter's type, a `switch` label to its selector's), as the written number
- *  would be. Only the hover reads it: the fold is no integer read for the division rule. */
+ *  would be. Only the hover reads it: the fold is no integer read for the division rule. A
+ *  float-written constant folded to an integer is read as the written number (`j += C` with
+ *  `const C = 2.0`), which no one type names, as in `noteCastRead`. */
 export function noteFoldedRead(node: ts.Expression, type: ShaderType): void {
-  for (const leaf of readLeaves(node)) settleRead(leaf, type);
+  const tree = abstractTreeOf(node);
+  if (tree === undefined) return;
+  const integer = type.kind === 'scalar' && (type.scalar === 'i32' || type.scalar === 'u32');
+  const read = integer && !tree.integerWritten ? null : type;
+  for (const leaf of readLeaves(node)) settleRead(leaf, read);
 }
 
 /** Starts one lowering of the read `node`, at the type `type` it lowered to. */

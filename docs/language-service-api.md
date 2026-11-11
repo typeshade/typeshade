@@ -547,9 +547,10 @@ gave that read: `const K: u32` in `vi * K`, `const K: f32` in `x * K`, `const K:
 type that file's program gives it. In the declaring file nothing an importer reads decides, as
 in `compile()` of that file. A function-local `const`, a member of a namespace
 (`const Tone.GAMMA: f32`) and a static field that no code writes (`static Z = 4 (…)` at the
-declaration, `(property) S.Z: u32` at a read) read the same way. A name an import gives the
-constant is marked as an alias at the import: `(alias) const Q = 4 (…)` for
-`import { K as Q }`. The front end records each lowering of a read with the type a retarget or a
+declaration, `(property) S.Z: u32` at a read) read the same way. A name an import or an export
+binds is marked as an alias at the import, as TypeScript marks every such binding:
+`(alias) const Q = 4 (…)` for `import { K as Q }`, and `(alias) const K = 4 (…)` for
+`import { K }`. The front end records each lowering of a read with the type a retarget or a
 fold gives it (`noteIntegerRead`, `noteF64Read`, `noteCastRead`, and `noteFoldedRead` for a loop
 step and a `switch` label, in `src/compiler/ts/abstract-const.ts`). A lookahead lowering records
 nothing (`peekingReads`), except in a function's body that it reaches, which is lowered once and

@@ -1108,10 +1108,6 @@ function caseValue(
     return undefined;
   }
   const value = foldConstNumber(expr, scope);
-  // A constant of no fixed type as a label is read at the selector's type, as the written
-  // number is (the hover, change 0134 item 4).
-  if (value !== undefined && scrutType.kind === 'scalar')
-    noteFoldedRead(clause.expression, scrutType);
   if (value === undefined || !Number.isInteger(value)) {
     pushDiag(
       diagnostics,
@@ -1132,6 +1128,9 @@ function caseValue(
     );
     return undefined;
   }
+  // A constant of no fixed type as an accepted label is read at the selector's type, as the
+  // written number is (the hover, change 0134 item 4).
+  if (scrutType.kind === 'scalar') noteFoldedRead(clause.expression, scrutType);
   return value;
 }
 
