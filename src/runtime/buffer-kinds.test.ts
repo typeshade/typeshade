@@ -1,3 +1,5 @@
+// Verifies: Rule 8.21 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 11.8 (docs/language-design.md; traced in reqs/).
 // Change 0138, Amendment A12. Decision 3 (OD-7): `array(number[])` makes a `Buffer<number>` whose
 // element its first use fixes, `f32` where nothing decides (Q8 to Q11, D2, D3 and D5). Decision 4:
 // a call on a resource holds a `bool`, a matrix, a key, a `Record`, an `array<S, N>` and a struct of

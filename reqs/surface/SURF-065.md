@@ -11,7 +11,7 @@ links:
 - RULE-0823: Lbtw-Uu9bw3GBU-E4cSUifcnmfhQ8sSzabG7uRQgLWs=
 - RULE-0829: tF_L25dz-6sKiPR1A39zKgVAONNOca7w1HAtVfqxrK0=
 - RULE-1107: JwKWUCevl-GuoPQMDaRpTmB_eSWKy3pDEY6An6KV6S8=
-- RULE-1108: -XGpsNb7Vp6lzgtzxshB1nAttRDHQZmnfUzU5uHhf5A=
+- RULE-1108: Bl-QHxOHc9eGhQiwtxy-qDcW0P3PUCjVK5HFdtsgU_E=
 - RULE-1123: 8q84m4oC2SE72KzUv6yBnCVi6AQgXP6_Jbg7qS34Zsg=
 normative: true
 ref: ''

@@ -8534,10 +8534,13 @@ added them (change 0138, Amendment A7).
 Beside the checks of a call with plain data, a call on a resource refuses these, with a `TypeError`
 at the call, and then changes no `Buffer`:
 
-- a result no `Buffer` holds yet (a `bool`, a key, a matrix, a `Record`, an array of structs, and a
-  struct that holds one): `` f(): takes a resource, and returns bool, which no Buffer holds yet. A
-  call on a resource gives a Buffer for a number, a vector, an array<T, N> of them, and a struct of
-  those (change 0138, Amendments A10 Q-C and A11 Q6); pass plain data and await the call. ``
+- a result no `Buffer` holds (a matrix of `f64`, an `array<S, N>` whose `S` holds a `Record` or a
+  matrix of `f64`, and a struct that holds one): `` f(): takes a resource, and returns
+  mat2x2<f64>, which has no host value. A call on a resource gives a Buffer for a number, a vector,
+  a bool, a key, a matrix of f32, an array<T, N> of them or of structs, and a struct or a Record of
+  those (change 0138, Amendments A10 Q-C, A11 Q6 and A12, decision 4); pass plain data and await
+  the call. `` An `array<Record<K, T>, N>` and a nested sized array are refused in the source
+  already, with `TS8099`.
 - a `Map`, a `Set` or a sized binding the call writes that is no `Buffer`: `living(): parameter
   "seen" is written by the call, which takes a resource, so it does not block and nothing waits to
   read it back: pass a Buffer, or array(xs), and await its read() (change 0138, R2).`
@@ -8546,8 +8549,13 @@ at the call, and then changes no `Buffer`:
 - a `Buffer` where no array with no size is taken, a storage binding of a stated size among them:
   `move(): parameter "p" takes no storage array, and got Buffer<Particle>. A Buffer is an argument
   where the function or the entry takes an array with no size of its class.`
-- a `Buffer` for a parameter that is no number and no vector, or a `Buffer` of more than one
-  element for one that is.
+- a `Buffer` for a parameter that is no number, vector, `bool`, key or matrix of `f32`, or a
+  `Buffer` of another element or of more than one element for one that is: `` trace(): parameter
+  "m" (mat3x3) takes a Buffer of one mat3x3, or of 9 f32 numbers; got a Buffer of 8 f32 numbers. ``
+- a `Buffer<bool>` for an array, since no `array<bool>` exists, and a `Buffer<K>` or a matrix
+  `Buffer` for an array of another element: `` sumf(): parameter "xs" (array<f32>) takes no Buffer
+  of 1 bools: no array<bool> exists, since a bool has no storage layout (change 0138, Amendment
+  A12, decision 4). ``
 
 A call on a resource that writes a plain array with no size waits (change 0138, Amendments A10
 and A11, Q7): it returns a promise, fills the array in place when it has run, and gives its result
@@ -8556,10 +8564,12 @@ as plain data, as a call with plain data does. A held length `{ array, length, o
 on a resource.
 
 A kernel function that returns a value, called on a resource, returns its result at once as
-`Buffer`s made on the call's device (change 0138, Amendment A10, Q-C; Amendment A11, Q6): a `Buffer`
-of one element for a number or a vector, a `Buffer` of `N` elements for an `array<T, N>` of them,
-and for a struct an object of them with the struct's own fields. A nested struct is an object of
-its own:
+`Buffer`s made on the call's device (change 0138, Amendment A10, Q-C; Amendment A11, Q6; Amendment
+A12, decision 4): a `Buffer` of one element for a number, a vector, a `bool`, a key or a matrix of
+`f32`, a `Buffer` of `N` elements for an `array<T, N>` of them, one `Buffer<S>` of `N` elements for
+an `array<S, N>` of structs, and for a struct an object of them with the struct's own fields. A
+`Record` is an object with a `Buffer` for each member, and a nested struct is an object of its
+own:
 
 ```ts
 // shade: interface Box { min: vec3<f32>; max: vec3<f32> }
@@ -8574,6 +8584,37 @@ const [n] = await s.count.read(); // a Uint32Array of one element
 
 A number or a vector parameter takes a `Buffer` of one element of its scalar, which the call reads
 when it runs, so a result is another call's argument: `damp(ps, energy(ps))`.
+
+Each kind reads as its host value does (change 0138, Amendment A12, Q1 to Q7, B2-1 and B2-2):
+
+| Kind | Result | `read()` gives | `at(i).get()` gives | Another call takes it as |
+| --- | --- | --- | --- | --- |
+| `bool`, `vecN<bool>` | `Buffer<bool>`, `Buffer<vec3b>`: one `u32` word of 0 or 1 for each component | a `boolean[]`, the components one after another | a `boolean`, or a `boolean[]` | a `bool` or `vecN<bool>` parameter; no `array<bool>` exists |
+| `matCxR` of `f32` | `Buffer<mat4x4>`; `length` counts matrices | a `Float32Array`, column-major, with no padding | a `Float32Array` of one matrix | a matrix parameter (one matrix), an `array<matCxR>` (`N`), padded at the call |
+| key `K` | `Buffer<K>`: one `u32` id for each element | a `K[]` of the member strings | a member string | a parameter of `K`; an `array<K>`, the ids as they are |
+| `Record<K, T>` | an object of `Buffer<T>`, one for each member | each member's `read()` | as `T` gives | each member's `Buffer` where `T` is taken |
+| `array<S, N>` | one `Buffer<S>` of `N` elements | an `S[]`: instances of an exported class, or plain objects | the struct accessor | an `array<S>` parameter |
+
+A matrix parameter also takes a `Buffer<f32>` of exactly its `C * R` components, column-major, and
+an `array<matCxR>` a `Buffer<f32>` whose length is a multiple of `C * R`. The struct accessor of a
+`Buffer<S>` gives a matrix field's view with each column at its stride, as `get()` of a matrix
+field of a `Buffer` of structs does. An `S` that holds a `bool` has a layout of its own, each `bool`
+one `u32` word: its `read()` and `at(i)` work, and no parameter takes it. A key field of an `S`
+reads as its member, and an `array<S>` takes the ids, as a plain array of `S` holds them:
+
+```ts
+// shade: export function test(ps: array<Particle>): bool { … }
+//        export function pose(ps: array<Particle>): mat4x4<f32> { … }
+//        export function top(ps: array<Particle>): array<Particle, 4> { … }
+//        export function aim(@inout ps: array<Particle>, m: mat4x4<f32>): void { … }
+//        export function step(@inout ps: array<Particle>, dt: f32): void { … }
+const b = test(ps); // Buffer<bool> of 1
+const [ok] = await b.read(); // a boolean
+const m = pose(ps); // Buffer<mat4x4> of 1
+aim(ps, m); // the result is an argument of a matrix parameter
+const best = top(ps); // Buffer<Particle> of 4
+step(best, 1 / 60); // an argument of an array<Particle> parameter
+```
 
 A call that takes no `Buffer` and no `Uniform` is the call of §65 and §67, as before.
 
@@ -9173,8 +9214,8 @@ ID, user agent, storage or automatic sending is added. The host controls inspect
 **A `Buffer` of scalars** (change 0138, Amendments A10 and A11). `array(xs)`, from
 `typeshade/runtime`, makes a `Buffer` of the scalars of a typed array: a `Buffer<f32>` of a
 `Float32Array`, a `Buffer<i32>` of an `Int32Array`, a `Buffer<u32>` of a `Uint32Array` and a
-`Buffer<f64>` of a `Float64Array`. An array of numbers, a `number[]`, makes a `Buffer<f32>`, its
-numbers held as a `Float32Array` holds them (the owner's decision of 2026-11-11). It holds its own
+`Buffer<f64>` of a `Float64Array`. An array of numbers, a `number[]`, makes a `Buffer<number>`,
+whose element its first use fixes (change 0138, Amendment A12, decision 3; OD-7). It holds its own
 copy. Inside a block of `device.use()` it makes that device's `Buffer`, as `device.array(xs)` does
 (§64, the default device). `array()` takes an array and nothing else: a value the host keeps on
 the device is `uniform(Class, init)`, and any other value is passed to the call as it is. An array
@@ -9222,6 +9263,41 @@ and a later call on WebGPU uploads it; a device counts it among its allocations.
 (Amendment A11, Q7). On the CPU tier a `Buffer` of scalars is a
 typed array it holds, and costs nothing. A `Buffer<u32>` can also hold the workgroup count of an
 entry call, which a kernel or an entry wrote (§67, change 0075).
+
+**The element of a `Buffer<number>`** (change 0138, Amendment A12, decision 3). The author writes a
+number as a number, and the first use gives the `Buffer` the element it needs (OD-7). The places
+that fix it, each with the element it fixes:
+
+| Place | Element |
+| --- | --- |
+| an array with no size of numbers or vectors, of a kernel function, an entry or the program runtime | its scalar: `array<u32>` and `array<vec3<u32>>` give `u32` |
+| a number or vector parameter | its scalar |
+| a matrix parameter, an `array<matCxR>` | `f32` |
+| a held length, an indirect workgroup count, a geometry's indices | `u32` |
+| a geometry's vertices | the scalar every vertex attribute has |
+
+The use checks each number as a plain argument of the element is checked: `1.5` or `-1` for a
+`u32` is a `TypeError` that names its index, and the call changes nothing. A use the call refuses
+fixes nothing. Where nothing decides, the element is `f32`, and an `f64` place fixes nothing and
+refuses it. Before the first use, `read()` gives the numbers rounded to `f32` and `at(i).get()`
+one of them, and `set(data)`, `resize(n)` and `at(i).set(x)` keep the element open. A use of
+another element after the first is a `TypeError` at that call that names the element and the line
+of the first use. A `Buffer` that `device.array()` hands out again is open again:
+
+```ts
+// shade: export function scan(xs: array<u32>): u32 { … }
+//        export function blur(xs: array<f32>): f32 { … }
+const xs = array([1, 2, 3]); // a Buffer<number> whose element is not fixed yet
+const total = scan(xs); // the first use fixes u32
+blur(xs); // TypeError: blur(): parameter "xs" takes a Buffer of f32; this Buffer's element is
+//           u32, which its first use fixed at app.ts:3:15 (change 0138, Amendment A12, Q10). …
+const ys = array([0.5, 2]); // no call takes ys: its element is f32
+```
+
+In the host view `array(xs: readonly number[])` returns `Buffer<number>`. It passes where a
+`Buffer<f32>`, a `Buffer<i32>` or a `Buffer<u32>` is taken, since `number` is each of them to
+TypeScript, and its `read()` is typed `Float32Array | Int32Array | Uint32Array`. The type does not
+change after the first use: `tsc` cannot see a later use.
 
 **Failed inputs** (change 0129). A generated kernel, compute or fragment call checks incoming contents after earlier queued calls settle and its arguments validate.
 If an input it reads has failed, the call rejects with that same error before execution or uploads.
@@ -9562,7 +9638,7 @@ A `Buffer` of scalars where the binding has a size, or is not a storage array, i
 and so is one `Buffer` passed as two bindings of one call. Entry calls and kernel calls run one
 after another in the order they were made, so an entry and a kernel function can share a `Buffer`.
 The failed-input policy of §65 applies before the entry executes, including after override specialization.
-Its content-reading bindings are checked in declaration order, followed by an indirect count; write-only bindings can recover.
+Its content-reading bindings are checked in declaration order, followed by an indirect count; write-only bindings can recover. Outside today's `fuse()`, a write-only binding recovers a failed `Buffer` only when the call was queued before the failure was known (change 0138, Amendment A12, D-n).
 
 **Resources as bindings** (change 0138, R2; Rules 8.21 and 8.24). A `uniform<T>` of a class the
 module exports may be a `Uniform<T>`, and a `storage<array<T>>` of one a `Buffer<T>`, an exported
