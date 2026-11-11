@@ -345,6 +345,7 @@ export function collectModuleConsts(
 ): ConstDecl[] {
   const scope = new LoweringScope(undefined, symbols);
   scope.setStructs(structs);
+  scope.markModuleConstants();
   const out: ConstDecl[] = [];
   // The value EXPRESSION of each non-scalar const declared so far, by name. A scalar const's
   // value reaches `foldConstNumber` through the scope binding, but a vector or array one is

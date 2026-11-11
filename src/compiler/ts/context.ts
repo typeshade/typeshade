@@ -1331,6 +1331,18 @@ export class LoweringScope {
     return this.ownerDecl;
   }
 
+  /** Whether this scope lowers the file's module constants (`collectModuleConsts`), each of
+   *  which is folded to its number before a target reads it (§12), rather than a body. */
+  private moduleConstants = false;
+
+  markModuleConstants(): void {
+    this.moduleConstants = true;
+  }
+
+  atModuleConstant(): boolean {
+    return this.moduleConstants;
+  }
+
   /** The declaration whose body this scope lowers, when it is written in the source: what a
    *  call of a parameter of function type is checked against (Rule 8.18, change 0088). */
   setOwnerNode(node: ts.SignatureDeclaration | undefined): void {

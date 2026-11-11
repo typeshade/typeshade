@@ -12,6 +12,7 @@ import {
 import {
   carriedByCall,
   isAbstractRead,
+  isIntegerWrittenRead,
   markAbstractRead,
   markCarriedRead,
   noteAbstractDivision,
@@ -44,6 +45,8 @@ import {
 import {
   foldNumericLit,
   isIntegerLiteralTree,
+  isKindlessBitwise,
+  markKindlessBitwise,
   retargetIntLitCtx,
   shiftAmountMessage,
 } from '../lit-coerce.js';
@@ -679,7 +682,7 @@ function lowerPrefixUnary(
       return undefined;
     }
   }
-  const operand = lowerExpression(node.operand, sourceFile, scope, diagnostics);
+  let operand = lowerExpression(node.operand, sourceFile, scope, diagnostics);
   if (!operand) return undefined;
   if (refuseOptionalUse(operand, node.operand, sourceFile, diagnostics)) return undefined;
   if (node.operator === ts.SyntaxKind.MinusToken) {
@@ -732,6 +735,19 @@ function lowerPrefixUnary(
   // `~x`, the bitwise complement (§52). Both targets spell it `~x`; it is an INTRINSIC rather
   // than an IR `unop`, because that node is negation-only and carries no operator field.
   if (node.operator === ts.SyntaxKind.TildeToken) {
+    // The operand of `~` is a bitwise operand with no typed peer (Rule 5.1, change 0134 item 1):
+    // a value its uses decide asks an integer of no kind, and a written integer, or a constant
+    // of no fixed type that is one, is an `i32`, or a `u32` where an `i32` does not hold it. It
+    // was left an `f32`, so `~1` and `~K` were refused (issue 1261).
+    noteDemand(operand, 'int');
+    let written: Expr | undefined;
+    if (noKindOperand(operand, node.operand)) {
+      const lit = foldNumericLit(operand);
+      const kind =
+        lit.op === 'lit' && typeof lit.value === 'number' && lit.value > 2147483647 ? u32T : i32T;
+      const lowered = (written = operand);
+      operand = softDemands(() => retargetIntLitCtx(lowered, node.operand, kind));
+    }
     const k = operand.type.kind === 'vec' ? operand.type.elem : typeKey(operand.type);
     if (k !== 'i32' && k !== 'u32') {
       pushDiag(
@@ -748,7 +764,14 @@ function lowerPrefixUnary(
     // user function of that name and `~x` share one key and fold into each other, silently,
     // on the GPU and in the oracle alike. `~` is not a TypeScript identifier, so no author
     // declaration can collide with it.
-    return { op: 'call', type: operand.type, fn: '~', args: [operand] };
+    const complement: Expr = { op: 'call', type: operand.type, fn: '~', args: [operand] };
+    if (!written) return complement;
+    return markKindlessBitwise(complement, (target) => {
+      const a = retargetIntLitCtx(written, node.operand, target);
+      return typeKey(a.type) === typeKey(target)
+        ? { op: 'call', type: target, fn: '~', args: [a] }
+        : undefined;
+    });
   }
   if (node.operator === ts.SyntaxKind.ExclamationToken) {
     // `!m` on a vector of bools is componentwise (§27): the same compare-with-false the scalar
@@ -805,6 +828,21 @@ function pair(left: Expr, right: Expr, lNode: ts.Expression, rNode: ts.Expressio
       ? quietDemands(() => retargetLit(right, rNode, left.type))
       : retargetLit(right, rNode, left.type),
   ];
+}
+
+/** Whether `node` is a written integer, or a read of a constant of no fixed type that is one,
+ *  with arithmetic over those (`isIntegerLiteralTree`): an operand with no type of its own. */
+function writtenIntegerOperand(node: ts.Expression): boolean {
+  return isIntegerLiteralTree(node) || isIntegerWrittenRead(node);
+}
+
+/** Whether `expr`, lowered from `node`, is an operand with no type of its own: a written integer
+ *  or a constant of no fixed type that is one, still an `f32`, or a bitwise expression over such
+ *  operands, which took an integer of no kind (issue 1261). */
+function noKindOperand(expr: Expr, node: ts.Expression): boolean {
+  return (
+    isKindlessBitwise(expr) || (intElem(expr.type) === undefined && writtenIntegerOperand(node))
+  );
 }
 
 function lendsNoType(node: ts.Expression): boolean {
@@ -1131,6 +1169,9 @@ function lowerBinary(
       // is then retyped to u32 again a few lines on, which is idempotent for a literal.
       // Of a value its uses decide, each asks an integer of no kind (change 0134 item 1).
       const [l, r] = [left, right];
+      // A written target with no type of its own is an integer of no kind: a position that
+      // declares the other integer type gives it that type (issue 1261).
+      const writtenTarget = noKindOperand(l, node.left);
       left = softDemands(() => retargetIntLitCtx(l, node.left, i32T));
       right = softDemands(() => retargetIntLitCtx(r, node.right, u32T));
       // A shift is defined componentwise, so read the ELEMENT kind: `vec2u << vec2u` is a
@@ -1185,7 +1226,14 @@ function lowerBinary(
               ? { op: 'call', type: u32T, fn: 'u32', args: [right] }
               : { op: 'construct', type: amountT, args: [right] }
             : right;
-      return { op: 'binop', type: left.type, bop: bit, a: left, b: amount };
+      const shifted: Expr = { op: 'binop', type: left.type, bop: bit, a: left, b: amount };
+      if (!writtenTarget || lanes !== 1) return shifted;
+      return markKindlessBitwise(shifted, (target) => {
+        const a = retargetIntLitCtx(l, node.left, target);
+        return typeKey(a.type) === typeKey(target)
+          ? { op: 'binop', type: target, bop: bit, a, b: amount }
+          : undefined;
+      });
     }
     // `&`, `|` and `^` have no float overload on either target (Rule 7.1: WGSL's bit expressions
     // take the integer kinds, and `&` and `|` bools; GLSL ES 3.00 §5.9 takes integers only), but
@@ -1195,11 +1243,12 @@ function lowerBinary(
     // the author's words (Rule 12.6), and before the equal-types rule below, whose remedy for
     // `f32 & u32` begins with `f32(intVal)`: two floats, which is this refusal again.
     //
-    // Two whole numbers the front end folds are the exception. `1 | 2`, or two flags declared
-    // `const A = 1`, are f32 only by Rule 5.1's default, and a module constant, an enum member
-    // and a `case` label fold them to the number (§12), which compiles; that is left as it was.
-    // Where such a pair is emitted instead (`const x = 1 | 2` in a function body), it still
-    // reaches the targets as `(1.0 | 2.0)`, as before.
+    // Two whole numbers in a module constant are the exception. `const M = 1 | 2` at module
+    // scope, or an enum member over two flags, is folded to the number (§12) before a target
+    // reads it, which compiles; that is left as it was. Anywhere else the pair is emitted, so
+    // two written integers are made integers above, and a pair that is still `f32` (a whole
+    // float-written number, or a module variable over module constants) is refused here: it
+    // reached the targets as `(1.0 | 2.0)` before (issue 1261).
     // A value its uses decide is an integer here: the typed peer's, or of no kind (`f | 4`).
     // A written operand that an `i32` cannot hold makes it a `u32` (`f | 3000000000`).
     const kindless = (peer: Expr): 'int' | 'u32' => {
@@ -1208,10 +1257,35 @@ function lowerBinary(
         ? 'u32'
         : 'int';
     };
+    // Two operands with no type of their own, each a written integer or a constant of no fixed
+    // type that is one (`1 | 2`, `K | J`), are each a bitwise operand with no typed peer: an
+    // integer of no kind, an `i32` unless a written operand does not fit one (Rule 5.1, change
+    // 0134 item 1). They were left as two `f32`s, so `let f = K | J` emitted
+    // `var f: f32 = (K | J);`, which no target accepts (issue 1261). A module constant is
+    // folded to its number before any target reads it, so it keeps the value it had.
+    let retype: ((target: ShaderType) => Expr | undefined) | undefined;
+    if (
+      !scope.atModuleConstant() &&
+      noKindOperand(left, node.left) &&
+      noKindOperand(right, node.right)
+    ) {
+      const kind = kindless(left) === 'u32' || kindless(right) === 'u32' ? u32T : i32T;
+      const [l, r] = [left, right];
+      left = softDemands(() => retargetIntLitCtx(l, node.left, kind));
+      right = softDemands(() => retargetIntLitCtx(r, node.right, kind));
+      // A position that declares the other integer type gives it to both operands.
+      retype = (target) => {
+        const a = retargetIntLitCtx(l, node.left, target);
+        const b = retargetIntLitCtx(r, node.right, target);
+        return typeKey(a.type) === typeKey(target) && typeKey(b.type) === typeKey(target)
+          ? { op: 'binop', type: target, bop: bit, a, b }
+          : undefined;
+      };
+    }
     noteDemand(left, intElem(right.type) === undefined ? kindless(right) : right.type);
     noteDemand(right, intElem(left.type) === undefined ? kindless(left) : left.type);
     const float = [left.type, right.type].find(isFloatBitOperand);
-    if (float !== undefined && !isWholeF32Pair(left, right, scope)) {
+    if (float !== undefined && !(scope.atModuleConstant() && isWholeF32Pair(left, right, scope))) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -1235,7 +1309,8 @@ function lowerBinary(
     // structs, arrays or matrices under any of them, have one type and reached Tint as `no
     // matching overload` (Rule 7.1).
     if (refuseOperatorKind(bit, left.type, node, sourceFile, diagnostics)) return undefined;
-    return { op: 'binop', type: left.type, bop: bit, a: left, b: right };
+    const result: Expr = { op: 'binop', type: left.type, bop: bit, a: left, b: right };
+    return retype === undefined ? result : markKindlessBitwise(result, retype);
   }
   const log = LOGICAL[node.operatorToken.kind];
   if (log !== undefined) {

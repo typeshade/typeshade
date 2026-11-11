@@ -1106,10 +1106,27 @@ export function t(vi: u32): u32 { return B.f(vi); }`);
   });
 
   it('a read inside the / and the quotient read around it are not other reads', () => {
-    expect(accepted(t('return f32((K | 1) / 2);', 'const K = 7;')).eval('t', ARGS3)).toBe(3.5);
+    expect(accepted(t('return f32((K + 1) / 2);', 'const K = 7;')).eval('t', ARGS3)).toBe(4);
     expect(
       accepted(t('let j: u32 = E / 2 + 1; return f32(j);', 'const E = 8;')).eval('t', ARGS3),
     ).toBe(5);
+  });
+
+  // `K | 1` reads `K` as an integer: a bitwise operand with no typed peer is one (Rule 5.1).
+  // It compiled before only as `(K | 1.0)`, which no target accepts (issue 1261); now it is
+  // refused as `(K << 1) / 4` always was, with the edit that compiles.
+  it('a bitwise read inside the / makes the constant an integer, as a shift does', () => {
+    refused(t('return f32((K | 1) / 2);', 'const K = 7;'), [
+      '"K" is an i32 where another line reads it, and no operand of "(K | 1) / 2" has a declared ' +
+        'type, so the "/" does not say which division it is. Write "f32(K | 1) / 2" for the ' +
+        'float division.',
+    ]);
+    refused(t('return f32((K << 1) / 4);', 'const K = 7;'), [
+      '"K" is an i32 where another line reads it, and no operand of "(K << 1) / 4" has a declared ' +
+        'type, so the "/" does not say which division it is. Write "f32(K << 1) / 4" for the ' +
+        'float division.',
+    ]);
+    expect(accepted(t('return f32(K | 1) / 2;', 'const K = 7;')).eval('t', ARGS3)).toBe(3.5);
   });
 
   it('names the first constant the / reaches that another line reads as an integer', () => {

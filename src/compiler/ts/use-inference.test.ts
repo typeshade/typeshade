@@ -411,3 +411,148 @@ export function t(vi: u32, xs: array<f32, 8>): f32 {
     expect(editor(source)).toEqual(lines);
   });
 });
+
+// Issue 1261: a bitwise operator over two operands with no type of their own (written integers,
+// constants of no fixed type that are integer-written) is a bitwise operand with no typed peer:
+// an integer of no kind, an `i32` unless a position declares `u32` (Rule 5.1, change 0134 item
+// 1). The tests before this read the compiler's diagnostics only where a program was refused,
+// and the editor's half only through the shared analysis, so `let f = K | J`, which emitted
+// `var f: f32 = (K | J);` with no diagnostic in either half, passed both: no test read the
+// emit of a bitwise operator over two operands with no type. Each case here reads the emit or
+// the diagnostic of `compile()`, the editor's `getDiagnostics`, and the hover where the type
+// is the point. The emit was measured against Tint (`operator | (f32, f32)` is refused, the
+// `i32` and `u32` forms accepted).
+describe('a bitwise operator over written integers takes an integer (issue 1261)', () => {
+  const K = 'const K = 6;\nconst J = 3;\n';
+  const mod = (pre: string, body: string, ret = 'i32', params = 'ii: i32'): string =>
+    `"use typeshade";\n${pre}export function t(${params}): ${ret} {\n  ${body}\n}`;
+
+  it.each([
+    ['|', 'K | J', 7],
+    ['&', 'K & J', 2],
+    ['^', 'K ^ J', 5],
+    ['<<', 'K << J', 48],
+    ['>>', 'K >> 1', 3],
+    ['~', '~K', -7],
+    ['| over written numbers', '1 | 2', 3],
+    ['a written number beside a constant', 'K | 8', 14],
+    ['two operators', '(K | J) & ~1', 6],
+  ])('let f = %s is an i32', (_, init, value) => {
+    const source = mod(K, `let f = ${init};\n  return ii + f;`);
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(hover(source, 'f')).toContain('let f: i32');
+    expect(result.wgsl).toContain('var f: i32 = ');
+    expect(result.wgsl).not.toMatch(/\d\.0 [|&^]|\(K [|&^]/);
+    expect(result.eval('t', [1])).toBe(1 + value);
+  });
+
+  it('the program of the issue: let f = K | J with no other use', () => {
+    const source = mod('const K = 1; const J = 2;\n', 'let f = K | J;\n  f += 1;\n  return f;');
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(hover(source, 'f')).toContain('let f: i32');
+    expect(result.wgsl).toContain('var f: i32 = ');
+    expect(result.wgsl).not.toContain('var f: f32');
+    expect(result.eval('t', [0])).toBe(4);
+  });
+
+  it.each([
+    ['an annotation', 'let f: u32 = K | J;\n  return vi + f;', 12],
+    ['a declared parameter', 'return h(K ^ J);', 5],
+    ['a typed peer', 'return vi + (K << 1);', 17],
+    ['a typed peer of ~', 'let c: u32 = ~0;\n  return vi & c;', 5],
+    ['a shift of a bitwise expression', 'return vi + ((K | J) << 1);', 19],
+  ])('a position that declares u32 gives it: %s', (_, body, value) => {
+    const source = mod(`${K}function h(a: u32): u32 { return a; }\n`, body, 'u32', 'vi: u32');
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(result.wgsl).not.toMatch(/\d\.0 [|&^]|~\d\.0/);
+    expect(result.eval('t', [5])).toBe(value);
+  });
+
+  it('a function-local const over written integers is an i32', () => {
+    const source = mod('', 'const m = 1 | 2;\n  return ii * m;');
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(result.wgsl).not.toContain('1.0 | 2.0');
+    expect(result.eval('t', [2])).toBe(6);
+  });
+
+  it('a module variable over module constants is an i32, and u32 where declared', () => {
+    const plain = mod(K, 'f = f + ii;\n  return f;').replace('export', 'let f = K | J;\nexport');
+    const result = compile(plain);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(plain)).toEqual([]);
+    expect(hover(plain, 'f')).toContain('let f: i32');
+    expect(result.wgsl).toContain('var<private> f: i32 = ');
+    const declared = mod(K, 'f = f + vi;\n  return f;', 'u32', 'vi: u32').replace(
+      'export',
+      'let f: u32 = K | J;\nexport',
+    );
+    expect(compile(declared).diagnostics).toEqual([]);
+    expect(editor(declared)).toEqual([]);
+    expect(compile(declared).wgsl).toContain('var<private> f: u32 = ');
+  });
+
+  it('a function that returns one has an i32 result', () => {
+    const source = mod(`${K}function g() { return K | J; }\n`, 'return ii + g();');
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    const s = service(source);
+    const at = source.indexOf('function g') + 9;
+    expect(String(s.getHover('a.shade.ts', s.positionAt('a.shade.ts', at))?.contents)).toContain(
+      'function g(): i32',
+    );
+    expect(result.wgsl).toContain('fn g() -> i32');
+    expect(result.eval('t', [1])).toBe(8);
+  });
+
+  it('a module constant over written integers keeps its value and its f32, as before', () => {
+    const source = mod('const M = 1 | 2;\n', 'return x * M;', 'f32', 'x: f32');
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(result.wgsl).toContain('const M: f32 = 3.0;');
+    expect(result.eval('t', [2])).toBe(6);
+  });
+
+  it('beside an f32 the integer is refused where the f32 use stands, and the cast compiles', () => {
+    const mismatch =
+      'Type mismatch: cannot + f32 and i32 — no implicit int/float conversion. Cast explicitly: ' +
+      'f32(intVal) or i32(floatVal) / u32(floatVal).';
+    for (const body of ['return x + (1 | 2);', 'let f = K | J;\n  return x + f;']) {
+      const source = mod(K, body, 'f32', 'x: f32');
+      const result = compile(source);
+      expect(result.diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+        `TS8003: ${mismatch}`,
+      ]);
+      expect(result.wgsl).toBeUndefined();
+      expect(editor(source)).toEqual([`TS8003: ${mismatch}`]);
+    }
+    const cast = mod(K, 'let f = K | J;\n  return x + f32(f);', 'f32', 'x: f32');
+    expect(compile(cast).diagnostics).toEqual([]);
+    expect(editor(cast)).toEqual([]);
+    expect(compile(cast).eval('t', [0.5])).toBe(7.5);
+  });
+
+  it('a whole float-written operand is refused, not emitted as (1.0 | 2)', () => {
+    const message =
+      'Bitwise "|" needs i32 or u32 operands, got f32. Convert first, e.g. u32(a) | u32(b), or ' +
+      'reinterpret the bits with bitcast<u32>(a).';
+    const source = mod('', 'let f = 1.0 | 2;\n  return ii + i32(f);');
+    const result = compile(source);
+    expect(result.diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+      `TS8003: ${message}`,
+    ]);
+    expect(editor(source)).toEqual([`TS8003: ${message}`]);
+    const fixed = mod('', 'let f = u32(1.0) | u32(2);\n  return ii + i32(f);');
+    expect(compile(fixed).diagnostics).toEqual([]);
+    expect(editor(fixed)).toEqual([]);
+  });
+});

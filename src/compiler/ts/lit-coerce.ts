@@ -130,10 +130,46 @@ export function foldNumericLit(expr: Expr): Expr {
   return expr;
 }
 
+/** The bitwise expressions over written integers that took an integer of no kind, each with
+ *  the lowering of it at another integer type (see {@link markKindlessBitwise}). */
+const kindlessBitwise = new WeakMap<Expr, (target: ShaderType) => Expr | undefined>();
+
+/** Records that `expr` is a bitwise operator (`&`, `|`, `^`, `<<`, `>>`, `~`) over written
+ *  integers and constants of no fixed type that are integer-written, which took an integer of
+ *  no kind, the `i32`, because no operand has a type (Rule 5.1, change 0134 item 1; issue
+ *  1261). `at` lowers it again at another integer type: a position that declares an integer
+ *  (`let f: u32 = K | J`, `h(1 | 2)`, `vi + (1 << 2)`) gives it that type, as it gives a
+ *  written integer its type. Returns `expr`. */
+export function markKindlessBitwise(
+  expr: Expr,
+  at: (target: ShaderType) => Expr | undefined,
+): Expr {
+  kindlessBitwise.set(expr, at);
+  return expr;
+}
+
+/** Whether `expr` is a bitwise expression over written integers that took an integer of no
+ *  kind ({@link markKindlessBitwise}). */
+export function isKindlessBitwise(expr: Expr): boolean {
+  return kindlessBitwise.has(expr);
+}
+
+/** `expr` at the integer type `target`, when it is a bitwise expression over written integers
+ *  of another integer type; `undefined` otherwise. */
+function retypeKindless(expr: Expr, target: ShaderType): Expr | undefined {
+  const at = kindlessBitwise.get(expr);
+  if (at === undefined || !isIntScalar(target) || typeKey(expr.type) === typeKey(target)) {
+    return undefined;
+  }
+  return at(target);
+}
+
 export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
   // A value whose type its uses decide takes this peer's type, as a written number does: the
   // use is recorded, and the next pass lowers the value with it (`use-inference.ts`).
   noteDemand(expr, peer);
+  const kindless = retypeKindless(expr, peer);
+  if (kindless !== undefined) return kindless;
   // A read of a constant of no fixed type, or arithmetic over such reads and written numbers,
   // takes an integer peer's type as the written number would (Rule 5.1, change 0134 item 2).
   // Beside anything else it is left as lowered, so an `f32` read keeps the constant's name.
@@ -226,6 +262,8 @@ export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: Shade
   // means and is left alone, as it is beside an f64 operand.
   if (isF64(target)) return retargetF64DeclaredLit(expr, node);
   if (!isIntScalar(target)) return expr;
+  const kindless = retypeKindless(expr, target);
+  if (kindless !== undefined) return kindless;
   const inner = stripParens(node);
   if (!ts.isConditionalExpression(inner) && !isIntegerLiteralTree(inner)) return expr;
   if (expr.op === 'select' && ts.isConditionalExpression(inner)) {
