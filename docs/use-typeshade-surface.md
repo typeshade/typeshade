@@ -8323,8 +8323,9 @@ the host's `lib` declares `Symbol.dispose` (change 0138, Amendment A5, D4). An a
 uniform(Camera).` A class with a field that has no layout (a `bool`, a two-row matrix in a
 uniform) is refused with the reason, and so is a field named like the accessor's own member
 (`set`, and on a uniform `needsUpdate` and `dispose`): the runtime throws a `TypeError`, and the
-host's editor reports `TS8079` on the call, `uniform(Loose)`, from the types of `uniform`, `zeros`
-and `array` (Amendment A5, D3). `texture({ size, format })` returns a `Texture`, the type
+host's editor reports TypeScript's `TS2345` on the call, `uniform(Loose)` (`TS2769` on
+`array(Loose, data)`), whose text names `TS8079` and the field, from the types of `uniform`,
+`zeros` and `array` (Amendment A5, D3; Amendment A6). `texture({ size, format })` returns a `Texture`, the type
 `typeshade/runtime` exports for a program runtime's texture (D5). A texture lives on its device
 only and takes no range of the region.
 
