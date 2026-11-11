@@ -108,7 +108,8 @@ import {
   isBarrierIntrinsic,
   SUBGROUP_INTRINSICS,
 } from '../../../core/intrinsics.js';
-import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
+import { diagnosticAtSpan, keepUses, makeDiagnostic, noteUse } from '../diagnostic.js';
+import { instanceUsesOf } from '../generic-structs.js';
 import { checkComputeOnlyUses } from '../stage-restrictions.js';
 import { spanOf, withSpan } from '../span.js';
 import { TS_CODES, type TsCode } from '../codes.js';
@@ -745,6 +746,7 @@ export function lowerSourceFunctions(
     infers: boolean,
   ): void => {
     const said = saidFor(cf);
+    const saidBefore = said.length;
     track(cf.stub, infers, said, node, () =>
       fillFunctionBody(
         node,
@@ -769,6 +771,14 @@ export function lowerSourceFunctions(
         infers,
       ),
     );
+    // What the body of a generic class's instance says is true of the places that write the
+    // instance, `Box<P>`: a program that imports the class reports it at the first of them its
+    // entry file writes (#1186). The last recorded use is the first one read.
+    const made = instanceUsesOf(sourceFile, cf.struct.decl.name);
+    if (made.length > 0) {
+      for (const d of said.slice(saidBefore))
+        for (const use of [...made].reverse()) noteUse(d, use, sourceFile);
+    }
     nodeByName.set(cf.stub.name, node);
     funcs.push(cf.stub);
   };
@@ -1071,6 +1081,9 @@ export function lowerSourceFunctions(
       callees.set(emitted, stub);
       writtenAs.set(emitted, name);
       making.push(name);
+      // What the body says of this instance is true of the call that asked for it: a program
+      // that imports the function reports it at that call (#1186).
+      const saidBefore = diags.length;
       try {
         // In the body, a parameter of function type names the function handed over.
         const handed = new Map<string, string>();
@@ -1129,6 +1142,7 @@ export function lowerSourceFunctions(
         fillLifted(mine, sf, diags);
       } finally {
         making.pop();
+        for (const d of diags.slice(saidBefore)) noteUse(d, node, sf);
       }
       return stub;
     });
@@ -2052,7 +2066,9 @@ function sayInherited(
             names.length === 1
               ? names[0]!
               : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`;
-          diagnostics[group.index] = { ...d, message: `${prefix}${together}${suffix}` };
+          const joined = { ...d, message: `${prefix}${together}${suffix}` };
+          keepUses(joined, diagnostics[group.index]!);
+          diagnostics[group.index] = joined;
           continue;
         }
         fields.set(id, { index: diagnostics.length, classes: [name] });

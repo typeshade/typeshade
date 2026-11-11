@@ -33,7 +33,7 @@ import { structT, type ShaderType } from '../../core/ir/types.js';
 import { checkLocationType } from './builtin-check.js';
 import { TS_CODES } from './codes.js';
 import { authorTypeText } from './context.js';
-import { makeDiagnostic } from './diagnostic.js';
+import { makeDiagnostic, noteUse } from './diagnostic.js';
 import { hasRefusedIoParam, refuseF64EntryIo, type F64IoPlace } from './lower/function.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { stageCallOf } from './stage-call.js';
@@ -143,8 +143,13 @@ export function giveEntryLocations(
   const declOf = (type: ShaderType): StructDecl | undefined =>
     type.kind === 'struct' ? structs.find((s) => s.decl.name === type.name)?.decl : undefined;
   const shown = (decl: StructDecl): string => authorTypeText(structT(decl.name));
-  const say = (node: ts.Node | undefined, message: string): void => {
-    diagnostics.push(makeDiagnostic(sourceFile, node, message, TS_CODES.STRUCT_FIELD));
+  /** Reports `message` at `node`. `use` is the entry's parameter or result that makes the
+   *  refusal one, where `node` is a field's declaration: a program that imports the struct
+   *  reports it there, in the file it starts from (#1186). */
+  const say = (node: ts.Node | undefined, message: string, use?: ts.Node): void => {
+    const diagnostic = makeDiagnostic(sourceFile, node, message, TS_CODES.STRUCT_FIELD);
+    if (use !== node) noteUse(diagnostic, use, sourceFile);
+    diagnostics.push(diagnostic);
   };
 
   /** Where a diagnostic about an entry's parameter, or about its result, stands. */
@@ -171,12 +176,21 @@ export function giveEntryLocations(
     what: string,
     place: F64IoPlace,
     node: ts.Node | undefined,
+    use?: ts.Node,
   ): boolean => {
     const at = node ?? sourceFile;
-    if (refuseF64EntryIo(type, what, place, at, sourceFile, diagnostics)) return false;
-    if (type.kind === 'f64') return true;
     const before = diagnostics.length;
+    const said = (): void => {
+      if (use === undefined || use === node) return;
+      for (const d of diagnostics.slice(before)) noteUse(d, use, sourceFile);
+    };
+    if (refuseF64EntryIo(type, what, place, at, sourceFile, diagnostics)) {
+      said();
+      return false;
+    }
+    if (type.kind === 'f64') return true;
     checkLocationType(diagnostics, sourceFile, at, name, type);
+    said();
     return diagnostics.length === before;
   };
   /** Whether `field` of `decl` is a user-defined value that writes no location and can take
@@ -198,6 +212,7 @@ export function giveEntryLocations(
         `Struct "${shown(decl)}" field "${field.name}", a ${stage} ${direction},`,
         'io-struct-field',
         fieldNode(sourceFile, decl.name, field.name) ?? anchor,
+        anchor,
       );
       if (!ok) unfit.add(field);
     }
@@ -281,6 +296,7 @@ export function giveEntryLocations(
         `"${shown(decl)}.${field.name}" has no location and its uses give it ` +
           `${String(first.location)} ${first.where} and ${String(other.location)} ${other.where}: ` +
           `write location<n, T> on it.`,
+        anchor,
       );
     }
   };
@@ -340,6 +356,7 @@ export function giveEntryLocations(
           say(
             fieldNode(sourceFile, decl.name, f.name) ?? anchor,
             unlinked(`${shown(decl)}.${f.name}`, f.name, location.why),
+            anchor,
           );
         }
         continue;
@@ -368,6 +385,7 @@ export function giveEntryLocations(
       `"${shown(decl)}.${field.name}" has no location and its uses give it ` +
         `${String(first.location)} ${first.where} and ${String(other.location)} ${other.where}: ` +
         `write location<n, T> on it.`,
+      anchor,
     );
   }
   settle();
