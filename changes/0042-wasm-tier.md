@@ -1137,6 +1137,24 @@ change the words of Rule 11.2 now, or to move `pow` into `INTRINSICS`. This wide
 touches": Rule 11.2 says where the comment stands for an id of `PORTABLE_INTRINSICS`. Next
 action: the slice that writes the text of the rules (Amendment A2) words Rule 11.2 for both sets.
 
+### A6. Milestone 3 of proposal 0138 comes before this proposal's stage 1 (2026-11-11)
+
+- [fact] Amendment A5 of proposal 0138 (merged as `d5c33767`) records the owner's decision of
+  2026-11-10: milestone 3 of 0138 (non-blocking calls on `Buffer<T>` and `Uniform<T>`) is
+  implemented before milestone 2, which is this proposal's stage 1.
+- [fact] This proposal assumed the other order. The row "A resource on a CPU tier" says "no call
+  takes a resource yet". The note after decision C2 says that stage 1 delivers the mechanism and
+  milestone 3 of 0138 then passes a resource through it. Stages 1f and 1g name no `Buffer<T>` or
+  `Uniform<T>`.
+- [inference] When stage 1f starts, calls on resources already run on the JavaScript CPU tier,
+  WebGPU and WebGL2. So stage 1f must cover a call on a resource, or name the fallback to the
+  JavaScript CPU tier as the reason for such a call.
+- [fact] Open: which of the two stage 1f does. Next action: the owner is asked before stage 1b
+  starts, and the answer is recorded in an amendment. The row "A resource on a CPU tier" is
+  written again with it.
+- Affects: the row "A resource on a CPU tier", the note after decision C2, stages 1f and 1g. No
+  front-matter entry changes.
+
 ## What it owes downstream
 
 The downstream repositories were not searched for this revision. Each item below is expected
