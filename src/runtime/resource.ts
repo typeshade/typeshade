@@ -35,9 +35,10 @@
 // until `set(data)` or `resize()` gives the array new values (the same day, "set(data)나 resize()로
 // 복구").
 //
-// Data decides the device (R3). A uniform or a storage array belongs to the device in use when it
-// is made (`using _ = device.use()`), or to the default owner when none is in use; a call on it
-// runs on that device, and a call that mixes devices is a `TypeError`. An exported binding belongs
+// Data decides the device (R3). A storage array belongs to the device in use when it is made
+// (`using _ = device.use()`), or to the default owner when none is in use; a call on it runs on
+// that device, and a call that mixes devices is a `TypeError`. A uniform belongs to it too, but
+// takes no part in the choice (Amendment A8). An exported binding belongs
 // to no one device: a storage array keeps a device copy for each device whose call reads it, and
 // the dirty ranges one copy takes stay pending for the others, which take them at their own next
 // call. Between a call that wrote it and `read()`, a call on another device is refused, and a

@@ -9,8 +9,7 @@
 // is what the test reads. Both readers of the shader source are read (`compile()` and the language
 // service), and `tsc` reads a host program over the view.
 //
-// It carries no `Verifies:` tag yet: Rule 11.8 still says that the owner of a call does not follow
-// `device.use()`. The tag comes with the rule's new text, whose Doorstop review the owner approves.
+// Verifies: Rule 11.8 (docs/language-design.md; traced in reqs/).
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -172,7 +171,7 @@ describe('a call follows the device in use (R3)', () => {
 });
 
 describe('a resource belongs to the device in use when it is made (R3)', () => {
-  it('a Buffer, a Uniform and array(xs) made in a block belong to its device after the block', async () => {
+  it('a Buffer and array(xs) made in a block belong to its device after the block, and a Uniform made there joins a call on the device in use', async () => {
     const m = await load();
     const dev = await cpuDevice();
     let xs: Buffer<{ pos: vec3; life: f32 }>;

@@ -7,8 +7,10 @@
 // owner over that state, and two libraries could not share a page. Change 0071 names the owner:
 // a `Device` of `typeshade/runtime` (`src/runtime/device.ts`) is one, and the process-global
 // configuration is the **default owner**, which `configure()` and `resident()` describe as
-// before. An ordinary call selects the unique owner of its resources (change 0085); a call
-// with no owned resource uses the default owner.
+// before. An ordinary call selects the unique owner of its resources (change 0085). A kernel call
+// or an entry call with no owned resource runs on the device in use, or on the default owner when
+// none is in use (change 0138, R3, `callDefault`); a draw with no owned resource and a `fuse()`
+// scope of `typeshade/fuse` use the default owner (deviation D-h of change 0138).
 //
 // A call carries its owner: a `fuse` scope records the owner it was opened for, and the plan's
 // calls take their tiers and their device from it (`core/fuse-plan.ts`, `core/host-kernel.ts`,
@@ -60,8 +62,8 @@ export interface CallOwner {
 
 /** The process-global configuration as an owner: `configure({ prefer })`'s tiers, the device
  *  `configure({ runtime })` names or the call layer requests, and `configure({ fp64Flavor })`'s
- *  flavor. A bare call with no owned resource uses it, and so does a
- *  `fuse()` scope opened by `fuse` from `typeshade/fuse`. */
+ *  flavor. A call with no owned resource uses it when no device is in use (a draw always), and
+ *  so does a `fuse()` scope opened by `fuse` from `typeshade/fuse`. */
 export const defaultOwner: CallOwner = Object.freeze({
   label: 'the default owner (array())',
   tiers: () => preferredTiers(),
