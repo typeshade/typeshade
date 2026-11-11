@@ -100,6 +100,7 @@ import {
 import { abstractBuilderText, ctorFnName, methodFnName } from './lower/class-methods.js';
 import { staticConstName } from './module-const.js';
 import { authorTypeText } from './context.js';
+import { hostResourceOf, type ResourceClassFacts } from './host-resource.js';
 import { HANDLE_TYPE_NAMES, SUPPORTED_TYPE_NAMES } from './type-map.js';
 import { describeRead } from './kernel-loops.js';
 import { pushedParams } from './lower/kernel-push.js';
@@ -2294,42 +2295,28 @@ function resourceFaces(
   bindings: readonly BindingDecl[],
 ): FaceExport[] {
   const classes = faces.filter((e): e is ClassExport => e.kind === 'class');
-  /** The exported class of the struct `name` that a host resource can be made of, or why not. */
-  const classOf = (name: string, layout: 'u' | 's'): ClassExport | string => {
+  // The facts of the exported class of struct `name`, which `hostResourceOf` judges with the
+  // criteria the front end's TS8079 uses too (`host-resource.ts`).
+  const classOf = (name: string, layout: 'u' | 's'): ResourceClassFacts | undefined => {
     const cls = classes.find((e) => e.type.s === name);
-    if (cls === undefined) return `its type ${name} is no class the module exports`;
-    if (cls.abstract) return `its class ${cls.name} is abstract`;
+    if (cls === undefined) return undefined;
     const why = layout === 'u' ? cls.layouts.un : cls.layouts.sn;
-    if (why !== undefined) return why;
-    return cls;
+    return {
+      name: cls.name,
+      abstract: cls.abstract,
+      ...(why !== undefined ? { layoutProblem: why } : {}),
+    };
   };
   return faces.map((e): FaceExport => {
     if (e.kind !== 'binding') return e;
     const b = bindings.find((x) => x.name === e.binding);
-    const t = b?.type;
-    const refuse = (why: string): FaceExport => never(e.name, REASON.bindingNoResource(why));
-    if (b === undefined || t === undefined) return never(e.name, REASON.bindingExport);
-    if (b.space === 'uniform' && t.kind === 'struct') {
-      const cls = classOf(t.name, 'u');
-      return typeof cls === 'string'
-        ? refuse(cls)
-        : { kind: 'resource', name: e.name, cls: cls.name };
-    }
-    if (b.space === 'storage' && t.kind === 'array' && t.elem.kind === 'struct') {
-      if (t.sizeOverride !== undefined)
-        return refuse(
-          'a storage array whose size is an override has no length a host resource takes',
-        );
-      const cls = classOf(t.elem.name, 's');
-      return typeof cls === 'string'
-        ? refuse(cls)
-        : { kind: 'resource', name: e.name, cls: cls.name, length: t.size ?? null };
-    }
-    if (b.space === 'uniform' || b.space === 'storage')
-      return refuse(
-        'only a uniform of a class and a storage array of a class are host resources at milestone 1 of change 0138',
-      );
-    return never(e.name, REASON.bindingExport);
+    if (b === undefined || b.type === undefined) return never(e.name, REASON.bindingExport);
+    const r = hostResourceOf(b, classOf);
+    if (r.kind === 'other') return never(e.name, REASON.bindingExport);
+    if (r.kind === 'none') return never(e.name, REASON.bindingNoResource(r.why));
+    return r.length === undefined
+      ? { kind: 'resource', name: e.name, cls: r.cls }
+      : { kind: 'resource', name: e.name, cls: r.cls, length: r.length };
   });
 }
 

@@ -267,10 +267,12 @@ export const TS_CODES = {
    *  (Rule 6.1, change 0138, Amendment A5, D3): `set`, at any depth, on the class of an exported
    *  `uniform<T>` or of the element of an exported storage array of a class, and `needsUpdate` or
    *  `dispose` on the class of an exported `uniform<T>` itself. The host sets a field through its
-   *  accessor (`camera.pos.set(…)`), so a field of the accessor's own name cannot be reached. On
-   *  the binding's type, in the compiler and in the editor; the host's editor shows the code on
-   *  `uniform(Class, …)`, `zeros(Class, n)` and `array(Class, data)`, and the runtime keeps its
-   *  `TypeError`. */
+   *  accessor (`camera.pos.set(…)`), so a field of the accessor's own name cannot be reached.
+   *  Only a binding that is a host resource is read (an exported class, not abstract, with the
+   *  layout; `hostResourceOf` in `host-resource.ts`). On the field's declaration, in the class
+   *  that declares it, in the compiler and in the editor; the host's editor shows the code in the
+   *  text of its error on `uniform(Class, …)`, `zeros(Class, n)` and `array(Class, data)`, and the
+   *  runtime keeps its `TypeError`. */
   HOST_RESERVED_FIELD: 'TS8079',
   UNSUPPORTED: 'TS8099',
 } as const;

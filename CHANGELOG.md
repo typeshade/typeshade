@@ -109,8 +109,13 @@ init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` o
   `set` on the class and on every struct it holds, and `needsUpdate` or `dispose` on the class of
   an exported `uniform<T>`. The host's editor reports `TS8079` in the text of the type error on
   `uniform(Class)`, `zeros(Class, n)` and `array(Class, data)` for such a class, and the runtime
-  keeps its `TypeError`. A storage array keeps a dirty range for each element written, joined
-  when two touch, and joined into one past 16 ranges; a uniform keeps its one widened range. The
+  keeps its `TypeError`. Only a binding that is a host resource is read (an exported class, not
+  abstract, with the layout), by the predicate the host view uses, and the refusal stands on the
+  field's declaration, in the class that declares it. Cost: a generic wrapper such as
+  `<T extends object>(c: abstract new (...args: never) => T) => uniform(c)` is now TS2345, since
+  the refusal stays unresolved for its `T`; type the parameter as
+  `Parameters<typeof uniform<T>>[0]` (or cast) instead. A storage array keeps a dirty range for
+  each element written, joined when two touch, and joined into one past 16 ranges; a uniform keeps its one widened range. The
   types of `Uniform` and `Buffer` declare `[Symbol.dispose]` where the host's `lib` has
   `Symbol.dispose`, so `using u = uniform(Camera)` type-checks. An exported binding's type has
   no `dispose()`: the view declares `Omit<Uniform<Camera>, 'dispose' | keyof Disposable>`.

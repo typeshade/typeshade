@@ -8382,24 +8382,27 @@ The binding lives as long as its module. Its type has no `dispose()` and no `[Sy
 `Omit<Uniform<Camera>, 'dispose' | keyof Disposable>` in the view, so `camera.dispose()` and
 `using c = camera` are type errors; at run time its `dispose()` throws a `TypeError` (Amendment
 A5, D7). `HostFace.exports` reports the binding as a `resource`, with its class and its length
-(D6). A field of the binding's class named like the accessor's own member is refused where the
-shader declares the binding, in the compiler and in the editor:
+(D6). A field of the binding's class named like the accessor's own member is refused on the
+field's declaration, in the compiler and in the editor:
 
 ```ts
 // scene.shade.ts
 export class Camera {
   pos: vec3 = vec3(0.);
-  dispose: f32 = 0.; // the accessor's own method
+  dispose: f32 = 0.; // TS8079: the accessor's own method
 }
-export declare const camera: uniform<Camera>; // TS8079
+export declare const camera: uniform<Camera>;
 ```
 
 `"Camera.dispose" is named like the host accessor's own method "dispose": "camera" is a binding the
 module exports, a Uniform<Camera> in the host, whose fields are properties of that accessor.
 Rename the field (Rule 6.1).` (`TS8079`). The names are `set` on the binding's class and on every
 struct it holds, and `needsUpdate` and `dispose` on the class of a `uniform<T>` itself; a storage
-array's element may have a field `dispose`. A class that no exported binding holds may have such a
-field. A scalar, a
+array's element may have a field `dispose`. An inherited field is named in the class that
+declares it, and a binding exported under another name (`export { camera as cam }`) by that name.
+Only a binding that is a host resource is read: a class that no exported binding holds, and the
+class of a binding that is no resource (a class the module does not export, an abstract class),
+may have such a field. A scalar, a
 vector, a struct no exported class declares, an array of scalars or vectors, one `storage<T>`, a
 texture and a sampler have no resource of their own yet: the view declares each `never`, with the
 reason. An entry call still takes the binding's value in its bindings
