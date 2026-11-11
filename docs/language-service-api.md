@@ -569,8 +569,10 @@ declaration, `function g() (u32 or f32 where it is called)` (for a method
 `vi + g()`; at a local the copies type apart,
 `let k (u32 or f32 where "g" is called)`. A call in a body that is itself copied, which takes two
 copies, keeps the words. A call of a generic function's instance shows the call's type arguments
-and the instance's parameter types, `function m<f32>(a: f32): u32` (`copyCallParamsAt`). A call of such a function that an imported
-file declares shows the copy the call takes in this document's program (`mapResultCopies`).
+and the instance's parameter types, `function m<f32>(a: f32): u32` (`copyCallParamsAt`). A call of such a function, a method or an
+arrow function that an imported file declares, a call through a namespace import included, shows
+the copy the call takes in this document's program (`mapResultCopies`), with the call's type
+arguments where it writes them.
 
 - A binding shows its resource line, with the slot it has in the hovered document's program.
 - The name is the one the hovered document writes. `bp` of `import { bump as bp }` hovers as

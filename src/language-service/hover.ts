@@ -1159,22 +1159,46 @@ function resultCopiesLine(
 }
 
 /** The hover at a call, in this document, of a function another file declares whose calls decide
- *  its result (Rule 8.19, change 0134 item 4): the declaration's line with the result of the
- *  copy this call takes, as this document's program lowered it (Rule 12.7). */
+ *  its result (Rule 8.19, change 0134 item 4): the declaration's line, or TypeScript's for a
+ *  method or an arrow function, with the result of the copy this call takes as this document's
+ *  program lowered it (Rule 12.7), and the call's type arguments where it writes them, as a
+ *  call in the declaring file shows them. */
 function importedCallLine(
   node: ts.Node,
   declared: string | undefined,
-  imported: ImportedSymbol | undefined,
+  quickInfo: string,
+  defs: readonly ts.DefinitionInfo[],
+  uri: string,
   analysis: CompileTsSourceResult,
   sourceFile: ts.SourceFile,
   struct: StructNames,
 ): string | undefined {
-  if (declared === undefined || imported === undefined || imported.symbol.kind !== 'function') {
+  if (!ts.isIdentifier(node) || defs.length === 0 || defs.some((d) => d.fileName === uri)) {
     return undefined;
   }
-  const call = copyCallAt(analysis.sourceFile, node.getStart(sourceFile));
-  if (call === undefined) return undefined;
-  return declared.replace(/\): [^)]*$/, `): ${spellShaderType(call, struct)}`);
+  // The linked compile records a call at the start of what it names: `g` of `g()`, and `ns` of
+  // `ns.g()`, which the link writes as one name (`mapResultCopies`).
+  const access = ts.isPropertyAccessExpression(node.parent) && node.parent.name === node;
+  const call = access ? node.parent.parent : node.parent;
+  if (!ts.isCallExpression(call) || call.expression !== (access ? node.parent : node)) {
+    return undefined;
+  }
+  const at = [node.getStart(sourceFile), call.expression.getStart(sourceFile)];
+  const type = at.map((o) => copyCallAt(analysis.sourceFile, o)).find((t) => t !== undefined);
+  if (type === undefined) return undefined;
+  const result = spellShaderType(type, struct);
+  const base = declared ?? quickInfo;
+  const typeArgs =
+    call.typeArguments === undefined
+      ? ''
+      : `<${call.typeArguments.map((a) => a.getText(sourceFile)).join(', ')}>`;
+  if (/=> [^()]*$/.test(base)) return base.replace(/=> [^()]*$/, `=> ${result}`);
+  if (!/\): [^()]*$/.test(base)) return undefined;
+  const withArgs =
+    typeArgs === '' || base.includes(`${node.text}<`)
+      ? base
+      : base.replace(new RegExp(`(^|[ .])${node.text}\\(`), `$1${node.text}${typeArgs}(`);
+  return withArgs.replace(/\): [^()]*$/, `): ${result}`);
 }
 
 /**
@@ -1486,7 +1510,16 @@ export function getHover(
       imported !== undefined && imported.program !== self ? imported.program.analysis : undefined,
     ) ??
     resultCopiesLine(node, defs, uri, sourceFile, analysis, struct) ??
-    importedCallLine(node, line(), imported, analysis, sourceFile, struct) ??
+    importedCallLine(
+      node,
+      imported?.symbol.kind === 'function' ? line() : undefined,
+      ts.displayPartsToString(quickInfo.displayParts),
+      defs,
+      uri,
+      analysis,
+      sourceFile,
+      struct,
+    ) ??
     line() ??
     ts.displayPartsToString(quickInfo.displayParts);
   const documentation = ts.displayPartsToString(quickInfo.documentation);

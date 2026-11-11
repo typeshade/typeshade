@@ -1444,11 +1444,24 @@ vi;`) compiles now, since a call asks for its copy in the lowering that settles 
     declares showed the declaration's `f32` where the call takes a copy. The linked compile maps
     the calls of functions with copies to the entry (`mapResultCopies`), and the hover at such a
     call shows the copy's result (`importedCallLine`). The host face does not change.
+- The fifth independent review of pull request #1264 at `19ba7837` (2026-11-11) found the corpus,
+  the host face and the timing clean, and three findings. The owner decided the same day to fix
+  the two hover findings here, each with a test that reads both halves:
+  - Finding 1: a call through a namespace import (`ns.g()`) hovered the declaration's `f32`, since
+    the linked compile records the call where `ns` starts. The hover looks the call up at the
+    name and at the start of what the call names (`importedCallLine`).
+  - Finding 2: a call of an imported generic function dropped its type arguments. It shows them
+    as a call in the declaring file does (`function g<f32>(a: f32): u32`).
+  - On the same path, a call of an imported class's method and of an imported arrow function
+    hovers as the copy it takes (`(method) C.m(): u32`).
 - Deviations, open:
   - A generic class's field shares one decision across its instances, as issue #1256 records
     for a generic function's body (deferred by the owner).
   - A call of a function with copies inside a body that is itself copied takes two copies; its
     hover keeps the words.
+  - Issue #1271 (the owner's decision of 2026-11-11, recorded as open): a local typed from a call
+    result that a later pass changes (`function q() { let k = 2; return m() * k; }`) keeps the type
+    it took from the earlier result.
 
 Not delivered yet: the document part of item 5, item 5 for `journeys/` and the helper sources of
 `examples/` (Amendment A1), and the audit.

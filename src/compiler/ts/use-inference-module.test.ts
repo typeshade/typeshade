@@ -599,3 +599,66 @@ export function t(vi: u32, k: i32, x: f32): f32 { return f32(vi + q()) + f32(k +
     }
   });
 });
+
+describe('the fifth review of #1264 (19ba7837)', () => {
+  const lib = '/p/b.shade.ts';
+  const main = '/p/a.shade.ts';
+  /** Both halves of `main` over `lib`; the first line of the hover after each needle. */
+  const imported = (declares: string, uses: string, needles: readonly string[]) => {
+    const files: Record<string, string> = {
+      [lib]: `"use typeshade";\n${declares}\n`,
+      [main]: `"use typeshade";\n${uses}\n`,
+    };
+    const result = compile(files[main]!, { fileName: main, readDocument: (n) => files[n] });
+    expect(result.diagnostics).toEqual([]);
+    const service = createTypeshadeLanguageService({ readDocument: (u) => files[u] });
+    for (const [uri, text] of Object.entries(files)) service.openDocument(uri, text);
+    expect(service.getDiagnostics(main)).toEqual([]);
+    const hovers = needles.map((needle) => {
+      const offset = files[main]!.indexOf(needle) + needle.length;
+      const contents = String(service.getHover(main, service.positionAt(main, offset))?.contents);
+      return contents.split('\n')[1] ?? contents;
+    });
+    return { result, hovers };
+  };
+
+  it('a call through a namespace import hovers as the copy it takes (1)', () => {
+    const { result, hovers } = imported(
+      'export function g() { return 3; }',
+      `import * as ns from './b.shade.ts';
+export function t(vi: u32, x: f32): f32 { return f32(vi + ns.g()) + x * ns.g(); }`,
+      ['vi + ns.', 'x * ns.'],
+    );
+    expect(result.wgsl).toContain('(vi + g_u32())');
+    expect(hovers).toEqual(['function g(): u32', 'function g(): f32']);
+  });
+
+  it("an imported generic's call keeps its type arguments, as in its own file (2)", () => {
+    const { result, hovers } = imported(
+      'export function g<T>(a: T) { return 3; }',
+      `import { g } from './b.shade.ts';
+export function t(vi: u32, x: f32): f32 { return f32(vi + g<f32>(x)) + x * g<f32>(x); }`,
+      ['vi + ', 'x * '],
+    );
+    expect(result.eval('t', [1, 2])).toBe(10);
+    expect(hovers).toEqual(['function g<f32>(a: f32): u32', 'function g<f32>(a: f32): f32']);
+  });
+
+  it("an imported class's method and an imported arrow function hover as their copies", () => {
+    const method = imported(
+      'export class C { m() { return 3; } }',
+      `import { C } from './b.shade.ts';
+export function t(vi: u32, x: f32): f32 { const c = new C(); return f32(vi + c.m()) + x * c.m(); }`,
+      ['vi + c.', 'x * c.'],
+    );
+    expect(method.hovers).toEqual(['(method) C.m(): u32', '(method) C.m(): f32']);
+    const arrow = imported(
+      'export const k = () => 3;',
+      `import { k } from './b.shade.ts';
+export function t(vi: u32, x: f32): f32 { return f32(vi + k()) + x * k(); }`,
+      ['vi + ', 'x * '],
+    );
+    expect(arrow.result.eval('t', [1, 2])).toBe(10);
+    expect(arrow.hovers.map((h) => h.replace(/^.*: /, ''))).toEqual(['u32', 'f32']);
+  });
+});
