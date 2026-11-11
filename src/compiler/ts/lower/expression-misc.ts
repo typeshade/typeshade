@@ -1,3 +1,4 @@
+import { userCallExpr } from './caller-decided.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { builtinResultType } from '../../../core/builtins/resolve.js';
@@ -372,7 +373,9 @@ export function lowerUserCall(
       return undefined;
     }
   }
-  const call: Expr = { op: 'call', type: decl.ret, fn: decl.name, args, declRef: decl };
+  // A function whose callers decide its result: this call takes the copy its own use decided
+  // (Rule 8.19, change 0134 item 1).
+  const call = userCallExpr(decl, args, node, sourceFile);
   return wrapHandedResult(call, node, scope, sourceFile, diagnostics);
 }
 

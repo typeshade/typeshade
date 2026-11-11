@@ -8,6 +8,14 @@ import {
 import type { StructDecl, StructField } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { boolT, f32T, structT, typeKey as typeKeyOf } from '../../core/ir/types.js';
+import {
+  decidedType,
+  inferenceConflict,
+  useInferenceActive,
+  type InferredValue,
+} from './use-inference.js';
+import { isIntegerLiteralTree } from './lit-coerce.js';
+import { hasNoWrittenType } from './abstract-const.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { isUntypedBuiltin } from './builtin-type-form.js';
 import {
@@ -835,22 +843,38 @@ export function collectStructs(
             }
           }
           // A field written without a type takes the one its initializer names (Rule 8.14):
-          // `hits = 0` is an f32 by Rule 5.1's reading of a bare number, `on = false` a bool,
+          // `hits = 0` takes the type its uses give it, an f32 where none decides (Rule 5.1,
+          // change 0134 item 1; `inferredFieldType`), `on = false` a bool,
           // `v = vec3(0.)` and `p = new P()` the type they build. Before this such a field was
           // dropped from the struct with no diagnostic, and every read of it said it did not
           // exist.
           // One whose type names a generic interface or alias is withheld: that declaration
           // said why, once, and a read of the field or a literal that sets it adds nothing
           // (Rule 12.4).
-          const mapped = member.type
-            ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
-              (writesRefusedType(member.type, sourceFile) ||
-              isUntypedBuiltin(member.type, sourceFile)
-                ? undefined
-                : structT(writtenText(member.type))))
-            : member.initializer !== undefined
-              ? initializerType(member.initializer, sourceFile)
-              : undefined;
+          // A type the language service wrote into the text it analyses is not the author's
+          // (`hasNoWrittenType`): a field of integer-written numbers takes its type from its
+          // uses in the editor as in `compile()` (Rule 12.7, change 0134 item 1).
+          const projected =
+            member.type !== undefined &&
+            member.initializer !== undefined &&
+            isIntegerLiteralTree(member.initializer) &&
+            hasNoWrittenType(member, sourceFile);
+          const mapped =
+            member.type && !projected
+              ? (mapTsTypeToShaderType(member.type, sourceFile, diagnostics) ??
+                (writesRefusedType(member.type, sourceFile) ||
+                isUntypedBuiltin(member.type, sourceFile)
+                  ? undefined
+                  : structT(writtenText(member.type))))
+              : member.initializer !== undefined
+                ? (inferredFieldType(
+                    member,
+                    structName,
+                    emittedMemberName(memberName),
+                    sourceFile,
+                    diagnostics,
+                  ) ?? initializerType(member.initializer, sourceFile))
+                : undefined;
           // `f?: T` is `f: T | undefined` (Rule 7.10, change 0093, decision D3), and an object
           // literal may omit it.
           const type = optionalFieldType(
@@ -1680,9 +1704,54 @@ function withUnimplementedAbstracts(
   });
 }
 
+/** The record each read of a field whose uses decide its type is marked with, by the struct and
+ *  the emitted field name (change 0134 item 1). */
+const inferredFields = new WeakMap<ts.SourceFile, Map<string, InferredValue>>();
+
+/** A field written without a type and initialized by integer-written numbers takes its type
+ *  from its uses (Rule 8.14, Rule 5.1, change 0134 item 1): the decision an earlier pass of this
+ *  compile settled, else the `f32` the compiler chooses. `undefined` for any other field. */
+function inferredFieldType(
+  member: ts.PropertyDeclaration,
+  structName: string,
+  field: string,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): ShaderType | undefined {
+  if (!useInferenceActive(sourceFile) || member.initializer === undefined) return undefined;
+  if (!isIntegerLiteralTree(member.initializer)) return undefined;
+  const conflict = inferenceConflict(sourceFile, member);
+  // Said once, at the field, however many instances of a generic class carry it.
+  if (conflict !== undefined && !diagnostics.some((d) => d.message === conflict)) {
+    diagnostics.push(makeDiagnostic(sourceFile, member.name, conflict, TS_CODES.TYPE_MISMATCH));
+  }
+  const type = decidedType(sourceFile, member);
+  const value: InferredValue = {
+    decl: member,
+    key: member,
+    name: member.name.getText(sourceFile),
+    written: member.initializer.getText(sourceFile).replace(/\s+/g, ' '),
+    ...(type !== undefined ? { type } : {}),
+  };
+  let table = inferredFields.get(sourceFile);
+  if (table === undefined) inferredFields.set(sourceFile, (table = new Map()));
+  table.set(`${structName}.${field}`, value);
+  return type ?? f32T;
+}
+
+/** The record of the field `field` of the struct `structName`, when its uses decide its type. */
+export function inferredFieldOf(
+  sourceFile: ts.SourceFile,
+  structName: string,
+  field: string,
+): InferredValue | undefined {
+  return inferredFields.get(sourceFile)?.get(`${structName}.${field}`);
+}
+
 /** The type a field written without one takes from its initializer, or `undefined` when the
  *  initializer does not name one (Rule 8.14). Read off the syntax, since no scope exists yet to
- *  lower it in: a bare number is an `f32` (Rule 5.1, the reading `let n = 0` gets), `true` and
+ *  lower it in: a bare number is an `f32` (Rule 5.1; an integer-written one whose uses decide
+ *  its type is `inferredFieldType`'s while the use inference runs), `true` and
  *  `false` a `bool`, `new P()` the struct it builds, and a type's own constructor, `vec3(0.)` or
  *  `u32(1)`, that type. A call to anything else could return anything, so it is not guessed at. */
 function initializerType(init: ts.Expression, sourceFile: ts.SourceFile): ShaderType | undefined {

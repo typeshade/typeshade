@@ -6,7 +6,14 @@ import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { entryNode } from '../compiler/ts/entry-locations.js';
 import { qualifiersOf } from '../compiler/ts/lower/references.js';
 import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
-import { abstractConstTableOf, type DeclaredSymbol } from '../compiler/ts/symbols.js';
+import {
+  abstractConstTableOf,
+  copyCallAt,
+  copyCallParamsAt,
+  hasResultCopies,
+  resultCopiesAt,
+  type DeclaredSymbol,
+} from '../compiler/ts/symbols.js';
 import { ioAttrOf, retIoAttrOf } from '../core/ir/entry-io.js';
 import type { FuncDecl } from '../core/ir/nodes.js';
 import type { ShaderType } from '../core/ir/types.js';
@@ -1033,6 +1040,167 @@ function declarationLine(
   }
 }
 
+/** "u32 or f32", "i32, u32 or f32": the types in the order of TypeShade's words (decision Q3). */
+function typesInWords(types: readonly ShaderType[], struct: StructNames): string {
+  const order = ['i32', 'u32', 'f32', 'f64'];
+  const rank = (t: string): number => (order.includes(t) ? order.indexOf(t) : order.length);
+  const spelled = [...new Set(types.map((t) => spellShaderType(t, struct)))].sort(
+    (a, b) => rank(a) - rank(b),
+  );
+  return spelled.length <= 1
+    ? (spelled[0] ?? '')
+    : `${spelled.slice(0, -1).join(', ')} or ${spelled[spelled.length - 1]!}`;
+}
+
+/**
+ * The first line of the hover of a function whose calls ask two or more result types, and of
+ * a local in its body (Rule 8.19, change 0134 item 4; Amendment A1, "사본마다 추론"), or
+ * `undefined` when `node` names neither. The function is lowered once for each type, so the
+ * compiler's table records a type for each copy and no one of them is the type of every use. The
+ * hover reads the compile's own facts (`resultCopiesAt`, `copyCallAt`) and computes none:
+ *
+ * - at a call, the result of the copy that call takes: `function g(): u32` in `vi + g()`;
+ * - at the declaration, and at a call with no one copy, the result types in TypeShade's words:
+ *   `function g() (u32 or f32 where it is called)`;
+ * - at a local of its body that the copies type apart, each type:
+ *   `let k (u32 or f32 where "g" is called)`.
+ */
+function resultCopiesLine(
+  node: ts.Node,
+  defs: readonly ts.DefinitionInfo[],
+  uri: string,
+  sourceFile: ts.SourceFile,
+  analysis: CompileTsSourceResult,
+  struct: StructNames,
+): string | undefined {
+  if (!ts.isIdentifier(node)) return undefined;
+  const def = defs.find((d) => d.fileName === uri);
+  if (def === undefined) return undefined;
+  const table = analysis.sourceFile;
+  const at = def.textSpan.start;
+  const fn = resultCopiesAt(table, at);
+  // A call of a function its calls decide hovers as the copy it calls; a generic function's
+  // instance records no declaration line, only its calls.
+  const call = copyCallAt(table, node.getStart(sourceFile));
+  const named = nodeAt(sourceFile, at);
+  const decl = named?.parent;
+  const generic =
+    decl !== undefined &&
+    ts.isFunctionLike(decl) &&
+    ((decl as ts.SignatureDeclaration).typeParameters?.length ?? 0) > 0;
+  if (fn !== undefined || (call !== undefined && generic)) {
+    const fnNode =
+      decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined
+        ? decl.initializer
+        : decl;
+    // A generic function's instance shows the call's type arguments and the instance's
+    // parameter types, `m<f32>(a: f32)`, as TypeScript names an instance.
+    const instance = generic ? copyCallParamsAt(table, node.getStart(sourceFile)) : undefined;
+    const written = fnNode !== undefined && ts.isFunctionLike(fnNode) ? fnNode.parameters : [];
+    const params =
+      instance !== undefined
+        ? written
+            .map((p, i) => {
+              const t = instance[instance.length - written.length + i];
+              return `${p.name.getText(sourceFile)}: ${t === undefined ? '?' : spellShaderType(t, struct)}`;
+            })
+            .join(', ')
+        : written.map((p) => p.getText(sourceFile).replace(/\s+/g, ' ')).join(', ');
+    const callNode = node.parent;
+    const typeArgs =
+      generic && ts.isCallExpression(callNode) && callNode.typeArguments !== undefined
+        ? `<${callNode.typeArguments.map((a) => a.getText(sourceFile)).join(', ')}>`
+        : '';
+    const owner =
+      decl !== undefined && ts.isClassElement(decl) && ts.isClassLike(decl.parent)
+        ? `${decl.parent.name?.text ?? ''}.`
+        : '';
+    const one = fn !== undefined && fn.types.length === 1 ? fn.types[0] : undefined;
+    const fixed = call ?? one;
+    const result = fixed !== undefined ? spellShaderType(fixed, struct) : undefined;
+    const words = `${typesInWords(fn?.types ?? [], struct)} where it is called`;
+    if (decl !== undefined && ts.isGetAccessorDeclaration(decl)) {
+      return `(getter) ${owner}${node.text}${result !== undefined ? `: ${result}` : ` (${words})`}`;
+    }
+    if (decl !== undefined && ts.isVariableDeclaration(decl)) {
+      return `const ${node.text}: (${params}) => ${result ?? `(${words})`}`;
+    }
+    const head =
+      decl !== undefined && ts.isMethodDeclaration(decl)
+        ? `(method) ${owner}${node.text}(${params})`
+        : decl !== undefined &&
+            ts.isFunctionDeclaration(decl) &&
+            !ts.isSourceFile(decl.parent) &&
+            !ts.isModuleBlock(decl.parent)
+          ? `(local function) ${node.text}(${params})`
+          : `function ${node.text}${typeArgs}(${params})`;
+    return result !== undefined ? `${head}: ${result}` : `${head} (${words})`;
+  }
+  const local = analysis.symbols.filter((s) => s.start === at && s.kind === 'local');
+  if (local.length < 2 || local.every((s) => typesOf(s) === typesOf(local[0]!))) return undefined;
+  // The function whose body declares the local, by the name its declaration gives it.
+  let around: ts.Node | undefined = nodeAt(sourceFile, at);
+  let copies: ReturnType<typeof resultCopiesAt>;
+  for (; around !== undefined && copies === undefined; around = around.parent) {
+    if (!ts.isFunctionLike(around)) continue;
+    const name =
+      (around as { name?: ts.Node }).name ??
+      (ts.isVariableDeclaration(around.parent) ? around.parent.name : undefined);
+    if (name !== undefined) copies = resultCopiesAt(table, name.getStart(sourceFile));
+  }
+  if (copies === undefined) return undefined;
+  return (
+    `${local[0]!.mutable === false ? 'const' : 'let'} ${node.text} ` +
+    `(${typesInWords(
+      local.map((s) => s.type),
+      struct,
+    )} where "${copies.name}" is called)`
+  );
+}
+
+/** The hover at a call, in this document, of a function another file declares whose calls decide
+ *  its result (Rule 8.19, change 0134 item 4): the declaration's line, or TypeScript's for a
+ *  method or an arrow function, with the result of the copy this call takes as this document's
+ *  program lowered it (Rule 12.7), and the call's type arguments where it writes them, as a
+ *  call in the declaring file shows them. */
+function importedCallLine(
+  node: ts.Node,
+  declared: string | undefined,
+  quickInfo: string,
+  defs: readonly ts.DefinitionInfo[],
+  uri: string,
+  analysis: CompileTsSourceResult,
+  sourceFile: ts.SourceFile,
+  struct: StructNames,
+): string | undefined {
+  if (!ts.isIdentifier(node) || defs.length === 0 || defs.some((d) => d.fileName === uri)) {
+    return undefined;
+  }
+  // The linked compile records a call at the start of what it names: `g` of `g()`, and `ns` of
+  // `ns.g()`, which the link writes as one name (`mapResultCopies`).
+  const access = ts.isPropertyAccessExpression(node.parent) && node.parent.name === node;
+  const call = access ? node.parent.parent : node.parent;
+  if (!ts.isCallExpression(call) || call.expression !== (access ? node.parent : node)) {
+    return undefined;
+  }
+  const at = [node.getStart(sourceFile), call.expression.getStart(sourceFile)];
+  const type = at.map((o) => copyCallAt(analysis.sourceFile, o)).find((t) => t !== undefined);
+  if (type === undefined) return undefined;
+  const result = spellShaderType(type, struct);
+  const base = declared ?? quickInfo;
+  const typeArgs =
+    call.typeArguments === undefined
+      ? ''
+      : `<${call.typeArguments.map((a) => a.getText(sourceFile)).join(', ')}>`;
+  if (/=> [^()]*$/.test(base)) return base.replace(/=> [^()]*$/, `=> ${result}`);
+  if (!/\): [^()]*$/.test(base)) return undefined;
+  const withArgs =
+    typeArgs === '' || base.includes(`${node.text}<`)
+      ? base
+      : base.replace(new RegExp(`(^|[ .])${node.text}\\(`), `$1${node.text}${typeArgs}(`);
+  return withArgs.replace(/\): [^()]*$/, `): ${result}`);
+}
+
 /**
  * The first line of the hover of a constant of no fixed type (Rule 5.1, change 0134 item 4), or
  * `undefined` when `node` names none. `defs` is where TypeScript resolves the name.
@@ -1228,7 +1396,9 @@ export function getHover(
   // static field is recorded under a longer name, so a file that declares or reads one asks for
   // the definition of every identifier.
   const abstract =
-    ts.isIdentifier(node) && (abstractConstTableOf(analysis.sourceFile)?.decls.length ?? 0) > 0;
+    ts.isIdentifier(node) &&
+    ((abstractConstTableOf(analysis.sourceFile)?.decls.length ?? 0) > 0 ||
+      hasResultCopies(analysis.sourceFile));
   const defs = implementationsOf(
     named || property || linked || abstract
       ? (languageService.getDefinitionAtPosition(uri, offset) ?? [])
@@ -1338,6 +1508,17 @@ export function getHover(
       analysis,
       checker,
       imported !== undefined && imported.program !== self ? imported.program.analysis : undefined,
+    ) ??
+    resultCopiesLine(node, defs, uri, sourceFile, analysis, struct) ??
+    importedCallLine(
+      node,
+      imported?.symbol.kind === 'function' ? line() : undefined,
+      ts.displayPartsToString(quickInfo.displayParts),
+      defs,
+      uri,
+      analysis,
+      sourceFile,
+      struct,
     ) ??
     line() ??
     ts.displayPartsToString(quickInfo.displayParts);

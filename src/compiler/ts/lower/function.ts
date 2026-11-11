@@ -4,6 +4,7 @@
 
 import {
   hasNoWrittenResult,
+  isIntegerWrittenRead,
   moduleAbstractConst,
   noteCarriedReturn,
   unpeekedReads,
@@ -11,6 +12,21 @@ import {
 import { attributeDecoratorsOf, isTypeDecorator } from '../attribute-types.js';
 import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
+import { inferredModuleVar } from '../module-vars.js';
+import { hostExportedDeclarations } from '../host-exports.js';
+import {
+  askedOf,
+  calleeKeyOf,
+  currentCopy,
+  homeTagOf,
+  inCopy,
+  setHomeTag,
+  isCallerDecided,
+  noteCallerDecided,
+  readsUndecided,
+  registerCallerDecided,
+  useInferenceActive,
+} from '../use-inference.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { moduleIndexConst } from '../index-bound.js';
@@ -33,7 +49,7 @@ import { kernelWorkgroups } from '../../../core/kernel-workgroup.js';
 import { setParameterLocals } from '../../../core/ir/parameter-locals.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import type { SourceSpan } from '../../../core/ir/span.js';
-import { structT, voidT } from '../../../core/ir/types.js';
+import { f32T, structT, voidT } from '../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
@@ -51,7 +67,12 @@ import {
   withheldTableOf,
 } from '../context.js';
 import { hasRefusedIoAttribute, type CollectedStruct } from '../structs.js';
-import { recordDeclaration, recordInferredReturn, type DeclaredSymbolSink } from '../symbols.js';
+import {
+  recordDeclaration,
+  recordInferredReturn,
+  recordResultCopies,
+  type DeclaredSymbolSink,
+} from '../symbols.js';
 import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
 import {
   absentOf,
@@ -107,7 +128,7 @@ import {
 } from './param-defaults.js';
 import { lowerStatements, lowerVoidArrowBody } from './statement.js';
 import { lowerExpression } from './expression.js';
-import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
+import { isIntegerLiteralTree, reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
 import {
   ATOMIC_INTRINSICS,
@@ -188,6 +209,29 @@ function writtenModuleNames(
   }
   for (const [emitted, written] of writtenConstNames(sourceFile)) values.set(emitted, written);
   return { values, functions };
+}
+
+/** What `this` is to an arrow function inside the class function `cf`: the method's object, or
+ *  inside a static member the class the call names (Rule 8.13). */
+function classSelf(cf: ClassFunction): LiftedThis | undefined {
+  return cf.receiver !== undefined
+    ? {
+        receiver: {
+          type: cf.receiver.type,
+          mode: cf.receiver.mode === 'param' ? 'param' : 'inout',
+          superMethods: cf.receiver.superMethods,
+        },
+        bindsThis: true,
+        shown: cf.shown,
+      }
+    : cf.staticOwner !== undefined
+      ? {
+          staticOwner: cf.staticOwner,
+          staticSuper: cf.staticSuper,
+          bindsThis: true,
+          shown: cf.shown,
+        }
+      : undefined;
 }
 
 export function lowerSourceFunctions(
@@ -522,25 +566,7 @@ export function lowerSourceFunctions(
     if (cf.node?.body && cf.takesFunctions === undefined) {
       // Inside a method, an arrow function's `this` is the method's object, and inside a static
       // member the class the call names (Rule 8.13).
-      const self: LiftedThis | undefined =
-        cf.receiver !== undefined
-          ? {
-              receiver: {
-                type: cf.receiver.type,
-                mode: cf.receiver.mode === 'param' ? 'param' : 'inout',
-                superMethods: cf.receiver.superMethods,
-              },
-              bindsThis: true,
-              shown: cf.shown,
-            }
-          : cf.staticOwner !== undefined
-            ? {
-                staticOwner: cf.staticOwner,
-                staticSuper: cf.staticSuper,
-                bindsThis: true,
-                shown: cf.shown,
-              }
-            : undefined;
+      const self = classSelf(cf);
       seeLocals(
         declarationsIn(cf.node.body),
         cf.stub.name,
@@ -737,8 +763,155 @@ export function lowerSourceFunctions(
       nodeByName.set(r.stub.name, r.node);
     });
   };
+  // ═══ A result its callers decide (Rule 8.19, change 0134 item 1) ═══
+  //
+  // A function, a method, a getter, a local or arrow function, or an instance of a generic
+  // function, that writes no result type and whose first `return` is a written integer or a value
+  // no use has decided (`noteCallerDecided`), takes its result from its calls. Each call records
+  // the type its own use asks (`callerDecidedCall`), and the next pass reads what the calls asked
+  // (`askedOf`): where they asked one type, the function returns it; where they asked two or
+  // more, or the function is one the host calls (an export), the function keeps the `f32` result
+  // under its own name, and a call that asks another type takes a copy named as an instance is
+  // (`g_u32`, Rule 8.9), made the first time a call asks for it (Amendment A5 of change 0134,
+  // "작성자 기본값 유지"; "export는 f32 유지"). Each copy infers its own locals (Amendment A1,
+  // "사본마다 추론"): its body is lowered under its own key (`inCopy`).
+  /** The functions whose result the calls fixed for this pass: lowered as if it were written. */
+  const decidedByCallers = new Set<FuncDecl>();
+  const copiesOf = new Map<FuncDecl, Map<string, FuncDecl>>();
+  /** Plans `o.stub`; true when its calls fixed its result, so its body is lowered against it. */
+  const planResult = (o: {
+    readonly stub: FuncDecl;
+    readonly node: ts.Node;
+    readonly nameNode: ts.Node | undefined;
+    readonly shown: string;
+    readonly exported: boolean;
+    readonly generic?: true;
+    readonly refill: (copy: FuncDecl) => void;
+  }): boolean => {
+    if (!useInferenceActive(sourceFile)) return false;
+    const key = calleeKeyOf(o.node, o.stub.name);
+    registerCallerDecided(o.stub, {
+      name: o.shown,
+      node: o.nameNode ?? o.node,
+      decl: o.node,
+      key,
+      copyFor: (t) => copyOfResult(o, t),
+    });
+    if (!isCallerDecided(sourceFile, o.node)) return false;
+    const asked = askedOf(sourceFile, key);
+    if (asked.size === 0) return false;
+    const others = [...asked].filter(([k]) => k !== 'f32');
+    const ret = asked.size === 1 && others.length === 1 && !o.exported ? others[0]![1] : f32T;
+    (o.stub as { ret: ShaderType }).ret = ret;
+    decidedByCallers.add(o.stub);
+    setHomeTag(o.stub, `${o.stub.name}:${typeKey(ret)}`);
+    // The hover names each result type at the declaration (item 4 of change 0134); the host
+    // calls an exported function at the `f32` it keeps.
+    const listed = new Map(asked);
+    if (o.exported) listed.set('f32', f32T);
+    // One type is recorded too: a method, a getter or a local or arrow function its calls fixed
+    // hovers as that type, as a function of the file does (Rule 12.7).
+    if (o.nameNode !== undefined && o.generic !== true) {
+      recordResultCopies(
+        sourceFile,
+        o.nameNode,
+        o.shown,
+        ['i32', 'u32', 'f32', 'f64'].flatMap((k) => (listed.has(k) ? [listed.get(k)!] : [])),
+      );
+    }
+    return true;
+  };
+  const copyOfResult = (
+    o: {
+      readonly stub: FuncDecl;
+      readonly node: ts.Node;
+      readonly shown: string;
+      readonly refill: (copy: FuncDecl) => void;
+    },
+    t: ShaderType,
+  ): FuncDecl | undefined => {
+    let byType = copiesOf.get(o.stub);
+    if (byType === undefined) copiesOf.set(o.stub, (byType = new Map()));
+    const had = byType.get(typeKey(t));
+    if (had !== undefined) return had;
+    const base = instanceName(o.stub.name, [t]);
+    // The copy's local functions are named after it (`g_u32_inc`), so a name is free only when
+    // no function of the module begins with it either, where the body declares any.
+    const body = (o.node as { body?: ts.Node }).body;
+    const hasLocals =
+      body !== undefined && ts.isBlock(body) && declarationsIn(body).some(declaresFunction);
+    const taken = (n: string): boolean =>
+      callees.has(n) ||
+      refused.has(n) ||
+      (hasLocals && [...callees.keys(), ...refused].some((c) => c.startsWith(`${n}_`)));
+    let name = base;
+    for (let n = 1; taken(name); n++) name = `${base}_${String(n)}`;
+    const copy: FuncDecl = {
+      ...o.stub,
+      name,
+      ret: t,
+      body: [],
+      params: o.stub.params.map((p) => ({ ...p })),
+    };
+    callees.set(name, copy);
+    writtenAs.set(name, o.shown);
+    const captured = file.captures.get(o.stub.name);
+    if (captured !== undefined) file.captures.set(name, captured);
+    byType.set(typeKey(t), copy);
+    inCopy(name, () => o.refill(copy));
+    return copy;
+  };
+  /** The local functions of a copy's body, its own (`g_u32_inc`): what they capture has the
+   *  copy's types. Lowered after the copy's body with `fillLifted`. */
+  const localsOfCopy = (
+    fnNode: ts.Node,
+    copy: FuncDecl,
+    self: LiftedThis | undefined,
+    outer: ReadonlyMap<string, string>,
+    around: ReadonlyMap<ts.Node, FuncDecl>,
+    said: TsCompilerDiagnostic[],
+    targets?: ReadonlyMap<ts.Node, FuncDecl>,
+  ): Lifted[] => {
+    const mine: Lifted[] = [];
+    const body = (fnNode as { body?: ts.Node }).body;
+    if (body === undefined || !ts.isBlock(body)) {
+      aliasesOf.set(copy.name, new Map(outer));
+      return mine;
+    }
+    seeLocals(
+      declarationsIn(body),
+      copy.name,
+      new Map([...around, [fnNode, copy]]),
+      self,
+      outer,
+      mine,
+      said,
+    );
+    liftCaptures(mine, callees, file, targets);
+    holdLifted(mine, sourceFile, said);
+    return mine;
+  };
+  for (const r of ready) {
+    if (r.stub.stage !== undefined || !hasNoWrittenResult(r.node, sourceFile)) continue;
+    planResult({
+      stub: r.stub,
+      node: r.node,
+      nameNode: r.node.name,
+      shown:
+        r.prefix === ''
+          ? (r.node.name?.text ?? r.stub.name)
+          : `${r.prefix}.${r.node.name?.text ?? ''}`,
+      exported: hostExportedDeclarations(sourceFile).has(r.node),
+      refill: (copy) => {
+        const mine = localsOfCopy(r.node, copy, undefined, new Map(), new Map(), diagnostics);
+        fillReady({ ...r, stub: copy }, false);
+        fillLifted(mine, sourceFile, diagnostics);
+      },
+    });
+  }
   for (const r of ready) {
     if (!hasNoWrittenResult(r.node, sourceFile) || r.stub.stage !== undefined) continue;
+    if (decidedByCallers.has(r.stub)) continue;
     // Lowered outside any instance of a generic function, wherever the call that asks is.
     pendingFill.set(r.stub, () => {
       withTypeArguments(undefined, () => fillReady(r, true));
@@ -791,6 +964,27 @@ export function lowerSourceFunctions(
   for (const cf of classFns) {
     if (cf.infers !== true || cf.node === undefined || cf.takesFunctions !== undefined) continue;
     const node = cf.node;
+    // A method, a getter or a static function its calls decide (Rule 8.19, change 0134): a
+    // member of an exported class is one the host calls.
+    if (
+      !ts.isConstructorDeclaration(node) &&
+      !ts.isSetAccessorDeclaration(node) &&
+      planResult({
+        stub: cf.stub,
+        node,
+        nameNode: (node as { name?: ts.Node }).name,
+        shown: cf.shown,
+        exported: hostExportedDeclarations(sourceFile).has(node.parent),
+        refill: (copy) =>
+          withTypeArguments(undefined, () => {
+            const mine = localsOfCopy(node, copy, classSelf(cf), new Map(), new Map(), saidFor(cf));
+            fillClassFunction({ ...cf, stub: copy }, node, false);
+            fillLifted(mine, sourceFile, saidFor(cf));
+          }),
+      })
+    ) {
+      continue;
+    }
     pendingFill.set(cf.stub, () => {
       withTypeArguments(undefined, () => fillClassFunction(cf, node, true));
       return true;
@@ -897,6 +1091,33 @@ export function lowerSourceFunctions(
     const typeArgs = currentTypeArguments();
     for (const l of list) {
       if (!l.fn.infers) continue;
+      // A local or arrow function its calls decide (Rule 8.19, change 0134); one at the top level
+      // that the file exports is one the host calls.
+      const named = (l.fn.decl as { name?: ts.Node }).name ?? l.fn.node.name;
+      if (
+        planResult({
+          stub: l.fn.stub,
+          node: l.fn.node,
+          nameNode: named,
+          shown: l.fn.localName,
+          exported: hostExportedDeclarations(sourceFile).has(l.fn.decl),
+          refill: (copy) =>
+            withTypeArguments(typeArgs, () => {
+              const mine = localsOfCopy(
+                l.fn.node,
+                copy,
+                l.self,
+                aliasesOf.get(l.fn.ownerName) ?? new Map(),
+                l.around,
+                l.said ?? said,
+              );
+              fillOneLifted({ ...l, fn: { ...l.fn, stub: copy, infers: false } }, sf, said);
+              fillLifted(mine, sf, l.said ?? said);
+            }),
+        })
+      ) {
+        continue;
+      }
       pendingFill.set(l.fn.stub, () =>
         withTypeArguments(typeArgs, () => fillOneLifted(l, sf, said)),
       );
@@ -946,7 +1167,9 @@ export function lowerSourceFunctions(
     said: TsCompilerDiagnostic[],
   ): void => {
     for (const l of list) {
-      if (l.fn.infers) runPending(l.fn.stub);
+      if (decidedByCallers.has(l.fn.stub))
+        fillOneLifted({ ...l, fn: { ...l.fn, infers: false } }, sf, said);
+      else if (l.fn.infers) runPending(l.fn.stub);
       else fillOneLifted(l, sf, said);
     }
     propagateCaptureRefs(
@@ -1117,32 +1340,64 @@ export function lowerSourceFunctions(
           );
           holdLifted(mine, sf, diags);
         }
-        // With no return type written, the body says it (Rule 8.19).
-        const infers = generic.node.type === undefined;
-        track(stub, infers, diags, generic.node, () =>
-          fillFunctionBody(
-            generic.node,
+        const fillInstance = (
+          target: FuncDecl,
+          inferring: boolean,
+          aliases?: ReadonlyMap<string, string>,
+        ): void =>
+          track(target, inferring, diags, generic.node, () =>
+            fillFunctionBody(
+              generic.node,
+              target,
+              sf,
+              diags,
+              callees,
+              consts,
+              bindings,
+              structs,
+              symbols,
+              overrides,
+              vars,
+              undefined,
+              name,
+              generic.prefix === '' ? undefined : generic.prefix,
+              aliases ?? aliasesOf.get(emitted) ?? handed,
+              undefined,
+              undefined,
+              captures,
+              generic.node.parameters.filter((_, i) => !fnAt.has(i)),
+              inferring,
+            ),
+          );
+        // With no return type written, the body says it (Rule 8.19), or this instance's calls
+        // do (change 0134): its copies are this instance's (Rule 8.9).
+        const infers =
+          generic.node.type === undefined &&
+          !planResult({
             stub,
-            sf,
-            diags,
-            callees,
-            consts,
-            bindings,
-            structs,
-            symbols,
-            overrides,
-            vars,
-            undefined,
-            name,
-            generic.prefix === '' ? undefined : generic.prefix,
-            aliasesOf.get(emitted) ?? handed,
-            undefined,
-            undefined,
-            captures,
-            generic.node.parameters.filter((_, i) => !fnAt.has(i)),
-            infers,
-          ),
-        );
+            node: generic.node,
+            nameNode: generic.node.name,
+            shown: name,
+            exported: false,
+            generic: true,
+            refill: (copy) =>
+              withTypeArguments(bound, () => {
+                const mine = localsOfCopy(
+                  generic.node,
+                  copy,
+                  undefined,
+                  handed,
+                  new Map(),
+                  diags,
+                  new Map(targets.map((t) => [t.param as ts.Node, t.fn])),
+                );
+                fillInstance(copy, false, aliasesOf.get(copy.name));
+                funcs.push(copy);
+                nodeByName.set(copy.name, generic.node);
+                fillLifted(mine, sf, diags);
+              }),
+          });
+        fillInstance(stub, infers);
         funcs.push(stub);
         nodeByName.set(emitted, generic.node);
         fillLifted(mine, sf, diags);
@@ -1782,6 +2037,10 @@ export function lowerSourceFunctions(
     if (cf.takesFunctions !== undefined) continue;
     // One whose body says its return type, or a setter whose value takes its getter's, and that
     // a call lowered already, is not lowered again.
+    if (decidedByCallers.has(cf.stub) && cf.node !== undefined) {
+      fillClassFunction(cf, cf.node, false);
+      continue;
+    }
     if ((cf.infers === true || cf.valueFromGetter === true) && cf.node !== undefined) {
       runPending(cf.stub);
       continue;
@@ -1815,6 +2074,8 @@ export function lowerSourceFunctions(
   // lowered already is not lowered again.
   for (const r of ready) {
     if (pendingFill.has(r.stub)) runPending(r.stub);
+    // A result its callers decided is lowered as one the author wrote.
+    else if (decidedByCallers.has(r.stub)) fillReady(r, false);
     // An entry that writes no return type returns what its body does (Rule 8.19, change 0136).
     else if (!hasNoWrittenResult(r.node, sourceFile) || r.stub.stage !== undefined)
       fillReady(
@@ -3213,6 +3474,7 @@ export function functionScope(
   // A module variable (§24) reads and writes as a `varref`, like a binding; its space decides
   // what may hold an atomic and which stage may reach it.
   for (const v of vars) {
+    const inferred = inferredModuleVar(v);
     defineOnce({
       kind: 'modvar',
       name: moduleVarSourceName(v),
@@ -3220,6 +3482,7 @@ export function functionScope(
       type: v.type,
       mutable: true,
       space: v.space,
+      ...(inferred !== undefined ? { inferred } : {}),
     });
   }
   // Module values live outside the parameters and body locals, as in TypeScript (#429).
@@ -3253,6 +3516,14 @@ function inferredArrowValue(
   }
   const lowered = lowerExpression(expr, sourceFile, scope, diagnostics);
   if (!lowered) return [];
+  // An expression body of a written integer, or of a value no use has decided, is a result its
+  // callers decide (Rule 8.19, change 0134 item 1), as such a first `return` is.
+  if (
+    ts.isArrowFunction(expr.parent) &&
+    (isIntegerLiteralTree(expr) || isIntegerWrittenRead(expr) || readsUndecided(lowered))
+  ) {
+    noteCallerDecided(sourceFile, expr.parent);
+  }
   (stub as { ret: ShaderType }).ret = lowered.type;
   if (typeKey(lowered.type) === 'void') {
     return lowered.op === 'call' ? [withSpan({ s: 'call', expr: lowered }, sourceFile, expr)] : [];
@@ -3377,7 +3648,12 @@ export function lowerParamDefaults(
 export function fillFunctionBody(
   ...args: Parameters<typeof fillFunctionBodyNow>
 ): ReturnType<typeof fillFunctionBodyNow> {
-  return unpeekedReads(() => fillFunctionBodyNow(...args));
+  // A function whose calls fixed its result lowers its body under a key of that result
+  // (`setHomeTag`, change 0134).
+  const home = homeTagOf(args[1]);
+  return home === undefined
+    ? unpeekedReads(() => fillFunctionBodyNow(...args))
+    : inCopy(home, () => unpeekedReads(() => fillFunctionBodyNow(...args)));
 }
 
 function fillFunctionBodyNow(
@@ -3598,6 +3874,9 @@ function fillFunctionBodyNow(
   // none has only once its body is lowered.
   const recordName = (): void => {
     if (node.name === undefined || !ts.isIdentifier(node.name)) return;
+    // A copy of a function its calls decide (change 0134) is not what its name declares: the
+    // function itself is, with the `f32` the host reads (Amendment A5, "export는 f32 유지").
+    if (currentCopy() === stub.name) return;
     recordDeclaration(symbols, sourceFile, node.name, {
       name: shown ?? stub.name,
       kind: 'function',
@@ -3807,12 +4086,54 @@ function fillFunctionBodyNow(
             ? `Function "${shown ?? stub.name}" returns ${authorTypeText(stub.ret)} at its first ` +
                 `"return" and ${authorTypeText(r.expr.type)} at another; a function returns one type ` +
                 `(Rule 8.19): make them agree, or write the return type.`
-            : `Function "${shown ?? stub.name}" return type mismatch: declared ${authorTypeText(stub.ret)}, got ${authorTypeText(r.expr.type)}.`,
+            : // A result its calls decided (change 0134) was not declared: say whose it is.
+              ts.isFunctionLike(node) && hasNoWrittenResult(node, sourceFile)
+              ? decidedResultMismatch(node, shown, stub, r, captures, sourceFile)
+              : `Function "${shown ?? stub.name}" return type mismatch: declared ${authorTypeText(stub.ret)}, got ${authorTypeText(r.expr.type)}.`,
           TS_CODES.TYPE_MISMATCH,
         ),
       );
     }
   }
+}
+
+/** The sentence of a `return` whose type differs from the result its calls fixed (Rule 8.19,
+ *  change 0134), naming the function as the author wrote it (Rule 12.5). Where the `return` reads
+ *  a variable the function captures, that is why: every copy reads the one variable, which has
+ *  one type. */
+function decidedResultMismatch(
+  node: FunctionNode,
+  shown: string | undefined,
+  stub: FuncDecl,
+  r: { readonly expr?: Expr; readonly span?: SourceSpan },
+  captures: readonly CaptureBinding[] | undefined,
+  sourceFile: ts.SourceFile,
+): string {
+  const written =
+    (node as { name?: ts.Node }).name ??
+    (ts.isVariableDeclaration(node.parent) ? node.parent.name : undefined);
+  const name =
+    shown ?? (written !== undefined && ts.isIdentifier(written) ? written.text : stub.name);
+  const got = authorTypeText(r.expr!.type);
+  const text =
+    r.span === undefined ? '' : sourceFile.text.slice(r.span.start, r.span.start + r.span.length);
+  const captured = (captures ?? [])
+    .filter((c) => c.byName)
+    .map((c) => c.binding.name)
+    .find((n) => new RegExp(`(^|[^\\w$])${n.replace(/\$/g, '\\$')}($|[^\\w$])`).test(text));
+  if (captured !== undefined) {
+    return (
+      `Function "${name}" returns ${authorTypeText(stub.ret)} where its calls use it and ${got} ` +
+      `at a "return" that reads "${captured}", a variable of the function around it: every copy ` +
+      `of "${name}" reads the one "${captured}", which has one type (Rule 8.19). Write the type ` +
+      `of "${captured}", or the return type of "${name}".`
+    );
+  }
+  return (
+    `Function "${name}" returns ${authorTypeText(stub.ret)} where its calls use it and ${got} at ` +
+    `a "return"; a function returns one type (Rule 8.19): make them agree, or write the return ` +
+    `type.`
+  );
 }
 
 /** A `@workgroup_size` on a function that is not an entry (proposal 0067): the decorator, and the

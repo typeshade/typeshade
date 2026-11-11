@@ -1,9 +1,17 @@
 // === Expression lowering ===
 //
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
-import { carriedOf, markInferredRead, noteDemand, softDemands } from '../use-inference.js';
+import {
+  carriedOf,
+  isUndecidedRead,
+  markInferredRead,
+  noteDemand,
+  quietDemands,
+  softDemands,
+} from '../use-inference.js';
 import {
   carriedByCall,
+  isAbstractRead,
   markAbstractRead,
   markCarriedRead,
   noteAbstractDivision,
@@ -33,7 +41,12 @@ import {
   numericMismatch,
   retargetLit,
 } from '../numeric.js';
-import { foldNumericLit, retargetIntLitCtx, shiftAmountMessage } from '../lit-coerce.js';
+import {
+  foldNumericLit,
+  isIntegerLiteralTree,
+  retargetIntLitCtx,
+  shiftAmountMessage,
+} from '../lit-coerce.js';
 import { foldF64ModuleConst } from '../module-const-f64.js';
 import { libraryNameSentence, mapTsTypeToShaderType, writesRefusedType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
@@ -592,7 +605,16 @@ function lowerIdentifier(
       }
       if (refuseBareAtomic(binding.type, node, sourceFile, scope, diagnostics)) return undefined;
       const ref: Expr = { op: 'varref', type: binding.type, name: irNameOf(binding) };
-      return binding.space === 'workgroup' ? withSpan(ref, sourceFile, node) : ref;
+      // A module variable whose uses decide its type (change 0134 item 1).
+      return markInferredRead(
+        markCarriedRead(
+          binding.space === 'workgroup' ? withSpan(ref, sourceFile, node) : ref,
+          node,
+          carriedOf(undefined, binding.inferred),
+        ),
+        node,
+        binding.inferred,
+      );
     }
     case 'binding':
     case 'local':
@@ -772,7 +794,21 @@ function lowerPrefixUnary(
  *  `2` as u32, and against a vec64 the literal becomes an f64 carrying the full double); a
  *  scalar peer is taken as is, so `i + 1` with `i: u32` behaves as before. */
 function pair(left: Expr, right: Expr, lNode: ts.Expression, rNode: ts.Expression): [Expr, Expr] {
-  return [retargetLit(left, lNode, right.type), retargetLit(right, rNode, left.type)];
+  // A peer with no type of its own (a written integer, a constant of no fixed type, a value no
+  // use has decided) asks nothing of a value its uses decide: its `f32` is no use's (change
+  // 0134 item 1). A call of a function its callers decide counts an `f32` peer, so it matters.
+  return [
+    lendsNoType(rNode)
+      ? quietDemands(() => retargetLit(left, lNode, right.type))
+      : retargetLit(left, lNode, right.type),
+    lendsNoType(lNode)
+      ? quietDemands(() => retargetLit(right, rNode, left.type))
+      : retargetLit(right, rNode, left.type),
+  ];
+}
+
+function lendsNoType(node: ts.Expression): boolean {
+  return isIntegerLiteralTree(node) || isAbstractRead(node) || isUndecidedRead(node);
 }
 
 /** Whether `e` is a divisor the constant folder proves is zero in at least one component. */

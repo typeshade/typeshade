@@ -1,3 +1,5 @@
+import { markInferredRead } from '../use-inference.js';
+import { userCallExpr } from './caller-decided.js';
 // === Reaching a class's members: accessors, private names, statics (§26, Rules 8.11 to 8.13) ===
 //
 // A read `o.x` is a field or, when the class declares `get x()`, a call of the getter
@@ -294,7 +296,9 @@ const callOf = (
   sourceFile: ts.SourceFile,
   at: ts.Node,
 ): Expr =>
-  withSpan({ op: 'call', type: decl.ret, fn: decl.name, args, declRef: decl }, sourceFile, at);
+  // A method, a getter or a static function its calls decide takes the copy this call's use
+  // asks for (Rule 8.19, change 0134 item 1).
+  withSpan(userCallExpr(decl, args, at, sourceFile), sourceFile, at);
 
 /** Whether a parameter of the function being lowered has the name the writers print for the
  *  module value `b`, and the read cannot be made the value's. A parameter keeps the name its
@@ -960,7 +964,13 @@ export function lowerStaticFieldTarget(
     );
     return 'refused';
   }
-  return withSpan({ op: 'varref', type: b.type, name: irNameOf(b) } as Expr, sourceFile, node);
+  // A static field the file writes whose uses decide its type: the write records what it stores
+  // (change 0134 item 1), as a write to a module variable does.
+  return markInferredRead(
+    withSpan({ op: 'varref', type: b.type, name: irNameOf(b) } as Expr, sourceFile, node),
+    node,
+    b.inferred,
+  );
 }
 
 /** Why a write cannot land on the static field `owner.written`, which is a module constant: it
