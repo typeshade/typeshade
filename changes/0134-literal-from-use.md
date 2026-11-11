@@ -1193,8 +1193,8 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
   that no use gives a type is refused with `TS8003`, as item 3 refuses a `/` over an integer:
   one edit, checked to compile where the quotient stands (A2, "하나만"), in both halves. The
   program above is refused with `"j" is the counter of a "for" that is not counted, and no use
-  gives it a type. No operand of "j / 2" has a declared type, so the "/" does not say which
-  division it is. Write "f32(j) / 2" for the float division.` A declared counter,
+gives it a type. No operand of "j / 2" has a declared type, so the "/" does not say which
+division it is. Write "f32(j) / 2" for the float division.` A declared counter,
   `let j: i32 = 0`, keeps the integer division and gives 9 (`use-inference.test.ts`, "an open
   counter that no use gives a type"). Rule 5.1, surface §13 and the CHANGELOG say so.
 - Review of #1250, finding 1, is disposed of: a counted `for` whose start or bound reads a value
