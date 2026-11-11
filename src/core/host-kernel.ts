@@ -743,9 +743,18 @@ function recordKernel(
       if (held !== undefined) {
         if (isResource(held.array))
           throw new TypeError(`${at}: a held length takes no Buffer yet; pass array(xs).`);
-        // Its array and its length are `Resident`s, in the order of calls already.
-        taken.push({ value: args[i] });
-        return;
+        // A plain array the call pushes onto would be written in place with nothing waiting for it,
+        // as any written plain array would (deferred question 4: refused).
+        if (residentState(held.array) === undefined)
+          throw new TypeError(
+            `${at} is written by the call, which takes a resource, so it does not block and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change 0138, R2).`,
+          );
+        // A held length on a call that takes a resource is not recorded yet: the call takes a
+        // Resident apart from a Buffer only as an array it writes or reads (today's refusal,
+        // kept with the deferred questions).
+        throw new TypeError(
+          `${at}: a call that takes a resource takes no held length { array, length } yet (change 0138, milestone 3); make the call with plain data and Residents only, and await it.`,
+        );
       }
       taken.push(
         recordArgument(

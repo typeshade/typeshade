@@ -79,6 +79,13 @@ export function lives(xs: array<Particle>, out: array<f32>): void {
   }
 }
 
+/** Pushes the index of each particle onto out. */
+export function marks(xs: array<Particle>, out: array<u32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out.push(i);
+  }
+}
+
 /** The sum of the lives. */
 export function total(xs: array<Particle>): f32 {
   let s = 0.;
@@ -112,6 +119,7 @@ interface Scene {
   age: (xs: unknown, dt: number) => unknown;
   move: (xs: unknown, p: unknown) => unknown;
   lives: (xs: unknown, out: unknown) => unknown;
+  marks: (xs: unknown, out: unknown) => unknown;
   total: (xs: unknown) => unknown;
   step: (bindings: unknown, workgroups: unknown) => unknown;
 }
@@ -386,6 +394,74 @@ describe('the window between a writing call and read(), and a refused or failed 
     m.age(ps, 1);
     expect(await lifeOf(ps)).toEqual([3, 4]);
     expect(failurePending()).toBe(false);
+  });
+});
+
+// The second review of #1236 (ab2247ef): a held length, and the order of a recovery.
+describe('a held length on a call on a resource, and a recovery before the next call', () => {
+  it('refuses a plain array a held length names, which the call would write in place (N1)', async () => {
+    const m = await load();
+    const ps = zeros(m.Particle, 2);
+    const plain = new Uint32Array(4);
+    expect(() => m.marks(ps, { array: plain, length: array(new Uint32Array(1)) })).toThrow(
+      new TypeError(
+        'marks(): parameter "out" is written by the call, which takes a resource, so it does not block and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change 0138, R2).',
+      ),
+    );
+    await nextTask();
+    expect([...plain]).toEqual([0, 0, 0, 0]);
+  });
+
+  it('refuses a held length of Residents beside a Buffer, as before (S-N2; question 3 deferred)', async () => {
+    const m = await load();
+    const ps = zeros(m.Particle, 2);
+    expect(() =>
+      m.marks(ps, { array: array(new Uint32Array(4)), length: array(new Uint32Array(1)) }),
+    ).toThrow(
+      new TypeError(
+        'marks(): parameter "out": a call that takes a resource takes no held length { array, length } yet (change 0138, milestone 3); make the call with plain data and Residents only, and await it.',
+      ),
+    );
+    expect(kernelQueue.held.length).toBe(0);
+  });
+
+  it('after a failure, set(data) before any call: the next call throws the pending error once, and the call after works (S-N3)', async () => {
+    const m = await load();
+    const ps = zeros(m.Particle, 2);
+    ps.set([{ life: 1 }, { life: 2 }]);
+    configure({ prefer: ['webgpu'] });
+    m.age(ps, 1);
+    await nextTask();
+    await kernelQueue.idle();
+    configure({ prefer: ['cpu'] });
+    // The failed call left the window: get() gives the values from before it.
+    expect(ps.at(0).life.get()).toBe(1);
+    ps.set([{ life: 5 }, { life: 6 }]);
+    // The pending copy of the error is thrown once, at the next call anywhere (A5, default 7).
+    let pending: unknown;
+    try {
+      m.age(ps, 1);
+    } catch (e) {
+      pending = e;
+    }
+    expect((pending as Error).message).toMatch(/age\(\) was called at .*resource-call\.test\.ts/);
+    expect(kernelQueue.held.length).toBe(0);
+    m.age(ps, 1);
+    expect(await lifeOf(ps)).toEqual([6, 7]);
+  });
+
+  it('after a failure, resize() before any read: the next read() throws the pending error once, and the next read works (S-N3)', async () => {
+    const m = await load();
+    const ps = zeros(m.Particle, 2);
+    configure({ prefer: ['webgpu'] });
+    m.age(ps, 1);
+    await nextTask();
+    await kernelQueue.idle();
+    configure({ prefer: ['cpu'] });
+    ps.resize(3);
+    await expect(ps.read()).rejects.toThrow(/age\(\) was called at/);
+    m.age(ps, 2);
+    expect(await lifeOf(ps)).toEqual([2, 2, 2]);
   });
 });
 
