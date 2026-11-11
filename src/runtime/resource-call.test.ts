@@ -7,8 +7,7 @@
 // and the language service), the generated module is imported and run on the CPU tier, and `tsc`
 // reads a host program over the view.
 //
-// It carries no `Verifies:` tag yet: Rule 8.21 still says that no call takes a resource. The tags
-// (Rules 8.21 and 8.24) come with that rule's new text, whose Doorstop review the owner approves.
+// Verifies: Rule 6.1, Rule 8.21, Rule 8.23, Rule 8.24, Rule 11.8
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -247,7 +246,11 @@ describe('a kernel call on a Buffer is recorded and does not block (R2)', () => 
 
   it('refuses a kernel that returns a value, and a Buffer of another class', async () => {
     const m = await load();
-    expect(() => m.total(zeros(m.Particle, 1))).toThrow(TypeError);
+    expect(() => m.total(zeros(m.Particle, 1))).toThrow(
+      new TypeError(
+        'total(): takes a resource, and returns a value: a call on a resource that returns a value is not available yet (change 0138, milestone 3). Pass plain data and await the call, or return nothing and write a Buffer.',
+      ),
+    );
     expect(() => m.age(zeros(m.Other, 1), 1)).toThrow(
       new TypeError(
         'age(): parameter "xs" takes an array whose elements are laid out otherwise than Buffer<Other>\'s; pass a Buffer of the class the parameter names.',
@@ -525,5 +528,126 @@ describe('a host program over the view types the calls on resources', () => {
       'await age([{ pos: [0, 0, 0], life: 1 }], 1);: ',
       'await total([{ pos: [0, 0, 0], life: 1 }]);: ',
     ]);
+  });
+});
+
+// The refusals at the call that the module above does not reach: a sized storage binding, a written
+// binding that is no resource, a Buffer where no array is taken, and a written Set (review of the
+// text pull request, T-S1).
+const MORE = `"use typeshade";
+
+export class Particle {
+  pos: vec3 = vec3(0.);
+  life: f32 = 0.;
+}
+
+export class Params {
+  dt: f32 = 0.;
+  drag: f32 = 0.;
+}
+
+export declare const cam: uniform<Params>;
+export declare const fixed: storage<array<Particle, 4>, "read_write">;
+export declare const lives: storage<array<f32>, "read_write">;
+
+/** Ages each particle of the sized binding. */
+@compute([4])
+export function fill(id: builtin<"global_invocation_id">) {
+  if (id.x < 4) {
+    fixed[id.x].life = fixed[id.x].life + cam.dt;
+  }
+}
+
+/** Writes the step into each element of lives. */
+@compute([4])
+export function mark(id: builtin<"global_invocation_id">) {
+  if (id.x < lives.length) {
+    lives[id.x] = cam.dt;
+  }
+}
+
+/** Moves every particle by the parameters. */
+export function move(xs: array<Particle>, p: Params): void {
+  for (let i = 0; i < xs.length; i++) {
+    xs[i].pos.x = xs[i].pos.x - p.drag;
+  }
+}
+
+/** Adds the index of each living particle to seen. */
+export function living(xs: array<Particle>, seen: Set<u32>): void {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    if (xs[i].life > 0.) {
+      seen.add(i);
+    }
+  }
+}
+`;
+
+interface More {
+  Particle: abstract new () => { pos: vec3; life: f32 };
+  Params: abstract new () => { dt: f32; drag: f32 };
+  fixed: Omit<Buffer<{ pos: vec3; life: f32 }>, 'dispose'>;
+  fill: (bindings: unknown, workgroups: unknown) => unknown;
+  mark: (bindings: unknown, workgroups: unknown) => unknown;
+  move: (xs: unknown, p: unknown) => unknown;
+  living: (xs: unknown, seen: unknown) => unknown;
+}
+
+async function loadMore(): Promise<More> {
+  const f = hostFace(MORE, { fileName: '/app/more.shade.ts', runtime: RUNTIME });
+  expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+  const dir = mkdtempSync(join(tmpdir(), 'typeshade-resource-call-more-'));
+  dirs.push(dir);
+  const file = join(dir, 'more.shade.mjs');
+  writeFileSync(file, f.code!);
+  return (await import(/* @vite-ignore */ pathToFileURL(file).href)) as More;
+}
+
+describe('the refusals at the call of a call on a resource (T-S1)', () => {
+  it('compiles, and the language service reports nothing', () => {
+    const r = compile(MORE, { fileName: 'more.shade.ts' });
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const ls = createTypeshadeLanguageService();
+    ls.openDocument('more.shade.ts', MORE);
+    expect(ls.getDiagnostics('more.shade.ts')).toEqual([]);
+  });
+
+  it('refuses a Buffer for a storage binding of a stated size (deferred question 5)', async () => {
+    const m = await loadMore();
+    expect(() => m.fill({ cam: uniform(m.Params, { dt: 1 }), fixed: m.fixed }, [1])).toThrow(
+      new TypeError(
+        'fill(): binding "fixed" takes no storage array, and got fixed. A Buffer is an argument where the function or the entry takes an array with no size of its class.',
+      ),
+    );
+  });
+
+  it('refuses a written binding that is no Buffer and no Resident', async () => {
+    const m = await loadMore();
+    expect(() =>
+      m.mark({ cam: uniform(m.Params, { dt: 1 }), lives: new Float32Array(4) }, [1]),
+    ).toThrow(
+      new TypeError(
+        'mark(): binding "lives" is written by the call, which takes a resource, so it does not block and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change 0138, R2).',
+      ),
+    );
+  });
+
+  it('refuses a Buffer where the function takes no array with no size', async () => {
+    const m = await loadMore();
+    const ps = zeros(m.Particle, 2);
+    expect(() => m.move(ps, ps)).toThrow(
+      new TypeError(
+        'move(): parameter "p" takes no storage array, and got Buffer<Particle>. A Buffer is an argument where the function or the entry takes an array with no size of its class.',
+      ),
+    );
+  });
+
+  it('refuses a written Set (deferred question 4)', async () => {
+    const m = await loadMore();
+    expect(() => m.living(zeros(m.Particle, 2), new Set<number>())).toThrow(
+      new TypeError(
+        'living(): parameter "seen" is written by the call, which takes a resource, so it does not block and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change 0138, R2).',
+      ),
+    );
   });
 });

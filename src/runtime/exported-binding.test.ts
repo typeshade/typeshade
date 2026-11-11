@@ -110,7 +110,8 @@ describe('an exported binding is read by both halves (Rule 6.1)', () => {
       'it is a resource binding, and only a uniform of a class and a storage array of a class are host resources at milestone 1 of change 0138, so it is no host resource yet',
     );
     expect(f.view).toContain('export declare const scale: never;');
-    // The calls do not change at milestone 1: the entry takes the binding's value as before.
+    // The entry's view still types the binding's value here. A call that takes the resource
+    // itself is milestone 3 of change 0138, held by src/runtime/resource-call.test.ts.
     expect(f.view).toContain('readonly camera: Camera;');
   });
 

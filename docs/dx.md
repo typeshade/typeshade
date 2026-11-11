@@ -131,7 +131,8 @@ Each principle comes with the question a reviewer asks of a new public API.
    (a class, a uniform, a storage array, a texture), laid out by the compiler, set and read
    through typed views. Plain data is accepted and uploaded. (Change 0138, Amendment A1: the
    owner's text of 2026-11-09. `uniform()`, `zeros()` and `array()` of `typeshade/runtime` make
-   the resources, Rule 8.21; a call takes plain data as before.)
+   the resources, and a kernel function that returns nothing or a `@compute` entry takes them in a
+   call that does not block, Rule 8.21; a call takes plain data as before.)
    Where a value lives is inferred by default. Where inference cannot keep a value on the device
    from one call to the next, `explain` says so and what it costs. One word then keeps the value
    there. That word is the only device vocabulary a compute program may need, and it is the same
