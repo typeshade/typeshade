@@ -288,7 +288,8 @@ export function entryInputs(
  *   an entry the CPU tier cannot run (a barrier, a texture) where WebGPU does not run it, and
  *   for a scratch array of a `fuse` scope, which only the kernel calls in the body take;
  *   `Error` when no tier it may use can run it. A call made inside the body of `fuse()` is
- *   recorded and forms a group of its own in the scope's plan (Rule 11.13, change 0069).
+ *   recorded and forms a group of its own in the scope's plan (Rule 11.13, change 0069); one
+ *   there that takes a resource throws a `TypeError` at the call (change 0138, R4).
  */
 export function callCompute(
   cpu: GeneratedCpu,
@@ -318,10 +319,8 @@ export function callCompute(
   if (fuseSlot.active !== undefined) {
     // A graph that takes resources is milestone 4's `fuse(fn)` (change 0138, R4).
     if (resources.length > 0)
-      return Promise.reject(
-        new TypeError(
-          `${e.name}(): binding "${resources[0]!.name}" is a resource, which the body of today's fuse() does not record; call the entry outside it, or pass array(xs).`,
-        ),
+      throw new TypeError(
+        `${e.name}(): binding "${resources[0]!.name}" is a resource, which the body of today's fuse() does not record; call the entry outside it, or pass array(xs).`,
       );
     return fuseSlot.active.entry(cpu, e, argc, bindings, workgroups, entryHost, reads);
   }
