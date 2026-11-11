@@ -2085,6 +2085,18 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **A struct that holds itself is refused instead of overflowing the stack** (Rules 12.4, 12.6
+  and 12.7, #1204). A struct that holds itself, directly, through other structs, through an
+  array with a size or without, or through an optional `T | undefined`, made `compile()`, the
+  editor's diagnostics and hover, and `tshc check` throw `RangeError`. `array<R, 2>` and
+  `R | undefined` compiled to WGSL that Tint refuses. Now one `TS8010` stands on the field that
+  closes the cycle:
+  `Field "R.r" makes "R" contain itself, through "R" -> "R". A struct has a fixed size, so it cannot hold itself: hold an index into an array of "R" instead, or remove the field.`
+  A struct the program uses is checked, every class, and a struct its file exports
+  though nothing uses it. Programs that compiled before and are now refused: an exported
+  struct of that shape nothing uses, and a used one through `array<R, N>` or `R | undefined`.
+  A cycle across files is reported in each file that holds a field of it.
+
 - **A program's refusal of an imported declaration is shown in a file that reports it**
   (Rules 3.9 and 12.7, #1186). A refusal that only a use makes, about a declaration an imported
   file holds, was located in the imported file. That file's own program accepts the

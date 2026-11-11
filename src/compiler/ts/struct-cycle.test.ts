@@ -115,6 +115,46 @@ describe('a struct that holds itself (#1204)', () => {
       program('export interface A { x: f32; b: B; }\ninterface B { y: f32; a: A; }', ''),
       cycle('B.a', ['A', 'B', 'A']),
     ],
+    // The walk follows the source, not the order the collector met the structs in: the
+    // collector reads an interface before a class.
+    [
+      'a class declared before the interface it holds',
+      program(
+        'class B { y: f32; a: A; constructor(y: f32, a: A) { this.y = y; this.a = a; } }\n' +
+          'interface A { x: f32; b: B; }',
+        'let r: A;',
+      ),
+      cycle('A.b', ['B', 'A', 'B']),
+    ],
+    // A struct two fields reach is walked once: one diagnostic, not one per field.
+    [
+      'held by two fields of another struct',
+      program('interface R { s1: S; s2: S; }\ninterface S { t: S; u: f32; }'),
+      cycle('S.t', ['S', 'S']),
+    ],
+    [
+      'an exported type over an object literal nothing uses',
+      program('export type R = { a: f32; r: R; };', ''),
+      R_CYCLE,
+    ],
+    [
+      'exported under another name and unused',
+      program('interface R { a: f32; r: R; }\nexport { R as Q };', ''),
+      R_CYCLE,
+    ],
+    [
+      'through a private field, named as written',
+      program(
+        'class R { a: f32 = 0.; #r: R = new R(); get q(): f32 { return this.#r.a; } }',
+        'let r = new R(); r.a = 1.;',
+      ),
+      cycle('R.#r', ['R', 'R']),
+    ],
+    [
+      'as a class in a namespace, named as written',
+      program('namespace N { export class R { a: f32 = 0.; r: R = new R(); } }', ''),
+      cycle('N.R.r', ['N.R', 'N.R']),
+    ],
   ];
 
   for (const [name, source, message] of refused) {
@@ -123,6 +163,49 @@ describe('a struct that holds itself (#1204)', () => {
       expect(compiler).toEqual(ONE(message));
       expect(editor).toEqual(ONE(message));
       expect(compiled.wgsl).toBeUndefined();
+    });
+  }
+
+  // The range of the refused field, in both halves, for each kind of declaration that holds it.
+  const ranges: readonly (readonly [string, string, string])[] = [
+    [
+      'a field of another struct',
+      program('interface A { x: f32; b: B; }\ninterface B { y: f32; a: A; }', 'let r: A;'),
+      'a: A;',
+    ],
+    [
+      'a parameter property',
+      program('class R { constructor(public a: f32, public r: R) {} }'),
+      'public r: R',
+    ],
+    [
+      'a field the base class declares',
+      program(
+        'class B { a: f32 = 0.; d: array<D, 2> = array<D, 2>(); }\nclass D extends B { e: f32 = 0.; }',
+        'let d = new D(); d.e = 1.;',
+      ),
+      'd: array<D, 2> = array<D, 2>();',
+    ],
+    [
+      'a private field',
+      program(
+        'class R { a: f32 = 0.; #r: R = new R(); get q(): f32 { return this.#r.a; } }',
+        'let r = new R(); r.a = 1.;',
+      ),
+      '#r: R = new R();',
+    ],
+  ];
+
+  for (const [name, source, text] of ranges) {
+    it(`stands on the field in both halves: ${name}`, () => {
+      const [d] = compile(source, { fileName: FILE }).diagnostics;
+      expect(source.slice(d!.start, d!.start + d!.length)).toBe(text);
+      const service = createTypeshadeLanguageService();
+      service.openDocument(FILE, source);
+      const [e] = service.getDiagnostics(FILE);
+      const offset = (p: { line: number; character: number }): number =>
+        source.split('\n').slice(0, p.line).join('\n').length + (p.line > 0 ? 1 : 0) + p.character;
+      expect(source.slice(offset(e!.range.start), offset(e!.range.end))).toBe(text);
     });
   }
 
@@ -179,10 +262,115 @@ describe('a struct that holds itself (#1204)', () => {
   });
 
   // Neither exported nor used: unchecked, as every other rule leaves such a declaration.
+  // An exported struct nothing uses is read for the cycle alone; a field the collector would
+  // refuse for another reason (a computed name) is not followed, as nothing else is said of it.
+  it('an exported struct nothing uses does not follow a computed field', () => {
+    const { compiler, editor } = bothHalves(
+      program('export interface R { a: f32; ["r"]: R; }', ''),
+    );
+    expect(compiler).toEqual([]);
+    expect(editor).toEqual([]);
+  });
+
+  // Each struct is walked once: a chain whose every struct holds the next twice is 2^28 paths
+  // to a walk that does not remember the structs it finished.
+  it('walks each struct once', () => {
+    const n = 28;
+    const decls = Array.from({ length: n }, (_, i) =>
+      i === n - 1
+        ? `interface S${i} { x: f32; back: S0; }`
+        : `interface S${i} { a: S${i + 1}; b: S${i + 1}; }`,
+    ).join('\n');
+    const started = performance.now();
+    const { compiler, editor } = bothHalves(program(decls, 'let r: S0;'));
+    expect(performance.now() - started).toBeLessThan(5000);
+    const path = Array.from({ length: n }, (_, i) => `S${i}`);
+    expect(compiler).toEqual(ONE(cycle(`S${n - 1}.back`, [...path, 'S0'])));
+    expect(editor).toEqual(compiler);
+  });
+
   it('an interface neither exported nor used stays unchecked', () => {
     const { compiler, editor } = bothHalves(program('interface R { a: f32; r: R; }', ''));
     expect(compiler).toEqual([]);
     expect(editor).toEqual([]);
+  });
+
+  // A cycle that closes only across imports (Rule 3.9): each file's own program walks its
+  // imported declarations before its own, so it closes the cycle on its own field, and a program
+  // that imports the file reports the same mistake there (#1191, `program-refusals.ts`). So one
+  // diagnostic stands in each file that holds a field of the cycle, in all three readers.
+  describe('across files', () => {
+    const readers = (files: Readonly<Record<string, string>>, entry: string) => {
+      const readDocument = (f: string): string | undefined => files[f];
+      const compiled = compile(files[entry]!, { fileName: entry, readDocument });
+      const editor: Record<string, string[]> = {};
+      for (const [f, text] of Object.entries(files)) {
+        const service = createTypeshadeLanguageService({ readDocument });
+        service.openDocument(f, text);
+        editor[f] = service.getDiagnostics(f).map((d) => `${String(d.code)} ${d.message}`);
+      }
+      const check = checkDocuments(
+        Object.entries(files).map(([f, text]) => ({ path: f.slice(3), uri: f, text })),
+        { readDocument },
+      );
+      return {
+        compiler: compiled.diagnostics.map((d) => `${d.fileName} ${d.code} ${d.message}`),
+        editor,
+        check: check.diagnostics.map((d) => `${d.file} ${String(d.code)} ${d.message}`),
+      };
+    };
+
+    it('two files, each struct importing the other', () => {
+      const files = {
+        '/p/a.ts':
+          `${H}import { B } from './b.js';\nexport interface A { x: f32; b: B; }\n` +
+          '@compute([1]) export function main(): void { let r: A; }\n',
+        '/p/b.ts': `${H}import { A } from './a.js';\nexport interface B { y: f32; a: A; }\n`,
+      };
+      const inA = cycle('A.b', ['B', 'A', 'B']);
+      const inB = cycle('B.a', ['A', 'B', 'A']);
+      const r = readers(files, '/p/a.ts');
+      expect(r.compiler).toEqual([`/p/a.ts ${TS_CODES.STRUCT_FIELD} ${inA}`]);
+      expect(r.editor).toEqual({ '/p/a.ts': ONE(inA), '/p/b.ts': ONE(inB) });
+      expect(r.check).toEqual([
+        `a.ts ${TS_CODES.STRUCT_FIELD} ${inA}`,
+        `b.ts ${TS_CODES.STRUCT_FIELD} ${inB}`,
+      ]);
+    });
+
+    it('two classes, each importing the other', () => {
+      const files = {
+        '/p/a.ts':
+          `${H}import { B } from './b.js';\nexport class A { x: f32 = 0.; b: B = new B(); }\n` +
+          '@compute([1]) export function main(): void { let r = new A(); r.x = 1.; }\n',
+        '/p/b.ts': `${H}import { A } from './a.js';\nexport class B { y: f32 = 0.; a: A = new A(); }\n`,
+      };
+      const inA = cycle('A.b', ['B', 'A', 'B']);
+      const inB = cycle('B.a', ['A', 'B', 'A']);
+      const r = readers(files, '/p/a.ts');
+      expect(r.compiler).toEqual([`/p/a.ts ${TS_CODES.STRUCT_FIELD} ${inA}`]);
+      expect(r.editor).toEqual({ '/p/a.ts': ONE(inA), '/p/b.ts': ONE(inB) });
+      expect(r.check).toHaveLength(2);
+    });
+
+    it('three files, the cycle between two files the entry imports', () => {
+      const files = {
+        '/p/a.ts':
+          `${H}import { B } from './b.js';\n` +
+          '@compute([1]) export function main(): void { let r: B; }\n',
+        '/p/b.ts': `${H}import { C } from './c.js';\nexport interface B { y: f32; c: C; }\n`,
+        '/p/c.ts': `${H}import { B } from './b.js';\nexport interface C { z: f32; b: B; }\n`,
+      };
+      const inB = cycle('B.c', ['C', 'B', 'C']);
+      const inC = cycle('C.b', ['B', 'C', 'B']);
+      const r = readers(files, '/p/a.ts');
+      expect(r.compiler).toEqual([`/p/b.ts ${TS_CODES.STRUCT_FIELD} ${inB}`]);
+      expect(r.editor).toEqual({ '/p/a.ts': [], '/p/b.ts': ONE(inB), '/p/c.ts': ONE(inC) });
+      expect(r.check).toEqual([
+        `b.ts ${TS_CODES.STRUCT_FIELD} ${inB}`,
+        `c.ts ${TS_CODES.STRUCT_FIELD} ${inC}`,
+      ]);
+    });
   });
 
   const neighbours: readonly (readonly [string, string])[] = [

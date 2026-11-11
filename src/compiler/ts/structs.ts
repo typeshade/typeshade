@@ -1061,18 +1061,21 @@ function exportedNamesOf(sourceFile: ts.SourceFile): Set<string> {
  *
  *  WGSL gives every struct a fixed size, so a struct that holds itself, by value, in an array
  *  with a size or without, or in an optional, has none; Tint refuses it with
- *  `cyclic dependency found: 'R' -> 'R'`, a struct nothing uses included (measured in headless
- *  Chromium 156 on 2026-11-10, Rule 13.3). The front end says so in the author's words instead
- *  (Rule 12.6), before anything below walks the fields: the runtime-array checks, the
- *  constructor's zero values, the layout and the CPU oracle each recurse through a struct's
- *  fields and overflowed the stack on one. The field is withheld rather than kept, so no later
- *  walk meets the cycle and a read of the field says nothing more (Rule 12.4).
+ *  `cyclic dependency found: 'R' -> 'R'` (measured in headless Chromium 156 on 2026-11-10,
+ *  Rule 13.3). The front end says so in the author's words instead (Rule 12.6), before anything
+ *  below walks the fields: the runtime-array checks, the constructor's zero values, the layout
+ *  and the CPU oracle each recurse through a struct's fields and overflowed the stack on one.
+ *  The field is withheld rather than kept, so no later walk meets the cycle and a read of the
+ *  field says nothing more (Rule 12.4).
  *
  *  Checked: every struct the program collects (each class, and each interface or object type a
- *  use reaches), and an exported interface or object type nothing in its file uses, since a file
- *  that exports a struct is checked on its own. One neither exported nor used stays unchecked,
- *  as every other rule leaves it. The walk starts from the structs in source order, so a cycle
- *  is named from the struct declared first. */
+ *  use reaches), and an exported interface or object type nothing in its file uses. TypeShade
+ *  never emits that last one, so Tint never sees it; it is checked because a file that exports
+ *  a struct is checked on its own (the owner's decision of 2026-11-10, #1204). One neither
+ *  exported nor used stays unchecked, as every other rule leaves it. The walk follows the
+ *  declarations in the order of the program's source: within one file a cycle is named from
+ *  the struct declared first, and across files it closes on a field of the file the program
+ *  starts from (see below). */
 function refuseStructCycles(
   structs: CollectedStruct[],
   candidates: ReadonlyMap<string, Candidate>,
@@ -1102,13 +1105,26 @@ function refuseStructCycles(
     }
     return fields;
   };
-  const roots = [
-    ...structs.filter((s) => s.namespace !== true).map((s) => s.decl.name),
+  // Every struct the checked ones hold, at any depth, is walked from in turn, so the order of
+  // the walk is the order of the declarations and not the order uses reach them.
+  const checked = [
+    ...structs.map((s) => s.decl.name),
     ...[...candidates.keys()].filter((name) => !reachable.has(name) && exported.has(name)),
   ];
+  const roots = new Set<string>();
+  const reach = (name: string): void => {
+    if (roots.has(name) || (!collected.has(name) && !candidates.has(name))) return;
+    roots.add(name);
+    for (const field of fieldsOf(name)) heldStructs(field.type).forEach(reach);
+  };
+  checked.forEach(reach);
+  // A linked program places each imported file's declarations before the file it starts from
+  // (`link.ts`), so a cycle through the file's own struct closes on the file's own field, which
+  // is where that file's own program reports it and so where a program that imports it does
+  // too (Rule 12.4, `program-refusals.ts`). Within one file the order is the source order.
   const positionOf = (name: string): number =>
     (nodeOf.get(name) ?? candidates.get(name)?.nameNode)?.getStart(sourceFile) ?? 0;
-  roots.sort((a, b) => positionOf(a) - positionOf(b));
+  const order = [...roots].sort((a, b) => positionOf(a) - positionOf(b));
 
   const cut = new Map<string, Set<string>>();
   const done = new Set<string>();
@@ -1146,7 +1162,7 @@ function refuseStructCycles(
     stack.pop();
     done.add(name);
   };
-  for (const root of roots) if (!done.has(root)) visit(root);
+  for (const root of order) if (!done.has(root)) visit(root);
   if (cut.size === 0) return structs;
   return structs.map((s) => {
     const fields = cut.get(s.decl.name);
