@@ -281,77 +281,26 @@ export function noteIntegerUse(value: InferredValue | undefined, peer?: ShaderTy
   record(value, asked === 'i32' || asked === 'u32' ? asked : 'int');
 }
 
+/** The `i32` a counted `for` gives its counter by default while its start or its bound reads a
+ *  value no use has decided. It is an `i32` everywhere but here: as a peer it asks `int`, an
+ *  integer of no kind, so the default does not decide that value (`for (let j = 0; j < n;
+ *  j++)` with `n += vi` makes `n` a `u32`, and the next pass counts `j` in `u32`). */
+export const counterDefaultI32: ShaderType = { kind: 'scalar', scalar: 'i32' };
+
+/** Whether `expr` reads a value no use has decided yet, through arithmetic over reads and
+ *  written numbers. */
+export function readsUndecided(expr: Expr): boolean {
+  return undecidedIn(expr).length > 0;
+}
+
 /** The demand a peer or a declared position of type `type` makes: its scalar, a vector's
  *  element scalar, `f64` for an emulated double; nothing for any other type. */
 function demandOfType(type: ShaderType): Demand | undefined {
+  if (type === counterDefaultI32) return 'int';
   if (type.kind === 'f64' || type.kind === 'vec64') return 'f64';
   if (type.kind === 'vec') return type.elem === 'f32' ? 'f32' : type.elem === 'i32' ? 'i32' : 'u32';
   const key = typeKey(type);
   return key === 'i32' || key === 'u32' || key === 'f32' ? key : undefined;
-}
-
-/** Whether the integer type of `node` came from inference alone (decisions Q6 and Q11): a
- *  read of a value its uses made an integer, a written number, or `+ - * / %` and a unary
- *  minus over those, with at least one such read. `reads` collects the values. */
-export function inferredIntegerOnly(node: ts.Expression, reads: InferredValue[] = []): boolean {
-  const inner = stripParens(node);
-  if (ts.isNumericLiteral(inner)) {
-    const written = inner.getText();
-    return /^0[xXbBoO]/.test(written) || !/[.eE]/.test(written);
-  }
-  const read = readByNode.get(inner);
-  if (read !== undefined) {
-    const key = read.type === undefined ? undefined : typeKey(read.type);
-    if (key !== 'i32' && key !== 'u32') return false;
-    reads.push(read);
-    return true;
-  }
-  if (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.MinusToken) {
-    return inferredIntegerOnly(inner.operand, reads);
-  }
-  if (
-    ts.isBinaryExpression(inner) &&
-    [
-      ts.SyntaxKind.PlusToken,
-      ts.SyntaxKind.MinusToken,
-      ts.SyntaxKind.AsteriskToken,
-      ts.SyntaxKind.SlashToken,
-      ts.SyntaxKind.PercentToken,
-    ].includes(inner.operatorToken.kind)
-  ) {
-    return inferredIntegerOnly(inner.left, reads) && inferredIntegerOnly(inner.right, reads);
-  }
-  return false;
-}
-
-/** The sentence of a refused `/` or `/=` whose operands are all integers by inference
- *  (decisions Q6 and Q11), or `undefined` when one operand has a type the author wrote. */
-export function inferredDivisionMessage(
-  left: ts.Expression,
-  right: ts.Expression,
-  operator: '/' | '/=',
-  keywordOf: (value: InferredValue) => string,
-  sourceFile: ts.SourceFile,
-): string | undefined {
-  const reads: InferredValue[] = [];
-  if (!inferredIntegerOnly(left, reads) || !inferredIntegerOnly(right, reads)) return undefined;
-  const value = reads[0];
-  if (value === undefined || value.type === undefined) return undefined;
-  const type = typeKey(value.type);
-  const l = left.getText(sourceFile);
-  const r = right.getText(sourceFile);
-  const cast = (text: string, operand: ts.Expression): string =>
-    inferredReadAt(operand) === value ? `f32(${text})` : text;
-  const float =
-    operator === '/'
-      ? `"${cast(l, left)} / ${cast(r, right)}"`
-      : `"${keywordOf(value)} ${value.name}: f32 = ${value.written ?? '...'}"`;
-  return (
-    `"${value.name}" is ${type === 'u32' ? 'a u32' : 'an i32'} by its uses, and no operand of ` +
-    `"${l} ${operator} ${r}" has a declared type, so the "${operator}" does not say which ` +
-    `division it is. Write "${keywordOf(value)} ${value.name}: ${type} = ${value.written ?? '...'}" for the integer ` +
-    `division, or ${float} for the float one.`
-  );
 }
 
 /** The origin a read of `value` carries when its uses made it an integer: a `/` over it whose
@@ -360,11 +309,19 @@ export function inferredDivisionMessage(
  *  One record for each declaration, for each type its uses gave it. */
 const origins = new WeakMap<ts.Node, { key: string; carried: Carried }>();
 export function inferredOrigin(value: InferredValue | undefined): Carried | undefined {
-  if (value === undefined || value.type === undefined) return undefined;
-  const key = typeKey(value.type);
+  if (value === undefined) return undefined;
+  // The counter of a `for` that is not counted, which no use gives a type, reads as the `f32`
+  // the compiler chooses. It was an `i32` on `main`, so a `/` over it does not say which
+  // division it is, and is refused as a `/` over an integer is (the owner's decision of
+  // 2026-11-11, "A2 우선: 거부"). Its edits keep the `i32` it had.
+  const openCounter =
+    value.type === undefined && isOpenCounter(value.decl.getSourceFile(), value.decl);
+  if (value.type === undefined && !openCounter) return undefined;
+  const key = value.type === undefined ? 'i32' : typeKey(value.type);
   if (key !== 'i32' && key !== 'u32') return undefined;
+  const cacheKey = openCounter ? 'counter' : key;
   const cached = origins.get(value.decl);
-  if (cached !== undefined && cached.key === key) return cached.carried;
+  if (cached !== undefined && cached.key === cacheKey) return cached.carried;
   const decl = value.decl as ts.VariableDeclaration;
   const info: AbstractConst = {
     name: value.name,
@@ -376,13 +333,19 @@ export function inferredOrigin(value: InferredValue | undefined): Carried | unde
     sources: [],
     // Its uses are the other read that makes it an integer: they stand outside any `/`.
     integerReads: [{ type: key, node: decl.name as ts.Expression }],
+    ...(openCounter ? { openCounter: true as const } : {}),
   };
   const carried: Carried = {
     reaches: [info],
     float: false,
-    variable: { keyword: 'let', name: value.name, init: value.written ?? '', type: key },
+    variable: {
+      keyword: 'let',
+      name: value.name,
+      init: value.written ?? '',
+      type: openCounter ? 'f32' : key,
+    },
   };
-  origins.set(value.decl, { key, carried });
+  origins.set(value.decl, { key: cacheKey, carried });
   return carried;
 }
 

@@ -305,14 +305,16 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   **Newly refused** (`TS8003`): a `/` or `/=` whose operands are all integers by inference,
   as for a constant: `let k = 7; h(k); return f32(k / 2);` computed 3 and is refused with
   `Write "let k: u32 = 7" for the integer division.`; `let k = 7; h(k); k /= 2;` too.
-  `vi / k` with a declared `u32` `vi` stays an integer division.
+  `vi / k` with a declared `u32` `vi` stays an integer division. A `/` over the counter of an
+  open `for` that no use gives a type is refused too (the owner's decision of 2026-11-11):
+  `for (let j = 0; ; j++) { a += f32(j / 2); if (j > 5) { break; } }` computed 9 and is refused
+  with `Write "f32(j) / 2" for the float division.`; `let j: i32 = 0` keeps the 9.
+  A counted `for` whose start or bound is such a `let` counts in the type the `let`'s other uses
+  give it: `let n = 0; n += vi; for (let j = 0; j < n; j++)` counts in `u32`.
   **Values that change:** a `let` whose use is an `f64` is an `f64`: with `const K = 16777217;`,
   `let j = K; return d * j;` (`d: f64`) multiplies by 16777217 where it multiplied by the `f32` 16777216. A function result over a function-local constant has its type from before change
   0134 again, so the item 2 entry's function-result rows go back: `f32(g() - 8)` is 4294967295
-  and `f32(g() * 1000000000)` is 2705032704, as before item 2. The counter of an open `for` is an
-  `f32` where its uses decide nothing (Amendment A1), so a `/` over it divides floats:
-  `for (let j = 0; ; j++) { a += f32(j / 2); if (j > 5) { break; } }` was 9 and is 10.5 (an open
-  question to the owner, recorded in the record of change 0134).
+  and `f32(g() * 1000000000)` is 2705032704, as before item 2.
 - **A `const` of a written number has no fixed type; each read takes the type the written number
   would take there** (change 0134 item 2; Rules 5.1 and 5.2, surface §12 and §13;
   `docs/owner-decisions.md` OD-7). It covers a module `const`, a function-local `const` and a

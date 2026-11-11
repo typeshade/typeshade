@@ -1,4 +1,11 @@
-import { inferredReadAt, isOpenCounter, noteDemand, noteOpenCounter } from '../use-inference.js';
+import {
+  counterDefaultI32,
+  inferredReadAt,
+  isOpenCounter,
+  noteDemand,
+  noteOpenCounter,
+  readsUndecided,
+} from '../use-inference.js';
 import { abstractTreeOf, originOf, withReadTypes, type AbstractConst } from '../abstract-const.js';
 import { localNumericInference } from '../local-numeric-inference.js';
 import ts from 'typescript';
@@ -474,8 +481,8 @@ function lowerHeaderCounter(
   let start: ts.Expression = written;
   while (ts.isParenthesizedExpression(start)) start = start.expression;
   const bound = comparedBound(node, name);
-  const boundType =
-    bound === undefined ? undefined : lowerExpression(bound, sourceFile, scope, [])?.type;
+  const boundExpr = bound === undefined ? undefined : lowerExpression(bound, sourceFile, scope, []);
+  const boundType = boundExpr?.type;
   // A written integer bound makes a float-written start an `i32` counter. A constant of no
   // fixed type is no such bound: it takes the counter's type, as it did when it was an `f32`
   // constant, so `for (let j = 0.; j < K; j += 1.)` keeps its `f32` counter (change 0134).
@@ -530,7 +537,12 @@ function lowerHeaderCounter(
       typeKey(boundType) === 'u32'
         ? boundType
         : undefined;
-    const counterType = annotated ?? hint ?? i32T;
+    // While the start or the bound reads a value no use has decided, the default `i32` asks
+    // that value for an integer of no kind: the value's other uses decide its kind, and the
+    // next pass counts in it. The default alone never decides it (review of #1250, finding 1).
+    const undecided =
+      readsUndecided(init) || (boundExpr !== undefined && readsUndecided(boundExpr));
+    const counterType = annotated ?? hint ?? (undecided ? counterDefaultI32 : i32T);
     init = retargetDeclaredIntLit(init, written, counterType);
     // Out of range, the §13 sentence is the one diagnostic: the loop-bound walk would
     // otherwise add a second one about a start value the author has already been told about.

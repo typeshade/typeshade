@@ -308,6 +308,58 @@ describe('the counter of a for (Amendment A1 of change 0134)', () => {
   });
 });
 
+describe("an open counter that no use gives a type (the owner's decision of 2026-11-11)", () => {
+  // "A2 우선: 거부": such a counter reads as the f32 the compiler chooses, and was an i32 on
+  // `main`, so a `/` over it is refused with the one edit that compiles where the quotient
+  // stands (Amendment A2, "하나만"), as a `/` over a value its uses made an integer is.
+  const sentence =
+    '"j" is the counter of a "for" that is not counted, and no use gives it a type. No operand ' +
+    'of "j / 2" has a declared type, so the "/" does not say which division it is. Write ' +
+    '"f32(j) / 2" for the float division.';
+  const open =
+    'let a = 0.0; for (let j = 0; ; j++) { a += f32(j / 2); if (j > 5) { break; } } return a;';
+  const bounded = 'let a = 0.0; for (let j = 0; j * 2 < 8; j++) { a += f32(j / 2); } return a;';
+
+  it.each([
+    [open, 'f32(j) / 2', 10.5],
+    [bounded, 'f32(j) / 2', 3],
+  ])('refuses %s (an integer division on main), and its edit compiles', (body, edit, value) => {
+    refused(fn(body, 'f32'), [sentence]);
+    const edited = fn(body.replace('j / 2', edit), 'f32');
+    expect(compile(edited).diagnostics).toEqual([]);
+    expect(editor(edited)).toEqual([]);
+    expect(compile(edited).eval('t', ARGS)).toBe(value);
+  });
+
+  it('a declared counter keeps the integer division of main', () => {
+    const source = fn(open.replace('let j = 0', 'let j: i32 = 0'), 'f32');
+    expect(compile(source).diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(compile(source).eval('t', ARGS)).toBe(9);
+  });
+});
+
+describe('a counted for whose start or bound its uses type (review of #1250, finding 1)', () => {
+  // The default i32 of the counter asks an integer of no kind of such a value, so the value's
+  // other uses decide it, and the counter counts in that type (change 0136, "a u32 against a
+  // u32 bound"). Each gives what the annotated program gives.
+  it.each([
+    ['let n = 0; n += vi; let a = 0.0; for (let j = 0; j < n; j++) { a += xs[j]; } return a;', 'n'],
+    [
+      'let s = 0; s += vi; s -= 5; let a = 0.0; for (let j = s; j < vi; j++) { a += xs[j]; } return a;',
+      's',
+    ],
+  ])('%s', (body, name) => {
+    const source = fn(body, 'f32');
+    const result = typed(source, name, 'u32');
+    expect(hover(source, 'j')).toContain('let j: u32');
+    expect(result.eval('t', ARGS)).toBe(15);
+    const annotated = compile(fn(body.replace(`let ${name} = 0`, `let ${name}: u32 = 0`), 'f32'));
+    expect(annotated.diagnostics).toEqual([]);
+    expect(annotated.eval('t', ARGS)).toBe(15);
+  });
+});
+
 describe('the uses #1184\'s deviation 10 lists (Amendment A3, "4a와 이어서 머지")', () => {
   // With #1184 alone, `let y = k` took `f32`, so each of these was refused; each compiled on
   // `main`, where `k` was a `u32` by its declared use `h(k)`, and gives that value here.

@@ -68,6 +68,10 @@ export interface AbstractConst {
   readonly sources: readonly AbstractConst[];
   /** Each read of this constant, or of one derived from it, that an integer position typed. */
   readonly integerReads: IntegerRead[];
+  /** Set for the counter of a `for` that is not counted and whose uses give it no type: it
+   *  reads as an `f32`, and was an `i32` on `main` (the owner's decision of 2026-11-11, "A2
+   *  우선: 거부"). */
+  readonly openCounter?: true;
 }
 
 /** A `/` whose operands have no declared type, and the constants it reaches. */
@@ -715,6 +719,8 @@ function withOriginsConverted(node: ts.Node, type: string, sourceFile: ts.Source
 }
 
 const ANOTHER_READ = 'where another line reads it, and no operand of';
+/** The clause every refusal of a `/` holds, whatever its subject clause says. */
+const NO_DIVISION = 'does not say which division it is';
 
 /** Whether `d` is the refusal of {@link reportAbstractDivisions}. It depends on the whole
  *  program: the `/` may stand in one file and the integer read in another, which imports it.
@@ -724,7 +730,7 @@ export function isAbstractDivisionRefusal(d: {
   readonly code?: string | undefined;
   readonly message: string;
 }): boolean {
-  return d.code === TS_CODES.TYPE_MISMATCH && d.message.includes(ANOTHER_READ);
+  return d.code === TS_CODES.TYPE_MISMATCH && d.message.includes(NO_DIVISION);
 }
 
 /** The sentence of a refused `/` or `/=` (decisions Q6, Q10 and Q11; Amendments A2 and A3):
@@ -830,9 +836,13 @@ function divisionSentence(
   const direct = originLeaves(node).find((leaf) => readByNode.get(leaf as ts.Expression) === info);
   const subject = direct !== undefined ? writtenText(direct) : info.name;
   const operator = node.operatorToken.getText(sourceFile);
+  const what =
+    info.openCounter === true
+      ? `"${subject}" is the counter of a "for" that is not counted, and no use gives it a ` +
+        `type. No operand of`
+      : `"${subject}" is ${read.type === 'u32' ? 'a u32' : 'an i32'} ${ANOTHER_READ}`;
   return (
-    `"${subject}" is ${read.type === 'u32' ? 'a u32' : 'an i32'} ${ANOTHER_READ} ` +
-    `"${written}" has a declared type, so the "${operator}" does not say which division it is. ` +
+    `${what} "${written}" has a declared type, so the "${operator}" ${NO_DIVISION}. ` +
     `Write "${edit.text}" for the ${edit.kind} division.`
   );
 }
@@ -1063,7 +1073,7 @@ function checkDivisionEdits(
       const remote = errors.some(
         (e) =>
           !original.has(e.line) &&
-          !e.line.includes(ANOTHER_READ) &&
+          !e.line.includes(NO_DIVISION) &&
           !errorsInAnyRegion(e.at, pending),
       );
       for (const p of group) {
@@ -1086,7 +1096,7 @@ function checkDivisionEdits(
       const after = new Set<string>();
       for (const e of seen) {
         if (inRegion(e.at)) after.add(e.line);
-        if (!(original.has(e.line) && !own.has(e.line)) && !e.line.includes(ANOTHER_READ)) extra++;
+        if (!(original.has(e.line) && !own.has(e.line)) && !e.line.includes(NO_DIVISION)) extra++;
       }
       p.tries.push({ edit, extra, after });
       next.set(p, next.get(p)! + 1);

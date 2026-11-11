@@ -1471,7 +1471,22 @@ return r + k / 2;
 
 The counter of a counted `for` keeps its rule (an `i32`, or a `u32` against a `u32` bound; §9).
 The counter of a `for` that is not counted is such a `let`: in
-`for (let j = 0; ; j++) { a += j; … }` with an `f32` `a`, `j` is an `f32`.
+`for (let j = 0; ; j++) { a += j; … }` with an `f32` `a`, `j` is an `f32`. Where no use gives
+such a counter a type, a `/` over it is refused: the counter was an `i32` before change 0134,
+and the `/` does not say which division it is (the owner's decision of 2026-11-11).
+
+```ts
+for (let j = 0; ; j++) { a += f32(j / 2); if (j > 5) { break; } }
+// TS8003: "j" is the counter of a "for" that is not counted, and no use gives it a type. No
+// operand of "j / 2" has a declared type, so the "/" does not say which division it is. Write
+// "f32(j) / 2" for the float division.
+```
+
+`let j: i32 = 0` keeps the integer division.
+
+A counted `for` whose bound or start is such a `let` counts in the type the `let`'s other uses
+give it. The counter's own default type does not decide the `let`:
+`let n = 0; n += vi; for (let j = 0; j < n; j++)` makes `n`, and `j`, a `u32`.
 
 A counter that starts at such a `let` takes the type the counter's own uses give it:
 `let y = k; for (let j = y; j < 8; j++) { h(j); }` makes `y`, and `j`, a `u32`. A `let` of a

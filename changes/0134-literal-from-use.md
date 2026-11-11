@@ -1184,12 +1184,30 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
   (`h(k); let n = 2; h(n); k / n`, 18; decisions Q6 and Q11). Back to `main`'s value from part
   3: `g() / vi` (29) and `g() - 8` (4). A value that changes against both: `let j = K; d * j`
   with `d: f64` (16), now the exact double. No division sentence differs between the halves.
-- [question, open, 2026-11-11] Amendment A1 makes the counter of an open `for` a value of item
-  1, an `f32` where its uses decide nothing. A `/` over it then divides floats with no
-  diagnostic: `for (let j = 0; ; j++) { a += f32(j / 2); if (j > 5) { break; } }` gave 9 on
-  `main` (an `i32` counter) and gives 10.5. Amendment A2 says that no program changes its value
-  through a division without a diagnostic. The two point different ways for this program; the
-  owner decides which holds.
+- [question, 2026-11-11] Amendment A1 makes the counter of an open `for` a value of item 1,
+  an `f32` where its uses decide nothing. A `/` over it then divided floats with no diagnostic:
+  `for (let j = 0; ; j++) { a += f32(j / 2); if (j > 5) { break; } }` gave 9 on `main` (an
+  `i32` counter) and gave 10.5. Amendment A2 says that no program changes its value through a
+  division without a diagnostic. The two pointed different ways for this program.
+- [decision, owner, 2026-11-11] "A2 우선: 거부". A2 holds. A `/` over the counter of an open `for`
+  that no use gives a type is refused with `TS8003`, as item 3 refuses a `/` over an integer:
+  one edit, checked to compile where the quotient stands (A2, "하나만"), in both halves. The
+  program above is refused with `"j" is the counter of a "for" that is not counted, and no use
+  gives it a type. No operand of "j / 2" has a declared type, so the "/" does not say which
+  division it is. Write "f32(j) / 2" for the float division.` A declared counter,
+  `let j: i32 = 0`, keeps the integer division and gives 9 (`use-inference.test.ts`, "an open
+  counter that no use gives a type"). Rule 5.1, surface §13 and the CHANGELOG say so.
+- Review of #1250, finding 1, is disposed of: a counted `for` whose start or bound reads a value
+  its uses type gave that value an `i32` demand from the counter's default type. The default now
+  asks an integer of no kind (`counterDefaultI32` in `use-inference.ts`), so the other uses
+  decide: `let n = 0; n += vi; for (let j = 0; j < n; j++)` makes `n` and `j` a `u32`, as
+  `let n: u32 = 0` does (`use-inference.test.ts`, "a counted for whose start or bound its uses
+  type").
+- Open items, recorded by the owner's decision and not done in part 4a: issue #1255 (a large
+  initializer used only by a bitwise operation or an index settles to `i32`) and issue #1256 (a
+  generic function's body shares one decision of inference). The review's low gaps stay open:
+  `~f` records no integer demand; `let b = a` with `a` undecided is not a candidate; a chain of
+  decisions is capped at `MAX_INFERENCE_PASSES` (16) passes, each a full lowering of the module.
 
 Not delivered yet: the second part of items 1 and 3 (4b), item 4, the document part of item 5, item 5 for `journeys/`
 and the helper sources of `examples/` (Amendment A1), and the audit.

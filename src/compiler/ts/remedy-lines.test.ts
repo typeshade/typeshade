@@ -759,12 +759,6 @@ describe('every refusal that names a line is pinned above', () => {
       note: "names a parameter's or field's attribute type, which is no declaration; `tshc migrate` writes it (a stage attribute is the entry's form since change 0130, and has no sentence here); and, for the refused type form of a qualifier (change 0137), the parameter as the language writes it, `@inout a: f32`, a parameter to rewrite and no declaration",
     },
     {
-      file: 'use-inference.ts',
-      sites: 1,
-      lines: 0,
-      note: 'names two edits for a `/` or a `/=` over a value its uses made an integer, the declaration with its type written (`let k: u32 = 7`) and the operand converted (`f32(k) / 2`): the author chooses which division is meant; `use-inference.test.ts` holds each to compile clean in both halves (change 0134)',
-    },
-    {
       file: 'abstract-const.ts',
       sites: 1,
       lines: 0,
