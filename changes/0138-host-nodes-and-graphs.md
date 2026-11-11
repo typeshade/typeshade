@@ -1113,12 +1113,12 @@ Each was or is a difference between the accepted text (with A5 to A8) and `75f11
   D-g and D-h. No front-matter entry changes.
 - Status: `status: accepted` does not change.
 
-### A9. Slice 2c moves to milestone 5; milestone 3 is done; what comes next (2026-11-11)
+### A9. Slice 2c moves to milestone 5; milestone 3 is done; what comes next; Q1, Q2 and Q16 (2026-11-11)
 
 - [fact] Why. Pull request [#1247](https://github.com/typeshade/typeshade/pull/1247), merged as
   `42550b11`, is the text pull request of slice 2b. After it, the only slice of milestone 3 not
-  started was 2c. The owner decided where 2c goes and what comes next. Amendment A8 records
-  neither.
+  started was 2c. The owner decided where 2c goes and what comes next, and answered Q1, Q2
+  and Q16 for milestone 4. Amendment A8 records none of them.
 
 **Decision: slice 2c moves to milestone 5.**
 
@@ -1217,9 +1217,41 @@ Each is a difference between the accepted text (with A5 to A9) and `42550b11`.
      repository applies there (What it owes downstream).
   3. Ask the owner Q1, Q2 and Q16, the questions of milestone 4 (the approval record's table),
      before milestone 4 starts.
+- [fact] The owner answered Q1, Q2 and Q16 in the conversation on 2026-11-11, below.
+
+**Before milestone 4: Q1, Q2 and Q16.**
+
+- [decision, owner, 2026-11-11] Q1, asked whether `fuse(fn)` returning a node replaces the
+  immediate scope or whether the two take different names, the owner chose:
+  "하나의 fuse (추천)"
+  (one `fuse`; recommended).
+  - `fuse(fn)` returns a node (R4). Today's immediate use is written `await fuse(fn)()`.
+  - Cost recorded: existing `fuse` code changes, downstream in typenn, typecv and typeaudio too.
+  - Open, a separate question: whether today's shape `fuse((scope) => …)` stays until the
+    deprecation of milestone 9, as R4 says. The owner has not decided it.
+- [decision, owner, 2026-11-11] Q2, asked whether a kernel's result is its return value only, or
+  its return value and today's in-place parameter (Rule 8.23), the owner chose:
+  "반환값 + in-place (추천)"
+  (the return value and in-place; recommended).
+  - A kernel's result is its return value and its in-place parameter (Rule 8.23).
+  - Cost recorded: two ways to give an output, and the graph tracks both.
+  - [inference, agent] This sets the direction of A7's deferred question 1: a kernel function
+    that returns a value and takes a resource returns a resource (R2). The status of question 1
+    stays open until the owner closes it.
+- [decision, owner, 2026-11-11] Q16, asked what "run apart" means for the new graph features of
+  milestone 4, the owner chose:
+  "호출 순서대로 하나씩 (추천)"
+  (one by one, in call order; recommended).
+  - A composed node gives the bits that its inner calls give when they run one by one, in program
+    order, as plain kernel calls (Rule 11.13).
+  - An in-place update (R14) gives the bits of a copy first, then the write.
+  - Cost recorded: the planner may not make an optimization that breaks this baseline.
+  - Open under Q16: the condition node (milestone 6) and `show` into a canvas (milestone 5).
+- [fact] With these answers, the questions of milestone 4 in the approval record's table (Q1, Q2
+  and Q16) are decided. The parts of Q1 and Q16 named above stay open.
 - Affects: milestone 3's plan (the slice tables of A7 and A8), milestone 5's scope (slice 2c and
-  questions Q-1 to Q-5), and the dispositions of D-e and R-s2. No rule and no front-matter entry
-  changes.
+  questions Q-1 to Q-5), the dispositions of D-e and R-s2, Q1, Q2, Q16 (for milestone 4), R4,
+  R14 and A7's deferred question 1 (direction only). No rule and no front-matter entry changes.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
