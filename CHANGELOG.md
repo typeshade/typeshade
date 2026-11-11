@@ -292,11 +292,14 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   3 and is refused, as is the same through a method, a getter, a closure and a `let`. With
   `function id<T>(a: T): T`, `f32(id(k) / 2)` was 3 and is refused (Amendment A4), and so are
   `const [a, b] = [k, 1]; f32(a / 2)` and `let w = 3; f32((k + w) / 2)` (refused on `main` as
-  a mismatch). The sentence names an edit the compiler has checked: where none compiles, the
-  program holds another mistake, and the mismatch beside it stays.
-  **Fixed with it:** a conversion that starts a counter declares the counter's type, so
-  `for (let j = u32(3); j < 8; j++) { … h(j) … }`, refused before because the counter was an
-  `i32`, compiles.
+  a mismatch). With `const K = 8;`, `let j: u32 = K / 2; let i: u32 = K / 2;` refuses both:
+  each quotient is the other's other read (Amendment A4; the owner's decision of 2026-11-11, "A4대로
+  거부 유지"). The sentence names an edit the compiler has checked: where none compiles, the
+  program holds another mistake, and a mismatch around the `/` stays only where that edit leaves
+  it, so the mistake is one diagnostic (Rule 12.4). Uses that are no division are refused where
+  the written number is refused: with `const k = 7; h(k);`, `f32(~k)`, `f32((k | 1) >> 1)` and
+  `f32((k % 4) >> 1)` compiled (`k` was a `u32`) and are refused, as `~7` and `(7 | 1) >> 1`
+  are; `f32(~(k << 1))` was 4294967281 and is -15, the written number's `i32` value.
   **Migration:** to keep an `f32` constant, write its type (`const K: f32 = 16777217`). For a
   refused `/`, make the edit the sentence names: the constant's type where an integer position
   reads the quotient (`const k: u32 = 7`), or the constant converted elsewhere (`f32(k) / 2`). One more program

@@ -649,12 +649,34 @@ function originLeaves(node: ts.Node): ts.Node[] {
   return out;
 }
 
+/** Whether `leaf`, inside `within`, is read as an index or a shift amount. */
+function inIntegerSlot(leaf: ts.Node, within: ts.Node): boolean {
+  for (let n: ts.Node = leaf; n !== within && n.parent !== undefined; n = n.parent) {
+    const up = n.parent;
+    if (ts.isElementAccessExpression(up) && up.argumentExpression === n) return true;
+    if (
+      ts.isBinaryExpression(up) &&
+      up.right === n &&
+      (up.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken ||
+        up.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanToken ||
+        up.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken)
+    )
+      return true;
+    if (up === within) break;
+  }
+  return false;
+}
+
 /** `node` as written, with each part that carries an origin converted to `type`: `f32(k) / 2`,
  *  `xs[i32(k) / 2]`. A float conversion of a value under a bitwise or shift operator converts
  *  the outermost such operation instead, which has an integer's value: `f32(k | 1) / 2`. */
 function withOriginsConverted(node: ts.Node, type: string, sourceFile: ts.SourceFile): string {
   const wrapped = new Set<ts.Node>();
+  const float = type === 'f32' || type === 'f64';
   for (const leaf of originLeaves(node)) {
+    // An index and a shift amount stay integers: `vec2(k, 5)[k] / 2` converts the element, not
+    // the index (the fourth review of #1184, finding 3).
+    if (float && inIntegerSlot(leaf, node)) continue;
     let at: ts.Node = leaf;
     if (type === 'f32' || type === 'f64') {
       for (
@@ -839,7 +861,7 @@ export function abstractDivisionMessage(
 export type DivisionEditCheck = (
   text: string,
   starts: readonly number[] | undefined,
-) => readonly { readonly code?: string; readonly message: string }[];
+) => readonly { readonly code?: string; readonly message: string; readonly start?: number }[];
 
 /** True while a named edit is being compiled: the refusals of that compile name their preferred
  *  edit unchecked, so a check never starts another. */
@@ -861,65 +883,180 @@ export function reportAbstractDivisions(
     }
     if (found !== undefined) refused.push({ division, ...found });
   }
-  const before = diagnostics.filter((d) => d.category === 'error').map(lineOf);
-  for (const { division, info, read } of refused) {
+  // `(k / 2) / 3` is one mistake, said on the outer `/` (Rule 12.4).
+  const outer = refused.filter(
+    ({ division }) =>
+      !refused.some(
+        (other) => other.division !== division && holds(other.division.node, division.node),
+      ),
+  );
+  const pending: PendingRefusal[] = outer.map(({ division, info, read }) => {
     const { node } = division;
-    // `(k / 2) / 3` is one mistake, said on the outer `/` (Rule 12.4).
-    if (refused.some((other) => other.division !== division && holds(other.division.node, node)))
-      continue;
     const start = node.getStart(sourceFile);
     const end = node.getEnd();
-    // A mismatch the same `/` raised (its quotient beside an integer) is this mistake said a
-    // second time (Rule 12.4); a mismatch that stays after the edit is another mistake.
-    const overlapping = diagnostics.filter(
-      (d) =>
-        d.code === TS_CODES.TYPE_MISMATCH &&
-        d.category === 'error' &&
-        d.start <= start &&
-        d.start + d.length >= end,
-    );
-    const edits = divisionEdits(info, read, division, sourceFile);
-    let chosen = edits[0]!;
-    let after: Set<string> | undefined;
-    if (check !== undefined && !checkingEdit) {
-      // The edit the sentence names must compile where the quotient stands (Rule 5.1): the
-      // first edit whose program adds no error to what the file already reports. Where none
-      // does (`xs[-k / 2]` is a negative index in every reading), the one that adds fewest.
-      const caused = new Set(overlapping.map(lineOf));
-      const allowed = new Set(before.filter((line) => !caused.has(line)));
-      let fewest = Infinity;
-      for (const edit of edits) {
-        if (edit.change === undefined) break;
-        const result = compileEdited(sourceFile, edit.change, check);
-        const extra = result.filter((r) => !allowed.has(r) && !r.includes(ANOTHER_READ)).length;
-        if (extra < fewest) {
-          fewest = extra;
-          chosen = edit;
-          after = new Set(result);
-        }
-        if (extra === 0) break;
-      }
-      // With no edit that compiles, the program holds another mistake, and a mismatch around
-      // the `/` may be that one: each is kept.
-      if (fewest > 0) after = new Set(overlapping.map(lineOf));
-    }
-    for (const d of overlapping) {
-      if (after !== undefined && after.has(lineOf(d))) continue;
+    return {
+      division,
+      info,
+      read,
+      // A mismatch the same `/` raised (its quotient beside an integer) is this mistake said a
+      // second time (Rule 12.4); a mismatch that stays after the edit is another mistake.
+      overlapping: diagnostics.filter(
+        (d) =>
+          d.code === TS_CODES.TYPE_MISMATCH &&
+          d.category === 'error' &&
+          d.start <= start &&
+          d.start + d.length >= end,
+      ),
+      edits: divisionEdits(info, read, division, sourceFile),
+      region: regionOf(node, sourceFile),
+      tries: [],
+    };
+  });
+  if (check !== undefined && !checkingEdit)
+    checkDivisionEdits(sourceFile, diagnostics, pending, check);
+  for (const p of pending) {
+    // The edit the sentence names must compile where the quotient stands (Rule 5.1): the first
+    // edit with which the program adds no error there. Where none does (`xs[-k / 2]` is a
+    // negative index in every reading), the one that adds fewest; a mismatch around the `/`
+    // stays only where that edit leaves it (Rule 12.4, the owner's decision of 2026-11-11,
+    // "12.4: 진단 하나").
+    let best: CheckedEdit | undefined;
+    for (const t of p.tries) if (best === undefined || t.extra < best.extra) best = t;
+    const chosen = best?.edit ?? p.edits[0]!;
+    for (const d of p.overlapping) {
+      if (best !== undefined && best.after.has(lineOf(d))) continue;
       const i = diagnostics.indexOf(d);
       if (i >= 0) diagnostics.splice(i, 1);
     }
+    const { node } = p.division;
     const refusal = makeDiagnostic(
       sourceFile,
       node,
-      divisionSentence(info, read, node, chosen, sourceFile),
+      divisionSentence(p.info, p.read, node, chosen, sourceFile),
       TS_CODES.TYPE_MISMATCH,
     );
     // The read that makes the constant an integer is the use that makes this `/` a refusal: in
     // a program of several files the refusal stands on it when the file that holds the `/`
     // does not refuse it on its own (`program-refusals.ts`, #1186), with the `/` as its site.
-    noteUse(refusal, read.node, sourceFile);
+    noteUse(refusal, p.read.node, sourceFile);
     diagnostics.push(refusal);
   }
+}
+
+/** One refusal while its edits are checked. */
+interface PendingRefusal {
+  readonly division: Division;
+  readonly info: AbstractConst;
+  readonly read: IntegerRead;
+  readonly overlapping: readonly TsCompilerDiagnostic[];
+  readonly edits: readonly DivisionEdit[];
+  /** `[start, end)` of the statement that holds the `/`: an error there is this edit's. */
+  readonly region: readonly [number, number];
+  /** Each edit checked, in order; the last one with no extra error ends the checks. */
+  readonly tries: CheckedEdit[];
+}
+
+/** An edit and what the program reports with it: the errors it adds, and every error in the
+ *  statement of the `/`, as `code: message`. */
+interface CheckedEdit {
+  readonly edit: DivisionEdit;
+  readonly extra: number;
+  readonly after: ReadonlySet<string>;
+}
+
+/** The statement, member or declaration that holds `node`. */
+function regionOf(node: ts.Node, sourceFile: ts.SourceFile): readonly [number, number] {
+  let n: ts.Node = node;
+  while (
+    n.parent !== undefined &&
+    !ts.isSourceFile(n.parent) &&
+    !(ts.isStatement(n) && !ts.isBlock(n)) &&
+    !ts.isClassElement(n)
+  ) {
+    n = n.parent;
+  }
+  return [n.getStart(sourceFile), n.getEnd()];
+}
+
+/**
+ * Checks the edits of every refusal in rounds, one compile a round: each refusal still open
+ * gives its next edit, the source is compiled with all of them made, and each error the
+ * program adds is the edit's whose statement holds it. Where an added error stands outside
+ * every such statement, each edit of the round is compiled alone instead. So a file with many
+ * refused `/` costs a few compiles, not one for each edit (the fourth review of #1184,
+ * finding 4).
+ */
+function checkDivisionEdits(
+  sourceFile: ts.SourceFile,
+  diagnostics: readonly TsCompilerDiagnostic[],
+  pending: readonly PendingRefusal[],
+  check: DivisionEditCheck,
+): void {
+  const caused = new Set(pending.flatMap((p) => p.overlapping.map(lineOf)));
+  const original = new Set(diagnostics.filter((d) => d.category === 'error').map(lineOf));
+  const allowed = new Set(
+    diagnostics
+      .filter((d) => d.category === 'error')
+      .map(lineOf)
+      .filter((l) => !caused.has(l)),
+  );
+  const open = pending.filter((p) => p.edits.length > 0 && p.edits[0]!.change !== undefined);
+  const next = new Map(open.map((p) => [p, 0]));
+  for (let round = 0; round < 16; round++) {
+    const asked = open.filter((p) => {
+      const i = next.get(p)!;
+      const last = p.tries[p.tries.length - 1];
+      return i < p.edits.length && p.edits[i]!.change !== undefined && (last?.extra ?? 1) > 0;
+    });
+    if (asked.length === 0) return;
+    // One change at a place: an edit that would overlap another of this round waits.
+    const changes: { start: number; end: number; text: string }[] = [];
+    const taken: PendingRefusal[] = [];
+    for (const p of asked) {
+      const c = p.edits[next.get(p)!]!.change!;
+      const same = changes.find((o) => o.start === c.start && o.end === c.end && o.text === c.text);
+      const clash = changes.some((o) => o !== same && c.start < o.end && o.start < c.end);
+      if (clash || (c.start === c.end && changes.some((o) => o !== same && o.start === c.start)))
+        continue;
+      if (same === undefined) changes.push({ ...c });
+      taken.push(p);
+    }
+    const result = compileEditedAll(sourceFile, changes, check);
+    const errors = result.map((r) => ({ line: lineOf(r), at: r.at }));
+    const added = (line: string): boolean => !allowed.has(line) && !line.includes(ANOTHER_READ);
+    // An added error outside every statement of a refused `/` can be any edit's doing: a
+    // quotient bound to a name is read elsewhere (`const HALF = N / 2` and a loop bound). Then
+    // each edit of the round is compiled alone, and every error it adds is its own.
+    const remote = errors.some((e) => added(e.line) && !errorsInAnyRegion(e.at, pending));
+    for (const p of taken) {
+      const edit = p.edits[next.get(p)!]!;
+      const inRegion = (at: number | undefined): boolean =>
+        at !== undefined && at >= p.region[0] && at < p.region[1];
+      const seen = remote
+        ? compileEditedAll(sourceFile, [edit.change!], check).map((r) => ({
+            line: lineOf(r),
+            at: r.at,
+          }))
+        : errors.filter((e) => inRegion(e.at));
+      // Compiled alone, the other refusals' mismatches are still there, as in the file.
+      const own = new Set(p.overlapping.map(lineOf));
+      const addedAlone = (line: string): boolean =>
+        !(original.has(line) && !own.has(line)) && !line.includes(ANOTHER_READ);
+      let extra = 0;
+      const after = new Set<string>();
+      for (const e of seen) {
+        if (inRegion(e.at)) after.add(e.line);
+        if (remote ? addedAlone(e.line) : added(e.line)) extra++;
+      }
+      p.tries.push({ edit, extra, after });
+      next.set(p, next.get(p)! + 1);
+    }
+  }
+}
+
+/** Whether `at` stands in the statement of any refused `/`. */
+function errorsInAnyRegion(at: number | undefined, pending: readonly PendingRefusal[]): boolean {
+  return at !== undefined && pending.some((p) => at >= p.region[0] && at < p.region[1]);
 }
 
 /** A diagnostic as one comparable line. */
@@ -927,27 +1064,52 @@ function lineOf(d: { readonly code?: string; readonly message: string }): string
   return `${d.code ?? ''}: ${d.message}`;
 }
 
-/** The errors of `sourceFile`'s text with `change` made, each as `code: message`. In the editor
- *  the projection's insertions are taken out first, so the author's text is compiled, with the
- *  edit made, as `compile()` reads it; an insertion the change replaces goes with it. */
-function compileEdited(
+/** The errors of `sourceFile`'s text with `changes` made, each with its offset in the original
+ *  text (the change's own offset inside a change). In the editor the projection's insertions are taken out
+ *  first, so the author's text is compiled, with the edits made, as `compile()` reads it; an
+ *  insertion a change replaces goes with it. */
+function compileEditedAll(
   sourceFile: ts.SourceFile,
-  change: { readonly start: number; readonly end: number; readonly text: string },
+  changes: readonly { readonly start: number; readonly end: number; readonly text: string }[],
   check: DivisionEditCheck,
-): string[] {
-  const edits = [{ start: change.start, end: change.end, text: change.text }];
+): { readonly code?: string; readonly message: string; readonly at: number | undefined }[] {
+  const edits = changes.map((c) => ({ start: c.start, end: c.end, text: c.text }));
   for (const { at, length } of projectedSpans.get(sourceFile) ?? []) {
-    if (at + length <= change.start || at >= change.end) {
+    if (changes.every((c) => at + length <= c.start || at >= c.end)) {
       edits.push({ start: at, end: at + length, text: '' });
     }
   }
-  let text = sourceFile.text;
-  for (const e of edits.sort((a, b) => b.start - a.start)) {
-    text = text.slice(0, e.start) + e.text + text.slice(e.end);
+  edits.sort((a, b) => a.start - b.start);
+  let text = '';
+  let from = 0;
+  // Each piece of the edited text, with the original offset it starts at.
+  const pieces: { at: number; original: number; length: number; inside?: boolean }[] = [];
+  for (const e of edits) {
+    pieces.push({ at: text.length, original: from, length: e.start - from });
+    text += sourceFile.text.slice(from, e.start);
+    // An error inside a change stands where the change does.
+    pieces.push({ at: text.length, original: e.start, length: e.text.length, inside: true });
+    text += e.text;
+    from = e.end;
   }
+  pieces.push({ at: text.length, original: from, length: sourceFile.text.length - from });
+  text += sourceFile.text.slice(from);
+  const back = (offset: number | undefined): number | undefined => {
+    if (offset === undefined) return undefined;
+    for (const p of pieces) {
+      if (offset >= p.at && offset < p.at + Math.max(p.length, 1)) {
+        return p.inside === true ? p.original : p.original + (offset - p.at);
+      }
+    }
+    return undefined;
+  };
   checkingEdit = true;
   try {
-    return check(text, undefined).map(lineOf);
+    return check(text, undefined).map((d) => ({
+      ...(d.code !== undefined ? { code: d.code } : {}),
+      message: d.message,
+      at: back(d.start),
+    }));
   } finally {
     checkingEdit = false;
   }

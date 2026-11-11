@@ -1051,19 +1051,19 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
   - F1: a closure or a local function that captures a variable carrying the origin carries it.
   - F2 and F8: a result type that the editor's projection writes is not the author's, so a
     function declaration, an arrow and a function expression infer their result in the editor
-    as `compile()` does.
+    as `compile()` does. A recursive function declaration is the one `TS8031` in both halves.
   - F3: the named edit is checked. The front end compiles the source with each candidate edit
     and names the first that adds no error. Where none does, the program holds a second mistake:
-    the edit that adds fewest errors is named, and each mismatch around the `/` is kept.
+    the edit that adds fewest errors is named. (Changed by the fourth review's decision 1 below:
+    a mismatch around the `/` stays only where that edit leaves it.)
     [fact, measured 2026-11-11 with the review's checker over its matrices] 270 of 15,223 named
     edits still leave a diagnostic (321 of 15,215 at `345d3ae8`). Each of their 47 distinct
     shapes was refused on `main` too: a negation of a `u32`, `sign` or `Math.trunc` of an
     integer, a vector constructor of mixed element types, a negative index, `u32` of a negative
     value, and a vector converted by `f32(v)`.
   - F4, "선언된 타입으로 보기": a typed constructor ends the origin.
-  - F6: a conversion that starts a counter declares the counter's type. The written
-    `for (let j = u32(3); …)`, refused on `main` because the fold made the counter an `i32`,
-    compiles too.
+  - F6 (a conversion that starts a counter declares the counter's type) is not part 3's: see
+    the fourth review's decision 2 below.
   - F7: a pattern binding carries the origin of the element it reads.
   - F10, "거부 유지하고 목록에 기록": `id(k) / 2` with a generic `id` stays refused.
   - A variable of written numbers alone (`let w = 3`) declares no type and carries an origin that
@@ -1071,6 +1071,33 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     division.
   - Not changed, and handed back for a decision: F5. A library function that the importing
     program does not keep is not in the linked program, so its `/` is not lowered there.
+- The fourth independent review of pull request #1184 at `b53fb228` (2026-11-11). The owner
+  decided three findings in the Claude Code session on 2026-11-11:
+  - [decision, owner, 2026-11-11] Finding 1, Rule 12.4 against Rule 5.1's sentence on an edit
+    that does not compile: "12.4: 진단 하나". Where no edit compiles, a mismatch around the `/`
+    stays only where the edit the sentence names leaves it. `xs[-k / 2]`, `f32(h(-k / 2))`,
+    `f32(vi + -k / 2)` and `let j: u32 = -k / 2` give one diagnostic each, as on `main` and at
+    `345d3ae8`. Rule 5.1's last sentence and surface §13 say so.
+  - [decision, owner, 2026-11-11] Finding 2, the third review's F6: "별도 버그 수정 PR로
+    분리". Part 3 does not change how a conversion starts a counter; the bug fix is pull request
+    #1235 from `main`, which needs nothing of part 3. Until it is merged, part 3 refuses
+    `for (let j = u32(k); …) h(j)` with `const k = 3; h(k);`, which `main` accepted (25): the
+    conversion of the constant folds to a literal, which the header makes an `i32`, as `main`
+    does for the written `u32(3)`.
+  - [decision, owner, 2026-11-11] Finding 7, two quotients each the other's other read: "A4대로
+    거부 유지". With `const K = 8;`, `let j: u32 = K / 2; let i: u32 = K / 2;` refuses both. It
+    is a row of "Newly refused" in `CHANGELOG.md`.
+  - Finding 3: an `f32` edit leaves an index and a shift amount integers
+    (`vec2(k, 5)[k] / 2` names `vec2(f32(k), 5)[k] / 2`).
+  - Finding 4: the edits of all refusals are checked in rounds, one compile a round, and an
+    error the program adds is the edit's whose statement holds it.
+  - Finding 5: the uses that are no division and are refused where the written number is
+    (`f32(~k)`, `f32((k | 1) >> 1)`, `f32((k % 4) >> 1)`), and the value move of
+    `f32(~(k << 1))` (4294967281 to -15), are rows of `CHANGELOG.md`.
+  - Finding 6: a recursive function declaration is the one `TS8031` in both halves. A recursive
+    arrow `const` shows `TS7023` beside `TS8031` in the editor, as on `main`. Open item.
+  - Finding 8: `tshc check` prints no related site for a refusal that stands on an importing
+    file's read. Open item.
 - [fact, measured 2026-11-11 on `main` at `cbb72182` merged in] Pull request #1191 (#1186)
   places an error of a program in the first file that reports it when compiled alone. A library
   compiled alone does not refuse its `/` when only an importing file reads the constant as an

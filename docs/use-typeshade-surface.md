@@ -1403,7 +1403,7 @@ before change 0134: `for (let j = N; …)` keeps the `f32` of the constant's dec
 with `const k = 7; h(k);` the start `k + 1` or `Math.max(k, 1)` gives a `u32` counter, the type
 its declared uses give `k`. The counter carries the constant, so a `/` over it is refused. A
 start through a `let` or a function result takes that value's type, which items 1 and 3 of
-change 0134 will infer, and a start that is a conversion (`u32(k)`) takes its type.
+change 0134 will infer.
 
 The sentence names one edit, the one that compiles where the quotient stands. Where an integer
 position reads the quotient (`xs[k / 2]`, `r + k / 2`, `let j: u32 = …`), it names the
@@ -1412,8 +1412,9 @@ another type, the `/` with each value converted to it (`i32(k) / 2`). Anywhere e
 the `/` with each value converted to `f32`, a bitwise operation converted as a whole
 (`f32(k | 1) / 2`). A `/=` names the variable with its type written (`let y: f32 = k`). The
 compiler checks the edit before it names it. Where none of these compiles, the program holds
-another mistake (`h(x + k / 2)` passes an `f32` sum to a `u32`), and the sentence names the edit
-that adds fewest errors beside the mismatch, which stays.
+another mistake (`h(x + k / 2)` passes an `f32` sum to a `u32`). The sentence names the edit
+that adds fewest errors, and a mismatch around the `/` stays only where that edit leaves it, so
+the mistake is one diagnostic (Rule 12.4).
 
 The quotient's own read is not another read (Amendment A4). `let j: u32 = N / 2` is `4u`, as the written
 `8 / 2` is there, and `x * (N / 2)` is the ECMAScript value where no other line reads `N` as an

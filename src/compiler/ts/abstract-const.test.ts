@@ -1343,18 +1343,36 @@ ${H3}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     accepted(editOf(t('h(k); return xs[A.n / 2];', 'const k = 7;\nclass A { static n = k; }')));
     // Where no edit compiles, the program holds a second mistake (an `f32` sum passed to a `u32`
     // parameter; a `u32` sum returned from an `f32` function, which `main` reported): the edit
-    // that adds fewest errors is named, and each mismatch around the `/` is kept.
-    for (const [body, mismatch] of [
-      ['const k = 7; h(k); return f32(h(x + k / 2));', 'Argument 1 of "h" type mismatch.'],
-      ['const k = 7; h(k); return vi + k / 2;', 'Type mismatch: cannot + u32 and f32'],
+    // that adds fewest errors is named, and a mismatch around the `/` stays only where that edit
+    // leaves it. One diagnostic each, as on `main` (Rule 12.4, the owner's decision of
+    // 2026-11-11, "12.4: 진단 하나").
+    for (const body of [
+      'const k = 7; h(k); return f32(h(x + k / 2));',
+      'const k = 7; h(k); return vi + k / 2;',
+      'const k = 7; h(k); return xs[-k / 2];',
+      'const k = 7; h(k); return f32(h(-k / 2));',
+      'const k = 7; h(k); return f32(vi + -k / 2);',
+      'const k = 7; h(k); let j: u32 = -k / 2; return f32(j);',
     ]) {
-      const source = t(body!);
+      const source = t(body);
       const lines = compile(source).diagnostics.map((d) => d.message);
       expect(lines).toEqual([
-        expect.stringContaining(mismatch!),
         expect.stringContaining('Write "const k: u32 = 7" for the integer division.'),
       ]);
       expect(editor(source).map((l) => l.replace(/^TS\d+: /, ''))).toEqual(lines);
+    }
+  });
+
+  it('an f32 edit leaves an index and a shift amount integers (the fourth review, finding 3)', () => {
+    for (const [body, edit] of [
+      ['const k = 1; h(k); return f32(vec2(k, 5)[k] / 2);', 'vec2(f32(k), 5)[k] / 2'],
+      ['const k = 1; h(k); return f32((k << k) / 2);', 'f32(k << k) / 2'],
+    ] as const) {
+      const source = t(body);
+      expect(compile(source).diagnostics.map((d) => d.message)).toEqual([
+        expect.stringContaining(`Write "${edit}" for the float division.`),
+      ]);
+      accepted(editOf(source));
     }
   });
 
@@ -1368,13 +1386,9 @@ ${H3}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     }
   });
 
-  it('F6: a conversion that starts a counter declares its type', () => {
-    const loop = (start: string) =>
-      `let a = 0.; for (let j = ${start}; j < 8; j++) { a += f32(h(j)); } return a;`;
-    expect(accepted(t(`const k = 7; h(k); ${loop('u32(k)')}`)).eval('t', [1, 1, XS])).toBe(7);
-    expect(accepted(t(loop('u32(K)'), 'const K = 3;')).eval('t', [1, 1, XS])).toBe(25);
-    // The written form, refused on `main` (the fold made its counter an `i32`), compiles too.
-    expect(accepted(t(loop('u32(3)'))).eval('t', [1, 1, XS])).toBe(25);
+  it('an annotated counter declares its type', () => {
+    // The third review's F6 (a conversion start declares the counter's type) is its own bug fix
+    // (the owner's decision of 2026-11-11, "별도 버그 수정 PR로 분리").
     // An annotated counter declares its type: a `/` over it is the typed division.
     expect(
       accepted(
