@@ -919,6 +919,33 @@ counter, is recorded here too.
   declares, carry these readings.
 - Status: `status: accepted` does not change.
 
+### Amendment A5. The owner's decisions on part 4b (2026-11-11)
+
+Pull request #1264 delivers part 4b. Its first revision left choices that this text does not
+decide, and an independent review of it at `d2296760` found defects. The owner decided each in
+the Claude Code session on 2026-11-11, after the choices, their costs and one example each were
+shown (`OD-4`).
+
+- [decision, owner, 2026-11-11] "이 PR에서 모두 구현". The first revision covered a function
+  declared at the top of a file or of a namespace only. A method, a getter, a static function, a
+  local function, an arrow function and an instance of a generic function take their result from
+  their calls too, in the same pull request, with copies and the inference of each copy. The
+  copies of a generic function's instance are that instance's (Rule 8.9). This does not decide
+  issue #1256 (the one decision of a `let` in a generic function's body).
+- [decision, owner, 2026-11-11] "작성자 기본값 유지". The function keeps the `f32` result under its
+  own name, and only the other types get named copies (`g_u32`). Item 1's text for Rule 8.19 names
+  every copy after its type; Rule 8.19 and surface §14 are written with this reading.
+- [decision, owner, 2026-11-11] "export는 f32 유지". A function the host calls (an export, a member
+  of an exported class) keeps the `f32` result the host reads, also where the file's own calls ask
+  one other type; those calls take the copy.
+- [decision, owner, 2026-11-11] "거부 유지". A `/` over a call of a function that some call makes an
+  integer is refused with `TS8003` and the one checked edit, whichever copy the call takes: with
+  `x * g()` elsewhere, `f32(vi + g()) + f32(g() / 2)` is refused, and does not compute 3.5 through
+  the `f32` copy. The meaning of a division does not depend on other lines (Amendment A2).
+- Affects: no front-matter field. Rules 5.1 and 8.19 and surface §14, which the front matter
+  declares, carry these readings.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The change is delivered in parts. `status: accepted` stays until every part is delivered and
@@ -1314,28 +1341,45 @@ request #1264.
   result of integer-written numbers whose use is an `f64` is an `f64` (`let n = 16777217; d * n`
   multiplies by 16777217 on a device, where it multiplied by 16777216), as part 4a's `let` is.
   `CHANGELOG.md` names each class.
-- Choices the text leaves open, made by default and shown to the owner on the pull request:
-  - The function itself keeps the `f32` result beside its copies, so the host, a conversion
-    (`u32(g())`) and a call that decides nothing read it. Rule 8.19's new text names every copy
-    after the type; this part names the copies of every type but `f32`.
-  - An exported function its calls decide to one type returns that type to the host too
-    (`export function g() { return 3; }` with only `vi + g()` returns a `u32`). With copies, the
-    host reads the `f32` of the function itself.
-  - A call in a conversion (`u32(g())`) decides nothing, as F19 requires
-    (`function g() { return 16777217; } … u32(g())` keeps the `f32` result).
+- The choices the first revision made by default, and its deviation 1 (only a function at the
+  top of a file or of a namespace), went to the owner: Amendment A5 decides each. Implemented in
+  this part: the result of a method, a getter, a static function, a local function, an arrow
+  function and a generic function's instance follows the same rule (`planResult` in
+  `lowerSourceFunctions`, the calls in `src/compiler/ts/lower/caller-decided.ts`); a copy is made
+  the first time a call asks for its type (`copyOfResult`); an exported function or a member of
+  an exported class keeps the `f32` the host reads; a `/` over a call of a function that some
+  call makes an integer is refused, whichever copy the call takes (`integerResult`). A call of
+  such a function is a value no use has decided as soon as its function is found in the pass,
+  and a call's decision reaches its function in the next pass, so a chain takes one pass a link.
+  A call in a conversion (`u32(g())`) decides nothing, as F19 requires. Each copy has its own
+  local functions (`g_u32_inc`), so what they capture has the copy's types.
+- The independent review of pull request #1264 at `d2296760` (2026-11-11), each fixed with a test
+  that reads both halves in `src/compiler/ts/use-inference-module.test.ts`:
+  - Finding 1: two functions of one short name (`g` and `N.g`) shared their decisions, and dead
+    copies were emitted. The calls are now counted for their function's declaration and emitted
+    name (`calleeKeyOf`), and a copy is made only where a call asks for it.
+  - Finding 2: a write to a static field the file writes (`S.n += vi`, `S.n = vi`) recorded no
+    demand. The written field is marked as its read is (`lowerStaticFieldTarget`).
+  - Finding 3: a result whose returns give two types where its calls fixed one said "declared
+    u32", which the author never wrote. The sentence now names the calls:
+    `Function "g" returns u32 where its calls use it and f32 at a "return"; …`. A chain longer
+    than `MAX_INFERENCE_PASSES` follows no longer leaves some links decided and others not: the
+    last pass switches every such result off (`switchCallersOff`), and the mismatch at a call of
+    one says to write its result type. [fact, measured 2026-11-11] A chain of 10 links compiles;
+    one of 16 is refused with that sentence (at `d2296760`, 8 links already failed).
+  - Finding 5 (information, not fixed here; the session's coordinator files an issue): compile
+    time grows fast with the depth of an expression, on `main` too, and part 4b adds passes.
+    [fact, measured 2026-11-11 on this branch with the review's `timing2.ts`] One 24-term
+    expression over 8 functions with copies takes 30.6 s; over 6, 403 ms; with no copies, under
+    100 ms.
 - Deviations, open:
-  - A method, a getter, a local function, an arrow function and a generic function's instance
-    keep the type of their first `return` (`f32` from a written number). Rule 8.19's new text
-    names "a function"; this part covers a function declared at the top of a file or of a
-    namespace. The others take the next part.
   - A generic class's field shares one decision across its instances, as issue #1256 records
     for a generic function's body (deferred by the owner).
   - A call of a function with copies inside a body that is itself copied takes two copies; its
     hover keeps the words.
 
-Not delivered yet: the methods, local functions and generic instances of the deviation above,
-the document part of item 5, item 5 for `journeys/` and the helper sources of `examples/`
-(Amendment A1), and the audit.
+Not delivered yet: the document part of item 5, item 5 for `journeys/` and the helper sources of
+`examples/` (Amendment A1), and the audit.
 
 ## What it owes downstream
 

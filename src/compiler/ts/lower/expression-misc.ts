@@ -1,6 +1,4 @@
-import { markCarriedRead } from '../abstract-const.js';
-import { callerDecidedCall, carriedOf, markInferredRead } from '../use-inference.js';
-import { recordCopyCall } from '../symbols.js';
+import { userCallExpr } from './caller-decided.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { builtinResultType } from '../../../core/builtins/resolve.js';
@@ -375,24 +373,9 @@ export function lowerUserCall(
       return undefined;
     }
   }
-  // A function whose callers decide its result: this call takes the copy its own use decided,
-  // and its read records what that use asks (Rule 8.19, change 0134 item 1).
-  const site = callerDecidedCall(decl, node, sourceFile);
-  const target = site?.target ?? decl;
-  if (site !== undefined && ts.isCallExpression(node)) {
-    const c = node.expression;
-    const name = ts.isPropertyAccessExpression(c) ? c.name : c;
-    recordCopyCall(sourceFile, name, target.ret);
-  }
-  const call: Expr = markInferredRead(
-    markCarriedRead(
-      { op: 'call', type: target.ret, fn: target.name, args, declRef: target },
-      node,
-      carriedOf(undefined, site?.value),
-    ),
-    node,
-    site?.value,
-  );
+  // A function whose callers decide its result: this call takes the copy its own use decided
+  // (Rule 8.19, change 0134 item 1).
+  const call = userCallExpr(decl, args, node, sourceFile);
   return wrapHandedResult(call, node, scope, sourceFile, diagnostics);
 }
 

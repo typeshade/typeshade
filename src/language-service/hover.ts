@@ -9,6 +9,7 @@ import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/sour
 import {
   abstractConstTableOf,
   copyCallAt,
+  hasResultCopies,
   resultCopiesAt,
   type DeclaredSymbol,
 } from '../compiler/ts/symbols.js';
@@ -1078,21 +1079,47 @@ function resultCopiesLine(
   const at = def.textSpan.start;
   const fn = resultCopiesAt(table, at);
   if (fn !== undefined) {
-    const symbol = analysis.symbols.find((s) => s.start === at && s.kind === 'function');
+    const named = nodeAt(sourceFile, at);
+    const decl = named?.parent;
+    const fnNode =
+      decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined
+        ? decl.initializer
+        : decl;
     const params =
-      symbol === undefined ? [] : writtenParams(sourceFile, at, { uri, analysis }, symbol, struct);
-    const head = `function ${node.text}(${params.join(', ')})`;
+      fnNode !== undefined && ts.isFunctionLike(fnNode)
+        ? fnNode.parameters.map((p) => p.getText(sourceFile).replace(/\s+/g, ' ')).join(', ')
+        : '';
+    const owner =
+      decl !== undefined && ts.isClassElement(decl) && ts.isClassLike(decl.parent)
+        ? `${decl.parent.name?.text ?? ''}.`
+        : '';
     const call = copyCallAt(table, node.getStart(sourceFile));
-    return call !== undefined
-      ? `${head}: ${spellShaderType(call, struct)}`
-      : `${head} (${typesInWords(fn.types, struct)} where it is called)`;
+    const result = call !== undefined ? spellShaderType(call, struct) : undefined;
+    const words = `${typesInWords(fn.types, struct)} where it is called`;
+    if (decl !== undefined && ts.isGetAccessorDeclaration(decl)) {
+      return `(getter) ${owner}${node.text}${result !== undefined ? `: ${result}` : ` (${words})`}`;
+    }
+    if (decl !== undefined && ts.isVariableDeclaration(decl)) {
+      return `const ${node.text}: (${params}) => ${result ?? `(${words})`}`;
+    }
+    const head =
+      decl !== undefined && ts.isMethodDeclaration(decl)
+        ? `(method) ${owner}${node.text}(${params})`
+        : `function ${node.text}(${params})`;
+    return result !== undefined ? `${head}: ${result}` : `${head} (${words})`;
   }
   const local = analysis.symbols.filter((s) => s.start === at && s.kind === 'local');
   if (local.length < 2 || local.every((s) => typesOf(s) === typesOf(local[0]!))) return undefined;
+  // The function whose body declares the local, by the name its declaration gives it.
   let around: ts.Node | undefined = nodeAt(sourceFile, at);
-  while (around !== undefined && !ts.isFunctionDeclaration(around)) around = around.parent;
-  const name = around === undefined ? undefined : (around as ts.FunctionDeclaration).name;
-  const copies = name === undefined ? undefined : resultCopiesAt(table, name.getStart(sourceFile));
+  let copies: ReturnType<typeof resultCopiesAt>;
+  for (; around !== undefined && copies === undefined; around = around.parent) {
+    if (!ts.isFunctionLike(around)) continue;
+    const name =
+      (around as { name?: ts.Node }).name ??
+      (ts.isVariableDeclaration(around.parent) ? around.parent.name : undefined);
+    if (name !== undefined) copies = resultCopiesAt(table, name.getStart(sourceFile));
+  }
   if (copies === undefined) return undefined;
   return (
     `${local[0]!.mutable === false ? 'const' : 'let'} ${node.text} ` +
@@ -1298,7 +1325,9 @@ export function getHover(
   // static field is recorded under a longer name, so a file that declares or reads one asks for
   // the definition of every identifier.
   const abstract =
-    ts.isIdentifier(node) && (abstractConstTableOf(analysis.sourceFile)?.decls.length ?? 0) > 0;
+    ts.isIdentifier(node) &&
+    ((abstractConstTableOf(analysis.sourceFile)?.decls.length ?? 0) > 0 ||
+      hasResultCopies(analysis.sourceFile));
   const defs = implementationsOf(
     named || property || linked || abstract
       ? (languageService.getDefinitionAtPosition(uri, offset) ?? [])

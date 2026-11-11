@@ -51,6 +51,12 @@ export interface InferredValue {
   /** For such a read: the name of the function, which a refusal of a `/` over the call names,
    *  and which stands outside any `/` as the uses that decided the result do. */
   readonly function?: ts.Node;
+  /** For such a read: an integer result some call of the function asks, which makes a `/` over
+   *  any call of it refused, whichever copy the call takes. */
+  readonly integerResult?: ShaderType;
+  /** For such a read: the key of the function it calls (`calleeKeyOf`), so that a decision of
+   *  the call reaches the function in the next pass. */
+  readonly callee?: object;
   /** The name as the author wrote it. */
   readonly name: string;
   /** The initializer as the author wrote it, for a remedy line. */
@@ -71,12 +77,21 @@ interface State {
   /** Whether the running pass found a new one. */
   newOpenCounter: boolean;
   /** Demands recorded in the pass that is running. */
-  demands: Map<object, { readonly name: string; readonly asked: Set<Demand>; perUse: boolean }>;
+  demands: Map<
+    object,
+    { readonly name: string; readonly asked: Set<Demand>; perUse: boolean; callee?: object }
+  >;
   /** The functions an earlier pass found returning a written number or a value of item 1
    *  (Rule 8.19): their callers decide their result. */
   readonly callerDecided: Set<ts.Node>;
   /** Whether the running pass found a new one. */
   newCallerDecided: boolean;
+  /** The result types the calls of each function its callers decide asked, in the pass before
+   *  and in the running one, by `calleeKeyOf`. */
+  askedBefore: Map<object, Map<string, ShaderType>>;
+  askedNow: Map<object, Map<string, ShaderType>>;
+  /** Set for the last pass of a compile whose passes ran out (`switchCallersOff`). */
+  callersOff: boolean;
 }
 
 const states = new WeakMap<ts.SourceFile, State>();
@@ -96,6 +111,9 @@ export function beginUseInference(sourceFile: ts.SourceFile): void {
     demands: new Map(),
     callerDecided: new Set(),
     newCallerDecided: false,
+    askedBefore: new Map(),
+    askedNow: new Map(),
+    callersOff: false,
   });
 }
 
@@ -104,7 +122,11 @@ export function beginUseInference(sourceFile: ts.SourceFile): void {
 export function beginUseInferencePass(sourceFile: ts.SourceFile): State | undefined {
   const outer = current;
   const state = states.get(sourceFile);
-  if (state !== undefined) state.demands = new Map();
+  if (state !== undefined) {
+    state.demands = new Map();
+    state.askedBefore = state.askedNow;
+    state.askedNow = new Map();
+  }
   resetResultCopies(sourceFile);
   current = state;
   return outer;
@@ -134,10 +156,20 @@ export function settleUseInference(sourceFile: ts.SourceFile): boolean {
     state.newCallerDecided = false;
     return true;
   }
-  // A pass that found a function its callers decide did not yet read its calls as values.
-  let changed = state.newCallerDecided;
+  // A pass that found a function its callers decide did not yet read its calls as values, and
+  // one whose calls asked other result types than the pass before made other copies.
+  let changed = state.newCallerDecided || !sameAsked(state.askedBefore, state.askedNow);
   state.newCallerDecided = false;
-  for (const [decl, { name, asked, perUse }] of state.demands) {
+  // A call's decision reaches the function it calls in the next pass at once, as if that pass
+  // had lowered the call already: one pass a link of a chain of such functions.
+  const decide = (decl: object, type: ShaderType, callee: object | undefined): void => {
+    state.decided.set(decl, type);
+    if (callee === undefined) return;
+    let types = state.askedNow.get(callee);
+    if (types === undefined) state.askedNow.set(callee, (types = new Map()));
+    types.set(typeKey(type), type);
+  };
+  for (const [decl, { name, asked, perUse, callee }] of state.demands) {
     if (state.decided.has(decl) || state.conflicts.has(decl)) continue;
     const concrete = CONCRETE.filter((d) => asked.has(d));
     const wantsInteger = asked.has('int');
@@ -163,15 +195,28 @@ export function settleUseInference(sourceFile: ts.SourceFile): boolean {
     if (one === undefined || one === 'int') continue;
     if (one === 'f32') {
       if (perUse) {
-        state.decided.set(decl, f32T);
+        decide(decl, f32T, callee);
         changed = true;
       }
       continue;
     }
-    state.decided.set(decl, TYPE_OF[one]);
+    decide(decl, TYPE_OF[one], callee);
     changed = true;
   }
   return changed;
+}
+
+function sameAsked(
+  a: ReadonlyMap<object, ReadonlyMap<string, ShaderType>>,
+  b: ReadonlyMap<object, ReadonlyMap<string, ShaderType>>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, types] of a) {
+    const other = b.get(key);
+    if (other === undefined || other.size !== types.size) return false;
+    for (const k of types.keys()) if (!other.has(k)) return false;
+  }
+  return true;
 }
 
 /** Records that the `for` whose header declares `decl` is not a counted loop: from the next
@@ -234,7 +279,8 @@ export function currentCopy(): string | undefined {
 }
 
 /** Records that the function `decl` returns a written number or a value no use has decided:
- *  from the next pass its callers decide its result. */
+ *  its callers decide its result. A call of it lowered after this, in this pass too, reads as a
+ *  value no use has decided, so a function that returns such a call is found in the same pass. */
 export function noteCallerDecided(sourceFile: ts.SourceFile, decl: ts.Node): void {
   const state = states.get(sourceFile);
   if (state === undefined || state.callerDecided.has(decl)) return;
@@ -242,30 +288,74 @@ export function noteCallerDecided(sourceFile: ts.SourceFile, decl: ts.Node): voi
   state.newCallerDecided = true;
 }
 
-/** Whether an earlier pass found that the callers of the function `decl` decide its result. */
+/** Whether the callers of the function `decl` decide its result: found in this pass or an
+ *  earlier one, and not switched off after the passes ran out (`MAX_INFERENCE_PASSES`). */
 export function isCallerDecided(sourceFile: ts.SourceFile, decl: ts.Node): boolean {
-  return states.get(sourceFile)?.callerDecided.has(decl) === true;
+  const state = states.get(sourceFile);
+  return state !== undefined && !state.callersOff && state.callerDecided.has(decl);
 }
 
-/** For a function its callers decide, its copies by the key of their result type; the function
- *  itself holds the `f32` result, or the one type every deciding call asks. */
-const callerDecidedStubs = new WeakMap<
-  FuncDecl,
-  {
-    readonly name: string;
-    readonly node: ts.Node;
-    readonly copies: ReadonlyMap<string, FuncDecl>;
-  }
->();
+/** Switches the results that callers decide off for the last pass of a compile whose passes
+ *  ran out: every such function takes its first `return`'s type, as before change 0134, so no
+ *  chain is left half decided. The functions it switched off, for the sentence of a mismatch. */
+export function switchCallersOff(sourceFile: ts.SourceFile): void {
+  const state = states.get(sourceFile);
+  if (state !== undefined) state.callersOff = true;
+}
 
-/** Registers `stub`, a function its callers decide, with the copies this pass made of it. */
-export function registerCallerDecided(
-  stub: FuncDecl,
-  name: string,
-  node: ts.Node,
-  copies: ReadonlyMap<string, FuncDecl>,
-): void {
-  callerDecidedStubs.set(stub, { name, node, copies });
+/** The names of the functions an earlier pass found its callers decide. */
+export function callerDecidedNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const node of states.get(sourceFile)?.callerDecided ?? []) {
+    const name =
+      (node as { name?: ts.Node }).name ??
+      (ts.isVariableDeclaration(node.parent) ? node.parent.name : undefined);
+    if (name !== undefined && ts.isIdentifier(name)) out.add(name.text);
+  }
+  return out;
+}
+
+/** Whether `switchCallersOff` ran for this compile. */
+export function callersSwitchedOff(sourceFile: ts.SourceFile): boolean {
+  return states.get(sourceFile)?.callersOff === true;
+}
+
+const calleeKeys = new WeakMap<ts.Node, Map<string, object>>();
+
+/** The key of one function its callers decide across the passes: its declaration, and for an
+ *  instance of a generic function its instance (Rule 8.9: its copies are per instance). */
+export function calleeKeyOf(node: ts.Node, instance = ''): object {
+  let byInstance = calleeKeys.get(node);
+  if (byInstance === undefined) calleeKeys.set(node, (byInstance = new Map()));
+  let key = byInstance.get(instance);
+  if (key === undefined) byInstance.set(instance, (key = { node, instance }));
+  return key;
+}
+
+/** The result types the calls of the function `key` asked in the pass before this one, by type
+ *  key: what decides its result and its copies now. */
+export function askedOf(sourceFile: ts.SourceFile, key: object): ReadonlyMap<string, ShaderType> {
+  return states.get(sourceFile)?.askedBefore.get(key) ?? new Map();
+}
+
+/** One function its callers decide, as one pass lowers it. */
+interface CallerDecidedInfo {
+  /** The name a message and the hover give it. */
+  readonly name: string;
+  /** Its name in its declaration, which a refusal of a `/` over a call of it names. */
+  readonly node: ts.Node;
+  /** The function as written, which `noteCallerDecided` marks. */
+  readonly decl: ts.Node;
+  readonly key: object;
+  /** The copy that returns `type`, made the first time a call asks for it. */
+  readonly copyFor: (type: ShaderType) => FuncDecl | undefined;
+}
+const callerDecidedStubs = new WeakMap<FuncDecl, CallerDecidedInfo>();
+
+/** Registers `stub`, a function its callers may decide, for this pass: its calls read as values
+ *  once `noteCallerDecided` marks it, in this pass or an earlier one. */
+export function registerCallerDecided(stub: FuncDecl, info: CallerDecidedInfo): void {
+  callerDecidedStubs.set(stub, info);
 }
 
 /** The function a call of `decl` at `call` calls, and the record its read is marked with, when
@@ -278,13 +368,27 @@ export function callerDecidedCall(
 ): { readonly target: FuncDecl; readonly value: InferredValue } | undefined {
   const info = callerDecidedStubs.get(decl);
   const state = states.get(sourceFile);
-  if (info === undefined || state === undefined) return undefined;
+  if (info === undefined || state === undefined || state.callersOff) return undefined;
+  if (!state.callerDecided.has(info.decl)) return undefined;
   const key = keyOf(call);
   const asked = state.decided.get(key);
-  const copy = asked === undefined ? undefined : info.copies.get(typeKey(asked));
-  const target = copy ?? decl;
-  // Once the callers decided the function, a call that decides nothing reads the result it has.
-  const type = copy !== undefined || info.copies.size > 0 ? target.ret : undefined;
+  if (asked !== undefined) {
+    let types = state.askedNow.get(info.key);
+    if (types === undefined) state.askedNow.set(info.key, (types = new Map()));
+    types.set(typeKey(asked), asked);
+  }
+  const before = state.askedBefore.get(info.key);
+  const target =
+    asked === undefined || typeKey(asked) === typeKey(decl.ret)
+      ? decl
+      : (info.copyFor(asked) ?? decl);
+  // Once the calls decided the function, a call that decides nothing reads the result it has.
+  const type = asked !== undefined || (before?.size ?? 0) > 0 ? target.ret : undefined;
+  // A `/` over a call of a function that has an integer copy does not say which division it is,
+  // whichever copy the call takes (the owner's decision of 2026-11-11, "거부 유지").
+  const integer = [...(before?.values() ?? []), ...(asked !== undefined ? [asked] : [])].find(
+    (t) => typeKey(t) === 'i32' || typeKey(t) === 'u32',
+  );
   return {
     target,
     value: {
@@ -293,25 +397,12 @@ export function callerDecidedCall(
       name: info.name,
       perUse: true,
       function: info.node,
+      callee: info.key,
       written: `${info.name}()`,
       ...(type !== undefined ? { type } : {}),
+      ...(integer !== undefined ? { integerResult: integer } : {}),
     },
   };
-}
-
-/** Every decision of this compile for the call `call`, one for each copy the call is lowered
- *  in, or for the call itself outside any copy. */
-export function decisionsOfCall(sourceFile: ts.SourceFile, call: ts.Node): ShaderType[] {
-  const state = states.get(sourceFile);
-  if (state === undefined) return [];
-  const out: ShaderType[] = [];
-  const own = state.decided.get(call);
-  if (own !== undefined) out.push(own);
-  for (const key of copyKeys.get(call)?.values() ?? []) {
-    const t = state.decided.get(key);
-    if (t !== undefined) out.push(t);
-  }
-  return out;
 }
 
 /** Whether the inference of this compile is running (it is not for a lowering outside
@@ -412,7 +503,12 @@ function record(value: InferredValue, asked: Demand): void {
   if (entry === undefined) {
     current.demands.set(
       key,
-      (entry = { name: value.name, asked: new Set(), perUse: value.perUse === true }),
+      (entry = {
+        name: value.name,
+        asked: new Set(),
+        perUse: value.perUse === true,
+        ...(value.callee !== undefined ? { callee: value.callee } : {}),
+      }),
     );
   }
   entry.asked.add(demand);
@@ -486,8 +582,9 @@ export function inferredOrigin(value: InferredValue | undefined): Carried | unde
   // 2026-11-11, "A2 우선: 거부"). Its edits keep the `i32` it had.
   const openCounter =
     value.type === undefined && isOpenCounter(value.decl.getSourceFile(), value.decl);
-  if (value.type === undefined && !openCounter) return undefined;
-  const key = value.type === undefined ? 'i32' : typeKey(value.type);
+  const own = value.integerResult ?? value.type;
+  if (own === undefined && !openCounter) return undefined;
+  const key = own === undefined ? 'i32' : typeKey(own);
   if (key !== 'i32' && key !== 'u32') return undefined;
   const cacheKey = openCounter ? 'counter' : key;
   const cached = origins.get(value.key ?? value.decl);

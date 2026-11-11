@@ -4,6 +4,7 @@
 
 import {
   hasNoWrittenResult,
+  isIntegerWrittenRead,
   moduleAbstractConst,
   noteCarriedReturn,
   unpeekedReads,
@@ -13,9 +14,12 @@ import { variableRefused } from '../refused-names.js';
 import { moduleVarSourceName } from '../module-var-names.js';
 import { inferredModuleVar } from '../module-vars.js';
 import {
-  decisionsOfCall,
+  askedOf,
+  calleeKeyOf,
   inCopy,
   isCallerDecided,
+  noteCallerDecided,
+  readsUndecided,
   registerCallerDecided,
   useInferenceActive,
 } from '../use-inference.js';
@@ -120,7 +124,7 @@ import {
 } from './param-defaults.js';
 import { lowerStatements, lowerVoidArrowBody } from './statement.js';
 import { lowerExpression } from './expression.js';
-import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
+import { isIntegerLiteralTree, reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
 import {
   ATOMIC_INTRINSICS,
@@ -201,6 +205,29 @@ function writtenModuleNames(
   }
   for (const [emitted, written] of writtenConstNames(sourceFile)) values.set(emitted, written);
   return { values, functions };
+}
+
+/** What `this` is to an arrow function inside the class function `cf`: the method's object, or
+ *  inside a static member the class the call names (Rule 8.13). */
+function classSelf(cf: ClassFunction): LiftedThis | undefined {
+  return cf.receiver !== undefined
+    ? {
+        receiver: {
+          type: cf.receiver.type,
+          mode: cf.receiver.mode === 'param' ? 'param' : 'inout',
+          superMethods: cf.receiver.superMethods,
+        },
+        bindsThis: true,
+        shown: cf.shown,
+      }
+    : cf.staticOwner !== undefined
+      ? {
+          staticOwner: cf.staticOwner,
+          staticSuper: cf.staticSuper,
+          bindsThis: true,
+          shown: cf.shown,
+        }
+      : undefined;
 }
 
 export function lowerSourceFunctions(
@@ -535,25 +562,7 @@ export function lowerSourceFunctions(
     if (cf.node?.body && cf.takesFunctions === undefined) {
       // Inside a method, an arrow function's `this` is the method's object, and inside a static
       // member the class the call names (Rule 8.13).
-      const self: LiftedThis | undefined =
-        cf.receiver !== undefined
-          ? {
-              receiver: {
-                type: cf.receiver.type,
-                mode: cf.receiver.mode === 'param' ? 'param' : 'inout',
-                superMethods: cf.receiver.superMethods,
-              },
-              bindsThis: true,
-              shown: cf.shown,
-            }
-          : cf.staticOwner !== undefined
-            ? {
-                staticOwner: cf.staticOwner,
-                staticSuper: cf.staticSuper,
-                bindsThis: true,
-                shown: cf.shown,
-              }
-            : undefined;
+      const self = classSelf(cf);
       seeLocals(
         declarationsIn(cf.node.body),
         cf.stub.name,
@@ -752,78 +761,136 @@ export function lowerSourceFunctions(
   };
   // ═══ A result its callers decide (Rule 8.19, change 0134 item 1) ═══
   //
-  // A function of the file that writes no result type and returns a written number or a value
-  // no use has decided (an earlier pass of this compile found it, `noteCallerDecided`) takes its
-  // result from its calls. Where every call that decides asks one type, the function returns
-  // it. Where the calls ask two or more, each type but `f32` gets a copy of the function, named
-  // as an instance is (`g_u32`, Rule 8.9), and the function itself keeps the `f32` result, which
-  // a call that decides nothing and the host read. Each copy infers its own locals (Amendment
-  // A1, "사본마다 추론"): its body is lowered under its own key (`inCopy`).
+  // A function, a method, a getter, a local or arrow function, or an instance of a generic
+  // function, that writes no result type and whose first `return` is a written integer or a value
+  // no use has decided (`noteCallerDecided`), takes its result from its calls. Each call records
+  // the type its own use asks (`callerDecidedCall`), and the next pass reads what the calls asked
+  // (`askedOf`): where they asked one type, the function returns it; where they asked two or
+  // more, or the function is one the host calls (an export), the function keeps the `f32` result
+  // under its own name, and a call that asks another type takes a copy named as an instance is
+  // (`g_u32`, Rule 8.9), made the first time a call asks for it (Amendment A5 of change 0134,
+  // "작성자 기본값 유지"; "export는 f32 유지"). Each copy infers its own locals (Amendment A1,
+  // "사본마다 추론"): its body is lowered under its own key (`inCopy`).
+  /** The functions whose result the calls fixed for this pass: lowered as if it were written. */
   const decidedByCallers = new Set<FuncDecl>();
-  const resultCopies: { r: (typeof ready)[number]; stub: FuncDecl }[] = [];
-  if (useInferenceActive(sourceFile)) {
-    let calls: Map<string, ts.CallExpression[]> | undefined;
-    for (const r of ready) {
-      if (r.stub.stage !== undefined || !hasNoWrittenResult(r.node, sourceFile)) continue;
-      if (r.node.name === undefined || !isCallerDecided(sourceFile, r.node)) continue;
-      calls ??= callsByName(sourceFile);
-      const types = new Map<string, ShaderType>();
-      for (const call of calls.get(r.node.name.text) ?? []) {
-        for (const t of decisionsOfCall(sourceFile, call)) types.set(typeKey(t), t);
-      }
-      const copies = new Map<string, FuncDecl>();
-      const shown = r.prefix === '' ? r.node.name.text : `${r.prefix}.${r.node.name.text}`;
-      registerCallerDecided(r.stub, shown, r.node.name, copies);
-      if (types.size === 0) continue;
-      if (types.size === 1) {
-        const [[key, t]] = [...types];
-        if (key !== 'f32') {
-          (r.stub as { ret: ShaderType }).ret = t!;
-          decidedByCallers.add(r.stub);
-        }
-        copies.set(key!, r.stub);
-        continue;
-      }
-      // The function itself holds the `f32` result, written as if the author had: its body's
-      // calls then decide their own callees as an `f32` result asks.
-      (r.stub as { ret: ShaderType }).ret = f32T;
-      decidedByCallers.add(r.stub);
-      copies.set('f32', r.stub);
-      for (const [key, t] of types) {
-        if (key === 'f32') continue;
-        let emitted = instanceName(r.stub.name, [t]);
-        for (let n = 1; callees.has(emitted) || refused.has(emitted); n++) {
-          emitted = `${instanceName(r.stub.name, [t])}_${String(n)}`;
-        }
-        // Its signature said what it had to say where the function is declared.
-        const stub = parseSignature(
-          r.node,
-          sourceFile,
-          [],
-          structs,
-          emitted,
-          undefined,
-          consts,
-          overrides,
-        );
-        if (stub === undefined) continue;
-        (stub as { ret: ShaderType }).ret = t;
-        callees.set(emitted, stub);
-        writtenAs.set(emitted, shown);
-        copies.set(key, stub);
-        resultCopies.push({ r, stub });
-      }
-      // The hover names each result type at the declaration (item 4 of change 0134); the host
-      // calls an exported function at the `f32` the function itself keeps.
-      const listed = new Map(types);
-      if (isExported(r.node)) listed.set('f32', f32T);
+  const copiesOf = new Map<FuncDecl, Map<string, FuncDecl>>();
+  /** Plans `o.stub`; true when its calls fixed its result, so its body is lowered against it. */
+  const planResult = (o: {
+    readonly stub: FuncDecl;
+    readonly node: ts.Node;
+    readonly nameNode: ts.Node | undefined;
+    readonly shown: string;
+    readonly exported: boolean;
+    readonly generic?: true;
+    readonly refill: (copy: FuncDecl) => void;
+  }): boolean => {
+    if (!useInferenceActive(sourceFile)) return false;
+    const key = calleeKeyOf(o.node, o.stub.name);
+    registerCallerDecided(o.stub, {
+      name: o.shown,
+      node: o.nameNode ?? o.node,
+      decl: o.node,
+      key,
+      copyFor: (t) => copyOfResult(o, t),
+    });
+    if (!isCallerDecided(sourceFile, o.node)) return false;
+    const asked = askedOf(sourceFile, key);
+    if (asked.size === 0) return false;
+    const others = [...asked].filter(([k]) => k !== 'f32');
+    const ret = asked.size === 1 && others.length === 1 && !o.exported ? others[0]![1] : f32T;
+    (o.stub as { ret: ShaderType }).ret = ret;
+    decidedByCallers.add(o.stub);
+    // The hover names each result type at the declaration (item 4 of change 0134); the host
+    // calls an exported function at the `f32` it keeps.
+    const listed = new Map(asked);
+    if (o.exported) listed.set('f32', f32T);
+    if (o.nameNode !== undefined && o.generic !== true && listed.size >= 2) {
       recordResultCopies(
         sourceFile,
-        r.node.name,
-        shown,
+        o.nameNode,
+        o.shown,
         ['i32', 'u32', 'f32', 'f64'].flatMap((k) => (listed.has(k) ? [listed.get(k)!] : [])),
       );
     }
+    return true;
+  };
+  const copyOfResult = (
+    o: {
+      readonly stub: FuncDecl;
+      readonly shown: string;
+      readonly refill: (copy: FuncDecl) => void;
+    },
+    t: ShaderType,
+  ): FuncDecl | undefined => {
+    let byType = copiesOf.get(o.stub);
+    if (byType === undefined) copiesOf.set(o.stub, (byType = new Map()));
+    const had = byType.get(typeKey(t));
+    if (had !== undefined) return had;
+    const base = instanceName(o.stub.name, [t]);
+    let name = base;
+    for (let n = 1; callees.has(name) || refused.has(name); n++) name = `${base}_${String(n)}`;
+    const copy: FuncDecl = {
+      ...o.stub,
+      name,
+      ret: t,
+      body: [],
+      params: o.stub.params.map((p) => ({ ...p })),
+    };
+    callees.set(name, copy);
+    writtenAs.set(name, o.shown);
+    const captured = file.captures.get(o.stub.name);
+    if (captured !== undefined) file.captures.set(name, captured);
+    byType.set(typeKey(t), copy);
+    inCopy(name, () => o.refill(copy));
+    return copy;
+  };
+  /** The local functions of a copy's body, its own (`g_u32_inc`): what they capture has the
+   *  copy's types. Lowered after the copy's body with `fillLifted`. */
+  const localsOfCopy = (
+    fnNode: ts.Node,
+    copy: FuncDecl,
+    self: LiftedThis | undefined,
+    outer: ReadonlyMap<string, string>,
+    around: ReadonlyMap<ts.Node, FuncDecl>,
+    said: TsCompilerDiagnostic[],
+    targets?: ReadonlyMap<ts.Node, FuncDecl>,
+  ): Lifted[] => {
+    const mine: Lifted[] = [];
+    const body = (fnNode as { body?: ts.Node }).body;
+    if (body === undefined || !ts.isBlock(body)) {
+      aliasesOf.set(copy.name, new Map(outer));
+      return mine;
+    }
+    seeLocals(
+      declarationsIn(body),
+      copy.name,
+      new Map([...around, [fnNode, copy]]),
+      self,
+      outer,
+      mine,
+      said,
+    );
+    liftCaptures(mine, callees, file, targets);
+    holdLifted(mine, sourceFile, said);
+    return mine;
+  };
+  for (const r of ready) {
+    if (r.stub.stage !== undefined || !hasNoWrittenResult(r.node, sourceFile)) continue;
+    planResult({
+      stub: r.stub,
+      node: r.node,
+      nameNode: r.node.name,
+      shown:
+        r.prefix === ''
+          ? (r.node.name?.text ?? r.stub.name)
+          : `${r.prefix}.${r.node.name?.text ?? ''}`,
+      exported: isExported(r.node),
+      refill: (copy) => {
+        const mine = localsOfCopy(r.node, copy, undefined, new Map(), new Map(), diagnostics);
+        fillReady({ ...r, stub: copy }, false);
+        fillLifted(mine, sourceFile, diagnostics);
+      },
+    });
   }
   for (const r of ready) {
     if (!hasNoWrittenResult(r.node, sourceFile) || r.stub.stage !== undefined) continue;
@@ -880,6 +947,30 @@ export function lowerSourceFunctions(
   for (const cf of classFns) {
     if (cf.infers !== true || cf.node === undefined || cf.takesFunctions !== undefined) continue;
     const node = cf.node;
+    // A method, a getter or a static function its calls decide (Rule 8.19, change 0134): a
+    // member of an exported class is one the host calls.
+    if (
+      !ts.isConstructorDeclaration(node) &&
+      !ts.isSetAccessorDeclaration(node) &&
+      planResult({
+        stub: cf.stub,
+        node,
+        nameNode: (node as { name?: ts.Node }).name,
+        shown: cf.shown,
+        exported:
+          ts.isClassLike(node.parent) &&
+          (ts.getCombinedModifierFlags(node.parent as ts.Declaration) & ts.ModifierFlags.Export) !==
+            0,
+        refill: (copy) =>
+          withTypeArguments(undefined, () => {
+            const mine = localsOfCopy(node, copy, classSelf(cf), new Map(), new Map(), saidFor(cf));
+            fillClassFunction({ ...cf, stub: copy }, node, false);
+            fillLifted(mine, sourceFile, saidFor(cf));
+          }),
+      })
+    ) {
+      continue;
+    }
     pendingFill.set(cf.stub, () => {
       withTypeArguments(undefined, () => fillClassFunction(cf, node, true));
       return true;
@@ -986,6 +1077,38 @@ export function lowerSourceFunctions(
     const typeArgs = currentTypeArguments();
     for (const l of list) {
       if (!l.fn.infers) continue;
+      // A local or arrow function its calls decide (Rule 8.19, change 0134); one at the top level
+      // that the file exports is one the host calls.
+      const named = (l.fn.decl as { name?: ts.Node }).name ?? l.fn.node.name;
+      const statement = l.fn.decl.parent?.parent;
+      if (
+        planResult({
+          stub: l.fn.stub,
+          node: l.fn.node,
+          nameNode: named,
+          shown: l.fn.localName,
+          exported:
+            (ts.isFunctionDeclaration(l.fn.decl) && isExported(l.fn.decl)) ||
+            (statement !== undefined &&
+              ts.isVariableStatement(statement) &&
+              (statement.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false)),
+          refill: (copy) =>
+            withTypeArguments(typeArgs, () => {
+              const mine = localsOfCopy(
+                l.fn.node,
+                copy,
+                l.self,
+                aliasesOf.get(l.fn.ownerName) ?? new Map(),
+                l.around,
+                l.said ?? said,
+              );
+              fillOneLifted({ ...l, fn: { ...l.fn, stub: copy, infers: false } }, sf, said);
+              fillLifted(mine, sf, l.said ?? said);
+            }),
+        })
+      ) {
+        continue;
+      }
       pendingFill.set(l.fn.stub, () =>
         withTypeArguments(typeArgs, () => fillOneLifted(l, sf, said)),
       );
@@ -1035,7 +1158,9 @@ export function lowerSourceFunctions(
     said: TsCompilerDiagnostic[],
   ): void => {
     for (const l of list) {
-      if (l.fn.infers) runPending(l.fn.stub);
+      if (decidedByCallers.has(l.fn.stub))
+        fillOneLifted({ ...l, fn: { ...l.fn, infers: false } }, sf, said);
+      else if (l.fn.infers) runPending(l.fn.stub);
       else fillOneLifted(l, sf, said);
     }
     propagateCaptureRefs(
@@ -1206,32 +1331,64 @@ export function lowerSourceFunctions(
           );
           holdLifted(mine, sf, diags);
         }
-        // With no return type written, the body says it (Rule 8.19).
-        const infers = generic.node.type === undefined;
-        track(stub, infers, diags, generic.node, () =>
-          fillFunctionBody(
-            generic.node,
+        const fillInstance = (
+          target: FuncDecl,
+          inferring: boolean,
+          aliases?: ReadonlyMap<string, string>,
+        ): void =>
+          track(target, inferring, diags, generic.node, () =>
+            fillFunctionBody(
+              generic.node,
+              target,
+              sf,
+              diags,
+              callees,
+              consts,
+              bindings,
+              structs,
+              symbols,
+              overrides,
+              vars,
+              undefined,
+              name,
+              generic.prefix === '' ? undefined : generic.prefix,
+              aliases ?? aliasesOf.get(emitted) ?? handed,
+              undefined,
+              undefined,
+              captures,
+              generic.node.parameters.filter((_, i) => !fnAt.has(i)),
+              inferring,
+            ),
+          );
+        // With no return type written, the body says it (Rule 8.19), or this instance's calls
+        // do (change 0134): its copies are this instance's (Rule 8.9).
+        const infers =
+          generic.node.type === undefined &&
+          !planResult({
             stub,
-            sf,
-            diags,
-            callees,
-            consts,
-            bindings,
-            structs,
-            symbols,
-            overrides,
-            vars,
-            undefined,
-            name,
-            generic.prefix === '' ? undefined : generic.prefix,
-            aliasesOf.get(emitted) ?? handed,
-            undefined,
-            undefined,
-            captures,
-            generic.node.parameters.filter((_, i) => !fnAt.has(i)),
-            infers,
-          ),
-        );
+            node: generic.node,
+            nameNode: generic.node.name,
+            shown: name,
+            exported: false,
+            generic: true,
+            refill: (copy) =>
+              withTypeArguments(bound, () => {
+                const mine = localsOfCopy(
+                  generic.node,
+                  copy,
+                  undefined,
+                  handed,
+                  new Map(),
+                  diags,
+                  new Map(targets.map((t) => [t.param as ts.Node, t.fn])),
+                );
+                fillInstance(copy, false, aliasesOf.get(copy.name));
+                funcs.push(copy);
+                nodeByName.set(copy.name, generic.node);
+                fillLifted(mine, sf, diags);
+              }),
+          });
+        fillInstance(stub, infers);
         funcs.push(stub);
         nodeByName.set(emitted, generic.node);
         fillLifted(mine, sf, diags);
@@ -1871,6 +2028,10 @@ export function lowerSourceFunctions(
     if (cf.takesFunctions !== undefined) continue;
     // One whose body says its return type, or a setter whose value takes its getter's, and that
     // a call lowered already, is not lowered again.
+    if (decidedByCallers.has(cf.stub) && cf.node !== undefined) {
+      fillClassFunction(cf, cf.node, false);
+      continue;
+    }
     if ((cf.infers === true || cf.valueFromGetter === true) && cf.node !== undefined) {
       runPending(cf.stub);
       continue;
@@ -1914,10 +2075,6 @@ export function lowerSourceFunctions(
           ? hasNoWrittenResult(r.node, sourceFile)
           : r.node.type === undefined,
       );
-  }
-  // Each copy of a function its callers decide, with the result its calls asked for.
-  for (const { r, stub } of resultCopies) {
-    inCopy(stub.name, () => fillReady({ ...r, stub }, false));
   }
   fillLifted(lifted, sourceFile, diagnostics);
   // Once every body is lowered, the instances and the functions written as arguments among
@@ -2185,30 +2342,6 @@ function sayInherited(
 }
 
 /** The functions a function's body calls, by name. */
-/** Every call in `sourceFile` whose callee is a name or a member, by that name: the calls that
- *  may call a function its callers decide. Only a call lowered as one records a decision. */
-function callsByName(sourceFile: ts.SourceFile): Map<string, ts.CallExpression[]> {
-  const out = new Map<string, ts.CallExpression[]>();
-  const walk = (n: ts.Node): void => {
-    if (ts.isCallExpression(n)) {
-      const c = n.expression;
-      const name = ts.isIdentifier(c)
-        ? c.text
-        : ts.isPropertyAccessExpression(c)
-          ? c.name.text
-          : undefined;
-      if (name !== undefined) {
-        const list = out.get(name) ?? [];
-        list.push(n);
-        out.set(name, list);
-      }
-    }
-    ts.forEachChild(n, walk);
-  };
-  walk(sourceFile);
-  return out;
-}
-
 function calleeNamesOf(body: readonly Stmt[]): Set<string> {
   const names = new Set<string>();
   const walkStmt = (s: Stmt): void => {
@@ -3374,6 +3507,14 @@ function inferredArrowValue(
   }
   const lowered = lowerExpression(expr, sourceFile, scope, diagnostics);
   if (!lowered) return [];
+  // An expression body of a written integer, or of a value no use has decided, is a result its
+  // callers decide (Rule 8.19, change 0134 item 1), as such a first `return` is.
+  if (
+    ts.isArrowFunction(expr.parent) &&
+    (isIntegerLiteralTree(expr) || isIntegerWrittenRead(expr) || readsUndecided(lowered))
+  ) {
+    noteCallerDecided(sourceFile, expr.parent);
+  }
   (stub as { ret: ShaderType }).ret = lowered.type;
   if (typeKey(lowered.type) === 'void') {
     return lowered.op === 'call' ? [withSpan({ s: 'call', expr: lowered }, sourceFile, expr)] : [];
@@ -3928,7 +4069,12 @@ function fillFunctionBodyNow(
             ? `Function "${shown ?? stub.name}" returns ${authorTypeText(stub.ret)} at its first ` +
                 `"return" and ${authorTypeText(r.expr.type)} at another; a function returns one type ` +
                 `(Rule 8.19): make them agree, or write the return type.`
-            : `Function "${shown ?? stub.name}" return type mismatch: declared ${authorTypeText(stub.ret)}, got ${authorTypeText(r.expr.type)}.`,
+            : // A result its calls decided (change 0134) was not declared: say whose it is.
+              ts.isFunctionLike(node) && hasNoWrittenResult(node, sourceFile)
+              ? `Function "${shown ?? stub.name}" returns ${authorTypeText(stub.ret)} where its ` +
+                `calls use it and ${authorTypeText(r.expr.type)} at a "return"; a function returns ` +
+                `one type (Rule 8.19): make them agree, or write the return type.`
+              : `Function "${shown ?? stub.name}" return type mismatch: declared ${authorTypeText(stub.ret)}, got ${authorTypeText(r.expr.type)}.`,
           TS_CODES.TYPE_MISMATCH,
         ),
       );

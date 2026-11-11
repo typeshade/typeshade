@@ -6,8 +6,11 @@
 import {
   beginUseInference,
   beginUseInferencePass,
+  callerDecidedNames,
+  callersSwitchedOff,
   endUseInferencePass,
   settleUseInference,
+  switchCallersOff,
 } from './use-inference.js';
 import {
   markProjectedAnnotations,
@@ -277,8 +280,48 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
     } finally {
       endUseInferencePass(outer);
     }
-    if (pass >= MAX_INFERENCE_PASSES || !settleUseInference(sourceFile)) return compiled;
+    if (!settleUseInference(sourceFile) || callersSwitchedOff(sourceFile)) {
+      return callersSwitchedOff(sourceFile) ? withCapNotes(compiled, sourceFile) : compiled;
+    }
+    // The passes ran out with results that callers decide still moving: one more pass with
+    // every such result switched off, so no chain is left half decided (change 0134).
+    if (pass >= MAX_INFERENCE_PASSES) switchCallersOff(sourceFile);
   }
+}
+
+/** After `switchCallersOff`, each error at a call of a function whose callers would decide its
+ *  result says why the result is an `f32`, and what to write: one diagnostic for the mistake,
+ *  with the remedy in it (Rules 12.4 and 12.5). */
+function withCapNotes(compiled: ProgramCompile, sourceFile: ts.SourceFile): ProgramCompile {
+  const names = callerDecidedNames(sourceFile);
+  if (names.size === 0) return compiled;
+  const calls: { start: number; end: number; name: string }[] = [];
+  const walk = (n: ts.Node): void => {
+    if (ts.isCallExpression(n)) {
+      const c = n.expression;
+      const name = ts.isIdentifier(c)
+        ? c.text
+        : ts.isPropertyAccessExpression(c)
+          ? c.name.text
+          : '';
+      if (names.has(name)) calls.push({ start: n.getStart(sourceFile), end: n.getEnd(), name });
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sourceFile);
+  const diagnostics = compiled.result.diagnostics.map((d) => {
+    if (d.category !== 'error' || d.fileName !== sourceFile.fileName) return d;
+    const call = calls.find((c) => c.start >= d.start && c.end <= d.start + d.length);
+    if (call === undefined) return d;
+    return {
+      ...d,
+      message:
+        `${d.message} "${call.name}" returns the f32 the compiler chose: its result passes ` +
+        `through more functions whose calls decide it than the compiler follows. Write its ` +
+        `result type, for example "function ${call.name}(): u32".`,
+    };
+  });
+  return { ...compiled, result: { ...compiled.result, diagnostics } };
 }
 
 function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): ProgramCompile {

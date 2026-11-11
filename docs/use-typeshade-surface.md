@@ -1933,12 +1933,16 @@ it as against a written type, so `return 0` after `return u32(7)` is a `u32`. A 
 the type before the body's turn lowers that body first, so a function may be called above its
 declaration.
 
-A function of the file or of a namespace whose first `return` is a written integer
-(`return 1`), or a value no use has decided (`let k = 0; k += 1; return k;`), takes its result
+A function, a method, a getter, a local or arrow function bound to a name, or a generic
+function's instance, that writes no return type and whose first `return` (or expression body) is a written integer
+(`return 1`) or a value no use has decided (`let k = 0; k += 1; return k;`), takes its result
 from its calls (Rule 8.19, change 0134): `function g() { return 1; }` returns a `u32` where
-`vi + g()` is its only call. Calls that ask two or more types get one copy of the function for
-each type but `f32`, named as a generic instance is (`g_u32`), and the function itself keeps the
-`f32` result. Each copy infers its own locals, and a call in a copy decides its own callee's copy:
+`vi + g()` is its only call. A call that asks another type takes a copy of the function for that
+type, named as a generic instance is (`g_u32`), and the function itself keeps the `f32` result
+under its own name. A function the host calls (an export, a member of an exported class) keeps
+the `f32` the host reads even where its calls ask one other type; those calls take the copy. A
+generic function's instance has copies of its own. Each copy infers its own locals, and a call in
+a copy decides its own callee's copy:
 
 ```ts
 function g() { let k = 0; k += 1; return k; }
@@ -1947,12 +1951,14 @@ export function b(x: f32): f32 { return x * g(); } // calls g, whose k is an f32
 ```
 
 Where no call decides (a function only the host calls, a call in a cast, `u32(g())`), the result
-is an `f32`, the compiler's choice. A `/` over a call whose integer result only the calls decided
-is refused as a `/` over an integer by inference is (§13). The hover shows `function g(): u32` for
-one type; for copies, `function g() (u32 or f32 where it is called)` at the declaration, the
-copy's result at each call, and `let k (u32 or f32 where "g" is called)` at a local the copies
-type apart. A method, a getter, a local function and a generic function's instance keep the type
-of their first `return`:
+is an `f32`, the compiler's choice. A `/` over a call of a function that some call makes an
+integer is refused as a `/` over an integer by inference is (§13), whichever copy that call
+takes: `f32(vi + g()) + f32(g() / 2) + x * g()` is refused, though the `/` would read the `f32`
+copy. The hover shows `function g(): u32` for one type; for copies,
+`function g() (u32 or f32 where it is called)` at the declaration (`(method) C.m() (…)`,
+`(getter) C.g (…)`, `const f: () => (…)`), the copy's result at each call, and
+`let k (u32 or f32 where "g" is called)` at a local the copies type apart. A function that
+returns some other value takes the type of its first `return`:
 
 ```ts
 "use typeshade";
