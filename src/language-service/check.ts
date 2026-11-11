@@ -28,6 +28,7 @@
 
 import { isAbstractDivisionRefusal } from '../compiler/ts/abstract-const.js';
 import { compile } from '../compiler/ts/compile.js';
+import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
 import type { TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import ts from 'typescript';
@@ -167,9 +168,9 @@ export function checkOpenDocument(
   return checkOpen(service, doc, options);
 }
 
-/** {@link checkOpenDocument}; `elsewhere` receives each refusal of `doc`'s program that
- *  depends on the whole program and stands in a file `doc` imports (a `/` over a constant
- *  that `doc` reads as an integer, change 0134), for the caller to report on that file. */
+/** {@link checkOpenDocument}; `elsewhere` receives each refusal of `doc`'s program of a `/`
+ *  that stands in a file `doc` imports (a `/` over a constant that `doc` reads as an integer,
+ *  change 0134). The refusal stands on `doc`'s read, with the `/` as its related site (#1186). */
 function checkOpen(
   service: TypeshadeLanguageService,
   doc: CheckDocument,
@@ -198,7 +199,7 @@ function checkOpen(
     ...(options.deprecations === true ? { deprecations: true } : {}),
   });
   for (const d of compiled.diagnostics) {
-    if (d.fileName !== doc.uri && isAbstractDivisionRefusal(d)) elsewhere?.(d);
+    if (isAbstractDivisionRefusal(d) && relatedSitesOf(d).length > 0) elsewhere?.(d);
     if (d.code !== TS_CODES.BACKEND) continue;
     if (d.fileName !== doc.uri) continue;
     const row = fromCompiler(doc, d);
@@ -232,9 +233,9 @@ export function checkDocuments(
   const diagnostics: CheckDiagnostic[] = [];
   const queue = [...docs];
   const queued = new Set(docs.map((d) => d.uri));
-  // A refusal that depends on the whole program stands in the file of its `/` and is known
-  // from the program of a file that imports it (change 0134): kept until each file is read,
-  // then reported once on the file it stands in, as `compile()` reports it (Rule 12.7).
+  // A refusal of a `/` in an imported file stands on the read in the importing file that makes
+  // it one (change 0134, #1186). The `/` is its related site, and the mismatch the imported file
+  // raises alone around that `/` is the same mistake: `compile()` reports it once (Rule 12.4).
   const elsewhere: TsCompilerDiagnostic[] = [];
   for (let i = 0; i < queue.length; i++) {
     const doc = queue[i]!;
@@ -248,25 +249,22 @@ export function checkDocuments(
     }
   }
   for (const d of elsewhere) {
-    const doc = queue.find((q) => q.uri === d.fileName);
-    if (doc === undefined) continue;
-    const row = fromCompiler(doc, d);
-    if (diagnostics.some((f) => f.file === row.file && sameReport(f, row))) continue;
-    // The program's refusal of the `/` replaces a mismatch the file alone raised around it (its
-    // quotient beside an integer), as `compile()` of the program does (Rule 12.4).
-    for (let i = diagnostics.length - 1; i >= 0; i--) {
-      const f = diagnostics[i]!;
-      if (
-        f.file === row.file &&
-        f.code === TS_CODES.TYPE_MISMATCH &&
-        f.severity === 'error' &&
-        f.offset <= row.offset &&
-        f.offset + f.length >= row.offset + row.length &&
-        !isAbstractDivisionRefusal(f)
-      )
-        diagnostics.splice(i, 1);
+    for (const site of relatedSitesOf(d)) {
+      const doc = queue.find((q) => q.uri === site.fileName);
+      if (doc === undefined) continue;
+      for (let i = diagnostics.length - 1; i >= 0; i--) {
+        const f = diagnostics[i]!;
+        if (
+          f.file === doc.path &&
+          f.code === TS_CODES.TYPE_MISMATCH &&
+          f.severity === 'error' &&
+          f.offset <= site.start &&
+          f.offset + f.length >= site.start + site.length &&
+          !isAbstractDivisionRefusal(f)
+        )
+          diagnostics.splice(i, 1);
+      }
     }
-    diagnostics.push(row);
   }
   return {
     files: queue.map((d) => d.path),

@@ -19,6 +19,7 @@ import ts from 'typescript';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { markProjectedAnnotations } from './abstract-const.js';
+import { relatedSitesOf } from './diagnostic.js';
 import { compileModule } from '../../core/oracle.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { checkDocuments } from '../../language-service/check.js';
@@ -663,9 +664,11 @@ ${H}export function t(vi: u32): u32 {
     expect(accepted(t('return x * (K / 2);', 'const K = 7;')).eval('t', [1, 2, []])).toBe(7);
   });
 
-  it('refuses the / in the file it stands in when the integer read is in an importing file', () => {
+  it('refuses the / on the read in the importing file that makes it one, with the / as its site', () => {
     // The owner's decision of 2026-11-10 ("편집기를 컴파일러에 맞춤"): a read in another file
-    // counts, and the editor shows what `compile()` of the importing file reports.
+    // counts, and the editor shows what `compile()` of the importing file reports. The library
+    // alone does not refuse the `/`, so the refusal stands on the read that makes it one, in
+    // the importing file, with the `/` as its related site (#1186, `program-refusals.ts`).
     const lib = `"use typeshade";
 export const K = 7;
 export function half(x: f32): f32 { return x * (K / 2); }
@@ -679,8 +682,16 @@ export function t(vi: u32, x: f32): f32 { return f32(vi * K) + half(x); }
     const message = float('K', 'u32', 'K / 2', 'f32(K) / 2');
     const compiled = compile(main, { fileName: '/app/main.shade.ts', readDocument: read });
     expect(compiled.diagnostics.map((d) => `${d.fileName} ${d.code}: ${d.message}`)).toEqual([
-      `/app/lib.shade.ts TS8003: ${message}`,
+      `/app/main.shade.ts TS8003: ${message}`,
     ]);
+    const [refusal] = compiled.diagnostics;
+    expect(main.slice(refusal!.start, refusal!.start + refusal!.length)).toBe('K');
+    expect(refusal!.start).toBe(main.indexOf('vi * K') + 'vi * '.length);
+    expect(
+      relatedSitesOf(refusal!).map(
+        (r) => `${r.fileName} ${lib.slice(r.start, r.start + r.length)}`,
+      ),
+    ).toEqual(['/app/lib.shade.ts K / 2']);
     // The library alone compiles: no line of it reads K as an integer.
     expect(compile(lib, { fileName: '/app/lib.shade.ts' }).diagnostics).toEqual([]);
     const docs = [
@@ -690,18 +701,17 @@ export function t(vi: u32, x: f32): f32 { return f32(vi * K) + half(x); }
     for (const order of [docs, [...docs].reverse(), [docs[0]!]]) {
       const checked = checkDocuments(order, { readDocument: read });
       expect(checked.diagnostics.map((d) => `${d.file} ${d.code}: ${d.message}`)).toEqual([
-        `/app/lib.shade.ts TS8003: ${message}`,
+        `/app/main.shade.ts TS8003: ${message}`,
       ]);
     }
-    // An editor with both documents open shows it on the library, and not with only the library.
+    // The editor shows it on the importing document, with the `/` as related information.
     const open = createTypeshadeLanguageService({ readDocument: read });
     open.openDocument('/app/lib.shade.ts', lib);
-    expect(open.getDiagnostics('/app/lib.shade.ts')).toEqual([]);
     open.openDocument('/app/main.shade.ts', main);
-    expect(open.getDiagnostics('/app/main.shade.ts')).toEqual([]);
-    expect(
-      open.getDiagnostics('/app/lib.shade.ts').map((d) => `${String(d.code)}: ${d.message}`),
-    ).toEqual([`TS8003: ${message}`]);
+    expect(open.getDiagnostics('/app/lib.shade.ts')).toEqual([]);
+    const shown = open.getDiagnostics('/app/main.shade.ts');
+    expect(shown.map((d) => `${String(d.code)}: ${d.message}`)).toEqual([`TS8003: ${message}`]);
+    expect(shown[0]!.relatedInformation?.map((r) => r.location.uri)).toEqual(['/app/lib.shade.ts']);
   });
 });
 
@@ -1001,10 +1011,19 @@ export function t(vi: u32): f32 { return f32(lf(vi)) + f32(vi * K); }
       [{ path: '/app/main.shade.ts', uri: '/app/main.shade.ts', text: main }],
       { readDocument: read },
     );
-    expect(checked.diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual(
-      compiled.diagnostics.map((d) => `${d.code}: ${d.message}`),
+    expect(checked.diagnostics.map((d) => `${d.file} ${d.code}: ${d.message}`)).toEqual(
+      compiled.diagnostics.map((d) => `${d.fileName} ${d.code}: ${d.message}`),
     );
     expect(compiled.diagnostics).toHaveLength(1);
+    // The refusal stands on the read in the importing file; the library's own mismatch around
+    // the `/` is the same mistake, and the editor shows it once too.
+    expect(compiled.diagnostics[0]!.fileName).toBe('/app/main.shade.ts');
+    const open = createTypeshadeLanguageService({ readDocument: read });
+    open.openDocument('/app/lib.shade.ts', lib);
+    expect(open.getDiagnostics('/app/lib.shade.ts')).toHaveLength(1);
+    open.openDocument('/app/main.shade.ts', main);
+    expect(open.getDiagnostics('/app/lib.shade.ts')).toHaveLength(0);
+    expect(open.getDiagnostics('/app/main.shade.ts')).toHaveLength(1);
   });
 });
 
@@ -1164,7 +1183,7 @@ ${H}export function t(): f32 { return f32(h(S.K)) + f32(S.K / 2); }`;
     expect(compileTsSource(source, { sourceFile: sf, emit: false }).diagnostics).toHaveLength(1);
   });
 
-  it('a refusal two importing files give is reported once on the library', () => {
+  it('a refusal two importing files give stands once in each, on its own read', () => {
     const lib = `"use typeshade";\nexport const K = 7;\nexport function half(x: f32): f32 { return x * (K / 2); }\n`;
     const main = (n: string): string => `"use typeshade";
 import { K, half } from "./lib.shade";
@@ -1176,12 +1195,14 @@ export function ${n}(vi: u32, x: f32): f32 { return f32(vi * K) + half(x); }
     ];
     const read = (uri: string): string | undefined => (uri.includes('lib.shade') ? lib : undefined);
     expect(checkDocuments(docs, { readDocument: read }).diagnostics.map((d) => d.file)).toEqual([
-      '/app/lib.shade.ts',
+      '/app/a.shade.ts',
+      '/app/b.shade.ts',
     ]);
     const open = createTypeshadeLanguageService({ readDocument: read });
     open.openDocument('/app/lib.shade.ts', lib);
     for (const d of docs) open.openDocument(d.uri, d.text);
-    expect(open.getDiagnostics('/app/lib.shade.ts')).toHaveLength(1);
+    expect(open.getDiagnostics('/app/lib.shade.ts')).toHaveLength(0);
+    for (const d of docs) expect(open.getDiagnostics(d.uri)).toHaveLength(1);
   });
 });
 

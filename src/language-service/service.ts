@@ -5,6 +5,7 @@ import {
   isAbstractDivisionRefusal,
   markProjectedAnnotations,
 } from '../compiler/ts/abstract-const.js';
+import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import ts from 'typescript';
 import { emitModule } from '../core/backends/wgsl.js';
 import { emitGlslModule } from '../core/backends/glsl.js';
@@ -352,39 +353,36 @@ export function createTypeshadeLanguageServiceWith(
     ).sort(byDocumentOrder);
     // A `/` over a constant of no fixed type is refused where another read makes the constant
     // an integer (change 0134), and that read may stand in a document that imports this one.
-    // `compile()` of that document reports the refusal in this file, so this file shows it
-    // (Rule 12.7). It is read from the importing documents that are open, at each request: it
-    // depends on them, not on this document's own dependencies, so it is not cached here.
+    // The refusal then stands on that read, with this file's `/` as its related site (#1186),
+    // and the mismatch this file raises alone around the `/` is the same mistake: `compile()`
+    // of the importing document reports it once (Rule 12.4). It is read from the importing
+    // documents that are open, at each request: it depends on them, so it is not cached here.
     const own = entry.diagnostics;
-    const added: TypeshadeDiagnostic[] = [];
+    const sites: { start: TypeshadePosition; end: TypeshadePosition }[] = [];
     for (const program of programsLinking(uri, uri)) {
       for (const d of program.analysis.diagnostics) {
-        if (d.fileName !== sourceFile.fileName || !isAbstractDivisionRefusal(d)) continue;
-        const row = fromCompilerDiagnostic(sourceFile, uri, d);
-        const same = (o: TypeshadeDiagnostic): boolean =>
-          o.message === row.message &&
-          o.range.start.line === row.range.start.line &&
-          o.range.start.character === row.range.start.character;
-        if (!own.some(same) && !added.some(same)) added.push(row);
+        if (!isAbstractDivisionRefusal(d)) continue;
+        for (const site of relatedSitesOf(d)) {
+          if (site.fileName !== sourceFile.fileName) continue;
+          sites.push({
+            start: { line: site.line - 1, character: site.character - 1 },
+            end: { line: site.endLine - 1, character: site.endCharacter - 1 },
+          });
+        }
       }
     }
-    if (added.length === 0) return own;
-    // The program's refusal of the `/` replaces a mismatch this file alone raised around it (its
-    // quotient beside an integer), as `compile()` of the program does (Rule 12.4).
+    if (sites.length === 0) return own;
     const before = (a: TypeshadePosition, b: TypeshadePosition): boolean =>
       a.line < b.line || (a.line === b.line && a.character <= b.character);
-    const kept = own.filter(
+    return own.filter(
       (o) =>
         !(
           o.code === TS_CODES.TYPE_MISMATCH &&
           o.severity === 'error' &&
           !isAbstractDivisionRefusal({ code: String(o.code), message: o.message }) &&
-          added.some(
-            (row) => before(o.range.start, row.range.start) && before(row.range.end, o.range.end),
-          )
+          sites.some((site) => before(o.range.start, site.start) && before(site.end, o.range.end))
         ),
     );
-    return [...kept, ...added].sort(byDocumentOrder);
   }
 
   const inner: TypeshadeLanguageService = {

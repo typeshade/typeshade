@@ -1390,7 +1390,9 @@ declared parameter, field or result, a conversion, or a typed constructor (`vec3
 Amendment A4). A variable of written numbers alone (`let w = 3`) declares no type either, so
 `(k + w) / 2` carries the origin of `k`. The other read is any
 place that types the constant an integer: an argument, a typed declaration, a loop bound, an
-index, a conversion `i32(N)` or `u32(N)`, and a read in a file that imports the constant.
+index, a conversion `i32(N)` or `u32(N)`, and a read in a file that imports the constant. When
+only a file that imports the constant reads it so, the refusal stands on that read, with the `/`
+as its related place (§68).
 `f32(N)` and `f64(N)` are no such read, and a float-written constant (`const C = 7.5`) is never
 read as an integer.
 

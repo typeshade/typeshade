@@ -1071,6 +1071,14 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     division.
   - Not changed, and handed back for a decision: F5. A library function that the importing
     program does not keep is not in the linked program, so its `/` is not lowered there.
+- [fact, measured 2026-11-11 on `main` at `cbb72182` merged in] Pull request #1191 (#1186)
+  places an error of a program in the first file that reports it when compiled alone. A library
+  compiled alone does not refuse its `/` when only an importing file reads the constant as an
+  integer, so the refusal of "편집기를 컴파일러에 맞춤" now stands on that read in the importing
+  file, with the `/` in the library as its related site, in `compile()`, `checkDocuments` and
+  the editor (`noteUse` in `reportAbstractDivisions`). The mismatch the library raises alone
+  around the `/` is the same mistake: each reader shows one diagnostic. A library that also reads
+  the constant as an integer refuses the `/` itself, where it stands.
 - [fact, measured 2026-11-10] M5, the rule of the `'f64'` precision oracle: a read of a module
   constant by its name carried the double the author wrote before part 3, and a value the front
   end folded from the constant at compile time carried its `f32` rounding. A value moves there
@@ -1098,10 +1106,8 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     value.
   - Rule 5.1's sentence "the literal must be an `f32`" stays for an unannotated `let`, a field
     and a function's result until items 1 and 3 are delivered.
-  - A refusal in a library file is shown by the editor only while a document that imports it is
-    open and the library document is open too (F9). The language service reports each open
-    document's own diagnostics, and `compile()` of the importing file reports the refusal in the
-    library file.
+  - Closed by pull request #1191 (#1186) and the note below: F9 of the third review (the editor
+    showed nothing where `compile()` of the importing file refused in the library file).
 
 Not delivered yet: items 1 and 3, item 4, the document part of item 5, item 5 for `journeys/`
 and the helper sources of `examples/` (Amendment A1), and the audit.

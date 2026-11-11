@@ -37,7 +37,7 @@ import type { Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { f32T } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { makeDiagnostic } from './diagnostic.js';
+import { makeDiagnostic, noteUse } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import { sameFile, writtenRange, writtenText } from './context.js';
 
@@ -908,14 +908,17 @@ export function reportAbstractDivisions(
       const i = diagnostics.indexOf(d);
       if (i >= 0) diagnostics.splice(i, 1);
     }
-    diagnostics.push(
-      makeDiagnostic(
-        sourceFile,
-        node,
-        divisionSentence(info, read, node, chosen, sourceFile),
-        TS_CODES.TYPE_MISMATCH,
-      ),
+    const refusal = makeDiagnostic(
+      sourceFile,
+      node,
+      divisionSentence(info, read, node, chosen, sourceFile),
+      TS_CODES.TYPE_MISMATCH,
     );
+    // The read that makes the constant an integer is the use that makes this `/` a refusal: in
+    // a program of several files the refusal stands on it when the file that holds the `/`
+    // does not refuse it on its own (`program-refusals.ts`, #1186), with the `/` as its site.
+    noteUse(refusal, read.node, sourceFile);
+    diagnostics.push(refusal);
   }
 }
 
