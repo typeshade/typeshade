@@ -50,6 +50,7 @@ import {
   dropRepeatedDiagnostics,
   sortDiagnosticsByPosition,
   makeDiagnostic,
+  sortFileDiagnosticsByPosition,
   syntaxDiagnostics,
 } from './diagnostic.js';
 import { collectEnables } from './enables.js';
@@ -68,6 +69,8 @@ import {
 } from '../../core/passes/derivative-rewrite.js';
 import { checkBuiltinTypeForms } from './builtin-type-form.js';
 import { giveEntryLocations } from './entry-locations.js';
+import { locateProgramErrors } from './program-refusals.js';
+import { resolveSpecifierFile } from './specifier.js';
 import { interstageMismatches } from '../../core/passes/lint/rules/interstage-io.js';
 import {
   authorTypeText,
@@ -653,10 +656,42 @@ function compileLinked(
       endCharacter: e.character + 1,
     };
   };
-  for (const d of inner.diagnostics) {
-    const mapped = mapDiagnostic(d);
-    if (mapped !== undefined) diagnostics.push(mapped);
-  }
+  // Where each error of the program stands (#1186, `program-refusals.ts`).
+  const located = locateProgramErrors({
+    entry,
+    linked,
+    linkedSource: sourceFile,
+    roots: new Set([entry.fileName, ...(options.roots ?? []).map((r) => r.fileName)]),
+    errors: inner.diagnostics.flatMap((d) => {
+      const mapped = mapDiagnostic(d);
+      return mapped === undefined ? [] : [{ raised: d, mapped }];
+    }),
+    resolve: (from, specifier) =>
+      options.resolveImport?.(from, specifier) ??
+      resolveSpecifierFile(from, specifier, options.readDocument),
+    optionsKey: JSON.stringify(options, (key, value: unknown) =>
+      typeof value === 'function' ||
+      key === 'sourceFile' ||
+      key === 'roots' ||
+      key === 'fileName' ||
+      // An own program is compiled with `emit: false` whatever this compile emits.
+      key === 'emit'
+        ? undefined
+        : value,
+    ),
+    ownProgram: (file) =>
+      compileTsProgram(file.sourceFile.text, {
+        ...options,
+        fileName: file.name,
+        sourceFile: undefined,
+        roots: undefined,
+        emit: false,
+      }).result.diagnostics,
+  });
+  diagnostics.push(...located);
+  // Document order, as the editor lists them (Rules 12.5 and 12.7): a refusal that moved to its
+  // use stands among the entry file's own.
+  sortFileDiagnosticsByPosition(diagnostics, entry.fileName);
   remapSpans(linked, [
     ...inner.funcs,
     ...inner.consts,

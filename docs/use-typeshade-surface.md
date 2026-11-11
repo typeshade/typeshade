@@ -9665,6 +9665,28 @@ through `readDocument`, which returns a file's text or `undefined`, and a packag
 `resolveImport` replaces the rule above, packages included. A compile with no `readDocument`
 reads nothing: a file with no import compiles as it always has, and an import in one is
 `TS8072`. A diagnostic located in an imported file carries that file's `fileName` and offsets.
+An error of a program stands in one file. The candidates are, in order: the file that holds the
+declaration or the expression the error is about, then each file that holds a use of it (the
+entry's parameter or result that takes a struct, the call or the type that makes an instance of
+a generic declaration, the type that names an imported struct), then each file on the way of imports up to the file the compile starts
+from, which is the last. Each candidate has a place for the error: the declaration or the
+expression in the first file; else the outermost use the file writes; else, where the front end
+records no use, its re-export of the entry point that holds the use; else its import of the file below. The error stands in the first
+candidate that reports the same error at that place when it is compiled on its own, and at that
+place: the same code and sentence, about the same span, reported on the same span. Two spans are
+the same when they end together and start together or with only `export`, optionally
+`default`, and whitespace and comments between their starts; a nested expression is another span. So an error
+located in an imported file is one that file reports there when it is compiled on its own, and a
+mistake of a file in the middle of a chain of imports is reported in that file and not again in each file above it. A
+middle file whose own program reports the refusal at another of its calls (it makes the
+instance first in another function) is no owner: the file above it reports the refusal on its
+own use, or on its import of that file when it writes none. A file compiled on its own makes an instance of a
+generic declaration once, at the first call that asks for it: when an imported file and the file
+the compile starts from both make one refused instance, the imported file reports it, and the
+other call adds nothing until that file is fixed. A warning stays where it is written. One case
+is not covered yet (#1212): a file that holds a struct and the fragment entry that takes it, and
+no vertex entry, reports the same sentence on its own for another reason, so the error stands in
+that file and not in the file the compile starts from.
 The Vite plugin (§64) and `tshc sync` read from disk, and find a package from the module's own
 directory up. `tshc check` checks a shader module a checked file imports too, a package's
 included, once, under its own path. The language service reads an import as its TypeScript half

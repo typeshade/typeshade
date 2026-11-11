@@ -125,9 +125,10 @@ related entry with its own location line and its own indented code frame
 (`ts59/src/compiler/utilities.ts:10285-10295`; `ts59/src/compiler/types.ts:7264`;
 `ts59/src/compiler/program.ts:796-807`).
 
-**TypeShade.** `TypeshadeDiagnostic` declares an optional `relatedInformation` field and nothing in
-the repository ever sets it; it is the only occurrence of the identifier in `src/` outside the
-generated surface snapshot (`src/language-service/types.ts:74`; `src/__api__/surface.md:1231`). The
+**TypeShade.** `TypeshadeDiagnostic` declares an optional `relatedInformation` field
+(`src/language-service/types.ts:74`; `src/__api__/surface.md:1231`). One case sets it since #1186:
+a compiler error that a program reports at its own use of a declaration an imported file holds
+carries that declaration (`fromCompilerDiagnostic`, `src/language-service/diagnostics.ts`). The
 adapter that converts a TypeScript diagnostic builds the object without it
 (`src/language-service/diagnostics.ts:352-366`), so TypeScript's own related spans are discarded
 before they reach the editor, and `TsCompilerDiagnostic` has no such field at all.

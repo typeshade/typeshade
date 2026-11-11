@@ -165,6 +165,7 @@ export function writtenInstances(
       key,
       params.map((p) => bound.get(p.name)!),
     );
+    usesOfInstances(sourceFile).set(name, [...(usesOfInstances(sourceFile).get(name) ?? []), at]);
     if (seen.has(name)) return;
     seen.add(name);
     const into = out.get(key) ?? [];
@@ -418,4 +419,18 @@ export function writtenInstanceArgs(name: string, sourceFile: ts.SourceFile): st
     if (hit !== undefined) return hit.args;
   }
   return undefined;
+}
+
+const INSTANCE_USES = new WeakMap<ts.SourceFile, Map<string, ts.Node[]>>();
+const usesOfInstances = (sourceFile: ts.SourceFile): Map<string, ts.Node[]> => {
+  let uses = INSTANCE_USES.get(sourceFile);
+  if (uses === undefined) INSTANCE_USES.set(sourceFile, (uses = new Map()));
+  return uses;
+};
+
+/** Every place `sourceFile` writes the instance `name` of a generic class (`Box<P>` for
+ *  `Box_P`), in the order written: the uses that make the instance, where a program reports
+ *  what the instance's bodies refuse when another file declares the class (#1186). */
+export function instanceUsesOf(sourceFile: ts.SourceFile, name: string): readonly ts.Node[] {
+  return INSTANCE_USES.get(sourceFile)?.get(name) ?? [];
 }
