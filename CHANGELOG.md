@@ -116,7 +116,10 @@ init?)`, `zeros(Class, n)` and `array(Class, data)`, which make a `Uniform<T>` o
   no `dispose()`: the view declares `Omit<Uniform<Camera>, 'dispose' | keyof Disposable>`.
   `HostExport` has the kind `resource`, so `HostFace.exports` reports an exported binding with
   its class and length, not as `never`. A scalar field's `get()` returns its number (an `f64`
-  its joined number) and a vector, matrix or array field its `Readonly` view, as before.
+  its joined number) and a vector, matrix or array field its `Readonly` view, as before. The caps
+  of `scripts/bundle-budget.json` take the measured gzip sizes: `typeshade/runtime` single file
+  164,896 to 165,142 (+246), split initial 45,961 to 46,217 and split total 167,078 to 167,335.
+  The floors and the other caps do not change.
 
 - **WebGPU scratch acquisition counts** (change 0128, #992). New fuse reports include
   `webgpuScratch` allocation and reuse counts and their buffer descriptor bytes. Empty scopes,
