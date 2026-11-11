@@ -326,11 +326,15 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   - A geometry's `vertices` take a `Buffer<f32>`, `Buffer<i32>` or `Buffer<u32>`, and its
     `indices` a `Buffer<u32>`. Today's `fuse()` records a call on a scalar `Buffer`, and
     `scope.scratch()` returns a `Buffer`.
+  - A call with plain data that is given a `Buffer` or a `Uniform` where a parameter takes plain
+    data only names what it got and says to pass plain data (Rule 12.5). For a matrix of `f64` it
+    cites the owner's answer to Q12 (Amendment A13). It said `at [0], got undefined undefined`
+    before.
   - The caps of `scripts/bundle-budget.json` take the measured gzip bytes: `typeshade/runtime`
-    170,598 (+3,421 over `5711b9ac`), `typeshade/fuse` 115,253 (+1,355), `typeshade/algorithms`
-    70,293 (+5,415) and `typeshade/random` 51,877 (+5,677), for the result `Buffer`s of every kind,
-    the element a first use fixes and the checks of a call on a resource that the generated modules
-    carry (Amendment A12, decision 2).
+    170,821 (+3,644 over `5711b9ac`), `typeshade/fuse` 115,420 (+1,522), `typeshade/algorithms`
+    70,478 (+5,600) and `typeshade/random` 52,040 (+5,840), for the result `Buffer`s of every kind,
+    the element a first use fixes, the checks of a call on a resource that the generated modules
+    carry (Amendment A12, decision 2; Amendment A13, decision 4) and the refusal above.
 
 - **The editor's hover names a constant of no fixed type in the language's words, and each read
   at the type it takes there** (change 0134 item 4; Rules 5.1 and 12.7; decision Q3). At the

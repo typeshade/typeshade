@@ -49,6 +49,7 @@
 // Like the rest of `typeshade/runtime` it imports no compiler.
 
 import type { Layout, LayoutNumber } from '../core/host-entry.js';
+import { resourceProbes } from '../core/resource-probe.js';
 import { describe, pack } from '../core/host-entry.js';
 import {
   handleOf,
@@ -1839,6 +1840,13 @@ export function resourceOf(v: unknown):
     },
   };
 }
+
+// A call with plain data names a `Buffer` of structs or a `Uniform` it refuses (Rule 12.5),
+// through the probes that `toShader` in `core/host-values.ts` reads.
+resourceProbes.push((v) => {
+  const r = resourceOf(v);
+  return r === undefined ? undefined : r.kind === 'uniform' ? 'Uniform' : 'Buffer';
+});
 
 /** The struct layout of each uniform, which a call reads its value by. */
 const uniformLayouts = new WeakMap<object, Layout & { k: 'o' }>();

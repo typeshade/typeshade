@@ -49,6 +49,7 @@ import {
   type GpuDevice,
   type Layout,
 } from './host-entry.js';
+import { resourceProbes } from './resource-probe.js';
 import type { CallOwner } from './owner.js';
 import { checkLimitValues } from './device-limits.js';
 import { automaticFp64Flavor } from './device-info.js';
@@ -437,6 +438,10 @@ const states = new WeakMap<object, ResidentArrayState>();
 export function residentState(v: unknown): ResidentArrayState | undefined {
   return typeof v === 'object' && v !== null ? states.get(v) : undefined;
 }
+
+// A call with plain data names a `Buffer` of scalars it refuses (Rule 12.5), through the probes
+// that `toShader` in `host-values.ts` reads.
+resourceProbes.push((v) => (residentState(v) !== undefined ? 'Buffer' : undefined));
 
 /** Make `handle` stand for `state`, as `array()` does for the handle it returns. The other
  *  handles are the scratch arrays of a `fuse` scope (change 0058), which `typeshade/fuse` makes. */

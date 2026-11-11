@@ -109,6 +109,12 @@ export function rows64(m: mat3x3<f64>): f64 {
   return v.x + v.y + v.z;
 }
 
+/** The first of xs plus the row sums of m, a matrix of f64: a kernel function with a matrix of f64. */
+export function addRows64(xs: array<f64>, m: mat3x3<f64>): f64 {
+  const v = m * vec3<f64>(f64(1.), f64(1.), f64(1.));
+  return xs[0] + v.x + v.y + v.z;
+}
+
 /** The sum of the vectors. */
 export function cen(vs: array<vec3u>): vec3u {
   let c = vec3u(0);
@@ -484,14 +490,22 @@ describe('array(number[]): the first use fixes the element (Amendment A12, decis
 
   it("a matrix of f64 takes no Buffer, and the refusal fixes nothing (the owner's answer to Q12 of 2026-11-11, A13)", async () => {
     const m = await load();
-    // The plain-data check refuses it at the call, since the function has no call on a resource
-    // for a matrix of f64 (A12 Q3 covers a matrix of f32 only).
-    const refusal = /^rows64\(\): parameter "m" \(mat3x3<f64>\)/;
+    // rows64 takes no array, so it is no kernel function (Rule 8.22): a call with plain data
+    // checks it, and names the Buffer it refuses (Rule 12.5).
+    const plain =
+      'rows64(): parameter "m" (mat3x3<f64>) takes no Buffer here; pass plain data: a matrix of f64 takes plain data only (change 0138, Amendment A13, Q12).';
     const xs = array([1, 0, 0, 0, 2, 0, 0, 0, 3]);
     expect(() => m.rows64!(xs)).toThrow(TypeError);
-    expect(() => m.rows64!(xs)).toThrow(refusal);
-    expect(() => m.rows64!(array(new Float64Array(9)))).toThrow(refusal);
-    expect(() => m.rows64!(array(new Float32Array(9)))).toThrow(refusal);
+    expect(() => m.rows64!(xs)).toThrow(plain);
+    expect(() => m.rows64!(array(new Float64Array(9)))).toThrow(plain);
+    expect(() => m.rows64!(array(new Float32Array(9)))).toThrow(plain);
+    // A kernel function's matrix of f64 takes no Buffer either, in a call on a resource.
+    const onResource =
+      'addRows64(): parameter "m" (mat3x3<f64>) takes no Buffer: a Buffer is a parameter\'s value only for a number, a vector, a bool, a key or a matrix of f32';
+    const ys = array(new Float64Array([10]));
+    expect(() => m.addRows64!(ys, xs)).toThrow(TypeError);
+    expect(() => m.addRows64!(ys, xs)).toThrow(onResource);
+    expect(await m.addRows64!(new Float64Array([10]), [1, 0, 0, 0, 2, 0, 0, 0, 3])).toBe(16);
     // The refused use fixes nothing (A12, D2): a later f32 use fixes f32.
     m.sumf!(xs);
     expect(await read(xs)).toBeInstanceOf(Float32Array);
@@ -703,6 +717,7 @@ describe('a host program over the view (tsc)', () => {
       ['m.sum64(o); m.first64(o);', ''],
       ['m.rows64(o);', 'TS2345'],
       ['m.rows64(array(new Float64Array(9)));', 'TS2345'],
+      ['m.addRows64(array(new Float64Array(1)), o);', 'TS2769'],
       ['const r2: Float32Array = await o.read();', 'TS2322'],
       ['m.scan(o); m.sumi(o); m.sumf(o); m.cen(o);', ''],
       ['m.times(o, o, o); m.trace(o, o, o); m.traces(o, o);', ''],
