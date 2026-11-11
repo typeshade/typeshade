@@ -2244,6 +2244,10 @@ its example before and after (`CLAUDE.md`, Merging).
   1 states the extension in Rule 8.21 and shows it to the owner.
 - Open, not a conflict: how many scalars a `Buffer<f32>` holds for `n` elements of `vec3<f32>`. Rule
   6.8 gives `array<vec3<f32>>` a 16-byte stride. Slice 1 states the length rule and its refusal.
+- [inference, agent] A `Buffer<f32>` passed as `array<vec3<f32>>` holds the components one after
+  another (3 scalars for each element), and the call pads them to the element's stride. Rule 8.21
+  already says this for a typed array: "with the vector's components one after another, which the
+  call pads to the element's stride". This inference stays open until slice 1 states it.
 
 **Q6. A struct result's field that is a struct or a sized array.**
 
@@ -2265,16 +2269,31 @@ its example before and after (`CLAUDE.md`, Merging).
   1. A sized-array field `array<T, N>` of a struct result gives a `Buffer<T>` of length `N`.
   2. A nested struct field is flattened recursively. Each leaf field gives one `Buffer`.
   3. No nested struct field is refused.
+- [fact] The first text of this amendment (`4ff0a11a`) listed a conflict: R1 and A10 Q-C say "one
+  output for each field", and meaning 2 gives one `Buffer` for each leaf field.
+- [decision, owner, 2026-11-11] Asked how a nested struct field meets R1, the owner chose:
+
+  "중첩은 Buffer들의 객체 (R1 유지, 추천)"
+
+  (English translation: a nested struct is an object of `Buffer`s; R1 is kept; recommended.)
+
+- What the decision means:
+  1. R1 and A10 Q-C stay as they are: one output for each field.
+  2. A nested struct field gives one output. The output is an object with the same shape as the
+     struct, and its leaves are `Buffer`s.
+  3. Example: for `const r = step(ps)`, `r.energy` is a `Buffer<f32>`, `r.pos.p` is a
+     `Buffer<vec3<f32>>`, and `r.pos.v` is a `Buffer<vec3<f32>>`.
+  4. A nested output is named by the struct's own field path. This settles the names of nested
+     outputs.
+  5. The answer "중첩도 재귀적으로 펼침" is carried out within R1 in this way: the recursion makes one
+     `Buffer` for each leaf, and the leaves keep the struct's shape.
 - Open under Q6, not decided:
-  - The name of each nested output. One reading keeps the nesting (`r.box.min`, an object of
-    `Buffer`s). Another flattens the path into one level. The owner has not chosen.
-  - A sized array of structs as a field (`array<S, N>`): one `Buffer<S>`, or one `Buffer` for each of
-    its leaf fields.
+  - A sized array of structs as a field (`array<S, N>`): one `Buffer<S>`, or an object of `Buffer`s of
+    length `N`, one for each of its leaf fields.
 - Costs recorded:
   1. A larger implementation in slice 1 than the recommended option.
   2. One read back for each leaf field, unless the runtime joins them (A10 Q-C's cost, now for each
      leaf).
-  3. The conflict with R1's wording, under "Open, owner must settle" below.
 
 **Q7. The result of a call that waits.**
 
@@ -2417,13 +2436,13 @@ its example before and after (`CLAUDE.md`, Merging).
    const s = stats(ps); // TypeError (src/core/host-kernel.ts:738); TS2345 in the editor (D-i)
    ```
 
-   After (the names of the nested outputs are open, Q6):
+   After (Q6: the struct's own field path):
 
    ```ts
    const s = stats(ps);
    s.hist; // Buffer<u32> of length 8
    s.count; // Buffer<u32> of length 1
-   s.box.min; // Buffer<vec3<f32>> of length 1, if the nesting is kept (open)
+   s.box.min; // Buffer<vec3<f32>> of length 1; s.box is an object of Buffers (R1 kept)
    ```
 
 7. Q7: a call that waits. What an author writes does not change.
@@ -2450,31 +2469,25 @@ its example before and after (`CLAUDE.md`, Merging).
 
 **Open, owner must settle.**
 
-- **Q6 against R1 and A10 Q-C, meaning 3.** R1 says "a returned struct gives one output for each
-  field". A10 Q-C says "one `Buffer` for each field". Q6 gives one `Buffer` for each leaf field. For a
-  nested struct field, the two texts do not give the same outputs.
-  - Option (a): amend R1 and Q-C to "one output for each leaf field".
-  - Option (b): keep R1. A nested struct field gives one output that is an object of `Buffer`s, one
-    for each of its leaf fields.
-  - [inference, agent] The choice is the same choice as the names of the nested outputs (open under
-    Q6). This amendment does not resolve it.
+- [fact] Nothing. The owner settled the one conflict that the first text listed, Q6 against R1 and
+  A10 Q-C: a nested struct field is an object of `Buffer`s, and R1 is kept (Q6).
 - [fact] No answer of Q1 to Q7 conflicts with an entry of `docs/owner-decisions.md` (OD-1 to OD-8).
 
 **Open items for the owner (not conflicts).**
 
-| Item                                                                              | Source | Next action                                             |
-| --------------------------------------------------------------------------------- | ------ | ------------------------------------------------------- |
-| The names of nested struct outputs, and a sized array of structs as a field.      | Q6     | Ask the owner before #1257 implements Q6.               |
-| The length rule of a `Buffer<f32>` passed as `array<vec3<f32>>` (16-byte stride). | Q5     | #1257 states it in Rule 8.21 and shows it to the owner. |
-| When a scalar `Buffer` takes a range of the region (R17's last sentence).         | Q1     | #1257 states it and shows it to the owner.              |
+| Item                                                                                                                                                   | Source | Next action                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ------------------------------------------------------- |
+| A sized array of structs as a field.                                                                                                                   | Q6     | Ask the owner before #1257 implements Q6.               |
+| The length rule of a `Buffer<f32>` passed as `array<vec3<f32>>` (16-byte stride; [inference, agent] components one after another, padded by the call). | Q5     | #1257 states it in Rule 8.21 and shows it to the owner. |
+| When a scalar `Buffer` takes a range of the region (R17's last sentence).                                                                              | Q1     | #1257 states it and shows it to the owner.              |
 
 **Independent review record of A11.**
 
 - [fact] No independent review has read A11. `changes/README.md` (Independent review) requires one
   before the owner decides on it.
 
-- Affects: the front matter (`downstream`); R2 (its third sentence); R1 (open, above); R9 (a scalar
-  `Buffer` beside the struct one); R17 (its last sentence, by Q1); A10 Q-C meaning 3 (open, above);
+- Affects: the front matter (`downstream`); R2 (its third sentence); R1 (kept, Q6); R9 (a scalar
+  `Buffer` beside the struct one); R17 (its last sentence, by Q1); A10 Q-C meaning 3 (kept, Q6);
   A10 Example 3 (Q2 settles its open point); A10's slice table (the status statement above); Rules
   8.21, 8.22, 8.29 and 11.8 and surface §64, §65, §67 and §69 (by slice 1).
 - Status: `status: accepted` does not change.
