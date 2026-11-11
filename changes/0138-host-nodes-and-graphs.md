@@ -984,15 +984,16 @@ A7's table. A7's text stays as it is.
     > runs on the default device. A call that mixes devices is a `TypeError`.
   - After:
     > A node runs on the device of its input resources. A `Uniform` takes no part in choosing
-    > that device, since its value is copied at each call. With plain JavaScript values alone it
-    > runs on the default device. A call that mixes devices among the resources that take part in
-    > the choice is a `TypeError`.
+    > that device. With plain JavaScript values alone it runs on the default device. A call that
+    > mixes devices among the resources that take part in the choice is a `TypeError`.
+  - Reason, at `75f114cb`: a `Uniform`'s value is copied at each call (D-b). The reason is not
+    part of R3.
   - The other sentences of R3 stay as they are.
-  - [inference, agent: follows from R3's order and Q-a] A node with no resource but `Uniform`s
-    runs on the device in use, else on the default owner. The owner has not decided this clause
-    yet.
-  - Cost recorded: when D-b is fixed and a `Uniform` is kept on the GPU, R3 is revisited. A
-    `Uniform` then keeps one copy for each device.
+  - [inference, agent: follows from R3's order and Q-a] An exported binding also takes no part in
+    the choice, since it belongs to no one device (R3). A node whose only resources are `Uniform`s
+    and exported bindings runs on the device in use, else on the default owner. The owner has not
+    decided this clause yet.
+  - Cost: as recorded under Q-a above. [proposal, agent] R3 is revisited when D-b is fixed.
   - [inference, agent] R3's "A resource belongs to one device" holds for a `Uniform` in name only:
     no code reads its owner at `75f114cb`. When D-b gives a `Uniform` one copy for each device, it
     belongs to no one device, as an exported binding does.
@@ -1025,31 +1026,39 @@ A7's table. A7's text stays as it is.
 - [decision, owner, 2026-11-11] On the scope of D-h, in Korean:
   "D-h에 fuse()도 포함"
   (include `fuse()` in D-h). A draw and a default `fuse()` keep the default owner, even inside a
-  `use()` block. Both stay open. The next action for `fuse()` is milestone 4. The next action for
-  a draw is milestone 5.
-- [decision, owner, 2026-11-11] On the stack of `use()` (first review, N1), in Korean:
-  "주의로만 기술"
-  (describe it as a caution only).
-  - `use()` is one stack for each module instance. A resource made in another async task, while
-    one task awaits inside a `use()` block, belongs to that block's device.
-  - The rule text states this as a caution: do not await inside the block. It is not a normative
-    promise.
-  - A stack for each task may come later. N1 stays an open item.
+  `use()` block. Both stay open.
+  - The option the owner chose also said:
+    "fuse()는 마일스톤 4에서 다룹니다"
+    (`fuse()` is handled in milestone 4).
+  - [proposal, agent] The next action for a draw is milestone 5.
+- [decision, owner, 2026-11-11] On the stack of `use()` (first review, N1), the owner chose the
+  option in Korean:
+  "주의로만 기술 (추천)"
+  (describe it as a caution only; recommended).
+  - [fact] The option's description, in Korean, said: describe the current behavior as a fact,
+    and put "do not await inside the block" in as a caution, not as a norm.
+  - [fact] `use()` is one stack for each module instance (`src/runtime/default-device.ts`).
+  - [agent wording of the owner's caution] The rule text first states the effect. While a task
+    awaits inside a `use()` block, a resource that another task makes belongs to that block's
+    device. Then it gives the caution: do not await inside a `use()` block while other tasks may
+    make resources. An `await` of `read()` with no such task is not refused.
+  - The caution is not a normative promise. A stack for each task may come later. N1 stays an
+    open item.
 
 **The deviations after slice 2b.**
 
 Each was or is a difference between the accepted text (with A5 to A8) and `75f114cb`.
 
-| ID  | Deviation                                                                                                                                                                                                                                                                                                                                                                                   | Disposition                                       | Next action                                                                                                                                                                 |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D-a | As in A7.                                                                                                                                                                                                                                                                                                                                                                                   | open, unchanged                                   | As in A7.                                                                                                                                                                   |
-| D-b | As in A7.                                                                                                                                                                                                                                                                                                                                                                                   | open, unchanged                                   | As in A7. With the cost of Q-a and of R3 as amended above: a `Uniform` then keeps one copy for each device, and R3 is revisited.                                            |
-| D-c | A submission of recorded calls flushes, and `read()` waits on a fence (A5, default 6). The WebGL2 pass program and the WebGL2 kernel path still read back inside the call. So the flush has no work pending, and the fence waits on work whose results are on the host. The fence is made at `read()`. A kernel function on a `Buffer` of structs has no WebGL2 tier (Rule 11.8), as in A7. | open (narrowed by #1238)                          | Move the WebGL2 read back out of the call to `read()`. [proposal, agent; first review of #1238, N3] Place the fence at the end of the submission. No slice is assigned yet. |
-| D-d | A recorded call runs on the default owner. R3 is not carried out.                                                                                                                                                                                                                                                                                                                           | closed by #1238                                   | None.                                                                                                                                                                       |
-| D-e | The rule and surface sentences listed below are no longer true at `75f114cb`. The tests of slice 2b carry no `Verifies:` tag.                                                                                                                                                                                                                                                               | closed for slice 2a by #1240; open again by #1238 | The text pull request of slice 2b, with the Doorstop review that the owner approves.                                                                                        |
-| D-f | As in A7.                                                                                                                                                                                                                                                                                                                                                                                   | open, unchanged                                   | As in A7.                                                                                                                                                                   |
-| D-g | As in A7. Slice 2b did not add the separate overload.                                                                                                                                                                                                                                                                                                                                       | open, unchanged                                   | A separate overload for a call on a resource. No slice is assigned yet.                                                                                                     |
-| D-h | A draw (`callDraw`) and a default `fuse()` with no owned resource run on the default owner, not on the device in use, even inside a `use()` block.                                                                                                                                                                                                                                          | open (new; scope by the owner's decision above)   | `fuse()`: milestone 4. A draw: milestone 5.                                                                                                                                 |
+| ID  | Deviation                                                                                                                                                                                                                                                                                                                                                                                   | Disposition                                                | Next action                                                                                                                                                                 |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-a | As in A7.                                                                                                                                                                                                                                                                                                                                                                                   | open, unchanged                                            | As in A7.                                                                                                                                                                   |
+| D-b | As in A7.                                                                                                                                                                                                                                                                                                                                                                                   | open, unchanged                                            | As in A7. Then a `Uniform` needs one copy for each device (the cost under Q-a), and R3 is revisited ([proposal, agent]).                                                    |
+| D-c | A submission of recorded calls flushes, and `read()` waits on a fence (A5, default 6). The WebGL2 pass program and the WebGL2 kernel path still read back inside the call. So the flush has no work pending, and the fence waits on work whose results are on the host. The fence is made at `read()`. A kernel function on a `Buffer` of structs has no WebGL2 tier (Rule 11.8), as in A7. | open (narrowed by #1238)                                   | Move the WebGL2 read back out of the call to `read()`. [proposal, agent; first review of #1238, N3] Place the fence at the end of the submission. No slice is assigned yet. |
+| D-d | A recorded call runs on the default owner. R3 is not carried out.                                                                                                                                                                                                                                                                                                                           | closed by #1238                                            | None.                                                                                                                                                                       |
+| D-e | The rule and surface sentences listed below are no longer true at `75f114cb`. The tests of slice 2b carry no `Verifies:` tag.                                                                                                                                                                                                                                                               | open (closed for slice 2a by #1240; opened again by #1238) | The text pull request of slice 2b, with the Doorstop review that the owner approves.                                                                                        |
+| D-f | As in A7.                                                                                                                                                                                                                                                                                                                                                                                   | open, unchanged                                            | As in A7.                                                                                                                                                                   |
+| D-g | As in A7. Slice 2b did not add the separate overload.                                                                                                                                                                                                                                                                                                                                       | open, unchanged                                            | A separate overload for a call on a resource. No slice is assigned yet.                                                                                                     |
+| D-h | A draw (`callDraw`) and a default `fuse()` with no owned resource run on the default owner. This holds inside a `use()` block too.                                                                                                                                                                                                                                                          | open (new; scope by the owner's decision above)            | `fuse()`: milestone 4 (the owner's option). A draw: milestone 5 ([proposal, agent]).                                                                                        |
 
 - [fact] The sentences of D-e, at `main` `75f114cb`. #1238's body lists them, and the second
   review's R-s1 adds four of them:
@@ -1058,7 +1067,7 @@ Each was or is a difference between the accepted text (with A5 to A8) and `75f11
   2. `docs/language-design.md:1436` (Rule 11.8): "Plain host values select no owner, so a call
      with none uses the default owner."
   3. `docs/language-design.md:1436` (Rule 11.8): "creates no global current device". `use()` is
-     now one current device for the page, read by every kernel and entry call (R-s1).
+     now one stack for each module instance, read by every kernel and entry call (R-s1).
   4. `docs/language-design.md:1439` (Rule 11.8): "The owner of a call does not follow
      `device.use()` yet".
   5. `docs/language-design.md:1439` (Rule 11.8): `array()` makes "the `Resident` that
@@ -1072,10 +1081,10 @@ Each was or is a difference between the accepted text (with A5 to A8) and `75f11
   9. Optional (R-s1): §69's `dispose()` text (`docs/use-typeshade-surface.md:10357-10358`) and the
      `Device.dispose()` JSDoc do not say that `dispose()` lands what the device wrote into an
      exported binding.
-- [fact] The first review's note N1 goes in the same text, as a caution only (the owner's
-  decision above). `use()` is one stack for each module instance. A resource made in another
+- [proposal, agent] The first review's note N1 goes in the same text, as a caution only (the
+  owner's decision above). `use()` is one stack for each module instance. A resource made in another
   async task, while one task awaits inside a `use()` block, belongs to that block's device.
-- [fact] The text of slice 2b also states R3 as amended above, in Rule 11.8.
+- [proposal, agent] The text of slice 2b also states R3 as amended above, in Rule 11.8.
 
 **Open items from the reviews of #1238.**
 
@@ -1090,9 +1099,11 @@ Each was or is a difference between the accepted text (with A5 to A8) and `75f11
 | The first sentence of the `CHANGELOG.md` entry of #1238 still lists `uniform()` among what belongs to the device in use.                                                                                                                                                                                                  | Second review, N-r4                          | A documentation fix, with the item above.                                                                                         |
 | The refusal table of surface §71 (`fuse`) has no row for the refusal of a call on a resource.                                                                                                                                                                                                                             | #1241, Open items                            | The owner decides whether a follow-up adds a row.                                                                                 |
 
-- [fact] Unchanged and open: A7's five deferred questions, A7's open item on proposal 0042's row
-  "A resource on a CPU tier", and the first review's N4 (one extra queue step for each
-  submission, which the review calls harmless).
+- [fact] Unchanged and open:
+  1. A7's five deferred questions.
+  2. A7's open item on proposal 0042's row "A resource on a CPU tier".
+  3. The first review's N4: one extra queue step for each submission. The review calls it
+     harmless.
 - Affects: milestone 3's plan (the slice table of A7) and R3. Under R3: Q-a and B1, a `Uniform`;
   Q-b, an exported binding; Q-c, `array()` in a `use()` block. It also affects D-b, D-c, D-d, D-e,
   D-g and D-h. No front-matter entry changes.
