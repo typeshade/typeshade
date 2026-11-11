@@ -91,12 +91,26 @@ export function resourceOwner(value: unknown, at?: string): CallOwner | undefine
   return state === undefined ? textureOwners.get(value as object) : ownerOf(state);
 }
 
+/** The owner of the device in use (change 0138, R3): the innermost `using _ = device.use()`, or
+ *  undefined when none is in use. `runtime/device.ts` installs it when it loads; the call layer
+ *  imports no device, so `typeshade/fuse` reaches no program runtime (Rule 11.11). */
+export const ownerInUse: { of(): CallOwner | undefined } = { of: () => undefined };
+
+/** The owner a call with no owned resource runs on (change 0138, R3): the device in use, or the
+ *  default owner when none is in use. */
+export function callDefault(): CallOwner {
+  return ownerInUse.of() ?? defaultOwner;
+}
+
 /** Choose the unique resource owner (0085), or verify an owner captured at the call site.
- * An explicit default-owned Resident participates just as a device-owned resource does. */
+ * An explicit default-owned Resident participates just as a device-owned resource does. With no
+ * owned resource the call takes `fallback`: the default owner, or for a kernel call and an entry
+ * call the device in use ({@link callDefault}, change 0138, R3). */
 export function inferOwner(
   at: string,
   resources: Iterable<readonly [string, CallOwner | undefined]>,
   expected?: CallOwner,
+  fallback: CallOwner = defaultOwner,
 ): CallOwner {
   let selected = expected;
   let first = 'this call';
@@ -111,7 +125,7 @@ export function inferOwner(
       );
     }
   }
-  const owner = selected ?? defaultOwner;
+  const owner = selected ?? fallback;
   if (expected === undefined) owner.assertCall?.();
   return owner;
 }

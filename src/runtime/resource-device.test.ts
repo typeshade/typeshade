@@ -124,7 +124,7 @@ async function cpuDevice(): Promise<Device> {
 const lifeOf = async (b: { read(): Promise<{ life: number }[]> }): Promise<number[]> =>
   (await b.read()).map((p) => p.life);
 
-const data = (n: number, life = 0): { pos: number[]; life: number }[] =>
+const data = (n: number, life = 0): { pos: [number, number, number]; life: number }[] =>
   Array.from({ length: n }, () => ({ pos: [0, 0, 0], life }));
 
 describe('the shader source of the calls is read by both halves', () => {

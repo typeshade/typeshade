@@ -56,12 +56,12 @@ import {
   type ZeroedElement,
 } from '../core/resident.js';
 import { CpuTexture, cpuFormatGap } from '../core/cpu-texture.js';
-import { textureOwners } from '../core/owner.js';
+import { ownerInUse, textureOwners } from '../core/owner.js';
 import { TIERS, tierNames, type Tier } from '../core/tiers.js';
 import { TextureImpl, type Texture } from './resources.js';
 import { webgpuDevice } from '../rhi/webgpu.js';
 import { fitChunk, learnRate, type ChunkRate } from './chunk.js';
-import { endUse, pushUse } from './default-device.js';
+import { defaultDevice, endUse, pushUse } from './default-device.js';
 
 export type { ChunkRate } from './chunk.js';
 
@@ -156,7 +156,8 @@ interface SkippedTier {
  * of `fuse()`, and `dispose()`. Made by {@link createDevice}. Two devices in one context are
  * independent: each has its tier, its arrays, its pool and its plans.
  * Ordinary kernel, compute-entry and draw calls infer this owner from its arrays and textures.
- * Mixing owners is refused before execution. Calls without owned resources use the default owner.
+ * Mixing owners is refused before execution. A kernel or entry call without owned resources uses
+ * the device in use (`use()`, change 0138, R3), else the default owner; a draw, the default owner.
  *
  * Exported from `typeshade` and `typeshade/runtime`.
  */
@@ -249,9 +250,9 @@ export interface Device {
   dispose(): Promise<void>;
   /** Make this device the default of a block until the returned handle is disposed (change
    *  0138, Amendment A2): `using _ = device.use()`. Uses nest, and the innermost is the default.
-   *  `texture()` makes its texture on the default device; the calls of a node follow it from
-   *  milestone 3 of change 0138 (R3). Where the `lib` declares no `Symbol.dispose`, call
-   *  `dispose()` on the handle.
+   *  `texture()`, `zeros()`, `array()` and `uniform()` make what they make on the default device,
+   *  and a kernel call or an entry call with no resource of a device runs on it (change 0138,
+   *  R3). Where the `lib` declares no `Symbol.dispose`, call `dispose()` on the handle.
    *  @throws `TypeError` after `dispose()`. */
   use(): DeviceUse;
 }
@@ -817,6 +818,13 @@ function isWebGl2(d: object): boolean {
   const c = d as { getParameter?: unknown; createTransformFeedback?: unknown };
   return typeof c.getParameter === 'function' && typeof c.createTransformFeedback === 'function';
 }
+
+// A kernel call and an entry call with no owned resource run on the device in use (change 0138,
+// R3). The call layer reads it through this, and imports no device itself.
+ownerInUse.of = () => {
+  const d = defaultDevice();
+  return d instanceof DeviceImpl ? d.owner : undefined;
+};
 
 /**
  * Open the owner of a host's kernel calls (change 0071): on the first tier of `prefer` that opens,
