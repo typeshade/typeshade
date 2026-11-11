@@ -2096,11 +2096,12 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   though nothing uses it. Programs that compiled before and are now refused: an exported
   struct of that shape nothing uses, and a used one through `array<R, N>` or `R | undefined`.
   Within one file the struct declared first names the cycle, so `interface B { y: f32; a: A; }`
-  then `export interface A { x: f32; b: B; }` is refused on `A.b`. A cycle across files, a
-  ring of three or four files or two cycles through one struct, is cut at a field of the file
-  the program starts from. So each file that holds a field of a cycle reports it once, on its
-  own field, in `compile()`, the editor and `tshc check`. No reader puts it on an import line or
-  in a file that holds no field of that cycle.
+  then `export interface A { x: f32; b: B; }` is refused on `A.b`. Across files, each file cuts
+  the cycles through its own structs on its own fields, as its own program does, and the editor
+  and `tshc check` show those cuts in that file. One cut can break two cycles, so a file reports
+  at least one cut and not always one for each cycle. `compile()` reports every cut of the file
+  it starts from, and a cut of an imported file only where a cycle is left, in that file. No
+  reader puts a cut on an import line.
 
 - **A program's refusal of an imported declaration is shown in a file that reports it**
   (Rules 3.9 and 12.7, #1186). A refusal that only a use makes, about a declaration an imported

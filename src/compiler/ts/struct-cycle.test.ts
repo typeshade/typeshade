@@ -52,6 +52,29 @@ function bothHalves(
 
 const ONE = (message: string): string[] => [`${TS_CODES.STRUCT_FIELD} ${message}`];
 
+/** A `tshc` host over `files` (absolute path to text), its output gathered in `out`. */
+const memoryHost = (files: Record<string, string>): { host: CliHost; out: string[] } => {
+  const out: string[] = [];
+  const host: CliHost = {
+    cwd: '/p',
+    readFile: (path) => files[path],
+    writeFile: () => undefined,
+    kind: (path) =>
+      files[path] !== undefined
+        ? 'file'
+        : Object.keys(files).some((f) => f.startsWith(`${path}/`))
+          ? 'directory'
+          : undefined,
+    list: (path) =>
+      Object.keys(files)
+        .filter((f) => f.startsWith(`${path}/`))
+        .map((f) => f.slice(path.length + 1).split('/')[0]!),
+    stdout: (text) => void out.push(text),
+    stderr: (text) => void out.push(text),
+  };
+  return { host, out };
+};
+
 describe('a struct that holds itself (#1204)', () => {
   const refused: readonly (readonly [string, string, string])[] = [
     ['directly', program('interface R { a: f32; r: R; }'), R_CYCLE],
@@ -404,29 +427,10 @@ describe('a struct that holds itself (#1204)', () => {
       const before = text.slice(0, at).split('\n');
       return `${before.length}:${before[before.length - 1]!.length + 1}`;
     };
-    const memoryHost = (files: Record<string, string>): { host: CliHost; out: string[] } => {
-      const out: string[] = [];
-      const host: CliHost = {
-        cwd: '/p',
-        readFile: (path) => files[path],
-        writeFile: () => undefined,
-        kind: (path) =>
-          files[path] !== undefined
-            ? 'file'
-            : Object.keys(files).some((f) => f.startsWith(`${path}/`))
-              ? 'directory'
-              : undefined,
-        list: (path) =>
-          Object.keys(files)
-            .filter((f) => f.startsWith(`${path}/`))
-            .map((f) => f.slice(path.length + 1).split('/')[0]!),
-        stdout: (text) => void out.push(text),
-        stderr: (text) => void out.push(text),
-      };
-      return { host, out };
-    };
 
-    const cases: readonly (readonly [string, Case, string, Expected])[] = [
+    // The fifth entry, where given, is what `compile()` on `a` reports: there a cut of an
+    // imported file stands, in that file, where a cycle is left after `a`'s own cuts.
+    const cases: readonly (readonly [string, Case, string, Expected, Expected?])[] = [
       [
         'a ring of three files',
         {
@@ -515,14 +519,71 @@ describe('a struct that holds itself (#1204)', () => {
         },
         'let r: A;',
         [
-          ['a', 'b: B;', 'A.b', ['B', 'C', 'D', 'A', 'B']],
+          ['a', 'd: D;', 'C.d', ['D', 'A', 'B', 'C', 'D']],
           ['b', 'a: A;', 'D.a', ['A', 'B', 'C', 'D', 'A']],
+        ],
+      ],
+      [
+        'a cycle within an imported file and one through the entry (review f228)',
+        {
+          a: { imports: 'S2, S1@b', decls: 'export interface S0 { v: f32; f2: S2; }' },
+          b: {
+            imports: 'S0@a',
+            decls:
+              'export interface S1 { v: f32; f0: S0; f2: S2; }\n' +
+              'export interface S2 { v: f32; f1: S1; }',
+          },
+        },
+        'let r: S0;',
+        [
+          ['a', 'f2: S2;', 'S0.f2', ['S2', 'S1', 'S0', 'S2']],
+          ['b', 'f1: S1;', 'S2.f1', ['S1', 'S0', 'S2', 'S1']],
+        ],
+        [
+          ['b', 'f1: S1;', 'S2.f1', ['S1', 'S0', 'S2', 'S1']],
+          ['a', 'f2: S2;', 'S0.f2', ['S2', 'S1', 'S0', 'S2']],
+        ],
+      ],
+      [
+        'two cycles through one struct of the entry, one across files (review f207)',
+        {
+          a: {
+            imports: 'S2@c',
+            decls:
+              'export interface S0 { v: f32; f1: S1; }\n' +
+              'export interface S1 { v: f32; f0: S0; f2: S2; }',
+          },
+          c: { imports: 'S1@a', decls: 'export interface S2 { v: f32; f1: S1; }' },
+        },
+        'let r: S0;',
+        [
+          ['a', 'f0: S0;', 'S1.f0', ['S0', 'S1', 'S0']],
+          ['a', 'f2: S2;', 'S1.f2', ['S2', 'S1', 'S2']],
+          ['c', 'f1: S1;', 'S2.f1', ['S1', 'S2', 'S1']],
+        ],
+      ],
+      [
+        'three files, one holding no struct the entry imports directly (review f122)',
+        {
+          a: {
+            imports: 'S2@b;S1@c',
+            decls: 'export interface S0 { v: f32; f1: S1; f2: S2; }',
+          },
+          b: { imports: 'S0@a', decls: 'export interface S2 { v: f32; f0: S0; }' },
+          c: { imports: 'S2@b', decls: 'export interface S1 { v: f32; f2: S2; }' },
+        },
+        'let r: S0;',
+        [
+          ['a', 'f1: S1;', 'S0.f1', ['S1', 'S2', 'S0', 'S1']],
+          ['a', 'f2: S2;', 'S0.f2', ['S2', 'S0', 'S2']],
+          ['b', 'f0: S0;', 'S2.f0', ['S0', 'S1', 'S2', 'S0']],
+          ['c', 'f2: S2;', 'S1.f2', ['S2', 'S0', 'S1', 'S2']],
         ],
       ],
     ];
 
-    for (const [name, c, use, expected] of cases) {
-      it(`one diagnostic in each file that holds a field of it, on that field: ${name}`, () => {
+    for (const [name, c, use, expected, compiledAs] of cases) {
+      it(`each file reports its own cuts, on its own fields: ${name}`, () => {
         const files = filesOf(c, 'a', use);
         const readDocument = (f: string): string | undefined => files[f];
         const at = (f: string, start: number, length: number): string =>
@@ -534,14 +595,20 @@ describe('a struct that holds itself (#1204)', () => {
               ([, text, field, path]) => `[${text}] ${TS_CODES.STRUCT_FIELD} ${cycle(field, path)}`,
             );
 
-        // The compiler, on the file the compile starts from: what that file holds.
+        // The compiler, on the file the compile starts from: what that file holds, and a cut
+        // of an imported file where a cycle is left.
         const entry = '/p/a.shade.ts';
         const compiled = compile(files[entry]!, { fileName: entry, readDocument });
         expect(
           compiled.diagnostics.map(
             (d) => `${d.fileName} ${at(d.fileName!, d.start, d.length)} ${d.code} ${d.message}`,
           ),
-        ).toEqual(want('a').map((w) => `${entry} ${w}`));
+        ).toEqual(
+          (compiledAs ?? expected.filter(([f]) => f === 'a')).map(
+            ([f, text, field, path]) =>
+              `/p/${f}.shade.ts [${text}] ${TS_CODES.STRUCT_FIELD} ${cycle(field, path)}`,
+          ),
+        );
 
         // The editor, in every file.
         for (const file of Object.keys(c)) {
@@ -581,6 +648,78 @@ describe('a struct that holds itself (#1204)', () => {
           `Found ${expected.length} errors in ${new Set(expected.map(([f]) => f)).size} files ` +
             `(${Object.keys(c).length} files checked).`,
         );
+      });
+    }
+  });
+
+  // Every struct holds every other, two or eight structs in each of three files (review
+  // dense6, and its 24-struct form for the time). The cuts differ from program to program, and
+  // still each one stands on a field of a file whose own program makes it.
+  describe('every struct holding every other', () => {
+    for (const per of [2, 8]) {
+      it(`no reader puts a cut on an import line: ${3 * per} structs`, () => {
+        const names = ['a', 'b', 'c'].map((f) =>
+          Array.from({ length: per }, (_, i) => `${f.toUpperCase()}${i}`),
+        );
+        const all = names.flat();
+        const files: Record<string, string> = {};
+        ['a', 'b', 'c'].forEach((f, fi) => {
+          let text = H;
+          ['a', 'b', 'c'].forEach((g, gi) => {
+            if (gi !== fi) text += `import { ${names[gi]!.join(', ')} } from './${g}.shade.js';\n`;
+          });
+          for (const n of names[fi]!)
+            text +=
+              `export interface ${n} { v: f32; ` +
+              `${all
+                .filter((m) => m !== n)
+                .map((m) => `f${m}: ${m};`)
+                .join(' ')} }\n`;
+          if (f === 'a') text += '@compute([1]) export function main(): void { let r: A0; }\n';
+          files[`/p/${f}.shade.ts`] = text;
+        });
+        const readDocument = (f: string): string | undefined => files[f];
+        const lineOf = (f: string, line: number): string => files[f]!.split('\n')[line] ?? '';
+
+        const started = performance.now();
+        const compiled = compile(files['/p/a.shade.ts']!, {
+          fileName: '/p/a.shade.ts',
+          readDocument,
+        });
+        expect(performance.now() - started).toBeLessThan(5000);
+        expect(compiled.diagnostics.length).toBeGreaterThan(0);
+
+        const shown = new Set<string>();
+        let total = 0;
+        for (const f of Object.keys(files)) {
+          const service = createTypeshadeLanguageService({ readDocument });
+          service.openDocument(f, files[f]!);
+          const ds = service.getDiagnostics(f);
+          expect(ds.length).toBeGreaterThan(0);
+          for (const d of ds) {
+            expect(String(d.code)).toBe(TS_CODES.STRUCT_FIELD);
+            expect(lineOf(f, d.range.start.line).startsWith('import')).toBe(false);
+            shown.add(`${f}:${d.range.start.line + 1}:${d.range.start.character + 1} ${d.message}`);
+          }
+          total += ds.length;
+        }
+        // Each cut `compile()` reports stands where that file's own program reports it.
+        for (const d of compiled.diagnostics) {
+          expect(d.code).toBe(TS_CODES.STRUCT_FIELD);
+          expect(shown).toContain(`${d.fileName}:${d.line}:${d.character} ${d.message}`);
+        }
+
+        const { host, out } = memoryHost({ ...files });
+        expect(runCli(['check', '--format', 'short'], host, { version: '0.0.0' })).toBe(1);
+        const errors = out
+          .join('')
+          .split('\n')
+          .filter((l) => l.includes(' - error '));
+        expect(errors).toHaveLength(total);
+        for (const l of errors) {
+          const [file, line] = l.split(':');
+          expect(lineOf(`/p/${file}`, Number(line) - 1).startsWith('import')).toBe(false);
+        }
       });
     }
   });
