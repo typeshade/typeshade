@@ -1055,6 +1055,11 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
   - F3: the named edit is checked. The front end compiles the source with each candidate edit
     and names the first that adds no error. Where none does, the program holds a second mistake:
     the edit that adds fewest errors is named, and each mismatch around the `/` is kept.
+    [fact, measured 2026-11-11 with the review's checker over its matrices] 270 of 15,223 named
+    edits still leave a diagnostic (321 of 15,215 at `345d3ae8`). Each of their 47 distinct
+    shapes was refused on `main` too: a negation of a `u32`, `sign` or `Math.trunc` of an
+    integer, a vector constructor of mixed element types, a negative index, `u32` of a negative
+    value, and a vector converted by `f32(v)`.
   - F4, "선언된 타입으로 보기": a typed constructor ends the origin.
   - F6: a conversion that starts a counter declares the counter's type. The written
     `for (let j = u32(3); …)`, refused on `main` because the fold made the counter an `i32`,
