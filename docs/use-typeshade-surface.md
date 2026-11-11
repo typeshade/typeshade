@@ -9271,15 +9271,16 @@ that fix it, each with the element it fixes:
 | Place | Element |
 | --- | --- |
 | an array with no size of numbers or vectors, of a kernel function, an entry or the program runtime | its scalar: `array<u32>` and `array<vec3<u32>>` give `u32` |
-| a number or vector parameter | its scalar |
+| a number or vector parameter | its scalar: an `f64` parameter gives `f64` |
 | a matrix parameter, an `array<matCxR>` | `f32` |
 | a held length, an indirect workgroup count, a geometry's indices | `u32` |
 | a geometry's vertices | the scalar every vertex attribute has |
 
 The use checks each number as a plain argument of the element is checked: `1.5` or `-1` for a
 `u32` is a `TypeError` that names its index, and the call changes nothing. A use the call refuses
-fixes nothing. Where nothing decides, the element is `f32`, and an `f64` place fixes nothing and
-refuses it. Before the first use, `read()` gives the numbers rounded to `f32` and `at(i).get()`
+fixes nothing. Where nothing decides, the element is `f32`. A use fixes the element from the
+numbers as given, so an `f64` place keeps their full precision (the owner's decision of
+2026-11-11, recorded in Amendment A13). Before the first use, `read()` gives the numbers rounded to `f32` and `at(i).get()`
 one of them, and `set(data)`, `resize(n)` and `at(i).set(x)` keep the element open. A use of
 another element after the first is a `TypeError` at that call that names the element and the line
 of the first use. A `Buffer` that `device.array()` hands out again is open again:
@@ -9295,8 +9296,8 @@ const ys = array([0.5, 2]); // no call takes ys: its element is f32
 ```
 
 In the host view `array(xs: readonly number[])` returns `Buffer<number>`. It passes where a
-`Buffer<f32>`, a `Buffer<i32>` or a `Buffer<u32>` is taken, since `number` is each of them to
-TypeScript, and its `read()` is typed `Float32Array | Int32Array | Uint32Array`. The type does not
+`Buffer<f32>`, a `Buffer<i32>`, a `Buffer<u32>` or a `Buffer<f64>` is taken, since `number` is each of them to
+TypeScript, and its `read()` is typed `Float32Array | Int32Array | Uint32Array | Float64Array`. The type does not
 change after the first use: `tsc` cannot see a later use.
 
 **Failed inputs** (change 0129). A generated kernel, compute or fragment call checks incoming contents after earlier queued calls settle and its arguments validate.
