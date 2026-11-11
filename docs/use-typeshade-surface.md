@@ -8554,7 +8554,7 @@ at the call, and then changes no `Buffer`:
   "m" (mat3x3) takes a Buffer of one mat3x3, or of 9 f32 numbers; got a Buffer of 8 f32 numbers. ``
 - a `Buffer<bool>` for an array, since no `array<bool>` exists, and a `Buffer<K>` or a matrix
   `Buffer` for an array of another element: `` sumf(): parameter "xs" (array<f32>) takes no Buffer
-  of 1 bools: no array<bool> exists, since a bool has no storage layout (change 0138, Amendment
+  of 1 bool: no array<bool> exists, since a bool has no storage layout (change 0138, Amendment
   A12, decision 4). ``
 
 A call on a resource that writes a plain array with no size waits (change 0138, Amendments A10
