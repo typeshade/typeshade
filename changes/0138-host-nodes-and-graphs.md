@@ -989,10 +989,13 @@ A7's table. A7's text stays as it is.
   - Reason, at `75f114cb`: a `Uniform`'s value is copied at each call (D-b). The reason is not
     part of R3.
   - The other sentences of R3 stay as they are.
-  - [inference, agent: follows from R3's order and Q-a] An exported binding also takes no part in
-    the choice, since it belongs to no one device (R3). A node whose only resources are `Uniform`s
-    and exported bindings runs on the device in use, else on the default owner. The owner has not
-    decided this clause yet.
+  - An exported binding also takes no part in the choice, since it belongs to no one device (R3).
+    A node whose only resources are `Uniform`s and exported bindings runs on the device in use,
+    else on the default owner. The agent inferred this clause from R3's order and Q-a. Asked on
+    2026-11-11 to merge A8, the owner chose the option:
+    "추론 구절도 승인, CI 녹색이면 머지 (추천)"
+    (approve the inferred clause too, merge when CI is green; recommended).
+  - [decision, owner, 2026-11-11] The clause is part of the decided text, beside the amended R3.
   - Cost: as recorded under Q-a above. [proposal, agent] R3 is revisited when D-b is fixed.
   - [inference, agent] R3's "A resource belongs to one device" holds for a `Uniform` in name only:
     no code reads its owner at `75f114cb`. When D-b gives a `Uniform` one copy for each device, it
@@ -1039,9 +1042,10 @@ A7's table. A7's text stays as it is.
     and put "do not await inside the block" in as a caution, not as a norm.
   - [fact] `use()` is one stack for each module instance (`src/runtime/default-device.ts`).
   - [agent wording of the owner's caution] The rule text first states the effect. While a task
-    awaits inside a `use()` block, a resource that another task makes belongs to that block's
-    device. Then it gives the caution: do not await inside a `use()` block while other tasks may
-    make resources. An `await` of `read()` with no such task is not refused.
+    awaits inside a `use()` block, a resource that another task makes, or a call with no owned
+    resource that it makes, takes that block's device. Then it gives the caution: do not await
+    inside a `use()` block while other tasks may make resources or calls. An `await` of `read()`
+    with no such task is not refused.
   - The caution is not a normative promise. A stack for each task may come later. N1 stays an
     open item.
 
