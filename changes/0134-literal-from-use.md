@@ -1080,15 +1080,14 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     `345d3ae8`. Rule 5.1's last sentence and surface §13 say so.
   - [decision, owner, 2026-11-11] Finding 2, the third review's F6: "별도 버그 수정 PR로
     분리". Part 3 does not change how a conversion starts a counter; the bug fix is pull request
-    #1235 from `main`, which needs nothing of part 3. Until it is merged, part 3 refuses every
+    #1235 from `main`, which needs nothing of part 3. Until it was merged, part 3 refused every
     counter started by `u32(…)` of a constant of no fixed type, or of arithmetic over one, where
-    the counter is used as a `u32`. Each compiled on `main`, where such a constant or local was
-    a typed value: a module constant (`const KM = 3;` with `for (let j = u32(KM); j < 8; j++)
-{ a += f32(h(j)); }`, 25), a function-local constant with no declared use (25), `u32(k + 1)`
-    after `h(k)`, `u32(k)` with `j < vi`, and `a += f32(j + vi)`. The conversion of the constant
-    folds to a literal, and the header makes it an `i32`, as `main` does for the written
-    `u32(3)`. #1235 merges before part 3 and closes this; on part 3 with #1235's change each
-    of these compiles again.
+    the counter is used as a `u32` (deviation 13): a module constant (`u32(KM)`, 25), a
+    function-local constant with no declared use (25), `u32(k + 1)` after `h(k)` (22), `u32(k)`
+    with `j < vi` (7) and `a += f32(j + vi)` (50). Closed: #1235 merged on `main` as `2fae525a`,
+    part 3 merged it in, and each of the seven rows of `abstract-const.test.ts` ("a counter
+    started by u32(…) of an untyped constant counts in u32") gives `main`'s value in both
+    halves.
   - [decision, owner, 2026-11-11] Finding 7, two quotients each the other's other read: "A4대로
     거부 유지". With `const K = 8;`, `let j: u32 = K / 2; let i: u32 = K / 2;` refuses both. It
     is a row of "Newly refused" in `CHANGELOG.md`.
@@ -1114,6 +1113,12 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     arrow `const` shows `TS7023` beside `TS8031` in the editor, as on `main`. Open item.
   - Finding 8: `tshc check` prints no related site for a refusal that stands on an importing
     file's read. Open item.
+- Open deviations recorded after the fifth review, each with the owner's decision of 2026-11-11:
+  - [decision, owner, 2026-11-11] Issue #1245, "이슈로 기록하고 진행": the edit check compiles
+    each edit in a statement that declares a name alone, so a file where each refused `/`
+    stands in such a statement costs N compiles of the file (N² in all).
+  - [decision, owner, 2026-11-11] Issue #1246, "이슈로 기록": the named edit compiles where the
+    quotient stands, and it can leave a mismatch in a caller of the function that holds it.
 - [fact, measured 2026-11-11 on `main` at `cbb72182` merged in] Pull request #1191 (#1186)
   places an error of a program in the first file that reports it when compiled alone. A library
   compiled alone does not refuse its `/` when only an importing file reads the constant as an

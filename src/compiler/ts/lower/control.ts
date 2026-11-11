@@ -485,7 +485,19 @@ function lowerHeaderCounter(
     const again = withReadTypes(onMain, () => lowerExpression(written, sourceFile, scope, scratch));
     if (again !== undefined) init = again;
   }
-  if (!fromConstant && (annotated !== undefined || !floatWritten || intBound)) {
+  // An integer conversion is a value of its type, not a value written as an integer (Rule
+  // 7.5): the counter takes that type, as `u32(x)` with an `f32` `x` always did. The fold gives
+  // the conversion of a written number a literal of its type (#1217), which the block below
+  // would otherwise retarget to `i32`: `u32(3)` counted in `i32`. An `f32(…)` start keeps the
+  // retarget: an `f32` counter needs `TS8007` to catch a step that rounds away (the owner's
+  // decision of 2026-11-11, "이 PR은 i32/u32만"; issue #1242).
+  const conversion =
+    decl.type === undefined &&
+    ts.isCallExpression(start) &&
+    ts.isIdentifier(start.expression) &&
+    ['i32', 'u32'].includes(start.expression.text) &&
+    scope.resolveCallee(start.expression.text) === undefined;
+  if (!fromConstant && !conversion && (annotated !== undefined || !floatWritten || intBound)) {
     // The induction variable's declared type, or i32 when there is no annotation. `for (let j:
     // i32 = -1; …)` reaches this with a PrefixUnaryExpression rather than a NumericLiteral, which
     // the `init.op === 'lit'` special case this replaces never matched — so the initializer kept

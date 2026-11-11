@@ -118,3 +118,18 @@ export function throwFailure(): void {
 export function failurePending(): boolean {
   return failed !== undefined;
 }
+
+/** The WebGL2 contexts the calls of the running submission used, which its end flushes. */
+const touched = new Set<WebGL2RenderingContext>();
+
+/** A call of the running submission ran on `gl` (change 0138, Amendment A5, default 6). */
+export function usedGl(gl: WebGL2RenderingContext): void {
+  touched.add(gl);
+}
+
+/** End a submission: flush each WebGL2 context its calls used, so the GPU starts on them while
+ *  the host goes on (Amendment A5, default 6). A `read()` of what they wrote waits on a fence. */
+export function flushSubmission(): void {
+  for (const gl of touched) gl.flush();
+  touched.clear();
+}

@@ -4,8 +4,9 @@
 //
 // A device is opened only by `createDevice()`. `device.use()` makes it the default device until
 // the handle it returns is disposed, which `using` does at the end of the block; uses nest, and
-// the innermost one is the default. At milestone 1 of proposal 0138, `texture()` makes its
-// texture on the default device; the calls of a node follow it from milestone 3 (R3).
+// the innermost one is the default. `texture()`, `zeros()`, `array()` and `uniform()` make what
+// they make on the default device, and a kernel call or an entry call with no resource of a device
+// runs on it (change 0138, R3; `callDefault` in `core/owner.ts`).
 // `Device.use()` (`runtime/device.ts`) pushes and ends a use; Amendment A2 declares it.
 
 /** What `use()` holds: the device, and whether its handle was disposed. */

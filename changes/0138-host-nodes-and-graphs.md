@@ -823,6 +823,106 @@ sits under it.
 - Affects: D3. No front-matter entry changes.
 - Status: `status: accepted` does not change.
 
+### A7. Milestone 3's slices, the window and a failed call, and the deviations of slice 2a (2026-11-11)
+
+- [fact] Why. Pull request [#1236](https://github.com/typeshade/typeshade/pull/1236), merged as
+  `76b66224`, carries out slice 2a of milestone 3. Its body records a plan of slices, two
+  decisions of the owner, five deferred questions and deviations D-a to D-g. Amendment A6 records
+  none of them.
+- [fact] Two independent reviews read #1236, at `becee199` and at `ab2247ef`. The first found
+  the blocking findings B1 to B3. The owner's decisions (a) and (b) answer B1 and B3.
+
+**The slices of milestone 3.**
+
+| Slice | Content                                                                                                                                                                                                                                                                                            | Status                                               |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| 2a    | A kernel function that returns nothing, and a `@compute` entry, take a `Buffer` or a `Uniform`. The call is checked, recorded and submitted later (R2, R8, R10, R17; A5, Q4 and defaults 2, 3, 4, 7 and 9). The tiers are the CPU tier and WebGPU. A WebGL2 entry call reads back inside the call. | done: #1236, merged as `76b66224`                    |
+| 2b    | R3, the device of the data. A call follows `using _ = device.use()`, and a call that mixes devices is a `TypeError`. An exported binding uploads its dirty range on each device that reads it. WebGL2 flushes at a submission and waits on a fence at a `read()` (A5, default 6).                  | not started                                          |
+| 2c    | `show(image, canvas)` and the held submission of Q14, as A5 records it, on WebGPU, WebGL2 (`fenceSync`) and the CPU tier.                                                                                                                                                                          | not started                                          |
+| Text  | Rules 6.1, 8.21, 8.23, 8.24, 11.8 and 11.13 and surface §64, §65 and §67 say what slice 2a delivered. The test of slice 2a gains its `Verifies:` tags.                                                                                                                                             | in progress: its Doorstop review waits for the owner |
+
+- [proposal] The plan above is the agent's. The owner approved the merge of #1236, whose body
+  carries it. The owner was not asked about the slices as a separate question.
+
+**Decision (a): the window between a writing call and its `read()`.**
+
+- The window: the time from a call that writes a `Buffer` to that `Buffer`'s `read()`.
+- [fact] B1 was observed on the CPU tier at `becee199`. A writing call ran, and then `set()` wrote
+  one field. The element's other fields went back to their values from before the call.
+- [fact] The cause is A5 D2: a `Buffer` keeps one dirty range for each element. While the device
+  holds the newer values, the region holds stale bytes beside the field that `set()` writes.
+- [decision, owner, 2026-11-11] "그 구간의 set()을 거부". Between a call that writes a `Buffer`
+  and its `read()`, `set()` on that `Buffer` throws a `TypeError`, as `get()` does. A5 D2 stands.
+- [fact] #1236 applies the same refusal to `set(data)`, `resize()` and `needsUpdate` in the
+  window (review finding S1). Each would drop or overwrite what the call wrote. The owner approved
+  the merge with that text.
+- Alternative: a dirty range exact to the field while the device holds the newer values. Cost of
+  the alternative: ranges below one element, a deviation from A5 D2.
+- Cost recorded: a host cannot set a field of a written `Buffer` until it awaits `read()`.
+- [fact] The error says: "…: a call wrote Buffer<Particle>, and its values are on the device
+  until `await Buffer<Particle>.read()` brings them back; await it first."
+
+**Decision (b): a writing call that fails.**
+
+- [fact] B3, observed at `becee199`: after a writing call failed, every later call on its `Buffer`
+  failed. Neither `set(data)` nor `resize()` restored the `Buffer`; only `dispose()` ended it.
+- [decision, owner, 2026-11-11] "set(data)나 resize()로 복구". After a writing call fails, each
+  later call that takes that `Buffer`, and its `read()`, throw the original error with the call
+  site. This holds until `set(data)` or `resize()` gives the `Buffer` new values.
+- Alternative: only the next `read()` or call throws the error, which are A5 default 7's words
+  alone. Cost of the alternative: a later call reads values that a failed call left unknown.
+- Cost recorded: to recover, the host gives the whole `Buffer` new values. The failed call leaves
+  the window, so `get()` reads the region again.
+- [fact] The region then holds what it held before the writing calls not yet read back. After two
+  writing calls with no `read()` between them, where the second fails, `get()` gives the values
+  from before the first.
+- [fact] The pending copy of the error (A5, default 7) is still thrown once. It is thrown at the
+  next `read()` or call, wherever it is, a call with plain data and a draw among them. So a
+  recovery runs in this order, as #1236 delivers it:
+  1. A call that writes the `Buffer` fails when it is submitted.
+  2. The `Buffer` leaves the window, and `get()` gives the region's values, as the fact above says.
+  3. `set(data)` or `resize()` gives the `Buffer` new values.
+  4. The next `read()` or call throws the error once, unless one threw it since the failure.
+  5. The call after it works.
+
+**The five deferred questions.**
+
+- [decision, owner, 2026-11-11] "다섯 모두 지금 동작 유지, 나중에 결정". Today's behavior stays for
+  each question, and each question stays open.
+- [inference, agent] Decision (a) refuses `get()` in the window too, so it agrees with question 2's
+  current behavior. The owner may close question 2; the owner has not closed it.
+
+| No. | Question                                                                                                                | Behavior at `76b66224`                                                                                        | Status |
+| --- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------ |
+| 1   | What resource does a kernel function return when it returns a value and takes a resource? R2 says "returns a resource". | A `TypeError` at the call, and `TS2345` in the host's editor. Q2 is milestone 4.                              | open   |
+| 2   | What does `get()` give between a call that writes a `Buffer` and its `read()`?                                          | It throws a `TypeError`.                                                                                      | open   |
+| 3   | Is a call whose only resource is a `Resident` (`array(xs)`) a call on a resource under R2?                              | No. It stays today's queued or awaited call (Rule 11.8).                                                      | open   |
+| 4   | A plain array, `Map` or `Set` that a call on a resource writes: refuse, or allow?                                       | A `TypeError` at the call, and `TS2769`. The host passes `array(xs)` or a `Buffer`.                           | open   |
+| 5   | May an entry call take a `Buffer` of `N` elements for a sized storage binding (`storage<array<T, N>>`)?                 | No. The call refuses it with a `TypeError`, and the view's overload that only queues takes no `Buffer` there. | open   |
+
+- Next action for questions 1, 3, 4 and 5: ask the owner again before a slice that changes the
+  behavior. No slice and no date are set.
+
+**The deviations of slice 2a.**
+
+Each is a difference between the accepted text (with A5 and A6) and `76b66224`.
+
+| ID  | Deviation                                                                                                                                                                                                                                 | Disposition | Next action                                                                                            |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------ |
+| D-a | A recorded call runs in order from its submission, but on WebGPU each call makes its own `GPUQueue.submit`. One `GPUQueue.submit` for each submission is not done.                                                                        | open        | One `GPUQueue.submit` for each submission. No slice is assigned yet.                                   |
+| D-b | A `Uniform` argument is passed as its value at the call and packed again at each call. R8's dirty-range economy does not reach a uniform yet.                                                                                             | open        | Upload a uniform's dirty range, as a `Buffer` does. No slice is assigned yet.                          |
+| D-c | WebGL2 (A5, default 6): an entry call's pass program reads back inside the call, so no flush and no fence is placed. A kernel function on a `Buffer` of structs has no WebGL2 tier (Rule 11.8).                                           | open        | Slice 2b.                                                                                              |
+| D-d | A recorded call runs on the default owner (`configure`), as a `Resident` of `array()` does. R3 is not carried out.                                                                                                                        | open        | Slice 2b.                                                                                              |
+| D-e | Rules 8.21 and 8.24 and surface §64 and §67 still said "No call takes a resource yet" at `76b66224`. The test carried no `Verifies:` tag.                                                                                                 | open        | The text pull request, with the Doorstop review that the owner approves.                               |
+| D-f | A5 Q4 submits "when the current microtask checkpoint ends". JavaScript cannot see that point, so the submission comes in the next task. Calls that tasks before it record join the same submission. The order and the snapshots are kept. | open        | The owner decides whether A5 Q4 is read as "the next task", by an amendment, or whether it stays open. |
+| D-g | The host view's overload that only queues still types a held length `{ array, length }` beside a `Buffer`. `tsc` accepts it, and the runtime refuses it with a `TypeError` at the call.                                                   | open        | A separate overload for a call on a resource, in slice 2b or later.                                    |
+
+- [fact] Open beside them: proposal 0042's row "A resource on a CPU tier" describes `main` at
+  `9c7b1899`, before milestone 3. Its amendment stays open (A5; 0042, Amendment A6).
+- Affects: milestone 3's plan, R2 (the window and a failed call), A5 default 7 and A5 Q4 (D-f).
+  It also affects the deferred questions. No front-matter entry changes.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground

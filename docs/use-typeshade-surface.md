@@ -8192,7 +8192,9 @@ module (§26) and not a member of the host class, so its comment has no line in 
 
 The sentence of a kernel function and of a `@compute` entry also says how a call is queued (Rule 11.8,
 §65, §67). A call whose written arrays or bindings are all `Resident`s, and that returns nothing, may
-be made without `await`. The signature that returns `void` is that call.
+be made without `await`. The signature that returns `void` is that call. It also takes a `Buffer`
+or a `Uniform` of an exported class, an exported binding among them, and then the sentence says
+what a call on a resource does (below).
 
 The plugin rewrites a view when its module changes, in `vite dev` and in `vite build`. On a clean
 checkout `tsc` often runs before Vite (create-vite's `build` script is `tsc && vite build`), so
@@ -8421,9 +8423,79 @@ host's editor reports TypeScript's `TS2345` on the call, `uniform(Loose)` (`TS27
 `typeshade/runtime` exports for a program runtime's texture (D5). A texture lives on its device
 only and takes no range of the region.
 
-No call takes a resource yet: a kernel function, an entry and a draw take plain data and a
-`Resident` as before. The upload of each dirty range when a call reads the resource is a later
-part of milestone 3 of change 0138.
+**A call on a resource** (change 0138, R2; Rules 8.21 and 11.8). A kernel function that returns
+nothing (§65) and a `@compute` entry (§67) take a `Buffer` where they take an array with no size of
+its class, and a `Uniform` where they take its struct, an exported binding among them. Such a call
+does not block and returns nothing. The host awaits only `read()`:
+
+```ts
+import { uniform, zeros } from 'typeshade/runtime';
+import { Particle, Params, age, move } from './scene.shade.ts';
+
+const ps = zeros(Particle, 1024);
+const p = uniform(Params, { dt: 1 / 60, drag: 0 });
+age(ps, 1 / 60); // returns nothing: the call is recorded
+move(ps, p); // sees p as it is now
+p.dt.set(0); // a later call sees this; move() does not
+const out = await ps.read(); // submits, waits, and lands the values in the region
+```
+
+The call checks every argument at once. The runtime submits the recorded calls in the order they
+were made: when the current microtask checkpoint ends (change 0138, Amendment A5, Q4), at a
+`read()`, or before a call or a draw with plain data only. JavaScript cannot see the end of a
+checkpoint, so this version submits in the next task (deviation D-f of change 0138, open). Each
+call sees the values of its own call. The call copies the dirty ranges of a `Buffer` and the value
+of a `Uniform`. The submission writes each range to the device, one `writeBuffer` for each dirty
+range on WebGPU. The first call that takes a `Buffer`, and the first after `set(data)` or
+`resize()`, copy the whole array, which uploads whole. `read()` lands what the calls wrote in the
+buffer's range of the region.
+
+The window of a `Buffer` is the time from a call that writes it to its `read()`. In the window the
+buffer's values are on the device. `set` of the buffer then throws a `TypeError`, as `get` does
+(the owner's decision of 2026-11-11): `` Buffer<Particle>[0].life.get(): a call wrote
+Buffer<Particle>, and its values are on the device until `await Buffer<Particle>.read()` brings
+them back; await it first. `` A `set` there would write the element's other fields back over what
+the call wrote. `set(data)`, `resize` and `needsUpdate` throw too, since each would drop or
+overwrite what the call wrote. The owner accepted these three with the merge of the slice that
+added them (change 0138, Amendment A7).
+
+Beside the checks of a call with plain data, a call on a resource refuses these, with a `TypeError`
+at the call, and then changes no `Buffer`:
+
+- a function that returns a value: `` total(): takes a resource, and returns a value: a call on a
+  resource that returns a value is not available yet (change 0138, milestone 3). Pass plain data
+  and await the call, or return nothing and write a Buffer. ``
+- an array, a `Map`, a `Set` or a binding the call writes that is no `Buffer` and no `Resident`:
+  `lives(): parameter "out" is written by the call, which takes a resource, so it does not block
+  and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change
+  0138, R2).`
+- a held length `{ array, length }`. The host view still types it beside a `Buffer` (deviation D-g
+  of change 0138, open).
+- a `Buffer` of another class.
+- a `Buffer` where no array with no size is taken, a storage binding of a stated size among them:
+  `move(): parameter "p" takes no storage array, and got Buffer<Particle>. A Buffer is an argument
+  where the function or the entry takes an array with no size of its class.`
+
+A call that takes no `Buffer` and no `Uniform` is the call of §65 and §67, as before.
+
+A recorded call that fails when it is submitted throws at the next `read()` or call, with the line
+of the failed call. A `Buffer` that the failed call wrote keeps the error. Each later call that
+takes it, and its `read()`, throw it until `set(data)` or `resize()` gives the buffer new values
+(the owner's decision of 2026-11-11). A recovery goes in this order:
+
+1. A call that writes `ps` fails when it is submitted.
+2. `ps` leaves the window, so `get()` reads the region again: what it held before the writing
+   calls not yet read back.
+3. `ps.set(data)` or `ps.resize(n)` gives `ps` new values.
+4. The next `read()` or call, wherever it is, throws the error once, unless one threw it since the
+   failure. A call with plain data and a draw count as calls.
+5. The call after it works.
+
+In the body of today's `fuse` scope, a call that takes a resource throws a `TypeError` at the call
+(milestone 4 of change 0138). A draw takes no resource yet. A recorded call runs
+on the default owner's tiers, not on the device of its data (R3; deviation D-d of change 0138,
+open). On WebGL2 an entry call reads back inside the call, with no flush and no fence (Amendment A5,
+default 6; deviation D-c of change 0138, open).
 
 **Exported bindings** (change 0138, R10; Rule 6.1). A binding the shader module exports is a host
 resource. `export declare const camera: uniform<Camera>` is a `Uniform<Camera>` in the host, and
@@ -8498,8 +8570,11 @@ class of a binding that is no resource (a class the module does not export, an a
 may have such a field. A scalar, a
 vector, a struct no exported class declares, an array of scalars or vectors, one `storage<T>`, a
 texture and a sampler have no resource of their own yet: the view declares each `never`, with the
-reason. An entry call still takes the binding's value in its bindings
-object; binding the exported resource at a call is milestone 3 of change 0138.
+reason. An entry call takes an exported `Uniform` and an exported storage array with no size
+as they are in its bindings object, and a kernel function that returns nothing takes an
+exported resource as an argument (above). For an exported storage array of a stated size, an entry call refuses the
+`Buffer` itself with a `TypeError`, and takes a plain array of its elements as before (deferred
+question 5 of change 0138).
 
 **The default device** (change 0138, Amendment A2; Rule 11.8). A device is opened by
 `createDevice()` alone. `using _ = device.use()` makes it the default device until the end of the
@@ -8693,7 +8768,8 @@ const sum = await total(img); // a reduction: a tree per workgroup, then its par
 ```
 
 It is asynchronous from the start, and it returns `Promise<void>` or `Promise<R>` for a result.
-Each array it writes is read back into yours in place.
+Each array it writes is read back into yours in place. A call that takes a `Buffer` or a `Uniform`
+returns nothing and does not block, and a `Buffer` it writes keeps the values until `read()` (§64).
 
 | Parameter                           | Host value                                                                        |
 | ----------------------------------- | --------------------------------------------------------------------------------- |
@@ -8702,6 +8778,7 @@ Each array it writes is read back into yours in place.
 | `array<vecN>` of those              | the scalar's typed array, `N` numbers per element; the call pads a `vec3` element. `.length` counts vectors (change 0068). |
 | `array<S>`, a struct                | an array of objects                                                               |
 | any of the above | a `Resident` of it (below) |
+| `array<S>`, or a struct `S`, of an exported class | also a `Buffer<S>`, or a `Uniform<S>` (§64) |
 | an array a loop pushes onto | any of the above, or `{ array, length, offset? }`: the array with its held length (below, change 0094) |
 
 **Where it runs.** When the proof accepts every loop of the function, each loop is one dispatch
@@ -9299,10 +9376,10 @@ the binding's host value (Rule 8.21):
 
 | Binding                                         | Host value                                                                                   |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `uniform<T>`, a sized `storage<T>`              | `T`'s host value (§64)                                                                        |
+| `uniform<T>`, a sized `storage<T>`              | `T`'s host value (§64); for a `uniform<T>` of an exported class, also a `Uniform<T>` (§64)   |
 | `storage<array<T>>` of a scalar or a vector     | `Float32Array`, `Int32Array` or `Uint32Array`, the components one after another             |
 | the same of an `f64` or a `vecNf64`             | `Float64Array`, which the runtime splits into the two `f32`s the GPU holds                   |
-| `storage<array<S>>` of a struct                 | an array of objects                                                                          |
+| `storage<array<S>>` of a struct                 | an array of objects, or for an exported class a `Buffer<S>` (§64)                            |
 | an atomic, `storage<array<atomic<u32>>>`        | its integer's value, or `Uint32Array` / `Int32Array` for an array                            |
 | a written `storage<T>` whose `T` is one scalar  | a typed array of length one, which the call writes back                                     |
 | `texture_2d<f32>`                               | an image source: `ImageBitmap`, `ImageData`, `HTMLImageElement`, `HTMLCanvasElement`, `HTMLVideoElement` or `OffscreenCanvas`, uploaded at each call, or a program runtime's `Texture` (§69), bound as it is |
@@ -9337,6 +9414,26 @@ is one `Resident` passed as two bindings of one call. Entry calls and kernel cal
 another in the order they were made, so an entry and a kernel function can share a `Resident`.
 The failed-input policy of §65 applies before the entry executes, including after override specialization.
 Its content-reading bindings are checked in declaration order, followed by a Resident indirect count; write-only bindings can recover.
+
+**Resources as bindings** (change 0138, R2; Rules 8.21 and 8.24). A `uniform<T>` of a class the
+module exports may be a `Uniform<T>`, and a `storage<array<T>>` of one a `Buffer<T>`, an exported
+binding among them. A call that takes one returns nothing and does not block, as a kernel call on
+a resource does (§64). A `Buffer` the entry writes keeps its values on the device until
+`await buffer.read()`. Entry calls and kernel calls run in the order they were made, so a call
+reads what an earlier call wrote:
+
+```ts
+import { all, camera, step } from './scene.shade.ts'; // step reaches camera and all
+
+all.resize(1024);
+camera.set({ time: now / 1000 });
+step({ camera, all }, [1024 / 64]); // returns nothing
+step({ camera, all }, [1024 / 64]); // reads what the first call wrote
+const out = await all.read(); // the one wait
+```
+
+The window, the refusals and a failed call are those of §64. A storage binding of a stated size
+refuses a `Buffer` with a `TypeError` (deferred question 5 of change 0138).
 
 **The workgroup count** is `n` or `[x, y, z]`, passed to `dispatchWorkgroups` as written. The
 view's comment on the entry gives its default `@workgroup_size`; selected constants above determine

@@ -1384,6 +1384,33 @@ ${H3}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     }
   });
 
+  it('a counter started by u32(…) of an untyped constant counts in u32 (#1235, deviation 13)', () => {
+    // Each gave this value on `main`, and was refused here until #1235 (`2fae525a`) made an
+    // integer conversion that starts a counter declare its type.
+    const program = (body: string) => `"use typeshade";
+function h(a: u32): u32 { return a; }
+function hi(a: i32): i32 { return a; }
+const KM = 3;
+export function t(vi: u32): f32 {
+  ${body}
+  return s;
+}`;
+    for (const [body, value] of [
+      ['const k = 3; h(k); let s = 0.; for (let j = u32(k); j < 8; j++) { s += f32(h(j)); }', 25],
+      ['const k = 3; h(k); let s = 0.; for (let j = u32(k); j < vi; j++) { s += f32(j); }', 7],
+      ['const k = 3; h(k); let s = 0.; for (let j = u32(k); j < 8; j++) { s += f32(j + vi); }', 50],
+      ['const k = 3; hi(k); let s = 0.; for (let j = i32(k); j < 8; j++) { s += f32(hi(j)); }', 25],
+      ['const k = 3; let s = 0.; for (let j = u32(k); j < 8; j++) { s += f32(h(j)); }', 25],
+      ['let s = 0.; for (let j = u32(KM); j < 8; j++) { s += f32(h(j)); }', 25],
+      [
+        'const k = 3; h(k); let s = 0.; for (let j = u32(k + 1); j < 8; j++) { s += f32(h(j)); }',
+        22,
+      ],
+    ] as const) {
+      expect(accepted(program(body)).eval('t', [5])).toBe(value);
+    }
+  });
+
   it('an f32 edit leaves an index and a shift amount integers (the fourth review, finding 3)', () => {
     for (const [body, edit] of [
       ['const k = 1; h(k); return f32(vec2(k, 5)[k] / 2);', 'vec2(f32(k), 5)[k] / 2'],

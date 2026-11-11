@@ -50,6 +50,12 @@ export function lives(xs: array<Particle>, out: array<f32>): void {
   }
 }
 
+export function scale(xs: array<f32>, k: f32): void {
+  for (let i = 0; i < xs.length; i++) {
+    xs[i] = xs[i] * k;
+  }
+}
+
 @compute([64])
 export function step(id: builtin<"global_invocation_id">) {
   if (id.x < ps.length) {
@@ -88,9 +94,9 @@ async function bundle(): Promise<string> {
     writeFileSync(
       entry,
       `import * as m from './face.js';
-import { array, configure, uniform } from ${JSON.stringify(join(root, 'src/runtime.ts'))};
+import { array, configure, createDevice, uniform } from ${JSON.stringify(join(root, 'src/runtime.ts'))};
 import { kernelQueue } from ${JSON.stringify(join(root, 'src/core/resident.ts'))};
-export { m, array, configure, uniform, kernelQueue };`,
+export { m, array, configure, createDevice, uniform, kernelQueue };`,
     );
     const bun = (globalThis as unknown as { Bun: Bundler }).Bun;
     const built = await bun.build({ entrypoints: [entry], target: 'browser', format: 'esm' });
@@ -118,6 +124,25 @@ interface Outcome {
   wrong: number;
   /** What the two calls on a read-only array saw at element 7: before and after a set. */
   seen: number[];
+  /** R3: the bits of the exported binding after two entry calls under \`device.use()\`. */
+  deviceBits: number[];
+  /** R3: a call that took a Buffer of one device and a Resident of another was refused. */
+  mixed: boolean;
+  /** R3: what a call on each of two devices read of the exported binding, after a set between. */
+  twoDevices: number[];
+  /** R3: a call on another device between a call that wrote the binding and read() was refused. */
+  crossed: boolean;
+  /** A5, default 6: the WebGL2 calls after the last dispatch of a submission, and those of the
+   *  read() after it. Empty on the other tiers. */
+  glEnd: string[];
+  glRead: string[];
+  /** S3 of the review of #1238: a call with plain data only that wrote a Resident, and the WebGL2
+   *  calls of its read(): no fence, since the call read its values back. */
+  plainValues: number[];
+  plainRead: string[];
+  /** S2 of the review: what a call on another device read of the exported binding after the
+   *  device whose call wrote it was disposed, or the error. */
+  afterDispose: string;
   error?: string;
 }
 
@@ -142,11 +167,17 @@ async function runInPage(input: {
       move(xs: unknown, p: unknown): unknown;
       step(b: unknown, w: unknown): unknown;
       lives(xs: unknown, out: unknown): unknown;
+      scale(xs: unknown, k: number): Promise<unknown>;
     };
     array(cls: unknown, data?: unknown[]): Buffer;
     configure(o: { prefer: string[] }): void;
+    createDevice(o: { prefer: string[] }): Promise<{
+      use(): { dispose(): void };
+      array(v: Float32Array): { read(): Promise<Float32Array> };
+      dispose(): Promise<void>;
+    }>;
     uniform(cls: unknown, init: unknown): { dt: { set(v: number): void } };
-    kernelQueue: { held: unknown[] };
+    kernelQueue: { held: unknown[]; idle(): Promise<unknown> };
   };
   const { m } = g;
   // A kernel function on a Buffer of structs has no WebGL2 tier (Rule 11.8): on WebGL2 it runs on
@@ -160,7 +191,31 @@ async function runInPage(input: {
     refused: false,
     wrong: 0,
     seen: [],
+    deviceBits: [],
+    mixed: false,
+    twoDevices: [],
+    crossed: false,
+    glEnd: [],
+    glRead: [],
+    plainValues: [],
+    plainRead: [],
+    afterDispose: '',
   };
+  // Every flush and fence of the WebGL2 context, in order.
+  const glLog: string[] = [];
+  const GL = (
+    globalThis as unknown as { WebGL2RenderingContext?: { prototype: Record<string, unknown> } }
+  ).WebGL2RenderingContext;
+  const glOriginal: Record<string, unknown> = {};
+  if (GL !== undefined)
+    for (const name of ['flush', 'fenceSync', 'clientWaitSync']) {
+      const f = GL.prototype[name] as (this: unknown, ...a: unknown[]) => unknown;
+      glOriginal[name] = f;
+      GL.prototype[name] = function (this: unknown, ...a: unknown[]) {
+        glLog.push(name);
+        return f.apply(this, a);
+      };
+    }
   const queue = (globalThis as { GPUQueue?: { prototype: { writeBuffer: unknown } } }).GPUQueue;
   const original = queue?.prototype.writeBuffer as
     ((this: unknown, b: unknown, o: number, d: ArrayBuffer | ArrayBufferView) => void) | undefined;
@@ -224,15 +279,103 @@ async function runInPage(input: {
     const second = await m.ps.read();
     const f = new Float32Array(1);
     const u = new Uint32Array(f.buffer);
-    for (const e of [...first, ...again, ...second])
-      for (const x of [...e.pos, e.life]) {
-        f[0] = x;
-        out.bits.push(u[0]!);
+    const bitsOf = (es: { pos: number[]; life: number }[], into: number[]): void => {
+      for (const e of es)
+        for (const x of [...e.pos, e.life]) {
+          f[0] = x;
+          into.push(u[0]!);
+        }
+    };
+    bitsOf([...first, ...again, ...second], out.bits);
+
+    // R3: data decides the device. Each call below runs on a device it was given: the device in
+    // use, or the device of its resources. The unit suite proves which device ran each call.
+    const prefer = input.tier === 'webgl2' ? ['webgl2', 'cpu'] : [input.tier];
+    const dev = await g.createDevice({ prefer });
+    const other = await g.createDevice({ prefer: ['cpu'] });
+    const within = <T>(d: typeof dev, f: () => T): T => {
+      const use = d.use();
+      try {
+        return f();
+      } finally {
+        use.dispose();
       }
+    };
+    m.ps.set(data.slice(0, 130));
+    m.camera.set({ dt: 2, drag: 0.5 });
+    within(dev, () => m.step({ camera: m.camera, ps: m.ps }, [3]));
+    m.camera.set({ dt: 4 });
+    within(dev, () => m.step({ camera: m.camera, ps: m.ps }, [3]));
+    // A5, default 6: the submission ends with a flush, and read() waits on a fence.
+    await g.kernelQueue.idle();
+    const mark = glLog.length;
+    out.glEnd = glLog.slice(Math.max(0, mark - 1));
+    bitsOf(await m.ps.read(), out.deviceBits);
+    out.glRead = glLog.slice(mark);
+    // A call between a call that wrote the binding on one device and read() on another is refused.
+    within(dev, () => m.step({ camera: m.camera, ps: m.ps }, [3]));
+    try {
+      m.lives(m.ps, other.array(new Float32Array(130)));
+    } catch (e) {
+      out.crossed = e instanceof TypeError;
+    }
+    await m.ps.read();
+    // A Buffer of one device and a Resident of another are refused at the call.
+    const mine = within(dev, () => g.array(m.Particle, data.slice(0, 4)));
+    try {
+      m.lives(mine, other.array(new Float32Array(4)));
+    } catch (e) {
+      out.mixed = e instanceof TypeError;
+    }
+    // The exported binding uploads on each device that reads it, each taking the dirty ranges.
+    m.ps.set(data.slice(0, 4));
+    const a1 = within(dev, () => g.array(new Float32Array(4))) as unknown as {
+      read(): Promise<Float32Array>;
+    };
+    const b1 = other.array(new Float32Array(4));
+    m.lives(m.ps, a1);
+    m.lives(m.ps, b1);
+    m.ps.at(1)!.life!.set(5);
+    const a2 = within(dev, () => g.array(new Float32Array(4))) as unknown as {
+      read(): Promise<Float32Array>;
+    };
+    m.lives(m.ps, a2);
+    m.ps.at(2)!.life!.set(7);
+    const b2 = other.array(new Float32Array(4));
+    m.lives(m.ps, b2);
+    for (const r of [a1, b1, a2, b2]) out.twoDevices.push(...(await r.read()));
+    // S3: a call with plain data only (a Resident is no resource of R2) keeps today's meaning: it
+    // reads its values back inside the call, and its read() places no fence.
+    const plain = within(dev, () => g.array(new Float32Array([1, 2, 3, 4]))) as unknown as {
+      read(): Promise<Float32Array>;
+    };
+    await m.scale(plain, 2);
+    await g.kernelQueue.idle();
+    const plainMark = glLog.length;
+    out.plainValues = Array.from(await plain.read());
+    out.plainRead = glLog.slice(plainMark);
+    // S2: a device disposed after its call wrote the exported binding lands the values first, and
+    // drops its copy: a call on another device takes them.
+    const gone = await g.createDevice({ prefer });
+    m.ps.set(data.slice(0, 4));
+    m.camera.set({ dt: 1, drag: 1 });
+    within(gone, () => m.step({ camera: m.camera, ps: m.ps }, [1]));
+    await gone.dispose();
+    try {
+      const after = other.array(new Float32Array(4));
+      m.lives(m.ps, after);
+      out.afterDispose = Array.from(await after.read()).join(', ');
+    } catch (e) {
+      out.afterDispose = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    }
+    await dev.dispose();
+    await other.dispose();
   } catch (e) {
     out.error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
   } finally {
     if (queue !== undefined && original !== undefined) queue.prototype.writeBuffer = original;
+    if (GL !== undefined)
+      for (const [name, f] of Object.entries(glOriginal)) GL.prototype[name] = f;
     g.configure({ prefer: ['webgpu', 'webgl2', 'cpu'] });
   }
   return out;
@@ -284,6 +427,52 @@ export async function resourceCallArm(page: Page): Promise<number> {
       if (tier !== 'cpu') {
         const same = o.bits.length === cpu.bits.length && o.bits.every((b, i) => b === cpu.bits[i]);
         check(same, `${tier}: ${o.bits.length / 4} elements bit for bit against the CPU tier`);
+      }
+      // R3: the entry calls under device.use() run on that device, and give the CPU tier's bits.
+      check(
+        o.deviceBits.length === 130 * 4 &&
+          o.deviceBits.every((b, i) => b === cpu.bits[cpu.bits.length - 130 * 4 + i]),
+        `${tier}: two entry calls under device.use() give the bits of the default owner's calls`,
+      );
+      check(o.mixed, `${tier}: a call that mixes devices is a TypeError (R3)`);
+      check(
+        o.crossed,
+        `${tier}: a call on another device between a write of an exported binding and read() is refused`,
+      );
+      const r = Math.fround;
+      const want = [
+        ...[0, 1, 2, 3].map((i) => r(i * 0.125)),
+        ...[0, 1, 2, 3].map((i) => r(i * 0.125)),
+        r(0),
+        5,
+        r(0.25),
+        r(0.375),
+        r(0),
+        5,
+        7,
+        r(0.375),
+      ];
+      check(
+        o.twoDevices.length === 16 && o.twoDevices.every((x, i) => Object.is(x, want[i])),
+        `${tier}: an exported binding uploads its dirty ranges on each device that reads it (${o.twoDevices.join(', ')})`,
+      );
+      check(
+        o.plainValues.join() === '2,4,6,8' && !o.plainRead.includes('fenceSync'),
+        `${tier}: a call with plain data only reads back inside the call, and its read() places no fence (${o.plainValues.join(', ')}; ${o.plainRead.includes('fenceSync') ? 'a fence at read()' : 'no fence'})`,
+      );
+      check(
+        o.afterDispose === [1, 1.125, 1.25, 1.375].join(', '),
+        `${tier}: a device disposed after a write of an exported binding lands it first (${o.afterDispose})`,
+      );
+      if (tier === 'webgl2') {
+        check(
+          o.glEnd.join() === 'flush',
+          `webgl2: the submission ends with a flush (${o.glEnd.join(', ')})`,
+        );
+        check(
+          o.glRead[0] === 'fenceSync' && o.glRead.includes('clientWaitSync'),
+          `webgl2: read() waits on a fence (${o.glRead[0]}, then ${o.glRead.filter((c) => c === 'clientWaitSync').length} polls)`,
+        );
       }
       // The set of element 7 after read() is one range of one element (16 bytes at 7 * 16),
       // written before the next call.

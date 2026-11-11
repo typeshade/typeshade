@@ -19,6 +19,25 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **Data decides the device of a call** (change 0138, milestone 3, R3; Amendment A5, default 6).
+  `zeros()`, `array()` and `uniform()` make what they make on the device in use
+  (`using _ = (await createDevice(…)).use()`), or on the default owner when none is in use, and
+  it stays that device's after the block. A kernel call or an entry call runs on the device of its
+  resources; with none of a device (plain values, exported bindings) it runs on the device in use,
+  where it ran on the default owner before. A call that mixes devices is a `TypeError` at the
+  call that names both, and changes no `Buffer`. An exported binding belongs to no one device: a
+  storage array keeps a device copy for each device whose call reads it, and each copy takes
+  every dirty range the host set since its own last call. Between a call that writes an exported
+  binding and its `read()`, a call on another device is refused with a `TypeError` that says to
+  await `read()` first; a device disposed in that time lands the values first and drops its copy.
+  A `Uniform` joins a call on any device, since its value is copied at each call. On WebGL2 the end
+  of a submission of recorded calls flushes the context, and `read()` of what such a call wrote
+  waits on a fence (`core/gl-fence.ts`); a lost context ends the wait, since the values are on the
+  host already. A call with plain data places no flush and no fence. A draw keeps today's owner. Measured bundle budgets move
+  (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime` 166484 to 167177,
+  `typeshade/fuse` 113593 to 113898, `typeshade/algorithms` 64741 to 64878 and `typeshade/random`
+  46043 to 46200: the call layer each one carries settles a call's device at the call now.
+
 - **A call on a resource does not block** (change 0138, milestone 3, R2; Amendment A5). A kernel
   function that returns nothing, or a `@compute` entry, called with a `Buffer` or a `Uniform`
   (an exported binding among them) is checked at the call, recorded, and returns nothing:
@@ -322,12 +341,6 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   the written number is refused: with `const k = 7; h(k);`, `f32(~k)`, `f32((k | 1) >> 1)` and
   `f32((k % 4) >> 1)` compiled (`k` was a `u32`) and are refused, as `~7` and `(7 | 1) >> 1`
   are; `f32(~(k << 1))` was 4294967281 and is -15, the written number's `i32` value.
-  Until pull request #1235 (a conversion that starts a counter declares its type) is merged,
-  which it is before this change, a counter started by `u32(…)` of such a constant, or of
-  arithmetic over one, is refused where it is used as a `u32`: `const KM = 3;` with
-  `for (let j = u32(KM); j < 8; j++) { a += f32(h(j)); }` gave 25, and so did the same with a
-  function-local `const k = 3` that nothing else reads; `u32(k + 1)` after `h(k)`, `u32(k)`
-  with `j < vi`, and `a += f32(j + vi)` compiled too.
   **Migration:** to keep an `f32` constant, write its type (`const K: f32 = 16777217`). For a
   refused `/`, make the edit the sentence names: the constant's type where an integer position
   reads the quotient (`const k: u32 = 7`), or the constant converted elsewhere (`f32(k) / 2`). One more program
@@ -2202,6 +2215,30 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **An integer conversion that starts a `for` counter declares the counter's type** (Rule 7.5).
+  A header name with no annotation is an `i32` (or a `u32` beside a `u32` bound) only when its
+  value is written as an integer, and any other value gives it the value's type. `u32(x)`
+  counted in `u32`, but `u32(3)` counted in `i32`: the fold made it a literal of its type
+  (#1217), and the header read the literal as a written integer. A start `u32(…)` or `i32(…)`
+  now gives the counter the conversion's type. An `f32(…)` start still counts in `i32`, as
+  before: an `f32` counter needs `TS8007` to catch a step that rounds away (issue #1242; the
+  owner's decision of 2026-11-11, "이 PR은 i32/u32만"). With `function h(a: u32): u32` and
+  `function hi(a: i32): i32`:
+  **Newly accepted:** a `u32(n)` counter where a `u32` is asked (`h(j)`, `j < vi` with a `u32`
+  `vi`, `j < u32(8)`): `for (let j = u32(3); j < 8; j++) { a += f32(h(j)); }` was refused and
+  gives 25.
+  **Newly refused:** every place where the counter was used as an `i32`, each an `i32` loop
+  before, is refused as it is for `u32(x)`: a unary minus of a `u32` (`a += f32(-j)` with a
+  `u32(3)` start was -25), arithmetic or a comparison with an `i32` (`j < ii`, an index
+  `xs[tv + j]`), a negative written number beside it (`j * -1`), a bitwise operator with an
+  `i32` (`j & tv`), an `i32` argument (`hi(j)`) and an assignment to an `i32` (`let q: i32 = j`). A `u32(n)` counter that counts down to `j >= 0`
+  leaves the range of `u32` (`TS8006`).
+  **Values that change:** unsigned arithmetic that goes below zero now wraps:
+  `for (let j = u32(2); j < 6; j++) { a += f32(j - 3); }` was 2 and is 4294967296 (the `f32` sum
+  of 4294967295, 0, 1 and 2). `~j` is the `u32` complement:
+  `for (let j = u32(3); j < 8; j++) { a += f32(~j); }` was -30 and is 21474836480.
+  Write `i32(…)`, or no conversion, for an `i32` counter.
 
 - **A struct that holds itself is refused instead of overflowing the stack** (Rules 12.4, 12.6
   and 12.7, #1204). A struct that holds itself, directly, through other structs, through an
