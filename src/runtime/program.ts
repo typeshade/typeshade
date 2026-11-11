@@ -55,8 +55,9 @@ import { cpuProgramOf } from './cpu-program.js';
 import type { DepthAttachment, PassTargets, RuntimeImpl } from './runtime.js';
 
 /** A draw or dispatch binds values by the names the source declares. Each is a `Texture`, a
- *  `Sampler`, a `Buffer` of scalars for a storage array with no size, a plain host value (Rule
- *  8.21), or a host GPU object (below).
+ *  `Sampler`, a `Buffer` of scalars for a buffer binding, a plain host value (Rule 8.21), or a
+ *  host GPU object (below). A `Buffer` binds to any buffer binding, a uniform and a sized storage
+ *  binding among them: deviation D-l, recorded on #1257 and open (change 0138, Amendment A11, Q3).
  *
  *  A plain value is packed by the binding's layout into its own buffer at each draw and dispatch.
  *  Draws of one pass that bind different values of one binding each read their own. The buffers
@@ -1865,12 +1866,6 @@ export class ProgramImpl implements Program {
             `${where} has no host value${b.noLayout !== undefined ? `: ${b.noLayout}` : ''}.`,
           );
         const layout = s.layout;
-        // Only a storage array with no size takes a `Buffer` of scalars (deviation D-l of change
-        // 0138); a uniform and a sized binding take the plain value each frame (Amendment A11, Q3).
-        if (b.resource.resourceKind !== 'storage-buffer' || layout.k !== 'a' || layout.n !== null)
-          throw new TypeError(
-            `${where} takes no Buffer: a Buffer is bound only to a storage array with no size; pass the plain value each frame (change 0138, Amendment A11, Q3).`,
-          );
         const writes = entry.bindings?.find((x) => x.name === b.name)?.writes ?? false;
         try {
           return {

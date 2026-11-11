@@ -9195,10 +9195,11 @@ and runs in the order calls were made. The first call on WebGPU uploads the `Buf
 after bind the same buffer and read nothing back, and `await b.read()` waits for the calls made
 before it. From a call that writes a `Buffer` until `read()` brings its values back, `set`,
 `resize`, `needsUpdate` and the element view's `get` and `set` throw a `TypeError` that says to
-await `read()` first. The `Buffer` is a buffer of the program runtime too, for a storage array
-with no size and a geometry's vertices and indices (§69); a uniform and a sized binding take no
-`Buffer`, which is a `TypeError`, and take the plain value each frame (Amendment A11, Q3). And
-`configure({ runtime })` puts the calls on that runtime's device, so one `Buffer` serves both:
+await `read()` first. The `Buffer` is a buffer of the program runtime too, for a geometry's
+vertices and indices (§69) and for a buffer binding. This version binds it to any buffer binding,
+a uniform and a sized storage binding among them, where change 0138, Amendment A11, Q3 takes the
+plain value: deviation D-l, recorded on #1257 and open. And `configure({ runtime })` puts the calls on that runtime's
+device, so one `Buffer` serves both:
 
 ```ts
 import { array } from 'typeshade/runtime';
