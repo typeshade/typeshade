@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { peekingReads } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -312,7 +313,7 @@ function spreadElements(
 ): string | undefined {
   const operand = spread.expression;
   // Only its type is read; what the operand itself may be refused for is not this mistake.
-  const type = lowerExpression(operand, sourceFile, scope, [])?.type;
+  const type = peekingReads(() => lowerExpression(operand, sourceFile, scope, []))?.type;
   const written = operand.getText(sourceFile);
   const shown =
     ts.isIdentifier(operand) ||

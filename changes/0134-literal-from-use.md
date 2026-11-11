@@ -1140,7 +1140,8 @@ f64 = C;` read 0.10000000149011612 and reads 0.1, and `const K = 4294967295; u32
     read the compiler types `u32`. Until item 4 is delivered this is a deviation from Rule 12.7
     ("The language service and the compiler must name one vocabulary") and from the `getHover`
     row of `docs/language-service-api.md` (line 485: "the COMPILER's type for every name the
-    front end declared in this document"). Item 4 is its own part.
+    front end declared in this document"). Item 4 is its own part. Closed by part 5
+    (pull request #PRNUM).
   - Closed by Amendment A2 ("하나만, 수정안으로 기록"): the refusal sentence names one edit,
     where "Proposed" says that it names the two fixes. It names the one that compiles where
     the quotient stands.
@@ -1209,7 +1210,47 @@ division it is. Write "f32(j) / 2" for the float division.` A declared counter,
   `~f` records no integer demand; `let b = a` with `a` undecided is not a candidate; a chain of
   decisions is capped at `MAX_INFERENCE_PASSES` (16) passes, each a full lowering of the module.
 
-Not delivered yet: the second part of items 1 and 3 (4b), item 4, the document part of item 5, item 5 for `journeys/`
+**Part 5, item 4, the hover (first part).** Pull request #PRNUM.
+
+- Delivered: the hover of a constant of no fixed type (Rule 12.7, decision Q3). At the
+  declaration and at an import that names it: `const K = 3 (i32, u32, f32 or f64 where it is
+read)`, and `const C = 0.1 (f32 or f64 where it is read)` for a float-written constant. At a
+  read: the type the compiler gave that read (`const K: u32` in `vi * K`), also in a file that
+  imports the constant, in that file's program. In the declaring file of a constant that only
+  importers read as an integer, nothing decides, so its reads there show `f32` and its
+  declaration the words. A function-local `const`, a derived constant, a member of a namespace
+  (`const Tone.GAMMA: f32`) and a static field that no code writes (`static Z = 4 (…)`,
+  `(property) S.Z: u32`) read the same way. The front end records each lowering of a read and the
+  type a retarget gives it (`noteIntegerRead`, `noteF64Read`, `noteCastRead` in
+  `src/compiler/ts/abstract-const.ts`), keeps the table per source file (`abstractConstTableOf`
+  in `src/compiler/ts/symbols.ts`), and maps a linked compile's table to the entry
+  (`compileLinked`). A lookahead lowering whose result the program does not keep records nothing
+  (`peekingReads`). `src/language-service/hover.ts` (`abstractConstLine`) reads the table and
+  computes no type. Tests: `src/language-service/abstract-const-hover.test.ts`, both halves on
+  each source. The hover tests that pinned `const K: f32` at a declaration now pin the words
+  (`hover.test.ts`, `imported-symbol-hover.test.ts`). No emitted text, golden or diagnostic
+  changes.
+- Already true on `main` and kept: the hover of a local, a field and a module variable is the
+  compiler's type, a value whose `/` is refused hovers as the type inference gave it
+  (`let k: u32`) beside the one `TS8003` at the `/` (tested here), and an imported function hovers
+  as the compiler's type in the importing program (`importedSymbolAt`).
+- Closed: part 3's deviation "Hover is not changed" for a constant of no fixed type.
+- Deviations, open:
+  - The hover cases of a function whose callers decide its result (`function g(): u32`), of a
+    function with two copies (the words at the declaration, the copy's type at a call), and of
+    a local in each copy (Amendment A1, "사본마다 추론") need part 4b, which makes those
+    results and copies. Until 4b such a function returns `f32` in both halves, and its hover
+    says `f32`. They are delivered with or after 4b.
+  - A read whose lowerings give it two types keeps the words at the read, where item 4 names
+    the compiler's type: a read in a generic function's body that two instances type apart, and
+    the start of a loop counter that the front end lowers again at its type on `main`
+    (Amendment A4, `withReadTypes`). The words are true for every lowering.
+  - The words of a static field (`static Z = 4 (…)`) and the qualified name at a read through a
+    namespace (`const Tone.GAMMA: f32`) are not spelled in item 4, which shows the `const` form
+    only. They follow the declaration as written, as `const K = 3` does.
+
+Not delivered yet: the second part of items 1 and 3 (4b), the hover of a function its callers
+decide and of its copies (item 4, with 4b), the document part of item 5, item 5 for `journeys/`
 and the helper sources of `examples/` (Amendment A1), and the audit.
 
 ## What it owes downstream

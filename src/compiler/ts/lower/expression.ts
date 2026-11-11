@@ -7,6 +7,7 @@ import {
   markAbstractRead,
   markCarriedRead,
   noteAbstractDivision,
+  noteForcedRead,
   readTypeFor,
 } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
@@ -614,6 +615,7 @@ function lowerIdentifier(
         // The read is a typed value there, not a written number (`isAbstractRead`), so a peer
         // literal takes its type (`Math.max(k, 1)`, `k >> 1`).
         if (forced !== undefined && binding.abstract !== undefined) {
+          noteForcedRead(node, binding.abstract, forced);
           return { op: 'lit', type: forced, value: binding.abstract.value };
         }
       }

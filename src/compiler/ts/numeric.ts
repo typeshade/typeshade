@@ -20,7 +20,7 @@ import {
 import { fitsTarget, foldNumericLit, retargetIntLit } from './lit-coerce.js';
 import { authorTypeText } from './context.js';
 import { wrapInt } from '../../core/passes/opt/expr-utils.js';
-import { abstractLiteralOf } from './abstract-const.js';
+import { abstractLiteralOf, noteF64Read } from './abstract-const.js';
 import { noteDemand } from './use-inference.js';
 
 export const SCALAR_CAST: Readonly<Record<string, ShaderType>> = {
@@ -76,7 +76,9 @@ function retargetF64Lit(expr: Expr, node: ts.Expression): Expr {
   const abstract = abstractLiteralOf(expr);
   if (abstract !== undefined) {
     const lifted = retargetF64Lit(abstract, node);
-    return lifted.op === 'lit' && isF64(lifted.type) ? lifted : expr;
+    if (lifted.op !== 'lit' || !isF64(lifted.type)) return expr;
+    noteF64Read(node, lifted.type);
+    return lifted;
   }
   const folded = foldNumericLit(expr);
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded;

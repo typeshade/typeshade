@@ -6,7 +6,7 @@ import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { entryNode } from '../compiler/ts/entry-locations.js';
 import { qualifiersOf } from '../compiler/ts/lower/references.js';
 import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
-import type { DeclaredSymbol } from '../compiler/ts/symbols.js';
+import { abstractConstTableOf, type DeclaredSymbol } from '../compiler/ts/symbols.js';
 import { ioAttrOf, retIoAttrOf } from '../core/ir/entry-io.js';
 import type { FuncDecl } from '../core/ir/nodes.js';
 import type { ShaderType } from '../core/ir/types.js';
@@ -1034,6 +1034,91 @@ function declarationLine(
 }
 
 /**
+ * The first line of the hover of a constant of no fixed type (Rule 5.1, change 0134 item 4), or
+ * `undefined` when `node` names none. `defs` is where TypeScript resolves the name.
+ *
+ * Such a constant has no one type, so the compiler's table records its declaration at the type
+ * of its emitted `f32` declaration, which is the type of no read but an `f32` one. The hover reads
+ * the compile's own facts instead (`abstractConstTableOf`), and computes none:
+ *
+ * - at a read, the type that read took: `const K: u32` in `vi * K`, as the written number `3`
+ *   takes `u32` there. A read in a file that imports the constant is read in that file's
+ *   program, which the compile of its document compiles (Rule 12.7).
+ * - at the declaration, and at a read with no one type (one lowered once per instance of a
+ *   generic function at two types, one inside another such constant's initializer, one the
+ *   program does not lower), the language's own words (decision Q3):
+ *   `const K = 3 (i32, u32, f32 or f64 where it is read)`, and for a float-written constant
+ *   `const C = 0.1 (f32 or f64 where it is read)`. In a file whose reads are all in the files
+ *   that import it, nothing in the file decides, and these words are what the hover shows.
+ *
+ * A static field that no code writes is such a constant too (Rule 8.13): `static Z = 4 (…)` at
+ * its declaration, `(property) S.Z: u32` at a read.
+ */
+function abstractConstLine(
+  node: ts.Node,
+  defs: readonly ts.DefinitionInfo[],
+  uri: string,
+  sourceFile: ts.SourceFile,
+  analysis: CompileTsSourceResult,
+  checker: () => ts.TypeChecker | undefined,
+  declaring: CompileTsSourceResult | undefined,
+): string | undefined {
+  if (!ts.isIdentifier(node) || defs.length === 0) return undefined;
+  const declaredIn = (result: CompileTsSourceResult | undefined) =>
+    (result === undefined ? undefined : abstractConstTableOf(result.sourceFile))?.decls.find((d) =>
+      defs.some((def) => def.fileName === d.fileName && def.textSpan.start === d.start),
+    );
+  const table = abstractConstTableOf(analysis.sourceFile);
+  // An import this document's program does not keep is read in the declaring document's own
+  // program (`unlinkedSymbolAt`), which holds the declaration and none of this file's reads.
+  const decl = declaredIn(analysis) ?? declaredIn(declaring);
+  if (decl === undefined) return undefined;
+  const name = node.text;
+  const start = node.getStart(sourceFile);
+  const access =
+    ts.isPropertyAccessExpression(node.parent) && node.parent.name === node
+      ? node.parent
+      : undefined;
+  if (decl.fileName !== uri || start !== decl.start) {
+    // A read of a static field is the access that names it, `S.Z`.
+    const spans = [node, ...(access !== undefined ? [access] : [])].map((n) => {
+      const at = n.getStart(sourceFile);
+      return { start: at, length: n.getEnd() - at };
+    });
+    const read = table?.reads.find((r) =>
+      spans.some((s) => s.start === r.start && s.length === r.length),
+    );
+    if (read?.type != null) {
+      const type = spellShaderType(read.type);
+      // A read through a namespace names it as TypeScript does, by the namespace's own name
+      // (`const Tone.GAMMA: f32`, also for `lib.Tone.GAMMA`). A namespace import
+      // (`import * as lib`) is no part of the name: `lib.K` reads `const K`, as a named import
+      // of it does.
+      const left = access?.expression;
+      const viaImport =
+        left !== undefined &&
+        (checker()
+          ?.getSymbolAtLocation(left)
+          ?.declarations?.some((d) => ts.isNamespaceImport(d)) ??
+          false);
+      const owner =
+        left === undefined || viaImport
+          ? undefined
+          : ts.isPropertyAccessExpression(left)
+            ? left.name.text
+            : left.getText(sourceFile);
+      if (decl.keyword === 'const')
+        return owner === undefined ? `const ${name}: ${type}` : `const ${owner}.${name}: ${type}`;
+      return owner === undefined
+        ? `(property) ${name}: ${type}`
+        : `(property) ${owner}.${name}: ${type}`;
+    }
+  }
+  const types = decl.integerWritten ? 'i32, u32, f32 or f64' : 'f32 or f64';
+  return `${decl.keyword} ${name} = ${decl.written} (${types} where it is read)`;
+}
+
+/**
  * Hover at `offset` in `uri`: a TypeShade documentation sentence for a GPU type name, an
  * attribute, or a builtin string, and otherwise the symbol's type.
  *
@@ -1133,8 +1218,15 @@ export function getHover(
   // for the definition of every identifier.
   const linkedCompile = linkedCompileOf(analysis);
   const linked = ts.isIdentifier(node) && linkedCompile !== undefined;
+  // The fifth is a constant of no fixed type (`abstractConstLine`): a member of a namespace or a
+  // static field is recorded under a longer name, so a file that declares or reads one asks for
+  // the definition of every identifier.
+  const abstract =
+    ts.isIdentifier(node) && (abstractConstTableOf(analysis.sourceFile)?.decls.length ?? 0) > 0;
   const defs = implementationsOf(
-    named || property || linked ? (languageService.getDefinitionAtPosition(uri, offset) ?? []) : [],
+    named || property || linked || abstract
+      ? (languageService.getDefinitionAtPosition(uri, offset) ?? [])
+      : [],
     (fileName) => languageService.getProgram()?.getSourceFile(fileName),
   );
   const self: HoverProgram = { uri, analysis };
@@ -1231,7 +1323,18 @@ export function getHover(
           : writtenParams(sourceFile, shown.start, program, shown, struct);
     return declarationLine(shown, moduleVar, struct, params, owner);
   };
-  const display = line() ?? ts.displayPartsToString(quickInfo.displayParts);
+  const display =
+    abstractConstLine(
+      node,
+      defs,
+      uri,
+      sourceFile,
+      analysis,
+      checker,
+      imported !== undefined && imported.program !== self ? imported.program.analysis : undefined,
+    ) ??
+    line() ??
+    ts.displayPartsToString(quickInfo.displayParts);
   const documentation = ts.displayPartsToString(quickInfo.documentation);
   // A binding that another file declares has its slot in this document's program.
   const resource =

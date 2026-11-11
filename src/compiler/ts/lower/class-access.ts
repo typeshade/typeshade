@@ -8,7 +8,7 @@
 // TypeScript's checker enforces and this surface, which does not run the checker, enforces for
 // it. `C.K` and `this.K` in a static member name the class's statics.
 
-import { markAbstractRead } from '../abstract-const.js';
+import { markAbstractRead, peekingReads } from '../abstract-const.js';
 import ts from 'typescript';
 import type { Expr, FuncDecl, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -717,7 +717,7 @@ export function lowerAccessorTarget(
   } else {
     // Read without reporting: a receiver that does not lower, or is not a struct, takes the
     // ordinary path and gets its diagnostics there.
-    const peek = lowerExpression(obj, sourceFile, scope, []);
+    const peek = peekingReads(() => lowerExpression(obj, sourceFile, scope, []));
     if (peek === undefined || peek.type.kind !== 'struct') return 'not-an-accessor';
     if (visibleField(peek.type.name, written, node.name, scope) !== undefined) {
       return 'not-an-accessor';

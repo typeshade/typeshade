@@ -6,7 +6,13 @@ import {
   noteOpenCounter,
   readsUndecided,
 } from '../use-inference.js';
-import { abstractTreeOf, originOf, withReadTypes, type AbstractConst } from '../abstract-const.js';
+import {
+  abstractTreeOf,
+  originOf,
+  withReadTypes,
+  type AbstractConst,
+  peekingReads,
+} from '../abstract-const.js';
 import { localNumericInference } from '../local-numeric-inference.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
@@ -481,7 +487,10 @@ function lowerHeaderCounter(
   let start: ts.Expression = written;
   while (ts.isParenthesizedExpression(start)) start = start.expression;
   const bound = comparedBound(node, name);
-  const boundExpr = bound === undefined ? undefined : lowerExpression(bound, sourceFile, scope, []);
+  const boundExpr =
+    bound === undefined
+      ? undefined
+      : peekingReads(() => lowerExpression(bound, sourceFile, scope, []));
   const boundType = boundExpr?.type;
   // A written integer bound makes a float-written start an `i32` counter. A constant of no
   // fixed type is no such bound: it takes the counter's type, as it did when it was an `f32`
