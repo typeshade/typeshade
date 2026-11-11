@@ -7,6 +7,7 @@ import type { ShaderType } from '../../core/ir/types.js';
 import { f64T, isF64 } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
+import { noteDemand } from './use-inference.js';
 import { TS_CODES } from './codes.js';
 import {
   abstractLiteralOf,
@@ -129,6 +130,9 @@ export function foldNumericLit(expr: Expr): Expr {
 }
 
 export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
+  // A value whose type its uses decide takes this peer's type, as a written number does: the
+  // use is recorded, and the next pass lowers the value with it (`use-inference.ts`).
+  noteDemand(expr, peer);
   // A read of a constant of no fixed type, or arithmetic over such reads and written numbers,
   // takes an integer peer's type as the written number would (Rule 5.1, change 0134 item 2).
   // Beside anything else it is left as lowered, so an `f32` read keeps the constant's name.
@@ -206,6 +210,7 @@ function retargetF64DeclaredLit(expr: Expr, node: ts.Expression): Expr {
  *  A conditional is retargeted through its arms, so `c ? 1 : 2` in a u32 position is a
  *  `select` of two u32 literals rather than a select of two f32 ones. */
 export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: ShaderType): Expr {
+  noteDemand(expr, target);
   // An integer position asks an integer of a `/` inside what it reads (`let j: u32 = k / 2`,
   // `h((k % 4) / 2)`): the refusal of that `/` names the integer edit (change 0134).
   if (isIntScalar(target)) noteIntegerContext(node, typeKey(target) === 'u32' ? 'u32' : 'i32');

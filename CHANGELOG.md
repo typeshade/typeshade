@@ -284,6 +284,37 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **A function-local `let` of a written number takes its type from its uses** (change 0134,
+  items 1 and 3, part 4a; Rule 5.1, surface §13; `docs/owner-decisions.md` OD-7). An
+  unannotated `let` initialized by integer-written numbers, by a constant of no fixed type that
+  is one, or by `+ - * /` over those, takes the type its uses give it: an operator beside a typed
+  peer, a builtin's typed argument, a constructor argument, an arm of a conditional, a field of
+  an object literal, a bitwise or shift operand, an index, a `switch` selector, an assignment or
+  a compound assignment from a typed value, a `return` in a function with a declared result, an
+  argument of a declared parameter, the uses of a counter that starts at it, and another such
+  value. The values of a module are solved together, so the order of the lines does not matter.
+  Where no use decides, the value is the `f32` it always was. The counter of a `for` that is not
+  counted is such a `let` (Amendment A1); a counted `for` keeps Rule 7.5. A function that writes
+  no result type and returns a value over a function-local constant returns the type that value
+  had: `function g() { const k = 7; h(k); return k; }` returns a `u32`.
+  **Newly accepted**, each refused before: `let n = 0; n += vi;` (a `u32`),
+  `let n = 7; return f32(vi / n);`, `let j = 0; xs[j]`, `let f = 0; f | 4`, and an open `for`
+  whose counter an `f32` uses (`let a = 0; for (let j = 0; ; j++) { a += j; … }`). With
+  pull request #1184's constants, `let y = k;` with `vi + y`, `xs[y]`, `h(y)` and `switch (y)`,
+  `xs[g()]`, and a counter started through `let y = k` or `g()`, compile as they did before #1184.
+  **Newly refused** (`TS8003`): a `/` or `/=` whose operands are all integers by inference,
+  as for a constant: `let k = 7; h(k); return f32(k / 2);` computed 3 and is refused with
+  `Write "let k: u32 = 7" for the integer division.`; `let k = 7; h(k); k /= 2;` too.
+  `vi / k` with a declared `u32` `vi` stays an integer division. A `/` over the counter of an
+  open `for` that no use gives a type is refused too (the owner's decision of 2026-11-11):
+  `for (let j = 0; ; j++) { a += f32(j / 2); if (j > 5) { break; } }` computed 9 and is refused
+  with `Write "f32(j) / 2" for the float division.`; `let j: i32 = 0` keeps the 9.
+  A counted `for` whose start or bound is such a `let` counts in the type the `let`'s other uses
+  give it: `let n = 0; n += vi; for (let j = 0; j < n; j++)` counts in `u32`.
+  **Values that change:** a `let` whose use is an `f64` is an `f64`: with `const K = 16777217;`,
+  `let j = K; return d * j;` (`d: f64`) multiplies by 16777217 where it multiplied by the `f32` 16777216. A function result over a function-local constant has its type from before change
+  0134 again, so the item 2 entry's function-result rows go back: `f32(g() - 8)` is 4294967295
+  and `f32(g() * 1000000000)` is 2705032704, as before item 2.
 - **A `const` of a written number has no fixed type; each read takes the type the written number
   would take there** (change 0134 item 2; Rules 5.1 and 5.2, surface §12 and §13;
   `docs/owner-decisions.md` OD-7). It covers a module `const`, a function-local `const` and a

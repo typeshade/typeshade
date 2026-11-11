@@ -92,9 +92,12 @@ describe('integer locals constrained by declared contexts', () => {
       compileTsSource(source).diagnostics.some((d) => d.message.includes('require i32 and u32')),
     ).toBe(true);
   });
-  it('does not infer from a generic declaration', () => {
+  it('takes the concrete parameter of a generic declaration, as a written argument does', () => {
+    // Changes 0036 and 0037 read no demand from a generic function. Change 0134 item 1 reads
+    // every place a number reaches: `g<f32>(1)` types the `1` an i32, so `g<f32>(n)` types `n`.
     const source = `"use typeshade"; function g<T>(n:i32):i32 {return n;} export function run():i32 {let n=1; return g<f32>(n);}`;
-    expect(localType(source, 'n')).toBe('f32');
+    expect(compileTsSource(source).diagnostics).toEqual([]);
+    expect(localType(source, 'n')).toBe('i32');
   });
   it('does not infer from an unresolved imported callee', () => {
     const source = ts.createSourceFile(
@@ -115,9 +118,15 @@ describe('integer locals constrained by declared contexts', () => {
     const source = `"use typeshade"; function g(n:i32):i32; function g(n:f32):f32; function g(n:f32):f32 {return n;} export function run():f32 {let n=1; return g(n);}`;
     expect(localType(source, 'n')).toBe('f32');
   });
-  it('does not mistake a shadowing parameter for a declared function', () => {
+  it('reads the call the lowering resolves, as a written argument is read', () => {
+    // The declared-use inference of changes 0036 and 0037 does not take the parameter `g` for
+    // the function `g`. The lowering resolves the call `g(n)` to the function, as it resolves
+    // `g(1)`, and change 0134 item 1 gives `n` the type that call gives the written `1`.
     const source = `"use typeshade"; function g(n:i32):i32 {return n;} export function run(g:f32):void {let n=1; g(n);}`;
-    expect(localType(source, 'n')).toBe('f32');
+    const written = source.replace('let n=1; g(n);', 'g(1);');
+    expect(compileTsSource(written).diagnostics).toEqual([]);
+    expect(compileTsSource(source).diagnostics).toEqual([]);
+    expect(localType(source, 'n')).toBe('i32');
   });
   it('refuses an initializer outside the signed target range', () => {
     const result = compileTsSource(
@@ -284,9 +293,12 @@ export function run():i32 {return new Scene().march().index;}`;
     ).toHaveLength(2);
   });
 
-  it('does not infer through compound assignment or arithmetic', () => {
+  it('infers through a compound assignment beside a typed value (change 0134 item 1)', () => {
+    // Changes 0036 and 0037 read no demand from a compound assignment. Item 1 lifts that:
+    // `n += hit.index` states the type of `n` as a simple assignment does.
     const source = `"use typeshade";class Hit {index:i32=4;} export function run():void {let n=-1;const hit=new Hit();n+=hit.index;hit.index=n+1;}`;
-    expect(localType(source, 'n')).toBe('f32');
+    expect(compileTsSource(source).diagnostics).toEqual([]);
+    expect(localType(source, 'n')).toBe('i32');
   });
 
   it.each(['hit.accept(n);selected=n;', 'selected=n;hit.accept(n);'])(

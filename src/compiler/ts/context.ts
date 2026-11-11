@@ -2,6 +2,7 @@
 // === Lowering context / symbol table ===
 
 import type { AbstractConst, Carried } from './abstract-const.js';
+import type { InferredValue } from './use-inference.js';
 import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import type { ShaderType } from '../../core/ir/types.js';
@@ -630,6 +631,9 @@ export interface Binding {
   /** For a constant of no fixed type (Rules 5.1 and 5.2, change 0134 item 2): its record, which
    *  each read of the name is marked with (`abstract-const.ts`). */
   readonly abstract?: AbstractConst;
+  /** For a value whose type its uses decide (Rule 5.1, change 0134 item 1): its record, which
+   *  each read of the name is marked with (`use-inference.ts`). */
+  readonly inferred?: InferredValue;
   /** For a `let` with no annotation that was initialized from constants of no fixed type
    *  (`let y = k`): those constants, which a `/` over the variable reaches (Amendment A2 of
    *  change 0134). */

@@ -1,6 +1,7 @@
 // === Expression lowering ===
 //
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
+import { carriedOf, markInferredRead, noteDemand, softDemands } from '../use-inference.js';
 import {
   carriedByCall,
   markAbstractRead,
@@ -550,14 +551,18 @@ function lowerIdentifier(
       if (isOptional(binding.type)) {
         return lowerOptionalRead(node, binding, contextual, sourceFile, diagnostics);
       }
-      return markCarriedRead(
-        markAbstractRead(
-          { op: 'param', type: binding.type, name: irNameOf(binding) },
+      return markInferredRead(
+        markCarriedRead(
+          markAbstractRead(
+            { op: 'param', type: binding.type, name: irNameOf(binding) },
+            node,
+            binding.abstract,
+          ),
           node,
-          binding.abstract,
+          carriedOf(binding.carries, binding.inferred),
         ),
         node,
-        binding.carries,
+        binding.inferred,
       );
     case 'module':
       return markAbstractRead(
@@ -612,14 +617,18 @@ function lowerIdentifier(
           return { op: 'lit', type: forced, value: binding.abstract.value };
         }
       }
-      return markCarriedRead(
-        markAbstractRead(
-          { op: 'varref', type: binding.type, name: irNameOf(binding) },
+      return markInferredRead(
+        markCarriedRead(
+          markAbstractRead(
+            { op: 'varref', type: binding.type, name: irNameOf(binding) },
+            node,
+            binding.abstract,
+          ),
           node,
-          binding.abstract,
+          carriedOf(binding.carries, binding.inferred),
         ),
         node,
-        binding.carries,
+        binding.inferred,
       );
     // A specialization constant is its own IR node: the optimizer must never fold an
     // overrideref, since its value is not known until the pipeline is built (#8 A7).
@@ -1082,8 +1091,10 @@ function lowerBinary(
       // `1 << 0` — the way a bit flag is spelled — arrived here as two f32s. Retarget each
       // side to the kind a shift is defined for before the check below reads it; the amount
       // is then retyped to u32 again a few lines on, which is idempotent for a literal.
-      left = retargetIntLitCtx(left, node.left, i32T);
-      right = retargetIntLitCtx(right, node.right, u32T);
+      // Of a value its uses decide, each asks an integer of no kind (change 0134 item 1).
+      const [l, r] = [left, right];
+      left = softDemands(() => retargetIntLitCtx(l, node.left, i32T));
+      right = softDemands(() => retargetIntLitCtx(r, node.right, u32T));
       // A shift is defined componentwise, so read the ELEMENT kind: `vec2u << vec2u` is a
       // shift of two lanes, not a type error. The width rule below keeps the two sides the
       // same shape, which is what both targets accept.
@@ -1151,6 +1162,16 @@ function lowerBinary(
     // and a `case` label fold them to the number (§12), which compiles; that is left as it was.
     // Where such a pair is emitted instead (`const x = 1 | 2` in a function body), it still
     // reaches the targets as `(1.0 | 2.0)`, as before.
+    // A value its uses decide is an integer here: the typed peer's, or of no kind (`f | 4`).
+    // A written operand that an `i32` cannot hold makes it a `u32` (`f | 3000000000`).
+    const kindless = (peer: Expr): 'int' | 'u32' => {
+      const lit = foldNumericLit(peer);
+      return lit.op === 'lit' && typeof lit.value === 'number' && lit.value > 2147483647
+        ? 'u32'
+        : 'int';
+    };
+    noteDemand(left, intElem(right.type) === undefined ? kindless(right) : right.type);
+    noteDemand(right, intElem(left.type) === undefined ? kindless(left) : left.type);
     const float = [left.type, right.type].find(isFloatBitOperand);
     if (float !== undefined && !isWholeF32Pair(left, right, scope)) {
       pushDiag(

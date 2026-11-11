@@ -508,10 +508,12 @@ ${H}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
       float('k', 'u32', 'm / 2', 'f32(m) / 2'),
       t('const k = 7; h(k); const m = max(k, 1); return f32(f32(m) / 2);'),
     );
+    // The index makes `y` an `i32` by its uses (item 1), so `y = k` reads `k` as an `i32` and
+    // `h(k)` as a `u32`: the declaration cannot take one type, and the conversion is named.
     refusedThenFixed(
       t('const k = 7; h(k); let y = k; return xs[y / 2];'),
-      integer('k', 'u32', 'y / 2', 'const k: u32 = 7'),
-      t('const k: u32 = 7; h(k); let y = k; return xs[y / 2];'),
+      integer('k', 'u32', 'y / 2', 'i32(y) / 2'),
+      t('const k = 7; h(k); let y = k; return xs[i32(y) / 2];'),
     );
   });
 

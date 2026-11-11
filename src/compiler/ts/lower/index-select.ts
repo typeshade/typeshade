@@ -1,3 +1,4 @@
+import { softDemands } from '../use-inference.js';
 import { noteIntegerContext } from '../abstract-const.js';
 import {
   logicalTypeKey as typeKey,
@@ -117,7 +118,8 @@ function lowerIndexOf(
   }
   // An index takes either integer type (change 0134): a `/` it reads names the other reads' type.
   noteIntegerContext(node.argumentExpression, 'i32', true);
-  idx = retargetIntLit(idx, node.argumentExpression, i32T);
+  // An index asks for an integer of no kind of a value its uses decide (change 0134 item 1).
+  idx = softDemands(() => retargetIntLit(idx!, node.argumentExpression, i32T));
   const ik = typeKey(idx.type);
   if (ik !== 'i32' && ik !== 'u32') {
     pushDiag(diagnostics, sourceFile, node, 'Index must be i32 or u32.', TS_CODES.TYPE_MISMATCH);

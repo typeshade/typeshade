@@ -1,3 +1,4 @@
+import { isUndecidedRead } from '../use-inference.js';
 import { abstractLiteralOf, isAbstractRead, noteIntegerRead } from '../abstract-const.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
@@ -1176,7 +1177,8 @@ function isBareNumericLiteral(node: ts.Expression): boolean {
     return isBareNumericLiteral(node.operand);
   }
   // A constant of no fixed type has no type to lend either (change 0134 item 2).
-  return ts.isNumericLiteral(node) || isAbstractRead(node);
+  // Nor has a value that no use has decided yet (change 0134 item 1).
+  return ts.isNumericLiteral(node) || isAbstractRead(node) || isUndecidedRead(node);
 }
 
 /** A bare integer literal argument of a builtin call takes the kind of the call's other
