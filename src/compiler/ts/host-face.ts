@@ -2984,7 +2984,7 @@ function viewText(
         const type = `Omit<${e.length === undefined ? 'Uniform' : 'Buffer'}<${e.cls}>, 'dispose' | keyof Disposable>`;
         out.push(
           ...above(
-            `A binding of the module, a host resource (Rule 6.1, change 0138): set its fields with \`set\` and read them with \`get\`; each \`set\` writes only what changed and marks its bytes dirty. It lives as long as the module, so it has no \`dispose()\`.${e.length === null ? ' The shader states no size for this storage array, so the host sets its length: call \`resize(n)\` or \`set(data)\` before \`at\` or \`read\`, which throw a \`TypeError\` until then.' : ''} An entry call still takes the binding's value in its bindings object (Rule 8.24).`,
+            `A binding of the module, a host resource (Rule 6.1, change 0138): set its fields with \`set\` and read them with \`get\`; each \`set\` writes only what changed and marks its bytes dirty. It lives as long as the module, so it has no \`dispose()\`.${e.length === null ? ' The shader states no size for this storage array, so the host sets its length: call \`resize(n)\` or \`set(data)\` before \`at\` or \`read\`, which throw a \`TypeError\` until then.' : ''}${typeof e.length === 'number' ? ' A kernel function that returns nothing takes it as an argument, and such a call does not block; an entry call refuses it with a TypeError and takes a plain array of its elements, as before (Rules 8.21 and 8.24).' : ' An entry call takes it in its bindings object, and a kernel function that returns nothing as an argument; such a call does not block (Rules 8.21 and 8.24).'}`,
           ),
           `export declare const ${e.name}: ${type};`,
         );
