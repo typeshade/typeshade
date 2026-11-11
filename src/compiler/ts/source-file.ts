@@ -600,6 +600,7 @@ function compileLinked(
   // linker joined was declared in the file the sentence is about or imported into it.
   const origin: LinkedOrigin = {
     sourceFile,
+    files: linked.files.map((f) => f.name),
     written: (start, end) => {
       const m = linked.map(start, end);
       return m && { file: m.file.name, text: m.file.sourceFile.text.slice(m.start, m.end) };
