@@ -19,6 +19,7 @@
 //
 // Implements: Rule 7.10 (docs/language-design.md; traced in reqs/).
 
+import { peekingReads } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, Stmt } from '../../../core/ir/nodes.js';
@@ -139,7 +140,7 @@ export function optionalPathOf(
   const b = optionalBindingOf(node, scope);
   if (b !== undefined) return { type: b.type, text: node.getText(sourceFile) };
   if (!isMemberPath(node)) return undefined;
-  const value = lowerExpression(node, sourceFile, scope, []);
+  const value = peekingReads(() => lowerExpression(node, sourceFile, scope, []));
   if (value === undefined || !isOptional(value.type)) return undefined;
   return { type: value.type, text: node.getText(sourceFile) };
 }

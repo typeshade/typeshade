@@ -284,6 +284,15 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **The editor's hover names a constant of no fixed type in the language's words, and each read
+  at the type it takes there** (change 0134 item 4; Rules 5.1 and 12.7; decision Q3). At the
+  declaration, `const K = 3` hovers as `const K = 3 (i32, u32, f32 or f64 where it is read)` and
+  `const C = 0.1` as `const C = 0.1 (f32 or f64 where it is read)`, where both hovered as
+  `const K: f32`. At a read the hover is the type the compiler gave that read: `const K: u32` in
+  `vi * K`, `const K: i32` in `xs[K]`, `const C: f64` beside an `f64`, also in a file that
+  imports the constant. A function-local `const`, a member of a namespace and a static field
+  that no code writes read the same way. A read whose lowerings give it two types (a generic
+  function's body) keeps the words. No emitted text and no diagnostic changes.
 - **A function-local `let` of a written number takes its type from its uses** (change 0134,
   items 1 and 3, part 4a; Rule 5.1, surface §13; `docs/owner-decisions.md` OD-7). An
   unannotated `let` initialized by integer-written numbers, by a constant of no fixed type that

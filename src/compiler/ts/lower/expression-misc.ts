@@ -11,7 +11,7 @@ import { resolveMathExpand } from '../math-alias.js';
 import { expandMath } from '../math-expand.js';
 import { lowerRandomHash } from '../random-hash.js';
 import { lowerScalarCast } from '../numeric.js';
-import { abstractLiteralOf, noteIntegerRead } from '../abstract-const.js';
+import { abstractLiteralOf, noteCastRead, noteIntegerRead } from '../abstract-const.js';
 import { foldConstNumber } from '../loop-bound.js';
 import { foldF64ModuleConst } from '../module-const-f64.js';
 import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
@@ -84,6 +84,8 @@ export function lowerScalarCastCall(
   if ((name === 'i32' || name === 'u32') && arg !== lowered) {
     noteIntegerRead(node.arguments[0]!, name);
   }
+  // The editor's hover names the type the read took in the conversion (change 0134 item 4).
+  if (arg !== lowered) noteCastRead(node.arguments[0]!, name);
   const out = lowerScalarCast(
     name,
     arg,

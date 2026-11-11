@@ -229,3 +229,57 @@ export function closeExpressionTable(sourceFile: ts.SourceFile): LoweredExpressi
   }
   return out.sort((a, b) => a.start - b.start || b.length - a.length);
 }
+
+// ─── the constants of no fixed type, and the type each read of one took (change 0134) ──────
+//
+// A constant of no fixed type (`const K = 3`, Rule 5.1) has no one type: each read takes the type
+// the written number would take there (`vi * K` reads a `u32`, `x * K` an `f32`). `symbols`
+// records the declaration at the type of its emitted `f32` declaration, so the editor's hover
+// reads this table instead: the declaration, in the language's words, and the type of each read
+// (item 4, decision Q3). Keyed by the source file, like the tables above; a linked compile keeps
+// its entry's reads, in the entry's offsets, and every declaration, in the offsets of its file.
+
+/** One constant of no fixed type, as the editor's hover names it at its declaration. */
+export interface AbstractConstDecl {
+  /** The file and the offset of the declared name. */
+  readonly fileName: string;
+  readonly start: number;
+  readonly length: number;
+  /** `const`, or `static` for a static field that no code writes. */
+  readonly keyword: 'const' | 'static';
+  /** The initializer as the author wrote it. */
+  readonly written: string;
+  /** Whether every written number of the initializer is integer-written: such a constant takes
+   *  `i32`, `u32`, `f32` or `f64` where it is read, and a float-written one `f32` or `f64`. */
+  readonly integerWritten: boolean;
+}
+
+/** One read of a constant of no fixed type, with the one type every lowering of it took, or
+ *  `null` where they disagree or the read stands in another such constant's initializer. */
+export interface AbstractConstRead {
+  readonly start: number;
+  readonly length: number;
+  readonly type: ShaderType | null;
+}
+
+/** What one compile knows of its constants of no fixed type. */
+export interface AbstractConstTable {
+  readonly decls: readonly AbstractConstDecl[];
+  readonly reads: readonly AbstractConstRead[];
+}
+
+const abstractConstTables = new WeakMap<ts.SourceFile, AbstractConstTable>();
+
+/** Keep `table` as what the compile of `sourceFile` knows of its constants of no fixed type. */
+export function recordAbstractConstTable(
+  sourceFile: ts.SourceFile,
+  table: AbstractConstTable,
+): void {
+  abstractConstTables.set(sourceFile, table);
+}
+
+/** What the latest compile of `sourceFile` knows of its constants of no fixed type, or
+ *  `undefined` when none was compiled. */
+export function abstractConstTableOf(sourceFile: ts.SourceFile): AbstractConstTable | undefined {
+  return abstractConstTables.get(sourceFile);
+}
