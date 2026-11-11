@@ -923,6 +923,130 @@ Each is a difference between the accepted text (with A5 and A6) and `76b66224`.
   It also affects the deferred questions. No front-matter entry changes.
 - Status: `status: accepted` does not change.
 
+### A8. Slice 2b, the owner's decisions on it, and the deviations after it (2026-11-11)
+
+- [fact] Why. Pull request [#1238](https://github.com/typeshade/typeshade/pull/1238), merged as
+  `75f114cb`, carries out slice 2b of milestone 3. Its body records three questions with the
+  owner's answers and the dispositions of D-c, D-d and D-e. It also records a new deviation, D-h.
+  Amendment A7 records none of them.
+- [fact] Two independent reviews read #1238, at `fbdb6cef` and at `1fda2689`. The first found no
+  blocking finding and the should-fix findings S1 to S6. Its finding S5 asks for the dispositions
+  in this record (`CLAUDE.md`, Deviations). The second found nothing blocking. It found the
+  should-fix findings R-s1 and R-s2, and it left notes.
+
+**The slices of milestone 3, after slice 2b.**
+
+This table states the status of each slice at `main` `75f114cb`. It replaces the Status column of
+A7's table. A7's text stays as it is.
+
+| Slice   | Content                                                                                                                               | Status                            |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| 2a      | As in A7.                                                                                                                             | done: #1236, merged as `76b66224` |
+| Text 2a | As A7's row "Text": Rules 6.1, 8.21, 8.23, 8.24, 11.8 and 11.13 and surface §64, §65 and §67 say what slice 2a delivered.             | done: #1240, merged as `6d6a979b` |
+| 2b      | As in A7, with the owner's answers to Q-a, Q-b and Q-c below. D-c is closed in form only.                                             | done: #1238, merged as `75f114cb` |
+| Text 2b | The rules and the surface say what slice 2b delivered: the sentences of D-e below. The tests of slice 2b gain their `Verifies:` tags. | not started                       |
+| 2c      | As in A7: `show(image, canvas)` and the held submission of Q14.                                                                       | not started                       |
+
+- [fact] #1240 closed D-e for slice 2a. Its Doorstop review was approved by the owner, and the
+  owner said "merge" on 2026-11-11 (commit `6d6a979b`).
+- [fact] Pull request [#1241](https://github.com/typeshade/typeshade/pull/1241) is a bug fix, not a
+  slice. At the time of this amendment it is an open draft (head `0b35d546`).
+
+**The owner's decisions on #1238 (2026-11-11).**
+
+- [decision, owner, 2026-11-11] On the first review: "Fix S1-S4, then re-review". Commit
+  `1fda2689` fixes S1 to S4 and S6. The second review read that commit.
+- [fact] #1238's body sends S5 to a separate amendment pull request. This amendment is that pull
+  request.
+- [decision, owner, 2026-11-11] Q-a, the device of a resource: "Keep the rule, exempt Uniform".
+  - A resource belongs to the device in use when it is made. With no device in use, it belongs to
+    the default owner.
+  - A `Uniform` takes no part in choosing a call's device. Its value is copied at each call (D-b),
+    so it joins a call on any device.
+  - This amends R3's words "A resource belongs to one device" for a `Uniform`.
+  - The alternative was to keep R3's words for a `Uniform` too. Cost of the alternative: a
+    `Uniform` made at module top is refused beside a `Buffer` made in a `use()` block (review
+    finding S6).
+  - Cost recorded: when D-b is fixed and a `Uniform` gets a device copy, it needs one copy for each
+    device, as an exported storage array has.
+- [decision, owner, 2026-11-11] Asked Q-b and Q-c together, the owner chose "Keep both as the PR
+  does".
+  - Q-b. A call on one device writes an exported binding. Until that binding's `read()`, a call on
+    another device that takes it is refused with a `TypeError`.
+  - The alternative to Q-b was a hidden read back that blocks inside the call. R2 says a call does
+    not block. Cost recorded: the host awaits `read()` before it calls on another device.
+  - Q-c. `array(xs)` and `array(n, el)` inside a `use()` block make that device's `Resident`. The
+    deprecated `resident(xs)` stays the default owner's.
+  - The alternative to Q-c was the default owner. Cost of the alternative: `array(xs)` beside
+    `zeros()` in one block is a call that mixes devices. Cost recorded: the `Resident` comes from
+    the device's pool.
+- [decision, owner, 2026-11-11] On the merge: "Merge, then A8 + text PR". #1238 was merged as
+  `75f114cb`. This amendment is the A8 of that decision. The text pull request is the row
+  "Text 2b" above.
+- [decision, owner, 2026-11-11] On a call on a resource in a `fuse` body: "Separate bug-fix PR:
+  throw".
+  - [fact] At `75f114cb`, such a call returns a rejected promise. The host view types the call
+    `void`, so the author gets an unhandled rejection.
+  - [fact] #1241 makes the call throw the `TypeError` at the call. It changes the words of Rules
+    8.24 and 11.13 and surface §64 to match.
+
+**The deviations after slice 2b.**
+
+Each is a difference between the accepted text (with A5 to A8) and `75f114cb`.
+
+| ID  | Deviation                                                                                                                                                                                                                                                                                                                                | Disposition                                         | Next action                                                                                                                        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| D-a | As in A7.                                                                                                                                                                                                                                                                                                                                | open, unchanged                                     | As in A7.                                                                                                                          |
+| D-b | As in A7.                                                                                                                                                                                                                                                                                                                                | open, unchanged                                     | As in A7.                                                                                                                          |
+| D-c | A submission of recorded calls flushes, and `read()` waits on a fence (A5, default 6). The WebGL2 pass program and the WebGL2 kernel path still read back inside the call. So the flush has no work pending, and the fence waits on work whose results are on the host. The fence is made at `read()`, not at the end of the submission. | closed in form only by #1238; the remainder is open | Move the WebGL2 read back out of the call to `read()`, and place the fence at the end of the submission. No slice is assigned yet. |
+| D-d | A recorded call runs on the default owner. R3 is not carried out.                                                                                                                                                                                                                                                                        | closed by #1238                                     | None.                                                                                                                              |
+| D-e | The rule and surface sentences listed below are no longer true at `75f114cb`. The tests of slice 2b carry no `Verifies:` tag.                                                                                                                                                                                                            | closed for slice 2a by #1240; open again by #1238   | The text pull request of slice 2b, with the Doorstop review that the owner approves.                                               |
+| D-f | As in A7.                                                                                                                                                                                                                                                                                                                                | open, unchanged                                     | As in A7.                                                                                                                          |
+| D-g | As in A7. Slice 2b did not add the separate overload.                                                                                                                                                                                                                                                                                    | open, unchanged                                     | As in A7.                                                                                                                          |
+| D-h | A draw (`callDraw`) with no owned resource runs on the default owner, not on the device in use. A default `fuse()` also keeps the default owner.                                                                                                                                                                                         | open (new)                                          | Milestone 5, or a decision of the owner.                                                                                           |
+
+- [fact] The sentences of D-e, at `main` `75f114cb`. #1238's body lists them, and the second
+  review's R-s1 adds four of them:
+  1. `docs/language-design.md:1432` (Rule 11.8): "A recorded call runs on the default owner's
+     tiers, …". The same paragraph says that a WebGL2 entry call has no flush and no fence (D-c).
+  2. `docs/language-design.md:1436` (Rule 11.8): "Plain host values select no owner, so a call
+     with none uses the default owner."
+  3. `docs/language-design.md:1436` (Rule 11.8): "creates no global current device". `use()` is
+     now one current device for the page, read by every kernel and entry call (R-s1).
+  4. `docs/language-design.md:1439` (Rule 11.8): "The owner of a call does not follow
+     `device.use()` yet".
+  5. `docs/language-design.md:1439` (Rule 11.8): `array()` makes "the `Resident` that
+     `resident()` makes". In a `use()` block it makes that device's `Resident` (Q-c; R-s1).
+  6. `docs/use-typeshade-surface.md:8404-8406` (§64): a recorded call runs on the default owner's
+     tiers, and a WebGL2 entry call has no flush and no fence.
+  7. `docs/use-typeshade-surface.md:8491` (§64): "The calls of a kernel function or an entry do
+     not follow `device.use()`".
+  8. `docs/use-typeshade-surface.md:10364` (§69): a kernel or entry call with no owned resource
+     uses the default owner (R-s1).
+  9. Optional (R-s1): §69's `dispose()` text (`docs/use-typeshade-surface.md:10357-10358`) and the
+     `Device.dispose()` JSDoc do not say that `dispose()` lands what the device wrote into an
+     exported binding.
+- [fact] The first review's note N1 goes in the same text. `use()` is one stack for the page. A
+  resource made in another async task, while a task awaits inside a `use()` block, belongs to
+  that block's device.
+
+**Open items from the reviews of #1238.**
+
+| Item                                                                                                                                                                     | Source              | Next action                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- | -------------------------------------------------------------------------------------- |
+| S3 has no unit test. Only the WebGL2 resource arm of `gate:differential` holds it.                                                                                       | Second review, N-r1 | A Node test with a WebGL2 stand-in tier. No pull request is assigned.                  |
+| A plain `Buffer` written on a WebGPU device and not read before `dispose()` of that device loses the write. Its `read()` then fails with an unclear error.               | Second review, N-r2 | Land owned `Buffer`s too, with a weak registry per owner. No pull request is assigned. |
+| The module-level `exported` set of `src/runtime/resource.ts` holds every exported binding strongly. A module reload keeps old bindings alive.                            | Second review, N-r3 | None assigned. The review calls it minor.                                              |
+| `use()` is one stack for the page.                                                                                                                                       | First review, N1    | State it in the text pull request of slice 2b (D-e).                                   |
+| The `core/gl-fence.ts` row of `src/AGENTS.md`, and that file's header, say that `read()` waits on `gpuDone`. It uses `readFence`, which ends the wait on a lost context. | Second review, R-s2 | A documentation fix, in the text pull request of slice 2b or in its own pull request.  |
+| The first sentence of the `CHANGELOG.md` entry of #1238 still lists `uniform()` among what belongs to the device in use.                                                 | Second review, N-r4 | A documentation fix, with the item above.                                              |
+| The refusal table of surface §71 (`fuse`) has no row for the refusal of a call on a resource.                                                                            | #1241, Open items   | The owner decides whether a follow-up adds a row.                                      |
+
+- Affects: milestone 3's plan (the slice table of A7), R3 (Q-a: a `Uniform`; Q-b: an exported
+  binding; Q-c: `array()` in a `use()` block), and the deviations D-c, D-d, D-e and D-h. No
+  front-matter entry changes.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground
