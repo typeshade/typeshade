@@ -996,8 +996,16 @@ records the decision and the readings the implementation needs.
 - [decision, owner, 2026-11-12] D-b truncation, "이대로". A position that states an integer type
   reads a quotient that is no integer truncated toward zero, as Amendment A4 reads one: a
   declaration, a parameter, a result, `i32(…)`, `u32(…)`, and an index (which takes either
-  integer type). `let j: i32 = (5 | 0) / 2` is 2. A comparison reads the exact value. Every other
-  position refuses it. The owner kept this scope of D-b on 2026-11-12.
+  integer type). `let j: i32 = (5 | 0) / 2` is 2. A comparison beside a peer that states no type,
+  or beside an `f32`, reads the exact value. Every other position refuses it. The owner kept this
+  scope of D-b on 2026-11-12.
+- [decision, owner, 2026-11-12] A comparison beside a typed integer, "문서를 코드에 맞춤". A
+  comparison whose other operand is a typed `i32` or `u32` states the integer division, so it is
+  refused as an arithmetic operand beside that peer is, and names a verified edit:
+  `(5 | 0) / 2 > ii` is refused with `Write "i32(5|0)/2" for the integer division.` Beside a
+  written number, a constant of no fixed type or an `f32` it reads the exact value:
+  `(5 | 0) / 2 > 2` is true and `(5 | 0) / 2 > f` compares 2.5 with `f`. The owner chose the
+  text to follow the code on 2026-11-12.
 - [reading, 2026-11-12] A compound assignment is no position that states a type for its right
   side: `g *= (5 | 0) / 2` is `g = g * ((5 | 0) / 2)`, whose quotient is an operand beside `g`,
   so it is refused as the written-out form is, with a verified edit. This holds for a variable,

@@ -1416,7 +1416,9 @@ A `/=` names the variable to declare with a type.
 
 A quotient of written integers that is no integer (`(5 | 0) / 2`) is read truncated toward zero
 where a position states an integer type (`let j: i32 = (5 | 0) / 2` is 2), and exactly by a
-comparison; anywhere else it is refused. A tree over a written number only a `u32` holds is that
+comparison beside a peer that states no type or an `f32` (`(5 | 0) / 2 > 2` is true). A
+comparison beside a typed `i32` or `u32` (`(5 | 0) / 2 > ii`) is refused with a verified edit,
+as is any other position. A tree over a written number only a `u32` holds is that
 `u32`'s bits (`3000000000 | 0` is 3000000000). Beside a typed `u32`, `+ - * & | ^ << ~` read the
 bits, which agree with TypeScript's -1294967296 modulo 2^32. Every operation where the two
 differ (`/`, `%`, a comparison, `max`, `min`, `clamp`, `abs`, `sign`, `f32()`, `>>` by a
