@@ -1180,7 +1180,7 @@ function quotientDiagnostic(
     `"${subject.slice(0, end)}" is an integer by its bit operator, and no operand of "${written}" ` +
       `has a declared type, so the "/" does not say which division it is. Write "${edit}" for ` +
       `the ${peer === undefined && edit.includes('f32(') ? 'float' : 'integer'} division.` +
-      (remains === undefined ? '' : ` That edit leaves another mistake: ${remains}`),
+      (remains === undefined ? '' : ` That edit leaves another mistake${remains}`),
     TS_CODES.TYPE_MISMATCH,
   );
 }

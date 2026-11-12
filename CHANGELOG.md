@@ -311,8 +311,10 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   (`let q = (1 | 2) / 2; return q * 2` names `i32(1 | 2) / 2`, and `return vi + q` names
   `u32(1 | 2) / 2`),
   and a product past `u32` names the value (`((1 << 30) * 4) / 3` names `f32(4294967296) / 3`). When no edit compiles, the diagnostic
-  says which mistake the edit leaves. The owner kept this scope on 2026-11-12 ("이대로"). A
-  divisor proven zero (`/`, `/=`, a constant `Z = 0`) is the one diagnostic, as before.
+  says which mistake the edit leaves and on which line. A refusal is charged only with an error
+  its own edit gives, and an equal error elsewhere does not hide it. The owner kept this scope
+  on 2026-11-12 ("이대로"). A divisor proven zero (`/`, `/=`, a constant `Z = 0`) is the one
+  diagnostic, as before.
   Intermediate values are TypeScript's doubles: a product past their range is Infinity, which
   ToInt32 at a bit operator reads as 0.
   **Newly refused** (`TS8003`), each with the edit that compiles:

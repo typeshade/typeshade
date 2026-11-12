@@ -1303,6 +1303,7 @@ export function reportAbstractDivisions(
   // flows (`let q = (1 | 2) / 2; return q * 2;` in an `i32` function) is the refusal of the `/`
   // said again (Rule 12.4).
   const reads = quotientReadsOf.get(sourceFile) ?? [];
+  const followOns: TsCompilerDiagnostic[] = [];
   if (reads.length > 0 && diagnostics.some((d) => d.message.includes(NO_DIVISION))) {
     for (let i = diagnostics.length - 1; i >= 0; i--) {
       const d = diagnostics[i]!;
@@ -1314,106 +1315,278 @@ export function reportAbstractDivisions(
           return d.start <= start && d.start + d.length >= r.getEnd();
         })
       ) {
-        diagnostics.splice(i, 1);
+        followOns.push(...diagnostics.splice(i, 1));
       }
     }
   }
   // The edit a refusal of a tree's quotient names must compile where the tree stands (as the
   // edits of a refused `/` over a constant do, Rule 5.1). An edit is accepted when, made, it
-  // removes its refusal and adds no diagnostic the unedited program does not give. The edits
-  // are checked in rounds, as `checkDivisionEdits` checks them: one compile a round, with the
-  // next candidate of every refusal still open made at once; an added error is charged to the
-  // refusal whose statement holds it, and an error outside every such statement sends that
-  // round's refusals to be checked alone. Where no candidate compiles, the one that adds fewest
-  // errors is named, with the first of them (Rule 12.4, decision 1 of change 0134).
+  // removes its refusal and adds no error the unedited program does not give at the same place.
+  // The edits are checked in rounds, one compile a round, with the next candidate of every
+  // refusal still open made at once (see `checkQuotientEdits`).
   if (check !== undefined && !checkingEdit) {
     const standing = (checkedRefusalsOf.get(sourceFile) ?? []).filter((r) => {
       const d = r.current();
       return d !== undefined && diagnostics.includes(d);
     });
     if (standing.length > 0) {
-      const own = new Set(standing.map((r) => r.current()!));
-      const original = new Set(
-        diagnostics.filter((d) => d.category === 'error' && !own.has(d)).map(lineOf),
-      );
-      const items = standing.map((r) => ({
-        r,
-        span: [r.node.getStart(sourceFile), r.node.getEnd()] as const,
-        // The first candidate is the edit the refusal names; the rest are made only when it fails.
-        list: undefined as readonly string[] | undefined,
-        get candidates(): readonly string[] {
-          return (this.list ??= r.candidates());
-        },
-        tried: [] as { text: string; added: string[] }[],
-        done: false,
-        accepted: undefined as string | undefined,
-      }));
-      type Item = (typeof items)[number];
-      const pick = (it: Item, round: number): string =>
-        round === 0 ? it.r.first() : it.candidates[round]!;
-      const change = (it: Item, text: string) => ({
-        start: it.r.node.getStart(sourceFile),
-        end: it.r.node.getEnd(),
-        text,
-      });
-      const addedOf = <E extends { code?: string; message: string }>(errors: readonly E[]): E[] =>
-        errors.filter((e) => !original.has(lineOf(e)));
-      const settle = (it: Item, text: string, added: readonly { message: string }[]) => {
-        it.tried.push({ text, added: added.map((e) => e.message) });
-        if (added.length === 0) {
-          it.done = true;
-          it.accepted = text;
-          if (text !== it.r.first()) it.r.restate(text);
-        }
-      };
-      for (let round = 0; ; round++) {
-        const open = items.filter(
-          (it) => !it.done && (round === 0 || round < it.candidates.length),
-        );
-        if (open.length === 0) break;
-        // The edits already accepted are made too, so their refusals are gone from the compile.
-        const settled = items
-          .filter((it) => it.accepted !== undefined)
-          .map((it) => change(it, it.accepted!));
-        const errors = addedOf(
-          compileEditedAll(
-            sourceFile,
-            [...settled, ...open.map((it) => change(it, pick(it, round)))],
-            check,
-          ),
-        );
-        // An error inside a refusal's own tree is its edit's; one elsewhere is stray.
-        const inRegion = (e: { at: number | undefined }, it: Item) =>
-          e.at !== undefined && e.at >= it.span[0] && e.at < it.span[1];
-        const stray = errors.some((e) => !open.some((it) => inRegion(e, it)));
-        for (const it of open) {
-          const text = pick(it, round);
-          if (stray && open.length > 1) {
-            // Whose edit the stray error is cannot be told: this one is checked alone.
-            const others = items
-              .filter((o) => o !== it)
-              .map((o) =>
-                change(o, o.accepted ?? pick(o, Math.min(round, o.candidates.length - 1))),
-              );
-            const alone = addedOf(
-              compileEditedAll(sourceFile, [...others, change(it, text)], check),
-            );
-            settle(
-              it,
-              text,
-              alone.filter((e) => inRegion(e, it) || !items.some((o) => inRegion(e, o))),
-            );
-          } else {
-            settle(it, text, stray ? errors : errors.filter((e) => inRegion(e, it)));
-          }
-        }
+      checkQuotientEdits(sourceFile, diagnostics, standing, check, { followOns, reads });
+    }
+  }
+}
+
+/** The scalar type a quotient edit converts to (`f32(1 | 2) / 2` is `f32`). */
+function editType(text: string): string {
+  return /\b([fiu]32)\(/.exec(text)?.[1] ?? '';
+}
+
+/**
+ * Checks the edit each refusal of a tree's quotient names. Each round compiles the program once,
+ * with every accepted edit and the next candidate of every refusal still open made. An added
+ * error is charged to one refusal: the one whose tree holds it, whose statement holds it, or
+ * whose `let` the error's statement reads. An error none or several of them explain is found by
+ * halving the refusals it could be (one compile a half), so a refusal is charged only with an
+ * error its own edit gives, never with another refusal's failing edit. An edit whose error is in
+ * its tree takes the next candidate; one whose error is elsewhere takes the first candidate of
+ * the next type (`f32`, then `i32`, then `u32`), since another spelling of the same type gives
+ * the same type where it flows. Where no candidate compiles, the one that adds fewest errors is
+ * named, with the first of them and its line (Rule 12.4, decision 1 of change 0134).
+ */
+function checkQuotientEdits(
+  sourceFile: ts.SourceFile,
+  diagnostics: readonly TsCompilerDiagnostic[],
+  standing: readonly CheckedRefusal[],
+  check: DivisionEditCheck,
+  flow: { readonly followOns: readonly TsCompilerDiagnostic[]; readonly reads: readonly ts.Node[] },
+): void {
+  type Err = { readonly code?: string; readonly message: string; readonly at: number | undefined };
+  const own = new Set(standing.map((r) => r.current()!));
+  const keyOf = (at: number | undefined, e: { code?: string; message: string }) =>
+    `${String(at ?? -1)}|${lineOf(e)}`;
+  // The unedited program's errors, by place and text, counted: an equal error elsewhere does not
+  // hide an added one.
+  const original = new Map<string, number>();
+  for (const d of diagnostics) {
+    if (d.category !== 'error' || own.has(d)) continue;
+    const k = keyOf(d.start, d);
+    original.set(k, (original.get(k) ?? 0) + 1);
+  }
+  const text = sourceFile.text;
+  const items = standing.map((r) => {
+    const span = [r.node.getStart(sourceFile), r.node.getEnd()] as const;
+    // The name a `let` binds to the quotient, and the text after it where the name is read.
+    let n: ts.Node = r.node;
+    while (ts.isParenthesizedExpression(n.parent)) n = n.parent;
+    let binding: { name: string; from: number; to: number } | undefined;
+    const decl = n.parent;
+    if (ts.isVariableDeclaration(decl) && decl.initializer === n && ts.isIdentifier(decl.name)) {
+      let scope: ts.Node = decl;
+      while (
+        !ts.isBlock(scope.parent) &&
+        !ts.isSourceFile(scope.parent) &&
+        !ts.isModuleBlock(scope.parent)
+      ) {
+        scope = scope.parent;
       }
-      for (const it of items) {
-        if (it.done || it.tried.length === 0) continue;
-        const best = it.tried.reduce((a, b) => (b.added.length < a.added.length ? b : a));
-        it.r.restate(best.text, best.added[0]);
+      binding = {
+        name: decl.name.text,
+        from: decl.getEnd(),
+        to: scope.parent.getEnd(),
+      };
+    }
+    return {
+      r,
+      span,
+      binding,
+      list: undefined as readonly string[] | undefined,
+      get candidates(): readonly string[] {
+        return (this.list ??= r.candidates());
+      },
+      next: 0 as number | undefined,
+      failedTypes: new Set<string>(),
+      predicted: [] as Err[],
+      tried: [] as { text: string; added: Err[] }[],
+      accepted: undefined as string | undefined,
+    };
+  });
+  type Item = (typeof items)[number];
+  // The candidate after `i`: not of a type whose edit failed where the quotient flows, and a
+  // `u32` edit only where a failure named `u32` (`vi + q`), since a plain integer is an `i32`.
+  const nextCandidate = (it: Item, i: number): number | undefined => {
+    // The mistake's own words, not the advice after the dash that names every type.
+    const u32Named = it.tried.some((t) =>
+      t.added.some((e) => /\bu32\b/.test(e.message.split(' — ')[0]!.split('. Cast')[0]!)),
+    );
+    for (let j = i + 1; j < it.candidates.length; j++) {
+      const type = editType(it.candidates[j]!);
+      if (it.failedTypes.has(type)) continue;
+      if (type === 'u32' && !u32Named && editType(it.r.first()) !== 'u32') continue;
+      return j;
+    }
+    return undefined;
+  };
+  const pick = (it: Item, i: number): string => (i === 0 ? it.r.first() : it.candidates[i]!);
+  const change = (it: Item, edit: string) => ({ start: it.span[0], end: it.span[1], text: edit });
+  const inSpan = (e: Err, it: Item) =>
+    e.at !== undefined && e.at >= it.span[0] && e.at < it.span[1];
+  // The region of the statement each error stands in, found once.
+  const regions = new Map<number, readonly [number, number]>();
+  const regionAt = (at: number): readonly [number, number] => {
+    let r = regions.get(at);
+    if (r === undefined) {
+      let n: ts.Node = sourceFile;
+      for (;;) {
+        // The child whose text (with its leading trivia) holds `at`; the walk stops at it.
+        const c: ts.Node | undefined = ts.forEachChild(n, (k) =>
+          k.pos <= at && at < k.end ? k : undefined,
+        );
+        if (c === undefined) break;
+        n = c;
+      }
+      r = regionOf(n, sourceFile);
+      regions.set(at, r);
+    }
+    return r;
+  };
+  // The refusals that could explain an error at a place, found once a place: the one whose tree
+  // holds it, else each whose statement the error's statement holds or whose `let` it reads.
+  const byName = new Map<string, Item[]>();
+  for (const it of items) {
+    if (it.binding === undefined) continue;
+    const list = byName.get(it.binding.name);
+    if (list === undefined) byName.set(it.binding.name, [it]);
+    else list.push(it);
+  }
+  // The unedited program reads each quotient as an `f32`, so the mismatches its reads raised
+  // (taken out above as the refusal said again) are what the `f32` edit gives: that edit is
+  // known to fail without a compile, and the check starts at the integer edit.
+  for (const d of flow.followOns) {
+    const owners = new Set<Item>();
+    for (const r of flow.reads) {
+      const at = r.getStart(sourceFile);
+      if (!(d.start <= at && d.start + d.length >= r.getEnd())) continue;
+      for (const it of byName.get(r.getText(sourceFile)) ?? []) {
+        if (at >= it.binding!.from && at < it.binding!.to) owners.add(it);
       }
     }
+    for (const it of owners) {
+      if (editType(it.r.first()) !== 'f32') continue;
+      it.predicted.push({ code: d.code, message: d.message, at: d.start });
+    }
+  }
+  for (const it of items) {
+    if (it.predicted.length === 0) continue;
+    it.tried.push({ text: it.r.first(), added: it.predicted });
+    it.failedTypes.add('f32');
+    it.next = nextCandidate(it, 0);
+  }
+  const explainers = new Map<number, { inside?: Item; by: Item[] }>();
+  const explainersAt = (at: number): { inside?: Item; by: Item[] } => {
+    let found = explainers.get(at);
+    if (found !== undefined) return found;
+    const inside = items.find((it) => at >= it.span[0] && at < it.span[1]);
+    if (inside !== undefined) {
+      found = { inside, by: [inside] };
+    } else {
+      const [a, b] = regionAt(at);
+      const by = new Set(items.filter((it) => a <= it.span[0] && it.span[1] <= b));
+      for (const word of new Set(text.slice(a, b).match(/[\w$]+/g) ?? [])) {
+        for (const it of byName.get(word) ?? []) {
+          if (a >= it.binding!.from && b <= it.binding!.to) by.add(it);
+        }
+      }
+      found = { by: [...by] };
+    }
+    explainers.set(at, found);
+    return found;
+  };
+  const owner = (e: Err, edited: ReadonlySet<Item>): Item | undefined => {
+    if (e.at === undefined) return undefined;
+    const { inside, by } = explainersAt(e.at);
+    if (inside !== undefined) return edited.has(inside) ? inside : undefined;
+    const mine = by.filter((it) => edited.has(it));
+    return mine.length === 1 ? mine[0] : undefined;
+  };
+  /** The errors of the program with `edited`'s edits made that the unedited program does not
+   *  give where it gives them; a refusal left unedited keeps its own refusal. */
+  const run = (edited: readonly Item[], picks: ReadonlyMap<Item, string>): Err[] => {
+    const left = new Map(original);
+    const unedited = items.filter((it) => !edited.includes(it));
+    const errors = compileEditedAll(
+      sourceFile,
+      edited.map((it) => change(it, it.accepted ?? picks.get(it)!)),
+      check,
+    );
+    return errors.filter((e) => {
+      if (unedited.some((it) => inSpan(e, it))) return false;
+      const k = keyOf(e.at, e);
+      const count = left.get(k) ?? 0;
+      if (count > 0) {
+        left.set(k, count - 1);
+        return false;
+      }
+      return true;
+    });
+  };
+  for (;;) {
+    const open = items.filter((it) => it.accepted === undefined && it.next !== undefined);
+    if (open.length === 0) break;
+    const settled = items.filter((it) => it.accepted !== undefined);
+    const picks = new Map(open.map((it) => [it, pick(it, it.next!)] as const));
+    const charged = new Map<Item, Err[]>(open.map((it) => [it, []]));
+    const charge = (it: Item, e: Err) => charged.get(it)?.push(e);
+    const unexplained: Err[] = [];
+    for (const e of run([...settled, ...open], picks)) {
+      const it = owner(e, new Set([...settled, ...open]));
+      if (it === undefined) unexplained.push(e);
+      else charge(it, e);
+    }
+    // An error no one refusal explains: halve the refusals whose edit is otherwise clean until
+    // one edit alone gives it.
+    if (unexplained.length > 0) {
+      const probe = (group: readonly Item[]): Err[] =>
+        run([...settled, ...group], picks).filter(
+          (e) => owner(e, new Set([...settled, ...group])) === undefined,
+        );
+      const halve = (group: readonly Item[], errors: readonly Err[]): void => {
+        if (group.length === 1) {
+          for (const e of errors) charge(group[0]!, e);
+          return;
+        }
+        const half = Math.ceil(group.length / 2);
+        const a = group.slice(0, half);
+        const b = group.slice(half);
+        const ea = probe(a);
+        if (ea.length > 0) halve(a, ea);
+        const eb = ea.length === 0 ? errors : probe(b);
+        if (eb.length > 0) halve(b, eb);
+      };
+      const suspects = open.filter((it) => charged.get(it)!.length === 0);
+      if (suspects.length > 0) halve(suspects, unexplained);
+    }
+    for (const it of open) {
+      const i = it.next!;
+      const edit = picks.get(it)!;
+      const added = charged.get(it)!;
+      it.tried.push({ text: edit, added });
+      if (added.length === 0) {
+        it.accepted = edit;
+        if (i !== 0) it.r.restate(edit);
+        continue;
+      }
+      if (!added.some((e) => inSpan(e, it))) it.failedTypes.add(editType(edit));
+      it.next = nextCandidate(it, i);
+    }
+  }
+  for (const it of items) {
+    if (it.accepted !== undefined || it.tried.length === 0) continue;
+    const best = it.tried.reduce((a, b) => (b.added.length < a.added.length ? b : a));
+    const first = best.added[0]!;
+    const where =
+      first.at === undefined
+        ? ''
+        : ` on line ${String(sourceFile.getLineAndCharacterOfPosition(first.at).line + 1)}`;
+    it.r.restate(best.text, `${where}: ${first.message}`);
   }
 }
 
@@ -1575,6 +1748,21 @@ function lineOf(d: { readonly code?: string; readonly message: string }): string
  *  text (the change's own offset inside a change). In the editor the projection's insertions are taken out
  *  first, so the author's text is compiled, with the edits made, as `compile()` reads it; an
  *  insertion a change replaces goes with it. */
+let editCompiles = 0;
+
+/** Whether the program being compiled is an edited copy that a checked edit compiles. Such a
+ *  compile is read for its type errors alone, so the passes an edit's type cannot change (the
+ *  uniformity walk, the kernel-loop proof) are skipped in it. */
+export function compilingCheckedEdit(): boolean {
+  return checkingEdit;
+}
+
+/** How many edited programs the checked edits have compiled in this process (for tests that
+ *  bound the cost of the check). */
+export function checkedEditCompiles(): number {
+  return editCompiles;
+}
+
 function compileEditedAll(
   sourceFile: ts.SourceFile,
   changes: readonly { readonly start: number; readonly end: number; readonly text: string }[],
@@ -1611,6 +1799,7 @@ function compileEditedAll(
     return undefined;
   };
   checkingEdit = true;
+  editCompiles++;
   try {
     return check(text, undefined).map((d) => ({
       ...(d.code !== undefined ? { code: d.code } : {}),

@@ -13,6 +13,7 @@ import {
   switchedOffCalls,
 } from './use-inference.js';
 import {
+  compilingCheckedEdit,
   markProjectedAnnotations,
   reportAbstractDivisions,
   resetAbstractConsts,
@@ -494,8 +495,9 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   // inside. It runs here, before the report, so `compile()` and the language service (which
   // runs this with `emit: false`) report the same TS8052 (Rule 12.7), and the three consumers
   // read the rewritten functions. No filter switches the rule off: change 0132 removed it, and
-  // a written one is refused (`TS8028`, `refuseStageCalls` and `builtin-check.ts`).
-  {
+  // a written one is refused (`TS8028`, `refuseStageCalls` and `builtin-check.ts`). An edited
+  // copy that a checked quotient edit compiles skips it: the edit changes a type, not a branch.
+  if (!compilingCheckedEdit()) {
     const shape = (): ModuleDecl => ({
       consts: [...consts],
       structs: emittedStructDecls(structs),
@@ -530,7 +532,11 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   // A kernel function's loops run as dispatches when the proof accepts them, and on the CPU
   // with a warning that names why when it does not (Rule 8.22, TS8070). After the functions,
   // because the proof reads what each callee writes, and only on a module with no error.
-  if (funcs.some((f) => f.kernel === true) && !diagnostics.some((d) => d.category === 'error')) {
+  if (
+    !compilingCheckedEdit() &&
+    funcs.some((f) => f.kernel === true) &&
+    !diagnostics.some((d) => d.category === 'error')
+  ) {
     diagnostics.push(
       ...kernelLoopDiagnostics(
         {
