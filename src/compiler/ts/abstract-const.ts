@@ -301,6 +301,7 @@ export function resetAbstractConsts(sourceFile: ts.SourceFile): void {
   divisionsOf.delete(sourceFile);
   writtenDivisionsOf.delete(sourceFile);
   quotientReadsOf.delete(sourceFile);
+  checkedRefusalsOf.delete(sourceFile);
   nodeMarks.delete(sourceFile);
   carriedByFunction.delete(sourceFile);
 }
@@ -1141,6 +1142,28 @@ export function noteQuotientRead(node: ts.Node): void {
   reads.push(node);
 }
 
+/** A refusal whose named edit the checked-edit path confirms: a quotient of a tree of written
+ *  integers (D-b, `lit-coerce.ts` THE RULE). */
+export interface CheckedRefusal {
+  /** The tree the edit replaces. */
+  readonly node: ts.Node;
+  /** The edits, the preferred one first. */
+  readonly candidates: () => readonly string[];
+  /** The refusal as it stands, if it stands. */
+  readonly current: () => TsCompilerDiagnostic | undefined;
+  /** Names `edit` in the refusal. */
+  readonly restate: (edit: string) => void;
+}
+
+const checkedRefusalsOf = new WeakMap<ts.SourceFile, CheckedRefusal[]>();
+
+/** Records `refusal`, whose edit {@link reportAbstractDivisions} confirms. */
+export function noteCheckedRefusal(sourceFile: ts.SourceFile, refusal: CheckedRefusal): void {
+  let list = checkedRefusalsOf.get(sourceFile);
+  if (list === undefined) checkedRefusalsOf.set(sourceFile, (list = []));
+  list.push(refusal);
+}
+
 export function reportAbstractDivisions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -1262,6 +1285,31 @@ export function reportAbstractDivisions(
         TS_CODES.TYPE_MISMATCH,
       ),
     );
+  }
+  // The edit a refusal of a tree's quotient names must compile where the tree stands: each
+  // candidate is compiled with the tree replaced, and the first that adds no error in the
+  // statement is named (as the edits of a refused `/` over a constant are, Rule 5.1).
+  if (check !== undefined && !checkingEdit) {
+    for (const refusal of checkedRefusalsOf.get(sourceFile) ?? []) {
+      const d = refusal.current();
+      if (d === undefined || !diagnostics.includes(d)) continue;
+      const region = regionOf(refusal.node, sourceFile);
+      const candidates = refusal.candidates();
+      for (const text of candidates) {
+        const errors = compileEditedAll(
+          sourceFile,
+          [{ start: refusal.node.getStart(sourceFile), end: refusal.node.getEnd(), text }],
+          check,
+        );
+        const fails = errors.some(
+          (e) => e.at === undefined || (e.at >= region[0] && e.at < region[1]),
+        );
+        if (!fails) {
+          if (text !== candidates[0]) refusal.restate(text);
+          break;
+        }
+      }
+    }
   }
   // A mismatch or an argument refusal that a read of a refused quotient raised where its `f32`
   // flows (`let q = (1 | 2) / 2; return q * 2;` in an `i32` function) is the refusal of the `/`

@@ -1118,4 +1118,60 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(one(source)).toContain('Write "f32(1 | 2) / 2" for the float division.');
     accepted5(source.replace('(1 | 2) / 2', 'f32(1 | 2) / 2'), 1);
   });
+
+  // The sixth review of #1272 at 394d5c35.
+  it.each([
+    ['return ((1 | 2) / 2) / 2;', '1 | 2', '((1 | 2) / 2) / 2', '(f32(1 | 2) / 2) / 2', 0.75],
+    ['return (1 << 3) / 3 / 2;', '1 << 3', '(1 << 3) / 3 / 2', 'f32(1 << 3) / 3 / 2', 4 / 3],
+    [
+      'return ((1 | 2) / 2) + ((1 | 2) / 4);',
+      '1 | 2',
+      '((1 | 2) / 2) + ((1 | 2) / 4)',
+      '(f32(1 | 2) / 2) + (f32(1 | 2) / 4)',
+      2.25,
+    ],
+    [
+      'return ((1 | 2) / 2) + (1 | 4);',
+      '1 | 2',
+      '((1 | 2) / 2) + (1 | 4)',
+      '(f32(1 | 2) / 2) + f32(1 | 4)',
+      6.5,
+    ],
+  ])(
+    'a tree with nested quotients names one edit that compiles in one step: %s',
+    (body, subject, written, edit, value) => {
+      const source = T(body, 'f32');
+      expect(one(source)).toBe(
+        `TS8003: "${subject}" is an integer by its bit operator, and no operand of "${written}" ` +
+          `has a declared type, so the "/" does not say which division it is. Write "${edit}" for ` +
+          'the float division.',
+      );
+      const fixed = source.replace(written, edit);
+      const result = compile(fixed);
+      expect(result.diagnostics).toEqual([]);
+      expect(editor(fixed)).toEqual([]);
+      expect(result.eval('t', [5, 3])).toBeCloseTo(value, 5);
+    },
+  );
+
+  it.each([
+    ['(1 | 2) / 0', '0'],
+    ['0 / (0 | 0)', '(0 | 0)'],
+    ['1 / ((0 | 0) * -1)', '((0 | 0) * -1)'],
+  ])('a / by zero over a tree is one refusal, as on main: %s', (init, divisor) => {
+    expect(one(T(`return ${init};`, 'f32'))).toBe(
+      `TS8003: Division by zero: "${divisor}" is 0 on every invocation. WGSL refuses it and ` +
+        'GLSL ES 3.00 leaves it undefined.',
+    );
+  });
+
+  it('an intermediate past the doubles is Infinity, which ToInt32 reads as 0', () => {
+    const product = Array.from({ length: 36 }, () => '(1 << 30)').join(' * ');
+    expect(exact(`(${product}) | 0`)).toBe(0);
+    accepted5(T(`return (${product}) | 0;`), 0);
+    expect(one(T(`return ${product};`))).toBe(
+      'TS8003: The value has to fit: Infinity is outside i32, which holds -2147483648 to 2147483647 (§13).',
+    );
+    accepted5(T(`return ((${product}) / 2) | 0;`), 0);
+  });
 });

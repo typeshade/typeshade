@@ -303,7 +303,12 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   type (a declaration, a parameter, a result, `i32()`, `u32()`, an index) reads it truncated, as
   Amendment A4 reads a quotient; a comparison reads it exactly. Anywhere else it is refused
   (D-b), with the `f32()` edit, or beside an integer peer that states no type
-  (`vi + (1 << 3) / 3`, `min((1 << 3) / 3, ii)`) with the integer edit (`u32(1 << 3) / 3`).
+  (`vi + (1 << 3) / 3`, `min((1 << 3) / 3, ii)`) with the integer edit (`u32(1 << 3) / 3`). The
+  edit names the whole tree, so it compiles in one step (`((1 | 2) / 2) / 2` names
+  `(f32(1 | 2) / 2) / 2`), and the compiler compiles it before naming it. The owner kept this
+  scope on 2026-11-12 ("이대로"). A `/` by a divisor proven zero is the one diagnostic, as before.
+  Intermediate values are TypeScript's doubles: a product past their range is Infinity, which
+  ToInt32 at a bit operator reads as 0.
   **Newly refused** (`TS8003`), each with the edit that compiles:
   - a value its type does not hold, with the sentence a written number gets:
     `let a: u32 = (1 | 2) - 5` (-2); `let a: u32 = ~0`, `u ^= ~0` and

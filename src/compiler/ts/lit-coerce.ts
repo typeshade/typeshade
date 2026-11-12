@@ -207,7 +207,12 @@ export function foldKindless(tree: Expr): KindlessVerdict | undefined {
     }
   }
   const v = kindlessRoot(tree);
-  if (v === undefined || !Number.isFinite(v)) return undefined;
+  if (v === undefined) return undefined;
+  // TypeScript computes in doubles: a product past their range is Infinity, which ToInt32 at a
+  // larger tree's bit operator reads as 0, and which no integer type holds at the root.
+  if (!Number.isFinite(v)) {
+    return { kind: 'outside', lit: keep({ op: 'lit', type: i32Scalar, value: v }, tree), value: v };
+  }
   if (!Number.isInteger(v)) {
     const division = outermostDivision(tree);
     if (division === undefined) return undefined;
@@ -268,6 +273,20 @@ export function noteKindlessRefusal(lit: Expr, refusal: PendingRefusal): void {
 /** The verdict kind of the refusal `expr` carries, if it carries one. */
 export function pendingKindlessRefusal(expr: Expr): KindlessVerdict['kind'] | undefined {
   return pendingRefusals.get(expr)?.kind;
+}
+
+/** The refusal `expr` carries, pending, if it carries one. */
+export function pendingDiagnostic(expr: Expr): TsCompilerDiagnostic | undefined {
+  return pendingRefusals.get(expr)?.diagnostic;
+}
+
+/** Puts `diagnostic` in place of the refusal `expr` carries. */
+export function replacePendingDiagnostic(expr: Expr, diagnostic: TsCompilerDiagnostic): void {
+  const pending = pendingRefusals.get(expr);
+  if (pending === undefined) return;
+  const i = pending.into.indexOf(pending.diagnostic);
+  if (i >= 0) pending.into[i] = diagnostic;
+  pendingRefusals.set(expr, { ...pending, diagnostic });
 }
 
 /** Withdraws the refusal of `expr`, when it is a kindless literal that carries one: a larger

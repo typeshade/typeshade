@@ -17,6 +17,7 @@ import {
   markAbstractRead,
   markCarriedRead,
   noteAbstractDivision,
+  noteCheckedRefusal,
   noteWrittenDivision,
   noteWrittenDivisionRead,
   noteForcedRead,
@@ -55,6 +56,8 @@ import {
   markKindlessLeaf,
   noteKindlessDivision,
   noteKindlessRefusal,
+  pendingDiagnostic,
+  replacePendingDiagnostic,
   retractKindlessRefusal,
   integerQuotientAt,
   isIntegerQuotient,
@@ -948,8 +951,28 @@ function foldKindlessOrRefuse(
           ),
       );
     case 'quotient': {
-      const division = verdict.division as KindlessDivision;
-      return pending(quotientDiagnostic(division), (peer) => quotientDiagnostic(division, peer));
+      // The edit names the whole tree, so it compiles in one step (`(f32(1 | 2) / 2) / 2`); the
+      // checked-edit path of `abstract-const.ts` confirms it, or takes the next candidate.
+      const root = node as ts.Expression;
+      const state: { peer?: ShaderType; edit?: string } = {};
+      const candidates = (): string[] => treeQuotientEdits(root, sourceFile, state.peer);
+      const diagnostic = (): TsCompilerDiagnostic =>
+        quotientDiagnostic(root, sourceFile, state.edit ?? candidates()[0]!, state.peer);
+      const lit = pending(diagnostic(), (peer) => {
+        state.peer = peer;
+        state.edit = undefined;
+        return diagnostic();
+      });
+      noteCheckedRefusal(sourceFile, {
+        node: root,
+        candidates,
+        current: () => pendingDiagnostic(lit),
+        restate: (edit) => {
+          state.edit = edit;
+          replacePendingDiagnostic(lit, diagnostic());
+        },
+      });
+      return lit;
     }
   }
 }
@@ -958,31 +981,103 @@ function foldKindlessOrRefuse(
 interface KindlessDivision {
   readonly node: ts.BinaryExpression;
   readonly sourceFile: ts.SourceFile;
-  /** Whether each operand carries a bit operator, which the edit converts. */
+  /** Whether each operand carries a bit operator. */
   readonly left: boolean;
   readonly right: boolean;
 }
 
-/** The refusal of verdict 4 (D-b) at `division`: the edit converts each operand that carries a
- *  bit operator to `f32`, or to the integer type `peer` of a position that states none. */
-function quotientDiagnostic(division: KindlessDivision, peer?: ShaderType): TsCompilerDiagnostic {
-  const { node, sourceFile } = division;
-  const text = (n: ts.Expression): string => {
-    const inner = ts.isParenthesizedExpression(n) ? n.expression : n;
-    return inner.getText(sourceFile).replace(/\s+/g, ' ');
-  };
+/** The edits that make the tree at `root` divide in `peer`'s integer type, or in `f32`: each `/`
+ *  whose value reaches the root through arithmetic converts an operand that is no written number,
+ *  and an operand of `+ - * %` beside a converted one converts too, so the edited tree has one
+ *  type in one step (`((1 | 2) / 2) / 2` gives `(f32(1 | 2) / 2) / 2`). A bit operator ends the
+ *  walk: a `/` under it is read through ToInt32 and is no part of the quotient. The first edit
+ *  converts the fewest operands; the second converts both operands of every such `/`. */
+function treeQuotientEdits(
+  root: ts.Expression,
+  sourceFile: ts.SourceFile,
+  peer?: ShaderType,
+): string[] {
   const type = peer === undefined ? 'f32' : typeKey(peer);
-  const shown = (n: ts.Expression, converted: boolean): string =>
-    converted ? `${type}(${text(n)})` : n.getText(sourceFile).replace(/\s+/g, ' ');
-  const subject = text(division.left ? node.left : node.right);
-  const written = node.getText(sourceFile).replace(/\s+/g, ' ');
-  const edit = `${shown(node.left, division.left)} / ${shown(node.right, division.right)}`;
+  const written = (n: ts.Expression): boolean => {
+    const inner = skipParensNode(n);
+    return isIntegerLiteralTree(inner) || (ts.isNumericLiteral(inner) && peer === undefined);
+  };
+  const convert = (n: ts.Expression): string =>
+    `${type}(${skipParensNode(n).getText(sourceFile).replace(/\s+/g, ' ')})`;
+  const edit = (both: boolean): string => {
+    const walk = (n: ts.Expression): { text: string; typed: boolean } => {
+      if (ts.isParenthesizedExpression(n)) {
+        const r = walk(n.expression);
+        return { text: `(${r.text})`, typed: r.typed };
+      }
+      if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.MinusToken) {
+        const r = walk(n.operand);
+        return { text: `-${r.text}`, typed: r.typed };
+      }
+      if (ts.isBinaryExpression(n)) {
+        const k = n.operatorToken.kind;
+        const arith =
+          k === ts.SyntaxKind.PlusToken ||
+          k === ts.SyntaxKind.MinusToken ||
+          k === ts.SyntaxKind.AsteriskToken ||
+          k === ts.SyntaxKind.PercentToken;
+        const between = sourceFile.text.slice(n.left.getEnd(), n.right.getStart(sourceFile));
+        if (k === ts.SyntaxKind.SlashToken) {
+          let l = walk(n.left);
+          let r = walk(n.right);
+          if (!l.typed && !r.typed) {
+            if (written(n.left) && written(n.right) && peer === undefined) {
+              return { text: `${l.text}${between}${r.text}`, typed: true };
+            }
+            if (both || !written(n.left)) l = { text: convert(n.left), typed: true };
+            if (both || !l.typed) r = { text: convert(n.right), typed: true };
+          }
+          return { text: `${l.text}${between}${r.text}`, typed: true };
+        }
+        if (arith) {
+          let l = walk(n.left);
+          let r = walk(n.right);
+          if (l.typed && !r.typed && !written(n.right)) r = { text: convert(n.right), typed: true };
+          if (r.typed && !l.typed && !written(n.left)) l = { text: convert(n.left), typed: true };
+          return { text: `${l.text}${between}${r.text}`, typed: l.typed || r.typed };
+        }
+      }
+      return { text: n.getText(sourceFile), typed: false };
+    };
+    return walk(root).text.replace(/\s+/g, ' ');
+  };
+  return [...new Set([edit(false), edit(true)])];
+}
+
+/** The refusal of verdict 4 (D-b) at `root`, naming `edit` (see {@link treeQuotientEdits}). */
+function quotientDiagnostic(
+  root: ts.Expression,
+  sourceFile: ts.SourceFile,
+  edit: string,
+  peer?: ShaderType,
+): TsCompilerDiagnostic {
+  const written = root.getText(sourceFile).replace(/\s+/g, ' ');
+  const type = peer === undefined ? 'f32' : typeKey(peer);
+  // The subject is the first operand the edit converts: the integer a bit operator makes.
+  const subject = new RegExp(`${type}\\((.*)$`).exec(edit)?.[1] ?? written;
+  let depth = 0;
+  let end = subject.length;
+  for (let i = 0; i < subject.length; i++) {
+    if (subject[i] === '(') depth++;
+    else if (subject[i] === ')') {
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+      depth--;
+    }
+  }
   return makeDiagnostic(
     sourceFile,
-    node,
-    `"${subject}" is an integer by its bit operator, and no operand of "${written}" has a ` +
-      `declared type, so the "/" does not say which division it is. Write "${edit}" for the ` +
-      `${peer === undefined ? 'float' : 'integer'} division.`,
+    root,
+    `"${subject.slice(0, end)}" is an integer by its bit operator, and no operand of "${written}" ` +
+      `has a declared type, so the "/" does not say which division it is. Write "${edit}" for ` +
+      `the ${peer === undefined ? 'float' : 'integer'} division.`,
     TS_CODES.TYPE_MISMATCH,
   );
 }
@@ -1155,6 +1250,25 @@ function lowerBinary(
   }
   const arith = ARITH[node.operatorToken.kind];
   if (arith !== undefined) {
+    // A divisor this can PROVE is zero (a literal, a scalar const, a vector constructor with a
+    // zero component, arithmetic over those) is refused wherever a division is lowered, not
+    // only inside a module constant's initializer (#68): Tint rejects `1.0 / 0.0` as a value
+    // f32 cannot represent, ANGLE folds it with a warning, and the oracle would answer
+    // Infinity or NaN. A divisor that does not fold is not proven anything and passes.
+    // It is the one mistake, said before any tree or D-b verdict: a refusal an operand left
+    // pending is not the program's (Rule 12.4).
+    if ((arith === '/' || arith === '%') && divisorIsZero(right, scope)) {
+      retractKindlessRefusal(left);
+      retractKindlessRefusal(right);
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        node.right,
+        `Division by zero: "${node.right.getText(sourceFile)}" is 0 on every invocation. WGSL refuses it and GLSL ES 3.00 leaves it undefined.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
     // Arithmetic, a `/` included, over a tree of written integers and written integers is the
     // tree (THE RULE, `lit-coerce.ts`): one fold reads it, and only its root decides. A module
     // constant that holds such a tree is a leaf of it here, read as its value.
@@ -1188,11 +1302,6 @@ function lowerBinary(
       const mixed = matVecMul(left, right);
       if (mixed) return mixed;
     }
-    // A divisor this can PROVE is zero (a literal, a scalar const, a vector constructor with a
-    // zero component, arithmetic over those) is refused wherever a division is lowered, not
-    // only inside a module constant's initializer (#68): Tint rejects `1.0 / 0.0` as a value
-    // f32 cannot represent, ANGLE folds it with a warning, and the oracle would answer
-    // Infinity or NaN. A divisor that does not fold is not proven anything and passes.
     // A `/` over a bitwise expression of written integers and written integers has no
     // operand of a declared type: it is refused, as a `/` over a constant some read makes an
     // integer is (Amendment A2; the owner's decision of 2026-11-11, D-b), unless an integer
@@ -1253,18 +1362,6 @@ function lowerBinary(
                 integerAt,
               );
       }
-    }
-    if ((arith === '/' || arith === '%') && divisorIsZero(right, scope)) {
-      // The division by zero is the one mistake: a refusal the dividend left pending is not.
-      retractKindlessRefusal(left);
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node.right,
-        `Division by zero: "${node.right.getText(sourceFile)}" is 0 on every invocation. WGSL refuses it and GLSL ES 3.00 leaves it undefined.`,
-        TS_CODES.TYPE_MISMATCH,
-      );
-      return undefined;
     }
     if (refusedQuotient !== undefined) return refusedQuotient;
     if (typeKey(left.type) !== typeKey(right.type)) {
