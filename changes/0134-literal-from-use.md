@@ -946,6 +946,70 @@ shown (`OD-4`).
   declares, carry these readings.
 - Status: `status: accepted` does not change.
 
+### Amendment A6. The owner's decision on the named edit of a refused division (2026-11-12)
+
+Pull request #1272 (issue #1261) refuses a `/` over a tree of written integers whose quotient is
+no integer (D-b), as Amendment A2 refuses a `/` over a constant of no fixed type. Its ninth
+independent review, at `f85c03f8`, found that the search for an edit across several refusals
+could name an edit that does not compile, or a sentence that is false. The owner decided in the
+Claude Code session on 2026-11-12, after the trade-off was shown (`OD-4`). The tenth and eleventh
+reviews (`da92036b`, `56611e85`) fixed the implementation inside that decision. This amendment
+records the decision and the readings the implementation needs.
+
+- [decision, owner, 2026-11-12] "name only verified edits".
+  - Each refused `/` of a module gets one edit. That covers a tree of written integers, a binding
+    that holds one, and a constant of no fixed type.
+  - The edit's type comes from the structure of the quotient's use:
+    - a declared `let`, a parameter, a result, or a vector constructor;
+    - a field of an object literal, by the field's declared type;
+    - a typed peer, by its written or inferred type, and the target of an assignment;
+    - an index or a bit operator, which takes an integer of either type, through to the place
+      where its result flows;
+    - a chain of `let`s;
+    - the callers of a function with no result type.
+  - Where no position decides, the edit is `f32` (Amendment A2).
+  - Every edit is made at once, and the module is compiled once. The edits are named only when
+    that compile adds no error at a new place. A type error where a quotient flows counts even
+    where the unedited program gives it too.
+  - If the first set adds an error, one more set is compiled. In it, a refusal that only an
+    integer of either type decides takes `u32`, and a refusal that nothing decides takes `i32`.
+  - Otherwise, or where one quotient flows to two types or to a place the walk cannot follow, no
+    refusal of the module names an edit.
+  - At most two edited programs are compiled a module, in `compile()` and in the editor alike.
+- [reading, 2026-11-12] The export boundary. An exported function keeps the `f32` result the
+  host reads (Amendment A5, "export는 f32 유지"). A quotient that flows into an exported
+  function's result is decided by that `f32`, and no edit changes an exported result. A call from
+  another file of a program reaches the function through its export, so the walk stops there. A
+  generic function's result is not followed, so a quotient that flows there names no edit.
+- [reading, 2026-11-12] A written conversion decides the division (decision Q11). A conversion the
+  author writes on an operand states its type, also inside the operand's arithmetic. This covers
+  `(1 | 2) / i32(2)`, `(1 | 2) / (i32(2) + 1)` and `a /= i32(2)`, and the `/` is that type's
+  division. A builtin carries its arguments' origin, as it carries a constant's (Amendment A3).
+  So `(1 | 2) / abs(1 << 1)` stays refused.
+- [reading, 2026-11-12] A tree of written integers whose `u32` bits and TypeScript value differ
+  (`3000000000 | 0` is 3000000000 and -1294967296) is refused beside a typed `u32` under `/`, `%`
+  or a comparison. The owner's decision of 2026-11-11 refuses a `>>` root over such a number for
+  the same reason ("거부"). The sentence names `u32(3000000000 | 0)` for the `u32` value.
+- The sentences of a refusal that names no edit. Each names the operands to wrap, and lists only
+  the types the quotient's positions take:
+  - `Write i32(…), u32(…) or f32(…) around "1 | 2" to choose the division.`, or
+    `Write i32(…) or f32(…) around each of "1|2" and "1<<2" to choose the division.`;
+  - for a `/=`: `Declare "a" with i32 or u32 to choose the division.`, and over a constant of no
+    fixed type `Declare "y" with i32, u32 or f32 to choose the division.`;
+  - for an operand no integer type holds, where the positions take an `f32`, the one form that
+    works:
+    `No integer type holds "(1<<30)*4" (4294967296), so only the float division chooses it: write "f32(4294967296)/3".`
+  - for such an operand where the positions take only integers, no form:
+    `No integer type holds "(1<<30)*4" (4294967296), and the quotient is read as an integer here, so no division of it computes this value.`
+- Disposition: made part of the approved text by this amendment. For every refused `/`, it
+  replaces two things: the check of each edit alone, and the edit that adds fewest errors (the
+  third and fifth reviews of #1184). The cost: where refusals interfere, no refusal names an
+  edit, even one whose own edit would compile.
+- Affects: no front-matter field. Rules 5.1 and 12.7 carry these readings, and the front matter
+  declares both. Surface §13, which the front matter declares, says the same. The sentences
+  follow Rule 12.5.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The change is delivered in parts. `status: accepted` stays until every part is delivered and
