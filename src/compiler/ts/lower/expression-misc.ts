@@ -25,6 +25,7 @@ import {
   readKindlessExactly,
   reportIntLitRange,
   retargetIntLitCtx,
+  pendingKindlessRefusal,
   readingsOf,
   readingsSentence,
 } from '../lit-coerce.js';
@@ -88,7 +89,8 @@ export function lowerScalarCastCall(
   // `f32()` of a tree whose `u32` bits and TypeScript value differ gives two values (D2).
   if (name === 'f32') {
     const readings = readingsOf(lowered, (n) => scope.resolveIr(n));
-    if (readings !== undefined) {
+    // A tree refused already (a `>>` root's two readings) is that one mistake (Rule 12.4).
+    if (readings !== undefined && pendingKindlessRefusal(lowered) === undefined) {
       const arg = node.arguments[0]!;
       const inner = ts.isParenthesizedExpression(arg) ? arg.expression : arg;
       pushDiag(

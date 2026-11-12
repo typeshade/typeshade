@@ -49,6 +49,7 @@ import {
   retargetIntLitCtx,
   reportIntLitRange,
   retargetDeclaredIntLit,
+  pendingKindlessRefusal,
   readingsOf,
   readingsSentence,
 } from '../lit-coerce.js';
@@ -686,7 +687,7 @@ export function lowerCall(
   ) {
     for (let i = 0; i < args.length; i++) {
       const readings = readingsOf(args[i]!, (n) => scope.resolveIr(n));
-      if (readings === undefined) continue;
+      if (readings === undefined || pendingKindlessRefusal(args[i]!) !== undefined) continue;
       const arg = node.arguments[i]!;
       const inner = ts.isParenthesizedExpression(arg) ? arg.expression : arg;
       pushDiag(

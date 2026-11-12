@@ -1036,8 +1036,9 @@ function treeQuotientEdit(
   sourceFile: ts.SourceFile,
   peer?: ShaderType,
   value = true,
-  /** Receives each operand the edit converts, with its value where no integer type holds it. */
-  subjects?: { text: string; value?: number }[],
+  /** Receives each operand the edit converts, with its value where no integer type holds it,
+   *  and whether it has two readings (D2). */
+  subjects?: { text: string; value?: number; readings?: boolean }[],
 ): string {
   const type = peer === undefined ? 'f32' : typeKey(peer);
   const written = (n: ts.Expression): boolean => {
@@ -1089,21 +1090,50 @@ function treeQuotientEdit(
     }
   };
   let byValue = false;
+  // An operand that is a bit tree over a written number only a `u32` holds has two readings
+  // (D2): its `f32` is TypeScript's value only through `i32(…)`, `f32(i32(0x80000000 | 1))`.
+  const twoReadings = (n: ts.Expression): boolean => {
+    const inner = skipParensNode(n);
+    const big = (k: ts.Expression) => {
+      const x = skipParensNode(k);
+      return ts.isNumericLiteral(x) && Number(x.text) > 2147483647;
+    };
+    const bits =
+      (ts.isBinaryExpression(inner) &&
+        [
+          ts.SyntaxKind.BarToken,
+          ts.SyntaxKind.AmpersandToken,
+          ts.SyntaxKind.CaretToken,
+          ts.SyntaxKind.LessThanLessThanToken,
+          ts.SyntaxKind.GreaterThanGreaterThanToken,
+        ].includes(inner.operatorToken.kind) &&
+        (big(inner.left) || big(inner.right))) ||
+      (ts.isPrefixUnaryExpression(inner) &&
+        inner.operator === ts.SyntaxKind.TildeToken &&
+        big(inner.operand));
+    const v = valueOf(n);
+    return bits && v !== undefined && v < 0;
+  };
   const convert = (n: ts.Expression): string => {
+    const text = skipParensNode(n).getText(sourceFile).replace(/\s+/g, ' ');
+    const reads = type === 'f32' && twoReadings(n);
     if (subjects !== undefined && !byValue) {
       const at = valueOf(n);
-      const text = skipParensNode(n).getText(sourceFile).replace(/\s+/g, ' ');
       subjects.push(
         at !== undefined && Number.isInteger(at) && (at < -(2 ** 31) || at > 2 ** 32 - 1)
           ? { text, value: at }
-          : { text },
+          : twoReadings(n)
+            ? { text, readings: true }
+            : { text },
       );
     }
     // Only a value no integer type holds is written as its value; another operand keeps its text.
     const v = byValue ? valueOf(n) : undefined;
     return v !== undefined && Number.isInteger(v) && (v < -(2 ** 31) || v > 2 ** 32 - 1)
       ? `${type}(${String(v)})`
-      : `${type}(${skipParensNode(n).getText(sourceFile).replace(/\s+/g, ' ')})`;
+      : reads
+        ? `f32(i32(${text}))`
+        : `${type}(${text})`;
   };
   const edit = (both: boolean): string => {
     const walk = (n: ts.Expression): { text: string; typed: boolean } => {
@@ -1196,7 +1226,7 @@ function quotientDiagnostic(
   } else {
     // The operands the float edit converts are the ones a written type decides; one no integer
     // type holds leaves only the float division, written with its value.
-    const subjects: { text: string; value?: number }[] = [];
+    const subjects: { text: string; value?: number; readings?: boolean }[] = [];
     treeQuotientEdit(root, sourceFile, undefined, false, subjects);
     const big = subjects.find((s) => s.value !== undefined);
     // Where the positions take an `f32`, the float division of the value is the one form that
@@ -1206,7 +1236,11 @@ function quotientDiagnostic(
       big === undefined
         ? genericDivisionRemedy(
             subjects.map((s) => s.text),
-            allowed,
+            // `f32(…)` of an operand with two readings is refused (D2): its float is
+            // TypeScript's value through `i32(…)`.
+            subjects.some((s) => s.readings === true)
+              ? (allowed ?? ['i32', 'u32', 'f32']).map((t) => (t === 'f32' ? 'f32(i32' : t))
+              : allowed,
           )
         : float
           ? `No integer type holds "${big.text}" (${String(big.value)}), so only the float ` +

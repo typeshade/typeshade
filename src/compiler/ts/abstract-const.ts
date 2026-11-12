@@ -2045,7 +2045,7 @@ export function genericDivisionRemedy(
   subjects: readonly string[],
   allowed: readonly string[] = ALL_SCALARS,
 ): string {
-  const forms = allowed.map((t) => `${t}(…)`);
+  const forms = allowed.map((t) => (t === 'f32(i32' ? 'f32(i32(…))' : `${t}(…)`));
   const list =
     forms.length <= 1 ? (forms[0] ?? '') : `${forms.slice(0, -1).join(', ')} or ${forms.at(-1)!}`;
   return `Write ${list} around ${wrapList(subjects)} to choose the division.`;

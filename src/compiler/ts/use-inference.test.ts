@@ -1893,6 +1893,14 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(both(source)[0]).toContain('Write i32(…) or f32(…) around "k" to choose the division.');
   });
 
+  it('a quotient of a tree with two readings names its float through i32 (D2)', () => {
+    const source = T12('return f32((0x80000000|1)/2);', 'f32');
+    expect(both(source)[0]).toContain('Write "f32(i32(0x80000000|1))/2" for the float division.');
+    const fixed = source.replace('(0x80000000|1)/2', 'f32(i32(0x80000000|1))/2');
+    expect(both(fixed)).toEqual([]);
+    expect(compile(fixed).eval('t', [-3, 7, 2.5])).toBe((0x80000000 | 1) / 2);
+  });
+
   it('F8: an arm of ?: is a typed peer', () => {
     const source = T12('let q = (5|2)/2;\n  return vi > 3 ? q : vi;', 'u32');
     expect(both(source)[0]).toContain('Write "u32(5|2)/2" for the integer division.');
