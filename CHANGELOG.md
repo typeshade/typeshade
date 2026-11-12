@@ -380,6 +380,12 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
     Amendment A2 refuses a `/` over such a constant, as it refuses `const HALF = N / 2` with
     `const N = 8` (kept by the owner's decision of 2026-11-12, D3).
 
+  `settleConstExprs` (#368) evaluates the `~` intrinsic over an abstract integer, so
+  `u32(~min((9 | 0), 5))` reaches the target as `4294967290u`, not `u32(~5)`, which Tint refused.
+  Measured bundle budgets move (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime`
+  167177 to 167208 (split total 169447 to 169476), `typeshade/emit` 117367 to 117380 and
+  `typeshade/fuse` 113898 to 113919 (split total 114521 to 114536): each one carries the pass.
+
 - **The editor's hover names a constant of no fixed type in the language's words, and each read
   at the type it takes there** (change 0134 item 4; Rules 5.1 and 12.7; decision Q3). At the
   declaration, `const K = 3` hovers as `const K = 3 (i32, u32, f32 or f64 where it is read)` and
