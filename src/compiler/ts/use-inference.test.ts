@@ -574,9 +574,6 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
   it.each([
     ['let a: u32 = (1 | 2) - 5;', '-2 is outside u32, which holds 0 to 4294967295'],
     ['let a: u32 = -5 + (1 | 2);', '-2 is outside u32, which holds 0 to 4294967295'],
-    ['let a: u32 = ~0;', '-1 is outside u32, which holds 0 to 4294967295'],
-    ['let a: u32 = (~3 & 255) << 24;', '-67108864 is outside u32, which holds 0 to 4294967295'],
-    ['let a: u32 = vi;\n  a ^= ~0;', '-1 is outside u32, which holds 0 to 4294967295'],
     ['let a: u32 = vi;\n  a += (1 | 2) - 5;', '-2 is outside u32, which holds 0 to 4294967295'],
     [
       'let a: i32 = (1 | 0) + 2147483647;',
@@ -598,6 +595,32 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(result.wgsl).toBeUndefined();
     expect(editor(source)).toContain(`TS8003: ${message}`);
   });
+
+  it.each([
+    ['let a: u32 = ~0;', '~0', -1, '0xffffffff', 4294967295],
+    ['let a: u32 = (~3 & 255) << 24;', '(~3 & 255) << 24', -67108864, '0xfc000000', 4227858432],
+    ['let a: u32 = 0;\n  a ^= ~0;', '~0', -1, '0xffffffff', 4294967295],
+  ])(
+    'a negative bit operation in a u32 is refused and names the u32 bits: %s',
+    (body, written, value, bits, after) => {
+      // TypeScript computes the negative value, so the u32 refuses it as the written number; the
+      // edit is the u32 with the same bits (the owner's decision of 2026-11-11, "거부 유지").
+      const message =
+        `The value has to fit: ${String(value)} is outside u32, which holds 0 to 4294967295 ` +
+        `(§13). Write the u32 with the same bits, ${bits}.`;
+      const source = mod('', `${body}\n  return a;`, 'u32', 'vi: u32');
+      const result = compile(source);
+      expect(result.diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+        `TS8003: ${message}`,
+      ]);
+      expect(result.wgsl).toBeUndefined();
+      expect(editor(source)).toEqual([`TS8003: ${message}`]);
+      const fixed = source.replace(written, bits);
+      expect(compile(fixed).diagnostics).toEqual([]);
+      expect(editor(fixed)).toEqual([]);
+      expect(compile(fixed).eval('t', [0])).toBe(after);
+    },
+  );
 
   it('the order of the operands does not change a comparison: vi > (0 | 0) - 1', () => {
     // `(vi > 4294967295u)` at 11cd1e82: false, where TypeScript says true.

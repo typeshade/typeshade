@@ -448,13 +448,29 @@ export function reportIntLitRange(
     makeDiagnostic(
       sourceFile,
       bad.node,
-      intLiteralRangeMessage(bad.value, target),
+      intLiteralRangeMessage(bad.value, target) + bitsEdit(expr, bad.value, target),
       TS_CODES.TYPE_MISMATCH,
     ),
   );
   return expr.op === 'select'
     ? { ...expr, type: target }
     : { op: 'lit', type: target, value: bad.value };
+}
+
+/** The edit a refused bit operation over written integers names in a `u32` position: its value
+ *  is negative, as TypeScript computes it (`~0` is -1), and the `u32` with the same bits is the
+ *  number that compiles (`0xffffffff`; the owner's decision of 2026-11-11 on #1272, "거부 유지").
+ *  Empty for any other refusal: an arithmetic result (`(1 | 2) - 5`) means its value, not its
+ *  bits. */
+function bitsEdit(expr: Expr, value: number, target: ShaderType): string {
+  const tree = kindlessBitwise.get(expr);
+  if (tree === undefined || typeKey(target) !== 'u32' || value >= 0 || value < -2147483648) {
+    return '';
+  }
+  const bitwise =
+    (tree.op === 'call' && tree.fn === '~') ||
+    (tree.op === 'binop' && ['&', '|', '^', '<<', '>>'].includes(tree.bop));
+  return bitwise ? ` Write the u32 with the same bits, 0x${(value >>> 0).toString(16)}.` : '';
 }
 
 /** The width a shift amount has to fit under, on both targets: WGSL's `i32`/`u32` and GLSL ES
