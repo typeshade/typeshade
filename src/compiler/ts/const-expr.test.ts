@@ -189,6 +189,14 @@ const CASES: readonly Case[] = [
     refused: ['sign(i32(S.x))'],
     value: () => 0,
   },
+  {
+    name: 'the complement of a builtin over written integers, converted to u32 (issue 1261)',
+    type: 'u32',
+    ret: 'x + u32(~min((9 | 0), 5))',
+    wgsl: 'return (x + 4294967290u);',
+    refused: ['u32(~5)'],
+    value: (x) => (x + 4294967290) >>> 0,
+  },
 ];
 
 const sourceOf = (c: Case): string => `"use typeshade";
