@@ -1420,8 +1420,12 @@ comparison; anywhere else it is refused. A tree over a written number only a `u3
 `u32`'s bits (`3000000000 | 0` is 3000000000). Beside a typed `u32`, `+ - * & | ^ << ~` read the
 bits, which agree with TypeScript's -1294967296 modulo 2^32. Every operation where the two
 differ (`/`, `%`, a comparison, `max`, `min`, `clamp`, `abs`, `sign`, `f32()`, `>>` by a
-non-constant amount, and the compound forms), also through a binding, is refused with
-`u32(3000000000|0)` as the edit (the owner's decisions of 2026-11-12).
+non-constant amount, the compound forms, and an exported function's result), also through a
+binding, `?:`, `select`, a function's result, a module `let`, arithmetic and a compound
+assignment, is refused with a verified edit: `u32(3000000000|0)`, `i32(…)` where the value
+flows to an `i32` or into `f32()`, or the declaration of an assignment's target with its type.
+An annotation ends the origin (the owner's decisions of 2026-11-12). A compound assignment's
+right side is an operand: `g *= (5 | 0) / 2` is refused as `g = g * ((5 | 0) / 2)` is.
 
 A conversion written on an operand, also inside
 its arithmetic (`k / (i32(2) + 1)`), states its type and decides the division, and an exported

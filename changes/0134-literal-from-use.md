@@ -994,9 +994,14 @@ records the decision and the readings the implementation needs.
   another file). A read of a constant of no fixed type is its written number, so it states no
   type either.
 - [decision, owner, 2026-11-12] D-b truncation, "이대로". A position that states an integer type
-  reads a quotient that is no integer truncated toward zero, as Amendment A4 reads one:
-  `let j: i32 = (5 | 0) / 2` is 2. A comparison reads the exact value. Every other position
-  refuses it. The owner kept this scope of D-b on 2026-11-12.
+  reads a quotient that is no integer truncated toward zero, as Amendment A4 reads one: a
+  declaration, a parameter, a result, `i32(…)`, `u32(…)`, and an index (which takes either
+  integer type). `let j: i32 = (5 | 0) / 2` is 2. A comparison reads the exact value. Every other
+  position refuses it. The owner kept this scope of D-b on 2026-11-12.
+- [reading, 2026-11-12] A compound assignment is no position that states a type for its right
+  side: `g *= (5 | 0) / 2` is `g = g * ((5 | 0) / 2)`, whose quotient is an operand beside `g`,
+  so it is refused as the written-out form is, with a verified edit. This holds for a variable,
+  an array element, a field and a component.
 - [decision, owner, 2026-11-12] D2, the two readings of a tree. A tree of written integers whose
   root bit operator reads a written number only a `u32` holds is that `u32`'s bits
   (`3000000000 | 0` is 3000000000, change 0134 item 1), and its TypeScript value is ToInt32 of
@@ -1006,10 +1011,22 @@ records the decision and the readings the implementation needs.
     its bits, which is TypeScript's value.
   - Every other operation whose result differs between the two is refused: `/`, `%`, a
     comparison, `max`, `min`, `clamp`, `abs`, `sign`, `f32()`, `>>` by an amount that is no
-    written number, and `/=`, `%=` and `>>=`. The same holds through a binding:
-    `let a = 3000000000 | 0; let b = a; b / vi`.
-  - The sentence names `u32(…)` as the edit:
+    written number, `/=`, `%=` and `>>=`, and the result of an exported function, which the host
+    reads. The same holds through a binding and every path that carries the value with no
+    declared type: `let b = a`, `?:`, `select`, a function's result, a module `let`, arithmetic
+    over a written number (`let c = a + 0`) and a compound assignment (`s += a`). An annotation
+    ends the origin: `let x: u32 = 3000000000 | 0` is a `u32`.
+  - The sentence names `u32(…)`, the owner's edit:
     `"3000000000|0" is 3000000000 on its u32 bits and -1294967296 in TypeScript, so the "/" does not say which value it means. Write "u32(3000000000|0)" for the u32 value.`
+  - The edit is verified with the module's other edits, as every named edit is ("name only
+    verified edits"). Its form follows the structure: `u32(…)` beside a `u32` and where the value
+    flows to one; `i32(…)`, which is TypeScript's value, where it flows to an `i32` or into
+    `f32()`; the declaration of an assignment's target with its type
+    (`let a: u32 = 3000000000 | 0`), since a conversion cannot stand as a target. Where no form
+    compiles, the sentence ends with `Write u32(…) or i32(…) around "a" to choose its value.`
+  - Beside an `f32` the tree is an integer beside a float, refused as such (decision 1 of #1272),
+    not by this sentence. A refused `/` of a binding with two readings by written numbers is
+    D-b's refusal, whose float edit reads TypeScript's value: `f32(i32(a)) / 2`.
   - This replaces this amendment's earlier wording, which read the refusal under `/`, `%` and a
     comparison as a reading of the owner's decision of 2026-11-11 on a `>>` root.
 - [decision, owner, 2026-11-12] D3. `f32((K | 0) / 2)` with `const K = 4` stays refused (Amendment
