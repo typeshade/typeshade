@@ -1401,20 +1401,16 @@ its declared uses give `k`. The counter carries the constant, so a `/` over it i
 start through a `let` or a function result takes that value's type, which items 1 and 3 of
 change 0134 will infer.
 
-The sentence names one edit, whose type the use of the quotient decides. Where an integer
+The sentence names one edit, the one that compiles where the quotient stands. Where an integer
 position reads the quotient (`xs[k / 2]`, `r + k / 2`, `let j: u32 = …`), it names the
 constant with the type that position asks (`const k: u32 = 7`), or, where another read asks
 another type, the `/` with each value converted to it (`i32(k) / 2`). Anywhere else it names
 the `/` with each value converted to `f32`, a bitwise operation converted as a whole
 (`f32(k | 1) / 2`). A `/=` names the variable with its type written (`let y: f32 = k`). The
-compiler makes the edit of every refused `/` of the module at once and compiles the program
-once. It names the edits only when that adds no error. Where they do not compile together
-(`h(x + k / 2)` passes an `f32` sum to a `u32`), no refusal of the module names an edit. Each
-names the operands to wrap instead:
-`Write i32(…), u32(…) or f32(…) around "k" to choose the division.`
-A `/=` names the variable to declare with a type (the owner's decision of
-2026-11-12, Amendment A6 of change 0134). A mismatch around the `/` is the refusal said again,
-so the mistake is one diagnostic (Rule 12.4).
+compiler checks the edit before it names it. Where none of these compiles, the program holds
+another mistake (`h(x + k / 2)` passes an `f32` sum to a `u32`). The sentence names the edit
+that adds fewest errors, and a mismatch around the `/` stays only where that edit leaves it, so
+the mistake is one diagnostic (Rule 12.4).
 
 The quotient's own read is not another read (Amendment A4). `let j: u32 = N / 2` is `4u`, as the written
 `8 / 2` is there, and `x * (N / 2)` is the ECMAScript value where no other line reads `N` as an
