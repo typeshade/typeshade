@@ -820,9 +820,11 @@ export function k(x: i32, u: u32): f32 {
   }
 }`;
     const c = compiled(source);
-    expect(c.wgsl).toContain('const AB: f32 = 3.0;');
+    // A module constant whose root is `|`, `&` or `^` over written integers is their integer,
+    // as one whose root is `<<` is (F7 of the fourteenth review of #1272).
+    expect(c.wgsl).toContain('const AB: i32 = 3;');
     expect(c.wgsl).toContain('const F: u32 = 3u;');
-    expect(c.wgsl).toContain('const M: f32 = 240.0;');
+    expect(c.wgsl).toContain('const M: i32 = 240;');
     expect(c.wgsl).toContain('case 3: {');
     expect(c.wgsl).toContain('case 0: {');
     expect(editor(source)).toEqual([]);

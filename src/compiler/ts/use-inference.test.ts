@@ -514,13 +514,28 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(result.eval('t', [1])).toBe(8);
   });
 
-  it('a module constant over written integers keeps its value and its f32, as before', () => {
-    const source = mod('const M = 1 | 2;\n', 'return x * M;', 'f32', 'x: f32');
-    const result = compile(source);
-    expect(result.diagnostics).toEqual([]);
-    expect(editor(source)).toEqual([]);
-    expect(result.wgsl).toContain('const M: f32 = 3.0;');
-    expect(result.eval('t', [2])).toBe(6);
+  it('a module constant whose root is | & or ^ is an integer, as one whose root is << is', () => {
+    // F7 of the fourteenth review of #1272: `const M = 1 | 2` kept the f32 3.0 of main, so
+    // `ii + M` was refused, `f + M` accepted and `M / 2` called it an integer. It is the tree's
+    // integer now, as `const M = 1 << 1` was: beside an f32 it is refused (decision 1).
+    const beside = mod('const M = 1 | 2;\n', 'return x * M;', 'f32', 'x: f32');
+    const mismatch =
+      'TS8003: Type mismatch: cannot * f32 and i32 — no implicit int/float conversion. Cast ' +
+      'explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).';
+    expect(compile(beside).diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([mismatch]);
+    expect(editor(beside)).toEqual([mismatch]);
+    for (const [body, value] of [
+      ['return x + M;', -4],
+      ['return M | 0;', 3],
+      ['return M ^ x;', -6],
+    ] as const) {
+      const source = mod('const M = 1 | 2;\n', body, 'i32', 'x: i32');
+      const result = compile(source);
+      expect(result.diagnostics, body).toEqual([]);
+      expect(editor(source), body).toEqual([]);
+      expect(result.wgsl).toContain('const M: i32 = 3;');
+      expect(result.eval('t', [-7])).toBe(value);
+    }
   });
 
   it('beside an f32 the integer is refused where the f32 use stands, and the cast compiles', () => {
@@ -797,26 +812,32 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
   });
 
   it.each([
-    ['let a: i32 = (1 << 30) * 2;\n  return a;'],
-    ['let a: i32 = ii;\n  a += (1 << 30) * 2;\n  return a;'],
-    ['return (1 << 30) * 2;'],
-  ])('an i32 position over 2147483648 is refused and names -2147483648 (D-a): %s', (body) => {
-    // main wrapped each to -2147483648; TypeScript computes 2147483648.
-    const message =
-      'The value has to fit: 2147483648 is outside i32, which holds -2147483648 to 2147483647 ' +
-      '(§13). Write the i32 with the same bits, -2147483648, or declare a u32.';
-    const source = mod('', body);
-    expect(compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
-      `TS8003: ${message}`,
-    ]);
-    expect(editor(source)).toEqual([`TS8003: ${message}`]);
-    // A compound `a += -2147483648` is refused on main as `cannot += i32 and f32`, a defect of
-    // the compound assignment with a negative written number (open item of #1272).
-    if (body.includes('+=')) return;
-    const fixed = source.replace('(1 << 30) * 2', '-2147483648');
-    expect(compile(fixed).diagnostics).toEqual([]);
-    expect(editor(fixed)).toEqual([]);
-  });
+    ['let a: i32 = (1 << 30) * 2;\n  return a;', true],
+    // `a += -2147483648` does not compile until #1274 is fixed, so the edit is not named (F6 of
+    // the fourteenth review: every named edit is verified).
+    ['let a: i32 = ii;\n  a += (1 << 30) * 2;\n  return a;', false],
+    ['return (1 << 30) * 2;', true],
+  ])(
+    'an i32 position over 2147483648 is refused, and names -2147483648 where it compiles (D-a): %s',
+    (body, named) => {
+      // main wrapped each to -2147483648; TypeScript computes 2147483648.
+      const message =
+        'The value has to fit: 2147483648 is outside i32, which holds -2147483648 to 2147483647 ' +
+        '(§13).' +
+        (named ? ' Write the i32 with the same bits, -2147483648, or declare a u32.' : '');
+      const source = mod('', body);
+      expect(compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+        `TS8003: ${message}`,
+      ]);
+      expect(editor(source)).toEqual([`TS8003: ${message}`]);
+      // A compound `a += -2147483648` is refused on main as `cannot += i32 and f32`, a defect of
+      // the compound assignment with a negative written number (open item of #1272).
+      if (body.includes('+=')) return;
+      const fixed = source.replace('(1 << 30) * 2', '-2147483648');
+      expect(compile(fixed).diagnostics).toEqual([]);
+      expect(editor(fixed)).toEqual([]);
+    },
+  );
 
   it('-(1 << 31) is the u32 2147483648, which an i32 peer refuses (D-a)', () => {
     const mismatch =

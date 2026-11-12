@@ -2,6 +2,7 @@
 //
 // Implements: Rule 6.3, Rule 7.4 (docs/language-design.md; traced in reqs/).
 
+import { exportedConstant } from './abstract-const.js';
 import {
   abstractConstFor,
   hasNoWrittenType,
@@ -824,7 +825,17 @@ function lowerOne(
   }
   // A tree of written integers refused at its root (`const K = (1 << 30) * 4`) is the one
   // mistake: the constant is refused with it, and a read of it adds nothing (Rule 12.4).
-  if (pendingKindlessRefusal(init) !== undefined) {
+  // An exported constant is read by its importers as the `f32` the export keeps (Amendment A5),
+  // as an exported function's result is: a refused quotient there leaves the constant an `f32`,
+  // and an importer's own mismatch is the importer's mistake (F5 of the fourteenth review of
+  // #1272). Its refusal stands in its own file.
+  const exportedQuotient =
+    pendingKindlessRefusal(init) === 'quotient' &&
+    annotated === undefined &&
+    typeKey(init.type) === 'f32' &&
+    ts.isVariableDeclaration(decl) &&
+    exportedConstant(decl);
+  if (pendingKindlessRefusal(init) !== undefined && !exportedQuotient) {
     refusedDeclarationsOf(scope.calleeTable()).add(name);
     refuseModuleName(sourceFile, name);
     return undefined;

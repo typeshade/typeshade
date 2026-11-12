@@ -417,14 +417,15 @@ describe('a float operand of & | ^', () => {
       export function mask(): u32 {
         return MASK;
       }
-      export function ab(): f32 {
+      export function ab(): i32 {
         return AB;
       }
     `);
     for (const line of [
       'const Flag_Both: i32 = 3;',
       'const MASK: u32 = 3u;',
-      'const AB: f32 = 5.0;',
+      // `A | B` over constants of no fixed type is their integer (F7 of the fourteenth review).
+      'const AB: i32 = 5;',
       'case 3: {',
     ]) {
       expect(c.wgsl).toContain(line);

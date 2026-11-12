@@ -33,6 +33,8 @@ import {
   type AbstractConst,
   declarationWithType,
   kindlessSource,
+  assignedReadings,
+  declaredWithoutType,
   refuseTwoReadings,
   twoReadingsOf,
 } from '../abstract-const.js';
@@ -1050,7 +1052,11 @@ function lowerDeclarationKind(
   if (
     decl.type === undefined &&
     !refusedQuotient &&
-    kindlessOrigin(init, (n) => scope.resolveIr(n), sourceFile) === 'kindless'
+    (kindlessOrigin(init, (n) => scope.resolveIr(n), sourceFile) === 'kindless' ||
+      // A function's result, and a builtin, `?:` or `select` over one, carries the origin of
+      // what it returns (`let a = gg()` beside `function gg() { return 6 ^ 3; }`, F1).
+      (kindlessOrigin(init, (n) => scope.resolveIr(n), sourceFile) !== 'written' &&
+        kindlessSource(decl.initializer)))
   ) {
     markKindlessBinding(
       bound,
@@ -1933,6 +1939,14 @@ function lowerAssign(
   // did through lowerAssignOp.
   value = retargetIntLitCtx(value, right, want, stated);
   value = reportIntLitRange(value, right, want, sourceFile, diagnostics) ?? value;
+  // `a = 3000000000 | 0` makes a variable with no written type hold two readings, as the same
+  // initializer does (D2; F2 of the fourteenth review of #1272). An annotation ends the origin.
+  if (target?.op === 'varref' && ts.isIdentifier(inner) && declaredWithoutType(inner)) {
+    markReadingsWith(
+      scope.resolveIr(target.name),
+      readingsOf(value, (n) => scope.resolveIr(n)) ?? assignedReadings(right),
+    );
+  }
   // `k = vi` gives a value its uses decide the type of what it stores (change 0134 item 1).
   noteStoredType(undecidedTarget(left, scope, target), value, value.type);
   if (typeKey(want) !== typeKey(value.type)) {

@@ -1537,21 +1537,34 @@ export function reportAbstractDivisions(
         let first: 'u32' | 'i32' = 'u32';
         let second: 'u32' | 'i32' = 'i32';
         if (r.peer === 'u32') second = 'u32';
+        else if (r.peer === 'i32') [first, second] = ['i32', 'i32'];
         else if (r.operator === 'f32()') [first, second] = ['i32', 'u32'];
         else {
           const use = typesFromUse(r.operation, undefined, cx);
           if (use.first === 'i32' || use.first === 'f32') [first, second] = ['i32', 'u32'];
         }
         const text = skipParenNodes(r.node).getText(sourceFile);
+        // A constant of no fixed type is its TypeScript value wherever it is read, so a
+        // conversion around it never reads the bits: its declaration with the type is the edit,
+        // as an assignment's target's is. One declared in another file names no edit here (F4).
+        const constant = untypedConstant(r.node);
+        const declared = r.target || constant !== undefined;
+        const elsewhere =
+          constant !== undefined && programFileOf(constant) !== programFileOf(r.node);
+        const shown: ReadingsRefusal = declared ? { ...r, target: true } : r;
         const change = (t: 'u32' | 'i32'): SourceChange | undefined =>
-          r.target
-            ? declarationChange(text, r.node, t)
-            : { start: r.node.getStart(sourceFile), end: r.node.getEnd(), text: `${t}(${text})` };
-        const say = (type: 'u32' | 'i32' | null) => {
+          elsewhere
+            ? undefined
+            : declared
+              ? declarationChange(text, r.node, t)
+              : { start: r.node.getStart(sourceFile), end: r.node.getEnd(), text: `${t}(${text})` };
+        const say = (type: 'u32' | 'i32' | null | 'none') => {
           const next = makeDiagnostic(
             sourceFile,
             r.node,
-            readingsSentenceOf(r, readingsRemedy(r, type)),
+            type === 'none' || (type === null && elsewhere)
+              ? readingsSentenceOf(r, '').trimEnd()
+              : readingsSentenceOf(r, readingsRemedy(shown, type)),
             TS_CODES.TYPE_MISMATCH,
           );
           const i = diagnostics.indexOf(r.diagnostic);
@@ -1564,11 +1577,44 @@ export function reportAbstractDivisions(
           conflict: false,
           name: (set) => {
             const t = set === 0 ? first : second;
-            if (t !== 'u32' || r.target) say(t);
+            if (t !== 'u32' || declared) say(t);
           },
           generic: () => say(null),
+          bare: () => say('none'),
         };
       },
+    });
+  }
+  // The `>>` over a written `u32` and the value forms (`Write the u32 with the same bits, …`) name
+  // edits too, and each is verified with the module's others, as every named edit is ("name only
+  // verified edits"; F6 of the fourteenth review of #1272). One that does not verify is not
+  // named: the sentence says what is true and stops.
+  for (const d of diagnostics) {
+    const named = SHIFT_EDIT.exec(d.message) ?? VALUE_EDIT.exec(d.message);
+    if (d.category !== 'error' || named === null || d.start === undefined) continue;
+    let current = d;
+    const edit = named.groups!.edit!;
+    const restate = (message: string): void => {
+      const next = { ...current, message };
+      const i = diagnostics.indexOf(current);
+      if (i >= 0) diagnostics[i] = next;
+      current = next;
+    };
+    const bare = (): void => restate(d.message.slice(0, named.index).trimEnd());
+    const change: SourceChange | undefined =
+      programFileOf(nodeAtOffset(sourceFile, d.start) ?? sourceFile) === 0
+        ? { start: d.start, end: d.start + d.length, text: edit }
+        : undefined;
+    batch.push({
+      node: nodeAtOffset(sourceFile, d.start) ?? sourceFile,
+      build: () => ({
+        diagnostic: () => current,
+        sets: [change, change],
+        conflict: false,
+        name: () => undefined,
+        generic: bare,
+        bare,
+      }),
     });
   }
   // The edits the refusals name must compile where the quotients stand, all at once (as the
@@ -1586,6 +1632,24 @@ export function reportAbstractDivisions(
 }
 
 type Scalar = 'f32' | 'i32' | 'u32';
+
+/** The edit a refused `>>` over a written `u32` names, and the edits of the value forms. */
+const SHIFT_EDIT = / Write "(?<edit>u32\([^"]*\) >> [^"]*)" for the u32 shift\.$/;
+const VALUE_EDIT =
+  / Write the (?:u32|i32) with the same bits, (?<edit>0x[0-9a-f]+|-?\d+)(?:, or declare a u32)?\.$/;
+
+/** The innermost node of `sourceFile` that starts at `offset`. */
+function nodeAtOffset(sourceFile: ts.SourceFile, offset: number): ts.Node | undefined {
+  let found: ts.Node | undefined;
+  const visit = (n: ts.Node): void => {
+    if (n.getStart(sourceFile) <= offset && offset < n.getEnd()) {
+      if (n.getStart(sourceFile) === offset) found = n;
+      ts.forEachChild(n, visit);
+    }
+  };
+  ts.forEachChild(sourceFile, visit);
+  return found;
+}
 
 /** The scalar a written type names (`u32`, or the component of `vec3u`), if it names one. */
 function scalarOfTypeText(text: string): Scalar | undefined {
@@ -1831,6 +1895,9 @@ function flowScalars(
     if (declared !== undefined) return add(scalarOfTypeText(declared));
     if (!ts.isIdentifier(p.name) || seen.has(p)) return;
     seen.add(p);
+    // An exported constant keeps the `f32` its importers read (Amendment A5), as an exported
+    // function's result does: no edit changes it (F5 of the fourteenth review of #1272).
+    if (exportedConstant(p)) return add('f32');
     const name = p.name.text;
     for (const k of identifiersNamed(cx.sourceFile, name)) {
       if (k.pos < p.end) continue;
@@ -1930,6 +1997,17 @@ function flowScalars(
 
 /** Whether the file exports `f`: with `export` on it, or by name in an `export { … }` list,
  *  under its own name or another (`export { g as h }`), before or after it is declared. */
+/** Whether `d` is a module constant a host or another file imports: one declared `export`, or
+ *  one of another file of a linked program (only an export is reached from there). */
+export function exportedConstant(d: ts.VariableDeclaration): boolean {
+  const statement = d.parent.parent;
+  if (!ts.isVariableStatement(statement) || !ts.isSourceFile(statement.parent)) return false;
+  return (
+    statement.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true ||
+    programFileOf(d) !== 0
+  );
+}
+
 function exportedFunction(f: ts.SignatureDeclaration, sourceFile: ts.SourceFile): boolean {
   if (ts.getCombinedModifierFlags(f as ts.Declaration) & ts.ModifierFlags.Export) return true;
   if (!ts.isFunctionDeclaration(f) || f.name === undefined) return false;
@@ -1991,6 +2069,9 @@ interface BatchItem {
   readonly conflict: boolean;
   readonly name: (set: 0 | 1) => void;
   readonly generic: () => void;
+  /** States the refusal with no remedy: what is true of it, where no wrap verifies in a module
+   *  with this one refusal (the fourteenth review of #1272, F4). Absent: `generic` is said. */
+  readonly bare?: () => void;
 }
 
 /**
@@ -2013,8 +2094,12 @@ function checkModuleEdits(
   check: DivisionEditCheck,
 ): void {
   if (items.length === 0) return;
+  // A module with one refusal whose positions ask one type names no wrap it has not verified:
+  // the text names no edit only where refusals conflict (D4 of 2026-11-12).
+  const unverified = (it: BatchItem): void =>
+    items.length === 1 && !it.conflict && it.bare !== undefined ? it.bare() : it.generic();
   if (items.some((it) => it.conflict || it.sets[0] === undefined)) {
-    for (const it of items) it.generic();
+    for (const it of items) unverified(it);
     return;
   }
   const own = new Set(items.map((it) => it.diagnostic()));
@@ -2064,7 +2149,7 @@ function checkModuleEdits(
   const differs = items.some((it) => !same(it.sets[0], it.sets[1]));
   const named: 0 | 1 | undefined = clean(0) ? 0 : differs && clean(1) ? 1 : undefined;
   for (const it of items) {
-    if (named === undefined) it.generic();
+    if (named === undefined) unverified(it);
     else it.name(named);
   }
   if (named === undefined) return;
@@ -2240,6 +2325,92 @@ export function twoReadingsOf(
   return pair !== undefined && pair.u32 !== pair.ts ? pair : undefined;
 }
 
+/** The two readings a plain assignment `a = rhs` gives its target: those of `rhs`, or of a
+ *  part that `+ - * & | ^ <<`, a minus, a `~`, `?:` or `select` carry (`a = a + T`). The
+ *  fourteenth review of #1272, F2: the two readings were lost through a reassignment. */
+export function assignedReadings(
+  node: ts.Expression,
+  depth = 0,
+): { readonly u32: number; readonly ts: number } | undefined {
+  const direct = twoReadingsOf(node);
+  if (direct !== undefined || depth > 16) return direct;
+  const n = skipParenNodes(node);
+  if (ts.isBinaryExpression(n)) {
+    const k = n.operatorToken.kind;
+    const carries =
+      k === ts.SyntaxKind.PlusToken ||
+      k === ts.SyntaxKind.MinusToken ||
+      k === ts.SyntaxKind.AsteriskToken ||
+      k === ts.SyntaxKind.BarToken ||
+      k === ts.SyntaxKind.AmpersandToken ||
+      k === ts.SyntaxKind.CaretToken ||
+      k === ts.SyntaxKind.LessThanLessThanToken;
+    return carries
+      ? (assignedReadings(n.left, depth + 1) ?? assignedReadings(n.right, depth + 1))
+      : undefined;
+  }
+  if (
+    ts.isPrefixUnaryExpression(n) &&
+    (n.operator === ts.SyntaxKind.MinusToken || n.operator === ts.SyntaxKind.TildeToken)
+  ) {
+    return assignedReadings(n.operand, depth + 1);
+  }
+  if (ts.isConditionalExpression(n)) {
+    return assignedReadings(n.whenTrue, depth + 1) ?? assignedReadings(n.whenFalse, depth + 1);
+  }
+  if (
+    ts.isCallExpression(n) &&
+    ts.isIdentifier(n.expression) &&
+    n.expression.text === 'select' &&
+    n.arguments.length === 3
+  ) {
+    return (
+      assignedReadings(n.arguments[0]!, depth + 1) ?? assignedReadings(n.arguments[1]!, depth + 1)
+    );
+  }
+  return undefined;
+}
+
+/** The declaration of the constant `node` reads, where it is a `const` with no written type
+ *  (`const K = 3000000000 | 0`, in a module, a function or another file). */
+function untypedConstant(node: ts.Expression): ts.VariableDeclaration | undefined {
+  const n = skipParenNodes(node);
+  if (!ts.isIdentifier(n)) return undefined;
+  const d = declarationOf(n.text, n);
+  if (d === undefined || !ts.isVariableDeclaration(d)) return undefined;
+  const list = d.parent;
+  return ts.isVariableDeclarationList(list) &&
+    (list.flags & ts.NodeFlags.Const) !== 0 &&
+    writtenTypeText(d, n.getSourceFile()) === undefined
+    ? d
+    : undefined;
+}
+
+/** Whether the variable `id` names was declared with no written type (its uses decide it, or
+ *  its initializer does): such a variable takes the two readings of what is stored in it. */
+export function declaredWithoutType(id: ts.Identifier): boolean {
+  const d = declarationOf(id.text, id);
+  return (
+    d !== undefined &&
+    ts.isVariableDeclaration(d) &&
+    writtenTypeText(d, id.getSourceFile()) === undefined
+  );
+}
+
+/** The written number the variable `node` names was declared with, where it has no written type
+ *  (`let M = 3000000000`). */
+function namedNumber(node: ts.Expression): number | undefined {
+  const n = skipParenNodes(node);
+  if (!ts.isIdentifier(n)) return undefined;
+  const d = declarationOf(n.text, n);
+  if (d === undefined || !ts.isVariableDeclaration(d) || d.initializer === undefined) {
+    return undefined;
+  }
+  return writtenTypeText(d, n.getSourceFile()) === undefined
+    ? writtenNumber(d.initializer)
+    : undefined;
+}
+
 function skipParenNodes(node: ts.Expression): ts.Expression {
   return ts.isParenthesizedExpression(node) ? skipParenNodes(node.expression) : node;
 }
@@ -2283,10 +2454,6 @@ function readingPair(
   };
   if (ts.isBinaryExpression(n)) {
     const k = n.operatorToken.kind;
-    const big = (e: ts.Expression) => {
-      const v = writtenNumber(e);
-      return v !== undefined && v > 2147483647 && v <= 4294967295;
-    };
     const bit =
       k === ts.SyntaxKind.BarToken ||
       k === ts.SyntaxKind.AmpersandToken ||
@@ -2302,9 +2469,14 @@ function readingPair(
     const rv = writtenNumber(n.right);
     const lp = lv === undefined ? of(n.left) : undefined;
     const rp = rv === undefined ? of(n.right) : undefined;
-    // The root of a tree over a written `u32`: its bits and ToInt32 of them.
-    if (bit && (big(n.left) || big(n.right)) && lv !== undefined && rv !== undefined) {
-      const [ua, ub] = [lv >>> 0, rv >>> 0];
+    // The root of a tree over a written `u32`: its bits and ToInt32 of them. A variable with
+    // no written type declared with such a number reads as it (`let M = 3000000000; M | 0`).
+    const ln = lv ?? namedNumber(n.left);
+    const rn = rv ?? namedNumber(n.right);
+    const bigNumber = (v: number | undefined) =>
+      v !== undefined && v > 2147483647 && v <= 4294967295;
+    if (bit && (bigNumber(ln) || bigNumber(rn)) && ln !== undefined && rn !== undefined) {
+      const [ua, ub] = [ln >>> 0, rn >>> 0];
       const u =
         k === ts.SyntaxKind.BarToken
           ? (ua | ub) >>> 0
@@ -2379,6 +2551,9 @@ function readingPair(
       return of(n.arguments[0]!) ?? of(n.arguments[1]!);
     }
     const f = functionNamed(sourceFile, callee);
+    // A generic function's result is its argument (`id<T>(a: T): T`, F3 of the fourteenth review).
+    const generic = f === undefined ? undefined : genericArgument(f, n, sourceFile);
+    if (generic !== undefined) return generic === null ? undefined : of(generic);
     if (f === undefined || writtenResultText(f, sourceFile) !== undefined || f.body === undefined) {
       return undefined;
     }
@@ -2536,13 +2711,116 @@ export function kindlessSource(node: ts.Expression, depth = 0): boolean {
       writtenBitTree(d.initializer)
     );
   }
-  if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.arguments.length === 0) {
+  // `?:`, `select` and an integer builtin carry their arms' or arguments' origin, as they do
+  // over a tree (`abs(gg())`, `vi > 3 ? gg() : 1`).
+  const carried = carriedParts(n);
+  if (carried !== undefined) {
+    return carried.every((e) => part(e)) && carried.some((e) => kindlessSource(e, depth + 1));
+  }
+  if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
     const f = functionNamed(sourceFile, n.expression.text);
-    if (f?.body === undefined || writtenResultText(f, sourceFile) !== undefined) return false;
-    const returns = f.body.statements.filter(ts.isReturnStatement);
+    if (f?.body === undefined) return false;
+    // A generic function's result is its argument (`id<T>(a: T): T`): the origin is the
+    // argument's (the fourteenth review of #1272, F3).
+    const generic = genericArgument(f, n, sourceFile);
+    if (generic !== undefined) return generic !== null && inferredInteger(generic, depth + 1);
+    if (writtenResultText(f, sourceFile) !== undefined) return false;
+    // A function with no written result that returns an integer by its bit operator, through
+    // its own bindings and builtins too (`return abs(6 ^ 3)`, `let x = 6 ^ 3; return x`): the
+    // module's own calls read its integer copy (Amendment A5), so its result carries the
+    // origin, as `let a = abs(6 ^ 3)` does (the fourteenth review of #1272, F1).
+    const returns: ts.ReturnStatement[] = [];
+    const walk = (x: ts.Node): void => {
+      if (ts.isReturnStatement(x)) returns.push(x);
+      else if (!ts.isFunctionLike(x)) ts.forEachChild(x, walk);
+    };
+    ts.forEachChild(f.body, walk);
     return (
       returns.length > 0 &&
-      returns.every((r) => r.expression !== undefined && writtenBitTree(r.expression))
+      returns.every((r) => r.expression !== undefined && inferredInteger(r.expression, depth + 1))
+    );
+  }
+  return false;
+}
+
+/** The arms of a `?:` or a `select`, or the arguments of an integer builtin, that carry their
+ *  origin to the result; `undefined` for any other node. */
+function carriedParts(n: ts.Expression): readonly ts.Expression[] | undefined {
+  if (ts.isConditionalExpression(n)) return [n.whenTrue, n.whenFalse];
+  if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression)) return undefined;
+  const name = n.expression.text;
+  if (name === 'select' && n.arguments.length === 3) return n.arguments.slice(0, 2);
+  if (['abs', 'sign', 'min', 'max', 'clamp'].includes(name) && n.arguments.length > 0) {
+    return n.arguments;
+  }
+  return undefined;
+}
+
+/** The argument a call of the generic `f` returns, where `f`'s result is a type parameter and
+ *  each of its returns is the parameter of that type; `null` where the result is a type
+ *  parameter returned some other way; `undefined` where `f` is no such function. */
+function genericArgument(
+  f: ts.FunctionDeclaration,
+  call: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+): ts.Expression | null | undefined {
+  const result = writtenResultText(f, sourceFile);
+  if (result === undefined || !(f.typeParameters ?? []).some((t) => t.name.text === result)) {
+    return undefined;
+  }
+  const at = f.parameters.findIndex(
+    (p) => p.type !== undefined && p.type.getText(sourceFile) === result,
+  );
+  const returns: ts.ReturnStatement[] = [...(f.body?.statements ?? [])].filter(
+    ts.isReturnStatement,
+  );
+  const param = f.parameters[at];
+  if (
+    param === undefined ||
+    !ts.isIdentifier(param.name) ||
+    returns.length === 0 ||
+    !returns.every(
+      (r) =>
+        r.expression !== undefined &&
+        ts.isIdentifier(skipParenNodes(r.expression)) &&
+        (skipParenNodes(r.expression) as ts.Identifier).text === (param.name as ts.Identifier).text,
+    )
+  ) {
+    return null;
+  }
+  return call.arguments[at] ?? null;
+}
+
+/** Whether `node` is an integer only by a bit operator: a bit tree of written integers, a value
+ *  {@link kindlessSource} follows, a binding of the function with no written type that holds
+ *  one, or a builtin, `?:` or `select` over those and written numbers. */
+function inferredInteger(node: ts.Expression, depth: number): boolean {
+  const n = skipParenNodes(node);
+  if (depth > 16) return false;
+  if (writtenBitTree(n) || kindlessSource(n, depth + 1)) return true;
+  const part = (e: ts.Expression) =>
+    writtenNumber(e) !== undefined || inferredInteger(e, depth + 1);
+  const carried = carriedParts(n);
+  if (carried !== undefined) {
+    return carried.every(part) && carried.some((e) => inferredInteger(e, depth + 1));
+  }
+  if (ts.isBinaryExpression(n)) {
+    const k = n.operatorToken.kind;
+    const op =
+      k === ts.SyntaxKind.PlusToken ||
+      k === ts.SyntaxKind.MinusToken ||
+      k === ts.SyntaxKind.AsteriskToken ||
+      k === ts.SyntaxKind.PercentToken;
+    return op && part(n.left) && part(n.right) && (!constantTree(n.left) || !constantTree(n.right));
+  }
+  if (ts.isIdentifier(n)) {
+    const d = declarationOf(n.text, n);
+    return (
+      d !== undefined &&
+      ts.isVariableDeclaration(d) &&
+      writtenTypeText(d, n.getSourceFile()) === undefined &&
+      d.initializer !== undefined &&
+      inferredInteger(d.initializer, depth + 1)
     );
   }
   return false;

@@ -1890,12 +1890,12 @@ function lowerBinary(
     // the author's words (Rule 12.6), and before the equal-types rule below, whose remedy for
     // `f32 & u32` begins with `f32(intVal)`: two floats, which is this refusal again.
     //
-    // Two whole numbers in a module constant are the exception. `const M = 1 | 2` at module
-    // scope, or an enum member over two flags, is folded to the number (§12) before a target
-    // reads it, which compiles; that is left as it was. Anywhere else the pair is emitted, so
-    // two written integers are made integers above, and a pair that is still `f32` (a whole
-    // float-written number, or a module variable over module constants) is refused here: it
-    // reached the targets as `(1.0 | 2.0)` before (issue 1261).
+    // Two whole `f32` numbers in a module constant or an enum member are the exception: they are
+    // folded to the number (§12) before a target reads it, which compiles. Two written integers
+    // are made integers above, in a module constant too (`const M = 1 | 2` is the `i32` 3, F7 of
+    // the fourteenth review of #1272), and a pair that is still `f32` (a whole float-written
+    // number, or a module variable over module constants) is refused here: it reached the
+    // targets as `(1.0 | 2.0)` before (issue 1261).
     // A value its uses decide is an integer here: the typed peer's, or of no kind (`f | 4`).
     // A written operand that an `i32` cannot hold makes it a `u32` (`f | 3000000000`).
     // The value of an operand with no type of its own: a written number, a constant of no fixed
@@ -1918,17 +1918,6 @@ function lowerBinary(
     // module constant is folded to its number before any target reads it, so it keeps the
     // value it had. A written integer beside a bitwise expression of no kind took that
     // expression's `i32` in `pair` above, which is no type of its own either.
-    // Whether an operand is a tree already or written arithmetic, which a module constant routes
-    // through the fold; two single written numbers (`const M = 1 | 2`) keep the `f32` of `main`.
-    const single = (n: ts.Expression): boolean => {
-      const inner = skipParensNode(n);
-      return ts.isNumericLiteral(inner) || isIntegerWrittenRead(inner);
-    };
-    const holdsTree =
-      isKindlessBitwise(left) ||
-      isKindlessBitwise(right) ||
-      !single(node.left) ||
-      !single(node.right);
     left = bitOperandLeaf(left, node.left, scope);
     right = bitOperandLeaf(right, node.right, scope);
     const leftKindless = isKindlessBitwise(left);
@@ -1937,13 +1926,11 @@ function lowerBinary(
       isKindlessBitwise(e) ||
       (writtenIntegerOperand(n) && (intElem(e.type) === undefined || peerKindless));
     let kindlessPair = false;
-    // A module constant routes through the same fold, unless both operands are plain written
-    // numbers (`const M = 1 | 2` keeps its `f32` 3.0, the value it had on `main`).
-    if (
-      !(scope.atModuleConstant() && !holdsTree) &&
-      noKind(left, node.left, rightKindless) &&
-      noKind(right, node.right, leftKindless)
-    ) {
+    // A module constant routes through the same fold: `const K = 1 | 2` is the integer 3, as
+    // `const K = 1 << 1` is 2 (a tree of written integers, change 0134 item 1). It kept the
+    // `f32` 3.0 of `main`, so `ii + K` was refused and `f + K` accepted, against what `K / 2`
+    // said of it (the fourteenth review of #1272).
+    if (noKind(left, node.left, rightKindless) && noKind(right, node.right, leftKindless)) {
       const [lv, rv] = [valueOf(left), valueOf(right)];
       // A value only `u32` holds beside a negative one has no integer type: the written
       // `3000000000 | -1` would compute -1 in TypeScript, which no `u32` is.

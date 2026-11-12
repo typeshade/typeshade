@@ -298,7 +298,8 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   which Tint refuses; it is now `var f: i32 = 3;`. A position that declares an integer type takes
   the value where that type holds it (`let f: u32 = K | J`, `u |= K | J`, `u += 1 | 2`). A
   module variable reads module constants as constants of no fixed type. `const M = 1 | 2` at
-  module scope keeps `const M: f32 = 3.0;`.
+  module scope is `const M: i32 = 3;`, as `const M = 1 << 1` is `2`: it kept the `f32` 3.0 of
+  `main`, so `ii + M` was refused and `f + M` accepted, while `M / 2` called `M` an integer.
   **A quotient that is no integer** (`(1 | 2) / 2` is 1.5): a position that states an integer
   type (a declaration, a parameter, a result, `i32()`, `u32()`, an index) reads it truncated, as
   Amendment A4 reads a quotient; a comparison reads it exactly. Anywhere else it is refused
