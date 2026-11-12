@@ -1245,88 +1245,142 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(editor(fixed)).toEqual([]);
   });
 
-  it('where no edit compiles, the refusal says what the edit leaves', () => {
-    const source = T('let q = (1 | 2) / 2;\n  let x: f32 = q;\n  let j: i32 = q;\n  return j;');
-    const fixed = source.replace('(1 | 2) / 2', 'f32(1 | 2) / 2');
-    const left = compile(fixed).diagnostics;
-    expect(left).toHaveLength(1);
-    expect(left[0]!.message).toContain('Type mismatch: cannot let/const j i32 and f32');
-    // The line the remaining mistake stands on is the line the edited program reports.
-    expect(left[0]!.line).toBe(source.split('\n').findIndex((l) => l.includes('let j')) + 1);
-    expect(one(source)).toContain(
-      'Write "f32(1 | 2) / 2" for the float division. That edit leaves another mistake on line ' +
-        `${String(left[0]!.line)}: Type mismatch: cannot let/const j i32 and f32`,
-    );
-  });
-
-  // The eighth review of #1272 at 69d69313: a refusal is charged only with what its own edit
-  // gives, errors are compared by place, and the check costs a few compiles a module.
+  // The ninth review of #1272 at f85c03f8, and the owner's decision of 2026-11-12: each
+  // refusal's edit takes its type from where the quotient flows, every edit is compiled with the
+  // others at once, and where they do not compile together no refusal names an edit.
+  const GENERIC = 'Write i32(…), u32(…) or f32(…) around an operand to choose the division.';
   const lines = (source: string): string[] => {
     const got = compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`);
     expect(editor(source)).toEqual(got);
     return got;
   };
-  const clean = (source: string): void => {
-    expect(compile(source).diagnostics).toEqual([]);
-    expect(editor(source)).toEqual([]);
+  /** Whether the refusals of `source` name edits, each proven: made together, they compile in
+   *  both halves. Otherwise every refusal names none. */
+  const verified = (source: string): 'named' | 'generic' => {
+    const refusals = lines(source).filter((l) => l.includes('does not say which division'));
+    expect(refusals.length).toBeGreaterThan(0);
+    const generic = refusals.filter((l) => l.endsWith(GENERIC));
+    if (generic.length === refusals.length) return 'generic';
+    expect(generic).toEqual([]);
+    let fixed = source;
+    for (const d of compile(source).diagnostics) {
+      const m = /no operand of "(.*)" has a declared type, .* Write "(.*)" for the/.exec(d.message);
+      if (m) fixed = fixed.replace(m[1]!, m[2]!);
+    }
+    expect(compile(fixed).diagnostics).toEqual([]);
+    expect(editor(fixed)).toEqual([]);
+    return 'named';
   };
-  it('a refusal whose edits all fail does not spoil another refusal', () => {
-    const source = T(
+
+  it('where the edits do not compile together, no refusal names an edit', () => {
+    const source = T('let q = (1 | 2) / 2;\n  let x: f32 = q;\n  let j: i32 = q;\n  return j;');
+    expect(one(source)).toBe(
+      'TS8003: "1 | 2" is an integer by its bit operator, and no operand of "(1 | 2) / 2" has a ' +
+        `declared type, so the "/" does not say which division it is. ${GENERIC}`,
+    );
+  });
+
+  it('refusals that interfere name no edit, and the others name proven edits (F1, F3)', () => {
+    // F1 example A: q is read as an f32 and as an i32, so no set compiles; r names no edit too.
+    const a = T(
       'let q = (1 | 2) / 2;\n  let x: f32 = q;\n  let j: i32 = q;\n  let r = (5|0)/2;\n' +
         '  return x + f32(j) + r;',
       'f32',
     );
-    const got = lines(source);
-    expect(got).toHaveLength(2);
-    expect(got[0]).toContain('That edit leaves another mistake on line');
-    expect(got[1]).toMatch(/Write "f32\(5\|0\)\/2" for the float division\.$/);
-  });
-
-  it('a failing refusal in another function does not spoil the edit of this one', () => {
-    const source =
+    expect(verified(a)).toBe('generic');
+    // F1 example B: the refusals do not interfere, and each names its edit.
+    const b =
       T('let r = (5|0)/2;\n  let s: i32 = r;\n  return f32(s);', 'f32') +
       '\nexport function u(ii: i32): f32 {\n  let q = (1 | 2) / 2;\n  return q;\n}\n';
-    const got = lines(source);
-    expect(got).toHaveLength(2);
+    expect(verified(b)).toBe('named');
+    const got = lines(b);
     expect(got[0]).toMatch(/Write "i32\(5\|0\)\/2" for the integer division\.$/);
     expect(got[1]).toMatch(/Write "f32\(1 \| 2\) \/ 2" for the float division\.$/);
-    clean(source.replace('(5|0)/2', 'i32(5|0)/2').replace('(1 | 2) / 2', 'f32(1 | 2) / 2'));
-  });
-
-  it('an equal error elsewhere does not hide the error an edit adds', () => {
-    const source =
+    // F3: an equal error elsewhere does not make a failing edit look proven.
+    const c =
       '"use typeshade";\nexport function u(ii: i32): i32 {\n  let s: i32 = 1.5;\n  return s;\n}\n' +
       'export function t(ii: i32): f32 {\n  let q = (1 | 2) / 2;\n  let x: f32 = q;\n' +
       '  let s: i32 = q;\n  return x + f32(s);\n}\n';
-    const got = lines(source).filter((l) => l.includes('no operand of'));
-    expect(got).toHaveLength(1);
-    expect(got[0]).toContain('That edit leaves another mistake on line 9: ');
+    const refusal = lines(c).filter((l) => l.includes('no operand of'));
+    expect(refusal).toHaveLength(1);
+    expect(refusal[0]).toContain(GENERIC);
   });
 
   it.each([
     [
-      'every refusal fails',
+      'P2',
+      'let q=(1|2)/2;\n  let j: i32=q;\n  let s=q;\n  let k: i32=s;\n  let r=(5|0)/2;\n' +
+        '  return f32(j+k)+r;',
+      'f32',
+      '',
+    ],
+    [
+      'R3',
+      'let q=(1|2)/2;\n  let r=(5|0)/2;\n  let j: i32 = select(r, r, q > 0.5);\n  return f32(j);',
+      'f32',
+      '',
+    ],
+    [
+      'U1',
+      'let q = (1 | 2) / 2;\n  return h(q);',
+      'u32',
+      'function h(a: u32): u32 {\n  return a;\n}\n',
+    ],
+    ['U9', 'let q = (1 | 2) / 2;\n  return (vec2u(vi, vi) * q).x;', 'u32', ''],
+    [
+      'J1',
+      'let q=(1|2)/2;\n  let r=(5|0)/2;\n  let z = q*r;\n  let j: i32 = z;\n  return j;',
+      'i32',
+      '',
+    ],
+    [
+      'J2',
+      'let q=(1|2)/2;\n  let r=(5|0)/2;\n  let z = q*r;\n  let j: i32 = z;\n  let x: f32 = z;\n' +
+        '  return j + i32(x);',
+      'i32',
+      '',
+    ],
+  ])('%s names a proven edit set or no edit', (_, body, ret, pre) => {
+    verified(T(body, ret, pre));
+  });
+
+  it.each([
+    ['U1', 'let q = (1 | 2) / 2;\n  return h(q);', 'function h(a: u32): u32 {\n  return a;\n}\n'],
+    ['U9', 'let q = (1 | 2) / 2;\n  return (vec2u(vi, vi) * q).x;', ''],
+  ])('%s: a u32 position names the u32 edit', (_, body, pre) => {
+    const source = T(body, 'u32', pre);
+    expect(verified(source)).toBe('named');
+    expect(one(source)).toContain('Write "u32(1 | 2) / 2" for the integer division.');
+  });
+
+  it.each([
+    [
+      'every edit compiles',
+      (i: number) => `let q${i} = (${i} | 1) / 2;\n  let x${i}: f32 = q${i};`,
+    ],
+    [
+      'every edit fails',
       (i: number) =>
         `let q${i} = (${i} | 1) / 2;\n  let x${i}: f32 = q${i};\n  let s${i}: i32 = q${i};`,
     ],
     [
-      'one refusal fails',
+      'one edit fails',
       (i: number) =>
         i === 0
           ? `let q${i} = (${i} | 1) / 2;\n  let x${i}: f32 = q${i};\n  let s${i}: i32 = q${i};`
           : `let q${i} = (${i} | 1) / 2;\n  let x${i}: f32 = q${i};`,
     ],
     [
-      'every refusal compiles',
-      (i: number) => `let q${i} = (${i} | 1) / 2;\n  let x${i}: f32 = q${i};`,
+      'each quotient read through a let',
+      (i: number) => `let q${i} = (${i} | 1) / 2;\n  let s${i} = q${i};\n  let k${i}: i32 = s${i};`,
     ],
-  ])('the check of 40 refusals compiles a few edited programs: %s', (_, form) => {
+  ])('the check of 40 refusals compiles at most two edited programs: %s', (_, form) => {
     const body = Array.from({ length: 40 }, (_, i) => form(i)).join('\n  ') + '\n  return 0.0;';
     const source = T(body, 'f32');
     const before = checkedEditCompiles();
     expect(compile(source).diagnostics).toHaveLength(40);
-    // One round for each type an edit can take (f32, i32, u32); no compile per refusal.
-    expect(checkedEditCompiles() - before).toBeLessThanOrEqual(4);
+    expect(checkedEditCompiles() - before).toBeLessThanOrEqual(2);
+    verified(source);
   });
 
   it.each([

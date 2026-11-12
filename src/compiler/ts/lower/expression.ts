@@ -953,50 +953,41 @@ function foldKindlessOrRefuse(
           ),
       );
     case 'quotient': {
-      // The edit names the whole tree, so it compiles in one step (`(f32(1 | 2) / 2) / 2`); the
-      // checked-edit path of `abstract-const.ts` confirms it, or takes the next candidate.
+      // The edit names the whole tree, so it compiles in one step (`(f32(1 | 2) / 2) / 2`). The
+      // checked-edit path of `abstract-const.ts` chooses its type from where the quotient flows
+      // and compiles it with every other refusal's edit; where that does not compile, the
+      // refusal names no edit.
       const root = node as ts.Expression;
-      const state: { peer?: ShaderType; edit?: string; remains?: string } = {};
-      // The diagnostic needs the first edit alone; the whole list is made once a peer is known,
-      // when the checked-edit path asks for it.
-      const known = new Map<string, string[]>();
-      const editsFor = (all: boolean): string[] => {
-        const key = `${state.peer === undefined ? '' : typeKey(state.peer)}/${String(all)}`;
-        let list = known.get(key);
-        if (list === undefined) {
-          list = treeQuotientEdits(root, sourceFile, state.peer, all);
-          known.set(key, list);
-        }
-        return list;
+      const state: { peer?: ShaderType; edit?: string | null } = {};
+      const known = new Map<string, string>();
+      const editIn = (type: ShaderType | undefined): string => {
+        const key = type === undefined ? '' : typeKey(type);
+        let edit = known.get(key);
+        if (edit === undefined) known.set(key, (edit = treeQuotientEdit(root, sourceFile, type)));
+        return edit;
       };
-      const candidates = (): string[] => editsFor(true);
-      const diagnostic = (): TsCompilerDiagnostic => {
-        const first = editsFor(false)[0]!;
-        return quotientDiagnostic(
+      const diagnostic = (): TsCompilerDiagnostic =>
+        quotientDiagnostic(
           root,
           sourceFile,
-          state.edit ?? first,
+          state.edit === undefined ? editIn(state.peer) : state.edit,
           state.peer,
-          state.remains,
-          first,
+          treeQuotientEdit(root, sourceFile, state.peer, false),
         );
-      };
       const lit = pending(diagnostic(), (peer) => {
         state.peer = peer;
         state.edit = undefined;
-        state.remains = undefined;
         return diagnostic();
       });
       // The cell follows the refusal to whichever literal carries it (a peer retypes it).
       const held = cell!;
       noteCheckedRefusal(sourceFile, {
         node: root,
-        candidates,
-        first: () => editsFor(false)[0]!,
+        peer: () => (state.peer === undefined ? undefined : typeKey(state.peer)),
+        edit: (type) => editIn(type === 'f32' ? undefined : { kind: 'scalar', scalar: type }),
         current: () => held.diagnostic,
-        restate: (edit, remains) => {
+        restate: (edit) => {
           state.edit = edit;
-          state.remains = remains;
           replaceRefusal(held, diagnostic());
         },
       });
@@ -1014,18 +1005,17 @@ interface KindlessDivision {
   readonly right: boolean;
 }
 
-/** The edits that make the tree at `root` divide in `peer`'s integer type, or in `f32`: each `/`
+/** The edit that makes the tree at `root` divide in `peer`'s type, or in `f32`: each `/`
  *  whose value reaches the root through arithmetic converts an operand that is no written number,
  *  and an operand of `+ - * %` beside a converted one converts too, so the edited tree has one
  *  type in one step (`((1 | 2) / 2) / 2` gives `(f32(1 | 2) / 2) / 2`). A bit operator ends the
- *  walk: a `/` under it is read through ToInt32 and is no part of the quotient. The first edit
- *  converts the fewest operands; the second converts both operands of every such `/`. */
-function treeQuotientEdits(
+ *  walk: a `/` under it is read through ToInt32 and is no part of the quotient. */
+function treeQuotientEdit(
   root: ts.Expression,
   sourceFile: ts.SourceFile,
   peer?: ShaderType,
-  all = true,
-): string[] {
+  value = true,
+): string {
   const type = peer === undefined ? 'f32' : typeKey(peer);
   const written = (n: ts.Expression): boolean => {
     const inner = skipParensNode(n);
@@ -1128,35 +1118,23 @@ function treeQuotientEdits(
     return walk(root).text.replace(/\s+/g, ' ');
   };
   const first = edit(false);
-  if (!all) return [first];
-  const second = edit(true);
+  if (!value) return first;
+  // An operand no integer type holds is converted by its value, since its text is refused for
+  // its range (`f32(4294967296) / 3`).
   byValue = true;
-  const values = [edit(false), edit(true)];
-  // Where the quotient flows on into an integer position (`let q = (1 | 2) / 2; xs[q]`), the
-  // integer division the author can state is the edit that compiles: `i32(1 | 2) / 2`, or
-  // `u32(1 | 2) / 2` where a `u32` reads it (`vi + q`).
-  const integer =
-    peer === undefined
-      ? [
-          ...treeQuotientEdits(root, sourceFile, i32Scalar),
-          ...treeQuotientEdits(root, sourceFile, u32Scalar),
-        ]
-      : [];
-  return [...new Set([first, second, ...values, ...integer])];
+  return edit(false) === first ? first : edit(false);
 }
 
-const i32Scalar: ShaderType = { kind: 'scalar', scalar: 'i32' };
-const u32Scalar: ShaderType = { kind: 'scalar', scalar: 'u32' };
-
-/** The refusal of verdict 4 (D-b) at `root`, naming `edit` (see {@link treeQuotientEdits}). */
+/** The refusal of verdict 4 (D-b) at `root`, naming `edit` (see {@link treeQuotientEdit}). */
 function quotientDiagnostic(
   root: ts.Expression,
   sourceFile: ts.SourceFile,
-  edit: string,
-  peer?: ShaderType,
-  remains?: string,
+  /** The edit to name; `null` names none (the edits of the module's refusals do not compile
+   *  together). */
+  edit: string | null,
+  peer: ShaderType | undefined,
   /** The edit that converts the operands as written, which names the subject. */
-  written0: string = edit,
+  written0: string,
 ): TsCompilerDiagnostic {
   const written = root.getText(sourceFile).replace(/\s+/g, ' ');
   const type = peer === undefined ? 'f32' : typeKey(peer);
@@ -1174,13 +1152,15 @@ function quotientDiagnostic(
       depth--;
     }
   }
+  const remedy =
+    edit === null
+      ? 'Write i32(…), u32(…) or f32(…) around an operand to choose the division.'
+      : `Write "${edit}" for the ${edit.includes('f32(') ? 'float' : 'integer'} division.`;
   return makeDiagnostic(
     sourceFile,
     root,
     `"${subject.slice(0, end)}" is an integer by its bit operator, and no operand of "${written}" ` +
-      `has a declared type, so the "/" does not say which division it is. Write "${edit}" for ` +
-      `the ${peer === undefined && edit.includes('f32(') ? 'float' : 'integer'} division.` +
-      (remains === undefined ? '' : ` That edit leaves another mistake${remains}`),
+      `has a declared type, so the "/" does not say which division it is. ${remedy}`,
     TS_CODES.TYPE_MISMATCH,
   );
 }

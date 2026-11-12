@@ -1147,14 +1147,14 @@ export function noteQuotientRead(node: ts.Node): void {
 export interface CheckedRefusal {
   /** The tree the edit replaces. */
   readonly node: ts.Node;
-  /** The edits, the preferred one first. */
-  readonly candidates: () => readonly string[];
-  /** The first of {@link candidates}, made without the others. */
-  readonly first: () => string;
+  /** The integer type of a peer that states no type, which the edit takes; else `undefined`. */
+  readonly peer: () => string | undefined;
+  /** The edit that makes the tree divide in `type`. */
+  readonly edit: (type: 'f32' | 'i32' | 'u32') => string;
   /** The refusal as it stands, if it stands. */
   readonly current: () => TsCompilerDiagnostic | undefined;
-  /** Names `edit` in the refusal, with the mistake it leaves where it leaves one. */
-  readonly restate: (edit: string, remains?: string) => void;
+  /** Names `edit` in the refusal, or no edit (`null`). */
+  readonly restate: (edit: string | null) => void;
 }
 
 const checkedRefusalsOf = new WeakMap<ts.SourceFile, CheckedRefusal[]>();
@@ -1303,7 +1303,6 @@ export function reportAbstractDivisions(
   // flows (`let q = (1 | 2) / 2; return q * 2;` in an `i32` function) is the refusal of the `/`
   // said again (Rule 12.4).
   const reads = quotientReadsOf.get(sourceFile) ?? [];
-  const followOns: TsCompilerDiagnostic[] = [];
   if (reads.length > 0 && diagnostics.some((d) => d.message.includes(NO_DIVISION))) {
     for (let i = diagnostics.length - 1; i >= 0; i--) {
       const d = diagnostics[i]!;
@@ -1315,7 +1314,7 @@ export function reportAbstractDivisions(
           return d.start <= start && d.start + d.length >= r.getEnd();
         })
       ) {
-        followOns.push(...diagnostics.splice(i, 1));
+        diagnostics.splice(i, 1);
       }
     }
   }
@@ -1329,37 +1328,230 @@ export function reportAbstractDivisions(
       const d = r.current();
       return d !== undefined && diagnostics.includes(d);
     });
-    if (standing.length > 0) {
-      checkQuotientEdits(sourceFile, diagnostics, standing, check, { followOns, reads });
-    }
+    if (standing.length > 0) checkQuotientEdits(sourceFile, diagnostics, standing, check);
   }
 }
 
-/** The scalar type a quotient edit converts to (`f32(1 | 2) / 2` is `f32`). */
-function editType(text: string): string {
-  return /\b([fiu]32)\(/.exec(text)?.[1] ?? '';
+type Scalar = 'f32' | 'i32' | 'u32';
+
+/** The scalar a written type names (`u32`, or the component of `vec3u`), if it names one. */
+function scalarOfTypeText(text: string): Scalar | undefined {
+  const t = text.replace(/\s+/g, '');
+  if (t === 'f32' || t === 'i32' || t === 'u32') return t;
+  const m = /^vec[234]([fiu])$|^vec[234]<([fiu])32>$/.exec(t);
+  if (m !== null) return `${(m[1] ?? m[2])!}32` as Scalar;
+  if (/^vec[234]$/.test(t)) return 'f32';
+  return undefined;
+}
+
+/** The declaration in scope at `at` that binds `name`: a parameter or a variable declared
+ *  before it in an enclosing block. */
+function declarationOf(
+  name: string,
+  at: ts.Node,
+): ts.ParameterDeclaration | ts.VariableDeclaration | undefined {
+  for (let n: ts.Node | undefined = at.parent; n !== undefined; n = n.parent) {
+    if (ts.isFunctionLike(n)) {
+      for (const p of n.parameters) {
+        if (ts.isIdentifier(p.name) && p.name.text === name) return p;
+      }
+    }
+    if (ts.isBlock(n) || ts.isSourceFile(n)) {
+      for (const st of n.statements) {
+        if (st.pos >= at.pos) break;
+        if (!ts.isVariableStatement(st)) continue;
+        for (const d of st.declarationList.declarations) {
+          if (ts.isIdentifier(d.name) && d.name.text === name) return d;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/** The function declared in `sourceFile` under `name`. */
+function functionNamed(
+  sourceFile: ts.SourceFile,
+  name: string,
+): ts.FunctionDeclaration | undefined {
+  for (const st of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(st) && st.name?.text === name) return st;
+  }
+  return undefined;
+}
+
+/** The scalar type `e` has by what is written: a typed name, a conversion, a vector constructor,
+ *  a component, a float literal, or an arithmetic operand of those. */
+function writtenScalar(e: ts.Expression, sourceFile: ts.SourceFile, depth = 0): Scalar | undefined {
+  if (depth > 4) return undefined;
+  if (ts.isParenthesizedExpression(e)) return writtenScalar(e.expression, sourceFile, depth + 1);
+  if (ts.isNumericLiteral(e)) return /[.eE]/.test(e.text) ? 'f32' : undefined;
+  if (ts.isIdentifier(e)) {
+    const d = declarationOf(e.text, e);
+    if (d?.type !== undefined) return scalarOfTypeText(d.type.getText(sourceFile));
+    return undefined;
+  }
+  if (ts.isCallExpression(e) && ts.isIdentifier(e.expression)) {
+    const callee = e.expression.text;
+    const own = scalarOfTypeText(callee);
+    if (own !== undefined) return own;
+    const f = functionNamed(sourceFile, callee);
+    if (f?.type !== undefined) return scalarOfTypeText(f.type.getText(sourceFile));
+    return undefined;
+  }
+  if (ts.isPropertyAccessExpression(e)) return writtenScalar(e.expression, sourceFile, depth + 1);
+  if (ts.isElementAccessExpression(e)) return writtenScalar(e.expression, sourceFile, depth + 1);
+  if (ts.isPrefixUnaryExpression(e)) return writtenScalar(e.operand, sourceFile, depth + 1);
+  if (ts.isBinaryExpression(e) && ARITHMETIC.has(e.operatorToken.kind)) {
+    return (
+      writtenScalar(e.left, sourceFile, depth + 1) ?? writtenScalar(e.right, sourceFile, depth + 1)
+    );
+  }
+  return undefined;
+}
+
+const ARITHMETIC = new Set([
+  ts.SyntaxKind.PlusToken,
+  ts.SyntaxKind.MinusToken,
+  ts.SyntaxKind.AsteriskToken,
+  ts.SyntaxKind.SlashToken,
+  ts.SyntaxKind.PercentToken,
+]);
+
+const identifiersOf = new WeakMap<ts.SourceFile, Map<string, ts.Identifier[]>>();
+
+/** The identifiers of `sourceFile` spelled `name`, found in one walk of the file. */
+function identifiersNamed(sourceFile: ts.SourceFile, name: string): readonly ts.Identifier[] {
+  let index = identifiersOf.get(sourceFile);
+  if (index === undefined) {
+    const found = new Map<string, ts.Identifier[]>();
+    const visit = (k: ts.Node): void => {
+      if (ts.isIdentifier(k)) {
+        const list = found.get(k.text);
+        if (list === undefined) found.set(k.text, [k]);
+        else list.push(k);
+      }
+      ts.forEachChild(k, visit);
+    };
+    visit(sourceFile);
+    identifiersOf.set(sourceFile, (index = found));
+  }
+  return index.get(name) ?? [];
+}
+
+const BIT_OPERATORS = new Set([
+  ts.SyntaxKind.BarToken,
+  ts.SyntaxKind.AmpersandToken,
+  ts.SyntaxKind.CaretToken,
+  ts.SyntaxKind.LessThanLessThanToken,
+  ts.SyntaxKind.GreaterThanGreaterThanToken,
+]);
+
+/**
+ * The scalar types of the positions the value of `e` flows to, read from what is written there
+ * (Rule 5.1's places): a declared `let`, a parameter, a result, a vector constructor, a typed
+ * peer of an operator or of a builtin, an index or a bit operator. A `let` with no type passes
+ * on what its reads ask. An empty set: no position decides.
+ */
+function flowScalars(
+  e: ts.Expression,
+  sourceFile: ts.SourceFile,
+  out: Set<Scalar | 'int'>,
+  reached: ts.Node[],
+  depth = 0,
+): void {
+  if (depth > 4) return;
+  let n: ts.Expression = e;
+  while (ts.isParenthesizedExpression(n.parent)) n = n.parent;
+  const p = n.parent;
+  reached.push(p);
+  const add = (s: Scalar | 'int' | undefined) => {
+    if (s !== undefined) out.add(s);
+  };
+  if (ts.isVariableDeclaration(p) && p.initializer === n) {
+    if (p.type !== undefined) return add(scalarOfTypeText(p.type.getText(sourceFile)));
+    if (!ts.isIdentifier(p.name)) return;
+    const name = p.name.text;
+    for (const k of identifiersNamed(sourceFile, name)) {
+      if (k.pos < p.end) continue;
+      const parent = k.parent;
+      const named =
+        (ts.isPropertyAccessExpression(parent) && parent.name === k) ||
+        (ts.isVariableDeclaration(parent) && parent.name === k) ||
+        ts.isParameter(parent);
+      if (!named && declarationOf(name, k) === p) {
+        flowScalars(k, sourceFile, out, reached, depth + 1);
+      }
+    }
+    return;
+  }
+  if (ts.isReturnStatement(p)) {
+    let f: ts.Node = p;
+    while (!ts.isFunctionLike(f) && f.parent !== undefined) f = f.parent;
+    if (ts.isFunctionLike(f) && f.type !== undefined)
+      add(scalarOfTypeText(f.type.getText(sourceFile)));
+    return;
+  }
+  if (ts.isCallExpression(p) && p.expression !== n && ts.isIdentifier(p.expression)) {
+    const callee = p.expression.text;
+    const index = p.arguments.indexOf(n);
+    if (callee === 'f32' || callee === 'i32' || callee === 'u32') return;
+    const vector = scalarOfTypeText(callee);
+    if (vector !== undefined) return add(vector);
+    const f = functionNamed(sourceFile, callee);
+    if (f !== undefined) {
+      const param = f.parameters[index];
+      if (param?.type !== undefined) add(scalarOfTypeText(param.type.getText(sourceFile)));
+      return;
+    }
+    if (callee === 'select' && index === 2) return;
+    // A builtin: its typed arguments (of `select`, the other arm), and where its result flows.
+    const peers = callee === 'select' ? p.arguments.slice(0, 2) : p.arguments;
+    for (const a of peers) if (a !== n) add(writtenScalar(a, sourceFile));
+    return flowScalars(p, sourceFile, out, reached, depth + 1);
+  }
+  if (ts.isBinaryExpression(p)) {
+    const op = p.operatorToken.kind;
+    if (
+      op === ts.SyntaxKind.EqualsToken ||
+      (op >= ts.SyntaxKind.FirstCompoundAssignment && op <= ts.SyntaxKind.LastCompoundAssignment)
+    ) {
+      if (p.right === n) add(writtenScalar(p.left, sourceFile));
+      return;
+    }
+    const other = p.left === n ? p.right : p.left;
+    const peer = writtenScalar(other, sourceFile);
+    if (BIT_OPERATORS.has(op)) return add(peer ?? 'int');
+    if (peer !== undefined) return add(peer);
+    if (ARITHMETIC.has(op)) return flowScalars(p, sourceFile, out, reached, depth + 1);
+    return;
+  }
+  if (ts.isElementAccessExpression(p) && p.argumentExpression === n) return add('int');
+  if (ts.isPrefixUnaryExpression(p)) {
+    if (p.operator === ts.SyntaxKind.TildeToken) return add('int');
+    return flowScalars(p, sourceFile, out, reached, depth + 1);
+  }
+  if (ts.isConditionalExpression(p) && p.condition !== n)
+    return flowScalars(p, sourceFile, out, reached, depth + 1);
 }
 
 /**
- * Checks the edit each refusal of a tree's quotient names. Each round compiles the program once,
- * with every accepted edit and the next candidate of every refusal still open made. An added
- * error is charged to one refusal: the one whose tree holds it, whose statement holds it, or
- * whose `let` the error's statement reads. An error none or several of them explain is found by
- * halving the refusals it could be (one compile a half), so a refusal is charged only with an
- * error its own edit gives, never with another refusal's failing edit. An edit whose error is in
- * its tree takes the next candidate; one whose error is elsewhere takes the first candidate of
- * the next type (`f32`, then `i32`, then `u32`), since another spelling of the same type gives
- * the same type where it flows. Where no candidate compiles, the one that adds fewest errors is
- * named, with the first of them and its line (Rule 12.4, decision 1 of change 0134).
+ * Checks the edits the refusals of trees' quotients name. Each refusal's edit takes its type
+ * from where the quotient flows ({@link flowScalars}): the one type its positions ask, `i32`
+ * where they ask an integer of either type, else `f32` (Amendment A2). Every edit is made at
+ * once and the program compiled once; the edits are named when that adds no error the unedited
+ * program does not give at the same place, and no type error where a quotient flows. Else one
+ * more set is compiled, where a refusal no position decides takes `i32`. Where that adds an
+ * error too, or where one refusal's positions ask two types, no refusal of the module names an
+ * edit: an edit is named only when it is proven to compile with the others
+ * (the owner's decision of 2026-11-12). At most two edited programs are compiled a module.
  */
 function checkQuotientEdits(
   sourceFile: ts.SourceFile,
   diagnostics: readonly TsCompilerDiagnostic[],
   standing: readonly CheckedRefusal[],
   check: DivisionEditCheck,
-  flow: { readonly followOns: readonly TsCompilerDiagnostic[]; readonly reads: readonly ts.Node[] },
 ): void {
-  type Err = { readonly code?: string; readonly message: string; readonly at: number | undefined };
   const own = new Set(standing.map((r) => r.current()!));
   const keyOf = (at: number | undefined, e: { code?: string; message: string }) =>
     `${String(at ?? -1)}|${lineOf(e)}`;
@@ -1371,223 +1563,62 @@ function checkQuotientEdits(
     const k = keyOf(d.start, d);
     original.set(k, (original.get(k) ?? 0) + 1);
   }
-  const text = sourceFile.text;
+  // The places each quotient flows to: a type error the edited program gives there is the
+  // edits' even where the unedited program gives it too (`let z = q * r; let j: i32 = z`).
+  const reached: ts.Node[] = [];
   const items = standing.map((r) => {
-    const span = [r.node.getStart(sourceFile), r.node.getEnd()] as const;
-    // The name a `let` binds to the quotient, and the text after it where the name is read.
-    let n: ts.Node = r.node;
-    while (ts.isParenthesizedExpression(n.parent)) n = n.parent;
-    let binding: { name: string; from: number; to: number } | undefined;
-    const decl = n.parent;
-    if (ts.isVariableDeclaration(decl) && decl.initializer === n && ts.isIdentifier(decl.name)) {
-      let scope: ts.Node = decl;
-      while (
-        !ts.isBlock(scope.parent) &&
-        !ts.isSourceFile(scope.parent) &&
-        !ts.isModuleBlock(scope.parent)
-      ) {
-        scope = scope.parent;
-      }
-      binding = {
-        name: decl.name.text,
-        from: decl.getEnd(),
-        to: scope.parent.getEnd(),
-      };
-    }
+    reached.push(r.node);
+    const peer = r.peer() as Scalar | undefined;
+    const asked = new Set<Scalar | 'int'>();
+    if (peer === undefined) flowScalars(r.node as ts.Expression, sourceFile, asked, reached);
+    const types = [...asked].filter((t): t is Scalar => t !== 'int');
+    // Two types asked, or an integer asked beside an `f32`: no edit of this tree compiles.
+    const conflict = types.length > 1 || (types[0] === 'f32' && asked.has('int'));
+    const first: Scalar = peer ?? types[0] ?? (asked.has('int') ? 'i32' : 'f32');
+    // Where no position decides, the other set tries the integer division.
+    const second: Scalar = peer ?? (asked.size === 0 ? 'i32' : first);
     return {
       r,
-      span,
-      binding,
-      list: undefined as readonly string[] | undefined,
-      get candidates(): readonly string[] {
-        return (this.list ??= r.candidates());
-      },
-      next: 0 as number | undefined,
-      failedTypes: new Set<string>(),
-      predicted: [] as Err[],
-      tried: [] as { text: string; added: Err[] }[],
-      accepted: undefined as string | undefined,
+      span: [r.node.getStart(sourceFile), r.node.getEnd()] as const,
+      first,
+      second,
+      conflict,
     };
   });
-  type Item = (typeof items)[number];
-  // The candidate after `i`: not of a type whose edit failed where the quotient flows, and a
-  // `u32` edit only where a failure named `u32` (`vi + q`), since a plain integer is an `i32`.
-  const nextCandidate = (it: Item, i: number): number | undefined => {
-    // The mistake's own words, not the advice after the dash that names every type.
-    const u32Named = it.tried.some((t) =>
-      t.added.some((e) => /\bu32\b/.test(e.message.split(' — ')[0]!.split('. Cast')[0]!)),
-    );
-    for (let j = i + 1; j < it.candidates.length; j++) {
-      const type = editType(it.candidates[j]!);
-      if (it.failedTypes.has(type)) continue;
-      if (type === 'u32' && !u32Named && editType(it.r.first()) !== 'u32') continue;
-      return j;
-    }
-    return undefined;
-  };
-  const pick = (it: Item, i: number): string => (i === 0 ? it.r.first() : it.candidates[i]!);
-  const change = (it: Item, edit: string) => ({ start: it.span[0], end: it.span[1], text: edit });
-  const inSpan = (e: Err, it: Item) =>
-    e.at !== undefined && e.at >= it.span[0] && e.at < it.span[1];
-  // The region of the statement each error stands in, found once.
-  const regions = new Map<number, readonly [number, number]>();
-  const regionAt = (at: number): readonly [number, number] => {
-    let r = regions.get(at);
-    if (r === undefined) {
-      let n: ts.Node = sourceFile;
-      for (;;) {
-        // The child whose text (with its leading trivia) holds `at`; the walk stops at it.
-        const c: ts.Node | undefined = ts.forEachChild(n, (k) =>
-          k.pos <= at && at < k.end ? k : undefined,
-        );
-        if (c === undefined) break;
-        n = c;
-      }
-      r = regionOf(n, sourceFile);
-      regions.set(at, r);
-    }
-    return r;
-  };
-  // The refusals that could explain an error at a place, found once a place: the one whose tree
-  // holds it, else each whose statement the error's statement holds or whose `let` it reads.
-  const byName = new Map<string, Item[]>();
-  for (const it of items) {
-    if (it.binding === undefined) continue;
-    const list = byName.get(it.binding.name);
-    if (list === undefined) byName.set(it.binding.name, [it]);
-    else list.push(it);
-  }
-  // The unedited program reads each quotient as an `f32`, so the mismatches its reads raised
-  // (taken out above as the refusal said again) are what the `f32` edit gives: that edit is
-  // known to fail without a compile, and the check starts at the integer edit.
-  for (const d of flow.followOns) {
-    const owners = new Set<Item>();
-    for (const r of flow.reads) {
-      const at = r.getStart(sourceFile);
-      if (!(d.start <= at && d.start + d.length >= r.getEnd())) continue;
-      for (const it of byName.get(r.getText(sourceFile)) ?? []) {
-        if (at >= it.binding!.from && at < it.binding!.to) owners.add(it);
-      }
-    }
-    for (const it of owners) {
-      if (editType(it.r.first()) !== 'f32') continue;
-      it.predicted.push({ code: d.code, message: d.message, at: d.start });
-    }
-  }
-  for (const it of items) {
-    if (it.predicted.length === 0) continue;
-    it.tried.push({ text: it.r.first(), added: it.predicted });
-    it.failedTypes.add('f32');
-    it.next = nextCandidate(it, 0);
-  }
-  const explainers = new Map<number, { inside?: Item; by: Item[] }>();
-  const explainersAt = (at: number): { inside?: Item; by: Item[] } => {
-    let found = explainers.get(at);
-    if (found !== undefined) return found;
-    const inside = items.find((it) => at >= it.span[0] && at < it.span[1]);
-    if (inside !== undefined) {
-      found = { inside, by: [inside] };
-    } else {
-      const [a, b] = regionAt(at);
-      const by = new Set(items.filter((it) => a <= it.span[0] && it.span[1] <= b));
-      for (const word of new Set(text.slice(a, b).match(/[\w$]+/g) ?? [])) {
-        for (const it of byName.get(word) ?? []) {
-          if (a >= it.binding!.from && b <= it.binding!.to) by.add(it);
-        }
-      }
-      found = { by: [...by] };
-    }
-    explainers.set(at, found);
-    return found;
-  };
-  const owner = (e: Err, edited: ReadonlySet<Item>): Item | undefined => {
-    if (e.at === undefined) return undefined;
-    const { inside, by } = explainersAt(e.at);
-    if (inside !== undefined) return edited.has(inside) ? inside : undefined;
-    const mine = by.filter((it) => edited.has(it));
-    return mine.length === 1 ? mine[0] : undefined;
-  };
-  /** The errors of the program with `edited`'s edits made that the unedited program does not
-   *  give where it gives them; a refusal left unedited keeps its own refusal. */
-  const run = (edited: readonly Item[], picks: ReadonlyMap<Item, string>): Err[] => {
+  const regions = reached.map((n) => regionOf(n, sourceFile));
+  const clean = (types: readonly Scalar[]): boolean => {
     const left = new Map(original);
-    const unedited = items.filter((it) => !edited.includes(it));
     const errors = compileEditedAll(
       sourceFile,
-      edited.map((it) => change(it, it.accepted ?? picks.get(it)!)),
+      items.map((it, i) => ({ start: it.span[0], end: it.span[1], text: it.r.edit(types[i]!) })),
       check,
     );
-    return errors.filter((e) => {
-      if (unedited.some((it) => inSpan(e, it))) return false;
-      const k = keyOf(e.at, e);
-      const count = left.get(k) ?? 0;
-      if (count > 0) {
-        left.set(k, count - 1);
+    return errors.every((e) => {
+      const typed = e.code === TS_CODES.TYPE_MISMATCH || e.code === TS_CODES.MATH_ARGUMENT;
+      if (typed && e.at !== undefined && regions.some(([a, b]) => e.at! >= a && e.at! < b)) {
         return false;
       }
+      const k = keyOf(e.at, e);
+      const count = left.get(k) ?? 0;
+      if (count === 0) return false;
+      left.set(k, count - 1);
       return true;
     });
   };
-  for (;;) {
-    const open = items.filter((it) => it.accepted === undefined && it.next !== undefined);
-    if (open.length === 0) break;
-    const settled = items.filter((it) => it.accepted !== undefined);
-    const picks = new Map(open.map((it) => [it, pick(it, it.next!)] as const));
-    const charged = new Map<Item, Err[]>(open.map((it) => [it, []]));
-    const charge = (it: Item, e: Err) => charged.get(it)?.push(e);
-    const unexplained: Err[] = [];
-    for (const e of run([...settled, ...open], picks)) {
-      const it = owner(e, new Set([...settled, ...open]));
-      if (it === undefined) unexplained.push(e);
-      else charge(it, e);
-    }
-    // An error no one refusal explains: halve the refusals whose edit is otherwise clean until
-    // one edit alone gives it.
-    if (unexplained.length > 0) {
-      const probe = (group: readonly Item[]): Err[] =>
-        run([...settled, ...group], picks).filter(
-          (e) => owner(e, new Set([...settled, ...group])) === undefined,
-        );
-      const halve = (group: readonly Item[], errors: readonly Err[]): void => {
-        if (group.length === 1) {
-          for (const e of errors) charge(group[0]!, e);
-          return;
-        }
-        const half = Math.ceil(group.length / 2);
-        const a = group.slice(0, half);
-        const b = group.slice(half);
-        const ea = probe(a);
-        if (ea.length > 0) halve(a, ea);
-        const eb = ea.length === 0 ? errors : probe(b);
-        if (eb.length > 0) halve(b, eb);
-      };
-      const suspects = open.filter((it) => charged.get(it)!.length === 0);
-      if (suspects.length > 0) halve(suspects, unexplained);
-    }
-    for (const it of open) {
-      const i = it.next!;
-      const edit = picks.get(it)!;
-      const added = charged.get(it)!;
-      it.tried.push({ text: edit, added });
-      if (added.length === 0) {
-        it.accepted = edit;
-        if (i !== 0) it.r.restate(edit);
-        continue;
-      }
-      if (!added.some((e) => inSpan(e, it))) it.failedTypes.add(editType(edit));
-      it.next = nextCandidate(it, i);
-    }
-  }
-  for (const it of items) {
-    if (it.accepted !== undefined || it.tried.length === 0) continue;
-    const best = it.tried.reduce((a, b) => (b.added.length < a.added.length ? b : a));
-    const first = best.added[0]!;
-    const where =
-      first.at === undefined
-        ? ''
-        : ` on line ${String(sourceFile.getLineAndCharacterOfPosition(first.at).line + 1)}`;
-    it.r.restate(best.text, `${where}: ${first.message}`);
-  }
+  const firstSet = items.map((it) => it.first);
+  const secondSet = items.map((it) => it.second);
+  // A refusal whose positions ask two types makes every set fail: nothing is compiled.
+  const named = items.some((it) => it.conflict)
+    ? undefined
+    : clean(firstSet)
+      ? firstSet
+      : secondSet.some((t, i) => t !== firstSet[i]) && clean(secondSet)
+        ? secondSet
+        : undefined;
+  items.forEach((it, i) => {
+    if (named === undefined) it.r.restate(null);
+    else if (named[i] !== (it.r.peer() ?? 'f32')) it.r.restate(it.r.edit(named[i]!));
+  });
 }
 
 /** One refusal while its edits are checked. */
