@@ -1022,6 +1022,8 @@ records the decision and the readings the implementation needs.
   the types the quotient's positions take:
   - `Write i32(…), u32(…) or f32(…) around "1 | 2" to choose the division.`, or
     `Write i32(…) or f32(…) around each of "1|2" and "1<<2" to choose the division.`;
+  - an operand with two readings (D2) is offered as `f32(i32(…))`, whose float is TypeScript's
+    value: `Write i32(…) or f32(i32(…)) around "0x80000000|1" to choose the division.`;
   - for a `/=`: `Declare "a" with i32 or u32 to choose the division.`, and over a constant of no
     fixed type `Declare "y" with i32, u32 or f32 to choose the division.`;
   - for an operand no integer type holds, where the positions take an `f32`, the float form,
