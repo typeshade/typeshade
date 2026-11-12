@@ -612,7 +612,7 @@ interface Line {
 function compiled(source: string): Line[] {
   return compile(source, { fileName: FILE, readDocument: read })
     .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => ({ code: d.code, message: d.message, line: d.line }));
+    .map((d) => ({ code: d.code ?? '', message: d.message, line: d.line }));
 }
 
 function editor(source: string): Line[] {
