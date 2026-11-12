@@ -998,14 +998,31 @@ function divisionEdits(
   });
 }
 
+/** The operation inside `division` that reads `read` as an integer (a bitwise operator, a
+ *  shift, a `~`), when the read stands inside the `/`; `undefined` otherwise. */
+function readerWithin(read: ts.Node, division: ts.Node): ts.Node | undefined {
+  if (!holds(division, read) || read === division) return undefined;
+  for (let at = read.parent; at !== undefined && at !== division; at = at.parent) {
+    if (ts.isBinaryExpression(at) || ts.isPrefixUnaryExpression(at)) return at;
+  }
+  return undefined;
+}
+
 /** The refusal's sentence, naming `edit`. */
 function divisionSentence(
   info: AbstractConst,
-  read: { readonly type: 'i32' | 'u32' },
+  read: { readonly type: 'i32' | 'u32'; readonly node?: ts.Node },
   node: ts.BinaryExpression,
   edit: DivisionEdit,
   sourceFile: ts.SourceFile,
 ): string {
+  // Where the read that makes the constant an integer stands inside the `/` (`(K | 1) / 2`,
+  // `(K << 1) / 4`), the sentence names the expression that reads it, not another line.
+  const reader = read.node === undefined ? undefined : readerWithin(read.node, node);
+  const where =
+    reader === undefined
+      ? ANOTHER_READ
+      : `where "${writtenText(reader).replace(/\s+/g, ' ')}" reads it, and no operand of`;
   const written = writtenText(node).replace(/\s+/g, ' ');
   const direct = originLeaves(node).find((leaf) => readByNode.get(leaf as ts.Expression) === info);
   const subject = direct !== undefined ? writtenText(direct) : info.name;
@@ -1014,7 +1031,7 @@ function divisionSentence(
     info.openCounter === true
       ? `"${subject}" is the counter of a "for" that is not counted, and no use gives it a ` +
         `type. No operand of`
-      : `"${subject}" is ${read.type === 'u32' ? 'a u32' : 'an i32'} ${ANOTHER_READ}`;
+      : `"${subject}" is ${read.type === 'u32' ? 'a u32' : 'an i32'} ${where}`;
   return (
     `${what} "${written}" has a declared type, so the "${operator}" ${NO_DIVISION}. ` +
     `Write "${edit.text}" for the ${edit.kind} division.`

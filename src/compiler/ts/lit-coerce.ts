@@ -161,7 +161,36 @@ function retypeKindless(expr: Expr, target: ShaderType): Expr | undefined {
   if (at === undefined || !isIntScalar(target) || typeKey(expr.type) === typeKey(target)) {
     return undefined;
   }
-  return at(target);
+  const retyped = at(target);
+  if (retyped !== undefined) return retyped;
+  // A leaf the target does not hold (`-1` in `let a: u32 = -1 & 255`): the expression is a
+  // constant, and its value is the target's where it fits, as a written number's is.
+  const v = kindlessValue(expr);
+  return v !== undefined && fitsTarget(v, target)
+    ? { op: 'lit', type: target, value: v }
+    : undefined;
+}
+
+/** The value of a bitwise expression over integer literals, folded as its integer type
+ *  computes it; `undefined` where a leaf is no literal. */
+function kindlessValue(expr: Expr): number | undefined {
+  const int = intElemOf(expr.type);
+  if (int === undefined) return undefined;
+  if (expr.op === 'lit') return typeof expr.value === 'number' ? expr.value : undefined;
+  if (expr.op === 'call' && expr.fn === '~' && expr.args.length === 1) {
+    const a = kindlessValue(expr.args[0]!);
+    return a === undefined ? undefined : wrapInt(~a, int);
+  }
+  if (expr.op === 'binop') {
+    const a = kindlessValue(expr.a);
+    // A shift amount is a `u32` whatever the target is.
+    const b =
+      expr.b.op === 'lit' && typeof expr.b.value === 'number'
+        ? expr.b.value
+        : kindlessValue(expr.b);
+    return a === undefined || b === undefined ? undefined : foldIntLit(expr.bop, a, b, int);
+  }
+  return undefined;
 }
 
 export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {

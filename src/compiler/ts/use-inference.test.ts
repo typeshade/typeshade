@@ -541,6 +541,130 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(compile(cast).eval('t', [0.5])).toBe(7.5);
   });
 
+  // The review of #1272 at 2aacc2fb. Each form below was measured against Tint on
+  // 2026-11-12 (Chrome for Testing 153, SwiftShader): every emit is accepted.
+  it.each([
+    ['(~3 & 255) << 24', '', -67108864],
+    ['(~MASK & 255) << 24', 'const MASK = 3;\n', -67108864],
+    ['~1073741824 << 1', '', 2147483646],
+    ['~1 * 2000000000', '', 294967296],
+    ['-(~2147483647)', '', -2147483648],
+    ['~(-2147483648)', '', 2147483647],
+  ])('~ over written integers is folded with its wrap: %s', (init, pre, value) => {
+    // `~3` was left to Tint, which evaluated the constant as an abstract integer and refused
+    // `((~3 & 255) << 24u)`: "value 4227858432 cannot be represented as 'i32'".
+    const source = mod(pre, `let a = ${init};\n  return a;`);
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(hover(source, 'a')).toContain('let a: i32');
+    expect(result.wgsl).toContain(`var a: i32 = ${String(value)};`);
+    expect(result.wgsl).not.toContain('~');
+    expect(result.eval('t', [0])).toBe(value);
+  });
+
+  it('a shift amount ~0 is out of range, and ~0 & 3 is 3', () => {
+    const message =
+      'A shift amount must be between 0 and 31, got 4294967295: a 32-bit integer has no bit to ' +
+      'shift into.';
+    const source = mod('', 'return vi << ~0;', 'u32', 'vi: u32');
+    expect(compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+      `TS8003: ${message}`,
+    ]);
+    expect(editor(source)).toEqual([`TS8003: ${message}`]);
+    const masked = mod('', 'return vi << (~0 & 3);', 'u32', 'vi: u32');
+    expect(compile(masked).diagnostics).toEqual([]);
+    expect(editor(masked)).toEqual([]);
+    expect(compile(masked).wgsl).toContain('(vi << 3u)');
+    expect(compile(masked).eval('t', [1])).toBe(8);
+  });
+
+  it.each([
+    ['let a: u32 = (1 | 2) ^ 4;', 7],
+    ['let a: u32 = ~4 & 7;', 3],
+    ['let a: u32 = 1 | (1 << 4);', 17],
+    ['let a: u32 = (~3 & 255) << 24;', 4227858432],
+    ['let a: u32 = ~0 + 1;', 0],
+    ['let a: u32 = -1 & 255;', 255],
+    ['let a: u32 = vi;\n  a ^= ~0;', 4294967290],
+    ['let a: u32 = vi;\n  a |= K | J;', 7],
+  ])('a declared u32 reaches a mixed tree: %s', (body, value) => {
+    // Each was refused with "cannot let/const a u32 and i32", an i32 the author did not write.
+    const source = mod(K, `${body}\n  return a;`, 'u32', 'vi: u32');
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(result.wgsl).toContain('var a: u32 = ');
+    expect(result.eval('t', [5])).toBe(value);
+  });
+
+  it('a constant reads as its written value: K | 1 with K = 3000000000 is a u32', () => {
+    const source = mod('const K = 3000000000;\n', 'let a = K | 1;\n  return a;', 'u32', 'vi: u32');
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(hover(source, 'a')).toContain('let a: u32');
+    expect(result.wgsl).toContain('var a: u32 = 3000000001u;');
+    expect(result.eval('t', [0])).toBe(3000000001);
+  });
+
+  it('a u32 value beside a negative one is refused in words the author wrote', () => {
+    const message =
+      'Bitwise "|" has no integer type for 3000000000 and -1: 3000000000 is a u32, and a u32 ' +
+      'does not hold -1. Write -1 as its u32 bits, 4294967295.';
+    for (const pre of ['', 'const K = 3000000000;\n']) {
+      const init = pre === '' ? '3000000000 | -1' : 'K | -1';
+      const source = mod(pre, `let a = ${init};\n  return a;`, 'u32', 'vi: u32');
+      const result = compile(source);
+      expect(result.diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+        `TS8003: ${message}`,
+      ]);
+      expect(editor(source)).toEqual([`TS8003: ${message}`]);
+    }
+    const fixed = mod('', 'let a = 3000000000 | 4294967295;\n  return a;', 'u32', 'vi: u32');
+    expect(compile(fixed).diagnostics).toEqual([]);
+    expect(editor(fixed)).toEqual([]);
+    expect(compile(fixed).eval('t', [0])).toBe(4294967295);
+  });
+
+  it('a / over a bitwise expression of written integers divides integers, as a shift does', () => {
+    // A value class, not a refusal: `(1 << 3) / 3` was 2 on main, and `(1 | 2) / 2` emitted
+    // `(1.0 | 2.0)`, which Tint refuses.
+    for (const [body, value] of [
+      ['return f32((1 | 2) / 2);', 1],
+      ['return f32((1 << 3) / 3);', 2],
+    ] as const) {
+      const source = mod('', body, 'f32', 'x: f32');
+      const result = compile(source);
+      expect(result.diagnostics).toEqual([]);
+      expect(editor(source)).toEqual([]);
+      expect(result.eval('t', [0])).toBe(value);
+    }
+  });
+
+  it('a module variable over a constant another line reads as an integer: a / is refused', () => {
+    // `let m = K / 2` was 1.5 on main, where the module variable read `K` as its f32; it now
+    // reads `K` as a constant of no fixed type, as a function does, and `vi * K` makes it an
+    // integer (Amendment A2 of change 0134).
+    const message =
+      '"K" is a u32 where another line reads it, and no operand of "K / 2" has a declared type, ' +
+      'so the "/" does not say which division it is. Write "f32(K) / 2" for the float division.';
+    const source = mod(
+      'const K = 3;\nlet m = K / 2;\n',
+      'return f32(vi * K) + m;',
+      'f32',
+      'vi: u32',
+    );
+    expect(compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+      `TS8003: ${message}`,
+    ]);
+    expect(editor(source)).toEqual([`TS8003: ${message}`]);
+    const fixed = source.replace('let m = K / 2;', 'let m = f32(K) / 2;');
+    expect(compile(fixed).diagnostics).toEqual([]);
+    expect(editor(fixed)).toEqual([]);
+    expect(compile(fixed).eval('t', [2])).toBe(7.5);
+  });
+
   it('a whole float-written operand is refused, not emitted as (1.0 | 2)', () => {
     const message =
       'Bitwise "|" needs i32 or u32 operands, got f32. Convert first, e.g. u32(a) | u32(b), or ' +

@@ -11,6 +11,7 @@ import {
 } from '../use-inference.js';
 import {
   carriedByCall,
+  abstractLiteralOf,
   isAbstractRead,
   isIntegerWrittenRead,
   markAbstractRead,
@@ -51,6 +52,7 @@ import {
   shiftAmountMessage,
 } from '../lit-coerce.js';
 import { foldF64ModuleConst } from '../module-const-f64.js';
+import { wrapInt } from '../../../core/passes/opt/expr-utils.js';
 import { libraryNameSentence, mapTsTypeToShaderType, writesRefusedType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
@@ -764,12 +766,29 @@ function lowerPrefixUnary(
     // user function of that name and `~x` share one key and fold into each other, silently,
     // on the GPU and in the oracle alike. `~` is not a TypeScript identifier, so no author
     // declaration can collide with it.
-    const complement: Expr = { op: 'call', type: operand.type, fn: '~', args: [operand] };
+    const complement: Expr & { op: 'call' } = {
+      op: 'call',
+      type: operand.type,
+      fn: '~',
+      args: [operand],
+    };
     if (!written) return complement;
-    return markKindlessBitwise(complement, (target) => {
-      const a = retargetIntLitCtx(written, node.operand, target);
+    // Over written integers the complement is a constant, folded here as the other operators
+    // are folded, with the wrap of its integer type: the range and shift-amount checks then
+    // read its value, and the targets receive a value of the type, not `~3` for Tint to
+    // evaluate as an abstract integer (`(~3 & 255) << 24` overflowed there).
+    const folded = (e: Expr & { op: 'call' }): Expr => {
+      const int = intElem(e.type);
+      const v = int === undefined ? undefined : foldConstNumber(e.args[0]!, scope);
+      return int === undefined || v === undefined || !Number.isInteger(v)
+        ? e
+        : { op: 'lit', type: e.type, value: wrapInt(~v, int) };
+    };
+    const lowered = written;
+    return markKindlessBitwise(folded(complement), (target) => {
+      const a = retargetIntLitCtx(lowered, node.operand, target);
       return typeKey(a.type) === typeKey(target)
-        ? { op: 'call', type: target, fn: '~', args: [a] }
+        ? folded({ op: 'call', type: target, fn: '~', args: [a] })
         : undefined;
     });
   }
@@ -1083,14 +1102,27 @@ function lowerBinary(
       );
       return undefined;
     }
+    // Arithmetic over a bitwise expression of no kind and written integers has no kind either:
+    // a position that declares the other integer type gives it that type (`let a: u32 = ~0 + 1`,
+    // issue 1261). A `/` is left out: its operands' kind decides which division it is.
+    const sum: Expr = { op: 'binop', type: left.type, bop: arith, a: left, b: right };
+    if (
+      arith !== '/' &&
+      (isKindlessBitwise(left) || isKindlessBitwise(right)) &&
+      (isKindlessBitwise(left) || writtenIntegerOperand(node.left)) &&
+      (isKindlessBitwise(right) || writtenIntegerOperand(node.right))
+    ) {
+      const [l, r] = [left, right];
+      return markKindlessBitwise(sum, (target) => {
+        const a = retargetIntLitCtx(l, node.left, target);
+        const b = retargetIntLitCtx(r, node.right, target);
+        return typeKey(a.type) === typeKey(target) && typeKey(b.type) === typeKey(target)
+          ? { op: 'binop', type: target, bop: arith, a, b }
+          : undefined;
+      });
+    }
     // A constant `f32` result past the range (#374): `1e30 * 1e30`, or `K * K`.
-    return refuseF32OutOfRange(
-      { op: 'binop', type: left.type, bop: arith, a: left, b: right },
-      node,
-      sourceFile,
-      scope,
-      diagnostics,
-    );
+    return refuseF32OutOfRange(sum, node, sourceFile, scope, diagnostics);
   }
   // `a ** b` is WGSL's and GLSL's pow(a, b); TypeScript's exponent operator is the only
   // arithmetic token with no binop of its own. pow is component-wise over equal types on both
@@ -1251,24 +1283,58 @@ function lowerBinary(
     // reached the targets as `(1.0 | 2.0)` before (issue 1261).
     // A value its uses decide is an integer here: the typed peer's, or of no kind (`f | 4`).
     // A written operand that an `i32` cannot hold makes it a `u32` (`f | 3000000000`).
+    // The value of an operand with no type of its own: a written number, a constant of no fixed
+    // type (`const K = 3000000000` reads as its number, as the written one does), or a bitwise
+    // expression over those.
+    const valueOf = (e: Expr): number | undefined => {
+      const lit = foldNumericLit(abstractLiteralOf(e) ?? e);
+      if (lit.op === 'lit' && typeof lit.value === 'number') return lit.value;
+      return foldConstNumber(e, scope);
+    };
     const kindless = (peer: Expr): 'int' | 'u32' => {
-      const lit = foldNumericLit(peer);
-      return lit.op === 'lit' && typeof lit.value === 'number' && lit.value > 2147483647
-        ? 'u32'
-        : 'int';
+      const v = valueOf(peer);
+      return v !== undefined && v > 2147483647 ? 'u32' : 'int';
     };
     // Two operands with no type of their own, each a written integer or a constant of no fixed
-    // type that is one (`1 | 2`, `K | J`), are each a bitwise operand with no typed peer: an
-    // integer of no kind, an `i32` unless a written operand does not fit one (Rule 5.1, change
-    // 0134 item 1). They were left as two `f32`s, so `let f = K | J` emitted
-    // `var f: f32 = (K | J);`, which no target accepts (issue 1261). A module constant is
-    // folded to its number before any target reads it, so it keeps the value it had.
+    // type that is one (`1 | 2`, `K | J`), or a bitwise expression over such operands, are each
+    // a bitwise operand with no typed peer: an integer of no kind, an `i32` unless an operand
+    // does not fit one (Rule 5.1, change 0134 item 1). They were left as two `f32`s, so
+    // `let f = K | J` emitted `var f: f32 = (K | J);`, which no target accepts (issue 1261). A
+    // module constant is folded to its number before any target reads it, so it keeps the
+    // value it had. A written integer beside a bitwise expression of no kind took that
+    // expression's `i32` in `pair` above, which is no type of its own either.
+    const leftKindless = isKindlessBitwise(left);
+    const rightKindless = isKindlessBitwise(right);
+    const noKind = (e: Expr, n: ts.Expression, peerKindless: boolean): boolean =>
+      isKindlessBitwise(e) ||
+      (writtenIntegerOperand(n) && (intElem(e.type) === undefined || peerKindless));
     let retype: ((target: ShaderType) => Expr | undefined) | undefined;
     if (
       !scope.atModuleConstant() &&
-      noKindOperand(left, node.left) &&
-      noKindOperand(right, node.right)
+      noKind(left, node.left, rightKindless) &&
+      noKind(right, node.right, leftKindless)
     ) {
+      const [lv, rv] = [valueOf(left), valueOf(right)];
+      // A value only `u32` holds beside a negative one has no integer type: the written
+      // `3000000000 | -1` would compute -1 in TypeScript, which no `u32` is.
+      const big = [lv, rv].find((v) => v !== undefined && v > 2147483647);
+      const negative = [
+        [lv, node.left],
+        [rv, node.right],
+      ].find(([v]) => v !== undefined && (v as number) < 0);
+      if (big !== undefined && negative !== undefined) {
+        const v = negative[0] as number;
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `Bitwise "${bit}" has no integer type for ${String(big)} and ${String(v)}: ` +
+            `${String(big)} is a u32, and a u32 does not hold ${String(v)}. Write ` +
+            `${String(v)} as its u32 bits, ${String(v >>> 0)}.`,
+          TS_CODES.TYPE_MISMATCH,
+        );
+        return undefined;
+      }
       const kind = kindless(left) === 'u32' || kindless(right) === 'u32' ? u32T : i32T;
       const [l, r] = [left, right];
       left = softDemands(() => retargetIntLitCtx(l, node.left, kind));

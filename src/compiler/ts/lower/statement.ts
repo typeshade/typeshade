@@ -107,6 +107,7 @@ import {
 } from '../numeric.js';
 import {
   fitsTarget,
+  isKindlessBitwise,
   intLiteralRangeMessage,
   retargetDeclaredIntLit,
   retargetIntLitCtx,
@@ -1935,6 +1936,11 @@ function lowerBitwiseAssignOpTo(
   }
   let value = lowerExpression(right, sourceFile, scope, diagnostics);
   if (!value) return undefined;
+  // A bitwise expression over written integers has no kind of its own: it takes the type the
+  // target asks (`u |= K | J`, `u ^= ~0` on a `u32`), as a written number does (issue 1261).
+  if (isKindlessBitwise(value)) {
+    value = retargetIntLitCtx(value, right, bop === '<<' || bop === '>>' ? u32T : target.type);
+  }
   // A SHIFT amount is a u32 whatever the target is: WGSL's only scalar overload is
   // `e1 << e2` with `e2: u32`, so `y <<= k` with an i32 `k` on an i32 target emitted
   // `y <<= k;`, which Tint refuses (`no matching overload for 'operator <<= (i32, i32)'`),
