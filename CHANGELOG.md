@@ -306,16 +306,21 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   (`vi + (1 << 3) / 3`, `min((1 << 3) / 3, ii)`) with the integer edit (`u32(1 << 3) / 3`). The
   edit names the whole tree, so it compiles in one step (`((1 | 2) / 2) / 2` names
   `(f32(1 | 2) / 2) / 2`). The edit takes its type from where the quotient flows: a declared
-  `let`, a parameter, a result, a vector constructor or a typed peer, else `f32`.
-  `let q = (1 | 2) / 2; return q * 2` in an `i32` function names `i32(1 | 2) / 2`, and
-  `return h(q)` with `h(a: u32)` names `u32(1 | 2) / 2`. A product past `u32` names the value
-  (`((1 << 30) * 4) / 3` names `f32(4294967296) / 3`). The compiler makes every refusal's edit
-  at once and names the edits only when the edited program adds no error. Where the edits do
-  not compile together, or one quotient flows to two types, no refusal of the module names an
-  edit, and each ends with
-  `Write i32(…), u32(…) or f32(…) around an operand to choose the division.`
-  (the owner's decision of 2026-11-12). The owner kept this scope on 2026-11-12 ("이대로"). A
-  divisor proven zero (`/`, `/=`, a constant `Z = 0`) is the one diagnostic, as before.
+  `let`, a parameter, a result, a vector constructor, a typed peer (its written or inferred
+  type), an assignment target, through a bit operator and a chain of `let`s, and to the callers
+  of a function with no result type; else `f32`. `let q = (1 | 2) / 2; return q * 2` in an
+  `i32` function names `i32(1 | 2) / 2`, and `return h(q)` with `h(a: u32)` names
+  `u32(1 | 2) / 2`. A product past `u32` names the value (`((1 << 30) * 4) / 3` names
+  `f32(4294967296) / 3`). A written type on an operand decides the division:
+  `(1 | 2) / i32(2)` is the `i32` division. The compiler makes the edit of every refused `/` of
+  the module at once (a tree, a binding that holds one, and a constant of no fixed type, which
+  Amendment A2 refuses) and names the edits only when the edited program adds no error; at most
+  two edited programs are compiled a module. Where the edits do not compile together, or one
+  quotient flows to two types, no refusal of the module names an edit, and each ends with
+  `Write i32(…), u32(…) or f32(…) around "1 | 2" to choose the division.`, naming the operands
+  to wrap; a `/=` names the variable to declare with a type (the owner's decision of
+  2026-11-12, Amendment A6 of change 0134). The owner kept this scope on 2026-11-12 ("이대로").
+  A divisor proven zero (`/`, `/=`, a constant `Z = 0`) is the one diagnostic, as before.
   Intermediate values are TypeScript's doubles: a product past their range is Infinity, which
   ToInt32 at a bit operator reads as 0.
   **Newly refused** (`TS8003`), each with the edit that compiles:

@@ -1248,19 +1248,44 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
   // The ninth review of #1272 at f85c03f8, and the owner's decision of 2026-11-12: each
   // refusal's edit takes its type from where the quotient flows, every edit is compiled with the
   // others at once, and where they do not compile together no refusal names an edit.
-  const GENERIC = 'Write i32(…), u32(…) or f32(…) around an operand to choose the division.';
+  const GENERIC = /Write i32\(…\), u32\(…\) or f32\(…\) around (.*) to choose the division\.$/;
+  const VALUE =
+    /No integer type holds ".*" \(\d+\), so only the float division chooses it: write "(.*)"\.$/;
   const lines = (source: string): string[] => {
     const got = compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`);
     expect(editor(source)).toEqual(got);
     return got;
   };
+  const noRefusal = (source: string): void => {
+    for (const l of [...lines(source)]) expect(l).not.toContain('does not say which division');
+  };
+  /** The operands a remedy that names no edit offers to wrap. */
+  const subjectsOf = (line: string): string[] =>
+    [...(GENERIC.exec(line)?.[1] ?? '').matchAll(/"([^"]*)"/g)].map((m) => m[1]!);
   /** Whether the refusals of `source` name edits, each proven: made together, they compile in
-   *  both halves. Otherwise every refusal names none. */
+   *  both halves. Otherwise every refusal names none, and each wrap it offers (`i32`, `u32` or
+   *  `f32` around every operand it lists, or the one value edit) chooses the division. */
   const verified = (source: string): 'named' | 'generic' => {
     const refusals = lines(source).filter((l) => l.includes('does not say which division'));
     expect(refusals.length).toBeGreaterThan(0);
-    const generic = refusals.filter((l) => l.endsWith(GENERIC));
-    if (generic.length === refusals.length) return 'generic';
+    const generic = refusals.filter((l) => GENERIC.test(l) || VALUE.test(l));
+    if (generic.length === refusals.length) {
+      for (const type of ['i32', 'u32', 'f32']) {
+        let wrapped = source;
+        for (const d of compile(source).diagnostics) {
+          const tree = /no operand of "(.*?)" has a declared type/.exec(d.message)?.[1];
+          if (tree === undefined) continue;
+          const value = VALUE.exec(d.message)?.[1];
+          let edited = tree;
+          if (value !== undefined) edited = value;
+          else
+            for (const s of subjectsOf(d.message)) edited = edited.split(s).join(`${type}(${s})`);
+          wrapped = wrapped.replace(tree, edited);
+        }
+        noRefusal(wrapped);
+      }
+      return 'generic';
+    }
     expect(generic).toEqual([]);
     let fixed = source;
     for (const d of compile(source).diagnostics) {
@@ -1276,7 +1301,8 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     const source = T('let q = (1 | 2) / 2;\n  let x: f32 = q;\n  let j: i32 = q;\n  return j;');
     expect(one(source)).toBe(
       'TS8003: "1 | 2" is an integer by its bit operator, and no operand of "(1 | 2) / 2" has a ' +
-        `declared type, so the "/" does not say which division it is. ${GENERIC}`,
+        'declared type, so the "/" does not say which division it is. Write i32(…), u32(…) or ' +
+        'f32(…) around "1 | 2" to choose the division.',
     );
   });
 
@@ -1303,7 +1329,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
       '  let s: i32 = q;\n  return x + f32(s);\n}\n';
     const refusal = lines(c).filter((l) => l.includes('no operand of'));
     expect(refusal).toHaveLength(1);
-    expect(refusal[0]).toContain(GENERIC);
+    expect(refusal[0]).toMatch(GENERIC);
   });
 
   it.each([
@@ -1382,6 +1408,165 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(checkedEditCompiles() - before).toBeLessThanOrEqual(2);
     verified(source);
   });
+
+  // The tenth review of #1272 at da92036b: the use is followed through a bit operator, a long
+  // chain of `let`s, an inferred type, an untyped function's result, and every path of a refused
+  // `/` (a tree, a binding that holds one, a constant of no fixed type) is in the one check.
+  const HU = 'function h(a: u32): u32 {\n  return a;\n}\n';
+  it.each([
+    ['bit operator to the result', 'let q=(5|2)/2;\n  return q & 3;', ''],
+    ['bit operator to a u32 let', 'let q=(5|2)/2;\n  let k: u32 = q | 1;\n  return k;', ''],
+    ['~ to a u32 let', 'let q=(5|2)/2;\n  let k: u32 = ~q;\n  return k;', ''],
+    ['shift to a u32 parameter', 'let q=(5|2)/2;\n  return h(q >> 1);', HU],
+    [
+      'a chain of six lets',
+      'let q=(5|2)/2;\n  let a=q;\n  let b=a;\n  let c=b;\n  let d=c;\n  let e=d;\n  let k: u32=e;\n  return k;',
+      '',
+    ],
+    [
+      'a vector component',
+      'let q=(5|2)/2;\n  let v = vec2u(vi, vi);\n  v.y = q;\n  return v.y;',
+      '',
+    ],
+    [
+      'a field of a class',
+      'let q=(5|2)/2;\n  let p = new P();\n  return u32(f32(p.id + q));',
+      'class P {\n  id: u32 = 0;\n}\n',
+    ],
+    ['an inferred let', 'let q=(5|2)/2;\n  let w = vi;\n  return u32(f32(w + q));', ''],
+    [
+      'an untyped result, let',
+      'let k: u32 = g();\n  return k;',
+      'function g() {\n  let q=(1|2)/2;\n  return q;\n}\n',
+    ],
+    [
+      'an untyped result, return',
+      'let k: u32 = g();\n  return k;',
+      'function g() {\n  return (1|2)/2;\n}\n',
+    ],
+  ])('a u32 position names the u32 edit: %s', (_, body, pre) => {
+    const source = T(body, 'u32', pre);
+    expect(verified(source)).toBe('named');
+    expect(lines(source)).toHaveLength(1);
+    expect(lines(source)[0]).toMatch(/Write "u32\([^"]*" for the integer division\.$/);
+  });
+
+  it('an untyped result read by an i32 names the i32 edit', () => {
+    const source = T('return g() * 2;', 'i32', 'function g() {\n  return (1|2)/2;\n}\n');
+    expect(verified(source)).toBe('named');
+    expect(one(source)).toContain('Write "i32(1|2)/2" for the integer division.');
+  });
+
+  it.each([
+    [
+      'an i32 let',
+      'const k = 1|2;\n  let q = k / 2;\n  let j: i32 = q;\n  return f32(j);',
+      'i32(k) / 2',
+    ],
+    ['a u32 parameter', 'const k = 1|2;\n  let q = k / 2;\n  return f32(h(q));', 'u32(k) / 2'],
+  ])('a binding that holds a tree names the edit of its use: %s', (_, body, edit) => {
+    const source = T(body, 'f32', HU);
+    expect(verified(source)).toBe('named');
+    expect(one(source)).toContain(`Write "${edit}" for the integer division.`);
+  });
+
+  it('a binding beside a tree that flows to two types names no edit either', () => {
+    const source = T(
+      'const k = 1|2;\n  let q = k / 2;\n  let r = (1|2)/2;\n  let x: f32 = r;\n  let j: i32 = r;\n' +
+        '  return q + x + f32(j);',
+      'f32',
+    );
+    expect(verified(source)).toBe('generic');
+  });
+
+  it.each([
+    ['nested', 'let q = ((1|2)/2)/2;\n  let x: f32 = q;\n  let j: i32 = q;\n  return x;', '"1|2"'],
+    [
+      'two trees',
+      'let q = (1|2)/(1<<1);\n  let x: f32 = q;\n  let j: i32 = q;\n  return x;',
+      'each of "1|2" and "1<<1"',
+    ],
+  ])(
+    'the remedy that names no edit names the operands that choose the division: %s',
+    (_, body, subjects) => {
+      const source = T(body, 'f32');
+      expect(verified(source)).toBe('generic');
+      expect(one(source)).toContain(`around ${subjects} to choose the division.`);
+    },
+  );
+
+  it.each([['i32'], ['u32']])(
+    'a value no integer type holds names the one form that works: %s',
+    (type) => {
+      const source = T(`let q = ((1<<30)*4)/3;\n  let j: ${type} = q;\n  return f32(j);`, 'f32');
+      expect(verified(source)).toBe('generic');
+      expect(one(source)).toContain(
+        'No integer type holds "(1<<30)*4" (4294967296), so only the float division chooses it: ' +
+          'write "f32(4294967296)/3".',
+      );
+    },
+  );
+
+  it('a /= in a module whose edits do not compile together names the declaration to type', () => {
+    const source = T(
+      'let a = 1|2;\n  a /= 2;\n  let r = (1|2)/2;\n  let x: f32 = r;\n  let j: i32 = r;\n' +
+        '  return f32(a) + x + f32(j);',
+      'f32',
+    );
+    const got = lines(source);
+    expect(got).toHaveLength(2);
+    expect(got[0]).toContain('Declare "a" with i32 or u32 to choose the division.');
+    for (const type of ['i32', 'u32']) {
+      const typed = source.replace('let a = 1|2', `let a: ${type} = 1|2`);
+      expect(lines(typed).filter((l) => l.includes('"a /= 2"'))).toEqual([]);
+    }
+  });
+
+  it('a written type on the divisor decides the division', () => {
+    const source = T('return f32((1|2)/i32(2));', 'f32');
+    expect(lines(source)).toEqual([]);
+    expect(compile(source).eval('t', [5, 3])).toBe(1);
+  });
+
+  it('a tree over a constant of no fixed type is one refusal, with the edit of its use', () => {
+    const source = T(
+      'let c0=(K|0)/2;\n  let u0: u32 = h(c0);\n  return u0;',
+      'u32',
+      'const K = 3;\n' + HU,
+    );
+    expect(verified(source)).toBe('named');
+    expect(one(source)).toContain('Write "(u32(K)|0)/2" for the integer division.');
+  });
+
+  it.each([
+    [
+      'every edit compiles',
+      (i: number) => `let c${i} = (${i} | 1) / 2;\n  let x${i}: f32 = c${i};`,
+    ],
+    [
+      'one edit fails',
+      (i: number) =>
+        i === 0
+          ? `let c${i} = (${i} | 1) / 2;\n  let x${i}: f32 = c${i};\n  let s${i}: i32 = c${i};`
+          : `let c${i} = (${i} | 1) / 2;\n  let x${i}: f32 = c${i};`,
+    ],
+  ])(
+    'a module of trees, bindings and constants compiles at most two edited programs: %s',
+    (_, tree) => {
+      const body =
+        Array.from({ length: 40 }, (_, i) => {
+          if (i % 3 === 0) return tree(i);
+          if (i % 3 === 1)
+            return `const k${i} = ${i}|1;\n  let w${i} = k${i} / 2;\n  let y${i}: f32 = w${i};`;
+          return `let a${i} = (K|${i})/2;\n  let z${i}: u32 = h(a${i});`;
+        }).join('\n  ') + '\n  return 0.0;';
+      const source = T(body, 'f32', 'const K = 3;\n' + HU);
+      const before = checkedEditCompiles();
+      expect(compile(source).diagnostics).toHaveLength(40);
+      expect(checkedEditCompiles() - before).toBeLessThanOrEqual(2);
+      verified(source);
+    },
+  );
 
   it.each([
     ['let a = 1|2;\n  a /= 0;\n  return a;', 'i32', '', '0'],

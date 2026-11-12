@@ -1362,10 +1362,10 @@ ${H3}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     // author's text, as compile() does, and names the same edit.
     accepted(editOf(t('h(k); return xs[A.n / 2];', 'const k = 7;\nclass A { static n = k; }')));
     // Where no edit compiles, the program holds a second mistake (an `f32` sum passed to a `u32`
-    // parameter; a `u32` sum returned from an `f32` function, which `main` reported): the edit
-    // that adds fewest errors is named, and a mismatch around the `/` stays only where that edit
-    // leaves it. One diagnostic each, as on `main` (Rule 12.4, the owner's decision of
-    // 2026-11-11, "12.4: 진단 하나").
+    // parameter; a `u32` sum returned from an `f32` function, which `main` reported): no edit is
+    // named, and the refusal says what to write around which operand (the owner's decision of
+    // 2026-11-12, "name only verified edits"). Each wrap it offers chooses the division. One
+    // diagnostic each, as on `main` (Rule 12.4).
     for (const body of [
       'const k = 7; h(k); return f32(h(x + k / 2));',
       'const k = 7; h(k); return vi + k / 2;',
@@ -1377,31 +1377,37 @@ ${H3}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
       const source = t(body);
       const lines = compile(source).diagnostics.map((d) => d.message);
       expect(lines).toEqual([
-        expect.stringContaining('Write "const k: u32 = 7" for the integer division.'),
+        expect.stringContaining(
+          'Write i32(…), u32(…) or f32(…) around "k" to choose the division.',
+        ),
       ]);
       expect(editor(source).map((l) => l.replace(/^TS\d+: /, ''))).toEqual(lines);
+      for (const type of ['i32', 'u32', 'f32']) {
+        const wrapped = source.replace('k / 2', `${type}(k) / 2`);
+        for (const l of [
+          ...compile(wrapped).diagnostics.map((d) => d.message),
+          ...editor(wrapped),
+        ]) {
+          expect(l).not.toContain('does not say which division it is');
+        }
+      }
     }
   });
 
-  it('each named edit compiles alone (the fifth review, finding 1)', () => {
-    // `const k: u32 = 7` would make `x * (k / 3)` multiply an f32 by a u32: the first `/` names
-    // the conversion, as checking each edit alone does.
+  it("the named edits compile together (the owner's decision of 2026-11-12)", () => {
+    // The declaration `const k: u32 = 7` and the conversion `f32(k) / 3` are proven together:
+    // with both made, the program compiles.
     const source = t('const k = 7; h(k); return f32(vi + k / 2) + x * (k / 3);');
     expect(compile(source).diagnostics.map((d) => d.message)).toEqual([
-      expect.stringContaining('Write "u32(k) / 2" for the integer division.'),
+      expect.stringContaining('Write "const k: u32 = 7" for the integer division.'),
       expect.stringContaining('Write "f32(k) / 3" for the float division.'),
     ]);
     expect(editor(source).map((l) => l.replace(/^TS\d+: /, ''))).toEqual(
       compile(source).diagnostics.map((d) => d.message),
     );
-    for (const edited of [
-      source.replace('vi + k / 2', 'vi + u32(k) / 2'),
-      source.replace('x * (k / 3)', 'x * (f32(k) / 3)'),
-    ]) {
-      const lines = compile(edited).diagnostics.map((d) => d.message);
-      expect(lines).toHaveLength(1);
-      expect(lines[0]).toContain('does not say which division it is');
-    }
+    accepted(
+      source.replace('const k = 7', 'const k: u32 = 7').replace('x * (k / 3)', 'x * (f32(k) / 3)'),
+    );
   });
 
   it('a counter started by u32(…) of an untyped constant counts in u32 (#1235, deviation 13)', () => {

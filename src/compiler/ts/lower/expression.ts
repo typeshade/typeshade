@@ -12,6 +12,7 @@ import {
 import {
   carriedByCall,
   abstractLiteralOf,
+  genericDivisionRemedy,
   isAbstractRead,
   isIntegerWrittenRead,
   markAbstractRead,
@@ -1015,6 +1016,8 @@ function treeQuotientEdit(
   sourceFile: ts.SourceFile,
   peer?: ShaderType,
   value = true,
+  /** Receives each operand the edit converts, with its value where no integer type holds it. */
+  subjects?: { text: string; value?: number }[],
 ): string {
   const type = peer === undefined ? 'f32' : typeKey(peer);
   const written = (n: ts.Expression): boolean => {
@@ -1067,6 +1070,15 @@ function treeQuotientEdit(
   };
   let byValue = false;
   const convert = (n: ts.Expression): string => {
+    if (subjects !== undefined && !byValue) {
+      const at = valueOf(n);
+      const text = skipParensNode(n).getText(sourceFile).replace(/\s+/g, ' ');
+      subjects.push(
+        at !== undefined && Number.isInteger(at) && (at < -(2 ** 31) || at > 2 ** 32 - 1)
+          ? { text, value: at }
+          : { text },
+      );
+    }
     // Only a value no integer type holds is written as its value; another operand keeps its text.
     const v = byValue ? valueOf(n) : undefined;
     return v !== undefined && Number.isInteger(v) && (v < -(2 ** 31) || v > 2 ** 32 - 1)
@@ -1152,10 +1164,21 @@ function quotientDiagnostic(
       depth--;
     }
   }
-  const remedy =
-    edit === null
-      ? 'Write i32(…), u32(…) or f32(…) around an operand to choose the division.'
-      : `Write "${edit}" for the ${edit.includes('f32(') ? 'float' : 'integer'} division.`;
+  let remedy: string;
+  if (edit !== null) {
+    remedy = `Write "${edit}" for the ${edit.includes('f32(') ? 'float' : 'integer'} division.`;
+  } else {
+    // The operands the float edit converts are the ones a written type decides; one no integer
+    // type holds leaves only the float division, written with its value.
+    const subjects: { text: string; value?: number }[] = [];
+    treeQuotientEdit(root, sourceFile, undefined, false, subjects);
+    const big = subjects.find((s) => s.value !== undefined);
+    remedy =
+      big !== undefined
+        ? `No integer type holds "${big.text}" (${String(big.value)}), so only the float ` +
+          `division chooses it: write "${treeQuotientEdit(root, sourceFile)}".`
+        : genericDivisionRemedy(subjects.map((s) => s.text));
+  }
   return makeDiagnostic(
     sourceFile,
     root,
@@ -1395,10 +1418,10 @@ function lowerBinary(
     let refusedQuotient: Expr | undefined;
     if (arith === '/') {
       const resolve = (n: string) => scope.resolveIr(n);
-      const [lo, ro] = [
-        kindlessOrigin(left, resolve, sourceFile),
-        kindlessOrigin(right, resolve, sourceFile),
-      ];
+      // A conversion written around an operand (`(1 | 2) / i32(2)`) states its type.
+      const origin = (e: Expr, n: ts.Expression) =>
+        ts.isCallExpression(skipParensNode(n)) ? 'typed' : kindlessOrigin(e, resolve, sourceFile);
+      const [lo, ro] = [origin(left, node.left), origin(right, node.right)];
       if (lo !== 'typed' && ro !== 'typed' && (lo === 'kindless' || ro === 'kindless')) {
         const text = (n: ts.Expression): string => {
           const inner = ts.isParenthesizedExpression(n) ? n.expression : n;
@@ -1416,7 +1439,10 @@ function lowerBinary(
                 : n.getText(sourceFile).replace(/\s+/g, ' '),
             )
             .join(' / ');
-        noteWrittenDivision(node, sourceFile, subject, edit, 'float', peerEdit);
+        const subjects = [node.left, node.right]
+          .filter((_, i) => [lo, ro][i] === 'kindless')
+          .map(text);
+        noteWrittenDivision(node, sourceFile, subject, edit, 'float', peerEdit, subjects);
         const asF32 = (e: Expr): Expr =>
           intElem(e.type) === undefined ? e : { op: 'call', type: f32T, fn: 'f32', args: [e] };
         const [l, r] = [left, right];

@@ -3,7 +3,7 @@ active: true
 derived: false
 level: 24
 links:
-- RULE-0501: G-KKUWoBluAMXWMZonA3yLsPZMAM9YbeEulaeQleFmU=
+- RULE-0501: vdocslmWnsoU92MyT0M4Uk8TU8w0-p_QyGSM62G1p44=
 - RULE-0605: CrzLEgYva_3reQxo0tVrnY-5__JjJmwRwFtcRKFXzSw=
 - RULE-0813: aNXyjNJvi1bR7zPmCgF2WJ0PmaP_Qk6WWqXOOuEbzCg=
 - RULE-1005: vBMBez0hPB0tDJwtZXbAjaeQxMhBrHLzrPRMX2BmMpQ=

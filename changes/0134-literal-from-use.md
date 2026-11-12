@@ -946,6 +946,37 @@ shown (`OD-4`).
   declares, carry these readings.
 - Status: `status: accepted` does not change.
 
+### Amendment A6. The owner's decision on the named edit of a refused division (2026-11-12)
+
+Pull request #1272 (issue #1261) refuses a `/` over a tree of written integers whose quotient is
+no integer (D-b), as Amendment A2 refuses a `/` over a constant of no fixed type. The ninth
+independent review of it at `f85c03f8` found that the search for an edit across several refusals
+could name an edit that does not compile, or a sentence that is false. The owner decided in the
+Claude Code session on 2026-11-12, after the trade-off was shown (`OD-4`).
+
+- [decision, owner, 2026-11-12] "name only verified edits". Each refused `/` of a module (a tree
+  of written integers, a binding that holds one, a constant of no fixed type) gets one edit, whose
+  type comes from the structure of the quotient's use: a declared `let`, a parameter, a result, a
+  vector constructor, a typed peer, the target of an assignment, an index or a bit operator, and
+  the callers of a function with no result type. Where no position decides, the edit is `f32`
+  (Amendment A2). Every edit is made at once and the module is compiled once. The edits are named
+  only when that compile adds no error. One more set may be compiled. Otherwise, or where one
+  quotient flows to two types, no refusal of the module names an edit. Each then ends with a
+  sentence that names the operands to wrap, and names no edit. At most two edited programs are
+  compiled a module. The new sentences:
+  - `Write i32(…), u32(…) or f32(…) around "1 | 2" to choose the division.`
+  - for a `/=`: `Declare "a" with i32 or u32 to choose the division.`, and over a constant of no
+    fixed type `Declare "y" with i32, u32 or f32 to choose the division.`
+  - for an operand no integer type holds:
+    `No integer type holds "(1<<30)*4" (4294967296), so only the float division chooses it: write "f32(4294967296)/3".`
+- Disposition: made part of the approved text by this amendment. It replaces, for every refused
+  `/`, the check of each edit alone and the edit that adds fewest errors (the third and fifth
+  reviews of #1184). The cost: where refusals interfere, no refusal names an edit, even one whose
+  own edit would compile.
+- Affects: no front-matter field. Rules 5.1 and 12.7, which the front matter declares, carry
+  these readings. The sentence follows Rule 12.5.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The change is delivered in parts. `status: accepted` stays until every part is delivered and
