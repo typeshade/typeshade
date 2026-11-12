@@ -109,10 +109,12 @@ import {
 import {
   fitsTarget,
   isIntScalar,
+  isIntegerQuotient,
   isKindlessBitwise,
   kindlessDeclaration,
   kindlessOrigin,
   markKindlessBinding,
+  markQuotientBinding,
   intLiteralRangeMessage,
   retargetDeclaredIntLit,
   retargetIntLitCtx,
@@ -1001,8 +1003,13 @@ function lowerDeclarationKind(
     inferredValue,
   );
   if (!bound) return undefined;
+  // `let q = (1 | 2) / 2`: an integer position that reads `q` raises no second mistake.
+  if (isIntegerQuotient(init)) markQuotientBinding(bound);
   // `let a = 1 | 2`: a `/` over `a` does not say which division it is (D-b, issue 1261).
-  if (decl.type === undefined && kindlessOrigin(init, (n) => scope.resolveIr(n)) === 'kindless') {
+  if (
+    decl.type === undefined &&
+    kindlessOrigin(init, (n) => scope.resolveIr(n), sourceFile) === 'kindless'
+  ) {
     markKindlessBinding(
       bound,
       `${isConst ? 'const' : 'let'} ${name}: ${typeKey(bound.type)} = ` +
@@ -2080,7 +2087,10 @@ function lowerAssignOpTo(
   // the integer division.
   if (bop === '/' && ts.isBinaryExpression(left.parent) && target.op === 'varref') {
     const declared = kindlessDeclaration(scope.resolveIr(target.name));
-    if (declared !== undefined && kindlessOrigin(value, (n) => scope.resolveIr(n)) !== 'typed') {
+    if (
+      declared !== undefined &&
+      kindlessOrigin(value, (n) => scope.resolveIr(n), sourceFile) !== 'typed'
+    ) {
       noteWrittenDivision(left.parent, sourceFile, left.getText(sourceFile), declared, 'integer');
     }
   }

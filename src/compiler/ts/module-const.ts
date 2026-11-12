@@ -31,7 +31,7 @@ import { mapTsTypeToShaderType } from './type-map.js';
 import { refuseOptionalAt } from './optional.js';
 import { foldConstComponents, foldConstValue } from './loop-bound.js';
 import { foldF64ModuleConst } from './module-const-f64.js';
-import { retargetIntLitCtx } from './lit-coerce.js';
+import { kindlessOrigin, markKindlessModuleConst, retargetIntLitCtx } from './lit-coerce.js';
 import { refuseListSpread } from './lower/expression-array.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
 import { lowerExpression } from './lower/expression.js';
@@ -816,6 +816,14 @@ function lowerOne(
       refuseModuleName(sourceFile, name);
     }
     return undefined;
+  }
+  // `const K = 1 << 4`: a `/` over a read of `K` is refused as a `/` over `1 << 4` is (D-b of
+  // #1272, issue 1261).
+  if (
+    annotated === undefined &&
+    kindlessOrigin(init, (n) => scope.resolveIr(n), sourceFile) === 'kindless'
+  ) {
+    markKindlessModuleConst(sourceFile, name);
   }
   if ((annotated ?? init.type).kind === 'f64') {
     const refuse = (message: string): undefined => {

@@ -581,10 +581,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
         'with the same bits, -2147483648, or declare a u32.',
     ],
     ['let a: u32 = (1 << 30) * 4;', '4294967296 is outside u32, which holds 0 to 4294967295'],
-    [
-      'let a: u32 = ~1 * 2000000000;',
-      '-4000000000 is outside i32, which holds -2147483648 to 2147483647',
-    ],
+    ['let a: u32 = ~1 * 2000000000;', '-4000000000 is outside u32, which holds 0 to 4294967295'],
   ])('a value the type does not hold is refused as the written number is: %s', (body, words) => {
     // Each wrapped into the type with no diagnostic at 11cd1e82, or before.
     const message = `The value has to fit: ${words}${words.includes('(§13)') ? '' : ' (§13).'}`;
@@ -852,22 +849,108 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(result.eval('t', [0])).toBe(value);
   });
 
-  it('a bit operator over a written number only a u32 holds works on u32 bits (item 1)', () => {
-    // The one exception to TypeScript's value: TypeScript gives -1 for `0xF0000000 >> 28` and
-    // -1294967295 for `3000000000 | 1`; change 0134 item 1 makes each a u32 operation.
-    for (const [init, value] of [
-      ['0xF0000000 >> 28', 15],
-      ['3000000000 | 1', 3000000001],
-      ['0xFFFFFFFF >> 4', 268435455],
-    ] as const) {
+  it.each([
+    ['3000000000 | 1', 3000000001],
+    ['~3000000000', 1294967295],
+    ['0x80000000 << 1', 0],
+    ['0xF0000000 >> 0', 4026531840],
+  ])(
+    'a bit operator over a written u32 whose two readings agree compiles (item 1): %s',
+    (init, value) => {
+      // The u32 bits and TypeScript's ToInt32 give the same bits, read as the u32.
       const source = mod('', `let a = ${init};\n  return f32(a);`, 'f32');
       const result = compile(source);
       expect(result.diagnostics).toEqual([]);
       expect(editor(source)).toEqual([]);
       expect(result.eval('t', [0])).toBe(value);
-      // TypeScript's u32 reading of the same operation: `>>` as `>>>`, the result `>>> 0`.
-      expect(value).toBe(exact(`(${init.replace('>>', '>>>')}) >>> 0`));
-    }
+      expect(value).toBe(exact(`(${init}) >>> 0`));
+    },
+  );
+
+  it.each([
+    ['0xF0000000 >> 28', '0xF0000000', '28', 15, -1],
+    ['0x80000000 >> 4', '0x80000000', '4', 134217728, -134217728],
+    ['0xFFFFFFFF >> 4', '0xFFFFFFFF', '4', 268435455, -1],
+  ])(
+    'a >> whose u32 and TypeScript readings differ is refused (the owner, "거부"): %s',
+    (init, left, right, u32, ts) => {
+      expect(exact(init)).toBe(ts);
+      const message =
+        `Bitwise ">>" over ${left}, which only a u32 holds, gives ${String(u32)} on its u32 bits ` +
+        `and ${String(ts)} in TypeScript, so it does not say which it means. Write ` +
+        `"u32(${left}) >> ${right}" for the u32 shift.`;
+      const source = mod('', `let a = ${init};\n  return f32(a);`, 'f32');
+      expect(compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+        `TS8003: ${message}`,
+      ]);
+      expect(editor(source)).toEqual([`TS8003: ${message}`]);
+      const fixed = source.replace(init, `u32(${left}) >> ${right}`);
+      expect(compile(fixed).diagnostics).toEqual([]);
+      expect(editor(fixed)).toEqual([]);
+      expect(compile(fixed).eval('t', [0])).toBe(u32);
+    },
+  );
+
+  it.each([
+    ['((1 << 30) * 4) | 0'],
+    ['((1 << 30) * 8) >> 3'],
+    ['((3 | 0) * 1431655766) & 1'],
+    ['((1 | 0) * 4294967296) | 0'],
+    ['(7 % 3) | 0'],
+    ['((7 % 3) * 5) << 1'],
+  ])('only the whole expression is held to a type: %s', (init) => {
+    // An intermediate value no integer type holds passes through ToInt32 at a bit operator, as
+    // in TypeScript; each was refused at 0c0b5920 (`%` was "got f32").
+    const value = exact(init);
+    const source = mod('', `let a = ${init};\n  return f32(a);`, 'f32');
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(result.eval('t', [0])).toBe(value);
+  });
+
+  it.each([
+    ['const K = 1 << 4;\n', 'return f32(K / 3);', 'K', 'K / 3', 'f32(K) / 3', 16 / 3],
+    ['const K = (1 << 4) | 3;\n', 'return K / 2;', 'K', 'K / 2', 'f32(K) / 2', 9.5],
+    [
+      '',
+      'return (1 | 2) / (1 << 1);',
+      '1 | 2',
+      '(1 | 2) / (1 << 1)',
+      'f32(1 | 2) / f32(1 << 1)',
+      1.5,
+    ],
+  ])(
+    'D-b reaches a module constant, and the edit compiles in one step: %s%s',
+    (pre, body, subject, written, edit, value) => {
+      const message =
+        `"${subject}" is an integer by its bit operator, and no operand of "${written}" has a ` +
+        `declared type, so the "/" does not say which division it is. Write "${edit}" for the ` +
+        'float division.';
+      const source = mod(pre, body, 'f32', 'x: f32');
+      expect(compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+        `TS8003: ${message}`,
+      ]);
+      expect(editor(source)).toEqual([`TS8003: ${message}`]);
+      const fixed = source.replace(written, edit);
+      expect(compile(fixed).diagnostics).toEqual([]);
+      expect(editor(fixed)).toEqual([]);
+      expect(compile(fixed).eval('t', [0])).toBeCloseTo(value, 5);
+    },
+  );
+
+  it.each([
+    ['let a = (1 | 2) / 2;\n  return a;', 'f32'],
+    ['let a = (1 | 2) / 2;\n  let b: f32 = a;\n  return b;', 'f32'],
+    ['return sin((1 | 4) / 2);', 'f32'],
+    ['let q = (1 | 2) / 2;\n  return xs[q];', 'f32'],
+    ['let k = (1 << 3) / 3;\n  return f32(vi + k);', 'f32'],
+  ])('a refused quotient is the one mistake where it flows (Rule 12.4): %s', (body, ret) => {
+    const source = mod('', body, ret, 'vi: u32, xs: array<f32, 4>');
+    const lines = compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('does not say which division it is');
+    expect(editor(source)).toEqual(lines);
   });
 
   it('(0x80000000 | 1) - 0x80000000 is -4294967295, which no integer type holds', () => {

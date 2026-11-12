@@ -157,13 +157,77 @@ const kindlessBitwise = new WeakMap<Expr, Expr>();
 /** Folds `tree`, a bitwise expression over written integers (see above), to a literal of the
  *  integer type its value fits, kept with `tree`. Returns the value when neither integer type
  *  holds it, for the caller's refusal; `undefined` when a leaf is no constant. */
-export function foldKindless(tree: Expr): Expr | { readonly outside: number } | undefined {
+export function foldKindless(
+  tree: Expr,
+):
+  | Expr
+  | { readonly outside: number; readonly lit: Expr }
+  | { readonly readings: { readonly u32: number; readonly ts: number } }
+  | undefined {
+  // A `>>` over a written number only a `u32` holds shifts its `u32` bits logically, and
+  // TypeScript shifts the ToInt32 of it arithmetically: where the two give other bits
+  // (`0xF0000000 >> 28` is 15 and -1), the program does not say which it means (the owner's
+  // decision of 2026-11-11, "거부"). `&`, `|`, `^`, `~` and `<<` give the same bits either way.
+  if (tree.op === 'binop' && tree.bop === '>>' && writtenU32(tree.a)) {
+    const u = kindlessRoot(tree);
+    const t = kindlessValue(tree);
+    if (u !== undefined && t !== undefined && u >>> 0 !== t >>> 0) {
+      return { readings: { u32: u, ts: t } };
+    }
+  }
   const v = kindlessRoot(tree);
   if (v === undefined) return undefined;
   for (const type of [i32Scalar, u32Scalar]) {
     if (fitsTarget(v, type)) return keep({ op: 'lit', type, value: v }, tree);
   }
-  return { outside: v };
+  // A value no integer type holds is refused only where it stands as a whole: a larger
+  // expression folds it again, through ToInt32 at a bit operator (`((1 << 30) * 4) | 0` is 0).
+  return { outside: v, lit: keep({ op: 'lit', type: i32Scalar, value: v }, tree) };
+}
+
+/** The refusal each kindless literal of a value no integer type holds carries until a larger
+ *  kindless expression folds it ({@link retractKindlessRefusal}) or a position refuses it in its
+ *  own words. */
+const pendingRefusals = new WeakMap<
+  Expr,
+  { readonly diagnostic: TsCompilerDiagnostic; readonly into: TsCompilerDiagnostic[] }
+>();
+
+/** Records that `lit` stands refused by `diagnostic`, pushed into `into`. */
+export function noteKindlessRefusal(
+  lit: Expr,
+  diagnostic: TsCompilerDiagnostic,
+  into: TsCompilerDiagnostic[],
+): void {
+  into.push(diagnostic);
+  pendingRefusals.set(lit, { diagnostic, into });
+}
+
+/** Withdraws the refusal of `expr`, when it is a kindless literal that carries one: a larger
+ *  expression folds it, or a position says it in its own words. Returns whether it did. */
+export function retractKindlessRefusal(expr: Expr): boolean {
+  const pending = pendingRefusals.get(expr);
+  if (pending === undefined) return false;
+  pendingRefusals.delete(expr);
+  const i = pending.into.indexOf(pending.diagnostic);
+  if (i >= 0) pending.into.splice(i, 1);
+  return true;
+}
+
+/** Withdraws the refusals of the direct operands of `tree`, which a fold of `tree` reads. */
+export function retractOperandRefusals(tree: Expr): void {
+  const parts: Expr[] =
+    tree.op === 'binop'
+      ? [tree.a, tree.b]
+      : tree.op === 'unop'
+        ? [tree.a]
+        : tree.op === 'call'
+          ? [...tree.args]
+          : [];
+  for (const part of parts) {
+    retractKindlessRefusal(part);
+    if (part.op === 'call' && part.fn === 'u32') retractKindlessRefusal(part.args[0]!);
+  }
 }
 
 const i32Scalar: ShaderType = { kind: 'scalar', scalar: 'i32' };
@@ -195,6 +259,13 @@ function retypeKindless(expr: Expr, target: ShaderType): Expr | undefined {
     return undefined;
   }
   const v = kindlessIn(expr, target);
+  if (v !== undefined && pendingRefusals.has(expr)) {
+    // Refused already for its value: the position takes it with no second mistake to say.
+    const lit = keep({ op: 'lit', type: target, value: v }, expr);
+    pendingRefusals.set(lit, pendingRefusals.get(expr)!);
+    pendingRefusals.delete(expr);
+    return lit;
+  }
   return v !== undefined && fitsTarget(v, target)
     ? keep({ op: 'lit', type: target, value: v }, expr)
     : undefined;
@@ -291,6 +362,18 @@ function kindlessValue(expr: Expr): number | undefined {
   }
 }
 
+/** The module constants of each file whose initializer is a bitwise expression over written
+ *  integers (`const K = 1 << 4`), by IR name: a `/` over a read of one is refused as a `/` over
+ *  the expression is (D-b of #1272, issue 1261). */
+const kindlessModuleConsts = new WeakMap<ts.SourceFile, Set<string>>();
+
+/** Records that the module constant `name` of `sourceFile` holds such a value. */
+export function markKindlessModuleConst(sourceFile: ts.SourceFile, name: string): void {
+  let names = kindlessModuleConsts.get(sourceFile);
+  if (names === undefined) kindlessModuleConsts.set(sourceFile, (names = new Set()));
+  names.add(name);
+}
+
 /** The local bindings with no declared type whose initializer is a bitwise expression over
  *  written integers, or arithmetic over such values and written integers (`let a = 1 | 2`). */
 const kindlessBindings = new WeakMap<object, string>();
@@ -314,9 +397,16 @@ export function kindlessDeclaration(binding: object | undefined): string | undef
 export function kindlessOrigin(
   expr: Expr,
   resolve: (name: string) => object | undefined,
+  sourceFile?: ts.SourceFile,
 ): 'kindless' | 'written' | 'typed' {
   if (kindlessBitwise.has(expr)) return 'kindless';
   if (expr.op === 'lit') return typeof expr.value === 'number' ? 'written' : 'typed';
+  // A module constant whose initializer is one (`const K = 1 << 4`), read in a function.
+  if (expr.op === 'constref') {
+    return sourceFile !== undefined && kindlessModuleConsts.get(sourceFile)?.has(expr.name) === true
+      ? 'kindless'
+      : 'typed';
+  }
   if (expr.op === 'varref' || expr.op === 'param') {
     const b = resolve(expr.name);
     return b !== undefined && kindlessBindings.has(b) ? 'kindless' : 'typed';
@@ -330,9 +420,58 @@ export function kindlessOrigin(
           ? [expr.a, expr.b]
           : [];
   if (parts.length === 0) return 'typed';
-  const each = parts.map((e) => kindlessOrigin(e, resolve));
+  const each = parts.map((e) => kindlessOrigin(e, resolve, sourceFile));
   if (each.includes('typed')) return 'typed';
   return each.includes('kindless') ? 'kindless' : 'written';
+}
+
+/** The `/` over a bitwise expression of written integers that is refused where no integer
+ *  position reads it (D-b), lowered as the float division its edit names, each with its integer
+ *  division at an integer type: an integer position takes that (Amendment A4). */
+const integerQuotients = new WeakMap<Expr, (target: ShaderType) => Expr | undefined>();
+
+/** Records `float` as such a quotient, with its integer division `at` a type. Returns `float`. */
+export function markIntegerQuotient(
+  float: Expr,
+  at: (target: ShaderType) => Expr | undefined,
+): Expr {
+  integerQuotients.set(float, at);
+  return float;
+}
+
+/** Whether `expr` is a quotient {@link markIntegerQuotient} recorded. */
+export function isIntegerQuotient(expr: Expr): boolean {
+  return integerQuotients.has(expr);
+}
+
+/** The local bindings that hold such a quotient (`let q = (1 | 2) / 2`). */
+const quotientBindings = new WeakSet<object>();
+
+/** Records that `binding` holds a quotient refused where no integer position reads it. */
+export function markQuotientBinding(binding: object): void {
+  quotientBindings.add(binding);
+}
+
+/** `read`, a read of `binding`: where the binding holds a refused quotient, an integer position
+ *  converts it to its type, so the refusal of the `/` is the program's one mistake (Rule 12.4;
+ *  `xs[q]` with `let q = (1 | 2) / 2`). Returns `read`. */
+export function markQuotientRead(read: Expr, binding: object): Expr {
+  if (quotientBindings.has(binding)) {
+    integerQuotients.set(read, (target) => ({
+      op: 'call',
+      type: target,
+      fn: typeKey(target) === 'u32' ? 'u32' : 'i32',
+      args: [read],
+    }));
+  }
+  return read;
+}
+
+/** The integer division of the quotient `expr` at the integer type `target`, when `expr` is one
+ *  {@link markIntegerQuotient} recorded. */
+export function integerQuotientAt(expr: Expr, target: ShaderType): Expr | undefined {
+  const at = integerQuotients.get(expr);
+  return at === undefined || !isIntScalar(target) ? undefined : at(target);
 }
 
 export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
@@ -341,6 +480,12 @@ export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType
   noteDemand(expr, peer);
   const kindless = retypeKindless(expr, peer);
   if (kindless !== undefined) return kindless;
+  // An integer position reads a quotient refused elsewhere: the integer division (A4).
+  if (isIntScalar(peer) && integerQuotients.has(expr)) {
+    noteIntegerContext(node, typeKey(peer) === 'u32' ? 'u32' : 'i32');
+    const q = integerQuotientAt(expr, peer);
+    if (q !== undefined) return q;
+  }
   // A read of a constant of no fixed type, or arithmetic over such reads and written numbers,
   // takes an integer peer's type as the written number would (Rule 5.1, change 0134 item 2).
   // Beside anything else it is left as lowered, so an `f32` read keeps the constant's name.
@@ -435,6 +580,8 @@ export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: Shade
   if (!isIntScalar(target)) return expr;
   const kindless = retypeKindless(expr, target);
   if (kindless !== undefined) return kindless;
+  const quotient = integerQuotientAt(expr, target);
+  if (quotient !== undefined) return quotient;
   const inner = stripParens(node);
   if (!ts.isConditionalExpression(inner) && !isIntegerLiteralTree(inner)) return expr;
   if (expr.op === 'select' && ts.isConditionalExpression(inner)) {
@@ -506,7 +653,10 @@ export function outOfRangeIntLit(
   // A kindless bitwise expression is a constant, computed in `target` (issue 1261).
   if (isKindlessBitwise(expr)) {
     const v = kindlessIn(expr, target);
-    return v === undefined || fitsTarget(v, target) ? undefined : { value: v, node: inner };
+    if (v === undefined || fitsTarget(v, target)) return undefined;
+    // The position says the refusal in its own words, in place of the one the value carried.
+    retractKindlessRefusal(expr);
+    return { value: v, node: inner };
   }
   if (!isIntegerLiteralTree(inner)) return undefined;
   const folded = foldNumericLit(abstractLiteralOf(expr) ?? expr);
