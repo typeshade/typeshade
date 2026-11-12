@@ -1797,28 +1797,122 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     },
   );
 
+  // Each D2 edit is chosen from the structure and verified with the module's other edits (the
+  // thirteenth review, C1): `u32(…)` beside a u32, `i32(…)` inside `f32()`, the declaration of
+  // an assignment's target.
   it.each([
-    ['/ vi', 'return (3000000000|0) / vi;', '3000000000|0', '/'],
-    ['% u32', 'return (0xF0000000|0) % u32(7);', '0xF0000000|0', '%'],
-    ['max', 'return max((3000000000|0), vi);', '3000000000|0', 'max'],
-    ['min', 'return min((3000000000|0), vi);', '3000000000|0', 'min'],
-    ['clamp', 'return clamp((3000000000|0), vi, vi + 9);', '3000000000|0', 'clamp'],
-    ['>> vi', 'return (3000000000|0) >> vi;', '3000000000|0', '>>'],
-    ['>>= vi', 'let a = (3000000000|0);\n  a >>= vi;\n  return a;', 'a', '>>='],
-    ['through a binding', 'let a = (3000000000|0);\n  let b = a;\n  return b / vi;', 'b', '/'],
-    ['%= vi', 'let a = (3000000000|0);\n  a %= vi;\n  return a;', 'a', '%='],
-    ['/= vi', 'let a = (3000000000|0);\n  a /= vi;\n  return a;', 'a', '/='],
-    ['f32()', 'return u32(f32((0xF0000000|0)));', '0xF0000000|0', 'f32()'],
+    ['/ vi', 'return (3000000000|0) / vi;', '3000000000|0', '/', 'u32(3000000000|0)'],
+    ['% u32', 'return (0xF0000000|0) % u32(7);', '0xF0000000|0', '%', 'u32(0xF0000000|0)'],
+    ['max', 'return max((3000000000|0), vi);', '3000000000|0', 'max', 'u32(3000000000|0)'],
+    ['min', 'return min((3000000000|0), vi);', '3000000000|0', 'min', 'u32(3000000000|0)'],
+    [
+      'clamp',
+      'return clamp((3000000000|0), vi, vi + 9);',
+      '3000000000|0',
+      'clamp',
+      'u32(3000000000|0)',
+    ],
+    ['>> vi', 'return (3000000000|0) >> vi;', '3000000000|0', '>>', 'u32(3000000000|0)'],
+    [
+      '>>= vi',
+      'let a = (3000000000|0);\n  a >>= vi;\n  return a;',
+      'a',
+      '>>=',
+      'let a: u32 = (3000000000|0)',
+    ],
+    [
+      'through a binding',
+      'let a = (3000000000|0);\n  let b = a;\n  return b / vi;',
+      'b',
+      '/',
+      'u32(b)',
+    ],
+    [
+      '%= vi',
+      'let a = (3000000000|0);\n  a %= vi;\n  return a;',
+      'a',
+      '%=',
+      'let a: u32 = (3000000000|0)',
+    ],
+    [
+      '/= vi',
+      'let a = (3000000000|0);\n  a /= vi;\n  return a;',
+      'a',
+      '/=',
+      'let a: u32 = (3000000000|0)',
+    ],
+    // `i32(…)` would make `u32(-268435456.0)`, refused for its range: the second set, `u32(…)`.
+    ['f32()', 'return u32(f32((0xF0000000|0)));', '0xF0000000|0', 'f32()', 'u32(0xF0000000|0)'],
   ])(
     'F3 (D2): every operation whose two readings differ is refused: %s',
-    (_, body, subject, op) => {
-      const got = both(T12(body, 'u32'));
+    (_, body, subject, op, edit) => {
+      const source = T12(body, 'u32');
+      const got = both(source);
       expect(got).toHaveLength(1);
       expect(got[0]).toContain(`"${subject}" is `);
       expect(got[0]).toContain(`so the "${op}" does not say which value it means.`);
-      expect(got[0]).toContain(`Write "u32(${subject})" for the u32 value.`);
+      const type = edit.startsWith('i32') || edit.includes(': i32') ? 'i32' : 'u32';
+      expect(got[0]).toContain(`Write "${edit}" for the ${type} value.`);
+      // The edit, made, compiles in both halves.
+      const fixed = edit.startsWith('let ')
+        ? source.replace('let a = ', 'let a: u32 = ')
+        : source.replace(
+            subject.includes('|') ? `(${subject})` : `${subject} ${op}`,
+            subject.includes('|') ? edit : `${edit} ${op}`,
+          );
+      expect(both(fixed)).toEqual([]);
     },
   );
+
+  it("C1: f32() of a value with two readings names TypeScript's value, i32(…)", () => {
+    const source = T12('return f32((0xF0000000|0));', 'f32');
+    expect(both(source)[0]).toContain('Write "i32(0xF0000000|0)" for the i32 value.');
+    const fixed = source.replace('f32((0xF0000000|0))', 'f32(i32(0xF0000000|0))');
+    expect(both(fixed)).toEqual([]);
+    expect(compile(fixed).eval('t', [-3, 7, 2.5])).toBe(0xf0000000 | 0);
+  });
+
+  it.each([
+    ['min in an i32 function', 'return min((0xF0000000|0), 9);', 'i32', 'i32(0xF0000000|0)'],
+    ['beside an f32: decision 1, no u32 sentence', 'return f / (3000000000|0);', 'f32', undefined],
+  ])('C1: the D2 edit follows the position: %s', (_, body, ret, edit) => {
+    const got = both(T12(body, ret));
+    expect(got).toHaveLength(1);
+    if (edit === undefined) expect(got[0]).not.toContain('on its u32 bits');
+    else expect(got[0]).toContain(`Write "${edit}" for the i32 value.`);
+  });
+
+  it('C3: an annotation ends the origin', () => {
+    const source = T12('let x: u32 = (3000000000|0);\n  return x / vi;', 'u32');
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(Math.floor(3000000000 / 7));
+  });
+
+  it.each([
+    ['?:', 'let a = vi > 3 ? (3000000000|0) : vi;\n  return a / vi;', ''],
+    ['select', 'return select(vi, (3000000000|0), vi > 3) / vi;', ''],
+    ['a result', 'return g() / vi;', 'function g() {\n  return 3000000000|0;\n}\n'],
+    ['a module let', 'return M / vi;', 'let M = 3000000000|0;\n'],
+    ['arithmetic', 'let a = (3000000000|0);\n  let c = a + 0;\n  return c / vi;', ''],
+    ['a compound assignment', 'let s = 1;\n  s += (3000000000|0);\n  return s / vi;', ''],
+  ])('B2: two readings reach the operation through %s', (_, body, pre) => {
+    const got = both(T12(body, 'u32', pre));
+    expect(got).toHaveLength(1);
+    expect(got[0]).toContain('on its u32 bits');
+  });
+
+  it.each([
+    ['*=', 'let g = ii;\n  g *= (5|0)/2;\n  return g;'],
+    ['+=', 'let g = ii;\n  g += (5|0)/2;\n  return g;'],
+    ['an array element', 'let xs: array<i32, 2> = [1, 2];\n  xs[1] *= (5|0)/2;\n  return xs[1];'],
+    ['a component', 'let v = vec2i(ii, ii);\n  v.x *= (5|0)/2;\n  return v.x;'],
+  ])('B1: a compound assignment of a quotient is refused, with a verified edit: %s', (_, body) => {
+    const source = T12(body, 'i32');
+    const got = both(source);
+    expect(got).toHaveLength(1);
+    expect(got[0]).toContain('Write "i32(5|0)/2" for the integer division.');
+    expect(both(source.replace('(5|0)/2', 'i32(5|0)/2'))).toEqual([]);
+  });
 
   it.each([
     ['+', 'return (3000000000|0) + vi;', (3000000000 + 7) >>> 0],

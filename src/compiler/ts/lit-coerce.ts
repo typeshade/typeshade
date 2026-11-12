@@ -577,6 +577,14 @@ export function readingsOf(
   return b === undefined ? undefined : readingsBindings.get(b);
 }
 
+/** Records that `binding` holds a value with `readings` (a compound assignment added one). */
+export function markReadingsWith(
+  binding: object | undefined,
+  readings: { readonly u32: number; readonly ts: number } | undefined,
+): void {
+  if (binding !== undefined && readings !== undefined) readingsBindings.set(binding, readings);
+}
+
 /** Records that `binding` holds `init`'s two readings, where it has two. */
 export function markReadingsBinding(
   binding: object,
@@ -585,19 +593,6 @@ export function markReadingsBinding(
 ): void {
   const readings = readingsOf(init, resolve);
   if (readings !== undefined) readingsBindings.set(binding, readings);
-}
-
-/** The refusal of an operation whose result differs between the two readings of `text`. */
-export function readingsSentence(
-  text: string,
-  readings: { readonly u32: number; readonly ts: number },
-  operator: string,
-): string {
-  return (
-    `"${text}" is ${String(readings.u32)} on its u32 bits and ${String(readings.ts)} in ` +
-    `TypeScript, so the "${operator}" does not say which value it means. Write ` +
-    `"u32(${text})" for the u32 value.`
-  );
 }
 
 /** The declaration with its type written of a binding {@link markKindlessBinding} marked. */
@@ -676,7 +671,12 @@ export function kindlessOrigin(
   if (parts.length === 0) return 'typed';
   const each = parts.map((e) => kindlessOrigin(e, resolve, sourceFile));
   if (each.includes('typed')) return 'typed';
-  return each.includes('kindless') ? 'kindless' : 'written';
+  // A bit operator over written integers is an integer by its operator, also where a part is
+  // no fold (`(c ? 3 : 9) << 2`).
+  const bits =
+    (expr.op === 'binop' && ['&', '|', '^', '<<', '>>'].includes(expr.bop)) ||
+    (expr.op === 'call' && expr.fn === '~');
+  return bits || each.includes('kindless') ? 'kindless' : 'written';
 }
 
 /** The `/` over a bitwise expression of written integers that is refused where no integer

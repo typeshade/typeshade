@@ -4,6 +4,8 @@ import {
   isAbstractRead,
   noteIntegerRead,
   peekingReads,
+  refuseTwoReadings,
+  twoReadingsOf,
 } from '../abstract-const.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey } from '../optional.js';
@@ -51,7 +53,6 @@ import {
   retargetDeclaredIntLit,
   pendingKindlessRefusal,
   readingsOf,
-  readingsSentence,
 } from '../lit-coerce.js';
 import { spanOf } from '../span.js';
 import { internalOpOf, lowerInternalOp } from '../internal-ops.js';
@@ -178,6 +179,11 @@ function vectorMethodMessage(
 
 /** The builtins whose result differs between the two readings of a tree (D2). */
 const READINGS_SENSITIVE: ReadonlySet<string> = new Set(['min', 'max', 'clamp', 'abs', 'sign']);
+
+/** Whether `e` is a `u32` of a declared type, not a written number. */
+function isTypedU32(e: Expr): boolean {
+  return typeKey(e.type) === 'u32' && !isKindlessBitwise(e) && e.op !== 'lit';
+}
 
 export function lowerCall(
   node: ts.CallExpression,
@@ -685,19 +691,33 @@ export function lowerCall(
     READINGS_SENSITIVE.has(callee.text) &&
     scope.resolveCallee(callee.text) === undefined
   ) {
-    for (let i = 0; i < args.length; i++) {
-      const readings = readingsOf(args[i]!, (n) => scope.resolveIr(n));
-      if (readings === undefined || pendingKindlessRefusal(args[i]!) !== undefined) continue;
-      const arg = node.arguments[i]!;
-      const inner = ts.isParenthesizedExpression(arg) ? arg.expression : arg;
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        arg,
-        readingsSentence(inner.getText(sourceFile).replace(/\s+/g, ' '), readings, callee.text),
-        TS_CODES.TYPE_MISMATCH,
-      );
-      return undefined;
+    // A typed peer decides: beside an `i32` the tree is TypeScript's value, beside an `f32` it
+    // is refused as an integer beside a float.
+    const peers = args.map((a, i) =>
+      readingsOf(a, (n) => scope.resolveIr(n)) === undefined &&
+      twoReadingsOf(node.arguments[i]!) === undefined &&
+      a.op !== 'lit' &&
+      !isKindlessBitwise(a)
+        ? typeKey(a.type)
+        : undefined,
+    );
+    if (!peers.includes('i32') && !peers.includes('f32')) {
+      for (let i = 0; i < args.length; i++) {
+        const arg = node.arguments[i]!;
+        const readings = readingsOf(args[i]!, (n) => scope.resolveIr(n)) ?? twoReadingsOf(arg);
+        if (readings === undefined || pendingKindlessRefusal(args[i]!) !== undefined) continue;
+        refuseTwoReadings(sourceFile, diagnostics, {
+          node: arg,
+          operation: node,
+          operator: callee.text,
+          readings,
+          ...(peers.includes('u32') && args.some((a, j) => j !== i && isTypedU32(a))
+            ? { peer: 'u32' as const }
+            : {}),
+          target: false,
+        });
+        return undefined;
+      }
     }
   }
 

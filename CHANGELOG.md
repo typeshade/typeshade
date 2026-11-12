@@ -357,8 +357,20 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   - every operation whose result differs between a tree's `u32` bits and its TypeScript value
     (the owner's decision of 2026-11-12, D2): `/`, `%`, a comparison, `min`, `max`, `clamp`,
     `abs`, `sign`, `f32()`, `>>` by an amount that is no written number, `/=`, `%=` and `>>=`,
-    also through a binding (`let a = 3000000000 | 0; let b = a; b / vi`). Each names
-    `u32(3000000000 | 0)`. `+ - * & | ^ <<` agree modulo 2^32 and compile;
+    and the result of an exported function, also through a binding, `?:`, `select`, a
+    function's result, a module `let`, arithmetic over a written number and a compound
+    assignment (`let a = 3000000000 | 0; let c = a + 0; c / vi`). The edit is verified with the
+    module's other edits: `u32(…)` beside a `u32`, `i32(…)` (TypeScript's value) where the value
+    flows to an `i32` or into `f32()`, and the declaration of an assignment's target with its
+    type (`let a: u32 = 3000000000 | 0`), which ends the origin. `+ - * & | ^ <<` agree modulo
+    2^32 and compile; beside an `i32` the tree is TypeScript's value;
+  - a compound assignment of a quotient that is no integer (`g *= (5 | 0) / 2`, also to an array
+    element, a field or a component), which truncated it before (14 for TypeScript's 17): it is
+    an operand beside the target, as in `g = g * ((5 | 0) / 2)`;
+  - a `/` over a module `let` of a tree, a call of a function with no result type that returns
+    one, a bit operator over a value that is no fold (`3 / ((c ? 3 : 9) << 2)`), and a `/=` of a
+    variable its uses type by such a value (`let s = 1; s /= ~(1 | 2)`), which divided as
+    integers before;
   - a `/` over a value that is an integer only by inference, stored back into a variable whose
     type its uses decide (`let a = 1 | 2; a = a / 2;`, `a /= K` with `const K = 4`), which
     divided as an integer before (1 and 0);

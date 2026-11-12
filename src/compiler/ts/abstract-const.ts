@@ -301,6 +301,7 @@ export function resetAbstractConsts(sourceFile: ts.SourceFile): void {
   byDeclName.delete(sourceFile);
   divisionsOf.delete(sourceFile);
   writtenDivisionsOf.delete(sourceFile);
+  readingsRefusalsOf.delete(sourceFile);
   quotientReadsOf.delete(sourceFile);
   checkedRefusalsOf.delete(sourceFile);
   nodeMarks.delete(sourceFile);
@@ -1525,6 +1526,51 @@ export function reportAbstractDivisions(
       },
     });
   }
+  // The values with two readings (D2): the edit takes `u32` beside a `u32` and where the
+  // operation's value flows to one, `i32` (TypeScript's value) where it flows to an `i32` or an
+  // `f32`; a target of an assignment names its declaration with the type.
+  for (const r of readingsRefusalsOf.get(sourceFile) ?? []) {
+    if (!diagnostics.includes(r.diagnostic)) continue;
+    batch.push({
+      node: r.node,
+      build: (cx) => {
+        let first: 'u32' | 'i32' = 'u32';
+        let second: 'u32' | 'i32' = 'i32';
+        if (r.peer === 'u32') second = 'u32';
+        else if (r.operator === 'f32()') [first, second] = ['i32', 'u32'];
+        else {
+          const use = typesFromUse(r.operation, undefined, cx);
+          if (use.first === 'i32' || use.first === 'f32') [first, second] = ['i32', 'u32'];
+        }
+        const text = skipParenNodes(r.node).getText(sourceFile);
+        const change = (t: 'u32' | 'i32'): SourceChange | undefined =>
+          r.target
+            ? declarationChange(text, r.node, t)
+            : { start: r.node.getStart(sourceFile), end: r.node.getEnd(), text: `${t}(${text})` };
+        const say = (type: 'u32' | 'i32' | null) => {
+          const next = makeDiagnostic(
+            sourceFile,
+            r.node,
+            readingsSentenceOf(r, readingsRemedy(r, type)),
+            TS_CODES.TYPE_MISMATCH,
+          );
+          const i = diagnostics.indexOf(r.diagnostic);
+          if (i >= 0) diagnostics[i] = next;
+          r.diagnostic = next;
+        };
+        return {
+          diagnostic: () => r.diagnostic,
+          sets: [change(first), change(second)],
+          conflict: false,
+          name: (set) => {
+            const t = set === 0 ? first : second;
+            if (t !== 'u32' || r.target) say(t);
+          },
+          generic: () => say(null),
+        };
+      },
+    });
+  }
   // The edits the refusals name must compile where the quotients stand, all at once (as the
   // edits of change 0134 must, Rule 5.1): `checkModuleEdits`, at most two compiles a module.
   if (check !== undefined && !checkingEdit && batch.length > 0) {
@@ -2022,6 +2068,11 @@ function checkModuleEdits(
     else it.name(named);
   }
   if (named === undefined) return;
+  // The refusals as they now stand (naming an edit replaced some) stay.
+  for (const it of items) {
+    const d = it.diagnostic();
+    if (d !== undefined) own.add(d);
+  }
   // The edited program gives no type error where a quotient flows: such an error of the
   // unedited program (`let k: u32 = g()` beside `function g() { return (1 | 2) / 2; }`) is the
   // refusal said again (Rule 12.4).
@@ -2170,3 +2221,335 @@ function compileEditedAll(
 /** The errors of each edited program compiled lately, by its file and text: the compile is a
  *  function of the text, and the editor checks one module's edits on each of its passes. */
 const editedErrors = new Map<string, ReturnType<DivisionEditCheck>>();
+
+/** The two values of `node` where a tree's `u32` bits and its TypeScript value reach it and
+ *  give different values (the owner's decision of 2026-11-12, D2), read from the source: a tree
+ *  over a written number only a `u32` holds, and what carries one without a declared type
+ *  through a `let`, a module `let` or `const`, a function's result, `?:`, `select`, and
+ *  arithmetic over it and written numbers (`let c = a + 0`). An annotation, a conversion and a
+ *  typed operand end it. `undefined` where the two agree. */
+export function twoReadingsOf(
+  node: ts.Expression,
+  seen: Set<ts.Node> = new Set(),
+): { readonly u32: number; readonly ts: number } | undefined {
+  const sourceFile = node.getSourceFile();
+  const n = skipParenNodes(node);
+  if (seen.has(n) || seen.size > 64) return undefined;
+  seen.add(n);
+  const pair = readingPair(n, sourceFile, seen);
+  return pair !== undefined && pair.u32 !== pair.ts ? pair : undefined;
+}
+
+function skipParenNodes(node: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(node) ? skipParenNodes(node.expression) : node;
+}
+
+/** The written number `node` is, where it is one. */
+function writtenNumber(node: ts.Expression): number | undefined {
+  const n = skipParenNodes(node);
+  if (ts.isNumericLiteral(n)) return Number(n.text);
+  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.MinusToken) {
+    const v = writtenNumber(n.operand);
+    return v === undefined ? undefined : -v;
+  }
+  return undefined;
+}
+
+/** Whether `node` states a type of its own: a typed name or a conversion. */
+function typedNode(node: ts.Expression): boolean {
+  const n = skipParenNodes(node);
+  if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+    return /^(i32|u32|f32|vec[234][iuf]?)$/.test(n.expression.text);
+  }
+  if (ts.isIdentifier(n)) {
+    const d = declarationOf(n.text, n);
+    return d !== undefined && writtenTypeText(d, n.getSourceFile()) !== undefined;
+  }
+  return false;
+}
+
+/** Both values of `n` (`u32`: what the lowering computes from a tree's bits, `ts`:
+ *  TypeScript's), or `undefined` where no tree with two readings reaches it. */
+function readingPair(
+  n: ts.Expression,
+  sourceFile: ts.SourceFile,
+  seen: Set<ts.Node>,
+): { u32: number; ts: number } | undefined {
+  const of = (e: ts.Expression) => {
+    const inner = skipParenNodes(e);
+    if (seen.has(inner)) return undefined;
+    seen.add(inner);
+    return readingPair(inner, sourceFile, seen);
+  };
+  if (ts.isBinaryExpression(n)) {
+    const k = n.operatorToken.kind;
+    const big = (e: ts.Expression) => {
+      const v = writtenNumber(e);
+      return v !== undefined && v > 2147483647 && v <= 4294967295;
+    };
+    const bit =
+      k === ts.SyntaxKind.BarToken ||
+      k === ts.SyntaxKind.AmpersandToken ||
+      k === ts.SyntaxKind.CaretToken ||
+      k === ts.SyntaxKind.LessThanLessThanToken ||
+      k === ts.SyntaxKind.GreaterThanGreaterThanToken;
+    const arith =
+      k === ts.SyntaxKind.PlusToken ||
+      k === ts.SyntaxKind.MinusToken ||
+      k === ts.SyntaxKind.AsteriskToken;
+    if (!bit && !arith) return undefined;
+    const lv = writtenNumber(n.left);
+    const rv = writtenNumber(n.right);
+    const lp = lv === undefined ? of(n.left) : undefined;
+    const rp = rv === undefined ? of(n.right) : undefined;
+    // The root of a tree over a written `u32`: its bits and ToInt32 of them.
+    if (bit && (big(n.left) || big(n.right)) && lv !== undefined && rv !== undefined) {
+      const [ua, ub] = [lv >>> 0, rv >>> 0];
+      const u =
+        k === ts.SyntaxKind.BarToken
+          ? (ua | ub) >>> 0
+          : k === ts.SyntaxKind.AmpersandToken
+            ? (ua & ub) >>> 0
+            : k === ts.SyntaxKind.CaretToken
+              ? (ua ^ ub) >>> 0
+              : k === ts.SyntaxKind.LessThanLessThanToken
+                ? (ua << (ub & 31)) >>> 0
+                : ua >>> (ub & 31);
+      return { u32: u, ts: u | 0 };
+    }
+    // A tree of written numbers is one fold, which computes as TypeScript does (THE RULE): only
+    // its root over a written `u32` (above) reads the bits.
+    if (constantTree(n.left) && constantTree(n.right)) return undefined;
+    // Arithmetic over a value with two readings and a written number: the bits compute in u32,
+    // TypeScript in doubles.
+    const a = lp ?? (lv !== undefined ? { u32: lv, ts: lv } : undefined);
+    const b = rp ?? (rv !== undefined ? { u32: rv, ts: rv } : undefined);
+    if ((lp === undefined && rp === undefined) || a === undefined || b === undefined)
+      return undefined;
+    const op = (x: number, y: number, unsigned: boolean): number => {
+      switch (k) {
+        case ts.SyntaxKind.PlusToken:
+          return unsigned ? (x + y) >>> 0 : x + y;
+        case ts.SyntaxKind.MinusToken:
+          return unsigned ? (x - y) >>> 0 : x - y;
+        case ts.SyntaxKind.AsteriskToken:
+          return unsigned ? Math.imul(x, y) >>> 0 : x * y;
+        case ts.SyntaxKind.BarToken:
+          return unsigned ? (x | y) >>> 0 : x | y;
+        case ts.SyntaxKind.AmpersandToken:
+          return unsigned ? (x & y) >>> 0 : x & y;
+        case ts.SyntaxKind.CaretToken:
+          return unsigned ? (x ^ y) >>> 0 : x ^ y;
+        case ts.SyntaxKind.LessThanLessThanToken:
+          return unsigned ? (x << (y & 31)) >>> 0 : x << (y & 31);
+        default:
+          return unsigned ? x >>> (y & 31) : x >> (y & 31);
+      }
+    };
+    return { u32: op(a.u32, b.u32, true), ts: op(a.ts, b.ts, false) };
+  }
+  if (ts.isPrefixUnaryExpression(n)) {
+    const p = of(n.operand);
+    if (p === undefined) return undefined;
+    if (n.operator === ts.SyntaxKind.TildeToken) return { u32: ~p.u32 >>> 0, ts: ~p.ts };
+    if (n.operator === ts.SyntaxKind.MinusToken) return { u32: -p.u32 >>> 0, ts: -p.ts };
+    return undefined;
+  }
+  if (ts.isIdentifier(n)) {
+    const d = declarationOf(n.text, n);
+    if (d === undefined || !ts.isVariableDeclaration(d) || d.initializer === undefined) {
+      return undefined;
+    }
+    if (writtenTypeText(d, sourceFile) !== undefined) return undefined;
+    return of(d.initializer);
+  }
+  if (ts.isConditionalExpression(n)) {
+    // An arm beside a typed `i32` takes TypeScript's value.
+    if (typedNode(n.whenTrue) || typedNode(n.whenFalse)) {
+      const other = typedNode(n.whenTrue) ? n.whenFalse : n.whenTrue;
+      const typed = typedNode(n.whenTrue) ? n.whenTrue : n.whenFalse;
+      if (/^i32\(|^ii$/.test(skipParenNodes(typed).getText(sourceFile))) return undefined;
+      return of(other);
+    }
+    return of(n.whenTrue) ?? of(n.whenFalse);
+  }
+  if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+    const callee = n.expression.text;
+    if (callee === 'select' && n.arguments.length === 3) {
+      return of(n.arguments[0]!) ?? of(n.arguments[1]!);
+    }
+    const f = functionNamed(sourceFile, callee);
+    if (f === undefined || writtenResultText(f, sourceFile) !== undefined || f.body === undefined) {
+      return undefined;
+    }
+    for (const st of f.body.statements) {
+      if (ts.isReturnStatement(st) && st.expression !== undefined) return of(st.expression);
+    }
+  }
+  return undefined;
+}
+
+/** One refusal of an operation whose result differs between a tree's two readings (D2): its
+ *  operand, the operation, and the diagnostic as it stands. Its edit is chosen and verified with
+ *  the module's other edits ({@link checkModuleEdits}). */
+interface ReadingsRefusal {
+  readonly node: ts.Expression;
+  readonly operation: ts.Node;
+  readonly operator: string;
+  readonly readings: { readonly u32: number; readonly ts: number };
+  /** The typed peer's type, where the operation has one. */
+  readonly peer?: 'i32' | 'u32';
+  /** Whether the operand is the target of an assignment, which no conversion can wrap. */
+  readonly target: boolean;
+  diagnostic: TsCompilerDiagnostic;
+}
+
+const readingsRefusalsOf = new WeakMap<ts.SourceFile, ReadingsRefusal[]>();
+
+/** The declaration of the variable `name` read at `at`, as written, with `type` after its name:
+ *  `let a: u32 = 3000000000 | 0`. */
+function declaredWith(name: string, at: ts.Node, type: string): string | undefined {
+  const d = declarationOf(name, at);
+  if (d === undefined || !ts.isVariableDeclaration(d) || d.initializer === undefined)
+    return undefined;
+  const list = d.parent;
+  const keyword =
+    ts.isVariableDeclarationList(list) && list.flags & ts.NodeFlags.Const ? 'const' : 'let';
+  return `${keyword} ${name}: ${type} = ${d.initializer.getText().replace(/\s+/g, ' ')}`;
+}
+
+function readingsSentenceOf(r: ReadingsRefusal, remedy: string): string {
+  const text = skipParenNodes(r.node).getText().replace(/\s+/g, ' ');
+  return (
+    `"${text}" is ${String(r.readings.u32)} on its u32 bits and ${String(r.readings.ts)} in ` +
+    `TypeScript, so the "${r.operator}" does not say which value it means. ${remedy}`
+  );
+}
+
+function readingsRemedy(r: ReadingsRefusal, type: 'u32' | 'i32' | null): string {
+  const text = skipParenNodes(r.node).getText().replace(/\s+/g, ' ');
+  if (r.target) {
+    if (type === null) return `Declare "${text}" with u32 or i32 to choose its value.`;
+    const line = declaredWith(text, r.node, type);
+    return line === undefined
+      ? `Declare "${text}" with ${type} to choose its value.`
+      : `Write "${line}" for the ${type} value.`;
+  }
+  return type === null
+    ? `Write u32(…) or i32(…) around "${text}" to choose its value.`
+    : `Write "${type}(${text})" for the ${type} value.`;
+}
+
+/** Refuses the operation `operation` over `node`, whose two readings give different results
+ *  (the owner's decision of 2026-11-12, D2). The sentence names `u32(…)` until the module's
+ *  check chooses and verifies the edit. */
+export function refuseTwoReadings(
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+  info: Omit<ReadingsRefusal, 'diagnostic'>,
+): void {
+  const r = info as ReadingsRefusal;
+  r.diagnostic = makeDiagnostic(
+    sourceFile,
+    info.node,
+    readingsSentenceOf(r, readingsRemedy(r, 'u32')),
+    TS_CODES.TYPE_MISMATCH,
+  );
+  diagnostics.push(r.diagnostic);
+  let list = readingsRefusalsOf.get(sourceFile);
+  if (list === undefined) readingsRefusalsOf.set(sourceFile, (list = []));
+  list.push(r);
+}
+
+/** Whether `node` is written numbers and operators over them alone. */
+function constantTree(node: ts.Expression): boolean {
+  const n = skipParenNodes(node);
+  if (writtenNumber(n) !== undefined) return true;
+  if (ts.isPrefixUnaryExpression(n)) return constantTree(n.operand);
+  return ts.isBinaryExpression(n) && constantTree(n.left) && constantTree(n.right);
+}
+
+/** Whether `node` is a bit tree of written integers in the source (`(5 | 0)`, `~(1 | 2)`). */
+function writtenBitTree(node: ts.Expression): boolean {
+  const n = skipParenNodes(node);
+  const leaf = (e: ts.Expression): boolean => writtenNumber(e) !== undefined || writtenBitTree(e);
+  if (ts.isPrefixUnaryExpression(n)) {
+    return (
+      (n.operator === ts.SyntaxKind.TildeToken && leaf(n.operand)) ||
+      (n.operator === ts.SyntaxKind.MinusToken && writtenBitTree(n.operand))
+    );
+  }
+  if (!ts.isBinaryExpression(n)) return false;
+  const k = n.operatorToken.kind;
+  const bit =
+    k === ts.SyntaxKind.BarToken ||
+    k === ts.SyntaxKind.AmpersandToken ||
+    k === ts.SyntaxKind.CaretToken ||
+    k === ts.SyntaxKind.LessThanLessThanToken ||
+    k === ts.SyntaxKind.GreaterThanGreaterThanToken;
+  return bit && leaf(n.left) && leaf(n.right);
+}
+
+/** Whether `node` reads a value that is an integer only by its bit operator, by a way the
+ *  lowering's own marks do not follow: a module `let` of such a tree, or a call of a function
+ *  with no written result that returns one (the module's own calls read its integer copy,
+ *  Amendment A5). A `/` over it does not say which division it is (D-b). */
+export function kindlessSource(node: ts.Expression, depth = 0): boolean {
+  const n = skipParenNodes(node);
+  const sourceFile = n.getSourceFile();
+  if (depth > 16) return false;
+  // Arithmetic and bit operators over such values and written numbers (`(-(5 | 0)) | M`).
+  const part = (e: ts.Expression) =>
+    writtenNumber(e) !== undefined || writtenBitTree(e) || kindlessSource(e, depth + 1);
+  if (ts.isBinaryExpression(n)) {
+    const k = n.operatorToken.kind;
+    const op =
+      k === ts.SyntaxKind.PlusToken ||
+      k === ts.SyntaxKind.MinusToken ||
+      k === ts.SyntaxKind.AsteriskToken ||
+      k === ts.SyntaxKind.BarToken ||
+      k === ts.SyntaxKind.AmpersandToken ||
+      k === ts.SyntaxKind.CaretToken ||
+      k === ts.SyntaxKind.LessThanLessThanToken ||
+      k === ts.SyntaxKind.GreaterThanGreaterThanToken;
+    return (
+      op &&
+      part(n.left) &&
+      part(n.right) &&
+      (kindlessSource(n.left, depth + 1) || kindlessSource(n.right, depth + 1))
+    );
+  }
+  if (
+    ts.isPrefixUnaryExpression(n) &&
+    (n.operator === ts.SyntaxKind.MinusToken || n.operator === ts.SyntaxKind.TildeToken)
+  ) {
+    return kindlessSource(n.operand, depth + 1);
+  }
+  if (ts.isIdentifier(n)) {
+    const d = declarationOf(n.text, n);
+    return (
+      d !== undefined &&
+      ts.isVariableDeclaration(d) &&
+      ts.isSourceFile(d.parent.parent.parent) &&
+      writtenTypeText(d, sourceFile) === undefined &&
+      d.initializer !== undefined &&
+      writtenBitTree(d.initializer)
+    );
+  }
+  if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.arguments.length === 0) {
+    const f = functionNamed(sourceFile, n.expression.text);
+    if (f?.body === undefined || writtenResultText(f, sourceFile) !== undefined) return false;
+    const returns = f.body.statements.filter(ts.isReturnStatement);
+    return (
+      returns.length > 0 &&
+      returns.every((r) => r.expression !== undefined && writtenBitTree(r.expression))
+    );
+  }
+  return false;
+}
+
+/** The declaration of the variable `name` read at `at` with `type` written after its name, as
+ *  the edit of a refused `/=` names it; `undefined` where it is no `let` or `const` here. */
+export function declarationWithType(name: string, at: ts.Node, type: string): string | undefined {
+  return declaredWith(name, at, type);
+}

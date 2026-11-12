@@ -24,6 +24,9 @@ import {
   noteWrittenDivisionRead,
   noteForcedRead,
   readTypeFor,
+  kindlessSource,
+  refuseTwoReadings,
+  twoReadingsOf,
 } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
@@ -54,9 +57,9 @@ import {
   isKindlessBitwise,
   isKindlessModuleConst,
   kindlessOrigin,
+  kindlessDeclaration,
   kindlessReadings,
   readingsOf,
-  readingsSentence,
   statesType,
   foldKindless,
   markKindlessLeaf,
@@ -1207,7 +1210,12 @@ function quotientDiagnostic(
   const written = root.getText(sourceFile).replace(/\s+/g, ' ');
   const type = peer === undefined ? 'f32' : typeKey(peer);
   // The subject is the first operand the edit converts: the integer a bit operator makes.
-  const subject = new RegExp(`${type}\\((.*)$`).exec(written0)?.[1] ?? written;
+  // (An operand with two readings is written `f32(i32(…))` in the edit; the subject is the
+  // operand as the source writes it.)
+  const subject = (new RegExp(`${type}\\((.*)$`).exec(written0)?.[1] ?? written).replace(
+    /^i32\(/,
+    '',
+  );
   let depth = 0;
   let end = subject.length;
   for (let i = 0; i < subject.length; i++) {
@@ -1413,33 +1421,49 @@ function lowerBinary(
       [left, right, node.left, node.right],
       [right, left, node.right, node.left],
     ] as const) {
-      const readings = readingsOf(e, resolve);
+      // The two readings reach the operand directly, through a binding, or through `?:`,
+      // `select`, a function's result, a module `let` or arithmetic over a written number.
+      const readings = readingsOf(e, resolve) ?? twoReadingsOf(n);
       if (readings === undefined) continue;
       if (opKind === ts.SyntaxKind.GreaterThanGreaterThanToken && n !== node.left) continue;
+      const otherType = typeKey(other.type);
+      const typedOther = !isKindlessBitwise(other) && !writtenIntegerOperand(m);
       const folds =
         kindlessReadings(e) !== undefined &&
         (opKind === ts.SyntaxKind.SlashToken ||
           opKind === ts.SyntaxKind.PercentToken ||
           opKind === ts.SyntaxKind.GreaterThanGreaterThanToken) &&
-        (isKindlessBitwise(other) || writtenIntegerOperand(m));
+        !typedOther;
       if (folds) continue;
-      // Beside an `i32` the tree is ToInt32 of its bits, which is TypeScript's value.
+      // Beside an `i32` the tree is ToInt32 of its bits, which is TypeScript's value; beside an
+      // `f32` it is an integer beside a float, refused as such (decision 1 of #1272).
+      // (A shift's amount is no peer: the left operand's type decides the shift.)
       if (
-        kindlessReadings(e) !== undefined &&
-        typeKey(other.type) === 'i32' &&
-        !isKindlessBitwise(other)
+        typedOther &&
+        (otherType === 'i32' || otherType === 'f32') &&
+        opKind !== ts.SyntaxKind.GreaterThanGreaterThanToken
       ) {
         continue;
       }
-      const text = skipParensNode(n).getText(sourceFile).replace(/\s+/g, ' ');
+      // A `/` of a binding that holds the tree, by written numbers, is D-b's refusal, whose
+      // float edit reads TypeScript's value (`f32(i32(a)) / 2`).
+      if (
+        opKind === ts.SyntaxKind.SlashToken &&
+        !typedOther &&
+        e.op === 'varref' &&
+        kindlessDeclaration(resolve(e.name)) !== undefined
+      ) {
+        continue;
+      }
       retractKindlessRefusal(e);
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        n,
-        readingsSentence(text, readings, node.operatorToken.getText(sourceFile)),
-        TS_CODES.TYPE_MISMATCH,
-      );
+      refuseTwoReadings(sourceFile, diagnostics, {
+        node: n,
+        operation: node,
+        operator: node.operatorToken.getText(sourceFile),
+        readings,
+        ...(typedOther && otherType === 'u32' ? { peer: 'u32' as const } : {}),
+        target: false,
+      });
       return undefined;
     }
   }
@@ -1532,15 +1556,25 @@ function lowerBinary(
       // A conversion written around an operand (`(1 | 2) / i32(2)`) states its type (decision
       // Q11 of change 0134); a builtin carries its arguments' origin (`kindlessOrigin`).
       const origin = (e: Expr, n: ts.Expression) =>
-        statesType(n) ? 'typed' : kindlessOrigin(e, resolve, sourceFile);
+        statesType(n)
+          ? 'typed'
+          : kindlessSource(n)
+            ? 'kindless'
+            : kindlessOrigin(e, resolve, sourceFile);
       const [lo, ro] = [origin(left, node.left), origin(right, node.right)];
       if (lo !== 'typed' && ro !== 'typed' && (lo === 'kindless' || ro === 'kindless')) {
         const text = (n: ts.Expression): string => {
           const inner = ts.isParenthesizedExpression(n) ? n.expression : n;
           return inner.getText(sourceFile).replace(/\s+/g, ' ');
         };
+        // An operand with two readings (D2) is TypeScript's value as a float through `i32(…)`.
         const shown = (n: ts.Expression, origin: string): string =>
-          origin === 'kindless' ? `f32(${text(n)})` : n.getText(sourceFile).replace(/\s+/g, ' ');
+          origin === 'kindless'
+            ? twoReadingsOf(n) !== undefined ||
+              readingsOf((n === node.left ? left : right)!, resolve) !== undefined
+              ? `f32(i32(${text(n)}))`
+              : `f32(${text(n)})`
+            : n.getText(sourceFile).replace(/\s+/g, ' ');
         const subject = text(lo === 'kindless' ? node.left : node.right);
         const edit = `${shown(node.left, lo)} / ${shown(node.right, ro)}`;
         const peerEdit = (type: string): string =>

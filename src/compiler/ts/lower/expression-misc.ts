@@ -17,6 +17,8 @@ import {
   noteCastRead,
   noteIntegerRead,
   noteWrittenDivisionRead,
+  refuseTwoReadings,
+  twoReadingsOf,
 } from '../abstract-const.js';
 import { foldConstNumber } from '../loop-bound.js';
 import { foldF64ModuleConst } from '../module-const-f64.js';
@@ -27,7 +29,6 @@ import {
   retargetIntLitCtx,
   pendingKindlessRefusal,
   readingsOf,
-  readingsSentence,
 } from '../lit-coerce.js';
 import { readonlyClassUpcast } from '../class-upcasts.js';
 import { lowerExpression } from './expression.js';
@@ -88,18 +89,17 @@ export function lowerScalarCastCall(
   if (!lowered) return undefined;
   // `f32()` of a tree whose `u32` bits and TypeScript value differ gives two values (D2).
   if (name === 'f32') {
-    const readings = readingsOf(lowered, (n) => scope.resolveIr(n));
+    const arg = node.arguments[0]!;
+    const readings = readingsOf(lowered, (n) => scope.resolveIr(n)) ?? twoReadingsOf(arg);
     // A tree refused already (a `>>` root's two readings) is that one mistake (Rule 12.4).
     if (readings !== undefined && pendingKindlessRefusal(lowered) === undefined) {
-      const arg = node.arguments[0]!;
-      const inner = ts.isParenthesizedExpression(arg) ? arg.expression : arg;
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        arg,
-        readingsSentence(inner.getText(sourceFile).replace(/\s+/g, ' '), readings, 'f32()'),
-        TS_CODES.TYPE_MISMATCH,
-      );
+      refuseTwoReadings(sourceFile, diagnostics, {
+        node: arg,
+        operation: node,
+        operator: 'f32()',
+        readings,
+        target: false,
+      });
       return undefined;
     }
   }

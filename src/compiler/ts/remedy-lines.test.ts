@@ -766,15 +766,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'abstract-const.ts',
-      sites: 2,
+      sites: 4,
       lines: 0,
-      note: 'names one edit for a `/` that reaches a constant of no fixed type, built from the source of the `/`: the constant declared with the type the position asks, or the `/` with each value converted; the author chooses which division is meant, so no case pastes it mechanically here; `abstract-const.test.ts` applies each edit and holds the result to compile clean in both halves (change 0134). The second names the edit for a `/` over a bitwise expression of written integers, `f32(1 | 2) / 2` or the declaration with its type for a `/=`; `use-inference.test.ts` applies each and holds it to compile clean in both halves (issue 1261, D-b)',
-    },
-    {
-      file: 'lit-coerce.ts',
-      sites: 1,
-      lines: 0,
-      note: "names `u32(3000000000|0)` for a tree whose u32 bits and TypeScript value differ under an operation whose result differs between them (the owner's decision of 2026-11-12, D2): an expression, not a declaration; `use-inference.test.ts` applies it and holds the result to compile clean in both halves with the u32 value",
+      note: "names one edit for a `/` that reaches a constant of no fixed type, built from the source of the `/`: the constant declared with the type the position asks, or the `/` with each value converted; the author chooses which division is meant, so no case pastes it mechanically here; `abstract-const.test.ts` applies each edit and holds the result to compile clean in both halves (change 0134). The second names the edit for a `/` over a bitwise expression of written integers, `f32(1 | 2) / 2` or the declaration with its type for a `/=`; `use-inference.test.ts` applies each and holds it to compile clean in both halves (issue 1261, D-b) The third and fourth name the edit of a value whose u32 bits and TypeScript value differ (the owner's decision of 2026-11-12, D2): `u32(x)` or `i32(x)`, an expression, or the declaration of an assignment's target with its type, `let a: u32 = (3000000000|0)`; the module's check verifies each with the other edits (Amendment A6), and `use-inference.test.ts` and the differential test apply each and hold the result to compile clean in both halves",
     },
     {
       file: 'stage-call.ts',
