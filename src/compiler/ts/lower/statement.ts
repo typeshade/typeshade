@@ -107,6 +107,7 @@ import {
 } from '../numeric.js';
 import {
   fitsTarget,
+  isIntScalar,
   isKindlessBitwise,
   intLiteralRangeMessage,
   retargetDeclaredIntLit,
@@ -1939,7 +1940,10 @@ function lowerBitwiseAssignOpTo(
   // A bitwise expression over written integers has no kind of its own: it takes the type the
   // target asks (`u |= K | J`, `u ^= ~0` on a `u32`), as a written number does (issue 1261).
   if (isKindlessBitwise(value)) {
-    value = retargetIntLitCtx(value, right, bop === '<<' || bop === '>>' ? u32T : target.type);
+    const kind = bop === '<<' || bop === '>>' ? u32T : target.type;
+    value = retargetIntLitCtx(value, right, kind);
+    // A value the target's type does not hold is refused as the written number is.
+    if (reportIntLitRange(value, right, kind, sourceFile, diagnostics)) return undefined;
   }
   // A SHIFT amount is a u32 whatever the target is: WGSL's only scalar overload is
   // `e1 << e2` with `e2: u32`, so `y <<= k` with an i32 `k` on an i32 target emitted
@@ -2086,7 +2090,15 @@ function lowerAssignOpTo(
     );
     return undefined;
   }
-  if (abstractLiteralOf(value) !== undefined && isNumericScalar(target.type)) {
+  if (isKindlessBitwise(value)) {
+    // `u += 1 | 2`: a bitwise expression over written integers takes an integer target's type
+    // where that type holds its value, and is refused as the written number is where it does
+    // not (issue 1261). Beside a float target it stays the integer it is, refused below.
+    if (isIntScalar(target.type)) {
+      value = retargetIntLitCtx(value, right, target.type);
+      value = reportIntLitRange(value, right, target.type, sourceFile, diagnostics) ?? value;
+    }
+  } else if (abstractLiteralOf(value) !== undefined && isNumericScalar(target.type)) {
     // `n += K` with a constant of no fixed type: the read takes the target's integer type, as
     // the written number does, and keeps the constant's name beside an `f32` (change 0134).
     value = retargetLit(value, right, target.type);

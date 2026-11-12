@@ -47,12 +47,12 @@ import {
   foldNumericLit,
   isIntegerLiteralTree,
   isKindlessBitwise,
-  markKindlessBitwise,
+  foldKindless,
+  intLiteralRangeMessage,
   retargetIntLitCtx,
   shiftAmountMessage,
 } from '../lit-coerce.js';
 import { foldF64ModuleConst } from '../module-const-f64.js';
-import { wrapInt } from '../../../core/passes/opt/expr-utils.js';
 import { libraryNameSentence, mapTsTypeToShaderType, writesRefusedType } from '../type-map.js';
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
@@ -688,6 +688,12 @@ function lowerPrefixUnary(
   if (!operand) return undefined;
   if (refuseOptionalUse(operand, node.operand, sourceFile, diagnostics)) return undefined;
   if (node.operator === ts.SyntaxKind.MinusToken) {
+    // The negation of a bitwise expression over written integers is computed exactly
+    // (`-(~2147483647)` is 2147483648, a u32), as its arithmetic is (issue 1261).
+    if (isKindlessBitwise(operand)) {
+      const negated: Expr = { op: 'unop', type: operand.type, a: operand };
+      return foldKindlessOrRefuse(negated, node, sourceFile, diagnostics);
+    }
     // WGSL defines unary `-` for the signed and floating kinds and their vectors, and NOT for
     // u32 (§52): `-u` on a u32 emitted `(-u)` and Tint answered `no matching overload for
     // 'operator - (u32)'`. The two spellings that do work are named, because "unsupported"
@@ -773,24 +779,11 @@ function lowerPrefixUnary(
       args: [operand],
     };
     if (!written) return complement;
-    // Over written integers the complement is a constant, folded here as the other operators
-    // are folded, with the wrap of its integer type: the range and shift-amount checks then
-    // read its value, and the targets receive a value of the type, not `~3` for Tint to
-    // evaluate as an abstract integer (`(~3 & 255) << 24` overflowed there).
-    const folded = (e: Expr & { op: 'call' }): Expr => {
-      const int = intElem(e.type);
-      const v = int === undefined ? undefined : foldConstNumber(e.args[0]!, scope);
-      return int === undefined || v === undefined || !Number.isInteger(v)
-        ? e
-        : { op: 'lit', type: e.type, value: wrapInt(~v, int) };
-    };
-    const lowered = written;
-    return markKindlessBitwise(folded(complement), (target) => {
-      const a = retargetIntLitCtx(lowered, node.operand, target);
-      return typeKey(a.type) === typeKey(target)
-        ? folded({ op: 'call', type: target, fn: '~', args: [a] })
-        : undefined;
-    });
+    // Over written integers the complement is a constant, folded as the other operators are:
+    // the range and shift-amount checks then read its value, and the targets receive a value
+    // of the type, not `~3` for Tint to evaluate as an abstract integer (`(~3 & 255) << 24`
+    // overflowed there).
+    return foldKindlessOrRefuse(complement, node, sourceFile, diagnostics);
   }
   if (node.operator === ts.SyntaxKind.ExclamationToken) {
     // `!m` on a vector of bools is componentwise (§27): the same compare-with-false the scalar
@@ -853,6 +846,31 @@ function pair(left: Expr, right: Expr, lNode: ts.Expression, rNode: ts.Expressio
  *  with arithmetic over those (`isIntegerLiteralTree`): an operand with no type of its own. */
 function writtenIntegerOperand(node: ts.Expression): boolean {
   return isIntegerLiteralTree(node) || isIntegerWrittenRead(node);
+}
+
+/** `tree`, a bitwise expression over written integers built in its own integer type, folded to
+ *  the literal of the integer type its value fits (`foldKindless`); `tree` itself where a leaf
+ *  is no constant. A value neither integer type holds is refused with the sentence a written
+ *  number gets (Rule 5.4, issue 1261): `(1 << 30) * 4` is 4294967296. */
+function foldKindlessOrRefuse(
+  tree: Expr,
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const folded = foldKindless(tree);
+  if (folded === undefined) return tree;
+  if ('outside' in folded) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      intLiteralRangeMessage(folded.outside, folded.outside < 0 ? i32T : u32T),
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
+  return folded;
 }
 
 /** Whether `expr`, lowered from `node`, is an operand with no type of its own: a written integer
@@ -990,6 +1008,21 @@ function lowerBinary(
   }
   const arith = ARITH[node.operatorToken.kind];
   if (arith !== undefined) {
+    // Arithmetic over a bitwise expression of no kind and written integers has no kind either
+    // (issue 1261). It is a constant, computed exactly as TypeScript computes it, so the order
+    // of the operands does not change it, and a value no integer type holds is refused, as the
+    // written number is. A `/` is left out: its operands' kind decides which division it is.
+    if (
+      arith !== '/' &&
+      (isKindlessBitwise(left) || isKindlessBitwise(right)) &&
+      (isKindlessBitwise(left) || writtenIntegerOperand(node.left)) &&
+      (isKindlessBitwise(right) || writtenIntegerOperand(node.right))
+    ) {
+      const type = isKindlessBitwise(left) ? left.type : right.type;
+      const tree: Expr = { op: 'binop', type, bop: arith, a: left, b: right };
+      const folded = foldKindless(tree);
+      if (folded !== undefined) return foldKindlessOrRefuse(tree, node, sourceFile, diagnostics);
+    }
     if (arith === '*') {
       const mixed = matVecMul(left, right);
       if (mixed) return mixed;
@@ -1102,25 +1135,7 @@ function lowerBinary(
       );
       return undefined;
     }
-    // Arithmetic over a bitwise expression of no kind and written integers has no kind either:
-    // a position that declares the other integer type gives it that type (`let a: u32 = ~0 + 1`,
-    // issue 1261). A `/` is left out: its operands' kind decides which division it is.
     const sum: Expr = { op: 'binop', type: left.type, bop: arith, a: left, b: right };
-    if (
-      arith !== '/' &&
-      (isKindlessBitwise(left) || isKindlessBitwise(right)) &&
-      (isKindlessBitwise(left) || writtenIntegerOperand(node.left)) &&
-      (isKindlessBitwise(right) || writtenIntegerOperand(node.right))
-    ) {
-      const [l, r] = [left, right];
-      return markKindlessBitwise(sum, (target) => {
-        const a = retargetIntLitCtx(l, node.left, target);
-        const b = retargetIntLitCtx(r, node.right, target);
-        return typeKey(a.type) === typeKey(target) && typeKey(b.type) === typeKey(target)
-          ? { op: 'binop', type: target, bop: arith, a, b }
-          : undefined;
-      });
-    }
     // A constant `f32` result past the range (#374): `1e30 * 1e30`, or `K * K`.
     return refuseF32OutOfRange(sum, node, sourceFile, scope, diagnostics);
   }
@@ -1260,12 +1275,7 @@ function lowerBinary(
             : right;
       const shifted: Expr = { op: 'binop', type: left.type, bop: bit, a: left, b: amount };
       if (!writtenTarget || lanes !== 1) return shifted;
-      return markKindlessBitwise(shifted, (target) => {
-        const a = retargetIntLitCtx(l, node.left, target);
-        return typeKey(a.type) === typeKey(target)
-          ? { op: 'binop', type: target, bop: bit, a, b: amount }
-          : undefined;
-      });
+      return foldKindlessOrRefuse(shifted, node, sourceFile, diagnostics);
     }
     // `&`, `|` and `^` have no float overload on either target (Rule 7.1: WGSL's bit expressions
     // take the integer kinds, and `&` and `|` bools; GLSL ES 3.00 §5.9 takes integers only), but
@@ -1308,7 +1318,7 @@ function lowerBinary(
     const noKind = (e: Expr, n: ts.Expression, peerKindless: boolean): boolean =>
       isKindlessBitwise(e) ||
       (writtenIntegerOperand(n) && (intElem(e.type) === undefined || peerKindless));
-    let retype: ((target: ShaderType) => Expr | undefined) | undefined;
+    let kindlessPair = false;
     if (
       !scope.atModuleConstant() &&
       noKind(left, node.left, rightKindless) &&
@@ -1339,14 +1349,7 @@ function lowerBinary(
       const [l, r] = [left, right];
       left = softDemands(() => retargetIntLitCtx(l, node.left, kind));
       right = softDemands(() => retargetIntLitCtx(r, node.right, kind));
-      // A position that declares the other integer type gives it to both operands.
-      retype = (target) => {
-        const a = retargetIntLitCtx(l, node.left, target);
-        const b = retargetIntLitCtx(r, node.right, target);
-        return typeKey(a.type) === typeKey(target) && typeKey(b.type) === typeKey(target)
-          ? { op: 'binop', type: target, bop: bit, a, b }
-          : undefined;
-      };
+      kindlessPair = true;
     }
     noteDemand(left, intElem(right.type) === undefined ? kindless(right) : right.type);
     noteDemand(right, intElem(left.type) === undefined ? kindless(left) : left.type);
@@ -1376,7 +1379,7 @@ function lowerBinary(
     // matching overload` (Rule 7.1).
     if (refuseOperatorKind(bit, left.type, node, sourceFile, diagnostics)) return undefined;
     const result: Expr = { op: 'binop', type: left.type, bop: bit, a: left, b: right };
-    return retype === undefined ? result : markKindlessBitwise(result, retype);
+    return kindlessPair ? foldKindlessOrRefuse(result, node, sourceFile, diagnostics) : result;
   }
   const log = LOGICAL[node.operatorToken.kind];
   if (log !== undefined) {

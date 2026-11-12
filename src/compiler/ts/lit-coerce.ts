@@ -130,67 +130,124 @@ export function foldNumericLit(expr: Expr): Expr {
   return expr;
 }
 
-/** The bitwise expressions over written integers that took an integer of no kind, each with
- *  the lowering of it at another integer type (see {@link markKindlessBitwise}). */
-const kindlessBitwise = new WeakMap<Expr, (target: ShaderType) => Expr | undefined>();
+// ─── Bitwise expressions over written integers (Rule 5.1, change 0134 item 1; issue 1261) ───
+//
+// `&`, `|`, `^`, `<<`, `>>` and `~` over written integers and constants of no fixed type that
+// are integer-written, and `+`, `-`, `*` and `%` over such an expression and written integers,
+// have no type of their own: a bitwise operand with no typed peer is an integer of no kind. Each
+// is a constant, folded to a literal of the integer type its value fits (the `i32`, else the
+// `u32`), and kept with the expression it was folded from. A position that declares an integer
+// (`let f: u32 = K | J`, `h(1 | 2)`, `vi + (1 << 2)`) gives it that type, as it gives a written
+// integer its type where that type holds its value: its arithmetic is exact and its bit
+// operations are TypeScript's, so the value is the one TypeScript computes, whatever the order
+// of the operands. A value the type does not hold is refused with the sentence a written number
+// gets (`reportIntLitRange`).
 
-/** Records that `expr` is a bitwise operator (`&`, `|`, `^`, `<<`, `>>`, `~`) over written
- *  integers and constants of no fixed type that are integer-written, which took an integer of
- *  no kind, the `i32`, because no operand has a type (Rule 5.1, change 0134 item 1; issue
- *  1261). `at` lowers it again at another integer type: a position that declares an integer
- *  (`let f: u32 = K | J`, `h(1 | 2)`, `vi + (1 << 2)`) gives it that type, as it gives a
- *  written integer its type. Returns `expr`. */
-export function markKindlessBitwise(
-  expr: Expr,
-  at: (target: ShaderType) => Expr | undefined,
-): Expr {
-  kindlessBitwise.set(expr, at);
-  return expr;
+/** The literal each such expression was folded to, with the expression it was folded from. */
+const kindlessBitwise = new WeakMap<Expr, Expr>();
+
+/** Folds `tree`, a bitwise expression over written integers (see above) built in its own integer
+ *  type, to a literal of the integer type its value fits, kept with `tree`. Returns the value it
+ *  has in its own type when neither integer type holds it, for the caller's refusal; `undefined`
+ *  when a leaf is no constant. */
+export function foldKindless(tree: Expr): Expr | { readonly outside: number } | undefined {
+  const own = intElemOf(tree.type);
+  if (own === undefined) return undefined;
+  const v = kindlessValue(tree, own);
+  if (v === undefined) return undefined;
+  if (fitsTarget(v, tree.type)) return keep({ op: 'lit', type: tree.type, value: v }, tree);
+  // A value only the other integer type holds takes that type (`(1 | 0) + 2147483647` is the
+  // `u32` 2147483648), as a written operand an `i32` does not hold does (change 0134 item 1).
+  const other: ShaderType = { kind: 'scalar', scalar: own === 'i32' ? 'u32' : 'i32' };
+  if (fitsTarget(v, other)) return keep({ op: 'lit', type: other, value: v }, tree);
+  return { outside: v };
+}
+
+function keep(lit: Expr, tree: Expr): Expr {
+  kindlessBitwise.set(lit, kindlessBitwise.get(tree) ?? tree);
+  return lit;
 }
 
 /** Whether `expr` is a bitwise expression over written integers that took an integer of no
- *  kind ({@link markKindlessBitwise}). */
+ *  kind ({@link foldKindless}). */
 export function isKindlessBitwise(expr: Expr): boolean {
   return kindlessBitwise.has(expr);
 }
 
-/** `expr` at the integer type `target`, when it is a bitwise expression over written integers
- *  of another integer type; `undefined` otherwise. */
+/** The value of the kindless `expr`, computed in the integer type it was built in: the value
+ *  TypeScript computes for it, except that an operand only a `u32` holds makes its bit
+ *  operations a `u32`'s (change 0134 item 1). A position that declares another type takes this
+ *  value where that type holds it; it never reads the bits again in that type, so `~0` is -1 in
+ *  a `u32` position too, and refused there as the written `-1` is. */
+function kindlessIn(expr: Expr, target: ShaderType): number | undefined {
+  const tree = kindlessBitwise.get(expr);
+  const own = tree === undefined ? undefined : intElemOf(tree.type);
+  if (tree === undefined || own === undefined || !isIntScalar(target)) return undefined;
+  return kindlessValue(tree, own);
+}
+
+/** `expr` at the integer type `target`, when it is a kindless expression of another integer
+ *  type whose value `target` holds; `undefined` otherwise. */
 function retypeKindless(expr: Expr, target: ShaderType): Expr | undefined {
-  const at = kindlessBitwise.get(expr);
-  if (at === undefined || !isIntScalar(target) || typeKey(expr.type) === typeKey(target)) {
+  if (!isKindlessBitwise(expr) || !isIntScalar(target) || typeKey(expr.type) === typeKey(target)) {
     return undefined;
   }
-  const retyped = at(target);
-  if (retyped !== undefined) return retyped;
-  // A leaf the target does not hold (`-1` in `let a: u32 = -1 & 255`): the expression is a
-  // constant, and its value is the target's where it fits, as a written number's is.
-  const v = kindlessValue(expr);
+  const v = kindlessIn(expr, target);
   return v !== undefined && fitsTarget(v, target)
-    ? { op: 'lit', type: target, value: v }
+    ? keep({ op: 'lit', type: target, value: v }, expr)
     : undefined;
 }
 
-/** The value of a bitwise expression over integer literals, folded as its integer type
- *  computes it; `undefined` where a leaf is no literal. */
-function kindlessValue(expr: Expr): number | undefined {
-  const int = intElemOf(expr.type);
-  if (int === undefined) return undefined;
-  if (expr.op === 'lit') return typeof expr.value === 'number' ? expr.value : undefined;
+/** The value of `expr`, a kindless expression or one of its leaves, computed in `int`: `+`, `-`,
+ *  `*` and `%` exactly, as TypeScript computes them, and `&`, `|`, `^`, `<<`, `>>` and `~` on the
+ *  bits of `int`. `undefined` where a leaf is no constant. */
+function kindlessValue(expr: Expr, int: 'i32' | 'u32'): number | undefined {
+  const inner = kindlessBitwise.get(expr);
+  if (inner !== undefined && inner !== expr) return kindlessValue(inner, int);
+  const bits = (v: number): number => (int === 'u32' ? v >>> 0 : v | 0);
+  if (expr.op === 'lit') {
+    return typeof expr.value === 'number' && Number.isInteger(expr.value) ? expr.value : undefined;
+  }
   if (expr.op === 'call' && expr.fn === '~' && expr.args.length === 1) {
-    const a = kindlessValue(expr.args[0]!);
-    return a === undefined ? undefined : wrapInt(~a, int);
+    const a = kindlessValue(expr.args[0]!, int);
+    return a === undefined ? undefined : bits(~a);
   }
-  if (expr.op === 'binop') {
-    const a = kindlessValue(expr.a);
-    // A shift amount is a `u32` whatever the target is.
-    const b =
-      expr.b.op === 'lit' && typeof expr.b.value === 'number'
-        ? expr.b.value
-        : kindlessValue(expr.b);
-    return a === undefined || b === undefined ? undefined : foldIntLit(expr.bop, a, b, int);
+  if (expr.op === 'unop') {
+    const a = kindlessValue(expr.a, int);
+    return a === undefined ? undefined : -a;
   }
-  return undefined;
+  if (expr.op === 'call' && expr.fn === 'u32' && expr.args.length === 1) {
+    // A shift amount the lowering converted to `u32`.
+    const a = kindlessValue(expr.args[0]!, 'i32');
+    return a === undefined ? undefined : a >>> 0;
+  }
+  if (expr.op !== 'binop') return undefined;
+  const a = kindlessValue(expr.a, int);
+  // A shift amount is a `u32` whatever the target is.
+  const b = kindlessValue(expr.b, expr.bop === '<<' || expr.bop === '>>' ? 'u32' : int);
+  if (a === undefined || b === undefined) return undefined;
+  switch (expr.bop) {
+    case '+':
+      return a + b;
+    case '-':
+      return a - b;
+    case '*':
+      return a * b;
+    case '%':
+      return b === 0 ? undefined : a % b;
+    case '&':
+      return bits(bits(a) & bits(b));
+    case '|':
+      return bits(bits(a) | bits(b));
+    case '^':
+      return bits(bits(a) ^ bits(b));
+    case '<<':
+      return b < 0 || b > 31 ? undefined : bits(bits(a) << b);
+    case '>>':
+      return b < 0 || b > 31 ? undefined : int === 'u32' ? bits(a) >>> b : bits(a) >> b;
+    default:
+      return undefined;
+  }
 }
 
 export function retargetIntLit(expr: Expr, node: ts.Expression, peer: ShaderType): Expr {
@@ -323,7 +380,9 @@ export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: Shade
  *  preserve. */
 export function retargetDeclaredIntLit(expr: Expr, node: ts.Expression, target: ShaderType): Expr {
   const byContext = retargetIntLitCtx(expr, node, target);
-  if (byContext !== expr || !isIntScalar(target)) return byContext;
+  // A kindless bitwise expression is a constant computed in the target, which the range check
+  // reads (`reportIntLitRange`): it never takes the target through this fallback.
+  if (byContext !== expr || !isIntScalar(target) || isKindlessBitwise(expr)) return byContext;
   // The lowered expression itself, NOT a folded one: `-1.` lowers to a `unop` and `2. + 3.` to
   // a `binop`, and neither matched `init.op === 'lit'` before this item, so neither is accepted
   // now. Folding first widened the rule to ten shapes that had always been a mismatch.
@@ -358,6 +417,11 @@ export function outOfRangeIntLit(
       outOfRangeIntLit(expr.ifTrue, inner.whenTrue, target) ??
       outOfRangeIntLit(expr.ifFalse, inner.whenFalse, target)
     );
+  }
+  // A kindless bitwise expression is a constant, computed in `target` (issue 1261).
+  if (isKindlessBitwise(expr)) {
+    const v = kindlessIn(expr, target);
+    return v === undefined || fitsTarget(v, target) ? undefined : { value: v, node: inner };
   }
   if (!isIntegerLiteralTree(inner)) return undefined;
   const folded = foldNumericLit(abstractLiteralOf(expr) ?? expr);

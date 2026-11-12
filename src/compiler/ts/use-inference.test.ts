@@ -463,7 +463,6 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     ['an annotation', 'let f: u32 = K | J;\n  return vi + f;', 12],
     ['a declared parameter', 'return h(K ^ J);', 5],
     ['a typed peer', 'return vi + (K << 1);', 17],
-    ['a typed peer of ~', 'let c: u32 = ~0;\n  return vi & c;', 5],
     ['a shift of a bitwise expression', 'return vi + ((K | J) << 1);', 19],
   ])('a position that declares u32 gives it: %s', (_, body, value) => {
     const source = mod(`${K}function h(a: u32): u32 { return a; }\n`, body, 'u32', 'vi: u32');
@@ -541,32 +540,105 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(compile(cast).eval('t', [0.5])).toBe(7.5);
   });
 
-  // The review of #1272 at 2aacc2fb. Each form below was measured against Tint on
-  // 2026-11-12 (Chrome for Testing 153, SwiftShader): every emit is accepted.
+  // The reviews of #1272 at 2aacc2fb and 11cd1e82. A bitwise expression over written integers
+  // is a constant whose value is the one TypeScript computes (`exact`, below), whatever the
+  // order of its operands. Each emit was measured against Tint on 2026-11-12 (Chrome for Testing
+  // 153, SwiftShader) and accepted. Tint accepts a concrete integer that wraps, so these tests
+  // hold each value to TypeScript's.
+  const exact = (init: string, pre = ''): number =>
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    Number(new Function(`${pre.replace(/\n/g, ';')} return (${init});`)());
   it.each([
-    ['(~3 & 255) << 24', '', -67108864],
-    ['(~MASK & 255) << 24', 'const MASK = 3;\n', -67108864],
-    ['~1073741824 << 1', '', 2147483646],
-    ['~1 * 2000000000', '', 294967296],
-    ['-(~2147483647)', '', -2147483648],
-    ['~(-2147483648)', '', 2147483647],
-  ])('~ over written integers is folded with its wrap: %s', (init, pre, value) => {
+    ['(~3 & 255) << 24', '', 'i32'],
+    ['(~MASK & 255) << 24', 'const MASK = 3;\n', 'i32'],
+    ['~1073741824 << 1', '', 'i32'],
+    ['~(-2147483648)', '', 'i32'],
+    ['~0 + 1', '', 'i32'],
+    ['-(~2147483647)', '', 'u32'],
+    ['(1 | 0) + 2147483647', '', 'u32'],
+    ['2147483647 + (1 | 0)', '', 'u32'],
+  ])('~ and arithmetic over written integers take the exact value: %s', (init, pre, type) => {
     // `~3` was left to Tint, which evaluated the constant as an abstract integer and refused
     // `((~3 & 255) << 24u)`: "value 4227858432 cannot be represented as 'i32'".
-    const source = mod(pre, `let a = ${init};\n  return a;`);
+    const value = exact(init, pre);
+    const source = mod(pre, `let a = ${init};\n  return f32(a);`, 'f32');
     const result = compile(source);
     expect(result.diagnostics).toEqual([]);
     expect(editor(source)).toEqual([]);
-    expect(hover(source, 'a')).toContain('let a: i32');
-    expect(result.wgsl).toContain(`var a: i32 = ${String(value)};`);
+    expect(hover(source, 'a')).toContain(`let a: ${type}`);
+    expect(result.wgsl).toContain(`var a: ${type} = ${String(value)}${type === 'u32' ? 'u' : ''};`);
     expect(result.wgsl).not.toContain('~');
     expect(result.eval('t', [0])).toBe(value);
   });
 
+  it.each([
+    ['let a: u32 = (1 | 2) - 5;', '-2 is outside u32, which holds 0 to 4294967295'],
+    ['let a: u32 = -5 + (1 | 2);', '-2 is outside u32, which holds 0 to 4294967295'],
+    ['let a: u32 = ~0;', '-1 is outside u32, which holds 0 to 4294967295'],
+    ['let a: u32 = (~3 & 255) << 24;', '-67108864 is outside u32, which holds 0 to 4294967295'],
+    ['let a: u32 = vi;\n  a ^= ~0;', '-1 is outside u32, which holds 0 to 4294967295'],
+    ['let a: u32 = vi;\n  a += (1 | 2) - 5;', '-2 is outside u32, which holds 0 to 4294967295'],
+    [
+      'let a: i32 = (1 | 0) + 2147483647;',
+      '2147483648 is outside i32, which holds -2147483648 to 2147483647',
+    ],
+    ['let a: u32 = (1 << 30) * 4;', '4294967296 is outside u32, which holds 0 to 4294967295'],
+    [
+      'let a: u32 = ~1 * 2000000000;',
+      '-4000000000 is outside i32, which holds -2147483648 to 2147483647',
+    ],
+  ])('a value the type does not hold is refused as the written number is: %s', (body, words) => {
+    // Each wrapped into the type with no diagnostic at 11cd1e82, or before.
+    const message = `The value has to fit: ${words} (§13).`;
+    const source = mod(K, `${body}\n  return a;`, 'u32', 'vi: u32');
+    const result = compile(source);
+    expect(result.diagnostics.map((d) => `${d.code}: ${d.message}`)).toContain(
+      `TS8003: ${message}`,
+    );
+    expect(result.wgsl).toBeUndefined();
+    expect(editor(source)).toContain(`TS8003: ${message}`);
+  });
+
+  it('the order of the operands does not change a comparison: vi > (0 | 0) - 1', () => {
+    // `(vi > 4294967295u)` at 11cd1e82: false, where TypeScript says true.
+    const mismatch =
+      'Type mismatch: cannot compare u32 and i32 — WGSL has no implicit integer conversion. ' +
+      'Cast one side: u32(…) or i32(…), e.g. a + u32(b).';
+    for (const cond of ['vi > (0 | 0) - 1', 'vi > -1 + (0 | 0)', 'vi > ~0']) {
+      const source = mod('', `return ${cond} ? 1 : 0;`, 'u32', 'vi: u32');
+      expect(compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+        `TS8003: ${mismatch}`,
+      ]);
+      expect(editor(source)).toEqual([`TS8003: ${mismatch}`]);
+    }
+    const fine = mod('', 'return vi < (1 | 2) + 1 ? 1 : 0;', 'u32', 'vi: u32');
+    expect(compile(fine).diagnostics).toEqual([]);
+    expect(editor(fine)).toEqual([]);
+    expect(compile(fine).eval('t', [3])).toBe(1);
+  });
+
+  it('a u32 return and an argument take the exact value', () => {
+    const ret = mod('', 'return (1 | 2) - 5;', 'u32', 'vi: u32');
+    const words = 'The value has to fit: -2 is outside u32, which holds 0 to 4294967295 (§13).';
+    expect(compile(ret).diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
+      `TS8003: ${words}`,
+    ]);
+    expect(editor(ret)).toEqual([`TS8003: ${words}`]);
+    const arg = mod(
+      `${K}function h(a: u32): u32 { return a; }\n`,
+      'return h((1 | 2) * 3);',
+      'u32',
+      'vi: u32',
+    );
+    expect(compile(arg).diagnostics).toEqual([]);
+    expect(editor(arg)).toEqual([]);
+    expect(compile(arg).eval('t', [0])).toBe(9);
+  });
+
   it('a shift amount ~0 is out of range, and ~0 & 3 is 3', () => {
     const message =
-      'A shift amount must be between 0 and 31, got 4294967295: a 32-bit integer has no bit to ' +
-      'shift into.';
+      'A shift amount must be between 0 and 31, got -1: a 32-bit integer has no bit to shift ' +
+      'into.';
     const source = mod('', 'return vi << ~0;', 'u32', 'vi: u32');
     expect(compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
       `TS8003: ${message}`,
@@ -583,10 +655,11 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     ['let a: u32 = (1 | 2) ^ 4;', 7],
     ['let a: u32 = ~4 & 7;', 3],
     ['let a: u32 = 1 | (1 << 4);', 17],
-    ['let a: u32 = (~3 & 255) << 24;', 4227858432],
     ['let a: u32 = ~0 + 1;', 0],
     ['let a: u32 = -1 & 255;', 255],
-    ['let a: u32 = vi;\n  a ^= ~0;', 4294967290],
+    ['let a: u32 = (1 | 2) + 3000000000;', 3000000003],
+    ['let a: u32 = vi;\n  a += 1 | 2;', 8],
+    ['let a: u32 = vi;\n  a -= (1 | 2) - 2;', 4],
     ['let a: u32 = vi;\n  a |= K | J;', 7],
   ])('a declared u32 reaches a mixed tree: %s', (body, value) => {
     // Each was refused with "cannot let/const a u32 and i32", an i32 the author did not write.
