@@ -54,6 +54,8 @@ import {
   isKindlessBitwise,
   isKindlessModuleConst,
   kindlessOrigin,
+  kindlessReadings,
+  statesType,
   foldKindless,
   markKindlessLeaf,
   noteKindlessDivision,
@@ -959,7 +961,7 @@ function foldKindlessOrRefuse(
       // and compiles it with every other refusal's edit; where that does not compile, the
       // refusal names no edit.
       const root = node as ts.Expression;
-      const state: { peer?: ShaderType; edit?: string | null } = {};
+      const state: { peer?: ShaderType; edit?: string | null; allowed?: readonly string[] } = {};
       const known = new Map<string, string>();
       const editIn = (type: ShaderType | undefined): string => {
         const key = type === undefined ? '' : typeKey(type);
@@ -974,6 +976,7 @@ function foldKindlessOrRefuse(
           state.edit === undefined ? editIn(state.peer) : state.edit,
           state.peer,
           treeQuotientEdit(root, sourceFile, state.peer, false),
+          state.allowed,
         );
       const lit = pending(diagnostic(), (peer) => {
         state.peer = peer;
@@ -987,14 +990,39 @@ function foldKindlessOrRefuse(
         peer: () => (state.peer === undefined ? undefined : typeKey(state.peer)),
         edit: (type) => editIn(type === 'f32' ? undefined : { kind: 'scalar', scalar: type }),
         current: () => held.diagnostic,
-        restate: (edit) => {
+        restate: (edit, allowed) => {
           state.edit = edit;
+          state.allowed = allowed;
           replaceRefusal(held, diagnostic());
         },
       });
       return lit;
     }
   }
+}
+
+/** The operators whose result depends on which of two values modulo 2^32 an operand is. */
+const VALUE_SENSITIVE: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.SlashToken,
+  ts.SyntaxKind.PercentToken,
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+]);
+
+/** Whether `n` is a conversion the author wrote, `i32(…)`, `u32(…)` or `f32(…)`. */
+function writtenConversion(n: ts.Expression): boolean {
+  const inner = skipParensNode(n);
+  return (
+    ts.isCallExpression(inner) &&
+    ts.isIdentifier(inner.expression) &&
+    ['i32', 'u32', 'f32'].includes(inner.expression.text)
+  );
 }
 
 /** The `/` of a tree of written integers, as {@link noteKindlessDivision} records it. */
@@ -1114,6 +1142,10 @@ function treeQuotientEdit(
             // integer beside the converted one (`f32(1 | 2) / f32(1 << 1)`).
             if (both || !written(n.left)) l = { text: convert(n.left), typed: true };
             if (both || !written(n.right) || !l.typed) r = { text: convert(n.right), typed: true };
+          } else if (l.typed !== r.typed) {
+            // A tree beside a converted quotient converts too: `(f32(1|2)/2) / f32(1<<2)`.
+            if (!r.typed && !written(n.right)) r = { text: convert(n.right), typed: true };
+            if (!l.typed && !written(n.left)) l = { text: convert(n.left), typed: true };
           }
           return { text: `${l.text}${between}${r.text}`, typed: true };
         }
@@ -1147,6 +1179,8 @@ function quotientDiagnostic(
   peer: ShaderType | undefined,
   /** The edit that converts the operands as written, which names the subject. */
   written0: string,
+  /** The types the quotient's positions take, which a remedy that names no edit lists. */
+  allowed?: readonly string[],
 ): TsCompilerDiagnostic {
   const written = root.getText(sourceFile).replace(/\s+/g, ' ');
   const type = peer === undefined ? 'f32' : typeKey(peer);
@@ -1173,11 +1207,20 @@ function quotientDiagnostic(
     const subjects: { text: string; value?: number }[] = [];
     treeQuotientEdit(root, sourceFile, undefined, false, subjects);
     const big = subjects.find((s) => s.value !== undefined);
+    // Where the positions take an `f32`, the float division of the value is the one form that
+    // chooses it; where they take only integers, no form does, and the sentence says so.
+    const float = allowed === undefined || allowed.includes('f32');
     remedy =
-      big !== undefined
-        ? `No integer type holds "${big.text}" (${String(big.value)}), so only the float ` +
-          `division chooses it: write "${treeQuotientEdit(root, sourceFile)}".`
-        : genericDivisionRemedy(subjects.map((s) => s.text));
+      big === undefined
+        ? genericDivisionRemedy(
+            subjects.map((s) => s.text),
+            allowed,
+          )
+        : float
+          ? `No integer type holds "${big.text}" (${String(big.value)}), so only the float ` +
+            `division chooses it: write "${treeQuotientEdit(root, sourceFile)}".`
+          : `No integer type holds "${big.text}" (${String(big.value)}), and the quotient is ` +
+            `read as an integer here, so no division of it computes this value.`;
   }
   return makeDiagnostic(
     sourceFile,
@@ -1332,6 +1375,39 @@ function lowerBinary(
   const rightSetup =
     LOGICAL[node.operatorToken.kind] !== undefined ? scope.takeHoisted(rightMark) : [];
   if (!left || !right) return undefined;
+  // A tree whose `u32` bits and TypeScript's value differ (`3000000000 | 0`), beside a typed
+  // `u32` under an operator whose result depends on which it is (`/`, `%`, a comparison): it
+  // does not say which value it means, as a `>>` over it does not (the owner's decision of
+  // 2026-11-11, "거부"). `+ - *` and the bit operators agree on both, modulo 2^32.
+  if (VALUE_SENSITIVE.has(node.operatorToken.kind)) {
+    const resolve = (n: string) => scope.resolveIr(n);
+    for (const [e, other, n, m] of [
+      [left, right, node.left, node.right],
+      [right, left, node.right, node.left],
+    ] as const) {
+      const readings = kindlessReadings(e);
+      if (
+        readings === undefined ||
+        typeKey(other.type) !== 'u32' ||
+        (!writtenConversion(m) && kindlessOrigin(other, resolve, sourceFile) !== 'typed')
+      ) {
+        continue;
+      }
+      const text = skipParensNode(n).getText(sourceFile).replace(/\s+/g, ' ');
+      const operator = node.operatorToken.getText(sourceFile);
+      retractKindlessRefusal(e);
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        n,
+        `"${text}" is ${String(readings.u32)} on its u32 bits and ${String(readings.ts)} in ` +
+          `TypeScript, so the "${operator}" does not say which value it means. Write ` +
+          `"u32(${text})" for the u32 value.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+  }
   // A `/` over constants of no fixed type and written numbers alone (change 0134, decisions Q10
   // and Q11): recorded, and refused once the module's reads are known.
   noteAbstractDivision(
@@ -1418,9 +1494,10 @@ function lowerBinary(
     let refusedQuotient: Expr | undefined;
     if (arith === '/') {
       const resolve = (n: string) => scope.resolveIr(n);
-      // A conversion written around an operand (`(1 | 2) / i32(2)`) states its type.
+      // A conversion written around an operand (`(1 | 2) / i32(2)`) states its type (decision
+      // Q11 of change 0134); a builtin carries its arguments' origin (`kindlessOrigin`).
       const origin = (e: Expr, n: ts.Expression) =>
-        ts.isCallExpression(skipParensNode(n)) ? 'typed' : kindlessOrigin(e, resolve, sourceFile);
+        statesType(n) ? 'typed' : kindlessOrigin(e, resolve, sourceFile);
       const [lo, ro] = [origin(left, node.left), origin(right, node.right)];
       if (lo !== 'typed' && ro !== 'typed' && (lo === 'kindless' || ro === 'kindless')) {
         const text = (n: ts.Expression): string => {

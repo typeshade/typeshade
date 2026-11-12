@@ -5,6 +5,7 @@ import ts from 'typescript';
 import type { Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { f64T, isF64 } from '../../core/ir/types.js';
+import { BUILTIN_IDS } from '../../core/builtin-ids.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { noteDemand } from './use-inference.js';
@@ -455,6 +456,20 @@ function kindlessRoot(tree: Expr): number | undefined {
   return kindlessValue(tree);
 }
 
+/** The two values of a tree of written integers whose root reads a written `u32` (THE RULE's
+ *  `u32` exception): its `u32` bits and TypeScript's ToInt32 value, where they differ
+ *  (`3000000000 | 0` is 3000000000 and -1294967296). `undefined` for any other value. */
+export function kindlessReadings(
+  expr: Expr,
+): { readonly u32: number; readonly ts: number } | undefined {
+  if (!kindlessBitwise.has(expr)) return undefined;
+  const tree = kindlessBitwise.get(expr)!;
+  const u = kindlessRoot(tree);
+  const t = kindlessValue(tree);
+  if (u === undefined || t === undefined || u === t) return undefined;
+  return { u32: u, ts: t };
+}
+
 /** The value TypeScript computes for `expr`, a tree or one of its leaves: `+ - * /` and `%`
  *  exactly, `& | ^ ~ << >>` on ToInt32 of their operands. `undefined` where a leaf is no
  *  constant. */
@@ -550,6 +565,22 @@ export function kindlessDeclaration(binding: object | undefined): string | undef
  *  binding that holds one, or `+ - * % & | ^ << >>`, a minus or a `~` over those and written
  *  integers; `'written'` for a written integer alone; `'typed'` for anything with a type of its
  *  own. `resolve` finds the binding of a name. */
+/** Whether `n` holds a conversion the author wrote, `i32(…)`, `u32(…)` or `f32(…)`, as an
+ *  operand of its arithmetic (`i32(2) + 1`): such a value states its type (decision Q11 of
+ *  change 0134), and a `/` beside it is that type's division. */
+export function statesType(n: ts.Expression): boolean {
+  if (ts.isParenthesizedExpression(n)) return statesType(n.expression);
+  if (ts.isCallExpression(n)) {
+    return ts.isIdentifier(n.expression) && ['i32', 'u32', 'f32'].includes(n.expression.text);
+  }
+  if (ts.isPrefixUnaryExpression(n)) return statesType(n.operand);
+  if (ts.isBinaryExpression(n)) return statesType(n.left) || statesType(n.right);
+  return false;
+}
+
+/** The builtins whose call states its type: a conversion or a constructor. */
+const STATED_TYPE = /^(f32|f16|f64|i32|u32|bool|vec[234][fiuh]?|mat[234](x[234])?[fh]?|array)$/;
+
 export function kindlessOrigin(
   expr: Expr,
   resolve: (name: string) => object | undefined,
@@ -567,14 +598,27 @@ export function kindlessOrigin(
     const b = resolve(expr.name);
     return b !== undefined && kindlessBindings.has(b) ? 'kindless' : 'typed';
   }
+  // A builtin carries the origin of its arguments (`abs(1 << 1)`, `min(1 << 1, 9)`), as it
+  // carries a constant's (Amendment A3 of change 0134); `select` carries its two arms'. A
+  // conversion and a constructor state a type.
   const parts: Expr[] =
     expr.op === 'unop'
       ? [expr.a]
       : expr.op === 'call' && expr.fn === '~' && expr.declRef === undefined
         ? [...expr.args]
-        : expr.op === 'binop' && ['+', '-', '*', '%', '&', '|', '^', '<<', '>>'].includes(expr.bop)
-          ? [expr.a, expr.b]
-          : [];
+        : expr.op === 'call' &&
+            expr.declRef === undefined &&
+            BUILTIN_IDS.has(expr.fn) &&
+            !STATED_TYPE.test(expr.fn)
+          ? expr.fn === 'select'
+            ? expr.args.slice(0, -1)
+            : [...expr.args]
+          : expr.op === 'select'
+            ? [expr.ifTrue, expr.ifFalse]
+            : expr.op === 'binop' &&
+                ['+', '-', '*', '%', '&', '|', '^', '<<', '>>'].includes(expr.bop)
+              ? [expr.a, expr.b]
+              : [];
   if (parts.length === 0) return 'typed';
   const each = parts.map((e) => kindlessOrigin(e, resolve, sourceFile));
   if (each.includes('typed')) return 'typed';

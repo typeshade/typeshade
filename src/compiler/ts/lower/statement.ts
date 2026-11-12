@@ -116,6 +116,7 @@ import {
   retractKindlessRefusal,
   kindlessDeclaration,
   kindlessOrigin,
+  statesType,
   markKindlessBinding,
   markQuotientBinding,
   intLiteralRangeMessage,
@@ -2110,6 +2111,7 @@ function lowerAssignOpTo(
     const declared = kindlessDeclaration(scope.resolveIr(target.name));
     if (
       declared !== undefined &&
+      !statesType(right) &&
       kindlessOrigin(value, (n) => scope.resolveIr(n), sourceFile) !== 'typed'
     ) {
       noteWrittenDivision(left.parent, sourceFile, left.getText(sourceFile), declared, 'integer');

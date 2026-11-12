@@ -306,21 +306,27 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   (`vi + (1 << 3) / 3`, `min((1 << 3) / 3, ii)`) with the integer edit (`u32(1 << 3) / 3`). The
   edit names the whole tree, so it compiles in one step (`((1 | 2) / 2) / 2` names
   `(f32(1 | 2) / 2) / 2`). The edit takes its type from where the quotient flows: a declared
-  `let`, a parameter, a result, a vector constructor, a typed peer (its written or inferred
-  type), an assignment target, through a bit operator and a chain of `let`s, and to the callers
-  of a function with no result type; else `f32`. `let q = (1 | 2) / 2; return q * 2` in an
-  `i32` function names `i32(1 | 2) / 2`, and `return h(q)` with `h(a: u32)` names
-  `u32(1 | 2) / 2`. A product past `u32` names the value (`((1 << 30) * 4) / 3` names
-  `f32(4294967296) / 3`). A written type on an operand decides the division:
-  `(1 | 2) / i32(2)` is the `i32` division. The compiler makes the edit of every refused `/` of
-  the module at once (a tree, a binding that holds one, and a constant of no fixed type, which
-  Amendment A2 refuses) and names the edits only when the edited program adds no error; at most
-  two edited programs are compiled a module. Where the edits do not compile together, or one
-  quotient flows to two types, no refusal of the module names an edit, and each ends with
-  `Write i32(…), u32(…) or f32(…) around "1 | 2" to choose the division.`, naming the operands
-  to wrap; a `/=` names the variable to declare with a type (the owner's decision of
-  2026-11-12, Amendment A6 of change 0134). The owner kept this scope on 2026-11-12 ("이대로").
-  A divisor proven zero (`/`, `/=`, a constant `Z = 0`) is the one diagnostic, as before.
+  `let`, a parameter, a result, a vector constructor, a field of an object literal, a typed
+  peer (its written or inferred type), an assignment target, through a bit operator and a chain
+  of `let`s, and to the callers of a function with no result type; else `f32`. An exported
+  function's result is the `f32` the host reads (Amendment A5), so a quotient that flows there
+  is decided by it; a generic function's result is not followed.
+  `let q = (1 | 2) / 2; return q * 2` in an `i32` function names `i32(1 | 2) / 2`,
+  `return h(q)` with `h(a: u32)`
+  names `u32(1 | 2) / 2`, and `a /= 2` names the declaration its uses ask
+  (`let a: u32 = 1 | 2`). A product past `u32` names the value (`((1 << 30) * 4) / 3` names
+  `f32(4294967296) / 3`). A conversion the author wrote on an operand decides the division
+  (`(1 | 2) / i32(2)` and `(1 | 2) / (i32(2) + 1)` are the `i32` division); a builtin carries
+  its arguments' origin, so `(1 | 2) / abs(1 << 1)` stays refused. The compiler makes the edit
+  of every refused `/` of the module at once (a tree, a binding that holds one, and a constant
+  of no fixed type, which Amendment A2 refuses) and names the edits only when the edited program
+  adds no error; at most two edited programs are compiled a module, in each half. Where the
+  edits do not compile together, or one quotient flows to two types, no refusal of the module
+  names an edit, and each names the operands to wrap and the types its positions take
+  (`Write i32(…) or f32(…) around "1 | 2" to choose the division.`); a `/=` names the variable
+  to declare with a type (the owner's decision of 2026-11-12, "name only verified edits"). The
+  owner kept this scope on 2026-11-12 ("이대로"). A divisor proven zero (`/`, `/=`, a constant
+  `Z = 0`) is the one diagnostic, as before.
   Intermediate values are TypeScript's doubles: a product past their range is Infinity, which
   ToInt32 at a bit operator reads as 0.
   **Newly refused** (`TS8003`), each with the edit that compiles:
@@ -346,7 +352,15 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   - `3000000000 | -1` (the owner's decision of 2026-11-11, "거부 유지"), `x + (1 | 2)` with
     `x: f32` (decision 1), `1.0 | 2`, and `f32((K | 1) / 2)`, which named `(K | 1.0)` before;
   - `const K = 3; let m = K / 2;` at module scope with `vi * K` in a function (1.5 before;
-    Amendment A2).
+    Amendment A2);
+  - a tree whose `u32` bits and TypeScript value differ, beside a typed `u32` under `/`, `%` or a
+    comparison: `(3000000000 | 0) / vi` names `u32(3000000000 | 0)` (as the owner's decision of
+    2026-11-11 refuses `0xF0000000 >> 28`);
+  - `(1 | 2) / f32(2)` (1.5 on `main`) is a plain mismatch: the written `f32(2)` decides an
+    `f32` division, and `1 | 2` is an integer;
+  - `f32((K | 0) / 2)` with `const K = 4` (2 on `main`): `K | 0` reads `K` as an integer, and
+    Amendment A2 refuses a `/` over such a constant, as it refuses `const HALF = N / 2` with
+    `const N = 8` (open item on #1272).
 
 - **The editor's hover names a constant of no fixed type in the language's words, and each read
   at the type it takes there** (change 0134 item 4; Rules 5.1 and 12.7; decision Q3). At the

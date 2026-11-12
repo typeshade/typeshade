@@ -39,7 +39,7 @@ import { f32T, f64T, i32T, u32T } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic, noteUse } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
-import { sameFile, writtenRange, writtenText } from './context.js';
+import { programFileOf, sameFile, writtenRange, writtenText } from './context.js';
 import type { AbstractConstDecl, AbstractConstRead } from './symbols.js';
 import { loweredTypeOf } from './symbols.js';
 
@@ -1036,6 +1036,8 @@ function divisionSentence(
   node: ts.BinaryExpression,
   edit: DivisionEdit | null,
   sourceFile: ts.SourceFile,
+  /** The types the quotient's positions take, which a remedy that names no edit lists. */
+  allowed?: readonly string[],
 ): string {
   // Where the read that makes the constant an integer stands inside the `/` (`(K | 1) / 2`,
   // `(K << 1) / 4`), the sentence names the expression that reads it, not another line.
@@ -1064,6 +1066,7 @@ function divisionSentence(
       originUnits(node, 'f32').map((n) =>
         writtenText(ts.isParenthesizedExpression(n) ? n.expression : n).replace(/\s+/g, ' '),
       ),
+      allowed,
     );
   }
   return `${what} "${written}" has a declared type, so the "${operator}" ${NO_DIVISION}. ${remedy}`;
@@ -1198,8 +1201,9 @@ export interface CheckedRefusal {
   readonly edit: (type: 'f32' | 'i32' | 'u32') => string;
   /** The refusal as it stands, if it stands. */
   readonly current: () => TsCompilerDiagnostic | undefined;
-  /** Names `edit` in the refusal, or no edit (`null`). */
-  readonly restate: (edit: string | null) => void;
+  /** Names `edit` in the refusal, or no edit (`null`), listing the types `allowed` (the types
+   *  the quotient's positions take) in the remedy that names none. */
+  readonly restate: (edit: string | null, allowed?: readonly string[]) => void;
 }
 
 const checkedRefusalsOf = new WeakMap<ts.SourceFile, CheckedRefusal[]>();
@@ -1284,11 +1288,14 @@ export function reportAbstractDivisions(
     const { node } = division;
     dropRepeats(node);
     const edits = divisionEdits(info, read, division, sourceFile);
-    const sentence = (edit: DivisionEdit | null): TsCompilerDiagnostic => {
+    const sentence = (
+      edit: DivisionEdit | null,
+      allowed?: readonly Scalar[],
+    ): TsCompilerDiagnostic => {
       const d = makeDiagnostic(
         sourceFile,
         node,
-        divisionSentence(info, read, node, edit, sourceFile),
+        divisionSentence(info, read, node, edit, sourceFile, allowed),
         TS_CODES.TYPE_MISMATCH,
       );
       // The read that makes the constant an integer is the use that makes this `/` a refusal:
@@ -1300,7 +1307,8 @@ export function reportAbstractDivisions(
     };
     let current = sentence(edits[0]!);
     diagnostics.push(current);
-    const say = (edit: DivisionEdit | null) => (current = replace(current, sentence(edit)));
+    const say = (edit: DivisionEdit | null, allowed?: readonly Scalar[]) =>
+      (current = replace(current, sentence(edit, allowed)));
     batch.push({
       node,
       build: (cx) => {
@@ -1333,7 +1341,7 @@ export function reportAbstractDivisions(
             generic: () => say(null),
           };
         }
-        const { first, second, conflict } = typesFromUse(node, undefined, cx);
+        const { first, second, conflict, allowed } = typesFromUse(node, undefined, cx);
         const edit = (t: Scalar): DivisionEdit =>
           t === 'f32' ? edits[0]! : convertedEdit(node, t, sourceFile);
         return {
@@ -1344,7 +1352,7 @@ export function reportAbstractDivisions(
             const t = set === 0 ? first : second;
             if (t !== 'f32') say(edit(t));
           },
-          generic: () => say(null),
+          generic: () => say(null, allowed),
         };
       },
     });
@@ -1365,7 +1373,11 @@ export function reportAbstractDivisions(
     const text = writtenText(node).replace(/\s+/g, ' ');
     const operator = node.operatorToken.getText(sourceFile);
     const assign = node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken;
-    const sentence = (edit: string | null, kind: string): TsCompilerDiagnostic =>
+    const sentence = (
+      edit: string | null,
+      kind: string,
+      allowed?: readonly Scalar[],
+    ): TsCompilerDiagnostic =>
       makeDiagnostic(
         sourceFile,
         node,
@@ -1374,8 +1386,10 @@ export function reportAbstractDivisions(
           (edit !== null
             ? `Write "${edit}" for the ${kind} division.`
             : assign
-              ? `Declare "${w.subject}" with i32 or u32 to choose the division.`
-              : genericDivisionRemedy(w.subjects)),
+              ? `Declare "${w.subject}" with ${(allowed ?? ['i32', 'u32'])
+                  .filter((t) => t !== 'f32')
+                  .join(' or ')} to choose the division.`
+              : genericDivisionRemedy(w.subjects, allowed)),
         TS_CODES.TYPE_MISMATCH,
       );
     const editIn = (t: Scalar): string =>
@@ -1383,26 +1397,52 @@ export function reportAbstractDivisions(
     const peer = w.peerEdit !== undefined ? w.peer : undefined;
     let current = sentence(editIn(peer ?? 'f32'), peer === undefined ? w.kind : 'integer');
     diagnostics.push(current);
-    const say = (edit: string | null, kind = 'integer') =>
-      (current = replace(current, sentence(edit, kind)));
+    const say = (edit: string | null, kind = 'integer', allowed?: readonly Scalar[]) =>
+      (current = replace(current, sentence(edit, kind, allowed)));
     batch.push({
       node,
       ...(peer !== undefined ? { peer } : {}),
       build: (cx) => {
         if (assign) {
-          // `a /= 2` names the variable declared with the type its tree has.
-          const type = /: (i32|u32) =/.exec(w.edit)?.[1];
+          // `a /= 2` names the variable declared with the integer type its uses ask (`return a`
+          // in a `u32` function: `let a: u32 = 1 | 2`). An `f32` use leaves no such declaration
+          // (the integer of a tree is no `f32`), so it names none.
+          const declared = /: (i32|u32) =/.exec(w.edit)?.[1] as Scalar | undefined;
           const name = node.left.getText(sourceFile);
-          const change = type === undefined ? undefined : declarationChange(name, node.left, type);
+          const decl = declarationOf(name, node.left);
+          if (
+            declared === undefined ||
+            decl === undefined ||
+            !ts.isVariableDeclaration(decl) ||
+            decl.initializer === undefined
+          ) {
+            return {
+              diagnostic: () => current,
+              sets: [undefined, undefined],
+              conflict: true,
+              name: () => undefined,
+              generic: () => say(null),
+            };
+          }
+          const use = typesFromUse(decl.initializer, undefined, cx);
+          const asked = (t: Scalar): Scalar => (t === 'f32' ? declared : t);
+          const editIn = (t: Scalar) => w.edit.replace(/: (i32|u32) =/, `: ${t} =`);
           return {
             diagnostic: () => current,
-            sets: [change, change],
-            conflict: false,
-            name: () => undefined,
-            generic: () => say(null),
+            sets: [
+              declarationChange(name, node.left, asked(use.first)),
+              declarationChange(name, node.left, asked(use.second)),
+            ],
+            conflict: use.conflict,
+            name: (set) => {
+              const t = asked(set === 0 ? use.first : use.second);
+              if (t !== declared) say(editIn(t));
+            },
+            generic: () =>
+              say(null, 'integer', use.allowed.some((t) => t !== 'f32') ? use.allowed : undefined),
           };
         }
-        const { first, second, conflict } = typesFromUse(node, peer, cx);
+        const { first, second, conflict, allowed } = typesFromUse(node, peer, cx);
         const change = (t: Scalar): SourceChange => ({
           start: node.getStart(sourceFile),
           end: node.getEnd(),
@@ -1416,7 +1456,7 @@ export function reportAbstractDivisions(
             const t = set === 0 ? first : second;
             if (t !== (peer ?? 'f32')) say(editIn(t), t === 'f32' ? 'float' : 'integer');
           },
-          generic: () => say(null),
+          generic: () => say(null, 'integer', allowed),
         };
       },
     });
@@ -1455,7 +1495,7 @@ export function reportAbstractDivisions(
       node: r.node,
       ...(peer !== undefined ? { peer } : {}),
       build: (cx) => {
-        const { first, second, conflict } = typesFromUse(r.node, peer, cx);
+        const { first, second, conflict, allowed } = typesFromUse(r.node, peer, cx);
         const change = (t: Scalar): SourceChange => ({
           start: r.node.getStart(sourceFile),
           end: r.node.getEnd(),
@@ -1469,7 +1509,7 @@ export function reportAbstractDivisions(
             const t = set === 0 ? first : second;
             if (t !== (peer ?? 'f32')) r.restate(r.edit(t));
           },
-          generic: () => r.restate(null),
+          generic: () => r.restate(null, allowed),
         };
       },
     });
@@ -1742,7 +1782,7 @@ function flowScalars(
         (ts.isPropertyAccessExpression(parent) && parent.name === k) ||
         (ts.isVariableDeclaration(parent) && parent.name === k) ||
         ts.isParameter(parent) ||
-        ts.isPropertyAssignment(parent);
+        (ts.isPropertyAssignment(parent) && parent.name === k);
       if (!named && declarationOf(name, k) === p) on(k);
     }
     return;
@@ -1753,12 +1793,24 @@ function flowScalars(
     if (!ts.isFunctionLike(f)) return add('opaque');
     const result = writtenResultText(f, cx.sourceFile);
     if (result !== undefined) return add(scalarOfTypeText(result));
+    // A generic function's result is read differently by the editor (its own issue): no edit
+    // is proven there.
+    if (f.typeParameters !== undefined && f.typeParameters.length > 0) return add('opaque');
+    // An exported function keeps the `f32` result the host reads (Amendment A5 of change 0134,
+    // "export는 f32 유지"): the quotient is decided there, and no edit changes that result.
+    if (ts.getCombinedModifierFlags(f as ts.Declaration) & ts.ModifierFlags.Export) {
+      return add('f32');
+    }
     // A function with no result type: its value flows where its callers put it.
     if (!ts.isFunctionDeclaration(f) || f.name === undefined) return add('opaque');
     if (seen.has(f)) return;
     seen.add(f);
     for (const id of identifiersNamed(cx.sourceFile, f.name.text)) {
-      if (ts.isCallExpression(id.parent) && id.parent.expression === id) on(id.parent);
+      if (!ts.isCallExpression(id.parent) || id.parent.expression !== id) continue;
+      // A call from another file of a linked program reaches the function through its export,
+      // whose result is the `f32` the host reads (Amendment A5).
+      if (programFileOf(id) !== programFileOf(f)) add('f32');
+      else on(id.parent);
     }
     return;
   }
@@ -1773,7 +1825,8 @@ function flowScalars(
     if (f !== undefined) {
       const param = f.parameters[index];
       const declared = param === undefined ? undefined : writtenTypeText(param, cx.sourceFile);
-      return add(declared !== undefined ? scalarOfTypeText(declared) : 'opaque');
+      // A parameter of a type no scalar names (a generic `T`) cannot be followed.
+      return add((declared !== undefined ? scalarOfTypeText(declared) : undefined) ?? 'opaque');
     }
     if (callee === 'select' && index === 2) return;
     // A builtin: its typed arguments (of `select`, the other arm), and where its result flows.
@@ -1804,6 +1857,11 @@ function flowScalars(
     return;
   }
   if (ts.isElementAccessExpression(p) && p.argumentExpression === n) return add('int');
+  // A field of an object literal takes the type every field of that name declares (`{ id: q }`
+  // for `interface Q { id: u32 }`).
+  if (ts.isPropertyAssignment(p) && p.initializer === n && ts.isIdentifier(p.name)) {
+    return add(propertyScalar(cx.sourceFile, p.name.text) ?? 'opaque');
+  }
   if (ts.isPrefixUnaryExpression(p)) {
     if (p.operator === ts.SyntaxKind.TildeToken) add('int');
     return on(p);
@@ -1817,10 +1875,10 @@ function typesFromUse(
   node: ts.Node,
   peer: Scalar | undefined,
   cx: FlowContext,
-): { first: Scalar; second: Scalar; conflict: boolean } {
+): { first: Scalar; second: Scalar; conflict: boolean; allowed: readonly Scalar[] } {
   if (peer !== undefined) {
     cx.reached.push(node);
-    return { first: peer, second: peer, conflict: false };
+    return { first: peer, second: peer, conflict: false, allowed: [peer] };
   }
   const asked = new Set<Asked>();
   flowScalars(node as ts.Expression, cx, asked, new Set());
@@ -1832,8 +1890,15 @@ function typesFromUse(
   // The other set: `u32` where an integer of either type is asked, `i32` where nothing decides.
   const second: Scalar =
     types.length > 0 ? first : integer ? 'u32' : asked.size === 0 ? 'i32' : first;
-  return { first, second, conflict };
+  // The types the positions themselves take, for a remedy that names no edit.
+  const allowed: Scalar[] =
+    asked.has('opaque') || asked.size === 0
+      ? [...ALL_SCALARS]
+      : ALL_SCALARS.filter((t) => types.includes(t) || (integer && t !== 'f32'));
+  return { first, second, conflict, allowed };
 }
+
+const ALL_SCALARS: readonly Scalar[] = ['i32', 'u32', 'f32'];
 
 /** One change to the source: `[start, end)` replaced by `text`. */
 interface SourceChange {
@@ -1946,8 +2011,14 @@ function wrapList(subjects: readonly string[]): string {
 }
 
 /** The remedy of a refusal that names no edit: what to write around which operands. */
-export function genericDivisionRemedy(subjects: readonly string[]): string {
-  return `Write i32(…), u32(…) or f32(…) around ${wrapList(subjects)} to choose the division.`;
+export function genericDivisionRemedy(
+  subjects: readonly string[],
+  allowed: readonly string[] = ALL_SCALARS,
+): string {
+  const forms = allowed.map((t) => `${t}(…)`);
+  const list =
+    forms.length <= 1 ? (forms[0] ?? '') : `${forms.slice(0, -1).join(', ')} or ${forms.at(-1)!}`;
+  return `Write ${list} around ${wrapList(subjects)} to choose the division.`;
 }
 
 /** The change that declares the variable `name`, read at `at`, with `type`; `undefined` where
@@ -2045,15 +2116,27 @@ function compileEditedAll(
     }
     return undefined;
   };
-  checkingEdit = true;
-  editCompiles++;
-  try {
-    return check(text, undefined).map((d) => ({
-      ...(d.code !== undefined ? { code: d.code } : {}),
-      message: d.message,
-      at: back(d.start),
-    }));
-  } finally {
-    checkingEdit = false;
+  const key = `${sourceFile.fileName}\n${text}`;
+  let errors = editedErrors.get(key);
+  if (errors === undefined) {
+    checkingEdit = true;
+    editCompiles++;
+    try {
+      errors = check(text, undefined);
+    } finally {
+      checkingEdit = false;
+    }
+    editedErrors.set(key, errors);
+    // A few recent programs: the editor checks the same edits again in its next pass.
+    if (editedErrors.size > 16) editedErrors.delete(editedErrors.keys().next().value!);
   }
+  return errors.map((d) => ({
+    ...(d.code !== undefined ? { code: d.code } : {}),
+    message: d.message,
+    at: back(d.start),
+  }));
 }
+
+/** The errors of each edited program compiled lately, by its file and text: the compile is a
+ *  function of the text, and the editor checks one module's edits on each of its passes. */
+const editedErrors = new Map<string, ReturnType<DivisionEditCheck>>();
