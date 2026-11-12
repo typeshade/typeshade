@@ -17,6 +17,7 @@ import {
   markAbstractRead,
   markCarriedRead,
   noteAbstractDivision,
+  noteWrittenDivision,
   noteForcedRead,
   readTypeFor,
 } from '../abstract-const.js';
@@ -47,6 +48,7 @@ import {
   foldNumericLit,
   isIntegerLiteralTree,
   isKindlessBitwise,
+  kindlessOrigin,
   foldKindless,
   intLiteralRangeMessage,
   retargetIntLitCtx,
@@ -1032,6 +1034,29 @@ function lowerBinary(
     // only inside a module constant's initializer (#68): Tint rejects `1.0 / 0.0` as a value
     // f32 cannot represent, ANGLE folds it with a warning, and the oracle would answer
     // Infinity or NaN. A divisor that does not fold is not proven anything and passes.
+    // A `/` over a bitwise expression of written integers and written integers has no
+    // operand of a declared type: it is refused, as a `/` over a constant some read makes an
+    // integer is (Amendment A2; the owner's decision of 2026-11-11, D-b), unless an integer
+    // position reads the quotient (Amendment A4). The edit converts the operand to `f32`.
+    if (arith === '/') {
+      const resolve = (n: string) => scope.resolveIr(n);
+      const [lo, ro] = [kindlessOrigin(left, resolve), kindlessOrigin(right, resolve)];
+      if (lo !== 'typed' && ro !== 'typed' && (lo === 'kindless' || ro === 'kindless')) {
+        const subjectNode = lo === 'kindless' ? node.left : node.right;
+        const inner = ts.isParenthesizedExpression(subjectNode)
+          ? subjectNode.expression
+          : subjectNode;
+        const subject = inner.getText(sourceFile).replace(/\s+/g, ' ');
+        const whole = node.getText(sourceFile);
+        const at = subjectNode.getStart(sourceFile) - node.getStart(sourceFile);
+        const edit = (
+          whole.slice(0, at) +
+          `f32(${subject})` +
+          whole.slice(at + subjectNode.getText(sourceFile).length)
+        ).replace(/\s+/g, ' ');
+        noteWrittenDivision(node, sourceFile, subject, edit, 'float');
+      }
+    }
     if ((arith === '/' || arith === '%') && divisorIsZero(right, scope)) {
       pushDiag(
         diagnostics,
@@ -1219,7 +1244,13 @@ function lowerBinary(
       // A written target with no type of its own is an integer of no kind: a position that
       // declares the other integer type gives it that type (issue 1261).
       const writtenTarget = noKindOperand(l, node.left);
-      left = softDemands(() => retargetIntLitCtx(l, node.left, i32T));
+      // A written target only a `u32` holds (`0xF0000000 >> 28`) shifts a `u32` (change 0134
+      // item 1); any other takes the `i32`.
+      const lv =
+        writtenTarget && !isKindlessBitwise(l) ? foldNumericLit(abstractLiteralOf(l) ?? l) : l;
+      const targetT =
+        lv.op === 'lit' && typeof lv.value === 'number' && lv.value > 2147483647 ? u32T : i32T;
+      left = softDemands(() => retargetIntLitCtx(l, node.left, targetT));
       right = softDemands(() => retargetIntLitCtx(r, node.right, u32T));
       // A shift is defined componentwise, so read the ELEMENT kind: `vec2u << vec2u` is a
       // shift of two lanes, not a type error. The width rule below keeps the two sides the
@@ -1327,7 +1358,15 @@ function lowerBinary(
       const [lv, rv] = [valueOf(left), valueOf(right)];
       // A value only `u32` holds beside a negative one has no integer type: the written
       // `3000000000 | -1` would compute -1 in TypeScript, which no `u32` is.
-      const big = [lv, rv].find((v) => v !== undefined && v > 2147483647);
+      // Only a WRITTEN number makes the operator a `u32`'s (change 0134 item 1): a computed
+      // value an `i32` does not hold (`(1 << 30) * 2`) is read as TypeScript reads it, ToInt32.
+      const big = [
+        [lv, left],
+        [rv, right],
+      ]
+        .filter(([, e]) => !isKindlessBitwise(e as Expr))
+        .map(([v]) => v as number | undefined)
+        .find((v) => v !== undefined && v > 2147483647);
       const negative = [
         [lv, node.left],
         [rv, node.right],
@@ -1345,10 +1384,16 @@ function lowerBinary(
         );
         return undefined;
       }
-      const kind = kindless(left) === 'u32' || kindless(right) === 'u32' ? u32T : i32T;
+      const kind = big !== undefined ? u32T : i32T;
       const [l, r] = [left, right];
       left = softDemands(() => retargetIntLitCtx(l, node.left, kind));
       right = softDemands(() => retargetIntLitCtx(r, node.right, kind));
+      // The value is computed from the whole expression and its type chosen from the value, so
+      // the operands' own types, which a folded operand took from its value, do not matter.
+      const tree: Expr = { op: 'binop', type: kind, bop: bit, a: left, b: right };
+      if (foldKindless(tree) !== undefined) {
+        return foldKindlessOrRefuse(tree, node, sourceFile, diagnostics);
+      }
       kindlessPair = true;
     }
     noteDemand(left, intElem(right.type) === undefined ? kindless(right) : right.type);

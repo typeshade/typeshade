@@ -299,6 +299,7 @@ export function recordModuleAbstractConst(
 export function resetAbstractConsts(sourceFile: ts.SourceFile): void {
   byDeclName.delete(sourceFile);
   divisionsOf.delete(sourceFile);
+  writtenDivisionsOf.delete(sourceFile);
   nodeMarks.delete(sourceFile);
   carriedByFunction.delete(sourceFile);
 }
@@ -1068,6 +1069,39 @@ export type DivisionEditCheck = (
  *  edit unchecked, so a check never starts another. */
 let checkingEdit = false;
 
+/** The `/` and `/=` over a bitwise expression of written integers, by file (the owner's decision
+ *  of 2026-11-11 on #1272, D-b, "A2대로 거부"): such a value is an integer by its bit operator,
+ *  and no operand has a declared type, so the division is refused as Amendment A2 refuses one
+ *  over a constant, unless an integer position reads the quotient (Amendment A4). */
+const writtenDivisionsOf = new WeakMap<
+  ts.SourceFile,
+  {
+    readonly division: Division;
+    readonly subject: string;
+    readonly edit: string;
+    readonly kind: 'float' | 'integer';
+  }[]
+>();
+
+/** Records a `/` or `/=` over a bitwise expression of written integers: `subject` is the operand
+ *  that carries it, as written, and `edit` the text that compiles in its place. */
+export function noteWrittenDivision(
+  node: ts.BinaryExpression,
+  sourceFile: ts.SourceFile,
+  subject: string,
+  edit: string,
+  kind: 'float' | 'integer',
+): void {
+  // A `/` over a constant of no fixed type is refused by its own sentence (Amendment A2).
+  if (divisionByNode.get(node)?.reads.length) return;
+  const division: Division = divisionByNode.get(node) ?? { node, reads: [] };
+  divisionByNode.set(node, division);
+  let list = writtenDivisionsOf.get(sourceFile);
+  if (list === undefined) writtenDivisionsOf.set(sourceFile, (list = []));
+  if (list.some((d) => d.division.node === node)) return;
+  list.push({ division, subject, edit, kind });
+}
+
 export function reportAbstractDivisions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -1148,6 +1182,43 @@ export function reportAbstractDivisions(
     // does not refuse it on its own (`program-refusals.ts`, #1186), with the `/` as its site.
     noteUse(refusal, p.read.node, sourceFile);
     diagnostics.push(refusal);
+  }
+  // A `/` over a bitwise expression of written integers (D-b): refused where no integer
+  // position reads the quotient, once for the outermost such `/` (Rule 12.4).
+  const written = (writtenDivisionsOf.get(sourceFile) ?? []).filter(
+    (w) =>
+      w.division.asked === undefined && !outer.some((o) => holds(o.division.node, w.division.node)),
+  );
+  for (const w of written) {
+    if (written.some((o) => o !== w && holds(o.division.node, w.division.node))) continue;
+    const { node } = w.division;
+    // A mismatch the quotient raised where it stands (`return ((1 | 2) * 3) / 2` in an `f32`
+    // function) is this mistake said again, and the edit closes it (Rule 12.4).
+    const [start, end] = [node.getStart(sourceFile), node.getEnd()];
+    for (let i = diagnostics.length - 1; i >= 0; i--) {
+      const d = diagnostics[i]!;
+      if (
+        d.code === TS_CODES.TYPE_MISMATCH &&
+        d.category === 'error' &&
+        d.start <= start &&
+        d.start + d.length >= end &&
+        !d.message.includes(NO_DIVISION)
+      ) {
+        diagnostics.splice(i, 1);
+      }
+    }
+    const text = writtenText(node).replace(/\s+/g, ' ');
+    const operator = node.operatorToken.getText(sourceFile);
+    diagnostics.push(
+      makeDiagnostic(
+        sourceFile,
+        node,
+        `"${w.subject}" is an integer by its bit operator, and no operand of "${text}" has a ` +
+          `declared type, so the "${operator}" ${NO_DIVISION}. Write "${w.edit}" for the ` +
+          `${w.kind} division.`,
+        TS_CODES.TYPE_MISMATCH,
+      ),
+    );
   }
 }
 

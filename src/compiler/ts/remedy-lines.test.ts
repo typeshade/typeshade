@@ -760,9 +760,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'abstract-const.ts',
-      sites: 1,
+      sites: 2,
       lines: 0,
-      note: 'names one edit for a `/` that reaches a constant of no fixed type, built from the source of the `/`: the constant declared with the type the position asks, or the `/` with each value converted; the author chooses which division is meant, so no case pastes it mechanically here; `abstract-const.test.ts` applies each edit and holds the result to compile clean in both halves (change 0134)',
+      note: 'names one edit for a `/` that reaches a constant of no fixed type, built from the source of the `/`: the constant declared with the type the position asks, or the `/` with each value converted; the author chooses which division is meant, so no case pastes it mechanically here; `abstract-const.test.ts` applies each edit and holds the result to compile clean in both halves (change 0134). The second names the edit for a `/` over a bitwise expression of written integers, `f32(1 | 2) / 2` or the declaration with its type for a `/=`; `use-inference.test.ts` applies each and holds it to compile clean in both halves (issue 1261, D-b)',
     },
     {
       file: 'stage-call.ts',

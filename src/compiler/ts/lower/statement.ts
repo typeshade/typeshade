@@ -23,6 +23,7 @@ import {
   hasNoWrittenResult,
   markCarriedRead,
   noteAbstractDivision,
+  noteWrittenDivision,
   noteCarriedReturn,
   originOf,
   withReadTypes,
@@ -109,6 +110,9 @@ import {
   fitsTarget,
   isIntScalar,
   isKindlessBitwise,
+  kindlessDeclaration,
+  kindlessOrigin,
+  markKindlessBinding,
   intLiteralRangeMessage,
   retargetDeclaredIntLit,
   retargetIntLitCtx,
@@ -997,6 +1001,14 @@ function lowerDeclarationKind(
     inferredValue,
   );
   if (!bound) return undefined;
+  // `let a = 1 | 2`: a `/` over `a` does not say which division it is (D-b, issue 1261).
+  if (decl.type === undefined && kindlessOrigin(init, (n) => scope.resolveIr(n)) === 'kindless') {
+    markKindlessBinding(
+      bound,
+      `${isConst ? 'const' : 'let'} ${name}: ${typeKey(bound.type)} = ` +
+        decl.initializer.getText(sourceFile).replace(/\s+/g, ' '),
+    );
+  }
   // The statement carries the IR name, `p_1` for a `p` that shadows or follows another `p` in
   // the function (#38); the symbol table and every diagnostic keep the source name.
   const ir = irNameOf(bound);
@@ -2064,6 +2076,14 @@ function lowerAssignOpTo(
   // `s += h.k` with an optional nothing narrowed: the test to write (Rule 7.10, change 0093).
   if (!isOptional(target.type) && refuseOptionalUse(value, right, sourceFile, diagnostics))
     return undefined;
+  // `a /= 2` over `let a = 1 | 2` (D-b, issue 1261): the variable declared with its type names
+  // the integer division.
+  if (bop === '/' && ts.isBinaryExpression(left.parent) && target.op === 'varref') {
+    const declared = kindlessDeclaration(scope.resolveIr(target.name));
+    if (declared !== undefined && kindlessOrigin(value, (n) => scope.resolveIr(n)) !== 'typed') {
+      noteWrittenDivision(left.parent, sourceFile, left.getText(sourceFile), declared, 'integer');
+    }
+  }
   // `y /= 2` on a variable that carries a constant of no fixed type is a `/` over it
   // (Amendment A2 of change 0134): recorded, and refused once the module's reads are known.
   if (bop === '/' && ts.isBinaryExpression(left.parent)) {
