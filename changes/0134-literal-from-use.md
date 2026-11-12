@@ -977,7 +977,9 @@ records the decision and the readings the implementation needs.
     refusal of the module names an edit.
   - At most two edited programs are compiled a module, in `compile()` and in the editor alike.
 - [reading, 2026-11-12] The export boundary. An exported function keeps the `f32` result the
-  host reads (Amendment A5, "export는 f32 유지"). A quotient that flows into an exported
+  host reads (Amendment A5, "export는 f32 유지"). Every export form counts: `export function g`,
+  `export { g }` before or after the declaration, `export { g as h }`, and a re-export, which
+  reaches the function through its file's export. A quotient that flows into an exported
   function's result is decided by that `f32`, and no edit changes an exported result. A call from
   another file of a program reaches the function through its export, so the walk stops there. A
   generic function's result is not followed, so a quotient that flows there names no edit.
@@ -986,18 +988,44 @@ records the decision and the readings the implementation needs.
   `(1 | 2) / i32(2)`, `(1 | 2) / (i32(2) + 1)` and `a /= i32(2)`, and the `/` is that type's
   division. A builtin carries its arguments' origin, as it carries a constant's (Amendment A3).
   So `(1 | 2) / abs(1 << 1)` stays refused.
-- [reading, 2026-11-12] A tree of written integers whose `u32` bits and TypeScript value differ
-  (`3000000000 | 0` is 3000000000 and -1294967296) is refused beside a typed `u32` under `/`, `%`
-  or a comparison. The owner's decision of 2026-11-11 refuses a `>>` root over such a number for
-  the same reason ("거부"). The sentence names `u32(3000000000 | 0)` for the `u32` value.
+- [reading, 2026-11-12] A variable whose type its uses decide states no type. A `/` over values
+  that are integers only by inference, stored back into such a variable, stays refused:
+  `let a = 1 | 2; a = a / 2;` and `a /= K` with `const K = 4` (in a module, a function or
+  another file). A read of a constant of no fixed type is its written number, so it states no
+  type either.
+- [decision, owner, 2026-11-12] D-b truncation, "이대로". A position that states an integer type
+  reads a quotient that is no integer truncated toward zero, as Amendment A4 reads one:
+  `let j: i32 = (5 | 0) / 2` is 2. A comparison reads the exact value. Every other position
+  refuses it. The owner kept this scope of D-b on 2026-11-12.
+- [decision, owner, 2026-11-12] D2, the two readings of a tree. A tree of written integers whose
+  root bit operator reads a written number only a `u32` holds is that `u32`'s bits
+  (`3000000000 | 0` is 3000000000, change 0134 item 1), and its TypeScript value is ToInt32 of
+  them (-1294967296).
+  - Beside a typed `u32`, `+`, `-`, `*`, `&`, `|`, `^`, `<<` and `~` read the bits. They agree with
+    TypeScript's value modulo 2^32, so they compile. Beside a typed `i32` the tree is ToInt32 of
+    its bits, which is TypeScript's value.
+  - Every other operation whose result differs between the two is refused: `/`, `%`, a
+    comparison, `max`, `min`, `clamp`, `abs`, `sign`, `f32()`, `>>` by an amount that is no
+    written number, and `/=`, `%=` and `>>=`. The same holds through a binding:
+    `let a = 3000000000 | 0; let b = a; b / vi`.
+  - The sentence names `u32(…)` as the edit:
+    `"3000000000|0" is 3000000000 on its u32 bits and -1294967296 in TypeScript, so the "/" does not say which value it means. Write "u32(3000000000|0)" for the u32 value.`
+  - This replaces this amendment's earlier wording, which read the refusal under `/`, `%` and a
+    comparison as a reading of the owner's decision of 2026-11-11 on a `>>` root.
+- [decision, owner, 2026-11-12] D3. `f32((K | 0) / 2)` with `const K = 4` stays refused (Amendment
+  A2, OD-7). `K | 0` reads `K` as an integer, and Amendment A2 refuses a `/` over such a constant
+  whatever its quotient is, as it refuses `const HALF = N / 2` with `const N = 8`.
+- [decision, owner, 2026-11-12] D4. In a module where two refusals conflict, the text that names
+  no edit stands as it is. It tells how to choose the division's type, and the conflict that
+  remains is the author's own mistake.
 - The sentences of a refusal that names no edit. Each names the operands to wrap, and lists only
   the types the quotient's positions take:
   - `Write i32(…), u32(…) or f32(…) around "1 | 2" to choose the division.`, or
     `Write i32(…) or f32(…) around each of "1|2" and "1<<2" to choose the division.`;
   - for a `/=`: `Declare "a" with i32 or u32 to choose the division.`, and over a constant of no
     fixed type `Declare "y" with i32, u32 or f32 to choose the division.`;
-  - for an operand no integer type holds, where the positions take an `f32`, the one form that
-    works:
+  - for an operand no integer type holds, where the positions take an `f32`, the float form,
+    which is the one form that chooses the division (another mistake of the module may remain):
     `No integer type holds "(1<<30)*4" (4294967296), so only the float division chooses it: write "f32(4294967296)/3".`
   - for such an operand where the positions take only integers, no form:
     `No integer type holds "(1<<30)*4" (4294967296), and the quotient is read as an integer here, so no division of it computes this value.`

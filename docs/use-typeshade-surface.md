@@ -1412,7 +1412,18 @@ once. It names the edits only when that adds no error. Where they do not compile
 (`h(x + k / 2)` passes an `f32` sum to a `u32`), no refusal of the module names an edit. Each
 names the operands to wrap instead, with the types its positions take:
 `Write i32(…), u32(…) or f32(…) around "k" to choose the division.`
-A `/=` names the variable to declare with a type. A conversion written on an operand, also inside
+A `/=` names the variable to declare with a type.
+
+A quotient of written integers that is no integer (`(5 | 0) / 2`) is read truncated toward zero
+where a position states an integer type (`let j: i32 = (5 | 0) / 2` is 2), and exactly by a
+comparison; anywhere else it is refused. A tree over a written number only a `u32` holds is that
+`u32`'s bits (`3000000000 | 0` is 3000000000). Beside a typed `u32`, `+ - * & | ^ << ~` read the
+bits, which agree with TypeScript's -1294967296 modulo 2^32. Every operation where the two
+differ (`/`, `%`, a comparison, `max`, `min`, `clamp`, `abs`, `sign`, `f32()`, `>>` by a
+non-constant amount, and the compound forms), also through a binding, is refused with
+`u32(3000000000|0)` as the edit (the owner's decisions of 2026-11-12).
+
+A conversion written on an operand, also inside
 its arithmetic (`k / (i32(2) + 1)`), states its type and decides the division, and an exported
 function's result is the `f32` the host reads (the owner's decision of
 2026-11-12, Amendment A6 of change 0134). A mismatch around the `/` is the refusal said again,
