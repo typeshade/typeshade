@@ -300,6 +300,7 @@ export function resetAbstractConsts(sourceFile: ts.SourceFile): void {
   byDeclName.delete(sourceFile);
   divisionsOf.delete(sourceFile);
   writtenDivisionsOf.delete(sourceFile);
+  quotientReadsOf.delete(sourceFile);
   nodeMarks.delete(sourceFile);
   carriedByFunction.delete(sourceFile);
 }
@@ -1073,33 +1074,71 @@ let checkingEdit = false;
  *  of 2026-11-11 on #1272, D-b, "A2대로 거부"): such a value is an integer by its bit operator,
  *  and no operand has a declared type, so the division is refused as Amendment A2 refuses one
  *  over a constant, unless an integer position reads the quotient (Amendment A4). */
-const writtenDivisionsOf = new WeakMap<
-  ts.SourceFile,
-  {
-    readonly division: Division;
-    readonly subject: string;
-    readonly edit: string;
-    readonly kind: 'float' | 'integer';
-  }[]
->();
+const writtenDivisionsOf = new WeakMap<ts.SourceFile, WrittenDivision[]>();
 
-/** Records a `/` or `/=` over a bitwise expression of written integers: `subject` is the operand
- *  that carries it, as written, and `edit` the text that compiles in its place. */
+/** One `/` or `/=` over a binding that holds a tree of written integers (D-b). */
+interface WrittenDivision {
+  readonly node: ts.BinaryExpression;
+  readonly subject: string;
+  readonly edit: string;
+  readonly kind: 'float' | 'integer';
+  /** The edit for an integer peer that states no type, by its type. */
+  readonly peerEdit?: (type: 'i32' | 'u32') => string;
+  /** A position that states an integer type, or a comparison, read the quotient (A4). */
+  read: boolean;
+  /** The type of an integer peer that states no type and read the quotient. */
+  peer?: 'i32' | 'u32';
+}
+
+/** Records a `/` or `/=` over a binding that holds a tree of written integers: `subject` is the
+ *  operand that carries it, as written, and `edit` the text that compiles in its place. */
 export function noteWrittenDivision(
   node: ts.BinaryExpression,
   sourceFile: ts.SourceFile,
   subject: string,
   edit: string,
   kind: 'float' | 'integer',
+  peerEdit?: (type: 'i32' | 'u32') => string,
 ): void {
   // A `/` over a constant of no fixed type is refused by its own sentence (Amendment A2).
   if (divisionByNode.get(node)?.reads.length) return;
-  const division: Division = divisionByNode.get(node) ?? { node, reads: [] };
-  divisionByNode.set(node, division);
   let list = writtenDivisionsOf.get(sourceFile);
   if (list === undefined) writtenDivisionsOf.set(sourceFile, (list = []));
-  if (list.some((d) => d.division.node === node)) return;
-  list.push({ division, subject, edit, kind });
+  if (list.some((d) => d.node === node)) return;
+  list.push({
+    node,
+    subject,
+    edit,
+    kind,
+    read: false,
+    ...(peerEdit !== undefined ? { peerEdit } : {}),
+  });
+}
+
+/** Records how a position read the quotient of the `/` at `node`: a position that states an
+ *  integer type, or a comparison (`'read'`), takes it and the `/` stands; an integer peer that
+ *  states none names its type for the edit. */
+export function noteWrittenDivisionRead(
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  how: 'read' | 'i32' | 'u32',
+): void {
+  const record = writtenDivisionsOf.get(sourceFile)?.find((d) => d.node === node);
+  if (record === undefined) return;
+  if (how === 'read') record.read = true;
+  else record.peer ??= how;
+}
+
+/** The reads of each binding that holds a refused quotient (`q` in `let q = (1 | 2) / 2`), by
+ *  file: a mismatch that a read's `f32` raises where it flows is that refusal said again. */
+const quotientReadsOf = new WeakMap<ts.SourceFile, ts.Node[]>();
+
+/** Records `node`, a read of a binding that holds a refused quotient. */
+export function noteQuotientRead(node: ts.Node): void {
+  const sourceFile = node.getSourceFile();
+  let reads = quotientReadsOf.get(sourceFile);
+  if (reads === undefined) quotientReadsOf.set(sourceFile, (reads = []));
+  reads.push(node);
 }
 
 export function reportAbstractDivisions(
@@ -1183,15 +1222,15 @@ export function reportAbstractDivisions(
     noteUse(refusal, p.read.node, sourceFile);
     diagnostics.push(refusal);
   }
-  // A `/` over a bitwise expression of written integers (D-b): refused where no integer
-  // position reads the quotient, once for the outermost such `/` (Rule 12.4).
+  // A `/` over a binding that holds a tree of written integers (D-b): refused where no position
+  // that states an integer type, and no comparison, reads the quotient, once for the outermost
+  // such `/` (Rule 12.4).
   const written = (writtenDivisionsOf.get(sourceFile) ?? []).filter(
-    (w) =>
-      w.division.asked === undefined && !outer.some((o) => holds(o.division.node, w.division.node)),
+    (w) => !w.read && !outer.some((o) => holds(o.division.node, w.node)),
   );
   for (const w of written) {
-    if (written.some((o) => o !== w && holds(o.division.node, w.division.node))) continue;
-    const { node } = w.division;
+    if (written.some((o) => o !== w && holds(o.node, w.node))) continue;
+    const { node } = w;
     // A mismatch the quotient raised where it stands (`return ((1 | 2) * 3) / 2` in an `f32`
     // function) is this mistake said again, and the edit closes it (Rule 12.4).
     const [start, end] = [node.getStart(sourceFile), node.getEnd()];
@@ -1209,16 +1248,39 @@ export function reportAbstractDivisions(
     }
     const text = writtenText(node).replace(/\s+/g, ' ');
     const operator = node.operatorToken.getText(sourceFile);
+    const [edit, kind] =
+      w.peer !== undefined && w.peerEdit !== undefined
+        ? [w.peerEdit(w.peer), 'integer']
+        : [w.edit, w.kind];
     diagnostics.push(
       makeDiagnostic(
         sourceFile,
         node,
         `"${w.subject}" is an integer by its bit operator, and no operand of "${text}" has a ` +
-          `declared type, so the "${operator}" ${NO_DIVISION}. Write "${w.edit}" for the ` +
-          `${w.kind} division.`,
+          `declared type, so the "${operator}" ${NO_DIVISION}. Write "${edit}" for the ` +
+          `${kind} division.`,
         TS_CODES.TYPE_MISMATCH,
       ),
     );
+  }
+  // A mismatch or an argument refusal that a read of a refused quotient raised where its `f32`
+  // flows (`let q = (1 | 2) / 2; return q * 2;` in an `i32` function) is the refusal of the `/`
+  // said again (Rule 12.4).
+  const reads = quotientReadsOf.get(sourceFile) ?? [];
+  if (reads.length > 0 && diagnostics.some((d) => d.message.includes(NO_DIVISION))) {
+    for (let i = diagnostics.length - 1; i >= 0; i--) {
+      const d = diagnostics[i]!;
+      if (
+        (d.code === TS_CODES.TYPE_MISMATCH || d.code === TS_CODES.MATH_ARGUMENT) &&
+        !d.message.includes(NO_DIVISION) &&
+        reads.some((r) => {
+          const start = r.getStart(sourceFile);
+          return d.start <= start && d.start + d.length >= r.getEnd();
+        })
+      ) {
+        diagnostics.splice(i, 1);
+      }
+    }
   }
 }
 

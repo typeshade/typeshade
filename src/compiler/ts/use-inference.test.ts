@@ -1002,4 +1002,120 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(compile(fixed).diagnostics).toEqual([]);
     expect(editor(fixed)).toEqual([]);
   });
+
+  // The fifth review of #1272 at 61c35297: one fold decides at the root (THE RULE, lit-coerce.ts).
+  const one = (source: string): string => {
+    const lines = compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`);
+    expect(lines).toHaveLength(1);
+    expect(editor(source)).toEqual(lines);
+    return lines[0]!;
+  };
+  const accepted5 = (source: string, value: number): void => {
+    const result = compile(source);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(result.eval('t', [5, 3])).toBe(value);
+  };
+  const T = (body: string, ret = 'i32', pre = ''): string =>
+    mod(pre, body, ret, 'vi: u32, ii: i32');
+
+  it.each([
+    ['((1 | 2) / 2) | 0'],
+    ['((1 << 31) / -1) | 0'],
+    ['((-7 | 0) / 2) | 0'],
+    ['~((1 | 2) / 2)'],
+    ['(((1 << 30) * 4) / 2) | 0'],
+    ['(0xF0000000 >> 28) | 0'],
+    ['(0xF0000000 >> 28) + 1'],
+    ['(0x80000000 >> 4) >> 0'],
+    ['(1 | 2) / 2 * 2'],
+    ['((1 << 30) * 4) | 0'],
+    ['(0x7fffffff + 1) | 0'],
+  ])('the root decides, inner operators compute as TypeScript does: %s', (init) => {
+    accepted5(T(`return ${init};`), exact(init));
+  });
+
+  it.each([
+    ['const K = ((1 << 30) * 4) | 0;\n', 0],
+    ['const K = (0xF0000000 >> 28) | 0;\n', -1],
+    ['const K = (7 % 3) | 0;\n', 1],
+  ])('a module constant routes through the same fold: %s', (pre, value) => {
+    accepted5(T('return K;', 'i32', pre), value);
+  });
+
+  it('a module constant refused at its root is the one mistake', () => {
+    expect(one(T('return K | 0;', 'i32', 'const K = (1 << 30) * 4;\n'))).toBe(
+      'TS8003: The value has to fit: 4294967296 is outside u32, which holds 0 to 4294967295 (§13).',
+    );
+  });
+
+  it.each([
+    ['let j: i32 = i32((1 | 2) / 2);\n  return j;', 1],
+    ['let j: i32 = (1 | 2) / 2 > 1 ? 1 : 0;\n  return j;', 1],
+    ['return i32(((1 | 2) / 2) * 2);', 3],
+    ['let j: i32 = (1 | 2) / 2;\n  return j;', 1],
+  ])(
+    'a stated integer type or a comparison reads a quotient with no other value: %s',
+    (body, value) => {
+      // TypeScript's value, or its truncation by the integer type the program states (A4); no
+      // integer division gives another value silently.
+      accepted5(T(body), value);
+    },
+  );
+
+  it.each([
+    ['return vi + (1 << 3) / 3;', 'u32', '1 << 3', '(1 << 3) / 3', 'u32(1 << 3) / 3', 7],
+    ['return min((1 << 3) / 3, ii);', 'i32', '1 << 3', '(1 << 3) / 3', 'i32(1 << 3) / 3', 2],
+  ])(
+    'an integer peer that states no type refuses a quotient with the integer edit: %s',
+    (body, ret, subject, written, edit, value) => {
+      const message =
+        `TS8003: "${subject}" is an integer by its bit operator, and no operand of "${written}" ` +
+        `has a declared type, so the "/" does not say which division it is. Write "${edit}" for ` +
+        'the integer division.';
+      const source = T(body, ret);
+      expect(one(source)).toBe(message);
+      const fixed = source.replace(written, edit);
+      accepted5(fixed, value);
+    },
+  );
+
+  it.each([['let q = (1 | 2) / 2;\n  return q | 0;'], ['let q = (1 | 2) / 2;\n  return q * 2;']])(
+    'a let of a refused quotient is the one mistake where it flows: %s',
+    (body) => {
+      const line = one(T(body));
+      expect(line).toContain('Write "f32(1 | 2) / 2" for the float division.');
+    },
+  );
+
+  it.each([
+    [
+      'return 1 << ((1 << 30) * 4);',
+      'TS8003: A shift amount must be between 0 and 31, got 4294967296: a 32-bit integer has no bit to shift into.',
+    ],
+    [
+      'return ii + ((1 << 30) * 4);',
+      'TS8003: The value has to fit: 4294967296 is outside i32, which holds -2147483648 to 2147483647 (§13).',
+    ],
+    [
+      'return ((1 << 30) * 4) % 0;',
+      'TS8003: Division by zero: "0" is 0 on every invocation. WGSL refuses it and GLSL ES 3.00 leaves it undefined.',
+    ],
+  ])('one diagnostic with true text: %s', (body, message) => {
+    expect(one(T(body))).toBe(message);
+  });
+
+  it('vi + (1 << 31) / 2 is the i32 -1073741824 beside a u32', () => {
+    expect(exact('(1 << 31) / 2')).toBe(-1073741824);
+    expect(one(T('return vi + (1 << 31) / 2;', 'u32'))).toBe(
+      'TS8003: Type mismatch: cannot + u32 and i32 — WGSL has no implicit integer conversion. ' +
+        'Cast one side: u32(…) or i32(…), e.g. a + u32(b).',
+    );
+  });
+
+  it('a float builtin over a quotient is refused, and the edit compiles', () => {
+    const source = T('return i32(floor((1 | 2) / 2));');
+    expect(one(source)).toContain('Write "f32(1 | 2) / 2" for the float division.');
+    accepted5(source.replace('(1 | 2) / 2', 'f32(1 | 2) / 2'), 1);
+  });
 });

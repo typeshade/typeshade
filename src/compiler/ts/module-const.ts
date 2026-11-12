@@ -31,7 +31,12 @@ import { mapTsTypeToShaderType } from './type-map.js';
 import { refuseOptionalAt } from './optional.js';
 import { foldConstComponents, foldConstValue } from './loop-bound.js';
 import { foldF64ModuleConst } from './module-const-f64.js';
-import { kindlessOrigin, markKindlessModuleConst, retargetIntLitCtx } from './lit-coerce.js';
+import {
+  kindlessOrigin,
+  markKindlessModuleConst,
+  pendingKindlessRefusal,
+  retargetIntLitCtx,
+} from './lit-coerce.js';
 import { refuseListSpread } from './lower/expression-array.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
 import { lowerExpression } from './lower/expression.js';
@@ -815,6 +820,13 @@ function lowerOne(
       refusedDeclarationsOf(scope.calleeTable()).add(name);
       refuseModuleName(sourceFile, name);
     }
+    return undefined;
+  }
+  // A tree of written integers refused at its root (`const K = (1 << 30) * 4`) is the one
+  // mistake: the constant is refused with it, and a read of it adds nothing (Rule 12.4).
+  if (pendingKindlessRefusal(init) !== undefined) {
+    refusedDeclarationsOf(scope.calleeTable()).add(name);
+    refuseModuleName(sourceFile, name);
     return undefined;
   }
   // `const K = 1 << 4`: a `/` over a read of `K` is refused as a `/` over `1 << 4` is (D-b of

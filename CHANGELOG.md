@@ -284,21 +284,26 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
-- **A bit operator over written integers is an integer, with the value TypeScript computes**
-  (issue 1261; Rules 5.1, 5.3 and 5.4, Amendments A2 and A4 of change 0134). `&`, `|`, `^`, `<<`,
-  `>>` and `~` over written integers and integer-written constants of no fixed type, and `+`, `-`,
-  `*`, `%` and a minus over such an expression and written integers, are a constant. The whole
-  expression computes as in TypeScript: arithmetic exactly, bit operators on ToInt32 of their
-  operands, so an intermediate value no integer type holds passes through ToInt32 at a bit
-  operator (`((1 << 30) * 4) | 0` is 0). Where the outermost operator is a bit operator beside a
-  written number only a `u32` holds, it works on `u32` bits (change 0134 item 1) where those bits
-  and TypeScript's agree (`3000000000 | 1` is the `u32` 3000000001). The value is an `i32` where an
-  `i32` holds it, else a `u32`, and only the whole expression is held to that.
-  `const K = 1; const J = 2; let f = K | J;` emitted `var f: f32 = (K | J);`, which Tint refuses; it is now
-  `var f: i32 = 3;`. A position that declares an integer type takes the value where that type
-  holds it (`let f: u32 = K | J`, `u |= K | J`, `u += 1 | 2`). A module variable reads module
-  constants as constants of no fixed type. `const M = 1 | 2` at module scope keeps
-  `const M: f32 = 3.0;`.
+- **A tree of written integers has the value TypeScript computes** (issue 1261; Rules 5.1, 5.3
+  and 5.4, Amendments A2 and A4 of change 0134). `&`, `|`, `^`, `<<`, `>>`, `~`, `+`, `-`, `*`, `%`,
+  `/` and a minus over written integers, integer-written constants of no fixed type and module
+  constants that hold such a tree, with a bit operator among them, are one tree. One fold reads
+  the whole tree, as TypeScript computes it: arithmetic exactly, bit operators on ToInt32 of
+  their operands. Only the outermost operator, the root, decides, and every refusal waits for it.
+  `((1 << 30) * 4) | 0` is 0, `((1 | 2) / 2) | 0` is 1, `(1 | 2) / 2 * 2` is 3 and
+  `(0xF0000000 >> 28) | 0` is -1. Where the root is a bit operator beside a written number only
+  a `u32` holds, it works on `u32` bits where those bits and TypeScript's agree (change 0134
+  item 1; `3000000000 | 1` is the `u32` 3000000001). The value is an `i32` where an `i32` holds
+  it, else a `u32`. `const K = 1; const J = 2; let f = K | J;` emitted `var f: f32 = (K | J);`,
+  which Tint refuses; it is now `var f: i32 = 3;`. A position that declares an integer type takes
+  the value where that type holds it (`let f: u32 = K | J`, `u |= K | J`, `u += 1 | 2`). A
+  module variable reads module constants as constants of no fixed type. `const M = 1 | 2` at
+  module scope keeps `const M: f32 = 3.0;`.
+  **A quotient that is no integer** (`(1 | 2) / 2` is 1.5): a position that states an integer
+  type (a declaration, a parameter, a result, `i32()`, `u32()`, an index) reads it truncated, as
+  Amendment A4 reads a quotient; a comparison reads it exactly. Anywhere else it is refused
+  (D-b), with the `f32()` edit, or beside an integer peer that states no type
+  (`vi + (1 << 3) / 3`, `min((1 << 3) / 3, ii)`) with the integer edit (`u32(1 << 3) / 3`).
   **Newly refused** (`TS8003`), each with the edit that compiles:
   - a value its type does not hold, with the sentence a written number gets:
     `let a: u32 = (1 | 2) - 5` (-2); `let a: u32 = ~0`, `u ^= ~0` and
@@ -309,18 +314,16 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
     `(1 << 30) * 4` as a whole (4294967296; it was 0 before);
   - `let a = -(1 << 31); ii + a`: `a` is the `u32` 2147483648, and the `+` names the conversion
     (D-a, kept by the owner's decision of 2026-11-11, "이대로"; it was -2147483648 before);
-  - a `>>` over a written number only a `u32` holds where its `u32` bits and TypeScript give
-    other values: `0xF0000000 >> 28` (15 and -1) and `0x80000000 >> 4` name `u32(0xF0000000) >> 28`
-    (the owner's decision of 2026-11-11, "거부");
-  - a `/` or `/=` over such an expression, over a `let` or a module constant that holds one, where
-    no integer position reads the quotient: the bit operator makes it an integer and no operand has
-    a declared type (the owner's decision of 2026-11-11, D-b, "A2대로 거부"). `(1 | 2) / 2`,
-    `((1 | 2) * 3) / 2`, `~2 / 2`, `let a = 1 | 2; a / 2` and `const K = 1 << 4; … K / 3` name
-    `f32(1 | 2) / 2` and the like, and `(1 | 2) / (1 << 1)` names `f32(1 | 2) / f32(1 << 1)`;
-    `((1 << 2) - 1) / 2` (1 before), `(1 << 3) / 3` (2 before), `let a = 1 << 2; a / 3` (1 before)
-    and `const K = 1 << 4; … f32(K / 3)` (5 before) are refused too, and `a /= 2` names
-    `let a: i32 = 1 | 2`. The refused quotient is the one mistake where it flows.
-    `let j: i32 = (1 | 2) / 2` and `xs[(1 << 3) / 3]` divide integers (Amendment A4);
+  - a `>>` root over a written number only a `u32` holds where its `u32` bits and TypeScript give
+    other values: `0xF0000000 >> 28` (15 and -1) names `u32(0xF0000000) >> 28` (the owner's
+    decision of 2026-11-11, "거부"); inside a larger tree the `>>` computes as TypeScript does;
+  - a quotient that is no integer where no position states an integer type (the owner's decision
+    of 2026-11-11, D-b, "A2대로 거부"): `f32((1 | 2) / 2)`, `let m = ((1 | 2) * 3) / 2`,
+    `let n = ~2 / 2`, `let a = 1 | 2; a / 2` and `const K = 1 << 4; … f32(K / 3)` (5 before) name
+    `f32(1 | 2) / 2` and the like; `(1 | 2) / (1 << 1)` names `f32(1 | 2) / f32(1 << 1)`;
+    `(1 << 3) / 3` (2 before), `let a = 1 << 2; a / 3` (1 before), `vi + (1 << 3) / 3` (5
+    before) and `i32(floor((1 | 2) / 2))` are refused too, and `a /= 2` names
+    `let a: i32 = 1 | 2`. The refusal is the one mistake where the quotient flows;
   - `3000000000 | -1` (the owner's decision of 2026-11-11, "거부 유지"), `x + (1 | 2)` with
     `x: f32` (decision 1), `1.0 | 2`, and `f32((K | 1) / 2)`, which named `(K | 1.0)` before;
   - `const K = 3; let m = K / 2;` at module scope with `vi * K` in a function (1.5 before;

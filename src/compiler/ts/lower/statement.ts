@@ -111,6 +111,7 @@ import {
   isIntScalar,
   isIntegerQuotient,
   isKindlessBitwise,
+  pendingKindlessRefusal,
   kindlessDeclaration,
   kindlessOrigin,
   markKindlessBinding,
@@ -1004,10 +1005,13 @@ function lowerDeclarationKind(
   );
   if (!bound) return undefined;
   // `let q = (1 | 2) / 2`: an integer position that reads `q` raises no second mistake.
-  if (isIntegerQuotient(init)) markQuotientBinding(bound);
-  // `let a = 1 | 2`: a `/` over `a` does not say which division it is (D-b, issue 1261).
+  const refusedQuotient = isIntegerQuotient(init) || pendingKindlessRefusal(init) === 'quotient';
+  if (refusedQuotient) markQuotientBinding(bound);
+  // `let a = 1 | 2`: a `/` over `a` does not say which division it is (D-b, issue 1261). A
+  // refused quotient is one mistake already.
   if (
     decl.type === undefined &&
+    !refusedQuotient &&
     kindlessOrigin(init, (n) => scope.resolveIr(n), sourceFile) === 'kindless'
   ) {
     markKindlessBinding(

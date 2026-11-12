@@ -44,6 +44,7 @@ import { REMOVED_FOLDS, removedCallSentence, removedFoldSentence } from '../remo
 import {
   foldNumericLit,
   isIntegerLiteralTree,
+  isKindlessBitwise,
   retargetIntLit,
   retargetIntLitCtx,
   reportIntLitRange,
@@ -1221,7 +1222,17 @@ function retargetIntrinsicLiterals(
     const argNode = node.arguments[i];
     if (argNode && args[i]) args[i] = retargetIntLitCtx(args[i]!, argNode, kind);
   }
-  const peerIndex = node.arguments.findIndex((a) => !isBareNumericLiteral(a));
+  // A tree of written integers has no type of its own either: it takes the peer's, as a
+  // written number does, and a quotient that is no integer is refused there in the peer's words
+  // (issue 1261, `lit-coerce.ts` THE RULE: a peer states no type).
+  const typedIndex = node.arguments.findIndex(
+    (a, i) => !isBareNumericLiteral(a) && !(args[i] !== undefined && isKindlessBitwise(args[i]!)),
+  );
+  // With no typed argument, a tree is the peer, as any other argument with a type would be.
+  const peerIndex =
+    typedIndex >= 0 ? typedIndex : node.arguments.findIndex((a) => !isBareNumericLiteral(a));
+  const toPeer = (e: Expr, n: ts.Expression, t: ShaderType): Expr =>
+    isKindlessBitwise(e) ? retargetIntLit(e, n, t) : retargetIntLitCtx(e, n, t);
   const peer = peerIndex >= 0 ? args[peerIndex]?.type : undefined;
   // A builtin with NO float form takes an integer, and an integer-written literal is what the
   // author gave it: `countOneBits(5)` was typed f32 and refused as "takes an i32 or u32, or a
@@ -1248,7 +1259,7 @@ function retargetIntrinsicLiterals(
   if (peerIndex > 0 && target.kind === 'scalar' && mathTakesElem(intrinsicId, target.scalar)) {
     const argNode = node.arguments[0];
     if (argNode && args[0] && fixed[0] === undefined) {
-      args[0] = retargetIntLitCtx(args[0], argNode, target);
+      args[0] = toPeer(args[0], argNode, target);
     }
   }
   for (let i = 1; i < args.length; i++) {
@@ -1275,7 +1286,7 @@ function retargetIntrinsicLiterals(
       args[i] = retargetIntLitCtx(args[i]!, argNode, f32T);
       continue;
     }
-    args[i] = retargetIntLitCtx(args[i]!, argNode, target);
+    args[i] = toPeer(args[i]!, argNode, target);
   }
 }
 

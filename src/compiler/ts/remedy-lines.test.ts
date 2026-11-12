@@ -748,9 +748,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'lower/expression.ts',
-      sites: 1,
+      sites: 2,
       lines: 0,
-      note: "names `u32(0xF0000000) >> 28` for a `>>` over a written number only a u32 holds whose u32 and TypeScript readings differ: an expression, not a declaration; `use-inference.test.ts` applies it and holds the result to compile clean in both halves with the u32 value (issue 1261, the owner's decision of 2026-11-11)",
+      note: "names `u32(0xF0000000) >> 28` for a `>>` over a written number only a u32 holds whose u32 and TypeScript readings differ: an expression, not a declaration; `use-inference.test.ts` applies it and holds the result to compile clean in both halves with the u32 value (issue 1261, the owner's decision of 2026-11-11). The second names the edit for a `/` of a tree of written integers whose quotient is no integer (verdict 4 of THE RULE in `lit-coerce.ts`): `f32(1 | 2) / 2`, or `i32(1 << 3) / 3` beside an integer peer; `use-inference.test.ts` applies each and holds it to compile clean in both halves (D-b)",
     },
     {
       file: 'lower/function-types.ts',
