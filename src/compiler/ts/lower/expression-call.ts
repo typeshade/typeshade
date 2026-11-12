@@ -49,6 +49,8 @@ import {
   retargetIntLitCtx,
   reportIntLitRange,
   retargetDeclaredIntLit,
+  readingsOf,
+  readingsSentence,
 } from '../lit-coerce.js';
 import { spanOf } from '../span.js';
 import { internalOpOf, lowerInternalOp } from '../internal-ops.js';
@@ -172,6 +174,9 @@ function vectorMethodMessage(
   }
   return `${head}: a vector's members are its components, ${v}.x or ${v}.xy.`;
 }
+
+/** The builtins whose result differs between the two readings of a tree (D2). */
+const READINGS_SENSITIVE: ReadonlySet<string> = new Set(['min', 'max', 'clamp', 'abs', 'sign']);
 
 export function lowerCall(
   node: ts.CallExpression,
@@ -670,6 +675,29 @@ export function lowerCall(
     // write (Rule 7.10, change 0093).
     if (refuseOptionalUse(lowered, arg, sourceFile, diagnostics)) return undefined;
     args.push(lowered);
+  }
+  // `min`, `max`, `clamp`, `abs` and `sign` over a tree whose `u32` bits and TypeScript value
+  // differ give different results for the two (the owner's decision of 2026-11-12, D2).
+  if (
+    ts.isIdentifier(callee) &&
+    ctor === undefined &&
+    READINGS_SENSITIVE.has(callee.text) &&
+    scope.resolveCallee(callee.text) === undefined
+  ) {
+    for (let i = 0; i < args.length; i++) {
+      const readings = readingsOf(args[i]!, (n) => scope.resolveIr(n));
+      if (readings === undefined) continue;
+      const arg = node.arguments[i]!;
+      const inner = ts.isParenthesizedExpression(arg) ? arg.expression : arg;
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        arg,
+        readingsSentence(inner.getText(sourceFile).replace(/\s+/g, ' '), readings, callee.text),
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
   }
 
   if (ctor !== undefined) {

@@ -860,12 +860,23 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     'a bit operator over a written u32 whose two readings agree compiles (item 1): %s',
     (init, value) => {
       // The u32 bits and TypeScript's ToInt32 give the same bits, read as the u32.
-      const source = mod('', `let a = ${init};\n  return f32(a);`, 'f32');
+      // Where TypeScript's value is negative, only a `u32` position reads both the same.
+      const source =
+        exact(init) < 0
+          ? mod('', `let a = ${init};\n  return a;`, 'u32')
+          : mod('', `let a = ${init};\n  return f32(a);`, 'f32');
       const result = compile(source);
       expect(result.diagnostics).toEqual([]);
       expect(editor(source)).toEqual([]);
       expect(result.eval('t', [0])).toBe(value);
       expect(value).toBe(exact(`(${init}) >>> 0`));
+      // `f32(a)` gives two values where TypeScript's is negative: refused (D2).
+      if (exact(init) < 0) {
+        const float = mod('', `let a = ${init};\n  return f32(a);`, 'f32');
+        const lines = compile(float).diagnostics.map((d) => `${d.code}: ${d.message}`);
+        expect(lines).toEqual([expect.stringContaining('so the "f32()" does not say which value')]);
+        expect(editor(float)).toEqual(lines);
+      }
     },
   );
 
@@ -1742,6 +1753,149 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     const before = checkedEditCompiles();
     expect(editor(source)).toHaveLength(40);
     expect(checkedEditCompiles() - before).toBeLessThanOrEqual(2);
+  });
+
+  // The twelfth review of #1272 at b9635354, and the owner's decisions of 2026-11-12 (D2).
+  const T12 = (body: string, ret: string, pre = ''): string =>
+    `"use typeshade";\n${pre}export function t(ii: i32, vi: u32, f: f32): ${ret} {\n  ${body}\n}\n`;
+  const both = (source: string): string[] => {
+    const got = compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`);
+    expect(editor(source)).toEqual(got);
+    return got;
+  };
+  it.each([
+    ['a /= f32(2)', 'let a = 1|2;\n  a /= f32(2);\n  return f32(a);', 'cannot /= i32 and f32'],
+    ['/ (f32(2)+1)', 'return f32((5|0)/(f32(2)+1));', 'cannot / i32 and f32'],
+    ['/ (u32(2)+1)', 'return f32((-7|0)/(u32(2)+1));', 'cannot / i32 and u32'],
+  ])('F1: a written conversion keeps its type inside arithmetic: %s', (_, body, mismatch) => {
+    const got = both(T12(body, 'f32'));
+    expect(got).toHaveLength(1);
+    expect(got[0]).toContain(mismatch);
+  });
+
+  it('F1: a tree beside a written i32 is the i32 TypeScript computes', () => {
+    const source = T12('return f32((0xF0000000|0)/(i32(2)+1));', 'f32');
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(Math.trunc((0xf0000000 | 0) / 3));
+  });
+
+  it.each([
+    ['a = a / 2', 'let a = 1|2;\n  a = a / 2;\n  return f32(a);', ''],
+    ['a = a / K', 'let a = 1|2;\n  a = a / K;\n  return f32(a);', 'const K = 4;\n'],
+    ['a /= K', 'let a = 1|2;\n  a /= K;\n  return f32(a);', 'const K = 4;\n'],
+    ['a local K', 'const K = 4;\n  let a = 1|2;\n  a /= K;\n  return f32(a);', ''],
+    ['abs', 'let a = abs(5|0);\n  a = a / 2;\n  return f32(a);', ''],
+    ['min', 'let a = min(5|0, 9);\n  a /= 2;\n  return f32(a);', ''],
+    ['select', 'let a = select(3, 5|0, vi > 2);\n  a /= 2;\n  return f32(a);', ''],
+    ['?:', 'let a = vi > 2 ? (5|0) : 3;\n  a /= 2;\n  return f32(a);', ''],
+  ])(
+    'F2: a / over a value that is an integer only by inference stays refused: %s',
+    (_, body, pre) => {
+      const got = both(T12(body, 'f32', pre));
+      expect(got.length).toBeGreaterThan(0);
+      expect(got[0]).toContain('does not say which division it is');
+    },
+  );
+
+  it.each([
+    ['/ vi', 'return (3000000000|0) / vi;', '3000000000|0', '/'],
+    ['% u32', 'return (0xF0000000|0) % u32(7);', '0xF0000000|0', '%'],
+    ['max', 'return max((3000000000|0), vi);', '3000000000|0', 'max'],
+    ['min', 'return min((3000000000|0), vi);', '3000000000|0', 'min'],
+    ['clamp', 'return clamp((3000000000|0), vi, vi + 9);', '3000000000|0', 'clamp'],
+    ['>> vi', 'return (3000000000|0) >> vi;', '3000000000|0', '>>'],
+    ['>>= vi', 'let a = (3000000000|0);\n  a >>= vi;\n  return a;', 'a', '>>='],
+    ['through a binding', 'let a = (3000000000|0);\n  let b = a;\n  return b / vi;', 'b', '/'],
+    ['%= vi', 'let a = (3000000000|0);\n  a %= vi;\n  return a;', 'a', '%='],
+    ['/= vi', 'let a = (3000000000|0);\n  a /= vi;\n  return a;', 'a', '/='],
+    ['f32()', 'return u32(f32((0xF0000000|0)));', '0xF0000000|0', 'f32()'],
+  ])(
+    'F3 (D2): every operation whose two readings differ is refused: %s',
+    (_, body, subject, op) => {
+      const got = both(T12(body, 'u32'));
+      expect(got).toHaveLength(1);
+      expect(got[0]).toContain(`"${subject}" is `);
+      expect(got[0]).toContain(`so the "${op}" does not say which value it means.`);
+      expect(got[0]).toContain(`Write "u32(${subject})" for the u32 value.`);
+    },
+  );
+
+  it.each([
+    ['+', 'return (3000000000|0) + vi;', (3000000000 + 7) >>> 0],
+    ['*', 'return (3000000000|0) * vi;', Math.imul(3000000000 | 0, 7) >>> 0],
+    ['&', 'return (3000000000|0) & vi;', (3000000000 & 7) >>> 0],
+    ['<<', 'return (3000000000|0) << vi;', ((3000000000 | 0) << 7) >>> 0],
+  ])(
+    'F3 (D2): an operation the two readings agree on modulo 2^32 compiles: %s',
+    (_, body, value) => {
+      const source = T12(body, 'u32');
+      expect(both(source)).toEqual([]);
+      expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(value);
+    },
+  );
+
+  it('F3 (D2): the u32 edit compiles to the u32 value', () => {
+    const source = T12('let a = (3000000000|0);\n  let b = u32(a);\n  return b / vi;', 'u32');
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(Math.floor(3000000000 / 7));
+  });
+
+  it.each([
+    ['export { g as h }', 'function g() {\n  return (1|2)/2;\n}\nexport { g as h };\n', 'h'],
+    ['export { g } after', 'function g() {\n  return (1|2)/2;\n}\nexport { g };\n', 'g'],
+  ])('F4: every export form keeps the f32 result: %s', (_, libText, name) => {
+    const lib = `"use typeshade";\n${libText}`;
+    const main =
+      `"use typeshade";\nimport { ${name} } from "./lib.shade";\nexport function t(vi: u32): u32 {\n` +
+      `  let k: u32 = ${name}();\n  return k;\n}\n`;
+    const read = (uri: string): string | undefined =>
+      uri.includes('lib.shade') ? lib : uri.includes('main.shade') ? main : undefined;
+    const fromMain = compile(main, { fileName: '/app/main.shade.ts', readDocument: read })
+      .diagnostics.map((d) => /Write "(.*)" for/.exec(d.message)?.[1])
+      .filter((e) => e !== undefined);
+    const fromLib = compile(lib, { fileName: '/app/lib.shade.ts' })
+      .diagnostics.map((d) => /Write "(.*)" for/.exec(d.message)?.[1])
+      .filter((e) => e !== undefined);
+    expect(fromMain).toEqual(['f32(1|2)/2']);
+    expect(fromLib).toEqual(['f32(1|2)/2']);
+    const checked = checkDocuments(
+      [
+        { path: '/app/main.shade.ts', uri: '/app/main.shade.ts', text: main },
+        { path: '/app/lib.shade.ts', uri: '/app/lib.shade.ts', text: lib },
+      ],
+      { readDocument: read },
+    );
+    expect(
+      checked.diagnostics
+        .map((d) => /Write "(.*)" for/.exec(d.message)?.[1])
+        .filter((e) => e !== undefined),
+    ).toEqual(['f32(1|2)/2']);
+  });
+
+  it('F5: a /= over a constant whose variable flows to two types names no edit', () => {
+    const source = T12(
+      'const k = 7;\n  h(k);\n  let y = k;\n  y /= 2;\n  let j: i32 = y;\n  let z: f32 = y;\n' +
+        '  return z + f32(j);',
+      'f32',
+      'function h(a: u32): u32 {\n  return a;\n}\n',
+    );
+    const got = both(source);
+    expect(got[0]).toContain('Declare "y" with i32 or f32 to choose the division.');
+  });
+
+  it("F6: a constant's remedy lists only the types its positions take", () => {
+    const source = T12(
+      'const k = 7;\n  h(k);\n  let q = k / 2;\n  let j: i32 = q;\n  let z: f32 = q;\n' +
+        '  return z + f32(j);',
+      'f32',
+      'function h(a: u32): u32 {\n  return a;\n}\n',
+    );
+    expect(both(source)[0]).toContain('Write i32(…) or f32(…) around "k" to choose the division.');
+  });
+
+  it('F8: an arm of ?: is a typed peer', () => {
+    const source = T12('let q = (5|2)/2;\n  return vi > 3 ? q : vi;', 'u32');
+    expect(both(source)[0]).toContain('Write "u32(5|2)/2" for the integer division.');
   });
 
   it.each([

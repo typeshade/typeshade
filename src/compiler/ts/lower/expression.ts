@@ -55,6 +55,8 @@ import {
   isKindlessModuleConst,
   kindlessOrigin,
   kindlessReadings,
+  readingsOf,
+  readingsSentence,
   statesType,
   foldKindless,
   markKindlessLeaf,
@@ -1015,16 +1017,6 @@ const VALUE_SENSITIVE: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.ExclamationEqualsEqualsToken,
 ]);
 
-/** Whether `n` is a conversion the author wrote, `i32(…)`, `u32(…)` or `f32(…)`. */
-function writtenConversion(n: ts.Expression): boolean {
-  const inner = skipParensNode(n);
-  return (
-    ts.isCallExpression(inner) &&
-    ts.isIdentifier(inner.expression) &&
-    ['i32', 'u32', 'f32'].includes(inner.expression.text)
-  );
-}
-
 /** The `/` of a tree of written integers, as {@link noteKindlessDivision} records it. */
 interface KindlessDivision {
   readonly node: ts.BinaryExpression;
@@ -1375,34 +1367,43 @@ function lowerBinary(
   const rightSetup =
     LOGICAL[node.operatorToken.kind] !== undefined ? scope.takeHoisted(rightMark) : [];
   if (!left || !right) return undefined;
-  // A tree whose `u32` bits and TypeScript's value differ (`3000000000 | 0`), beside a typed
-  // `u32` under an operator whose result depends on which it is (`/`, `%`, a comparison): it
-  // does not say which value it means, as a `>>` over it does not (the owner's decision of
-  // 2026-11-11, "거부"). `+ - *` and the bit operators agree on both, modulo 2^32.
-  if (VALUE_SENSITIVE.has(node.operatorToken.kind)) {
+  // A tree whose `u32` bits and TypeScript value differ (`3000000000 | 0`), or a binding that
+  // holds one, under an operator whose result depends on which it is (`/`, `%`, a comparison,
+  // `>>` by an amount that is no written number): it does not say which value it means (the
+  // owner's decision of 2026-11-12, D2). `+ - * & | ^ <<` agree on both, modulo 2^32. A tree
+  // under `/`, `%` or `>>` beside written numbers is folded as TypeScript computes it.
+  const opKind = node.operatorToken.kind;
+  if (VALUE_SENSITIVE.has(opKind) || opKind === ts.SyntaxKind.GreaterThanGreaterThanToken) {
     const resolve = (n: string) => scope.resolveIr(n);
     for (const [e, other, n, m] of [
       [left, right, node.left, node.right],
       [right, left, node.right, node.left],
     ] as const) {
-      const readings = kindlessReadings(e);
+      const readings = readingsOf(e, resolve);
+      if (readings === undefined) continue;
+      if (opKind === ts.SyntaxKind.GreaterThanGreaterThanToken && n !== node.left) continue;
+      const folds =
+        kindlessReadings(e) !== undefined &&
+        (opKind === ts.SyntaxKind.SlashToken ||
+          opKind === ts.SyntaxKind.PercentToken ||
+          opKind === ts.SyntaxKind.GreaterThanGreaterThanToken) &&
+        (isKindlessBitwise(other) || writtenIntegerOperand(m));
+      if (folds) continue;
+      // Beside an `i32` the tree is ToInt32 of its bits, which is TypeScript's value.
       if (
-        readings === undefined ||
-        typeKey(other.type) !== 'u32' ||
-        (!writtenConversion(m) && kindlessOrigin(other, resolve, sourceFile) !== 'typed')
+        kindlessReadings(e) !== undefined &&
+        typeKey(other.type) === 'i32' &&
+        !isKindlessBitwise(other)
       ) {
         continue;
       }
       const text = skipParensNode(n).getText(sourceFile).replace(/\s+/g, ' ');
-      const operator = node.operatorToken.getText(sourceFile);
       retractKindlessRefusal(e);
       pushDiag(
         diagnostics,
         sourceFile,
         n,
-        `"${text}" is ${String(readings.u32)} on its u32 bits and ${String(readings.ts)} in ` +
-          `TypeScript, so the "${operator}" does not say which value it means. Write ` +
-          `"u32(${text})" for the u32 value.`,
+        readingsSentence(text, readings, node.operatorToken.getText(sourceFile)),
         TS_CODES.TYPE_MISMATCH,
       );
       return undefined;

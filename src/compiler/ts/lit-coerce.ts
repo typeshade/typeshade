@@ -371,8 +371,12 @@ function kindlessIn(expr: Expr, target: ShaderType): number | undefined {
  *  `undefined` where the position refuses the value in its own words (`reportIntLitRange`). */
 function retypeKindless(expr: Expr, target: ShaderType, declared: boolean): Expr | undefined {
   if (!isKindlessBitwise(expr) || !isIntScalar(target)) return undefined;
-  const v = kindlessIn(expr, target);
+  let v = kindlessIn(expr, target);
   if (v === undefined) return undefined;
+  // A tree whose `u32` bits and TypeScript value differ is that value at an `i32`, which is
+  // ToInt32 of its bits: both readings agree there.
+  const readings = kindlessReadings(expr);
+  if (readings !== undefined && typeKey(target) === 'i32') v = readings.ts;
   const pending = pendingRefusals.get(expr);
   if (pending?.kind === 'readings') {
     // Refused for its two readings: the position reads it as the refused program would.
@@ -555,6 +559,47 @@ export function markKindlessBinding(binding: object, declared: string): void {
   kindlessBindings.set(binding, declared);
 }
 
+/** The bindings that hold a tree whose `u32` bits and TypeScript value differ
+ *  (`let a = 3000000000 | 0`), with those two values: every use of the binding where the two
+ *  give different results is refused (the owner's decision of 2026-11-12, D2). */
+const readingsBindings = new WeakMap<object, { readonly u32: number; readonly ts: number }>();
+
+/** The two values of `expr` where its `u32` bits and TypeScript value differ: a tree
+ *  ({@link kindlessReadings}) or a read of a binding that holds one. */
+export function readingsOf(
+  expr: Expr,
+  resolve: (name: string) => object | undefined,
+): { readonly u32: number; readonly ts: number } | undefined {
+  const direct = kindlessReadings(expr);
+  if (direct !== undefined) return direct;
+  if (expr.op !== 'varref') return undefined;
+  const b = resolve(expr.name);
+  return b === undefined ? undefined : readingsBindings.get(b);
+}
+
+/** Records that `binding` holds `init`'s two readings, where it has two. */
+export function markReadingsBinding(
+  binding: object,
+  init: Expr,
+  resolve: (name: string) => object | undefined,
+): void {
+  const readings = readingsOf(init, resolve);
+  if (readings !== undefined) readingsBindings.set(binding, readings);
+}
+
+/** The refusal of an operation whose result differs between the two readings of `text`. */
+export function readingsSentence(
+  text: string,
+  readings: { readonly u32: number; readonly ts: number },
+  operator: string,
+): string {
+  return (
+    `"${text}" is ${String(readings.u32)} on its u32 bits and ${String(readings.ts)} in ` +
+    `TypeScript, so the "${operator}" does not say which value it means. Write ` +
+    `"u32(${text})" for the u32 value.`
+  );
+}
+
 /** The declaration with its type written of a binding {@link markKindlessBinding} marked. */
 export function kindlessDeclaration(binding: object | undefined): string | undefined {
   return binding === undefined ? undefined : kindlessBindings.get(binding);
@@ -588,6 +633,15 @@ export function kindlessOrigin(
 ): 'kindless' | 'written' | 'typed' {
   if (kindlessBitwise.has(expr)) return 'kindless';
   if (expr.op === 'lit') return typeof expr.value === 'number' ? 'written' : 'typed';
+  // A read of a constant of no fixed type (`const K = 4`, in a module, a function or another
+  // file) is its written number (change 0134 item 2): it states no type.
+  const abstract = abstractLiteralOf(expr);
+  if (
+    abstract !== undefined &&
+    kindlessModuleConsts.get(sourceFile!)?.has((expr as { name?: string }).name ?? '') !== true
+  ) {
+    return abstract.op === 'lit' && typeof abstract.value === 'number' ? 'written' : 'typed';
+  }
   // A module constant whose initializer is one (`const K = 1 << 4`), read in a function.
   if (expr.op === 'constref') {
     return sourceFile !== undefined && kindlessModuleConsts.get(sourceFile)?.has(expr.name) === true
@@ -723,6 +777,9 @@ function retargetWrittenIntLit(expr: Expr, node: ts.Expression, peer: ShaderType
   const folded = foldNumericLit(expr);
   if (folded.op !== 'lit' || typeof folded.value !== 'number') return folded;
   if (!isIntScalar(peer)) return folded;
+  // A conversion the author wrote states its type, also inside arithmetic (`f32(2) + 1`,
+  // `i32(2) + 1`): its fold keeps that type (decision Q11 of change 0134).
+  if (statesType(node)) return folded;
   if (!isIntegerLiteralNode(node) && folded === expr) return folded;
   if (!isIntegerLiteralNode(node) && !Number.isInteger(folded.value)) return folded;
   if (!isIntegerLiteralNode(node) && expr.op !== 'unop' && expr.op !== 'binop') return folded;
@@ -771,7 +828,14 @@ function retargetF64DeclaredLit(expr: Expr, node: ts.Expression): Expr {
  *
  *  A conditional is retargeted through its arms, so `c ? 1 : 2` in a u32 position is a
  *  `select` of two u32 literals rather than a select of two f32 ones. */
-export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: ShaderType): Expr {
+export function retargetIntLitCtx(
+  expr: Expr,
+  node: ts.Expression,
+  target: ShaderType,
+  /** Whether the author wrote the position's type. A variable whose type its uses decide
+   *  states none (`a = a / 2` over `let a = 1 | 2`), so its `/` stays refused (D-b). */
+  declared = true,
+): Expr {
   noteDemand(expr, target);
   // An integer position asks an integer of a `/` inside what it reads (`let j: u32 = k / 2`,
   // `h((k % 4) / 2)`): the refusal of that `/` names the integer edit (change 0134).
@@ -786,9 +850,9 @@ export function retargetIntLitCtx(expr: Expr, node: ts.Expression, target: Shade
   // means and is left alone, as it is beside an f64 operand.
   if (isF64(target)) return retargetF64DeclaredLit(expr, node);
   if (!isIntScalar(target)) return expr;
-  const kindless = retypeKindless(expr, target, true);
+  const kindless = retypeKindless(expr, target, declared);
   if (kindless !== undefined) return kindless;
-  const quotient = integerQuotientAt(expr, target, true);
+  const quotient = integerQuotientAt(expr, target, declared);
   if (quotient !== undefined) return quotient;
   const inner = stripParens(node);
   if (!ts.isConditionalExpression(inner) && !isIntegerLiteralTree(inner)) return expr;

@@ -1060,7 +1060,10 @@ function divisionSentence(
   else if (node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken) {
     const name =
       carriedByNode.get(stripParens(node.left))?.variable?.name ?? writtenText(node.left);
-    remedy = `Declare "${name}" with i32, u32 or f32 to choose the division.`;
+    const types = [...(allowed ?? ['i32', 'u32', 'f32'])];
+    const list =
+      types.length <= 1 ? (types[0] ?? '') : `${types.slice(0, -1).join(', ')} or ${types.at(-1)!}`;
+    remedy = `Declare "${name}" with ${list} to choose the division.`;
   } else {
     remedy = genericDivisionRemedy(
       originUnits(node, 'f32').map((n) =>
@@ -1313,24 +1316,32 @@ export function reportAbstractDivisions(
       node,
       build: (cx) => {
         if (node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken) {
-          // `y /= 2` names the variable declared with its type.
+          // `y /= 2` names the variable declared with its type. Where the variable flows to two
+          // types (`let j: i32 = y; let z: f32 = y`), no declaration serves both: no edit.
           const variable = carriedByNode.get(stripParens(node.left))?.variable;
           const change =
             variable === undefined
               ? undefined
               : declarationChange(variable.name, node.left, variable.type);
+          const decl = variable === undefined ? undefined : declarationOf(variable.name, node.left);
+          const use =
+            decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined
+              ? typesFromUse(decl.initializer, undefined, cx)
+              : undefined;
           return {
             diagnostic: () => current,
             sets: [change, change],
-            conflict: false,
+            conflict: use?.conflict === true,
             name: () => undefined,
-            generic: () => say(null),
+            generic: () => say(null, use?.allowed),
           };
         }
         // A position that asked an integer of the quotient decides it as the edits say;
         // otherwise the use of the quotient does.
         if (division.asked !== undefined) {
           const second = edits.find((e, i) => i > 0 && e.change !== undefined) ?? edits[0]!;
+          // The remedy that names no edit lists the types the positions take.
+          const { allowed } = typesFromUse(node, undefined, cx);
           return {
             diagnostic: () => current,
             sets: [edits[0]!.change, second.change],
@@ -1338,7 +1349,7 @@ export function reportAbstractDivisions(
             name: (set) => {
               if (set === 1) say(second);
             },
-            generic: () => say(null),
+            generic: () => say(null, allowed),
           };
         }
         const { first, second, conflict, allowed } = typesFromUse(node, undefined, cx);
@@ -1798,9 +1809,7 @@ function flowScalars(
     if (f.typeParameters !== undefined && f.typeParameters.length > 0) return add('opaque');
     // An exported function keeps the `f32` result the host reads (Amendment A5 of change 0134,
     // "export는 f32 유지"): the quotient is decided there, and no edit changes that result.
-    if (ts.getCombinedModifierFlags(f as ts.Declaration) & ts.ModifierFlags.Export) {
-      return add('f32');
-    }
+    if (exportedFunction(f, cx.sourceFile)) return add('f32');
     // A function with no result type: its value flows where its callers put it.
     if (!ts.isFunctionDeclaration(f) || f.name === undefined) return add('opaque');
     if (seen.has(f)) return;
@@ -1866,7 +1875,28 @@ function flowScalars(
     if (p.operator === ts.SyntaxKind.TildeToken) add('int');
     return on(p);
   }
-  if (ts.isConditionalExpression(p) && p.condition !== n) return on(p);
+  if (ts.isConditionalExpression(p) && p.condition !== n) {
+    // The other arm is a peer, as `select`'s is.
+    add(peerScalar(p.whenTrue === n ? p.whenFalse : p.whenTrue, cx));
+    return on(p);
+  }
+}
+
+/** Whether the file exports `f`: with `export` on it, or by name in an `export { … }` list,
+ *  under its own name or another (`export { g as h }`), before or after it is declared. */
+function exportedFunction(f: ts.SignatureDeclaration, sourceFile: ts.SourceFile): boolean {
+  if (ts.getCombinedModifierFlags(f as ts.Declaration) & ts.ModifierFlags.Export) return true;
+  if (!ts.isFunctionDeclaration(f) || f.name === undefined) return false;
+  const name = f.name.text;
+  for (const st of sourceFile.statements) {
+    if (!ts.isExportDeclaration(st) || st.moduleSpecifier !== undefined) continue;
+    const clause = st.exportClause;
+    if (clause === undefined || !ts.isNamedExports(clause)) continue;
+    for (const spec of clause.elements) {
+      if ((spec.propertyName ?? spec.name).getText(sourceFile) === name) return true;
+    }
+  }
+  return false;
 }
 
 /** The one type a quotient's edit takes from what its positions ask, and the type of the second

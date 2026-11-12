@@ -748,9 +748,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'lower/expression.ts',
-      sites: 4,
+      sites: 3,
       lines: 0,
-      note: "names `u32(0xF0000000) >> 28` for a `>>` over a written number only a u32 holds whose u32 and TypeScript readings differ: an expression, not a declaration; `use-inference.test.ts` applies it and holds the result to compile clean in both halves with the u32 value (issue 1261, the owner's decision of 2026-11-11). The second names the edit for a `/` of a tree of written integers whose quotient is no integer (verdict 4 of THE RULE in `lit-coerce.ts`): `f32(1 | 2) / 2`, or `i32(1 << 3) / 3` beside an integer peer; `use-inference.test.ts` applies each and holds it to compile clean in both halves (D-b). The third names the one edit that chooses the division of a tree whose operand no integer type holds, `f32(4294967296)/3`, where the module's edits do not compile together (the owner's decision of 2026-11-12); `use-inference.test.ts` applies it and holds that the refusal is gone and no error is added in both halves. The fourth names `u32(3000000000|0)` for a tree whose u32 bits and TypeScript value differ beside a u32 under `/`, `%` or a comparison: an expression, not a declaration; `use-inference.test.ts` applies it and holds the result to compile clean in both halves with the u32 value",
+      note: "names `u32(0xF0000000) >> 28` for a `>>` over a written number only a u32 holds whose u32 and TypeScript readings differ: an expression, not a declaration; `use-inference.test.ts` applies it and holds the result to compile clean in both halves with the u32 value (issue 1261, the owner's decision of 2026-11-11). The second names the edit for a `/` of a tree of written integers whose quotient is no integer (verdict 4 of THE RULE in `lit-coerce.ts`): `f32(1 | 2) / 2`, or `i32(1 << 3) / 3` beside an integer peer; `use-inference.test.ts` applies each and holds it to compile clean in both halves (D-b). The third names the one edit that chooses the division of a tree whose operand no integer type holds, `f32(4294967296)/3`, where the module's edits do not compile together (the owner's decision of 2026-11-12); `use-inference.test.ts` applies it and holds that the refusal is gone and no error is added in both halves.",
     },
     {
       file: 'lower/function-types.ts',
@@ -769,6 +769,12 @@ describe('every refusal that names a line is pinned above', () => {
       sites: 2,
       lines: 0,
       note: 'names one edit for a `/` that reaches a constant of no fixed type, built from the source of the `/`: the constant declared with the type the position asks, or the `/` with each value converted; the author chooses which division is meant, so no case pastes it mechanically here; `abstract-const.test.ts` applies each edit and holds the result to compile clean in both halves (change 0134). The second names the edit for a `/` over a bitwise expression of written integers, `f32(1 | 2) / 2` or the declaration with its type for a `/=`; `use-inference.test.ts` applies each and holds it to compile clean in both halves (issue 1261, D-b)',
+    },
+    {
+      file: 'lit-coerce.ts',
+      sites: 1,
+      lines: 0,
+      note: "names `u32(3000000000|0)` for a tree whose u32 bits and TypeScript value differ under an operation whose result differs between them (the owner's decision of 2026-11-12, D2): an expression, not a declaration; `use-inference.test.ts` applies it and holds the result to compile clean in both halves with the u32 value",
     },
     {
       file: 'stage-call.ts',

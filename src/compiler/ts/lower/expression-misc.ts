@@ -25,6 +25,8 @@ import {
   readKindlessExactly,
   reportIntLitRange,
   retargetIntLitCtx,
+  readingsOf,
+  readingsSentence,
 } from '../lit-coerce.js';
 import { readonlyClassUpcast } from '../class-upcasts.js';
 import { lowerExpression } from './expression.js';
@@ -83,6 +85,22 @@ export function lowerScalarCastCall(
   }
   const lowered = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
   if (!lowered) return undefined;
+  // `f32()` of a tree whose `u32` bits and TypeScript value differ gives two values (D2).
+  if (name === 'f32') {
+    const readings = readingsOf(lowered, (n) => scope.resolveIr(n));
+    if (readings !== undefined) {
+      const arg = node.arguments[0]!;
+      const inner = ts.isParenthesizedExpression(arg) ? arg.expression : arg;
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        arg,
+        readingsSentence(inner.getText(sourceFile).replace(/\s+/g, ' '), readings, 'f32()'),
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+  }
   // `i32()` and `u32()` state an integer type: a quotient of written integers they read is
   // truncated by that type, which is TypeScript's value truncated, so its `/` stands (issue
   // 1261, `lit-coerce.ts` THE RULE, verdict 4; Amendment A4).

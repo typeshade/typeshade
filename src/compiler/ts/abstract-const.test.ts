@@ -1366,23 +1366,22 @@ ${H3}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     // named, and the refusal says what to write around which operand (the owner's decision of
     // 2026-11-12, "name only verified edits"). Each wrap it offers chooses the division. One
     // diagnostic each, as on `main` (Rule 12.4).
-    for (const body of [
-      'const k = 7; h(k); return f32(h(x + k / 2));',
-      'const k = 7; h(k); return vi + k / 2;',
-      'const k = 7; h(k); return xs[-k / 2];',
-      'const k = 7; h(k); return f32(h(-k / 2));',
-      'const k = 7; h(k); return f32(vi + -k / 2);',
-      'const k = 7; h(k); let j: u32 = -k / 2; return f32(j);',
-    ]) {
+    // The remedy lists only the types the quotient's positions take (the twelfth review, F6).
+    for (const [body, types] of [
+      ['const k = 7; h(k); return f32(h(x + k / 2));', 'f32(…)'],
+      ['const k = 7; h(k); return vi + k / 2;', 'u32(…)'],
+      ['const k = 7; h(k); return xs[-k / 2];', 'i32(…) or u32(…)'],
+      ['const k = 7; h(k); return f32(h(-k / 2));', 'u32(…)'],
+      ['const k = 7; h(k); return f32(vi + -k / 2);', 'u32(…)'],
+      ['const k = 7; h(k); let j: u32 = -k / 2; return f32(j);', 'u32(…)'],
+    ] as const) {
       const source = t(body);
       const lines = compile(source).diagnostics.map((d) => d.message);
       expect(lines).toEqual([
-        expect.stringContaining(
-          'Write i32(…), u32(…) or f32(…) around "k" to choose the division.',
-        ),
+        expect.stringContaining(`Write ${types} around "k" to choose the division.`),
       ]);
       expect(editor(source).map((l) => l.replace(/^TS\d+: /, ''))).toEqual(lines);
-      for (const type of ['i32', 'u32', 'f32']) {
+      for (const type of [...types.matchAll(/([iuf]32)\(/g)].map((m) => m[1]!)) {
         const wrapped = source.replace('k / 2', `${type}(k) / 2`);
         for (const l of [
           ...compile(wrapped).diagnostics.map((d) => d.message),

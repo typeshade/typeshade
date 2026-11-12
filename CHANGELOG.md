@@ -309,14 +309,15 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   `let`, a parameter, a result, a vector constructor, a field of an object literal, a typed
   peer (its written or inferred type), an assignment target, through a bit operator and a chain
   of `let`s, and to the callers of a function with no result type; else `f32`. An exported
-  function's result is the `f32` the host reads (Amendment A5), so a quotient that flows there
-  is decided by it; a generic function's result is not followed.
+  function's result is the `f32` the host reads (Amendment A5), in every export form
+  (`export { g as h }` included), so a quotient that flows there is decided by it; a generic function's result is not followed.
   `let q = (1 | 2) / 2; return q * 2` in an `i32` function names `i32(1 | 2) / 2`,
   `return h(q)` with `h(a: u32)`
   names `u32(1 | 2) / 2`, and `a /= 2` names the declaration its uses ask
   (`let a: u32 = 1 | 2`). A product past `u32` names the value (`((1 << 30) * 4) / 3` names
   `f32(4294967296) / 3`). A conversion the author wrote on an operand decides the division
-  (`(1 | 2) / i32(2)` and `(1 | 2) / (i32(2) + 1)` are the `i32` division); a builtin carries
+  (`(1 | 2) / i32(2)` and `(1 | 2) / (i32(2) + 1)` are the `i32` division, and `f32(2) + 1` or
+  `a /= f32(2)` keeps the `f32` it states); a builtin carries
   its arguments' origin, so `(1 | 2) / abs(1 << 1)` stays refused. The compiler makes the edit
   of every refused `/` of the module at once (a tree, a binding that holds one, and a constant
   of no fixed type, which Amendment A2 refuses) and names the edits only when the edited program
@@ -353,14 +354,19 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
     `x: f32` (decision 1), `1.0 | 2`, and `f32((K | 1) / 2)`, which named `(K | 1.0)` before;
   - `const K = 3; let m = K / 2;` at module scope with `vi * K` in a function (1.5 before;
     Amendment A2);
-  - a tree whose `u32` bits and TypeScript value differ, beside a typed `u32` under `/`, `%` or a
-    comparison: `(3000000000 | 0) / vi` names `u32(3000000000 | 0)` (as the owner's decision of
-    2026-11-11 refuses `0xF0000000 >> 28`);
+  - every operation whose result differs between a tree's `u32` bits and its TypeScript value
+    (the owner's decision of 2026-11-12, D2): `/`, `%`, a comparison, `min`, `max`, `clamp`,
+    `abs`, `sign`, `f32()`, `>>` by an amount that is no written number, `/=`, `%=` and `>>=`,
+    also through a binding (`let a = 3000000000 | 0; let b = a; b / vi`). Each names
+    `u32(3000000000 | 0)`. `+ - * & | ^ <<` agree modulo 2^32 and compile;
+  - a `/` over a value that is an integer only by inference, stored back into a variable whose
+    type its uses decide (`let a = 1 | 2; a = a / 2;`, `a /= K` with `const K = 4`), which
+    divided as an integer before (1 and 0);
   - `(1 | 2) / f32(2)` (1.5 on `main`) is a plain mismatch: the written `f32(2)` decides an
     `f32` division, and `1 | 2` is an integer;
   - `f32((K | 0) / 2)` with `const K = 4` (2 on `main`): `K | 0` reads `K` as an integer, and
     Amendment A2 refuses a `/` over such a constant, as it refuses `const HALF = N / 2` with
-    `const N = 8` (open item on #1272).
+    `const N = 8` (kept by the owner's decision of 2026-11-12, D3).
 
 - **The editor's hover names a constant of no fixed type in the language's words, and each read
   at the type it takes there** (change 0134 item 4; Rules 5.1 and 12.7; decision Q3). At the

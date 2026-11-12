@@ -117,6 +117,9 @@ import {
   kindlessDeclaration,
   kindlessOrigin,
   statesType,
+  markReadingsBinding,
+  readingsOf,
+  readingsSentence,
   markKindlessBinding,
   markQuotientBinding,
   intLiteralRangeMessage,
@@ -1010,6 +1013,10 @@ function lowerDeclarationKind(
   // `let q = (1 | 2) / 2`: an integer position that reads `q` raises no second mistake.
   const refusedQuotient = isIntegerQuotient(init) || pendingKindlessRefusal(init) === 'quotient';
   if (refusedQuotient) markQuotientBinding(bound);
+  // `let a = 3000000000 | 0` holds two readings, and so does `let b = a` (D2).
+  if (pendingKindlessRefusal(init) === undefined) {
+    markReadingsBinding(bound, init, (n) => scope.resolveIr(n));
+  }
   // `let a = 1 | 2`: a `/` over `a` does not say which division it is (D-b, issue 1261). A
   // refused quotient is one mistake already.
   if (
@@ -1878,11 +1885,25 @@ function lowerAssign(
   // target is a DECLARED position: the name was annotated where it was declared, and the
   // lvalue carries that type here. Without this the literal fell through to the
   // unique-struct fallback and a second struct of the same shape refused it.
-  let value = lowerExpression(right, sourceFile, scope, diagnostics, want);
+  // A variable whose type its uses decide (no annotation the author wrote) is no position
+  // that states a type: a quotient stored in it stays refused (D-b, Rule 5.1).
+  const inner = ts.isParenthesizedExpression(left) ? left.expression : left;
+  const bound = ts.isIdentifier(inner) ? scope.resolve(inner.text) : undefined;
+  const stated =
+    bound === undefined ||
+    (bound.inferred === undefined &&
+      (target?.op !== 'varref' || kindlessDeclaration(scope.resolveIr(target.name)) === undefined));
+  let value = lowerExpression(
+    right,
+    sourceFile,
+    scope,
+    diagnostics,
+    stated || !isIntScalar(want) ? want : undefined,
+  );
   if (!value) return undefined;
   // `x = 2` takes the target's type when it is i32 or u32 (#8 A3); the compound form already
   // did through lowerAssignOp.
-  value = retargetIntLitCtx(value, right, want);
+  value = retargetIntLitCtx(value, right, want, stated);
   value = reportIntLitRange(value, right, want, sourceFile, diagnostics) ?? value;
   // `k = vi` gives a value its uses decide the type of what it stores (change 0134 item 1).
   noteStoredType(undecidedTarget(left, scope, target), value, value.type);
@@ -1963,6 +1984,21 @@ function lowerBitwiseAssignOpTo(
   }
   let value = lowerExpression(right, sourceFile, scope, diagnostics);
   if (!value) return undefined;
+  // `a >>= n` over a binding with two readings: its `u32` bits and TypeScript value shift to
+  // different results (the owner's decision of 2026-11-12, D2).
+  if (bop === '>>') {
+    const readings = readingsOf(target, (n) => scope.resolveIr(n));
+    if (readings !== undefined) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        left,
+        readingsSentence(left.getText(sourceFile).replace(/\s+/g, ' '), readings, '>>='),
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+  }
   // A bitwise expression over written integers has no kind of its own: it takes the type the
   // target asks (`u |= K | J`, `u ^= ~0` on a `u32`), as a written number does (issue 1261).
   if (isKindlessBitwise(value)) {
@@ -2105,6 +2141,27 @@ function lowerAssignOpTo(
     );
     return undefined;
   }
+  // `a /= vi`, `a %= vi`, `a >>= vi` over a binding with two readings, or by such a value:
+  // the two give different results (the owner's decision of 2026-11-12, D2).
+  if (bop === '/' || bop === '%' || bop === '>>') {
+    const resolve = (n: string) => scope.resolveIr(n);
+    for (const [e, n] of [
+      [target, left],
+      [value, right],
+    ] as const) {
+      const readings = readingsOf(e, resolve);
+      if (readings === undefined) continue;
+      if (e === value && bop === '>>') continue;
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        n,
+        readingsSentence(n.getText(sourceFile).replace(/\s+/g, ' '), readings, `${bop}=`),
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+  }
   // `a /= 2` over `let a = 1 | 2` (D-b, issue 1261): the variable declared with its type names
   // the integer division.
   if (bop === '/' && ts.isBinaryExpression(left.parent) && target.op === 'varref') {
@@ -2146,7 +2203,9 @@ function lowerAssignOpTo(
   } else if (
     value.op === 'lit' &&
     typeof value.value === 'number' &&
-    isNumericScalar(target.type)
+    isNumericScalar(target.type) &&
+    // `a /= f32(2)`: a written conversion keeps its type (decision Q11 of change 0134).
+    !statesType(right)
   ) {
     value = { op: 'lit', type: target.type, value: value.value };
   } else if (isVec(target.type) || isVec64(target.type) || isF64(target.type)) {
