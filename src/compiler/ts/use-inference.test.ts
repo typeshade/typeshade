@@ -1083,8 +1083,14 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
   it.each([['let q = (1 | 2) / 2;\n  return q | 0;'], ['let q = (1 | 2) / 2;\n  return q * 2;']])(
     'a let of a refused quotient is the one mistake where it flows: %s',
     (body) => {
-      const line = one(T(body));
-      expect(line).toContain('Write "f32(1 | 2) / 2" for the float division.');
+      // The quotient flows into an integer position: the edit that compiles states the integer
+      // division (checked, seventh review).
+      const source = T(body);
+      const line = one(source);
+      expect(line).toContain('Write "i32(1 | 2) / 2" for the integer division.');
+      const fixed = source.replace('(1 | 2) / 2', 'i32(1 | 2) / 2');
+      expect(compile(fixed).diagnostics).toEqual([]);
+      expect(editor(fixed)).toEqual([]);
     },
   );
 
@@ -1174,4 +1180,92 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     );
     accepted5(T(`return ((${product}) / 2) | 0;`), 0);
   });
+
+  // The seventh review of #1272 at 2854afa5: the checked edit follows the refusal, compares with
+  // the unedited program, and a zero divisor is the one mistake.
+  const appliedAll = (source: string): string => {
+    let fixed = source;
+    for (const d of compile(source).diagnostics) {
+      const m = /no operand of "(.*)" has a declared type, .* Write "(.*)" for the/.exec(d.message);
+      if (m) fixed = fixed.replace(m[1]!, m[2]!);
+    }
+    return fixed;
+  };
+  it.each([
+    ['return ii + (1|2)/(1<<1);', 'i32', 'i32(1|2)/i32(1<<1)', 4],
+    ['return clamp(ii, 0, (1|2)/(1<<1));', 'i32', 'i32(1|2)/i32(1<<1)', 1],
+    ['return vi + (1|2)/(1<<1);', 'u32', 'u32(1|2)/u32(1<<1)', 6],
+  ])('an integer peer names a checked edit: %s', (body, ret, edit, value) => {
+    const source = T(body, ret);
+    expect(one(source)).toContain(`Write "${edit}" for the integer division.`);
+    accepted5(appliedAll(source), value);
+  });
+
+  it('each refusal of a statement names an edit that compiles beside the others', () => {
+    const source = T('return (1|2)/(1<<1) + f32((5|0)/2);', 'f32');
+    const lines = compile(source).diagnostics.map((d) => d.message);
+    expect(lines).toHaveLength(2);
+    expect(editor(source)).toHaveLength(2);
+    expect(lines[0]).toContain('Write "f32(1|2)/f32(1<<1)" for the float division.');
+    expect(lines[1]).toContain('Write "f32(5|0)/2" for the float division.');
+    accepted5(appliedAll(source), 1.5 + 2.5);
+    // A mistake elsewhere in the statement does not make the edit look refused.
+    const other = T('return (1|2)/(1<<1) + f32(undefinedThing);', 'f32');
+    expect(compile(other).diagnostics[0]!.message).toContain(
+      'Write "f32(1|2)/f32(1<<1)" for the float division.',
+    );
+  });
+
+  it('where the operands as written do not compile, the edit converts their value', () => {
+    const source = T('return ((1<<30)*4)/3;', 'f32');
+    expect(one(source)).toBe(
+      'TS8003: "(1<<30)*4" is an integer by its bit operator, and no operand of "((1<<30)*4)/3" ' +
+        'has a declared type, so the "/" does not say which division it is. Write ' +
+        '"f32(4294967296)/3" for the float division.',
+    );
+    const fixed = source.replace('((1<<30)*4)/3', 'f32(4294967296)/3');
+    const result = compile(fixed);
+    expect(result.diagnostics).toEqual([]);
+    expect(editor(fixed)).toEqual([]);
+    expect(result.eval('t', [5, 3])).toBeCloseTo(4294967296 / 3, -2);
+  });
+
+  it('a quotient a u32 reads through a let names the u32 edit', () => {
+    const source = T('let q = (1 | 2) / 2;\n  return vi + q;', 'u32');
+    expect(one(source)).toContain('Write "u32(1 | 2) / 2" for the integer division.');
+    accepted5(source.replace('(1 | 2) / 2', 'u32(1 | 2) / 2'), 6);
+  });
+
+  it('the value edit keeps the text of an operand an integer type holds', () => {
+    const source = T('return ((1<<30)*4)/(1|2);', 'f32');
+    expect(one(source)).toContain('Write "f32(4294967296)/f32(1|2)" for the float division.');
+    const fixed = source.replace('((1<<30)*4)/(1|2)', 'f32(4294967296)/f32(1|2)');
+    expect(compile(fixed).diagnostics).toEqual([]);
+    expect(editor(fixed)).toEqual([]);
+  });
+
+  it('where no edit compiles, the refusal says what the edit leaves', () => {
+    const source = T('let q = (1 | 2) / 2;\n  let x: f32 = q;\n  let j: i32 = q;\n  return j;');
+    expect(one(source)).toContain(
+      'Write "f32(1 | 2) / 2" for the float division. That edit leaves another mistake: ' +
+        'Type mismatch: cannot let/const j i32 and f32',
+    );
+    const fixed = source.replace('(1 | 2) / 2', 'f32(1 | 2) / 2');
+    const left = compile(fixed).diagnostics.map((d) => d.message);
+    expect(left).toHaveLength(1);
+    expect(left[0]).toContain('Type mismatch: cannot let/const j i32 and f32');
+  });
+
+  it.each([
+    ['let a = 1|2;\n  a /= 0;\n  return a;', 'i32', '', '0'],
+    ['return f32((1|2) / Z);', 'f32', 'const Z = 0;\n', 'Z'],
+  ])(
+    'a zero divisor is the one mistake, before D-b and Amendment A2: %s',
+    (body, ret, pre, divisor) => {
+      expect(one(T(body, ret, pre))).toBe(
+        `TS8003: Division by zero: "${divisor}" is 0 on every invocation. WGSL refuses it and ` +
+          'GLSL ES 3.00 leaves it undefined.',
+      );
+    },
+  );
 });

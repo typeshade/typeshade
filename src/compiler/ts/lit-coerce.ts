@@ -262,12 +262,26 @@ interface PendingRefusal {
   readonly at?: (peer: ShaderType) => TsCompilerDiagnostic;
 }
 
-const pendingRefusals = new WeakMap<Expr, PendingRefusal>();
+/** One pending refusal as it stands, whichever literal of its tree carries it now: a retyped
+ *  literal takes it over (`carryPending`), and a check of its edit reads it here. */
+export interface RefusalCell {
+  /** The refusal as it stands; `undefined` once it is withdrawn. */
+  diagnostic: TsCompilerDiagnostic | undefined;
+  readonly into: TsCompilerDiagnostic[];
+  readonly kind: KindlessVerdict['kind'];
+  readonly value: number;
+  readonly at?: (peer: ShaderType) => TsCompilerDiagnostic;
+}
 
-/** Records that `lit` stands refused, pending until the root: `diagnostic` is pushed into `into`. */
-export function noteKindlessRefusal(lit: Expr, refusal: PendingRefusal): void {
+const pendingRefusals = new WeakMap<Expr, RefusalCell>();
+
+/** Records that `lit` stands refused, pending until the root: `diagnostic` is pushed into `into`.
+ *  Returns the cell that follows the refusal wherever it moves. */
+export function noteKindlessRefusal(lit: Expr, refusal: PendingRefusal): RefusalCell {
   refusal.into.push(refusal.diagnostic);
-  pendingRefusals.set(lit, refusal);
+  const cell: RefusalCell = { ...refusal };
+  pendingRefusals.set(lit, cell);
+  return cell;
 }
 
 /** The verdict kind of the refusal `expr` carries, if it carries one. */
@@ -275,39 +289,33 @@ export function pendingKindlessRefusal(expr: Expr): KindlessVerdict['kind'] | un
   return pendingRefusals.get(expr)?.kind;
 }
 
-/** The refusal `expr` carries, pending, if it carries one. */
-export function pendingDiagnostic(expr: Expr): TsCompilerDiagnostic | undefined {
-  return pendingRefusals.get(expr)?.diagnostic;
-}
-
-/** Puts `diagnostic` in place of the refusal `expr` carries. */
-export function replacePendingDiagnostic(expr: Expr, diagnostic: TsCompilerDiagnostic): void {
-  const pending = pendingRefusals.get(expr);
-  if (pending === undefined) return;
-  const i = pending.into.indexOf(pending.diagnostic);
-  if (i >= 0) pending.into[i] = diagnostic;
-  pendingRefusals.set(expr, { ...pending, diagnostic });
+/** Puts `diagnostic` in place of the refusal `cell` holds, if it still stands. */
+export function replaceRefusal(cell: RefusalCell, diagnostic: TsCompilerDiagnostic): void {
+  if (cell.diagnostic === undefined) return;
+  const i = cell.into.indexOf(cell.diagnostic);
+  if (i >= 0) cell.into[i] = diagnostic;
+  cell.diagnostic = diagnostic;
 }
 
 /** Withdraws the refusal of `expr`, when it is a kindless literal that carries one: a larger
  *  tree folds it, or a position reads it as THE RULE allows. Returns whether it did. */
 export function retractKindlessRefusal(expr: Expr): boolean {
-  const pending = pendingRefusals.get(expr);
-  if (pending === undefined) return false;
+  const cell = pendingRefusals.get(expr);
+  if (cell === undefined) return false;
   pendingRefusals.delete(expr);
-  const i = pending.into.indexOf(pending.diagnostic);
-  if (i >= 0) pending.into.splice(i, 1);
+  if (cell.diagnostic !== undefined) {
+    const i = cell.into.indexOf(cell.diagnostic);
+    if (i >= 0) cell.into.splice(i, 1);
+    cell.diagnostic = undefined;
+  }
   return true;
 }
 
 /** Puts the refusal of `expr` in the words of a position of the integer type `peer`. */
 function restatePending(expr: Expr, peer: ShaderType): void {
-  const pending = pendingRefusals.get(expr);
-  if (pending?.at === undefined) return;
-  const i = pending.into.indexOf(pending.diagnostic);
-  const diagnostic = pending.at(peer);
-  if (i >= 0) pending.into[i] = diagnostic;
-  pendingRefusals.set(expr, { ...pending, diagnostic });
+  const cell = pendingRefusals.get(expr);
+  if (cell?.at === undefined) return;
+  replaceRefusal(cell, cell.at(peer));
 }
 
 /** Withdraws the refusals of the direct operands of `tree`, which a fold of `tree` reads. */

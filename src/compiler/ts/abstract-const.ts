@@ -1149,10 +1149,12 @@ export interface CheckedRefusal {
   readonly node: ts.Node;
   /** The edits, the preferred one first. */
   readonly candidates: () => readonly string[];
+  /** The first of {@link candidates}, made without the others. */
+  readonly first: () => string;
   /** The refusal as it stands, if it stands. */
   readonly current: () => TsCompilerDiagnostic | undefined;
-  /** Names `edit` in the refusal. */
-  readonly restate: (edit: string) => void;
+  /** Names `edit` in the refusal, with the mistake it leaves where it leaves one. */
+  readonly restate: (edit: string, remains?: string) => void;
 }
 
 const checkedRefusalsOf = new WeakMap<ts.SourceFile, CheckedRefusal[]>();
@@ -1164,6 +1166,15 @@ export function noteCheckedRefusal(sourceFile: ts.SourceFile, refusal: CheckedRe
   list.push(refusal);
 }
 
+/** The `/` and `/=` refused for a divisor proven zero: that refusal is their one mistake, so no
+ *  refusal of the division (Amendment A2, D-b) is said beside it (Rule 12.4). */
+const zeroDivisions = new WeakSet<ts.Node>();
+
+/** Records that the division at `node` was refused for a divisor proven zero. */
+export function noteZeroDivision(node: ts.Node): void {
+  zeroDivisions.add(node);
+}
+
 export function reportAbstractDivisions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -1171,6 +1182,7 @@ export function reportAbstractDivisions(
 ): void {
   const refused: { division: Division; info: AbstractConst; read: IntegerRead }[] = [];
   for (const division of divisionsOf.get(sourceFile)?.values() ?? []) {
+    if (zeroDivisions.has(division.node)) continue;
     let found: { info: AbstractConst; read: IntegerRead } | undefined;
     // The sentence names the value a read outside the `/` makes an integer, where one does: in
     // `k / n` with `n` an integer by its uses, `k` is an integer only beside `n`.
@@ -1249,7 +1261,8 @@ export function reportAbstractDivisions(
   // that states an integer type, and no comparison, reads the quotient, once for the outermost
   // such `/` (Rule 12.4).
   const written = (writtenDivisionsOf.get(sourceFile) ?? []).filter(
-    (w) => !w.read && !outer.some((o) => holds(o.division.node, w.node)),
+    (w) =>
+      !w.read && !zeroDivisions.has(w.node) && !outer.some((o) => holds(o.division.node, w.node)),
   );
   for (const w of written) {
     if (written.some((o) => o !== w && holds(o.node, w.node))) continue;
@@ -1286,31 +1299,6 @@ export function reportAbstractDivisions(
       ),
     );
   }
-  // The edit a refusal of a tree's quotient names must compile where the tree stands: each
-  // candidate is compiled with the tree replaced, and the first that adds no error in the
-  // statement is named (as the edits of a refused `/` over a constant are, Rule 5.1).
-  if (check !== undefined && !checkingEdit) {
-    for (const refusal of checkedRefusalsOf.get(sourceFile) ?? []) {
-      const d = refusal.current();
-      if (d === undefined || !diagnostics.includes(d)) continue;
-      const region = regionOf(refusal.node, sourceFile);
-      const candidates = refusal.candidates();
-      for (const text of candidates) {
-        const errors = compileEditedAll(
-          sourceFile,
-          [{ start: refusal.node.getStart(sourceFile), end: refusal.node.getEnd(), text }],
-          check,
-        );
-        const fails = errors.some(
-          (e) => e.at === undefined || (e.at >= region[0] && e.at < region[1]),
-        );
-        if (!fails) {
-          if (text !== candidates[0]) refusal.restate(text);
-          break;
-        }
-      }
-    }
-  }
   // A mismatch or an argument refusal that a read of a refused quotient raised where its `f32`
   // flows (`let q = (1 | 2) / 2; return q * 2;` in an `i32` function) is the refusal of the `/`
   // said again (Rule 12.4).
@@ -1327,6 +1315,103 @@ export function reportAbstractDivisions(
         })
       ) {
         diagnostics.splice(i, 1);
+      }
+    }
+  }
+  // The edit a refusal of a tree's quotient names must compile where the tree stands (as the
+  // edits of a refused `/` over a constant do, Rule 5.1). An edit is accepted when, made, it
+  // removes its refusal and adds no diagnostic the unedited program does not give. The edits
+  // are checked in rounds, as `checkDivisionEdits` checks them: one compile a round, with the
+  // next candidate of every refusal still open made at once; an added error is charged to the
+  // refusal whose statement holds it, and an error outside every such statement sends that
+  // round's refusals to be checked alone. Where no candidate compiles, the one that adds fewest
+  // errors is named, with the first of them (Rule 12.4, decision 1 of change 0134).
+  if (check !== undefined && !checkingEdit) {
+    const standing = (checkedRefusalsOf.get(sourceFile) ?? []).filter((r) => {
+      const d = r.current();
+      return d !== undefined && diagnostics.includes(d);
+    });
+    if (standing.length > 0) {
+      const own = new Set(standing.map((r) => r.current()!));
+      const original = new Set(
+        diagnostics.filter((d) => d.category === 'error' && !own.has(d)).map(lineOf),
+      );
+      const items = standing.map((r) => ({
+        r,
+        span: [r.node.getStart(sourceFile), r.node.getEnd()] as const,
+        // The first candidate is the edit the refusal names; the rest are made only when it fails.
+        list: undefined as readonly string[] | undefined,
+        get candidates(): readonly string[] {
+          return (this.list ??= r.candidates());
+        },
+        tried: [] as { text: string; added: string[] }[],
+        done: false,
+        accepted: undefined as string | undefined,
+      }));
+      type Item = (typeof items)[number];
+      const pick = (it: Item, round: number): string =>
+        round === 0 ? it.r.first() : it.candidates[round]!;
+      const change = (it: Item, text: string) => ({
+        start: it.r.node.getStart(sourceFile),
+        end: it.r.node.getEnd(),
+        text,
+      });
+      const addedOf = <E extends { code?: string; message: string }>(errors: readonly E[]): E[] =>
+        errors.filter((e) => !original.has(lineOf(e)));
+      const settle = (it: Item, text: string, added: readonly { message: string }[]) => {
+        it.tried.push({ text, added: added.map((e) => e.message) });
+        if (added.length === 0) {
+          it.done = true;
+          it.accepted = text;
+          if (text !== it.r.first()) it.r.restate(text);
+        }
+      };
+      for (let round = 0; ; round++) {
+        const open = items.filter(
+          (it) => !it.done && (round === 0 || round < it.candidates.length),
+        );
+        if (open.length === 0) break;
+        // The edits already accepted are made too, so their refusals are gone from the compile.
+        const settled = items
+          .filter((it) => it.accepted !== undefined)
+          .map((it) => change(it, it.accepted!));
+        const errors = addedOf(
+          compileEditedAll(
+            sourceFile,
+            [...settled, ...open.map((it) => change(it, pick(it, round)))],
+            check,
+          ),
+        );
+        // An error inside a refusal's own tree is its edit's; one elsewhere is stray.
+        const inRegion = (e: { at: number | undefined }, it: Item) =>
+          e.at !== undefined && e.at >= it.span[0] && e.at < it.span[1];
+        const stray = errors.some((e) => !open.some((it) => inRegion(e, it)));
+        for (const it of open) {
+          const text = pick(it, round);
+          if (stray && open.length > 1) {
+            // Whose edit the stray error is cannot be told: this one is checked alone.
+            const others = items
+              .filter((o) => o !== it)
+              .map((o) =>
+                change(o, o.accepted ?? pick(o, Math.min(round, o.candidates.length - 1))),
+              );
+            const alone = addedOf(
+              compileEditedAll(sourceFile, [...others, change(it, text)], check),
+            );
+            settle(
+              it,
+              text,
+              alone.filter((e) => inRegion(e, it) || !items.some((o) => inRegion(e, o))),
+            );
+          } else {
+            settle(it, text, stray ? errors : errors.filter((e) => inRegion(e, it)));
+          }
+        }
+      }
+      for (const it of items) {
+        if (it.done || it.tried.length === 0) continue;
+        const best = it.tried.reduce((a, b) => (b.added.length < a.added.length ? b : a));
+        it.r.restate(best.text, best.added[0]);
       }
     }
   }

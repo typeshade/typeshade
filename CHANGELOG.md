@@ -305,8 +305,14 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   (D-b), with the `f32()` edit, or beside an integer peer that states no type
   (`vi + (1 << 3) / 3`, `min((1 << 3) / 3, ii)`) with the integer edit (`u32(1 << 3) / 3`). The
   edit names the whole tree, so it compiles in one step (`((1 | 2) / 2) / 2` names
-  `(f32(1 | 2) / 2) / 2`), and the compiler compiles it before naming it. The owner kept this
-  scope on 2026-11-12 ("이대로"). A `/` by a divisor proven zero is the one diagnostic, as before.
+  `(f32(1 | 2) / 2) / 2`). The compiler compiles each named edit with every other refusal of the
+  program edited too, and names an edit only when it adds no error the unedited program lacks: a
+  quotient that flows into an integer position names the integer edit
+  (`let q = (1 | 2) / 2; return q * 2` names `i32(1 | 2) / 2`, and `return vi + q` names
+  `u32(1 | 2) / 2`),
+  and a product past `u32` names the value (`((1 << 30) * 4) / 3` names `f32(4294967296) / 3`). When no edit compiles, the diagnostic
+  says which mistake the edit leaves. The owner kept this scope on 2026-11-12 ("이대로"). A
+  divisor proven zero (`/`, `/=`, a constant `Z = 0`) is the one diagnostic, as before.
   Intermediate values are TypeScript's doubles: a product past their range is Infinity, which
   ToInt32 at a bit operator reads as 0.
   **Newly refused** (`TS8003`), each with the edit that compiles:

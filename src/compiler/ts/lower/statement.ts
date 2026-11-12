@@ -24,6 +24,7 @@ import {
   markCarriedRead,
   noteAbstractDivision,
   noteWrittenDivision,
+  noteZeroDivision,
   noteCarriedReturn,
   originOf,
   withReadTypes,
@@ -112,6 +113,7 @@ import {
   isIntegerQuotient,
   isKindlessBitwise,
   pendingKindlessRefusal,
+  retractKindlessRefusal,
   kindlessDeclaration,
   kindlessOrigin,
   markKindlessBinding,
@@ -2087,6 +2089,21 @@ function lowerAssignOpTo(
   // `s += h.k` with an optional nothing narrowed: the test to write (Rule 7.10, change 0093).
   if (!isOptional(target.type) && refuseOptionalUse(value, right, sourceFile, diagnostics))
     return undefined;
+  // The same refusal `a / b` gets in lowerBinary (#68): a divisor proven zero is undefined on
+  // every invocation, and `x /= 0.` is the same program as `x = x / 0.`.
+  // It is the one mistake, checked before any refusal of the `/` (D-b, Amendment A2).
+  if ((bop === '/' || bop === '%') && foldConstComponents(value, scope)?.some((v) => v === 0)) {
+    retractKindlessRefusal(value);
+    if (ts.isBinaryExpression(left.parent)) noteZeroDivision(left.parent);
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      `Division by zero: "${right.getText(sourceFile)}" is 0 on every invocation. WGSL refuses it and GLSL ES 3.00 leaves it undefined.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
   // `a /= 2` over `let a = 1 | 2` (D-b, issue 1261): the variable declared with its type names
   // the integer division.
   if (bop === '/' && ts.isBinaryExpression(left.parent) && target.op === 'varref') {
@@ -2111,18 +2128,6 @@ function lowerAssignOpTo(
       sourceFile,
       (callee) => scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
     );
-  }
-  // The same refusal `a / b` gets in lowerBinary (#68): a divisor proven zero is undefined on
-  // every invocation, and `x /= 0.` is the same program as `x = x / 0.`.
-  if ((bop === '/' || bop === '%') && foldConstComponents(value, scope)?.some((v) => v === 0)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      right,
-      `Division by zero: "${right.getText(sourceFile)}" is 0 on every invocation. WGSL refuses it and GLSL ES 3.00 leaves it undefined.`,
-      TS_CODES.TYPE_MISMATCH,
-    );
-    return undefined;
   }
   if (isKindlessBitwise(value)) {
     // `u += 1 | 2`: a bitwise expression over written integers takes an integer target's type
