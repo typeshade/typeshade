@@ -1,0 +1,80 @@
+name: TypeAudio downstream
+on:
+  pull_request:
+    paths:
+      [
+        'src/**',
+        'package.json',
+        'bun.lock',
+        '.node-version',
+        '.bun-version',
+        '.github/workflows/typeaudio-downstream.yml',
+      ]
+  push:
+    branches: [main]
+    paths:
+      [
+        'src/**',
+        'package.json',
+        'bun.lock',
+        '.node-version',
+        '.bun-version',
+        '.github/workflows/typeaudio-downstream.yml',
+      ]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: typeaudio-downstream-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  typeaudio:
+    name: TypeAudio candidate (graph + CPU)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Archive this compiler candidate
+        run: |
+          git archive --prefix=package/ --format=tar.gz --output="$RUNNER_TEMP/typeshade-candidate.tar.gz" HEAD
+      - uses: actions/checkout@v4
+        with:
+          repository: typeshade/typeaudio
+          # Fixed consumer corpus. Advance deliberately after the engine PR is merged.
+          ref: 93d9a7c6086fe7f8b80a97aef3aa2198e077cae2
+          path: .downstream/typeaudio
+          persist-credentials: false
+      - name: Install the downstream baseline
+        working-directory: .downstream/typeaudio
+        run: |
+          bun install --frozen-lockfile
+          bun run feedback --out .feedback/pinned.json
+      - name: Install and verify the compiler candidate
+        working-directory: .downstream/typeaudio
+        run: |
+          bun add --dev --exact "$RUNNER_TEMP/typeshade-candidate.tar.gz" --ignore-scripts
+          bun scripts/verify-compiler.ts ../..
+          bun run prepare
+          echo "TYPESHADE_CANDIDATE_SHA=$(git -C ../.. rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Check the engine and replay the shared Web scenarios
+        working-directory: .downstream/typeaudio
+        run: |
+          bun run check
+          bun run test
+          bun run feedback --out .feedback/report.json
+          node --test scripts/compare-feedback.test.mjs
+          node scripts/compare-feedback.mjs .feedback/pinned.json .feedback/report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: typeaudio-compiler-feedback
+          include-hidden-files: true
+          path: .downstream/typeaudio/.feedback/
