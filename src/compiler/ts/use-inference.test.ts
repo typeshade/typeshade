@@ -539,6 +539,86 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     },
   );
 
+  it.each([
+    [
+      'mixed returns',
+      'f32',
+      'return f32(g(ii > 3) / 2);',
+      'function g(c: bool) {\n  if (c) {\n    return 6 ^ 3;\n  }\n  return 5;\n}\n',
+    ],
+    ['an arrow', 'f32', 'return f32(gg() / 2);', 'const gg = () => 6 ^ 3;\n'],
+    [
+      'a local function',
+      'f32',
+      'function gg() {\n    return 6 ^ 3;\n  }\n  return f32(gg() / 2);',
+      '',
+    ],
+    [
+      'a static method',
+      'f32',
+      'return f32(C.g() / 2);',
+      'class C {\n  static g() {\n    return 6 ^ 3;\n  }\n}\n',
+    ],
+    [
+      'a /= by a call',
+      'f32',
+      'let s = 1;\n  s /= gg();\n  return f32(s);',
+      'const gg = () => 6 ^ 3;\n',
+    ],
+    [
+      'a generic through let',
+      'f32',
+      'return f32(id(1 | 2) / 2);',
+      'function id<T>(a: T): T {\n  let b = a;\n  return b;\n}\n',
+    ],
+    [
+      'D2 through a generic',
+      'u32',
+      'return id((3000000000|0)) / u32(ii);',
+      'function id<T>(a: T): T {\n  let b = a;\n  return b;\n}\n',
+    ],
+    [
+      'D2 through a module let set elsewhere',
+      'u32',
+      'setm();\n  return M / u32(ii);',
+      'let M = 4;\nfunction setm() {\n  M = (3000000000|0);\n}\n',
+    ],
+    [
+      'D2 through mixed returns',
+      'f32',
+      'return f32(g(ii > 3));',
+      'function g(c: bool) {\n  if (c) {\n    return (3000000000|0);\n  }\n  return 4;\n}\n',
+    ],
+    [
+      'D2 through a constant tree',
+      'i32',
+      'return i32(((1 << 3) | LB) >> u32(ii));',
+      'const LB = 0xF0000000 | 0;\n',
+    ],
+    [
+      'D2 through a compound assignment',
+      'u32',
+      'let a = 4;\n  a ^= 3000000000;\n  return a / u32(ii);',
+      '',
+    ],
+  ])(
+    'only a written type is declared (E1 of 2026-11-13): %s is refused, in both halves',
+    (_name, ret, body, pre) => {
+      const source = mod(pre, body, ret);
+      const said = compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`);
+      expect(said.some((m) => /does not say which (?:division it is|value it means)/.test(m))).toBe(
+        true,
+      );
+      expect(editor(source)).toEqual(said);
+    },
+  );
+
+  it('a function with a written result type gives a declared i32 (E1, decision Q11)', () => {
+    const source = mod('function h(): i32 {\n  return 5;\n}\n', 'return h() / 2;');
+    expect(compile(source).diagnostics).toEqual([]);
+    expect(compile(source).eval('t', [0])).toBe(2);
+  });
+
   it('a module constant whose root is | & or ^ is an integer, as one whose root is << is', () => {
     // F7 of the fourteenth review of #1272: `const M = 1 | 2` kept the f32 3.0 of main, so
     // `ii + M` was refused, `f + M` accepted and `M / 2` called it an integer. It is the tree's
