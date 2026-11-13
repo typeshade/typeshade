@@ -1039,6 +1039,8 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
         p.main.includes('./lib.shade') ? `${p.main}--- lib.shade.ts\n${p.lib}` : p.main;
       for (let i = 0; i < leading.length + CORPUS_SIZE; i++) {
         const built = i < leading.length ? leading[i]! : new Program(r).build();
+        // `DIFF_ONLY=n` checks the one program `n` (the others are still drawn, so it is the same).
+        if (process.env.DIFF_ONLY !== undefined && String(i) !== process.env.DIFF_ONLY) continue;
         const program: Program2 = { main: built.source, lib: LIBS[built.lib]! };
         const ours = compiled(program);
         const theirs = editor(program);
