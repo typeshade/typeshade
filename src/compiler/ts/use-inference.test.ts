@@ -514,6 +514,37 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(result.eval('t', [1])).toBe(8);
   });
 
+  it.each([
+    // An f32(…) wrap over a `|`: `|` takes no float.
+    ['const KB = 6 ^ 3;\nlet M = (-(5|0));\n', 'return ((KB >> 4) | (-(M / 9)));', 'f32'],
+    // An i32(…) wrap that makes a divisor zero: (5|0) / 7 is 0 as an integer.
+    ['', 'const k = 7;\n  return 9 / ((5|0) / k);', 'f32'],
+    // An A2 sentence that names only the constant of a division with a tree in it.
+    ['', 'const k = 4;\n  let a = ((-(5|0)) / ((ii == 2) ? (-7|0) : k));\n  return f32(a);', 'f32'],
+    // A u32(…) wrap over a unary minus: u32 has no negation.
+    ['', 'let xs: array<u32, 2> = [1, 2];\n  xs[1] *= (-((~(1|2)) / 7));\n  return xs[1];', 'u32'],
+    // A `?:` with one typed arm.
+    [
+      '',
+      'const k = 4;\n  let a = ((-(5|0)) / ((ii == 2) ? (-7|0) : i32(k)));\n  let b = a;\n  a = a - (-(5|0));\n  return (a / f32(k));',
+      'f32',
+    ],
+  ])(
+    'a generic remedy offers no wrap that would not choose the division (2026-11-13): %s%s',
+    (pre, body, ret) => {
+      // The owner's decision of 2026-11-13, "그 경우 감싸기 안 제시": the sentence says what is true.
+      const source = mod(pre, body, ret);
+      const said = compile(source).diagnostics.map((d) => d.message);
+      expect(
+        said.some((m) => m.endsWith("Declare the type of the division's operands to choose it.")),
+      ).toBe(true);
+      expect(said.some((m) => / around "[^"]*" to choose the division\.$/.test(m))).toBe(false);
+      expect(editor(source)).toEqual(
+        compile(source).diagnostics.map((d) => `${d.code}: ${d.message}`),
+      );
+    },
+  );
+
   it('a module constant whose root is | & or ^ is an integer, as one whose root is << is', () => {
     // F7 of the fourteenth review of #1272: `const M = 1 | 2` kept the f32 3.0 of main, so
     // `ii + M` was refused, `f + M` accepted and `M / 2` called it an integer. It is the tree's

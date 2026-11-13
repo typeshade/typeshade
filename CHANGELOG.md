@@ -402,6 +402,15 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   none. The edit of a refused `>>` over a written `u32` and the value forms are verified with the
   module's other edits, and named only where they compile.
 
+  A refusal that names no edit offers no wrap where the structure shows that the wrap would not
+  choose the division (the owner's decision of 2026-11-13, "그 경우 감싸기 안 제시"): an `f32(…)`
+  wrap whose quotient a bit operator reads, an integer wrap of a divisor whose integer quotient is
+  0, a `u32(…)` wrap whose quotient a unary minus reads, an operand that is a `?:` with one typed
+  arm, and a constant's sentence over a division that holds a tree. It says "Declare the type of
+  the division's operands to choose it." The check of a module's edits compiles an importer with
+  the exported constants of its libraries, so an importer's edit that leaves its own mismatch is
+  not named.
+
   Newly refused against `main`, with the decision that covers each:
 
   - `let g = f; g += (5|0)/2` and the same for `-=`, `*=`, `/=` and `%=` (`main` gave 5, 0, 6.25,

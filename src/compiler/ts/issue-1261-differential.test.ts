@@ -1160,9 +1160,17 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
                 (x) => x.file !== d.file || d.start + d.length <= x.start || d.start >= x.end,
               );
             for (const [half, added] of addedBy(fixed, [])) {
+              // Every wrap it offers chooses the division (the owner's decision of 2026-11-13): a
+              // division that still does not say which it is, around a wrap, is a wrap that did not.
+              const undecided = (d: Line): boolean =>
+                /does not say which (?:division it is|value it means)/.test(d.message) &&
+                ranges.some(
+                  (x) => x.file === d.file && d.start <= x.start && x.end <= d.start + d.length,
+                );
               const bad = added.filter(
                 (d) =>
                   (d.file === only.file && d.message === only.message) ||
+                  undecided(d) ||
                   (!mismatch(d) && !outside(d)),
               );
               if (bad.length > 0) {

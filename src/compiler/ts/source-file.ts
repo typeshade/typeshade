@@ -18,6 +18,8 @@ import {
   reportAbstractDivisions,
   resetAbstractConsts,
   abstractConstFacts,
+  exportedConstantNames,
+  markExportedConstants,
 } from './abstract-const.js';
 import { withoutKernelLoops } from './lower/kernel-methods.js';
 import ts from 'typescript';
@@ -555,6 +557,9 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   reportUndeclaredValues(sourceFile, diagnostics);
   // A `/` over a constant of no fixed type that some read made an integer (change 0134,
   // decisions Q10 and Q11), known only now that every read was lowered.
+  // The exported constants of the program (F5 of the fourteenth review of #1272), which an
+  // edited copy compiled on its own cannot tell from its text.
+  const exported = exportedConstantNames(sourceFile);
   reportAbstractDivisions(sourceFile, diagnostics, (text, starts) => {
     const edited = ts.createSourceFile(
       sourceFile.fileName,
@@ -564,6 +569,7 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
       ts.ScriptKind.TS,
     );
     if (starts !== undefined) markProjectedAnnotations(edited, starts);
+    markExportedConstants(edited, exported);
     return compileTsSource(text, { sourceFile: edited, emit: false }).diagnostics.filter(
       (d) => d.category === 'error',
     );

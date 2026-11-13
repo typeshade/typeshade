@@ -1249,6 +1249,7 @@ function quotientDiagnostic(
             subjects.some((s) => s.readings === true)
               ? (allowed ?? ['i32', 'u32', 'f32']).map((t) => (t === 'f32' ? 'f32(i32' : t))
               : allowed,
+            { node: root },
           )
         : float
           ? `No integer type holds "${big.text}" (${String(big.value)}), so only the float ` +

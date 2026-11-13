@@ -1071,6 +1071,7 @@ function divisionSentence(
         writtenText(ts.isParenthesizedExpression(n) ? n.expression : n).replace(/\s+/g, ' '),
       ),
       allowed,
+      { node, constant: true },
     );
   }
   return `${what} "${written}" has a declared type, so the "${operator}" ${NO_DIVISION}. ${remedy}`;
@@ -1410,6 +1411,7 @@ export function reportAbstractDivisions(
                   w.readings === true
                     ? (allowed ?? ALL_SCALARS).map((t) => (t === 'f32' ? 'f32(i32' : t))
                     : allowed,
+                  { node },
                 )),
         TS_CODES.TYPE_MISMATCH,
       );
@@ -2016,8 +2018,30 @@ export function exportedConstant(d: ts.VariableDeclaration): boolean {
   if (!ts.isVariableStatement(statement) || !ts.isSourceFile(statement.parent)) return false;
   return (
     statement.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true ||
-    programFileOf(d) !== 0
+    programFileOf(d) !== 0 ||
+    (ts.isIdentifier(d.name) && exportedInProgram.get(statement.parent)?.has(d.name.text) === true)
   );
+}
+
+/** The exported constants of a linked program, by name, for an edited copy of its source that
+ *  is compiled on its own (the check of a module's edits): the copy has no file boundaries. */
+const exportedInProgram = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+
+/** The names of `sourceFile`'s module constants that {@link exportedConstant} counts. */
+export function exportedConstantNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const st of sourceFile.statements) {
+    if (!ts.isVariableStatement(st)) continue;
+    for (const d of st.declarationList.declarations) {
+      if (ts.isIdentifier(d.name) && exportedConstant(d)) out.add(d.name.text);
+    }
+  }
+  return out;
+}
+
+/** Marks `names` as exported constants of `edited`, an edited copy of a linked program. */
+export function markExportedConstants(edited: ts.SourceFile, names: ReadonlySet<string>): void {
+  if (names.size > 0) exportedInProgram.set(edited, names);
 }
 
 function exportedFunction(f: ts.SignatureDeclaration, sourceFile: ts.SourceFile): boolean {
@@ -2188,11 +2212,154 @@ function wrapList(subjects: readonly string[]): string {
   return `each of ${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]!}`;
 }
 
-/** The remedy of a refusal that names no edit: what to write around which operands. */
+/** The sentence of a refusal whose wraps would not choose the division (the owner's decision
+ *  of 2026-11-13, "그 경우 감싸기 안 제시"): what is true, and no wrap. */
+export const NO_WRAP_REMEDY = "Declare the type of the division's operands to choose it.";
+
+/** The value of `node` where it is written numbers, constants with no written type that hold
+ *  them, and operators over those, as TypeScript computes it. */
+function constNumber(node: ts.Expression, depth = 0): number | undefined {
+  const n = skipParenNodes(node);
+  if (depth > 32) return undefined;
+  const v = writtenNumber(n);
+  if (v !== undefined) return v;
+  if (ts.isIdentifier(n)) {
+    const d = untypedConstant(n);
+    return d?.initializer === undefined ? undefined : constNumber(d.initializer, depth + 1);
+  }
+  if (ts.isPrefixUnaryExpression(n)) {
+    const x = constNumber(n.operand, depth + 1);
+    if (x === undefined) return undefined;
+    return n.operator === ts.SyntaxKind.MinusToken
+      ? -x
+      : n.operator === ts.SyntaxKind.TildeToken
+        ? ~x
+        : undefined;
+  }
+  if (!ts.isBinaryExpression(n)) return undefined;
+  const a = constNumber(n.left, depth + 1);
+  const b = constNumber(n.right, depth + 1);
+  if (a === undefined || b === undefined) return undefined;
+  switch (n.operatorToken.kind) {
+    case ts.SyntaxKind.PlusToken:
+      return a + b;
+    case ts.SyntaxKind.MinusToken:
+      return a - b;
+    case ts.SyntaxKind.AsteriskToken:
+      return a * b;
+    case ts.SyntaxKind.BarToken:
+      return a | b;
+    case ts.SyntaxKind.AmpersandToken:
+      return a & b;
+    case ts.SyntaxKind.CaretToken:
+      return a ^ b;
+    case ts.SyntaxKind.LessThanLessThanToken:
+      return a << (b & 31);
+    case ts.SyntaxKind.GreaterThanGreaterThanToken:
+      return a >> (b & 31);
+    default:
+      return undefined;
+  }
+}
+
+/** Whether `node` holds a tree of written integers, or a value that is an integer only by a bit
+ *  operator ({@link kindlessSource}). */
+function containsTree(node: ts.Node): boolean {
+  if (ts.isExpression(node) && (writtenBitTree(node) || kindlessSource(node))) return true;
+  return ts.forEachChild(node, (c) => (containsTree(c) ? true : undefined)) === true;
+}
+
+/**
+ * Whether a wrap the generic remedy of the `/` at `node` would offer cannot choose the division,
+ * by a form the structure shows (the owner's decision of 2026-11-13, "그 경우 감싸기 안 제시"):
+ * a `u32(…)` wrap whose quotient a unary minus reads; an `f32(…)` wrap whose quotient a bit
+ * operator reads; an integer wrap of a divisor whose integer quotient is 0; an operand that is a
+ * `?:` with one typed arm; and, for the sentence of a constant (`constant`), a tree elsewhere in
+ * the division, which wrapping the constant leaves undecided. The check compiles nothing: the
+ * module's two edited compiles stay its bound.
+ */
+export function wrapsCannotChoose(
+  at: ts.Expression,
+  allowed: readonly string[],
+  constant = false,
+): boolean {
+  const offers = (t: string) => allowed.some((a) => a === t || (t === 'f32' && a === 'f32(i32'));
+  // The refusal may stand on a minus around the `/` (`-((~(1|2)) / 7)`).
+  let node: ts.Expression = at;
+  while (
+    ts.isParenthesizedExpression(node) ||
+    (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken)
+  ) {
+    if (ts.isPrefixUnaryExpression(node)) {
+      if (offers('u32')) return true;
+      node = node.operand;
+    } else node = node.expression;
+  }
+  if (!ts.isBinaryExpression(node)) return false;
+  const outward = (n: ts.Node): ts.Node => {
+    let u = n;
+    while (ts.isParenthesizedExpression(u.parent)) u = u.parent;
+    return u;
+  };
+  let use = outward(at);
+  let p = use.parent;
+  if (ts.isPrefixUnaryExpression(p) && p.operator === ts.SyntaxKind.MinusToken) {
+    if (offers('u32')) return true;
+    use = outward(p);
+    p = use.parent;
+  }
+  const bits = [
+    ts.SyntaxKind.BarToken,
+    ts.SyntaxKind.AmpersandToken,
+    ts.SyntaxKind.CaretToken,
+    ts.SyntaxKind.LessThanLessThanToken,
+    ts.SyntaxKind.GreaterThanGreaterThanToken,
+    ts.SyntaxKind.BarEqualsToken,
+    ts.SyntaxKind.AmpersandEqualsToken,
+    ts.SyntaxKind.CaretEqualsToken,
+  ];
+  if (
+    offers('f32') &&
+    ((ts.isBinaryExpression(p) && bits.includes(p.operatorToken.kind)) ||
+      (ts.isPrefixUnaryExpression(p) && p.operator === ts.SyntaxKind.TildeToken))
+  ) {
+    return true;
+  }
+  if (
+    (offers('i32') || offers('u32')) &&
+    ts.isBinaryExpression(p) &&
+    p.right === use &&
+    [
+      ts.SyntaxKind.SlashToken,
+      ts.SyntaxKind.PercentToken,
+      ts.SyntaxKind.SlashEqualsToken,
+      ts.SyntaxKind.PercentEqualsToken,
+    ].includes(p.operatorToken.kind)
+  ) {
+    const a = constNumber(node.left);
+    const b = constNumber(node.right);
+    if (a !== undefined && b !== undefined && b !== 0 && Math.trunc(a / b) === 0) return true;
+  }
+  for (const side of [node.left, node.right]) {
+    const c = skipParenNodes(side);
+    if (ts.isConditionalExpression(c) && typedNode(c.whenTrue) !== typedNode(c.whenFalse)) {
+      return true;
+    }
+  }
+  return constant && containsTree(node);
+}
+
+/** The remedy of a refusal that names no edit: what to write around which operands, or, where
+ *  the structure shows that a wrap would not choose the division ({@link wrapsCannotChoose}),
+ *  what is true and no wrap. */
 export function genericDivisionRemedy(
   subjects: readonly string[],
   allowed: readonly string[] = ALL_SCALARS,
+  division?: { readonly node: ts.Expression; readonly constant?: boolean },
 ): string {
+  if (division !== undefined && wrapsCannotChoose(division.node, allowed, division.constant)) {
+    return NO_WRAP_REMEDY;
+  }
   const forms = allowed.map((t) => (t === 'f32(i32' ? 'f32(i32(…))' : `${t}(…)`));
   const list =
     forms.length <= 1 ? (forms[0] ?? '') : `${forms.slice(0, -1).join(', ')} or ${forms.at(-1)!}`;
