@@ -8,6 +8,7 @@ import {
   twoReadingsOf,
 } from '../abstract-const.js';
 import ts from 'typescript';
+import { statesType } from '../lit-coerce.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -693,10 +694,12 @@ export function lowerCall(
   ) {
     // A typed peer decides: beside an `i32` the tree is TypeScript's value, beside an `f32` it
     // is refused as an integer beside a float.
+    // A written conversion states its type even where it folds to a literal (`i32(k)` with
+    // `const k = 7`, decision Q11).
     const peers = args.map((a, i) =>
       readingsOf(a, (n) => scope.resolveIr(n)) === undefined &&
       twoReadingsOf(node.arguments[i]!) === undefined &&
-      a.op !== 'lit' &&
+      (a.op !== 'lit' || statesType(node.arguments[i]!)) &&
       !isKindlessBitwise(a)
         ? typeKey(a.type)
         : undefined,

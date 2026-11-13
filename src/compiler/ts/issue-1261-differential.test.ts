@@ -920,8 +920,12 @@ function genericEdits(text: string, d: Line): Change[][] | undefined {
     const span = text.slice(d.start, d.start + d.length);
     return forms.map((form) =>
       subjects.flatMap((subject) => {
-        const i = span.indexOf(subject);
-        if (i < 0) return [];
+        // An operand the span does not hold (the span is the operand it names first) stands on
+        // the same line.
+        const inSpan = span.indexOf(subject);
+        const onLine = text.indexOf(subject, text.lastIndexOf('\n', d.start) + 1);
+        const i = inSpan >= 0 ? inSpan : onLine >= 0 ? onLine - d.start : -1;
+        if (inSpan < 0 && onLine < 0) return [];
         return [
           {
             file: d.file,
@@ -946,6 +950,19 @@ function genericEdits(text: string, d: Line): Change[][] | undefined {
       });
   }
   return undefined;
+}
+
+/** Where each change of `changes` stands in its file once they are all made. */
+function editedRanges(changes: readonly Change[]): { file: string; start: number; end: number }[] {
+  const out: { file: string; start: number; end: number }[] = [];
+  for (const file of [FILE, LIB_FILE]) {
+    let delta = 0;
+    for (const c of changes.filter((x) => x.file === file).sort((a, b) => a.start - b.start)) {
+      out.push({ file, start: c.start + delta, end: c.start + delta + c.text.length });
+      delta += c.text.length - (c.end - c.start);
+    }
+  }
+  return out;
 }
 
 /** The program with `changes` made in the files they name; `undefined` where two overlap. */
@@ -1133,9 +1150,18 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
               );
               continue;
             }
+            // A refusal that stands wholly outside the wraps names code the author wrote: a second
+            // mistake the first one hid, not one the wrap made.
+            const ranges = editedRanges(set);
+            const outside = (d: Line): boolean =>
+              ranges.every(
+                (x) => x.file !== d.file || d.start + d.length <= x.start || d.start >= x.end,
+              );
             for (const [half, added] of addedBy(fixed, [])) {
               const bad = added.filter(
-                (d) => !mismatch(d) || (d.file === only.file && d.message === only.message),
+                (d) =>
+                  (d.file === only.file && d.message === only.message) ||
+                  (!mismatch(d) && !outside(d)),
               );
               if (bad.length > 0) {
                 failures.push(
