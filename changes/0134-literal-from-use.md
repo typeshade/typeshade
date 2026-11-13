@@ -983,6 +983,26 @@ records the decision and the readings the implementation needs.
   function's result is decided by that `f32`, and no edit changes an exported result. A call from
   another file of a program reaches the function through its export, so the walk stops there. A
   generic function's result is not followed, so a quotient that flows there names no edit.
+- [reading, 2026-11-13] An exported constant keeps the `f32` its importers read, as an exported
+  function's result does (Amendment A5). A constant of another file of a program is reached
+  through its export. A refused quotient there (`export const LQ = (1|2)/2`) is refused in its own
+  file, with the float edit, and leaves the constant an `f32`. An importer's mismatch
+  (`ii + LQ` in an `i32` function) is the importer's own mistake, the same in `compile()` and in
+  the editor, and the importer names no edit that lands in another file. The fourteenth review
+  of #1272, F5.
+- [reading, 2026-11-13] A function's result carries the origin of what it returns. A function
+  with no written result whose returns are integers only by a bit operator (a tree, a binding of
+  the function that holds one, a builtin over one: `return 6 ^ 3`, `let x = 6 ^ 3; return x`,
+  `return abs(6 ^ 3)`) gives a result that is one too, through a `let`, `abs`, `min`, `sign`,
+  `select` and `?:`, for an exported function (whose module calls read its integer copy) and for
+  an imported one. So `let a = gg(); a / 2` is refused, as `let a = abs(6 ^ 3); a / 2` is. A
+  generic function whose result is its parameter (`function id<T>(a: T): T`) gives its argument's
+  origin and its argument's two readings (D2). The fourteenth review of #1272, F1 and F3.
+- [reading, 2026-11-13] A module constant whose root is `|`, `&` or `^` over written integers
+  (`const K = 1 | 2`) is their integer, as one whose root is `<<` is (`const K = 1 << 1`): one
+  tree. It kept the `f32` 3.0 of `main`, so `ii + K` was refused, `f + K` accepted, and `K / 2`
+  called `K` an integer. Beside an `f32` it is now refused (decision 1 of #1272). The fourteenth
+  review of #1272, F7.
 - [reading, 2026-11-12] A written conversion decides the division (decision Q11). A conversion the
   author writes on an operand states its type, also inside the operand's arithmetic. This covers
   `(1 | 2) / i32(2)`, `(1 | 2) / (i32(2) + 1)` and `a /= i32(2)`, and the `/` is that type's
@@ -1021,22 +1041,39 @@ records the decision and the readings the implementation needs.
     comparison, `max`, `min`, `clamp`, `abs`, `sign`, `f32()`, `>>` by an amount that is no
     written number, `/=`, `%=` and `>>=`, and the result of an exported function, which the host
     reads. The same holds through a binding and every path that carries the value with no
-    declared type: `let b = a`, `?:`, `select`, a function's result, a module `let`, arithmetic
-    over a written number (`let c = a + 0`) and a compound assignment (`s += a`). An annotation
-    ends the origin: `let x: u32 = 3000000000 | 0` is a `u32`.
+    declared type: `let b = a`, `?:`, `select`, a function's result, a generic function's
+    result, a module `let`, arithmetic over a written number (`let c = a + 0`), a compound
+    assignment (`s += a`) and a plain assignment to a variable with no written type
+    (`a = 3000000000 | 0`, also inside `for` and `if`, and to a module `let`). An annotation ends
+    the origin: `let x: u32 = 3000000000 | 0` is a `u32`.
+  - A binding that holds two readings is no tree a typed `i32` peer retypes: in `min`, `max` and
+    `clamp` beside one it is refused, and the edit takes TypeScript's value, `i32(a)`.
   - The sentence names `u32(…)`, the owner's edit:
     `"3000000000|0" is 3000000000 on its u32 bits and -1294967296 in TypeScript, so the "/" does not say which value it means. Write "u32(3000000000|0)" for the u32 value.`
   - The edit is verified with the module's other edits, as every named edit is ("name only
     verified edits"). Its form follows the structure: `u32(…)` beside a `u32` and where the value
     flows to one; `i32(…)`, which is TypeScript's value, where it flows to an `i32` or into
     `f32()`; the declaration of an assignment's target with its type
-    (`let a: u32 = 3000000000 | 0`), since a conversion cannot stand as a target. Where no form
-    compiles, the sentence ends with `Write u32(…) or i32(…) around "a" to choose its value.`
+    (`let a: u32 = 3000000000 | 0`), since a conversion cannot stand as a target; and the
+    declaration of a constant of no fixed type with its type (`const K: u32 = 3000000000 | 0`),
+    since a conversion of a constant reads its TypeScript value. A constant of another file names
+    no edit. Where no form compiles, in a module where refusals conflict the sentence ends with
+    `Write u32(…) or i32(…) around "a" to choose its value.` (D4). In a module with this one
+    refusal, whose positions ask one type, it names no form: the sentence states the two readings
+    and stops. The fourteenth review of #1272, F4.
   - Beside an `f32` the tree is an integer beside a float, refused as such (decision 1 of #1272),
     not by this sentence. A refused `/` of a binding with two readings by written numbers is
     D-b's refusal, whose float edit reads TypeScript's value: `f32(i32(a)) / 2`.
   - This replaces this amendment's earlier wording, which read the refusal under `/`, `%` and a
     comparison as a reading of the owner's decision of 2026-11-11 on a `>>` root.
+- [reading, 2026-11-13] Every edit a refusal names is verified ("name only verified edits"),
+  the edit of a `>>` over a written `u32` (`Write "u32(0xF0000000) >> 28" for the u32 shift.`)
+  and the value forms (`Write the u32 with the same bits, 0xffffffff.`, `Write the i32 with the
+same bits, -2147483648, or declare a u32.`) as the others are. Each is compiled with the
+  module's other edits, and named only where that adds no error. Otherwise the sentence states
+  what is true and stops: `ii + (0xF0000000 >> 28)` names no `u32` form, and
+  `i += (1 << 30) * 2` names no value form while #1274 stands. The fourteenth review of #1272,
+  F6.
 - [decision, owner, 2026-11-12] D3. `f32((K | 0) / 2)` with `const K = 4` stays refused (Amendment
   A2, OD-7). `K | 0` reads `K` as an integer, and Amendment A2 refuses a `/` over such a constant
   whatever its quotient is, as it refuses `const HALF = N / 2` with `const N = 8`.

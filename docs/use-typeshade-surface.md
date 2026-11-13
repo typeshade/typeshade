@@ -1423,9 +1423,14 @@ as is any other position. A tree over a written number only a `u32` holds is tha
 bits, which agree with TypeScript's -1294967296 modulo 2^32. Every operation where the two
 differ (`/`, `%`, a comparison, `max`, `min`, `clamp`, `abs`, `sign`, `f32()`, `>>` by a
 non-constant amount, the compound forms, and an exported function's result), also through a
-binding, `?:`, `select`, a function's result, a module `let`, arithmetic and a compound
-assignment, is refused with a verified edit: `u32(3000000000|0)`, `i32(…)` where the value
-flows to an `i32` or into `f32()`, or the declaration of an assignment's target with its type.
+binding, `?:`, `select`, a function's result (a generic one's included), a module `let`,
+arithmetic, a compound assignment and a plain assignment (`a = 3000000000 | 0`), is refused
+with a verified edit: `u32(3000000000|0)`, `i32(…)` where the value flows to an `i32` or into
+`f32()`, or the declaration of an assignment's target or a constant with its type. Where no form
+compiles and the refusal is the module's only one, the sentence names none. A function with no
+written result that returns a bit tree gives a result that is an integer by its bit operator,
+and so does a module `const K = 1 | 2`. An exported constant keeps the `f32` its importers read
+(Amendment A5). Every edit a refusal names, a `>>`'s and a value form's too, is verified.
 An annotation ends the origin (the owner's decisions of 2026-11-12). A compound assignment's
 right side is an operand: `g *= (5 | 0) / 2` is refused as `g = g * ((5 | 0) / 2)` is.
 
