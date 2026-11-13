@@ -747,6 +747,12 @@ describe('every refusal that names a line is pinned above', () => {
       note: 'quotes a setter signature, `set x(v: T)`, a member shape with its type left open, for a setter whose value has no type and no getter that returns one; a return type annotation, `: f32`, for a void function that returns a value; `return (` before a newline with a closing `);` after the expression, a paired expression edit rather than a complete declaration to replace (the two `return undefined;` remedies of change 0088 are gone: a bare `return` and a path that falls through are the absent value since change 0099); and, for an optional parameter (change 0093), the parameter shapes `x: T` (twice, on an entry and on a kernel function, with the type left open), `x?: T` or `x: T = d` (one parameter with two fillers), and `x?: T` or a move before the optional one (a required parameter after it), each a parameter to rewrite and no declaration; and, for an argument or an empty argument list on `@vertex` or `@fragment` (`@vertex(1)`, `@vertex()`; change 0130, amendment A1, which adds no site: the empty list is the same sentence with `delete "()"`), the attribute to write, `@vertex`, which replaces the refused attribute and is no `const` or `let` declaration this file can write over one: `stage3.test.ts` writes it over the range the refusal covers, for an argument and for the empty list, and compiles the result in both halves',
     },
     {
+      file: 'lower/expression.ts',
+      sites: 3,
+      lines: 0,
+      note: "names `u32(0xF0000000) >> 28` for a `>>` over a written number only a u32 holds whose u32 and TypeScript readings differ: an expression, not a declaration; `use-inference.test.ts` applies it and holds the result to compile clean in both halves with the u32 value (issue 1261, the owner's decision of 2026-11-11). The second names the edit for a `/` of a tree of written integers whose quotient is no integer (verdict 4 of THE RULE in `lit-coerce.ts`): `f32(1 | 2) / 2`, or `i32(1 << 3) / 3` beside an integer peer; `use-inference.test.ts` applies each and holds it to compile clean in both halves (D-b). The third names the one edit that chooses the division of a tree whose operand no integer type holds, `f32(4294967296)/3`, where the module's edits do not compile together (the owner's decision of 2026-11-12); `use-inference.test.ts` applies it and holds that the refusal is gone and no error is added in both halves.",
+    },
+    {
       file: 'lower/function-types.ts',
       sites: 1,
       lines: 0,
@@ -760,9 +766,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'abstract-const.ts',
-      sites: 1,
+      sites: 5,
       lines: 0,
-      note: 'names one edit for a `/` that reaches a constant of no fixed type, built from the source of the `/`: the constant declared with the type the position asks, or the `/` with each value converted; the author chooses which division is meant, so no case pastes it mechanically here; `abstract-const.test.ts` applies each edit and holds the result to compile clean in both halves (change 0134)',
+      note: "names one edit for a `/` that reaches a constant of no fixed type, built from the source of the `/`: the constant declared with the type the position asks, or the `/` with each value converted; the author chooses which division is meant, so no case pastes it mechanically here; `abstract-const.test.ts` applies each edit and holds the result to compile clean in both halves (change 0134). The second names the edit for a `/` over a bitwise expression of written integers, `f32(1 | 2) / 2` or the declaration with its type for a `/=`; `use-inference.test.ts` applies each and holds it to compile clean in both halves (issue 1261, D-b) The third and fourth name the edit of a value whose u32 bits and TypeScript value differ (the owner's decision of 2026-11-12, D2): `u32(x)` or `i32(x)`, an expression, or the declaration of an assignment's target with its type, `let a: u32 = (3000000000|0)`; the module's check verifies each with the other edits (Amendment A6), and `use-inference.test.ts` and the differential test apply each and hold the result to compile clean in both halves. The fifth is no sentence: the pattern that reads back the edit of a refused `>>` over a written `u32`, `u32(0xF0000000) >> 28`, so that the module's check verifies it with the other edits (F6 of the fourteenth review of #1272); the differential test applies it",
     },
     {
       file: 'stage-call.ts',

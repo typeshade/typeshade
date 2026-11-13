@@ -11,12 +11,23 @@ import {
 } from '../use-inference.js';
 import {
   carriedByCall,
+  abstractLiteralOf,
+  genericDivisionRemedy,
   isAbstractRead,
+  isIntegerWrittenRead,
   markAbstractRead,
   markCarriedRead,
   noteAbstractDivision,
+  noteCheckedRefusal,
+  noteZeroDivision,
+  noteWrittenDivision,
+  noteWrittenDivisionRead,
   noteForcedRead,
   readTypeFor,
+  kindlessSource,
+  provenTyped,
+  refuseTwoReadings,
+  twoReadingsOf,
 } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
@@ -44,6 +55,27 @@ import {
 import {
   foldNumericLit,
   isIntegerLiteralTree,
+  isKindlessBitwise,
+  isKindlessModuleConst,
+  kindlessOrigin,
+  kindlessDeclaration,
+  kindlessReadings,
+  readingsOf,
+  statesType,
+  foldKindless,
+  markKindlessLeaf,
+  noteKindlessDivision,
+  noteKindlessRefusal,
+  replaceRefusal,
+  type RefusalCell,
+  retractKindlessRefusal,
+  integerQuotientAt,
+  isIntegerQuotient,
+  readKindlessExactly,
+  markIntegerQuotient,
+  markQuotientRead,
+  retractOperandRefusals,
+  intLiteralRangeMessage,
   retargetIntLitCtx,
   shiftAmountMessage,
 } from '../lit-coerce.js';
@@ -644,7 +676,11 @@ function lowerIdentifier(
       return markInferredRead(
         markCarriedRead(
           markAbstractRead(
-            { op: 'varref', type: binding.type, name: irNameOf(binding) },
+            markQuotientRead(
+              { op: 'varref', type: binding.type, name: irNameOf(binding) },
+              binding,
+              node,
+            ),
             node,
             binding.abstract,
           ),
@@ -679,10 +715,16 @@ function lowerPrefixUnary(
       return undefined;
     }
   }
-  const operand = lowerExpression(node.operand, sourceFile, scope, diagnostics);
+  let operand = lowerExpression(node.operand, sourceFile, scope, diagnostics);
   if (!operand) return undefined;
   if (refuseOptionalUse(operand, node.operand, sourceFile, diagnostics)) return undefined;
   if (node.operator === ts.SyntaxKind.MinusToken) {
+    // The negation of a bitwise expression over written integers is computed exactly
+    // (`-(~2147483647)` is 2147483648, a u32), as its arithmetic is (issue 1261).
+    if (isKindlessBitwise(operand)) {
+      const negated: Expr = { op: 'unop', type: operand.type, a: operand };
+      return foldKindlessOrRefuse(negated, node, sourceFile, diagnostics);
+    }
     // WGSL defines unary `-` for the signed and floating kinds and their vectors, and NOT for
     // u32 (§52): `-u` on a u32 emitted `(-u)` and Tint answered `no matching overload for
     // 'operator - (u32)'`. The two spellings that do work are named, because "unsupported"
@@ -732,6 +774,20 @@ function lowerPrefixUnary(
   // `~x`, the bitwise complement (§52). Both targets spell it `~x`; it is an INTRINSIC rather
   // than an IR `unop`, because that node is negation-only and carries no operator field.
   if (node.operator === ts.SyntaxKind.TildeToken) {
+    // The operand of `~` is a bitwise operand with no typed peer (Rule 5.1, change 0134 item 1):
+    // a value its uses decide asks an integer of no kind, and a written integer, or a constant
+    // of no fixed type that is one, is an `i32`, or a `u32` where an `i32` does not hold it. It
+    // was left an `f32`, so `~1` and `~K` were refused (issue 1261).
+    noteDemand(operand, 'int');
+    operand = bitOperandLeaf(integerOperand(operand, node.operand), node.operand, scope);
+    let written: Expr | undefined;
+    if (noKindOperand(operand, node.operand)) {
+      const lit = foldNumericLit(operand);
+      const kind =
+        lit.op === 'lit' && typeof lit.value === 'number' && lit.value > 2147483647 ? u32T : i32T;
+      const lowered = (written = operand);
+      operand = softDemands(() => retargetIntLitCtx(lowered, node.operand, kind));
+    }
     const k = operand.type.kind === 'vec' ? operand.type.elem : typeKey(operand.type);
     if (k !== 'i32' && k !== 'u32') {
       pushDiag(
@@ -748,7 +804,18 @@ function lowerPrefixUnary(
     // user function of that name and `~x` share one key and fold into each other, silently,
     // on the GPU and in the oracle alike. `~` is not a TypeScript identifier, so no author
     // declaration can collide with it.
-    return { op: 'call', type: operand.type, fn: '~', args: [operand] };
+    const complement: Expr & { op: 'call' } = {
+      op: 'call',
+      type: operand.type,
+      fn: '~',
+      args: [operand],
+    };
+    if (!written) return complement;
+    // Over written integers the complement is a constant, folded as the other operators are:
+    // the range and shift-amount checks then read its value, and the targets receive a value
+    // of the type, not `~3` for Tint to evaluate as an abstract integer (`(~3 & 255) << 24`
+    // overflowed there).
+    return foldKindlessOrRefuse(complement, node, sourceFile, diagnostics);
   }
   if (node.operator === ts.SyntaxKind.ExclamationToken) {
     // `!m` on a vector of bools is componentwise (§27): the same compare-with-false the scalar
@@ -805,6 +872,441 @@ function pair(left: Expr, right: Expr, lNode: ts.Expression, rNode: ts.Expressio
       ? quietDemands(() => retargetLit(right, rNode, left.type))
       : retargetLit(right, rNode, left.type),
   ];
+}
+
+/** Whether `node` is a written integer, or a read of a constant of no fixed type that is one,
+ *  with arithmetic over those (`isIntegerLiteralTree`): an operand with no type of its own. */
+function writtenIntegerOperand(node: ts.Expression): boolean {
+  if (isIntegerLiteralTree(node) || isIntegerWrittenRead(node)) return true;
+  // `%` over written integers is arithmetic over them, as `+ - * /` are (`(7 % 3) | 0`,
+  // `((7 % 3) * 5) << 1`).
+  const inner = ts.isParenthesizedExpression(node) ? node.expression : node;
+  if (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.MinusToken) {
+    return writtenIntegerOperand(inner.operand);
+  }
+  const k = ts.isBinaryExpression(inner) ? inner.operatorToken.kind : undefined;
+  return (
+    ts.isBinaryExpression(inner) &&
+    (k === ts.SyntaxKind.PercentToken ||
+      k === ts.SyntaxKind.PlusToken ||
+      k === ts.SyntaxKind.MinusToken ||
+      k === ts.SyntaxKind.AsteriskToken) &&
+    writtenIntegerOperand(inner.left) &&
+    writtenIntegerOperand(inner.right)
+  );
+}
+
+/** `tree`, a bitwise expression over written integers built in its own integer type, folded to
+ *  the literal of the integer type its value fits (`foldKindless`); `tree` itself where a leaf
+ *  is no constant. A value neither integer type holds is refused with the sentence a written
+ *  number gets (Rule 5.4, issue 1261): `(1 << 30) * 4` is 4294967296. */
+function foldKindlessOrRefuse(
+  tree: Expr,
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  const verdict = foldKindless(tree);
+  if (verdict === undefined) return tree;
+  // This fold reads its operands whole: a verdict one of them left pending is not the
+  // program's, only the root's is (`((1 << 30) * 4) | 0` is 0).
+  retractOperandRefusals(tree);
+  let cell: RefusalCell | undefined;
+  const pending = (
+    diagnostic: TsCompilerDiagnostic,
+    at?: (peer: ShaderType) => TsCompilerDiagnostic,
+  ): Expr => {
+    cell = noteKindlessRefusal(verdict.lit, {
+      diagnostic,
+      into: diagnostics,
+      kind: verdict.kind,
+      value: 'value' in verdict ? verdict.value : 0,
+      ...(at !== undefined ? { at } : {}),
+    });
+    return verdict.lit;
+  };
+  switch (verdict.kind) {
+    case 'int':
+      return verdict.lit;
+    case 'readings': {
+      // The owner's decision of 2026-11-11, "거부": the edit picks the u32 reading, a conversion
+      // that compiles in both halves (`>>>` is not part of the surface).
+      const bin = node as ts.BinaryExpression;
+      const left = bin.left.getText(sourceFile);
+      const right = bin.right.getText(sourceFile);
+      return pending(
+        makeDiagnostic(
+          sourceFile,
+          node,
+          `Bitwise ">>" over ${left}, which only a u32 holds, gives ${String(verdict.u32)} on ` +
+            `its u32 bits and ${String(verdict.ts)} in TypeScript, so it does not say which it ` +
+            `means. Write "u32(${left}) >> ${right}" for the u32 shift.`,
+          TS_CODES.TYPE_MISMATCH,
+        ),
+      );
+    }
+    case 'outside':
+      return pending(
+        makeDiagnostic(
+          sourceFile,
+          node,
+          intLiteralRangeMessage(verdict.value, verdict.value < 0 ? i32T : u32T),
+          TS_CODES.TYPE_MISMATCH,
+        ),
+        (peer) =>
+          makeDiagnostic(
+            sourceFile,
+            node,
+            intLiteralRangeMessage(verdict.value, peer),
+            TS_CODES.TYPE_MISMATCH,
+          ),
+      );
+    case 'quotient': {
+      // The edit names the whole tree, so it compiles in one step (`(f32(1 | 2) / 2) / 2`). The
+      // checked-edit path of `abstract-const.ts` chooses its type from where the quotient flows
+      // and compiles it with every other refusal's edit; where that does not compile, the
+      // refusal names no edit.
+      const root = node as ts.Expression;
+      const state: { peer?: ShaderType; edit?: string | null; allowed?: readonly string[] } = {};
+      const known = new Map<string, string>();
+      const editIn = (type: ShaderType | undefined): string => {
+        const key = type === undefined ? '' : typeKey(type);
+        let edit = known.get(key);
+        if (edit === undefined) known.set(key, (edit = treeQuotientEdit(root, sourceFile, type)));
+        return edit;
+      };
+      const diagnostic = (): TsCompilerDiagnostic =>
+        quotientDiagnostic(
+          root,
+          sourceFile,
+          state.edit === undefined ? editIn(state.peer) : state.edit,
+          state.peer,
+          treeQuotientEdit(root, sourceFile, state.peer, false),
+          state.allowed,
+        );
+      const lit = pending(diagnostic(), (peer) => {
+        state.peer = peer;
+        state.edit = undefined;
+        return diagnostic();
+      });
+      // The cell follows the refusal to whichever literal carries it (a peer retypes it).
+      const held = cell!;
+      noteCheckedRefusal(sourceFile, {
+        node: root,
+        peer: () => (state.peer === undefined ? undefined : typeKey(state.peer)),
+        edit: (type) => editIn(type === 'f32' ? undefined : { kind: 'scalar', scalar: type }),
+        current: () => held.diagnostic,
+        restate: (edit, allowed) => {
+          state.edit = edit;
+          state.allowed = allowed;
+          replaceRefusal(held, diagnostic());
+        },
+      });
+      return lit;
+    }
+  }
+}
+
+/** The operators whose result depends on which of two values modulo 2^32 an operand is. */
+const VALUE_SENSITIVE: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.SlashToken,
+  ts.SyntaxKind.PercentToken,
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+]);
+
+/** The `/` of a tree of written integers, as {@link noteKindlessDivision} records it. */
+interface KindlessDivision {
+  readonly node: ts.BinaryExpression;
+  readonly sourceFile: ts.SourceFile;
+  /** Whether each operand carries a bit operator. */
+  readonly left: boolean;
+  readonly right: boolean;
+}
+
+/** The edit that makes the tree at `root` divide in `peer`'s type, or in `f32`: each `/`
+ *  whose value reaches the root through arithmetic converts an operand that is no written number,
+ *  and an operand of `+ - * %` beside a converted one converts too, so the edited tree has one
+ *  type in one step (`((1 | 2) / 2) / 2` gives `(f32(1 | 2) / 2) / 2`). A bit operator ends the
+ *  walk: a `/` under it is read through ToInt32 and is no part of the quotient. */
+function treeQuotientEdit(
+  root: ts.Expression,
+  sourceFile: ts.SourceFile,
+  peer?: ShaderType,
+  value = true,
+  /** Receives each operand the edit converts, with its value where no integer type holds it,
+   *  and whether it has two readings (D2). */
+  subjects?: { text: string; value?: number; readings?: boolean }[],
+): string {
+  const type = peer === undefined ? 'f32' : typeKey(peer);
+  const written = (n: ts.Expression): boolean => {
+    const inner = skipParensNode(n);
+    return isIntegerLiteralTree(inner) || (ts.isNumericLiteral(inner) && peer === undefined);
+  };
+  // The value TypeScript computes for an operand of written numbers alone, for the third edit,
+  // which converts that value (`f32(4294967296) / 3` where `f32((1 << 30) * 4) / 3` is refused
+  // for its range); `undefined` where a leaf is no written number.
+  const valueOf = (n: ts.Expression): number | undefined => {
+    if (ts.isParenthesizedExpression(n)) return valueOf(n.expression);
+    if (ts.isNumericLiteral(n)) return Number(n.text);
+    if (ts.isPrefixUnaryExpression(n)) {
+      const a = valueOf(n.operand);
+      if (a === undefined) return undefined;
+      return n.operator === ts.SyntaxKind.MinusToken
+        ? -a
+        : n.operator === ts.SyntaxKind.TildeToken
+          ? ~a
+          : undefined;
+    }
+    if (!ts.isBinaryExpression(n)) return undefined;
+    const a = valueOf(n.left);
+    const b = valueOf(n.right);
+    if (a === undefined || b === undefined) return undefined;
+    switch (n.operatorToken.kind) {
+      case ts.SyntaxKind.PlusToken:
+        return a + b;
+      case ts.SyntaxKind.MinusToken:
+        return a - b;
+      case ts.SyntaxKind.AsteriskToken:
+        return a * b;
+      case ts.SyntaxKind.SlashToken:
+        return a / b;
+      case ts.SyntaxKind.PercentToken:
+        return a % b;
+      case ts.SyntaxKind.BarToken:
+        return a | b;
+      case ts.SyntaxKind.AmpersandToken:
+        return a & b;
+      case ts.SyntaxKind.CaretToken:
+        return a ^ b;
+      case ts.SyntaxKind.LessThanLessThanToken:
+        return a << b;
+      case ts.SyntaxKind.GreaterThanGreaterThanToken:
+        return a >> b;
+      default:
+        return undefined;
+    }
+  };
+  let byValue = false;
+  // An operand that is a bit tree over a written number only a `u32` holds has two readings
+  // (D2): its `f32` is TypeScript's value only through `i32(…)`, `f32(i32(0x80000000 | 1))`.
+  const twoReadings = (n: ts.Expression): boolean => {
+    const inner = skipParensNode(n);
+    const big = (k: ts.Expression) => {
+      const x = skipParensNode(k);
+      return ts.isNumericLiteral(x) && Number(x.text) > 2147483647;
+    };
+    const bits =
+      (ts.isBinaryExpression(inner) &&
+        [
+          ts.SyntaxKind.BarToken,
+          ts.SyntaxKind.AmpersandToken,
+          ts.SyntaxKind.CaretToken,
+          ts.SyntaxKind.LessThanLessThanToken,
+          ts.SyntaxKind.GreaterThanGreaterThanToken,
+        ].includes(inner.operatorToken.kind) &&
+        (big(inner.left) || big(inner.right))) ||
+      (ts.isPrefixUnaryExpression(inner) &&
+        inner.operator === ts.SyntaxKind.TildeToken &&
+        big(inner.operand));
+    const v = valueOf(n);
+    return bits && v !== undefined && v < 0;
+  };
+  const convert = (n: ts.Expression): string => {
+    const text = skipParensNode(n).getText(sourceFile).replace(/\s+/g, ' ');
+    const reads = type === 'f32' && twoReadings(n);
+    if (subjects !== undefined && !byValue) {
+      const at = valueOf(n);
+      subjects.push(
+        at !== undefined && Number.isInteger(at) && (at < -(2 ** 31) || at > 2 ** 32 - 1)
+          ? { text, value: at }
+          : twoReadings(n)
+            ? { text, readings: true }
+            : { text },
+      );
+    }
+    // Only a value no integer type holds is written as its value; another operand keeps its text.
+    const v = byValue ? valueOf(n) : undefined;
+    return v !== undefined && Number.isInteger(v) && (v < -(2 ** 31) || v > 2 ** 32 - 1)
+      ? `${type}(${String(v)})`
+      : reads
+        ? `f32(i32(${text}))`
+        : `${type}(${text})`;
+  };
+  const edit = (both: boolean): string => {
+    const walk = (n: ts.Expression): { text: string; typed: boolean } => {
+      if (ts.isParenthesizedExpression(n)) {
+        const r = walk(n.expression);
+        return { text: `(${r.text})`, typed: r.typed };
+      }
+      if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.MinusToken) {
+        const r = walk(n.operand);
+        return { text: `-${r.text}`, typed: r.typed };
+      }
+      if (ts.isBinaryExpression(n)) {
+        const k = n.operatorToken.kind;
+        const arith =
+          k === ts.SyntaxKind.PlusToken ||
+          k === ts.SyntaxKind.MinusToken ||
+          k === ts.SyntaxKind.AsteriskToken ||
+          k === ts.SyntaxKind.PercentToken;
+        const between = sourceFile.text.slice(n.left.getEnd(), n.right.getStart(sourceFile));
+        if (k === ts.SyntaxKind.SlashToken) {
+          let l = walk(n.left);
+          let r = walk(n.right);
+          if (!l.typed && !r.typed) {
+            if (written(n.left) && written(n.right) && peer === undefined) {
+              return { text: `${l.text}${between}${r.text}`, typed: true };
+            }
+            // Each operand that is no written number converts: one left as it is would be an
+            // integer beside the converted one (`f32(1 | 2) / f32(1 << 1)`).
+            if (both || !written(n.left)) l = { text: convert(n.left), typed: true };
+            if (both || !written(n.right) || !l.typed) r = { text: convert(n.right), typed: true };
+          } else if (l.typed !== r.typed) {
+            // A tree beside a converted quotient converts too: `(f32(1|2)/2) / f32(1<<2)`.
+            if (!r.typed && !written(n.right)) r = { text: convert(n.right), typed: true };
+            if (!l.typed && !written(n.left)) l = { text: convert(n.left), typed: true };
+          }
+          return { text: `${l.text}${between}${r.text}`, typed: true };
+        }
+        if (arith) {
+          let l = walk(n.left);
+          let r = walk(n.right);
+          if (l.typed && !r.typed && !written(n.right)) r = { text: convert(n.right), typed: true };
+          if (r.typed && !l.typed && !written(n.left)) l = { text: convert(n.left), typed: true };
+          return { text: `${l.text}${between}${r.text}`, typed: l.typed || r.typed };
+        }
+      }
+      return { text: n.getText(sourceFile), typed: false };
+    };
+    return walk(root).text.replace(/\s+/g, ' ');
+  };
+  const first = edit(false);
+  if (!value) return first;
+  // An operand no integer type holds is converted by its value, since its text is refused for
+  // its range (`f32(4294967296) / 3`).
+  byValue = true;
+  return edit(false) === first ? first : edit(false);
+}
+
+/** The refusal of verdict 4 (D-b) at `root`, naming `edit` (see {@link treeQuotientEdit}). */
+function quotientDiagnostic(
+  root: ts.Expression,
+  sourceFile: ts.SourceFile,
+  /** The edit to name; `null` names none (the edits of the module's refusals do not compile
+   *  together). */
+  edit: string | null,
+  peer: ShaderType | undefined,
+  /** The edit that converts the operands as written, which names the subject. */
+  written0: string,
+  /** The types the quotient's positions take, which a remedy that names no edit lists. */
+  allowed?: readonly string[],
+): TsCompilerDiagnostic {
+  const written = root.getText(sourceFile).replace(/\s+/g, ' ');
+  const type = peer === undefined ? 'f32' : typeKey(peer);
+  // The subject is the first operand the edit converts: the integer a bit operator makes.
+  // (An operand with two readings is written `f32(i32(…))` in the edit; the subject is the
+  // operand as the source writes it.)
+  const subject = (new RegExp(`${type}\\((.*)$`).exec(written0)?.[1] ?? written).replace(
+    /^i32\(/,
+    '',
+  );
+  let depth = 0;
+  let end = subject.length;
+  for (let i = 0; i < subject.length; i++) {
+    if (subject[i] === '(') depth++;
+    else if (subject[i] === ')') {
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+      depth--;
+    }
+  }
+  let remedy: string;
+  if (edit !== null) {
+    remedy = `Write "${edit}" for the ${edit.includes('f32(') ? 'float' : 'integer'} division.`;
+  } else {
+    // The operands the float edit converts are the ones a written type decides; one no integer
+    // type holds leaves only the float division, written with its value.
+    const subjects: { text: string; value?: number; readings?: boolean }[] = [];
+    treeQuotientEdit(root, sourceFile, undefined, false, subjects);
+    const big = subjects.find((s) => s.value !== undefined);
+    // Where the positions take an `f32`, the float division of the value is the one form that
+    // chooses it; where they take only integers, no form does, and the sentence says so.
+    const float = allowed === undefined || allowed.includes('f32');
+    remedy =
+      big === undefined
+        ? genericDivisionRemedy(
+            subjects.map((s) => s.text),
+            // `f32(…)` of an operand with two readings is refused (D2): its float is
+            // TypeScript's value through `i32(…)`.
+            subjects.some((s) => s.readings === true)
+              ? (allowed ?? ['i32', 'u32', 'f32']).map((t) => (t === 'f32' ? 'f32(i32' : t))
+              : allowed,
+            { node: root },
+          )
+        : float
+          ? `No integer type holds "${big.text}" (${String(big.value)}), so only the float ` +
+            `division chooses it: write "${treeQuotientEdit(root, sourceFile)}".`
+          : `No integer type holds "${big.text}" (${String(big.value)}), and the quotient is ` +
+            `read as an integer here, so no division of it computes this value.`;
+  }
+  return makeDiagnostic(
+    sourceFile,
+    root,
+    `"${subject.slice(0, end)}" is an integer by its bit operator, and no operand of "${written}" ` +
+      `has a declared type, so the "/" does not say which division it is. ${remedy}`,
+    TS_CODES.TYPE_MISMATCH,
+  );
+}
+
+/** `expr`, lowered from `node`, an operand of a bit operator: where it is written arithmetic
+ *  (`0x7fffffff + 1`), a leaf of its value. Change 0134 item 1 makes a bit operator a `u32`'s
+ *  beside a WRITTEN number only a `u32` holds; a sum is computed, and read as TypeScript reads it,
+ *  so `(0x7fffffff + 1) | 0` is -2147483648. */
+function bitOperandLeaf(expr: Expr, node: ts.Expression, scope: LoweringScope): Expr {
+  if (isKindlessBitwise(expr) || !writtenIntegerOperand(node)) return expr;
+  const inner = skipParensNode(node);
+  if (ts.isNumericLiteral(inner) || isIntegerWrittenRead(inner)) return expr;
+  if (ts.isPrefixUnaryExpression(inner) && ts.isNumericLiteral(skipParensNode(inner.operand))) {
+    return expr;
+  }
+  const lit = foldNumericLit(abstractLiteralOf(expr) ?? expr);
+  const v =
+    lit.op === 'lit' && typeof lit.value === 'number' ? lit.value : foldConstNumber(expr, scope);
+  return v !== undefined && Number.isInteger(v)
+    ? markKindlessLeaf({ op: 'lit', type: i32T, value: v })
+    : expr;
+}
+
+/** `node` with its parentheses taken off. */
+function skipParensNode(node: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(node) ? skipParensNode(node.expression) : node;
+}
+
+/** `expr`, a bitwise operand: where it is a quotient refused elsewhere (D-b of #1272), its
+ *  integer division, which an integer position reads (Amendment A4). */
+function integerOperand(expr: Expr, node: ts.Expression): Expr {
+  // ToInt32 of the quotient is the integer division of the two integers, so the value is
+  // TypeScript's: the bit operator reads it as a position that states its type would.
+  void node;
+  return integerQuotientAt(expr, i32T, true) ?? expr;
+}
+
+/** Whether `expr`, lowered from `node`, is an operand with no type of its own: a written integer
+ *  or a constant of no fixed type that is one, still an `f32`, or a bitwise expression over such
+ *  operands, which took an integer of no kind (issue 1261). */
+function noKindOperand(expr: Expr, node: ts.Expression): boolean {
+  return (
+    isKindlessBitwise(expr) || (intElem(expr.type) === undefined && writtenIntegerOperand(node))
+  );
 }
 
 function lendsNoType(node: ts.Expression): boolean {
@@ -909,6 +1411,64 @@ function lowerBinary(
   const rightSetup =
     LOGICAL[node.operatorToken.kind] !== undefined ? scope.takeHoisted(rightMark) : [];
   if (!left || !right) return undefined;
+  // A tree whose `u32` bits and TypeScript value differ (`3000000000 | 0`), or a binding that
+  // holds one, under an operator whose result depends on which it is (`/`, `%`, a comparison,
+  // `>>` by an amount that is no written number): it does not say which value it means (the
+  // owner's decision of 2026-11-12, D2). `+ - * & | ^ <<` agree on both, modulo 2^32. A tree
+  // under `/`, `%` or `>>` beside written numbers is folded as TypeScript computes it.
+  const opKind = node.operatorToken.kind;
+  if (VALUE_SENSITIVE.has(opKind) || opKind === ts.SyntaxKind.GreaterThanGreaterThanToken) {
+    const resolve = (n: string) => scope.resolveIr(n);
+    for (const [e, other, n, m] of [
+      [left, right, node.left, node.right],
+      [right, left, node.right, node.left],
+    ] as const) {
+      // The two readings reach the operand directly, through a binding, or through `?:`,
+      // `select`, a function's result, a module `let` or arithmetic over a written number.
+      const readings = readingsOf(e, resolve) ?? twoReadingsOf(n);
+      if (readings === undefined) continue;
+      if (opKind === ts.SyntaxKind.GreaterThanGreaterThanToken && n !== node.left) continue;
+      const otherType = typeKey(other.type);
+      const typedOther = !isKindlessBitwise(other) && !writtenIntegerOperand(m);
+      const folds =
+        kindlessReadings(e) !== undefined &&
+        (opKind === ts.SyntaxKind.SlashToken ||
+          opKind === ts.SyntaxKind.PercentToken ||
+          opKind === ts.SyntaxKind.GreaterThanGreaterThanToken) &&
+        !typedOther;
+      if (folds) continue;
+      // Beside an `i32` the tree is ToInt32 of its bits, which is TypeScript's value; beside an
+      // `f32` it is an integer beside a float, refused as such (decision 1 of #1272).
+      // (A shift's amount is no peer: the left operand's type decides the shift.)
+      if (
+        typedOther &&
+        (otherType === 'i32' || otherType === 'f32') &&
+        opKind !== ts.SyntaxKind.GreaterThanGreaterThanToken
+      ) {
+        continue;
+      }
+      // A `/` of a binding that holds the tree, by written numbers, is D-b's refusal, whose
+      // float edit reads TypeScript's value (`f32(i32(a)) / 2`).
+      if (
+        opKind === ts.SyntaxKind.SlashToken &&
+        !typedOther &&
+        e.op === 'varref' &&
+        kindlessDeclaration(resolve(e.name)) !== undefined
+      ) {
+        continue;
+      }
+      retractKindlessRefusal(e);
+      refuseTwoReadings(sourceFile, diagnostics, {
+        node: n,
+        operation: node,
+        operator: node.operatorToken.getText(sourceFile),
+        readings,
+        ...(typedOther && otherType === 'u32' ? { peer: 'u32' as const } : {}),
+        target: false,
+      });
+      return undefined;
+    }
+  }
   // A `/` over constants of no fixed type and written numbers alone (change 0134, decisions Q10
   // and Q11): recorded, and refused once the module's reads are known.
   noteAbstractDivision(
@@ -933,16 +1493,17 @@ function lowerBinary(
   }
   const arith = ARITH[node.operatorToken.kind];
   if (arith !== undefined) {
-    if (arith === '*') {
-      const mixed = matVecMul(left, right);
-      if (mixed) return mixed;
-    }
     // A divisor this can PROVE is zero (a literal, a scalar const, a vector constructor with a
     // zero component, arithmetic over those) is refused wherever a division is lowered, not
     // only inside a module constant's initializer (#68): Tint rejects `1.0 / 0.0` as a value
     // f32 cannot represent, ANGLE folds it with a warning, and the oracle would answer
     // Infinity or NaN. A divisor that does not fold is not proven anything and passes.
+    // It is the one mistake, said before any tree or D-b verdict: a refusal an operand left
+    // pending is not the program's (Rule 12.4).
     if ((arith === '/' || arith === '%') && divisorIsZero(right, scope)) {
+      retractKindlessRefusal(left);
+      retractKindlessRefusal(right);
+      noteZeroDivision(node);
       pushDiag(
         diagnostics,
         sourceFile,
@@ -952,6 +1513,129 @@ function lowerBinary(
       );
       return undefined;
     }
+    // Arithmetic, a `/` included, over a tree of written integers and written integers is the
+    // tree (THE RULE, `lit-coerce.ts`): one fold reads it, and only its root decides. A module
+    // constant that holds such a tree is a leaf of it here, read as its value.
+    const leaf = (e: Expr): Expr => {
+      if (e.op !== 'constref' || !isKindlessModuleConst(sourceFile, e.name)) return e;
+      const v = scope.resolveIr(e.name)?.constValue;
+      return typeof v === 'number' ? markKindlessLeaf({ op: 'lit', type: e.type, value: v }) : e;
+    };
+    // (A leaf only of a `/`: elsewhere a read keeps the constant's name in the emitted text.)
+    const [la, ra] = arith === '/' ? [leaf(left), leaf(right)] : [left, right];
+    if (
+      (isKindlessBitwise(la) || isKindlessBitwise(ra)) &&
+      (isKindlessBitwise(la) || writtenIntegerOperand(node.left)) &&
+      (isKindlessBitwise(ra) || writtenIntegerOperand(node.right))
+    ) {
+      const type = isKindlessBitwise(la) ? la.type : ra.type;
+      const tree: Expr = { op: 'binop', type, bop: arith, a: la, b: ra };
+      if (arith === '/') {
+        noteKindlessDivision(tree, {
+          node,
+          sourceFile,
+          left: isKindlessBitwise(la),
+          right: isKindlessBitwise(ra),
+        } satisfies KindlessDivision);
+      }
+      if (foldKindless(tree) !== undefined) {
+        return foldKindlessOrRefuse(tree, node, sourceFile, diagnostics);
+      }
+    }
+    if (arith === '*') {
+      const mixed = matVecMul(left, right);
+      if (mixed) return mixed;
+    }
+    // A `/` over a bitwise expression of written integers and written integers has no
+    // operand of a declared type: it is refused, as a `/` over a constant some read makes an
+    // integer is (Amendment A2; the owner's decision of 2026-11-11, D-b), unless an integer
+    // position reads the quotient (Amendment A4). The edit converts each such operand to
+    // `f32`, and the quotient is lowered as that edit is, so its `f32` raises no second mistake
+    // where it flows (Rule 12.4); an integer position takes the integer division instead.
+    let refusedQuotient: Expr | undefined;
+    if (arith === '/') {
+      const resolve = (n: string) => scope.resolveIr(n);
+      // A conversion written around an operand (`(1 | 2) / i32(2)`) states its type (decision
+      // Q11 of change 0134); a builtin carries its arguments' origin (`kindlessOrigin`).
+      // Only a type the author wrote counts as declared (E1 of 2026-11-13): an integer whose
+      // type is not proven written is an integer by inference.
+      const origin = (e: Expr, n: ts.Expression) => {
+        if (statesType(n)) return 'typed';
+        if (kindlessSource(n)) return 'kindless';
+        const ir = kindlessOrigin(e, resolve, sourceFile);
+        if (ir !== 'typed' || intElem(e.type) === undefined || e.type.kind !== 'scalar') return ir;
+        return provenTyped(n) ? 'typed' : 'kindless';
+      };
+      const [lo, ro] = [origin(left, node.left), origin(right, node.right)];
+      if (lo !== 'typed' && ro !== 'typed' && (lo === 'kindless' || ro === 'kindless')) {
+        const text = (n: ts.Expression): string => {
+          const inner = ts.isParenthesizedExpression(n) ? n.expression : n;
+          return inner.getText(sourceFile).replace(/\s+/g, ' ');
+        };
+        // An operand with two readings (D2) is TypeScript's value as a float through `i32(…)`.
+        const shown = (n: ts.Expression, origin: string): string =>
+          origin === 'kindless'
+            ? twoReadingsOf(n) !== undefined ||
+              readingsOf((n === node.left ? left : right)!, resolve) !== undefined
+              ? `f32(i32(${text(n)}))`
+              : `f32(${text(n)})`
+            : n.getText(sourceFile).replace(/\s+/g, ' ');
+        const subject = text(lo === 'kindless' ? node.left : node.right);
+        const edit = `${shown(node.left, lo)} / ${shown(node.right, ro)}`;
+        const peerEdit = (type: string): string =>
+          [node.left, node.right]
+            .map((n, i) =>
+              [lo, ro][i] === 'kindless'
+                ? `${type}(${text(n)})`
+                : n.getText(sourceFile).replace(/\s+/g, ' '),
+            )
+            .join(' / ');
+        const subjects = [node.left, node.right]
+          .filter((_, i) => [lo, ro][i] === 'kindless')
+          .map(text);
+        noteWrittenDivision(
+          node,
+          sourceFile,
+          subject,
+          edit,
+          'float',
+          peerEdit,
+          subjects,
+          // `f32(…)` of an operand with two readings is refused (D2): the generic remedy names
+          // `f32(i32(…))` for it, as the tree's does.
+          [node.left, node.right].some((n) => twoReadingsOf(n) !== undefined),
+        );
+        const asF32 = (e: Expr): Expr =>
+          intElem(e.type) === undefined ? e : { op: 'call', type: f32T, fn: 'f32', args: [e] };
+        const [l, r] = [left, right];
+        const integerAt = (target: ShaderType, declared = true): Expr | undefined => {
+          const a = retargetIntLitCtx(l, node.left, target);
+          const b = retargetIntLitCtx(r, node.right, target);
+          if (typeKey(a.type) !== typeKey(target) || typeKey(b.type) !== typeKey(target)) {
+            return undefined;
+          }
+          // A position that states an integer type reads the quotient (A4); a peer that states
+          // none keeps the `/` refused, with the edit in its type.
+          noteWrittenDivisionRead(
+            node,
+            sourceFile,
+            declared ? 'read' : typeKey(target) === 'u32' ? 'u32' : 'i32',
+          );
+          return { op: 'binop', type: target, bop: '/', a, b };
+        };
+        // An integer position that states its type reads the quotient: the integer division of
+        // that type (Amendment A4). Anywhere else the `f32` its edit names, which an integer
+        // position that reads it later converts (`integerQuotientAt`).
+        refusedQuotient =
+          contextual !== undefined && intElem(contextual) !== undefined
+            ? integerAt(contextual)
+            : markIntegerQuotient(
+                { op: 'binop', type: f32T, bop: '/', a: asF32(l), b: asF32(r) },
+                integerAt,
+              );
+      }
+    }
+    if (refusedQuotient !== undefined) return refusedQuotient;
     if (typeKey(left.type) !== typeKey(right.type)) {
       // A vector against a scalar of its element kind broadcasts, as it does in WGSL, GLSL and
       // the fn() EDSL; the result is the vector's type and the operand order stays as written.
@@ -1045,14 +1729,9 @@ function lowerBinary(
       );
       return undefined;
     }
+    const sum: Expr = { op: 'binop', type: left.type, bop: arith, a: left, b: right };
     // A constant `f32` result past the range (#374): `1e30 * 1e30`, or `K * K`.
-    return refuseF32OutOfRange(
-      { op: 'binop', type: left.type, bop: arith, a: left, b: right },
-      node,
-      sourceFile,
-      scope,
-      diagnostics,
-    );
+    return refuseF32OutOfRange(sum, node, sourceFile, scope, diagnostics);
   }
   // `a ** b` is WGSL's and GLSL's pow(a, b); TypeScript's exponent operator is the only
   // arithmetic token with no binop of its own. pow is component-wise over equal types on both
@@ -1097,6 +1776,15 @@ function lowerBinary(
   }
   const bit = BITWISE[node.operatorToken.kind];
   if (bit !== undefined) {
+    // A bitwise operand is an integer position: a quotient refused elsewhere is its integer
+    // division here (Amendment A4; D-b of #1272).
+    {
+      const [l0, r0] = [left, right];
+      left = integerOperand(left, node.left);
+      right = integerOperand(right, node.right);
+      // A written peer took the quotient's `f32` in `pair` above: it takes the integer now.
+      if (left !== l0 || right !== r0) [left, right] = pair(left, right, node.left, node.right);
+    }
     // A constant shift amount outside 0..31 has no bit to shift into: WGSL makes it a
     // shader-creation error and GLSL ES 3.00 leaves the result undefined (#71). The fold is
     // the loop bound's, so `16 + 16` and a module const are caught with the literal; a
@@ -1105,6 +1793,8 @@ function lowerBinary(
     if (isShift) {
       const amount = constShiftAmountOutOfRange(right, scope);
       if (amount !== undefined) {
+        // The amount's own range refusal, pending, is this one said again (Rule 12.4).
+        retractKindlessRefusal(right);
         pushDiag(
           diagnostics,
           sourceFile,
@@ -1130,9 +1820,28 @@ function lowerBinary(
       // side to the kind a shift is defined for before the check below reads it; the amount
       // is then retyped to u32 again a few lines on, which is idempotent for a literal.
       // Of a value its uses decide, each asks an integer of no kind (change 0134 item 1).
+      left = bitOperandLeaf(left, node.left, scope);
+      right = bitOperandLeaf(right, node.right, scope);
       const [l, r] = [left, right];
-      left = softDemands(() => retargetIntLitCtx(l, node.left, i32T));
+      // A written target with no type of its own is an integer of no kind: a position that
+      // declares the other integer type gives it that type (issue 1261).
+      const writtenTarget = noKindOperand(l, node.left);
+      // A written target only a `u32` holds (`0xF0000000 >> 28`) shifts a `u32` (change 0134
+      // item 1); any other takes the `i32`.
+      const lv =
+        writtenTarget && !isKindlessBitwise(l) ? foldNumericLit(abstractLiteralOf(l) ?? l) : l;
+      const targetT =
+        lv.op === 'lit' && typeof lv.value === 'number' && lv.value > 2147483647 ? u32T : i32T;
+      left = softDemands(() => retargetIntLitCtx(l, node.left, targetT));
       right = softDemands(() => retargetIntLitCtx(r, node.right, u32T));
+      // A shift over written integers is a constant whatever type each operand took
+      // (`(1 + 2) << 1` is 6): it is folded from the values, as `&`, `|` and `^` are.
+      if (writtenTarget && noKindOperand(r, node.right) && laneCount(left.type) === 1) {
+        const tree: Expr = { op: 'binop', type: targetT, bop: bit, a: left, b: right };
+        if (foldKindless(tree) !== undefined) {
+          return foldKindlessOrRefuse(tree, node, sourceFile, diagnostics);
+        }
+      }
       // A shift is defined componentwise, so read the ELEMENT kind: `vec2u << vec2u` is a
       // shift of two lanes, not a type error. The width rule below keeps the two sides the
       // same shape, which is what both targets accept.
@@ -1185,7 +1894,9 @@ function lowerBinary(
               ? { op: 'call', type: u32T, fn: 'u32', args: [right] }
               : { op: 'construct', type: amountT, args: [right] }
             : right;
-      return { op: 'binop', type: left.type, bop: bit, a: left, b: amount };
+      const shifted: Expr = { op: 'binop', type: left.type, bop: bit, a: left, b: amount };
+      if (!writtenTarget || lanes !== 1) return shifted;
+      return foldKindlessOrRefuse(shifted, node, sourceFile, diagnostics);
     }
     // `&`, `|` and `^` have no float overload on either target (Rule 7.1: WGSL's bit expressions
     // take the integer kinds, and `&` and `|` bools; GLSL ES 3.00 §5.9 takes integers only), but
@@ -1195,23 +1906,92 @@ function lowerBinary(
     // the author's words (Rule 12.6), and before the equal-types rule below, whose remedy for
     // `f32 & u32` begins with `f32(intVal)`: two floats, which is this refusal again.
     //
-    // Two whole numbers the front end folds are the exception. `1 | 2`, or two flags declared
-    // `const A = 1`, are f32 only by Rule 5.1's default, and a module constant, an enum member
-    // and a `case` label fold them to the number (§12), which compiles; that is left as it was.
-    // Where such a pair is emitted instead (`const x = 1 | 2` in a function body), it still
-    // reaches the targets as `(1.0 | 2.0)`, as before.
+    // Two whole `f32` numbers in a module constant or an enum member are the exception: they are
+    // folded to the number (§12) before a target reads it, which compiles. Two written integers
+    // are made integers above, in a module constant too (`const M = 1 | 2` is the `i32` 3, F7 of
+    // the fourteenth review of #1272), and a pair that is still `f32` (a whole float-written
+    // number, or a module variable over module constants) is refused here: it reached the
+    // targets as `(1.0 | 2.0)` before (issue 1261).
     // A value its uses decide is an integer here: the typed peer's, or of no kind (`f | 4`).
     // A written operand that an `i32` cannot hold makes it a `u32` (`f | 3000000000`).
-    const kindless = (peer: Expr): 'int' | 'u32' => {
-      const lit = foldNumericLit(peer);
-      return lit.op === 'lit' && typeof lit.value === 'number' && lit.value > 2147483647
-        ? 'u32'
-        : 'int';
+    // The value of an operand with no type of its own: a written number, a constant of no fixed
+    // type (`const K = 3000000000` reads as its number, as the written one does), or a bitwise
+    // expression over those.
+    const valueOf = (e: Expr): number | undefined => {
+      const lit = foldNumericLit(abstractLiteralOf(e) ?? e);
+      if (lit.op === 'lit' && typeof lit.value === 'number') return lit.value;
+      return foldConstNumber(e, scope);
     };
+    const kindless = (peer: Expr): 'int' | 'u32' => {
+      const v = valueOf(peer);
+      return v !== undefined && v > 2147483647 ? 'u32' : 'int';
+    };
+    // Two operands with no type of their own, each a written integer or a constant of no fixed
+    // type that is one (`1 | 2`, `K | J`), or a bitwise expression over such operands, are each
+    // a bitwise operand with no typed peer: an integer of no kind, an `i32` unless an operand
+    // does not fit one (Rule 5.1, change 0134 item 1). They were left as two `f32`s, so
+    // `let f = K | J` emitted `var f: f32 = (K | J);`, which no target accepts (issue 1261). A
+    // module constant is folded to its number before any target reads it, so it keeps the
+    // value it had. A written integer beside a bitwise expression of no kind took that
+    // expression's `i32` in `pair` above, which is no type of its own either.
+    left = bitOperandLeaf(left, node.left, scope);
+    right = bitOperandLeaf(right, node.right, scope);
+    const leftKindless = isKindlessBitwise(left);
+    const rightKindless = isKindlessBitwise(right);
+    const noKind = (e: Expr, n: ts.Expression, peerKindless: boolean): boolean =>
+      isKindlessBitwise(e) ||
+      (writtenIntegerOperand(n) && (intElem(e.type) === undefined || peerKindless));
+    let kindlessPair = false;
+    // A module constant routes through the same fold: `const K = 1 | 2` is the integer 3, as
+    // `const K = 1 << 1` is 2 (a tree of written integers, change 0134 item 1). It kept the
+    // `f32` 3.0 of `main`, so `ii + K` was refused and `f + K` accepted, against what `K / 2`
+    // said of it (the fourteenth review of #1272).
+    if (noKind(left, node.left, rightKindless) && noKind(right, node.right, leftKindless)) {
+      const [lv, rv] = [valueOf(left), valueOf(right)];
+      // A value only `u32` holds beside a negative one has no integer type: the written
+      // `3000000000 | -1` would compute -1 in TypeScript, which no `u32` is.
+      // Only a WRITTEN number makes the operator a `u32`'s (change 0134 item 1): a computed
+      // value an `i32` does not hold (`(1 << 30) * 2`) is read as TypeScript reads it, ToInt32.
+      const big = [
+        [lv, left],
+        [rv, right],
+      ]
+        .filter(([, e]) => !isKindlessBitwise(e as Expr))
+        .map(([v]) => v as number | undefined)
+        .find((v) => v !== undefined && v > 2147483647);
+      const negative = [
+        [lv, node.left],
+        [rv, node.right],
+      ].find(([v]) => v !== undefined && (v as number) < 0);
+      if (big !== undefined && negative !== undefined) {
+        const v = negative[0] as number;
+        pushDiag(
+          diagnostics,
+          sourceFile,
+          node,
+          `Bitwise "${bit}" has no integer type for ${String(big)} and ${String(v)}: ` +
+            `${String(big)} is a u32, and a u32 does not hold ${String(v)}. Write ` +
+            `${String(v)} as its u32 bits, ${String(v >>> 0)}.`,
+          TS_CODES.TYPE_MISMATCH,
+        );
+        return undefined;
+      }
+      const kind = big !== undefined ? u32T : i32T;
+      const [l, r] = [left, right];
+      left = softDemands(() => retargetIntLitCtx(l, node.left, kind));
+      right = softDemands(() => retargetIntLitCtx(r, node.right, kind));
+      // The value is computed from the whole expression and its type chosen from the value, so
+      // the operands' own types, which a folded operand took from its value, do not matter.
+      const tree: Expr = { op: 'binop', type: kind, bop: bit, a: left, b: right };
+      if (foldKindless(tree) !== undefined) {
+        return foldKindlessOrRefuse(tree, node, sourceFile, diagnostics);
+      }
+      kindlessPair = true;
+    }
     noteDemand(left, intElem(right.type) === undefined ? kindless(right) : right.type);
     noteDemand(right, intElem(left.type) === undefined ? kindless(left) : left.type);
     const float = [left.type, right.type].find(isFloatBitOperand);
-    if (float !== undefined && !isWholeF32Pair(left, right, scope)) {
+    if (float !== undefined && !(scope.atModuleConstant() && isWholeF32Pair(left, right, scope))) {
       pushDiag(
         diagnostics,
         sourceFile,
@@ -1235,7 +2015,8 @@ function lowerBinary(
     // structs, arrays or matrices under any of them, have one type and reached Tint as `no
     // matching overload` (Rule 7.1).
     if (refuseOperatorKind(bit, left.type, node, sourceFile, diagnostics)) return undefined;
-    return { op: 'binop', type: left.type, bop: bit, a: left, b: right };
+    const result: Expr = { op: 'binop', type: left.type, bop: bit, a: left, b: right };
+    return kindlessPair ? foldKindlessOrRefuse(result, node, sourceFile, diagnostics) : result;
   }
   const log = LOGICAL[node.operatorToken.kind];
   if (log !== undefined) {
@@ -1259,6 +2040,17 @@ function lowerBinary(
   }
   const cmp = COMPARE[node.operatorToken.kind];
   if (cmp !== undefined) {
+    // A comparison reads a quotient of written integers exactly, in `f32` beside an `f32`, and no
+    // number flows on: the `/` gives TypeScript's answer, so it stands (THE RULE, verdict 4).
+    if (typeKey(left.type) === 'f32' && typeKey(right.type) === 'f32') {
+      for (const [e, n] of [
+        [left, node.left],
+        [right, node.right],
+      ] as const) {
+        readKindlessExactly(e);
+        if (isIntegerQuotient(e)) noteWrittenDivisionRead(skipParensNode(n), sourceFile, 'read');
+      }
+    }
     // An f32 compared against a scalar f64 widens exactly, the same rule the arithmetic
     // follows and the one `binResultType` applies in the fn() EDSL, whose `f64.lt(f32)`
     // builds and emits. Without it `s < t` was a mismatch while `s - t < 0.` was not (#151).

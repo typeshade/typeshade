@@ -4,8 +4,11 @@ import {
   isAbstractRead,
   noteIntegerRead,
   peekingReads,
+  refuseTwoReadings,
+  twoReadingsOf,
 } from '../abstract-const.js';
 import ts from 'typescript';
+import { statesType } from '../lit-coerce.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -44,10 +47,13 @@ import { REMOVED_FOLDS, removedCallSentence, removedFoldSentence } from '../remo
 import {
   foldNumericLit,
   isIntegerLiteralTree,
+  isKindlessBitwise,
   retargetIntLit,
   retargetIntLitCtx,
   reportIntLitRange,
   retargetDeclaredIntLit,
+  pendingKindlessRefusal,
+  readingsOf,
 } from '../lit-coerce.js';
 import { spanOf } from '../span.js';
 import { internalOpOf, lowerInternalOp } from '../internal-ops.js';
@@ -170,6 +176,14 @@ function vectorMethodMessage(
     }
   }
   return `${head}: a vector's members are its components, ${v}.x or ${v}.xy.`;
+}
+
+/** The builtins whose result differs between the two readings of a tree (D2). */
+const READINGS_SENSITIVE: ReadonlySet<string> = new Set(['min', 'max', 'clamp', 'abs', 'sign']);
+
+/** Whether `e` is a `u32` of a declared type, not a written number. */
+function isTypedU32(e: Expr): boolean {
+  return typeKey(e.type) === 'u32' && !isKindlessBitwise(e) && e.op !== 'lit';
 }
 
 export function lowerCall(
@@ -669,6 +683,65 @@ export function lowerCall(
     // write (Rule 7.10, change 0093).
     if (refuseOptionalUse(lowered, arg, sourceFile, diagnostics)) return undefined;
     args.push(lowered);
+  }
+  // `min`, `max`, `clamp`, `abs` and `sign` over a tree whose `u32` bits and TypeScript value
+  // differ give different results for the two (the owner's decision of 2026-11-12, D2).
+  if (
+    ts.isIdentifier(callee) &&
+    ctor === undefined &&
+    READINGS_SENSITIVE.has(callee.text) &&
+    scope.resolveCallee(callee.text) === undefined
+  ) {
+    // A typed peer decides: beside an `i32` the tree is TypeScript's value, beside an `f32` it
+    // is refused as an integer beside a float.
+    // A written conversion states its type even where it folds to a literal (`i32(k)` with
+    // `const k = 7`, decision Q11).
+    const peers = args.map((a, i) =>
+      readingsOf(a, (n) => scope.resolveIr(n)) === undefined &&
+      twoReadingsOf(node.arguments[i]!) === undefined &&
+      (a.op !== 'lit' || statesType(node.arguments[i]!)) &&
+      !isKindlessBitwise(a)
+        ? typeKey(a.type)
+        : undefined,
+    );
+    // A binding that holds two readings is no tree the peer can retype: beside an `i32` it is
+    // refused, and its edit takes TypeScript's value, `i32(a)` (C1; F9 of the fourteenth review).
+    const boundBesideI32 =
+      peers.includes('i32') &&
+      !peers.includes('f32') &&
+      args.some((a) => a.op === 'varref' && readingsOf(a, (n) => scope.resolveIr(n)) !== undefined);
+    if (boundBesideI32) {
+      const i = args.findIndex(
+        (a) => a.op === 'varref' && readingsOf(a, (n) => scope.resolveIr(n)) !== undefined,
+      );
+      refuseTwoReadings(sourceFile, diagnostics, {
+        node: node.arguments[i]!,
+        operation: node,
+        operator: callee.text,
+        readings: readingsOf(args[i]!, (n) => scope.resolveIr(n))!,
+        peer: 'i32',
+        target: false,
+      });
+      return undefined;
+    }
+    if (!peers.includes('i32') && !peers.includes('f32')) {
+      for (let i = 0; i < args.length; i++) {
+        const arg = node.arguments[i]!;
+        const readings = readingsOf(args[i]!, (n) => scope.resolveIr(n)) ?? twoReadingsOf(arg);
+        if (readings === undefined || pendingKindlessRefusal(args[i]!) !== undefined) continue;
+        refuseTwoReadings(sourceFile, diagnostics, {
+          node: arg,
+          operation: node,
+          operator: callee.text,
+          readings,
+          ...(peers.includes('u32') && args.some((a, j) => j !== i && isTypedU32(a))
+            ? { peer: 'u32' as const }
+            : {}),
+          target: false,
+        });
+        return undefined;
+      }
+    }
   }
 
   if (ctor !== undefined) {
@@ -1221,7 +1294,17 @@ function retargetIntrinsicLiterals(
     const argNode = node.arguments[i];
     if (argNode && args[i]) args[i] = retargetIntLitCtx(args[i]!, argNode, kind);
   }
-  const peerIndex = node.arguments.findIndex((a) => !isBareNumericLiteral(a));
+  // A tree of written integers has no type of its own either: it takes the peer's, as a
+  // written number does, and a quotient that is no integer is refused there in the peer's words
+  // (issue 1261, `lit-coerce.ts` THE RULE: a peer states no type).
+  const typedIndex = node.arguments.findIndex(
+    (a, i) => !isBareNumericLiteral(a) && !(args[i] !== undefined && isKindlessBitwise(args[i]!)),
+  );
+  // With no typed argument, a tree is the peer, as any other argument with a type would be.
+  const peerIndex =
+    typedIndex >= 0 ? typedIndex : node.arguments.findIndex((a) => !isBareNumericLiteral(a));
+  const toPeer = (e: Expr, n: ts.Expression, t: ShaderType): Expr =>
+    isKindlessBitwise(e) ? retargetIntLit(e, n, t) : retargetIntLitCtx(e, n, t);
   const peer = peerIndex >= 0 ? args[peerIndex]?.type : undefined;
   // A builtin with NO float form takes an integer, and an integer-written literal is what the
   // author gave it: `countOneBits(5)` was typed f32 and refused as "takes an i32 or u32, or a
@@ -1248,7 +1331,7 @@ function retargetIntrinsicLiterals(
   if (peerIndex > 0 && target.kind === 'scalar' && mathTakesElem(intrinsicId, target.scalar)) {
     const argNode = node.arguments[0];
     if (argNode && args[0] && fixed[0] === undefined) {
-      args[0] = retargetIntLitCtx(args[0], argNode, target);
+      args[0] = toPeer(args[0], argNode, target);
     }
   }
   for (let i = 1; i < args.length; i++) {
@@ -1275,7 +1358,7 @@ function retargetIntrinsicLiterals(
       args[i] = retargetIntLitCtx(args[i]!, argNode, f32T);
       continue;
     }
-    args[i] = retargetIntLitCtx(args[i]!, argNode, target);
+    args[i] = toPeer(args[i]!, argNode, target);
   }
 }
 

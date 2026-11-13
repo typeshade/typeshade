@@ -12,10 +12,24 @@ import { resolveMathExpand } from '../math-alias.js';
 import { expandMath } from '../math-expand.js';
 import { lowerRandomHash } from '../random-hash.js';
 import { lowerScalarCast } from '../numeric.js';
-import { abstractLiteralOf, noteCastRead, noteIntegerRead } from '../abstract-const.js';
+import {
+  abstractLiteralOf,
+  noteCastRead,
+  noteIntegerRead,
+  noteWrittenDivisionRead,
+  refuseTwoReadings,
+  twoReadingsOf,
+} from '../abstract-const.js';
 import { foldConstNumber } from '../loop-bound.js';
 import { foldF64ModuleConst } from '../module-const-f64.js';
-import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
+import {
+  isIntegerQuotient,
+  readKindlessExactly,
+  reportIntLitRange,
+  retargetIntLitCtx,
+  pendingKindlessRefusal,
+  readingsOf,
+} from '../lit-coerce.js';
 import { readonlyClassUpcast } from '../class-upcasts.js';
 import { lowerExpression } from './expression.js';
 import { captureArguments } from './local-functions.js';
@@ -73,6 +87,33 @@ export function lowerScalarCastCall(
   }
   const lowered = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
   if (!lowered) return undefined;
+  // `f32()` of a tree whose `u32` bits and TypeScript value differ gives two values (D2).
+  if (name === 'f32') {
+    const arg = node.arguments[0]!;
+    const readings = readingsOf(lowered, (n) => scope.resolveIr(n)) ?? twoReadingsOf(arg);
+    // A tree refused already (a `>>` root's two readings) is that one mistake (Rule 12.4).
+    if (readings !== undefined && pendingKindlessRefusal(lowered) === undefined) {
+      refuseTwoReadings(sourceFile, diagnostics, {
+        node: arg,
+        operation: node,
+        operator: 'f32()',
+        readings,
+        target: false,
+      });
+      return undefined;
+    }
+  }
+  // `i32()` and `u32()` state an integer type: a quotient of written integers they read is
+  // truncated by that type, which is TypeScript's value truncated, so its `/` stands (issue
+  // 1261, `lit-coerce.ts` THE RULE, verdict 4; Amendment A4).
+  if (name === 'i32' || name === 'u32') {
+    readKindlessExactly(lowered);
+    if (isIntegerQuotient(lowered)) {
+      let inner: ts.Expression = node.arguments[0]!;
+      while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+      noteWrittenDivisionRead(inner, sourceFile, 'read');
+    }
+  }
   // A cast is a read of a constant of no fixed type: `u32(K)` converts the written number, as
   // `u32(3)` does, at its exact value (change 0134 item 2). `f32(K)` keeps the name: the
   // constant is an `f32` there.

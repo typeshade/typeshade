@@ -23,12 +23,21 @@ import {
   hasNoWrittenResult,
   markCarriedRead,
   noteAbstractDivision,
+  noteWrittenDivision,
+  noteZeroDivision,
   noteCarriedReturn,
   originOf,
   withReadTypes,
   noteIntegerRead,
   type Carried,
   type AbstractConst,
+  declarationWithType,
+  kindlessSource,
+  assignedReadings,
+  declaredWithoutType,
+  provenTyped,
+  refuseTwoReadings,
+  twoReadingsOf,
 } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { foldIndexConst } from '../index-bound.js';
@@ -107,6 +116,19 @@ import {
 } from '../numeric.js';
 import {
   fitsTarget,
+  isIntScalar,
+  isIntegerQuotient,
+  isKindlessBitwise,
+  pendingKindlessRefusal,
+  retractKindlessRefusal,
+  kindlessDeclaration,
+  kindlessOrigin,
+  statesType,
+  markReadingsBinding,
+  markReadingsWith,
+  readingsOf,
+  markKindlessBinding,
+  markQuotientBinding,
   intLiteralRangeMessage,
   retargetDeclaredIntLit,
   retargetIntLitCtx,
@@ -400,6 +422,29 @@ function lowerStatementKind(
     }
     // `return 0` takes the declared return type when that type is i32 or u32 (#8 A3).
     const ret = scope.returnType();
+    // A function the host calls returns the value it computes: a value with two readings
+    // reaches the host as its bits, where TypeScript gives the other (D2).
+    let fn: ts.Node | undefined = node.parent;
+    while (fn !== undefined && !ts.isFunctionLike(fn)) fn = fn.parent;
+    if (
+      fn !== undefined &&
+      ts.isFunctionDeclaration(fn) &&
+      fn.type === undefined &&
+      ts.getCombinedModifierFlags(fn) & ts.ModifierFlags.Export
+    ) {
+      const readings =
+        readingsOf(expr, (n) => scope.resolveIr(n)) ?? twoReadingsOf(node.expression);
+      if (readings !== undefined && pendingKindlessRefusal(expr) === undefined) {
+        refuseTwoReadings(sourceFile, diagnostics, {
+          node: node.expression,
+          operation: node,
+          operator: 'return',
+          readings,
+          target: false,
+        });
+        return undefined;
+      }
+    }
     if (!ret) {
       // In a function that writes no return type, the first `return` with a value says it, and
       // the ones after it are typed against it as against a written one (Rule 8.19). With a
@@ -995,6 +1040,31 @@ function lowerDeclarationKind(
     inferredValue,
   );
   if (!bound) return undefined;
+  // `let q = (1 | 2) / 2`: an integer position that reads `q` raises no second mistake.
+  const refusedQuotient = isIntegerQuotient(init) || pendingKindlessRefusal(init) === 'quotient';
+  if (refusedQuotient) markQuotientBinding(bound);
+  // `let a = 3000000000 | 0` holds two readings, and so does `let b = a` (D2).
+  // An annotation ends the origin (Rule 5.1): `let x: u32 = 3000000000 | 0` is a u32.
+  if (pendingKindlessRefusal(init) === undefined && decl.type === undefined) {
+    markReadingsBinding(bound, init, (n) => scope.resolveIr(n));
+  }
+  // `let a = 1 | 2`: a `/` over `a` does not say which division it is (D-b, issue 1261). A
+  // refused quotient is one mistake already.
+  if (
+    decl.type === undefined &&
+    !refusedQuotient &&
+    (kindlessOrigin(init, (n) => scope.resolveIr(n), sourceFile) === 'kindless' ||
+      // A function's result, and a builtin, `?:` or `select` over one, carries the origin of
+      // what it returns (`let a = gg()` beside `function gg() { return 6 ^ 3; }`, F1).
+      (kindlessOrigin(init, (n) => scope.resolveIr(n), sourceFile) !== 'written' &&
+        kindlessSource(decl.initializer)))
+  ) {
+    markKindlessBinding(
+      bound,
+      `${isConst ? 'const' : 'let'} ${name}: ${typeKey(bound.type)} = ` +
+        decl.initializer.getText(sourceFile).replace(/\s+/g, ' '),
+    );
+  }
   // The statement carries the IR name, `p_1` for a `p` that shadows or follows another `p` in
   // the function (#38); the symbol table and every diagnostic keep the source name.
   const ir = irNameOf(bound);
@@ -1850,12 +1920,34 @@ function lowerAssign(
   // target is a DECLARED position: the name was annotated where it was declared, and the
   // lvalue carries that type here. Without this the literal fell through to the
   // unique-struct fallback and a second struct of the same shape refused it.
-  let value = lowerExpression(right, sourceFile, scope, diagnostics, want);
+  // A variable whose type its uses decide (no annotation the author wrote) is no position
+  // that states a type: a quotient stored in it stays refused (D-b, Rule 5.1).
+  const inner = ts.isParenthesizedExpression(left) ? left.expression : left;
+  const bound = ts.isIdentifier(inner) ? scope.resolve(inner.text) : undefined;
+  const stated =
+    bound === undefined ||
+    (bound.inferred === undefined &&
+      (target?.op !== 'varref' || kindlessDeclaration(scope.resolveIr(target.name)) === undefined));
+  let value = lowerExpression(
+    right,
+    sourceFile,
+    scope,
+    diagnostics,
+    stated || !isIntScalar(want) ? want : undefined,
+  );
   if (!value) return undefined;
   // `x = 2` takes the target's type when it is i32 or u32 (#8 A3); the compound form already
   // did through lowerAssignOp.
-  value = retargetIntLitCtx(value, right, want);
+  value = retargetIntLitCtx(value, right, want, stated);
   value = reportIntLitRange(value, right, want, sourceFile, diagnostics) ?? value;
+  // `a = 3000000000 | 0` makes a variable with no written type hold two readings, as the same
+  // initializer does (D2; F2 of the fourteenth review of #1272). An annotation ends the origin.
+  if (target?.op === 'varref' && ts.isIdentifier(inner) && declaredWithoutType(inner)) {
+    markReadingsWith(
+      scope.resolveIr(target.name),
+      readingsOf(value, (n) => scope.resolveIr(n)) ?? assignedReadings(right),
+    );
+  }
   // `k = vi` gives a value its uses decide the type of what it stores (change 0134 item 1).
   noteStoredType(undecidedTarget(left, scope, target), value, value.type);
   if (typeKey(want) !== typeKey(value.type)) {
@@ -1935,6 +2027,36 @@ function lowerBitwiseAssignOpTo(
   }
   let value = lowerExpression(right, sourceFile, scope, diagnostics);
   if (!value) return undefined;
+  // `s |= 3000000000 | 0`: the variable now holds a value with two readings (D2).
+  if (target.op === 'varref' && bop !== '>>') {
+    markReadingsWith(
+      scope.resolveIr(target.name),
+      readingsOf(value, (n) => scope.resolveIr(n)) ?? twoReadingsOf(right),
+    );
+  }
+  // `a >>= n` over a binding with two readings: its `u32` bits and TypeScript value shift to
+  // different results (the owner's decision of 2026-11-12, D2).
+  if (bop === '>>') {
+    const readings = readingsOf(target, (n) => scope.resolveIr(n)) ?? twoReadingsOf(left);
+    if (readings !== undefined) {
+      refuseTwoReadings(sourceFile, diagnostics, {
+        node: left,
+        operation: left.parent,
+        operator: '>>=',
+        readings,
+        target: true,
+      });
+      return undefined;
+    }
+  }
+  // A bitwise expression over written integers has no kind of its own: it takes the type the
+  // target asks (`u |= K | J`, `u ^= ~0` on a `u32`), as a written number does (issue 1261).
+  if (isKindlessBitwise(value)) {
+    const kind = bop === '<<' || bop === '>>' ? u32T : target.type;
+    value = retargetIntLitCtx(value, right, kind);
+    // A value the target's type does not hold is refused as the written number is.
+    if (reportIntLitRange(value, right, kind, sourceFile, diagnostics)) return undefined;
+  }
   // A SHIFT amount is a u32 whatever the target is: WGSL's only scalar overload is
   // `e1 << e2` with `e2: u32`, so `y <<= k` with an i32 `k` on an i32 target emitted
   // `y <<= k;`, which Tint refuses (`no matching overload for 'operator <<= (i32, i32)'`),
@@ -2054,6 +2176,86 @@ function lowerAssignOpTo(
   // `s += h.k` with an optional nothing narrowed: the test to write (Rule 7.10, change 0093).
   if (!isOptional(target.type) && refuseOptionalUse(value, right, sourceFile, diagnostics))
     return undefined;
+  // The same refusal `a / b` gets in lowerBinary (#68): a divisor proven zero is undefined on
+  // every invocation, and `x /= 0.` is the same program as `x = x / 0.`.
+  // It is the one mistake, checked before any refusal of the `/` (D-b, Amendment A2).
+  if ((bop === '/' || bop === '%') && foldConstComponents(value, scope)?.some((v) => v === 0)) {
+    retractKindlessRefusal(value);
+    if (ts.isBinaryExpression(left.parent)) noteZeroDivision(left.parent);
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      `Division by zero: "${right.getText(sourceFile)}" is 0 on every invocation. WGSL refuses it and GLSL ES 3.00 leaves it undefined.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
+  // `s += 3000000000 | 0`: the variable now holds a value with two readings, as a `let` of it
+  // would (D2, "also through a binding").
+  if (target.op === 'varref' && ['+', '-', '*'].includes(bop)) {
+    markReadingsWith(
+      scope.resolveIr(target.name),
+      readingsOf(value, (n) => scope.resolveIr(n)) ?? twoReadingsOf(right),
+    );
+  }
+  // `a /= vi`, `a %= vi`, `a >>= vi` over a binding with two readings, or by such a value:
+  // the two give different results (the owner's decision of 2026-11-12, D2).
+  if (bop === '/' || bop === '%' || bop === '>>') {
+    const resolve = (n: string) => scope.resolveIr(n);
+    for (const [e, n] of [
+      [target, left],
+      [value, right],
+    ] as const) {
+      const readings = readingsOf(e, resolve) ?? twoReadingsOf(n);
+      if (readings === undefined) continue;
+      if (e === value && bop === '>>') continue;
+      // Beside an `i32` or an `f32` target the value is TypeScript's, or refused as a type.
+      if (e === value && (typeKey(target.type) === 'i32' || typeKey(target.type) === 'f32')) {
+        continue;
+      }
+      refuseTwoReadings(sourceFile, diagnostics, {
+        node: n,
+        operation: left.parent,
+        operator: `${bop}=`,
+        readings,
+        ...(e === value && typeKey(target.type) === 'u32' ? { peer: 'u32' as const } : {}),
+        target: e === target,
+      });
+      return undefined;
+    }
+  }
+  // `a /= 2` over `let a = 1 | 2` (D-b, issue 1261): the variable declared with its type names
+  // the integer division.
+  if (bop === '/' && ts.isBinaryExpression(left.parent) && target.op === 'varref') {
+    // A variable its uses type (`let s = 1`) divided by a tree's integer is a `/` over values
+    // that are integers only by inference too (Rule 5.1): its declaration with its type is the
+    // edit.
+    const inner = ts.isParenthesizedExpression(left) ? left.expression : left;
+    // A target with no written type is assigned here, so it is an integer by inference (E1 of
+    // 2026-11-13): a right side whose type is not proven written does not say the division.
+    const untyped =
+      ts.isIdentifier(inner) &&
+      (scope.resolve(inner.text)?.inferred !== undefined || declaredWithoutType(inner))
+        ? declarationWithType(inner.text, inner, typeKey(target.type))
+        : undefined;
+    const declared =
+      kindlessDeclaration(scope.resolveIr(target.name)) ??
+      (untyped !== undefined &&
+      (kindlessSource(right) ||
+        kindlessOrigin(value, (n) => scope.resolveIr(n), sourceFile) === 'kindless' ||
+        (isIntScalar(value.type) && !provenTyped(right)))
+        ? untyped
+        : undefined);
+    if (
+      declared !== undefined &&
+      !statesType(right) &&
+      (kindlessOrigin(value, (n) => scope.resolveIr(n), sourceFile) !== 'typed' ||
+        !provenTyped(right))
+    ) {
+      noteWrittenDivision(left.parent, sourceFile, left.getText(sourceFile), declared, 'integer');
+    }
+  }
   // `y /= 2` on a variable that carries a constant of no fixed type is a `/` over it
   // (Amendment A2 of change 0134): recorded, and refused once the module's reads are known.
   if (bop === '/' && ts.isBinaryExpression(left.parent)) {
@@ -2068,26 +2270,26 @@ function lowerAssignOpTo(
       (callee) => scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
     );
   }
-  // The same refusal `a / b` gets in lowerBinary (#68): a divisor proven zero is undefined on
-  // every invocation, and `x /= 0.` is the same program as `x = x / 0.`.
-  if ((bop === '/' || bop === '%') && foldConstComponents(value, scope)?.some((v) => v === 0)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      right,
-      `Division by zero: "${right.getText(sourceFile)}" is 0 on every invocation. WGSL refuses it and GLSL ES 3.00 leaves it undefined.`,
-      TS_CODES.TYPE_MISMATCH,
-    );
-    return undefined;
-  }
-  if (abstractLiteralOf(value) !== undefined && isNumericScalar(target.type)) {
+  if (isKindlessBitwise(value)) {
+    // `u += 1 | 2`: a bitwise expression over written integers takes an integer target's type
+    // where that type holds its value, and is refused as the written number is where it does
+    // not (issue 1261). Beside a float target it stays the integer it is, refused below.
+    // The value is an operand beside the target (`g *= (5 | 0) / 2` is `g = g * …`), no position
+    // that states a type: a quotient stays refused, as in the written-out form (D-b, B1).
+    if (isIntScalar(target.type)) {
+      value = retargetIntLitCtx(value, right, target.type, false);
+      value = reportIntLitRange(value, right, target.type, sourceFile, diagnostics) ?? value;
+    }
+  } else if (abstractLiteralOf(value) !== undefined && isNumericScalar(target.type)) {
     // `n += K` with a constant of no fixed type: the read takes the target's integer type, as
     // the written number does, and keeps the constant's name beside an `f32` (change 0134).
     value = retargetLit(value, right, target.type);
   } else if (
     value.op === 'lit' &&
     typeof value.value === 'number' &&
-    isNumericScalar(target.type)
+    isNumericScalar(target.type) &&
+    // `a /= f32(2)`: a written conversion keeps its type (decision Q11 of change 0134).
+    !statesType(right)
   ) {
     value = { op: 'lit', type: target.type, value: value.value };
   } else if (isVec(target.type) || isVec64(target.type) || isF64(target.type)) {

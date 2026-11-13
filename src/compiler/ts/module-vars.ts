@@ -44,7 +44,7 @@ import {
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { foldConstComponents } from './loop-bound.js';
 import { isIntegerLiteralTree, reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
-import { hasNoWrittenType } from './abstract-const.js';
+import { hasNoWrittenType, moduleAbstractConst } from './abstract-const.js';
 import {
   decidedType,
   inferenceConflict,
@@ -238,6 +238,12 @@ export function collectModuleVars(
       mutable: false,
       constValue: c.type.kind === 'scalar' ? c.cpuValue : undefined,
       indexConstValue: moduleIndexConst(c, scope),
+      // A module constant of written numbers is a constant of no fixed type here too, as in a
+      // function (Rule 5.1, change 0134 item 2): each read takes the type the written number
+      // takes in its place, so `let f = K | J` is an integer, as `let f = 1 | 2` is (issue 1261).
+      ...(moduleAbstractConst(sourceFile, c.name) !== undefined
+        ? { abstract: moduleAbstractConst(sourceFile, c.name) }
+        : {}),
       ...(c.type.kind !== 'scalar' && c.valueExpr !== undefined ? { valueExpr: c.valueExpr } : {}),
     });
   }

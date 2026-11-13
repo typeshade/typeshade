@@ -1106,10 +1106,28 @@ export function t(vi: u32): u32 { return B.f(vi); }`);
   });
 
   it('a read inside the / and the quotient read around it are not other reads', () => {
-    expect(accepted(t('return f32((K | 1) / 2);', 'const K = 7;')).eval('t', ARGS3)).toBe(3.5);
+    expect(accepted(t('return f32((K + 1) / 2);', 'const K = 7;')).eval('t', ARGS3)).toBe(4);
     expect(
       accepted(t('let j: u32 = E / 2 + 1; return f32(j);', 'const E = 8;')).eval('t', ARGS3),
     ).toBe(5);
+  });
+
+  // `K | 1` reads `K` as an integer: a bitwise operand with no typed peer is one (Rule 5.1).
+  // It compiled before only as `(K | 1.0)`, which no target accepts (issue 1261); now it is
+  // refused as `(K << 1) / 4` always was, with the edit that compiles. No other line reads
+  // `K`, so the sentence names the expression inside the `/` that reads it.
+  it('a bitwise read inside the / makes the constant an integer, as a shift does', () => {
+    refused(t('return f32((K | 1) / 2);', 'const K = 7;'), [
+      '"K" is an i32 where "K | 1" reads it, and no operand of "(K | 1) / 2" has a declared ' +
+        'type, so the "/" does not say which division it is. Write "f32(K | 1) / 2" for the ' +
+        'float division.',
+    ]);
+    refused(t('return f32((K << 1) / 4);', 'const K = 7;'), [
+      '"K" is an i32 where "K << 1" reads it, and no operand of "(K << 1) / 4" has a declared ' +
+        'type, so the "/" does not say which division it is. Write "f32(K << 1) / 4" for the ' +
+        'float division.',
+    ]);
+    expect(accepted(t('return f32(K | 1) / 2;', 'const K = 7;')).eval('t', ARGS3)).toBe(3.5);
   });
 
   it('names the first constant the / reaches that another line reads as an integer', () => {
@@ -1344,46 +1362,51 @@ ${H3}export function t(vi: u32, x: f32, xs: array<f32, 8>): f32 {
     // author's text, as compile() does, and names the same edit.
     accepted(editOf(t('h(k); return xs[A.n / 2];', 'const k = 7;\nclass A { static n = k; }')));
     // Where no edit compiles, the program holds a second mistake (an `f32` sum passed to a `u32`
-    // parameter; a `u32` sum returned from an `f32` function, which `main` reported): the edit
-    // that adds fewest errors is named, and a mismatch around the `/` stays only where that edit
-    // leaves it. One diagnostic each, as on `main` (Rule 12.4, the owner's decision of
-    // 2026-11-11, "12.4: 진단 하나").
-    for (const body of [
-      'const k = 7; h(k); return f32(h(x + k / 2));',
-      'const k = 7; h(k); return vi + k / 2;',
-      'const k = 7; h(k); return xs[-k / 2];',
-      'const k = 7; h(k); return f32(h(-k / 2));',
-      'const k = 7; h(k); return f32(vi + -k / 2);',
-      'const k = 7; h(k); let j: u32 = -k / 2; return f32(j);',
-    ]) {
+    // parameter; a `u32` sum returned from an `f32` function, which `main` reported): no edit is
+    // named, and the refusal says what to write around which operand (the owner's decision of
+    // 2026-11-12, "name only verified edits"). Each wrap it offers chooses the division. One
+    // diagnostic each, as on `main` (Rule 12.4).
+    // The remedy lists only the types the quotient's positions take (the twelfth review, F6).
+    for (const [body, types] of [
+      ['const k = 7; h(k); return f32(h(x + k / 2));', 'f32(…)'],
+      ['const k = 7; h(k); return vi + k / 2;', 'u32(…)'],
+      ['const k = 7; h(k); return xs[-k / 2];', 'i32(…) or u32(…)'],
+      ['const k = 7; h(k); return f32(h(-k / 2));', 'u32(…)'],
+      ['const k = 7; h(k); return f32(vi + -k / 2);', 'u32(…)'],
+      ['const k = 7; h(k); let j: u32 = -k / 2; return f32(j);', 'u32(…)'],
+    ] as const) {
       const source = t(body);
       const lines = compile(source).diagnostics.map((d) => d.message);
       expect(lines).toEqual([
-        expect.stringContaining('Write "const k: u32 = 7" for the integer division.'),
+        expect.stringContaining(`Write ${types} around "k" to choose the division.`),
       ]);
       expect(editor(source).map((l) => l.replace(/^TS\d+: /, ''))).toEqual(lines);
+      for (const type of [...types.matchAll(/([iuf]32)\(/g)].map((m) => m[1]!)) {
+        const wrapped = source.replace('k / 2', `${type}(k) / 2`);
+        for (const l of [
+          ...compile(wrapped).diagnostics.map((d) => d.message),
+          ...editor(wrapped),
+        ]) {
+          expect(l).not.toContain('does not say which division it is');
+        }
+      }
     }
   });
 
-  it('each named edit compiles alone (the fifth review, finding 1)', () => {
-    // `const k: u32 = 7` would make `x * (k / 3)` multiply an f32 by a u32: the first `/` names
-    // the conversion, as checking each edit alone does.
+  it("the named edits compile together (the owner's decision of 2026-11-12)", () => {
+    // The declaration `const k: u32 = 7` and the conversion `f32(k) / 3` are proven together:
+    // with both made, the program compiles.
     const source = t('const k = 7; h(k); return f32(vi + k / 2) + x * (k / 3);');
     expect(compile(source).diagnostics.map((d) => d.message)).toEqual([
-      expect.stringContaining('Write "u32(k) / 2" for the integer division.'),
+      expect.stringContaining('Write "const k: u32 = 7" for the integer division.'),
       expect.stringContaining('Write "f32(k) / 3" for the float division.'),
     ]);
     expect(editor(source).map((l) => l.replace(/^TS\d+: /, ''))).toEqual(
       compile(source).diagnostics.map((d) => d.message),
     );
-    for (const edited of [
-      source.replace('vi + k / 2', 'vi + u32(k) / 2'),
-      source.replace('x * (k / 3)', 'x * (f32(k) / 3)'),
-    ]) {
-      const lines = compile(edited).diagnostics.map((d) => d.message);
-      expect(lines).toHaveLength(1);
-      expect(lines[0]).toContain('does not say which division it is');
-    }
+    accepted(
+      source.replace('const k = 7', 'const k: u32 = 7').replace('x * (k / 3)', 'x * (f32(k) / 3)'),
+    );
   });
 
   it('a counter started by u32(…) of an untyped constant counts in u32 (#1235, deviation 13)', () => {
