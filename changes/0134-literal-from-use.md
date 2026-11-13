@@ -1082,6 +1082,22 @@ same bits, -2147483648, or declare a u32.`) as the others are. Each is compiled 
 - [decision, owner, 2026-11-12] D4. In a module where two refusals conflict, the text that names
   no edit stands as it is. It tells how to choose the division's type, and the conflict that
   remains is the author's own mistake.
+- [decision, owner, 2026-11-13] No wrap that would not choose the division, "그 경우 감싸기 안
+  제시". Where the structure shows that a wrap the sentence would offer does not choose the
+  division, the sentence offers no wrap and says what is true:
+  `Declare the type of the division's operands to choose it.` The forms are:
+  - an `f32(…)` wrap whose quotient a bit operator reads (`(K >> 4) | (-(M / 9))`);
+  - an `i32(…)` or `u32(…)` wrap of a divisor whose integer quotient is 0 (`9 / ((5|0) / k)` with
+    `const k = 7`);
+  - a `u32(…)` wrap whose quotient a unary minus reads (`-((~(1|2)) / 7)`);
+  - an operand that is a `?:` with one typed arm (`(5|0) / (c ? (-7|0) : i32(k))`);
+  - a constant's sentence (Amendment A2) over a division that holds a tree too, which wrapping the
+    constant leaves undecided (`(-(5|0)) / (c ? (-7|0) : k)`).
+    The check compiles nothing more: at most two edited programs a module stay the bound. Found by
+    the differential test of #1272 (six programs in 12,132), decided by the owner on 2026-11-13.
+- [reading, 2026-11-13] The check of a module's edits compiles an edited copy of a linked program
+  on its own, and knows the program's exported constants: an importer's edit that leaves the
+  importer's own mismatch with an exported constant is not named (the export boundary above).
 - The sentences of a refusal that names no edit. Each names the operands to wrap, and lists only
   the types the quotient's positions take:
   - `Write i32(…), u32(…) or f32(…) around "1 | 2" to choose the division.`, or
