@@ -2666,10 +2666,14 @@ function readingPair(
     // A tree of written numbers is one fold, which computes as TypeScript does (THE RULE): only
     // its root over a written `u32` (above) reads the bits.
     if (constantTree(n.left) && constantTree(n.right)) return undefined;
-    // Arithmetic over a value with two readings and a written number: the bits compute in u32,
-    // TypeScript in doubles.
-    const a = lp ?? (lv !== undefined ? { u32: lv, ts: lv } : undefined);
-    const b = rp ?? (rv !== undefined ? { u32: rv, ts: rv } : undefined);
+    // Arithmetic over a value with two readings and a written number, or a constant tree
+    // (`(1 << 3) | LB`): the bits compute in u32, TypeScript in doubles.
+    const numberPair = (e: ts.Expression, v: number | undefined) => {
+      const x = v ?? constNumber(e);
+      return x === undefined ? undefined : { u32: x, ts: x };
+    };
+    const a = lp ?? numberPair(n.left, lv);
+    const b = rp ?? numberPair(n.right, rv);
     if ((lp === undefined && rp === undefined) || a === undefined || b === undefined)
       return undefined;
     const op = (x: number, y: number, unsigned: boolean): number => {
@@ -2703,11 +2707,29 @@ function readingPair(
   }
   if (ts.isIdentifier(n)) {
     const d = declarationOf(n.text, n);
-    if (d === undefined || !ts.isVariableDeclaration(d) || d.initializer === undefined) {
-      return undefined;
-    }
+    if (d === undefined || !ts.isVariableDeclaration(d)) return undefined;
     if (writtenTypeText(d, sourceFile) !== undefined) return undefined;
-    return of(d.initializer);
+    // Every value stored in the variable, wherever it is stored (E1 of 2026-11-13: a module
+    // `let` set in another function, a reassignment, a compound assignment).
+    const own = d.initializer === undefined ? undefined : of(d.initializer);
+    if (own !== undefined) return own;
+    for (const id of identifiersNamed(sourceFile, n.text)) {
+      if (id === d.name || declarationOf(n.text, id) !== d) continue;
+      const p = skipParenUp(id).parent;
+      if (!ts.isBinaryExpression(p) || p.left !== skipParenUp(id)) continue;
+      const k = p.operatorToken.kind;
+      if (k === ts.SyntaxKind.EqualsToken) {
+        const v = of(p.right);
+        if (v !== undefined) return v;
+        continue;
+      }
+      const base = COMPOUND_BASE.get(k);
+      if (base === undefined || seen.has(p)) continue;
+      seen.add(p);
+      const v = binaryPair(id, base, p.right, sourceFile, seen);
+      if (v !== undefined && v.u32 !== v.ts) return v;
+    }
+    return undefined;
   }
   if (ts.isConditionalExpression(n)) {
     // An arm beside a typed `i32` takes TypeScript's value.
@@ -2724,18 +2746,58 @@ function readingPair(
     if (callee === 'select' && n.arguments.length === 3) {
       return of(n.arguments[0]!) ?? of(n.arguments[1]!);
     }
-    const f = functionNamed(sourceFile, callee);
-    // A generic function's result is its argument (`id<T>(a: T): T`, F3 of the fourteenth review).
-    const generic = f === undefined ? undefined : genericArgument(f, n, sourceFile);
-    if (generic !== undefined) return generic === null ? undefined : of(generic);
-    if (f === undefined || writtenResultText(f, sourceFile) !== undefined || f.body === undefined) {
+    const f = calleeAt(callee, n);
+    if (f === undefined || f.body === undefined) return undefined;
+    // A generic result carries the readings of what is passed to it (E1 of 2026-11-13: through
+    // `let b = a`, another generic, `?:`, `min`, `select`).
+    const result = writtenResultText(f, sourceFile);
+    if (result !== undefined && (f.typeParameters ?? []).some((t) => t.name.text === result)) {
+      for (const arg of n.arguments) {
+        const v = of(arg);
+        if (v !== undefined) return v;
+      }
       return undefined;
     }
-    for (const st of f.body.statements) {
-      if (ts.isReturnStatement(st) && st.expression !== undefined) return of(st.expression);
+    if (result !== undefined) return undefined;
+    // Every return of a function with no written result (mixed returns), an arrow's body.
+    if (!ts.isBlock(f.body)) return of(f.body);
+    const returns: ts.Expression[] = [];
+    const walk = (x: ts.Node): void => {
+      if (ts.isReturnStatement(x) && x.expression !== undefined) returns.push(x.expression);
+      else if (!ts.isFunctionLike(x)) ts.forEachChild(x, walk);
+    };
+    ts.forEachChild(f.body, walk);
+    for (const r of returns) {
+      const v = of(r);
+      if (v !== undefined) return v;
     }
   }
   return undefined;
+}
+
+/** The operator a compound assignment applies (`^=` is `^`). */
+const COMPOUND_BASE = new Map<ts.SyntaxKind, ts.BinaryOperator>([
+  [ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.PlusToken],
+  [ts.SyntaxKind.MinusEqualsToken, ts.SyntaxKind.MinusToken],
+  [ts.SyntaxKind.AsteriskEqualsToken, ts.SyntaxKind.AsteriskToken],
+  [ts.SyntaxKind.BarEqualsToken, ts.SyntaxKind.BarToken],
+  [ts.SyntaxKind.AmpersandEqualsToken, ts.SyntaxKind.AmpersandToken],
+  [ts.SyntaxKind.CaretEqualsToken, ts.SyntaxKind.CaretToken],
+  [ts.SyntaxKind.LessThanLessThanEqualsToken, ts.SyntaxKind.LessThanLessThanToken],
+]);
+
+/** {@link readingPair} of `left op right` for a compound assignment, which has no node of its own. */
+function binaryPair(
+  left: ts.Expression,
+  op: ts.BinaryOperator,
+  right: ts.Expression,
+  sourceFile: ts.SourceFile,
+  seen: Set<ts.Node>,
+): { u32: number; ts: number } | undefined {
+  const synthetic = ts.factory.createBinaryExpression(left, op, right);
+  // The synthetic node reads its operands where they stand in the file.
+  (synthetic as { parent: ts.Node }).parent = left.parent;
+  return readingPair(synthetic, sourceFile, seen);
 }
 
 /** One refusal of an operation whose result differs between a tree's two readings (D2): its
@@ -2921,6 +2983,140 @@ export function kindlessSource(node: ts.Expression, depth = 0): boolean {
     );
   }
   return false;
+}
+
+/** Whether the variable `d` declares is assigned anywhere after its declaration: `=`, a compound
+ *  assignment, `++` or `--`, in any function of the file (a module `let` set elsewhere). */
+export function reassignedAnywhere(d: ts.VariableDeclaration): boolean {
+  if (!ts.isIdentifier(d.name)) return false;
+  const name = d.name.text;
+  return identifiersNamed(d.getSourceFile(), name).some((id) => {
+    if (id === d.name) return false;
+    const p = skipParenUp(id);
+    const parent = p.parent;
+    const target =
+      (ts.isBinaryExpression(parent) &&
+        parent.left === p &&
+        parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
+      ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) &&
+        (parent.operator === ts.SyntaxKind.PlusPlusToken ||
+          parent.operator === ts.SyntaxKind.MinusMinusToken));
+    return target && declarationOf(name, id) === d;
+  });
+}
+
+function skipParenUp(n: ts.Node): ts.Node {
+  let u = n;
+  while (ts.isParenthesizedExpression(u.parent)) u = u.parent;
+  return u;
+}
+
+/** The function a call of `name` at `at` reaches: one declared in a block around `at` or at the
+ *  top of the file, or a `const` bound to an arrow or a function expression. */
+function calleeAt(
+  name: string,
+  at: ts.Node,
+): ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression | undefined {
+  for (let n: ts.Node | undefined = at.parent; n !== undefined; n = n.parent) {
+    if (ts.isBlock(n) || ts.isSourceFile(n)) {
+      for (const st of n.statements) {
+        if (ts.isFunctionDeclaration(st) && st.name?.text === name) return st;
+      }
+    }
+  }
+  const d = declarationOf(name, at);
+  if (
+    d !== undefined &&
+    ts.isVariableDeclaration(d) &&
+    d.initializer !== undefined &&
+    (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
+  ) {
+    return d.initializer;
+  }
+  return undefined;
+}
+
+/** Whether `f` writes its result type, and it names no type parameter (a generic result is no
+ *  declared type: its origin is the argument's). */
+function writesResult(f: ts.SignatureDeclaration): boolean {
+  const result = writtenResultText(f, f.getSourceFile());
+  return result !== undefined && !(f.typeParameters ?? []).some((t) => t.name.text === result);
+}
+
+/**
+ * Whether the type of the integer `node` is one the author wrote (the owner's decision of
+ * 2026-11-13, E1, "증명 못 하면 추론으로 봄"): a conversion `i32()`, `u32()` or `f32()`, a typed
+ * parameter, a variable with a written type, a field or an element (whose types are written), a
+ * call of a function with a written result type, or an operator or builtin over one of those.
+ * Anything else is an integer by inference, unless proven: the result of a call of a function
+ * with no written result (any form: mixed returns, an arrow, a local function, a method, a
+ * getter), a generic result, a module `let` with no written type, and a read of a variable with
+ * no written type that is assigned anywhere. A variable with no written type that nothing assigns
+ * is its initializer's.
+ */
+export function provenTyped(node: ts.Expression, depth = 0): boolean {
+  const n = skipParenNodes(node);
+  if (depth > 32) return false;
+  if (writtenNumber(n) !== undefined) return false;
+  if (ts.isCallExpression(n)) {
+    const callee = n.expression;
+    if (ts.isIdentifier(callee)) {
+      if (/^(i32|u32|f32|f16|bool|vec[234][iuf]?|mat[234](x[234])?f?|array)$/.test(callee.text)) {
+        return true;
+      }
+      const carried = carriedParts(n);
+      if (carried !== undefined) return carried.some((e) => provenTyped(e, depth + 1));
+      const f = calleeAt(callee.text, n);
+      // A builtin or a name no declaration of this file binds keeps its own type.
+      return f === undefined ? true : writesResult(f);
+    }
+    if (ts.isPropertyAccessExpression(callee)) {
+      // A method: every method of that name in the file writes its result type.
+      const methods = identifiersNamed(n.getSourceFile(), callee.name.text)
+        .map((id) => id.parent)
+        .filter(
+          (p): p is ts.MethodDeclaration =>
+            ts.isMethodDeclaration(p) && p.name.kind === ts.SyntaxKind.Identifier,
+        );
+      return methods.length === 0 || methods.every(writesResult);
+    }
+    return true;
+  }
+  if (ts.isPropertyAccessExpression(n)) {
+    // A getter with no written result is a call of it (E1).
+    const getters = identifiersNamed(n.getSourceFile(), n.name.text)
+      .map((id) => id.parent)
+      .filter((p): p is ts.GetAccessorDeclaration => ts.isGetAccessorDeclaration(p));
+    return getters.every(writesResult);
+  }
+  if (ts.isElementAccessExpression(n)) return true;
+  if (ts.isIdentifier(n)) {
+    const d = declarationOf(n.text, n);
+    if (d === undefined) return true;
+    if (ts.isParameter(d)) return writtenTypeText(d, n.getSourceFile()) !== undefined;
+    if (writtenTypeText(d, n.getSourceFile()) !== undefined) return true;
+    if (ts.isSourceFile(d.parent.parent.parent) && !(d.parent.flags & ts.NodeFlags.Const)) {
+      return false;
+    }
+    if (reassignedAnywhere(d) || d.initializer === undefined) return false;
+    return provenTyped(d.initializer, depth + 1);
+  }
+  if (ts.isPrefixUnaryExpression(n)) return provenTyped(n.operand, depth + 1);
+  if (ts.isConditionalExpression(n)) {
+    return provenTyped(n.whenTrue, depth + 1) || provenTyped(n.whenFalse, depth + 1);
+  }
+  if (ts.isBinaryExpression(n)) {
+    const k = n.operatorToken.kind;
+    if (
+      k === ts.SyntaxKind.LessThanLessThanToken ||
+      k === ts.SyntaxKind.GreaterThanGreaterThanToken
+    ) {
+      return provenTyped(n.left, depth + 1);
+    }
+    return provenTyped(n.left, depth + 1) || provenTyped(n.right, depth + 1);
+  }
+  return true;
 }
 
 /** The arms of a `?:` or a `select`, or the arguments of an integer builtin, that carry their

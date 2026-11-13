@@ -35,6 +35,7 @@ import {
   kindlessSource,
   assignedReadings,
   declaredWithoutType,
+  provenTyped,
   refuseTwoReadings,
   twoReadingsOf,
 } from '../abstract-const.js';
@@ -2231,21 +2232,26 @@ function lowerAssignOpTo(
     // that are integers only by inference too (Rule 5.1): its declaration with its type is the
     // edit.
     const inner = ts.isParenthesizedExpression(left) ? left.expression : left;
+    // A target with no written type is assigned here, so it is an integer by inference (E1 of
+    // 2026-11-13): a right side whose type is not proven written does not say the division.
     const untyped =
-      ts.isIdentifier(inner) && scope.resolve(inner.text)?.inferred !== undefined
+      ts.isIdentifier(inner) &&
+      (scope.resolve(inner.text)?.inferred !== undefined || declaredWithoutType(inner))
         ? declarationWithType(inner.text, inner, typeKey(target.type))
         : undefined;
     const declared =
       kindlessDeclaration(scope.resolveIr(target.name)) ??
       (untyped !== undefined &&
       (kindlessSource(right) ||
-        kindlessOrigin(value, (n) => scope.resolveIr(n), sourceFile) === 'kindless')
+        kindlessOrigin(value, (n) => scope.resolveIr(n), sourceFile) === 'kindless' ||
+        (isIntScalar(value.type) && !provenTyped(right)))
         ? untyped
         : undefined);
     if (
       declared !== undefined &&
       !statesType(right) &&
-      kindlessOrigin(value, (n) => scope.resolveIr(n), sourceFile) !== 'typed'
+      (kindlessOrigin(value, (n) => scope.resolveIr(n), sourceFile) !== 'typed' ||
+        !provenTyped(right))
     ) {
       noteWrittenDivision(left.parent, sourceFile, left.getText(sourceFile), declared, 'integer');
     }

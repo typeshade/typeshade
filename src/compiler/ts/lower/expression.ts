@@ -25,6 +25,7 @@ import {
   noteForcedRead,
   readTypeFor,
   kindlessSource,
+  provenTyped,
   refuseTwoReadings,
   twoReadingsOf,
 } from '../abstract-const.js';
@@ -1556,12 +1557,15 @@ function lowerBinary(
       const resolve = (n: string) => scope.resolveIr(n);
       // A conversion written around an operand (`(1 | 2) / i32(2)`) states its type (decision
       // Q11 of change 0134); a builtin carries its arguments' origin (`kindlessOrigin`).
-      const origin = (e: Expr, n: ts.Expression) =>
-        statesType(n)
-          ? 'typed'
-          : kindlessSource(n)
-            ? 'kindless'
-            : kindlessOrigin(e, resolve, sourceFile);
+      // Only a type the author wrote counts as declared (E1 of 2026-11-13): an integer whose
+      // type is not proven written is an integer by inference.
+      const origin = (e: Expr, n: ts.Expression) => {
+        if (statesType(n)) return 'typed';
+        if (kindlessSource(n)) return 'kindless';
+        const ir = kindlessOrigin(e, resolve, sourceFile);
+        if (ir !== 'typed' || intElem(e.type) === undefined || e.type.kind !== 'scalar') return ir;
+        return provenTyped(n) ? 'typed' : 'kindless';
+      };
       const [lo, ro] = [origin(left, node.left), origin(right, node.right)];
       if (lo !== 'typed' && ro !== 'typed' && (lo === 'kindless' || ro === 'kindless')) {
         const text = (n: ts.Expression): string => {
