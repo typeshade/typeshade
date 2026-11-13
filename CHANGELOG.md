@@ -405,8 +405,9 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   A refusal that names no edit offers no wrap where the structure shows that the wrap would not
   choose the division (the owner's decision of 2026-11-13, "그 경우 감싸기 안 제시"): an `f32(…)`
   wrap whose quotient a bit operator reads, an integer wrap of a divisor whose integer quotient is
-  0, a `u32(…)` wrap whose quotient a unary minus reads, an operand that is a `?:` with one typed
-  arm, and a constant's sentence over a division that holds a tree. It says "Declare the type of
+  0, a `u32(…)` wrap whose quotient a unary minus reads, and a constant's sentence over a
+  division that holds a tree. A `?:` with one typed arm offers its wraps (the owner's E2 of
+  2026-11-13: wrapping the other operand chooses the division). It says "Declare the type of
   the division's operands to choose it." The check of a module's edits compiles an importer with
   the exported constants of its libraries, so an importer's edit that leaves its own mismatch is
   not named.

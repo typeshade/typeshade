@@ -2273,9 +2273,10 @@ function containsTree(node: ts.Node): boolean {
  * Whether a wrap the generic remedy of the `/` at `node` would offer cannot choose the division,
  * by a form the structure shows (the owner's decision of 2026-11-13, "그 경우 감싸기 안 제시"):
  * a `u32(…)` wrap whose quotient a unary minus reads; an `f32(…)` wrap whose quotient a bit
- * operator reads; an integer wrap of a divisor whose integer quotient is 0; an operand that is a
- * `?:` with one typed arm; and, for the sentence of a constant (`constant`), a tree elsewhere in
- * the division, which wrapping the constant leaves undecided. The check compiles nothing: the
+ * operator reads; an integer wrap of a divisor whose integer quotient is 0; and, for the sentence
+ * of a constant (`constant`), a tree elsewhere in the division, which wrapping the constant leaves
+ * undecided. A `?:` with one typed arm is no such form: wrapping the other operand chooses the
+ * division (E2 of 2026-11-13). The check compiles nothing: the
  * module's two edited compiles stay its bound.
  */
 export function wrapsCannotChoose(
@@ -2339,12 +2340,6 @@ export function wrapsCannotChoose(
     const a = constNumber(node.left);
     const b = constNumber(node.right);
     if (a !== undefined && b !== undefined && b !== 0 && Math.trunc(a / b) === 0) return true;
-  }
-  for (const side of [node.left, node.right]) {
-    const c = skipParenNodes(side);
-    if (ts.isConditionalExpression(c) && typedNode(c.whenTrue) !== typedNode(c.whenFalse)) {
-      return true;
-    }
   }
   return constant && containsTree(node);
 }

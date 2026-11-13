@@ -523,12 +523,6 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     ['', 'const k = 4;\n  let a = ((-(5|0)) / ((ii == 2) ? (-7|0) : k));\n  return f32(a);', 'f32'],
     // A u32(…) wrap over a unary minus: u32 has no negation.
     ['', 'let xs: array<u32, 2> = [1, 2];\n  xs[1] *= (-((~(1|2)) / 7));\n  return xs[1];', 'u32'],
-    // A `?:` with one typed arm.
-    [
-      '',
-      'const k = 4;\n  let a = ((-(5|0)) / ((ii == 2) ? (-7|0) : i32(k)));\n  let b = a;\n  a = a - (-(5|0));\n  return (a / f32(k));',
-      'f32',
-    ],
   ])(
     'a generic remedy offers no wrap that would not choose the division (2026-11-13): %s%s',
     (pre, body, ret) => {
