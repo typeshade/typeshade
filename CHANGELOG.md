@@ -387,6 +387,31 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   167177 to 167208 (split total 169447 to 169476), `typeshade/emit` 117367 to 117380 and
   `typeshade/fuse` 113898 to 113919 (split total 114521 to 114536): each one carries the pass.
 
+  The origin of an integer by its bit operator, and the two readings of D2, are carried further
+  (the fourteenth review of #1272). A function with no written result whose returns are such
+  integers gives one, through `let`, `abs`, `min`, `sign`, `select` and `?:`, exported or imported
+  (`function gg() { return 6 ^ 3; } let a = gg(); f32(a / 2)` gave 2, TypeScript 2.5; it is
+  refused now). A generic function whose result is its argument gives the argument's origin and
+  readings (`id(3000000000 | 0) / vi` gave 428571428; refused). A plain assignment to a variable
+  with no written type takes the two readings, also inside `for` and `if` and for a module `let`
+  (`let a = 4; a = 3000000000 | 0; a / vi` gave 428571428, TypeScript 4109971968; refused). An
+  exported constant keeps the `f32` its importers read, as an exported function's result does
+  (Amendment A5), so an importer's mismatch is its own and names no edit in another file. A D2
+  refusal over a constant of no fixed type names the constant's declaration with its type; over a
+  constant of another file, or where no form compiles in a module with that one refusal, it names
+  none. The edit of a refused `>>` over a written `u32` and the value forms are verified with the
+  module's other edits, and named only where they compile.
+
+  Newly refused against `main`, with the decision that covers each:
+
+  - `let g = f; g += (5|0)/2` and the same for `-=`, `*=`, `/=` and `%=` (`main` gave 5, 0, 6.25,
+    1 and 0), and `let g = 3; g *= (5|0)/2` (`main` gave 7.5): D-b ("이대로"), a compound
+    assignment states no type for its right side.
+  - An unused `const Q = K / 2` with `const K = 4` (`main` accepted it): D-b and Amendment A2.
+  - `const K = 1 | 2; … f + K` (`main` gave 5.5): decision 1, an integer beside a float.
+  - `let a = 3000000000 | 0; min(a, ii)`: now refused under D2 with the edit `i32(a)`, where it was
+    a plain mismatch.
+
 - **The editor's hover names a constant of no fixed type in the language's words, and each read
   at the type it takes there** (change 0134 item 4; Rules 5.1 and 12.7; decision Q3). At the
   declaration, `const K = 3` hovers as `const K = 3 (i32, u32, f32 or f64 where it is read)` and

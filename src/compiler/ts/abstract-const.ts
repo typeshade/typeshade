@@ -1139,6 +1139,8 @@ interface WrittenDivision {
   read: boolean;
   /** The type of an integer peer that states no type and read the quotient. */
   peer?: 'i32' | 'u32';
+  /** Whether an operand holds two readings (D2): its float is `f32(i32(…))`. */
+  readonly readings?: boolean;
 }
 
 /** Records a `/` or `/=` over a binding that holds a tree of written integers: `subject` is the
@@ -1151,6 +1153,7 @@ export function noteWrittenDivision(
   kind: 'float' | 'integer',
   peerEdit?: (type: 'i32' | 'u32') => string,
   subjects: readonly string[] = [subject],
+  readings = false,
 ): void {
   // A `/` over a constant of no fixed type is refused by its own sentence (Amendment A2).
   if (divisionByNode.get(node)?.reads.length) return;
@@ -1165,6 +1168,7 @@ export function noteWrittenDivision(
     kind,
     read: false,
     ...(peerEdit !== undefined ? { peerEdit } : {}),
+    ...(readings ? { readings } : {}),
   });
 }
 
@@ -1401,7 +1405,12 @@ export function reportAbstractDivisions(
               ? `Declare "${w.subject}" with ${(allowed ?? ['i32', 'u32'])
                   .filter((t) => t !== 'f32')
                   .join(' or ')} to choose the division.`
-              : genericDivisionRemedy(w.subjects, allowed)),
+              : genericDivisionRemedy(
+                  w.subjects,
+                  w.readings === true
+                    ? (allowed ?? ALL_SCALARS).map((t) => (t === 'f32' ? 'f32(i32' : t))
+                    : allowed,
+                )),
         TS_CODES.TYPE_MISMATCH,
       );
     const editIn = (t: Scalar): string =>
@@ -1626,7 +1635,10 @@ export function reportAbstractDivisions(
       tainted: new Map(),
       reached: [],
     };
-    const items = batch.map((b) => b.build(cx));
+    // A refusal of another file of the program is checked in its own file, which owns it
+    // (#1186): its edits are never named from the importer (F5 of the fourteenth review).
+    const own = batch.filter((b) => programFileOf(b.node) === 0);
+    const items = own.map((b) => b.build(cx));
     checkModuleEdits(sourceFile, diagnostics, items, cx.reached, check);
   }
 }
@@ -2673,20 +2685,26 @@ export function kindlessSource(node: ts.Expression, depth = 0): boolean {
   const n = skipParenNodes(node);
   const sourceFile = n.getSourceFile();
   if (depth > 16) return false;
-  // Arithmetic and bit operators over such values and written numbers (`(-(5 | 0)) | M`).
+  // Arithmetic and bit operators over such values and written numbers (`(-(5 | 0)) | M`), and
+  // builtins over those (`gg() ^ sign(-7 | 0)`).
   const part = (e: ts.Expression) =>
-    writtenNumber(e) !== undefined || writtenBitTree(e) || kindlessSource(e, depth + 1);
+    writtenNumber(e) !== undefined || writtenBitTree(e) || inferredInteger(e, depth + 1);
   if (ts.isBinaryExpression(n)) {
     const k = n.operatorToken.kind;
+    // A shift's type is its left operand's, whatever its amount is (`gg() << vi`).
+    if (
+      k === ts.SyntaxKind.LessThanLessThanToken ||
+      k === ts.SyntaxKind.GreaterThanGreaterThanToken
+    ) {
+      return kindlessSource(n.left, depth + 1);
+    }
     const op =
       k === ts.SyntaxKind.PlusToken ||
       k === ts.SyntaxKind.MinusToken ||
       k === ts.SyntaxKind.AsteriskToken ||
       k === ts.SyntaxKind.BarToken ||
       k === ts.SyntaxKind.AmpersandToken ||
-      k === ts.SyntaxKind.CaretToken ||
-      k === ts.SyntaxKind.LessThanLessThanToken ||
-      k === ts.SyntaxKind.GreaterThanGreaterThanToken;
+      k === ts.SyntaxKind.CaretToken;
     return (
       op &&
       part(n.left) &&
@@ -2806,11 +2824,20 @@ function inferredInteger(node: ts.Expression, depth: number): boolean {
   }
   if (ts.isBinaryExpression(n)) {
     const k = n.operatorToken.kind;
+    if (
+      k === ts.SyntaxKind.LessThanLessThanToken ||
+      k === ts.SyntaxKind.GreaterThanGreaterThanToken
+    ) {
+      return inferredInteger(n.left, depth + 1);
+    }
     const op =
       k === ts.SyntaxKind.PlusToken ||
       k === ts.SyntaxKind.MinusToken ||
       k === ts.SyntaxKind.AsteriskToken ||
-      k === ts.SyntaxKind.PercentToken;
+      k === ts.SyntaxKind.PercentToken ||
+      k === ts.SyntaxKind.BarToken ||
+      k === ts.SyntaxKind.AmpersandToken ||
+      k === ts.SyntaxKind.CaretToken;
     return op && part(n.left) && part(n.right) && (!constantTree(n.left) || !constantTree(n.right));
   }
   if (ts.isIdentifier(n)) {

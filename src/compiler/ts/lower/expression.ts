@@ -1588,7 +1588,18 @@ function lowerBinary(
         const subjects = [node.left, node.right]
           .filter((_, i) => [lo, ro][i] === 'kindless')
           .map(text);
-        noteWrittenDivision(node, sourceFile, subject, edit, 'float', peerEdit, subjects);
+        noteWrittenDivision(
+          node,
+          sourceFile,
+          subject,
+          edit,
+          'float',
+          peerEdit,
+          subjects,
+          // `f32(…)` of an operand with two readings is refused (D2): the generic remedy names
+          // `f32(i32(…))` for it, as the tree's does.
+          [node.left, node.right].some((n) => twoReadingsOf(n) !== undefined),
+        );
         const asF32 = (e: Expr): Expr =>
           intElem(e.type) === undefined ? e : { op: 'call', type: f32T, fn: 'f32', args: [e] };
         const [l, r] = [left, right];

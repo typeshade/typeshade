@@ -8,7 +8,11 @@
 // (typed, untyped and exported), builtins, `?:` and `select` arms holding trees, written
 // conversions alone and inside arithmetic, typed peers and the operators
 // `/ % < <= > >= == != >> >>> + - * & | ^ << ~` and unary minus, with an `f32`, `i32` or `u32`
-// result. Three properties hold over the corpus:
+// result. The fourteenth review added: plain reassignments (also inside `for` and `if`), a
+// reassigned module `let`, a generic function, a function with a `u32` parameter, functions that
+// return trees (through a binding and a builtin) and the uses derived from them, an imported
+// function, compound assignment to a swizzle, module constants with a bare `| & ^` root, and
+// libraries whose own refusals name edits in the imported file. Three properties hold:
 //
 //   1. Where `compile()` accepts a program with no diagnostic, the CPU oracle's value is the value
 //      the same source has as TypeScript, with `i32()` ToInt32 of the truncation, `u32()`
@@ -18,17 +22,23 @@
 //      (OD-7, Rule 5.1); once such a value is no integer, the author's TypeScript keeps the
 //      double. Integer results compare exactly; an `f32` compares after `Math.fround` on both
 //      sides, exactly where it is an integer of at most 2^24.
-//   2. The editor's `getDiagnostics` gives exactly the diagnostics `compile()` gives: the same
-//      codes and the same text (Rule 12.7).
-//   3. Every edit the refusals name (a division's, a value with two readings', a value form),
-//      made together at its diagnostic's place, adds no error in either half: the edited
-//      program's errors are the unedited program's other errors, by line and text (Amendment
-//      A6, "name only verified edits").
+//      A value of no declared type stored in a declared integer (a declaration, an assignment, a
+//      parameter, a result) is truncated where it is no integer (Amendment A4), and is its bits
+//      where only the other integer type holds it (C3: `let x: u32 = 3000000000 | 0`).
+//   2. In each file of the program, the editor's diagnostics (`checkDocuments`) are exactly the
+//      diagnostics `compile()` gives that file: the same codes and the same text (Rule 12.7).
+//   3. Every edit the refusals name (a division's, a value with two readings', a `>>`'s, a value
+//      form, a declaration with its type), made together at its diagnostic's place in whichever
+//      file it stands, adds no error in either half: each file's errors after the edits are its
+//      other errors before them, by line and text (Amendment A6, "name only verified edits").
+//      Where the program's one error names no edit, each wrap or declaration its generic remedy
+//      offers removes that error and adds none on its line; an error it adds on another line is
+//      a use that asks the other type, which D4 of 2026-11-12 leaves to the generic text.
 
 import { writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
-import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { checkDocuments } from '../../language-service/check.js';
 
 /** mulberry32: a small generator with a fixed seed, so the corpus is the same on every run. */
 function rng(seed: number): () => number {
@@ -51,7 +61,17 @@ interface V {
 class Skip extends Error {}
 
 const INPUTS = { ii: -3, vi: 7, f: 2.5 } as const;
-const LIB = '"use typeshade";\nexport const L = 3;\nexport const LB = 0xF0000000 | 0;\n';
+/** The imported file: the same exports in each, and in three of them one more that the file
+ *  itself refuses, so that an edit lands in the imported file. */
+const LIB_BASE =
+  '"use typeshade";\nexport const L = 3;\nexport const LB = 0xF0000000 | 0;\n' +
+  'export const LK = 1 | 2;\nexport function lg() {\n  return 6 ^ 3;\n}\n';
+const LIBS = [
+  LIB_BASE,
+  `${LIB_BASE}export const LQ = (1|2)/2;\n`,
+  `${LIB_BASE}export function lh() {\n  return (5|0)/2;\n}\n`,
+  `${LIB_BASE}export const LS = 0xF0000000 >> 28;\n`,
+] as const;
 
 const inRange = (t: 'i32' | 'u32', x: number): boolean =>
   t === 'u32' ? x >= 0 && x <= 4294967295 : x >= -(2 ** 31) && x <= 2 ** 31 - 1;
@@ -74,6 +94,18 @@ function convert(to: 'i32' | 'u32' | 'f32', x: V): number {
   // integer type converts as a float does. No comparison (an open item of #1272).
   if (x.t === 'k' && !inRange(to, x.v)) throw new Skip('untyped value out of range');
   return to === 'i32' ? Math.trunc(x.v) | 0 : Math.trunc(x.v) >>> 0;
+}
+/** A value stored in a position that declares the integer type `to`: a declaration, an
+ *  assignment, a parameter, a result. One of no declared type is truncated where it is no
+ *  integer (Amendment A4), and is its bits where only the other integer type holds it (C3: the
+ *  annotation ends the origin, `let x: u32 = 3000000000 | 0` is 3000000000). */
+function store(to: 'i32' | 'u32', x: V): number {
+  if (x.t !== 'k') return convert(to, x);
+  const v = Math.trunc(x.v);
+  if (inRange(to, v)) return to === 'i32' ? v | 0 : v >>> 0;
+  if (to === 'u32' && v < 0 && v >= -(2 ** 31)) return v >>> 0;
+  if (to === 'i32' && v > 2 ** 31 - 1 && v <= 2 ** 32 - 1) return v | 0;
+  throw new Skip('stored value out of range');
 }
 const popcount = (x: number): number => {
   let n = x >>> 0;
@@ -179,7 +211,17 @@ class Program {
   readonly env = new Map<string, V>();
   readonly steps: (() => void)[] = [];
   readonly names: string[] = [];
-  readonly fns: { name: string; call: (args: Expr[]) => Expr; arity: number }[] = [];
+  readonly fns: {
+    name: string;
+    call: (args: Expr[]) => Expr;
+    arity: number;
+    /** The types its arguments are drawn with. */
+    args?: readonly T[];
+    /** Whether it returns a tree of written integers (a call of it is one, `treeish`). */
+    tree?: boolean;
+  }[] = [];
+  /** Which of {@link LIBS} the program imports from. */
+  lib = 0;
   constructor(readonly r: () => number) {}
   pick<X>(xs: readonly X[]): X {
     return xs[Math.floor(this.r() * xs.length)]!;
@@ -211,6 +253,16 @@ class Program {
       () => lit(8 / 3, '((1<<3)/3)'),
       () => lit(1.5, '((1|2)/2)'),
     ])();
+  }
+
+  /** A tree, or a call of a function that returns one (F1 of the fourteenth review). */
+  treeish(): Expr {
+    const fs = this.fns.filter((f) => f.tree === true);
+    if (fs.length > 0 && this.chance(0.5)) return this.pick(fs).call([]);
+    if (this.fns.some((f) => f.name === 'id') && this.chance(0.2)) {
+      return this.fns.find((f) => f.name === 'id')!.call([this.tree()]);
+    }
+    return this.tree();
   }
 
   name(n: string): Expr {
@@ -387,7 +439,9 @@ class Program {
     if (kind < 0.9 && this.fns.length > 0) {
       const f = this.pick(this.fns);
       return f.call(
-        Array.from({ length: f.arity }, () => this.expr(this.pick<T>(['k', 'i32']), depth - 1)),
+        Array.from({ length: f.arity }, (_, i) =>
+          this.expr(f.args?.[i] ?? this.pick<T>(['k', 'i32']), depth - 1),
+        ),
       );
     }
     if (kind < 0.96 && t !== 'k' && t !== 'bool') {
@@ -418,15 +472,90 @@ class Program {
         this.bind('K2', 'k', () => d.value());
       }
     }
+    // A module constant whose root is a bare `|`, `&` or `^` over written integers (F7).
+    if (this.chance(0.2)) {
+      const [a, op, b] = this.pick([
+        [1, '|', 2],
+        [6, '^', 3],
+        [12, '&', 5],
+      ] as const);
+      const v = op === '|' ? a | b : op === '^' ? a ^ b : a & b;
+      this.pre.push(`const KB = ${String(a)} ${op} ${String(b)};`);
+      this.bind('KB', 'k', () => ({ t: 'k', v }));
+    }
     if (this.chance(0.2)) {
       const e = this.tree();
       this.pre.push(`let M = ${e.text};`);
       this.bind('M', 'k', () => e.value());
     }
-    if (this.chance(0.25)) {
-      this.pre.unshift(`import { L, LB } from "./lib.shade";`);
+    if (this.chance(0.3)) {
+      // One library in four refuses an export of its own (an edit lands in the imported file).
+      this.lib = this.chance(0.6) ? 0 : 1 + Math.floor(this.r() * (LIBS.length - 1));
+      const extra = this.lib === 1 ? ', LQ' : this.lib === 2 ? ', lh' : '';
+      this.pre.unshift(`import { L, LB, LK, lg${extra} } from "./lib.shade";`);
       this.bind('L', 'k', () => ({ t: 'k', v: 3 }));
       this.bind('LB', 'k', () => ({ t: 'k', v: 0xf0000000 | 0 }));
+      this.bind('LK', 'k', () => ({ t: 'k', v: 3 }));
+      if (this.lib === 1) this.bind('LQ', 'f32', () => ({ t: 'f32', v: 1.5 }));
+      this.fns.push({
+        name: 'lg',
+        arity: 0,
+        tree: true,
+        call: () => ({ text: 'lg()', value: () => ({ t: 'k', v: 6 ^ 3 }) }),
+      });
+      if (this.lib === 2) {
+        this.fns.push({
+          name: 'lh',
+          arity: 0,
+          call: () => ({ text: 'lh()', value: () => ({ t: 'f32', v: 2.5 }) }),
+        });
+      }
+    }
+    if (this.chance(0.2)) {
+      this.pre.push('function id<T>(a: T): T {\n  return a;\n}');
+      this.fns.push({
+        name: 'id',
+        arity: 1,
+        args: [this.pick<T>(['k', 'i32', 'u32'])],
+        call: (args) => ({ text: `id(${args[0]!.text})`, value: () => args[0]!.value() }),
+      });
+    }
+    if (this.chance(0.2)) {
+      this.pre.push('function hu(a: u32): u32 {\n  return a + 1;\n}');
+      this.fns.push({
+        name: 'hu',
+        arity: 1,
+        args: [this.pick<T>(['k', 'u32'])],
+        call: (args) => ({
+          text: `hu(${args[0]!.text})`,
+          value: () => {
+            const a = args[0]!.value();
+            if (a.t !== 'k' && a.t !== 'u32') throw new Skip('argument type');
+            return { t: 'u32', v: (store('u32', a) + 1) >>> 0 };
+          },
+        }),
+      });
+    }
+    if (this.chance(0.2)) {
+      const e = this.tree();
+      this.pre.push(`function gg2() {\n  let x = ${e.text};\n  return x;\n}`);
+      this.fns.push({
+        name: 'gg2',
+        arity: 0,
+        tree: true,
+        call: () => ({ text: 'gg2()', value: e.value }),
+      });
+    }
+    if (this.chance(0.2)) {
+      const e = this.tree();
+      this.pre.push(`function gg3() {\n  return abs(${e.text});\n}`);
+      const a = this.call('abs', [e]);
+      this.fns.push({
+        name: 'gg3',
+        arity: 0,
+        tree: true,
+        call: () => ({ text: 'gg3()', value: a.value }),
+      });
     }
     if (this.chance(0.3)) {
       this.pre.push('function hh(a: i32): i32 {\n  return a + 1;\n}');
@@ -438,8 +567,8 @@ class Program {
           value: () => {
             const a = args[0]!.value();
             if (a.t !== 'k' && a.t !== 'i32') throw new Skip('argument type');
-            if (!Number.isInteger(a.v) || !inRange('i32', a.v)) throw new Skip('argument value');
-            return { t: 'i32', v: (a.v + 1) | 0 };
+            // A parameter states its type: a quotient passed to it is truncated (A4).
+            return { t: 'i32', v: (store('i32', a) + 1) | 0 };
           },
         }),
       });
@@ -451,6 +580,7 @@ class Program {
       this.fns.push({
         name: 'gg',
         arity: 0,
+        tree: true,
         call: () => ({
           text: 'gg()',
           // The module's own calls of an exported function read its integer copy (Amendment
@@ -475,11 +605,11 @@ class Program {
     // A declared integer target truncates a quotient where it is written to it whole (A4);
     // a compound assignment keeps the author's double (B1).
     if (op !== undefined && !Number.isInteger(next.v) && t !== 'f32') return { t: 'k', v: next.v };
-    return { t, v: t === 'f32' ? Math.fround(next.v) : convert(t as 'i32' | 'u32', next) };
+    return { t, v: t === 'f32' ? Math.fround(next.v) : store(t as 'i32' | 'u32', next) };
   }
 
   /** The program as source, and its reference value (`undefined`: no comparison is made). */
-  build(): { source: string; value: number | undefined } {
+  build(): { source: string; value: number | undefined; lib: number } {
     for (const [k, v] of Object.entries(INPUTS)) {
       this.env.set(k, { t: k === 'ii' ? 'i32' : k === 'vi' ? 'u32' : 'f32', v });
     }
@@ -495,19 +625,33 @@ class Program {
       }
     }
     const result = this.pick<T>(['f32', 'i32', 'u32']);
+    // A reassigned module `let` (F2 of the fourteenth review).
+    if (this.names.includes('M') && this.chance(0.4)) {
+      const rhs = this.pick([
+        () => this.tree(),
+        () => lit(3000000000 | 0, '(3000000000|0)'),
+        () => this.bin('|', this.name('M'), lit(0)),
+        () => this.expr('k', 1),
+      ])();
+      this.lines.push(`M = ${rhs.text};`);
+      this.steps.push(() =>
+        this.env.set('M', this.assign('k', this.env.get('M')!, undefined, rhs.value())),
+      );
+    }
     const form = this.r();
     let ret: Expr;
     if (form < 0.45) {
       // A `let` chain, annotated or not, with a reassignment or a compound assignment.
       const annotated = this.chance(0.25) ? this.pick<T>(['i32', 'u32', 'f32']) : undefined;
       const ty = annotated ?? this.pick<T>(['k', 'k', 'k', 'k', 'i32', 'u32', 'f32']);
-      const init = this.chance(0.3)
+      const init = this.chance(0.4)
         ? this.pick([
-            () => this.tree(),
-            () => this.call('abs', [this.tree()]),
-            () => this.call('min', [this.tree(), lit(9)]),
-            () => this.call('select', [lit(3), this.tree(), this.compare(0)]),
-            () => this.cond(this.compare(0), this.tree(), lit(3)),
+            () => this.treeish(),
+            () => this.call('abs', [this.treeish()]),
+            () => this.call('min', [this.treeish(), lit(9)]),
+            () => this.call('sign', [this.treeish()]),
+            () => this.call('select', [lit(3), this.treeish(), this.compare(0)]),
+            () => this.cond(this.compare(0), this.treeish(), lit(3)),
           ])()
         : this.expr(annotated ?? ty, 2);
       this.lines.push(`let a${annotated !== undefined ? `: ${annotated}` : ''} = ${init.text};`);
@@ -516,6 +660,30 @@ class Program {
       if (this.chance(0.4)) {
         this.lines.push('let b = a;');
         this.bind('b', 'k', () => this.env.get('a')!);
+      }
+      // A plain reassignment, alone or inside `for` or `if` (F2 of the fourteenth review).
+      if (this.chance(0.35)) {
+        const rhs = this.pick([
+          () => this.treeish(),
+          () => lit(3000000000 | 0, '(3000000000|0)'),
+          () => this.expr(this.pick<T>(['k', result]), 1),
+          () => this.bin(this.pick(['+', '|']), this.name('a'), this.tree()),
+          () => this.call('select', [lit(1), this.tree(), this.compare(0)]),
+        ])();
+        const where = this.pick(['plain', 'for', 'if'] as const);
+        const stmt = `a = ${rhs.text};`;
+        this.lines.push(
+          where === 'plain'
+            ? stmt
+            : where === 'for'
+              ? `for (let i = 0; i < 2; i++) {\n    ${stmt}\n  }`
+              : `if (vi > 3) {\n    ${stmt}\n  }`,
+        );
+        this.steps.push(() => {
+          for (let i = 0; i < (where === 'for' ? 2 : 1); i++) {
+            this.env.set('a', this.assign(target, this.env.get('a')!, undefined, rhs.value()));
+          }
+        });
       }
       if (this.chance(0.7)) {
         const op = this.pick(['/', '/', '%', '>>', '+', '*', '-']);
@@ -576,6 +744,18 @@ class Program {
       this.lines.push(op === undefined ? `xs[1] = ${e.text};` : `xs[1] ${op}= ${e.text};`);
       this.steps.push(() => this.env.set('xs1', this.assign(el, { t: el, v: 2 }, op, e.value())));
       ret = { text: 'xs[1]', value: () => this.env.get('xs1')! };
+    } else if (form < 0.79) {
+      // A compound assignment to a component of a vector.
+      const el: T = result === 'u32' ? 'u32' : 'i32';
+      const lane = this.pick(['x', 'y'] as const);
+      const e = this.chance(0.3) ? this.quotient() : this.expr(this.pick<T>(['k', el]), 2);
+      const op = this.pick(['+', '*', '-']);
+      this.lines.push(`let v = ${el === 'u32' ? 'vec2u' : 'vec2i'}(1, 2);`);
+      this.lines.push(`v.${lane} ${op}= ${e.text};`);
+      this.steps.push(() =>
+        this.env.set('vl', this.assign(el, { t: el, v: lane === 'x' ? 1 : 2 }, op, e.value())),
+      );
+      ret = { text: `v.${lane}`, value: () => this.env.get('vl')! };
     } else {
       ret = this.expr(this.pick<T>(['k', 'k', result]), 3);
     }
@@ -591,69 +771,195 @@ class Program {
       const v = ret.value();
       if (v.t === 'bool') throw new Skip('bool result');
       if (!wrapped && v.t !== 'k' && v.t !== result) throw new Skip('result type');
-      expected = result === 'f32' ? Math.fround(v.v) : convert(result as 'i32' | 'u32', v);
+      // A result states its type (C3: a value of no declared type is stored as its bits there);
+      // a written conversion converts.
+      expected =
+        result === 'f32'
+          ? Math.fround(v.v)
+          : wrapped
+            ? convert(result as 'i32' | 'u32', v)
+            : store(result as 'i32' | 'u32', v);
     } catch (e) {
       if (!(e instanceof Skip)) throw e;
       expected = undefined;
     }
-    return { source, value: expected };
+    return { source, value: expected, lib: this.lib };
   }
 }
 
-const read = (uri: string): string | undefined => (uri.includes('lib.shade') ? LIB : undefined);
 const FILE = '/p/a.shade.ts';
+const LIB_FILE = '/p/lib.shade.ts';
 
+/** One error of one file of the program, from either half. */
 interface Line {
+  readonly file: string;
   readonly code: string;
   readonly message: string;
   readonly line: number;
+  readonly start: number;
+  readonly length: number;
 }
 
-function compiled(source: string): Line[] {
-  return compile(source, { fileName: FILE, readDocument: read })
-    .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => ({ code: d.code ?? '', message: d.message, line: d.line }));
+const fileOf = (name: string | undefined): string =>
+  name !== undefined && name.includes('lib.shade') ? LIB_FILE : FILE;
+
+/** A program: the file the compile starts from and the library it may import. */
+interface Program2 {
+  readonly main: string;
+  readonly lib: string;
 }
 
-function editor(source: string): Line[] {
-  const s = createTypeshadeLanguageService({ readDocument: read });
-  s.openDocument(FILE, source);
-  return (
-    s
-      .getDiagnostics(FILE)
-      .filter((d) => d.severity === 'error' || d.severity === undefined)
+const readerOf =
+  (p: Program2) =>
+  (uri: string): string | undefined =>
+    uri.includes('lib.shade') ? p.lib : undefined;
+
+/** `compile()`'s errors, each in the file it stands in: the entry's from the program, the
+ *  library's from the library compiled as its own program (as its document reports them). */
+function compiled(p: Program2): Line[] {
+  const read = readerOf(p);
+  const of = (text: string, fileName: string, keep: (d: string) => boolean): Line[] =>
+    compile(text, { fileName, readDocument: read })
+      .diagnostics.filter((d) => d.category === 'error' && keep(fileOf(d.fileName)))
       .map((d) => ({
-        code: String(d.code),
-        message: String(d.message),
-        line: d.range.start.line + 1,
-      }))
-      // TypeScript's own checks (`4 != 7` has no overlap, TS2367) are the editor's alone.
-      .filter((d) => d.code.startsWith('TS'))
-  );
+        file: fileOf(d.fileName),
+        code: d.code ?? '',
+        message: d.message,
+        line: d.line,
+        start: d.start,
+        length: d.length,
+      }));
+  const imports = p.main.includes('./lib.shade');
+  return [
+    ...of(p.main, FILE, (f) => f === FILE),
+    ...(imports ? of(p.lib, LIB_FILE, (f) => f === LIB_FILE) : []),
+  ];
 }
 
-const key = (d: Line): string => `${String(d.line)}|${d.code}: ${d.message}`;
+/** The editor's errors in each file of the program (`checkDocuments`, the CLI's and the
+ *  editor's check), TypeShade's own: TypeScript's (`4 != 7` has no overlap) are the editor's. */
+function editor(p: Program2): Line[] {
+  return checkDocuments([{ path: FILE, uri: FILE, text: p.main }], { readDocument: readerOf(p) })
+    .diagnostics.filter((d) => d.severity === 'error' && d.source === 'typeshade')
+    .map((d) => ({
+      file: fileOf(d.file),
+      code: d.code,
+      message: d.message,
+      line: d.line,
+      start: d.offset,
+      length: d.length,
+    }));
+}
 
-/** The edit a diagnostic names, as a change of the source: at its span, or at the declaration a
- *  declaration edit names. `undefined`: the diagnostic names no edit. */
-function editOf(
-  source: string,
-  d: { readonly message: string; readonly start: number; readonly length: number },
-): { start: number; end: number; text: string } | undefined | 'unreadable' {
+const key = (d: Line): string => `${d.file}|${String(d.line)}|${d.code}: ${d.message}`;
+
+interface Change {
+  readonly file: string;
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+}
+
+/** The insertion that declares `name` with `type`, at its declaration in scope at `at`: the
+ *  last `let` or `const` of that name before `at`, else the first after (a module's). */
+function declarationAt(
+  text: string,
+  name: string,
+  at: number,
+  type: string,
+): { start: number; end: number; text: string } | undefined {
+  const re = new RegExp(`\\b(?:let|const) ${name}(\\s*)(?::\\s*\\w+\\s*)?=`, 'g');
+  let best: RegExpExecArray | undefined;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    if (m.index < at || best === undefined) best = m;
+    if (m.index >= at) break;
+  }
+  if (best === undefined) return undefined;
+  const start = best.index + best[0].indexOf(name) + name.length;
+  const end = best.index + best[0].length - 1;
+  return { start, end, text: `: ${type} ` };
+}
+
+/** The edit a diagnostic names, as a change of its file: at its span, or at the declaration a
+ *  declaration edit names. `undefined`: it names no edit. Every form a refusal names is read:
+ *  `Write "…" for the float division / integer division / u32 value / i32 value / u32 shift.`,
+ *  the value forms `Write the u32 with the same bits, 0x….` and `Write the i32 with the same
+ *  bits, -N, or declare a u32.`. */
+function editOf(text: string, d: Line): Change | undefined | 'unreadable' {
+  const value =
+    / Write the (?:u32|i32) with the same bits, (0x[0-9a-f]+|-?\d+)(?:, or declare a u32)?\.$/.exec(
+      d.message,
+    );
+  if (value !== null) {
+    return { file: d.file, start: d.start, end: d.start + d.length, text: value[1]! };
+  }
   const m =
-    /[Ww]rite "([^"]*(?:"[^"]*"[^"]*)*?)" for the (?:float division|integer division|u32 value|i32 value)\.$/.exec(
+    /[Ww]rite "([^"]*(?:"[^"]*"[^"]*)*?)" for the (?:float division|integer division|u32 value|i32 value|u32 shift)\.$/.exec(
       d.message,
     ) ?? /[Ww]rite "([^"]*)"\.$/.exec(d.message);
   if (m === null) return undefined;
   const edit = m[1]!;
   const decl = /^(let|const) (\w+): (\w+) = /.exec(edit);
   if (decl !== null) {
-    const at = new RegExp(`\\b${decl[1]!} ${decl[2]!}(\\s*)=`).exec(source);
-    if (at === null) return 'unreadable';
-    const start = at.index + decl[1]!.length + 1 + decl[2]!.length;
-    return { start, end: start, text: `: ${decl[3]!}` };
+    const at = declarationAt(text, decl[2]!, d.start, decl[3]!);
+    return at === undefined ? 'unreadable' : { file: d.file, ...at };
   }
-  return { start: d.start, end: d.start + d.length, text: edit };
+  return { file: d.file, start: d.start, end: d.start + d.length, text: edit };
+}
+
+/** The edits a refusal that names none offers: each wrap of its generic remedy around each
+ *  operand it names, or each declaration with a type. `undefined`: no generic remedy. */
+function genericEdits(text: string, d: Line): Change[][] | undefined {
+  const wrap =
+    /Write ((?:[\w(]+\(…\)+(?:, | or )?)+) around ((?:each of )?"[^"]*"(?:(?:, | and )"[^"]*")*) to choose (?:the division|its value)\.$/.exec(
+      d.message,
+    );
+  if (wrap !== null) {
+    const forms = wrap[1]!.split(/, | or /).map((f) => f.replace(/…/, '%'));
+    const subjects = [...wrap[2]!.matchAll(/"([^"]*)"/g)].map((x) => x[1]!);
+    const span = text.slice(d.start, d.start + d.length);
+    return forms.map((form) =>
+      subjects.flatMap((subject) => {
+        const i = span.indexOf(subject);
+        if (i < 0) return [];
+        return [
+          {
+            file: d.file,
+            start: d.start + i,
+            end: d.start + i + subject.length,
+            text: form.replace('%', subject),
+          },
+        ];
+      }),
+    );
+  }
+  const declare =
+    /Declare "(\w+)" with (\w+)(?: or (\w+))? to choose (?:the division|its value)\.$/.exec(
+      d.message,
+    );
+  if (declare !== null) {
+    return [declare[2]!, declare[3]]
+      .filter((t): t is string => t !== undefined)
+      .map((t) => {
+        const at = declarationAt(text, declare[1]!, d.start, t);
+        return at === undefined ? [] : [{ file: d.file, ...at }];
+      });
+  }
+  return undefined;
+}
+
+/** The program with `changes` made in the files they name; `undefined` where two overlap. */
+function applied(p: Program2, changes: readonly Change[]): Program2 | undefined {
+  const one = (text: string, file: string): string | undefined => {
+    const own = changes.filter((c) => c.file === file).sort((a, b) => b.start - a.start);
+    for (let i = 1; i < own.length; i++) if (own[i]!.end > own[i - 1]!.start) return undefined;
+    let out = text;
+    for (const c of own) out = out.slice(0, c.start) + c.text + out.slice(c.end);
+    return out;
+  };
+  const main = one(p.main, FILE);
+  const lib = one(p.lib, LIB_FILE);
+  return main === undefined || lib === undefined ? undefined : { main, lib };
 }
 
 export const CORPUS_SIZE = Number(process.env.DIFF_SIZE ?? 450);
@@ -696,107 +1002,162 @@ const FIXED: readonly (readonly [string, string, number, string?])[] = [
 ];
 
 describe('the written-integer rules hold over a generated corpus (issue 1261, D1)', () => {
-  it("compile() keeps TypeScript's value, the editor agrees, and every named edit set compiles", () => {
-    const r = rng(SEED);
-    const failures: string[] = [];
-    let accepted = 0;
-    let compared = 0;
-    let edits = 0;
-    const leading = FIXED.map(([result, body, value, pre]) => ({
-      source:
-        `"use typeshade";\nconst K = 4;\n${pre ?? ''}export function t(ii: i32, vi: u32, f: f32): ${result} {\n` +
-        `  ${body}\n}\n`,
-      value,
-    }));
-    for (let i = 0; i < leading.length + CORPUS_SIZE; i++) {
-      const { source, value } = i < leading.length ? leading[i]! : new Program(r).build();
-      const result = compile(source, { fileName: FILE, readDocument: read });
-      const errors = result.diagnostics.filter((d) => d.category === 'error');
-      const ours = compiled(source).map(key).sort();
-      const theirs = editor(source).map(key).sort();
-      if (JSON.stringify(ours) !== JSON.stringify(theirs)) {
-        failures.push(
-          `halves #${String(i)}: compile ${ours.join(' ; ')}\neditor ${theirs.join(' ; ')}\n${source}`,
-        );
-      }
-      if (errors.length === 0) {
-        accepted++;
-        if (value === undefined) continue;
-        let got: unknown;
-        try {
-          got = result.eval('t', [INPUTS.ii, INPUTS.vi, INPUTS.f]);
-        } catch (e) {
-          failures.push(`eval #${String(i)}: ${String(e)}\n${source}`);
+  it(
+    "compile() keeps TypeScript's value, the editor agrees, and every named edit set compiles",
+    () => {
+      const r = rng(SEED);
+      const failures: string[] = [];
+      let accepted = 0;
+      let compared = 0;
+      let edits = 0;
+      let generics = 0;
+      const leading = FIXED.map(([result, body, value, pre]) => ({
+        source:
+          `"use typeshade";\nconst K = 4;\n${pre ?? ''}export function t(ii: i32, vi: u32, f: f32): ${result} {\n` +
+          `  ${body}\n}\n`,
+        value,
+        lib: 0,
+      }));
+      const show = (p: Program2): string =>
+        p.main.includes('./lib.shade') ? `${p.main}--- lib.shade.ts\n${p.lib}` : p.main;
+      for (let i = 0; i < leading.length + CORPUS_SIZE; i++) {
+        const built = i < leading.length ? leading[i]! : new Program(r).build();
+        const program: Program2 = { main: built.source, lib: LIBS[built.lib]! };
+        const ours = compiled(program);
+        const theirs = editor(program);
+        // 2. Each file's diagnostics agree.
+        const keysOf = (ds: readonly Line[]) => ds.map(key).sort();
+        if (JSON.stringify(keysOf(ours)) !== JSON.stringify(keysOf(theirs))) {
+          failures.push(
+            `halves #${String(i)}: compile ${keysOf(ours).join(' ; ')}\neditor ${keysOf(theirs).join(' ; ')}\n${show(program)}`,
+          );
+        }
+        if (ours.length === 0) {
+          accepted++;
+          if (built.value === undefined) continue;
+          let got: unknown;
+          try {
+            got = compile(program.main, { fileName: FILE, readDocument: readerOf(program) }).eval(
+              't',
+              [INPUTS.ii, INPUTS.vi, INPUTS.f],
+            );
+          } catch (e) {
+            failures.push(`eval #${String(i)}: ${String(e)}\n${show(program)}`);
+            continue;
+          }
+          compared++;
+          const value = built.value;
+          const exact = Number.isInteger(value) && Math.abs(value) <= 2 ** 24;
+          const ok =
+            typeof got === 'number' &&
+            (program.main.includes('): f32 {') && !exact
+              ? Math.fround(got) === Math.fround(value) ||
+                Math.abs(Math.fround(got) - Math.fround(value)) <= 2 ** -21 * Math.abs(value)
+              : got === value);
+          if (!ok) {
+            failures.push(
+              `value #${String(i)}: oracle ${String(got)} TypeScript ${String(value)}\n${show(program)}`,
+            );
+          }
           continue;
         }
-        compared++;
-        const exact = Number.isInteger(value) && Math.abs(value) <= 2 ** 24;
-        const ok =
-          typeof got === 'number' &&
-          (source.includes('): f32 {') && !exact
-            ? Math.fround(got) === Math.fround(value) ||
-              Math.abs(Math.fround(got) - Math.fround(value)) <= 2 ** -21 * Math.abs(value)
-            : got === value);
-        if (!ok)
-          failures.push(
-            `value #${String(i)}: oracle ${String(got)} TypeScript ${String(value)}\n${source}`,
-          );
-        continue;
-      }
-      // Every named edit, made together at its place, adds no error in either half.
-      const changes: { start: number; end: number; text: string }[] = [];
-      const named = new Set<number>();
-      let unreadable = false;
-      errors.forEach((d, j) => {
-        const c = editOf(source, d);
-        if (c === 'unreadable') unreadable = true;
-        else if (c !== undefined) {
-          changes.push(c);
-          named.add(j);
-        }
-      });
-      if (unreadable)
-        failures.push(`edit #${String(i)}: an edit names no place in the source\n${source}`);
-      if (changes.length === 0) continue;
-      edits++;
-      let fixed = source;
-      for (const c of [...changes].sort((a, b) => b.start - a.start)) {
-        fixed = fixed.slice(0, c.start) + c.text + fixed.slice(c.end);
-      }
-      const others = new Map<string, number>();
-      for (const d of compiled(source).filter((_, j) => !named.has(j))) {
-        others.set(key(d), (others.get(key(d)) ?? 0) + 1);
-      }
-      for (const [half, after] of [
-        ['compile', compiled(fixed)],
-        ['editor', editor(fixed)],
-      ] as const) {
-        const left = new Map(others);
-        const added = after.filter((d) => {
-          const n = left.get(key(d)) ?? 0;
-          if (n === 0) return true;
-          left.set(key(d), n - 1);
-          return false;
+        const textOf = (file: string): string => (file === LIB_FILE ? program.lib : program.main);
+        // 3. Every named edit, made together at its place, adds no error in either half.
+        const changes: Change[] = [];
+        const named = new Set<number>();
+        let unreadable = false;
+        ours.forEach((d, j) => {
+          const c = editOf(textOf(d.file), d);
+          if (c === 'unreadable') unreadable = true;
+          else if (c !== undefined) {
+            changes.push(c);
+            named.add(j);
+          }
         });
-        if (added.length > 0) {
+        if (unreadable) {
           failures.push(
-            `edit #${String(i)} (${half}): ${added.map((d) => d.message).join(' | ')}\n${fixed}`,
+            `edit #${String(i)}: an edit names no place in the source\n${show(program)}`,
           );
         }
+        const addedBy = (fixed: Program2, others: readonly Line[]): [string, Line[]][] => {
+          const out: [string, Line[]][] = [];
+          for (const [half, after] of [
+            ['compile', compiled(fixed)],
+            ['editor', editor(fixed)],
+          ] as const) {
+            const left = new Map<string, number>();
+            for (const d of others) left.set(key(d), (left.get(key(d)) ?? 0) + 1);
+            const added = after.filter((d) => {
+              const n = left.get(key(d)) ?? 0;
+              if (n === 0) return true;
+              left.set(key(d), n - 1);
+              return false;
+            });
+            out.push([half, added]);
+          }
+          return out;
+        };
+        if (changes.length > 0) {
+          edits++;
+          const fixed = applied(program, changes);
+          if (fixed === undefined) {
+            failures.push(`edit #${String(i)}: two named edits overlap\n${show(program)}`);
+          } else {
+            for (const [half, added] of addedBy(
+              fixed,
+              ours.filter((_, j) => !named.has(j)),
+            )) {
+              if (added.length > 0) {
+                failures.push(
+                  `edit #${String(i)} (${half}): ${added.map((d) => d.message).join(' | ')}\n${show(fixed)}`,
+                );
+              }
+            }
+          }
+        }
+        // The program's one error, where it names no edit: each wrap or declaration its generic
+        // remedy offers removes it and raises no refusal of its own. A type mismatch it leaves is a
+        // use that asks the other type, which D4 of 2026-11-12 leaves to the generic text.
+        if (ours.length === 1 && changes.length === 0) {
+          const only = ours[0]!;
+          const offered = genericEdits(textOf(only.file), only);
+          if (offered === undefined) continue;
+          generics++;
+          const mismatch = (d: Line): boolean =>
+            /type mismatch|takes arguments of one type|^Cannot infer/i.test(d.message);
+          for (const set of offered) {
+            const fixed = set.length === 0 ? undefined : applied(program, set);
+            if (fixed === undefined) {
+              failures.push(
+                `generic #${String(i)}: a wrap names no operand of the span\n${show(program)}`,
+              );
+              continue;
+            }
+            for (const [half, added] of addedBy(fixed, [])) {
+              const bad = added.filter(
+                (d) => !mismatch(d) || (d.file === only.file && d.message === only.message),
+              );
+              if (bad.length > 0) {
+                failures.push(
+                  `generic #${String(i)} (${half}): ${bad.map((d) => d.message).join(' | ')}\n${show(fixed)}`,
+                );
+              }
+            }
+          }
+        }
       }
-    }
-    if (process.env.DIFF_OUT) writeFileSync(process.env.DIFF_OUT, failures.join('\n====\n'));
-    if (process.env.DIFF_VERBOSE) {
-      console.log(
+      if (process.env.DIFF_OUT) writeFileSync(process.env.DIFF_OUT, failures.join('\n====\n'));
+      const summary =
         `seed ${String(SEED)}: ${String(leading.length + CORPUS_SIZE)} programs, accepted ` +
-          `${String(accepted)}, compared ${String(compared)}, edit sets ${String(edits)}, ` +
-          `failures ${String(failures.length)}`,
-      );
-      console.log(failures.join('\n====\n'));
-    }
-    // The corpus reaches the accepting path often enough to mean something.
-    expect(accepted).toBeGreaterThan(CORPUS_SIZE / 10);
-    expect(compared).toBeGreaterThan(CORPUS_SIZE / 20);
-    expect(failures).toEqual([]);
-  }, 120_000);
+        `${String(accepted)}, compared ${String(compared)}, edit sets ${String(edits)}, ` +
+        `generic remedies ${String(generics)}, failures ${String(failures.length)}`;
+      if (process.env.DIFF_SUMMARY) writeFileSync(process.env.DIFF_SUMMARY, `${summary}\n`);
+      if (process.env.DIFF_VERBOSE) console.log(summary);
+      // The corpus reaches the accepting path often enough to mean something.
+      expect(accepted).toBeGreaterThan(CORPUS_SIZE / 10);
+      expect(compared).toBeGreaterThan(CORPUS_SIZE / 20);
+      expect(failures).toEqual([]);
+    },
+    Number(process.env.DIFF_TIMEOUT ?? 120_000),
+  );
 });

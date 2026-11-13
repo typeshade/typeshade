@@ -664,10 +664,12 @@ export function kindlessOrigin(
             : [...expr.args]
           : expr.op === 'select'
             ? [expr.ifTrue, expr.ifFalse]
-            : expr.op === 'binop' &&
-                ['+', '-', '*', '%', '&', '|', '^', '<<', '>>'].includes(expr.bop)
-              ? [expr.a, expr.b]
-              : [];
+            : expr.op === 'binop' && (expr.bop === '<<' || expr.bop === '>>')
+              ? // A shift's type is its left operand's, whatever its amount is (`(1 << 3) << vi`).
+                [expr.a]
+              : expr.op === 'binop' && ['+', '-', '*', '%', '&', '|', '^'].includes(expr.bop)
+                ? [expr.a, expr.b]
+                : [];
   if (parts.length === 0) return 'typed';
   const each = parts.map((e) => kindlessOrigin(e, resolve, sourceFile));
   if (each.includes('typed')) return 'typed';
