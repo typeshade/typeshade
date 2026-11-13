@@ -997,7 +997,9 @@ records the decision and the readings the implementation needs.
   `select` and `?:`, for an exported function (whose module calls read its integer copy) and for
   an imported one. So `let a = gg(); a / 2` is refused, as `let a = abs(6 ^ 3); a / 2` is. A
   generic function whose result is its parameter (`function id<T>(a: T): T`) gives its argument's
-  origin and its argument's two readings (D2). The fourteenth review of #1272, F1 and F3.
+  origin and its argument's two readings (D2). A shift's origin is its left operand's, whatever
+  its amount is (`(1 << 3) << vi`, `gg() << vi`), as its type is. The fourteenth review of #1272,
+  F1 and F3, and what its differential test found.
 - [reading, 2026-11-13] A module constant whose root is `|`, `&` or `^` over written integers
   (`const K = 1 | 2`) is their integer, as one whose root is `<<` is (`const K = 1 << 1`): one
   tree. It kept the `f32` 3.0 of `main`, so `ii + K` was refused, `f + K` accepted, and `K / 2`
