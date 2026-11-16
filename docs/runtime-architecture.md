@@ -834,3 +834,16 @@ The runtime should grow from the compiler's existing IR and metadata rather than
 ---
 
 **Status:** architectural direction only. Public APIs should be designed and implemented in separate proposals with concrete compiler/runtime constraints and tests.
+
+## Kernel lowering boundaries
+
+`src/core/passes/kernel-lower.ts` coordinates the WebGPU kernel plan.
+`kernel-lower-ir.ts` owns shared plan contracts, range and iteration construction, and the existing
+IR rewrites used by both tiers. `kernel-lower-gl.ts` builds the WebGL2 loop plan from those helpers.
+The existing exports from `kernel-lower.ts` remain compatible. No runtime dispatch or backend
+writer moves into these transformation modules.
+
+The backend writers already consume the shared IR and emission pipeline. The gate infrastructure
+already separates browser setup (`scripts/gate-browser.ts`) and child-process cleanup
+(`scripts/gate-children.ts`) from individual gate verdicts. Those boundaries remain; this split
+does not change a gate threshold, backend contract or failure policy.
