@@ -834,3 +834,15 @@ The runtime should grow from the compiler's existing IR and metadata rather than
 ---
 
 **Status:** architectural direction only. Public APIs should be designed and implemented in separate proposals with concrete compiler/runtime constraints and tests.
+
+## Host compilation boundaries
+
+`src/compiler/ts/host-face.ts` owns the single compile and export analysis. It hands analyzed
+export records from `host-face-contracts.ts` to `host-view.ts` for TypeScript declarations and
+`host-module.ts` for executable JavaScript. `host-types.ts` converts shader types to host layouts;
+`host-face-shared.ts` keeps common refusal wording and class identity. Neither generator imports
+the analysis coordinator. Existing `hostFace`, `HostExport` and `hostTypeOf` imports remain valid.
+
+These are internal module boundaries. Generated code, declarations, metadata and the public host
+contract retain their existing shapes. The API snapshot records the moved definition of
+`HostExport`; its public subpaths and type structure do not change.

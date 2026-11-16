@@ -66,7 +66,7 @@ import { numericMismatch } from '../numeric.js';
 import { lowerExpression } from './expression.js';
 import { lowerGenericCall, lowerUserCall } from './expression-misc.js';
 import { lowerLValue } from './statement.js';
-import { parseParams, parseReturnType } from './function.js';
+import { parseParams, parseReturnType } from './function-signature.js';
 import { recordParamDefaults } from './param-defaults.js';
 import { functionParams } from './function-types.js';
 import { captureArguments } from './local-functions.js';

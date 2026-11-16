@@ -97,6 +97,15 @@ export function foldConstNumber(expr: Expr, scope: LoweringScope): number | unde
         return undefined;
     }
   }
+  // `~x` on an integer, wrapped into its type as the targets compute it: a shift amount
+  // `~0` is -1, out of range (issue 1261).
+  if (expr.op === 'call' && expr.fn === '~' && expr.declRef === undefined && expr.args[0]) {
+    const int = intElemOf(expr.type);
+    const x = foldConstNumber(expr.args[0], scope);
+    return int === undefined || x === undefined || !Number.isInteger(x)
+      ? undefined
+      : wrapInt(~x, int);
+  }
   if (
     expr.op === 'call' &&
     (expr.fn === 'i32' || expr.fn === 'u32' || expr.fn === 'f32') &&

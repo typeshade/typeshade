@@ -946,6 +946,180 @@ shown (`OD-4`).
   declares, carry these readings.
 - Status: `status: accepted` does not change.
 
+### Amendment A6. The owner's decision on the named edit of a refused division (2026-11-12)
+
+Pull request #1272 (issue #1261) refuses a `/` over a tree of written integers whose quotient is
+no integer (D-b), as Amendment A2 refuses a `/` over a constant of no fixed type. Its ninth
+independent review, at `f85c03f8`, found that the search for an edit across several refusals
+could name an edit that does not compile, or a sentence that is false. The owner decided in the
+Claude Code session on 2026-11-12, after the trade-off was shown (`OD-4`). The tenth and eleventh
+reviews (`da92036b`, `56611e85`) fixed the implementation inside that decision. This amendment
+records the decision and the readings the implementation needs.
+
+- [decision, owner, 2026-11-12] "name only verified edits".
+  - Each refused `/` of a module gets one edit. That covers a tree of written integers, a binding
+    that holds one, and a constant of no fixed type.
+  - The edit's type comes from the structure of the quotient's use:
+    - a declared `let`, a parameter, a result, or a vector constructor;
+    - a field of an object literal, by the field's declared type;
+    - a typed peer, by its written or inferred type, and the target of an assignment;
+    - an index or a bit operator, which takes an integer of either type, through to the place
+      where its result flows;
+    - a chain of `let`s;
+    - the callers of a function with no result type.
+  - Where no position decides, the edit is `f32` (Amendment A2).
+  - Every edit is made at once, and the module is compiled once. The edits are named only when
+    that compile adds no error at a new place. A type error where a quotient flows counts even
+    where the unedited program gives it too.
+  - If the first set adds an error, one more set is compiled. In it, a refusal that only an
+    integer of either type decides takes `u32`, and a refusal that nothing decides takes `i32`.
+  - Otherwise, or where one quotient flows to two types or to a place the walk cannot follow, no
+    refusal of the module names an edit.
+  - At most two edited programs are compiled a module, in `compile()` and in the editor alike.
+- [reading, 2026-11-12] The export boundary. An exported function keeps the `f32` result the
+  host reads (Amendment A5, "export는 f32 유지"). Every export form counts: `export function g`,
+  `export { g }` before or after the declaration, `export { g as h }`, and a re-export, which
+  reaches the function through its file's export. A quotient that flows into an exported
+  function's result is decided by that `f32`, and no edit changes an exported result. A call from
+  another file of a program reaches the function through its export, so the walk stops there. A
+  generic function's result is not followed, so a quotient that flows there names no edit.
+- [reading, 2026-11-13] An exported constant keeps the `f32` its importers read, as an exported
+  function's result does (Amendment A5). A constant of another file of a program is reached
+  through its export. A refused quotient there (`export const LQ = (1|2)/2`) is refused in its own
+  file, with the float edit, and leaves the constant an `f32`. An importer's mismatch
+  (`ii + LQ` in an `i32` function) is the importer's own mistake, the same in `compile()` and in
+  the editor, and the importer names no edit that lands in another file. The fourteenth review
+  of #1272, F5.
+- [reading, 2026-11-13] A function's result carries the origin of what it returns. A function
+  with no written result whose returns are integers only by a bit operator (a tree, a binding of
+  the function that holds one, a builtin over one: `return 6 ^ 3`, `let x = 6 ^ 3; return x`,
+  `return abs(6 ^ 3)`) gives a result that is one too, through a `let`, `abs`, `min`, `sign`,
+  `select` and `?:`, for an exported function (whose module calls read its integer copy) and for
+  an imported one. So `let a = gg(); a / 2` is refused, as `let a = abs(6 ^ 3); a / 2` is. A
+  generic function whose result is its parameter (`function id<T>(a: T): T`) gives its argument's
+  origin and its argument's two readings (D2). A shift's origin is its left operand's, whatever
+  its amount is (`(1 << 3) << vi`, `gg() << vi`), as its type is. The fourteenth review of #1272,
+  F1 and F3, and what its differential test found.
+- [reading, 2026-11-13] A module constant whose root is `|`, `&` or `^` over written integers
+  (`const K = 1 | 2`) is their integer, as one whose root is `<<` is (`const K = 1 << 1`): one
+  tree. It kept the `f32` 3.0 of `main`, so `ii + K` was refused, `f + K` accepted, and `K / 2`
+  called `K` an integer. Beside an `f32` it is now refused (decision 1 of #1272). The fourteenth
+  review of #1272, F7.
+- [reading, 2026-11-12] A written conversion decides the division (decision Q11). A conversion the
+  author writes on an operand states its type, also inside the operand's arithmetic. This covers
+  `(1 | 2) / i32(2)`, `(1 | 2) / (i32(2) + 1)` and `a /= i32(2)`, and the `/` is that type's
+  division. A builtin carries its arguments' origin, as it carries a constant's (Amendment A3).
+  So `(1 | 2) / abs(1 << 1)` stays refused.
+- [reading, 2026-11-12] A variable whose type its uses decide states no type. A `/` over values
+  that are integers only by inference, stored back into such a variable, stays refused:
+  `let a = 1 | 2; a = a / 2;` and `a /= K` with `const K = 4` (in a module, a function or
+  another file). A read of a constant of no fixed type is its written number, so it states no
+  type either.
+- [decision, owner, 2026-11-12] D-b truncation, "이대로". A position that states an integer type
+  reads a quotient that is no integer truncated toward zero, as Amendment A4 reads one: a
+  declaration, a parameter, a result, `i32(…)`, `u32(…)`, and an index (which takes either
+  integer type). `let j: i32 = (5 | 0) / 2` is 2. A comparison beside a peer that states no type,
+  or beside an `f32`, reads the exact value. Every other position refuses it. The owner kept this
+  scope of D-b on 2026-11-12.
+- [decision, owner, 2026-11-12] A comparison beside a typed integer, "문서를 코드에 맞춤". A
+  comparison whose other operand is a typed `i32` or `u32` states the integer division, so it is
+  refused as an arithmetic operand beside that peer is, and names a verified edit:
+  `(5 | 0) / 2 > ii` is refused with `Write "i32(5|0)/2" for the integer division.` Beside a
+  written number, a constant of no fixed type or an `f32` it reads the exact value:
+  `(5 | 0) / 2 > 2` is true and `(5 | 0) / 2 > f` compares 2.5 with `f`. The owner chose the
+  text to follow the code on 2026-11-12.
+- [reading, 2026-11-12] A compound assignment is no position that states a type for its right
+  side: `g *= (5 | 0) / 2` is `g = g * ((5 | 0) / 2)`, whose quotient is an operand beside `g`,
+  so it is refused as the written-out form is, with a verified edit. This holds for a variable,
+  an array element, a field and a component.
+- [decision, owner, 2026-11-12] D2, the two readings of a tree. A tree of written integers whose
+  root bit operator reads a written number only a `u32` holds is that `u32`'s bits
+  (`3000000000 | 0` is 3000000000, change 0134 item 1), and its TypeScript value is ToInt32 of
+  them (-1294967296).
+  - Beside a typed `u32`, `+`, `-`, `*`, `&`, `|`, `^`, `<<` and `~` read the bits. They agree with
+    TypeScript's value modulo 2^32, so they compile. Beside a typed `i32` the tree is ToInt32 of
+    its bits, which is TypeScript's value.
+  - Every other operation whose result differs between the two is refused: `/`, `%`, a
+    comparison, `max`, `min`, `clamp`, `abs`, `sign`, `f32()`, `>>` by an amount that is no
+    written number, `/=`, `%=` and `>>=`, and the result of an exported function, which the host
+    reads. The same holds through a binding and every path that carries the value with no
+    declared type: `let b = a`, `?:`, `select`, a function's result, a generic function's
+    result, a module `let`, arithmetic over a written number (`let c = a + 0`), a compound
+    assignment (`s += a`) and a plain assignment to a variable with no written type
+    (`a = 3000000000 | 0`, also inside `for` and `if`, and to a module `let`). An annotation ends
+    the origin: `let x: u32 = 3000000000 | 0` is a `u32`.
+  - A binding that holds two readings is no tree a typed `i32` peer retypes: in `min`, `max` and
+    `clamp` beside one it is refused, and the edit takes TypeScript's value, `i32(a)`.
+  - The sentence names `u32(…)`, the owner's edit:
+    `"3000000000|0" is 3000000000 on its u32 bits and -1294967296 in TypeScript, so the "/" does not say which value it means. Write "u32(3000000000|0)" for the u32 value.`
+  - The edit is verified with the module's other edits, as every named edit is ("name only
+    verified edits"). Its form follows the structure: `u32(…)` beside a `u32` and where the value
+    flows to one; `i32(…)`, which is TypeScript's value, where it flows to an `i32` or into
+    `f32()`; the declaration of an assignment's target with its type
+    (`let a: u32 = 3000000000 | 0`), since a conversion cannot stand as a target; and the
+    declaration of a constant of no fixed type with its type (`const K: u32 = 3000000000 | 0`),
+    since a conversion of a constant reads its TypeScript value. A constant of another file names
+    no edit. Where no form compiles, in a module where refusals conflict the sentence ends with
+    `Write u32(…) or i32(…) around "a" to choose its value.` (D4). In a module with this one
+    refusal, whose positions ask one type, it names no form: the sentence states the two readings
+    and stops. The fourteenth review of #1272, F4.
+  - Beside an `f32` the tree is an integer beside a float, refused as such (decision 1 of #1272),
+    not by this sentence. A refused `/` of a binding with two readings by written numbers is
+    D-b's refusal, whose float edit reads TypeScript's value: `f32(i32(a)) / 2`.
+  - This replaces this amendment's earlier wording, which read the refusal under `/`, `%` and a
+    comparison as a reading of the owner's decision of 2026-11-11 on a `>>` root.
+- [reading, 2026-11-13] Every edit a refusal names is verified ("name only verified edits"),
+  the edit of a `>>` over a written `u32` (`Write "u32(0xF0000000) >> 28" for the u32 shift.`)
+  and the value forms (`Write the u32 with the same bits, 0xffffffff.`, `Write the i32 with the
+same bits, -2147483648, or declare a u32.`) as the others are. Each is compiled with the
+  module's other edits, and named only where that adds no error. Otherwise the sentence states
+  what is true and stops: `ii + (0xF0000000 >> 28)` names no `u32` form, and
+  `i += (1 << 30) * 2` names no value form while #1274 stands. The fourteenth review of #1272,
+  F6.
+- [decision, owner, 2026-11-12] D3. `f32((K | 0) / 2)` with `const K = 4` stays refused (Amendment
+  A2, OD-7). `K | 0` reads `K` as an integer, and Amendment A2 refuses a `/` over such a constant
+  whatever its quotient is, as it refuses `const HALF = N / 2` with `const N = 8`.
+- [decision, owner, 2026-11-12] D4. In a module where two refusals conflict, the text that names
+  no edit stands as it is. It tells how to choose the division's type, and the conflict that
+  remains is the author's own mistake.
+- [decision, owner, 2026-11-13] No wrap that would not choose the division, "그 경우 감싸기 안
+  제시". Where the structure shows that a wrap the sentence would offer does not choose the
+  division, the sentence offers no wrap and says what is true:
+  `Declare the type of the division's operands to choose it.` The forms are:
+  - an `f32(…)` wrap whose quotient a bit operator reads (`(K >> 4) | (-(M / 9))`);
+  - an `i32(…)` or `u32(…)` wrap of a divisor whose integer quotient is 0 (`9 / ((5|0) / k)` with
+    `const k = 7`);
+  - a `u32(…)` wrap whose quotient a unary minus reads (`-((~(1|2)) / 7)`);
+  - an operand that is a `?:` with one typed arm (`(5|0) / (c ? (-7|0) : i32(k))`);
+  - a constant's sentence (Amendment A2) over a division that holds a tree too, which wrapping the
+    constant leaves undecided (`(-(5|0)) / (c ? (-7|0) : k)`).
+    The check compiles nothing more: at most two edited programs a module stay the bound. Found by
+    the differential test of #1272 (six programs in 12,132), decided by the owner on 2026-11-13.
+- [reading, 2026-11-13] The check of a module's edits compiles an edited copy of a linked program
+  on its own, and knows the program's exported constants: an importer's edit that leaves the
+  importer's own mismatch with an exported constant is not named (the export boundary above).
+- The sentences of a refusal that names no edit. Each names the operands to wrap, and lists only
+  the types the quotient's positions take:
+  - `Write i32(…), u32(…) or f32(…) around "1 | 2" to choose the division.`, or
+    `Write i32(…) or f32(…) around each of "1|2" and "1<<2" to choose the division.`;
+  - an operand with two readings (D2) is offered as `f32(i32(…))`, whose float is TypeScript's
+    value: `Write i32(…) or f32(i32(…)) around "0x80000000|1" to choose the division.`;
+  - for a `/=`: `Declare "a" with i32 or u32 to choose the division.`, and over a constant of no
+    fixed type `Declare "y" with i32, u32 or f32 to choose the division.`;
+  - for an operand no integer type holds, where the positions take an `f32`, the float form,
+    which is the one form that chooses the division (another mistake of the module may remain):
+    `No integer type holds "(1<<30)*4" (4294967296), so only the float division chooses it: write "f32(4294967296)/3".`
+  - for such an operand where the positions take only integers, no form:
+    `No integer type holds "(1<<30)*4" (4294967296), and the quotient is read as an integer here, so no division of it computes this value.`
+- Disposition: made part of the approved text by this amendment. For every refused `/`, it
+  replaces two things: the check of each edit alone, and the edit that adds fewest errors (the
+  third and fifth reviews of #1184). The cost: where refusals interfere, no refusal names an
+  edit, even one whose own edit would compile.
+- Affects: no front-matter field. Rules 5.1 and 12.7 carry these readings, and the front matter
+  declares both. Surface §13, which the front matter declares, says the same. The sentences
+  follow Rule 12.5.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The change is delivered in parts. `status: accepted` stays until every part is delivered and

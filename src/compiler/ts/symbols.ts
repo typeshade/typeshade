@@ -216,6 +216,15 @@ export function recordLoweredExpression(
   else if (seen !== null && JSON.stringify(seen) !== JSON.stringify(type)) table.set(key, null);
 }
 
+/** The one type every lowering of `node` took, while the table of its file is open;
+ *  `undefined` where none was recorded or the lowerings disagree. */
+export function loweredTypeOf(sourceFile: ts.SourceFile, node: ts.Node): ShaderType | undefined {
+  const table = loweredExpressions.get(sourceFile);
+  if (table === undefined) return undefined;
+  const start = node.getStart(sourceFile);
+  return table.get(`${start}:${node.getEnd() - start}`) ?? undefined;
+}
+
 /** Stop recording for `sourceFile` and return what was recorded, in source order. */
 export function closeExpressionTable(sourceFile: ts.SourceFile): LoweredExpression[] {
   const table = loweredExpressions.get(sourceFile);

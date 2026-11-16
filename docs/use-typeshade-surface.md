@@ -1401,16 +1401,46 @@ its declared uses give `k`. The counter carries the constant, so a `/` over it i
 start through a `let` or a function result takes that value's type, which items 1 and 3 of
 change 0134 will infer.
 
-The sentence names one edit, the one that compiles where the quotient stands. Where an integer
+The sentence names one edit, whose type the use of the quotient decides. Where an integer
 position reads the quotient (`xs[k / 2]`, `r + k / 2`, `let j: u32 = …`), it names the
 constant with the type that position asks (`const k: u32 = 7`), or, where another read asks
 another type, the `/` with each value converted to it (`i32(k) / 2`). Anywhere else it names
 the `/` with each value converted to `f32`, a bitwise operation converted as a whole
 (`f32(k | 1) / 2`). A `/=` names the variable with its type written (`let y: f32 = k`). The
-compiler checks the edit before it names it. Where none of these compiles, the program holds
-another mistake (`h(x + k / 2)` passes an `f32` sum to a `u32`). The sentence names the edit
-that adds fewest errors, and a mismatch around the `/` stays only where that edit leaves it, so
-the mistake is one diagnostic (Rule 12.4).
+compiler makes the edit of every refused `/` of the module at once and compiles the program
+once. It names the edits only when that adds no error. Where they do not compile together
+(`h(x + k / 2)` passes an `f32` sum to a `u32`), no refusal of the module names an edit. Each
+names the operands to wrap instead, with the types its positions take:
+`Write i32(…), u32(…) or f32(…) around "k" to choose the division.`
+A `/=` names the variable to declare with a type.
+
+A quotient of written integers that is no integer (`(5 | 0) / 2`) is read truncated toward zero
+where a position states an integer type (`let j: i32 = (5 | 0) / 2` is 2), and exactly by a
+comparison beside a peer that states no type or an `f32` (`(5 | 0) / 2 > 2` is true). A
+comparison beside a typed `i32` or `u32` (`(5 | 0) / 2 > ii`) is refused with a verified edit,
+as is any other position. A tree over a written number only a `u32` holds is that
+`u32`'s bits (`3000000000 | 0` is 3000000000). Beside a typed `u32`, `+ - * & | ^ << ~` read the
+bits, which agree with TypeScript's -1294967296 modulo 2^32. Every operation where the two
+differ (`/`, `%`, a comparison, `max`, `min`, `clamp`, `abs`, `sign`, `f32()`, `>>` by a
+non-constant amount, the compound forms, and an exported function's result), also through a
+binding, `?:`, `select`, a function's result (a generic one's included), a module `let`,
+arithmetic, a compound assignment and a plain assignment (`a = 3000000000 | 0`), is refused
+with a verified edit: `u32(3000000000|0)`, `i32(…)` where the value flows to an `i32` or into
+`f32()`, or the declaration of an assignment's target or a constant with its type. Where no form
+compiles and the refusal is the module's only one, the sentence names none. A function with no
+written result that returns a bit tree gives a result that is an integer by its bit operator,
+and so does a module `const K = 1 | 2`. An exported constant keeps the `f32` its importers read
+(Amendment A5). Every edit a refusal names, a `>>`'s and a value form's too, is verified. A refusal that names no edit offers no wrap that the structure shows would not choose the
+division, and says "Declare the type of the division's operands to choose it." (the owner's
+decision of 2026-11-13).
+An annotation ends the origin (the owner's decisions of 2026-11-12). A compound assignment's
+right side is an operand: `g *= (5 | 0) / 2` is refused as `g = g * ((5 | 0) / 2)` is.
+
+A conversion written on an operand, also inside
+its arithmetic (`k / (i32(2) + 1)`), states its type and decides the division, and an exported
+function's result is the `f32` the host reads (the owner's decision of
+2026-11-12, Amendment A6 of change 0134). A mismatch around the `/` is the refusal said again,
+so the mistake is one diagnostic (Rule 12.4).
 
 The quotient's own read is not another read (Amendment A4). `let j: u32 = N / 2` is `4u`, as the written
 `8 / 2` is there, and `x * (N / 2)` is the ECMAScript value where no other line reads `N` as an

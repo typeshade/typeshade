@@ -18,7 +18,7 @@
 // compaction or a replaced buffer, Amendment A1).
 //
 // The layout is the compiler's: the generated module puts each exported class's layouts on the
-// class under `Symbol.for('typeshade.layout')` (`classModule` in `compiler/ts/host-face.ts`), so
+// class under `Symbol.for('typeshade.layout')` (`classModule` in `compiler/ts/host-module.ts`), so
 // the runtime computes no layout itself.
 //
 // A call of a kernel function or a `@compute` entry takes a resource (milestone 3, R2): a uniform

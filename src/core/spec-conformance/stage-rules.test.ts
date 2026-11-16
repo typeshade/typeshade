@@ -4,7 +4,7 @@
 // fragment shader stage" for the implicit-derivative reads (`wgsl.txt:23438, 24435, 24601,
 // 24720`), a fragment-or-compute rule for texture writes and atomics, a compute-only rule for
 // the barriers. This package states those rules in TWO hand-written places, in two layers —
-// `FRAGMENT_ONLY_CALLS` in the front end (`compiler/ts/lower/function.ts`) and
+// `FRAGMENT_ONLY_CALLS` in the front end (`compiler/ts/stage-restrictions.ts`) and
 // `FRAGMENT_ONLY_IDS` in the core lint (`passes/lint/rules/fragment-only-builtin.ts`) — so
 // every new id has to be REMEMBERED twice. It was not: the spec audit of 2026-09-21 (#144)
 // found `textureSampleCubeArray` in neither list, and a vertex entry sampling a cube array
@@ -33,7 +33,7 @@ import { INTRINSICS, PORTABLE_INTRINSICS, PRE_EMIT_INTRINSICS } from '../intrins
 import {
   FRAGMENT_ONLY_CALLS,
   FRAGMENT_OR_COMPUTE_CALLS,
-} from '../../compiler/ts/lower/function.js';
+} from '../../compiler/ts/stage-restrictions.js';
 import { FRAGMENT_ONLY_IDS } from '../passes/lint/rules/fragment-only-builtin.js';
 
 interface StageRow {

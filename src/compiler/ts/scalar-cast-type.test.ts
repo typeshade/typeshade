@@ -70,7 +70,8 @@ describe('a scalar cast of a written number is a value of its type', () => {
   });
 
   it('xs[u32(7) / 2] indexes element 3 (a backend failure before)', () => {
-    typed('xs[u32(7) / 2]', 'xs[3]', 4);
+    // The written `u32(7)` states its type, so the index is the u32 3 (decision Q11).
+    typed('xs[u32(7) / 2]', 'xs[3u]', 4);
   });
 
   it('vi + u32(7) / 2 adds 3u (a backend failure before)', () => {

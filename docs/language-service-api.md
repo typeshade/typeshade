@@ -558,6 +558,35 @@ kept (`unpeekedReads`). A read whose lowerings disagree keeps the words: a gener
 lowered at two types, a loop counter's start lowered again at its type on `main`, and a read
 inside another such constant's initializer.
 
+Candidate construction for constant-division remedies lives in
+`src/compiler/ts/remedies/candidates.ts`. The analysis supplies the constant and origin facts.
+`src/compiler/ts/remedies/validate.ts` checks the module's edits together through a compiler callback.
+It removes projected annotations, maps errors back to the original offsets, and owns the bounded
+edited-program cache. The CLI and editor share this validation path. Constant tracking and use
+analysis remain in `src/compiler/ts/abstract-const.ts`.
+
+Source spelling has a separate compilation context in `src/compiler/ts/written-context.ts`.
+It owns linked-file origins, written class names and `authorTypeText`.
+Linked origins and class-name tables keep independent synchronous scopes; each restores its
+previous value after nested compilation or an exception. `src/compiler/ts/context.ts` re-exports
+these helpers for existing lowering callers. The compiler entry point imports the scopes directly.
+
+Function signatures and entry IO are read by `src/compiler/ts/lower/function-signature.ts`.
+`lower/function.ts` coordinates declarations, specialization and body filling, and re-exports the
+existing signature helpers for compatibility. Class and local-function readers use the signature
+module directly. Inferred entry results are checked by the same module after their bodies settle.
+
+The service owns analysis in `DocumentCacheEntry` (`src/language-service/service.ts`), keyed by
+the document and its import dependencies. Diagnostics, symbols, tokens, hover and output share
+that result. `src/language-service/analysis-cache.test.ts` checks reuse and dependency invalidation;
+this refactor does not add another cache or change diagnostic filtering.
+
+After function bodies, inherited-body diagnostics and recursion checks are settled,
+`checkEntryStageUses` in `src/compiler/ts/stage-restrictions.ts` validates entry-stage restrictions.
+It retains separate walks for fragment/vertex restrictions and compute-only resources and barriers.
+The walks preserve their existing order and call-resolution rules. Shared emitted-call-name
+collection lives in `src/compiler/ts/function-call-graph.ts`; inherited-body diagnostics use it too.
+
 A function whose callers decide its result (Rule 8.19, change 0134 part 4b) hovers as the one type
 they gave it, `function g(): u32`. One whose calls ask two or more types, or an exported one whose
 calls ask a type other than the `f32` it keeps for the host, is lowered once for each,
