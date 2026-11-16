@@ -80,8 +80,9 @@ export const KERNEL_LOOPS = new WeakSet<FuncDecl>();
 /** The sentence for a method of `Array.prototype` an array does not have here. */
 export const otherArrayMethod = (name: string): string =>
   `".${name}" is not one of an array's methods here, which are map, forEach, some, every, ` +
-  `reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf and includes. An array's length ` +
-  `is fixed, so a copy or a change of length is a loop: "for (const x of xs) { … }".`;
+  `reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf, includes and slice() with no ` +
+  `argument, which copies it. An array's length is fixed, so a change of length is a loop: ` +
+  `"for (const x of xs) { … }".`;
 
 function push(
   diagnostics: TsCompilerDiagnostic[],

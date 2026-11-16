@@ -916,7 +916,7 @@ declare const arrayTag: unique symbol
 // is the first mutating member (change 0078), and the compiler refuses it everywhere but on a
 // kernel function's array parameter inside a candidate loop, a read binding included; the editor
 // shows that refusal, since it runs the same front end.
-type ArrayOps = 'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'push' | 'fill' | 'findIndex' | 'findLastIndex' | 'indexOf' | 'lastIndexOf' | 'includes'
+type ArrayOps = 'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'push' | 'fill' | 'findIndex' | 'findLastIndex' | 'indexOf' | 'lastIndexOf' | 'includes' | 'slice'
 // Iterable, so \`for (const x of xs)\` type-checks (Rule 7.5): the compiler lowers it to a counted
 // loop over the indices. The iterator's shape is written inline so it adds no global name.
 //
@@ -1713,6 +1713,9 @@ interface Array<T> {
   // ECMAScript gives the array back: a shader has no reference to hand back. An index is an
   // \`i32\`, \`-1\` where nothing matches.
   fill(value: T): void
+  // \`slice()\` with no argument is a new array of the same elements (change 0142, Table 3): the
+  // start and the end are not taken, since an array's length is fixed.
+  slice<N extends number>(this: array<T, N>): array<T, N>
   findIndex<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): i32
   findLastIndex<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): i32
   indexOf(searchElement: T): i32

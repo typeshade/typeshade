@@ -96,7 +96,7 @@ const CASES: readonly (readonly [string, string, readonly string[]])[] = [
     [
       // TS8080 reads an array with no size only (Amendment A16, decision 2). A push belongs to a kernel function's array in a loop (Rule 8.22); on a fixed-size array
       // it is also no array method, which the same compile says.
-      `error TS8099 ".push" is not one of an array's methods here, which are map, forEach, some, every, reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf and includes. An array's length is fixed, so a copy or a change of length is a loop: "for (const x of xs) { … }".`,
+      `error TS8099 ".push" is not one of an array's methods here, which are map, forEach, some, every, reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf, includes and slice() with no argument, which copies it. An array's length is fixed, so a change of length is a loop: "for (const x of xs) { … }".`,
     ],
   ],
   [

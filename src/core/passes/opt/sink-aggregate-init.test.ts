@@ -9,7 +9,7 @@ function fixture(branch = 'if (take) { result = make(x); }', prelude = '') {
     ${prelude}
     export function f(x: f32, take: bool): array<f32, 3> {
       let source: array<f32, 3> = [x * 2., x * 3., x * 4.];
-      let result = source;
+      let result = source.slice();
       ${branch}
       return result;
     }`);

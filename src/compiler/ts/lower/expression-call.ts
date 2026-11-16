@@ -384,6 +384,31 @@ export function lowerCall(
       const seen: { recv?: Expr } = {};
       const viaClass = lowerClassCall(node, callee, sourceFile, scope, diagnostics, seen);
       if (viaClass !== 'not-a-class-call') return viaClass;
+      // `xs.slice()` is a new array of the same elements, as in JavaScript (change 0142, Table 3).
+      // An array is a value in the IR, so what the call gives is the array read where it is
+      // written: a declaration from it holds its own elements.
+      if (
+        callee.name.text === 'slice' &&
+        node.arguments.length === 0 &&
+        seen.recv?.type.kind === 'array' &&
+        seen.recv.type.size !== undefined
+      ) {
+        const elem = seen.recv.type.elem;
+        if (elem.kind === 'struct' || elem.kind === 'array') {
+          pushDiag(
+            diagnostics,
+            sourceFile,
+            node,
+            `"${callee.expression.getText(sourceFile)}.slice()" gives a new array of the same ` +
+              `objects, each one shared with "${callee.expression.getText(sourceFile)}". Sharing ` +
+              `the elements of two arrays is not supported yet (change 0142, stage 3). To copy ` +
+              `each element, build the new array in a loop.`,
+            TS_CODES.UNSUPPORTED,
+          );
+          return undefined;
+        }
+        return seen.recv;
+      }
       // `xs.map(f)` and the other four an array has (Rule 8.18, surface §63).
       if (isArrayMethod(callee.name.text) && seen.recv !== undefined) {
         return lowerArrayMethod(node, callee, seen.recv, sourceFile, scope, diagnostics);
