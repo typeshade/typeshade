@@ -99,9 +99,10 @@ and every person reads this file before any other document of this repository.
   written form over the type form no longer has a subject: there is no qualifier to place.
 - Cost recorded: a call does not show whether it changes its argument, as in JavaScript. `@out`'s
   promise "written whole" is gone, so the compiler must infer where an upload can be skipped.
-- Open: `@inout` on a number or a vector (`@inout a: f32`) let a function write a caller's value
-  that is no object. JavaScript has no such form. Proposal 0142 must say what replaces it before
-  it is accepted.
+- A number or a vector that a function gave back through `@inout` or `@out` (`@inout a: f32`) is
+  returned as a value instead, as JavaScript writes it: `[a, b] = order(a, b)`. The agent
+  proposed this on 2026-11-16 as what follows from removing the qualifiers, and reported it to
+  the owner; proposal 0142 records it as its decision 8.
 
 ### OD-6. Nothing is released yet: the bundled builds were tests
 
