@@ -217,13 +217,13 @@ describe('the call of an @out array on the CPU tier (Rule 8.25)', () => {
     const m = await load(SOURCE);
     const open = array([9, 9, 9, 9]);
     await m.ramp!(open, 2);
-    expect([...((await open.read()) as ArrayLike<number>)]).toEqual([0, 2, 4, 6]);
+    expect(Array.from((await open.read()) as ArrayLike<number>)).toEqual([0, 2, 4, 6]);
     const unwritten = array([9, 9, 9]);
     await m.untouched!(unwritten, 1);
-    expect([...((await unwritten.read()) as ArrayLike<number>)]).toEqual([0, 0, 0]);
+    expect(Array.from((await unwritten.read()) as ArrayLike<number>)).toEqual([0, 0, 0]);
     const vs = array(new Float32Array(6).fill(9));
     await m.shift!(vs);
-    expect([...((await vs.read()) as ArrayLike<number>)].slice(0, 2)).toEqual([1, 2]);
+    expect(Array.from((await vs.read()) as ArrayLike<number>).slice(0, 2)).toEqual([1, 2]);
   });
 
   it('fills a Buffer of a device, in a plan, after the call that wrote it', async () => {
