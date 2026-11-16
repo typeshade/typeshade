@@ -48,14 +48,14 @@ Likewise, test-only differential gates do not establish a delivered end-user div
 
 ## Work sequence
 
-| ID  | Status                                                     | Files and responsibility                                                                                                                                     | Exit evidence                                                                                                                |
-| --- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| R0  | Merged in #1282                                            | This plan; reconcile PR dependencies and document authority.                                                                                                 | Identified baselines, open items and links; documentation checks.                                                            |
-| R1  | First slice merged in #1283                                | `src/compiler/ts/abstract-const.ts`: separate candidate construction and batch validation from constant analysis.                                            | Equal diagnostic text and order, compiler/editor parity, unchanged generated output, at most two edited compiles per module. |
-| R2  | Source spelling merged; stage-validation slice in progress | `src/compiler/ts/context.ts`, `src/compiler/ts/lower/function.ts`, `src/language-service/diagnostics.ts`: explicit analysis lifetimes and shared results.    | Repeated compilation isolation and parity on the same source; no new semantic IR or query framework.                         |
-| R3  | Not started                                                | `src/compiler/ts/host-face.ts`: separate export analysis, declaration generation and runtime wrapper generation.                                             | Generated JS, declarations and metadata agree; packed consumers pass.                                                        |
-| R4  | Deferred until the Buffer transition settles               | `src/core/host-kernel.ts`, `src/core/resident.ts`, `src/runtime/resource.ts`, `src/runtime/program.ts`: ownership, visibility, lifetime and execution state. | Resource sharing, disposal, failure rollback and downstream tests on the resulting Buffer API.                               |
-| R5  | Not started                                                | `src/core/passes/kernel-lower.ts`, `src/core/backends/`, validation scripts: separate transformation, execution and verdict responsibilities where useful.   | Source mapping and output preserved; relevant backend and differential gates.                                                |
+| ID  | Status                                         | Files and responsibility                                                                                                                                     | Exit evidence                                                                                                                |
+| --- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| R0  | Merged in #1282                                | This plan; reconcile PR dependencies and document authority.                                                                                                 | Identified baselines, open items and links; documentation checks.                                                            |
+| R1  | Extraction merged; remaining analysis retained | `src/compiler/ts/abstract-const.ts`: separate candidate construction and batch validation from constant analysis.                                            | Equal diagnostic text and order, compiler/editor parity, unchanged generated output, at most two edited compiles per module. |
+| R2  | Spelling/stages merged; signatures in #1286    | `src/compiler/ts/context.ts`, `src/compiler/ts/lower/function.ts`, `src/language-service/diagnostics.ts`: explicit analysis lifetimes and shared results.    | Repeated compilation isolation and parity on the same source; no new semantic IR or query framework.                         |
+| R3  | Implemented in #1288                           | `src/compiler/ts/host-face.ts`: separate export analysis, declaration generation and runtime wrapper generation.                                             | Generated JS, declarations and metadata agree; packed consumers pass.                                                        |
+| R4  | Implemented in #1289; depends on #1257         | `src/core/host-kernel.ts`, `src/core/resident.ts`, `src/runtime/resource.ts`, `src/runtime/program.ts`: ownership, visibility, lifetime and execution state. | Resource sharing, disposal, failure rollback and downstream tests on the resulting Buffer API.                               |
+| R5  | Implemented in #1290                           | `src/core/passes/kernel-lower.ts`, `src/core/backends/`, validation scripts: separate transformation, execution and verdict responsibilities where useful.   | Source mapping and output preserved; relevant backend and differential gates.                                                |
 
 Each row is a PR series, not a deadline or a file-size target. Keep documentation and tests
 with each implementation slice. Record actual checks in that slice's PR.
@@ -94,7 +94,7 @@ the new `main`. Record the old and new heads, and use `--force-with-lease` only 
 that task branch after checking its remote head. Never rewrite `main` or another task's branch.
 
 Independent slices can start from `main` while a prerequisite waits. Work that changes the same
-analysis or resource contract follows its dependency order. R4 still waits for #1257's Buffer contract.
+analysis or resource contract follows its dependency order. R4 integration still waits for #1257's Buffer contract; its extraction may be prepared on that prerequisite branch.
 
 ## First implementation boundary
 
@@ -123,9 +123,9 @@ Completed on 2026-11-16 after checking the current heads, required checks, confl
 - #1283 merged as `397071cbdbfb1cc3d91611e6c44e5d7639e1187e`, after all 26 checks passed on its synchronized head.
 - #1284 merged as `f4855c8fd9c86f46340b941c8b9330bbab7c35dc`, after all 26 checks passed on `92601bf`.
 
-1. Validate the R2 entry-stage checking slice against `main` at `f4855c8`.
-2. Keep subsequent R1 slices separate from new inference behavior.
-3. Start runtime restructuring after #1257's contract and consumer migration settle.
+1. Integrate #1286, #1288 and #1290 after their current-head checks pass.
+2. Retain analysis-dependent R1 wording with inference; no further split is justified by this review.
+3. Retarget #1289 after #1257's contract and consumer migration settle, then revalidate before merging.
 
 [Issue #1280](https://github.com/typeshade/typeshade/issues/1280) records diagnostic disagreement
 already present on `main` `273125b3`. It is not evidence of a regression introduced by #1272.
@@ -190,11 +190,13 @@ This extraction preserves the current save/restore behavior instead of changing 
 introducing asynchronous context. Boundary tests exercise nested compilation, exceptions,
 source-file identity and the independence of the two scopes.
 
-This is the first R2 slice. Function lowering stages and compiler/editor analysis results remain
-separate follow-up work. R3 and R5 have not started. R4 remains blocked on the Buffer transition;
-#1257's reviewed head still has a failing TypeNN candidate check.
+This was the first R2 slice. At its merge, function lowering and compiler/editor analysis remained
+follow-up work, and R3 and R5 had not started. The implementation record below supersedes that
+status. R4 integration remains blocked on the Buffer transition and its failing TypeNN candidate check.
 
 ## R2 entry-stage validation slice
+
+Merged in [PR #1285](https://github.com/typeshade/typeshade/pull/1285) as `5df77cb59f52d92c32ced92741647b8109e6da47`, after all 26 checks passed.
 
 Branch: `codex/refactor-r2-stage-validation`, based on `main`
 `f4855c8fd9c86f46340b941c8b9330bbab7c35dc`.
@@ -212,3 +214,30 @@ inherited-body diagnostics. It does not introduce a new graph model.
 Boundary tests preserve nearest-helper reporting, one diagnostic per operation and entry,
 source-ordered diagnostics from both restriction families, unreachable helpers and builtin-name
 shadowing. Each case checks the compiler and editor on the same source.
+
+## Remaining sequence implementation record
+
+The owner requested completion of the remaining sequence on 2026-11-16, with independent work
+continuing while checks or prerequisites wait. The [project structure review](project-structure.md)
+records the hierarchy, file responsibilities, retained boundaries and limitations.
+
+| Stage | PR                                                        | Baseline            | Local evidence                                                                        | Integration condition                                      |
+| ----- | --------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| R2    | [#1286](https://github.com/typeshade/typeshade/pull/1286) | `5df77cb5`          | 1,600 tests; 12 diagnostic/emit comparisons; analysis-cache reuse and invalidation    | Current-head CI                                            |
+| R3    | [#1288](https://github.com/typeshade/typeshade/pull/1288) | `5df77cb5`          | 541 tests covered; 118 identical complete host faces; API definition-path-only change | Current-head CI                                            |
+| R4    | [#1289](https://github.com/typeshade/typeshade/pull/1289) | #1257 at `58e8187a` | 131 tests; measured runtime bundle caps; unchanged lifecycle/state objects            | #1257 and consumer migration, retargeting and revalidation |
+| R5    | [#1290](https://github.com/typeshade/typeshade/pull/1290) | `5df77cb5`          | 406 tests; 118 identical complete host faces; shared IR and both tier plans           | Current-head CI                                            |
+
+R1 review: `divisionSentence` reads origin and carried-value maps, and `readingsRemedy` depends
+on the same refusal facts. Keep that analysis-dependent wording with its analysis. The extracted
+candidate and validator modules are the useful boundary; introducing a lookup callback per fact
+would add indirection without separating an independent responsibility.
+
+R2 review: signatures and post-inference entry-IO checks now share a module. The service already
+owns analysis by document/dependency key and diagnostics consume it. Tests verify that one analysis
+serves diagnostics, hover, symbols, tokens and output, and refreshes after an imported file changes.
+No additional analysis cache, universal query framework or semantic IR is introduced.
+
+R5 review: backend writers already use the shared emission walk; gate browser setup and child
+cleanup already have dedicated modules. Preserve these boundaries instead of rewriting them to
+satisfy a file-size target. Further work needs a concrete coupling or correctness problem.
