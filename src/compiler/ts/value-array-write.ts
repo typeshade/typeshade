@@ -10,10 +10,13 @@
 // say one thing (Rule 12.7):
 //
 //   - a parameter is a value array when it has no `@inout` and no `@out` and its type is written
-//     `array<T>` or `array<T, N>`, or a type alias of the file that is;
+//     `array<T>`, an array with no size, or a type alias of the file that is. A fixed-size array
+//     parameter, `array<T, N>`, is a value as before (Rule 8.8, change 0031): `TS8080` does not
+//     read it (Amendment A16, decision 2);
 //   - a write is `xs[i] = e`, `xs[i].f += e`, `xs[i]++`, `xs.fill(v)`, `xs = e`, and the argument
 //     of a function of the file whose parameter is `@inout` or `@out`;
-//   - a push is `xs.push(v)`, refused even when the function returns `xs`.
+//   - a push is `xs.push(v)`, refused even when the function returns `xs`, and refused on a
+//     declared `@out` array, which a push needs `@inout` for (Amendment A16, decision 1).
 
 import ts from 'typescript';
 import { qualifiersOf } from './lower/references.js';
@@ -26,16 +29,33 @@ import { TS_CODES } from './codes.js';
 /** The names of the array methods that change the array they are called on, other than `push`. */
 const MUTATORS = new Set(['fill']);
 
-/** Whether `type` is written as an array: `array<T>`, `array<T, N>`, or the name of a type alias
- *  of the file that is, followed through other aliases. */
+/** Whether `type` is written as an array with no size: `array<T>`, or the name of a type alias of
+ *  the file that is, followed through other aliases. `array<T, N>` is a fixed-size array, which
+ *  `TS8080` does not read (Rule 8.8, Amendment A16, decision 2). */
+export function writesAnUnsizedArray(
+  type: ts.TypeNode | undefined,
+  sourceFile: ts.SourceFile,
+): boolean {
+  return arrayWritten(type, sourceFile, true);
+}
+
+/** Whether `type` is written as an array of any size, followed through aliases of the file. */
 export function writesAnArray(type: ts.TypeNode | undefined, sourceFile: ts.SourceFile): boolean {
+  return arrayWritten(type, sourceFile, false);
+}
+
+function arrayWritten(
+  type: ts.TypeNode | undefined,
+  sourceFile: ts.SourceFile,
+  unsizedOnly: boolean,
+): boolean {
   const seen = new Set<string>();
   let at: ts.TypeNode | undefined = type;
   while (at !== undefined) {
     while (ts.isParenthesizedTypeNode(at)) at = at.type;
     if (!ts.isTypeReferenceNode(at) || !ts.isIdentifier(at.typeName)) return false;
     const name = at.typeName.text;
-    if (name === 'array') return true;
+    if (name === 'array') return !unsizedOnly || (at.typeArguments?.length ?? 0) === 1;
     if (seen.has(name) || (at.typeArguments?.length ?? 0) > 0) return false;
     seen.add(name);
     let next: ts.TypeNode | undefined;
@@ -52,24 +72,31 @@ export function writesAnArray(type: ts.TypeNode | undefined, sourceFile: ts.Sour
   return false;
 }
 
-/** Whether `p` is a parameter of an array with no qualifier: a value (Rule 8.23). */
+/** Whether `p` is a parameter of an array with no size and no qualifier: a value (Rule 8.23). */
 export function isValueArrayParameter(
   p: ts.ParameterDeclaration,
   sourceFile: ts.SourceFile,
 ): boolean {
   return (
-    ts.isIdentifier(p.name) && qualifiersOf(p).length === 0 && writesAnArray(p.type, sourceFile)
+    ts.isIdentifier(p.name) &&
+    qualifiersOf(p).length === 0 &&
+    writesAnUnsizedArray(p.type, sourceFile)
   );
 }
 
-/** Whether `p` is an `@out` parameter of an array, which the call fills with zeros before the
- *  body runs (Rule 8.25, change 0138, Amendment A15, decision 2). */
+/** Whether `p` is an `@out` parameter of an array, which the call fills with zeros before the body
+ *  runs (Rule 8.25, change 0138, Amendment A15, decision 2). */
 export function isOutArrayParameter(
   p: ts.ParameterDeclaration,
   sourceFile: ts.SourceFile,
 ): boolean {
   return qualifiersOf(p).some((q) => q.name === 'out') && writesAnArray(p.type, sourceFile);
 }
+
+/** Whether a function may return an array with no size. It may not: `TS8020` refuses the return
+ *  in every function. Slice 3 of change 0138 makes it legal and sets this to `true`, which adds the
+ *  remedy "or return xs" to the text of `TS8080` (Amendment A16, decision 3). */
+export const ARRAY_RETURN_ALLOWED = false;
 
 /** `e` without parentheses, a non-null assertion, or a type assertion around it. */
 function bare(e: ts.Expression): ts.Expression {
@@ -121,13 +148,27 @@ export function writeAt(node: ts.Node): { place: ts.Expression; push: boolean } 
   return undefined;
 }
 
-/** What `TS8080` says of a write to the value array parameter `param` of `fn`. */
-export function lostWriteText(fn: string, param: string, push: boolean): string {
-  return push
-    ? `${fn}(): parameter "${param}" is a value; a push to it is lost. Write @inout ${param} to ` +
-        `push into the caller's array.`
-    : `${fn}(): parameter "${param}" is a value; its writes are lost. Write @inout ${param} to ` +
-        `update the caller's array, or return ${param}.`;
+/** What `TS8080` says of a write to the array parameter `param` of `fn`. `how` is a push to a
+ *  value, any other write to a value, or a push to an `@out` array. The remedy "or return xs" is
+ *  left out while `returnable` is false, as `return xs` of an array with no size is refused
+ *  (`TS8020`) until slice 3 of change 0138; slice 3 restores it (Amendment A16, decision 3). */
+export function lostWriteText(
+  fn: string,
+  param: string,
+  how: 'push' | 'write' | 'out-push',
+  returnable: boolean = ARRAY_RETURN_ALLOWED,
+): string {
+  if (how === 'out-push')
+    return `${fn}(): parameter "${param}" is @out; a push to it needs @inout. Write @inout ${param}.`;
+  if (how === 'push')
+    return (
+      `${fn}(): parameter "${param}" is a value; a push to it is lost. Write @inout ${param} to ` +
+      `push into the caller's array.`
+    );
+  return (
+    `${fn}(): parameter "${param}" is a value; its writes are lost. Write @inout ${param} to ` +
+    `update the caller's array${returnable ? `, or return ${param}.` : '.'}`
+  );
 }
 
 /** The writes `definite.ts` cannot see in the source: a call of a method on an element that
@@ -179,7 +220,7 @@ export function checkValueArrayWritesByEffects(
         makeDiagnostic(
           sourceFile,
           p,
-          lostWriteText(shown, name, false),
+          lostWriteText(shown, name, 'write'),
           TS_CODES.VALUE_ARRAY_WRITE_LOST,
         ),
       );

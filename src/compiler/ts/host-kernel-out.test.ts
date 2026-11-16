@@ -77,8 +77,9 @@ export function fillWith(@out xs: array<u32>): void {
   }
 }
 export function grow(xs: array<f32>, @out list: array<u32>): void {
-  for (let i: u32 = 0; i < xs.length; i++) {
-    list.push(i);
+  // A push onto a declared @out array is refused (TS8080, Amendment A16, decision 1), so it writes.
+  for (let i: u32 = 0; i < list.length; i++) {
+    list[i] = i;
   }
 }
 `;
@@ -186,7 +187,9 @@ describe('a held length on an @out array (change 0138, Amendment A15, follow-up 
       Promise.resolve().then(() => m.grow!(Float32Array.of(1, 2), { array: list, length })),
     ).rejects.toThrow(
       new TypeError(
-        'grow(): parameter "list" is @out, which the call fills with zeros whole, so it takes no { array, length, offset? }. Write @inout list to pass a held length, or pass the array itself.',
+        // A push onto an @out array is refused (TS8080), so an @out array is never pushed onto, and
+        // the call says what it says of any array no loop pushes onto.
+        'grow(): parameter "list" is an array no loop pushes onto, so it takes no { array, length, offset? }. Pass the array itself.',
       ),
     );
   });

@@ -11,6 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { lostWriteText } from './value-array-write.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const module = (body: string): string => `"use typeshade";\n${body}\n`;
@@ -28,8 +29,12 @@ const edited = (body: string): string[] => {
     .map((d) => `${d.severity} ${String(d.code)} ${d.message}`);
 };
 
+// `return xs` of an array with no size is refused (TS8020) in every function until slice 3 of change
+// 0138, so the text offers @inout only (Amendment A16, decision 3); slice 3 restores "or return".
 const lost = (fn: string, p: string): string =>
-  `error TS8080 ${fn}(): parameter "${p}" is a value; its writes are lost. Write @inout ${p} to update the caller's array, or return ${p}.`;
+  `error TS8080 ${fn}(): parameter "${p}" is a value; its writes are lost. Write @inout ${p} to update the caller's array.`;
+const outPushed = (fn: string, p: string): string =>
+  `error TS8080 ${fn}(): parameter "${p}" is @out; a push to it needs @inout. Write @inout ${p}.`;
 const pushed = (fn: string, p: string): string =>
   `error TS8080 ${fn}(): parameter "${p}" is a value; a push to it is lost. Write @inout ${p} to push into the caller's array.`;
 
@@ -70,7 +75,7 @@ const CASES: readonly (readonly [string, string, readonly string[]])[] = [
     [lost('zero', 'xs')],
   ],
   [
-    'a whole write of a fixed-size array that no return carries',
+    'a local rewrite of a fixed-size array parameter that no return carries is no TS8080 (Rule 8.8, change 0031)',
     `function reset(a: array<f32, 2>, c: bool): f32 {
   if (c) {
     a = [0., 0.];
@@ -78,7 +83,7 @@ const CASES: readonly (readonly [string, string, readonly string[]])[] = [
   }
   return 2.;
 }`,
-    [lost('reset', 'a')],
+    [],
   ],
   [
     'a push',
@@ -90,14 +95,13 @@ const CASES: readonly (readonly [string, string, readonly string[]])[] = [
     [pushed('add', 'xs')],
   ],
   [
-    'a push is refused even when the parameter is returned',
+    'a push to a fixed-size array parameter is no TS8080: it is no array method (TS8099)',
     `function add(xs: array<f32, 2>, v: f32): array<f32, 2> {
   xs.push(v);
   return xs;
 }`,
     [
-      pushed('add', 'xs'),
-      // A push belongs to a kernel function's array in a loop (Rule 8.22); on a fixed-size array
+      // TS8080 reads an array with no size only (Amendment A16, decision 2). A push belongs to a kernel function's array in a loop (Rule 8.22); on a fixed-size array
       // it is also no array method, which the same compile says.
       `error TS8099 ".push" is not one of an array's methods here, which are map, forEach, some, every, reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf and includes. An array's length is fixed, so a copy or a change of length is a loop: "for (const x of xs) { … }".`,
     ],
@@ -113,7 +117,7 @@ const CASES: readonly (readonly [string, string, readonly string[]])[] = [
     [],
   ],
   [
-    'a write, then a return that does not return the parameter',
+    'a fixed-size array: a write, then a return that does not return the parameter, is no TS8080',
     `function pick(a: array<f32, 2>, c: bool): array<f32, 2> {
   if (c) {
     a = [1., 2.];
@@ -121,17 +125,17 @@ const CASES: readonly (readonly [string, string, readonly string[]])[] = [
   }
   return a;
 }`,
-    [lost('pick', 'a')],
+    [],
   ],
   [
-    'a write after a loop reaches the end of the function',
+    'a fixed-size array: a write after a loop reaches the end of the function, no TS8080',
     `function run(a: array<f32, 2>, n: u32): f32 {
   for (let i: u32 = 0; i < n; i++) {
     a = [1., 2.];
   }
   return 0.;
 }`,
-    [lost('run', 'a')],
+    [],
   ],
   [
     'a parameter the body only reads',
@@ -152,6 +156,34 @@ const CASES: readonly (readonly [string, string, readonly string[]])[] = [
   }
 }`,
     [],
+  ],
+  [
+    'a push onto a declared @out array needs @inout',
+    `export function grow(@out list: array<f32>, v: f32) {
+  for (let i: u32 = 0; i < 4; i++) {
+    list.push(v);
+  }
+}`,
+    [outPushed('grow', 'list')],
+  ],
+  [
+    'an element write to a declared @out array is no TS8080',
+    `export function seta(@out list: array<f32>) {
+  for (let i: u32 = 0; i < list.length; i++) {
+    list[i] = 1.;
+  }
+}`,
+    [],
+  ],
+  [
+    'an array with no size written through an alias is a value too',
+    `type Xs = array<f32>;
+export function scale(xs: Xs) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = 2.;
+  }
+}`,
+    [lost('scale', 'xs')],
   ],
   [
     'an @inout parameter that is pushed onto',
@@ -234,6 +266,27 @@ describe('a write to a value array parameter (TS8080, change 0138, Amendment A15
     )!;
     expect(source.slice(d.start, d.start + d.length)).toBe('xs[i]');
     expect(d.line).toBe(4);
+  });
+});
+
+describe('the text of TS8080 (Amendment A16, decision 3)', () => {
+  it('offers @inout alone while an array with no size cannot be returned, in a kernel and in a helper', () => {
+    const text = `error TS8080 scale(): parameter "xs" is a value; its writes are lost. Write @inout xs to update the caller's array.`;
+    const body = `(xs: array<f32>) {\n  xs[0] = 1.;\n}`;
+    expect(compiled(`export function scale${body}`)).toEqual([text]);
+    expect(edited(`export function scale${body}`)).toEqual([text]);
+    const helper = compiled(`function scale${body}`);
+    expect(helper).toContain(text);
+    expect(edited(`function scale${body}`)).toContain(text);
+  });
+
+  it('keeps "or return xs" behind the condition slice 3 enables', () => {
+    expect(lostWriteText('scale', 'xs', 'write', true)).toBe(
+      `scale(): parameter "xs" is a value; its writes are lost. Write @inout xs to update the caller's array, or return xs.`,
+    );
+    expect(lostWriteText('scale', 'xs', 'write')).toBe(
+      `scale(): parameter "xs" is a value; its writes are lost. Write @inout xs to update the caller's array.`,
+    );
   });
 });
 

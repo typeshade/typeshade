@@ -48,6 +48,7 @@ import {
   lostWriteText,
   rootIdentifier,
   writeAt,
+  writesAnUnsizedArray,
 } from './value-array-write.js';
 
 /** A variable the walk follows: a local declared with no initializer, or an `@out` parameter. */
@@ -56,6 +57,8 @@ interface Tracked {
   readonly out: boolean;
   /** A parameter of an array with no qualifier, a value (`TS8080`): never read-checked. */
   readonly value?: true;
+  /** A declared `@out` array: a push to it is refused (`TS8080`), no other write is followed. */
+  readonly outArray?: true;
   /** A write to a value array parameter. It stays in the state while no path has carried it
    *  here: the state holds it from the write on, and a join keeps it when any path holds it. */
   readonly write?: { readonly param: Tracked; readonly node: ts.Node; readonly push: boolean };
@@ -134,12 +137,19 @@ export function checkDefiniteAssignment(
         out === null && named && isValueArrayParameter(p, sourceFile)
           ? { name: p.name.text, out: false, value: true }
           : null;
-      scopes[0]!.set(p.name.text, out ?? value);
+      const outArray: Tracked | null =
+        named && isOutArrayParameter(p, sourceFile) && writesAnUnsizedArray(p.type, sourceFile)
+          ? { name: p.name.text, out: false, value: true, outArray: true }
+          : null;
+      scopes[0]!.set(p.name.text, out ?? value ?? outArray);
       if (out !== null) outs.push(out);
     }
     const valueNames = new Set(
       fn.parameters.flatMap((p) =>
-        ts.isIdentifier(p.name) && named && isValueArrayParameter(p, sourceFile)
+        ts.isIdentifier(p.name) &&
+        named &&
+        (isValueArrayParameter(p, sourceFile) ||
+          (isOutArrayParameter(p, sourceFile) && writesAnUnsizedArray(p.type, sourceFile)))
           ? [p.name.text]
           : [],
       ),
@@ -212,6 +222,8 @@ export function checkDefiniteAssignment(
       const param = resolve(ev.name);
       if (param === null || param.value !== true) return s;
       const key = { ...ev, write: { ...w, param } } as Tracked;
+      // An `@out` array is written freely; only a push to it is refused.
+      if (param.outArray === true && !w.push) return s;
       if (w.push) {
         reportLost(w.node, param, true);
         return s;
@@ -242,7 +254,11 @@ export function checkDefiniteAssignment(
         makeDiagnostic(
           sourceFile,
           node,
-          lostWriteText(shown, param.name, push),
+          lostWriteText(
+            shown,
+            param.name,
+            param.outArray === true ? 'out-push' : push ? 'push' : 'write',
+          ),
           TS_CODES.VALUE_ARRAY_WRITE_LOST,
         ),
       );
