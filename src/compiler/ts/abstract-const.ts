@@ -2358,8 +2358,14 @@ export function twoReadingsOf(
   if (seen.has(n) || seen.size > 64) return undefined;
   seen.add(n);
   const pair = readingPair(n, sourceFile, seen);
+  seen.delete(n);
   return pair !== undefined && pair.u32 !== pair.ts ? pair : undefined;
 }
+
+/** The steps a walk of {@link readingPair} has taken, by its stack: a value read twice is walked
+ *  twice (`a + a`, issue 1299), so the walk is bounded by its steps, not by a visited set. */
+const READING_STEPS = new WeakMap<Set<ts.Node>, { n: number }>();
+const READING_STEP_LIMIT = 20000;
 
 /** The two readings a plain assignment `a = rhs` gives its target: those of `rhs`, or of a
  *  part that `+ - * & | ^ <<`, a minus, a `~`, `?:` or `select` carry (`a = a + T`). The
@@ -2447,6 +2453,38 @@ function namedNumber(node: ts.Expression): number | undefined {
     : undefined;
 }
 
+/** The written numbers stored in the variable `node` names, where it is a `let` or `var` with no
+ *  written type: each value its initializer or a plain assignment stores that is a written
+ *  number or a constant of one (`let b = 3`, `b = 5`). A variable assigned anywhere is not
+ *  proven (E1 of 2026-11-13), so another value stored in it (`b = vi`, `b += 1`) does not end
+ *  this: the variable holds each of these numbers where it is stored, and a refusal read at one
+ *  of them is true. `undefined` where it holds no written number. Issue 1299. */
+function storedNumbers(node: ts.Expression): number[] | undefined {
+  const n = skipParenNodes(node);
+  if (!ts.isIdentifier(n)) return undefined;
+  const d = declarationOf(n.text, n);
+  if (d === undefined || !ts.isVariableDeclaration(d) || !ts.isIdentifier(d.name)) return undefined;
+  const sourceFile = n.getSourceFile();
+  if (writtenTypeText(d, sourceFile) !== undefined) return undefined;
+  const list = d.parent;
+  if (!ts.isVariableDeclarationList(list) || (list.flags & ts.NodeFlags.Const) !== 0) {
+    return undefined;
+  }
+  const values: number[] = [];
+  const initial = d.initializer === undefined ? undefined : constNumber(d.initializer);
+  if (initial !== undefined) values.push(initial);
+  for (const id of identifiersNamed(sourceFile, n.text)) {
+    if (id === d.name || declarationOf(n.text, id) !== d) continue;
+    const up = skipParenUp(id);
+    const p = up.parent;
+    if (!ts.isBinaryExpression(p) || p.left !== up) continue;
+    if (p.operatorToken.kind !== ts.SyntaxKind.EqualsToken) continue;
+    const v = constNumber(p.right);
+    if (v !== undefined && !values.includes(v)) values.push(v);
+  }
+  return values.length === 0 ? undefined : values;
+}
+
 function skipParenNodes(node: ts.Expression): ts.Expression {
   return ts.isParenthesizedExpression(node) ? skipParenNodes(node.expression) : node;
 }
@@ -2482,11 +2520,18 @@ function readingPair(
   sourceFile: ts.SourceFile,
   seen: Set<ts.Node>,
 ): { u32: number; ts: number } | undefined {
+  // `seen` is the stack of the walk, not a visited set: a value read twice (`a + a`, `a - a + a`)
+  // is read at each place it stands, and only a value that reaches itself stops (issue 1299).
   const of = (e: ts.Expression) => {
     const inner = skipParenNodes(e);
-    if (seen.has(inner)) return undefined;
+    if (seen.has(inner) || seen.size > 64) return undefined;
+    let steps = READING_STEPS.get(seen);
+    if (steps === undefined) READING_STEPS.set(seen, (steps = { n: 0 }));
+    if (++steps.n > READING_STEP_LIMIT) return undefined;
     seen.add(inner);
-    return readingPair(inner, sourceFile, seen);
+    const pair = readingPair(inner, sourceFile, seen);
+    seen.delete(inner);
+    return pair;
   };
   if (ts.isBinaryExpression(n)) {
     const k = n.operatorToken.kind;
@@ -2530,13 +2575,17 @@ function readingPair(
     if (constantTree(n.left) && constantTree(n.right)) return undefined;
     // Arithmetic over a value with two readings and a written number, or a constant tree
     // (`(1 << 3) | LB`): the bits compute in u32, TypeScript in doubles.
-    const numberPair = (e: ts.Expression, v: number | undefined) => {
+    // A `let` with no written type that holds only written numbers (`let b = 3`) is each of
+    // them (issue 1299): the operation is read at each, and the first whose readings differ is
+    // the one refused.
+    const numberPairs = (e: ts.Expression, v: number | undefined) => {
       const x = v ?? constNumber(e);
-      return x === undefined ? undefined : { u32: x, ts: x };
+      const xs = x === undefined ? storedNumbers(e) : [x];
+      return xs?.map((y) => ({ u32: y, ts: y }));
     };
-    const a = lp ?? numberPair(n.left, lv);
-    const b = rp ?? numberPair(n.right, rv);
-    if ((lp === undefined && rp === undefined) || a === undefined || b === undefined)
+    const as = lp === undefined ? numberPairs(n.left, lv) : [lp];
+    const bs = rp === undefined ? numberPairs(n.right, rv) : [rp];
+    if ((lp === undefined && rp === undefined) || as === undefined || bs === undefined)
       return undefined;
     const op = (x: number, y: number, unsigned: boolean): number => {
       switch (k) {
@@ -2558,7 +2607,15 @@ function readingPair(
           return unsigned ? x >>> (y & 31) : x >> (y & 31);
       }
     };
-    return { u32: op(a.u32, b.u32, true), ts: op(a.ts, b.ts, false) };
+    let first: { u32: number; ts: number } | undefined;
+    for (const a of as) {
+      for (const b of bs) {
+        const pair = { u32: op(a.u32, b.u32, true), ts: op(a.ts, b.ts, false) };
+        if (pair.u32 !== pair.ts) return pair;
+        first ??= pair;
+      }
+    }
+    return first;
   }
   if (ts.isPrefixUnaryExpression(n)) {
     const p = of(n.operand);
@@ -2589,6 +2646,7 @@ function readingPair(
       if (base === undefined || seen.has(p)) continue;
       seen.add(p);
       const v = binaryPair(id, base, p.right, sourceFile, seen);
+      seen.delete(p);
       if (v !== undefined && v.u32 !== v.ts) return v;
     }
     return undefined;
