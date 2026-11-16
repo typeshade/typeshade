@@ -67,30 +67,41 @@ and every person reads this file before any other document of this repository.
   change does, with one example before and after, and the options with their costs.
   `CLAUDE.md` (Merging) carries the procedure.
 
-### OD-5. A parameter qualifier is written before the parameter, `@inout` or `@out`; an entry's I/O stays in the type
+### OD-5. An object is passed as JavaScript passes it, with no qualifier; an entry's I/O stays in the type
 
-- Date: 2026-11-09.
-- The owner's words: "inout, in, out 이런건 지금 앞에 따로 쓰는데 왜 타입으로 바꿔야해?". Asked
-  which form holds for a parameter qualifier, the owner chose the form written before the
-  parameter (`@inout a: f32`). Asked the same for an entry's I/O fields, the owner chose to keep
-  the type form (`pos: builtin<"position", vec4>`, `uv: location<0, vec2>`).
+- Date: 2026-11-09 for the entry's I/O. 2026-11-16 for a parameter, which replaces what the entry
+  said on 2026-11-09 (below).
+- The owner's words, 2026-11-16: "ps는 old next 아닌 레퍼런스로 받는 개념이 아닌가? 복사로 받아..?
+  왜? 배열은 기본적으로 포인터아닌가"; "룰 8.8을 바꿔야겠는데요. Object는 모두 레퍼런스 바이 벨류
+  형식으로 가도록? In/out를 없애고 아에 언어 수준에서 자체적으로 포인터를 처리할까요". Shown the
+  seven points of proposal 0142 with a recommended answer for each, the owner answered
+  "진행하세요".
 - What it means:
-  - A parameter that the function writes back to its caller is written `@inout a: f32` or
-    `@out c: f32`. The type form `inout<T>` and `out<T>` of change 0111 D4 is not the
-    language's form. Change 0111 D4 moved the qualifier into the type only so that a plain
-    `tsc` accepts the file, which OD-1 rejects.
-  - `in` is not written: every parameter is passed by value unless it carries `@inout` or
-    `@out`.
+  - A struct, an instance of a class and an array behave as a JavaScript object does: a function
+    that writes its parameter changes the caller's object. A number, a `bool`, a vector and a
+    matrix are values.
+  - The author writes no `@inout` and no `@out`. The compiler finds which parameters a function
+    writes and passes them as the target needs (OD-3, OD-9).
+  - A program never runs with a meaning JavaScript would not give it. A form the compiler does
+    not implement yet is refused, and the diagnostic says so (OD-9).
+  - Proposal 0142 carries the rule text and the stages. Until its first stage is implemented,
+    the compiler still reads `@inout` and `@out`, and `docs/language-design.md` still describes
+    them; that is the proposal's work, and no reason to keep the qualifiers.
   - An entry's built-in values and inter-stage values stay in the type: `builtin<…>` and
     `location<…>`.
-  - Scope, decided 2026-11-09: asked whether OD-5 also requires every inter-stage value to write
-    `location<…>`, the owner chose "생략 허용 (A)". OD-5 chooses the type form over the decorated
-    form. It does not require an attribute where the compiler can supply one: an input or output
-    with no attribute (`uv: vec2`) is allowed, and `location<n, T>` stays for a fixed number or an
-    option.
-  - Change 0130 adds a rule after Rule 1.7 that says a construct that describes a value that
-    flows in or out, a parameter included, is part of its type. For a parameter qualifier this
-    entry holds, and that rule text is fixed in its own pull request.
+  - Scope, decided 2026-11-09: asked whether this entry also requires every inter-stage value to
+    write `location<…>`, the owner chose "생략 허용 (A)". An input or output with no attribute
+    (`uv: vec2`) is allowed, and `location<n, T>` stays for a fixed number or an option.
+- Replaced, 2026-11-09 to 2026-11-16: the owner's words then were "inout, in, out 이런건 지금 앞에
+  따로 쓰는데 왜 타입으로 바꿔야해?", and the entry said that a parameter the function writes back
+  to its caller is written `@inout a: f32` or `@out c: f32` before the parameter, not as a type
+  (`inout<T>`, change 0111 D4), and that every other parameter is a value. The choice of the
+  written form over the type form no longer has a subject: there is no qualifier to place.
+- Cost recorded: a call does not show whether it changes its argument, as in JavaScript. `@out`'s
+  promise "written whole" is gone, so the compiler must infer where an upload can be skipped.
+- Open: `@inout` on a number or a vector (`@inout a: f32`) let a function write a caller's value
+  that is no object. JavaScript has no such form. Proposal 0142 must say what replaces it before
+  it is accepted.
 
 ### OD-6. Nothing is released yet: the bundled builds were tests
 
