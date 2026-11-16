@@ -558,6 +558,13 @@ kept (`unpeekedReads`). A read whose lowerings disagree keeps the words: a gener
 lowered at two types, a loop counter's start lowered again at its type on `main`, and a read
 inside another such constant's initializer.
 
+Candidate construction for constant-division remedies lives in
+`src/compiler/ts/remedies/candidates.ts`. The analysis supplies the constant and origin facts.
+`src/compiler/ts/remedies/validate.ts` checks the module's edits together through a compiler callback.
+It removes projected annotations, maps errors back to the original offsets, and owns the bounded
+edited-program cache. The CLI and editor share this validation path. Constant tracking and use
+analysis remain in `src/compiler/ts/abstract-const.ts`.
+
 A function whose callers decide its result (Rule 8.19, change 0134 part 4b) hovers as the one type
 they gave it, `function g(): u32`. One whose calls ask two or more types, or an exported one whose
 calls ask a type other than the `f32` it keeps for the host, is lowered once for each,
