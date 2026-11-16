@@ -40,7 +40,7 @@
 // Implements: Rule 7.10 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
-import { qualifiersOf } from './lower/references.js';
+import { referenceOf } from './lower/references.js';
 import { isUndefinedLiteral, optionalTestOperand, writesUndefinedUnion } from './optional.js';
 
 /** What the flow says of a name at a read: absent, or present when each of its sources is. A
@@ -261,7 +261,7 @@ function referenceParams(sourceFile: ts.SourceFile): ReadonlyMap<string, Readonl
       const refs = new Set<number>();
       n.parameters.forEach((p, i) => {
         // `@inout x: T` (Rule 8.25), or the refused type form `x: inout<T>` (change 0137).
-        if (qualifiersOf(p).length > 0) refs.add(i);
+        if (referenceOf(p, sourceFile) !== undefined) refs.add(i);
       });
       if (refs.size > 0) out.set(n.name.text, refs);
     }

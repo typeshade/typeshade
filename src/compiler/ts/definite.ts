@@ -40,7 +40,7 @@ import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
-import { fileFunctionCalled, qualifiersOf } from './lower/references.js';
+import { fileFunctionCalled, qualifiersOf, referenceOf } from './lower/references.js';
 import { writesUndefinedUnion } from './optional.js';
 import {
   isOutArrayParameter,
@@ -182,7 +182,7 @@ export function checkDefiniteAssignment(
     };
     const qualified = (call: ts.CallExpression, index: number): boolean => {
       const p = fileFunctionCalled(call, sourceFile)?.parameters[index];
-      return p !== undefined && qualifiersOf(p).length > 0;
+      return p !== undefined && referenceOf(p, sourceFile) !== undefined;
     };
     if (valueNames.size > 0) collect(body);
     const targets: Target[] = [];

@@ -19,7 +19,7 @@
 //     declared `@out` array, which a push needs `@inout` for (Amendment A16, decision 1).
 
 import ts from 'typescript';
-import { qualifiersOf } from './lower/references.js';
+import { qualifiersOf, referenceOf } from './lower/references.js';
 import type { BindingDecl, FuncDecl, ModuleDecl, ModuleVarDecl } from '../../core/ir/nodes.js';
 import { fnWrites } from '../../core/passes/effects.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
@@ -79,7 +79,7 @@ export function isValueArrayParameter(
 ): boolean {
   return (
     ts.isIdentifier(p.name) &&
-    qualifiersOf(p).length === 0 &&
+    referenceOf(p, sourceFile) === undefined &&
     writesAnUnsizedArray(p.type, sourceFile)
   );
 }

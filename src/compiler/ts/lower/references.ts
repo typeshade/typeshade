@@ -40,6 +40,7 @@ import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
 import { lowerLValue } from './statement.js';
 import { QUALIFIER_NAMES } from '../builtin-check.js';
+import { isWrittenObjectParameter } from '../object-reference.js';
 
 /** The parameters declared `@out`, which `definite.ts` holds to their definite writes and
  *  whose argument assigns the caller's local (proposal 0043). The IR keeps one mode for `@inout`
@@ -67,6 +68,18 @@ export function qualifiersOf(p: ts.ParameterDeclaration): { name: string; node: 
     }
   }
   return out;
+}
+
+/** How `p` is passed when it names the caller's place: `'inout'` or `'out'` as written, `'inout'`
+ *  for an object parameter that its function writes (change 0142, stage 1), or `undefined` for a
+ *  value. */
+export function referenceOf(
+  p: ts.ParameterDeclaration,
+  sourceFile: ts.SourceFile = p.getSourceFile(),
+): 'inout' | 'out' | undefined {
+  const written = qualifiersOf(p)[0]?.name;
+  if (written === 'inout' || written === 'out') return written;
+  return isWrittenObjectParameter(p, sourceFile) ? 'inout' : undefined;
 }
 
 /** The function of the file a call written `callee(...)` or `N.callee(...)` names, read off the
@@ -109,7 +122,7 @@ export function writesThroughArgument(
   sourceFile: ts.SourceFile,
 ): boolean {
   const p = fileFunctionCalled(call, sourceFile)?.parameters[index];
-  return p !== undefined && qualifiersOf(p).length > 0;
+  return p !== undefined && referenceOf(p, sourceFile) !== undefined;
 }
 
 /** `e` without the parentheses around it. */

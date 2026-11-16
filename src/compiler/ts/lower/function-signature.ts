@@ -36,7 +36,7 @@ import { mapTsTypeToShaderType, withCollections } from '../type-map.js';
 import { refuseAtomicDeclaration } from './atomics.js';
 import { functionTypeOf } from './function-types.js';
 import { recordParamDefaults } from './param-defaults.js';
-import { markOutParam, qualifiersOf } from './references.js';
+import { markOutParam, qualifiersOf, referenceOf } from './references.js';
 import { refuseRuntimeArraySignature } from './runtime-array.js';
 
 /** The declarations a body is lowered from: a top-level function, a class method or a class
@@ -229,7 +229,11 @@ export function parseParams(
       }
     }
     const qualifier = qualifiers[0]?.name;
-    const referenced = qualifier as 'inout' | 'out' | undefined;
+    // An object parameter that its function writes names the caller's object with no qualifier
+    // (change 0142, stage 1).
+    const referenced =
+      (qualifier as 'inout' | 'out' | undefined) ??
+      (opts.references === true ? referenceOf(p, sourceFile) : undefined);
     const written = p.type;
     // A Map or a Set is a kernel function's parameter (change 0080), taken as it is written.
     const pMapped =
