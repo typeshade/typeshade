@@ -50,9 +50,9 @@ Likewise, test-only differential gates do not establish a delivered end-user div
 
 | ID  | Status                                       | Files and responsibility                                                                                                                                     | Exit evidence                                                                                                                |
 | --- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| R0  | Review recorded in #1282                     | This plan; reconcile PR dependencies and document authority.                                                                                                 | Identified baselines, open items and links; documentation checks.                                                            |
-| R1  | First slice in #1283; integration pending    | `src/compiler/ts/abstract-const.ts`: separate candidate construction and batch validation from constant analysis.                                            | Equal diagnostic text and order, compiler/editor parity, unchanged generated output, at most two edited compiles per module. |
-| R2  | Not started                                  | `src/compiler/ts/context.ts`, `src/compiler/ts/lower/function.ts`, `src/language-service/diagnostics.ts`: explicit analysis lifetimes and shared results.    | Repeated compilation isolation and parity on the same source; no new semantic IR or query framework.                         |
+| R0  | Merged in #1282                              | This plan; reconcile PR dependencies and document authority.                                                                                                 | Identified baselines, open items and links; documentation checks.                                                            |
+| R1  | First slice merged in #1283                  | `src/compiler/ts/abstract-const.ts`: separate candidate construction and batch validation from constant analysis.                                            | Equal diagnostic text and order, compiler/editor parity, unchanged generated output, at most two edited compiles per module. |
+| R2  | Source-spelling scope slice in progress      | `src/compiler/ts/context.ts`, `src/compiler/ts/lower/function.ts`, `src/language-service/diagnostics.ts`: explicit analysis lifetimes and shared results.    | Repeated compilation isolation and parity on the same source; no new semantic IR or query framework.                         |
 | R3  | Not started                                  | `src/compiler/ts/host-face.ts`: separate export analysis, declaration generation and runtime wrapper generation.                                             | Generated JS, declarations and metadata agree; packed consumers pass.                                                        |
 | R4  | Deferred until the Buffer transition settles | `src/core/host-kernel.ts`, `src/core/resident.ts`, `src/runtime/resource.ts`, `src/runtime/program.ts`: ownership, visibility, lifetime and execution state. | Resource sharing, disposal, failure rollback and downstream tests on the resulting Buffer API.                               |
 | R5  | Not started                                  | `src/core/passes/kernel-lower.ts`, `src/core/backends/`, validation scripts: separate transformation, execution and verdict responsibilities where useful.   | Source mapping and output preserved; relevant backend and differential gates.                                                |
@@ -66,12 +66,12 @@ The owner requested branch-based execution on 2026-11-16: "진행은 깃브렌�
 Use `main` as the integration baseline. Give each reviewable slice its own branch, worktree
 and pull request. Keep a branch focused on one responsibility and its tests and documentation.
 
-| Work                   | Branch                            | Review base                                         | Integration target             |
-| ---------------------- | --------------------------------- | --------------------------------------------------- | ------------------------------ |
-| Plan and status, #1282 | `codex/refactor-execution-plan`   | `main`                                              | `main`                         |
-| First R1 slice, #1283  | `codex/abstract-const-remedies`   | `main` at `4bf416e`                                 | `main`                         |
-| Further R1 slices      | `codex/refactor-r1-<slice>`       | Updated `main`, or the specific prerequisite branch | `main`, after the prerequisite |
-| R2 through R5 slices   | `codex/refactor-r<stage>-<slice>` | Updated `main`, or the specific prerequisite branch | `main`, after the prerequisite |
+| Work                   | Branch                                   | Review base                                         | Integration target             |
+| ---------------------- | ---------------------------------------- | --------------------------------------------------- | ------------------------------ |
+| Plan and status, #1282 | `codex/refactor-execution-plan` (merged) | `main`                                              | `main`                         |
+| First R1 slice, #1283  | `codex/abstract-const-remedies` (merged) | `main`                                              | `main`                         |
+| Further R1 slices      | `codex/refactor-r1-<slice>`              | Updated `main`, or the specific prerequisite branch | `main`, after the prerequisite |
+| R2 through R5 slices   | `codex/refactor-r<stage>-<slice>`        | Updated `main`, or the specific prerequisite branch | `main`, after the prerequisite |
 
 The future branch names are conventions; those branches do not exist until work starts.
 The plan branch records status and does not accumulate implementation commits.
@@ -119,9 +119,10 @@ Completed on 2026-11-16 after checking the current heads, required checks, confl
 
 - #1278 merged as `1f4d726ddde75e3d9381e02092082de07eb33a1c`.
 - #1272 merged next as `4bf416e79ca402459455e99fe520cea5dcbe50f7`.
-- #1283 now targets `main`. Its branch incorporates those prerequisites for fresh validation.
+- #1282 merged as `fa60da805834bff38a3290d6dc7da9c178a34ed7`.
+- #1283 merged as `397071cbdbfb1cc3d91611e6c44e5d7639e1187e`, after all 26 checks passed on its synchronized head.
 
-1. Verify the new #1283 head against `main` and merge when its checks pass.
+1. Validate the R2 source-spelling context slice against `main` at `397071c`.
 2. Keep subsequent R1 slices separate from new inference behavior.
 3. Start runtime restructuring after #1257's contract and consumer migration settle.
 
@@ -151,7 +152,7 @@ improvement. A structural extraction alone establishes no speedup.
 `ae05785e29115ed79072d0d12bb0dec760ba860a`, based on the #1272 head above.
 It extracts constant-division candidate construction and module-wide edit validation.
 Other analysis-dependent refusal construction remains with the analysis.
-The PR is ready for review and now targets `main`; integration remains pending on the new validation head.
+The PR is merged into `main`; the integration record above identifies its merge commit.
 [PR #1282](https://github.com/typeshade/typeshade/pull/1282) records this plan.
 
 Local verification on 2026-11-16 UTC used Node 24.19.0, Bun 1.4.4 and TypeScript 5.6.3:
@@ -169,5 +170,24 @@ benchmarks were not run locally. Broader integration checks remain in CI.
 On 2026-11-16, all 26 reported CI checks passed for the first-slice head above, including
 the TypeScript matrix, GPU gates, packed consumer journeys, package smoke and TypeNN candidate.
 PR #1283 was then marked ready for review. Those results apply to its original review base.
-After retargeting, the branch merged `main` at `4bf416e`; its new head requires fresh CI.
+After retargeting, head `64246e8d61e6a5777bf58c7ba51b22d01c1cb0f4` incorporated `main` at `4bf416e`.
+All 26 CI checks passed again, and 512 focused and traceability tests passed locally before integration.
 The synchronization changes only the prerequisite documents and traceability records; the refactored source is unchanged.
+
+## R2 source spelling context slice
+
+Branch: `codex/refactor-r2-written-context`, based on `main`
+`397071cbdbfb1cc3d91611e6c44e5d7639e1187e`.
+
+`src/compiler/ts/written-context.ts` owns source spelling: linked-file origins, original class
+names and type text. `context.ts` keeps lowering scopes and bindings, with compatibility re-exports.
+`source-file.ts` imports the two scope boundaries directly from their owner.
+
+The linked origin and written-struct table retain their independent synchronous lifetimes.
+This extraction preserves the current save/restore behavior instead of changing inference or
+introducing asynchronous context. Boundary tests exercise nested compilation, exceptions,
+source-file identity and the independence of the two scopes.
+
+This is the first R2 slice. Function lowering stages and compiler/editor analysis results remain
+separate follow-up work. R3 and R5 have not started. R4 remains blocked on the Buffer transition;
+#1257's reviewed head still has a failing TypeNN candidate check.
