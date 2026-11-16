@@ -565,6 +565,12 @@ It removes projected annotations, maps errors back to the original offsets, and 
 edited-program cache. The CLI and editor share this validation path. Constant tracking and use
 analysis remain in `src/compiler/ts/abstract-const.ts`.
 
+Source spelling has a separate compilation context in `src/compiler/ts/written-context.ts`.
+It owns linked-file origins, written class names and `authorTypeText`.
+Linked origins and class-name tables keep independent synchronous scopes; each restores its
+previous value after nested compilation or an exception. `src/compiler/ts/context.ts` re-exports
+these helpers for existing lowering callers. The compiler entry point imports the scopes directly.
+
 A function whose callers decide its result (Rule 8.19, change 0134 part 4b) hovers as the one type
 they gave it, `function g(): u32`. One whose calls ask two or more types, or an exported one whose
 calls ask a type other than the `f32` it keeps for the host, is lowered once for each,

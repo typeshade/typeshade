@@ -97,7 +97,7 @@ import {
   withLinkedOrigin,
   withWrittenStructs,
   type LinkedOrigin,
-} from './context.js';
+} from './written-context.js';
 
 /** Options controlling compilation of a TypeShade TypeScript source string. */
 export interface CompileTsSourceOptions {
