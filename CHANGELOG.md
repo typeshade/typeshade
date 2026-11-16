@@ -319,6 +319,16 @@ TypeScript value of "a + b" agree, so the "f32()" does not say which value it me
     stores each compiled in 4.4 s and checked in 9.6 s in the editor, and takes 0.5 s each now;
     plain integer code of four variables with four stores each takes 0.1 s, as on `main`.
 
+- **D2 tracks a field by its declaration, not by its name** (issue #1319; change 0134,
+  Amendments A2-A6; E1; the owner's decisions of 2026-11-16). A typed field `v` of another
+  class hid a store `s.v = (0xF0000000|0)` into an untyped field `v`, and a variable or a
+  parameter with a written struct type (`s: S2`) made the untyped field `s.v` typed: `f32(a + a)`
+  after `let a = s.v` gave 3758096384, where TypeScript gives -536870912. Each is now refused
+  with the approved unproven sentence and the edit `i32(…)`. A field with a written type is
+  typed, whatever other class has a field or a getter of its name, so `f32(s.v + s.v)` and
+  `let { v } = s` of an `i32` field beside a getter `v` that returns a tree compile. Where the
+  declaration cannot be found, the walk reads the field by its name and refuses.
+
 - **Buffer integration with the compiler refactor** (2026-11-16, change 0138). Host analysis
   keeps the Buffer overload records; the extracted host view and module generators consume them.
   TypeNN #27 migrates scalar storage and stale parameter assignment; the downstream gate pins its
