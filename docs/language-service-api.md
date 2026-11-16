@@ -571,6 +571,16 @@ Linked origins and class-name tables keep independent synchronous scopes; each r
 previous value after nested compilation or an exception. `src/compiler/ts/context.ts` re-exports
 these helpers for existing lowering callers. The compiler entry point imports the scopes directly.
 
+Function signatures and entry IO are read by `src/compiler/ts/lower/function-signature.ts`.
+`lower/function.ts` coordinates declarations, specialization and body filling, and re-exports the
+existing signature helpers for compatibility. Class and local-function readers use the signature
+module directly. Inferred entry results are checked by the same module after their bodies settle.
+
+The service owns analysis in `DocumentCacheEntry` (`src/language-service/service.ts`), keyed by
+the document and its import dependencies. Diagnostics, symbols, tokens, hover and output share
+that result. `src/language-service/analysis-cache.test.ts` checks reuse and dependency invalidation;
+this refactor does not add another cache or change diagnostic filtering.
+
 After function bodies, inherited-body diagnostics and recursion checks are settled,
 `checkEntryStageUses` in `src/compiler/ts/stage-restrictions.ts` validates entry-stage restrictions.
 It retains separate walks for fragment/vertex restrictions and compute-only resources and barriers.
