@@ -53,6 +53,9 @@ codes:
   - TS8075
   - TS8080
 examples: []
+names:
+  - Array.prototype.slice
+  - structuredClone
 downstream:
   - repo: typeshade.github.io
     what: Every page and Playground starter that writes `@inout` or `@out`, or that explains that a parameter is a value, is written again; the reference pages for Rules 8.8, 8.23 and 8.25 change, in English and in Korean, when the compiler pin passes this change.
@@ -412,6 +415,25 @@ JavaScript meaning.
 
 This record does not yet apply; delivery will require the tests of both halves for each row of the
 table of forms, the gates of `AGENTS.md`, and the document audit of the rules and sections above.
+
+## Amendments
+
+### A1. The names of Table 3 in the front matter (2026-11-16)
+
+- [fact] Why. Table 3 gives `xs.slice()` and `structuredClone(v)` their JavaScript meaning at stage
+  1. Each is a name an author could not write before, so the front matter lists it under `names`
+     (`changes/README.md`): `scripts/changes.ts` and `src/author-names.test.ts` refuse an added name
+     that no accepted proposal lists. The first draft of the front matter had no `names`.
+- [fact] How it was found. #1324 (stage 1) added `Array.prototype.slice` to the ambient library at
+  `483ac8d5`, and `src/author-names.test.ts` failed in CI at `518ba043`: "the set of
+  author-facing names changed; added: Array.prototype.slice".
+- [fact] Both names come from ECMAScript and the web platform as TypeScript spells them
+  (`docs/language-design.md` §2.1); neither is a name of the compiler's own.
+- [fact] This amendment changes the front matter `names` only. It changes no rule text and no
+  code. Nothing here is a new design: Table 3 and decision 2 are the approved text.
+- [fact] Not listed: `[...xs]` and `{ ...p }` are syntax and add no name. `clone()` is a method an
+  author's class writes.
+- Status: `status: accepted` does not change.
 
 ## What it owes downstream
 
