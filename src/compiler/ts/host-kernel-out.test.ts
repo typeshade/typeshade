@@ -1,6 +1,6 @@
-// Pins Rule 8.23 (docs/language-design.md).
-// Pins Rule 8.25 (docs/language-design.md).
-// Pins Rule 7.6 (docs/language-design.md).
+// Verifies: Rule 8.23 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.25 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 7.6 (docs/language-design.md; traced in reqs/).
 //
 // An `@out` array of a kernel function (change 0138, Amendment A15, decision 2): the call fills
 // the whole argument with zeros before the body runs, so the body reads zeros whatever the caller

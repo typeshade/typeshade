@@ -1,6 +1,6 @@
-// Pins Rule 8.23 (docs/language-design.md).
-// Pins Rule 8.25 (docs/language-design.md).
-// Pins Rule 7.6 (docs/language-design.md).
+// Verifies: Rule 8.23 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.25 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 7.6 (docs/language-design.md; traced in reqs/).
 //
 // A parameter of an array with no qualifier is a value (change 0138, Amendment A15, decision 1):
 // a write to it that a path carries to a `return` that does not return it, or to the end of the
