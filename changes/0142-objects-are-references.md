@@ -113,9 +113,18 @@ The host call does not change: `await step(particles, 1 / 60)` updates `particle
   change 0138's slice 2: a write to it is seen by the host. `return ps` gives the host the same
   array, or the same `Buffer`. A caller that wants the old values kept passes a copy
   (`step(old.slice(), dt)`).
+- [fact] The owner said, in the same conversation: "제가 얘기하고 싶은건 typeshade로 작성된 코드가
+  1:1로 다른 언어로 번역될 필요가 없다는거예요." (What I want to say is that code written in
+  TypeShade need not be translated one-to-one into another language.)
 
 ## Why
 
+- [fact] The owner's decision of 2026-11-16, recorded as OD-9 in #1318: a TypeShade program need not
+  translate one-to-one into a target language. TypeShade says what a program means; that WGSL or
+  GLSL has no construct for a form is not a reason to refuse it; a form is refused only when the
+  compiler does not implement it yet, and says so, or when no compilation can give it its meaning.
+  This proposal applies that entry to objects. The column "Stage" of the table above is an order
+  of implementation, and no statement about what a target can express.
 - [fact] `docs/owner-decisions.md` OD-1 says TypeShade is a language of its own that borrows
   TypeScript's syntax. OD-3 says the compiler's work is not pushed onto the author. OD-5 says a
   parameter qualifier is written `@inout` or `@out` before the parameter. **This proposal replaces
