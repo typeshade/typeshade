@@ -1110,7 +1110,12 @@ body against it, and the table's TS2322 rule above takes an arrow function's exp
 as the value it returns.
 
 An insertion never spans a line break, so the two texts have the same lines. Only an open
-document is projected; a file pulled in through `readDocument` is read as written. Planning costs
+document is projected; a file pulled in through `readDocument` is read as written. An open
+document that another document imports is linked into that document's program as TypeScript
+holds it, projected. The service records each file's insertion offsets beside its reader
+(`markProjectedReader` in `src/compiler/ts/abstract-const.ts`), and the linked program reads none of the inserted
+annotations as written, in an import and in the importing entry, so `compile()` and the editor
+give the same answer with the import open or closed (#1299). Planning costs
 one extra front-end pass per document version, skipped when a syntax scan finds no candidate
 declaration and no `&` or `|`. Measured on the three largest examples: 3 to 36 ms, against 52 to 79 ms for the
 whole `getDiagnostics`. `projection.test.ts` pins diagnostics, hover, completion, references,

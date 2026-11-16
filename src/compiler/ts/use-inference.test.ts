@@ -2066,6 +2066,621 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(Math.floor(3000000000 / 7));
   });
 
+  // Issue 1299: a `let` read twice (`a + a`) and a `let` of a written number (`let b = 3`)
+  // gave the tree no readings, so D2 was skipped and the value changed with no word. Each
+  // program is refused in both halves, as `a + 1` is, and its edit compiles to TypeScript's value.
+  const A1299 = 'let a = (0xF0000000|0);\n  ';
+  const said1299 = (subject: string, u: number, t: number, at: string, edit: string): string =>
+    `TS8003: "${subject}" is ${String(u)} on its u32 bits and ${String(t)} in TypeScript, so the ` +
+    `"${at}" does not say which value it means. Write "${edit}" for the ${edit.slice(0, 3)} value.`;
+  it.each([
+    [
+      'f32(a + a)',
+      'return f32(a + a);',
+      'f32',
+      'a + a',
+      3758096384,
+      -536870912,
+      'f32()',
+      'i32',
+      'f32(a + a)',
+      'f32(i32(a + a))',
+      -536870912,
+    ],
+    [
+      'f32(a + b), let b = 3',
+      'let b = 3;\n  return f32(a + b);',
+      'f32',
+      'a + b',
+      4026531843,
+      -268435453,
+      'f32()',
+      'i32',
+      'f32(a + b)',
+      'f32(i32(a + b))',
+      -268435453,
+    ],
+    [
+      'f32(a - a + a)',
+      'return f32(a - a + a);',
+      'f32',
+      'a - a + a',
+      4026531840,
+      -268435456,
+      'f32()',
+      'i32',
+      'f32(a - a + a)',
+      'f32(i32(a - a + a))',
+      -268435456,
+    ],
+    [
+      'max(a + a, vi)',
+      'return max(a + a, vi);',
+      'u32',
+      'a + a',
+      3758096384,
+      -536870912,
+      'max',
+      'u32',
+      'max(a + a,',
+      'max(u32(a + a),',
+      3758096384,
+    ],
+    [
+      '(a + a) > vi',
+      'return (a + a) > vi ? 1.0 : 0.0;',
+      'f32',
+      'a + a',
+      3758096384,
+      -536870912,
+      '>',
+      'u32',
+      '(a + a) >',
+      'u32(a + a) >',
+      1,
+    ],
+    [
+      '(a | a) / vi',
+      'return (a | a) / vi;',
+      'u32',
+      'a | a',
+      4026531840,
+      -268435456,
+      '/',
+      'u32',
+      '(a | a) /',
+      'u32(a | a) /',
+      575218834,
+    ],
+    [
+      'let c = a + a; c / vi',
+      'let c = a + a;\n  return c / vi;',
+      'u32',
+      'c',
+      3758096384,
+      -536870912,
+      '/',
+      'u32',
+      'c / vi',
+      'u32(c) / vi',
+      536870912,
+    ],
+    [
+      'f32(a + b), b reassigned with vi',
+      'let b = 3;\n  b = vi;\n  return f32(a + b);',
+      'f32',
+      'a + b',
+      4026531843,
+      -268435453,
+      'f32()',
+      'i32',
+      'f32(a + b)',
+      'f32(i32(a + b))',
+      -268435449,
+    ],
+    [
+      'f32(a + b), b += 1',
+      'let b = 3;\n  b += 1;\n  return f32(a + b);',
+      'f32',
+      'a + b',
+      4026531843,
+      -268435453,
+      'f32()',
+      'i32',
+      'f32(a + b)',
+      'f32(i32(a + b))',
+      -268435452,
+    ],
+    [
+      '(a - c) - a < vi, c holds a tree and 5',
+      'let c = a * 1;\n  c = 5;\n  return ((a - c) - a) < vi ? 1.0 : 0.0;',
+      'f32',
+      '(a - c) - a',
+      4294967291,
+      -5,
+      '<',
+      'u32',
+      '((a - c) - a) <',
+      'u32((a - c) - a) <',
+      0,
+    ],
+  ] as const)(
+    'issue 1299 (D2): %s is refused in both halves, and its edit compiles',
+    (_, body, ret, subject, u, t, at, type, from, to, value) => {
+      const source = T12(A1299 + body, ret);
+      expect(both(source)).toEqual([said1299(subject, u, t, at, `${type}(${subject})`)]);
+      expect(compile(source).wgsl).toBeUndefined();
+      const fixed = source.replace(from, to);
+      expect(fixed).not.toEqual(source);
+      expect(both(fixed)).toEqual([]);
+      expect(compile(fixed).eval('t', [-3, 7, 2.5])).toBe(value);
+    },
+  );
+
+  it.each([
+    ['a + a in a u32 result', 'return a + a;', 'u32', 3758096384],
+    ['a + b in a u32 result', 'let b = 3;\n  return a + b;', 'u32', 4026531843],
+    ['f32(a - a)', 'return f32(a - a);', 'f32', 0],
+    ['f32(a ^ a)', 'return f32(a ^ a);', 'f32', 0],
+    ['a * a in a u32 result', 'return a * a;', 'u32', 0],
+    ['f32(a + b), let b = 268435456', 'let b = 268435456;\n  return f32(a + b);', 'f32', 0],
+    ['f32(i32(a) + b)', 'let b = 3;\n  return f32(i32(a) + b);', 'f32', -268435453],
+    ['f32(u32(a) + b)', 'let b = 3;\n  return f32(u32(a) + b);', 'f32', 4026531843],
+    ['a + a + vi', 'return a + a + vi;', 'u32', 3758096391],
+    // One variable read twice is one value at both reads, whichever value is stored in it.
+    ['f32(a - a), a reassigned', 'if (vi > 3) {\n    a = 3;\n  }\n  return f32(a - a);', 'f32', 0],
+  ] as const)(
+    'issue 1299 (D2): %s, where the two readings agree, compiles in both halves',
+    (_, body, ret, value) => {
+      const source = T12(A1299 + body, ret);
+      expect(both(source)).toEqual([]);
+      expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(value);
+    },
+  );
+
+  // The independent review of #1304 and the owner's decisions of 2026-11-16: a store that reads
+  // its own variable reads its earlier values ("a = a - K"), no bound drops a value and then
+  // accepts ("증명 못 하면 거부"), and a variable with no written type is no typed peer ("거부: 적은
+  // 타입만 인정"). Each is refused in both halves, and its edit compiles to the value it names.
+  const SUM = 'a + 0x10000000';
+  it.each([
+    [
+      'a = a - K',
+      'a = a - 0x10000000;\n  return f32(a + 0x10000000);',
+      'f32',
+      SUM,
+      'f32()',
+      -268435456,
+    ],
+    ['a -= K', 'a -= 0x10000000;\n  return f32(a + 0x10000000);', 'f32', SUM, 'f32()', -268435456],
+    [
+      'a = a - K inside if',
+      'if (vi > 3) {\n    a = a - 0x10000000;\n  }\n  return f32(a + 0x10000000);',
+      'f32',
+      SUM,
+      'f32()',
+      -268435456,
+    ],
+    [
+      'a = a - K in a loop run twice',
+      'for (let i = 0; i < 2; i++) {\n    a = a - 0x10000000;\n  }\n  return f32(a + 0x10000000);',
+      'f32',
+      SUM,
+      'f32()',
+      -536870912,
+    ],
+    [
+      'a = a - K, then a comparison',
+      'a = a - 0x10000000;\n  return (a + 0x10000000) > vi ? 1.0 : 0.0;',
+      'f32',
+      SUM,
+      '>',
+      1,
+    ],
+    [
+      'a = a - K, then / vi',
+      'a = a - 0x10000000;\n  return (a + 0x10000000) / vi;',
+      'u32',
+      SUM,
+      '/',
+      575218834,
+    ],
+    [
+      'seventeen stores, past what one value keeps before',
+      'if (vi == 1) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 2) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 3) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 4) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 5) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 6) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 7) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 8) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 9) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 10) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 11) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 12) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 13) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 14) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 15) {\n    a = (0xF0000000|0);\n  }\n  if (vi > 6) {\n    a = (0xE0000000|0);\n  }\n  return f32(a + 0x10000000);',
+      'f32',
+      SUM,
+      'f32()',
+      -268435456,
+    ],
+  ] as const)(
+    'review of #1304 (D2): %s is refused in both halves, and its edit compiles',
+    (_, body, ret, subject, at, value) => {
+      const source = T12(A1299 + body, ret);
+      const type = ret === 'u32' || at === '>' ? 'u32' : 'i32';
+      expect(both(source)).toEqual([
+        said1299(subject, 4026531840, -268435456, at, `${type}(${subject})`),
+      ]);
+      const fixed = source.replace(
+        at === 'f32()' ? `f32(${subject})` : `(${subject})`,
+        at === 'f32()' ? `f32(${type}(${subject}))` : `${type}(${subject})`,
+      );
+      expect(both(fixed)).toEqual([]);
+      expect(compile(fixed).eval('t', [-3, 7, 2.5])).toBe(value);
+    },
+  );
+
+  it('review of #1304 (D2): a chain that doubles a tree past 2^32 is refused, not cut', () => {
+    const source = T12(
+      'let c0 = (0x80100000 & 0x7FFFFFFF);\n  let c1 = c0 + c0;\n  let c2 = c1 + c1;\n  let c3 = c2 + c2;\n  let c4 = c3 + c3;\n  let c5 = c4 + c4;\n  let c6 = c5 + c5;\n  let c7 = c6 + c6;\n  let c8 = c7 + c7;\n  let c9 = c8 + c8;\n  let c10 = c9 + c9;\n  let c11 = c10 + c10;\n  let c12 = c11 + c11;\n  let c13 = c12 + c12;\n  let c14 = c13 + c13;\n  return f32(c14 + 0);',
+      'f32',
+    );
+    expect(both(source)).toEqual([said1299('c14 + 0', 0, 17179869184, 'f32()', 'i32(c14 + 0)')]);
+  });
+
+  const unproven1299 = (subject: string, at: string, edit: string): string =>
+    // The owner approved this text on 2026-11-16 ("수정 후 문구 승인"; Rule 12.5).
+    `TS8003: The compiler cannot prove that the u32 bits and the TypeScript value of "${subject}" ` +
+    `agree, so the "${at}" does not say which value it means. ` +
+    `Write "${edit}" for the ${edit.slice(0, 3)} value.`;
+
+  it('let b = vi: a variable with no written type is no typed peer (2026-11-16), in both halves', () => {
+    const source = T12(A1299 + 'let b = vi;\n  return f32(a + b);', 'f32');
+    expect(both(source)).toEqual([unproven1299('a + b', 'f32()', 'i32(a + b)')]);
+    const fixed = source.replace('f32(a + b)', 'f32(i32(a + b))');
+    expect(both(fixed)).toEqual([]);
+    expect(compile(fixed).eval('t', [-3, 7, 2.5])).toBe(-268435449);
+    // A written type is a typed peer: `+` beside a typed u32 reads the bits (D2).
+    const typed = T12(A1299 + 'let b: u32 = vi;\n  return f32(a + b);', 'f32');
+    expect(both(typed)).toEqual([]);
+    expect(compile(typed).eval('t', [-3, 7, 2.5])).toBe(4026531847);
+  });
+
+  it('review of #1304 (D2): a long chain of bindings is read to its end, not cut', () => {
+    // A hundred and twenty bindings of four nested additions each: deeper than one walk goes,
+    // so the far end is read first, and the value is proven.
+    const lets = Array.from(
+      { length: 120 },
+      (_, k) => `let c${String(k + 1)} = ${'('.repeat(4)}c${String(k)}${' + 1)'.repeat(4)};`,
+    );
+    const source = T12(`let c0 = 3;\n  ${lets.join('\n  ')}\n  return f32(c120 + 0);`, 'f32');
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(483);
+  });
+
+  it('review of #1304 (D2): past the values one node keeps, the value is refused', () => {
+    // Seventy trees whose two readings agree (0x80000000 ^ 0x800000NN is NN): more values than
+    // the walk keeps, so it cannot prove them all, and the "f32()" refuses (2026-11-16).
+    const stores = Array.from({ length: 70 }, (_, i) => {
+      const hex = (0x80000000 + i + 1).toString(16).toUpperCase();
+      return `if (vi == ${String(i)}) {\n    a = (0x80000000 ^ 0x${hex});\n  }`;
+    });
+    const source = T12(`let a = 0;\n  ${stores.join('\n  ')}\n  return f32(a + 0);`, 'f32');
+    expect(both(source)).toEqual([unproven1299('a + 0', 'f32()', 'i32(a + 0)')]);
+  });
+
+  it('review of #1304 (D2): a chain of bindings with many stores is read within a bound', () => {
+    // The review's path program: each binding doubles the one before, and each is reassigned in
+    // six branches. Base cost: 4.4 s to compile and 9.9 s in the editor; it is read once now.
+    const lines = ['let b0 = (0x80100000 & 0x7FFFFFFF);'];
+    for (let r = 0; r < 6; r++)
+      lines.push(`if (vi == ${String(r)}) { b0 = (0x8010000${String(r)} & 0x7FFFFFFF); }`);
+    for (let k = 1; k <= 40; k++) {
+      lines.push(`let b${String(k)} = b${String(k - 1)} + b${String(k - 1)};`);
+      for (let r = 0; r < 6; r++) {
+        lines.push(
+          `if (vi == ${String(r)}) { b${String(k)} = b${String(k - 1)} - b${String(k - 1)}; }`,
+        );
+      }
+    }
+    const uses = Array.from({ length: 8 }, (_, u) => `f32(b40 & ${String(u + 1)})`).join(' + ');
+    const source = T12(`${lines.join('\n  ')}\n  return ${uses};`, 'f32');
+    const start = performance.now();
+    expect(both(source)).toEqual([]);
+    expect(performance.now() - start).toBeLessThan(10_000);
+  }, 60_000);
+
+  // The second independent review of #1304 and the owner's decisions of 2026-11-16 ("모두
+  // #1304에서"): a getter can store between two reads; a variable's number only a u32 holds is a
+  // root for every number stored in it; a declaration and its stores are found in the whole
+  // file; `as` and `!` carry the origin. Each is refused in both halves, and its edit compiles.
+  const HEAD2 = '"use typeshade";\n';
+  const FN2 = 'export function t(ii: i32, vi: u32, f: f32): f32 {\n';
+  it.each([
+    [
+      'a getter that stores between two reads',
+      `${HEAD2}class G {\n  x: i32 = 0;\n  get v() {\n    a = 5;\n    return 0;\n  }\n}\nlet a = (0xF0000000|0);\n${FN2}  const g = new G();\n  return f32((a + g.v) - a);\n}\n`,
+      '(a + g.v) - a',
+      4026531835,
+      -268435461,
+    ],
+    [
+      'a let of a number only a u32 holds, reassigned',
+      `${HEAD2}${FN2}  let M = 0xF0000000;\n  if (vi > 2) {\n    M = 1;\n  }\n  return f32(M ^ 0xF0000000);\n}\n`,
+      'M ^ 0xF0000000',
+      4026531841,
+      -268435455,
+    ],
+    [
+      'a function above a module let stores into it',
+      `${HEAD2}function s() {\n  a = (0xF0000000|0);\n}\nlet a = 5;\n${FN2}  s();\n  return f32(a + a);\n}\n`,
+      'a + a',
+      3758096384,
+      -536870912,
+    ],
+    [
+      'an arrow above a module let stores into it',
+      `${HEAD2}const s = () => {\n  a = (0xF0000000|0);\n};\nlet a = 5;\n${FN2}  s();\n  return f32(a + a);\n}\n`,
+      'a + a',
+      3758096384,
+      -536870912,
+    ],
+    [
+      'a module let written after the function',
+      `${HEAD2}${FN2}  return f32(a + a);\n}\nlet a = (0xF0000000|0);\n`,
+      'a + a',
+      3758096384,
+      -536870912,
+    ],
+    [
+      'a tree stored through as',
+      `${HEAD2}${FN2}  let a = 5;\n  a = (0xF0000000|0) as number;\n  return f32(a + a);\n}\n`,
+      'a + a',
+      3758096384,
+      -536870912,
+    ],
+    [
+      'a tree read through as',
+      `${HEAD2}${FN2}  let a = (0xF0000000|0);\n  return f32((a as number) + 0);\n}\n`,
+      '(a as number) + 0',
+      4026531840,
+      -268435456,
+    ],
+    [
+      'a tree read through !',
+      `${HEAD2}${FN2}  let a = (0xF0000000|0);\n  return f32(a! + a!);\n}\n`,
+      'a! + a!',
+      3758096384,
+      -536870912,
+    ],
+  ] as const)(
+    'second review of #1304 (D2): %s is refused in both halves, and its edit compiles',
+    (_, source, subject, u, t) => {
+      expect(both(source)).toEqual([said1299(subject, u, t, 'f32()', `i32(${subject})`)]);
+      const fixed = source.replace(`f32(${subject})`, `f32(i32(${subject}))`);
+      expect(fixed).not.toEqual(source);
+      expect(both(fixed)).toEqual([]);
+    },
+  );
+
+  it('second review of #1304 (D2): a method with a written result states its type', () => {
+    // The journey `local-numeric-contexts`: a static method that returns a u32, called with a
+    // constant only a u32 holds, is typed, so `f32()` of its result is no unproven value.
+    const source =
+      '"use typeshade";\nclass Hit {\n  static wrap(index: u32): u32 {\n    return index + 1;\n  }\n}\n' +
+      'export function t(ii: i32, vi: u32, f: f32): f32 {\n  const unsignedIndex = 4294967295;\n' +
+      '  return f32(Hit.wrap(unsignedIndex));\n}\n';
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(0);
+  });
+
+  // The third independent review of #1304 and the owner's decision of 2026-11-16 ("B1·B2·D는
+  // #1304"): an annotation the editor's projection wrote into an open document is no written
+  // type, in a linked import and in the entry that imports; an unproven value stays unproven
+  // under a mask; an element of a destructuring pattern is no typed value.
+  const LIB = '/p/lib.shade.ts';
+  const MAIN = '/p/main.shade.ts';
+  /** `main` importing `lib`: compile()'s diagnostics of main, and the editor's with lib closed,
+   *  opened before main and opened after it. */
+  const linkedHalves = (lib: string, main: string): string[][] => {
+    const files: Record<string, string> = { [LIB]: lib, [MAIN]: main };
+    const read = (u: string): string | undefined => files[u];
+    const compiled = compile(main, { fileName: MAIN, readDocument: read })
+      .diagnostics.filter((d) => d.fileName === undefined || d.fileName === MAIN)
+      .map((d) => `${d.code}: ${d.message}`);
+    const editorOf = (open: readonly string[]): string[] => {
+      const s = createTypeshadeLanguageService({ readDocument: read });
+      for (const u of open) s.openDocument(u, files[u]!);
+      return s.getDiagnostics(MAIN).map((d) => `${String(d.code)}: ${String(d.message)}`);
+    };
+    return [compiled, editorOf([MAIN]), editorOf([LIB, MAIN]), editorOf([MAIN, LIB])];
+  };
+  const IMPORT_C = 'import { C } from "./lib.shade";\n';
+  it.each([
+    [
+      'a getter',
+      `${HEAD2}export class C {\n  get v() {\n    return (0xF0000000|0);\n  }\n}\n`,
+      'new C().v',
+    ],
+    [
+      'a method',
+      `${HEAD2}export class C {\n  m() {\n    return (0xF0000000|0);\n  }\n}\n`,
+      'new C().m()',
+    ],
+    ['a static field', `${HEAD2}export class C {\n  static K = (0xF0000000|0);\n}\n`, 'C.K'],
+  ] as const)(
+    'third review of #1304 (D2): %s of an open import is no written type, in both halves',
+    (_, lib, read) => {
+      const main = `${HEAD2}${IMPORT_C}${FN2}  let a = ${read};\n  return f32(a + a);\n}\n`;
+      const [compiled, closed, libFirst, mainFirst] = linkedHalves(lib, main);
+      expect(compiled).toHaveLength(1);
+      expect(compiled[0]).toMatch(
+        /^TS8003: .*"a \+ a".*"f32\(\)" does not say which value it means\./,
+      );
+      expect(closed).toEqual(compiled);
+      expect(libFirst).toEqual(compiled);
+      expect(mainFirst).toEqual(compiled);
+    },
+  );
+
+  it('third review of #1304 (D2): the entry that imports keeps its own projected fields untyped', () => {
+    const lib = `${HEAD2}export const Z = 1;\n`;
+    const main =
+      `${HEAD2}import { Z } from "./lib.shade";\nclass D {\n  static K = (0xF0000000|0);\n}\n` +
+      `${FN2}  let a = D.K * Z;\n  return f32(a + a);\n}\n`;
+    const [compiled, closed, libFirst, mainFirst] = linkedHalves(lib, main);
+    expect(compiled).toHaveLength(1);
+    expect(compiled[0]).toMatch(/^TS8003: .*"a \+ a"/);
+    expect(closed).toEqual(compiled);
+    expect(libFirst).toEqual(compiled);
+    expect(mainFirst).toEqual(compiled);
+  });
+
+  it('third review of #1304 (D2): an unproven value stays unproven under a mask of low bits', () => {
+    // At ii = 34 the double past 2^53 loses its low bits: compiled 137, TypeScript 136.
+    const source = T12(
+      'let v = (0xF0000001 & 0xFF);\n  for (let i = 0; i < ii; i++) {\n    v = v * 3;\n  }\n  return f32(v & 0xFF);',
+      'f32',
+    );
+    expect(both(source)).toEqual([unproven1299('v & 0xFF', 'f32()', 'i32(v & 0xFF)')]);
+  });
+
+  it.each([
+    ['an array pattern', 'let [a] = [(0xF0000000|0)];\n  return f32(a + a);', 'a + a'],
+    [
+      'a pattern beside a tree',
+      'let [b] = [vi];\n  let a = (0xF0000000|0);\n  return f32(a + b);',
+      'a + b',
+    ],
+  ] as const)(
+    'third review of #1304 (D2): %s is no typed value, and is refused in both halves',
+    (_, body, subject) => {
+      expect(both(T12(body, 'f32'))).toEqual([unproven1299(subject, 'f32()', `i32(${subject})`)]);
+    },
+  );
+
+  it('third review of #1304 (D2): a pattern of plain numbers compiles', () => {
+    const source = T12('let [b] = [3];\n  return f32(b + 1);', 'f32');
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(4);
+  });
+
+  // The fourth independent review of #1304, within D (the owner's decision of 2026-11-16): an
+  // element of an object pattern reads a property, so a getter or a field that a tree reaches
+  // reaches it, through a rename, a compound store, a method's store, a function's result and
+  // nested patterns.
+  it.each([
+    [
+      'struct untyped store then pat',
+      'class S2 { v = 0; w = 0; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v = (0xF0000000|0); let { v } = s; return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'store via fn then pat',
+      'class S2 { v = 0; w = 0; }\nfunction st(s: S2): void { }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v = (0xF0000000|0); let { v: a } = s; return f32(a + a);\n}\n',
+      'a + a',
+      'f32()',
+    ],
+    [
+      'nested struct pat',
+      'class S2 { v = 0; w = 0; }\nclass P { s: S2 = new S2(); }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let p = new P(); p.s.v = (0xF0000000|0); let { s: { v } } = p; return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'getter pattern',
+      'class C { get v() { return (0xF0000000|0); } }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let { v } = new C(); return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'getter pattern rename',
+      'class C { get v() { return (0xF0000000|0); } }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  const c = new C(); let { v: a } = c; return f32(a + a);\n}\n',
+      'a + a',
+      'f32()',
+    ],
+    [
+      'fn returns struct pattern',
+      'class S2 { v = 0; w = 0; }\nfunction mk() { const s = new S2(); s.v = (0xF0000000|0); return s; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let { v } = mk(); return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'this store in method + pattern',
+      'class S4 { v = 0; set(): void { this.v = (0xF0000000|0); } }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S4(); s.set(); let { v } = s; return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'compound store pattern',
+      'class S2 { v = 0; w = 0; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v += (0xF0000000|0); let { v } = s; return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'pattern direct in f32',
+      'class S2 { v = 0; w = 0; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v = (0xF0000000|0); let { v } = s; return f32(v);\n}\n',
+      'v',
+      'f32()',
+    ],
+    [
+      'pattern in compare',
+      'class S2 { v = 0; w = 0; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v = (0xF0000000|0); let { v } = s; return v < 0 ? 1.0 : 2.0;\n}\n',
+      'v',
+      '<',
+    ],
+    [
+      'pattern division',
+      'class S2 { v = 0; w = 0; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v = (0xF0000000|0); let { v } = s; return f32(v / 2);\n}\n',
+      'v',
+      '/',
+    ],
+  ] as const)(
+    'fourth review of #1304 (D2): %s is refused in both halves',
+    (_, main, subject, at) => {
+      expect(both(`"use typeshade";\n${main}`)).toEqual([
+        unproven1299(subject, at, `i32(${subject})`),
+      ]);
+    },
+  );
+
+  it('second review of #1304 (D2): a mask of low bits over proven readings is computed, and compiles', () => {
+    const source = T12(A1299 + 'return f32((a & 0xFF) + 1);', 'f32');
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(1);
+  });
+
+  /** Plain integer code: `V` variables, each reassigned in `S` branches from the next two. */
+  const rotation = (V: number, S: number, first = '0'): string => {
+    const lines = Array.from(
+      { length: V },
+      (_, i) => `let v${String(i)} = ${i === 0 ? first : String(i)};`,
+    );
+    for (let i = 0; i < V; i++) {
+      for (let j = 0; j < S; j++) {
+        lines.push(
+          `if (vi == ${String(j)}) {\n    v${String(i)} = v${String((i + 1) % V)} + v${String((i + 2) % V)};\n  }`,
+        );
+      }
+    }
+    return T12(`${lines.join('\n  ')}\n  return f32(v0 + 1);`, 'f32');
+  };
+  it.each([
+    [4, 4],
+    [3, 3],
+    [4, 2],
+  ] as const)(
+    'second review of #1304: plain integer code of %i variables and %i stores each is read fast',
+    (V, S) => {
+      const source = rotation(V, S);
+      const start = performance.now();
+      expect(both(source)).toEqual([]);
+      expect(performance.now() - start).toBeLessThan(2000);
+    },
+  );
+
+  it('second review of #1304: the same code over a tree is refused within the bound', () => {
+    const source = rotation(4, 4, '(0xF0000000|0)');
+    const start = performance.now();
+    const got = both(source);
+    expect(performance.now() - start).toBeLessThan(4000);
+    expect(got).toHaveLength(1);
+    expect(got[0]).toMatch(
+      /^TS8003: .*"v0 \+ 1".* so the "f32\(\)" does not say which value it means\./,
+    );
+  });
+
   it.each([
     ['export { g as h }', 'function g() {\n  return (1|2)/2;\n}\nexport { g as h };\n', 'h'],
     ['export { g } after', 'function g() {\n  return (1|2)/2;\n}\nexport { g };\n', 'g'],

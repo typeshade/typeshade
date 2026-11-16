@@ -273,7 +273,10 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
     const only = fn.parameters[0];
     if (only === undefined) continue;
     out.push({ at: only.getStart(sf), text: '(' });
-    out.push({ at: only.getEnd(), text: `): ${spelled}` });
+    // Two insertions, so the annotation's own starts at its colon, where the front end looks
+    // for a projected result type (`hasNoWrittenResult`; the fourth review of #1304).
+    out.push({ at: only.getEnd(), text: ')' });
+    out.push({ at: only.getEnd(), text: `: ${spelled}` });
   }
   // `xs.reduce(f, 0.)`: TypeScript takes the running value's type from the value to start
   // from, a `number`; the front end concretizes it (`f32` for `0.`). Its type is written in as
