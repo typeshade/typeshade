@@ -1924,9 +1924,12 @@ function lowerAssign(
   // that states a type: a quotient stored in it stays refused (D-b, Rule 5.1).
   const inner = ts.isParenthesizedExpression(left) ? left.expression : left;
   const bound = ts.isIdentifier(inner) ? scope.resolve(inner.text) : undefined;
+  // Only a type the author wrote states one (E1 of 2026-11-13): a target with no written type is
+  // no such position, whatever its initializer was.
   const stated =
     bound === undefined ||
     (bound.inferred === undefined &&
+      !(ts.isIdentifier(inner) && declaredWithoutType(inner)) &&
       (target?.op !== 'varref' || kindlessDeclaration(scope.resolveIr(target.name)) === undefined));
   let value = lowerExpression(
     right,

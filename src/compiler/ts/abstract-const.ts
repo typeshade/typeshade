@@ -2276,7 +2276,15 @@ export function wrapsCannotChoose(
     const b = constNumber(node.right);
     if (a !== undefined && b !== undefined && b !== 0 && Math.trunc(a / b) === 0) return true;
   }
-  return constant && containsTree(node);
+  // A constant's sentence that names only one operand of a mixed divisor: the divisor holds the
+  // constant and a tree, so wrapping the constant leaves the tree (`(-(5|0)) / (c ? (-7|0) : k)`).
+  // A constant that is a whole operand (`L / ((-7|0) + 1)`) is typed by its wrap, which chooses.
+  if (!constant) return false;
+  const divisor = skipParenNodes(node.right);
+  const readsConstant = (x: ts.Node): boolean =>
+    (ts.isIdentifier(x) && untypedConstant(x) !== undefined) ||
+    ts.forEachChild(x, (c) => (readsConstant(c) ? true : undefined)) === true;
+  return !ts.isIdentifier(divisor) && containsTree(divisor) && readsConstant(divisor);
 }
 
 /** The remedy of a refusal that names no edit: what to write around which operands, or, where

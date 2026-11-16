@@ -222,6 +222,8 @@ class Program {
   }[] = [];
   /** Which of {@link LIBS} the program imports from. */
   lib = 0;
+  /** Whether the program sets the module `let MS` in `setm()`, which `t` calls first. */
+  setm = false;
   constructor(readonly r: () => number) {}
   pick<X>(xs: readonly X[]): X {
     return xs[Math.floor(this.r() * xs.length)]!;
@@ -390,6 +392,22 @@ class Program {
     };
   }
 
+  /** A component of an `f32` vector built from two values (a tree among them is refused, E3). */
+  vectorF(): Expr {
+    const [a, b] = [this.expr(this.pick<T>(['f32', 'k']), 1), this.expr('k', 1)];
+    const which = this.pick(['x', 'y'] as const);
+    return {
+      text: `vec2(${a.text}, ${b.text}).${which}`,
+      value: () => {
+        const parts = [a.value(), b.value()].map((v) => {
+          if (v.t !== 'k' && v.t !== 'f32') throw new Skip('vector element');
+          return Math.fround(v.v);
+        });
+        return { t: 'f32', v: which === 'x' ? parts[0]! : parts[1]! };
+      },
+    };
+  }
+
   /** An expression of type `t` (or of no declared type, `k`), `depth` levels deep. */
   expr(t: T, depth: number): Expr {
     if (depth <= 0 || this.chance(0.22)) return this.leaf(t);
@@ -436,6 +454,7 @@ class Program {
       );
     }
     if (kind < 0.83 && (t === 'u32' || t === 'i32')) return this.vector(t);
+    if (kind < 0.83 && t === 'f32') return this.vectorF();
     if (kind < 0.9 && this.fns.length > 0) {
       const f = this.pick(this.fns);
       return f.call(
@@ -512,13 +531,72 @@ class Program {
       }
     }
     if (this.chance(0.2)) {
-      this.pre.push('function id<T>(a: T): T {\n  return a;\n}');
+      // A generic body beyond `return a` (the fifteenth review).
+      this.pre.push(
+        `function id<T>(a: T): T {\n  ${this.pick([
+          'return a;',
+          'let b = a;\n  return b;',
+          'const b = a;\n  return b;',
+        ])}\n}`,
+      );
       this.fns.push({
         name: 'id',
         arity: 1,
         args: [this.pick<T>(['k', 'i32', 'u32'])],
         call: (args) => ({ text: `id(${args[0]!.text})`, value: () => args[0]!.value() }),
       });
+    }
+    // Functions with no written result in other forms: mixed returns, an arrow, a static method
+    // and a getter (E1 of 2026-11-13: none of their results is proven).
+    if (this.chance(0.2)) {
+      const e = this.tree();
+      this.pre.push(
+        `function gm(c: bool) {\n  if (c) {\n    return ${e.text};\n  }\n  return 5;\n}`,
+      );
+      this.fns.push({
+        name: 'gm',
+        arity: 0,
+        tree: true,
+        // vi is 7 at the inputs: the first return.
+        call: () => ({ text: 'gm(vi > 3)', value: e.value }),
+      });
+    }
+    if (this.chance(0.2)) {
+      const e = this.tree();
+      this.pre.push(`const ga = () => ${e.text};`);
+      this.fns.push({
+        name: 'ga',
+        arity: 0,
+        tree: true,
+        call: () => ({ text: 'ga()', value: e.value }),
+      });
+    }
+    if (this.chance(0.15)) {
+      const e = this.tree();
+      this.pre.push(`class C {\n  static g() {\n    return ${e.text};\n  }\n}`);
+      this.fns.push({
+        name: 'C.g',
+        arity: 0,
+        tree: true,
+        call: () => ({ text: 'C.g()', value: e.value }),
+      });
+    }
+    if (this.chance(0.1)) {
+      const e = this.tree();
+      this.pre.push(`class G {\n  x: i32 = 0;\n  get v() {\n    return ${e.text};\n  }\n}`);
+      this.fns.push({
+        name: 'G.v',
+        arity: 0,
+        tree: true,
+        call: () => ({ text: 'new G().v', value: e.value }),
+      });
+    }
+    // A module `let` set in another function (E1).
+    if (this.chance(0.15)) {
+      const e = this.pick([() => this.tree(), () => lit(3000000000 | 0, '(3000000000|0)')])();
+      this.pre.push(`let MS = 4;\nfunction setm() {\n  MS = ${e.text};\n}`);
+      this.setm = true;
+      this.bind('MS', 'k', () => e.value());
     }
     if (this.chance(0.2)) {
       this.pre.push('function hu(a: u32): u32 {\n  return a + 1;\n}');
@@ -625,6 +703,7 @@ class Program {
       }
     }
     const result = this.pick<T>(['f32', 'i32', 'u32']);
+    if (this.setm) this.lines.push('setm();');
     // A reassigned module `let` (F2 of the fourteenth review).
     if (this.names.includes('M') && this.chance(0.4)) {
       const rhs = this.pick([
@@ -1089,7 +1168,15 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
           const c = editOf(textOf(d.file), d);
           if (c === 'unreadable') unreadable = true;
           else if (c !== undefined) {
-            changes.push(c);
+            // Two refusals that name one edit at one place are one change (seed 77 #766).
+            if (
+              !changes.some(
+                (x) =>
+                  x.file === c.file && x.start === c.start && x.end === c.end && x.text === c.text,
+              )
+            ) {
+              changes.push(c);
+            }
             named.add(j);
           }
         });
@@ -1134,22 +1221,47 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
             }
           }
         }
-        // The program's one error, where it names no edit: each wrap or declaration its generic
-        // remedy offers removes it and raises no refusal of its own. A type mismatch it leaves is a
-        // use that asks the other type, which D4 of 2026-11-12 leaves to the generic text.
-        if (ours.length === 1 && changes.length === 0) {
-          const only = ours[0]!;
-          const offered = genericEdits(textOf(only.file), only);
+        // Each refusal that names no edit: every wrap or declaration its generic remedy offers
+        // removes it, chooses the division, and raises no refusal of its own; the module's other
+        // errors are the baseline. A type mismatch it leaves is a use that asks the other type,
+        // which D4 of 2026-11-12 leaves to the generic text. The sentence that offers no wrap
+        // (the owner's decision of 2026-11-13) stands only where a wrap of its operand would not
+        // choose the division.
+        const mismatch = (d: Line): boolean =>
+          /type mismatch|takes arguments of one type|^Cannot infer|this position takes an f32/i.test(
+            d.message,
+          );
+        const NO_WRAP = "Declare the type of the division's operands to choose it.";
+        for (let j = 0; j < ours.length; j++) {
+          if (named.has(j)) continue;
+          const only = ours[j]!;
+          const others = ours.filter((_, k) => k !== j);
+          // A D2 remedy that names no edit stands as it is where refusals conflict (D4).
+          if (ours.length > 1 && only.message.endsWith('to choose its value.')) continue;
+          let offered = genericEdits(textOf(only.file), only);
+          const noWrap = only.message.endsWith(NO_WRAP);
+          if (noWrap) {
+            const subject = /^"([^"]+)" is /.exec(only.message)?.[1];
+            if (subject === undefined) continue;
+            offered = ['i32', 'u32', 'f32'].map(
+              (t) =>
+                genericEdits(textOf(only.file), {
+                  ...only,
+                  message: `Write ${t}(…) around "${subject}" to choose the division.`,
+                })![0]!,
+            );
+          }
           if (offered === undefined) continue;
           generics++;
-          const mismatch = (d: Line): boolean =>
-            /type mismatch|takes arguments of one type|^Cannot infer/i.test(d.message);
+          let chose = 0;
           for (const set of offered) {
             const fixed = set.length === 0 ? undefined : applied(program, set);
             if (fixed === undefined) {
-              failures.push(
-                `generic #${String(i)}: a wrap names no operand of the span\n${show(program)}`,
-              );
+              if (!noWrap) {
+                failures.push(
+                  `generic #${String(i)}: a wrap names no operand of the span\n${show(program)}`,
+                );
+              }
               continue;
             }
             // A refusal that stands wholly outside the wraps names code the author wrote: a second
@@ -1159,14 +1271,15 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
               ranges.every(
                 (x) => x.file !== d.file || d.start + d.length <= x.start || d.start >= x.end,
               );
-            for (const [half, added] of addedBy(fixed, [])) {
-              // Every wrap it offers chooses the division (the owner's decision of 2026-11-13): a
-              // division that still does not say which it is, around a wrap, is a wrap that did not.
-              const undecided = (d: Line): boolean =>
-                /does not say which (?:division it is|value it means)/.test(d.message) &&
-                ranges.some(
-                  (x) => x.file === d.file && d.start <= x.start && x.end <= d.start + d.length,
-                );
+            // A division that still does not say which it is, around a wrap, is a wrap that did
+            // not choose it.
+            const undecided = (d: Line): boolean =>
+              /does not say which (?:division it is|value it means)/.test(d.message) &&
+              ranges.some(
+                (x) => x.file === d.file && d.start <= x.start && x.end <= d.start + d.length,
+              );
+            let good = true;
+            for (const [half, added] of addedBy(fixed, others)) {
               const bad = added.filter(
                 (d) =>
                   (d.file === only.file && d.message === only.message) ||
@@ -1174,11 +1287,20 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
                   (!mismatch(d) && !outside(d)),
               );
               if (bad.length > 0) {
-                failures.push(
-                  `generic #${String(i)} (${half}): ${bad.map((d) => d.message).join(' | ')}\n${show(fixed)}`,
-                );
+                good = false;
+                if (!noWrap) {
+                  failures.push(
+                    `generic #${String(i)} (${half}): ${bad.map((d) => d.message).join(' | ')}\n${show(fixed)}`,
+                  );
+                }
               }
             }
+            if (good) chose++;
+          }
+          if (noWrap && chose === offered.length) {
+            failures.push(
+              `no-wrap #${String(i)}: every wrap of the operand chooses the division\n${show(program)}`,
+            );
           }
         }
       }
