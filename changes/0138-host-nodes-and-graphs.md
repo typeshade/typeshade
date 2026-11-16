@@ -3483,6 +3483,24 @@ this amendment.
 - [inference, agent] No statement of this amendment conflicts with an entry of
   `docs/owner-decisions.md` (OD-1 to OD-8).
 
+**Independent review record of A14.**
+
+- [fact] Reviewer: an AI agent (Claude Code) that did not write A14, on 2026-11-16. Revision
+  reviewed: `e98e9f96`. It found no blocking finding, 3 should-fix findings and 3 notes. Verdict:
+  approve after fixes. It checked each bundle number against `scripts/bundle-budget.json` at the
+  named commits.
+
+| Finding                                                                     | Answer                                                                                                         |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 1. `3b579904` is a merge commit, not a squash commit.                       | Fixed.                                                                                                         |
+| 2. `94c765dc`, not `2f1d272a`, closes S1 to S3 and sets the sizes.          | Fixed: decision 1 names `94c765dc`; the owner's answer stays tied to `2f1d272a`, which carries the same sizes. |
+| 3. #1257's unverified `bufferFor` inference is missing from the open items. | Fixed: a row, labelled [inference, agent].                                                                     |
+| N-a. The merged-state caps are not an owner decision.                       | Fixed: a [fact] line says they are the owner's own measurement.                                                |
+| N-b. `typeshade/emit` moved.                                                | Fixed: named in the same line.                                                                                 |
+| N-c. D-p under "Open, owner must settle".                                   | Fixed.                                                                                                         |
+
+- [fact] No review has read the revision that answers this review.
+
 - Affects: A13 decision 4 (the bundle budgets); A13's slice status table.
 - Status: `status: accepted` does not change.
 
