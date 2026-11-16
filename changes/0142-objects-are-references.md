@@ -209,26 +209,58 @@ The host call does not change: `await step(particles, 1 / 60)` updates `particle
   the other way; 0138 needs an amendment.
 - Unknown: the duration; the size of stages 2 and 3; the code size of the tag-and-branch lowering.
 
-**Decisions needed before acceptance.**
+**Decisions.**
 
-1. What an object is: struct, class instance and array; vectors and matrices stay values.
-2. `let q = p` becomes a second name of `p`. How an author writes a copy of a struct: candidates
-   are a spread into a constructor, a `clone()` the compiler gives every class, or
-   `structuredClone(p)`. For an array, `xs.slice()`.
-3. Whether stage 1 may merge alone, with stages 2 and 3 refused by a diagnostic.
-4. `@out`: removed with no replacement, or kept as an optional promise "the function writes it
-   whole" for a kernel's array.
-5. The order against change 0138: revert slice 2 first, or implement stage 1 and remove both
-   together.
-6. The new text of OD-5, in the owner's words.
-7. A host array whose two elements are one JavaScript object: refuse the call with a `TypeError`
-   that names both indexes, or accept it and copy. The contract above asks for the refusal; its cost
-   is a check of each object argument at the call.
+- [fact] On 2026-11-16 the agent showed the owner seven points with a recommended answer for each,
+  and asked whether to go on with them. The owner answered "진행하세요" (English translation: go
+  ahead). The record has no other words. Each decision below is the recommended answer, except
+  decision 2, which the agent corrected afterwards and reported to the owner.
+
+1. [decision, owner] An object is a struct, an instance of a class, or an array. A number, a
+   `bool`, a vector and a matrix are values, as a JavaScript primitive is.
+2. [decision, owner] An author writes a copy with a name JavaScript already has; the language adds
+   no copy construct (OD-3).
+   - [fact] The recommendation the owner saw named `structuredClone(p)` for a struct and
+     `xs.slice()` for an array. [inference, agent] Read against the contract, both need care: in
+     JavaScript `structuredClone` of a class instance gives a plain object with no methods, and
+     `xs.slice()` of an array of objects gives a new array whose elements are the same objects.
+   - [proposal, agent; corrected after the owner's answer] Each copy form gets its JavaScript
+     meaning, and a form whose JavaScript meaning the compiler does not give yet is refused:
+
+| Form                                               | JavaScript meaning                                 | Stage                                          |
+| -------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------- |
+| `xs.slice()`, `[...xs]` of numbers or vectors      | A new array.                                       | 1                                              |
+| `xs.slice()`, `[...xs]` of objects                 | A new array of the same objects.                   | 3 (the elements are shared names)              |
+| `{ ...p }` of a struct that is no class            | A new object; a field that is an object is shared. | 1 when no field is an object, else 3           |
+| `structuredClone(v)` of structs that are no class  | A deep copy.                                       | 1                                              |
+| `structuredClone(v)` of a class instance           | A plain object with no methods.                    | Refused: the text says to construct a new one. |
+| `new P(p.x, p.y)`, or a `clone()` the class writes | A new instance.                                    | 1 (nothing new)                                |
+
+3. [decision, owner] Stage 1 may merge alone: the call boundary, `return p` and a second name. A
+   form of a later stage is refused with a text that says it is not supported yet (OD-9).
+4. [decision, owner] `@out` is removed with no replacement. The compiler infers where an upload can
+   be skipped (OD-3).
+5. [decision, owner] The pull request that implements stage 1 also removes the value reading of
+   change 0138's slice 2 and `TS8080`. No pull request only reverts.
+6. [decision, owner] OD-5's parameter half is replaced. The owner's words for the new entry: "룰
+   8.8을 바꿔야겠는데요. Object는 모두 레퍼런스 바이 벨류 형식으로 가도록? In/out를 없애고 아에
+   언어 수준에서 자체적으로 포인터를 처리할까요". The entry changes in its own pull request, which
+   changes `docs/owner-decisions.md` only.
+7. [decision, owner] A host array whose two elements are one JavaScript object is refused at the
+   call with a `TypeError` that names both indexes.
+
+**Open, owner must settle.**
+
+- [fact] Decision 2's table is the agent's correction of what the owner approved. The owner can
+  change it before the merge.
+- [inference, agent] No decision conflicts with an entry of `docs/owner-decisions.md` other than
+  OD-5, which decision 6 replaces: OD-1 (the language's own meaning), OD-3 (no qualifier, no copy
+  construct), OD-4 (the example above), OD-9 (no form refused for a target's sake).
 
 ### Approval and plan record
 
-This record does not yet apply; acceptance will require the owner's decision on the seven points
-above and a merge of this proposal as `accepted`.
+This record does not yet apply. The seven decisions above are made; acceptance requires the
+owner's "merge" and the merge of this proposal as `accepted`.
 
 ### Configuration and validation record
 
