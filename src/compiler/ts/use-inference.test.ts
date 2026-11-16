@@ -2191,6 +2191,19 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
       'f32(i32(a + b))',
       -268435452,
     ],
+    [
+      '(a - c) - a < vi, c holds a tree and 5',
+      'let c = a * 1;\n  c = 5;\n  return ((a - c) - a) < vi ? 1.0 : 0.0;',
+      'f32',
+      '(a - c) - a',
+      4294967291,
+      -5,
+      '<',
+      'u32',
+      '((a - c) - a) <',
+      'u32((a - c) - a) <',
+      0,
+    ],
   ] as const)(
     'issue 1299 (D2): %s is refused in both halves, and its edit compiles',
     (_, body, ret, subject, u, t, at, type, from, to, value) => {
@@ -2214,6 +2227,8 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     ['f32(i32(a) + b)', 'let b = 3;\n  return f32(i32(a) + b);', 'f32', -268435453],
     ['f32(u32(a) + b)', 'let b = 3;\n  return f32(u32(a) + b);', 'f32', 4026531843],
     ['a + a + vi', 'return a + a + vi;', 'u32', 3758096391],
+    // One variable read twice is one value at both reads, whichever value is stored in it.
+    ['f32(a - a), a reassigned', 'if (vi > 3) {\n    a = 3;\n  }\n  return f32(a - a);', 'f32', 0],
   ] as const)(
     'issue 1299 (D2): %s, where the two readings agree, compiles in both halves',
     (_, body, ret, value) => {
