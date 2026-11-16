@@ -2319,8 +2319,9 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
   });
 
   const unproven1299 = (subject: string, at: string, edit: string): string =>
-    `TS8003: "${subject}" can differ between its u32 bits and its TypeScript value, and the ` +
-    `compiler cannot prove that it does not, so the "${at}" does not say which value it means. ` +
+    // The owner approved this text on 2026-11-16 ("수정 후 문구 승인"; Rule 12.5).
+    `TS8003: The compiler cannot prove that the u32 bits and the TypeScript value of "${subject}" ` +
+    `agree, so the "${at}" does not say which value it means. ` +
     `Write "${edit}" for the ${edit.slice(0, 3)} value.`;
 
   it('let b = vi: a variable with no written type is no typed peer (2026-11-16), in both halves', () => {
@@ -2378,6 +2379,125 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(both(source)).toEqual([]);
     expect(performance.now() - start).toBeLessThan(10_000);
   }, 60_000);
+
+  // The second independent review of #1304 and the owner's decisions of 2026-11-16 ("모두
+  // #1304에서"): a getter can store between two reads; a variable's number only a u32 holds is a
+  // root for every number stored in it; a declaration and its stores are found in the whole
+  // file; `as` and `!` carry the origin. Each is refused in both halves, and its edit compiles.
+  const HEAD2 = '"use typeshade";\n';
+  const FN2 = 'export function t(ii: i32, vi: u32, f: f32): f32 {\n';
+  it.each([
+    [
+      'a getter that stores between two reads',
+      `${HEAD2}class G {\n  x: i32 = 0;\n  get v() {\n    a = 5;\n    return 0;\n  }\n}\nlet a = (0xF0000000|0);\n${FN2}  const g = new G();\n  return f32((a + g.v) - a);\n}\n`,
+      '(a + g.v) - a',
+      4026531835,
+      -268435461,
+    ],
+    [
+      'a let of a number only a u32 holds, reassigned',
+      `${HEAD2}${FN2}  let M = 0xF0000000;\n  if (vi > 2) {\n    M = 1;\n  }\n  return f32(M ^ 0xF0000000);\n}\n`,
+      'M ^ 0xF0000000',
+      4026531841,
+      -268435455,
+    ],
+    [
+      'a function above a module let stores into it',
+      `${HEAD2}function s() {\n  a = (0xF0000000|0);\n}\nlet a = 5;\n${FN2}  s();\n  return f32(a + a);\n}\n`,
+      'a + a',
+      3758096384,
+      -536870912,
+    ],
+    [
+      'an arrow above a module let stores into it',
+      `${HEAD2}const s = () => {\n  a = (0xF0000000|0);\n};\nlet a = 5;\n${FN2}  s();\n  return f32(a + a);\n}\n`,
+      'a + a',
+      3758096384,
+      -536870912,
+    ],
+    [
+      'a module let written after the function',
+      `${HEAD2}${FN2}  return f32(a + a);\n}\nlet a = (0xF0000000|0);\n`,
+      'a + a',
+      3758096384,
+      -536870912,
+    ],
+    [
+      'a tree stored through as',
+      `${HEAD2}${FN2}  let a = 5;\n  a = (0xF0000000|0) as number;\n  return f32(a + a);\n}\n`,
+      'a + a',
+      3758096384,
+      -536870912,
+    ],
+    [
+      'a tree read through as',
+      `${HEAD2}${FN2}  let a = (0xF0000000|0);\n  return f32((a as number) + 0);\n}\n`,
+      '(a as number) + 0',
+      4026531840,
+      -268435456,
+    ],
+    [
+      'a tree read through !',
+      `${HEAD2}${FN2}  let a = (0xF0000000|0);\n  return f32(a! + a!);\n}\n`,
+      'a! + a!',
+      3758096384,
+      -536870912,
+    ],
+  ] as const)(
+    'second review of #1304 (D2): %s is refused in both halves, and its edit compiles',
+    (_, source, subject, u, t) => {
+      expect(both(source)).toEqual([said1299(subject, u, t, 'f32()', `i32(${subject})`)]);
+      const fixed = source.replace(`f32(${subject})`, `f32(i32(${subject}))`);
+      expect(fixed).not.toEqual(source);
+      expect(both(fixed)).toEqual([]);
+    },
+  );
+
+  it('second review of #1304 (D2): a mask of low bits agrees on both readings, and compiles', () => {
+    const source = T12(A1299 + 'return f32((a & 0xFF) + 1);', 'f32');
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(1);
+  });
+
+  /** Plain integer code: `V` variables, each reassigned in `S` branches from the next two. */
+  const rotation = (V: number, S: number, first = '0'): string => {
+    const lines = Array.from(
+      { length: V },
+      (_, i) => `let v${String(i)} = ${i === 0 ? first : String(i)};`,
+    );
+    for (let i = 0; i < V; i++) {
+      for (let j = 0; j < S; j++) {
+        lines.push(
+          `if (vi == ${String(j)}) {\n    v${String(i)} = v${String((i + 1) % V)} + v${String((i + 2) % V)};\n  }`,
+        );
+      }
+    }
+    return T12(`${lines.join('\n  ')}\n  return f32(v0 + 1);`, 'f32');
+  };
+  it.each([
+    [4, 4],
+    [3, 3],
+    [4, 2],
+  ] as const)(
+    'second review of #1304: plain integer code of %i variables and %i stores each is read fast',
+    (V, S) => {
+      const source = rotation(V, S);
+      const start = performance.now();
+      expect(both(source)).toEqual([]);
+      expect(performance.now() - start).toBeLessThan(2000);
+    },
+  );
+
+  it('second review of #1304: the same code over a tree is refused within the bound', () => {
+    const source = rotation(4, 4, '(0xF0000000|0)');
+    const start = performance.now();
+    const got = both(source);
+    expect(performance.now() - start).toBeLessThan(4000);
+    expect(got).toHaveLength(1);
+    expect(got[0]).toMatch(
+      /^TS8003: .*"v0 \+ 1".* so the "f32\(\)" does not say which value it means\./,
+    );
+  });
 
   it.each([
     ['export { g as h }', 'function g() {\n  return (1|2)/2;\n}\nexport { g as h };\n', 'h'],

@@ -2440,20 +2440,6 @@ export function declaredWithoutType(id: ts.Identifier): boolean {
   );
 }
 
-/** The written number the variable `node` names was declared with, where it has no written type
- *  (`let M = 3000000000`). */
-function namedNumber(node: ts.Expression): number | undefined {
-  const n = skipParenNodes(node);
-  if (!ts.isIdentifier(n)) return undefined;
-  const d = declarationOf(n.text, n);
-  if (d === undefined || !ts.isVariableDeclaration(d) || d.initializer === undefined) {
-    return undefined;
-  }
-  return writtenTypeText(d, n.getSourceFile()) === undefined
-    ? writtenNumber(d.initializer)
-    : undefined;
-}
-
 function skipParenNodes(node: ts.Expression): ts.Expression {
   return ts.isParenthesizedExpression(node) ? skipParenNodes(node.expression) : node;
 }
@@ -2486,8 +2472,8 @@ function typedNode(node: ts.Expression): boolean {
  *  bits, `ts`: TypeScript's). `tree` is whether a tree reaches it: a written number alone is no
  *  reading. `unknown` is a value the walk cannot read, with no tree (`let b = vi`: a variable
  *  with no written type is no typed peer, E1). `unproven` is a value with a tree that the walk
- *  could not follow to its end (a bound of the walk). `picks` names the variable read and which
- *  of its values this one is, so that one variable read twice (`a - a`) is one value at both. */
+ *  could not follow to its end. `picks` names the variable read and which of its values this
+ *  one is, so that one variable read twice (`a - a`) is one value at both reads. */
 interface Reading {
   readonly u32: number;
   readonly ts: number;
@@ -2502,14 +2488,16 @@ const UNPROVEN: Reading = { u32: NaN, ts: NaN, tree: true, unproven: true, picks
 
 /** The most values one node keeps. Past it the node keeps a mark that refuses (the owner's
  *  decision of 2026-11-16, "증명 못 하면 거부"): no value is dropped and then accepted. */
-const READINGS_PER_NODE = 64;
+const READINGS_PER_NODE = 32;
 /** The most rounds a variable's values are found in (a store that reads the variable, as in a
  *  loop, adds a value each round). Past it the variable keeps a mark that refuses. */
 const READING_ROUNDS = 24;
-/** The deepest walk and the most nodes one walk reads. Past them the value is unproven, and a
- *  position that needs it refuses it. */
+/** The deepest walk, and the most work (nodes read and pairs of values combined) one walk does.
+ *  Past the work the value is unproven, and a position that needs it refuses it. */
 const READING_DEPTH = 400;
-const READING_STEP_LIMIT = 200000;
+const READING_STEP_LIMIT = 100000;
+
+const isBigNumber = (v: number): boolean => v > 2147483647 && v <= 4294967295;
 
 /** The value of a reading, without its picks. */
 function readingValue(x: Reading): string {
@@ -2524,10 +2512,8 @@ function readingKey(x: Reading): string {
  *  the rest is replaced by a mark: {@link UNPROVEN} where a tree reaches one of them, else
  *  {@link UNKNOWN}. */
 function boundedReadings(xs: readonly Reading[]): Reading[] {
-  const ordered = [
-    ...xs.filter((x) => x.tree && !x.unproven && x.u32 !== x.ts),
-    ...xs.filter((x) => !(x.tree && !x.unproven && x.u32 !== x.ts)),
-  ];
+  const differs = (x: Reading) => x.tree && !x.unproven && x.u32 !== x.ts;
+  const ordered = [...xs.filter(differs), ...xs.filter((x) => !differs(x))];
   const keys = new Set<string>();
   const out: Reading[] = [];
   let over = false;
@@ -2566,55 +2552,105 @@ function mergedPicks(
   return out;
 }
 
+/** The declaration of the variable or parameter `name` read at `at`, in the scopes around it,
+ *  wherever in its scope it stands: a function written above a module `let` reads and stores
+ *  that `let` (the second review of #1304, A3). */
+function walkDeclarationOf(
+  name: string,
+  at: ts.Node,
+): ts.ParameterDeclaration | ts.VariableDeclaration | undefined {
+  const fromList = (list: ts.Node | undefined): ts.VariableDeclaration | undefined => {
+    if (list === undefined || !ts.isVariableDeclarationList(list)) return undefined;
+    return list.declarations.find((d) => ts.isIdentifier(d.name) && d.name.text === name);
+  };
+  for (let n: ts.Node | undefined = at.parent; n !== undefined; n = n.parent) {
+    if (ts.isFunctionLike(n)) {
+      for (const p of n.parameters) {
+        if (ts.isIdentifier(p.name) && p.name.text === name) return p;
+      }
+    }
+    if (ts.isBlock(n) || ts.isSourceFile(n) || ts.isModuleBlock(n) || ts.isCaseOrDefaultClause(n)) {
+      for (const st of n.statements) {
+        const d = ts.isVariableStatement(st) ? fromList(st.declarationList) : undefined;
+        if (d !== undefined) return d;
+      }
+    }
+    if (ts.isForStatement(n) || ts.isForOfStatement(n) || ts.isForInStatement(n)) {
+      const d = fromList(n.initializer);
+      if (d !== undefined) return d;
+    }
+    if (ts.isCatchClause(n) && n.variableDeclaration !== undefined) {
+      const d = fromList(n.variableDeclaration.parent);
+      if (d !== undefined) return d;
+    }
+  }
+  return undefined;
+}
+
+/** The names a property access can reach user code through in `sourceFile`: a getter or a
+ *  setter. A name of no field, method or swizzle of this file may be one of another file. */
+interface FileNames {
+  readonly accessors: Set<string>;
+  readonly members: Set<string>;
+  /** The fields and properties of this file declared with a written type. */
+  readonly typed: Set<string>;
+}
+const fileNamesOf = new WeakMap<ts.SourceFile, FileNames>();
+function fileNames(sourceFile: ts.SourceFile): FileNames {
+  let names = fileNamesOf.get(sourceFile);
+  if (names !== undefined) return names;
+  names = { accessors: new Set(), members: new Set(), typed: new Set() };
+  const visit = (n: ts.Node): void => {
+    if (
+      (ts.isGetAccessorDeclaration(n) || ts.isSetAccessorDeclaration(n)) &&
+      ts.isIdentifier(n.name)
+    ) {
+      names!.accessors.add(n.name.text);
+    } else if (
+      (ts.isPropertyDeclaration(n) || ts.isPropertySignature(n) || ts.isMethodDeclaration(n)) &&
+      ts.isIdentifier(n.name)
+    ) {
+      names!.members.add(n.name.text);
+      if (!ts.isMethodDeclaration(n) && writtenTypeText(n, sourceFile) !== undefined) {
+        names!.typed.add(n.name.text);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+  fileNamesOf.set(sourceFile, names);
+  return names;
+}
+
 /** Whether nothing in `node` can store a value between two reads: no call, no assignment, no
- *  `++` or `--`. Only there are two reads of one variable one value. */
+ *  `++` or `--`, and no property access that may run a getter (the second review of #1304,
+ *  A1). Only there are two reads of one variable one value. */
 const storesNothing = new WeakMap<ts.Node, boolean>();
-function readsOnly(node: ts.Node): boolean {
+function readsOnly(node: ts.Node, sourceFile: ts.SourceFile): boolean {
   const known = storesNothing.get(node);
   if (known !== undefined) return known;
-  const bad =
+  let bad =
     ts.isCallExpression(node) ||
     ts.isNewExpression(node) ||
+    ts.isTaggedTemplateExpression(node) ||
+    ts.isDeleteExpression(node) ||
     (ts.isBinaryExpression(node) &&
       node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
       node.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
     ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
       (node.operator === ts.SyntaxKind.PlusPlusToken ||
         node.operator === ts.SyntaxKind.MinusMinusToken));
-  const result = !bad && ts.forEachChild(node, (c) => (readsOnly(c) ? undefined : true)) !== true;
+  if (!bad && ts.isPropertyAccessExpression(node)) {
+    const name = node.name.text;
+    const names = fileNames(sourceFile);
+    bad =
+      names.accessors.has(name) ||
+      !(names.members.has(name) || name === 'length' || /^[xyzwrgba]{1,4}$/.test(name));
+  }
+  const result =
+    !bad && ts.forEachChild(node, (c) => (readsOnly(c, sourceFile) ? undefined : true)) !== true;
   storesNothing.set(node, result);
   return result;
-}
-
-/** One walk of {@link readingsOfNode}: its stack, its steps, the variables whose values are
- *  being found with the values found so far, and what the node being read depends on beyond
- *  itself (a variable being found, or a cut of the walk), which keeps it out of the memo. */
-interface ReadingWalk {
-  readonly stack: Set<ts.Node>;
-  steps: number;
-  readonly pending: Map<ts.Node, Reading[]>;
-  deps: Set<ts.Node | 'cut'>;
-  /** Whether a read found a variable being found with no value yet (its first round). */
-  bootstrap: boolean;
-}
-
-/** The values of each node and of each variable, where they depend on nothing else: a node is
- *  read once, whatever reads it (the owner's decision of 2026-11-16, "메모"). */
-interface ReadingMemo {
-  readonly nodes: Map<ts.Node, Reading[]>;
-  readonly variables: Map<ts.Node, Reading[]>;
-  readonly stores: Map<ts.Node, Store[]>;
-}
-/** Kept per source file: an incremental parse may reuse a node in a new file whose other
- *  declarations changed, so a node's values hold only for the file they were read in. */
-const readingMemos = new WeakMap<ts.SourceFile, ReadingMemo>();
-function readingMemo(sourceFile: ts.SourceFile): ReadingMemo {
-  let memo = readingMemos.get(sourceFile);
-  if (memo === undefined) {
-    memo = { nodes: new Map(), variables: new Map(), stores: new Map() };
-    readingMemos.set(sourceFile, memo);
-  }
-  return memo;
 }
 
 /** What is stored in a variable: its initializer, a plain assignment, a compound assignment
@@ -2627,17 +2663,61 @@ type Store =
       readonly op: ts.BinaryOperator;
       readonly expr: ts.Expression;
     }
-  | { readonly kind: 'opaque' };
+  | { readonly kind: 'opaque'; readonly expr?: ts.Expression };
 
-/** Every store of the variable `d` declares, found once per declaration. */
-function storesOf(d: ts.VariableDeclaration, name: string, sourceFile: ts.SourceFile): Store[] {
+/** The per-file facts of the walk. Kept per source file: an incremental parse may reuse a node
+ *  in a new file whose other declarations changed, so a node's values hold only for the file
+ *  they were read in. */
+interface ReadingMemo {
+  readonly nodes: Map<ts.Node, Reading[]>;
+  readonly variables: Map<ts.Node, Reading[]>;
+  readonly stores: Map<ts.Node, Store[]>;
+  readonly declarations: Map<ts.Node, ts.ParameterDeclaration | ts.VariableDeclaration | null>;
+  readonly tainted: Map<ts.Node, boolean>;
+  taint?: FileTaint;
+}
+const readingMemos = new WeakMap<ts.SourceFile, ReadingMemo>();
+function readingMemo(sourceFile: ts.SourceFile): ReadingMemo {
+  let memo = readingMemos.get(sourceFile);
+  if (memo === undefined) {
+    memo = {
+      nodes: new Map(),
+      variables: new Map(),
+      stores: new Map(),
+      declarations: new Map(),
+      tainted: new Map(),
+    };
+    readingMemos.set(sourceFile, memo);
+  }
+  return memo;
+}
+
+/** {@link walkDeclarationOf} of the identifier `id`, found once. */
+function declarationAt(
+  id: ts.Identifier,
+  sourceFile: ts.SourceFile,
+): ts.ParameterDeclaration | ts.VariableDeclaration | undefined {
+  const memo = readingMemo(sourceFile).declarations;
+  const known = memo.get(id);
+  if (known !== undefined) return known ?? undefined;
+  const d = walkDeclarationOf(id.text, id);
+  memo.set(id, d ?? null);
+  return d;
+}
+
+/** Every store of the variable `d` declares, found once per declaration, in the whole file. */
+function storesOf(d: ts.VariableDeclaration, sourceFile: ts.SourceFile): Store[] {
   const memo = readingMemo(sourceFile).stores;
   const known = memo.get(d);
   if (known !== undefined) return known;
   const stores: Store[] = [];
+  const name = (d.name as ts.Identifier).text;
   if (d.initializer !== undefined) stores.push({ kind: 'value', expr: d.initializer });
+  else if (d.parent.parent !== undefined && ts.isForOfStatement(d.parent.parent)) {
+    stores.push({ kind: 'opaque', expr: d.parent.parent.expression });
+  }
   for (const id of identifiersNamed(sourceFile, name)) {
-    if (id === d.name || declarationOf(name, id) !== d) continue;
+    if (id === d.name || declarationAt(id, sourceFile) !== d) continue;
     const up = skipParenUp(id);
     const p = up.parent;
     if (
@@ -2656,11 +2736,213 @@ function storesOf(d: ts.VariableDeclaration, name: string, sourceFile: ts.Source
     if (k < ts.SyntaxKind.FirstAssignment || k > ts.SyntaxKind.LastAssignment) continue;
     const base = COMPOUND_BASE.get(k);
     stores.push(
-      base === undefined ? { kind: 'opaque' } : { kind: 'compound', id, op: base, expr: p.right },
+      base === undefined
+        ? { kind: 'opaque', expr: p.right }
+        : { kind: 'compound', id, op: base, expr: p.right },
     );
   }
   memo.set(d, stores);
   return stores;
+}
+
+/** What a tree can reach in a file: the variables with no written type, the names of functions,
+ *  methods and getters with no written result, and the names of properties with no written
+ *  type, whose stored or returned values hold a written number only a `u32` holds or read one
+ *  of these. Found once per file, as one fixpoint over them all. A node no tree can reach needs
+ *  no walk (the second review of #1304, the cost of plain integer code). */
+interface FileTaint {
+  readonly vars: Set<ts.Node>;
+  readonly names: Set<string>;
+  /** The tainted variables found together: each variable's group of variables that read one
+   *  another, through stores, calls and getters (a strongly connected component). */
+  readonly groups: Map<ts.Node, readonly ts.VariableDeclaration[]>;
+}
+
+function fileTaint(sourceFile: ts.SourceFile): FileTaint {
+  const memo = readingMemo(sourceFile);
+  if (memo.taint !== undefined) return memo.taint;
+  const taint: FileTaint = { vars: new Set(), names: new Set(), groups: new Map() };
+  const vars: { d: ts.VariableDeclaration; exprs: ts.Expression[] }[] = [];
+  const named: { name: string; exprs: ts.Expression[] }[] = [];
+  const visit = (n: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      writtenTypeText(n, sourceFile) === undefined
+    ) {
+      const exprs = storesOf(n, sourceFile).flatMap((s) => (s.expr === undefined ? [] : [s.expr]));
+      vars.push({ d: n, exprs });
+    }
+    const fn =
+      ts.isFunctionDeclaration(n) ||
+      ts.isMethodDeclaration(n) ||
+      ts.isGetAccessorDeclaration(n) ||
+      ts.isArrowFunction(n) ||
+      ts.isFunctionExpression(n)
+        ? n
+        : undefined;
+    if (
+      fn !== undefined &&
+      fn.body !== undefined &&
+      writtenResultText(fn, sourceFile) === undefined
+    ) {
+      const name =
+        fn.name !== undefined && ts.isIdentifier(fn.name)
+          ? fn.name.text
+          : ts.isVariableDeclaration(fn.parent) && ts.isIdentifier(fn.parent.name)
+            ? fn.parent.name.text
+            : undefined;
+      if (name !== undefined) {
+        named.push({ name, exprs: ts.isBlock(fn.body) ? returnsOf(fn.body) : [fn.body] });
+      }
+    }
+    if (
+      ts.isPropertyDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer !== undefined &&
+      writtenTypeText(n, sourceFile) === undefined
+    ) {
+      named.push({ name: n.name.text, exprs: [n.initializer] });
+    }
+    if (
+      ts.isBinaryExpression(n) &&
+      ts.isPropertyAccessExpression(n.left) &&
+      !fileNames(sourceFile).typed.has(n.left.name.text) &&
+      n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      n.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      named.push({ name: n.left.name.text, exprs: [n.right] });
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+  const reaches = (e: ts.Node): boolean => {
+    if (ts.isNumericLiteral(e) && isBigNumber(Number(e.text))) return true;
+    if (ts.isIdentifier(e)) {
+      const d = declarationAt(e, sourceFile);
+      if (d !== undefined && taint.vars.has(d)) return true;
+      if (taint.names.has(e.text)) {
+        const p = e.parent;
+        if (
+          (ts.isCallExpression(p) && p.expression === e) ||
+          (ts.isPropertyAccessExpression(p) && p.name === e)
+        ) {
+          return true;
+        }
+      }
+    }
+    return ts.forEachChild(e, (c) => (reaches(c) ? true : undefined)) === true;
+  };
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const v of vars) {
+      if (!taint.vars.has(v.d) && v.exprs.some(reaches)) {
+        taint.vars.add(v.d);
+        changed = true;
+      }
+    }
+    for (const f of named) {
+      if (!taint.names.has(f.name) && f.exprs.some(reaches)) {
+        taint.names.add(f.name);
+        changed = true;
+      }
+    }
+  }
+  // The groups: Tarjan's components over the tainted variables and names, by what each reads.
+  const keyOfName = (name: string): string => `name:${name}`;
+  const edges = new Map<ts.Node | string, (ts.Node | string)[]>();
+  const readsOf = (exprs: readonly ts.Expression[]): (ts.Node | string)[] => {
+    const out: (ts.Node | string)[] = [];
+    const visit = (e: ts.Node): void => {
+      if (ts.isIdentifier(e)) {
+        const d = declarationAt(e, sourceFile);
+        if (d !== undefined && taint.vars.has(d)) out.push(d);
+        const p = e.parent;
+        if (
+          taint.names.has(e.text) &&
+          ((ts.isCallExpression(p) && p.expression === e) ||
+            (ts.isPropertyAccessExpression(p) && p.name === e))
+        ) {
+          out.push(keyOfName(e.text));
+        }
+      }
+      ts.forEachChild(e, visit);
+    };
+    exprs.forEach(visit);
+    return out;
+  };
+  for (const v of vars) if (taint.vars.has(v.d)) edges.set(v.d, readsOf(v.exprs));
+  for (const f of named) {
+    if (!taint.names.has(f.name)) continue;
+    const key = keyOfName(f.name);
+    edges.set(key, [...(edges.get(key) ?? []), ...readsOf(f.exprs)]);
+  }
+  const index = new Map<ts.Node | string, number>();
+  const low = new Map<ts.Node | string, number>();
+  const stack: (ts.Node | string)[] = [];
+  const onStack = new Set<ts.Node | string>();
+  let counter = 0;
+  const connect = (v: ts.Node | string): void => {
+    index.set(v, counter);
+    low.set(v, counter);
+    counter++;
+    stack.push(v);
+    onStack.add(v);
+    for (const w of edges.get(v) ?? []) {
+      if (!index.has(w)) {
+        connect(w);
+        low.set(v, Math.min(low.get(v)!, low.get(w)!));
+      } else if (onStack.has(w)) low.set(v, Math.min(low.get(v)!, index.get(w)!));
+    }
+    if (low.get(v) === index.get(v)) {
+      const group: ts.VariableDeclaration[] = [];
+      for (;;) {
+        const w = stack.pop()!;
+        onStack.delete(w);
+        if (typeof w !== 'string') group.push(w as ts.VariableDeclaration);
+        if (w === v) break;
+      }
+      for (const d of group) taint.groups.set(d, group);
+    }
+  };
+  for (const v of edges.keys()) if (!index.has(v)) connect(v);
+  memo.taint = taint;
+  return taint;
+}
+
+/** Whether a tree can reach `node` ({@link fileTaint}). */
+function taintedNode(node: ts.Node, sourceFile: ts.SourceFile): boolean {
+  const memo = readingMemo(sourceFile);
+  const known = memo.tainted.get(node);
+  if (known !== undefined) return known;
+  const taint = fileTaint(sourceFile);
+  let result: boolean;
+  if (ts.isNumericLiteral(node)) result = isBigNumber(Number(node.text));
+  else if (ts.isIdentifier(node)) {
+    const d = declarationAt(node, sourceFile);
+    const p = node.parent;
+    result =
+      (d !== undefined && taint.vars.has(d)) ||
+      (taint.names.has(node.text) &&
+        ((ts.isCallExpression(p) && p.expression === node) ||
+          (ts.isPropertyAccessExpression(p) && p.name === node)));
+  } else {
+    result = ts.forEachChild(node, (c) => (taintedNode(c, sourceFile) ? true : undefined)) === true;
+  }
+  memo.tainted.set(node, result);
+  return result;
+}
+
+/** One walk of {@link readingsOfNode}: its stack, its work, the variables whose values are
+ *  being found with the values found so far, and what the node being read depends on beyond
+ *  itself (a variable being found, or a cut of the walk), which keeps it out of the memo. */
+interface ReadingWalk {
+  readonly stack: Set<ts.Node>;
+  steps: number;
+  readonly pending: Map<ts.Node, Reading[]>;
+  deps: Set<ts.Node | 'cut' | 'steps'>;
+  /** Whether a read found a variable being found with no value yet (its first round). */
+  bootstrap: boolean;
 }
 
 /** Thrown where a walk reaches {@link READING_DEPTH}: the node is read first on a walk of its
@@ -2677,6 +2959,8 @@ const READING_RESTARTS = 256;
  *  owner's decision of 2026-11-16, "증명 못 하면 거부"). */
 function readingsFrom(node: ts.Expression): Reading[] {
   const sourceFile = node.getSourceFile();
+  // No tree reaches it: nothing to refuse, and no walk.
+  if (!taintedNode(skipParenNodes(node), sourceFile)) return [];
   const targets: ts.Expression[] = [node];
   for (let restart = 0; restart < READING_RESTARTS; restart++) {
     const target = targets[targets.length - 1]!;
@@ -2709,11 +2993,11 @@ function readingsOfNode(e: ts.Expression, sourceFile: ts.SourceFile, w: ReadingW
   if (known !== undefined) return known;
   if (w.stack.has(n)) {
     w.deps.add('cut');
-    return [UNKNOWN];
+    return [taintedNode(n, sourceFile) ? UNPROVEN : UNKNOWN];
   }
   if (w.stack.size > READING_DEPTH) throw new TooDeep(n);
   if (++w.steps > READING_STEP_LIMIT) {
-    w.deps.add('cut');
+    w.deps.add('steps');
     return [UNPROVEN];
   }
   const outer = w.deps;
@@ -2731,6 +3015,17 @@ function readingsOfNode(e: ts.Expression, sourceFile: ts.SourceFile, w: ReadingW
   return r;
 }
 
+/** The values of a variable no tree reaches: each written number stored in it, and
+ *  {@link UNKNOWN} for any other store. It needs no rounds: no pair of it has two readings. */
+function plainVariableReadings(d: ts.VariableDeclaration, sourceFile: ts.SourceFile): Reading[] {
+  const out: Reading[] = [];
+  for (const s of storesOf(d, sourceFile)) {
+    const c = s.kind === 'value' ? constNumber(s.expr) : undefined;
+    out.push(c === undefined ? UNKNOWN : numberReading(c));
+  }
+  return boundedReadings(out.map((x) => ({ ...x, picks: [[d, readingValue(x)] as const] })));
+}
+
 /** The values of the variable `d` declares: every value stored in it, wherever it is stored (E1
  *  of 2026-11-13). A store that reads the variable (`a = a - K`, `a -= K`) reads its earlier
  *  values: the values are found in rounds until no round adds one, and past
@@ -2739,36 +3034,63 @@ function readingsOfNode(e: ts.Expression, sourceFile: ts.SourceFile, w: ReadingW
  *  2026-11-16, "거부: 적은 타입만 인정"). */
 function variableReadings(
   d: ts.VariableDeclaration,
-  name: string,
   sourceFile: ts.SourceFile,
   w: ReadingWalk,
 ): Reading[] {
   const memo = readingMemo(sourceFile).variables;
   const known = memo.get(d);
   if (known !== undefined) return known;
+  if (!fileTaint(sourceFile).vars.has(d)) {
+    const plain = plainVariableReadings(d, sourceFile);
+    memo.set(d, plain);
+    return plain;
+  }
   const pending = w.pending.get(d);
   if (pending !== undefined) {
     w.deps.add(d);
     if (pending.length === 0) w.bootstrap = true;
     return pending;
   }
-  const stores = storesOf(d, name, sourceFile);
-  let values: Reading[] = [];
-  w.pending.set(d, values);
+  // The variables that read one another are found together, in rounds, until no round adds a
+  // value to any of them; then each is kept, and no round finds them again. The group is found
+  // on a walk of its own, with work of its own, so what is kept does not depend on what read it.
+  const group = (fileTaint(sourceFile).groups.get(d) ?? [d]).filter((v) => !memo.has(v));
+  if (!group.includes(d)) group.push(d);
+  const own: ReadingWalk = {
+    stack: new Set(),
+    steps: 0,
+    pending: w.pending,
+    deps: new Set(),
+    bootstrap: false,
+  };
+  const values = new Map<ts.VariableDeclaration, Reading[]>();
+  for (const v of group) {
+    values.set(v, []);
+    w.pending.set(v, []);
+  }
   let settled = false;
   for (let round = 0; round < READING_ROUNDS && !settled; round++) {
-    const next: Reading[] = [];
-    for (const s of stores) next.push(...storedReadings(d, s, sourceFile, w));
-    const bounded = boundedReadings(next);
-    settled = sameReadings(bounded, values);
-    values = bounded;
-    w.pending.set(d, values);
+    settled = true;
+    for (const v of group) {
+      const next: Reading[] = [];
+      for (const s of storesOf(v, sourceFile)) next.push(...storedReadings(v, s, sourceFile, own));
+      const bounded = boundedReadings(next);
+      if (!sameReadings(bounded, values.get(v)!)) settled = false;
+      values.set(v, bounded);
+      w.pending.set(v, bounded);
+    }
+    if (own.steps > READING_STEP_LIMIT) break;
   }
-  if (!settled) values = [...values, values.some((x) => x.tree) ? UNPROVEN : UNKNOWN];
-  w.pending.delete(d);
-  w.deps.delete(d);
-  if (w.deps.size === 0) memo.set(d, values);
-  return values;
+  for (const v of group) {
+    const found = values.get(v)!;
+    if (!settled) values.set(v, [...found, found.some((x) => x.tree) ? UNPROVEN : UNKNOWN]);
+    w.pending.delete(v);
+    own.deps.delete(v);
+  }
+  own.deps.delete('steps');
+  if (own.deps.size === 0) for (const v of group) memo.set(v, values.get(v)!);
+  for (const x of own.deps) w.deps.add(x);
+  return values.get(d)!;
 }
 
 /** The values one store puts in the variable `d`, each picked as a value of `d`: the reads
@@ -2779,13 +3101,16 @@ function storedReadings(
   sourceFile: ts.SourceFile,
   w: ReadingWalk,
 ): Reading[] {
-  if (s.kind === 'opaque') return [{ ...UNKNOWN, picks: [[d, '?']] }];
+  if (s.kind === 'opaque') {
+    const tree = s.expr !== undefined && taintedNode(s.expr, sourceFile);
+    return [{ ...(tree ? UNPROVEN : UNKNOWN), picks: [[d, tree ? '!' : '?']] }];
+  }
   const before = w.bootstrap;
   w.bootstrap = false;
   const xs =
     s.kind === 'value'
       ? readingsOfNode(s.expr, sourceFile, w)
-      : binaryReadings(s.id, s.op, s.expr, sourceFile, w);
+      : (binaryReadingsOf(s.id.parent, s.op, s.id, s.expr, sourceFile, w) ?? []);
   const first = w.bootstrap;
   w.bootstrap = before;
   // A store that reads the variable in its first round, before it has a value, adds none yet.
@@ -2793,9 +3118,16 @@ function storedReadings(
   return xs.map((x) => ({ ...x, picks: [[d, readingValue(x)] as const] }));
 }
 
-/** The values of `n` itself ({@link readingsOfNode} keeps them). */
+/** The builtins whose result is a function of their arguments' values, read both ways. */
+const VALUE_BUILTINS = new Set(['abs', 'min', 'max', 'clamp', 'sign']);
+/** The builtins whose call states its type: a conversion or a constructor. */
+const TYPED_BUILTIN = /^(f32|f16|f64|i32|u32|bool|vec[234][fiuh]?|mat[234](x[234])?[fh]?|array)$/;
+
+/** The values of `n` itself ({@link readingsOfNode} keeps them). A node the walk does not know
+ *  is unproven where a tree can reach it (the owner's decision of 2026-11-16). */
 function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk): Reading[] {
   const of = (e: ts.Expression): Reading[] => readingsOfNode(e, sourceFile, w);
+  const unproven = (): Reading[] => (taintedNode(n, sourceFile) ? [UNPROVEN] : []);
   /** The values of a call's result: read in another place, so no pick of them holds here. */
   const unpicked = (xs: readonly Reading[]): Reading[] => xs.map((x) => ({ ...x, picks: [] }));
   /** The values of the arms of a choice: an arm the walk cannot read is {@link UNKNOWN}. */
@@ -2806,14 +3138,38 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
       : [];
   };
   if (ts.isNumericLiteral(n)) return [numberReading(Number(n.text))];
+  // A type assertion, a non-null assertion and `satisfies` carry the origin (Amendment A3).
+  if (
+    ts.isAsExpression(n) ||
+    ts.isNonNullExpression(n) ||
+    ts.isTypeAssertionExpression(n) ||
+    ts.isSatisfiesExpression(n)
+  ) {
+    return of(n.expression);
+  }
   if (ts.isBinaryExpression(n)) {
-    return binaryReadingsOf(n, n.operatorToken.kind, n.left, n.right, sourceFile, w);
+    const k = n.operatorToken.kind;
+    if (k === ts.SyntaxKind.CommaToken || k === ts.SyntaxKind.EqualsToken) return of(n.right);
+    if (k === ts.SyntaxKind.QuestionQuestionToken) return arms([n.left, n.right]);
+    const r = binaryReadingsOf(n, k, n.left, n.right, sourceFile, w);
+    if (r !== undefined) return r;
+    // A comparison and `&&`, `||` give a `bool`. A `/`, `%` or `>>>` over a tree is refused
+    // where it stands (D2, D-b); its result is a value of no two readings the walk follows.
+    if (
+      k === ts.SyntaxKind.SlashToken ||
+      k === ts.SyntaxKind.PercentToken ||
+      k === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken ||
+      k === ts.SyntaxKind.AsteriskAsteriskToken
+    ) {
+      return [n.left, n.right].some((x) => of(x).length > 0) ? [UNKNOWN] : [];
+    }
+    return [];
   }
   if (ts.isPrefixUnaryExpression(n)) {
-    const ps = of(n.operand);
+    if (n.operator === ts.SyntaxKind.PlusToken) return of(n.operand);
     const tilde = n.operator === ts.SyntaxKind.TildeToken;
-    if (!tilde && n.operator !== ts.SyntaxKind.MinusToken) return [];
-    return ps.map((p) => {
+    if (!tilde && n.operator !== ts.SyntaxKind.MinusToken) return unproven();
+    return of(n.operand).map((p) => {
       if (p.unknown || p.unproven) return p;
       const t = tilde ? ~p.ts : -p.ts;
       if (!p.tree) return { ...p, u32: t, ts: t };
@@ -2821,10 +3177,11 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
     });
   }
   if (ts.isIdentifier(n)) {
-    const d = declarationOf(n.text, n);
-    if (d === undefined || !ts.isVariableDeclaration(d)) return [];
+    const d = declarationAt(n, sourceFile);
+    if (d === undefined) return unproven();
+    if (!ts.isVariableDeclaration(d) || !ts.isIdentifier(d.name)) return [];
     if (writtenTypeText(d, sourceFile) !== undefined) return [];
-    return variableReadings(d, n.text, sourceFile, w);
+    return variableReadings(d, sourceFile, w);
   }
   if (ts.isConditionalExpression(n)) {
     // An arm beside a typed `i32` takes TypeScript's value.
@@ -2842,7 +3199,16 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
       return arms([n.arguments[0]!, n.arguments[1]!]);
     }
     const f = calleeAt(callee, n);
-    if (f === undefined || f.body === undefined) return [];
+    if (f === undefined) {
+      if (TYPED_BUILTIN.test(callee)) return [];
+      if (VALUE_BUILTINS.has(callee)) return builtinReadings(callee, n, sourceFile, w);
+      // Another builtin carries its arguments' origin (Amendment A3): over a tree its result
+      // is unproven, and over a typed value it is typed.
+      const args = n.arguments.map(of);
+      if (args.some((a) => a.some((x) => x.tree))) return [UNPROVEN];
+      return args.some((a) => a.length > 0) ? [UNKNOWN] : [];
+    }
+    if (f.body === undefined) return unproven();
     // A generic result carries the readings of what is passed to it (E1 of 2026-11-13: through
     // `let b = a`, another generic, `?:`, `min`, `select`).
     const result = writtenResultText(f, sourceFile);
@@ -2858,9 +3224,9 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
   // every return of every declaration of that name in the file (E1 of 2026-11-13).
   const member =
     ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)
-      ? { name: n.expression.name.text, getter: false }
+      ? { name: n.expression.name.text, getter: false, object: n.expression.expression }
       : ts.isPropertyAccessExpression(n)
-        ? { name: n.name.text, getter: true }
+        ? { name: n.name.text, getter: true, object: n.expression }
         : undefined;
   if (member !== undefined) {
     const returns: ts.Expression[] = [];
@@ -2873,9 +3239,90 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
         returns.push(...returnsOf(d.body));
       }
     }
-    return unpicked(arms(returns));
+    if (returns.length > 0) return unpicked(arms(returns));
+    // A field declared with a written type, a component of a typed value, or of a
+    // constructor's (`vec2u(a, 1).x`), states its type.
+    const object = skipParenNodes(member.object);
+    if (
+      (member.getter && fileNames(sourceFile).typed.has(member.name)) ||
+      typedNode(object) ||
+      (ts.isCallExpression(object) &&
+        ts.isIdentifier(object.expression) &&
+        TYPED_BUILTIN.test(object.expression.text))
+    ) {
+      return [];
+    }
   }
-  return [];
+  return unproven();
+}
+
+/** The values of `abs`, `min`, `max`, `clamp` or `sign` over its arguments' values: a builtin
+ *  carries its arguments' origin (Amendment A3), and over a tree computes on its bits as a
+ *  `u32` and in TypeScript as a number. */
+function builtinReadings(
+  callee: string,
+  n: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  w: ReadingWalk,
+): Reading[] {
+  const args = n.arguments.map((a) => readingsOfNode(a, sourceFile, w));
+  if (args.some((a) => a.length === 0)) return taintedNode(n, sourceFile) ? [UNPROVEN] : [];
+  const apply = (xs: readonly number[], unsigned: boolean): number => {
+    const [x, y, z] = [xs[0]!, xs[1]!, xs[2]!];
+    switch (callee) {
+      case 'abs':
+        return unsigned ? x : Math.abs(x);
+      case 'sign':
+        return unsigned ? (x > 0 ? 1 : 0) : Math.sign(x);
+      case 'min':
+        return Math.min(x, y);
+      case 'max':
+        return Math.max(x, y);
+      default:
+        return Math.min(Math.max(x, y), z);
+    }
+  };
+  let combos: Reading[][] = [[]];
+  for (const a of args) {
+    combos = combos.flatMap((c) => a.map((x) => [...c, x]));
+    w.steps += combos.length;
+    if (combos.length > READINGS_PER_NODE * READINGS_PER_NODE || w.steps > READING_STEP_LIMIT) {
+      return [UNPROVEN];
+    }
+  }
+  const out: Reading[] = [];
+  for (const c of combos) {
+    let picks: (readonly [ts.Node, string])[] | undefined = [];
+    for (const x of c) picks = picks === undefined ? undefined : mergedPicks(picks, x.picks);
+    if (picks === undefined) {
+      if (readsOnly(n, sourceFile)) continue;
+      picks = [];
+    }
+    const tree = c.some((x) => x.tree);
+    if (c.some((x) => x.unknown || x.unproven)) {
+      out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
+    } else if (!tree) {
+      const t = apply(
+        c.map((x) => x.ts),
+        false,
+      );
+      out.push({ u32: t, ts: t, tree: false, picks });
+    } else {
+      out.push({
+        u32: apply(
+          c.map((x) => x.u32 >>> 0),
+          true,
+        ),
+        ts: apply(
+          c.map((x) => x.ts),
+          false,
+        ),
+        tree: true,
+        picks,
+      });
+    }
+  }
+  return boundedReadings(out);
 }
 
 /** The expressions every `return` of `body` gives, outside the functions inside it. */
@@ -2889,7 +3336,8 @@ function returnsOf(body: ts.Block): ts.Expression[] {
   return returns;
 }
 
-/** The values of `left op right`, the binary expression `node` or a compound assignment's. */
+/** The values of `left op right`, the binary expression `node` or a compound assignment's;
+ *  `undefined` for an operator the walk does not read. */
 function binaryReadingsOf(
   node: ts.Node,
   k: ts.SyntaxKind,
@@ -2897,7 +3345,7 @@ function binaryReadingsOf(
   right: ts.Expression,
   sourceFile: ts.SourceFile,
   w: ReadingWalk,
-): Reading[] {
+): Reading[] | undefined {
   const bit =
     k === ts.SyntaxKind.BarToken ||
     k === ts.SyntaxKind.AmpersandToken ||
@@ -2908,26 +3356,22 @@ function binaryReadingsOf(
     k === ts.SyntaxKind.PlusToken ||
     k === ts.SyntaxKind.MinusToken ||
     k === ts.SyntaxKind.AsteriskToken;
-  if (!bit && !arith) return [];
+  if (!bit && !arith) return undefined;
   const lv = writtenNumber(left);
   const rv = writtenNumber(right);
-  // The root of a tree over a written `u32`: its bits and ToInt32 of them. A variable with
-  // no written type declared with such a number reads as it (`let M = 3000000000; M | 0`).
-  const ln = lv ?? namedNumber(left);
-  const rn = rv ?? namedNumber(right);
-  const bigNumber = (v: number | undefined) => v !== undefined && v > 2147483647 && v <= 4294967295;
-  if (bit && (bigNumber(ln) || bigNumber(rn)) && ln !== undefined && rn !== undefined) {
-    const [ua, ub] = [ln >>> 0, rn >>> 0];
-    const u =
-      k === ts.SyntaxKind.BarToken
-        ? (ua | ub) >>> 0
-        : k === ts.SyntaxKind.AmpersandToken
-          ? (ua & ub) >>> 0
-          : k === ts.SyntaxKind.CaretToken
-            ? (ua ^ ub) >>> 0
-            : k === ts.SyntaxKind.LessThanLessThanToken
-              ? (ua << (ub & 31)) >>> 0
-              : ua >>> (ub & 31);
+  const rootOf = (ua: number, ub: number): number =>
+    k === ts.SyntaxKind.BarToken
+      ? (ua | ub) >>> 0
+      : k === ts.SyntaxKind.AmpersandToken
+        ? (ua & ub) >>> 0
+        : k === ts.SyntaxKind.CaretToken
+          ? (ua ^ ub) >>> 0
+          : k === ts.SyntaxKind.LessThanLessThanToken
+            ? (ua << (ub & 31)) >>> 0
+            : ua >>> (ub & 31);
+  // The root of a tree over a written `u32`: its bits and ToInt32 of them.
+  if (bit && lv !== undefined && rv !== undefined && (isBigNumber(lv) || isBigNumber(rv))) {
+    const u = rootOf(lv >>> 0, rv >>> 0);
     return [{ u32: u, ts: u | 0, tree: true, picks: [] }];
   }
   // A tree of written numbers is one fold, which computes as TypeScript does (THE RULE): only
@@ -2936,9 +3380,16 @@ function binaryReadingsOf(
   // Arithmetic over a value with two readings and a written number, a constant tree
   // (`(1 << 3) | LB`) or a variable that holds written numbers (`let b = 3`, issue 1299): the
   // bits compute in u32, TypeScript in doubles. Over written numbers alone it folds as
-  // TypeScript does, so that a variable of numbers is followed (`b = b + 1`).
+  // TypeScript does, so that a variable of numbers is followed (`b = b + 1`). A bit operator
+  // over a variable's number only a `u32` holds is a root too, for every number stored in it
+  // (`let M = 0xF0000000; M = 1; M ^ 0xF0000000`, the second review of #1304, A2).
   const as = lv !== undefined ? [numberReading(lv)] : readingsOfNode(left, sourceFile, w);
   const bs = rv !== undefined ? [numberReading(rv)] : readingsOfNode(right, sourceFile, w);
+  w.steps += as.length * bs.length;
+  if (w.steps > READING_STEP_LIMIT) {
+    w.deps.add('steps');
+    return [UNPROVEN];
+  }
   const op = (x: number, y: number, unsigned: boolean): number => {
     switch (k) {
       case ts.SyntaxKind.PlusToken:
@@ -2959,7 +3410,16 @@ function binaryReadingsOf(
         return unsigned ? x >>> (y & 31) : x >> (y & 31);
     }
   };
-  const pure = readsOnly(node);
+  /** A mask that keeps only bits both readings share (`& 0xFF`): its result agrees whatever
+   *  the other value is. */
+  const lowMask = (x: Reading): boolean =>
+    k === ts.SyntaxKind.AmpersandToken &&
+    !x.tree &&
+    !x.unknown &&
+    Number.isInteger(x.ts) &&
+    x.ts >= 0 &&
+    x.ts <= 0x7fffffff;
+  const pure = readsOnly(node, sourceFile);
   const out: Reading[] = [];
   for (const a of as) {
     for (const b of bs) {
@@ -2971,10 +3431,16 @@ function binaryReadingsOf(
       }
       const tree = a.tree || b.tree;
       if (a.unknown || b.unknown || a.unproven || b.unproven) {
-        out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
+        const masked = lowMask(a) || lowMask(b);
+        out.push({ ...(tree && !masked ? UNPROVEN : UNKNOWN), picks });
       } else if (!tree) {
-        const t = op(a.ts, b.ts, false);
-        out.push({ u32: t, ts: t, tree: false, picks });
+        if (bit && (isBigNumber(a.ts) || isBigNumber(b.ts))) {
+          const u = rootOf(a.ts >>> 0, b.ts >>> 0);
+          out.push({ u32: u, ts: u | 0, tree: true, picks });
+        } else {
+          const t = op(a.ts, b.ts, false);
+          out.push({ u32: t, ts: t, tree: false, picks });
+        }
       } else {
         out.push({ u32: op(a.u32, b.u32, true), ts: op(a.ts, b.ts, false), tree: true, picks });
       }
@@ -2993,18 +3459,6 @@ const COMPOUND_BASE = new Map<ts.SyntaxKind, ts.BinaryOperator>([
   [ts.SyntaxKind.CaretEqualsToken, ts.SyntaxKind.CaretToken],
   [ts.SyntaxKind.LessThanLessThanEqualsToken, ts.SyntaxKind.LessThanLessThanToken],
 ]);
-
-/** The values of `left op right` for a compound assignment, which has no node of its own: its
- *  operands are read where they stand in the file. */
-function binaryReadings(
-  left: ts.Identifier,
-  op: ts.BinaryOperator,
-  right: ts.Expression,
-  sourceFile: ts.SourceFile,
-  w: ReadingWalk,
-): Reading[] {
-  return binaryReadingsOf(left.parent, op, left, right, sourceFile, w);
-}
 
 /** One refusal of an operation whose result differs between a tree's two readings (D2): its
  *  operand, the operation, and the diagnostic as it stands. Its edit is chosen and verified with
@@ -3041,8 +3495,8 @@ function readingsSentenceOf(r: ReadingsRefusal, remedy: string): string {
     // The owner's decision of 2026-11-16, "증명 못 하면 거부": a value whose two readings the
     // compiler cannot prove to agree is refused, with no numbers it cannot state.
     return (
-      `"${text}" can differ between its u32 bits and its TypeScript value, and the compiler ` +
-      `cannot prove that it does not, so the "${r.operator}" does not say which value it means. ${remedy}`
+      `The compiler cannot prove that the u32 bits and the TypeScript value of "${text}" ` +
+      `agree, so the "${r.operator}" does not say which value it means. ${remedy}`
     );
   }
   return (
