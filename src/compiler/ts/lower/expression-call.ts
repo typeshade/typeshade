@@ -1873,7 +1873,7 @@ function lowerStorageTextureCall(
  *  no reference to compare against, and Tint refuses the pairing as "no matching call".
  *
  *  `textureSampleCompare` uses the implicit level of detail, so it is fragment-only, which
- *  `FRAGMENT_ONLY_CALLS` in function.ts reports by stage; `…Level` samples level 0 anywhere.
+ *  `FRAGMENT_ONLY_CALLS` in stage-restrictions.ts reports by stage; `…Level` samples level 0 anywhere.
  *
  *  A PLAIN read of a depth texture — `textureSample` with an ordinary sampler, `textureLoad` —
  *  is refused here for now, with the reason: GLSL ES 3.00 fuses a texture and its sampler into

@@ -571,6 +571,12 @@ Linked origins and class-name tables keep independent synchronous scopes; each r
 previous value after nested compilation or an exception. `src/compiler/ts/context.ts` re-exports
 these helpers for existing lowering callers. The compiler entry point imports the scopes directly.
 
+After function bodies, inherited-body diagnostics and recursion checks are settled,
+`checkEntryStageUses` in `src/compiler/ts/stage-restrictions.ts` validates entry-stage restrictions.
+It retains separate walks for fragment/vertex restrictions and compute-only resources and barriers.
+The walks preserve their existing order and call-resolution rules. Shared emitted-call-name
+collection lives in `src/compiler/ts/function-call-graph.ts`; inherited-body diagnostics use it too.
+
 A function whose callers decide its result (Rule 8.19, change 0134 part 4b) hovers as the one type
 they gave it, `function g(): u32`. One whose calls ask two or more types, or an exported one whose
 calls ask a type other than the `f32` it keeps for the host, is lowered once for each,

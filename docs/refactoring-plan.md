@@ -48,14 +48,14 @@ Likewise, test-only differential gates do not establish a delivered end-user div
 
 ## Work sequence
 
-| ID  | Status                                       | Files and responsibility                                                                                                                                     | Exit evidence                                                                                                                |
-| --- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| R0  | Merged in #1282                              | This plan; reconcile PR dependencies and document authority.                                                                                                 | Identified baselines, open items and links; documentation checks.                                                            |
-| R1  | First slice merged in #1283                  | `src/compiler/ts/abstract-const.ts`: separate candidate construction and batch validation from constant analysis.                                            | Equal diagnostic text and order, compiler/editor parity, unchanged generated output, at most two edited compiles per module. |
-| R2  | Source-spelling scope slice in progress      | `src/compiler/ts/context.ts`, `src/compiler/ts/lower/function.ts`, `src/language-service/diagnostics.ts`: explicit analysis lifetimes and shared results.    | Repeated compilation isolation and parity on the same source; no new semantic IR or query framework.                         |
-| R3  | Not started                                  | `src/compiler/ts/host-face.ts`: separate export analysis, declaration generation and runtime wrapper generation.                                             | Generated JS, declarations and metadata agree; packed consumers pass.                                                        |
-| R4  | Deferred until the Buffer transition settles | `src/core/host-kernel.ts`, `src/core/resident.ts`, `src/runtime/resource.ts`, `src/runtime/program.ts`: ownership, visibility, lifetime and execution state. | Resource sharing, disposal, failure rollback and downstream tests on the resulting Buffer API.                               |
-| R5  | Not started                                  | `src/core/passes/kernel-lower.ts`, `src/core/backends/`, validation scripts: separate transformation, execution and verdict responsibilities where useful.   | Source mapping and output preserved; relevant backend and differential gates.                                                |
+| ID  | Status                                                     | Files and responsibility                                                                                                                                     | Exit evidence                                                                                                                |
+| --- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| R0  | Merged in #1282                                            | This plan; reconcile PR dependencies and document authority.                                                                                                 | Identified baselines, open items and links; documentation checks.                                                            |
+| R1  | First slice merged in #1283                                | `src/compiler/ts/abstract-const.ts`: separate candidate construction and batch validation from constant analysis.                                            | Equal diagnostic text and order, compiler/editor parity, unchanged generated output, at most two edited compiles per module. |
+| R2  | Source spelling merged; stage-validation slice in progress | `src/compiler/ts/context.ts`, `src/compiler/ts/lower/function.ts`, `src/language-service/diagnostics.ts`: explicit analysis lifetimes and shared results.    | Repeated compilation isolation and parity on the same source; no new semantic IR or query framework.                         |
+| R3  | Not started                                                | `src/compiler/ts/host-face.ts`: separate export analysis, declaration generation and runtime wrapper generation.                                             | Generated JS, declarations and metadata agree; packed consumers pass.                                                        |
+| R4  | Deferred until the Buffer transition settles               | `src/core/host-kernel.ts`, `src/core/resident.ts`, `src/runtime/resource.ts`, `src/runtime/program.ts`: ownership, visibility, lifetime and execution state. | Resource sharing, disposal, failure rollback and downstream tests on the resulting Buffer API.                               |
+| R5  | Not started                                                | `src/core/passes/kernel-lower.ts`, `src/core/backends/`, validation scripts: separate transformation, execution and verdict responsibilities where useful.   | Source mapping and output preserved; relevant backend and differential gates.                                                |
 
 Each row is a PR series, not a deadline or a file-size target. Keep documentation and tests
 with each implementation slice. Record actual checks in that slice's PR.
@@ -121,8 +121,9 @@ Completed on 2026-11-16 after checking the current heads, required checks, confl
 - #1272 merged next as `4bf416e79ca402459455e99fe520cea5dcbe50f7`.
 - #1282 merged as `fa60da805834bff38a3290d6dc7da9c178a34ed7`.
 - #1283 merged as `397071cbdbfb1cc3d91611e6c44e5d7639e1187e`, after all 26 checks passed on its synchronized head.
+- #1284 merged as `f4855c8fd9c86f46340b941c8b9330bbab7c35dc`, after all 26 checks passed on `92601bf`.
 
-1. Validate the R2 source-spelling context slice against `main` at `397071c`.
+1. Validate the R2 entry-stage checking slice against `main` at `f4855c8`.
 2. Keep subsequent R1 slices separate from new inference behavior.
 3. Start runtime restructuring after #1257's contract and consumer migration settle.
 
@@ -176,6 +177,7 @@ The synchronization changes only the prerequisite documents and traceability rec
 
 ## R2 source spelling context slice
 
+Merged in [PR #1284](https://github.com/typeshade/typeshade/pull/1284).
 Branch: `codex/refactor-r2-written-context`, based on `main`
 `397071cbdbfb1cc3d91611e6c44e5d7639e1187e`.
 
@@ -191,3 +193,22 @@ source-file identity and the independence of the two scopes.
 This is the first R2 slice. Function lowering stages and compiler/editor analysis results remain
 separate follow-up work. R3 and R5 have not started. R4 remains blocked on the Buffer transition;
 #1257's reviewed head still has a failing TypeNN candidate check.
+
+## R2 entry-stage validation slice
+
+Branch: `codex/refactor-r2-stage-validation`, based on `main`
+`f4855c8fd9c86f46340b941c8b9330bbab7c35dc`.
+
+`lower/function.ts` retains body construction, inherited diagnostic handling and recursion checks.
+It hands completed functions to `checkEntryStageUses` in `stage-restrictions.ts` before definite
+assignment and reference-alias checks. This phase owns both existing stage checks and their tables.
+The existing internal table exports remain available from `lower/function.ts`.
+
+The two stage walks preserve their order, diagnostic wording and resolution rules. Their algorithms
+are not unified: the compute-only walk follows declaration identity, while the other walk uses
+emitted names. `function-call-graph.ts` holds the existing emitted-name collector shared with
+inherited-body diagnostics. It does not introduce a new graph model.
+
+Boundary tests preserve nearest-helper reporting, one diagnostic per operation and entry,
+source-ordered diagnostics from both restriction families, unreachable helpers and builtin-name
+shadowing. Each case checks the compiler and editor on the same source.

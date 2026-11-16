@@ -785,7 +785,7 @@ The atomic builtins may be used in the compute and fragment stages, and must not
   - [Atomic Built-in Functions](https://gpuweb.github.io/gpuweb/wgsl/#atomic-builtin-functions) ("atomic built-in functions must not be used in a vertex shader stage", with no other stage restriction);
   - surface §10, §24, and §25.
 - Enforced by:
-  - the reachability check in `src/compiler/ts/lower/function.ts` (`TS8099` names the builtin, the helper, and the entry) for the fragment-only builtins;
+  - the reachability check in `src/compiler/ts/stage-restrictions.ts` (`TS8099` names the builtin, the helper, and the entry) for the fragment-only builtins;
   - `TS8033` for workgroup memory, and `TS8034` for a barrier outside a compute entry (a barrier in a branch is Rule 8.5's `TS8052`);
   - `TS8099` for an atomic builtin in a `@vertex` entry or in a helper it reaches (`"atomicAdd" is only valid in a fragment or compute shader; "vs" is a vertex entry. WGSL allows an atomic built-in in a fragment or compute stage only.`), pinned by `src/compiler/ts/atomics.test.ts` (`refuses atomicAdd in a vertex entry`).
 

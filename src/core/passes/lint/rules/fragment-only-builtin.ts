@@ -28,7 +28,7 @@ const COMPARE_FIX = (args: string): string =>
  *  authored: this rule's tests.
  *
  *  EXPORTED since #145 so the front end's own stage walk (`FRAGMENT_ONLY_CALLS` in
- *  `compiler/ts/lower/function.ts`) can be pinned equal to it. Two hand lists in two layers
+ *  `compiler/ts/stage-restrictions.ts`) can be pinned equal to it. Two hand lists in two layers
  *  stay equal only if something compares them, and each way of missing an id has already
  *  happened: `textureSample` on a `texture_cube_array` was in NEITHER table (#143 added it to
  *  both), and `textureSample` itself was in this one and not the front end's until #145, so a
