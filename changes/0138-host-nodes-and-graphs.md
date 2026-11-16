@@ -3508,11 +3508,10 @@ this amendment.
 ### A15. Slice 2: a write to a value array parameter, and `TS8075` on an `@out` array (2026-11-16)
 
 - [fact] Why. A10's open items for the owner name two points to ask before slice 2: new diagnostic
-  codes (Q-A, Q-F) and `TS8075` on an `@out` array (Q-A, "Open under Q-A"). The owner answered both on
-  2026-11-16, in the conversation. This amendment records the answers.
+  codes (Q-A, Q-F) and `TS8075` on an `@out` array (Q-A, "Open under Q-A"). The owner answered both on 2026-11-16, in the conversation, and six follow-up questions after the reviews. This amendment records the answers.
 - [fact] Baseline: `main` at `7e1c291e`.
 - [fact] This amendment adds `TS8080` to the front matter `codes`. It changes no rule text and no
-  code. Slice 2 changes Rules 8.23 and 8.25 and surface §65 and §70 in its own pull request.
+  code. Slice 2 changes Rules 7.6, 8.23 and 8.25 and surface §65 and §70 in its own pull request.
 
 **The owner's answers.**
 
@@ -3552,7 +3551,7 @@ Write @inout xs to update the caller's array, or return xs.` 두 절반 모두 �
 value; its writes are lost. Write @inout xs to update the caller's array, or return xs.`
   3. [inference, agent] A body that uses the parameter as scratch space on purpose writes a local
      array instead. This is the cost the owner accepted.
-  4. [decision, owner, 2026-11-16; follow-up question 2, below] A push to a parameter of an array with no qualifier is refused even when the parameter is returned: a pushed array carries `@inout`, as A10 Q-A decides (Rule 8.23, change 0078).
+  4. [decision, owner, 2026-11-16; follow-up question 2, below] A push to a parameter of an array with no qualifier is refused even when the parameter is returned: a pushed array carries `@inout`, as A10 Q-A decides (Rule 8.23, change 0078). [decision, owner, 2026-11-16; follow-up question 6, below] Its text offers `@inout` only, under the same code: `add(): parameter "xs" is a value; a push to it is lost. Write @inout xs to push into the caller's array.`
   5. [inference, agent] A parameter the body only reads is not refused (Q-A, "A parameter that the
      body only reads needs no copy").
   6. [fact] The code `TS8080` is the next free code at `7e1c291e` (`src/compiler/ts/codes.ts` ends at
@@ -3567,7 +3566,7 @@ value; its writes are lost. Write @inout xs to update the caller's array, or ret
   1. Before the body runs, the call fills each `@out` array argument with the zero of its element
      type, on every target. The caller's old values are never visible to the body.
   2. [inference, agent] So an `@out` array is written whole before the body reads it, as Rule 8.25 asks, and `TS8075` refuses no read of its elements.
-     2a. [decision, owner, 2026-11-16; follow-up question 3, below] The fill covers the whole argument: the argument's whole storage for an array with no size, and `N` elements for `array<T, N>`. A pushed array cannot be `@out`: it carries `@inout` (A10 Q-A). An `@out` texture, storage texture, `Map` or `Set` gets no fill and keeps `TS8075`'s whole write, as Rule 8.25 says today.
+     2a. [decision, owner, 2026-11-16; follow-up question 3, below] The fill covers the whole argument: the argument's whole storage for an array with no size, and `N` elements for `array<T, N>`. A pushed array cannot be `@out`: it carries `@inout` (A10 Q-A). [decision, owner, 2026-11-16; follow-up question 5, below] A held-length argument `{ array, length: Buffer<u32>, offset? }` cannot be `@out` either: it is taken only by an `@inout` parameter, and an `@out` one is refused at the call with a `TypeError` and in the host view's type. No new code. An `@out` texture, storage texture, `Map` or `Set` gets no fill and keeps `TS8075`'s whole write, as Rule 8.25 says today.
      2b. [decision, owner, 2026-11-16; follow-up question 4, below] An `@out` array that the body never writes is accepted. Its result is all zeros. Rule 8.25's "on every path before the function returns" holds for it through the fill.
   3. [inference, agent] After the call, an element the body did not write is zero.
   4. [fact] Cost: one clear of the argument's storage for each call. [proposal, agent] Slice 6 may remove a clear it proves dead (R14).
@@ -3577,7 +3576,7 @@ value; its writes are lost. Write @inout xs to update the caller's array, or ret
 **The owner's answers to the follow-up questions.**
 
 - [fact] The independent review of A15 at `15a7ea0b` found that decision 1's exact trigger and three
-  points of decision 2 were not in the options the owner saw. The agent asked them on 2026-11-16.
+  points of decision 2 were not in the options the owner saw. The agent asked them on 2026-11-16. A delta review at `09fae816` found two more (held-length arrays, the text for a push), asked as questions 5 and 6.
 - [decision, owner, 2026-11-16] The owner picked the recommended option of each. The record has no
   other words:
   1. "경로별 판정 (추천)" (English translation: judged path by path; recommended). Description, in
@@ -3591,6 +3590,10 @@ value; its writes are lost. Write @inout xs to update the caller's array, or ret
      an `@out` texture, `Map` or `Set` keeps `TS8075`.
   4. "허용, 결과는 모두 0 (추천)" (English translation: accepted; the result is all zeros;
      recommended): an `@out` array never written is accepted.
+  5. "@out 금지, @inout만 (추천)" (English translation: no `@out`, `@inout` only; recommended): a
+     held-length argument is taken only by an `@inout` parameter; no new code.
+  6. "@inout만 안내 (추천)" (English translation: offer `@inout` only; recommended): the `TS8080`
+     text for a push names `@inout`, not `return`.
 
 **Open items.**
 
@@ -3602,7 +3605,7 @@ value; its writes are lost. Write @inout xs to update the caller's array, or ret
 
 **Open, owner must settle.**
 
-- [fact] Nothing. The owner answered decisions 1 and 2 and the four follow-up questions on 2026-11-16.
+- [fact] Nothing. The owner answered decisions 1 and 2 and the six follow-up questions on 2026-11-16.
 - [inference, agent] Decision 2 follows OD-3: the compiler and the runtime do the work. Decision 1
   adds a refusal, not a construct; OD-3 is not reversed. No decision conflicts with OD-1 to OD-8.
 
@@ -3623,7 +3626,17 @@ value; its writes are lost. Write @inout xs to update the caller's array, or ret
 | 7. A10's open-items rows.                                           | An open-items row marks them partly closed.                                                                              |
 | Notes: translations, labels, the code-set test.                     | Translations completed; the paraphrases and the slice 6 sentence relabelled; `bun scripts/changes.ts` and Prettier pass. |
 
-- [fact] No review has read the revision that answers this review.
+- [fact] A delta review read A15 at `09fae816` on 2026-11-16, by another agent. Verdict: approve after
+  fixes. It found no blocking finding, 3 should-fix findings and 5 notes.
+
+| Finding                                   | Answer                                                       |
+| ----------------------------------------- | ------------------------------------------------------------ |
+| 1. Held-length arrays and `@out`.         | The owner answered follow-up question 5; decision 2 item 2a. |
+| 2. The `TS8080` text for a push.          | The owner answered follow-up question 6; decision 1 item 4.  |
+| 3. The Why bullet omits Rule 7.6.         | Fixed.                                                       |
+| Notes: the Why bullet's count of answers. | Fixed.                                                       |
+
+- [fact] No review has read the revision that answers the delta review.
 
 - Affects: Rule 7.6 (an `@out` argument as an assignment, slice 2); A10 Q-A ("Open under Q-A"; the agent's inference on an unmigrated kernel) and A10's open
   items for the owner; Rules 8.23 and 8.25 and surface §65 and §70 (slice 2); the front matter
