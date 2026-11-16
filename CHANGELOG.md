@@ -284,6 +284,41 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **D2 reads a `let` read twice and every value a `let` holds** (issue #1299; change 0134,
+  Amendments A2-A6; the owner's decisions of 2026-11-12, D2, and of 2026-11-16). `let a =
+(0xF0000000|0); f32(a + a)` gave 3758096384, where TypeScript gives -536870912; it is now
+  refused, as `f32(a + 1)` is, with the edit `i32(a + a)`. The same holds for `a - a + a`,
+  `let b = 3; a + b`, and such a tree under `max`, a comparison and `/`.
+  - A variable with no written type holds every value stored in it (E1). A store that reads its
+    own variable reads its earlier values (`a = a - K`, `a -= K`, in a loop too). One variable
+    read twice is one value at both reads, so `a - a` stays 0 when `a` is reassigned.
+  - A value the compiler cannot prove is refused, never accepted ("증명 못 하면 거부",
+    2026-11-16): past the values one node keeps, the rounds of a variable's values or the work
+    of the walk, and at a node the walk does not know that a tree can reach. The sentence, which
+    the owner approved on 2026-11-16, is `The compiler cannot prove that the u32 bits and the
+TypeScript value of "a + b" agree, so the "f32()" does not say which value it means.`, with
+    the same edit.
+  - A variable with no written type is no typed peer ("거부: 적은 타입만 인정", 2026-11-16):
+    `let b = vi; f32(a + b)` is refused; `let b: u32 = vi` is accepted as before.
+  - A getter can store between two reads, so `(a + g.v) - a` reads `a` twice. A bit operator over
+    a variable's number only a u32 holds is a root for every number stored in it (`let M =
+0xF0000000; M = 1; M ^ 0xF0000000`). A variable's declaration and its stores are found in
+    the whole file, so a function written above a module `let` stores into it. `as`, `!` and
+    `<T>` carry the origin. A mask of low bits is computed over proven readings
+    (`(a & 0xFF) + 1` compiles), and an unproven value stays unproven under any mask.
+  - An element of a destructuring pattern (`let [a] = [(0xF0000000|0)]`) is no typed value: it is
+    refused where a tree reaches it, and is no typed peer beside one. An element of an object
+    pattern reads a property, so a getter or a field a tree reaches reaches it (`let { v } = s`
+    after `s.v = (0xF0000000|0)`), through a rename and nested patterns too. An annotation the editor's
+    projection wrote into an open document (`: u32` after an untyped getter) is no written type
+    in the program that links it, in an import and in the entry, so the editor and `compile()`
+    give the same refusal with the imported file open or closed.
+  - A node no tree can reach is not walked. The variables that read one another are found
+    together, once per file. Each node and each variable is read once per file, and a long
+    chain of bindings is read from its far end first. The review's chain of 40 bindings with six
+    stores each compiled in 4.4 s and checked in 9.6 s in the editor, and takes 0.5 s each now;
+    plain integer code of four variables with four stores each takes 0.1 s, as on `main`.
+
 - **Buffer integration with the compiler refactor** (2026-11-16, change 0138). Host analysis
   keeps the Buffer overload records; the extracted host view and module generators consume them.
   TypeNN #27 migrates scalar storage and stale parameter assignment; the downstream gate pins its
