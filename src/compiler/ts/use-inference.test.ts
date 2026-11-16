@@ -2066,6 +2066,163 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(Math.floor(3000000000 / 7));
   });
 
+  // Issue 1299: a `let` read twice (`a + a`) and a `let` of a written number (`let b = 3`)
+  // gave the tree no readings, so D2 was skipped and the value changed with no word. Each
+  // program is refused in both halves, as `a + 1` is, and its edit compiles to TypeScript's value.
+  const A1299 = 'let a = (0xF0000000|0);\n  ';
+  const said1299 = (subject: string, u: number, t: number, at: string, edit: string): string =>
+    `TS8003: "${subject}" is ${String(u)} on its u32 bits and ${String(t)} in TypeScript, so the ` +
+    `"${at}" does not say which value it means. Write "${edit}" for the ${edit.slice(0, 3)} value.`;
+  it.each([
+    [
+      'f32(a + a)',
+      'return f32(a + a);',
+      'f32',
+      'a + a',
+      3758096384,
+      -536870912,
+      'f32()',
+      'i32',
+      'f32(a + a)',
+      'f32(i32(a + a))',
+      -536870912,
+    ],
+    [
+      'f32(a + b), let b = 3',
+      'let b = 3;\n  return f32(a + b);',
+      'f32',
+      'a + b',
+      4026531843,
+      -268435453,
+      'f32()',
+      'i32',
+      'f32(a + b)',
+      'f32(i32(a + b))',
+      -268435453,
+    ],
+    [
+      'f32(a - a + a)',
+      'return f32(a - a + a);',
+      'f32',
+      'a - a + a',
+      4026531840,
+      -268435456,
+      'f32()',
+      'i32',
+      'f32(a - a + a)',
+      'f32(i32(a - a + a))',
+      -268435456,
+    ],
+    [
+      'max(a + a, vi)',
+      'return max(a + a, vi);',
+      'u32',
+      'a + a',
+      3758096384,
+      -536870912,
+      'max',
+      'u32',
+      'max(a + a,',
+      'max(u32(a + a),',
+      3758096384,
+    ],
+    [
+      '(a + a) > vi',
+      'return (a + a) > vi ? 1.0 : 0.0;',
+      'f32',
+      'a + a',
+      3758096384,
+      -536870912,
+      '>',
+      'u32',
+      '(a + a) >',
+      'u32(a + a) >',
+      1,
+    ],
+    [
+      '(a | a) / vi',
+      'return (a | a) / vi;',
+      'u32',
+      'a | a',
+      4026531840,
+      -268435456,
+      '/',
+      'u32',
+      '(a | a) /',
+      'u32(a | a) /',
+      575218834,
+    ],
+    [
+      'let c = a + a; c / vi',
+      'let c = a + a;\n  return c / vi;',
+      'u32',
+      'c',
+      3758096384,
+      -536870912,
+      '/',
+      'u32',
+      'c / vi',
+      'u32(c) / vi',
+      536870912,
+    ],
+    [
+      'f32(a + b), b reassigned with vi',
+      'let b = 3;\n  b = vi;\n  return f32(a + b);',
+      'f32',
+      'a + b',
+      4026531843,
+      -268435453,
+      'f32()',
+      'i32',
+      'f32(a + b)',
+      'f32(i32(a + b))',
+      -268435449,
+    ],
+    [
+      'f32(a + b), b += 1',
+      'let b = 3;\n  b += 1;\n  return f32(a + b);',
+      'f32',
+      'a + b',
+      4026531843,
+      -268435453,
+      'f32()',
+      'i32',
+      'f32(a + b)',
+      'f32(i32(a + b))',
+      -268435452,
+    ],
+  ] as const)(
+    'issue 1299 (D2): %s is refused in both halves, and its edit compiles',
+    (_, body, ret, subject, u, t, at, type, from, to, value) => {
+      const source = T12(A1299 + body, ret);
+      expect(both(source)).toEqual([said1299(subject, u, t, at, `${type}(${subject})`)]);
+      expect(compile(source).wgsl).toBeUndefined();
+      const fixed = source.replace(from, to);
+      expect(fixed).not.toEqual(source);
+      expect(both(fixed)).toEqual([]);
+      expect(compile(fixed).eval('t', [-3, 7, 2.5])).toBe(value);
+    },
+  );
+
+  it.each([
+    ['a + a in a u32 result', 'return a + a;', 'u32', 3758096384],
+    ['a + b in a u32 result', 'let b = 3;\n  return a + b;', 'u32', 4026531843],
+    ['f32(a - a)', 'return f32(a - a);', 'f32', 0],
+    ['f32(a ^ a)', 'return f32(a ^ a);', 'f32', 0],
+    ['a * a in a u32 result', 'return a * a;', 'u32', 0],
+    ['f32(a + b), let b = 268435456', 'let b = 268435456;\n  return f32(a + b);', 'f32', 0],
+    ['f32(i32(a) + b)', 'let b = 3;\n  return f32(i32(a) + b);', 'f32', -268435453],
+    ['f32(u32(a) + b)', 'let b = 3;\n  return f32(u32(a) + b);', 'f32', 4026531843],
+    ['a + a + vi', 'return a + a + vi;', 'u32', 3758096391],
+  ] as const)(
+    'issue 1299 (D2): %s, where the two readings agree, compiles in both halves',
+    (_, body, ret, value) => {
+      const source = T12(A1299 + body, ret);
+      expect(both(source)).toEqual([]);
+      expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(value);
+    },
+  );
+
   it.each([
     ['export { g as h }', 'function g() {\n  return (1|2)/2;\n}\nexport { g as h };\n', 'h'],
     ['export { g } after', 'function g() {\n  return (1|2)/2;\n}\nexport { g };\n', 'g'],

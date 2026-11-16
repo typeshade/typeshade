@@ -12,7 +12,9 @@
 // reassigned module `let`, a generic function, a function with a `u32` parameter, functions that
 // return trees (through a binding and a builtin) and the uses derived from them, an imported
 // function, compound assignment to a swizzle, module constants with a bare `| & ^` root, and
-// libraries whose own refusals name edits in the imported file. Three properties hold:
+// libraries whose own refusals name edits in the imported file. Issue 1299 added an operator over
+// two `let` bindings, one of them read twice, and a `let` of a written number. Three properties
+// hold:
 //
 //   1. Where `compile()` accepts a program with no diagnostic, the CPU oracle's value is the value
 //      the same source has as TypeScript, with `i32()` ToInt32 of the truncation, `u32()`
@@ -841,6 +843,57 @@ class Program {
         this.env.set('vl', this.assign(el, { t: el, v: lane === 'x' ? 1 : 2 }, op, e.value())),
       );
       ret = { text: `v.${lane}`, value: () => this.env.get('vl')! };
+    } else if (form < 0.87) {
+      // Issue 1299: an operator over two `let` bindings with no written type, one of them read
+      // twice (`a + a`, `a - a + a`), or a `let` of a written number (`let c = 3`), and a use
+      // whose result differs between a tree's two readings (D2).
+      const init = (): Expr =>
+        this.pick([
+          () => this.tree(),
+          () => this.tree(),
+          () => lit(this.pick([2, 3, 4, 7, 268435456])),
+          () => this.expr('k', 1),
+        ])();
+      const ea = init();
+      this.lines.push(`let a = ${ea.text};`);
+      this.bind('a', 'k', () => ea.value());
+      const ec = this.chance(0.3)
+        ? this.bin(this.pick(['+', '|', '*']), this.name('a'), lit(this.pick([0, 1, 3])))
+        : init();
+      this.lines.push(`let c = ${ec.text};`);
+      this.bind('c', 'k', () => ec.value());
+      if (this.chance(0.2)) {
+        const n = lit(this.pick([1, 5, 9]));
+        this.lines.push(`c = ${n.text};`);
+        this.steps.push(() => this.env.set('c', n.value()));
+      }
+      const [l, r] = this.pick([
+        ['a', 'a'],
+        ['a', 'a'],
+        ['a', 'c'],
+        ['c', 'a'],
+        ['c', 'c'],
+      ] as const);
+      let e = this.bin(this.pick(['+', '-', '*', '&', '|', '^', '<<']), this.name(l), this.name(r));
+      if (this.chance(0.3))
+        e = this.bin(this.pick(['+', '-']), e, this.name(this.pick(['a', 'c'])));
+      if (this.chance(0.25)) {
+        this.lines.push(`let d = ${e.text};`);
+        const held = e;
+        this.bind('d', 'k', () => held.value());
+        e = this.name('d');
+      }
+      ret = this.pick([
+        () => e,
+        () =>
+          this.bin(
+            this.pick(['/', '%']),
+            e,
+            this.pick([() => this.name('vi'), () => lit(this.pick([3, 7]))])(),
+          ),
+        () => this.call('max', [e, this.name('vi')]),
+        () => this.cond(this.bin(this.pick(['>', '<', '==']), e, this.name('vi')), lit(1), lit(0)),
+      ])();
     } else {
       ret = this.expr(this.pick<T>(['k', 'k', result]), 3);
     }
