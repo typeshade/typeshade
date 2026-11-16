@@ -1362,9 +1362,10 @@ export function lowerSourceFunctions(
             ),
           );
         // With no return type written, the body says it (Rule 8.19), or this instance's calls
-        // do (change 0134): its copies are this instance's (Rule 8.9).
+        // do (change 0134): its copies are this instance's (Rule 8.9). A result type the
+        // editor's projection wrote is not the author's, as for any function (#1277).
         const infers =
-          generic.node.type === undefined &&
+          hasNoWrittenResult(generic.node, sf) &&
           !planResult({
             stub,
             node: generic.node,

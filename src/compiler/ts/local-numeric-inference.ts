@@ -7,6 +7,7 @@ import { declarationOf, functionAround } from './lower/closures.js';
 import { newTargetOf, scopedDeclaration } from './lower/new-target.js';
 import { namespaceMember } from './namespaces.js';
 import { isStaticMember, writtenMemberName } from './class-names.js';
+import { hasNoWrittenResult } from './abstract-const.js';
 
 export interface LocalNumericInference {
   readonly type?: ShaderType;
@@ -211,7 +212,13 @@ class DeclaredContexts {
         type = member.parameters[0]?.type;
       }
     } else if (ts.isCallExpression(node)) {
-      type = this.callable(node, seen)?.type;
+      // A result type the editor's projection wrote is not the author's (change 0134): the call
+      // lends no written type, as `compile()` reads the same text (#1280).
+      const callable = this.callable(node, seen);
+      type =
+        callable === undefined || hasNoWrittenResult(callable, this.sourceFile)
+          ? undefined
+          : callable.type;
     } else if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
       type = node.type;
     }
