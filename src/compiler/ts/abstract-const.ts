@@ -1533,6 +1533,49 @@ export function reportAbstractDivisions(
       },
     });
   }
+  // A tree of written integers in a position that takes an `f32` is an integer beside a float
+  // (decision 1 of #1272). The refusal names the tree, and its edit, `f32(…)` around it, is
+  // verified with the module's others (E3 of 2026-11-13).
+  for (let i = 0; i < diagnostics.length; i++) {
+    const d = diagnostics[i]!;
+    if (d.category !== 'error' || d.start === undefined || !FLOAT_MISMATCH.test(d.message))
+      continue;
+    if (d.code !== TS_CODES.TYPE_MISMATCH && d.code !== TS_CODES.MATH_ARGUMENT) continue;
+    const at = nodeSpanning(sourceFile, d.start, d.start + d.length);
+    if (at === undefined || programFileOf(at) !== 0) continue;
+    const trees = floatPositionOperands(at).filter(isTreeOperand);
+    if (trees.length !== 1) continue;
+    const tree = skipParenNodes(trees[0]!);
+    const text = writtenText(tree).replace(/\s+/g, ' ');
+    const said = `"${text}" is an integer by its bit operator, and this position takes an f32.`;
+    let current: TsCompilerDiagnostic = {
+      ...d,
+      message: `${said} Write "f32(${text})" for the float value.`,
+    };
+    diagnostics[i] = current;
+    const restate = (message: string): void => {
+      const next = { ...current, message };
+      const j = diagnostics.indexOf(current);
+      if (j >= 0) diagnostics[j] = next;
+      current = next;
+    };
+    const change: SourceChange = {
+      start: tree.getStart(sourceFile),
+      end: tree.getEnd(),
+      text: `f32(${text})`,
+    };
+    batch.push({
+      node: tree,
+      build: () => ({
+        diagnostic: () => current,
+        sets: [change, change],
+        conflict: false,
+        name: () => undefined,
+        generic: () => restate(said),
+        bare: () => restate(said),
+      }),
+    });
+  }
   // The `>>` over a written `u32` and the value forms (`Write the u32 with the same bits, …`) name
   // edits too, and each is verified with the module's others, as every named edit is ("name only
   // verified edits"; F6 of the fourteenth review of #1272). One that does not verify is not
@@ -1595,6 +1638,69 @@ type Scalar = 'f32' | 'i32' | 'u32';
 const SHIFT_EDIT = / Write "(?<edit>u32\([^"]*\) >> [^"]*)" for the u32 shift\.$/;
 const VALUE_EDIT =
   / Write the (?:u32|i32) with the same bits, (?<edit>0x[0-9a-f]+|-?\d+)(?:, or declare a u32)?\.$/;
+
+/** The sentences of a type error between an integer and an `f32`. */
+const FLOAT_MISMATCH =
+  /(?:cannot \S+ (?:i32|u32) and f32|cannot \S+ f32 and (?:i32|u32)|cannot let\/const \S+ f32 and (?:i32|u32)|return type mismatch: declared f32, got (?:i32|u32)|Vector constructor element type mismatch: expected f32|takes an f32[^;]*; got (?:i32|u32)|the first is (?:i32|u32), this one f32|the first is f32, this one (?:i32|u32)|Argument \d+ of "[^"]+" type mismatch)/;
+
+/** The node of `sourceFile` that spans exactly `start` to `end`, the outermost such. */
+function nodeSpanning(sourceFile: ts.SourceFile, start: number, end: number): ts.Node | undefined {
+  let found: ts.Node | undefined;
+  const visit = (n: ts.Node): void => {
+    if (found !== undefined || n.getStart(sourceFile) > start || n.getEnd() < end) return;
+    if (n.getStart(sourceFile) === start && n.getEnd() === end) found = n;
+    else ts.forEachChild(n, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return found;
+}
+
+/** The operands a type error at `at` between an integer and an `f32` may stand on: a return's
+ *  value, a declaration's initializer, an operator's operands, a call's arguments, or, for an
+ *  argument the error stands on, the arguments of its call. */
+function floatPositionOperands(at: ts.Node): ts.Expression[] {
+  if (ts.isReturnStatement(at)) return at.expression === undefined ? [] : [at.expression];
+  if (ts.isVariableDeclaration(at)) return at.initializer === undefined ? [] : [at.initializer];
+  if (ts.isBinaryExpression(at)) return [at.left, at.right];
+  if (ts.isCallExpression(at) || ts.isNewExpression(at)) return [...(at.arguments ?? [])];
+  if (ts.isExpression(at) && ts.isCallExpression(at.parent)) return [...at.parent.arguments];
+  return [];
+}
+
+/** Whether `e` is a tree of written integers, or a read of a constant or a binding with no
+ *  written type that holds one and that nothing assigns again. */
+function isTreeOperand(e: ts.Expression): boolean {
+  const n = skipParenNodes(e);
+  if (writtenBitTree(n) || kindlessSource(n)) return true;
+  if (!ts.isIdentifier(n)) return false;
+  const d = declarationOf(n.text, n);
+  return (
+    d !== undefined &&
+    ts.isVariableDeclaration(d) &&
+    writtenTypeText(d, n.getSourceFile()) === undefined &&
+    d.initializer !== undefined &&
+    !reassignedAnywhere(d) &&
+    (writtenBitTree(d.initializer) || constantBitRoot(d.initializer))
+  );
+}
+
+/** Whether `e`'s root is a bit operator over values {@link constNumber} evaluates
+ *  (`A | B` with `const A = 1`). */
+function constantBitRoot(e: ts.Expression): boolean {
+  const n = skipParenNodes(e);
+  if (ts.isPrefixUnaryExpression(n)) {
+    return n.operator === ts.SyntaxKind.TildeToken && constNumber(n.operand) !== undefined;
+  }
+  if (!ts.isBinaryExpression(n)) return false;
+  const k = n.operatorToken.kind;
+  const bit =
+    k === ts.SyntaxKind.BarToken ||
+    k === ts.SyntaxKind.AmpersandToken ||
+    k === ts.SyntaxKind.CaretToken ||
+    k === ts.SyntaxKind.LessThanLessThanToken ||
+    k === ts.SyntaxKind.GreaterThanGreaterThanToken;
+  return bit && constNumber(n) !== undefined;
+}
 
 /** The innermost node of `sourceFile` that starts at `offset`. */
 function nodeAtOffset(sourceFile: ts.SourceFile, offset: number): ts.Node | undefined {
