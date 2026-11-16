@@ -178,7 +178,7 @@ of proposal 0059 reads `wgsl-names.json`, `glsl-es300-names.json` and `webgl-ext
 
 `coredef-texture-overloads.test.ts` makes every texture overload supported or deferred with a
 reason, `stage-rules.test.ts` checks the stage-restricted builtin sets (read from
-`compiler/ts/lower/function.ts` and `core/passes/lint/rules/fragment-only-builtin.ts`),
+`compiler/ts/stage-restrictions.ts` and `core/passes/lint/rules/fragment-only-builtin.ts`),
 `surface-names.test.ts` holds every author-facing name to WGSL, ECMAScript or the extension
 table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
 `core/passes/access.ts` to every `core.def` overload TypeShade takes.
