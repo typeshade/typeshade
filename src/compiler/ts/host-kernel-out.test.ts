@@ -111,6 +111,56 @@ describe('an @out array, read by both halves (change 0138, Amendment A15)', () =
   });
 });
 
+describe('an @out fixed-size array of a helper starts at zeros (Rule 8.25, Rule 7.6)', () => {
+  // The call fills `N` elements of an `@out array<T, N>` with zeros before the body runs, on every
+  // target (Amendment A15, decision 2), so the body may read it and need not write it.
+  const READS = `"use typeshade";
+function h(@out a: array<f32, 4>): void { a[1] = a[0] + 1.; }
+function none(@out a: array<f32, 4>): void { }
+export function f(@inout ys: array<f32>): void {
+  let a: array<f32, 4> = [5., 5., 5., 5.];
+  h(a);
+  ys[0] = a[1];
+  ys[1] = a[0];
+  let b: array<f32, 4> = [5., 5., 5., 5.];
+  none(b);
+  ys[2] = b[3];
+}
+`;
+  it('gives no diagnostic in the compiler and none in the editor', () => {
+    expect(
+      compile(READS, { fileName: 'm.shade.ts' }).diagnostics.filter((d) => d.category === 'error'),
+    ).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', READS);
+    expect(service.getDiagnostics('m.shade.ts').filter((d) => d.severity === 'error')).toEqual([]);
+  });
+  it('reads zeros on the CPU tier, whatever the caller held', async () => {
+    const m = await load(READS);
+    const ys = new Float32Array(3).fill(9);
+    await m.f!(ys);
+    expect([...ys]).toEqual([1, 0, 0]);
+  });
+  it('writes the zeros first in the WGSL of the helper', () => {
+    const out = compile(
+      `"use typeshade";
+declare const dst: storage<array<f32>, "read_write">;
+function h(@out a: array<f32, 4>): void { a[1] = a[0] + 1.; }
+@compute([1]) export function main(): void {
+  let a: array<f32, 4> = [5., 5., 5., 5.];
+  h(a);
+  dst[0] = a[1];
+}
+`,
+      { fileName: 'm.shade.ts' },
+    );
+    expect(out.diagnostics).toEqual([]);
+    expect(out.wgsl).toContain(
+      'fn h(a: ptr<function, array<f32, 4>>) {\n  (*a) = array<f32, 4>(0.0, 0.0, 0.0, 0.0);\n',
+    );
+  });
+});
+
 describe('the call of an @out array on the CPU tier (Rule 8.25)', () => {
   it('fills the argument with zeros before the body runs, so the body reads zeros', async () => {
     const m = await load(SOURCE);
@@ -161,6 +211,19 @@ describe('the call of an @out array on the CPU tier (Rule 8.25)', () => {
     // A second call starts from zero again, not from what the first left.
     await m.ramp!(buffer, 1);
     expect([...((await buffer.read()) as Float32Array)]).toEqual([0, 1, 2, 3]);
+  });
+
+  it('fills a Buffer made of a number[], whose element is open, and a Buffer of vectors', async () => {
+    const m = await load(SOURCE);
+    const open = array([9, 9, 9, 9]);
+    await m.ramp!(open, 2);
+    expect([...((await open.read()) as ArrayLike<number>)]).toEqual([0, 2, 4, 6]);
+    const unwritten = array([9, 9, 9]);
+    await m.untouched!(unwritten, 1);
+    expect([...((await unwritten.read()) as ArrayLike<number>)]).toEqual([0, 0, 0]);
+    const vs = array(new Float32Array(6).fill(9));
+    await m.shift!(vs);
+    expect([...((await vs.read()) as ArrayLike<number>)].slice(0, 2)).toEqual([1, 2]);
   });
 
   it('fills a Buffer of a device, in a plan, after the call that wrote it', async () => {

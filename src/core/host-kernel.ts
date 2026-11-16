@@ -1597,15 +1597,20 @@ export async function runChecked(
   const why: string[] = [];
   // Before the body runs, the call fills each `@out` array with zeros, on every tier (Rule 8.25,
   // change 0138, Amendment A15, decision 2). What an earlier call of a plan wrote has run first.
-  if (k.params.some((p) => p.k === 'array' && p.out === true)) {
+  // It fills them once a tier is chosen, so a call refused before that leaves the caller's arrays
+  // as they were.
+  let filled = false;
+  const fillOuts = async (): Promise<void> => {
+    if (filled || !k.params.some((p) => p.k === 'array' && p.out === true)) return;
+    filled = true;
     await run?.flush();
     k.params.forEach((p, i) => {
       if (p.k !== 'array' || p.out !== true) return;
       const s = states[i];
-      if (s !== undefined) s.zero();
+      if (s !== undefined) s.zero(p.layout);
       else zeroInPlace(p.layout, hosts[i]);
     });
-  }
+  };
   // Outside a scope the call is over when it resolves. In a plan, only the result is left.
   const result = (get: Finish): unknown => (run === undefined ? get() : get);
   const owner = inferOwner(
@@ -1634,6 +1639,7 @@ export async function runChecked(
       why.push(`${tier}: ${fit.why}`);
       continue;
     }
+    await fillOuts();
     if (fit.tier === 'webgpu') {
       const { d } = fit;
       run?.tiers.add(tier);

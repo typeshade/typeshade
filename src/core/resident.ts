@@ -45,6 +45,7 @@ import {
   storageBuffer,
   uploadTo,
   zeroedBuffer,
+  zeroInPlace,
   type GpuBuffer,
   type GpuDevice,
   type Layout,
@@ -254,12 +255,17 @@ export class ResidentArrayState {
    *  Rule 8.25,
    *  change 0138, Amendment A15, decision 2): the host copy becomes zeros of the same length and is the
    *  newer, so the next use uploads it. */
-  zero(): void {
+  zero(layout: Layout): void {
     const h = this.host;
     if (ArrayBuffer.isView(h) && !(h instanceof DataView)) {
       const T = h.constructor as new (n: number) => ArrayBufferView;
       this.assign(new T((h as unknown as { length: number }).length));
-    } else if (Array.isArray(h)) this.assign(h.map(() => 0));
+    } else if (Array.isArray(h)) {
+      // A new list of the same shape: each vector, matrix or object element becomes its zero.
+      this.assign(zeroInPlace(layout, copyOf(h, 'zero')));
+    }
+    // The numbers held for an open element become zeros too (Amendment A12, decision 3).
+    if (this.open !== undefined) this.open = this.open.map(() => 0);
   }
 
   /** Replace the host copy with `v`, which is the newer: the caller's `write()` (surface §65). */

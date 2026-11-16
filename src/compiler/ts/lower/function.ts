@@ -123,6 +123,7 @@ import {
   ctorPrologue,
   registerClassCopy,
   selfRef,
+  zeroExprOf,
   type ClassFunction,
   type Receiver,
 } from './class-methods.js';
@@ -162,7 +163,7 @@ import {
   recordParamDefaults,
   setParamDefault,
 } from './param-defaults.js';
-import { checkReferenceAliases, qualifiersOf } from './references.js';
+import { checkReferenceAliases, isOutParam, qualifiersOf } from './references.js';
 import { lowerStatements, lowerVoidArrowBody } from './statement.js';
 export { FRAGMENT_ONLY_CALLS, FRAGMENT_OR_COMPUTE_CALLS } from '../stage-restrictions.js';
 export {
@@ -2729,6 +2730,18 @@ function fillFunctionBodyNow(
         true,
       );
       scope.bindDeclaration(declared, place);
+      // An `@out array<T, N>` starts at zeros, on every target, before the body runs (Rule 8.25,
+      // change 0138, Amendment A15, decision 2): the caller's old values are never visible.
+      const zero =
+        isOutParam(p) && p.type.kind === 'array' && p.type.size !== undefined
+          ? zeroExprOf(p.type, scope)
+          : undefined;
+      if (zero !== undefined)
+        parameterLocals.push({
+          s: 'assign',
+          target: { op: 'varref', type: p.type, name: place.irName ?? place.name },
+          expr: zero,
+        });
       return;
     }
     const copy =
