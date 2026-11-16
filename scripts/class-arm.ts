@@ -658,8 +658,8 @@ function twinSource(
       '}',
       '',
       `export function loop_${tag}(${[
-        ...(t.result !== undefined ? [`out: array<${authorTypeText(t.result)}>`] : []),
-        `xs: array<${c.name}>`,
+        ...(t.result !== undefined ? [`@inout out: array<${authorTypeText(t.result)}>`] : []),
+        `@inout xs: array<${c.name}>`,
         ...(hasArgs ? [`args: array<Args_${tag}>`] : []),
       ].join(', ')}): void {`,
       '  for (let i: u32 = 0; i < xs.length; i++) {',

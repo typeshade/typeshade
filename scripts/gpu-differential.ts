@@ -1095,7 +1095,7 @@ function projectionCorpus(): KernelCorpus[] {
           (seed >= 2 ? 'for(let j:u32=0;j<out.length;j++){out[j]=out[j]+xs[j].f3;}' : '');
     const source = `"use typeshade"; class Item { ${fields} }
 function read(p:Item):f32{return f32(p.f2);}
-export function projected(xs:array<Item>,out:array<f32>)${seed >= 4 ? ':f32' : ''}{${body}}`;
+export function projected(xs:array<Item>,@inout out:array<f32>)${seed >= 4 ? ':f32' : ''}{${body}}`;
     const result = compile(source);
     const editor = createTypeshadeLanguageService();
     editor.openDocument('projected.shade.ts', source);
