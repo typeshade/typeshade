@@ -3230,16 +3230,18 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
         : undefined;
   if (member !== undefined) {
     const returns: ts.Expression[] = [];
+    let typedResult = false;
     for (const id of identifiersNamed(sourceFile, member.name)) {
       const p = id.parent;
       const kind = member.getter ? ts.isGetAccessorDeclaration(p) : ts.isMethodDeclaration(p);
       if (!kind) continue;
       const d = p as ts.MethodDeclaration | ts.GetAccessorDeclaration;
-      if (d.body !== undefined && writtenResultText(d, sourceFile) === undefined) {
-        returns.push(...returnsOf(d.body));
-      }
+      if (writtenResultText(d, sourceFile) !== undefined) typedResult = true;
+      else if (d.body !== undefined) returns.push(...returnsOf(d.body));
     }
     if (returns.length > 0) return unpicked(arms(returns));
+    // Every method or getter of that name in the file has a written result: it states its type.
+    if (typedResult) return [];
     // A field declared with a written type, a component of a typed value, or of a
     // constructor's (`vec2u(a, 1).x`), states its type.
     const object = skipParenNodes(member.object);

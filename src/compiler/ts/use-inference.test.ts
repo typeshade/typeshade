@@ -2453,6 +2453,17 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     },
   );
 
+  it('second review of #1304 (D2): a method with a written result states its type', () => {
+    // The journey `local-numeric-contexts`: a static method that returns a u32, called with a
+    // constant only a u32 holds, is typed, so `f32()` of its result is no unproven value.
+    const source =
+      '"use typeshade";\nclass Hit {\n  static wrap(index: u32): u32 {\n    return index + 1;\n  }\n}\n' +
+      'export function t(ii: i32, vi: u32, f: f32): f32 {\n  const unsignedIndex = 4294967295;\n' +
+      '  return f32(Hit.wrap(unsignedIndex));\n}\n';
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(0);
+  });
+
   it('second review of #1304 (D2): a mask of low bits agrees on both readings, and compiles', () => {
     const source = T12(A1299 + 'return f32((a & 0xFF) + 1);', 'f32');
     expect(both(source)).toEqual([]);
