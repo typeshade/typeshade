@@ -668,17 +668,37 @@ describe('binding a value to another name copies it, as it does on the GPU', () 
     expect(c.eval('f', [3])).toBe(3);
   });
 
-  it('leaves the source struct alone when the copy is written', () => {
-    const c = compile(`
-      "use typeshade";
+  it('writes the source struct when a second name of it is written, as JavaScript does (change 0142)', () => {
+    const src = `"use typeshade";
       ${STRUCTS}
       export function f(p: P): f32 {
         let q: P = p;
         q.a = 100.;
         return p.a;
       }
-    `);
+    `;
+    const c = compile(src);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.shade.ts', src);
+    expect(service.getDiagnostics('a.shade.ts').filter((d) => d.severity === 'error')).toEqual([]);
+    expect(c.eval('f', [{ a: 3, b: 0 }])).toBe(100);
+  });
+
+  it('leaves the source struct alone when a spread copy is written, as JavaScript does', () => {
+    const src = `"use typeshade";
+      ${STRUCTS}
+      export function f(p: P): f32 {
+        let q: P = { ...p };
+        q.a = 100.;
+        return p.a;
+      }
+    `;
+    const c = compile(src);
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.shade.ts', src);
+    expect(service.getDiagnostics('a.shade.ts').filter((d) => d.severity === 'error')).toEqual([]);
     expect(c.eval('f', [{ a: 3, b: 0 }])).toBe(3);
   });
 

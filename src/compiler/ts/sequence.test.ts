@@ -222,9 +222,29 @@ describe('what the passes after it would have done to such a call', () => {
     expect(agree(src, [[0.5, 0]])).toEqual([draws(500, 2)[1], 0, 0, 1]);
   });
 
-  it('a copy taken before the call keeps the value before it', () => {
+  it('a number read before the call keeps the value before it', () => {
     // Copy propagation read `p` where `before` was written: the effect table named the write
-    // by the callee's `self_` rather than by the receiver it lands in.
+    // by the callee's `self_` rather than by the receiver it lands in. A number is a value
+    // (change 0142), so `before` keeps what `p.v` held.
+    const src = `"use typeshade";
+class P {
+  v: f32;
+  bump(): void {
+    this.v = this.v + 1.;
+  }
+}
+@fragment export function fs(): vec4 {
+  let p = new P();
+  const before = p.v;
+  p.bump();
+  return vec4(before, p.v, 0., 1.);
+}
+`;
+    expect(compile(src).wgsl).toContain('return vec4<f32>(before, p.v, 0.0, 1.0);');
+    expect(agree(src, [])).toEqual([0, 1, 0, 1]);
+  });
+
+  it('a const that takes another name sees the call, as in JavaScript (change 0142)', () => {
     const src = `"use typeshade";
 class P {
   v: f32;
@@ -239,8 +259,8 @@ class P {
   return vec4(before.v, p.v, 0., 1.);
 }
 `;
-    expect(compile(src).wgsl).toContain('return vec4<f32>(before.v, p.v, 0.0, 1.0);');
-    expect(agree(src, [])).toEqual([0, 1, 0, 1]);
+    expect(compile(src).diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(agree(src, [])).toEqual([1, 1, 0, 1]);
   });
 
   it('field assignments that draw are not folded into a constructor, which would reorder them', () => {
