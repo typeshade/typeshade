@@ -3669,29 +3669,27 @@ value; its writes are lost. Write @inout xs to update the caller's array, or ret
   `list.push(…)` in the body compiles.
 - What it means: the declaration is refused with `TS8080`, on both halves (Rule 12.7). The option's
   example text: `grow(): parameter "list" is @out; a push to it needs @inout. Write @inout list.`
-  No new code. [inference, agent] `TS8080` now covers a misused array qualifier as well as a lost
+  No new code. [proposal, agent] Its final wording follows A15's push text ("… Write @inout list to push into the caller's array.") where it fits. [inference, agent] `TS8080` now covers a misused array qualifier as well as a lost
   write.
 
 **Decision 2. Rule 8.8 holds: `TS8080` applies only to an array with no size.**
 
-- [fact] The conflict, shown to the owner with one example: Rule 8.8 (change 0031) lets a helper
-  rewrite a fixed-size array parameter locally: `function xs(a: array<f32, 2>) { a = [a[1], a[0]];
+- [fact] The agent stopped before taking a side and asked (CLAUDE.md, rules that point different ways). The conflict, shown to the owner with one example: the language design table row "Rule 8.8; surface §14 and §52" and change 0031 (`changes/0031-mutable-parameters.md`) let a helper rewrite a fixed-size array parameter, which Rule 8.8 passes by value, as a local copy: `function xs(a: array<f32, 2>) { a = [a[1], a[0]];
 a[0] += 2.; return a[0] + a[1]; }`. A15 decision 1, read for every array, refuses it with
   `TS8080`.
 - [fact] The option the owner chose said: an array with a size is a value in WGSL and is a value
   today, so its local write loses nothing a caller saw; A10 Q-A spoke of `array<T>`.
 - What it means:
   1. `TS8080` applies to a parameter of an array with no size (`array<T>`) only.
-  2. A parameter of `array<T, N>` keeps Rule 8.8 and today's behaviour, `TS8018` included.
+  2. A parameter of `array<T, N>` keeps Rule 8.8 and today's behaviour, `TS8018` (`ASSIGN_TARGET`) included.
   3. A15 decision 1 item 1 is narrowed accordingly. Rule 8.8 does not change.
 
-**Decision 3. In a kernel function, the `TS8080` text offers `@inout` only until slice 3.**
+**Decision 3. Where `return` of the array is refused, the `TS8080` text offers `@inout` only until slice 3.**
 
-- [fact] At `eb0f87a9`, `return xs` of an array parameter in a kernel function is still refused
-  (`TS8020`) until slice 3, so the remedy "or return xs" fails there.
-- What it means: in a kernel function the text is `scale(): parameter "xs" is a value; its writes
-are lost. Write @inout xs to update the caller's array.` Where an array can be returned, the text
-  keeps "or return xs" (A15). [proposal, agent] Slice 3 restores the return remedy in kernels.
+- [observed result] On 2026-11-16, at `main` `01e50ba3` and at #1310 `eb0f87a9`, `compile()` refuses a function that returns an `array<f32>` parameter with `TS8020` ("This function returns array<f32>, an array with no size, which lives only in a storage binding …"), in a kernel and in a helper alike. The question named kernels only.
+- [inference, agent] With decision 2, `TS8080` applies only to an array with no size, so until slice 3 the return remedy fails in every function, and the text offers `@inout` only wherever the return is refused. This applies the option's rule ("`@inout` only where `return` of the array is refused") to the observed fact.
+- What it means: where the return is refused (every function until slice 3) the text is `scale(): parameter "xs" is a value; its writes
+are lost. Write @inout xs to update the caller's array.` Where an array can be returned, the text keeps "or return xs" (A15). [proposal, agent] Slice 3 restores the return remedy in kernels.
 
 **Decision 4. The bundle budgets of slice 2.**
 
@@ -3721,8 +3719,29 @@ are lost. Write @inout xs to update the caller's array.` Where an array can be r
 - [inference, agent] Decision 2 resolves a conflict between two approved texts; the owner chose with
   the example shown, as CLAUDE.md asks. No decision conflicts with OD-1 to OD-8.
 
-- Affects: A15 decision 1 item 1 (narrowed to arrays with no size) and decision 2 item 2a (the
-  declared `@out` push); A15's `TS8080` texts; Rule 8.8 (kept); the bundle sizes of slice 2.
+**Deviations.**
+
+| ID  | Approved text                                   | Delivered                                                    | Disposition                                             |
+| --- | ----------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------- |
+| D-s | A15 decision 1, read for every array parameter. | `TS8080` applies to an array with no size only (decision 2). | made part of the approved text by this amendment (A16). |
+
+**Independent review record of A16.**
+
+- [fact] Reviewer: an AI agent (Claude Code) that did not write A16, on 2026-11-16. Revision reviewed:
+  `251197b4`. It found no blocking finding, 4 should-fix findings and 6 notes. Verdict: approve after
+  fixes. It checked the four bundle numbers against `scripts/bundle-budget.json`.
+
+| Finding                                                                     | Answer                                                                                                                |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 1. No review record.                                                        | This record.                                                                                                          |
+| 2. Decision 3's premise not shown.                                          | The agent compiled it: an observed result, which shows `TS8020` in every function; decision 3 is stated on that fact. |
+| 3. Rule 8.8's citation.                                                     | Fixed: the table row and change 0031; `TS8018` named `ASSIGN_TARGET`.                                                 |
+| 4. `Affects` incomplete.                                                    | Fixed.                                                                                                                |
+| Notes: the agent stopping, a deviation line, the push text, long sentences. | Fixed: the stop is recorded; D-s; decision 1 notes A15's wording.                                                     |
+
+- [fact] No review has read the revision that answers this review.
+
+- Affects: A15 decision 1 items 1, 2 and 4 (narrowed to arrays with no size; the texts) and decision 2 item 2a (the declared `@out` push); A15's `Affects` (Rule 8.25 and surface §70 state the `@out` push refusal); Rule 8.8 (kept); the bundle sizes of slice 2.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
