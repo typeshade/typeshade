@@ -139,3 +139,23 @@ and every person reads this file before any other document of this repository.
     2026-11-11: the compiler records the decorator and reports it to a tool, or the compiler
     runs it to change the code. The proposal shows both with their costs against OD-3, and the
     owner decides there.
+
+### OD-9. A TypeShade program need not translate one-to-one into a target language
+
+- Date: 2026-11-16. The owner said this while the agent explained which forms of a reference to
+  an object WGSL can express (proposal 0142, in draft).
+- The owner's words: "제가 얘기하고 싶은건 typeshade로 작성된 코드가 1:1로 다른 언어로 번역될
+  필요가 없다는거예요."; "어차피 컴파일러 수준에서 결정 가능하지 않나? 언어가 불가능인게 아니라
+  구현부가 없어서 현재로써 안되는건 아니고?"; "아니 어차피 컴파일되면 힙이고 뭐고 필요없지
+  않아?". The agent wrote the meaning below and asked whether it was right; the owner answered
+  "네 맞아요".
+- What it means:
+  - TypeShade says what a program means. WGSL, GLSL and the CPU code are what the compiler
+    produces from it.
+  - That a target language has no construct for a form is not a reason for the language to
+    refuse the form. The compiler rewrites it: more than one copy of a function, a struct taken
+    apart, a tag and a branch, or any other code with the same result.
+  - A form is refused for one of two reasons only. The compiler does not implement it yet, and
+    the diagnostic says so. Or no compilation can give it its meaning.
+  - Cost recorded: the emitted code does not have to look like the source, so the size of the
+    emit and the debugging of it are the compiler's work.
