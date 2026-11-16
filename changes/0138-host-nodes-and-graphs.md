@@ -3340,7 +3340,7 @@ this amendment.
 - [fact] The option the owner did not choose, for each:
   - Q12: "f64로 고정, Buffer<f64> C*R개 받음" (English translation: fix `f64`, take a `Buffer<f64>` of
     `C * R`). Its cost: a layout path, tests and an editor overload for a matrix of `f64`, while a
-matrix of `f64` as a result stays refused.
+    matrix of `f64` as a result stays refused.
   - Q13: "항목 3에는 적음" (English translation: write it for item 3). Its cost: a `Buffer<i32>` passes
     at a `u32` place, such as indices or an indirect count, and the editor does not catch it.
   - [inference, agent] Neither option of either question reverses an entry of OD-1 to OD-8.
