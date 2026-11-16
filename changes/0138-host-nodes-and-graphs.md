@@ -3418,7 +3418,7 @@ this amendment.
 
 ### A14. Slice 1 merged: the bundle budgets after A13, and its open items (2026-11-16)
 
-- [fact] Why. Slice 1 of A10's slice table merged on 2026-11-16 as #1257, squash commit `3b579904`.
+- [fact] Why. Slice 1 of A10's slice table merged on 2026-11-16 as #1257, merge commit `3b579904`.
   After A13 decision 4, the owner accepted two more bundle sizes in the conversation. This amendment
   records them, the merged state, and the items slice 1 leaves open.
 - [fact] Baseline: `main` at `ec751e08`.
@@ -3426,8 +3426,7 @@ this amendment.
 
 **Decision 1. The bundle budgets after A13.**
 
-- [fact] A13 decision 4 accepted the gzip sizes of #1257 at `9b78bae7`. Two later commits of #1257
-  moved them again:
+- [fact] A13 decision 4 accepted the gzip sizes of #1257 at `9b78bae7`. Two later commits of #1257 moved them again, `3d697364` and `94c765dc`. The owner was asked at `3d697364` and at `2f1d272a`, which carries `94c765dc`'s sizes unchanged:
 
 | Bundle                 | A13 (`9b78bae7`) | `3d697364` | `2f1d272a` |
 | ---------------------- | ---------------- | ---------- | ---------- |
@@ -3437,8 +3436,7 @@ this amendment.
 | `typeshade/random`     | 51,896           | 52,040     | 52,173     |
 
 - [fact] `3d697364` names a `Buffer` or a `Uniform` in the refusal of a call with plain data (Rule
-  12.5). `2f1d272a` closes review findings S1 to S3 of #1257 (A12 D2 in the program runtime and
-  WebGL2, the line of the first use on every path, A13 Q12 once an element is fixed).
+  12.5). `94c765dc` closes review findings S1 to S3 of #1257 (A12 D2 in the program runtime and WebGL2, the line of the first use on every path, A13 Q12 once an element is fixed) and sets the new sizes. `2f1d272a` only quotes the `Buffer<bool>` refusal in surface §64 as it reads after `94c765dc`.
 - [decision, owner, 2026-11-11] For `3d697364`, the owner picked the recommended option in the
   question UI: "수용, PR에 기록 (추천)" (English translation: accept, record it on the pull request;
   recommended). The record has no other words.
@@ -3449,6 +3447,7 @@ this amendment.
   `scripts/bundle-budget.json`. #1289 (`ad05431a`) then moved them by a few bytes and recorded its
   own caps. On `main` at `ec751e08`, `typeshade/runtime` is 171,253 and `typeshade/fuse` 115,599;
   `typeshade/algorithms` and `typeshade/random` are as at `2f1d272a`.
+- [fact] These caps of the merged state are the owner's own measurement, recorded in commits; the two answers above in the question UI do not cover them. `typeshade/emit`, which A12 and A13 do not list, moved from 117,367 to 117,466 on `main`.
 
 **The slices of milestone 4, status.**
 
@@ -3471,6 +3470,7 @@ this amendment.
 | Review note N4: the surface table does not say that vertex attributes of different scalars leave the element open, so `f32`.                                                   | Review of #1257 | The next edit of surface §67.                                            |
 | Review note N5: a `fuse` plan refused after its call check leaves an element fixed.                                                                                            | Review of #1257 | Slice 5, which replaces today's `fuse`.                                  |
 | Review note N6: no WebGPU or WebGL2 run of the new result layouts outside CI.                                                                                                  | Review of #1257 | CI covers it; no local action.                                           |
+| [inference, agent] On WebGPU, disposing an array argument right after a call may fail that call (`bufferFor`); inferred from reading, not run.                                 | #1257 body      | Test it on WebGPU in slice 2, or in CI.                                  |
 | The line of the first use is read off the stack (`callSite`, `hostSite`); a host file in a `core`, `runtime` or `rhi` directory, or a flattened bundle, can name another line. | #1257 body      | Recorded; no slice assigned.                                             |
 
 - [fact] The delta review of #1257's fixes `94c765dc` and `2f1d272a` by a separate agent was cut
@@ -3479,7 +3479,7 @@ this amendment.
 
 **Open, owner must settle.**
 
-- [fact] Nothing new. D-p's slice is asked when slices 2 to 6 are planned.
+- [fact] D-p: which slice closes it. The agent asks the owner when slices 2 to 6 are planned. Nothing else.
 - [inference, agent] No statement of this amendment conflicts with an entry of
   `docs/owner-decisions.md` (OD-1 to OD-8).
 
