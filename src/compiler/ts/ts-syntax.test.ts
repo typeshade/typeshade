@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { compile, type CompileResult } from './compile.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { typeKey } from '../../core/ir/types.js';
@@ -400,9 +401,6 @@ describe('a float operand of & | ^', () => {
         Both = 1 | 2,
       }
       const MASK: u32 = 1 | 2;
-      const A = 1;
-      const B = 4;
-      const AB = A | B;
       export function tier(s: i32): i32 {
         switch (s) {
           case 1 | 2:
@@ -417,24 +415,35 @@ describe('a float operand of & | ^', () => {
       export function mask(): u32 {
         return MASK;
       }
-      export function ab(): i32 {
-        return AB;
-      }
     `);
-    for (const line of [
-      'const Flag_Both: i32 = 3;',
-      'const MASK: u32 = 3u;',
-      // `A | B` over constants of no fixed type is their integer (F7 of the fourteenth review).
-      'const AB: i32 = 5;',
-      'case 3: {',
-    ]) {
+    for (const line of ['const Flag_Both: i32 = 3;', 'const MASK: u32 = 3u;', 'case 3: {']) {
       expect(c.wgsl).toContain(line);
     }
     expect(c.eval('tier', [3])).toBe(10);
     expect(c.eval('tier', [1])).toBe(0);
     expect(c.eval('both')).toBe(3);
     expect(c.eval('mask')).toBe(3);
-    expect(c.eval('ab')).toBe(5);
+    // `ab(): f32` returning `AB` was 5.0 on main, when `A | B` was an f32. `A | B` over constants
+    // of no fixed type is their integer now (F7 of the fourteenth review, accepted by the owner
+    // as E3 of 2026-11-13), so an f32 position refuses it, names it and gives the verified edit.
+    const ab = `"use typeshade";
+const A = 1;
+const B = 4;
+const AB = A | B;
+export function ab(): f32 {
+  return AB;
+}
+`;
+    const said =
+      '"AB" is an integer by its bit operator, and this position takes an f32. Write "f32(AB)" ' +
+      'for the float value.';
+    expect(compile(ab).diagnostics.map((d) => d.message)).toEqual([said]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.shade.ts', ab);
+    expect(service.getDiagnostics('a.shade.ts').map((d) => d.message)).toEqual([said]);
+    const fixed = ab.replace('return AB;', 'return f32(AB);');
+    expect(compile(fixed).diagnostics).toEqual([]);
+    expect(compile(fixed).eval('ab')).toBe(5);
     // A number that is not whole has no bits to combine, so it is refused like any float.
     expect(refusal('const M = 1.5 | 2;\nexport function k(): f32 {\n  return 1.;\n}')).toEqual({
       code: 'TS8003',

@@ -624,9 +624,10 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     // `ii + M` was refused, `f + M` accepted and `M / 2` called it an integer. It is the tree's
     // integer now, as `const M = 1 << 1` was: beside an f32 it is refused (decision 1).
     const beside = mod('const M = 1 | 2;\n', 'return x * M;', 'f32', 'x: f32');
+    // The refusal names the constant and its verified edit (E3 of 2026-11-13).
     const mismatch =
-      'TS8003: Type mismatch: cannot * f32 and i32 — no implicit int/float conversion. Cast ' +
-      'explicitly: f32(intVal) or i32(floatVal) / u32(floatVal).';
+      'TS8003: "M" is an integer by its bit operator, and this position takes an f32. Write ' +
+      '"f32(M)" for the float value.';
     expect(compile(beside).diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([mismatch]);
     expect(editor(beside)).toEqual([mismatch]);
     for (const [body, value] of [
@@ -644,10 +645,14 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
   });
 
   it('beside an f32 the integer is refused where the f32 use stands, and the cast compiles', () => {
-    const mismatch =
-      'Type mismatch: cannot + f32 and i32 — no implicit int/float conversion. Cast explicitly: ' +
-      'f32(intVal) or i32(floatVal) / u32(floatVal).';
-    for (const body of ['return x + (1 | 2);', 'let f = K | J;\n  return x + f;']) {
+    // The refusal names the tree and its verified edit (E3 of 2026-11-13).
+    for (const [body, tree] of [
+      ['return x + (1 | 2);', '1 | 2'],
+      ['let f = K | J;\n  return x + f;', 'f'],
+    ]) {
+      const mismatch =
+        `"${tree}" is an integer by its bit operator, and this position takes an f32. ` +
+        `Write "f32(${tree})" for the float value.`;
       const source = mod(K, body, 'f32', 'x: f32');
       const result = compile(source);
       expect(result.diagnostics.map((d) => `${d.code}: ${d.message}`)).toEqual([
@@ -1891,7 +1896,8 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
   };
   it.each([
     ['a /= f32(2)', 'let a = 1|2;\n  a /= f32(2);\n  return f32(a);', 'cannot /= i32 and f32'],
-    ['/ (f32(2)+1)', 'return f32((5|0)/(f32(2)+1));', 'cannot / i32 and f32'],
+    // E3 of 2026-11-13: the refusal names the tree beside the f32.
+    ['/ (f32(2)+1)', 'return f32((5|0)/(f32(2)+1));', '"5|0" is an integer by its bit operator'],
     ['/ (u32(2)+1)', 'return f32((-7|0)/(u32(2)+1));', 'cannot / i32 and u32'],
   ])('F1: a written conversion keeps its type inside arithmetic: %s', (_, body, mismatch) => {
     const got = both(T12(body, 'f32'));

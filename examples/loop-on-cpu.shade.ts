@@ -18,7 +18,7 @@ function tally(x: f32): f32 {
 
 // R1: a while loop, whose trip count is known only when it ends.
 export function halve(xs: array<f32>) {
-  let n = xs.length;
+  let n: u32 = xs.length;
   while (n > 1) {
     n = n / 2;
     xs[n] = 0;

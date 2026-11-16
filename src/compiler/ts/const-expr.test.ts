@@ -190,6 +190,15 @@ const CASES: readonly Case[] = [
     value: () => 0,
   },
   {
+    name: 'u32() of a select of abstract integers on a condition Tint folds (#1291)',
+    type: 'u32',
+    consts: 'const KB = 1 | 2;',
+    ret: 'x + u32(select(~6, 3, 0 >= KB))',
+    wgsl: 'return (x + select(4294967289u, 3u, (0 >= KB)));',
+    refused: ['u32(select(-7'],
+    value: (x) => (x + 4294967289) >>> 0,
+  },
+  {
     name: 'the complement of a builtin over written integers, converted to u32 (issue 1261)',
     type: 'u32',
     ret: 'x + u32(~min((9 | 0), 5))',

@@ -1093,8 +1093,9 @@ export function noteWrittenDivision(
   subjects: readonly string[] = [subject],
   readings = false,
 ): void {
-  // A `/` over a constant of no fixed type is refused by its own sentence (Amendment A2).
-  if (divisionByNode.get(node)?.reads.length) return;
+  // A `/` over a constant of no fixed type that A2 refuses is said by A2's sentence: the report
+  // drops this record then (`outer`). One A2 leaves alone (no other read makes the constant an
+  // integer) is refused here, as E1 of 2026-11-13 asks (`a /= k` with `const k = 7`).
   let list = writtenDivisionsOf.get(sourceFile);
   if (list === undefined) writtenDivisionsOf.set(sourceFile, (list = []));
   if (list.some((d) => d.node === node)) return;
@@ -1533,6 +1534,49 @@ export function reportAbstractDivisions(
       },
     });
   }
+  // A tree of written integers in a position that takes an `f32` is an integer beside a float
+  // (decision 1 of #1272). The refusal names the tree, and its edit, `f32(…)` around it, is
+  // verified with the module's others (E3 of 2026-11-13).
+  for (let i = 0; i < diagnostics.length; i++) {
+    const d = diagnostics[i]!;
+    if (d.category !== 'error' || d.start === undefined || !FLOAT_MISMATCH.test(d.message))
+      continue;
+    if (d.code !== TS_CODES.TYPE_MISMATCH && d.code !== TS_CODES.MATH_ARGUMENT) continue;
+    const at = nodeSpanning(sourceFile, d.start, d.start + d.length);
+    if (at === undefined || programFileOf(at) !== 0) continue;
+    const trees = floatPositionOperands(at).filter(isTreeOperand);
+    if (trees.length !== 1) continue;
+    const tree = skipParenNodes(trees[0]!);
+    const text = writtenText(tree).replace(/\s+/g, ' ');
+    const said = `"${text}" is an integer by its bit operator, and this position takes an f32.`;
+    let current: TsCompilerDiagnostic = {
+      ...d,
+      message: `${said} Write "f32(${text})" for the float value.`,
+    };
+    diagnostics[i] = current;
+    const restate = (message: string): void => {
+      const next = { ...current, message };
+      const j = diagnostics.indexOf(current);
+      if (j >= 0) diagnostics[j] = next;
+      current = next;
+    };
+    const change: SourceChange = {
+      start: tree.getStart(sourceFile),
+      end: tree.getEnd(),
+      text: `f32(${text})`,
+    };
+    batch.push({
+      node: tree,
+      build: () => ({
+        diagnostic: () => current,
+        sets: [change, change],
+        conflict: false,
+        name: () => undefined,
+        generic: () => restate(said),
+        bare: () => restate(said),
+      }),
+    });
+  }
   // The `>>` over a written `u32` and the value forms (`Write the u32 with the same bits, …`) name
   // edits too, and each is verified with the module's others, as every named edit is ("name only
   // verified edits"; F6 of the fourteenth review of #1272). One that does not verify is not
@@ -1595,6 +1639,69 @@ type Scalar = 'f32' | 'i32' | 'u32';
 const SHIFT_EDIT = / Write "(?<edit>u32\([^"]*\) >> [^"]*)" for the u32 shift\.$/;
 const VALUE_EDIT =
   / Write the (?:u32|i32) with the same bits, (?<edit>0x[0-9a-f]+|-?\d+)(?:, or declare a u32)?\.$/;
+
+/** The sentences of a type error between an integer and an `f32`. */
+const FLOAT_MISMATCH =
+  /(?:cannot \S+ (?:i32|u32) and f32|cannot \S+ f32 and (?:i32|u32)|cannot let\/const \S+ f32 and (?:i32|u32)|return type mismatch: declared f32, got (?:i32|u32)|Vector constructor element type mismatch: expected f32|takes an f32[^;]*; got (?:i32|u32)|the first is (?:i32|u32), this one f32|the first is f32, this one (?:i32|u32)|Argument \d+ of "[^"]+" type mismatch)/;
+
+/** The node of `sourceFile` that spans exactly `start` to `end`, the outermost such. */
+function nodeSpanning(sourceFile: ts.SourceFile, start: number, end: number): ts.Node | undefined {
+  let found: ts.Node | undefined;
+  const visit = (n: ts.Node): void => {
+    if (found !== undefined || n.getStart(sourceFile) > start || n.getEnd() < end) return;
+    if (n.getStart(sourceFile) === start && n.getEnd() === end) found = n;
+    else ts.forEachChild(n, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return found;
+}
+
+/** The operands a type error at `at` between an integer and an `f32` may stand on: a return's
+ *  value, a declaration's initializer, an operator's operands, a call's arguments, or, for an
+ *  argument the error stands on, the arguments of its call. */
+function floatPositionOperands(at: ts.Node): ts.Expression[] {
+  if (ts.isReturnStatement(at)) return at.expression === undefined ? [] : [at.expression];
+  if (ts.isVariableDeclaration(at)) return at.initializer === undefined ? [] : [at.initializer];
+  if (ts.isBinaryExpression(at)) return [at.left, at.right];
+  if (ts.isCallExpression(at) || ts.isNewExpression(at)) return [...(at.arguments ?? [])];
+  if (ts.isExpression(at) && ts.isCallExpression(at.parent)) return [...at.parent.arguments];
+  return [];
+}
+
+/** Whether `e` is a tree of written integers, or a read of a constant or a binding with no
+ *  written type that holds one and that nothing assigns again. */
+function isTreeOperand(e: ts.Expression): boolean {
+  const n = skipParenNodes(e);
+  if (writtenBitTree(n) || kindlessSource(n)) return true;
+  if (!ts.isIdentifier(n)) return false;
+  const d = declarationOf(n.text, n);
+  return (
+    d !== undefined &&
+    ts.isVariableDeclaration(d) &&
+    writtenTypeText(d, n.getSourceFile()) === undefined &&
+    d.initializer !== undefined &&
+    !reassignedAnywhere(d) &&
+    (writtenBitTree(d.initializer) || constantBitRoot(d.initializer))
+  );
+}
+
+/** Whether `e`'s root is a bit operator over values {@link constNumber} evaluates
+ *  (`A | B` with `const A = 1`). */
+function constantBitRoot(e: ts.Expression): boolean {
+  const n = skipParenNodes(e);
+  if (ts.isPrefixUnaryExpression(n)) {
+    return n.operator === ts.SyntaxKind.TildeToken && constNumber(n.operand) !== undefined;
+  }
+  if (!ts.isBinaryExpression(n)) return false;
+  const k = n.operatorToken.kind;
+  const bit =
+    k === ts.SyntaxKind.BarToken ||
+    k === ts.SyntaxKind.AmpersandToken ||
+    k === ts.SyntaxKind.CaretToken ||
+    k === ts.SyntaxKind.LessThanLessThanToken ||
+    k === ts.SyntaxKind.GreaterThanGreaterThanToken;
+  return bit && constNumber(n) !== undefined;
+}
 
 /** The innermost node of `sourceFile` that starts at `offset`. */
 function nodeAtOffset(sourceFile: ts.SourceFile, offset: number): ts.Node | undefined {
@@ -2116,16 +2223,18 @@ export function wrapsCannotChoose(
   const offers = (t: string) => allowed.some((a) => a === t || (t === 'f32' && a === 'f32(i32'));
   // The refusal may stand on a minus around the `/` (`-((~(1|2)) / 7)`).
   let node: ts.Expression = at;
+  let negated = false;
   while (
     ts.isParenthesizedExpression(node) ||
     (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken)
   ) {
     if (ts.isPrefixUnaryExpression(node)) {
-      if (offers('u32')) return true;
+      negated = true;
       node = node.operand;
     } else node = node.expression;
   }
   if (!ts.isBinaryExpression(node)) return false;
+  if (negated && offers('u32')) return true;
   const outward = (n: ts.Node): ts.Node => {
     let u = n;
     while (ts.isParenthesizedExpression(u.parent)) u = u.parent;
@@ -2170,7 +2279,15 @@ export function wrapsCannotChoose(
     const b = constNumber(node.right);
     if (a !== undefined && b !== undefined && b !== 0 && Math.trunc(a / b) === 0) return true;
   }
-  return constant && containsTree(node);
+  // A constant's sentence that names only one operand of a mixed divisor: the divisor holds the
+  // constant and a tree, so wrapping the constant leaves the tree (`(-(5|0)) / (c ? (-7|0) : k)`).
+  // A constant that is a whole operand (`L / ((-7|0) + 1)`) is typed by its wrap, which chooses.
+  if (!constant) return false;
+  const divisor = skipParenNodes(node.right);
+  const readsConstant = (x: ts.Node): boolean =>
+    (ts.isIdentifier(x) && untypedConstant(x) !== undefined) ||
+    ts.forEachChild(x, (c) => (readsConstant(c) ? true : undefined)) === true;
+  return !ts.isIdentifier(divisor) && containsTree(divisor) && readsConstant(divisor);
 }
 
 /** The remedy of a refusal that names no edit: what to write around which operands, or, where
@@ -2517,6 +2634,36 @@ function readingPair(
       if (v !== undefined) return v;
     }
   }
+  // A method's result (`C.g()`) and a getter's (`new G().v`), with no written result: those of
+  // every return of every declaration of that name in the file (E1 of 2026-11-13).
+  const member =
+    ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)
+      ? { name: n.expression.name.text, getter: false }
+      : ts.isPropertyAccessExpression(n)
+        ? { name: n.name.text, getter: true }
+        : undefined;
+  if (member !== undefined) {
+    const decls: (ts.MethodDeclaration | ts.GetAccessorDeclaration)[] = [];
+    for (const id of identifiersNamed(sourceFile, member.name)) {
+      const p = id.parent;
+      const kind = member.getter ? ts.isGetAccessorDeclaration(p) : ts.isMethodDeclaration(p);
+      if (!kind) continue;
+      const d = p as ts.MethodDeclaration | ts.GetAccessorDeclaration;
+      if (d.body !== undefined && writtenResultText(d, sourceFile) === undefined) decls.push(d);
+    }
+    for (const d of decls) {
+      const returns: ts.Expression[] = [];
+      const walk = (x: ts.Node): void => {
+        if (ts.isReturnStatement(x) && x.expression !== undefined) returns.push(x.expression);
+        else if (!ts.isFunctionLike(x)) ts.forEachChild(x, walk);
+      };
+      ts.forEachChild(d.body!, walk);
+      for (const r of returns) {
+        const v = of(r);
+        if (v !== undefined) return v;
+      }
+    }
+  }
   return undefined;
 }
 
@@ -2813,8 +2960,10 @@ export function provenTyped(node: ts.Expression, depth = 0): boolean {
       const carried = carriedParts(n);
       if (carried !== undefined) return carried.some((e) => provenTyped(e, depth + 1));
       const f = calleeAt(callee.text, n);
-      // A builtin or a name no declaration of this file binds keeps its own type.
-      return f === undefined ? true : writesResult(f);
+      if (f !== undefined) return writesResult(f);
+      // A builtin's integer is its arguments' origin (`countOneBits(gg())`, E1); one with no
+      // argument, or a name no declaration of this file binds, keeps its own type.
+      return n.arguments.length === 0 || n.arguments.some((e) => provenTyped(e, depth + 1));
     }
     if (ts.isPropertyAccessExpression(callee)) {
       // A method: every method of that name in the file writes its result type.
