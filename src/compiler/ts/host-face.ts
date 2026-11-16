@@ -472,6 +472,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   const stem = options.fileName.replace(/\\/g, '/').split('/').pop()!;
   // The front end already validated and emitted this module with the default options.
   // Reuse that text, not the console-recorded or integer-fp64 variant above.
+  // The one compiled program manifest (Rule 11.10), shared by both host generators.
   const pack = buildManifest(
     m,
     {
@@ -843,7 +844,7 @@ function addsTo(f: FuncDecl, name: string): boolean {
   return found;
 }
 
-/** The face of a kernel function (Rules 8.21 to 8.23): each value parameter's host type, each
+/** The face of a kernel function (Rule 8.22; host values and parameters follow Rules 8.21 and 8.23): each value parameter's host type, each
  *  array's layout, and what its call dispatches when its loops lower, or why they do not. */
 function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const m = c.entry.module;
