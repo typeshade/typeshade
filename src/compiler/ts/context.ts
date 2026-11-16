@@ -1177,6 +1177,15 @@ export class LoweringScope {
     return { op: 'varref', type: init.type, name };
   }
 
+  /** Hold `init` in a fresh variable ahead of the statement being lowered, and return the
+   *  variable as a place: what a function that writes its parameter is handed for a value nothing
+   *  else holds (`f(new P())`, change 0142). Only where {@link canHoist} says so. */
+  hoistVar(prefix: string, init: Expr): Expr {
+    const name = this.defineTemp(prefix, init.type, true);
+    this.hoisted.push({ s: 'var', name, type: init.type, init });
+    return { op: 'varref', type: init.type, name };
+  }
+
   /** Keep expression temporaries inside the branch that evaluates them. With no setup,
    * retain the ordinary select so existing programs keep their emitted representation. */
   selectWithSetup(

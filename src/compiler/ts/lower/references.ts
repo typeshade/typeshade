@@ -38,6 +38,7 @@ import {
 } from '../context.js';
 import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
+import { lowerExpression } from './expression.js';
 import { lowerLValue } from './statement.js';
 import { QUALIFIER_NAMES } from '../builtin-check.js';
 import { isWrittenObjectParameter } from '../object-reference.js';
@@ -214,6 +215,14 @@ export function lowerReferenceArgument(
     ts.isObjectLiteralExpression(place) ||
     ts.isArrayLiteralExpression(place)
   ) {
+    // An object nothing else holds is legal in JavaScript, and nothing else sees the write: the
+    // compiler holds it in a variable for the call (change 0142, Table 1).
+    const object = param.type.kind === 'struct' || param.type.kind === 'array';
+    if (object && scope.canHoist()) {
+      const value = lowerExpression(place, sourceFile, scope, diagnostics, param.type);
+      if (value === undefined) return undefined;
+      if (typeKey(value.type) === typeKey(param.type)) return scope.hoistVar('_arg', value);
+    }
     return push(
       place,
       `${takes}, and "${place.getText(sourceFile)}" is a value nothing holds, so there is no ` +

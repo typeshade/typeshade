@@ -170,6 +170,88 @@ function writeTarget(node: ts.Node): ts.Expression | undefined {
   return undefined;
 }
 
+/** What `body` does to the object `name` names: whether it writes a field or an element of it
+ *  (itself, through a method or a function that writes, or through a second name declared from
+ *  it), and whether it assigns `name` whole or declares the name again. `body` is the body of the
+ *  function that holds the name. */
+export function objectWrites(
+  name: string,
+  body: ts.Node,
+  sourceFile: ts.SourceFile,
+): { readonly member: boolean; readonly whole: boolean; readonly shadowed: boolean } {
+  // The second names of the object: `const q = p`, `let r = q` (change 0142, Table 1).
+  const names = new Set([name]);
+  for (let grew = true; grew;) {
+    grew = false;
+    const find = (n: ts.Node): void => {
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.initializer !== undefined &&
+        !names.has(n.name.text)
+      ) {
+        const init = bare(n.initializer);
+        if (ts.isIdentifier(init) && names.has(init.text)) {
+          names.add(n.name.text);
+          grew = true;
+        }
+      }
+      ts.forEachChild(n, find);
+    };
+    find(body);
+  }
+  let member = false;
+  let whole = false;
+  let shadowed = false;
+  const scan = (n: ts.Node): void => {
+    if (n !== body && ts.isFunctionLike(n)) {
+      // A local function that declares the name again hides it.
+      if (n.parameters.some((q) => ts.isIdentifier(q.name) && q.name.text === name)) return;
+    }
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name)
+      shadowed = true;
+    const target = writeTarget(n);
+    if (target !== undefined) {
+      const root = rootOf(target);
+      if (root !== undefined && names.has(root.name.text)) {
+        if (!root.whole) member = true;
+        else if (root.name.text === name) whole = true;
+      }
+    }
+    if (ts.isCallExpression(n)) {
+      // `xs.push(v)`, `xs.fill(v)`, and a method that writes its own object (Rule 8.10).
+      if (ts.isPropertyAccessExpression(n.expression)) {
+        const root = rootOf(n.expression.expression);
+        const method = n.expression.name.text;
+        if (
+          root !== undefined &&
+          names.has(root.name.text) &&
+          (ARRAY_MUTATORS.has(method) || methodWritesThis(method, sourceFile))
+        )
+          member = true;
+      }
+      // An argument a function of the file writes through.
+      const callee = fileFunction(n, sourceFile);
+      if (callee !== undefined) {
+        n.arguments.forEach((a, i) => {
+          const root = rootOf(a);
+          const q = callee.parameters[i];
+          if (
+            root !== undefined &&
+            names.has(root.name.text) &&
+            q !== undefined &&
+            isWrittenObjectParameter(q, sourceFile)
+          )
+            member = true;
+        });
+      }
+    }
+    ts.forEachChild(n, scan);
+  };
+  scan(body);
+  return { member, whole, shadowed };
+}
+
 const WRITTEN = new WeakMap<ts.ParameterDeclaration, boolean>();
 const READING = new Set<ts.ParameterDeclaration>();
 
@@ -194,58 +276,11 @@ export function isWrittenObjectParameter(
     READING.has(p)
   )
     return false;
-  const name = p.name.text;
   READING.add(p);
-  let member = false;
-  let whole = false;
-  let shadowed = false;
-  const scan = (n: ts.Node): void => {
-    if (n !== fn.body && ts.isFunctionLike(n)) {
-      // A local function that declares the name again hides the parameter.
-      if (n.parameters.some((q) => ts.isIdentifier(q.name) && q.name.text === name)) return;
-    }
-    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name)
-      shadowed = true;
-    const target = writeTarget(n);
-    if (target !== undefined) {
-      const root = rootOf(target);
-      if (root?.name.text === name) {
-        if (root.whole) whole = true;
-        else member = true;
-      }
-    }
-    if (ts.isCallExpression(n)) {
-      // `xs.push(v)`, `xs.fill(v)`, and a method that writes its own object (Rule 8.10).
-      if (ts.isPropertyAccessExpression(n.expression)) {
-        const root = rootOf(n.expression.expression);
-        const method = n.expression.name.text;
-        if (
-          root?.name.text === name &&
-          (ARRAY_MUTATORS.has(method) || methodWritesThis(method, sourceFile))
-        )
-          member = true;
-      }
-      // An argument a function of the file writes through.
-      const callee = fileFunction(n, sourceFile);
-      if (callee !== undefined) {
-        n.arguments.forEach((a, i) => {
-          const root = rootOf(a);
-          const q = callee.parameters[i];
-          if (
-            root?.name.text === name &&
-            q !== undefined &&
-            isWrittenObjectParameter(q, sourceFile)
-          )
-            member = true;
-        });
-      }
-    }
-    ts.forEachChild(n, scan);
-  };
-  scan(fn.body);
+  const w = objectWrites(p.name.text, fn.body, sourceFile);
   READING.delete(p);
   // A parameter the body assigns whole names a local (Rule 8.8); a shadowed name is not read.
-  const written = member && !whole && !shadowed;
+  const written = w.member && !w.whole && !w.shadowed;
   WRITTEN.set(p, written);
   return written;
 }

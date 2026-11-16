@@ -42,6 +42,7 @@ import {
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { foldIndexConst } from '../index-bound.js';
 import ts from 'typescript';
+import { objectWrites } from '../object-reference.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, isF64, isVec, isVec64, u32T } from '../../../core/ir/types.js';
@@ -906,6 +907,8 @@ function lowerDeclarationKind(
   // (`const a = src`) is the binding, as it is in TypeScript: the name resolves to it and no
   // declaration is emitted, so `a[i]` and `a.length` read `src` (#46). A `let` would be a copy,
   // and so would anything but the bare name.
+  const secondName = secondNameOf(decl, init, annotated, sourceFile, scope, diagnostics);
+  if (secondName !== 'none') return undefined;
   const holdsRuntimeArray =
     runtimeArrayWithin(annotated ?? init.type, (n) => scope.structByName(n)) !== undefined;
   if (holdsRuntimeArray) {
@@ -1087,6 +1090,75 @@ function lowerDeclarationKind(
     return stmt;
   }
   return withSpan({ s: 'var', name: ir, type: bindingType, init } as Stmt, sourceFile, spanNode);
+}
+
+/**
+ * `const q = p` or `let q = p` where `p` names an object and something writes a field or an
+ * element through one of the two names: `q` is a second name of `p`'s object, as it is in
+ * JavaScript, and no declaration is emitted (change 0142, Table 1). Where nothing writes through
+ * either name a copy has JavaScript's result, and the declaration stays a copy (`'none'`).
+ *
+ * A second name that one of the two is assigned whole after (`q = r`, `p = new P()`) names an
+ * object the compiler must follow at each write, which is stage 2: it is refused as not supported
+ * yet (`'refused'`), never compiled to a copy JavaScript would not make (OD-9).
+ */
+function secondNameOf(
+  decl: ts.VariableDeclaration,
+  init: Expr,
+  annotated: ShaderType | undefined,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): 'bound' | 'refused' | 'none' {
+  const type = annotated ?? init.type;
+  if (type.kind !== 'struct' && !(type.kind === 'array' && type.size !== undefined)) return 'none';
+  if (!ts.isIdentifier(decl.name) || decl.initializer === undefined) return 'none';
+  const from = unwrapParens(decl.initializer);
+  if (!ts.isIdentifier(from)) return 'none';
+  const target = scope.resolve(from.text);
+  if (target === undefined || (target.kind !== 'local' && target.kind !== 'param')) return 'none';
+  // A name of another type is a view of the object (a base class of it), which keeps its own
+  // rules (change 0110).
+  if (typeKey(target.type) !== typeKey(type)) return 'none';
+  let body: ts.Node = decl;
+  while (body.parent !== undefined && !ts.isFunctionLike(body)) body = body.parent;
+  if (!ts.isFunctionLike(body)) return 'none';
+  const name = decl.name.text;
+  const mine = objectWrites(name, body, sourceFile);
+  const theirs = objectWrites(from.text, body, sourceFile);
+  if (!mine.member && !theirs.member) return 'none';
+  if (mine.whole || theirs.whole) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl.name,
+      `"${name}" is a second name of the object "${from.text}" names, and ` +
+        `"${mine.whole ? name : from.text}" is assigned again later. Following which object each ` +
+        `name then refers to is not supported yet (change 0142, stage 2). Give ` +
+        `"${mine.whole ? name : from.text}" its own variable for the second object.`,
+      TS_CODES.UNSUPPORTED,
+    );
+    return 'refused';
+  }
+  try {
+    scope.defineAlias(name, target);
+  } catch (e) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl.name,
+      e instanceof Error ? e.message : String(e),
+      TS_CODES.DUPLICATE_SYMBOL,
+    );
+    return 'refused';
+  }
+  scope.recordDeclaration(sourceFile, decl.name, {
+    name,
+    kind: 'local',
+    type: target.type,
+    mutable: target.mutable,
+  });
+  return 'bound';
 }
 
 /** A value a name can be written through: a struct, an array, a vector or a matrix. */
