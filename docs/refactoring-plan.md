@@ -52,10 +52,10 @@ Likewise, test-only differential gates do not establish a delivered end-user div
 | --- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | R0  | Merged in #1282                                | This plan; reconcile PR dependencies and document authority.                                                                                                 | Identified baselines, open items and links; documentation checks.                                                            |
 | R1  | Extraction merged; remaining analysis retained | `src/compiler/ts/abstract-const.ts`: separate candidate construction and batch validation from constant analysis.                                            | Equal diagnostic text and order, compiler/editor parity, unchanged generated output, at most two edited compiles per module. |
-| R2  | Spelling/stages merged; signatures in #1286    | `src/compiler/ts/context.ts`, `src/compiler/ts/lower/function.ts`, `src/language-service/diagnostics.ts`: explicit analysis lifetimes and shared results.    | Repeated compilation isolation and parity on the same source; no new semantic IR or query framework.                         |
-| R3  | Implemented in #1288                           | `src/compiler/ts/host-face.ts`: separate export analysis, declaration generation and runtime wrapper generation.                                             | Generated JS, declarations and metadata agree; packed consumers pass.                                                        |
+| R2  | Merged in #1284, #1285 and #1286               | `src/compiler/ts/context.ts`, `src/compiler/ts/lower/function.ts`, `src/language-service/diagnostics.ts`: explicit analysis lifetimes and shared results.    | Repeated compilation isolation and parity on the same source; no new semantic IR or query framework.                         |
+| R3  | Merged in #1288                                | `src/compiler/ts/host-face.ts`: separate export analysis, declaration generation and runtime wrapper generation.                                             | Generated JS, declarations and metadata agree; packed consumers pass.                                                        |
 | R4  | Implemented in #1289; depends on #1257         | `src/core/host-kernel.ts`, `src/core/resident.ts`, `src/runtime/resource.ts`, `src/runtime/program.ts`: ownership, visibility, lifetime and execution state. | Resource sharing, disposal, failure rollback and downstream tests on the resulting Buffer API.                               |
-| R5  | Implemented in #1290                           | `src/core/passes/kernel-lower.ts`, `src/core/backends/`, validation scripts: separate transformation, execution and verdict responsibilities where useful.   | Source mapping and output preserved; relevant backend and differential gates.                                                |
+| R5  | Merged in #1290                                | `src/core/passes/kernel-lower.ts`, `src/core/backends/`, validation scripts: separate transformation, execution and verdict responsibilities where useful.   | Source mapping and output preserved; relevant backend and differential gates.                                                |
 
 Each row is a PR series, not a deadline or a file-size target. Keep documentation and tests
 with each implementation slice. Record actual checks in that slice's PR.
@@ -122,8 +122,12 @@ Completed on 2026-11-16 after checking the current heads, required checks, confl
 - #1282 merged as `fa60da805834bff38a3290d6dc7da9c178a34ed7`.
 - #1283 merged as `397071cbdbfb1cc3d91611e6c44e5d7639e1187e`, after all 26 checks passed on its synchronized head.
 - #1284 merged as `f4855c8fd9c86f46340b941c8b9330bbab7c35dc`, after all 26 checks passed on `92601bf`.
+- #1285 merged as `5df77cb59f52d92c32ced92741647b8109e6da47`, after all 26 checks passed.
+- #1286 merged as `bd796a11c01e97b6b599b4cb8b3b71ae2663dd13`, after all 26 checks passed on `d66f33b7`.
+- #1288 merged as `b334eadd806c2baa75b0e8ae0ef065eb083ba78d`, after all 26 checks passed on `eaf5c635`.
+- #1290 merged as `ec746bcffc237dcd46022a952252aaa81ff02159`, after all 26 checks passed on `753744e7`.
 
-1. Integrate #1286, #1288 and #1290 after their current-head checks pass.
+1. Integrate #1257 and then #1289 after their current-head checks pass.
 2. Retain analysis-dependent R1 wording with inference; no further split is justified by this review.
 3. Retarget #1289 after #1257's contract and consumer migration settle, then revalidate before merging.
 
@@ -192,7 +196,7 @@ source-file identity and the independence of the two scopes.
 
 This was the first R2 slice. At its merge, function lowering and compiler/editor analysis remained
 follow-up work, and R3 and R5 had not started. The implementation record below supersedes that
-status. R4 integration remains blocked on the Buffer transition and its failing TypeNN candidate check.
+status. R4 integration waits for the Buffer transition; its TypeNN failure and remediation are recorded below.
 
 ## R2 entry-stage validation slice
 
@@ -223,10 +227,10 @@ records the hierarchy, file responsibilities, retained boundaries and limitation
 
 | Stage | PR                                                        | Baseline            | Local evidence                                                                        | Integration condition                                      |
 | ----- | --------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| R2    | [#1286](https://github.com/typeshade/typeshade/pull/1286) | `5df77cb5`          | 1,600 tests; 12 diagnostic/emit comparisons; analysis-cache reuse and invalidation    | Current-head CI                                            |
-| R3    | [#1288](https://github.com/typeshade/typeshade/pull/1288) | `5df77cb5`          | 541 tests covered; 118 identical complete host faces; API definition-path-only change | Current-head CI                                            |
+| R2    | [#1286](https://github.com/typeshade/typeshade/pull/1286) | `5df77cb5`          | 1,600 tests; 12 diagnostic/emit comparisons; analysis-cache reuse and invalidation    | Merged as `bd796a11`; 26 checks passed                     |
+| R3    | [#1288](https://github.com/typeshade/typeshade/pull/1288) | `5df77cb5`          | 541 tests covered; 118 identical complete host faces; API definition-path-only change | Merged as `b334eadd`; 26 checks passed                     |
 | R4    | [#1289](https://github.com/typeshade/typeshade/pull/1289) | #1257 at `58e8187a` | 131 tests; measured runtime bundle caps; unchanged lifecycle/state objects            | #1257 and consumer migration, retargeting and revalidation |
-| R5    | [#1290](https://github.com/typeshade/typeshade/pull/1290) | `5df77cb5`          | 406 tests; 118 identical complete host faces; shared IR and both tier plans           | Current-head CI                                            |
+| R5    | [#1290](https://github.com/typeshade/typeshade/pull/1290) | `5df77cb5`          | 406 tests; 118 identical complete host faces; shared IR and both tier plans           | Merged as `ec746bcf`; 26 checks passed                     |
 
 R1 review: `divisionSentence` reads origin and carried-value maps, and `readingsRemedy` depends
 on the same refusal facts. Keep that analysis-dependent wording with its analysis. The extracted
@@ -241,3 +245,43 @@ No additional analysis cache, universal query framework or semantic IR is introd
 R5 review: backend writers already use the shared emission walk; gate browser setup and child
 cleanup already have dedicated modules. Preserve these boundaries instead of rewriting them to
 satisfy a file-size target. Further work needs a concrete coupling or correctness problem.
+
+## R4 integration prerequisite
+
+R4 changes internal ownership only. It does not restore the removed public `Resident` contract.
+At #1257 head `58e8187a`, the TypeNN candidate check fails before tests because four files import that removed type.
+At that head, the downstream workflow pinned TypeNN to `3a7d66c623722cae4c1288a4a59e88bac1689fed`.
+A read-only inspection also found `write` and `destroy` calls in that consumer.
+The accepted proposal 0138, Amendments A10 and A11, describes its migration; a type alias alone would not complete it.
+
+1. Migrate and validate the pinned TypeNN consumer against the Buffer contract under proposal 0138.
+2. Update the downstream pin deliberately and pass the candidate build and CPU tests.
+3. Resolve #1257 against current main, including changes moved into the host generator modules.
+4. Integrate #1257 only after its current-head checks and review conditions pass.
+5. Retarget #1289 to main, preserve only its resource-state extraction, and repeat affected checks.
+
+TypeNN [PR #27](https://github.com/typeshade/typenn/pull/27) merged as `6ee9a603`, after CPU and Chromium/WebGPU CI passed. Its 684 CPU tests also pass locally. The migration preserves f32/u32 reads, uses set/dispose, and lands a stale parameter before replacement. #1257 now pins that validated consumer revision.
+
+The extraction is implemented and locally verified; its integration remains open.
+This blocker is distinct from issues #1280 and #1281 and from the completed compiler separations.
+
+## Buffer prerequisite integration evidence
+
+The former TypeNN blocker was reproduced on #1257 at `58e8187a` and migrated in TypeNN #27.
+That PR pins the approved Buffer candidate and passed both CPU and Chromium/WebGPU CI before merging.
+Its 684 CPU tests caught two migration details: disposed-handle wording and replacement of a stale parameter.
+The latter now reads device-written storage before set, preserving a replacement that aliases the host array.
+
+#1257's integration with main `b334eadd` preserves the accepted Buffer behavior in the extracted
+host modules. Eleven local suites pass 564 tests; 118 complete host faces match its Buffer baseline.
+The API snapshot changes only the HostExport definition path relative to that baseline.
+Build, lint, formatting, bundle boundaries, documentation references and Doorstop pass.
+The downstream gate pins TypeNN's merged revision `6ee9a603` deliberately.
+
+The combined runtime bundle measures 171,171 gzip bytes, split initial 52,020 and aggregate 173,626.
+The fuse bundle measures 115,529 bytes and split aggregate 116,533. The five exceeded caps record
+those measurements; floors remain unchanged. These costs do not establish a performance benefit.
+
+The final prerequisite synchronization `0d696ac0` includes main `ec746bcf` and the kernel separation.
+Five affected suites pass 143 tests, and the 118 host faces remain identical to the Buffer baseline.
+The full TypeNN build and 684 CPU tests also pass against integrated compiler `1aba11a9`.

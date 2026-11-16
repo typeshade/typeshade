@@ -834,3 +834,28 @@ The runtime should grow from the compiler's existing IR and metadata rather than
 ---
 
 **Status:** architectural direction only. Public APIs should be designed and implemented in separate proposals with concrete compiler/runtime constraints and tests.
+
+## Host compilation boundaries
+
+`src/compiler/ts/host-face.ts` owns the single compile and export analysis. It hands analyzed
+export records from `host-face-contracts.ts` to `host-view.ts` for TypeScript declarations and
+`host-module.ts` for executable JavaScript. `host-types.ts` converts shader types to host layouts;
+`host-face-shared.ts` keeps common refusal wording and class identity. Neither generator imports
+the analysis coordinator. Existing `hostFace`, `HostExport` and `hostTypeOf` imports remain valid.
+
+These are internal module boundaries. Generated code, declarations, metadata and the public host
+contract retain their existing shapes. The API snapshot records the moved definition of
+`HostExport`; its public subpaths and type structure do not change.
+
+## Kernel lowering boundaries
+
+`src/core/passes/kernel-lower.ts` coordinates the WebGPU kernel plan.
+`kernel-lower-ir.ts` owns shared plan contracts, range and iteration construction, and the existing
+IR rewrites used by both tiers. `kernel-lower-gl.ts` builds the WebGL2 loop plan from those helpers.
+The existing exports from `kernel-lower.ts` remain compatible. No runtime dispatch or backend
+writer moves into these transformation modules.
+
+The backend writers already consume the shared IR and emission pipeline. The gate infrastructure
+already separates browser setup (`scripts/gate-browser.ts`) and child-process cleanup
+(`scripts/gate-children.ts`) from individual gate verdicts. Those boundaries remain; this split
+does not change a gate threshold, backend contract or failure policy.
