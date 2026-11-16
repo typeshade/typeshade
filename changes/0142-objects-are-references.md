@@ -92,19 +92,18 @@ The host call does not change: `await step(particles, 1 / 60)` updates `particle
 
 **What each form means after the change.**
 
-| Form                                                                         | JavaScript                         | After this change                                                                 | Stage |
-| ---------------------------------------------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------- | ----- |
-| `f(p)` where `f` writes `p.x` or `p[i]`                                      | The caller's object changes.       | The same. The compiler passes the place (a pointer on WGSL, `inout` on GLSL).     | 1     |
-| `f(p)` where `f` assigns `p` whole                                           | The caller's object does not move. | The same: the name is rebound to a local (Rule 8.8's local, kept).                | 1     |
-| `return p` of a parameter                                                    | The same object.                   | The same: no copy; the caller's name and the result name one object.              | 1     |
-| `const q = p; q.x = 1`                                                       | `p.x` is 1.                        | The same: `q` is a second name of `p`.                                            | 1     |
-| `let q = p; q.x = 1`, `q` never assigned again                               | `p.x` is 1.                        | The same.                                                                         | 1     |
-| `arr[i] = p`, `a.child = p`, with no later write that both names can see     | No difference from a copy.         | A copy; the result is JavaScript's.                                               | 1     |
-| `let q = p; q = r; q.x = 1`                                                  | `r.x` is 1.                        | The same, where the compiler can name the object at each write.                   | 2     |
-| `let q = k > 0 ? a : b; q.x = 1`                                             | One of `a.x`, `b.x` is 1.          | The same, by a tag and a branch over the finite set of objects.                   | 3     |
-| `a.child = b; b.x = 1` then a read of `a.child.x`                            | 1.                                 | The same, where the compiler can keep one storage for both names.                 | 3     |
-| A count of live objects the compiler cannot bound                            | Allocated on the heap.             | Refused for good: a shader has no heap.                                           | never |
-| An object in a storage buffer, across two dispatches or across the host call | —                                  | A value: a buffer holds values, as a message between two JavaScript workers does. | never |
+| Form                                                                          | JavaScript                         | After this change                                                                                   | Stage |
+| ----------------------------------------------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------- | ----- |
+| `f(p)` where `f` writes `p.x` or `p[i]`                                       | The caller's object changes.       | The same. The compiler passes the place (a pointer on WGSL, `inout` on GLSL).                       | 1     |
+| `f(p)` where `f` assigns `p` whole                                            | The caller's object does not move. | The same: the name is rebound to a local (Rule 8.8's local, kept).                                  | 1     |
+| `return p` of a parameter                                                     | The same object.                   | The same: no copy; the caller's name and the result name one object.                                | 1     |
+| `const q = p; q.x = 1`                                                        | `p.x` is 1.                        | The same: `q` is a second name of `p`.                                                              | 1     |
+| `let q = p; q.x = 1`, `q` never assigned again                                | `p.x` is 1.                        | The same.                                                                                           | 1     |
+| `arr[i] = p`, `a.child = p`, with no later write that both names can see      | No difference from a copy.         | A copy; the result is JavaScript's.                                                                 | 1     |
+| `let q = p; q = r; q.x = 1`                                                   | `r.x` is 1.                        | The same, where the compiler can name the object at each write.                                     | 2     |
+| `let q = k > 0 ? a : b; q.x = 1`                                              | One of `a.x`, `b.x` is 1.          | The same, by a tag and a branch over the finite set of objects.                                     | 3     |
+| `a.child = b; b.x = 1` then a read of `a.child.x`                             | 1.                                 | The same, where the compiler can keep one storage for both names.                                   | 3     |
+| Two elements of a host array that are one JavaScript object, passed to a call | Both names see a write.            | Refused at the call (decision 7): a buffer holds values, so it cannot hold "the same object twice". | 1     |
 
 - [proposal, agent] A form whose stage is not implemented yet is refused, with a text that names the
   form and says it is not supported yet. It never compiles to a copy that JavaScript would not make.
@@ -146,9 +145,18 @@ The host call does not change: `await step(particles, 1 / 60)` updates `particle
   (`fnWrites` in `src/core/passes/effects.ts`), and already lowers a written reference to a pointer
   on WGSL and `inout` on GLSL ES 3.00 (Rule 8.25's lowering). Stage 1 uses both; it adds no new
   lowering.
-- [fact] A shader has no heap, so each name of an object can refer to one of a finite set of
-  objects that the compiler can list. That is why the later stages are a matter of implementation
-  and not of what the language can express.
+- [fact] No heap is needed. A live object is referred to by a variable, by a field of another
+  object, or by an array element. A function cannot call itself (Rule 8.4), a struct cannot hold
+  itself, and an array has a size or a capacity. So the count of live objects has a bound the
+  compiler can compute, and the compiler gives each one a place at compile time.
+- [fact] The first draft of this proposal listed "a count of live objects the compiler cannot
+  bound" as refused for good. The owner asked why a heap would be needed; the row was wrong for the
+  reason above, and it is removed.
+- [inference, agent] So the later stages are a matter of implementation, and not of what the
+  language can express. The one lasting limit is the boundary of a buffer: a value that crosses to
+  the device, or from one dispatch to the next, is a list of values.
+- [fact] Recursive functions and recursive types stay refused by their own rules. This proposal
+  does not change them; allowing either would need allocation at run time.
 
 **Alternatives.**
 
@@ -204,10 +212,13 @@ The host call does not change: `await step(particles, 1 / 60)` updates `particle
 5. The order against change 0138: revert slice 2 first, or implement stage 1 and remove both
    together.
 6. The new text of OD-5, in the owner's words.
+7. A host array whose two elements are one JavaScript object: refuse the call with a `TypeError`
+   that names both indexes, or accept it and copy. The contract above asks for the refusal; its cost
+   is a check of each object argument at the call.
 
 ### Approval and plan record
 
-This record does not yet apply; acceptance will require the owner's decision on the six points
+This record does not yet apply; acceptance will require the owner's decision on the seven points
 above and a merge of this proposal as `accepted`.
 
 ### Configuration and validation record
