@@ -69,7 +69,7 @@ import {
   writtenMemberName,
   writtenStaticFields,
 } from './class-names.js';
-import type { ScopedConst } from './lower/function.js';
+import type { ScopedConst } from './lower/function-signature.js';
 import { refuseOptionalAt, type StructLookup } from './optional.js';
 
 // One row, and still a table: the private space has no spelling on this surface (see the

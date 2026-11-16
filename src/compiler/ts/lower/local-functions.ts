@@ -34,7 +34,7 @@ import {
   type LoweringScope,
 } from '../context.js';
 import { recordLocalFunction, recordNamespaceFunction } from '../namespaces.js';
-import { parseParams, parseReturnType } from './function.js';
+import { parseParams, parseReturnType } from './function-signature.js';
 import type { Receiver } from './class-methods.js';
 import { closureUse, declarationOf, functionAround, type ClosureUse } from './closures.js';
 import { functionParams, functionTypeOf } from './function-types.js';
