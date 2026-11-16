@@ -3416,6 +3416,94 @@ this amendment.
   A12's slice status table.
 - Status: `status: accepted` does not change.
 
+### A14. Slice 1 merged: the bundle budgets after A13, and its open items (2026-11-16)
+
+- [fact] Why. Slice 1 of A10's slice table merged on 2026-11-16 as #1257, merge commit `3b579904`.
+  After A13 decision 4, the owner accepted two more bundle sizes in the conversation. This amendment
+  records them, the merged state, and the items slice 1 leaves open.
+- [fact] Baseline: `main` at `ec751e08`.
+- [fact] This amendment changes no front matter, no rule text and no code.
+
+**Decision 1. The bundle budgets after A13.**
+
+- [fact] A13 decision 4 accepted the gzip sizes of #1257 at `9b78bae7`. Two later commits of #1257 moved them again, `3d697364` and `94c765dc`. The owner was asked at `3d697364` and at `2f1d272a`, which carries `94c765dc`'s sizes unchanged:
+
+| Bundle                 | A13 (`9b78bae7`) | `3d697364` | `2f1d272a` |
+| ---------------------- | ---------------- | ---------- | ---------- |
+| `typeshade/runtime`    | 170,646          | 170,821    | 171,140    |
+| `typeshade/fuse`       | 115,268          | 115,420    | 115,509    |
+| `typeshade/algorithms` | 70,312           | 70,478     | 70,608     |
+| `typeshade/random`     | 51,896           | 52,040     | 52,173     |
+
+- [fact] `3d697364` names a `Buffer` or a `Uniform` in the refusal of a call with plain data (Rule
+  12.5). `94c765dc` closes review findings S1 to S3 of #1257 (A12 D2 in the program runtime and WebGL2, the line of the first use on every path, A13 Q12 once an element is fixed) and sets the new sizes. `2f1d272a` only quotes the `Buffer<bool>` refusal in surface §64 as it reads after `94c765dc`.
+- [decision, owner, 2026-11-11] For `3d697364`, the owner picked the recommended option in the
+  question UI: "수용, PR에 기록 (추천)" (English translation: accept, record it on the pull request;
+  recommended). The record has no other words.
+- [decision, owner, 2026-11-11] For `2f1d272a`, the owner picked the same option: "수용, PR에 기록
+  (추천)". The record has no other words.
+- [fact] The owner merged `main` and the refactors #1286, #1288 and #1290 into #1257 on 2026-11-16
+  (`1aba11a9`, `0d696ac0`) and recorded the measured caps of the merged state in
+  `scripts/bundle-budget.json`. #1289 (`ad05431a`) then moved them by a few bytes and recorded its
+  own caps. On `main` at `ec751e08`, `typeshade/runtime` is 171,253 and `typeshade/fuse` 115,599;
+  `typeshade/algorithms` and `typeshade/random` are as at `2f1d272a`.
+- [fact] These caps of the merged state are the owner's own measurement, recorded in commits; the two answers above in the question UI do not cover them. `typeshade/emit`, which A12 and A13 do not list, moved from 117,367 to 117,466 on `main`.
+
+**The slices of milestone 4, status.**
+
+- [fact] This statement updates A13's status table. A13's text stays as it is.
+
+| Slice  | Status                                                                                     |
+| ------ | ------------------------------------------------------------------------------------------ |
+| 0      | done: #1251, merged as `937147b8`.                                                         |
+| 1      | done: #1257, merged as `3b579904` on 2026-11-16. Every required check green at `0d696ac0`. |
+| 2 to 6 | not started.                                                                               |
+
+**Open items after slice 1.**
+
+| Item                                                                                                                                                                           | Source          | Next action                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- | ------------------------------------------------------------------------ |
+| D-l: the program runtime binds a scalar `Buffer` to any buffer binding.                                                                                                        | A12 decision 1  | Closed in milestone 5.                                                   |
+| D-m: today's `fuse` and a value-returning call.                                                                                                                                | A12             | Closed in slice 5.                                                       |
+| D-p: a `Record` field in the struct of an `array<S, N>` result is refused.                                                                                                     | A13 decision 2  | The agent that plans slices 2 to 6 asks the owner which slice closes it. |
+| Review note N3: the `tsc` half of the geometry test passes whatever `Buffer<number>` is, since `Geometry` takes `object`.                                                      | Review of #1257 | A later slice that types `Geometry`.                                     |
+| Review note N4: the surface table does not say that vertex attributes of different scalars leave the element open, so `f32`.                                                   | Review of #1257 | The next edit of surface §67.                                            |
+| Review note N5: a `fuse` plan refused after its call check leaves an element fixed.                                                                                            | Review of #1257 | Slice 5, which replaces today's `fuse`.                                  |
+| Review note N6: no WebGPU or WebGL2 run of the new result layouts outside CI.                                                                                                  | Review of #1257 | CI covers it; no local action.                                           |
+| [inference, agent] On WebGPU, disposing an array argument right after a call may fail that call (`bufferFor`); inferred from reading, not run.                                 | #1257 body      | Test it on WebGPU in slice 2, or in CI.                                  |
+| The line of the first use is read off the stack (`callSite`, `hostSite`); a host file in a `core`, `runtime` or `rhi` directory, or a flattened bundle, can name another line. | #1257 body      | Recorded; no slice assigned.                                             |
+
+- [fact] The delta review of #1257's fixes `94c765dc` and `2f1d272a` by a separate agent was cut
+  three times by container restarts and returned no report. The main session read the diff and ran
+  the three touched test files instead (303 pass at `2f1d272a`). #1257's body records it.
+
+**Open, owner must settle.**
+
+- [fact] D-p: which slice closes it. The agent asks the owner when slices 2 to 6 are planned. Nothing else.
+- [inference, agent] No statement of this amendment conflicts with an entry of
+  `docs/owner-decisions.md` (OD-1 to OD-8).
+
+**Independent review record of A14.**
+
+- [fact] Reviewer: an AI agent (Claude Code) that did not write A14, on 2026-11-16. Revision
+  reviewed: `e98e9f96`. It found no blocking finding, 3 should-fix findings and 3 notes. Verdict:
+  approve after fixes. It checked each bundle number against `scripts/bundle-budget.json` at the
+  named commits.
+
+| Finding                                                                     | Answer                                                                                                         |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 1. `3b579904` is a merge commit, not a squash commit.                       | Fixed.                                                                                                         |
+| 2. `94c765dc`, not `2f1d272a`, closes S1 to S3 and sets the sizes.          | Fixed: decision 1 names `94c765dc`; the owner's answer stays tied to `2f1d272a`, which carries the same sizes. |
+| 3. #1257's unverified `bufferFor` inference is missing from the open items. | Fixed: a row, labelled [inference, agent].                                                                     |
+| N-a. The merged-state caps are not an owner decision.                       | Fixed: a [fact] line says they are the owner's own measurement.                                                |
+| N-b. `typeshade/emit` moved.                                                | Fixed: named in the same line.                                                                                 |
+| N-c. D-p under "Open, owner must settle".                                   | Fixed.                                                                                                         |
+
+- [fact] No review has read the revision that answers this review.
+
+- Affects: A13 decision 4 (the bundle budgets); A13's slice status table.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground
