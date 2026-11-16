@@ -2238,6 +2238,147 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     },
   );
 
+  // The independent review of #1304 and the owner's decisions of 2026-11-16: a store that reads
+  // its own variable reads its earlier values ("a = a - K"), no bound drops a value and then
+  // accepts ("증명 못 하면 거부"), and a variable with no written type is no typed peer ("거부: 적은
+  // 타입만 인정"). Each is refused in both halves, and its edit compiles to the value it names.
+  const SUM = 'a + 0x10000000';
+  it.each([
+    [
+      'a = a - K',
+      'a = a - 0x10000000;\n  return f32(a + 0x10000000);',
+      'f32',
+      SUM,
+      'f32()',
+      -268435456,
+    ],
+    ['a -= K', 'a -= 0x10000000;\n  return f32(a + 0x10000000);', 'f32', SUM, 'f32()', -268435456],
+    [
+      'a = a - K inside if',
+      'if (vi > 3) {\n    a = a - 0x10000000;\n  }\n  return f32(a + 0x10000000);',
+      'f32',
+      SUM,
+      'f32()',
+      -268435456,
+    ],
+    [
+      'a = a - K in a loop run twice',
+      'for (let i = 0; i < 2; i++) {\n    a = a - 0x10000000;\n  }\n  return f32(a + 0x10000000);',
+      'f32',
+      SUM,
+      'f32()',
+      -536870912,
+    ],
+    [
+      'a = a - K, then a comparison',
+      'a = a - 0x10000000;\n  return (a + 0x10000000) > vi ? 1.0 : 0.0;',
+      'f32',
+      SUM,
+      '>',
+      1,
+    ],
+    [
+      'a = a - K, then / vi',
+      'a = a - 0x10000000;\n  return (a + 0x10000000) / vi;',
+      'u32',
+      SUM,
+      '/',
+      575218834,
+    ],
+    [
+      'seventeen stores, past what one value keeps before',
+      'if (vi == 1) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 2) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 3) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 4) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 5) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 6) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 7) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 8) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 9) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 10) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 11) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 12) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 13) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 14) {\n    a = (0xF0000000|0);\n  }\n  if (vi == 15) {\n    a = (0xF0000000|0);\n  }\n  if (vi > 6) {\n    a = (0xE0000000|0);\n  }\n  return f32(a + 0x10000000);',
+      'f32',
+      SUM,
+      'f32()',
+      -268435456,
+    ],
+  ] as const)(
+    'review of #1304 (D2): %s is refused in both halves, and its edit compiles',
+    (_, body, ret, subject, at, value) => {
+      const source = T12(A1299 + body, ret);
+      const type = ret === 'u32' || at === '>' ? 'u32' : 'i32';
+      expect(both(source)).toEqual([
+        said1299(subject, 4026531840, -268435456, at, `${type}(${subject})`),
+      ]);
+      const fixed = source.replace(
+        at === 'f32()' ? `f32(${subject})` : `(${subject})`,
+        at === 'f32()' ? `f32(${type}(${subject}))` : `${type}(${subject})`,
+      );
+      expect(both(fixed)).toEqual([]);
+      expect(compile(fixed).eval('t', [-3, 7, 2.5])).toBe(value);
+    },
+  );
+
+  it('review of #1304 (D2): a chain that doubles a tree past 2^32 is refused, not cut', () => {
+    const source = T12(
+      'let c0 = (0x80100000 & 0x7FFFFFFF);\n  let c1 = c0 + c0;\n  let c2 = c1 + c1;\n  let c3 = c2 + c2;\n  let c4 = c3 + c3;\n  let c5 = c4 + c4;\n  let c6 = c5 + c5;\n  let c7 = c6 + c6;\n  let c8 = c7 + c7;\n  let c9 = c8 + c8;\n  let c10 = c9 + c9;\n  let c11 = c10 + c10;\n  let c12 = c11 + c11;\n  let c13 = c12 + c12;\n  let c14 = c13 + c13;\n  return f32(c14 + 0);',
+      'f32',
+    );
+    expect(both(source)).toEqual([said1299('c14 + 0', 0, 17179869184, 'f32()', 'i32(c14 + 0)')]);
+  });
+
+  const unproven1299 = (subject: string, at: string, edit: string): string =>
+    `TS8003: "${subject}" can differ between its u32 bits and its TypeScript value, and the ` +
+    `compiler cannot prove that it does not, so the "${at}" does not say which value it means. ` +
+    `Write "${edit}" for the ${edit.slice(0, 3)} value.`;
+
+  it('let b = vi: a variable with no written type is no typed peer (2026-11-16), in both halves', () => {
+    const source = T12(A1299 + 'let b = vi;\n  return f32(a + b);', 'f32');
+    expect(both(source)).toEqual([unproven1299('a + b', 'f32()', 'i32(a + b)')]);
+    const fixed = source.replace('f32(a + b)', 'f32(i32(a + b))');
+    expect(both(fixed)).toEqual([]);
+    expect(compile(fixed).eval('t', [-3, 7, 2.5])).toBe(-268435449);
+    // A written type is a typed peer: `+` beside a typed u32 reads the bits (D2).
+    const typed = T12(A1299 + 'let b: u32 = vi;\n  return f32(a + b);', 'f32');
+    expect(both(typed)).toEqual([]);
+    expect(compile(typed).eval('t', [-3, 7, 2.5])).toBe(4026531847);
+  });
+
+  it('review of #1304 (D2): a long chain of bindings is read to its end, not cut', () => {
+    // A hundred and twenty bindings of four nested additions each: deeper than one walk goes,
+    // so the far end is read first, and the value is proven.
+    const lets = Array.from(
+      { length: 120 },
+      (_, k) => `let c${String(k + 1)} = ${'('.repeat(4)}c${String(k)}${' + 1)'.repeat(4)};`,
+    );
+    const source = T12(`let c0 = 3;\n  ${lets.join('\n  ')}\n  return f32(c120 + 0);`, 'f32');
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(483);
+  });
+
+  it('review of #1304 (D2): past the values one node keeps, the value is refused', () => {
+    // Seventy trees whose two readings agree (0x80000000 ^ 0x800000NN is NN): more values than
+    // the walk keeps, so it cannot prove them all, and the "f32()" refuses (2026-11-16).
+    const stores = Array.from({ length: 70 }, (_, i) => {
+      const hex = (0x80000000 + i + 1).toString(16).toUpperCase();
+      return `if (vi == ${String(i)}) {\n    a = (0x80000000 ^ 0x${hex});\n  }`;
+    });
+    const source = T12(`let a = 0;\n  ${stores.join('\n  ')}\n  return f32(a + 0);`, 'f32');
+    expect(both(source)).toEqual([unproven1299('a + 0', 'f32()', 'i32(a + 0)')]);
+  });
+
+  it('review of #1304 (D2): a chain of bindings with many stores is read within a bound', () => {
+    // The review's path program: each binding doubles the one before, and each is reassigned in
+    // six branches. Base cost: 4.4 s to compile and 9.9 s in the editor; it is read once now.
+    const lines = ['let b0 = (0x80100000 & 0x7FFFFFFF);'];
+    for (let r = 0; r < 6; r++)
+      lines.push(`if (vi == ${String(r)}) { b0 = (0x8010000${String(r)} & 0x7FFFFFFF); }`);
+    for (let k = 1; k <= 40; k++) {
+      lines.push(`let b${String(k)} = b${String(k - 1)} + b${String(k - 1)};`);
+      for (let r = 0; r < 6; r++) {
+        lines.push(
+          `if (vi == ${String(r)}) { b${String(k)} = b${String(k - 1)} - b${String(k - 1)}; }`,
+        );
+      }
+    }
+    const uses = Array.from({ length: 8 }, (_, u) => `f32(b40 & ${String(u + 1)})`).join(' + ');
+    const source = T12(`${lines.join('\n  ')}\n  return ${uses};`, 'f32');
+    const start = performance.now();
+    expect(both(source)).toEqual([]);
+    expect(performance.now() - start).toBeLessThan(10_000);
+  }, 60_000);
+
   it.each([
     ['export { g as h }', 'function g() {\n  return (1|2)/2;\n}\nexport { g as h };\n', 'h'],
     ['export { g } after', 'function g() {\n  return (1|2)/2;\n}\nexport { g };\n', 'g'],

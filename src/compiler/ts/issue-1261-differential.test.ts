@@ -13,8 +13,8 @@
 // return trees (through a binding and a builtin) and the uses derived from them, an imported
 // function, compound assignment to a swizzle, module constants with a bare `| & ^` root, and
 // libraries whose own refusals name edits in the imported file. Issue 1299 added an operator over
-// two `let` bindings, one of them read twice, and a `let` of a written number. Three properties
-// hold:
+// two `let` bindings, one of them read twice, a `let` of a written number, and a store that reads
+// its own variable (`a = a - K`, `a -= K`, also inside `if` and a loop). Three properties hold:
 //
 //   1. Where `compile()` accepts a program with no diagnostic, the CPU oracle's value is the value
 //      the same source has as TypeScript, with `i32()` ToInt32 of the truncation, `u32()`
@@ -866,6 +866,26 @@ class Program {
         const n = lit(this.pick([1, 5, 9]));
         this.lines.push(`c = ${n.text};`);
         this.steps.push(() => this.env.set('c', n.value()));
+      }
+      // A store that reads its own variable (the review of #1304): `a = a - K`, `a -= K`, once,
+      // inside `if`, or twice in a loop.
+      if (this.chance(0.3)) {
+        const op = this.pick(['+', '-', '|', '^']);
+        const n = lit(this.pick([0x10000000, 0x40000000, 3]));
+        const stmt = this.chance(0.5) ? `a ${op}= ${n.text};` : `a = a ${op} ${n.text};`;
+        const where = this.pick(['plain', 'if', 'for'] as const);
+        this.lines.push(
+          where === 'plain'
+            ? stmt
+            : where === 'if'
+              ? `if (vi > 3) {\n    ${stmt}\n  }`
+              : `for (let i = 0; i < 2; i++) {\n    ${stmt}\n  }`,
+        );
+        this.steps.push(() => {
+          for (let i = 0; i < (where === 'for' ? 2 : 1); i++) {
+            this.env.set('a', this.assign('k', this.env.get('a')!, op, n.value()));
+          }
+        });
       }
       const [l, r] = this.pick([
         ['a', 'a'],

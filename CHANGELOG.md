@@ -284,14 +284,23 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
-- **D2 reads a `let` read twice and a `let` of a written number** (issue #1299; change 0134,
-  Amendments A2-A6; the owner's decision of 2026-11-12, D2). `let a = (0xF0000000|0); f32(a + a)`
-  gave 3758096384, where TypeScript gives -536870912; it is now refused, as `f32(a + 1)` is, with
-  the edit `i32(a + a)`. The same holds for `a - a + a`, `let b = 3; a + b`, and such a tree under
-  `max`, a comparison and `/`. A variable with no written type holds every value stored in it,
-  each written number among them (E1), and one variable read twice is one value at both reads:
-  `let c = a * 1; c = 5; ((a - c) - a) < vi` is refused, and `a - a` stays 0 when `a` is
-  reassigned.
+- **D2 reads a `let` read twice and every value a `let` holds** (issue #1299; change 0134,
+  Amendments A2-A6; the owner's decisions of 2026-11-12, D2, and of 2026-11-16). `let a =
+(0xF0000000|0); f32(a + a)` gave 3758096384, where TypeScript gives -536870912; it is now
+  refused, as `f32(a + 1)` is, with the edit `i32(a + a)`. The same holds for `a - a + a`,
+  `let b = 3; a + b`, and such a tree under `max`, a comparison and `/`.
+  - A variable with no written type holds every value stored in it (E1). A store that reads its
+    own variable reads its earlier values (`a = a - K`, `a -= K`, in a loop too). One variable
+    read twice is one value at both reads, so `a - a` stays 0 when `a` is reassigned.
+  - A value the compiler cannot prove is refused, never accepted ("증명 못 하면 거부",
+    2026-11-16): past the values one node keeps, the rounds of a variable's values or the steps
+    of the walk, the sentence says `"a + b" can differ between its u32 bits and its TypeScript
+value, and the compiler cannot prove that it does not, …` and names the same edit.
+  - A variable with no written type is no typed peer ("거부: 적은 타입만 인정", 2026-11-16):
+    `let b = vi; f32(a + b)` is refused; `let b: u32 = vi` is accepted as before.
+  - Each node and each variable is read once per file, and a long chain of bindings is read from
+    its far end first: the review's chain of 40 bindings with six stores each compiled in 4.4 s
+    and checked in 9.9 s in the editor, and takes 0.6 s and 0.5 s now.
 
 - **Buffer integration with the compiler refactor** (2026-11-16, change 0138). Host analysis
   keeps the Buffer overload records; the extracted host view and module generators consume them.
