@@ -580,7 +580,7 @@ stamps every statement it produced, plus the finer sites that stamp first:
 `lowerVariableDeclaration` for one declarator of a multi-declarator `let`, and `lowerLValue`
 for an assignment's target. In `lower/control.ts` it is `lowerFor`, for the loop header's own
 `init` and `update`, and `lowerUpdate`, which owns the target of a standalone `i++` as well as
-a `for` header's. In `lower/function.ts` it is `parseSignature`, for the `FuncDecl` and its
+a `for` header's. In `lower/function-signature.ts` it is `parseSignature`, for the `FuncDecl` and its
 `nameSpan`; in `lower/expression.ts`, the call dispatch and a workgroup-variable read. The shape at each
 site is one helper applied to an existing return value, so the change is additive and does not
 restructure lowering.

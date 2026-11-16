@@ -34,7 +34,11 @@ import { checkLocationType } from './builtin-check.js';
 import { TS_CODES } from './codes.js';
 import { authorTypeText } from './context.js';
 import { makeDiagnostic, noteUse } from './diagnostic.js';
-import { hasRefusedIoParam, refuseF64EntryIo, type F64IoPlace } from './lower/function.js';
+import {
+  hasRefusedIoParam,
+  refuseF64EntryIo,
+  type F64IoPlace,
+} from './lower/function-signature.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { stageCallOf } from './stage-call.js';
 import { hasRefusedIoAttribute, type CollectedStruct } from './structs.js';
