@@ -126,7 +126,8 @@ interface Outcome {
   seen: number[];
   /** R3: the bits of the exported binding after two entry calls under \`device.use()\`. */
   deviceBits: number[];
-  /** R3: a call that took a Buffer of one device and a Resident of another was refused. */
+  /** R3: a call that took a Buffer of structs of one device and a Buffer of scalars of another was
+   *  refused. */
   mixed: boolean;
   /** R3: what a call on each of two devices read of the exported binding, after a set between. */
   twoDevices: number[];
@@ -136,8 +137,8 @@ interface Outcome {
    *  read() after it. Empty on the other tiers. */
   glEnd: string[];
   glRead: string[];
-  /** S3 of the review of #1238: a call with plain data only that wrote a Resident, and the WebGL2
-   *  calls of its read(): no fence, since the call read its values back. */
+  /** S3 of the review of #1238: a call with plain data only that wrote a typed array, and the
+   *  WebGL2 calls of the call: no fence, since the call read its values back. */
   plainValues: number[];
   plainRead: string[];
   /** S2 of the review: what a call on another device read of the exported binding after the
@@ -320,7 +321,7 @@ async function runInPage(input: {
       out.crossed = e instanceof TypeError;
     }
     await m.ps.read();
-    // A Buffer of one device and a Resident of another are refused at the call.
+    // A Buffer of one device and a Buffer of another are refused at the call.
     const mine = within(dev, () => g.array(m.Particle, data.slice(0, 4)));
     try {
       m.lives(mine, other.array(new Float32Array(4)));
@@ -344,15 +345,14 @@ async function runInPage(input: {
     const b2 = other.array(new Float32Array(4));
     m.lives(m.ps, b2);
     for (const r of [a1, b1, a2, b2]) out.twoDevices.push(...(await r.read()));
-    // S3: a call with plain data only (a Resident is no resource of R2) keeps today's meaning: it
-    // reads its values back inside the call, and its read() places no fence.
-    const plain = within(dev, () => g.array(new Float32Array([1, 2, 3, 4]))) as unknown as {
-      read(): Promise<Float32Array>;
-    };
-    await m.scale(plain, 2);
+    // S3: a call with plain data only keeps today's meaning: it reads its values back inside the
+    // call, into the caller's array, and places no fence. A Buffer of scalars is a resource
+    // (change 0138, Amendment A10, Q-I), so the plain data here is a typed array.
     await g.kernelQueue.idle();
+    const plain = new Float32Array([1, 2, 3, 4]);
     const plainMark = glLog.length;
-    out.plainValues = Array.from(await plain.read());
+    await within(dev, () => m.scale(plain, 2));
+    out.plainValues = Array.from(plain);
     out.plainRead = glLog.slice(plainMark);
     // S2: a device disposed after its call wrote the exported binding lands the values first, and
     // drops its copy: a call on another device takes them.
@@ -458,7 +458,7 @@ export async function resourceCallArm(page: Page): Promise<number> {
       );
       check(
         o.plainValues.join() === '2,4,6,8' && !o.plainRead.includes('fenceSync'),
-        `${tier}: a call with plain data only reads back inside the call, and its read() places no fence (${o.plainValues.join(', ')}; ${o.plainRead.includes('fenceSync') ? 'a fence at read()' : 'no fence'})`,
+        `${tier}: a call with plain data only reads back inside the call, and places no fence (${o.plainValues.join(', ')}; ${o.plainRead.includes('fenceSync') ? 'a fence' : 'no fence'})`,
       );
       check(
         o.afterDispose === [1, 1.125, 1.25, 1.375].join(', '),

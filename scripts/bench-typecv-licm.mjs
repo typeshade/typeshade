@@ -53,7 +53,7 @@ for (const [variant, checkout] of [
 }
 
 async function measure({ packed, samples, warmup, repeats }) {
-  const { createRuntime, configure, resident } = await import('typeshade/runtime');
+  const { createRuntime, configure, array } = await import('typeshade/runtime');
   const { fuse } = await import('typeshade/fuse');
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter || !/swiftshader/i.test(adapter.info.architecture))
@@ -76,11 +76,11 @@ async function measure({ packed, samples, warmup, repeats }) {
       const input = Float64Array.from(Array.from({ length: copies }, () => packed).flat());
       const count = input.length / 18;
       const bindings = {
-        problems: resident(input),
-        poses: resident(new Float64Array(count * 48)),
-        valid: resident(new Uint32Array(count * 4)),
-        counts: resident(new Uint32Array(count)),
-        status: resident(new Uint32Array(count)),
+        problems: array(input),
+        poses: array(new Float64Array(count * 48)),
+        valid: array(new Uint32Array(count * 4)),
+        counts: array(new Uint32Array(count)),
+        status: array(new Uint32Array(count)),
       };
       all.push(...Object.values(bindings));
       workloads[name][variant] = {
@@ -131,7 +131,7 @@ async function measure({ packed, samples, warmup, repeats }) {
       validationErrors: errors,
     };
   } finally {
-    for (const r of all) r.destroy();
+    for (const r of all) r.dispose();
     device.destroy();
   }
 }

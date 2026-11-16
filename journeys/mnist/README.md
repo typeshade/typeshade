@@ -80,7 +80,7 @@ can also select software rendering, so inspect the reported adapter. `TYPESHADE_
 selects an installed browser binary.
 
 The full dataset remains in host memory. GPU input buffers hold only one batch. Existing
-`resident().write()` updates pixels and labels in those fixed-size buffers, while parameters,
+`Buffer.set()` updates pixels and labels in those fixed-size buffers, while parameters,
 gradients and intermediate buffers stay resident. SGD updates GPU-resident parameters
 without readback. Evaluation reads two statistics per batch; final parameter reads occur
 only after training. Handles and the runtime are released when the backend finishes.
@@ -136,7 +136,7 @@ emulation included; do not interpret them as native compute shader timings.
 
 The WebGL2 runner intentionally reuses the same TypeShade pack and training
 algorithm as WebGPU and CPU. It owns one batch of mutable input tensors at a
-time, uses `resident()` handles for intermediates/weights, and compares final
+time, uses `array()` Buffers for intermediates/weights, and compares final
 parameters and evaluation results with the independent CPU reference.
 
 ## Tests and automatic differentiation
@@ -234,7 +234,7 @@ For the CPU/WebGPU numerical regression comparator, add
 ## Submissions per batch as kernel calls (change 0058)
 
 `batch.shade.ts` writes one training batch of `softmax.shade.ts` as four kernel functions, and
-`bench-submissions.mjs` calls them over `Resident` arrays three ways on headless Chromium's WebGPU:
+`bench-submissions.mjs` calls them over `Buffer`s three ways on headless Chromium's WebGPU:
 one after another, as a host calls them today (four dispatches, four submissions), inside one
 `fuse` scope from `typeshade/fuse` over a module built without `typeshade({ fuse: true })` (four
 dispatches, one submission), and inside the same scope over a module built with it, where

@@ -74,6 +74,28 @@ export function callSite(entry: (...args: never) => unknown, between = 0): strin
   return host?.replace(/^at /, '');
 }
 
+/**
+ * The line of the host's call, read off the stack where no single function of the runtime is the
+ * one the host called (the program runtime's dispatch and draw on each tier): the first frame
+ * outside the runtime's own `core` and `runtime` modules and a generated module, a test file
+ * counting as the host's. Undefined where the runtime gives no stack. Not API.
+ */
+export function hostSite(): string | undefined {
+  // The runtime's own frames can outnumber the default limit of ten.
+  const limit = (Error as { stackTraceLimit?: number }).stackTraceLimit;
+  (Error as { stackTraceLimit?: number }).stackTraceLimit = 64;
+  const stack = new Error().stack;
+  (Error as { stackTraceLimit?: number }).stackTraceLimit = limit;
+  const frames = (stack ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('at ') || /@/.test(l));
+  const host = frames.find(
+    (l) => /\.test\.[cm]?[jt]s\b/.test(l) || !/[\\/](core|runtime|rhi)[\\/]|\.shade\./.test(l),
+  );
+  return host?.replace(/^at /, '');
+}
+
 /** The error a recorded call `call` (`"step()"`) failed with, made again with the line it was
  *  called at, of the same kind (`TypeError`, `RangeError`, `Error`), and the original as its
  *  cause. */

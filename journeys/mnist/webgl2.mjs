@@ -1,7 +1,7 @@
 // Browser-only WebGL2 backend for the same MNIST TypeShade pack used by WebGPU.
 // WebGL2 has no native compute shaders: the runtime executes Pack.gl.computes
 // through generated GLSL ES 3.00 passes. This is intentionally not a CPU fallback.
-import { createRuntime, resident } from '../../src/runtime.ts';
+import { array, createRuntime } from '../../src/runtime.ts';
 
 const ENTRY_NAMES = ['forward', 'objective', 'reduce', 'backward', 'update', 'predict'];
 
@@ -19,12 +19,12 @@ export async function webgl2Backend(host, pack) {
   const program = rt.load(pack);
   const pipelines = {};
   const bindings = Object.fromEntries(
-    Object.entries(host).map(([name, value]) => [name, resident(value)]),
+    Object.entries(host).map(([name, value]) => [name, array(value)]),
   );
   try {
     for (const name of ENTRY_NAMES) pipelines[name] = await program.compute(name);
   } catch (error) {
-    for (const value of Object.values(bindings)) value.destroy();
+    for (const value of Object.values(bindings)) value.dispose();
     rt.destroy();
     throw error;
   }
@@ -52,8 +52,8 @@ export async function webgl2Backend(host, pack) {
       host.pixels.set(pixels);
       host.labels.fill(0);
       host.labels.set(labels);
-      bindings.pixels.write(host.pixels);
-      bindings.labels.write(host.labels);
+      bindings.pixels.set(host.pixels);
+      bindings.labels.set(host.labels);
     },
     async dispatch(entry, batch) {
       if (disposed) throw new Error('WebGL2 MNIST backend already destroyed');
@@ -85,7 +85,7 @@ export async function webgl2Backend(host, pack) {
     destroy() {
       if (disposed) return;
       disposed = true;
-      for (const value of Object.values(bindings)) value.destroy();
+      for (const value of Object.values(bindings)) value.dispose();
       rt.destroy();
     },
   };

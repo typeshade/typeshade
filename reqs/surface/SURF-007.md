@@ -12,7 +12,7 @@ links:
 - RULE-0801: ugDum55qOp8zOu08iFeRXe7bAbNGFjTioL6j88ZGoe4=
 - RULE-0805: Kq2hCdlup1NA0l4vhuwirKDHJRnVjrkr0ZK9UUZFYbQ=
 - RULE-0807: yk8ipEbraGkGUnumzHLwSdV82CBTdMJU_QYyw6xWPPI=
-- RULE-0822: wnazXzoQOoPisUu8hL-Q08toqLE3nWvxFji7BZ7x4dc=
+- RULE-0822: OhGV3Gz4tMYUgMKtnsbtCy24NvzlQG-b5UkOU06y6uQ=
 - RULE-1201: pA914I-4_mj9FS3tMdcE8QwC5cLLtjnVm9eta2Sosgo=
 normative: true
 ref: ''

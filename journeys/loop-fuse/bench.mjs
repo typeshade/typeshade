@@ -3,7 +3,7 @@
 // chain with its two intermediates scratch arrays)
 //
 // `ops.shade.ts` is the loop-fuse journey's chain, `add`, `mul` and `relu`, three kernel
-// functions over `Resident` arrays. This script calls it on headless Chromium's WebGPU, which here
+// functions over `Buffer`s. This script calls it on headless Chromium's WebGPU, which here
 // is software (SwiftShader), four ways:
 //
 //   apart    as a host calls them today: three dispatches, three submissions.
@@ -11,7 +11,7 @@
 //            has no facts to fuse by: three dispatches, one submission (step 2).
 //   fused    inside one `fuse` scope over the module built with `typeshade({ fuse: true })`: the
 //            three calls are one dispatch, and the scope is one submission (step 3). The two
-//            intermediates are `Resident`s, so the entry stores them.
+//            intermediates are `Buffer`s, so the entry stores them.
 //   scratch  the same scope with the two intermediates made by `scope.scratch()`: the entry holds
 //            them as locals, and the device is asked for no buffer for either (step 4).
 //
@@ -68,7 +68,7 @@ const modules = {
 
 /** Runs INSIDE the page. `opts` is the length of the arrays, the samples and the warm-up runs. */
 async function measure(opts) {
-  const { createRuntime, configure, resident } = await import('typeshade/runtime');
+  const { createRuntime, configure, array } = await import('typeshade/runtime');
   const { fuse } = await import('typeshade/fuse');
   const plain = await import('/ops.shade.ts');
   const fusing = await import('/ops.fused.shade.ts');
@@ -83,12 +83,12 @@ async function measure(opts) {
   const a = Float32Array.from({ length: N }, (_, i) => (i % 7) - 3);
   const b = Float32Array.from({ length: N }, (_, i) => ((i % 5) - 2) * 0.5);
   const c = Float32Array.from({ length: N }, (_, i) => ((i % 3) - 1) * 0.25);
-  const inputs = { a: resident(a), b: resident(b), c: resident(c) };
+  const inputs = { a: array(a), b: array(b), c: array(c) };
   /** The arrays one way owns. */
   const own = () => ({
-    t: resident(new Float32Array(N)),
-    u: resident(new Float32Array(N)),
-    out: resident(new Float32Array(N)),
+    t: array(new Float32Array(N)),
+    u: array(new Float32Array(N)),
+    out: array(new Float32Array(N)),
   });
   const calls = (m, s) => [
     () => m.add(s.t, inputs.a, inputs.b),
@@ -98,7 +98,9 @@ async function measure(opts) {
   const reports = {};
   const ways = {
     apart: async (s) => {
-      await Promise.all(calls(plain, s).map((call) => call()));
+      // Calls on Buffers do not block (change 0138, R2): a read waits for them.
+      for (const call of calls(plain, s)) call();
+      await s.out.read();
       await queue.onSubmittedWorkDone();
     },
     batched: async (s) => {

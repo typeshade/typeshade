@@ -11,7 +11,7 @@
 //     change 0025, Rule 11.11) from the module's manifest, with the same values, its written bindings the
 //     host's own buffers read back, and compared with the call's;
 //   - and once more by a program runtime of the WebGL2 tier (change 0054), from the pass program
-//     the manifest carries, its written bindings `Resident`s read back, and compared with the
+//     the manifest carries, its written bindings' device copies read back, and compared with the
 //     call's; an entry whose manifest carries none is reported as skipped with its reason;
 //   - a full-screen `@fragment` entry is drawn into a canvas on WebGPU, on WebGL2 and on the
 //     CPU tier, and each frame is compared with WebGPU's pixel by pixel.
@@ -53,13 +53,13 @@ import {
 } from '../src/core/host-entry.js';
 import {
   createRuntime,
-  resident,
+  array,
   type CompareFunction,
   type Pack,
-  type Resident,
   type Runtime,
   type Texture,
 } from '../src/runtime.js';
+import { copyOf, handleOf, ResidentArrayState } from '../src/core/resident.js';
 import { texelOf, type ProgramCase, type ProgramTexture } from './compute-case.js';
 import {
   positions,
@@ -529,7 +529,7 @@ let glRuntime: Promise<Runtime> | undefined;
 
 /** The storage bindings the entry writes, flattened, after one dispatch by a program runtime of
  *  the WebGL2 tier (change 0054) from the manifest's pass program: each written binding a
- *  `Resident`, read back once the frame is submitted, and every other value the runtime's to
+ *  device copy, read back once the frame is submitted, and every other value the runtime's to
  *  pack. A scalar the call takes boxed is given as the number it holds. */
 async function computeOnProgramGl(c: EntryCase): Promise<number[]> {
   const rt = await (glRuntime ??= createRuntime({ prefer: ['webgl2'] }));
@@ -537,13 +537,16 @@ async function computeOnProgramGl(c: EntryCase): Promise<number[]> {
   const pipeline = await rt.load(c.manifest).compute(c.name);
   const values = bindingsOf(c);
   const given: Record<string, unknown> = {};
-  const written: { name: string; scalar: boolean; handle: Resident<unknown> }[] = [];
+  const written: { name: string; scalar: boolean; handle: { read(): Promise<unknown> } }[] = [];
   for (const b of c.bindings) {
     if ('guard' in b) continue;
     const v = values[b.name];
     if (b.space === 'storage' && b.writes) {
       const scalar = b.layout.k === 's';
-      const handle = resident(scalar ? flat(v)[0] : v);
+      // The device copy a written binding is read back from, as the call layer keeps one. `array()`
+      // makes it for a typed array only (change 0138, Amendment A11, Q3 and Q4), so the gate makes
+      // the state itself for a boxed scalar and a struct.
+      const handle = handleOf(new ResidentArrayState(scalar ? flat(v)[0] : copyOf(v, b.name)));
       written.push({ name: b.name, scalar, handle });
       given[b.name] = handle;
     } else if (b.space === 'texture') {
@@ -686,7 +689,7 @@ async function passes(
 }
 
 /** The `pulled` frame: vertex pulling, the way a host's renderer draws a mesh it keeps in storage.
- *  The vertex entry reads its positions from a storage `Resident` by `vertex_index`; the triangle
+ *  The vertex entry reads its positions from a storage `Buffer` by `vertex_index`; the triangle
  *  is indexed with a `Uint16Array` of three (six bytes, which the runtime pads), and the
  *  rectangle with the host's own `GPUBuffer` of `uint32` indices. */
 const pulledFrame: CaseFrame = async (rt, programs, sceneCompare) => {
@@ -696,7 +699,7 @@ const pulledFrame: CaseFrame = async (rt, programs, sceneCompare) => {
   });
   const color = rt.texture({ size: [RENDER_SIZE, RENDER_SIZE], format: COLOR });
   const depth = rt.texture({ size: [RENDER_SIZE, RENDER_SIZE], format: DEPTH });
-  const verts = resident(new Float32Array([...positions(Q), ...positions(T)]));
+  const verts = array(new Float32Array([...positions(Q), ...positions(T)]));
   const quadIndices = hostBuffer(rt, new Uint32Array([0, 1, 2, 0, 2, 3]), 'index');
   const f = rt.frame();
   f.pass(
@@ -899,7 +902,7 @@ async function programCaseOn(
     } else given[name] = rt.tier === 'webgpu' ? gpuTextureOf(rt, t) : glTextureOf(rt, t);
   }
   for (const [name, s] of Object.entries(c.samplers)) given[name] = rt.sampler(s);
-  const out = c.out === undefined ? undefined : resident(new Float32Array(c.out.length));
+  const out = c.out === undefined ? undefined : array(new Float32Array(c.out.length));
   if (c.out !== undefined) given[c.out.name] = out;
   const read = async (): Promise<number[]> => [
     ...(out === undefined ? [] : flat(await out.read())),

@@ -10,7 +10,7 @@
 // case, the wall time of one run (from the first call to `queue.onSubmittedWorkDone()`) and,
 // where the device has `timestamp-query`, the GPU time of the plan's compute passes (the fuse
 // report's `gpuTime`, change 0066). The corpus is what a host writes today, through the Vite
-// plugin's module and `fuse` over `Resident` arrays:
+// plugin's module and `fuse` over `Buffer`s:
 //
 //   chain      add, mul, relu over `n` elements, one fused dispatch (journeys/loop-fuse)
 //   reduce     add, mul, then the sum `total` over `n` elements: the loop and its folds
@@ -134,7 +134,7 @@ interface Measured {
  *  caches, then `opts.samples` runs, the cases taking turns in the order they run, so that drift
  *  in the machine falls on all of them alike. */
 async function measure(opts: { n: number; samples: number; warmup: number }): Promise<Measured> {
-  const { createRuntime, configure, resident } = await import('typeshade/runtime');
+  const { createRuntime, configure, array } = await import('typeshade/runtime');
   const { fuse } = await import('typeshade/fuse');
   // The corpus modules the page serves; loaded by URL, which no type names.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -173,10 +173,10 @@ async function measure(opts: { n: number; samples: number; warmup: number }): Pr
     readonly groups: readonly { readonly gpuTime?: number }[];
   }
   const chainOf = (count: number): Case => {
-    const a = resident(floats(count, (i) => (i % 7) - 3));
-    const b = resident(floats(count, (i) => ((i % 5) - 2) * 0.5));
-    const c = resident(floats(count, (i) => ((i % 3) - 1) * 0.25));
-    const out = resident(new Float32Array(count));
+    const a = array(floats(count, (i) => (i % 7) - 3));
+    const b = array(floats(count, (i) => ((i % 5) - 2) * 0.5));
+    const c = array(floats(count, (i) => ((i % 3) - 1) * 0.25));
+    const out = array(new Float32Array(count));
     return {
       run: () =>
         fuse((scope) => {
@@ -189,9 +189,9 @@ async function measure(opts: { n: number; samples: number; warmup: number }): Pr
     };
   };
   const reduceOf = (count: number): Case => {
-    const a = resident(floats(count, (i) => (i % 7) - 3));
-    const b = resident(floats(count, (i) => ((i % 5) - 2) * 0.5));
-    const c = resident(floats(count, (i) => ((i % 3) - 1) * 0.25));
+    const a = array(floats(count, (i) => (i % 7) - 3));
+    const b = array(floats(count, (i) => ((i % 5) - 2) * 0.5));
+    const c = array(floats(count, (i) => ((i % 3) - 1) * 0.25));
     return {
       run: async () => {
         let sum: Promise<number> | undefined;
@@ -208,7 +208,7 @@ async function measure(opts: { n: number; samples: number; warmup: number }): Pr
     };
   };
   const tonemapOf = (count: number): Case => {
-    const pixels = resident(floats(count, (i) => (i % 64) / 16));
+    const pixels = array(floats(count, (i) => (i % 64) / 16));
     return {
       run: async () => {
         let peak: Promise<number> | undefined;
@@ -230,12 +230,12 @@ async function measure(opts: { n: number; samples: number; warmup: number }): Pr
       pixels[r * INPUTS + INPUTS - 1] = 1;
     }
     const s = {
-      pixels: resident(pixels),
-      labels: resident(Uint32Array.from({ length: rows }, () => Math.floor(next() * CLASSES))),
-      weights: resident(floats(INPUTS * CLASSES, () => Math.fround((next() - 0.5) * 0.02))),
-      logits: resident(new Float32Array(rows * CLASSES)),
-      delta: resident(new Float32Array(rows * CLASSES)),
-      grad: resident(new Float32Array(INPUTS * CLASSES)),
+      pixels: array(pixels),
+      labels: array(Uint32Array.from({ length: rows }, () => Math.floor(next() * CLASSES))),
+      weights: array(floats(INPUTS * CLASSES, () => Math.fround((next() - 0.5) * 0.02))),
+      logits: array(new Float32Array(rows * CLASSES)),
+      delta: array(new Float32Array(rows * CLASSES)),
+      grad: array(new Float32Array(INPUTS * CLASSES)),
     };
     return {
       run: () =>
@@ -252,8 +252,8 @@ async function measure(opts: { n: number; samples: number; warmup: number }): Pr
     // One element in four is above 0.75, in runs of 256: lanes that agree take one arm, and
     // the costly arm runs for the quarter alone under an `if`. A per-lane random condition would
     // make nearly every workgroup run both arms, on a GPU and on SwiftShader alike.
-    const xs = resident(floats(count, (i) => Math.fround((i % 1024) / 1024)));
-    const out = resident(new Float32Array(count));
+    const xs = array(floats(count, (i) => Math.fround((i % 1024) / 1024)));
+    const out = array(new Float32Array(count));
     return {
       run: () =>
         fuse(() => {

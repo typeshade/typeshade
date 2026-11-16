@@ -16,9 +16,11 @@
 //
 // It is runtime code: a module the Vite plugin generates imports it through `typeshade/runtime`,
 // with the type of every parameter written into that module as a `HostType` literal. It imports
-// nothing, so what an application ships for it is this file.
+// only the list of resource probes (`resource-probe.ts`), so what an application ships for it is
+// this file and that list.
 
 import type { CpuValue } from './cpu-runtime.js';
+import { resourceProbes } from './resource-probe.js';
 
 /** A scalar a host value carries as a `number`. */
 export type HostNumber = 'f32' | 'f64' | 'i32' | 'u32';
@@ -230,6 +232,30 @@ function convertQuick(t: HostType, v: unknown): CpuValue | undefined {
   }
 }
 
+function resourceKind(v: unknown): 'Buffer' | 'Uniform' | undefined {
+  if (typeof v !== 'object' || v === null) return undefined;
+  for (const probe of resourceProbes) {
+    const kind = probe(v);
+    if (kind !== undefined) return kind;
+  }
+  return undefined;
+}
+
+/** The refusal of a resource given to a parameter that takes plain data only, as a call with
+ *  plain data checks it (Rule 12.5): it names what was given and says what to pass. A call on a
+ *  resource refuses the same in `placeholderOf` (`core/host-kernel.ts`). */
+function resourceRefusal(
+  fn: string,
+  param: string,
+  t: HostType,
+  given: 'Buffer' | 'Uniform',
+): string {
+  const head = `${fn}(): parameter "${param}" (${t.s}) takes no ${given} here; pass plain data`;
+  return t.k === 'mat' && t.e === 'f64'
+    ? `${head}: a matrix of f64 takes plain data only (change 0138, Amendment A13, Q12).`
+    : `${head} (change 0138, R2; Amendment A10, Q-C).`;
+}
+
 /**
  * Check one argument of a host call against its parameter's type and copy it into the value
  * the CPU tier runs on (Rule 8.21). An `ArrayLike` of the right length (a `Float32Array`, an
@@ -245,6 +271,8 @@ export function toShader(fn: string, param: string, t: HostType, v: unknown): Cp
     return convertIn(t, v, '');
   } catch (e) {
     if (!(e instanceof Misfit)) throw e;
+    const given = resourceKind(v);
+    if (given !== undefined) throw new TypeError(resourceRefusal(fn, param, t, given));
     const at = e.path === '' ? '' : `at ${e.path}, `;
     throw new TypeError(`${fn}(): parameter "${param}" (${t.s}): ${at}${e.problem}.`);
   }

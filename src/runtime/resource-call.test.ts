@@ -231,26 +231,29 @@ describe('a kernel call on a Buffer is recorded and does not block (R2)', () => 
     expect(out.map((x) => x.pos[0])).toEqual([-1, -1]);
   });
 
-  it('takes a Resident beside a Buffer, and refuses a written array that is no resource', async () => {
+  it('takes a Buffer of scalars beside a Buffer of structs, and waits for a written plain array (Amendment A11, Q7)', async () => {
     const m = await load();
     const ps = array(m.Particle, [{ life: 3 }, { life: 4 }]);
     const out = array(new Float32Array(2));
     expect(m.lives(ps, out)).toBeUndefined();
     expect([...(await out.read())]).toEqual([3, 4]);
-    expect(() => m.lives(ps, new Float32Array(2))).toThrow(
-      new TypeError(
-        'lives(): parameter "out" is written by the call, which takes a resource, so it does not block and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change 0138, R2).',
-      ),
-    );
+    // A plain array the call writes beside a Buffer: the call waits, and fills it.
+    const plain = new Float32Array(2);
+    const done = m.lives(ps, plain);
+    expect(done).toBeInstanceOf(Promise);
+    await expect(done).resolves.toBeUndefined();
+    expect([...plain]).toEqual([3, 4]);
   });
 
-  it('refuses a kernel that returns a value, and a Buffer of another class', async () => {
+  it('gives a Buffer of one element for a value (Amendment A10, Q-C), and refuses a Buffer of another class', async () => {
     const m = await load();
-    expect(() => m.total(zeros(m.Particle, 1))).toThrow(
-      new TypeError(
-        'total(): takes a resource, and returns a value: a call on a resource that returns a value is not available yet (change 0138, milestone 3). Pass plain data and await the call, or return nothing and write a Buffer.',
-      ),
-    );
+    const ps = array(m.Particle, [{ life: 1.5 }, { life: 2 }]);
+    const sum = m.total(ps) as Buffer<f32>;
+    expect(sum.length).toBe(1);
+    // Another call takes the result as its argument, read when the call runs.
+    m.age(ps, sum as unknown as number);
+    expect([...(await sum.read())]).toEqual([3.5]);
+    expect(await lifeOf(ps)).toEqual([5, 5.5]);
     expect(() => m.age(zeros(m.Other, 1), 1)).toThrow(
       new TypeError(
         'age(): parameter "xs" takes an array whose elements are laid out otherwise than Buffer<Other>\'s; pass a Buffer of the class the parameter names.',
@@ -357,7 +360,7 @@ describe('the window between a writing call and read(), and a refused or failed 
     const m = await load();
     const ps = zeros(m.Particle, 2);
     ps.at(0).life.set(3);
-    expect(() => m.lives(ps, new Float32Array(2))).toThrow(TypeError);
+    expect(() => m.lives(ps, new Float32Array(1))).toThrow(TypeError);
     expect(() => m.lives(ps, zeros(m.Other, 2))).toThrow(TypeError);
     expect(() => m.move(ps, () => 1)).toThrow(TypeError);
     expect(ps.at(0).life.get()).toBe(3);
@@ -402,30 +405,28 @@ describe('the window between a writing call and read(), and a refused or failed 
 
 // The second review of #1236 (ab2247ef): a held length, and the order of a recovery.
 describe('a held length on a call on a resource, and a recovery before the next call', () => {
-  it('refuses a plain array a held length names, which the call would write in place (N1)', async () => {
+  it('waits for a plain array a held length names, and fills it (Amendment A11, Q7)', async () => {
     const m = await load();
     const ps = zeros(m.Particle, 2);
     const plain = new Uint32Array(4);
-    expect(() => m.marks(ps, { array: plain, length: array(new Uint32Array(1)) })).toThrow(
-      new TypeError(
-        'marks(): parameter "out" is written by the call, which takes a resource, so it does not block and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change 0138, R2).',
-      ),
-    );
-    await nextTask();
-    expect([...plain]).toEqual([0, 0, 0, 0]);
+    const length = array(new Uint32Array(1));
+    await m.marks(ps, { array: plain, length });
+    expect([...plain]).toEqual([0, 1, 0, 0]);
+    expect([...(await length.read())]).toEqual([2]);
   });
 
-  it('refuses a held length of Residents beside a Buffer, as before (S-N2; question 3 deferred)', async () => {
+  it('takes a held length of Buffers beside a Buffer, its length a Buffer<u32> (Amendment A10, confirmation item 3)', async () => {
     const m = await load();
     const ps = zeros(m.Particle, 2);
-    expect(() =>
-      m.marks(ps, { array: array(new Uint32Array(4)), length: array(new Uint32Array(1)) }),
-    ).toThrow(
-      new TypeError(
-        'marks(): parameter "out": a call that takes a resource takes no held length { array, length } yet (change 0138, milestone 3); make the call with plain data and Residents only, and await it.',
-      ),
-    );
-    expect(kernelQueue.held.length).toBe(0);
+    const out = array(new Uint32Array(4));
+    const length = array(new Uint32Array(1));
+    expect(m.marks(ps, { array: out, length })).toBeUndefined();
+    expect([...(await out.read())]).toEqual([0, 1, 0, 0]);
+    expect([...(await length.read())]).toEqual([2]);
+    // The pushes start at the length the Buffer holds, and the call leaves the new length there.
+    m.marks(ps, { array: out, length });
+    expect([...(await out.read())]).toEqual([0, 1, 0, 1]);
+    expect([...(await length.read())]).toEqual([4]);
   });
 
   it('after a failure, set(data) before any call: the next call throws the pending error once, and the call after works (S-N3)', async () => {
@@ -484,6 +485,8 @@ describe('a host program over the view types the calls on resources', () => {
       'lives(xs, array(new Float32Array(4)));',
       'lives(xs, new Float32Array(4));',
       'total(xs);',
+      'const [t] = await total(xs).read();',
+      'const n: number = total(xs);',
       'age(zeros(Other, 1), 1);',
       'const b: void = step({ camera, ps }, [1]);',
       'step({ camera: p, ps: xs }, 1);',
@@ -491,7 +494,7 @@ describe('a host program over the view types the calls on resources', () => {
       'await total([{ pos: [0, 0, 0], life: 1 }]);',
     ];
     const app = join(dir, 'app.ts');
-    writeFileSync(app, `${head}${lines.join('\n')}\nexport { a, b };\n`);
+    writeFileSync(app, `${head}${lines.join('\n')}\nexport { a, b, t, n };\n`);
     const found = await tscDiagnostics([app], {
       strict: true,
       noEmit: true,
@@ -520,8 +523,10 @@ describe('a host program over the view types the calls on resources', () => {
       'move(xs, p);: ',
       'move(ps, camera);: ',
       'lives(xs, array(new Float32Array(4)));: ',
-      'lives(xs, new Float32Array(4));: TS2769',
-      'total(xs);: TS2345',
+      'lives(xs, new Float32Array(4));: ',
+      'total(xs);: ',
+      'const [t] = await total(xs).read();: ',
+      'const n: number = total(xs);: TS2322',
       'age(zeros(Other, 1), 1);: TS2769',
       'const b: void = step({ camera, ps }, [1]);: ',
       'step({ camera: p, ps: xs }, 1);: ',
@@ -621,15 +626,13 @@ describe('the refusals at the call of a call on a resource (T-S1)', () => {
     );
   });
 
-  it('refuses a written binding that is no Buffer and no Resident', async () => {
+  it('waits for a written binding that is a plain array beside a resource, and fills it (Amendment A11, Q7)', async () => {
     const m = await loadMore();
-    expect(() =>
-      m.mark({ cam: uniform(m.Params, { dt: 1 }), lives: new Float32Array(4) }, [1]),
-    ).toThrow(
-      new TypeError(
-        'mark(): binding "lives" is written by the call, which takes a resource, so it does not block and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change 0138, R2).',
-      ),
-    );
+    const out = new Float32Array(4);
+    const done = m.mark({ cam: uniform(m.Params, { dt: 1 }), lives: out }, [1]);
+    expect(done).toBeInstanceOf(Promise);
+    await done;
+    expect([...out]).toEqual([1, 1, 1, 1]);
   });
 
   it('refuses a Buffer where the function takes no array with no size', async () => {

@@ -31,7 +31,7 @@ import {
   type Buffer,
   type Uniform,
 } from './resource.js';
-import { configure, resident, residentState } from '../core/resident.js';
+import { configure, residentState } from '../core/resident.js';
 import { hasWarned } from '../core/deprecation.js';
 import { createDevice } from './device.js';
 import { endUse, pushUse } from './default-device.js';
@@ -390,17 +390,11 @@ describe('the region (R17, Amendment A1)', () => {
 describe('the deprecated forms (Amendment A1)', () => {
   beforeEach(() => vi.restoreAllMocks());
 
-  it('array(value) is the Resident resident(value) was, and resident() warns once', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('array(value) is a Buffer of scalars, and refuses a value that is not a typed array', () => {
     const r = array(new Float32Array([1, 2]));
     expect(residentState(r)).toBeDefined();
     expect(residentState(array(4, 'u32'))).toBeDefined();
-    expect(() => array('x' as never)).toThrow(/^array\(\): takes a host value/);
-    resident(new Float32Array(1));
-    resident(new Float32Array(1));
-    expect(hasWarned('resident()')).toBe(true);
-    const calls = warn.mock.calls.filter((c) => String(c[0]).includes('resident()'));
-    expect(calls.length).toBeLessThanOrEqual(1);
+    expect(() => array('x' as never)).toThrow(/^array\(\): takes an array; got 'x'\./);
   });
 
   it('configure() warns once and still configures', () => {

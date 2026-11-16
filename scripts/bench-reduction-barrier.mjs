@@ -63,7 +63,7 @@ for (const [variant, checkout] of [
 }
 
 async function measure({ n, samples, warmup }) {
-  const { createRuntime, configure, resident } = await import('typeshade/runtime');
+  const { createRuntime, configure, array } = await import('typeshade/runtime');
   const { fuse } = await import('typeshade/fuse');
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter || !/swiftshader/i.test(adapter.info.architecture))
@@ -72,7 +72,7 @@ async function measure({ n, samples, warmup }) {
   const device = await adapter.requestDevice({ requiredFeatures: ['timestamp-query'] });
   configure({ runtime: await createRuntime({ device }) });
   const cases = {};
-  const arrays = (count, f) => resident(Float32Array.from({ length: count }, (_, i) => f(i)));
+  const arrays = (count, f) => array(Float32Array.from({ length: count }, (_, i) => f(i)));
   for (const variant of ['before', 'after']) {
     const ops = await import(`/${variant}/ops.js`),
       tone = await import(`/${variant}/tone.js`);

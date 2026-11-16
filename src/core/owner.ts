@@ -6,7 +6,7 @@
 // requests, and a `Resident` that no object owned. A library built on the call layer wrote an
 // owner over that state, and two libraries could not share a page. Change 0071 names the owner:
 // a `Device` of `typeshade/runtime` (`src/runtime/device.ts`) is one, and the process-global
-// configuration is the **default owner**, which `configure()` and `resident()` describe as
+// configuration is the **default owner**, which `configure()` and `array()` describe as
 // before. An ordinary call selects the unique owner of its resources (change 0085). A kernel call
 // or an entry call with no owned resource runs on the device in use, or on the default owner when
 // none is in use (change 0138, R3, `callDefault`); a draw with no owned resource and a `fuse()`
@@ -14,8 +14,8 @@
 //
 // A call carries its owner: a `fuse` scope records the owner it was opened for, and the plan's
 // calls take their tiers and their device from it (`core/fuse-plan.ts`, `core/host-kernel.ts`,
-// `core/host-compute.ts`). A `Resident` belongs to one owner for its whole life: the device that
-// made it (`device.array()`), or the default owner (`resident()`). A call takes the arrays of its
+// `core/host-compute.ts`). A `Buffer` belongs to one owner for its whole life: the device that
+// made it (`device.array()`), or the default owner (`array()`). A call takes the arrays of its
 // own owner only, since a buffer lives on one device; the refusal names both owners.
 //
 // Like the rest of `typeshade/runtime` it imports no compiler.
@@ -58,6 +58,10 @@ export interface CallOwner {
   scratchBuffer?(state: ZeroedState, device: GpuDevice, layout: Layout): void;
   /** Return a scratch lease after its plan. False means the owner holds no such lease. */
   releaseScratch?(state: ZeroedState): boolean;
+  /** The handle of a `Buffer` that a kernel called on a resource gives as its result (change
+   *  0138, Amendment A10, Q-C): the owner keeps it as one of its arrays. An owner without the
+   *  method gives the plain handle. */
+  result?(state: ResidentArrayState): object;
 }
 
 /** The process-global configuration as an owner: `configure({ prefer })`'s tiers, the device
@@ -83,12 +87,12 @@ export function ownerOf(s: ResidentArrayState): CallOwner {
   return s.ownedBy ?? defaultOwner;
 }
 
-/** The owner of a Resident handle or a device-created texture. Plain values select no owner. */
+/** The owner of a `Buffer` or a device-created texture. Plain values select no owner. */
 export function resourceOwner(value: unknown, at?: string): CallOwner | undefined {
   const state = residentState(value);
   if (state?.destroyed === true)
     throw new TypeError(
-      `${at === undefined ? 'This Resident' : `${at}: this Resident`} was destroyed; make a new one with array().`,
+      `${at === undefined ? 'This Buffer' : `${at}: this Buffer`} was disposed; make a new one with array().`,
     );
   return state === undefined ? textureOwners.get(value as object) : ownerOf(state);
 }
@@ -105,7 +109,7 @@ export function callDefault(): CallOwner {
 }
 
 /** Choose the unique resource owner (0085), or verify an owner captured at the call site.
- * An explicit default-owned Resident participates just as a device-owned resource does. With no
+ * An explicit default-owned `Buffer` participates just as a device-owned resource does. With no
  * owned resource the call takes `fallback`: the default owner, or for a kernel call and an entry
  * call the device in use ({@link callDefault}, change 0138, R3). */
 export function inferOwner(
@@ -133,7 +137,7 @@ export function inferOwner(
 }
 
 /**
- * The refusal of a call of `owner` that takes a `Resident` of another owner, or undefined when
+ * The refusal of a call of `owner` that takes a `Buffer` of another owner, or undefined when
  * `s` is the owner's. `at` names the call and the parameter or the binding, as a sentence starts:
  * `add(): parameter "out"`.
  */
@@ -146,7 +150,7 @@ export function foreignOwner(
   const theirs = ownerOf(s);
   if (theirs === owner) return undefined;
   return new TypeError(
-    `${at} is a Resident of ${theirs.label}, and a call of ${owner.label} takes the arrays of ${owner.label} only. ${
+    `${at} is a Buffer of ${theirs.label}, and a call of ${owner.label} takes the arrays of ${owner.label} only. ${
       owner === defaultOwner
         ? 'Make the call inside that device’s fuse(), or make the array with array().'
         : 'Make the array with device.array(), or make the call outside device.fuse().'

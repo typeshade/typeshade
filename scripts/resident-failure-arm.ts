@@ -1,4 +1,7 @@
 // Browser evidence for change 0129. Real API commands are counted, not a recording device.
+// Change 0138 (Amendment A10, slice 1): a call on a Buffer is recorded and does not block, and a
+// Buffer that a failed call wrote is refused at each later call that takes it, before anything
+// runs (A7, decision b). Admission is that check and the incoming-content check of a plan.
 // Healthy controls prove each tier executes; disabling admission must expose every dependency.
 // The CPU unit suite separately covers compiler/editor parity and argument precedence.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +13,7 @@ import type { Page } from 'playwright';
 import { hostFace } from '../src/compiler/ts/host-face.js';
 import { createTypeshadeLanguageService } from '../src/language-service/service.js';
 import type { Device } from '../src/runtime/device.js';
-import type { Resident, ResidentArrayState } from '../src/core/resident.js';
+import type { ResidentArrayState } from '../src/core/resident.js';
 
 const SOURCE = `"use typeshade";
 export function fill(out: array<f32>, n: u32, value: f32) {
@@ -99,23 +102,44 @@ export { m, createDevice, residentState };`,
             {
               name: 'disable-only-incoming-admission',
               setup(build) {
-                build.onLoad({ filter: /[/\\]host-failure\.ts$/ }, ({ path }) => {
-                  const text = readFileSync(path, 'utf8');
-                  const statement =
-                    'for (const s of states) if (!supplied?.has(s) && s.error !== undefined) throw s.error;';
-                  if (!text.includes(statement)) throw new Error('admission fault target moved');
-                  mutations++;
-                  return {
-                    contents: text.replace(statement, 'void states; void supplied;'),
-                    loader: 'ts',
-                  };
-                });
+                // The incoming-content check of a call and a plan (0129), and the check at the
+                // call of a Buffer a failed call wrote: an argument, a held length's word and an indirect
+                // count (change 0138, A7, decision b).
+                const targets: [RegExp, string, string][] = [
+                  [
+                    /[/\\]host-failure\.ts$/,
+                    'for (const s of states) if (!supplied?.has(s) && s.error !== undefined) throw s.error;',
+                    'void states; void supplied;',
+                  ],
+                  [
+                    /[/\\]host-record\.ts$/,
+                    'if (failed !== undefined) throw failed;',
+                    'void failed;',
+                  ],
+                  [
+                    /[/\\]host-kernel\.ts$/,
+                    'if (lengthError !== undefined) throw lengthError;',
+                    'void lengthError;',
+                  ],
+                  [
+                    /[/\\]host-compute\.ts$/,
+                    'if (countsError !== undefined) throw countsError;',
+                    'void countsError;',
+                  ],
+                ];
+                for (const [filter, statement, replacement] of targets)
+                  build.onLoad({ filter }, ({ path }) => {
+                    const text = readFileSync(path, 'utf8');
+                    if (!text.includes(statement)) throw new Error('admission fault target moved');
+                    mutations++;
+                    return { contents: text.replace(statement, replacement), loader: 'ts' };
+                  });
               },
             },
           ]
         : [],
     });
-    if (!built.success || built.outputs.length !== 1 || mutations !== Number(disabled))
+    if (!built.success || built.outputs.length !== 1 || mutations !== (disabled ? 4 : 0))
       throw new Error(`failure arm bundle/instrument failed: ${JSON.stringify(built.logs)}`);
     return await built.outputs[0]!.text();
   } finally {
@@ -129,7 +153,7 @@ async function runInPage(input: {
   tier: 'webgpu' | 'webgl2' | 'cpu';
 }): Promise<Result[]> {
   const g = (await import(/* @vite-ignore */ input.url)) as {
-    m: Record<string, (...args: unknown[]) => Promise<unknown>>;
+    m: Record<string, (...args: unknown[]) => unknown>;
     createDevice(options: { prefer: string[] }): Promise<Device>;
     residentState(value: unknown): ResidentArrayState | undefined;
   };
@@ -173,18 +197,47 @@ async function runInPage(input: {
   const result: Result[] = [];
   const add = (name: string, dependency: boolean, ok: boolean) =>
     result.push({ name, dependency, ok });
-  const capture = (p: Promise<unknown>) =>
-    p.then(
+  const capture = (p: unknown) =>
+    Promise.resolve(p).then(
       () => undefined,
       (error: unknown) => error,
     );
+  /** What a call throws at the call or rejects with; undefined when it neither throws nor rejects. */
+  const attempt = async (f: () => unknown): Promise<unknown> => {
+    try {
+      await f();
+      return undefined;
+    } catch (error) {
+      return error;
+    }
+  };
+  const errorOf = (value: unknown) => residentState(value)?.error;
   const equal = (actual: ArrayLike<number>, expected: number[]) =>
     JSON.stringify(Array.from(actual)) === JSON.stringify(expected);
   const floats = (v: number) => d.array(new Float32Array(4).fill(v));
-  const poison = async (value: Resident<unknown>, words = false) => {
-    const error = await capture(words ? m.words!(value, 99) : m.fill!(value, 99, 1));
-    if (!(error instanceof TypeError) || residentState(value)?.error !== error)
+  /** A call that fails when it runs: its count is a Buffer read then, past the array's end. */
+  const fail = (value: unknown, words = false) => {
+    const n = d.array(Uint32Array.of(99));
+    if (words) void m.words!(value, n);
+    else void m.fill!(value, n, 1);
+  };
+  /** Take the pending copy of each failure, which the next read() or call throws once (change 0138,
+   *  Amendment A5, default 7), so that it reaches no later control. */
+  const drain = async () => {
+    const probe = d.array(new Float32Array(1));
+    for (let i = 0; i < 8 && (await attempt(() => probe.read())) !== undefined; i++);
+    probe.dispose();
+  };
+  /** The error a failed call left on `value`, as its read() gives it or the pending copy wraps it. */
+  const same = (got: unknown, error: unknown) =>
+    got === error || (got instanceof Error && got.cause === error);
+  const poison = async (value: unknown, words = false) => {
+    fail(value, words);
+    const got = await attempt(() => (value as { read(): Promise<unknown> }).read());
+    const error = errorOf(value);
+    if (!(error instanceof TypeError) || !same(got, error))
       throw new Error('producer instrument did not reject and retain the same error');
+    await drain();
     return error;
   };
   try {
@@ -201,16 +254,19 @@ async function runInPage(input: {
     const a = floats(3),
       b = floats(0),
       c = floats(0);
-    const producer = capture(m.fill!(a, 99, 1));
+    // Recorded before the failure is known: each call runs, and refuses its failed input then.
+    fail(a);
     const start = commands;
-    const consumer = capture(m.twice!(b, a));
-    const last = capture(m.twice!(c, b));
-    const e = await producer;
-    const chain = await Promise.all([consumer, last, capture(c.read())]);
+    void m.twice!(b, a);
+    void m.twice!(c, b);
+    await attempt(() => a.read());
+    const e = errorOf(a);
+    const chain = [errorOf(b), errorOf(c), await attempt(() => c.read())];
+    await drain();
     add(
       'queued chain',
       true,
-      e instanceof TypeError && chain.every((error) => error === e) && commands === start,
+      e instanceof TypeError && chain.every((error) => same(error, e)) && commands === start,
     );
 
     const planInput = floats(2),
@@ -230,69 +286,109 @@ async function runInPage(input: {
     add(
       'nested plan',
       true,
-      plan === pe &&
-        (await Promise.all(planned)).every((error) => error === pe) &&
-        (await capture(planOut.read())) === pe &&
+      same(plan, pe) &&
+        (await Promise.all(planned)).every((error) => same(error, pe)) &&
+        same(await attempt(() => planOut.read()), pe) &&
         commands === beforePlan,
     );
+    await drain();
     await d.fuse(() => {
       void m.fill!(planInput, 4, 5);
       void m.twice!(planOut, planInput);
     });
     add('ordered plan recovery', false, equal(await planOut.read(), [10, 10, 10, 10]));
-    await m.fill!(independent, 4, 9);
+    // The failed plan wrote `independent` too, so it keeps the plan's error until set(data) (A7,
+    // decision b).
+    await attempt(() => independent.read());
+    independent.set(new Float32Array(4));
+    void m.fill!(independent, 4, 9);
     add('independent work', false, equal(await independent.read(), [9, 9, 9, 9]));
 
+    // A failure after the call bound the Buffer it writes (the review of #1257, S3): on WebGPU the
+    // device copy is the newer. No API command fails at that point on demand, so the control puts
+    // the failed call's state on a Buffer that a real call wrote, before its read(). set(data) and
+    // resize() must recover it (A7, decision b), and the host's accessors read the host copy.
+    const stuck = async () => {
+      const r = floats(1);
+      void m.fill!(r, 4, 5);
+      await d.array(new Float32Array(1)).read();
+      const state = residentState(r)!;
+      const bound = input.tier !== 'webgpu' || state.fresh === 'device';
+      state.error = new TypeError('a failure after binding');
+      state.ahead = false;
+      return { r, bound };
+    };
+    const first = await stuck();
+    const viewed = await attempt(() => first.r.at(0).get());
+    const setError = await attempt(() => first.r.set(new Float32Array(4).fill(6)));
+    const second = await stuck();
+    const resizeError = await attempt(() => second.r.resize(2));
+    add(
+      'scalar recovery after binding',
+      false,
+      first.bound &&
+        second.bound &&
+        viewed === undefined &&
+        setError === undefined &&
+        resizeError === undefined &&
+        equal(await first.r.read(), [6, 6, 6, 6]) &&
+        // The values not yet read back are lost on WebGPU; the host tiers wrote the host copy.
+        equal(await second.r.read(), input.tier === 'webgpu' ? [1, 1] : [5, 5]),
+    );
+    await drain();
+
+    // A Buffer a failed call wrote is refused at the call, which changes no Buffer (A7, b).
     const ce = await poison(xs);
     const beforeCompute = commands;
     add(
       'compute dependency',
       true,
-      (await capture(m.copy!({ dst, xs }, 4))) === ce &&
-        (await capture(dst.read())) === ce &&
+      same(await attempt(() => m.copy!({ dst, xs }, 4)), ce) &&
+        errorOf(dst) === undefined &&
+        equal(await dst.read(), [6, 6, 6, 6]) &&
         commands === beforeCompute,
     );
-    await m.reset!({ dst }, 4);
-    add('write-only entry recovery', false, equal(await dst.read(), [7, 7, 7, 7]));
+    void m.reset!({ dst }, 4);
+    add('write-only entry', false, equal(await dst.read(), [7, 7, 7, 7]));
 
     const counts = d.array(Uint32Array.of(4, 1, 1));
     const indirectOut = floats(0);
     const beforeHealthyIndirect = commands;
     await m.reset!({ dst: indirectOut }, { indirect: counts });
+    // The call is recorded, and runs by the time read() gives its values.
+    const indirectValues = await indirectOut.read();
     const indirectExecuted = input.tier === 'cpu' || commands > beforeHealthyIndirect;
-    add(
-      'healthy indirect count',
-      false,
-      equal(await indirectOut.read(), [7, 7, 7, 7]) && indirectExecuted,
-    );
+    add('healthy indirect count', false, equal(indirectValues, [7, 7, 7, 7]) && indirectExecuted);
     const ie = await poison(counts, true);
     const beforeIndirect = commands;
     add(
       'indirect dependency',
       true,
-      (await capture(m.reset!({ dst }, { indirect: counts }))) === ie &&
-        (await capture(dst.read())) === ie &&
+      same(await attempt(() => m.reset!({ dst }, { indirect: counts })), ie) &&
+        errorOf(dst) === undefined &&
+        equal(await dst.read(), [7, 7, 7, 7]) &&
         commands === beforeIndirect,
     );
 
     const out = d.array(new Uint32Array(4));
     const n = d.array(Uint32Array.of(3));
-    await m.bounds!(out, n);
+    void m.bounds!(out, n);
     add('healthy held bound', false, equal(await out.read(), [0, 1, 2, 0]));
     const he = await poison(n, true);
     const beforeBound = commands;
     add(
       'held bound dependency',
       true,
-      (await capture(m.bounds!(out, n))) === he &&
-        (await capture(out.read())) === he &&
+      same(await attempt(() => m.bounds!(out, n)), he) &&
+        errorOf(out) === undefined &&
+        equal(await out.read(), [0, 1, 2, 0]) &&
         commands === beforeBound,
     );
     // Pushed arrays require atomics. WebGL2 cannot run the positive control on its sole tier.
     if (input.tier !== 'webgl2') {
       const pushed = d.array(new Uint32Array(4));
       const length = d.array(Uint32Array.of(0));
-      await m.append!({ array: pushed, length }, 2);
+      void m.append!({ array: pushed, length }, 2);
       add(
         'healthy held length',
         false,
@@ -303,8 +399,9 @@ async function runInPage(input: {
       add(
         'held length dependency',
         true,
-        (await capture(m.append!({ array: pushed, length }, 1))) === le &&
-          (await capture(pushed.read())) === le &&
+        same(await attempt(() => m.append!({ array: pushed, length }, 1)), le) &&
+          errorOf(pushed) === undefined &&
+          equal(await pushed.read(), [0, 1, 0, 0]) &&
           commands === beforeLength,
       );
     }
@@ -312,7 +409,7 @@ async function runInPage(input: {
     // A Resident draw requires a runtime-sized storage array. WebGL2 has no storage-buffer
     // fragment path; a uniform cannot substitute, because uniform bindings take no Resident.
     if (input.tier === 'webgl2') {
-      const refusal = await capture(
+      const refusal = await attempt(() =>
         m.color!(document.createElement('canvas'), { xs: floats(0.5) }),
       );
       add(
@@ -337,8 +434,8 @@ async function runInPage(input: {
     await m.color!(canvas, { xs: color });
     const old = Array.from(pixels());
     add('healthy draw', false, equal(old, [128, 0, 0, 255]));
+    // set(data) would take the error out (A7, decision b), so the draw takes the failed Buffer.
     const de = await poison(color);
-    await color.write(new Float32Array(4).fill(0.25));
     let contexts = 0;
     const original = canvas.getContext;
     Object.defineProperty(canvas, 'getContext', {
@@ -349,11 +446,11 @@ async function runInPage(input: {
       },
     });
     const beforeDraw = commands;
-    const rejected = await capture(m.color!(canvas, { xs: color }));
+    const rejected = await attempt(() => m.color!(canvas, { xs: color }));
     add(
       'draw dependency and canvas preservation',
       true,
-      rejected === de && contexts === 0 && commands === beforeDraw && equal(pixels(), old),
+      same(rejected, de) && contexts === 0 && commands === beforeDraw && equal(pixels(), old),
     );
     canvas.remove();
     const fresh = document.createElement('canvas');
@@ -368,13 +465,17 @@ async function runInPage(input: {
       },
     });
     const beforeFresh = commands;
-    const freshError = await capture(m.color!(fresh, { xs: color }));
+    const freshError = await attempt(() => m.color!(fresh, { xs: color }));
     add(
       'fresh draw rejects before context',
       true,
-      freshError === de && freshContexts === 0 && commands === beforeFresh,
+      same(freshError, de) && freshContexts === 0 && commands === beforeFresh,
     );
     return result;
+  } catch (error) {
+    // Name the last control that passed, so a failure outside a control says where it was.
+    const last = result.at(-1)?.name ?? 'the start';
+    throw new Error(`${input.tier}: after ${last}: ${String(error)}`, { cause: error });
   } finally {
     restore.reverse().forEach((fn) => fn());
     await d.dispose();

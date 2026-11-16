@@ -310,7 +310,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',
-        'a host value or a Resident; also: raw (a host GPUBuffer, bound as is)',
+        'a host value or a Buffer; also: raw (a host GPUBuffer, bound as is)',
       ),
       7,
       'whole-buffer binding only; a sub-range has no spelling',
@@ -319,7 +319,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: andGap(
       typed(
         'journeys/plasma/journey.mjs',
-        'a host value or a Resident; also: raw (a host WebGLBuffer, bound as is)',
+        'a host value or a Buffer; also: raw (a host WebGLBuffer, bound as is)',
       ),
       7,
       'whole-buffer binding only; a sub-range has no spelling',
@@ -389,11 +389,11 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       'src/core/resident.ts:216; src/runtime/program.ts:1393, 2102; src/rhi/webgpu.ts:264-268; src/runtime/gl-draw.ts:886, 923',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
-      'resident() and plain host values make the buffers (Rules 8.21, 11.8)',
+      'array() and plain host values make the buffers (Rules 8.21, 11.8)',
     ),
     webgl2: typed(
       'scripts/compile-gate.ts',
-      'resident() and plain host values make the buffers (Rules 8.21, 11.8)',
+      'array() and plain host values make the buffers (Rules 8.21, 11.8)',
     ),
   },
   {
@@ -405,7 +405,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
       'src/core/resident.ts:216; src/runtime/program.ts:1393, 2102; src/rhi/webgpu.ts:264-268; src/runtime/gl-draw.ts:886, 923',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
-      'resident() and plain host values make the buffers (Rules 8.21, 11.8)',
+      'array() and plain host values make the buffers (Rules 8.21, 11.8)',
     ),
     webgl2: na(
       'WebGL2 has no buffer usage flags; the runtime passes its own usage hint (src/runtime/gl-draw.ts:886, 923)',

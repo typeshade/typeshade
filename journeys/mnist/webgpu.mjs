@@ -1,4 +1,4 @@
-import { createRuntime, resident } from '../../src/runtime.ts';
+import { array, createRuntime } from '../../src/runtime.ts';
 // This module runs in a browser. The compiler stays in the Node host.
 export async function webgpuBackend(host, pack, { batchSubmissions = false } = {}) {
   const rt = await createRuntime({ prefer: ['webgpu'], programs: [pack] });
@@ -8,7 +8,7 @@ export async function webgpuBackend(host, pack, { batchSubmissions = false } = {
   for (const entry of ['forward', 'objective', 'reduce', 'backward', 'update', 'predict'])
     pipelines[entry] = await program.compute(entry);
   const bindings = Object.fromEntries(
-    Object.entries(host).map(([name, value]) => [name, resident(value)]),
+    Object.entries(host).map(([name, value]) => [name, array(value)]),
   );
   // Actual queue writes count uniforms as well as storage uploads. Actual mapAsync calls
   // count readbacks. Install after pipeline creation; restore when this backend is released.
@@ -94,8 +94,8 @@ export async function webgpuBackend(host, pack, { batchSubmissions = false } = {
       host.pixels.set(pixels);
       host.labels.fill(0);
       host.labels.set(labels);
-      bindings.pixels.write(host.pixels);
-      bindings.labels.write(host.labels);
+      bindings.pixels.set(host.pixels);
+      bindings.labels.set(host.labels);
     },
     async dispatch(entry, batch) {
       const n =
@@ -126,7 +126,7 @@ export async function webgpuBackend(host, pack, { batchSubmissions = false } = {
     },
     destroy() {
       if (pendingFrame) throw new Error('Cannot destroy a backend with unsubmitted MNIST work');
-      for (const value of Object.values(bindings)) value.destroy();
+      for (const value of Object.values(bindings)) value.dispose();
       queue.writeBuffer = writeBuffer;
       queue.submit = submit;
       rt.device.createBuffer = createBuffer;
