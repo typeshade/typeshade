@@ -1093,8 +1093,9 @@ export function noteWrittenDivision(
   subjects: readonly string[] = [subject],
   readings = false,
 ): void {
-  // A `/` over a constant of no fixed type is refused by its own sentence (Amendment A2).
-  if (divisionByNode.get(node)?.reads.length) return;
+  // A `/` over a constant of no fixed type that A2 refuses is said by A2's sentence: the report
+  // drops this record then (`outer`). One A2 leaves alone (no other read makes the constant an
+  // integer) is refused here, as E1 of 2026-11-13 asks (`a /= k` with `const k = 7`).
   let list = writtenDivisionsOf.get(sourceFile);
   if (list === undefined) writtenDivisionsOf.set(sourceFile, (list = []));
   if (list.some((d) => d.node === node)) return;
@@ -2631,6 +2632,36 @@ function readingPair(
       if (v !== undefined) return v;
     }
   }
+  // A method's result (`C.g()`) and a getter's (`new G().v`), with no written result: those of
+  // every return of every declaration of that name in the file (E1 of 2026-11-13).
+  const member =
+    ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)
+      ? { name: n.expression.name.text, getter: false }
+      : ts.isPropertyAccessExpression(n)
+        ? { name: n.name.text, getter: true }
+        : undefined;
+  if (member !== undefined) {
+    const decls: (ts.MethodDeclaration | ts.GetAccessorDeclaration)[] = [];
+    for (const id of identifiersNamed(sourceFile, member.name)) {
+      const p = id.parent;
+      const kind = member.getter ? ts.isGetAccessorDeclaration(p) : ts.isMethodDeclaration(p);
+      if (!kind) continue;
+      const d = p as ts.MethodDeclaration | ts.GetAccessorDeclaration;
+      if (d.body !== undefined && writtenResultText(d, sourceFile) === undefined) decls.push(d);
+    }
+    for (const d of decls) {
+      const returns: ts.Expression[] = [];
+      const walk = (x: ts.Node): void => {
+        if (ts.isReturnStatement(x) && x.expression !== undefined) returns.push(x.expression);
+        else if (!ts.isFunctionLike(x)) ts.forEachChild(x, walk);
+      };
+      ts.forEachChild(d.body!, walk);
+      for (const r of returns) {
+        const v = of(r);
+        if (v !== undefined) return v;
+      }
+    }
+  }
   return undefined;
 }
 
@@ -2927,8 +2958,10 @@ export function provenTyped(node: ts.Expression, depth = 0): boolean {
       const carried = carriedParts(n);
       if (carried !== undefined) return carried.some((e) => provenTyped(e, depth + 1));
       const f = calleeAt(callee.text, n);
-      // A builtin or a name no declaration of this file binds keeps its own type.
-      return f === undefined ? true : writesResult(f);
+      if (f !== undefined) return writesResult(f);
+      // A builtin's integer is its arguments' origin (`countOneBits(gg())`, E1); one with no
+      // argument, or a name no declaration of this file binds, keeps its own type.
+      return n.arguments.length === 0 || n.arguments.some((e) => provenTyped(e, depth + 1));
     }
     if (ts.isPropertyAccessExpression(callee)) {
       // A method: every method of that name in the file writes its result type.

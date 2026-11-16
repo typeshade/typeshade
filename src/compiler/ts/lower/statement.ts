@@ -2247,7 +2247,7 @@ function lowerAssignOpTo(
       (untyped !== undefined &&
       (kindlessSource(right) ||
         kindlessOrigin(value, (n) => scope.resolveIr(n), sourceFile) === 'kindless' ||
-        (isIntScalar(value.type) && !provenTyped(right)))
+        ((isIntScalar(value.type) || isIntScalar(target.type)) && !provenTyped(right)))
         ? untyped
         : undefined);
     if (
