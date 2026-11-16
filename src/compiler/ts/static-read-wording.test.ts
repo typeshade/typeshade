@@ -103,7 +103,7 @@ import * as Ns from './lib.shade.ts';`,
 
   it('retains the read through array callback inlining and local renaming', () => {
     const r = check(`${CLASSES}
-export function read(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function read(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   const index: u32 = 0;
   a.forEach((x: f32, i: i32): void => {
     const index = u32(i);
