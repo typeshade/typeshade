@@ -859,3 +859,21 @@ The backend writers already consume the shared IR and emission pipeline. The gat
 already separates browser setup (`scripts/gate-browser.ts`) and child-process cleanup
 (`scripts/gate-children.ts`) from individual gate verdicts. Those boundaries remain; this split
 does not change a gate threshold, backend contract or failure policy.
+
+## Resource state ownership
+
+`src/runtime/resource-state.ts` owns the region allocation,
+dirty ranges, finalization registry and per-owner device copies of a structured resource.
+`resource.ts` retains typed accessors, public constructors and recording integration. It passes
+the same `Core` and `RegionState` objects between those operations; no state is copied by the split.
+
+The existing ahead-of-host window, failed-call retention, snapshot capture and disposal order
+remain unchanged. The state module imports no compiler or resource facade. `core/resident.ts`
+continues to own the underlying device-copy state and queue integration, and `runtime/program.ts`
+continues to own pipeline recording. This extraction changes neither contract.
+
+Bun 1.4.4 measures the runtime at 171,177 gzip bytes after extraction (six bytes above the
+integrated Buffer baseline `1aba11a9`). Split initial download is 52,025 bytes (+5); aggregate is
+173,631 (+5). Only those three caps in `scripts/bundle-budget.json` follow the measurements;
+floors and the compiler/dynamic-code boundary checks remain unchanged. This is not a size
+improvement claim.
