@@ -1,7 +1,7 @@
 ---
 id: '0142'
 title: A struct, a class instance and an array behave as a JavaScript object does, so a function that writes its parameter changes the caller's value, and `@inout` and `@out` are removed
-status: draft
+status: accepted
 rules:
   - '1.7'
   - '1.8'
@@ -66,7 +66,7 @@ downstream:
 
 | Field                         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0142, `status: draft`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Identity and status           | Proposal 0142, `status: accepted`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Date and attribution          | 2026-11-16 (UTC), the date of this draft. Written by an AI agent (Claude Code) from the owner's statements in the conversation of that date, which are quoted below. The owner has not approved it.                                                                                                                                                                                                                                                                                                                                           |
 | Applicability / Effectivity   | The front end (`src/compiler/ts/`, with `lower/references.ts`, `definite.ts`, `value-array-write.ts`, `decorated-form.ts`, `attribute-types.ts`), the language service (`src/language-service/`: hover, signature, navigation, diagnostics, docs), `src/cli/migrate.ts`, the three backends through the IR's parameter modes, the host call layer (`src/core/host-kernel.ts`), `docs/language-design.md`, `docs/use-typeshade-surface.md`, `AUTHORING.md`, `examples/reference-parameters.shade.ts`, `reqs/`. No release version is assigned. |
 | Review baseline               | `main` at `97acd619`. The observed results below were first taken at `e7653735` and taken again by the reviewer at `d6dee2e9`, with the same results.                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -359,8 +359,8 @@ JavaScript meaning.
 
 **Open, owner must settle.**
 
-- [fact] Decisions 2 (Table 3), 7 (the stage) and 8 are the agent's, made after the owner's answer
-  and reported. The owner can change each before the merge.
+- [fact] Decisions 2 (Table 3), 7 (the stage) and 8 are the agent's, made after the owner's first
+  answer and reported. The owner saw them and said "머지하세요" (Approval and plan record).
 - [inference, agent] No statement conflicts with an entry of `docs/owner-decisions.md` other than
   OD-5, which decision 6 replaces: OD-1 (the contract is scoped to identity), OD-3 (no qualifier,
   no copy construct), OD-4 (the two examples), OD-7 and Rule 7.2 (untouched), OD-9 (no form
@@ -390,8 +390,23 @@ JavaScript meaning.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the owner's "merge" and the merge of this
-proposal as `accepted`.
+- [decision, owner, 2026-11-16] Shown the revision `ac2bf764` in the conversation, with the three
+  points the agent settled after the seven decisions (Table 3, the stage of decision 7, decision
+  8), the owner answered "머지하세요" (English translation: merge it). The record has no other
+  words. The approved revision is the one this pull request (#1317) merges.
+- Scope approved: the rule and the contract of "What changes", Tables 1 to 3 with their stages,
+  and decisions 1 to 8.
+- Responsibilities: the agent implements stage 1 in its own pull request, which also removes the
+  value reading of change 0138's slice 2 (decision 5). Stages 2 and 3 each get their own pull
+  request. The owner says "merge" for each pull request that changes how an author writes an
+  example (CLAUDE.md, Merging).
+- Milestones: stage 1, stage 2, stage 3, in that order. No duration is established.
+- Before stage 1 starts: #1321 (OD-5) merges; #1315 and #1316 are closed; change 0138 gets an
+  amendment that withdraws A10 Q-A's value reading, A15, A16 and A19's plan.
+- Required evidence at delivery: for each row of Tables 1 to 3 that a stage implements, a test of
+  both halves on one source (Rule 12.7); for each row it does not, a test of the "not supported
+  yet" refusal in both halves; the gates of `AGENTS.md`; the document audit of the rules and
+  sections of the front matter, with their Doorstop items.
 
 ### Configuration and validation record
 
