@@ -145,7 +145,7 @@ improvement. A structural extraction alone establishes no speedup.
 `ae05785e29115ed79072d0d12bb0dec760ba860a`, based on the #1272 head above.
 It extracts constant-division candidate construction and module-wide edit validation.
 Other analysis-dependent refusal construction remains with the analysis.
-The PR is a draft with a temporary #1272 review base; integration into `main` remains pending.
+The PR is ready for review with a temporary #1272 review base; integration into `main` remains pending.
 [PR #1282](https://github.com/typeshade/typeshade/pull/1282) records this plan.
 
 Local verification on 2026-11-16 UTC used Node 24.19.0, Bun 1.4.4 and TypeScript 5.6.3:
@@ -159,3 +159,8 @@ Local verification on 2026-11-16 UTC used Node 24.19.0, Bun 1.4.4 and TypeScript
 These results cover the first extraction, not the entire R1 or project plan.
 The full unit suite, newer TypeScript matrix, GPU gates, packed consumer journeys and performance
 benchmarks were not run locally. Broader integration checks remain in CI.
+
+On 2026-11-16, all 26 reported CI checks passed for the first-slice head above, including
+the TypeScript matrix, GPU gates, packed consumer journeys, package smoke and TypeNN candidate.
+PR #1283 was then marked ready for review. These results apply to its temporary base;
+retargeting to `main` still requires validation after the prerequisites land.
