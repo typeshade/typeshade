@@ -288,8 +288,10 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   Amendments A2-A6; the owner's decision of 2026-11-12, D2). `let a = (0xF0000000|0); f32(a + a)`
   gave 3758096384, where TypeScript gives -536870912; it is now refused, as `f32(a + 1)` is, with
   the edit `i32(a + a)`. The same holds for `a - a + a`, `let b = 3; a + b`, and such a tree under
-  `max`, a comparison and `/`. A `let` with no written type is each written number stored in it
-  (E1), and the walk of a tree's two readings follows a value at every place it is read.
+  `max`, a comparison and `/`. A variable with no written type holds every value stored in it,
+  each written number among them (E1), and one variable read twice is one value at both reads:
+  `let c = a * 1; c = 5; ((a - c) - a) < vi` is refused, and `a - a` stays 0 when `a` is
+  reassigned.
 
 - **Buffer integration with the compiler refactor** (2026-11-16, change 0138). Host analysis
   keeps the Buffer overload records; the extracted host view and module generators consume them.
