@@ -306,3 +306,34 @@ export function setRelatedSites(
 export function relatedSitesOf(diagnostic: TsCompilerDiagnostic): readonly DiagnosticSite[] {
   return RELATED.get(diagnostic) ?? [];
 }
+
+/** A UTF-16 span into the text of the file a diagnostic is about. */
+export interface CycleMemberSpan {
+  readonly start: number;
+  readonly length: number;
+}
+
+/** The declarations a call-cycle refusal (`TS8031`) names, by the diagnostic that names them.
+ *  A side table, not a field: `TsCompilerDiagnostic` is a public type, and what it carries stays
+ *  as it is. It holds spans, which outlive the syntax tree a pass read them from (#1298). */
+const cycleMembers = new WeakMap<TsCompilerDiagnostic, readonly CycleMemberSpan[]>();
+
+/** Record `members`, the declarations of a call cycle, as the ones `diagnostic` refuses. */
+export function noteCycleMembers(
+  diagnostic: TsCompilerDiagnostic,
+  members: readonly (ts.Node | undefined)[],
+): TsCompilerDiagnostic {
+  const spans: CycleMemberSpan[] = [];
+  for (const m of members) {
+    if (m === undefined) continue;
+    const file = m.getSourceFile();
+    spans.push({ start: m.getStart(file), length: m.getWidth(file) });
+  }
+  cycleMembers.set(diagnostic, spans);
+  return diagnostic;
+}
+
+/** The spans of the declarations `diagnostic` refuses as members of a call cycle; empty for a
+ *  diagnostic that records none. */
+export const cycleMembersOf = (diagnostic: TsCompilerDiagnostic): readonly CycleMemberSpan[] =>
+  cycleMembers.get(diagnostic) ?? [];

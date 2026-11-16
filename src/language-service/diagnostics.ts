@@ -3,7 +3,7 @@
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
-import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
+import { cycleMembersOf, relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { STAGE_CALLEES } from '../compiler/ts/stage-call.js';
 import { fileDeclaresType } from '../compiler/ts/type-map.js';
 import { isRemovedCall } from '../compiler/ts/removed-names.js';
@@ -2520,13 +2520,14 @@ function repeatsRefusal(
  * takes part in a call cycle and writes no result type. The projection writes a result type in
  * only where the value applies an operator, so a cycle `a -> b -> a` of plain calls reached the
  * editor as TS7023, and `compile()` said only that WGSL has no call stack (TS8031, Rule 12.7).
- * TS8031 names each function of the cycle as it shows it (`"C.a"` for a method or a getter), so
- * the report is dropped when a TS8031 cycle names the declaration.
+ * The compiler records the declarations of each cycle it refuses (`cycleMembersOf`), so the
+ * report is dropped when the declaration it is about is one of them. A name in the message is
+ * no key: it is the emitted name (`A_f` for a namespace's function, `outer_a` for a local one).
  */
 function isResultOfRefusedCycle(
   context: DiagnosticFilterContext,
   diagnostic: TypeshadeDiagnostic,
-  compilerErrors: readonly TypeshadeDiagnostic[],
+  cycles: readonly TsCompilerDiagnostic[],
 ): boolean {
   if (ruleCodeOf(diagnostic.code) !== 7023) return false;
   let declaration: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
@@ -2540,12 +2541,11 @@ function isResultOfRefusedCycle(
   ) {
     declaration = declaration.parent;
   }
-  if (declaration === undefined || declaration.name === undefined) return false;
-  const name = declaration.name.getText(context.sourceFile);
-  const owner = ts.isClassLike(declaration.parent) ? declaration.parent.name?.text : undefined;
-  const shown = owner === undefined ? name : `${owner}.${name}`;
-  return compilerErrors.some(
-    (error) => error.code === TS_CODES.RECURSION && error.message.includes(`"${shown}"`),
+  if (declaration === undefined) return false;
+  const start = declaration.getStart(context.sourceFile);
+  const length = declaration.getWidth(context.sourceFile);
+  return cycles.some((cycle) =>
+    cycleMembersOf(cycle).some((m) => m.start === start && m.length === length),
   );
 }
 
@@ -3081,7 +3081,14 @@ export function mergeDiagnostics(
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
     if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;
-    if (isResultOfRefusedCycle(context, diagnostic, compilerErrors)) return false;
+    if (
+      isResultOfRefusedCycle(
+        context,
+        diagnostic,
+        analysis.diagnostics.filter((d) => d.code === TS_CODES.RECURSION),
+      )
+    )
+      return false;
     // `Cannot find global type 'Promise'`, which TypeScript reports at the top of the file for
     // an `import(...)` the compiler refuses as an import (TS8072, Rule 3.9): the same mistake.
     if (

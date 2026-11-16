@@ -56,7 +56,7 @@ import type { SourceSpan } from '../../core/ir/span.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { isBuiltinId } from '../../core/builtin-ids.js';
 import { TS_CODES } from './codes.js';
-import { diagnosticAtSpan, makeDiagnostic } from './diagnostic.js';
+import { diagnosticAtSpan, makeDiagnostic, noteCycleMembers } from './diagnostic.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 
 /** One node of the call graph, as the caller's own compile path already knows it.
@@ -182,6 +182,7 @@ export function checkRecursion(
   const stack: string[] = [];
   const reported = new Set<string>();
   const shown = new Map(nodes.map((n) => [n.name, n.shown ?? n.name] as const));
+  const declOf = new Map(nodes.map((n) => [n.name, n.decl] as const));
 
   const visit = (name: string): void => {
     colour.set(name, GREY);
@@ -196,11 +197,14 @@ export function checkRecursion(
         if (!reported.has(key)) {
           reported.add(key);
           diagnostics.push(
-            makeDiagnostic(
-              edge.sourceFile,
-              edge.node,
-              `Recursive call: ${renderCycle([...cycle, edge.to].map((n) => shown.get(n)!))}. WGSL has no call stack, so a function must not take part in a call cycle.`,
-              TS_CODES.RECURSION,
+            noteCycleMembers(
+              makeDiagnostic(
+                edge.sourceFile,
+                edge.node,
+                `Recursive call: ${renderCycle([...cycle, edge.to].map((n) => shown.get(n)!))}. WGSL has no call stack, so a function must not take part in a call cycle.`,
+                TS_CODES.RECURSION,
+              ),
+              cycle.map((n) => declOf.get(n)),
             ),
           );
         }
@@ -277,13 +281,16 @@ export function checkLoweredRecursion(
       if (hops.every((h) => written.has(h)) || said.has(at)) continue;
       said.add(at);
       diagnostics.push(
-        diagnosticAtSpan(
-          sourceFile,
-          edge.span,
-          nodeOf.get(name),
-          `Recursive call: ${renderCycle(cycle.map((n) => shownOf.get(n) ?? n))}. ` +
-            `WGSL has no call stack, so a function must not take part in a call cycle.`,
-          TS_CODES.RECURSION,
+        noteCycleMembers(
+          diagnosticAtSpan(
+            sourceFile,
+            edge.span,
+            nodeOf.get(name),
+            `Recursive call: ${renderCycle(cycle.map((n) => shownOf.get(n) ?? n))}. ` +
+              `WGSL has no call stack, so a function must not take part in a call cycle.`,
+            TS_CODES.RECURSION,
+          ),
+          cycle.map((n) => nodeOf.get(n)),
         ),
       );
     }

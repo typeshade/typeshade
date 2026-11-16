@@ -56,6 +56,45 @@ export function t(n: u32): u32 { return u32(a(n)); }
       cycle('"a" -> "b" -> "a"'),
     ],
     [
+      'two mutually recursive namespaced functions',
+      `"use typeshade";
+namespace A { export function f(n: u32) { if (n > 0) { return 1; } return B.g(${arg}); } }
+namespace B { export function g(n: u32) { if (n > 0) { return 2; } return A.f(${arg}); } }
+export function t(n: u32): u32 { return u32(A.f(n)); }
+`,
+      cycle('"A_f" -> "B_g" -> "A_f"'),
+    ],
+    [
+      'a namespaced function that calls itself',
+      `"use typeshade";
+namespace A { export function f(n: u32) { if (n > 0) { return 1; } return f(${arg}); } }
+export function t(n: u32): u32 { return u32(A.f(n)); }
+`,
+      cycle('"A_f" -> "A_f"'),
+    ],
+    [
+      'a cycle of three functions',
+      `"use typeshade";
+function a(n: u32) { if (n > 0) { return 1; } return b(${arg}); }
+function b(n: u32) { if (n > 0) { return 2; } return c(${arg}); }
+function c(n: u32) { if (n > 0) { return 3; } return a(${arg}); }
+export function t(n: u32): u32 { return u32(a(n)); }
+`,
+      cycle('"a" -> "b" -> "c" -> "a"'),
+    ],
+    [
+      'two mutually recursive nested functions',
+      `"use typeshade";
+function outer(n: u32): u32 {
+  function a(m: u32) { if (m > 0) { return 1; } return b(${arg.replace('n', 'm')}); }
+  function b(m: u32) { if (m > 0) { return 2; } return a(${arg.replace('n', 'm')}); }
+  return u32(a(n));
+}
+export function t(n: u32): u32 { return outer(n); }
+`,
+      cycle('"outer_a" -> "outer_b" -> "outer_a"'),
+    ],
+    [
       'two mutually recursive methods',
       `"use typeshade";
 class C {
