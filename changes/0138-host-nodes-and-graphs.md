@@ -5,6 +5,7 @@ status: accepted
 rules:
   - '6.1'
   - '6.6'
+  - '7.6'
   - '8.20'
   - '8.21'
   - '8.22'
@@ -18,6 +19,7 @@ rules:
   - '11.13'
   - '11.17'
 surface:
+  - 7
   - 26
   - 64
   - 65
@@ -26,6 +28,8 @@ surface:
   - 70
   - 71
   - 72
+  - 73
+  - 74
 exports:
   - zeros
   - array
@@ -3641,6 +3645,124 @@ value; its writes are lost. Write @inout xs to update the caller's array, or ret
 - Affects: Rule 7.6 (an `@out` argument as an assignment, slice 2); A10 Q-A ("Open under Q-A"; the agent's inference on an unmigrated kernel) and A10's open
   items for the owner; Rules 8.23 and 8.25 and surface §65 and §70 (slice 2); the front matter
   `codes`.
+- Status: `status: accepted` does not change.
+
+### A16. Slice 2: the owner's answers on #1310 (2026-11-16)
+
+- [fact] Why. Slice 2 is draft pull request #1310, head `eb0f87a9` when this amendment was written.
+  Its implementation found four points that A15 does not settle. One is a conflict between A15
+  decision 1 and Rule 8.8. The owner answered each on 2026-11-16, in the conversation.
+- [fact] Baseline: `main` at `01e50ba3` (#1306, Amendment A15).
+- [fact] This amendment changes no front matter, no rule text and no code. #1310 carries them.
+
+**The owner's answers.**
+
+- [decision, owner, 2026-11-16] The owner picked the recommended option of each question in the
+  question UI. The record has no other words. The labels, in Korean, with English translations:
+  1. "TS8080으로 거부 (추천)" (English translation: refuse with `TS8080`; recommended).
+  2. "Rule 8.8 유지: 크기 있는 배열은 제외 (추천)" (English translation: keep Rule 8.8; arrays with
+     a size are excluded; recommended).
+  3. "kernel에서는 @inout만 안내 (추천)" (English translation: in a kernel, offer `@inout` only;
+     recommended).
+  4. "수용 (추천)" (English translation: accept; recommended), for the bundle sizes below.
+
+**Decision 1. A declared `@out` array that the body pushes onto is refused with `TS8080`.**
+
+- [fact] A15 decision 2 says a pushed array cannot be `@out` and adds no code. At `eb0f87a9` only a
+  held-length argument at the call is refused; the declaration `@out list: array<u32>` with
+  `list.push(…)` in the body compiles.
+- What it means: the declaration is refused with `TS8080`, on both halves (Rule 12.7). The option's
+  example text: `grow(): parameter "list" is @out; a push to it needs @inout. Write @inout list.`
+  No new code. [proposal, agent] Its final wording follows A15's push text ("… Write @inout list to push into the caller's array.") where it fits. [inference, agent] `TS8080` now covers a misused array qualifier as well as a lost
+  write.
+
+**Decision 2. Rule 8.8 holds: `TS8080` applies only to an array with no size.**
+
+- [fact] The agent stopped before taking a side and asked (CLAUDE.md, rules that point different ways). The conflict, shown to the owner with one example: the language design table row "Rule 8.8; surface §14 and §52" and change 0031 (`changes/0031-mutable-parameters.md`) let a helper rewrite a fixed-size array parameter, which Rule 8.8 passes by value, as a local copy: `function xs(a: array<f32, 2>) { a = [a[1], a[0]];
+a[0] += 2.; return a[0] + a[1]; }`. A15 decision 1, read for every array, refuses it with
+  `TS8080`.
+- [fact] The option the owner chose said: an array with a size is a value in WGSL and is a value
+  today, so its local write loses nothing a caller saw; A10 Q-A spoke of `array<T>`.
+- What it means:
+  1. `TS8080` applies to a parameter of an array with no size (`array<T>`) only.
+  2. A parameter of `array<T, N>` keeps Rule 8.8 and today's behaviour, `TS8018` (`ASSIGN_TARGET`) included.
+  3. A15 decision 1 item 1 is narrowed accordingly. Rule 8.8 does not change.
+
+**Decision 3. Where `return` of the array is refused, the `TS8080` text offers `@inout` only until slice 3.**
+
+- [observed result] On 2026-11-16, at `main` `01e50ba3` and at #1310 `eb0f87a9`, `compile()` refuses a function that returns an `array<f32>` parameter with `TS8020` ("This function returns array<f32>, an array with no size, which lives only in a storage binding …"), in a kernel and in a helper alike. The question named kernels only.
+- [inference, agent] With decision 2, `TS8080` applies only to an array with no size, so until slice 3 the return remedy fails in every function, and the text offers `@inout` only wherever the return is refused. This applies the option's rule ("`@inout` only where `return` of the array is refused") to the observed fact.
+- What it means: where the return is refused (every function until slice 3) the text is `scale(): parameter "xs" is a value; its writes
+are lost. Write @inout xs to update the caller's array.` Where an array can be returned, the text keeps "or return xs" (A15). [proposal, agent] Slice 3 restores the return remedy in kernels.
+
+**Decision 4. The bundle budgets of slice 2.**
+
+| Bundle                 | `main` at `01e50ba3` | #1310 at `eb0f87a9` | Growth (gzip bytes) |
+| ---------------------- | -------------------- | ------------------- | ------------------- |
+| `typeshade/runtime`    | 171,253              | 171,525             | +272                |
+| `typeshade/fuse`       | 115,599              | 115,876             | +277                |
+| `typeshade/algorithms` | 70,608               | 70,900              | +292                |
+| `typeshade/random`     | 52,173               | 52,459              | +286                |
+
+- [fact] The growth comes from the runtime side of A15: the zero fill of an `@out` array, the refusal
+  of a held length at an `@out` parameter, and the copy of a value array.
+- [fact] A later commit of #1310 that moves the sizes again is reported on the pull request with its
+  bytes.
+
+**Open items.**
+
+| Item                                                                          | Source          | Next action                                   |
+| ----------------------------------------------------------------------------- | --------------- | --------------------------------------------- |
+| The candidate codes of slice 3, and the return remedy of `TS8080` in kernels. | A15, decision 3 | Ask the owner before slice 3.                 |
+| Writes inside a nested closure are not tracked by `TS8080` at `eb0f87a9`.     | #1310 report    | Recorded on #1310; no slice assigned.         |
+| D-p: which slice closes it.                                                   | A13 to A15      | Ask the owner when slices 3 to 6 are planned. |
+
+**Open, owner must settle.**
+
+- [fact] Nothing for A16's own decisions.
+- [inference, agent] Decision 2 resolves a conflict between two approved texts; the owner chose with
+  the example shown, as CLAUDE.md asks. No decision conflicts with OD-1 to OD-8.
+
+**Deviations.**
+
+| ID  | Approved text                                   | Delivered                                                    | Disposition                                             |
+| --- | ----------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------- |
+| D-s | A15 decision 1, read for every array parameter. | `TS8080` applies to an array with no size only (decision 2). | made part of the approved text by this amendment (A16). |
+
+**Independent review record of A16.**
+
+- [fact] Reviewer: an AI agent (Claude Code) that did not write A16, on 2026-11-16. Revision reviewed:
+  `251197b4`. It found no blocking finding, 4 should-fix findings and 6 notes. Verdict: approve after
+  fixes. It checked the four bundle numbers against `scripts/bundle-budget.json`.
+
+| Finding                                                                     | Answer                                                                                                                |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 1. No review record.                                                        | This record.                                                                                                          |
+| 2. Decision 3's premise not shown.                                          | The agent compiled it: an observed result, which shows `TS8020` in every function; decision 3 is stated on that fact. |
+| 3. Rule 8.8's citation.                                                     | Fixed: the table row and change 0031; `TS8018` named `ASSIGN_TARGET`.                                                 |
+| 4. `Affects` incomplete.                                                    | Fixed.                                                                                                                |
+| Notes: the agent stopping, a deviation line, the push text, long sentences. | Fixed: the stop is recorded; D-s; decision 1 notes A15's wording.                                                     |
+
+- [fact] No review has read the revision that answers this review.
+
+- Affects: A15 decision 1 items 1, 2 and 4 (narrowed to arrays with no size; the texts) and decision 2 item 2a (the declared `@out` push); A15's `Affects` (Rule 8.25 and surface §70 state the `@out` push refusal); Rule 8.8 (kept); the bundle sizes of slice 2.
+- Status: `status: accepted` does not change.
+
+### A17. Slice 2's scope in the front matter (2026-11-16)
+
+- [fact] Why. #1310 (slice 2) changes Rule 7.6 and surface §7, §73 and §74 besides the rules and
+  sections A10's slice table names. The commit-msg hook refuses a commit that reaches past the
+  proposal's front matter, so the front matter is widened first, in its own pull request.
+- [fact] What each one is:
+  - Rule 7.6: an argument of an `@out` parameter counts as an assignment; for an array it holds
+    through the zero fill. A15 decision 2 item 6 and A15's and A16's `Affects` name it.
+  - Surface §7: the diagnostics table gains the `TS8080` row and narrows the `TS8075` row to an
+    `@out` parameter that is no array (A15 decision 2 item 2).
+  - Surface §73 and §74: their examples write `@inout` on a kernel's array that the body writes
+    (A10's slice table, row 2: "`@inout` or `@out` is added to every kernel that writes an array").
+- [fact] This amendment changes the front matter `rules` (adds `7.6`) and `surface` (adds 7, 73 and
+  74). It changes no rule text and no code.
+- [inference, agent] Nothing here is a new design: each item follows from A10, A15 or A16.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
