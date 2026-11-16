@@ -1429,8 +1429,13 @@ with a verified edit: `u32(3000000000|0)`, `i32(…)` where the value flows to a
 `f32()`, or the declaration of an assignment's target or a constant with its type. Where no form
 compiles and the refusal is the module's only one, the sentence names none. A function with no
 written result that returns a bit tree gives a result that is an integer by its bit operator,
-and so does a module `const K = 1 | 2`. An exported constant keeps the `f32` its importers read
-(Amendment A5). Every edit a refusal names, a `>>`'s and a value form's too, is verified. A refusal that names no edit offers no wrap that the structure shows would not choose the
+and so does a module `const K = 1 | 2`. An exported constant whose own file refuses its quotient keeps the
+`f32` its importers read (Amendment A5); any other exported constant is read as it is. Only a type
+the author wrote counts as declared: a call's result of any kind, a generic result, a module `let`
+and a read of a variable assigned anywhere are integers by inference, refused at `/` and read with
+their two readings (the owner's decision of 2026-11-13, E1). A tree in a position that takes an
+`f32` (`return K`, `K * 0.5`, `vec3(K, 0.5, 1.0)`, `sin(K)`) is refused with the tree named and the
+verified edit `f32(K)` (E3). Every edit a refusal names, a `>>`'s and a value form's too, is verified. A refusal that names no edit offers no wrap that the structure shows would not choose the
 division, and says "Declare the type of the division's operands to choose it." (the owner's
 decision of 2026-11-13).
 An annotation ends the origin (the owner's decisions of 2026-11-12). A compound assignment's

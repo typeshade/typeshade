@@ -983,10 +983,13 @@ records the decision and the readings the implementation needs.
   function's result is decided by that `f32`, and no edit changes an exported result. A call from
   another file of a program reaches the function through its export, so the walk stops there. A
   generic function's result is not followed, so a quotient that flows there names no edit.
-- [reading, 2026-11-13] An exported constant keeps the `f32` its importers read, as an exported
-  function's result does (Amendment A5). A constant of another file of a program is reached
-  through its export. A refused quotient there (`export const LQ = (1|2)/2`) is refused in its own
-  file, with the float edit, and leaves the constant an `f32`. An importer's mismatch
+- [reading, 2026-11-13] An exported constant whose own file refuses its quotient keeps the `f32`
+  its importers read, as an exported function's result does (Amendment A5). Only that case: a
+  constant of another file of a program is reached through its export, and a refused quotient
+  there (`export const LQ = (1|2)/2`) is refused in its own file, with the float edit, and leaves
+  the constant an `f32`. Any other exported constant is read as it is: `export const LK = 1 | 2`
+  is the integer 3 (a tree, F7), and `export const LB = 0xF0000000 | 0` holds its two readings
+  (D2). An importer's mismatch
   (`ii + LQ` in an `i32` function) is the importer's own mistake, the same in `compile()` and in
   the editor, and the importer names no edit that lands in another file. The fourteenth review
   of #1272, F5.
@@ -1090,11 +1093,36 @@ same bits, -2147483648, or declare a u32.`) as the others are. Each is compiled 
   - an `i32(…)` or `u32(…)` wrap of a divisor whose integer quotient is 0 (`9 / ((5|0) / k)` with
     `const k = 7`);
   - a `u32(…)` wrap whose quotient a unary minus reads (`-((~(1|2)) / 7)`);
-  - an operand that is a `?:` with one typed arm (`(5|0) / (c ? (-7|0) : i32(k))`);
   - a constant's sentence (Amendment A2) over a division that holds a tree too, which wrapping the
     constant leaves undecided (`(-(5|0)) / (c ? (-7|0) : k)`).
     The check compiles nothing more: at most two edited programs a module stay the bound. Found by
     the differential test of #1272 (six programs in 12,132), decided by the owner on 2026-11-13.
+- [decision, owner, 2026-11-13] E2: the `?:` form offers its wraps again. The form "an operand
+  that is a `?:` with one typed arm" is removed from the forms above: its premise was false, since
+  wrapping the other operand (`i32(-(5|0))` in `(-(5|0)) / (c ? (-7|0) : i32(k))`) chooses the
+  division. The other four forms stay, and a sentence offers only wraps that choose the division.
+- [decision, owner, 2026-11-13] E1, "증명 못 하면 추론으로 봄". The default is inverted: only a
+  type the author wrote counts as declared, which is an annotation, a written result type, an
+  `i32()`, `u32()` or `f32()` conversion, or a typed parameter, field or element. Every other
+  integer is an integer by inference, refused at `/` (D-b) and read with its two readings under
+  D2, unless its origin is proven. These are not proven: the result of a call of any kind (mixed
+  returns, an arrow, a local function, a method, a getter, a closure), a generic result, a module
+  `let`, and a read of a variable assigned anywhere. The two readings of a variable are those of
+  every value stored in it wherever it is stored (a module `let` set in another function, a
+  reassignment, a compound assignment); those of a call are those of every return, or of every
+  argument of a generic. So `function g(c: bool) { if (c) { return 6^3; } return 5; }` gives
+  `f32(g(vi > 3) / 2)` the refusal `Write "f32(g(vi > 3)) / 2" for the float division.`, where it
+  was 2 (`main` and TypeScript gave 2.5), and `let M = 4; function setm() { M = 3000000000|0; }`
+  gives `M / vi` the D2 refusal. A function with a written result type gives a declared type:
+  `function h(): i32 { return 5; }` keeps `h() / 2` the `i32` division (decision Q11). This ends
+  the tracking of each path that kept missing cases (the fifteenth review of #1272).
+- [decision, owner, 2026-11-13] E3, "거부 수용, 목록과 문구 보완". The scope of F7 is accepted: a
+  module `const K = 1 | 2` and a local tree are integers, so a position that takes an `f32` refuses
+  them (decision 1 of #1272): `return K` in an `f32` function, `let x: f32 = K`, `h(K)` with an
+  `f32` parameter, `sin(K)`, `K * 0.5`, `vec3(K, 0.5, 1.0)`, `vec2(6 ^ 3, 1)`, `vec2(f, 6 ^ 3)` and
+  `max(6 ^ 3, 1.5)`. Each such refusal names the tree and gives an edit verified with the module's
+  others: `"K" is an integer by its bit operator, and this position takes an f32. Write "f32(K)" for the float value.`
+  Where the edit does not verify, the sentence stops after its first clause.
 - [reading, 2026-11-13] The check of a module's edits compiles an edited copy of a linked program
   on its own, and knows the program's exported constants: an importer's edit that leaves the
   importer's own mismatch with an exported constant is not named (the export boundary above).
