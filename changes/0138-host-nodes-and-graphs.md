@@ -3416,6 +3416,76 @@ this amendment.
   A12's slice status table.
 - Status: `status: accepted` does not change.
 
+### A14. Slice 1 merged: the bundle budgets after A13, and its open items (2026-11-16)
+
+- [fact] Why. Slice 1 of A10's slice table merged on 2026-11-16 as #1257, squash commit `3b579904`.
+  After A13 decision 4, the owner accepted two more bundle sizes in the conversation. This amendment
+  records them, the merged state, and the items slice 1 leaves open.
+- [fact] Baseline: `main` at `ec751e08`.
+- [fact] This amendment changes no front matter, no rule text and no code.
+
+**Decision 1. The bundle budgets after A13.**
+
+- [fact] A13 decision 4 accepted the gzip sizes of #1257 at `9b78bae7`. Two later commits of #1257
+  moved them again:
+
+| Bundle                 | A13 (`9b78bae7`) | `3d697364` | `2f1d272a` |
+| ---------------------- | ---------------- | ---------- | ---------- |
+| `typeshade/runtime`    | 170,646          | 170,821    | 171,140    |
+| `typeshade/fuse`       | 115,268          | 115,420    | 115,509    |
+| `typeshade/algorithms` | 70,312           | 70,478     | 70,608     |
+| `typeshade/random`     | 51,896           | 52,040     | 52,173     |
+
+- [fact] `3d697364` names a `Buffer` or a `Uniform` in the refusal of a call with plain data (Rule
+  12.5). `2f1d272a` closes review findings S1 to S3 of #1257 (A12 D2 in the program runtime and
+  WebGL2, the line of the first use on every path, A13 Q12 once an element is fixed).
+- [decision, owner, 2026-11-11] For `3d697364`, the owner picked the recommended option in the
+  question UI: "수용, PR에 기록 (추천)" (English translation: accept, record it on the pull request;
+  recommended). The record has no other words.
+- [decision, owner, 2026-11-11] For `2f1d272a`, the owner picked the same option: "수용, PR에 기록
+  (추천)". The record has no other words.
+- [fact] The owner merged `main` and the refactors #1286, #1288 and #1290 into #1257 on 2026-11-16
+  (`1aba11a9`, `0d696ac0`) and recorded the measured caps of the merged state in
+  `scripts/bundle-budget.json`. #1289 (`ad05431a`) then moved them by a few bytes and recorded its
+  own caps. On `main` at `ec751e08`, `typeshade/runtime` is 171,253 and `typeshade/fuse` 115,599;
+  `typeshade/algorithms` and `typeshade/random` are as at `2f1d272a`.
+
+**The slices of milestone 4, status.**
+
+- [fact] This statement updates A13's status table. A13's text stays as it is.
+
+| Slice  | Status                                                                                     |
+| ------ | ------------------------------------------------------------------------------------------ |
+| 0      | done: #1251, merged as `937147b8`.                                                         |
+| 1      | done: #1257, merged as `3b579904` on 2026-11-16. Every required check green at `0d696ac0`. |
+| 2 to 6 | not started.                                                                               |
+
+**Open items after slice 1.**
+
+| Item                                                                                                                                                                           | Source          | Next action                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- | ------------------------------------------------------------------------ |
+| D-l: the program runtime binds a scalar `Buffer` to any buffer binding.                                                                                                        | A12 decision 1  | Closed in milestone 5.                                                   |
+| D-m: today's `fuse` and a value-returning call.                                                                                                                                | A12             | Closed in slice 5.                                                       |
+| D-p: a `Record` field in the struct of an `array<S, N>` result is refused.                                                                                                     | A13 decision 2  | The agent that plans slices 2 to 6 asks the owner which slice closes it. |
+| Review note N3: the `tsc` half of the geometry test passes whatever `Buffer<number>` is, since `Geometry` takes `object`.                                                      | Review of #1257 | A later slice that types `Geometry`.                                     |
+| Review note N4: the surface table does not say that vertex attributes of different scalars leave the element open, so `f32`.                                                   | Review of #1257 | The next edit of surface §67.                                            |
+| Review note N5: a `fuse` plan refused after its call check leaves an element fixed.                                                                                            | Review of #1257 | Slice 5, which replaces today's `fuse`.                                  |
+| Review note N6: no WebGPU or WebGL2 run of the new result layouts outside CI.                                                                                                  | Review of #1257 | CI covers it; no local action.                                           |
+| The line of the first use is read off the stack (`callSite`, `hostSite`); a host file in a `core`, `runtime` or `rhi` directory, or a flattened bundle, can name another line. | #1257 body      | Recorded; no slice assigned.                                             |
+
+- [fact] The delta review of #1257's fixes `94c765dc` and `2f1d272a` by a separate agent was cut
+  three times by container restarts and returned no report. The main session read the diff and ran
+  the three touched test files instead (303 pass at `2f1d272a`). #1257's body records it.
+
+**Open, owner must settle.**
+
+- [fact] Nothing new. D-p's slice is asked when slices 2 to 6 are planned.
+- [inference, agent] No statement of this amendment conflicts with an entry of
+  `docs/owner-decisions.md` (OD-1 to OD-8).
+
+- Affects: A13 decision 4 (the bundle budgets); A13's slice status table.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground
