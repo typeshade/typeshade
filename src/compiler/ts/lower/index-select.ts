@@ -17,7 +17,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, type LoweringScope } from '../context.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { makeDiagnostic } from '../diagnostic.js';
-import { retargetIntLit } from '../lit-coerce.js';
+import { integerQuotientAt, retargetIntLit, retypeKindlessDeclared } from '../lit-coerce.js';
 import { lowerExpression } from './expression.js';
 import {
   continuesOptionalChain,
@@ -119,6 +119,9 @@ function lowerIndexOf(
   // An index takes either integer type (change 0134): a `/` it reads names the other reads' type.
   noteIntegerContext(node.argumentExpression, 'i32', true);
   // An index asks for an integer of no kind of a value its uses decide (change 0134 item 1).
+  // An index states an integer type: a tree of written integers, or a quotient over a binding
+  // that holds one, is read as a declaration of that type reads it (issue 1261, Amendment A4).
+  idx = retypeKindlessDeclared(idx, i32T) ?? integerQuotientAt(idx, i32T, true) ?? idx;
   idx = softDemands(() => retargetIntLit(idx!, node.argumentExpression, i32T));
   const ik = typeKey(idx.type);
   if (ik !== 'i32' && ik !== 'u32') {

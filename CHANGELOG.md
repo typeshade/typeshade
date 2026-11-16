@@ -284,6 +284,144 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **A tree of written integers has the value TypeScript computes** (issue 1261; Rules 5.1, 5.3
+  and 5.4, Amendments A2 and A4 of change 0134). `&`, `|`, `^`, `<<`, `>>`, `~`, `+`, `-`, `*`, `%`,
+  `/` and a minus over written integers, integer-written constants of no fixed type and module
+  constants that hold such a tree, with a bit operator among them, are one tree. One fold reads
+  the whole tree, as TypeScript computes it: arithmetic exactly, bit operators on ToInt32 of
+  their operands. Only the outermost operator, the root, decides, and every refusal waits for it.
+  `((1 << 30) * 4) | 0` is 0, `((1 | 2) / 2) | 0` is 1, `(1 | 2) / 2 * 2` is 3 and
+  `(0xF0000000 >> 28) | 0` is -1. Where the root is a bit operator beside a written number only
+  a `u32` holds, it works on `u32` bits where those bits and TypeScript's agree (change 0134
+  item 1; `3000000000 | 1` is the `u32` 3000000001). The value is an `i32` where an `i32` holds
+  it, else a `u32`. `const K = 1; const J = 2; let f = K | J;` emitted `var f: f32 = (K | J);`,
+  which Tint refuses; it is now `var f: i32 = 3;`. A position that declares an integer type takes
+  the value where that type holds it (`let f: u32 = K | J`, `u |= K | J`, `u += 1 | 2`). A
+  module variable reads module constants as constants of no fixed type. `const M = 1 | 2` at
+  module scope is `const M: i32 = 3;`, as `const M = 1 << 1` is `2`: it kept the `f32` 3.0 of
+  `main`, so `ii + M` was refused and `f + M` accepted, while `M / 2` called `M` an integer.
+  **A quotient that is no integer** (`(1 | 2) / 2` is 1.5): a position that states an integer
+  type (a declaration, a parameter, a result, `i32()`, `u32()`, an index) reads it truncated, as
+  Amendment A4 reads a quotient; a comparison reads it exactly. Anywhere else it is refused
+  (D-b), with the `f32()` edit, or beside an integer peer that states no type
+  (`vi + (1 << 3) / 3`, `min((1 << 3) / 3, ii)`) with the integer edit (`u32(1 << 3) / 3`). The
+  edit names the whole tree, so it compiles in one step (`((1 | 2) / 2) / 2` names
+  `(f32(1 | 2) / 2) / 2`). The edit takes its type from where the quotient flows: a declared
+  `let`, a parameter, a result, a vector constructor, a field of an object literal, a typed
+  peer (its written or inferred type), an assignment target, through a bit operator and a chain
+  of `let`s, and to the callers of a function with no result type; else `f32`. An exported
+  function's result is the `f32` the host reads (Amendment A5), in every export form
+  (`export { g as h }` included), so a quotient that flows there is decided by it; a generic function's result is not followed.
+  `let q = (1 | 2) / 2; return q * 2` in an `i32` function names `i32(1 | 2) / 2`,
+  `return h(q)` with `h(a: u32)`
+  names `u32(1 | 2) / 2`, and `a /= 2` names the declaration its uses ask
+  (`let a: u32 = 1 | 2`). A product past `u32` names the value (`((1 << 30) * 4) / 3` names
+  `f32(4294967296) / 3`). A conversion the author wrote on an operand decides the division
+  (`(1 | 2) / i32(2)` and `(1 | 2) / (i32(2) + 1)` are the `i32` division, and `f32(2) + 1` or
+  `a /= f32(2)` keeps the `f32` it states); a builtin carries
+  its arguments' origin, so `(1 | 2) / abs(1 << 1)` stays refused. The compiler makes the edit
+  of every refused `/` of the module at once (a tree, a binding that holds one, and a constant
+  of no fixed type, which Amendment A2 refuses) and names the edits only when the edited program
+  adds no error; at most two edited programs are compiled a module, in each half. Where the
+  edits do not compile together, or one quotient flows to two types, no refusal of the module
+  names an edit, and each names the operands to wrap and the types its positions take
+  (`Write i32(…) or f32(…) around "1 | 2" to choose the division.`); a `/=` names the variable
+  to declare with a type (the owner's decision of 2026-11-12, "name only verified edits"). The
+  owner kept this scope on 2026-11-12 ("이대로"). A divisor proven zero (`/`, `/=`, a constant
+  `Z = 0`) is the one diagnostic, as before.
+  Intermediate values are TypeScript's doubles: a product past their range is Infinity, which
+  ToInt32 at a bit operator reads as 0.
+  **Newly refused** (`TS8003`), each with the edit that compiles:
+  - a value its type does not hold, with the sentence a written number gets:
+    `let a: u32 = (1 | 2) - 5` (-2); `let a: u32 = ~0`, `u ^= ~0` and
+    `let a: u32 = (~3 & 255) << 24`, which name the `u32` with the same bits (`0xffffffff`,
+    `0xfc000000`; the owner's decision of 2026-11-11, "거부 유지"); `let a: i32 = (1 << 30) * 2`,
+    `i += (1 << 30) * 2` and `return (1 << 30) * 2` in an `i32` function, which name
+    `-2147483648` (the owner's decision of 2026-11-11, D-a, "거부"; each was -2147483648 before);
+    `(1 << 30) * 4` as a whole (4294967296; it was 0 before);
+  - `let a = -(1 << 31); ii + a`: `a` is the `u32` 2147483648, and the `+` names the conversion
+    (D-a, kept by the owner's decision of 2026-11-11, "이대로"; it was -2147483648 before);
+  - a `>>` root over a written number only a `u32` holds where its `u32` bits and TypeScript give
+    other values: `0xF0000000 >> 28` (15 and -1) names `u32(0xF0000000) >> 28` (the owner's
+    decision of 2026-11-11, "거부"); inside a larger tree the `>>` computes as TypeScript does;
+  - a quotient that is no integer where no position states an integer type (the owner's decision
+    of 2026-11-11, D-b, "A2대로 거부"): `f32((1 | 2) / 2)`, `let m = ((1 | 2) * 3) / 2`,
+    `let n = ~2 / 2`, `let a = 1 | 2; a / 2` and `const K = 1 << 4; … f32(K / 3)` (5 before) name
+    `f32(1 | 2) / 2` and the like; `(1 | 2) / (1 << 1)` names `f32(1 | 2) / f32(1 << 1)`;
+    `(1 << 3) / 3` (2 before), `let a = 1 << 2; a / 3` (1 before), `vi + (1 << 3) / 3` (5
+    before) and `i32(floor((1 | 2) / 2))` are refused too, and `a /= 2` names
+    `let a: i32 = 1 | 2`. The refusal is the one mistake where the quotient flows;
+  - `3000000000 | -1` (the owner's decision of 2026-11-11, "거부 유지"), `x + (1 | 2)` with
+    `x: f32` (decision 1), `1.0 | 2`, and `f32((K | 1) / 2)`, which named `(K | 1.0)` before;
+  - `const K = 3; let m = K / 2;` at module scope with `vi * K` in a function (1.5 before;
+    Amendment A2);
+  - every operation whose result differs between a tree's `u32` bits and its TypeScript value
+    (the owner's decision of 2026-11-12, D2): `/`, `%`, a comparison, `min`, `max`, `clamp`,
+    `abs`, `sign`, `f32()`, `>>` by an amount that is no written number, `/=`, `%=` and `>>=`,
+    and the result of an exported function, also through a binding, `?:`, `select`, a
+    function's result, a module `let`, arithmetic over a written number and a compound
+    assignment (`let a = 3000000000 | 0; let c = a + 0; c / vi`). The edit is verified with the
+    module's other edits: `u32(…)` beside a `u32`, `i32(…)` (TypeScript's value) where the value
+    flows to an `i32` or into `f32()`, and the declaration of an assignment's target with its
+    type (`let a: u32 = 3000000000 | 0`), which ends the origin. `+ - * & | ^ <<` agree modulo
+    2^32 and compile; beside an `i32` the tree is TypeScript's value;
+  - a compound assignment of a quotient that is no integer (`g *= (5 | 0) / 2`, also to an array
+    element, a field or a component), which truncated it before (14 for TypeScript's 17): it is
+    an operand beside the target, as in `g = g * ((5 | 0) / 2)`;
+  - a `/` over a module `let` of a tree, a call of a function with no result type that returns
+    one, a bit operator over a value that is no fold (`3 / ((c ? 3 : 9) << 2)`), and a `/=` of a
+    variable its uses type by such a value (`let s = 1; s /= ~(1 | 2)`), which divided as
+    integers before;
+  - a `/` over a value that is an integer only by inference, stored back into a variable whose
+    type its uses decide (`let a = 1 | 2; a = a / 2;`, `a /= K` with `const K = 4`), which
+    divided as an integer before (1 and 0);
+  - `(1 | 2) / f32(2)` (1.5 on `main`) is a plain mismatch: the written `f32(2)` decides an
+    `f32` division, and `1 | 2` is an integer;
+  - `f32((K | 0) / 2)` with `const K = 4` (2 on `main`): `K | 0` reads `K` as an integer, and
+    Amendment A2 refuses a `/` over such a constant, as it refuses `const HALF = N / 2` with
+    `const N = 8` (kept by the owner's decision of 2026-11-12, D3).
+
+  `settleConstExprs` (#368) evaluates the `~` intrinsic over an abstract integer, so
+  `u32(~min((9 | 0), 5))` reaches the target as `4294967290u`, not `u32(~5)`, which Tint refused.
+  Measured bundle budgets move (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime`
+  167177 to 167208 (split total 169447 to 169476), `typeshade/emit` 117367 to 117380 and
+  `typeshade/fuse` 113898 to 113919 (split total 114521 to 114536): each one carries the pass.
+
+  The origin of an integer by its bit operator, and the two readings of D2, are carried further
+  (the fourteenth review of #1272). A function with no written result whose returns are such
+  integers gives one, through `let`, `abs`, `min`, `sign`, `select` and `?:`, exported or imported
+  (`function gg() { return 6 ^ 3; } let a = gg(); f32(a / 2)` gave 2, TypeScript 2.5; it is
+  refused now). A generic function whose result is its argument gives the argument's origin and
+  readings (`id(3000000000 | 0) / vi` gave 428571428; refused). A plain assignment to a variable
+  with no written type takes the two readings, also inside `for` and `if` and for a module `let`
+  (`let a = 4; a = 3000000000 | 0; a / vi` gave 428571428, TypeScript 4109971968; refused). An
+  exported constant keeps the `f32` its importers read, as an exported function's result does
+  (Amendment A5), so an importer's mismatch is its own and names no edit in another file. A D2
+  refusal over a constant of no fixed type names the constant's declaration with its type; over a
+  constant of another file, or where no form compiles in a module with that one refusal, it names
+  none. The edit of a refused `>>` over a written `u32` and the value forms are verified with the
+  module's other edits, and named only where they compile.
+
+  A refusal that names no edit offers no wrap where the structure shows that the wrap would not
+  choose the division (the owner's decision of 2026-11-13, "그 경우 감싸기 안 제시"): an `f32(…)`
+  wrap whose quotient a bit operator reads, an integer wrap of a divisor whose integer quotient is
+  0, a `u32(…)` wrap whose quotient a unary minus reads, and a constant's sentence over a
+  division that holds a tree. A `?:` with one typed arm offers its wraps (the owner's E2 of
+  2026-11-13: wrapping the other operand chooses the division). It says "Declare the type of
+  the division's operands to choose it." The check of a module's edits compiles an importer with
+  the exported constants of its libraries, so an importer's edit that leaves its own mismatch is
+  not named.
+
+  Newly refused against `main`, with the decision that covers each:
+
+  - `let g = f; g += (5|0)/2` and the same for `-=`, `*=`, `/=` and `%=` (`main` gave 5, 0, 6.25,
+    1 and 0), and `let g = 3; g *= (5|0)/2` (`main` gave 7.5): D-b ("이대로"), a compound
+    assignment states no type for its right side.
+  - An unused `const Q = K / 2` with `const K = 4` (`main` accepted it): D-b and Amendment A2.
+  - `const K = 1 | 2; … f + K` (`main` gave 5.5): decision 1, an integer beside a float.
+  - `let a = 3000000000 | 0; min(a, ii)`: now refused under D2 with the edit `i32(a)`, where it was
+    a plain mismatch.
+
 - **The editor's hover names a constant of no fixed type in the language's words, and each read
   at the type it takes there** (change 0134 item 4; Rules 5.1 and 12.7; decision Q3). At the
   declaration, `const K = 3` hovers as `const K = 3 (i32, u32, f32 or f64 where it is read)` and

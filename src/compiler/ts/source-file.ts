@@ -13,10 +13,13 @@ import {
   switchedOffCalls,
 } from './use-inference.js';
 import {
+  compilingCheckedEdit,
   markProjectedAnnotations,
   reportAbstractDivisions,
   resetAbstractConsts,
   abstractConstFacts,
+  exportedConstantNames,
+  markExportedConstants,
 } from './abstract-const.js';
 import { withoutKernelLoops } from './lower/kernel-methods.js';
 import ts from 'typescript';
@@ -494,8 +497,9 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   // inside. It runs here, before the report, so `compile()` and the language service (which
   // runs this with `emit: false`) report the same TS8052 (Rule 12.7), and the three consumers
   // read the rewritten functions. No filter switches the rule off: change 0132 removed it, and
-  // a written one is refused (`TS8028`, `refuseStageCalls` and `builtin-check.ts`).
-  {
+  // a written one is refused (`TS8028`, `refuseStageCalls` and `builtin-check.ts`). An edited
+  // copy that a checked quotient edit compiles skips it: the edit changes a type, not a branch.
+  if (!compilingCheckedEdit()) {
     const shape = (): ModuleDecl => ({
       consts: [...consts],
       structs: emittedStructDecls(structs),
@@ -530,7 +534,11 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   // A kernel function's loops run as dispatches when the proof accepts them, and on the CPU
   // with a warning that names why when it does not (Rule 8.22, TS8070). After the functions,
   // because the proof reads what each callee writes, and only on a module with no error.
-  if (funcs.some((f) => f.kernel === true) && !diagnostics.some((d) => d.category === 'error')) {
+  if (
+    !compilingCheckedEdit() &&
+    funcs.some((f) => f.kernel === true) &&
+    !diagnostics.some((d) => d.category === 'error')
+  ) {
     diagnostics.push(
       ...kernelLoopDiagnostics(
         {
@@ -549,6 +557,9 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   reportUndeclaredValues(sourceFile, diagnostics);
   // A `/` over a constant of no fixed type that some read made an integer (change 0134,
   // decisions Q10 and Q11), known only now that every read was lowered.
+  // The exported constants of the program (F5 of the fourteenth review of #1272), which an
+  // edited copy compiled on its own cannot tell from its text.
+  const exported = exportedConstantNames(sourceFile);
   reportAbstractDivisions(sourceFile, diagnostics, (text, starts) => {
     const edited = ts.createSourceFile(
       sourceFile.fileName,
@@ -558,6 +569,7 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
       ts.ScriptKind.TS,
     );
     if (starts !== undefined) markProjectedAnnotations(edited, starts);
+    markExportedConstants(edited, exported);
     return compileTsSource(text, { sourceFile: edited, emit: false }).diagnostics.filter(
       (d) => d.category === 'error',
     );
