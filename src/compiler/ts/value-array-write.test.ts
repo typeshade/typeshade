@@ -29,50 +29,43 @@ const edited = (body: string): string[] => {
     .map((d) => `${d.severity} ${String(d.code)} ${d.message}`);
 };
 
-// `return xs` of an array with no size is refused (TS8020) in every function until slice 3 of change
-// 0138, so the text offers @inout only (Amendment A16, decision 3); slice 3 restores "or return".
-const lost = (fn: string, p: string): string =>
-  `error TS8080 ${fn}(): parameter "${p}" is a value; its writes are lost. Write @inout ${p} to update the caller's array.`;
 const outPushed = (fn: string, p: string): string =>
   `error TS8080 ${fn}(): parameter "${p}" is @out; a push to it needs @inout. Write @inout ${p}.`;
-const pushed = (fn: string, p: string): string =>
-  `error TS8080 ${fn}(): parameter "${p}" is a value; a push to it is lost. Write @inout ${p} to push into the caller's array.`;
-
 /** Each program of `TS8080`: `[name, source, the diagnostics both halves say]`. */
 const CASES: readonly (readonly [string, string, readonly string[]])[] = [
   [
-    'an element write in a kernel function',
+    "an element write in a kernel function: the write reaches the caller's array",
     `export function scale(xs: array<f32>, k: f32) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] * k;
   }
 }`,
-    [lost('scale', 'xs')],
+    [],
   ],
   [
-    'a compound write',
+    "a compound write: the write reaches the caller's array",
     `export function bump(xs: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] += 1.;
   }
 }`,
-    [lost('bump', 'xs')],
+    [],
   ],
   [
-    'an increment',
+    "an increment: the write reaches the caller's array",
     `export function count(xs: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i]++;
   }
 }`,
-    [lost('count', 'xs')],
+    [],
   ],
   [
-    'fill',
+    "fill: the write reaches the caller's array",
     `export function zero(xs: array<f32>) {
   xs.fill(0.);
 }`,
-    [lost('zero', 'xs')],
+    [],
   ],
   [
     'a local rewrite of a fixed-size array parameter that no return carries is no TS8080 (Rule 8.8, change 0031)',
@@ -86,13 +79,13 @@ const CASES: readonly (readonly [string, string, readonly string[]])[] = [
     [],
   ],
   [
-    'a push',
+    "a push: the write reaches the caller's array",
     `export function add(xs: array<f32>, v: f32) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs.push(v);
   }
 }`,
-    [pushed('add', 'xs')],
+    [],
   ],
   [
     'a push to a fixed-size array parameter is no TS8080: it is no array method (TS8099)',
@@ -176,14 +169,14 @@ const CASES: readonly (readonly [string, string, readonly string[]])[] = [
     [],
   ],
   [
-    'an array with no size written through an alias is a value too',
+    "an array with no size written through an alias is the caller's array too",
     `type Xs = array<f32>;
 export function scale(xs: Xs) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = 2.;
   }
 }`,
-    [lost('scale', 'xs')],
+    [],
   ],
   [
     'an @inout parameter that is pushed onto',
@@ -204,13 +197,13 @@ export function scale(xs: Xs) {
     [],
   ],
   [
-    'two value parameters, one written',
+    "two array parameters, one written: the write reaches the caller's array",
     `export function copy(xs: array<f32>, ys: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     ys[i] = xs[i];
   }
 }`,
-    [lost('copy', 'ys')],
+    [],
   ],
   [
     'a local array of the same name is a local',
@@ -255,29 +248,35 @@ describe('a write to a value array parameter (TS8080, change 0138, Amendment A15
     });
   }
 
-  it('reports each lost write on the write, with the span of the place it writes', () => {
+  it('reports no lost write on an element write through an array parameter (change 0142)', () => {
     const source = module(`export function scale(xs: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = 2.;
   }
 }`);
-    const d = compile(source, { fileName: 'm.shade.ts' }).diagnostics.find(
-      (x) => x.code === 'TS8080',
-    )!;
-    expect(source.slice(d.start, d.start + d.length)).toBe('xs[i]');
-    expect(d.line).toBe(4);
+    // Change 0142: the parameter is the caller's array, so the write is no lost write. Both halves.
+    const r = compile(source, { fileName: 'm.shade.ts' });
+    expect(r.diagnostics.filter((x) => x.category === 'error')).toEqual([]);
+    expect(r.diagnostics.some((x) => x.code === 'TS8080')).toBe(false);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', source);
+    expect(service.getDiagnostics('m.shade.ts').filter((x) => x.severity === 'error')).toEqual([]);
   });
 });
 
 describe('the text of TS8080 (Amendment A16, decision 3)', () => {
-  it('offers @inout alone while an array with no size cannot be returned, in a kernel and in a helper', () => {
-    const text = `error TS8080 scale(): parameter "xs" is a value; its writes are lost. Write @inout xs to update the caller's array.`;
-    const body = `(xs: array<f32>) {\n  xs[0] = 1.;\n}`;
-    expect(compiled(`export function scale${body}`)).toEqual([text]);
-    expect(edited(`export function scale${body}`)).toEqual([text]);
-    const helper = compiled(`function scale${body}`);
-    expect(helper).toContain(text);
-    expect(edited(`function scale${body}`)).toContain(text);
+  it('a write to an array parameter is no TS8080 in a kernel function or in a helper (change 0142)', () => {
+    const sources = [
+      `export function scale(xs: array<f32>) {\n  xs[0] = 1.;\n}`,
+      `function scale(xs: array<f32, 4>) {\n  xs[0] = 1.;\n}`,
+    ];
+    for (const src of sources) {
+      expect(compiled(src)).toEqual([]);
+      expect(edited(src)).toEqual([]);
+    }
+    // The helper's parameter is a pointer, so the write reaches the caller's array.
+    const r = compile(module(sources[1]!), { fileName: 'm.shade.ts' });
+    expect(r.wgsl).toContain('xs: ptr<function, array<f32, 4>>');
   });
 
   it('keeps "or return xs" behind the condition slice 3 enables', () => {

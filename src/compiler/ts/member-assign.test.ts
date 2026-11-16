@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { compile } from './compile.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { typeKey } from '../../core/ir/types.js';
 import type { Expr, ModuleDecl, Stmt } from '../../core/ir/nodes.js';
 import { compileModule } from '../../core/oracle.js';
@@ -743,21 +744,33 @@ describe('the root rule reaches an element target too', () => {
     ).toBe('Cannot assign to "cam" — it is a read-only resource.');
   });
 
-  it('rejects an element write through a parameter', () => {
-    expect(
-      diagnose(`
+  it("takes an element write through a struct parameter: the caller's object (change 0142)", () => {
+    const src = `"use typeshade";
         class C {
-          xs: array<f32, 4>
+          xs: array<f32, 4>;
         }
         export function f(p: C, i: i32): f32 {
           p.xs[i] = 1.;
           return p.xs[0];
         }
+      `;
+    const c = compile(src);
+    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(c.wgsl).toContain('p: ptr<function, C>');
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.shade.ts', src);
+    expect(service.getDiagnostics('a.shade.ts').filter((d) => d.severity === 'error')).toEqual([]);
+  });
+
+  it('still rejects an element write through a vector parameter', () => {
+    expect(
+      diagnose(`
+        export function f(p: vec3, i: i32): f32 {
+          p[i] = 1.;
+          return p[0];
+        }
       `),
-    ).toBe(
-      'Cannot write through parameter "p" — parameters are not writable. Use a local or storage. ' +
-        'To change the caller\'s value, declare "@inout p: C".',
-    );
+    ).toMatch(/parameter "p"/);
   });
 
   it('still takes the element writes that were always legal', () => {

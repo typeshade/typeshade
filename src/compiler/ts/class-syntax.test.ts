@@ -1376,7 +1376,7 @@ export function run(): f32 { let p = new P(); p.init(); return p.x * 10. + p.y }
     ).toBe(12);
   });
 
-  it('a call that writes the copy inside a larger expression is refused, with the fix', () => {
+  it('a call that writes the copy inside a larger expression is refused, with the fix; a second name is the object (change 0142)', () => {
     expect(
       only(
         V +
@@ -1385,14 +1385,14 @@ export function run(): f32 { let p = new P(); p.init(); return p.x * 10. + p.y }
     ).toBe(
       `${M} "V.setY" changes its object, and inside this expression it would change the copy "v.setX(3.)" hands back. Make the chain a statement of its own, or call each method on the object itself.`,
     );
-    expect(
-      only(
-        V +
-          `export function run(): f32 { let a = new V(); const v = a; v.setX(3.).setY(4.); return v.x }${TAIL}`,
-      ),
-    ).toBe(
-      `${M} "V.setX" changes its object, and "v" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
-    );
+    // `const v = a` is a second name of the object `a` holds, as in JavaScript (change 0142): the
+    // chain, a statement of its own, writes that object. Both halves agree.
+    const alias =
+      V +
+      `export function run(): f32 { let a = new V(); const v = a; v.setX(3.).setY(4.); return a.x + a.y * 10. }${RUN_TAIL}`;
+    expect(errorsOf(alias)).toEqual([]);
+    expect(editorErrors(alias)).toEqual([]);
+    expect(runAll(alias)).toBe(43);
   });
 });
 
@@ -1709,21 +1709,16 @@ class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this; }
     expect(runAll(src)).toBe(1);
   });
 
-  it('a const whose value something else may hold is refused, with both fixes', () => {
-    expect(
-      only(
-        `${V}export function run(): f32 { let a = new V(); const b = a; b.x = 5.; return a.x }${RUN_TAIL}`,
-      ),
-    ).toBe(
-      `${TS_CODES.CONST_ASSIGN} "b" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to write a copy, or write through the value itself.`,
-    );
-    expect(
-      only(
-        `${V}export function run(): f32 { let a = new V(); const b = a; b.bump(); return a.x }${RUN_TAIL}`,
-      ),
-    ).toBe(
-      `${M} "V.bump" changes its object, and "b" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
-    );
+  it('a const that takes another name writes the object it names, as in JavaScript (change 0142)', () => {
+    for (const [body, expected] of [
+      ['let a = new V(); const b = a; b.x = 5.; return a.x', 5],
+      ['let a = new V(); const b = a; b.bump(); return a.x', 1],
+    ] as const) {
+      const src = `${V}export function run(): f32 { ${body} }${RUN_TAIL}`;
+      expect(errorsOf(src)).toEqual([]);
+      expect(editorErrors(src)).toEqual([]);
+      expect(runAll(src)).toBe(expected);
+    }
     // A function's result may be a value something else holds.
     expect(
       only(
@@ -2054,6 +2049,9 @@ describe('TS8035 refuses what its catalogue entry says, and nothing that compile
   // against the compiler: each shape it says compiles, compiles, and each it says is refused
   // is TS8035.
   const COMPILES: Record<string, string> = {
+    // A struct parameter is the caller's object (change 0142), so a method may change it.
+    'a mutating method on a parameter': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
+export function f(a: A): f32 { a.bump(); return a.x }`,
     'new on a class of statics only': `class A { static k(): f32 { return 1. } }
 export function f(): f32 { const a = new A(); return 1. }`,
 
@@ -2118,10 +2116,9 @@ export function f(a: A): f32 { return a.k() }`,
 export function f(a: A): f32 { return a.#x }`,
     'a getter with no setter assigned': `class A { x: f32; get y(): f32 { return this.x } }
 export function f(): f32 { let a: A = { x: 1. }; a.y = 2.; return a.x }`,
-    'a mutating method on a parameter': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
-export function f(a: A): f32 { a.bump(); return a.x }`,
-    'a mutating method on a const that copies': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
-export function f(a: A): f32 { const b = a; b.bump(); return b.x }`,
+    'a mutating method on a const that holds a function result': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
+function mk(): A { return new A() }
+export function f(): f32 { const b = mk(); b.bump(); return b.x }`,
   };
 
   it.each(Object.entries(COMPILES))('compiles %s', (_what, body) => {

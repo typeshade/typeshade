@@ -689,7 +689,7 @@ let acc: C = { x: 10. };
     expect(r.eval('fs', [[1, 0]])).toEqual([6, 11, 0, 1]);
   });
 
-  it('refuses a receiver a function cannot write, and a call in expression position', () => {
+  it('refuses a receiver that is a const copy, and a call in expression position; takes a parameter', () => {
     const C = `"use typeshade"\nclass C {\n  x: f32\n  bump(): void { this.x = this.x + 1. }\n}\n`;
     const only = (src: string) => {
       const errors = errorsOf(src);
@@ -709,8 +709,11 @@ let acc: C = { x: 10. };
     ).toBe(
       `${M} "C.bump" changes its object, and "c" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
     );
-    expect(only(`${C}function g(c: C): f32 { c.bump()\n  return c.x }${TAIL}`)).toBe(
-      `${M} "C.bump" changes its object, and "c" is a parameter, which a function cannot write; copy it into a let first.`,
+    // A parameter of a struct is the caller's object (change 0142): a method that changes it is a
+    // write through it, so the function takes a pointer and the caller's value changes.
+    expect(bothHalves(`${C}function g(c: C): f32 { c.bump()\n  return c.x }${TAIL}`)).toEqual([]);
+    expect(only(`${C}function g(c: vec3): f32 { c.x = 1.\n  return c.x }${TAIL}`)).toMatch(
+      /parameter/,
     );
     // A `new` inside a larger expression has no place to hold the object the method changes.
     // As the whole of a statement it is a chain's root, held in a temporary (Rule 8.10).
@@ -791,7 +794,7 @@ class Random {
     expect(s.result).toEqual(expected);
   });
 
-  it('one that returns a value takes the receivers a void one does, wherever it is called', () => {
+  it('one that returns a value takes the receivers a void one does, a parameter included', () => {
     const Gen = `"use typeshade"\nclass Gen {\n  s: u32\n  next(): u32 {\n    this.s = this.s + 1\n    return this.s\n  }\n}\n`;
     const only = (src: string) => {
       const errors = errorsOf(src);
@@ -806,9 +809,8 @@ class Random {
     ).toBe(
       `${M} "Gen.next" changes its object, and "r" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
     );
-    expect(only(`${Gen}function g(r: Gen): u32 { return r.next() }${TAIL}`)).toBe(
-      `${M} "Gen.next" changes its object, and "r" is a parameter, which a function cannot write; copy it into a let first.`,
-    );
+    // A struct parameter is the caller's object (change 0142): the method writes through it.
+    expect(bothHalves(`${Gen}function g(r: Gen): u32 { return r.next() }${TAIL}`)).toEqual([]);
     expect(only(`${Gen}function g(): u32 { return 1 + new Gen().next() }${TAIL}`)).toBe(
       `${M} "Gen.next" changes its object, and this one is a value that is dropped; keep it in a let and call the method on that.`,
     );
