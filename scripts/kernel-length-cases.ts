@@ -9,19 +9,19 @@ import type { u32 } from '../src/runtime/host-types.js';
 
 export const KERNEL_LENGTH_SOURCE = `"use typeshade";
 interface Item { value: vec4; flag: u32; }
-export function measure(out: array<u32>, x: array<f32>): void {
+export function measure(@inout out: array<u32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = x.length;
 }
-export function own(out: array<u32>, x: array<f32>): void {
+export function own(@inout out: array<u32>, x: array<f32>): void {
   for (let i: u32 = 1; i < out.length; i++) out[i] = out.length + x.length;
 }
-export function vector(out: array<u32>, x: array<vec4>): void {
+export function vector(@inout out: array<u32>, x: array<vec4>): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = x.length;
 }
-export function record(out: array<u32>, x: array<Item>): void {
+export function record(@inout out: array<u32>, x: array<Item>): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = x.length;
 }
-export function dynamic(out: array<u32>, count: array<u32>, x: array<f32>): void {
+export function dynamic(@inout out: array<u32>, count: array<u32>, x: array<f32>): void {
   for (let i: u32 = 0; i < count[0]; i++) out[i] = x.length;
 }
 `;

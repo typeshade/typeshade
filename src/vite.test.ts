@@ -48,7 +48,7 @@ export function height(p: vec2, k: vec4): f32 {
 
 const PORTABLE_KERNEL = `"use typeshade";
 function act(x: f32): f32 { return x * 2.; }
-export function scale(out: array<f32>, xs: array<f32>): void {
+export function scale(@inout out: array<f32>, xs: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = act(xs[i]); }
 }
 `;
@@ -422,12 +422,12 @@ declare const ys: storage<array<f32>, "read_write">;
 
   it('writes eligible facts by default and with fuse: true, and omits them with false, in dev and build (0085)', async () => {
     const src = `"use typeshade";
-export function add(out: array<f32>, a: array<f32>) {
+export function add(@inout out: array<f32>, a: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + 1.;
   }
 }
-export function prefix(out: array<f32>) {
+export function prefix(@inout out: array<f32>) {
   for (let i: u32 = 1; i < out.length; i++) {
     out[i] = out[i] + out[i - 1];
   }

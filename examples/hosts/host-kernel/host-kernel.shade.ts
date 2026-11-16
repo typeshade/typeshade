@@ -11,7 +11,7 @@
 
 // A kernel function: an exported function that takes an array with no size. Each iteration
 // writes only its own element, so the loop runs on the GPU, one invocation per element.
-export function exposure(gain: f32, pixels: array<f32>) {
+export function exposure(gain: f32, @inout pixels: array<f32>) {
   for (let i: u32 = 0; i < pixels.length; i++) {
     pixels[i] = 1. - exp(-pixels[i] * gain);
   }

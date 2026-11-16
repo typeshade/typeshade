@@ -910,7 +910,7 @@ class Voice {
     return k + 1;
   }
 }
-export function f(out: array<u32>, Voice_shift: u32) {
+export function f(@inout out: array<u32>, Voice_shift: u32) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = Voice.shift(3) + Voice_shift;
   }

@@ -32,7 +32,7 @@ let tb: workgroup<array<f32, 256>>;
   }
   c[gid.y * n + gid.x] = acc;
 }
-export function naive(c: array<f32>, a: array<f32>, b: array<f32>, n: u32): void {
+export function naive(@inout c: array<f32>, a: array<f32>, b: array<f32>, n: u32): void {
   for (let i: u32 = 0; i < c.length; i++) {
     const r = i / n;
     const col = i % n;

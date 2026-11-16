@@ -44,7 +44,7 @@ const edited = (src: string): string[] => {
 };
 
 const SCALE = `@workgroup_size([128])
-export function scale(out: array<f32>, a: array<f32>, k: f32): void {
+export function scale(@inout out: array<f32>, a: array<f32>, k: f32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * k;
   }
@@ -72,7 +72,7 @@ describe('a kernel function declares its workgroup size (proposal 0067)', () => 
   it('refuses the call form of change 0111 with one TS8028 in both halves (change 0140)', () => {
     const called = module(
       'export const scale = workgroup_size([128], function scale(out: array<f32>, a: array<f32>, k: f32): void {\n' +
-        '  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = a[i] * k;\n  }\n});',
+        '  for (let i: u32 = 0; i < out.length; i++) {\n    const v = out[i] + a[i] * k;\n  }\n});',
     );
     const refusal = [
       "error TS8028 a kernel's size is an attribute on the function declaration: write " +

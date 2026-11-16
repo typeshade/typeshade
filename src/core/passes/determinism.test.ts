@@ -232,7 +232,7 @@ ${loop}
   return sum + prod;
 }`);
     const stored = moduleOf(`"use typeshade";
-export function stats(xs: array<f32>, out: array<f32>) {
+export function stats(xs: array<f32>, @inout out: array<f32>) {
 ${loop}
   out[0] = sum + prod;
 }`);
@@ -242,7 +242,7 @@ ${loop}
 
   it('lists no order row for a loop that stays on the CPU, or for a function that is not a kernel', () => {
     const r = moduleOf(`"use typeshade";
-export function prefix(xs: array<f32>): f32 {
+export function prefix(@inout xs: array<f32>): f32 {
   let sum = 0.;
   for (let i: u32 = 0; i < xs.length; i++) {
     sum += xs[i];

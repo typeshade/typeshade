@@ -520,18 +520,18 @@ function kernelJobs(): Job[] {
  *  reads a pushed array's length word, and an `i32` counter whose start the buffer holds as bits.
  *  No example has one until the example of the change's last stage, so the leg compiles these. */
 const DEVICE_RANGE_SOURCE = `"use typeshade";
-export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, out: array<f32>): void {
+export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, @inout out: array<f32>): void {
   const n: u32 = count[0];
   for (let j: u32 = 0; j < n; j++) {
     out[j] = xs[list[j]];
   }
 }
-export function down(count: array<u32>, out: array<i32>, k: i32): void {
+export function down(count: array<u32>, @inout out: array<i32>, k: i32): void {
   for (let j: i32 = i32(count[0]) + k; j >= 0; j -= 3) {
     out[j] = j * 7;
   }
 }
-export function compact(xs: array<f32>, list: array<u32>, out: array<f32>): void {
+export function compact(xs: array<f32>, @inout list: array<u32>, @inout out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > 0.) {
       list.push(i);
@@ -542,7 +542,7 @@ export function compact(xs: array<f32>, list: array<u32>, out: array<f32>): void
     out[j] = xs[list[j]] * 2.;
   }
 }
-export function chain(count: array<u32>, out: array<u32>, more: array<u32>, sums: array<u32>): void {
+export function chain(count: array<u32>, @inout out: array<u32>, @inout more: array<u32>, @inout sums: array<u32>): void {
   for (let j: u32 = 0; j < count[0]; j++) {
     out[j] = j + 1;
   }

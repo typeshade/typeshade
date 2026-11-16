@@ -125,7 +125,7 @@ export function cen(vs: array<vec3u>): vec3u {
 }
 
 /** Each xs times k into out. */
-export function times(xs: array<f32>, k: u32, out: array<f32>): void {
+export function times(xs: array<f32>, k: u32, @inout out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     out[i] = xs[i] * f32(k);
   }
@@ -150,7 +150,7 @@ export function signs(xs: array<f32>): vec2b {
 }
 
 /** 1 where b, else 0, into out. */
-export function gate(b: bool, xs: array<f32>, out: array<f32>): void {
+export function gate(b: bool, xs: array<f32>, @inout out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     out[i] = select(0., xs[i], b);
   }
@@ -175,14 +175,14 @@ export function poses(xs: array<f32>): array<mat3x3, 2> {
 }
 
 /** The trace of m times each xs. */
-export function trace(m: mat3x3, xs: array<f32>, out: array<f32>): void {
+export function trace(m: mat3x3, xs: array<f32>, @inout out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     out[i] = (m[0][0] + m[1][1] + m[2][2]) * xs[i];
   }
 }
 
 /** The trace of each matrix. */
-export function traces(ms: array<mat3x3>, out: array<f32>): void {
+export function traces(ms: array<mat3x3>, @inout out: array<f32>): void {
   for (let i: u32 = 0; i < ms.length; i++) {
     out[i] = ms[i][0][0] + ms[i][1][1] + ms[i][2][2];
   }
@@ -207,14 +207,14 @@ export function picks(xs: array<f32>): array<Channel, 2> {
 }
 
 /** 2 for g, else 1, times each xs. */
-export function weigh(c: Channel, xs: array<f32>, out: array<f32>): void {
+export function weigh(c: Channel, xs: array<f32>, @inout out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     out[i] = select(1., 2., c == "g") * xs[i];
   }
 }
 
 /** 1 where the channel is b. */
-export function blues(cs: array<Channel>, out: array<u32>): void {
+export function blues(cs: array<Channel>, @inout out: array<u32>): void {
   for (let i: u32 = 0; i < cs.length; i++) {
     out[i] = select(u32(0), u32(1), cs[i] == "b");
   }
@@ -239,7 +239,7 @@ export function top(xs: array<f32>): array<Particle, 2> {
 }
 
 /** The mass of each particle. */
-export function masses(ps: array<Particle>, out: array<f32>): void {
+export function masses(ps: array<Particle>, @inout out: array<f32>): void {
   for (let i: u32 = 0; i < ps.length; i++) {
     out[i] = ps[i].mass;
   }
@@ -273,7 +273,7 @@ export function keyed(xs: array<f32>): array<Keyed, 2> {
 }
 
 /** The weight of each keyed where its channel is b. */
-export function blueWeights(ks: array<Keyed>, out: array<f32>): void {
+export function blueWeights(ks: array<Keyed>, @inout out: array<f32>): void {
   for (let i: u32 = 0; i < ks.length; i++) {
     out[i] = select(0., ks[i].w, ks[i].c == "b");
   }
@@ -295,7 +295,7 @@ export function mix(xs: array<f32>): Mix {
 }
 
 /** The index of each positive xs, pushed onto list. */
-export function keep(xs: array<f32>, list: array<u32>): void {
+export function keep(xs: array<f32>, @inout list: array<u32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > 0.) {
       list.push(i);

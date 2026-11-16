@@ -77,25 +77,25 @@ interface Entry {
   readonly rewrites: Readonly<Record<string, string>>;
 }
 
-const STENCIL = `export function blur(src: array<f32>, dst: array<f32>) {
+const STENCIL = `export function blur(src: array<f32>, @inout dst: array<f32>) {
   for (let i: u32 = 1; i < src.length - 1; i++) {
     dst[i] = (src[i - 1] + src[i] + src[i + 1]) / 3.;
   }
 }`;
 
-const GATHER = `export function gather(idx: array<u32>, src: array<f32>, dst: array<f32>) {
+const GATHER = `export function gather(idx: array<u32>, src: array<f32>, @inout dst: array<f32>) {
   for (let i: u32 = 0; i < dst.length; i++) {
     dst[i] = src[idx[i]];
   }
 }`;
 
-const HISTOGRAM = `export function histogram(bins: array<u32>, counts: array<u32>) {
+const HISTOGRAM = `export function histogram(bins: array<u32>, @inout counts: array<u32>) {
   for (let i: u32 = 0; i < bins.length; i++) {
     counts[bins[i]] += 1;
   }
 }`;
 
-const SPLAT = `export function splat(cell: array<u32>, w: array<f32>, grid: array<i32>) {
+const SPLAT = `export function splat(cell: array<u32>, w: array<f32>, @inout grid: array<i32>) {
   for (let i: u32 = 0; i < cell.length; i++) {
     grid[cell[i]] += i32(w[i] * 1024.);
   }
@@ -109,14 +109,14 @@ const TOTAL = `export function total(xs: array<f32>): f32 {
   return s;
 }`;
 
-const ADVECT = `export function advect(pos: array<vec3>, vel: array<vec3>, age: array<f32>, dt: f32) {
+const ADVECT = `export function advect(@inout pos: array<vec3>, vel: array<vec3>, @inout age: array<f32>, dt: f32) {
   for (let i: u32 = 0; i < pos.length; i++) {
     pos[i] = pos[i] + vel[i] * dt;
     age[i] = age[i] + dt;
   }
 }`;
 
-const STAGES = `export function stages(a: array<f32>, b: array<f32>) {
+const STAGES = `export function stages(@inout a: array<f32>, @inout b: array<f32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = a[i] * 2.;
   }
@@ -125,7 +125,7 @@ const STAGES = `export function stages(a: array<f32>, b: array<f32>) {
   }
 }`;
 
-const GRID2D = `export function grid2d(w: u32, h: u32, out: array<f32>) {
+const GRID2D = `export function grid2d(w: u32, h: u32, @inout out: array<f32>) {
   for (let y: u32 = 0; y < h; y++) {
     for (let x: u32 = 0; x < w; x++) {
       out[y * w + x] = f32(x + y);
@@ -133,31 +133,31 @@ const GRID2D = `export function grid2d(w: u32, h: u32, out: array<f32>) {
   }
 }`;
 
-const GRID3D = `export function grid3d(n: u32, out: array<f32>) {
+const GRID3D = `export function grid3d(n: u32, @inout out: array<f32>) {
   for (let i: u32 = 0; i < n * n * n; i++) {
     out[i] = f32(i % n + (i / n) % n + i / (n * n));
   }
 }`;
 
-const FILL = `export function fill(out: array<f32>) {
+const FILL = `export function fill(@inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = f32(out.length);
   }
 }`;
 
-const SMEAR = `export function smear(a: array<f32>) {
+const SMEAR = `export function smear(@inout a: array<f32>) {
   for (let i: u32 = 1; i < a.length; i++) {
     a[i] = (a[i] + a[i - 1]) * 0.5;
   }
 }`;
 
-const DEPOSIT = `export function deposit(cell: array<u32>, mass: array<f32>, grid: array<f32>) {
+const DEPOSIT = `export function deposit(cell: array<u32>, mass: array<f32>, @inout grid: array<f32>) {
   for (let i: u32 = 0; i < cell.length; i++) {
     grid[cell[i]] += mass[i];
   }
 }`;
 
-const COMPACT = `export function compact(xs: array<f32>, out: array<f32>): u32 {
+const COMPACT = `export function compact(xs: array<f32>, @inout out: array<f32>): u32 {
   let k: u32 = 0;
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > 0.) {
@@ -168,7 +168,7 @@ const COMPACT = `export function compact(xs: array<f32>, out: array<f32>): u32 {
   return k;
 }`;
 
-const RELAX = `export function relax(p: array<f32>, q: array<f32>, steps: u32) {
+const RELAX = `export function relax(p: array<f32>, @inout q: array<f32>, steps: u32) {
   for (let k: u32 = 0; k < steps; k++) {
     for (let i: u32 = 0; i < q.length; i++) {
       q[i] = p[i] * f32(k);
@@ -176,7 +176,7 @@ const RELAX = `export function relax(p: array<f32>, q: array<f32>, steps: u32) {
   }
 }`;
 
-const PREFIX = `export function prefix(a: array<f32>) {
+const PREFIX = `export function prefix(@inout a: array<f32>) {
   for (let i: u32 = 1; i < a.length; i++) {
     a[i] = a[i] + a[i - 1];
   }
@@ -362,7 +362,7 @@ function same(x: f32): f32 {
     rewrites: {
       'the bound from a parameter': edit(
         ADVECT,
-        ['(pos: ', '(n: u32, pos: '],
+        ['(@inout pos: ', '(n: u32, @inout pos: '],
         ['i < pos.length', 'i < n'],
       ),
       'the bound from another array of the same length': edit(ADVECT, [
@@ -398,7 +398,7 @@ function moved(p: vec3, v: vec3, dt: f32): vec3 {
     rewrites: {
       'the bound from a parameter': edit(
         STAGES,
-        ['(a: ', '(n: u32, a: '],
+        ['(@inout a: ', '(n: u32, @inout a: '],
         ['i < a.length', 'i < n'],
         ['i < b.length', 'i < n'],
       ),
@@ -455,7 +455,7 @@ function moved(p: vec3, v: vec3, dt: f32): vec3 {
     rewrites: {
       'the bound from a parameter': edit(
         FILL,
-        ['(out: ', '(n: u32, out: '],
+        ['(@inout out: ', '(n: u32, @inout out: '],
         ['i < out.length', 'i < n'],
       ),
       'a subexpression named with const': edit(FILL, [
@@ -473,7 +473,7 @@ function moved(p: vec3, v: vec3, dt: f32): vec3 {
     rewrites: {
       'the bound from a parameter': edit(
         SMEAR,
-        ['(a: ', '(n: u32, a: '],
+        ['(@inout a: ', '(n: u32, @inout a: '],
         ['i < a.length', 'i < n'],
       ),
       'a subexpression named with const': edit(SMEAR, [
@@ -571,7 +571,7 @@ function mid(x: f32, y: f32): f32 {
     rewrites: {
       'the bound from a parameter': edit(
         PREFIX,
-        ['(a: ', '(n: u32, a: '],
+        ['(@inout a: ', '(n: u32, @inout a: '],
         ['i < a.length', 'i < n'],
       ),
       'a subexpression named with const': edit(PREFIX, [
@@ -636,7 +636,7 @@ describe('nested loops run the inner loop inside each invocation (#350)', () => 
   });
 
   it('dispatches every cell of a grid written as one flat loop', () => {
-    const flat = `export function grid(w: u32, h: u32, out: array<f32>) {
+    const flat = `export function grid(w: u32, h: u32, @inout out: array<f32>) {
   for (let i: u32 = 0; i < w * h; i++) {
     const x = i % w;
     const y = i / w;

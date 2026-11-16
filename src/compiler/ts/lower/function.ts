@@ -48,6 +48,7 @@ import {
   type CaptureKey,
 } from '../context.js';
 import { checkDefiniteAssignment } from '../definite.js';
+import { checkValueArrayWritesByEffects } from '../value-array-write.js';
 import {
   diagnosticAtSpan,
   keepUses,
@@ -122,6 +123,7 @@ import {
   ctorPrologue,
   registerClassCopy,
   selfRef,
+  zeroExprOf,
   type ClassFunction,
   type Receiver,
 } from './class-methods.js';
@@ -161,7 +163,7 @@ import {
   recordParamDefaults,
   setParamDefault,
 } from './param-defaults.js';
-import { checkReferenceAliases, qualifiersOf } from './references.js';
+import { checkReferenceAliases, isOutParam, qualifiersOf } from './references.js';
 import { lowerStatements, lowerVoidArrowBody } from './statement.js';
 export { FRAGMENT_ONLY_CALLS, FRAGMENT_OR_COMPUTE_CALLS } from '../stage-restrictions.js';
 export {
@@ -2125,6 +2127,16 @@ export function lowerSourceFunctions(
   // A read before an assignment, and an `@out` parameter's definite writes, on the source
   // (Rules 7.6 and 8.25).
   checkDefiniteAssignment(sourceFile, diagnostics);
+  // A write to a value array parameter that only the lowered body shows: a method on an element
+  // (Rule 8.23, change 0138, Amendment A15).
+  checkValueArrayWritesByEffects(
+    funcs,
+    bindings,
+    vars,
+    (fn) => nodeByName.get(fn),
+    sourceFile,
+    diagnostics,
+  );
   // Two references to one place in one call, read off the lowered calls once every callee says
   // what it reads and writes (Rule 8.25).
   const shownAs = new Map([
@@ -2718,6 +2730,18 @@ function fillFunctionBodyNow(
         true,
       );
       scope.bindDeclaration(declared, place);
+      // An `@out array<T, N>` starts at zeros, on every target, before the body runs (Rule 8.25,
+      // change 0138, Amendment A15, decision 2): the caller's old values are never visible.
+      const zero =
+        isOutParam(p) && p.type.kind === 'array' && p.type.size !== undefined
+          ? zeroExprOf(p.type, scope)
+          : undefined;
+      if (zero !== undefined)
+        parameterLocals.push({
+          s: 'assign',
+          target: { op: 'varref', type: p.type, name: place.irName ?? place.name },
+          expr: zero,
+        });
       return;
     }
     const copy =

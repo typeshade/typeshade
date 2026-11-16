@@ -28,7 +28,7 @@ export function fs(v: VsOut): vec4 {
 }
 @workgroup_size([64])
 export function scale(xs: array<f32>): void {
-  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; }
+  for (let i = 0; i < xs.length; i++) { const v = xs[i] * 2.; }
 }
 `;
 
@@ -45,7 +45,7 @@ export const fs = fragment(function fs(v: VsOut): vec4 {
   return vec4(v.uv.x, 0., 0., 1.);
 });
 export const scale = workgroup_size([64], function scale(xs: array<f32>): void {
-  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; }
+  for (let i = 0; i < xs.length; i++) { const v = xs[i] * 2.; }
 });
 `;
 
@@ -178,7 +178,7 @@ export function blur(gid: builtin<"global_invocation_id">) {
 }
 @workgroup_size([WG])
 export function scale(xs: array<f32>): void {
-  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; }
+  for (let i = 0; i < xs.length; i++) { const v = xs[i] * 2.; }
 }
 `;
 

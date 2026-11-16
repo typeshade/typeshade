@@ -166,7 +166,7 @@ export function total(xs: array<vec3>, p: vec2): vec3 {
 
   it('keeps the sequential order in a loop the proof refuses', () => {
     const scan = both(
-      `export function scan(xs: array<f32>): f32 { let s = 0.; for (let i: u32 = 0; i < xs.length; i++) { s = s + xs[i]; xs[i] = s; } return s; }`,
+      `export function scan(@inout xs: array<f32>): f32 { let s = 0.; for (let i: u32 = 0; i < xs.length; i++) { s = s + xs[i]; xs[i] = s; } return s; }`,
       'scan',
     );
     const xs = Array.from({ length: 1000 }, (_, i) => f(Math.sin(i) * 1000.123));
@@ -353,7 +353,7 @@ describe("a stepped run folds a kernel function's reduction in the tree order (#
 
   it('keeps iteration order in a loop the proof refuses, and in a function that is no kernel', () => {
     const scan = walks(
-      `export function scan(xs: array<f32>): f32 { let s = 0.; for (let i: u32 = 0; i < xs.length; i++) { s = s + xs[i]; xs[i] = s; } return s; }`,
+      `export function scan(@inout xs: array<f32>): f32 { let s = 0.; for (let i: u32 = 0; i < xs.length; i++) { s = s + xs[i]; xs[i] = s; } return s; }`,
       'scan',
     );
     expect(scan.trees).toBe(0);

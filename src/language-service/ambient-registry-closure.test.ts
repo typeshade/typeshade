@@ -195,7 +195,7 @@ function put(@out v: f32): void {
   put(out[gid.x]);
   bump(out[gid.x]);
 }
-@workgroup_size([128]) export function scale(xs: array<f32>): void {
+@workgroup_size([128]) export function scale(@inout xs: array<f32>): void {
   for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * un.k; }
 }
 `;

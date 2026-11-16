@@ -78,32 +78,32 @@ afterAll(() => {
 afterEach(() => configure({ runtime: null }));
 
 const OPS = `"use typeshade";
-export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function mul(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function mul(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * b[i];
   }
 }
-export function relu(out: array<f32>, x: array<f32>) {
+export function relu(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = max(x[i], 0.);
   }
 }
-export function bump(xs: array<f32>) {
+export function bump(@inout xs: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] + 1.;
   }
 }
-export function twice(xs: array<f32>) {
+export function twice(@inout xs: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] * 2.;
   }
 }
-export function fillTo(out: array<f32>, n: u32) {
+export function fillTo(@inout out: array<f32>, n: u32) {
   for (let i: u32 = 0; i < n; i++) {
     out[i] = 1.;
   }
@@ -124,28 +124,28 @@ export function spread(xs: array<f32>): vec2 {
   }
   return vec2(sum, top);
 }
-export function prefix(out: array<f32>) {
+export function prefix(@inout out: array<f32>) {
   for (let i: u32 = 1; i < out.length; i++) {
     out[i] = out[i] + out[i - 1];
   }
 }
-export function pairsum(out: array<f32>, t: array<f32>) {
+export function pairsum(@inout out: array<f32>, t: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i] + t[i ^ 1];
   }
 }
-export function sized(out: array<f32>, x: array<f32>): u32 {
+export function sized(@inout out: array<f32>, x: array<f32>): u32 {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * 2.;
   }
   return out.length;
 }
-@workgroup_size([128]) export function triple128(out: array<f32>, x: array<f32>) {
+@workgroup_size([128]) export function triple128(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * 3.;
   }
 }
-export function doubleTotal(out: array<f32>, xs: array<f32>): f32 {
+export function doubleTotal(@inout out: array<f32>, xs: array<f32>): f32 {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = xs[i] * 2.;
   }
@@ -155,17 +155,17 @@ export function doubleTotal(out: array<f32>, xs: array<f32>): f32 {
   }
   return s;
 }
-export function lenscale(out: array<f32>, x: array<f32>) {
+export function lenscale(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * f32(x.length);
   }
 }
-export function iadd(out: array<i32>, a: array<i32>, b: array<i32>) {
+export function iadd(@inout out: array<i32>, a: array<i32>, b: array<i32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function uadd(out: array<u32>, a: array<u32>, b: array<u32>) {
+export function uadd(@inout out: array<u32>, a: array<u32>, b: array<u32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
@@ -2163,12 +2163,12 @@ class Voice {
     return i ^ 1;
   }
 }
-export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function gather(out: array<f32>, t: array<f32>) {
+export function gather(@inout out: array<f32>, t: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[Voice.shift(i)];
   }
@@ -2217,12 +2217,12 @@ export function gather(out: array<f32>, t: array<f32>) {
 class Voice {
   static OFFSET: u32 = 1;
 }
-export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function gather(out: array<f32>, t: array<f32>) {
+export function gather(@inout out: array<f32>, t: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i + Voice.OFFSET];
   }
@@ -2272,12 +2272,12 @@ export function gather(out: array<f32>, t: array<f32>) {
 class Voice {
   static OFFSET: u32 = 1;
 }
-export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function gather(out: array<f32>, t: array<f32>, Voice_OFFSET: u32) {
+export function gather(@inout out: array<f32>, t: array<f32>, Voice_OFFSET: u32) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i + Voice_OFFSET];
   }
@@ -2341,12 +2341,12 @@ export function gather(out: array<f32>, t: array<f32>, Voice_OFFSET: u32) {
       // function as `gather_shift` and a function a namespace declares as a constant as `Ns_shift`.
       // The reason is written at build time from the loop's IR, and says what the source says.
       const NAMED = `"use typeshade";
-${declaration}export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+${declaration}export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function gather(out: array<f32>, t: array<f32>) {
+export function gather(@inout out: array<f32>, t: array<f32>) {
 ${local}  for (let i: u32 = 0; i < out.length; i++) {
     out[i] = ${read};
   }
@@ -2602,7 +2602,7 @@ ${local}  for (let i: u32 = 0; i < out.length; i++) {
   it('runs the calls of the scope apart when the fused entry cannot be built, and says why', async () => {
     const gpu = fakeGpu();
     const source = (name: string, scale: number): string =>
-      `"use typeshade";\nconst SCALE: f32 = ${scale}.;\nexport function ${name}(out: array<f32>, x: array<f32>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[i] * SCALE;\n  }\n}\n`;
+      `"use typeshade";\nconst SCALE: f32 = ${scale}.;\nexport function ${name}(@inout out: array<f32>, x: array<f32>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[i] * SCALE;\n  }\n}\n`;
     const [left, right] = await Promise.all(
       [
         ['scaled', 2, 'left'],
@@ -2978,7 +2978,7 @@ describe('a fuse scope that fuses a reduction, on a recording device', () => {
         source(
           'scaled',
           2,
-          '(out: array<f32>, x: array<f32>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[i] * SCALE;\n  }\n}',
+          '(@inout out: array<f32>, x: array<f32>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[i] * SCALE;\n  }\n}',
         ),
       ],
       [
@@ -4928,7 +4928,7 @@ describe('a zeroed Resident on WebGPU, on a recording device (Rule 11.8, surface
     const gpu = fakeGpu();
     const g = hostFace(
       `"use typeshade";
-export function lift3(out: array<vec3>) {
+export function lift3(@inout out: array<vec3>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = vec3(f32(i), 1., 2.);
   }
@@ -4965,7 +4965,7 @@ export class Voice {
     return this.phase;
   }
 }
-export function render(out: array<f32>, voices: array<Voice>) {
+export function render(@inout out: array<f32>, @inout voices: array<Voice>) {
   for (let i: u32 = 0; i < voices.length; i++) {
     out[i] = voices[i].tick();
   }
@@ -5649,32 +5649,32 @@ describe('a fuse scope on the call layer device with the limit configure asks fo
 // scratch array of four-number elements. The planner holds it as a local of `vec4<f32>` when the
 // group fuses, and makes a zeroed buffer of 16 bytes an element otherwise.
 const VEC4 = `"use typeshade";
-export function vadd(out: array<vec4f>, a: array<vec4f>, b: array<vec4f>) {
+export function vadd(@inout out: array<vec4f>, a: array<vec4f>, b: array<vec4f>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function vdouble(out: array<vec4f>, x: array<vec4f>) {
+export function vdouble(@inout out: array<vec4f>, x: array<vec4f>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * 2.;
   }
 }
-export function vcount(out: array<vec4f>, x: array<vec4f>) {
+export function vcount(@inout out: array<vec4f>, x: array<vec4f>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * f32(x.length);
   }
 }
-export function relu4(out: array<f32>, x: array<f32>) {
+export function relu4(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = max(x[i], 0.);
   }
 }
-export function ivec(out: array<vec4i>, x: array<vec4i>) {
+export function ivec(@inout out: array<vec4i>, x: array<vec4i>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i];
   }
 }
-export function v3(out: array<vec3f>, x: array<vec3f>) {
+export function v3(@inout out: array<vec3f>, x: array<vec3f>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i];
   }
@@ -6424,19 +6424,19 @@ describe('the plan record of an indirect entry call (change 0075)', () => {
 // ─── stores after the loops (change 0094) ─────────────────────────────────────────────────────
 
 const STORE_OPS = `"use typeshade";
-export function scale(out: array<f32>, xs: array<f32>) {
+export function scale(@inout out: array<f32>, xs: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = xs[i] * 2.;
   }
 }
-export function sumInto(xs: array<f32>, sums: array<f32>) {
+export function sumInto(xs: array<f32>, @inout sums: array<f32>) {
   let s = 0.;
   for (let i: u32 = 0; i < xs.length; i++) {
     s += xs[i];
   }
   sums[0] = s;
 }
-export function sumBoth(xs: array<f32>, sums: array<f32>): f32 {
+export function sumBoth(xs: array<f32>, @inout sums: array<f32>): f32 {
   let s = 0.;
   for (let i: u32 = 0; i < xs.length; i++) {
     s += xs[i];
@@ -6444,10 +6444,10 @@ export function sumBoth(xs: array<f32>, sums: array<f32>): f32 {
   sums[0] = s;
   return s;
 }
-export function plan(count: array<u32>, wg: array<u32>) {
+export function plan(count: array<u32>, @inout wg: array<u32>) {
   wg[0] = (count[0] + 63) / 64;
 }
-export function mark(out: array<f32>, xs: array<f32>) {
+export function mark(@inout out: array<f32>, xs: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = xs[i] + 1.;
   }
@@ -6633,19 +6633,19 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
 // ─── a push after a held length (change 0094, stage 2) ────────────────────────────────────────
 
 const HELD_OPS = `"use typeshade";
-export function scale(out: array<f32>, xs: array<f32>) {
+export function scale(@inout out: array<f32>, xs: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = xs[i] * 2.;
   }
 }
-export function keepAbove(xs: array<f32>, t: f32, list: array<u32>): void {
+export function keepAbove(xs: array<f32>, t: f32, @inout list: array<u32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > t) {
       list.push(i);
     }
   }
 }
-export function keepFirst(xs: array<f32>, n: u32, list: array<u32>): u32 {
+export function keepFirst(xs: array<f32>, n: u32, @inout list: array<u32>): u32 {
   for (let i: u32 = 0; i < n; i++) {
     if (xs[i] > 0.) {
       list.push(i);
@@ -6653,12 +6653,12 @@ export function keepFirst(xs: array<f32>, n: u32, list: array<u32>): u32 {
   }
   return list.length;
 }
-export function fromCount(count: array<u32>, out: array<u32>) {
+export function fromCount(count: array<u32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = count[0] + i;
   }
 }
-export function both(xs: array<u32>, out: array<u32>): u32 {
+export function both(xs: array<u32>, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     out.push(xs[i]);
   }
@@ -6667,7 +6667,7 @@ export function both(xs: array<u32>, out: array<u32>): u32 {
   }
   return out.length;
 }
-export function keepMark(xs: array<f32>, list: array<u32>, done: array<u32>) {
+export function keepMark(xs: array<f32>, @inout list: array<u32>, @inout done: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > 0.) {
       list.push(i);
@@ -6822,20 +6822,20 @@ describe('a push after a held length in a fuse scope (change 0094, Rule 11.13)',
 });
 
 const RANGE_OPS = `"use typeshade";
-export function keepAbove(xs: array<f32>, t: f32, list: array<u32>): void {
+export function keepAbove(xs: array<f32>, t: f32, @inout list: array<u32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > t) {
       list.push(i);
     }
   }
 }
-export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, out: array<f32>): void {
+export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, @inout out: array<f32>): void {
   const n: u32 = count[0];
   for (let j: u32 = 0; j < n; j++) {
     out[j] = xs[list[j]];
   }
 }
-export function twice(count: array<u32>, out: array<u32>, more: array<u32>): void {
+export function twice(count: array<u32>, @inout out: array<u32>, @inout more: array<u32>): void {
   for (let j: u32 = 0; j < count[0]; j++) {
     out[j] = j;
   }
@@ -6850,7 +6850,7 @@ export function sumTo(count: array<u32>, xs: array<f32>): f32 {
   }
   return s;
 }
-export function sevenFrom(xs: array<f32>, out: array<f32>, more: array<f32>, b: array<f32>, c: array<f32>, d: array<f32>, e: array<f32>, count: array<u32>) {
+export function sevenFrom(xs: array<f32>, @inout out: array<f32>, more: array<f32>, b: array<f32>, c: array<f32>, d: array<f32>, e: array<f32>, count: array<u32>) {
   for (let j: u32 = 0; j < count[0]; j++) {
     out[j] = xs[j] + more[j] + b[j] + c[j] + d[j] + e[j];
   }
@@ -7035,7 +7035,7 @@ export declare const cam: uniform<Params>;
 export declare const lives: storage<array<f32>, "read_write">;
 
 /** Ages every particle by dt. */
-export function age(xs: array<Particle>, dt: f32): void {
+export function age(@inout xs: array<Particle>, dt: f32): void {
   for (let i = 0; i < xs.length; i++) {
     xs[i].life = xs[i].life + dt;
   }

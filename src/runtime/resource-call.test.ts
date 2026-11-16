@@ -57,14 +57,14 @@ export declare const camera: uniform<Params>;
 export declare const ps: storage<array<Particle>, "read_write">;
 
 /** Ages every particle by dt. */
-export function age(xs: array<Particle>, dt: f32): void {
+export function age(@inout xs: array<Particle>, dt: f32): void {
   for (let i = 0; i < xs.length; i++) {
     xs[i].life = xs[i].life + dt;
   }
 }
 
 /** Ages every particle by the parameters' step, and moves it. */
-export function move(xs: array<Particle>, p: Params): void {
+export function move(@inout xs: array<Particle>, p: Params): void {
   for (let i = 0; i < xs.length; i++) {
     xs[i].life = xs[i].life + p.dt;
     xs[i].pos.x = xs[i].pos.x - p.drag;
@@ -72,14 +72,14 @@ export function move(xs: array<Particle>, p: Params): void {
 }
 
 /** Copies the lives of xs into out. */
-export function lives(xs: array<Particle>, out: array<f32>): void {
+export function lives(xs: array<Particle>, @inout out: array<f32>): void {
   for (let i = 0; i < xs.length; i++) {
     out[i] = xs[i].life;
   }
 }
 
 /** Pushes the index of each particle onto out. */
-export function marks(xs: array<Particle>, out: array<u32>): void {
+export function marks(xs: array<Particle>, @inout out: array<u32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     out.push(i);
   }
@@ -572,7 +572,7 @@ export function mark(id: builtin<"global_invocation_id">) {
 }
 
 /** Moves every particle by the parameters. */
-export function move(xs: array<Particle>, p: Params): void {
+export function move(@inout xs: array<Particle>, p: Params): void {
   for (let i = 0; i < xs.length; i++) {
     xs[i].pos.x = xs[i].pos.x - p.drag;
   }

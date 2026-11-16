@@ -17,7 +17,7 @@ function tally(x: f32): f32 {
 }
 
 // R1: a while loop, whose trip count is known only when it ends.
-export function halve(xs: array<f32>) {
+export function halve(@inout xs: array<f32>) {
   let n: u32 = xs.length;
   while (n > 1) {
     n = n / 2;
@@ -47,21 +47,21 @@ export function nearest(xs: array<f32>, x: f32): f32 {
 }
 
 // R4: a prefix sum reads "out[i - 1]", which the iteration before wrote.
-export function prefix(out: array<f32>) {
+export function prefix(@inout out: array<f32>) {
   for (let i: u32 = 1; i < out.length; i++) {
     out[i] = out[i] + out[i - 1];
   }
 }
 
 // R5: "tally" writes the module variable "calls".
-export function counted(xs: array<f32>) {
+export function counted(@inout xs: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = tally(xs[i]);
   }
 }
 
 // R6: console.log, whose lines would print in another order on the GPU.
-export function logged(xs: array<f32>) {
+export function logged(@inout xs: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     console.log(xs[i]);
     xs[i] = xs[i] * 2;

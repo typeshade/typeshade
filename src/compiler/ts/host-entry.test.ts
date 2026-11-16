@@ -528,7 +528,7 @@ describe('a resident binding, the order of calls and the tiers (Rule 11.8)', () 
   const xs = Float32Array.from({ length: 16 }, (_, i) => i * 0.25);
   // The entry, and a kernel function of the same module that writes what it writes.
   const SHARED = `${SCALE}
-export function double(vs: array<f32>) {
+export function double(@inout vs: array<f32>) {
   for (let i: u32 = 0; i < vs.length; i++) {
     vs[i] = vs[i] * 2.;
   }

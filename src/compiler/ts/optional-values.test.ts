@@ -1133,12 +1133,12 @@ describe('a layout that holds an optional is refused where it is declared, namin
     ],
     [
       "a kernel function's storage array",
-      `export function kern(xs: array<U>): void { xs[0].k = 1.; }`,
+      `export function kern(@inout xs: array<U>): void { xs[0].k = 1.; }`,
       HOLDS('array<U>', '[i].w', 'f32', "a kernel function's parameter"),
     ],
     [
       "a kernel function's Map value",
-      `export function kern(m: Map<u32, U>, xs: array<f32>): void { xs[0] = 1.; }`,
+      `export function kern(m: Map<u32, U>, @inout xs: array<f32>): void { xs[0] = 1.; }`,
       HOLDS('U', 'w', 'f32', "a kernel function's parameter"),
     ],
   ];
@@ -1412,7 +1412,7 @@ export function run(): f32 { return f() + f(1., 2, 3); }`,
     ],
     [
       "a kernel function's parameter",
-      `export function kern(xs: array<f32>, k?: f32): void { xs[0] = k ?? 0.; }`,
+      `export function kern(@inout xs: array<f32>, k?: f32): void { xs[0] = k ?? 0.; }`,
       'TS8020 A kernel function\'s parameters come from the host, not from a call, so "k" cannot ' +
         'be optional. Write "k: T".',
     ],

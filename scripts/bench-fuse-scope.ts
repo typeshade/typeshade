@@ -29,17 +29,17 @@ const UNIFORM = 64;
 const STORAGE = 128;
 
 const OPS = `"use typeshade";
-export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function mul(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function mul(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * b[i];
   }
 }
-export function relu(out: array<f32>, x: array<f32>) {
+export function relu(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = max(x[i], 0.);
   }

@@ -60,7 +60,7 @@ export function latest(keys: array<u32>, values: array<f32>, last: Map<u32, f32>
     last.set(keys[i], values[i]);
   }
 }
-export function lookup(keys: array<u32>, m: Map<u32, f32>, out: array<f32>) {
+export function lookup(keys: array<u32>, m: Map<u32, f32>, @inout out: array<f32>) {
   for (let i: u32 = 0; i < keys.length; i++) {
     out[i] = m.has(keys[i]) ? m.get(keys[i])! : -1.;
   }
@@ -166,7 +166,7 @@ describe('what runs on the CPU tier in this version (change 0080, part 2)', () =
     ).toBe('loop 1 adds to the Set "s" inside a nested loop, whose trips the call does not count');
     // A loop that adds after one that reads would change what the earlier one read.
     expect(
-      gap(`export function f(xs: array<u32>, s: Set<u32>, out: array<u32>) {
+      gap(`export function f(xs: array<u32>, s: Set<u32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = s.has(xs[i]) ? 1 : 0; }
   for (let i: u32 = 0; i < xs.length; i++) { s.add(xs[i]); }
 }`),
@@ -176,7 +176,7 @@ describe('what runs on the CPU tier in this version (change 0080, part 2)', () =
     // A loop that reads what the loop before it added lowers: the call applies the records first.
     const later = kernelOf(
       face(`"use typeshade";
-export function f(xs: array<u32>, s: Set<u32>, out: array<u32>) {
+export function f(xs: array<u32>, s: Set<u32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) { s.add(xs[i]); }
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = s.has(xs[i] + 1) ? 1 : 0; }
 }
@@ -278,7 +278,7 @@ describe('a call that takes a Map or a Set in a fuse scope (change 0080, Rule 11
   it('runs in a group of its own, as it runs apart', async () => {
     const { createDevice } = await import('../../runtime/device.js');
     const m = await load(`"use typeshade";
-export function scale(xs: array<u32>, ys: array<u32>) {
+export function scale(xs: array<u32>, @inout ys: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     ys[i] = xs[i] * 2;
   }
@@ -331,7 +331,7 @@ describe('the spelling of a Map and a Set, in both halves (change 0080, Rule 12.
   const refusals: readonly (readonly [string, string, string])[] = [
     [
       'a get no has guards',
-      `export function f(xs: array<u32>, m: Map<u32, f32>, out: array<f32>) {
+      `export function f(xs: array<u32>, m: Map<u32, f32>, @inout out: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = m.get(xs[i])!; }
 }`,
       'TS8099 "m.get" gives no value for a key the map does not hold, and a shader value has no undefined (change 0080). Read it where "m.has(xs[i])" is true: inside if (...) or before ? in a conditional.',
@@ -472,7 +472,7 @@ describe('the order word a lookup searches by (change 0080, part 2)', () => {
   it('is what the search computes from an f32 key', () => {
     const k = kernelOf(
       face(`"use typeshade";
-export function f(xs: array<f32>, s: Set<f32>, out: array<u32>) {
+export function f(xs: array<f32>, s: Set<f32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     out[i] = s.has(xs[i]) ? 1 : 0;
   }

@@ -8,7 +8,7 @@ export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
 
-export function render(k: vec4, size: u32, out: array<f32>) {
+export function render(k: vec4, size: u32, @inout out: array<f32>) {
   for (let i: u32 = 0; i < size * size; i++) {
     const p = vec2(f32(i % size), f32(i / size)) / f32(size);
     out[i] = height(p, k);
@@ -20,7 +20,7 @@ class Particle {
   vel: vec4;
 }
 
-export function drift(ps: array<Particle>, dt: f32) {
+export function drift(@inout ps: array<Particle>, dt: f32) {
   const g = vec4(0., -9.8, 0., 0.) * dt;
   for (let i: u32 = 0; i < ps.length; i++) {
     ps[i].vel = ps[i].vel + g;
@@ -28,7 +28,7 @@ export function drift(ps: array<Particle>, dt: f32) {
   }
 }
 
-export function odds(out: array<f32>, n: i32) {
+export function odds(@inout out: array<f32>, n: i32) {
   for (let i = n - 1; i >= 0; i--) {
     if (i % 2 === 0) {
       continue;
@@ -41,7 +41,7 @@ export function odds(out: array<f32>, n: i32) {
 
 // Reductions (Rule 7.2): a sum is combined in the tree order, 256 at a time and then the
 // partials the same way, on the GPU and on the CPU alike, so both give the same bits.
-export function stats(xs: array<f32>, scaled: array<f32>, k: f32): vec3 {
+export function stats(xs: array<f32>, @inout scaled: array<f32>, k: f32): vec3 {
   let sum = 0.;
   let top = -1e30;
   for (let i: u32 = 0; i < xs.length; i++) {
@@ -62,7 +62,7 @@ export function tally(xs: array<i32>): i32 {
 
 // A scatter: two iterations may add to the same bin, so each add is an atomic on the GPU, which
 // is exact in any order for an integer.
-export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32) {
+export function histogram(xs: array<f32>, @inout bins: array<u32>, lo: f32, scale: f32) {
   const top = bins.length - 1;
   for (let i: u32 = 0; i < xs.length; i++) {
     const k = min(u32(max((xs[i] - lo) * scale, 0.)), top);
@@ -71,7 +71,7 @@ export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32)
 }
 
 // A map that skips an element: on WebGL2 (Rule 11.8) the skipped texel keeps what the array held.
-export function scaleNonNegative(xs: array<f32>, out: array<f32>, a: f32) {
+export function scaleNonNegative(xs: array<f32>, @inout out: array<f32>, a: f32) {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] < 0.) {
       continue;
@@ -83,13 +83,13 @@ export function scaleNonNegative(xs: array<f32>, out: array<f32>, a: f32) {
 // An array's length read inside an iteration is the host's (#367). The call bound each buffer
 // padded to 16 bytes, so on WebGPU five `u32`s were an array of 8 to `out.length`, and
 // `% bins.length` over five bins lost the counts that belonged to the fifth and past it.
-export function stamp(out: array<u32>) {
+export function stamp(@inout out: array<u32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = out.length;
   }
 }
 
-export function countMod(ks: array<u32>, bins: array<u32>) {
+export function countMod(ks: array<u32>, @inout bins: array<u32>) {
   for (let i: u32 = 0; i < ks.length; i++) {
     bins[ks[i] % bins.length] += 1;
   }
@@ -123,7 +123,7 @@ export function methodStats(xs: array<f32>, t: f32): vec4 {
   );
 }
 
-export function methodFill(xs: array<f32>, out: array<f32>, v: f32) {
+export function methodFill(xs: array<f32>, @inout out: array<f32>, v: f32) {
   out.fill(v);
   xs.forEach((x, i) => {
     if (x > v) {
@@ -139,7 +139,7 @@ export function methodSearch(ys: array<i32>, v: i32): vec4 {
 // A loop that pushes (change 0078): on WebGPU it counts, scans and stores, and the elements land
 // in the order of the iterations, as on the CPU tier. `out.length` is the count appended, which
 // may exceed the capacity the host array gives.
-export function pushAbove(xs: array<f32>, t: f32, out: array<u32>): u32 {
+export function pushAbove(xs: array<f32>, t: f32, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > t) {
       out.push(i);
@@ -148,7 +148,7 @@ export function pushAbove(xs: array<f32>, t: f32, out: array<u32>): u32 {
   return out.length;
 }
 
-export function pushPairs(xs: array<u32>, out: array<u32>): u32 {
+export function pushPairs(xs: array<u32>, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] % 3 == 0) {
       out.push(xs[i]);
@@ -159,13 +159,13 @@ export function pushPairs(xs: array<u32>, out: array<u32>): u32 {
 }
 
 // Two array loops around a loop that pushes, in one fuse plan (change 0078, Rule 11.13).
-export function fuseScale(xs: array<f32>, ys: array<f32>, k: f32) {
+export function fuseScale(xs: array<f32>, @inout ys: array<f32>, k: f32) {
   for (let i: u32 = 0; i < xs.length; i++) {
     ys[i] = xs[i] * k;
   }
 }
 
-export function fuseMark(xs: array<f32>, zs: array<f32>) {
+export function fuseMark(xs: array<f32>, @inout zs: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     zs[i] = xs[i] + 1.;
   }
@@ -183,12 +183,12 @@ export class LayoutItem {
   f7: f32 = 0.;
 }
 function layoutPick(p: LayoutItem): f32 { return p.f0; }
-export function layoutRead(xs: array<LayoutItem>, out: array<f32>) {
+export function layoutRead(xs: array<LayoutItem>, @inout out: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = layoutPick(xs[i]); }
   for (let j: u32 = 0; j < out.length; j++) { out[j] = out[j] + xs[j].f3; }
 }
 // One loop can join a following map; layoutRead retains its two-loop fallback.
-export function layoutMap(xs: array<LayoutItem>, out: array<f32>) {
+export function layoutMap(xs: array<LayoutItem>, @inout out: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = layoutPick(xs[i]) + xs[i].f3; }
 }
 export function layoutTotal(xs: array<LayoutItem>): f32 {

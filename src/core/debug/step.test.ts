@@ -366,7 +366,7 @@ export function total(xs: array<vec2>): vec2 {
 
   it('leaves a loop the proof refuses in iteration order, showing the running total', () => {
     const src = `"use typeshade";
-export function scan(xs: array<f32>): f32 {
+export function scan(@inout xs: array<f32>): f32 {
   let s = 0.;
   for (let i: u32 = 0; i < xs.length; i++) {
     s = s + xs[i];

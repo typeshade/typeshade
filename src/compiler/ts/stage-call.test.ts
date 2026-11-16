@@ -110,7 +110,7 @@ export function main(gid: builtin<"global_invocation_id">): void {
 }
 @workgroup_size([TILE])
 export function scale(xs: array<f32>, k: f32): void {
-  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * k; }
+  for (let i = 0; i < xs.length; i++) { const v = xs[i] * k; }
 }
 `,
     called: `"use typeshade";
@@ -122,7 +122,7 @@ export const main = compute([8, 8, 1], function main(gid: builtin<"global_invoca
   dst[gid.x] = src[gid.x] * 2.;
 });
 export const scale = workgroup_size([TILE], function scale(xs: array<f32>, k: f32): void {
-  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * k; }
+  for (let i = 0; i < xs.length; i++) { const v = xs[i] * k; }
 });
 `,
     refusals: [
@@ -283,7 +283,7 @@ export const fs = fragment(
     bothSay(
       `"use typeshade";
 export const scale = workgroup_size([128], function scale(xs: array<f32>): void {
-  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; }
+  for (let i = 0; i < xs.length; i++) { const v = xs[i] * 2.; }
 }, { numerics: [1] });
 `,
       [
@@ -531,7 +531,7 @@ export const main = compute([64], function main(gid: builtin<"global_invocation_
   data[gid.x] = 1.;
 });
 export const scale = workgroup_size([128], function scale(xs: array<f32>): void {
-  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; }
+  for (let i = 0; i < xs.length; i++) { const v = xs[i] * 2.; }
 });
 `;
     const face = (source: string) =>
@@ -567,7 +567,7 @@ export const vs = vertex(function vs(): builtin<"position"> { return vec4(0., 0.
 export const fs = fragment(function fs(p: builtin<"position">): vec4 { return p; });
 export const main = compute([8], function main(): void {});
 export const scale = workgroup_size([128], function scale(xs: array<f32>): void {
-  for (let i = 0; i < xs.length; i++) { xs[i] = 1.; }
+  for (let i = 0; i < xs.length; i++) { const v = xs[i]; }
 });
 `;
     for (const name of ['vertex', 'fragment', 'compute', 'workgroup_size'])

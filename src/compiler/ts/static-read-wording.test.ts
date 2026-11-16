@@ -37,7 +37,7 @@ function reads(result: ReturnType<typeof compile>, name = 'read'): (string | und
 }
 
 const reading = (declaration: string, expression: string) => `${declaration}
-export function read(out: array<f32>, a: array<f32>, b: array<f32>, c: array<f32>) {
+export function read(@inout out: array<f32>, a: array<f32>, b: array<f32>, c: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = ${expression};
   }
@@ -68,7 +68,7 @@ describe('inherited static reads keep their written receiver (#987)', () => {
       const declaration =
         CLASSES + (kind === 'mutable' ? '\nfunction bump(): void { Base.OFFSET += 1; }' : '');
       const body = `${declaration}
-export function read(a: array<f32>) {
+export function read(@inout a: array<f32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = a[i + Base.OFFSET + Derived.OFFSET];
   }
@@ -103,7 +103,7 @@ import * as Ns from './lib.shade.ts';`,
 
   it('retains the read through array callback inlining and local renaming', () => {
     const r = check(`${CLASSES}
-export function read(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function read(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   const index: u32 = 0;
   a.forEach((x: f32, i: i32): void => {
     const index = u32(i);
@@ -133,7 +133,7 @@ export function run(): u32 {
     const body =
       reading(CLASSES, 'a[i + Base.OFFSET] + b[i + Derived.OFFSET] + c[i + Sibling.OFFSET]') +
       `
-export function fill(out: array<f32>) {
+export function fill(@inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = 1.; }
 }`;
     check(body);

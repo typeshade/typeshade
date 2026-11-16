@@ -56,7 +56,7 @@ const kernelOf = (f: ReturnType<typeof face>, name: string): KernelFace => {
 };
 
 const STRONG = `"use typeshade";
-export function strong(xs: array<f32>, t: f32, out: array<u32>): u32 {
+export function strong(xs: array<f32>, t: f32, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > t) {
       out.push(i);
@@ -67,7 +67,7 @@ export function strong(xs: array<f32>, t: f32, out: array<u32>): u32 {
 `;
 
 const TWICE = `"use typeshade";
-export function twice(xs: array<u32>, out: array<u32>): u32 {
+export function twice(xs: array<u32>, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] % 2 == 0) {
       out.push(xs[i]);
@@ -113,7 +113,7 @@ describe('the face of a kernel function that pushes (change 0078)', () => {
     const gap = (body: string): string | undefined =>
       kernelOf(face(`"use typeshade";\n${body}\n`), 'f').noGpu;
     expect(
-      gap(`export function f(xs: array<u32>, out: array<u32>, ys: array<u32>): u32 {
+      gap(`export function f(xs: array<u32>, @inout out: array<u32>, @inout ys: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     out.push(xs[i]);
     ys.push(xs[i] * 2);
@@ -122,7 +122,7 @@ describe('the face of a kernel function that pushes (change 0078)', () => {
 }`),
     ).toBe('loop 1 pushes onto "out" and "ys", and the call counts the pushes of one array a loop');
     expect(
-      gap(`export function f(xs: array<u32>, out: array<u32>): u32 {
+      gap(`export function f(xs: array<u32>, @inout out: array<u32>): u32 {
   let s: u32 = 0;
   for (let i: u32 = 0; i < xs.length; i++) {
     out.push(xs[i]);
@@ -132,7 +132,7 @@ describe('the face of a kernel function that pushes (change 0078)', () => {
 }`),
     ).toBe('loop 1 pushes and reduces "s", which its counting step would combine twice');
     expect(
-      gap(`export function f(xs: array<u32>, out: array<u32>, ys: array<u32>) {
+      gap(`export function f(xs: array<u32>, @inout out: array<u32>, @inout ys: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     ys[i] = xs[i] + 1;
     if (ys[i] > 3) {
@@ -147,7 +147,7 @@ describe('the face of a kernel function that pushes (change 0078)', () => {
     // GPU loop's offsets started at 0 (change 0078, deviation 3). Both loops now start at the
     // array's length word, and the function lowers (change 0094).
     expect(
-      gap(`export function f(xs: array<u32>, out: array<u32>): u32 {
+      gap(`export function f(xs: array<u32>, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     out.push(xs[i]);
   }
@@ -159,7 +159,7 @@ describe('the face of a kernel function that pushes (change 0078)', () => {
     ).toBeUndefined();
     // A write the iteration does not read back runs in the store step, and the loop lowers.
     expect(
-      gap(`export function f(xs: array<u32>, out: array<u32>, ys: array<u32>) {
+      gap(`export function f(xs: array<u32>, @inout out: array<u32>, @inout ys: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     ys[i] = xs[i] + 1;
     out.push(xs[i]);
@@ -201,7 +201,7 @@ describe('a kernel function that pushes, on the CPU tier (Rule 8.23)', () => {
 
   it('appends the pushes of a second loop after the first', async () => {
     const m = await load(`"use typeshade";
-export function f(xs: array<u32>, out: array<u32>): u32 {
+export function f(xs: array<u32>, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     out.push(xs[i]);
   }
@@ -231,12 +231,12 @@ describe('a loop that pushes in a fuse scope (change 0078, Rule 11.13)', () => {
   // Verifies: Rule 11.13. A fuse plan gives the bits of the calls run apart, a loop that pushes
   // between two array loops among them.
   const CHAIN = `"use typeshade";
-export function scale(xs: array<f32>, ys: array<f32>, k: f32) {
+export function scale(xs: array<f32>, @inout ys: array<f32>, k: f32) {
   for (let i: u32 = 0; i < xs.length; i++) {
     ys[i] = xs[i] * k;
   }
 }
-export function keep(ys: array<f32>, t: f32, out: array<u32>): u32 {
+export function keep(ys: array<f32>, t: f32, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < ys.length; i++) {
     if (ys[i] > t) {
       out.push(i);
@@ -244,7 +244,7 @@ export function keep(ys: array<f32>, t: f32, out: array<u32>): u32 {
   }
   return out.length;
 }
-export function mark(xs: array<f32>, zs: array<f32>) {
+export function mark(xs: array<f32>, @inout zs: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     zs[i] = xs[i] + 1.;
   }
@@ -300,14 +300,14 @@ export function mark(xs: array<f32>, zs: array<f32>) {
 // ─── a push after a held length (change 0094, part 2) ─────────────────────────────────────────
 
 const HELD = `"use typeshade";
-export function keepAbove(xs: array<f32>, t: f32, list: array<u32>): void {
+export function keepAbove(xs: array<f32>, t: f32, @inout list: array<u32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > t) {
       list.push(i);
     }
   }
 }
-export function keepCount(xs: array<f32>, t: f32, list: array<u32>): u32 {
+export function keepCount(xs: array<f32>, t: f32, @inout list: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > t) {
       list.push(i);
@@ -315,7 +315,7 @@ export function keepCount(xs: array<f32>, t: f32, list: array<u32>): u32 {
   }
   return list.length;
 }
-export function both(xs: array<u32>, out: array<u32>): u32 {
+export function both(xs: array<u32>, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     out.push(xs[i]);
   }
@@ -326,7 +326,7 @@ export function both(xs: array<u32>, out: array<u32>): u32 {
   }
   return out.length;
 }
-export function keepStore(xs: array<f32>, list: array<u32>, count: array<u32>) {
+export function keepStore(xs: array<f32>, @inout list: array<u32>, @inout count: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > 0.) {
       list.push(i);
@@ -695,7 +695,7 @@ interface Held {
 
 describe('a push after a held length in a fuse scope, on the CPU tier (change 0094, Rule 11.13)', () => {
   const READER = `${HELD}
-export function fromCount(count: array<u32>, out: array<u32>) {
+export function fromCount(count: array<u32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = count[0] + i;
   }

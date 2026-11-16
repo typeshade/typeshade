@@ -154,7 +154,7 @@ let shared: workgroup<vec2f>;
   });
 
   it('lets a kernel function write a swizzle of its element, on the GPU and the CPU tier', () => {
-    const { compiled, result } = bothHalves(`export function swap(v: array<vec2f>) {
+    const { compiled, result } = bothHalves(`export function swap(@inout v: array<vec2f>) {
   for (let i: u32 = 0; i < v.length; i++) {
     v[i].yx = v[i];
   }

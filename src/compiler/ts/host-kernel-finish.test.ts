@@ -30,14 +30,14 @@ afterAll(() => {
 });
 
 const STORES = `"use typeshade";
-export function sumInto(xs: array<f32>, sums: array<f32>) {
+export function sumInto(xs: array<f32>, @inout sums: array<f32>) {
   let s = 0.;
   for (let i: u32 = 0; i < xs.length; i++) {
     s += xs[i];
   }
   sums[0] = s;
 }
-export function sumBoth(xs: array<f32>, sums: array<f32>): f32 {
+export function sumBoth(xs: array<f32>, @inout sums: array<f32>): f32 {
   let s = 0.;
   for (let i: u32 = 0; i < xs.length; i++) {
     s += xs[i];
@@ -45,12 +45,12 @@ export function sumBoth(xs: array<f32>, sums: array<f32>): f32 {
   sums[1] = s;
   return s;
 }
-export function plan(count: array<u32>, wg: array<u32>) {
+export function plan(count: array<u32>, @inout wg: array<u32>) {
   wg[0] = (count[0] + 63) / 64;
   wg[1] = 1;
   wg[2] = 1;
 }
-export function past(xs: array<f32>, out: array<f32>, k: i32): u32 {
+export function past(xs: array<f32>, @inout out: array<f32>, k: i32): u32 {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = xs[i] + 1.;
   }
@@ -221,7 +221,7 @@ describe('stores after the loops that still run on the CPU tier, and why (change
   it.each([
     [
       'a store into an array a loop scatters into',
-      `export function hist(ks: array<u32>, bins: array<u32>) {
+      `export function hist(ks: array<u32>, @inout bins: array<u32>) {
   for (let i: u32 = 0; i < ks.length; i++) {
     bins[ks[i] % bins.length] += 1;
   }
@@ -232,7 +232,7 @@ describe('stores after the loops that still run on the CPU tier, and why (change
     ],
     [
       'a store in a function that takes a Set',
-      `export function unique(xs: array<u32>, seen: Set<u32>, out: array<u32>) {
+      `export function unique(xs: array<u32>, seen: Set<u32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     seen.add(xs[i]);
   }

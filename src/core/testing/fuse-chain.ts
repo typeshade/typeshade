@@ -1073,12 +1073,12 @@ const arrayOfN = (id: string, o: { written: boolean; scratch: boolean }): ChainA
  */
 export function stencilChain(): ChainCorpus {
   const source = `"use typeshade";
-export function produce(t: array<f32>, a: array<f32>): void {
+export function produce(@inout t: array<f32>, a: array<f32>): void {
   for (let i: u32 = 0; i < t.length; i++) {
     t[i] = a[i] * 2. + 1.;
   }
 }
-export function stencil(out: array<f32>, t: array<f32>): void {
+export function stencil(@inout out: array<f32>, t: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i] + t[i ^ 1];
   }
@@ -1130,7 +1130,7 @@ export function stencil(out: array<f32>, t: array<f32>): void {
  */
 export function foldChain(fused: boolean): ChainCorpus {
   const source = `"use typeshade";
-export function scale(t: array<f32>, a: array<f32>): void {
+export function scale(@inout t: array<f32>, a: array<f32>): void {
   for (let i: u32 = 0; i < t.length; i++) {
     t[i] = a[i] * 2. + 1.;
   }
@@ -1208,22 +1208,22 @@ export function total(t: array<f32>): f32 {
  */
 export function limitChain(): ChainCorpus {
   const source = `"use typeshade";
-export function scaleA(o: array<f32>, a: array<f32>): void {
+export function scaleA(@inout o: array<f32>, a: array<f32>): void {
   for (let i: u32 = 0; i < o.length; i++) {
     o[i] = a[i] * 2. + 1.;
   }
 }
-export function scaleB(o: array<f32>, a: array<f32>): void {
+export function scaleB(@inout o: array<f32>, a: array<f32>): void {
   for (let i: u32 = 0; i < o.length; i++) {
     o[i] = a[i] * 3. + 2.;
   }
 }
-export function scaleC(o: array<f32>, a: array<f32>): void {
+export function scaleC(@inout o: array<f32>, a: array<f32>): void {
   for (let i: u32 = 0; i < o.length; i++) {
     o[i] = a[i] * 4. + 3.;
   }
 }
-export function scaleD(o: array<f32>, a: array<f32>): void {
+export function scaleD(@inout o: array<f32>, a: array<f32>): void {
   for (let i: u32 = 0; i < o.length; i++) {
     o[i] = a[i] * 5. + 4.;
   }
@@ -1289,12 +1289,12 @@ export function sum(t: array<f32>): f32 {
  */
 export function localChain(): ChainCorpus {
   const source = `"use typeshade";
-export function accumulate(t: array<f32>, a: array<f32>): void {
+export function accumulate(@inout t: array<f32>, a: array<f32>): void {
   for (let i: u32 = 0; i < t.length; i++) {
     t[i] += a[i];
   }
 }
-export function spread(o: array<f32>, t: array<f32>): void {
+export function spread(@inout o: array<f32>, t: array<f32>): void {
   for (let i: u32 = 0; i < o.length; i++) {
     o[i] = t[i] * 2.;
   }

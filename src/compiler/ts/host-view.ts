@@ -734,7 +734,7 @@ export function viewText(
                     : either;
               // An array a loop pushes onto may come with its length, a `Buffer<u32>` (change
               // 0094, decision D5; Amendment A10, confirmation item 3), on a call on a resource.
-              return p.pushed === true && mode !== 'plain'
+              return p.pushed === true && p.out !== true && mode !== 'plain'
                 ? `${p.name}: ${array} | { readonly array: ${array}; readonly length: Buffer<u32>; readonly offset?: number }`
                 : `${p.name}: ${array}`;
             })
@@ -747,7 +747,7 @@ export function viewText(
               ? 'Its stores run on the GPU in one invocation where there is WebGPU, and on the CPU otherwise'
               : 'Each of its loops runs on the GPU, one invocation per iteration, where there is WebGPU, and on the CPU otherwise';
         // A held length (change 0094), on the arrays a loop pushes onto.
-        const pushes = f.params.some((p) => p.k === 'array' && p.pushed === true)
+        const pushes = f.params.some((p) => p.k === 'array' && p.pushed === true && p.out !== true)
           ? ' An array it pushes onto may come as { array, length, offset? }: its pushes start at the length the Buffer<u32> length holds at offset, and the call leaves the new length there (Rule 8.23).'
           : '';
         // A range the device holds (change 0094, part 1).

@@ -13,7 +13,7 @@ import { copy, runKernelPlan } from '../../core/testing/kernel-plan.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
 
 const source = (body: string, elem = 'u32'): string => `"use typeshade";
-export function scatter(best: array<${elem}>, keys: array<u32>, values: array<${elem}>) {
+export function scatter(@inout best: array<${elem}>, @inout keys: array<u32>, @inout values: array<${elem}>) {
   for (let i: u32 = 0; i < keys.length; i++) {
     ${body}
   }

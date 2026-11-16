@@ -296,7 +296,7 @@ declare const hs: storage<array<Hidden>>;
 export function use(c: Cam, h: Hidden, k: Keyed, p: P): P { return p; }
 export function area(s: Shape): f32 { return s.w; }
 export function asShape(w: f32): Shape { return { w: w }; }
-export function kern(xs: array<P>, ks: array<Keyed>, out: array<f32>) {
+export function kern(xs: array<P>, ks: array<Keyed>, @inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = xs[i].x + ks[i].w; }
 }
 @compute([8])
@@ -878,7 +878,7 @@ declare const out: storage<array<u32>, "read_write">;
  * Scales \`a\` in place.
  * @param s the factor
  */
-export function scale(a: array<f32>, s: f32): void {
+export function scale(@inout a: array<f32>, s: f32): void {
   for (let i = 0; i < a.length; i++) a[i] = a[i] * s;
 }
 `);
@@ -1118,7 +1118,7 @@ export function twice(x: f32): f32 {
   return x * 2.;
 }
 
-export function scale(a: array<f32>, s: f32): void {
+export function scale(@inout a: array<f32>, s: f32): void {
   for (let i = 0; i < a.length; i++) a[i] = a[i] * s;
 }
 
@@ -1205,7 +1205,7 @@ export class Particle {
 }
 
 /** Scales \`a\` in place. */
-export function scale(a: array<f32>, s: f32): void {
+export function scale(@inout a: array<f32>, s: f32): void {
   for (let i = 0; i < a.length; i++) a[i] = a[i] * s;
 }
 

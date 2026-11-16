@@ -57,21 +57,21 @@ export declare const camera: uniform<Params>;
 export declare const ps: storage<array<Particle>, "read_write">;
 
 /** Ages every particle by dt. */
-export function age(xs: array<Particle>, dt: f32): void {
+export function age(@inout xs: array<Particle>, dt: f32): void {
   for (let i = 0; i < xs.length; i++) {
     xs[i].life = xs[i].life + dt;
   }
 }
 
 /** Ages every particle by the parameters' step. */
-export function move(xs: array<Particle>, p: Params): void {
+export function move(@inout xs: array<Particle>, p: Params): void {
   for (let i = 0; i < xs.length; i++) {
     xs[i].life = xs[i].life + p.dt;
   }
 }
 
 /** Copies the lives of xs into out. */
-export function lives(xs: array<Particle>, out: array<f32>): void {
+export function lives(xs: array<Particle>, @inout out: array<f32>): void {
   for (let i = 0; i < xs.length; i++) {
     out[i] = xs[i].life;
   }

@@ -33,7 +33,7 @@ export function tiled(p: builtin<"position">): vec4 {
 }
 
 /** Each element of `out`, its index over the length: 0 up to just under 1. */
-export function fillRamp(out: array<f32>) {
+export function fillRamp(@inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = f32(i) / f32(out.length);
   }

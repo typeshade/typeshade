@@ -28,7 +28,7 @@ export function axpy(gid: builtin<"global_invocation_id">) {
 
 /** A kernel function over doubles (Rule 8.22): the map and both reductions run on WebGPU, each
  *  double as two f32s, and the reductions fold in the 256-wide tree order (Rule 7.2). */
-export function dstats(vs: array<f64>, k: f64): vec2f64 {
+export function dstats(@inout vs: array<f64>, k: f64): vec2f64 {
   let sum: f64 = 0;
   let lo: f64 = 1e30;
   for (let i: u32 = 0; i < vs.length; i++) {
@@ -40,7 +40,7 @@ export function dstats(vs: array<f64>, k: f64): vec2f64 {
 }
 
 /** A map over doubles that a chain fuses with the reduction below (change 0058): `out = xs * k`. */
-export function dscale(out: array<f64>, xs: array<f64>, k: f64): void {
+export function dscale(@inout out: array<f64>, xs: array<f64>, k: f64): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = xs[i] * k;
   }

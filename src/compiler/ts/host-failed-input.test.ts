@@ -72,30 +72,30 @@ const capture = async (p: Promise<unknown>): Promise<unknown> =>
     (e: unknown) => e,
   );
 const SOURCE = `"use typeshade";
-export function fill(out: array<f32>, n: u32, value: f32) {
+export function fill(@inout out: array<f32>, n: u32, value: f32) {
   for (let i: u32 = 0; i < n; i++) out[i] = value;
 }
-export function twice(out: array<f32>, xs: array<f32>) {
+export function twice(@inout out: array<f32>, xs: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) out[i] = 2. * xs[i];
 }
-export function update(out: array<f32>) {
+export function update(@inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) out[i] += 1.;
 }
-export function capacity(out: array<f32>, xs: array<f32>) {
+export function capacity(@inout out: array<f32>, xs: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) out[i] = f32(xs.length);
 }
-export function unused(out: array<f32>, xs: array<f32>) {
+export function unused(@inout out: array<f32>, xs: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) out[i] = 7.;
 }
-export function late(out: array<f32>, xs: array<f32>): f32 {
+export function late(@inout out: array<f32>, xs: array<f32>): f32 {
   for (let i: u32 = 0; i < out.length; i++) out[i] = 7.;
   return xs[0];
 }
 function get(value: f32): f32 { return value; }
-export function helper(out: array<f32>, xs: array<f32>) {
+export function helper(@inout out: array<f32>, xs: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) out[i] = get(xs[i]);
 }
-export function combine(out: array<f32>, first: array<f32>, second: array<f32>) {
+export function combine(@inout out: array<f32>, first: array<f32>, second: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) out[i] = first[i] + second[i];
 }
 `;
@@ -393,10 +393,10 @@ function sample(i: u32): f32 { return xs[i]; }
 }
 @fragment export function color(): vec4 { return vec4(xs[0], 0., 0., 1.); }
 @fragment export function sizeColor(): vec4 { return vec4(f32(xs.length) / 4., 0., 0., 1.); }
-export function fill(out: array<f32>, n: u32, value: f32) {
+export function fill(@inout out: array<f32>, n: u32, value: f32) {
   for (let i: u32 = 0; i < n; i++) out[i] = value;
 }
-export function words(out: array<u32>, n: u32) {
+export function words(@inout out: array<u32>, n: u32) {
   for (let i: u32 = 0; i < n; i++) out[i] = 1;
 }
 `;
@@ -545,17 +545,17 @@ describe('generated compute and draw dependencies (0129)', () => {
 });
 
 const HELD = `"use typeshade";
-export function append(out: array<u32>, n: u32): u32 {
+export function append(@inout out: array<u32>, n: u32): u32 {
   for (let i: u32 = 0; i < n; i++) out.push(i);
   return out.length;
 }
-export function appendOnly(out: array<u32>, n: u32) {
+export function appendOnly(@inout out: array<u32>, n: u32) {
   for (let i: u32 = 0; i < n; i++) out.push(i);
 }
-export function words(out: array<u32>, n: u32) {
+export function words(@inout out: array<u32>, n: u32) {
   for (let i: u32 = 0; i < n; i++) out[i] = 1;
 }
-export function bounds(out: array<u32>, n: array<u32>) {
+export function bounds(@inout out: array<u32>, n: array<u32>) {
   for (let i: u32 = 0; i < n[0]; i++) out[i] = i;
 }
 `;
@@ -623,10 +623,10 @@ it('keeps same-named linked helpers distinct for read/write and write-only place
   const source = `${SOURCE}
 import { touch as set } from "./set.shade";
 import { touch as increment } from "./update.shade";
-export function setAll(out: array<f32>) {
+export function setAll(@inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) set(out[i]);
 }
-export function incrementAll(out: array<f32>) {
+export function incrementAll(@inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) increment(out[i]);
 }
 `;
@@ -660,7 +660,7 @@ for (const [name, body] of [
 ] as const) {
   it(`includes ${name} reads outside a single loop-output hint`, async () => {
     const m = await load(
-      `${SOURCE}\nexport function run(out: array<f32>, xs: array<f32>) { ${body} }`,
+      `${SOURCE}\nexport function run(@inout out: array<f32>, xs: array<f32>) { ${body} }`,
     );
     const d = await createDevice({ prefer: ['cpu'] });
     try {
@@ -683,10 +683,10 @@ it('checks a by-value aggregate helper argument and an atomic read/write, but pe
   const source = `"use typeshade";
 export class Cell { value: f32 = 0.; }
 function constant(cell: Cell): f32 { return 7.; }
-export function copy(out: array<f32>, xs: array<Cell>) {
+export function copy(@inout out: array<f32>, xs: array<Cell>) {
   for (let i: u32 = 0; i < out.length; i++) out[i] = constant(xs[i]);
 }
-export function cells(out: array<Cell>, n: u32) {
+export function cells(@inout out: array<Cell>, n: u32) {
   for (let i: u32 = 0; i < n; i++) out[i].value = 1.;
 }
 declare const dst: storage<array<atomic<u32>>, "read_write">;
@@ -696,7 +696,7 @@ declare const dst: storage<array<atomic<u32>>, "read_write">;
 @compute([1]) export function increment(gid: builtin<"global_invocation_id">) {
   if (gid.x < dst.length) atomicAdd(dst[gid.x], 1);
 }
-export function words(out: array<u32>, n: u32) {
+export function words(@inout out: array<u32>, n: u32) {
   for (let i: u32 = 0; i < n; i++) out[i] = 1;
 }
 `;

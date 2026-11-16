@@ -6,20 +6,22 @@ links:
 - RULE-0602: X1TddP_Ob7b4QaR9Qbuoo1UgPCngNA5JdtbbWwd_lOc=
 - RULE-0606: v9R6bYC4u9FE8PK38m5uVaVvXQHjyaWMpH1XGuB7AWA=
 - RULE-0607: RHgMFWhF7JfCvwF5_NDsVqKVq6eCr6gGI4sXIByH9Q8=
-- RULE-0706: FTjvSTHfC8VfTIRf8NWVqMQuJ4A5FFDQH0GYUlHYblE=
+- RULE-0706: eN5EjwmlzUaFuDP4-ME_MX3lDdsjX3FDl93NKZgQnWU=
 - RULE-0709: I2kb4szrYiKtmhAPhRUfI3BqKOo-DmLFxyCamUwLrCA=
 - RULE-0710: 3lGjzZUWGw-ZKwJftj0FW4dk59DA_93RfSYdpPpXAkA=
 - RULE-0801: ugDum55qOp8zOu08iFeRXe7bAbNGFjTioL6j88ZGoe4=
 - RULE-0805: Kq2hCdlup1NA0l4vhuwirKDHJRnVjrkr0ZK9UUZFYbQ=
 - RULE-0807: yk8ipEbraGkGUnumzHLwSdV82CBTdMJU_QYyw6xWPPI=
+- RULE-0808: yRm0TfIfMKyqKibZNxc1tBDygkuEA_e8e7zR304DJYw=
 - RULE-0822: OhGV3Gz4tMYUgMKtnsbtCy24NvzlQG-b5UkOU06y6uQ=
+- RULE-0823: Ob7exBJenHecLyaxO9nYzz3moDzAxIYaab3FLp0LHaY=
 - RULE-1201: pA914I-4_mj9FS3tMdcE8QwC5cLLtjnVm9eta2Sosgo=
 normative: true
 ref: ''
-reviewed: jTTQf230lUgX59jtsEvNjRegwc253laD_qQ6L75o-RI=
+reviewed: uUpidxFJk4DVhg8W3-3cqhVsn5EWaI0_iT65AO31thg=
 source: docs/use-typeshade-surface.md §7
 ---
 
 # Diagnostics (required)
 
-docs/use-typeshade-surface.md §7, "Diagnostics (required)": the surface section that explains Rule 6.2, Rule 6.6, Rule 6.7, Rule 7.6, Rule 7.9, Rule 7.10, Rule 8.1, Rule 8.5, Rule 8.7, Rule 8.22, Rule 12.1.
+docs/use-typeshade-surface.md §7, "Diagnostics (required)": the surface section that explains Rule 6.2, Rule 6.6, Rule 6.7, Rule 7.6, Rule 7.9, Rule 7.10, Rule 8.1, Rule 8.5, Rule 8.7, Rule 8.8, Rule 8.22, Rule 8.23, Rule 12.1.

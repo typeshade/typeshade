@@ -15,7 +15,7 @@ import { emitModule } from '../../core/backends/wgsl.js';
 const item = 'class Item { a:f32; b:i32; c:u32; unused:f32; }';
 function read(body: string, helpers = '', fuse?: boolean, declaration = item) {
   const source = `"use typeshade"; ${declaration} ${helpers}
-export function sample(xs:array<Item>,out:array<f32>) { ${body} }`;
+export function sample(@inout xs:array<Item>,@inout out:array<f32>) { ${body} }`;
   const result = compile(source);
   expect(result.diagnostics).toEqual([]);
   const editor = createTypeshadeLanguageService();

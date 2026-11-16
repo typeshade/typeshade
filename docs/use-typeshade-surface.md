@@ -687,7 +687,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A name the file does not declare: a value, a callee, a type, a field, a member, an assignment target, an attribute, a `@builtin` id, an `enable` extension, an import | `TS8022`, `TS8004`, `TS8002` and the rest, on the name, with the remedy in one order (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name (`lerp` is `mix`), else the name of the same kind it is spelled like (`Did you mean "clamp"?`), else the declaration it needs. `window`, `Date` and `fetch` are such names, once, where they are used, in a body a call lowers or not; a type nothing declares is `TS8002` wherever it is written, a claim, a type argument (`B<vec3<Foo>>` included), an alias, an `implements` clause and the base a class or an interface extends included. A type the library declares for TypeScript's own use (`Number`, `Object`) read or called is said to be one, and `Math`, `console` and `Symbol` to be what they are. A name the file declares is the file's, whatever it spells, `class Mat` and `interface Pick` included (§28), except `eval` and `arguments`, which strict mode lets no variable, parameter or function bind (`TS8068`) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 | `new` on anything but a class the file declares | `TS8035`, once for the file, naming what the target is and what to write: a WGSL constructor or a function is called without `new`, a WGSL type with no constructor (`sampler`, a texture) and a type the library declares for TypeScript (`Array`) are types, `Symbol` is the library's own, an enum's values are its members, a mixin applied to a class is built through a class that extends it, and an interface, a type alias, a namespace, a type parameter, a value and an `abstract` class are no class to build. A target nothing declares, and a member the object before it does not have, is `TS8022` (§26) |
-| A local read before it is assigned on every path, an `@out` parameter read before the function writes it, or a path that returns without writing one | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` An argument an `@out` parameter takes assigns the variable (§70) |
+| A local read before it is assigned on every path, an `@out` parameter that is no array read before the function writes it, or a path that returns without writing one | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` An argument an `@out` parameter takes assigns the variable (§70) |
+| A write to a parameter of an array with no qualifier that a path carries to a `return` that does not return it, or to the end of the function; a push to one, even when it is returned | `TS8080`, on the write, in the compiler and in the editor: `scale(): parameter "xs" is a value; its writes are lost. Write @inout xs to update the caller's array.` (The text offers `@inout` alone, because `return xs` of an array with no size is refused in every function (`TS8020`) until slice 3 of change 0138, which restores `, or return xs`.) A push says `add(): parameter "xs" is a value; a push to it is lost. Write @inout xs to push into the caller's array.` A push to a declared `@out` array says `grow(): parameter "list" is @out; a push to it needs @inout. Write @inout list.` `TS8080` reads an array with no size, `array<T>`, only: a fixed-size array parameter is a value as before (Rule 8.8, change 0031). A parameter the body only reads, an `@inout` array and an element write to an `@out` array are not refused (Rule 8.23, §65, §70; change 0138, Amendments A15 and A16) |
 | A value nothing holds, or a place no function may write, handed to an `@inout` or `@out` parameter; a qualifier where a function takes its parameters by value | `TS8073`, naming the edit (§70); the editor shows it alone, with no TS1206 beside it |
 | A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
 | An optional value (`T \| undefined`, §76) read where a `T` is needed and nothing narrowed it: an operand, an argument, a `return` of a non-optional function, an index, a member read | `TS8003`, in TypeScript's TS18048, TS2532 and TS2538 place, which the editor shows alone: `"v" is "f32 \| undefined" here, and "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ?? 0.".` An optional as a condition, `v!`, `undefined` where nothing expects an optional, and `x === undefined` on a value that is always there are `TS8003` too, each naming the edit; `o?.m()`, `typeof v` and a call read twice in a loop condition are `TS8099` (Rule 7.10) |
@@ -8438,7 +8439,7 @@ export class OnePole {
 }
 
 /** Runs every filter of the bank over its block, one lane per filter. */
-export function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32) {
+export function run(@inout out: array<f32>, xs: array<f32>, @inout filters: array<OnePole>, block: u32) {
   for (let i: u32 = 0; i < filters.length; i++) {
     for (let n: u32 = 0; n < block; n++) {
       out[i * block + n] = filters[i].tick(xs[i * block + n]);
@@ -8852,7 +8853,8 @@ generated module imports, not API for a host to import.
 A function that takes an array with no size, `array<T>`, or a 2D storage texture,
 `texture_storage_2d<F, A>` (change 0077), and is exported is a **kernel function** (Rule 8.22).
 A sampled texture alone makes none: an exported helper that reads one stays a helper an entry
-calls. Its array is the caller's storage, read and written in place, and each `for` at the
+calls. Its array with no qualifier is a value, and an array written `@inout` or `@out` is the
+caller's storage, read and written in place (§70); each `for` at the
 top level of its body is a loop that can run on the GPU, one invocation per iteration, when the
 compiler proves that no iteration touches what another one does. No `compute` call, no binding and no
 `global_invocation_id` is written:
@@ -8864,7 +8866,7 @@ export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
 
-export function render(k: vec4, size: u32, out: array<f32>) {
+export function render(k: vec4, size: u32, @inout out: array<f32>) {
   for (let i: u32 = 0; i < size * size; i++) {
     const p = vec2(f32(i % size), f32(i / size)) / f32(size);
     out[i] = height(p, k);
@@ -8880,9 +8882,35 @@ export function total(xs: array<f32>): f32 {
 }
 ```
 
-**The array parameter** (Rule 8.23) is passed by reference, the one exception to Rule 8.8: the body
-writes `out[i]` and reads `xs.length`, and cannot assign `out` whole. Any other function that
-takes an array with no size is refused (TS8020, §20). A kernel function is emitted by no target and
+**The array parameter** (Rule 8.23, change 0138, Amendments A15 and A16). An array with no size and no qualifier is a
+value, as every parameter with none is (Rule 8.8): the body reads `xs[i]` and `xs.length`, and
+cannot assign `xs` whole. A write to it is lost, so `TS8080` refuses it where it is made, in the
+compiler and in the editor. A fixed-size array parameter, `array<T, N>`, is a value as before
+(Rule 8.8, change 0031), and `TS8080` does not read it. An array written `@inout` is the caller's
+storage, passed by reference, the one exception to Rule 8.8: the body writes `out[i]` and reads
+`xs.length`, and the call writes the caller's array in place. An array written `@out` is the
+caller's storage too, which the call fills with zeros before the body runs (§70). Any other
+function that takes an array with no size is refused (TS8020, §20).
+
+```ts
+export function scale(xs: array<f32>, k: f32) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = xs[i] * k; // TS8080: scale(): parameter "xs" is a value; its writes are lost. Write @inout xs to update the caller's array.
+  }
+}
+
+export function scaled(@inout xs: array<f32>, k: f32) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = xs[i] * k; // the caller's array
+  }
+}
+```
+
+A texture, a storage texture, a `Map` and a `Set` stay by reference, with no qualifier. A pushed
+array carries `@inout`, and a push to a value array is refused even when the function returns
+it: `add(): parameter "xs" is a value; a push to it is lost. Write @inout xs to push into the
+caller's array.` (`TS8080`). A push to a declared `@out` array is `TS8080` too: `grow(): parameter
+"list" is @out; a push to it needs @inout. Write @inout list.` A kernel function is emitted by no target and
 is not called from another function (Rule 8.6); `height` above is an ordinary function both the
 loop and the host can call.
 
@@ -8895,7 +8923,7 @@ and the elements of its arrays, and the stores run in the order you write them:
 ```ts
 "use typeshade";
 
-export function sumInto(xs: array<f32>, sums: array<f32>) {
+export function sumInto(xs: array<f32>, @inout sums: array<f32>) {
   let s = 0.;
   for (let i: u32 = 0; i < xs.length; i++) {
     s += xs[i];
@@ -8919,7 +8947,7 @@ loop's range is then the device's, and the loop runs on the GPU from a count no 
 ```ts
 "use typeshade";
 
-export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, out: array<f32>) {
+export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, @inout out: array<f32>) {
   const n: u32 = count[0];
   for (let j: u32 = 0; j < n; j++) {
     out[j] = xs[list[j]];
@@ -9075,7 +9103,7 @@ index (issue #350):
 ```ts
 "use typeshade";
 
-export function shade(w: u32, h: u32, out: array<f32>) {
+export function shade(w: u32, h: u32, @inout out: array<f32>) {
   for (let i: u32 = 0; i < w * h; i++) {
     const x = i % w;
     const y = i / w;
@@ -9150,7 +9178,7 @@ reads the `for` loop:
 ```ts
 "use typeshade";
 
-export function stats(xs: array<f32>, out: array<f32>): f32 {
+export function stats(xs: array<f32>, @inout out: array<f32>): f32 {
   xs.forEach((x, i) => {
     out[i] = x * 2.;
   });
@@ -9178,7 +9206,7 @@ elements land in the order a sequential run of the loop appends them, on every t
 ```ts
 "use typeshade";
 
-export function strong(xs: array<f32>, t: f32, out: array<u32>): u32 {
+export function strong(xs: array<f32>, t: f32, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > t) {
       out.push(i);
@@ -9520,8 +9548,8 @@ dev.chunkRates.relax; // { msPerUnit, chunks, longestMs, lastUnits }
 The default owner, `configure()` and `fuse()`, has no budget. Which loop to cut, and where its
 state lives, stays yours: the compiler does not cut a loop.
 
-**A texture parameter** (change 0077) is the caller's texture, passed by reference as an array
-is. A `texture_2d<f32>` is read with `textureLoad`; a 2D storage texture is stored into with
+**A texture parameter** (change 0077) is the caller's texture, passed by reference with no
+qualifier, as an `@inout` array is. A `texture_2d<f32>` is read with `textureLoad`; a 2D storage texture is stored into with
 `textureStore` at `vec2u(i % W, i / W)`, the one coordinate the proof accepts, and loaded only at
 the texel the iteration stores:
 
@@ -10870,22 +10898,56 @@ cannot write it, so the argument may be any value; a value that is no place is c
 A method that hands a place of its object to a qualified parameter, `bump(this.n)`, writes its
 object, and takes it by reference (§26).
 
-**`@out`.** An `@out` parameter starts with no value in the function, as GLSL's does: the body
-writes it, whole, before it reads it or a field, component or element of it, and writes it on
-every path before it returns. Each of those is `TS8075`:
+**`@out`.** An `@out` parameter that is no array starts with no value in the function, as GLSL's
+does: the body writes it, whole, before it reads it or a field, component or element of it, and
+writes it on every path before it returns. Each of those is `TS8075`:
 
 ```ts
 function f(@out c: f32): void { c = c + 1.; } // TS8075: read before f writes it
 function g(@out c: f32, k: bool): void { if (k) { c = 1.; } } // TS8075: returns without writing c
 ```
 
-Under that rule `@out` and `@inout` give one result on every target, so the IR keeps one mode
-for both. The argument of an `@out` parameter assigns the caller's variable, so a local declared
+Under that rule `@out` and `@inout` give one result on every target for a parameter that is no
+array, so the IR keeps one mode for both. An `@out` array is the exception, with a rule of its
+own below. The argument of an `@out` parameter assigns the caller's variable, so a local declared
 with no value may be handed to one and read after the call (Rule 7.6). Declare that local
 without `!`, `let s: f32;`, as the program above does (change 0130, D3). A written `!`,
 `let s!: f32;`, is accepted and changes nothing. The compiler reads both spellings alike, and
 refuses a read of the local that no assignment and no argument of an `@out` parameter comes
 before (`TS8075`).
+
+**An array parameter** (Rule 8.23, Rule 8.25, change 0138, Amendment A15). A parameter of an
+array with no qualifier is a value, and a write to it that no `return` carries back is
+`TS8080`, path by path, where the array has no size; a fixed-size array parameter is a value as before (change 0031). `@inout xs` is the
+caller's array, written in place; the call leaves what the body does not write as it was.
+`@out xs` is the caller's array too, but the call fills it with zeros before the body runs, on
+every tier: the whole storage of an array with no size, and `N` elements of `array<T, N>`. The
+body may read it, `TS8075` refuses no read of its elements, and an `@out` array that the body
+never writes comes back all zeros:
+
+```ts
+export function scale(xs: array<f32>, k: f32) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = xs[i] * k; // TS8080: write @inout xs to update the caller's array
+  }
+}
+
+export function scaleInPlace(@inout xs: array<f32>, k: f32) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = xs[i] * k; // the caller's array, updated
+  }
+}
+
+export function ramp(@out xs: array<f32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = xs[i] + f32(i); // xs[i] was 0, whatever the caller held
+  }
+}
+```
+
+A held-length argument `{ array, length, offset? }` is taken by an `@inout` parameter only; an
+`@out` one refuses it with a `TypeError` at the call, and the host view's type has no such
+form. An `@out` texture, `Map` or `Set` gets no fill and keeps the whole write of `TS8075`.
 
 **What each target writes.** The IR marks the parameter as one the callee writes through,
 which is what a method that changes its object already is, and each target spells it its own
@@ -10961,7 +11023,9 @@ ES 3.00 the `inout` parameter, `inout float a`. The call of `scale` counts `a` a
 references in the check above, so `scaleBoth(x, x, 2.)` is `TS8074`.
 
 **The host.** A host call passes values (§64), so an export whose parameter is qualified is
-declared `never` in the host view, with the reason; a function of the module calls it.
+declared `never` in the host view, with the reason; a function of the module calls it. A kernel
+function's array parameter, `@inout` or `@out`, is the exception: the host passes the array
+(§65), and `@out` gives it back filled.
 
 **Later, on the same model.** Change 0040 lists what may follow: a local reference, a read-only
 reference, a slice of an array, and `this` restated as an `@inout` parameter. None of a
@@ -10976,19 +11040,19 @@ The kernel functions are written as before. These three, in `ops.shade.ts`, are 
 ```ts
 "use typeshade";
 
-export function add(out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
 
-export function mul(out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function mul(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * b[i];
   }
 }
 
-export function relu(out: array<f32>, x: array<f32>): void {
+export function relu(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = max(x[i], 0.);
   }
@@ -11336,7 +11400,7 @@ its own kernel or entry:
 "use typeshade";
 import { xorshift32, hash32, uniform } from "typeshade/random";
 
-export function jitter(out: array<f32>, seed: u32): void {
+export function jitter(@inout out: array<f32>, seed: u32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = uniform(hash32(seed ^ i));
   }
@@ -11378,7 +11442,7 @@ export function labels(pixels: array<u32>, seen: Set<u32>): u32 {
   return seen.size;
 }
 
-export function lookup(keys: array<u32>, last: Map<u32, f32>, out: array<f32>) {
+export function lookup(keys: array<u32>, last: Map<u32, f32>, @inout out: array<f32>) {
   for (let i: u32 = 0; i < keys.length; i++) {
     out[i] = last.has(keys[i]) ? last.get(keys[i])! : -1.;
   }

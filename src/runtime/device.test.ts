@@ -41,12 +41,12 @@ afterEach(() => {
 });
 
 const OPS = `"use typeshade";
-export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function relu(out: array<f32>, x: array<f32>) {
+export function relu(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = max(x[i], 0.);
   }
@@ -81,12 +81,12 @@ const attempt = (f: () => unknown): Promise<unknown> => (async () => f())();
 
 /** A module that emulates `f64`, whose face carries the WGSL of both flavors (change 0073). */
 const DOUBLES = `"use typeshade";
-export function scale(xs: array<f64>, k: f64) {
+export function scale(@inout xs: array<f64>, k: f64) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] * k;
   }
 }
-export function add(out: array<f64>, a: array<f64>, b: array<f64>) {
+export function add(@inout out: array<f64>, a: array<f64>, b: array<f64>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
@@ -297,10 +297,10 @@ it('alternates projected ordinary calls and full-layout resident/fused calls fro
   // An array of structs on the device is a Buffer of its class (change 0138, Amendment A11, Q4).
   const source = `"use typeshade";
 export class Item { a: f32 = 0.; b: f32 = 0.; c: f32 = 0.; unused: f32 = 0.; }
-export function sample(xs: array<Item>, out: array<f32>): void {
+export function sample(xs: array<Item>, @inout out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = xs[i].a; }
 }
-export function copy(xs: array<f32>, out: array<f32>): void {
+export function copy(xs: array<f32>, @inout out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = xs[i]; }
 }
 `;
@@ -1535,7 +1535,7 @@ export function total(xs: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) s += xs[i];
   return s;
 }
-export function histogram(xs: array<u32>, bins: array<u32>): void {
+export function histogram(xs: array<u32>, @inout bins: array<u32>): void {
   for (let i: u32 = 0; i < xs.length; i++) bins[xs[i] & 7] += 1;
 }
 export function mean(xs: array<f32>): f32 {

@@ -1396,7 +1396,7 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
     const k = (attr: string) =>
       `"use typeshade";\n${BUF}const E: u32 = 1;\n${attr}\nexport function k(${GID}) { buf[gid.x] = 1.; }\n`;
     const scale = (attr: string) =>
-      `"use typeshade";\nconst E: u32 = 1;\n${attr}\nexport function scale(xs: array<f32>, out: array<f32>) { for (let i = 0; i < xs.length; i++) { out[i] = xs[i] * 2.; } }\n`;
+      `"use typeshade";\nconst E: u32 = 1;\n${attr}\nexport function scale(xs: array<f32>, @inout out: array<f32>) { for (let i = 0; i < xs.length; i++) { out[i] = xs[i] * 2.; } }\n`;
     const noArgument = (name: string, written: string) =>
       `"@${name}" takes no argument: write "@${name}" and delete "(${written})" (Rule 8.1).`;
     const notApplied = (written: string) =>
@@ -1575,7 +1575,7 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
   });
 
   it('reads @workgroup_size([n]) on a kernel function, and refuses it elsewhere (Rule 8.22)', () => {
-    const kernel = `"use typeshade";\n@workgroup_size([128])\nexport function k(a: array<f32>) { for (let i = 0; i < a.length; i++) { a[i] = a[i] * 2.; } }\n`;
+    const kernel = `"use typeshade";\n@workgroup_size([128])\nexport function k(@inout a: array<f32>) { for (let i = 0; i < a.length; i++) { a[i] = a[i] * 2.; } }\n`;
     expect(both(kernel)).toEqual(clean);
     const reduces = `"use typeshade";\n@workgroup_size([128])\nexport function k(a: array<f32>): f32 { let s = 0.; for (let i = 0; i < a.length; i++) { s += a[i]; } return s; }\n`;
     expect(both(reduces).compiler.map((d) => d[1])).toEqual(['TS8077']);

@@ -49,94 +49,94 @@ const RUNTIME = resolve(__dirname, 'host-runtime.ts');
 /** File A. `act` is its private helper. */
 const OPS = `"use typeshade";
 function act(x: f32): f32 { return x * x; }
-export function add(out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function mul(out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function mul(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * b[i];
   }
 }
-export function relu(out: array<f32>, x: array<f32>): void {
+export function relu(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = max(x[i], 0.);
   }
 }
-export function scale(out: array<f32>, x: array<f32>, k: f32): void {
+export function scale(@inout out: array<f32>, x: array<f32>, k: f32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * k;
   }
 }
-export function square(out: array<f32>, x: array<f32>): void {
+export function square(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = act(x[i]);
   }
 }
-export function copy(out: array<f32>, x: array<f32>): void {
+export function copy(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i];
   }
 }
-export function fill0(out: array<f32>): void {
+export function fill0(@inout out: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = 0.;
   }
 }
-export function addt(out: array<f32>, t: array<f32>, a: array<f32>): void {
+export function addt(@inout out: array<f32>, t: array<f32>, a: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i] + a[i];
   }
 }
-export function bump(xs: array<f32>): void {
+export function bump(@inout xs: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] + 1.;
   }
 }
-export function positive(out: array<f32>, x: array<f32>): void {
+export function positive(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     if (x[i] > 0.) {
       out[i] = x[i];
     }
   }
 }
-export function stepper(out: array<f32>, x: array<f32>): void {
+export function stepper(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 3; i < out.length; i += 2) {
     out[i] = x[i] + 1.;
   }
 }
-export function lenscale(out: array<f32>, x: array<f32>): void {
+export function lenscale(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * f32(x.length);
   }
 }
-export function iadd(out: array<i32>, a: array<i32>, b: array<i32>): void {
+export function iadd(@inout out: array<i32>, a: array<i32>, b: array<i32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function imul(out: array<i32>, a: array<i32>, b: array<i32>): void {
+export function imul(@inout out: array<i32>, a: array<i32>, b: array<i32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * b[i];
   }
 }
-export function vadd(out: array<vec2<f32>>, a: array<vec2<f32>>, b: array<vec2<f32>>): void {
+export function vadd(@inout out: array<vec2<f32>>, a: array<vec2<f32>>, b: array<vec2<f32>>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function vscale(out: array<vec2<f32>>, x: array<vec2<f32>>, k: f32): void {
+export function vscale(@inout out: array<vec2<f32>>, x: array<vec2<f32>>, k: f32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * k;
   }
 }
-export function addd(out: array<f64>, a: array<f64>, b: array<f64>): void {
+export function addd(@inout out: array<f64>, a: array<f64>, b: array<f64>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function muld(out: array<f64>, a: array<f64>, b: array<f64>): void {
+export function muld(@inout out: array<f64>, a: array<f64>, b: array<f64>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * b[i];
   }
@@ -149,7 +149,7 @@ class Sim {
   dt: f32;
   gravity: f32;
 }
-export function step(particles: array<Particle>, sim: Sim): void {
+export function step(@inout particles: array<Particle>, sim: Sim): void {
   for (let i: u32 = 0; i < particles.length; i++) {
     const p = particles[i];
     particles[i] = {
@@ -158,32 +158,32 @@ export function step(particles: array<Particle>, sim: Sim): void {
     };
   }
 }
-export function speed(out: array<f32>, particles: array<Particle>): void {
+export function speed(@inout out: array<f32>, particles: array<Particle>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = length(particles[i].vel.xyz);
   }
 }
-export function pairsum(out: array<f32>, t: array<f32>): void {
+export function pairsum(@inout out: array<f32>, t: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i] + t[i ^ 1];
   }
 }
-export function stride(out: array<f32>, x: array<f32>): void {
+export function stride(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < x.length; i++) {
     out[2 * i] = x[i];
   }
 }
-export function shiftdown(out: array<f32>, x: array<f32>): void {
+export function shiftdown(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 1; i < x.length; i++) {
     out[i - 1] = x[i];
   }
 }
-export function copyfrom1(out: array<f32>, x: array<f32>): void {
+export function copyfrom1(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 1; i < out.length; i++) {
     out[i] = x[i];
   }
 }
-export function skipneg(out: array<f32>, x: array<f32>): void {
+export function skipneg(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     if (x[i] < 0.) {
       continue;
@@ -263,7 +263,7 @@ export function sumlen(xs: array<f32>): f32 {
   }
   return s;
 }
-export function stats(xs: array<f32>, out: array<f32>): f32 {
+export function stats(xs: array<f32>, @inout out: array<f32>): f32 {
   let s = 0.;
   let m = -1e30;
   for (let i: u32 = 0; i < xs.length; i++) {
@@ -295,18 +295,18 @@ export function sumnegs(xs: array<f32>): f32 {
 /** File B. Its private helper is also called `act`, and it is another function. */
 const POST = `"use typeshade";
 function act(x: f32): f32 { return max(x, 0.) + 1.; }
-export function bias(out: array<f32>, x: array<f32>): void {
+export function bias(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = act(x[i]);
   }
 }
 // Kernel functions that declare their workgroup size (proposal 0067, F7).
-@workgroup_size([128]) export function triple(out: array<f32>, x: array<f32>): void {
+@workgroup_size([128]) export function triple(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * 3.;
   }
 }
-@workgroup_size([64]) export function quad(out: array<f32>, x: array<f32>): void {
+@workgroup_size([64]) export function quad(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * 4.;
   }
@@ -344,12 +344,12 @@ function load(source: string, fileName: string, origin?: string): Loaded {
 // Array parameters named by reserved words (Rule 3.3, #602): WGSL reserves `filter`'s and `std`'s
 // spellings, so each binding is emitted under a fresh name, and the fused entry must not name them.
 const RESERVED = `"use typeshade";
-export function reservedScale(out: array<f32>, filter: array<f32>) {
+export function reservedScale(@inout out: array<f32>, filter: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = filter[i] * 2.0;
   }
 }
-export function reservedShift(out: array<f32>, std: array<f32>) {
+export function reservedShift(@inout out: array<f32>, std: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = std[i] + 1.0;
   }
@@ -360,12 +360,12 @@ export function reservedShift(out: array<f32>, std: array<f32>) {
 // a parameter of the second call, so the first call's `filter` gets `filter_1`.
 const COLLIDE = `"use typeshade";
 const filter_: f32 = 3.0;
-export function collideScale(out: array<f32>, filter: array<f32>) {
+export function collideScale(@inout out: array<f32>, filter: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = filter[i] * filter_;
   }
 }
-export function collideShift(out: array<f32>, filter_: array<f32>, mean: array<f32>) {
+export function collideShift(@inout out: array<f32>, filter_: array<f32>, mean: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = filter_[i] + mean[i];
   }
@@ -1584,11 +1584,11 @@ describe('the entry', () => {
 
   it('builds no entry where two files declare one name differently', () => {
     const left = load(
-      `"use typeshade";\nconst SCALE: f32 = 2.;\nexport function scaled(out: array<f32>, x: array<f32>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[i] * SCALE;\n  }\n}\n`,
+      `"use typeshade";\nconst SCALE: f32 = 2.;\nexport function scaled(@inout out: array<f32>, x: array<f32>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[i] * SCALE;\n  }\n}\n`,
       '/app/left.shade.ts',
     );
     const right = load(
-      `"use typeshade";\nconst SCALE: f32 = 3.;\nexport function scaledAgain(out: array<f32>, x: array<f32>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[i] * SCALE;\n  }\n}\n`,
+      `"use typeshade";\nconst SCALE: f32 = 3.;\nexport function scaledAgain(@inout out: array<f32>, x: array<f32>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[i] * SCALE;\n  }\n}\n`,
       '/app/right.shade.ts',
     );
     const r = fusedFor([
