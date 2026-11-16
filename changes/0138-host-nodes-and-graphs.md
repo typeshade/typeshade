@@ -3643,6 +3643,88 @@ value; its writes are lost. Write @inout xs to update the caller's array, or ret
   `codes`.
 - Status: `status: accepted` does not change.
 
+### A16. Slice 2: the owner's answers on #1310 (2026-11-16)
+
+- [fact] Why. Slice 2 is draft pull request #1310, head `eb0f87a9` when this amendment was written.
+  Its implementation found four points that A15 does not settle. One is a conflict between A15
+  decision 1 and Rule 8.8. The owner answered each on 2026-11-16, in the conversation.
+- [fact] Baseline: `main` at `01e50ba3` (#1306, Amendment A15).
+- [fact] This amendment changes no front matter, no rule text and no code. #1310 carries them.
+
+**The owner's answers.**
+
+- [decision, owner, 2026-11-16] The owner picked the recommended option of each question in the
+  question UI. The record has no other words. The labels, in Korean, with English translations:
+  1. "TS8080으로 거부 (추천)" (English translation: refuse with `TS8080`; recommended).
+  2. "Rule 8.8 유지: 크기 있는 배열은 제외 (추천)" (English translation: keep Rule 8.8; arrays with
+     a size are excluded; recommended).
+  3. "kernel에서는 @inout만 안내 (추천)" (English translation: in a kernel, offer `@inout` only;
+     recommended).
+  4. "수용 (추천)" (English translation: accept; recommended), for the bundle sizes below.
+
+**Decision 1. A declared `@out` array that the body pushes onto is refused with `TS8080`.**
+
+- [fact] A15 decision 2 says a pushed array cannot be `@out` and adds no code. At `eb0f87a9` only a
+  held-length argument at the call is refused; the declaration `@out list: array<u32>` with
+  `list.push(…)` in the body compiles.
+- What it means: the declaration is refused with `TS8080`, on both halves (Rule 12.7). The option's
+  example text: `grow(): parameter "list" is @out; a push to it needs @inout. Write @inout list.`
+  No new code. [inference, agent] `TS8080` now covers a misused array qualifier as well as a lost
+  write.
+
+**Decision 2. Rule 8.8 holds: `TS8080` applies only to an array with no size.**
+
+- [fact] The conflict, shown to the owner with one example: Rule 8.8 (change 0031) lets a helper
+  rewrite a fixed-size array parameter locally: `function xs(a: array<f32, 2>) { a = [a[1], a[0]];
+a[0] += 2.; return a[0] + a[1]; }`. A15 decision 1, read for every array, refuses it with
+  `TS8080`.
+- [fact] The option the owner chose said: an array with a size is a value in WGSL and is a value
+  today, so its local write loses nothing a caller saw; A10 Q-A spoke of `array<T>`.
+- What it means:
+  1. `TS8080` applies to a parameter of an array with no size (`array<T>`) only.
+  2. A parameter of `array<T, N>` keeps Rule 8.8 and today's behaviour, `TS8018` included.
+  3. A15 decision 1 item 1 is narrowed accordingly. Rule 8.8 does not change.
+
+**Decision 3. In a kernel function, the `TS8080` text offers `@inout` only until slice 3.**
+
+- [fact] At `eb0f87a9`, `return xs` of an array parameter in a kernel function is still refused
+  (`TS8020`) until slice 3, so the remedy "or return xs" fails there.
+- What it means: in a kernel function the text is `scale(): parameter "xs" is a value; its writes
+are lost. Write @inout xs to update the caller's array.` Where an array can be returned, the text
+  keeps "or return xs" (A15). [proposal, agent] Slice 3 restores the return remedy in kernels.
+
+**Decision 4. The bundle budgets of slice 2.**
+
+| Bundle                 | `main` at `01e50ba3` | #1310 at `eb0f87a9` | Growth (gzip bytes) |
+| ---------------------- | -------------------- | ------------------- | ------------------- |
+| `typeshade/runtime`    | 171,253              | 171,525             | +272                |
+| `typeshade/fuse`       | 115,599              | 115,876             | +277                |
+| `typeshade/algorithms` | 70,608               | 70,900              | +292                |
+| `typeshade/random`     | 52,173               | 52,459              | +286                |
+
+- [fact] The growth comes from the runtime side of A15: the zero fill of an `@out` array, the refusal
+  of a held length at an `@out` parameter, and the copy of a value array.
+- [fact] A later commit of #1310 that moves the sizes again is reported on the pull request with its
+  bytes.
+
+**Open items.**
+
+| Item                                                                          | Source          | Next action                                   |
+| ----------------------------------------------------------------------------- | --------------- | --------------------------------------------- |
+| The candidate codes of slice 3, and the return remedy of `TS8080` in kernels. | A15, decision 3 | Ask the owner before slice 3.                 |
+| Writes inside a nested closure are not tracked by `TS8080` at `eb0f87a9`.     | #1310 report    | Recorded on #1310; no slice assigned.         |
+| D-p: which slice closes it.                                                   | A13 to A15      | Ask the owner when slices 3 to 6 are planned. |
+
+**Open, owner must settle.**
+
+- [fact] Nothing for A16's own decisions.
+- [inference, agent] Decision 2 resolves a conflict between two approved texts; the owner chose with
+  the example shown, as CLAUDE.md asks. No decision conflicts with OD-1 to OD-8.
+
+- Affects: A15 decision 1 item 1 (narrowed to arrays with no size) and decision 2 item 2a (the
+  declared `@out` push); A15's `TS8080` texts; Rule 8.8 (kept); the bundle sizes of slice 2.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground
