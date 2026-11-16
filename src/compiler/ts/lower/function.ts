@@ -2897,7 +2897,8 @@ function fillFunctionBodyNow(
   if (node.type === undefined) recordInferredReturn(sourceFile, node, stub.ret);
   // An entry that writes no return type returns what its body says (Rule 8.19, change 0136): its
   // output takes the attribute its stage gives that type, as a written one does.
-  if (node.type === undefined && stub.stage !== undefined) {
+  // An annotation the projection wrote is not the author's (`hasNoWrittenResult`, Rule 12.7).
+  if (hasNoWrittenResult(node, sourceFile) && stub.stage !== undefined) {
     settleInferredEntryResult(
       stub,
       node,
