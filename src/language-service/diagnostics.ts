@@ -2513,6 +2513,43 @@ function repeatsRefusal(
 }
 
 /**
+ * Whether a TypeScript error is about a result type that a call cycle leaves uninferred (#1298).
+ *
+ * TypeScript's "implicitly has return type 'any' because ... referenced directly or indirectly in
+ * one of its return expressions" (TS7023) is its word on a function, a method or a getter that
+ * takes part in a call cycle and writes no result type. The projection writes a result type in
+ * only where the value applies an operator, so a cycle `a -> b -> a` of plain calls reached the
+ * editor as TS7023, and `compile()` said only that WGSL has no call stack (TS8031, Rule 12.7).
+ * TS8031 names each function of the cycle as it shows it (`"C.a"` for a method or a getter), so
+ * the report is dropped when a TS8031 cycle names the declaration.
+ */
+function isResultOfRefusedCycle(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  if (ruleCodeOf(diagnostic.code) !== 7023) return false;
+  let declaration: ts.Node | undefined = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+  while (
+    declaration !== undefined &&
+    !(
+      ts.isFunctionDeclaration(declaration) ||
+      ts.isMethodDeclaration(declaration) ||
+      ts.isGetAccessorDeclaration(declaration)
+    )
+  ) {
+    declaration = declaration.parent;
+  }
+  if (declaration === undefined || declaration.name === undefined) return false;
+  const name = declaration.name.getText(context.sourceFile);
+  const owner = ts.isClassLike(declaration.parent) ? declaration.parent.name?.text : undefined;
+  const shown = owner === undefined ? name : `${owner}.${name}`;
+  return compilerErrors.some(
+    (error) => error.code === TS_CODES.RECURSION && error.message.includes(`"${shown}"`),
+  );
+}
+
+/**
  * Whether a TypeScript error repeats what the compiler said of `eval` or `arguments` (Rule 12.4):
  *
  * - TypeScript's word on a write of such a name whose declaration the compiler refused
@@ -3044,6 +3081,7 @@ export function mergeDiagnostics(
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
     if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;
+    if (isResultOfRefusedCycle(context, diagnostic, compilerErrors)) return false;
     // `Cannot find global type 'Promise'`, which TypeScript reports at the top of the file for
     // an `import(...)` the compiler refuses as an import (TS8072, Rule 3.9): the same mistake.
     if (
