@@ -13,19 +13,19 @@
 // iteration of add, mul and relu reads and writes only element i, so a chain of them can run as
 // one loop, one invocation per element.
 
-export function add(out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
 
-export function mul(out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function mul(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * b[i];
   }
 }
 
-export function relu(out: array<f32>, x: array<f32>): void {
+export function relu(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = max(x[i], 0.);
   }
@@ -33,7 +33,7 @@ export function relu(out: array<f32>, x: array<f32>): void {
 
 // pairsum reads an element and its pair. Another invocation writes the pair, so pairsum cannot
 // share a dispatch with the call that wrote `t`.
-export function pairsum(out: array<f32>, t: array<f32>): void {
+export function pairsum(@inout out: array<f32>, t: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i] + t[i ^ 1];
   }

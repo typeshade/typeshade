@@ -399,7 +399,7 @@ export function f(${declaration}t: Record<0 | 1, f32>): f32 { return t[${index}]
 
 const KEY_COLLECTIONS = `"use typeshade";
 type Channel = "r" | "g" | "b";
-export function collect(xs: array<f32>, c: Channel, seen: Set<Channel>, last: Map<Channel, f32>, out: array<f32>): u32 {
+export function collect(xs: array<f32>, c: Channel, seen: Set<Channel>, last: Map<Channel, f32>, @inout out: array<f32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     seen.add(c);
     seen.add("r");
@@ -413,7 +413,7 @@ export function collect(xs: array<f32>, c: Channel, seen: Set<Channel>, last: Ma
   }
   return seen.size;
 }
-export function names(xs: array<f32>, m: Map<Channel, Channel>, out: array<u32>) {
+export function names(xs: array<f32>, m: Map<Channel, Channel>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) { m.set("g", "b"); }
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = m.has("g") && m.get("g")! === "b" ? 1 : 0;

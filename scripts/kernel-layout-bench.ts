@@ -17,10 +17,10 @@ try {
   for (const reads of [1, 4, 8]) {
     const source = `"use typeshade";
 class Item { ${Array.from({ length: 8 }, (_, i) => `f${i}:f32;`).join(' ')} }
-export function sample(xs:array<Item>,out:array<f32>){
+export function sample(xs:array<Item>,@inout out:array<f32>){
  for(let i:u32=0;i<xs.length;i++){out[i]=${Array.from({ length: reads }, (_, i) => `xs[i].f${i}`).join('+')};}
 }
-export function warm(xs:array<f32>,out:array<f32>){for(let i:u32=0;i<xs.length;i++){out[i]=xs[i];}}`;
+export function warm(xs:array<f32>,@inout out:array<f32>){for(let i:u32=0;i<xs.length;i++){out[i]=xs[i];}}`;
     const h = hostFace(source, { fileName: `/layout-${reads}.shade.ts`, runtime });
     if (h.diagnostics.length) throw new Error(JSON.stringify(h.diagnostics));
     const e = h.exports!.find((e) => e.name === 'sample');

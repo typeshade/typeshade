@@ -22,7 +22,7 @@ export function gain(c: Channel, x: f32, by: Record<Channel, f32>): f32 {
   }
 }
 
-export function boost(pixels: array<f32>, c: Channel, scale: f32) {
+export function boost(@inout pixels: array<f32>, c: Channel, scale: f32) {
   for (let i: u32 = 0; i < pixels.length; i++) {
     const by: Record<Channel, f32> = { r: scale, g: scale, b: scale };
     pixels[i] = gain(c, pixels[i], by);

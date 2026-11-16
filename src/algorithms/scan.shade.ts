@@ -16,7 +16,7 @@
 
 /** `out[i] = Σ_{t < i} x[t]`, the exclusive prefix sum. `sums` is the caller's scratch of at least
  *  one element, one block sum each; the block is `ceil(x.length / sums.length)`. */
-export function exclusiveScan(out: array<u32>, x: array<u32>, sums: array<u32>): void {
+export function exclusiveScan(@inout out: array<u32>, x: array<u32>, @inout sums: array<u32>): void {
   const n = x.length;
   const block = (n + sums.length - 1) / sums.length;
   for (let j: u32 = 0; j < sums.length; j++) {
@@ -39,7 +39,7 @@ export function exclusiveScan(out: array<u32>, x: array<u32>, sums: array<u32>):
 
 /** `out[i] = Σ_{t <= i} x[t]`, the inclusive prefix sum, with `sums` as `exclusiveScan` takes
  *  it. */
-export function inclusiveScan(out: array<u32>, x: array<u32>, sums: array<u32>): void {
+export function inclusiveScan(@inout out: array<u32>, x: array<u32>, @inout sums: array<u32>): void {
   const n = x.length;
   const block = (n + sums.length - 1) / sums.length;
   for (let j: u32 = 0; j < sums.length; j++) {
@@ -64,7 +64,7 @@ export function inclusiveScan(out: array<u32>, x: array<u32>, sums: array<u32>):
  *  `flags`: `out[offsets[k]] = x[k]` for each flagged `k`, and 0 past the count of kept elements.
  *  Written as a gather at `i`: the source of `out[i]` is the first `k` whose inclusive count
  *  `offsets[k] + flags[k]` exceeds `i`, found by a binary search. */
-export function compact(out: array<f32>, x: array<f32>, flags: array<u32>, offsets: array<u32>): void {
+export function compact(@inout out: array<f32>, x: array<f32>, flags: array<u32>, offsets: array<u32>): void {
   const n = x.length;
   for (let i: u32 = 0; i < out.length; i++) {
     let lo: u32 = 0;
@@ -81,7 +81,7 @@ export function compact(out: array<f32>, x: array<f32>, flags: array<u32>, offse
 /** Adds the count of `x` in each of `bins.length` equal bins over `[lo, hi)` into `bins`; a value
  *  below `lo` counts in the first bin and one at or above `hi` in the last. Each add is an atomic
  *  on a GPU and a plain add on the CPU tier, in iteration order. The caller zeroes `bins`. */
-export function histogram(bins: array<u32>, x: array<f32>, lo: f32, hi: f32): void {
+export function histogram(@inout bins: array<u32>, x: array<f32>, lo: f32, hi: f32): void {
   const top = bins.length - 1;
   const scale = f32(bins.length) / (hi - lo);
   for (let i: u32 = 0; i < x.length; i++) {

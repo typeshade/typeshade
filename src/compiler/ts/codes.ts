@@ -274,6 +274,13 @@ export const TS_CODES = {
    *  text of its error on `uniform(Class, …)`, `zeros(Class, n)` and `array(Class, data)`, and the
    *  runtime keeps its `TypeError`. */
   HOST_RESERVED_FIELD: 'TS8079',
+  /** A write to a parameter of an array with no qualifier that a path carries to a `return` that
+   *  does not return the parameter, or to the end of the function (Rule 8.23, change 0138,
+   *  Amendment A15, decision 1). The parameter is a value, so the write changes a copy that no
+   *  one reads. The text names the parameter and offers `@inout`, to update the caller's array,
+   *  or `return` of the parameter; a push is refused even when the parameter is returned, and
+   *  offers `@inout` only. On the write, in the compiler and in the editor (Rule 12.7). */
+  VALUE_ARRAY_WRITE_LOST: 'TS8080',
   UNSUPPORTED: 'TS8099',
 } as const;
 

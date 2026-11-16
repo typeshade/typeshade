@@ -1051,7 +1051,7 @@ function recordCorpus(): KernelCorpus[] {
       .join(', ');
     const source = `"use typeshade";
 type Key = ${[...keys].reverse().join(' | ')};
-export function record(xs: array<f32>, out: array<f32>) {
+export function record(xs: array<f32>, @inout out: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     const table: Record<Key, f32> = { ${fields} };
     const k: Key = ${choose};

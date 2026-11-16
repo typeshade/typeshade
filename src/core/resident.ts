@@ -250,6 +250,18 @@ export class ResidentArrayState {
     return read;
   }
 
+  /** Make every element zero, as the call of an `@out` array does before its body runs (Rule 8.23,
+   *  Rule 8.25,
+   *  change 0138, Amendment A15, decision 2): the host copy becomes zeros of the same length and is the
+   *  newer, so the next use uploads it. */
+  zero(): void {
+    const h = this.host;
+    if (ArrayBuffer.isView(h) && !(h instanceof DataView)) {
+      const T = h.constructor as new (n: number) => ArrayBufferView;
+      this.assign(new T((h as unknown as { length: number }).length));
+    } else if (Array.isArray(h)) this.assign(h.map(() => 0));
+  }
+
   /** Replace the host copy with `v`, which is the newer: the caller's `write()` (surface §65). */
   assign(v: unknown): void {
     if (this.clearPending) this.dropClear();
@@ -383,6 +395,12 @@ export class ZeroedState extends ResidentArrayState {
         `${at} (${param.s}): got a zeroed array of ${this.length} numbers, which takes ${n}.`,
       );
     return count;
+  }
+
+  /** A zeroed array no call wrote and no `write()` replaced holds zeros already. */
+  override zero(): void {
+    if (this.host === undefined && this.fresh === 'host') return;
+    this.assign(ZEROED_ELEMENTS[this.element](this.length));
   }
 
   /** A call on the host, or a read, needs the elements: zeros, or what the device holds. */

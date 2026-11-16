@@ -39,7 +39,7 @@ describe('the proof accepts a loop whose iterations touch nothing another one to
   it.each([
     [
       "the roadmap's render",
-      `export function render(k: vec4, size: u32, out: array<f32>) {
+      `export function render(k: vec4, size: u32, @inout out: array<f32>) {
   for (let i: u32 = 0; i < size * size; i++) {
     const p = vec2(f32(i % size), f32(i / size)) / f32(size);
     out[i] = k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
@@ -49,49 +49,49 @@ describe('the proof accepts a loop whose iterations touch nothing another one to
     ],
     [
       'a gather',
-      `export function gather(a: array<f32>, idx: array<u32>, b: array<f32>) {
+      `export function gather(a: array<f32>, idx: array<u32>, @inout b: array<f32>) {
   for (let i: u32 = 0; i < b.length; i++) { b[i] = a[idx[i]]; }
 }`,
       'affine b',
     ],
     [
       'a stencil into another array',
-      `export function stencil(a: array<f32>, b: array<f32>) {
+      `export function stencil(a: array<f32>, @inout b: array<f32>) {
   for (let i: u32 = 1; i < b.length - 1; i++) { b[i] = a[i - 1] + a[i + 1]; }
 }`,
       'affine b',
     ],
     [
       'a step of 2, read and written at i',
-      `export function axpy(x: array<f32>, y: array<f32>) {
+      `export function axpy(x: array<f32>, @inout y: array<f32>) {
   for (let i: u32 = 0; i < y.length; i += 2) { y[i] = 2. * x[i] + y[i]; }
 }`,
       'affine y',
     ],
     [
       'a stride of 3 (R3b)',
-      `export function stride(out: array<f32>, n: u32) {
+      `export function stride(@inout out: array<f32>, n: u32) {
   for (let i: u32 = 0; i < n; i++) { out[i * 3] = 1.; out[i * 3 + 1] = 2.; out[i * 3 + 2] = 3.; }
 }`,
       'affine out',
     ],
     [
       'row-major over a nested loop (R3c)',
-      `export function tile(out: array<f32>, w: u32, h: u32) {
+      `export function tile(@inout out: array<f32>, w: u32, h: u32) {
   for (let y: u32 = 0; y < h; y++) { for (let x: u32 = 0; x < w; x++) { out[y * w + x] = f32(x + y); } }
 }`,
       'row-major out',
     ],
     [
       'one index whose coefficient the call checks (R3b)',
-      `export function scaled(out: array<f32>, n: u32, stride: u32) {
+      `export function scaled(@inout out: array<f32>, n: u32, stride: u32) {
   for (let i: u32 = 0; i < n; i++) { out[i * stride] = 1.; }
 }`,
       'scaled out',
     ],
     [
       'a counter added to a value the loop does not change (R3b, #983)',
-      `export function keep(tape: array<f32>, block: array<f32>, at: u32) {
+      `export function keep(@inout tape: array<f32>, block: array<f32>, at: u32) {
   for (let n: u32 = 0; n < block.length; n++) { tape[at + n] = block[n]; }
 }`,
       'scaled tape',
@@ -99,7 +99,7 @@ describe('the proof accepts a loop whose iterations touch nothing another one to
     [
       'a struct array written in place',
       `class P { pos: vec4; vel: vec4; }
-export function step(ps: array<P>, dt: f32) {
+export function step(@inout ps: array<P>, dt: f32) {
   for (let i: u32 = 0; i < ps.length; i++) { ps[i].pos = ps[i].pos + ps[i].vel * dt; }
 }`,
       'affine ps',
@@ -111,14 +111,14 @@ export function step(ps: array<P>, dt: f32) {
   vel: vec4;
   advance(dt: f32) { this.pos = this.pos + this.vel * dt; }
 }
-export function step(ps: array<P>, dt: f32) {
+export function step(@inout ps: array<P>, dt: f32) {
   for (let i: u32 = 0; i < ps.length; i++) { ps[i].advance(dt); }
 }`,
       'affine ps',
     ],
     [
       'per-iteration state inside the loop',
-      `export function nearest(a: array<f32>, out: array<f32>) {
+      `export function nearest(a: array<f32>, @inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     let best = 1e30;
     for (let j: u32 = 0; j < a.length; j++) { best = min(best, abs(a[j] - f32(i))); }
@@ -149,19 +149,19 @@ export function step(ps: array<P>, dt: f32) {
     ],
     [
       'a histogram, a scatter reduction (R3f)',
-      `export function histogram(xs: array<u32>, bins: array<u32>) { for (const x of xs) { bins[x % 16] += 1; } }`,
+      `export function histogram(xs: array<u32>, @inout bins: array<u32>) { for (const x of xs) { bins[x % 16] += 1; } }`,
       'scatter bins',
     ],
     [
       'a body that reads the length of the array it writes, which no iteration moves (#345)',
-      `export function fill(out: array<f32>) {
+      `export function fill(@inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = f32(out.length); }
 }`,
       'affine out',
     ],
     [
       'a volume stencil that bounds its +z neighbour by the length of what it writes (#345)',
-      `export function diffuse(d: array<f32>, out: array<f32>, w: u32, h: u32, k: f32) {
+      `export function diffuse(d: array<f32>, @inout out: array<f32>, w: u32, h: u32, k: f32) {
   for (let i: u32 = 0; i < out.length; i++) {
     const zf = i + w * h < out.length ? i + w * h : i;
     out[i] = d[i] + k * (d[zf] - d[i]);
@@ -178,12 +178,12 @@ describe('the proof refuses a loop whose iterations depend on each other, for it
   it.each([
     [
       'a while loop (R1)',
-      `export function fill(a: array<f32>) { let i: u32 = 0; while (i < a.length) { a[i] = 1.; i++; } }`,
+      `export function fill(@inout a: array<f32>) { let i: u32 = 0; while (i < a.length) { a[i] = 1.; i++; } }`,
       'R1 while',
     ],
     [
       'a multiplicative step (R1)',
-      `export function halve(a: array<f32>) { for (let s: u32 = 64; s > 0; s /= 2) { a[s] = 1.; } }`,
+      `export function halve(@inout a: array<f32>) { for (let s: u32 = 64; s > 0; s /= 2) { a[s] = 1.; } }`,
       'R1 step',
     ],
     [
@@ -196,7 +196,7 @@ describe('the proof refuses a loop whose iterations depend on each other, for it
     ],
     [
       "a break of the loop's own (R2)",
-      `export function upto(a: array<f32>) { for (let i: u32 = 0; i < a.length; i++) { if (a[i] > 1.) { break; } a[i] = 0.; } }`,
+      `export function upto(@inout a: array<f32>) { for (let i: u32 = 0; i < a.length; i++) { if (a[i] > 1.) { break; } a[i] = 0.; } }`,
       'R2 break',
     ],
     [
@@ -211,21 +211,21 @@ describe('the proof refuses a loop whose iterations depend on each other, for it
     ],
     [
       'a scatter at an index iterations can share (R3)',
-      `export function scatter(a: array<f32>, idx: array<u32>, b: array<f32>) {
+      `export function scatter(a: array<f32>, idx: array<u32>, @inout b: array<f32>) {
   for (let i: u32 = 0; i < a.length; i++) { b[idx[i]] = a[i]; }
 }`,
       'R3 shared',
     ],
     [
       'a counter divided before it is added to a value the loop does not change (R3, #983)',
-      `export function keep(tape: array<f32>, block: array<f32>, at: u32) {
+      `export function keep(@inout tape: array<f32>, block: array<f32>, at: u32) {
   for (let n: u32 = 0; n < block.length; n++) { tape[at + n / 2] = block[n]; }
 }`,
       'R3 shared',
     ],
     [
       'a counter added to a value each iteration declares (R3, #983)',
-      `export function keep(tape: array<f32>, block: array<f32>) {
+      `export function keep(@inout tape: array<f32>, block: array<f32>) {
   for (let n: u32 = 0; n < block.length; n++) {
     const off = block.length - n;
     tape[off + n] = block[n];
@@ -235,29 +235,29 @@ describe('the proof refuses a loop whose iterations depend on each other, for it
     ],
     [
       'a prefix sum (R4)',
-      `export function prefix(out: array<f32>) { for (let i: u32 = 1; i < out.length; i++) { out[i] = out[i] + out[i - 1]; } }`,
+      `export function prefix(@inout out: array<f32>) { for (let i: u32 = 1; i < out.length; i++) { out[i] = out[i] + out[i - 1]; } }`,
       'R4 reads-written',
     ],
     [
       'in-place smoothing (R4)',
-      `export function blur(a: array<f32>) { for (let i: u32 = 1; i < a.length; i++) { a[i] = (a[i] + a[i - 1]) * 0.5; } }`,
+      `export function blur(@inout a: array<f32>) { for (let i: u32 = 1; i < a.length; i++) { a[i] = (a[i] + a[i - 1]) * 0.5; } }`,
       'R4 reads-written',
     ],
     [
       'a call that bumps a counter (R5)',
       `let calls: u32 = 0;
 function tally(): u32 { calls += 1; return calls; }
-export function count(a: array<u32>) { for (let i: u32 = 0; i < a.length; i++) { a[i] = tally(); } }`,
+export function count(@inout a: array<u32>) { for (let i: u32 = 0; i < a.length; i++) { a[i] = tally(); } }`,
       'R5 call',
     ],
     [
       'a console call (R6)',
-      `export function noisy(a: array<f32>) { for (let i: u32 = 0; i < a.length; i++) { console.log(a[i]); a[i] = 1.; } }`,
+      `export function noisy(@inout a: array<f32>) { for (let i: u32 = 0; i < a.length; i++) { console.log(a[i]); a[i] = 1.; } }`,
       'R6 console',
     ],
     [
       'a guarded minimum, which v1 does not take (R3)',
-      `export function guarded(a: array<f32>, out: array<f32>) {
+      `export function guarded(a: array<f32>, @inout out: array<f32>) {
   let near = 1e30;
   for (let i: u32 = 0; i < a.length; i++) { if (a[i] > 0. && a[i] < near) { near = a[i]; } }
   out[0] = near;
@@ -277,10 +277,10 @@ describe('a counter added to a value the loop does not change is a write at 1*i 
   // `scaledCoefficient` read the coefficient of the counter from a product, so a counter that
   // stood alone in the sum had none: `tape[n * 1 + at]` lowered and `tape[at + n]` did not.
   const keep = (index: string): string =>
-    `export function keep(tape: array<f32>, block: array<f32>, at: u32) {
+    `export function keep(@inout tape: array<f32>, block: array<f32>, at: u32) {
   for (let n: u32 = 0; n < block.length; n++) { tape[${index}] = block[n]; }
 }`;
-  const KEEP_I32 = `export function keep(tape: array<f32>, block: array<f32>, at: u32) {
+  const KEEP_I32 = `export function keep(@inout tape: array<f32>, block: array<f32>, at: u32) {
   for (let k: i32 = 0; k < i32(block.length); k++) { tape[at + u32(k)] = block[u32(k)]; }
 }`;
 
@@ -337,7 +337,7 @@ describe('a push onto an array parameter (change 0078)', () => {
   it.each([
     [
       'a push in a branch, beside an array written at i',
-      `export function strong(xs: array<f32>, t: f32, out: array<u32>, flag: array<u32>) {
+      `export function strong(xs: array<f32>, t: f32, @inout out: array<u32>, @inout flag: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     flag[i] = 0;
     if (xs[i] > t) { out.push(i); out.push(i + 1); }
@@ -347,7 +347,7 @@ describe('a push onto an array parameter (change 0078)', () => {
     ],
     [
       'a push from a nested loop',
-      `export function pairs(xs: array<u32>, out: array<u32>) {
+      `export function pairs(xs: array<u32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     for (let j: u32 = 0; j < xs[i]; j++) { out.push(i * 100 + j); }
   }
@@ -356,28 +356,28 @@ describe('a push onto an array parameter (change 0078)', () => {
     ],
     [
       'a push and a write in place (R3)',
-      `export function keep(xs: array<u32>, out: array<u32>) {
+      `export function keep(xs: array<u32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) { out.push(xs[i]); out[i] = 0; }
 }`,
       'R3 push-mixed',
     ],
     [
       'a read of the length (R4)',
-      `export function keep(xs: array<u32>, out: array<u32>) {
+      `export function keep(xs: array<u32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) { if (out.length < 4) { out.push(xs[i]); } }
 }`,
       'R4 reads-pushed',
     ],
     [
       'a read of an element (R4)',
-      `export function keep(xs: array<u32>, out: array<u32>) {
+      `export function keep(xs: array<u32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) { out.push(out[0] + xs[i]); }
 }`,
       'R4 reads-pushed',
     ],
     [
       'the value push returns (R4)',
-      `export function keep(xs: array<u32>, out: array<u32>, at: array<u32>) {
+      `export function keep(xs: array<u32>, @inout out: array<u32>, @inout at: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) { at[i] = out.push(xs[i]); }
 }`,
       'R4 push-result',
@@ -395,7 +395,7 @@ describe('an inout argument is a write at the call (#252, M1 finding 1)', () => 
   state: u32;
   next(): u32 { this.state = this.state * 1664525 + 1013904223; return this.state; }
 }
-export function noise(out: array<u32>) {
+export function noise(@inout out: array<u32>) {
   let rng = new Random();
   rng.state = 7;
   for (let i: u32 = 0; i < out.length; i++) { out[i] = rng.next(); }
@@ -408,14 +408,14 @@ export function noise(out: array<u32>) {
   v: f32;
   advance(dt: f32) { this.x = this.x + this.v * dt; }
 }
-export function run(out: array<f32>, dt: f32) {
+export function run(@inout out: array<f32>, dt: f32) {
   let b = new Body();
   for (let i: u32 = 0; i < out.length; i++) { b.advance(dt); out[i] = b.x; }
 }`,
     ],
     [
       'a local function that writes a variable it captures',
-      `export function glow(out: array<f32>) {
+      `export function glow(@inout out: array<f32>) {
   let total = 0.;
   const bump = (x: f32) => { total = total * 0.5 + x; };
   for (let i: u32 = 0; i < out.length; i++) { bump(f32(i)); out[i] = total; }
@@ -429,7 +429,7 @@ export function run(out: array<f32>, dt: f32) {
 
 describe("the body's shape", () => {
   it('runs the whole function on the CPU for a write outside its loops', () => {
-    const p = proof(`export function f(a: array<f32>) {
+    const p = proof(`export function f(@inout a: array<f32>) {
   a[0] = 1.;
   for (let i: u32 = 0; i < a.length; i++) { a[i] = 2.; }
 }`);
@@ -438,7 +438,7 @@ describe("the body's shape", () => {
 
   // Verifies: Rule 8.22 (change 0094, part 3): a store after the last loop is the shape.
   it('accepts stores after the last loop, which the front end guards by the length', () => {
-    const p = proof(`export function sumInto(xs: array<f32>, sums: array<f32>, k: u32) {
+    const p = proof(`export function sumInto(xs: array<f32>, @inout sums: array<f32>, k: u32) {
   let s = 0.;
   for (let i: u32 = 0; i < xs.length; i++) { s += xs[i]; }
   sums[0] = s;
@@ -449,7 +449,7 @@ describe("the body's shape", () => {
   });
 
   it('accepts a function with no loop that stores into its arrays (change 0094, D7)', () => {
-    const p = proof(`export function plan(count: array<u32>, wg: array<u32>) {
+    const p = proof(`export function plan(count: array<u32>, @inout wg: array<u32>) {
   wg[0] = (count[0] + 63) / 64;
 }`);
     expect(p.shape).toBeUndefined();
@@ -457,7 +457,7 @@ describe("the body's shape", () => {
   });
 
   it('runs the whole function on the CPU for a store between two loops', () => {
-    const p = proof(`export function f(a: array<f32>, b: array<f32>) {
+    const p = proof(`export function f(@inout a: array<f32>, @inout b: array<f32>) {
   for (let i: u32 = 0; i < a.length; i++) { a[i] = 1.; }
   b[0] = 2.;
   for (let i: u32 = 0; i < b.length; i++) { b[i] = 3.; }
@@ -466,7 +466,7 @@ describe("the body's shape", () => {
   });
 
   it('asks to split a function whose later loop reads what an earlier one reduces', () => {
-    const p = proof(`export function normalize(a: array<f32>) {
+    const p = proof(`export function normalize(@inout a: array<f32>) {
   let s = 0.;
   for (const x of a) { s += x; }
   for (let i: u32 = 0; i < a.length; i++) { a[i] = a[i] / s; }
@@ -482,7 +482,7 @@ describe('a call through a declaration named like a builtin reads its arguments 
   // `xs[i]` is a read. Keyed on the name alone, the proof read an atomic's place and refused the
   // loop for a result that depends on the order of the invocations.
   const SRC = `function atomicAdd(a: f32, b: f32): f32 { return a + b; }
-export function bump(xs: array<f32>, ys: array<f32>) {
+export function bump(xs: array<f32>, @inout ys: array<f32>) {
   for (let i: u32 = 0; i < ys.length; i++) { ys[i] = atomicAdd(xs[i], 1.); }
 }`;
 
@@ -537,63 +537,63 @@ describe('the index facts: every access of an array, at exactly the counter or n
   it.each([
     [
       'two inputs at i',
-      `export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+      `export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = a[i] + b[i]; }
 }`,
       'a:i b:i',
     ],
     [
       'one input at i',
-      `export function relu(out: array<f32>, x: array<f32>) {
+      `export function relu(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = max(x[i], 0.); }
 }`,
       'x:i',
     ],
     [
       'a stencil: one read is not at i',
-      `export function blur(out: array<f32>, t: array<f32>) {
+      `export function blur(@inout out: array<f32>, t: array<f32>) {
   for (let i: u32 = 1; i < out.length - 1; i++) { out[i] = t[i - 1] + t[i] + t[i + 1]; }
 }`,
       't:not-i',
     ],
     [
       'a gather: the table is not read at i, the index array is',
-      `export function gather(out: array<f32>, table: array<f32>, ix: array<u32>) {
+      `export function gather(@inout out: array<f32>, table: array<f32>, ix: array<u32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = table[ix[i]]; }
 }`,
       'table:not-i ix:i',
     ],
     [
       'through a constant let',
-      `export function f(out: array<f32>, x: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { const j = i; out[i] = x[j]; }
 }`,
       'x:i',
     ],
     [
       'through a cast',
-      `export function f(out: array<f32>, x: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = x[u32(i)]; }
 }`,
       'x:i',
     ],
     [
       'i + 0 is i, i + 1 is not',
-      `export function f(out: array<f32>, x: array<f32>, y: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>, y: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = x[i + 0] + y[i + 1]; }
 }`,
       'x:i y:not-i',
     ],
     [
       'a step of 2 reads at i',
-      `export function f(out: array<f32>, x: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i += 2) { out[i] = x[i]; }
 }`,
       'x:i',
     ],
     [
       'a stride: 2 * i is not i',
-      `export function f(out: array<f32>, x: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = x[i * 2]; }
 }`,
       'x:not-i',
@@ -601,7 +601,7 @@ describe('the index facts: every access of an array, at exactly the counter or n
     [
       'an element of a struct array',
       `class P { pos: vec4; }
-export function f(out: array<P>, ps: array<P>) {
+export function f(@inout out: array<P>, ps: array<P>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i].pos = ps[i].pos; }
 }`,
       'ps:i',
@@ -609,14 +609,14 @@ export function f(out: array<P>, ps: array<P>) {
     [
       'a shifted element of a struct array',
       `class P { pos: vec4; }
-export function f(out: array<P>, ps: array<P>) {
+export function f(@inout out: array<P>, ps: array<P>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i].pos = ps[i + 1].pos; }
 }`,
       'ps:not-i',
     ],
     [
       'inside a nested loop, still at i',
-      `export function f(out: array<f32>, x: array<f32>, w: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>, w: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     let s = 0.;
     for (let k: u32 = 0; k < 4; k++) { s += x[i] * w[k]; }
@@ -627,28 +627,28 @@ export function f(out: array<P>, ps: array<P>) {
     ],
     [
       'an array the loop writes is no read fact',
-      `export function f(out: array<f32>, x: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = out[i] + x[i]; }
 }`,
       'x:i',
     ],
     [
       '.length reads no element',
-      `export function f(out: array<f32>, x: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = f32(x.length); }
 }`,
       '',
     ],
     [
       'a scalar parameter is no array',
-      `export function f(out: array<f32>, k: f32) {
+      `export function f(@inout out: array<f32>, k: f32) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = k; }
 }`,
       '',
     ],
     [
       'an array indexed by a loop-invariant value',
-      `export function f(out: array<f32>, x: array<f32>, n: u32) {
+      `export function f(@inout out: array<f32>, x: array<f32>, n: u32) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = x[n]; }
 }`,
       'x:not-i',
@@ -667,7 +667,7 @@ export function f(out: array<P>, ps: array<P>) {
   });
 
   it('names the FIRST read that is not at i, and the line it is on', () => {
-    const { reads } = facts(`export function blur(out: array<f32>, t: array<f32>) {
+    const { reads } = facts(`export function blur(@inout out: array<f32>, t: array<f32>) {
   for (let i: u32 = 1; i < out.length - 1; i++) {
     out[i] = t[i] + t[i + 1];
     out[i] = out[i] + t[i - 1];
@@ -684,7 +684,8 @@ export function f(out: array<P>, ps: array<P>) {
   });
 
   it('keeps the order the arrays are first read in', () => {
-    const { reads } = facts(`export function f(out: array<f32>, a: array<f32>, b: array<f32>) {
+    const { reads } =
+      facts(`export function f(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = b[i] + a[i]; }
 }`);
     expect(summary(reads)).toBe('b:i a:i');
@@ -693,21 +694,21 @@ export function f(out: array<P>, ps: array<P>) {
   it.each([
     [
       'a write at i',
-      `export function f(out: array<f32>, x: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = x[i]; }
 }`,
       'out:i',
     ],
     [
       'a write at i that reads the element back (R4)',
-      `export function axpy(x: array<f32>, y: array<f32>) {
+      `export function axpy(x: array<f32>, @inout y: array<f32>) {
   for (let i: u32 = 0; i < y.length; i++) { y[i] = 2. * x[i] + y[i]; }
 }`,
       'y:i+back',
     ],
     [
       'a write at i that adds to the element (op=), which reads it',
-      `export function f(y: array<f32>, x: array<f32>) {
+      `export function f(@inout y: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < y.length; i++) { y[i] += x[i]; }
 }`,
       'y:i+back',
@@ -715,28 +716,28 @@ export function f(out: array<P>, ps: array<P>) {
     [
       'a write through a reference a call takes, which reads the element first',
       `function bump(@inout v: f32): void { v += 1.; }
-export function inc(out: array<f32>) {
+export function inc(@inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { bump(out[i]); }
 }`,
       'out:i+back',
     ],
     [
       'a write at i + 1',
-      `export function f(out: array<f32>, x: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < x.length - 1; i++) { out[i + 1] = x[i]; }
 }`,
       'out:not-i',
     ],
     [
       'a write at 2 * i, read back at 2 * i',
-      `export function f(out: array<f32>, x: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < x.length; i++) { out[2 * i] = x[i]; out[2 * i] += 1.; }
 }`,
       'out:not-i+back',
     ],
     [
       'a write at i * k, which the call checks',
-      `export function f(out: array<f32>, x: array<f32>, k: u32) {
+      `export function f(@inout out: array<f32>, x: array<f32>, k: u32) {
   for (let i: u32 = 0; i < x.length; i++) { out[i * k] = x[i]; }
 }`,
       'out:not-i',
@@ -744,21 +745,21 @@ export function inc(out: array<f32>) {
     [
       'an element of a struct array, in place',
       `class P { pos: vec4; vel: vec4; }
-export function step(ps: array<P>, dt: f32) {
+export function step(@inout ps: array<P>, dt: f32) {
   for (let i: u32 = 0; i < ps.length; i++) { ps[i].pos = ps[i].pos + ps[i].vel * dt; }
 }`,
       'ps:i+back',
     ],
     [
       'two arrays, one at i and one not',
-      `export function f(a: array<f32>, b: array<f32>, x: array<f32>) {
+      `export function f(@inout a: array<f32>, @inout b: array<f32>, x: array<f32>) {
   for (let i: u32 = 1; i < x.length; i++) { a[i] = x[i]; b[i - 1] = x[i]; }
 }`,
       'a:i b:not-i',
     ],
     [
       'a scatter at a computed index',
-      `export function histogram(xs: array<f32>, bins: array<u32>) {
+      `export function histogram(xs: array<f32>, @inout bins: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) { bins[u32(xs[i])] += 1; }
 }`,
       'bins:not-i',
@@ -768,7 +769,7 @@ export function step(ps: array<P>, dt: f32) {
   });
 
   it('names the first write that is not at i, and the line it is on', () => {
-    const { stores } = facts(`export function f(out: array<f32>, x: array<f32>) {
+    const { stores } = facts(`export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < x.length; i++) {
     out[2 * i + 1] = x[i];
     out[2 * i] = x[i];
@@ -798,7 +799,8 @@ export function step(ps: array<P>, dt: f32) {
       return { checks: plan.loops[0]!.checks.filter((c) => c.read !== true), stores: v.stores };
     };
     for (const index of ['i', 'i + 1', '2 * i', '3 * i + 2', 'i * 1', '1 * i + 0']) {
-      const { checks, stores } = compiled(`export function f(out: array<f32>, x: array<f32>) {
+      const { checks, stores } =
+        compiled(`export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < x.length; i++) { out[${index}] = x[i]; }
 }`);
       const atI = checks.length === 1 && checks[0]!.a === 1 && checks[0]!.c === 0;
@@ -813,7 +815,7 @@ export function step(ps: array<P>, dt: f32) {
   return s;
 }`);
     expect([summary(total.reads), summary(total.stores)]).toEqual(['xs:i', '']);
-    const stats = facts(`export function stats(xs: array<f32>, out: array<f32>): f32 {
+    const stats = facts(`export function stats(xs: array<f32>, @inout out: array<f32>): f32 {
   let s = 0.;
   let m = -1e30;
   for (let i: u32 = 0; i < xs.length; i++) {
@@ -827,7 +829,7 @@ export function step(ps: array<P>, dt: f32) {
   });
 
   it('adds a fact and refuses nothing: a loop that was accepted is still accepted', () => {
-    const v = proof(`export function f(out: array<f32>, x: array<f32>) {
+    const v = proof(`export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = x[i + 1]; }
 }`).loops[0]!;
     expect(v.ok).toBe(true);
@@ -866,7 +868,7 @@ describe('the guards a read of an outer array stands under: comparisons of the c
   const loop = (
     inside: string,
     extra = '',
-  ): string => `export function padTo(out: array<f32>, xs: array<f32>${extra}): void {
+  ): string => `export function padTo(@inout out: array<f32>, xs: array<f32>${extra}): void {
   for (let i: u32 = 0; i < 8; i++) {
     let v = 0.;
     ${inside}

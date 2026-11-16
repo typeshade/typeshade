@@ -111,6 +111,7 @@ import {
   runtimeCount,
   toCpu,
   zeroedBuffer,
+  zeroInPlace,
   type GpuBuffer,
   type GpuCounts,
   type GpuDevice,
@@ -136,6 +137,9 @@ export type KernelParam =
       readonly layout: Layout & { readonly k: 'a' };
       readonly writes: boolean;
       readonly s: string;
+      /** An `@out` array: the call fills it with zeros before the body runs (Rule 8.25, change
+       *  0138, Amendment A15, decision 2). It is always written back. */
+      readonly out?: true;
       readonly pushed?: true;
       /** The members of a key element, in id order (change 0081), absent for any other
        *  element: an `array<K>` takes a `Buffer<K>` (change 0138, Amendment A12, B2-2). */
@@ -1388,6 +1392,12 @@ function checkHeld(
     throw new TypeError(
       `${k.name}(): parameter "${p.name}" is an array no loop pushes onto, so it takes no { array, length, offset? }. Pass the array itself.`,
     );
+  // An `@out` array is filled with zeros whole, so no length of it is held (change 0138,
+  // Amendment A15, decision 2, follow-up question 5): only an `@inout` parameter takes one.
+  if (p.out === true)
+    throw new TypeError(
+      `${k.name}(): parameter "${p.name}" is @out, which the call fills with zeros whole, so it takes no { array, length, offset? }. Write @inout ${p.name} to pass a held length, or pass the array itself.`,
+    );
   const at = `${k.name}(): "${p.name}.length"`;
   const offset = h.offset ?? 0;
   if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0)
@@ -1585,6 +1595,17 @@ export async function runChecked(
 ): Promise<unknown> {
   const { states, hosts, values, ranges, held } = c;
   const why: string[] = [];
+  // Before the body runs, the call fills each `@out` array with zeros, on every tier (Rule 8.25,
+  // change 0138, Amendment A15, decision 2). What an earlier call of a plan wrote has run first.
+  if (k.params.some((p) => p.k === 'array' && p.out === true)) {
+    await run?.flush();
+    k.params.forEach((p, i) => {
+      if (p.k !== 'array' || p.out !== true) return;
+      const s = states[i];
+      if (s !== undefined) s.zero();
+      else zeroInPlace(p.layout, hosts[i]);
+    });
+  }
   // Outside a scope the call is over when it resolves. In a plan, only the result is left.
   const result = (get: Finish): unknown => (run === undefined ? get() : get);
   const owner = inferOwner(

@@ -697,34 +697,34 @@ describe('generated chains of kernel calls, held to the facts and to the calls a
     const fileName = '/app/ops.shade.ts';
     const source = `"use typeshade";
 function act(x: f32): f32 { return x * x + 1.; }
-export function square(out: array<f32>, x: array<f32>, k: f32): void {
+export function square(@inout out: array<f32>, x: array<f32>, k: f32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = act(x[i]) * k;
   }
 }
-export function blur(out: array<f32>, x: array<f32>): void {
+export function blur(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 1; i < out.length; i++) {
     out[i] = x[i] + x[i - 1];
   }
 }
-export function stride(out: array<f32>, x: array<f32>): void {
+export function stride(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < x.length; i++) {
     out[2 * i] = x[i];
   }
 }
-export function bump(xs: array<f32>): void {
+export function bump(@inout xs: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] + 1.;
   }
 }
-export function pick(out: array<vec2<f32>>, a: array<vec2<f32>>, w: array<f32>): void {
+export function pick(@inout out: array<vec2<f32>>, a: array<vec2<f32>>, w: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     if (w[i] > 0.) {
       out[i] = a[(i + 1) % a.length];
     }
   }
 }
-export function measured(out: array<f32>, t: array<f32>): void {
+export function measured(@inout out: array<f32>, t: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i] + f32(t.length);
   }
@@ -736,7 +736,7 @@ export function total(xs: array<f32>): f32 {
   }
   return s;
 }
-export function stats(out: array<f32>, xs: array<vec2<f32>>): f32 {
+export function stats(@inout out: array<f32>, xs: array<vec2<f32>>): f32 {
   let s: vec2<f32> = vec2<f32>(0., 0.);
   let hi: f32 = -1000.;
   for (let i: u32 = 0; i < xs.length; i++) {

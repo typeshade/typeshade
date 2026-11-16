@@ -15,7 +15,7 @@ class Voice {
   step(amount: f32): f32 { this.value += amount; return this.value; }
   tick(): f32 { return this.step(0.25) + this.step(0.5); }
 }
-export function render(out: array<f32>, voices: array<Voice>): void {
+export function render(@inout out: array<f32>, @inout voices: array<Voice>): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = voices[i].tick();
 }
 `;

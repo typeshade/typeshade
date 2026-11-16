@@ -214,8 +214,8 @@ function advance(@inout r: Ray, t: f32): void { r.origin = r.origin + r.dir * t;
   it('keeps a kernel loop that hands each element over by reference parallel', () => {
     const r = compile(`"use typeshade";
 function bump(@inout v: f32): void { v += 1.; }
-export function k(out: array<f32>, n: i32): void { for (let i = 0; i < n; i++) { bump(out[i]); } }
-export function onOne(out: array<f32>, n: i32): void { for (let i = 0; i < n; i++) { bump(out[0]); } }`);
+export function k(@inout out: array<f32>, n: i32): void { for (let i = 0; i < n; i++) { bump(out[i]); } }
+export function onOne(@inout out: array<f32>, n: i32): void { for (let i = 0; i < n; i++) { bump(out[0]); } }`);
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
       'TS8070 This loop runs on the CPU because line 4 writes "out[0]", an element two iterations can share. Write at an index made from "i".',
     ]);
@@ -729,7 +729,7 @@ export function run(): f32 { let x: f32 = 1.; bump(x); return x; }
     // `@inout w: f32`, so the hover read `function lift(w: f32, k: f32): void`.
     const source = `"use typeshade";
 function lift(@inout w: f32, k: f32): void { w = mix(w, 1., k); }
-export function k2(out: array<f32>, n: i32): void { for (let i = 0; i < n; i++) { out[i] = 1.; } }
+export function k2(@inout out: array<f32>, n: i32): void { for (let i = 0; i < n; i++) { out[i] = 1.; } }
 export function run(): f32 { let x: f32 = 0.; lift(x, 0.5); return x; }
 `;
     const service = createTypeshadeLanguageService();
@@ -739,8 +739,11 @@ export function run(): f32 { let x: f32 = 0.; lift(x, 0.5); return x; }
     for (const offset of [source.indexOf('lift(') + 1, source.lastIndexOf('lift(') + 1]) {
       expect(at(offset)).toContain('function lift(@inout w: f32, k: f32): void');
     }
-    // A kernel function's array is passed by reference too, and carries no qualifier (Rule 8.23).
-    expect(at(source.indexOf('k2(') + 1)).toContain('function k2(out: array<f32>, n: i32): void');
+    // A kernel function's array is the caller's storage when it carries a qualifier (Rule 8.23,
+    // change 0138, Amendment A15), so the hover shows it.
+    expect(at(source.indexOf('k2(') + 1)).toContain(
+      'function k2(@inout out: array<f32>, n: i32): void',
+    );
   });
 
   it('documents @inout and @out where they are written', () => {

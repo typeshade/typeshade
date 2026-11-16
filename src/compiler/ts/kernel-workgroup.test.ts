@@ -44,7 +44,7 @@ const edited = (src: string): string[] => {
 };
 
 const SCALE = `@workgroup_size([128])
-export function scale(out: array<f32>, a: array<f32>, k: f32): void {
+export function scale(@inout out: array<f32>, a: array<f32>, k: f32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * k;
   }

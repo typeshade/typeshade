@@ -33,7 +33,7 @@ describe('WebGL2 array-length uniforms (#689)', () => {
     'counts elements of a length-only array<%s> without an element texture',
     (element) => {
       const kernel = face(`interface P { value: vec4; flag: u32; }
-export function k(out: array<f32>, x: array<${element}>): void {
+export function k(@inout out: array<f32>, x: array<${element}>): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = f32(x.length);
 }`);
       expect(kernel.noWebgl2).toBeUndefined();
@@ -49,7 +49,7 @@ export function k(out: array<f32>, x: array<${element}>): void {
   );
 
   it('reads the output length in the body independently of the dispatch range', () => {
-    const kernel = face(`export function k(out: array<u32>): void {
+    const kernel = face(`export function k(@inout out: array<u32>): void {
   for (let i: u32 = 1; i < out.length; i++) out[i] = out.length;
 }`);
     expect(kernel.noWebgl2).toBeUndefined();
@@ -59,7 +59,7 @@ export function k(out: array<f32>, x: array<${element}>): void {
   });
 
   it('keeps a hoisted length and an element read on separate host bindings', () => {
-    const kernel = face(`export function k(out: array<f32>, x: array<f32>): void {
+    const kernel = face(`export function k(@inout out: array<f32>, x: array<f32>): void {
   const n = x.length;
   for (let i: u32 = 0; i < out.length; i++) out[i] = f32(n) + x[i];
 }`);
@@ -72,7 +72,7 @@ export function k(out: array<f32>, x: array<${element}>): void {
 
   it('keeps authored scalar and reserved array names separate from generated length uniforms', () => {
     const kernel =
-      face(`export function k(out: array<u32>, filter: array<u32>, _length0: u32): void {
+      face(`export function k(@inout out: array<u32>, filter: array<u32>, _length0: u32): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = filter.length + _length0;
 }`);
     expect(kernel.noWebgl2).toBeUndefined();
@@ -83,7 +83,7 @@ export function k(out: array<f32>, x: array<${element}>): void {
   });
 
   it('uses one length uniform per parameter even when its body reads the length repeatedly', () => {
-    const kernel = face(`export function k(out: array<u32>, x: array<u32>): void {
+    const kernel = face(`export function k(@inout out: array<u32>, x: array<u32>): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = x.length + x.length;
 }`);
     expect(kernel.noWebgl2).toBeUndefined();
@@ -94,7 +94,7 @@ export function k(out: array<f32>, x: array<${element}>): void {
 
   it('leaves an authored arrayLength helper intact beside the length intrinsic', () => {
     const kernel = face(`function arrayLength(i: u32): u32 { return i + 1; }
-export function k(out: array<u32>, x: array<u32>): void {
+export function k(@inout out: array<u32>, x: array<u32>): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = arrayLength(i) + x.length;
 }`);
     expect(kernel.noWebgl2).toBeUndefined();
@@ -108,7 +108,7 @@ export function k(out: array<u32>, x: array<u32>): void {
   it('uses the checked element count of typed subarrays, vector arrays and resident views', () => {
     const cpu = { F: {}, $: { bindings: {}, vars: {} } };
     for (const element of ['f32', 'vec4']) {
-      const kernel = face(`export function k(out: array<u32>, x: array<${element}>): void {
+      const kernel = face(`export function k(@inout out: array<u32>, x: array<${element}>): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = x.length;
 }`);
       const view = new Float32Array(32).subarray(4, element === 'f32' ? 7 : 16);
@@ -128,7 +128,7 @@ export function k(out: array<u32>, x: array<u32>): void {
   });
 
   it('keeps empty-array and held-count validation before tier selection', () => {
-    const kernel = face(`export function k(out: array<u32>, x: array<f32>): void {
+    const kernel = face(`export function k(@inout out: array<u32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = x.length;
 }`);
     const cpu = { F: {}, $: { bindings: {}, vars: {} } };
@@ -156,7 +156,7 @@ export function k(out: array<u32>, x: array<u32>): void {
 
   it('keeps a device-derived range separate from a host-known array length', () => {
     const kernel =
-      face(`export function k(out: array<u32>, count: array<u32>, x: array<f32>): void {
+      face(`export function k(@inout out: array<u32>, count: array<u32>, x: array<f32>): void {
   for (let i: u32 = 0; i < count[0]; i++) out[i] = x.length;
 }`);
     expect(kernel.noWebgl2).toBeUndefined();
@@ -169,13 +169,13 @@ export function k(out: array<u32>, x: array<u32>): void {
 
   it('keeps multiple-output and struct-parameter refusals unchanged (#809)', () => {
     expect(
-      face(`export function k(a: array<f32>, b: array<f32>): void {
+      face(`export function k(@inout a: array<f32>, @inout b: array<f32>): void {
   for (let i: u32 = 0; i < a.length; i++) { a[i] = 1.; b[i] = 2.; }
 }`).noWebgl2,
     ).toBe('loop 1 writes more than one array, and WebGL2 draws one');
     expect(
       face(`interface Range { value: f32; }
-export function k(out: array<f32>, range: Range): void {
+export function k(@inout out: array<f32>, range: Range): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = range.value;
 }`).noWebgl2,
     ).toBe('parameter "range" is not a number or a vector, which a uniform holds');
@@ -183,14 +183,14 @@ export function k(out: array<f32>, range: Range): void {
 
   it('keeps pushes and captured helper bindings on their existing tiers', () => {
     expect(
-      face(`export function k(out: array<f32>, x: array<f32>): void {
+      face(`export function k(@inout out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < x.length; i++) out.push(x[i]);
 }`).noWebgl2,
     ).toBe('loop 1 pushes onto an array, which the WebGL2 tier does not run (change 0078)');
     expect(
       face(`declare const x: storage<array<f32>>;
 function n(): u32 { return x.length; }
-export function k(out: array<f32>): void {
+export function k(@inout out: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = f32(n());
 }`).noGpu,
     ).toBe('it reaches "x", which the call does not pass');

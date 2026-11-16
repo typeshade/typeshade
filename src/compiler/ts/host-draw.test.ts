@@ -323,7 +323,7 @@ describe('a draw that reads a Buffer (Rule 11.8)', () => {
   const SHOWN = `"use typeshade";
 declare const data: storage<array<f32>>;
 declare const k: uniform<f32>;
-export function fill(xs: array<f32>, v: f32) {
+export function fill(@inout xs: array<f32>, v: f32) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = v * f32(i);
   }

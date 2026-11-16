@@ -67,7 +67,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void { xs[gid
 @compute
 function plain(): void {}
 @workgroup_size([128])
-export function scale(ys: array<f32>, k: f32): void {
+export function scale(@inout ys: array<f32>, k: f32): void {
   for (let i = 0; i < ys.length; i++) { ys[i] = ys[i] * k; }
 }
 `;

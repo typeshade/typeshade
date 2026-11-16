@@ -63,7 +63,7 @@ async function load(body: string): Promise<Record<string, (...a: unknown[]) => P
   >;
 }
 
-const SOURCE = `export function double(xs: array<f32>, out: array<f32>) {
+const SOURCE = `export function double(xs: array<f32>, @inout out: array<f32>) {
   xs.forEach((x, i) => {
     out[i] = x * 2.;
   });
@@ -84,7 +84,7 @@ export function any(xs: array<f32>, t: f32): bool {
 export function all(xs: array<f32>, t: f32): bool {
   return xs.every((x) => x > t);
 }
-export function both(xs: array<i32>, out: array<i32>): i32 {
+export function both(xs: array<i32>, @inout out: array<i32>): i32 {
   xs.forEach((x, i) => {
     out[i] = x + i;
   });
@@ -149,7 +149,7 @@ describe("an array method on a kernel function's array (change 0079)", () => {
   });
 
   it('refuses a function that returns from inside its body, in both halves', () => {
-    const body = `export function f(xs: array<f32>, out: array<f32>) {
+    const body = `export function f(xs: array<f32>, @inout out: array<f32>) {
   xs.forEach((x, i) => {
     if (x < 0.) {
       return;
@@ -165,7 +165,7 @@ describe("an array method on a kernel function's array (change 0079)", () => {
   });
 
   // Part 2: fill and the searches, each a loop over every element on the GPU.
-  const SEARCH = `export function clear(out: array<f32>, v: f32) {
+  const SEARCH = `export function clear(@inout out: array<f32>, v: f32) {
   out.fill(v);
 }
 export function first(xs: array<f32>, t: f32): i32 {

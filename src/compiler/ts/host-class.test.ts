@@ -129,7 +129,7 @@ export class OnePole {
 }
 
 /** Runs every filter of the bank over its block, one lane per filter. */
-export function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32) {
+export function run(@inout out: array<f32>, xs: array<f32>, @inout filters: array<OnePole>, block: u32) {
   for (let i: u32 = 0; i < filters.length; i++) {
     for (let n: u32 = 0; n < block; n++) {
       out[i * block + n] = filters[i].tick(xs[i * block + n]);
@@ -773,7 +773,7 @@ export class Voice {
 }
 
 /** Runs every voice of the bank for its frames, one lane per voice. */
-export function render(out: array<f32>, voices: array<Voice>, frames: u32) {
+export function render(@inout out: array<f32>, @inout voices: array<Voice>, frames: u32) {
   for (let i: u32 = 0; i < voices.length; i++) {
     for (let n: u32 = 0; n < frames; n++) {
       out[i * frames + n] = voices[i].tick();
@@ -797,7 +797,7 @@ export interface Slot {
 }
 
 /** Grows the cell of each slot by the slot's weight. */
-export function grow(slots: array<Slot>) {
+export function grow(@inout slots: array<Slot>) {
   for (let i: u32 = 0; i < slots.length; i++) {
     slots[i].cell.n = slots[i].cell.n + slots[i].w;
   }

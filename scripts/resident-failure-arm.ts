@@ -16,19 +16,19 @@ import type { Device } from '../src/runtime/device.js';
 import type { ResidentArrayState } from '../src/core/resident.js';
 
 const SOURCE = `"use typeshade";
-export function fill(out: array<f32>, n: u32, value: f32) {
+export function fill(@inout out: array<f32>, n: u32, value: f32) {
   for (let i: u32 = 0; i < n; i++) out[i] = value;
 }
-export function twice(out: array<f32>, xs: array<f32>) {
+export function twice(@inout out: array<f32>, xs: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) out[i] = 2. * xs[i];
 }
-export function words(out: array<u32>, n: u32) {
+export function words(@inout out: array<u32>, n: u32) {
   for (let i: u32 = 0; i < n; i++) out[i] = 1;
 }
-export function append(out: array<u32>, n: u32) {
+export function append(@inout out: array<u32>, n: u32) {
   for (let i: u32 = 0; i < n; i++) out.push(i);
 }
-export function bounds(out: array<u32>, n: array<u32>) {
+export function bounds(@inout out: array<u32>, n: array<u32>) {
   for (let i: u32 = 0; i < n[0]; i++) out[i] = i;
 }
 declare const xs: storage<array<f32>>;

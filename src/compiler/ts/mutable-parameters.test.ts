@@ -86,8 +86,8 @@ export function run(): f32 { const a = 2.; return f(a) + a; }`,
       `class P { x: f32; }
 function v(a: vec2): f32 { a = a + vec2(1.); a.x = 8.; return a.x + a.y; }
 function p(a: P): f32 { a = { x: a.x + 1. }; a.x += 3.; return a.x; }
-function xs(a: array<f32, 2>): f32 { a = [a[1], a[0]]; a[0] += 2.; return a[0] + a[1]; }
-export function run(): f32 { const a = vec2(2., 3.); const b: P = { x: 2. }; const c: array<f32, 2> = [2., 3.]; return v(a) + a.x + p(b) + b.x + xs(c) + c[0]; }`,
+function xs(a: array<f32, 2>): array<f32, 2> { a = [a[1], a[0]]; a[0] += 2.; return a; }
+export function run(): f32 { const a = vec2(2., 3.); const b: P = { x: 2. }; const c: array<f32, 2> = [2., 3.]; const r = xs(c); return v(a) + a.x + p(b) + b.x + r[0] + r[1] + c[0]; }`,
       31,
     );
   });

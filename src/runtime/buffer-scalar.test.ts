@@ -63,7 +63,7 @@ export function sum(xs: array<f32>): f32 {
 }
 
 /** Each element of xs times k. */
-export function scale(xs: array<f32>, k: f32, out: array<f32>): void {
+export function scale(xs: array<f32>, k: f32, @inout out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     out[i] = xs[i] * k;
   }
@@ -114,7 +114,7 @@ export function basis(xs: array<f32>): mat2x2 {
 }
 
 /** Copies xs into out, and gives the sum. */
-export function copySum(xs: array<f32>, out: array<f32>): f32 {
+export function copySum(xs: array<f32>, @inout out: array<f32>): f32 {
   let s = 0.;
   for (let i: u32 = 0; i < xs.length; i++) {
     out[i] = xs[i];

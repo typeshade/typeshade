@@ -79,7 +79,7 @@ export const main = compute([64], function main(g: builtin<"global_invocation_id
 describe('workgroup_size takes no options (change 0131, item 1)', () => {
   const kernel = (options: string): string => `"use typeshade";
 export const scale = workgroup_size([64], function scale(xs: array<f32>, i: u32): void {
-  xs[i] = xs[i] * 2.;
+  const v = xs[i] * 2.;
 }, ${options});
 `;
   const NONE = (written: string): string =>
@@ -102,7 +102,7 @@ export const scale = workgroup_size([64], function scale(xs: array<f32>, i: u32)
     const source = `"use typeshade";
 @workgroup_size([64])
 export function scale(xs: array<f32>, i: u32): void {
-  xs[i] = xs[i] * 2.;
+  const v = xs[i] * 2.;
 }
 `;
     expect(bothHalves(source)).toEqual({ compiler: [], editor: [] });

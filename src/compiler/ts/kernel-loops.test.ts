@@ -41,7 +41,7 @@ const edited = (body: string): string[] => {
 const REFUSED: readonly (readonly [string, string, string])[] = [
   [
     'R1, a while loop',
-    `export function fill(a: array<f32>) {
+    `export function fill(@inout a: array<f32>) {
   let i: u32 = 0;
   while (i < a.length) {
     a[i] = 1.;
@@ -54,7 +54,7 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
     // A `for` that is not counted is a candidate loop the proof refuses as it refuses a
     // `while` (Rule 8.22 R1, change 0136): it was refused before the proof ran.
     'R1, a for that is not counted',
-    `export function fill(a: array<f32>) {
+    `export function fill(@inout a: array<f32>) {
   for (let i: u32 = 0; i < a.length && a[i] < 2.; i++) {
     a[i] = 1.;
   }
@@ -63,7 +63,7 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
   ],
   [
     'R1, a multiplicative step',
-    `export function halve(a: array<f32>) {
+    `export function halve(@inout a: array<f32>) {
   for (let stride: u32 = 64; stride > 0; stride /= 2) {
     a[stride] = 1.;
   }
@@ -84,7 +84,7 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
   ],
   [
     'R3, a carried variable',
-    `export function running(a: array<f32>) {
+    `export function running(@inout a: array<f32>) {
   let nearest = 1e30;
   for (let i: u32 = 0; i < a.length; i++) {
     nearest = min(nearest, a[i]);
@@ -95,7 +95,7 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
   ],
   [
     'R3, a shared element',
-    `export function scatter(a: array<f32>, idx: array<u32>, b: array<f32>) {
+    `export function scatter(a: array<f32>, idx: array<u32>, @inout b: array<f32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     b[idx[i]] = a[i];
   }
@@ -107,7 +107,7 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
   // iteration declares, still reaches an element twice.
   [
     'R3, a counter divided before it is added to a value the loop does not change',
-    `export function keep(tape: array<f32>, block: array<f32>, at: u32) {
+    `export function keep(@inout tape: array<f32>, block: array<f32>, at: u32) {
   for (let n: u32 = 0; n < block.length; n++) {
     tape[at + n / 2] = block[n];
   }
@@ -116,7 +116,7 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
   ],
   [
     'R3, a counter added to a value each iteration declares',
-    `export function keep(tape: array<f32>, block: array<f32>) {
+    `export function keep(@inout tape: array<f32>, block: array<f32>) {
   for (let n: u32 = 0; n < block.length; n++) {
     const off = block.length - n;
     tape[off + n] = block[n];
@@ -126,7 +126,7 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
   ],
   [
     'R4, a read of what another iteration writes',
-    `export function prefix(out: array<f32>) {
+    `export function prefix(@inout out: array<f32>) {
   for (let i: u32 = 1; i < out.length; i++) {
     out[i] = out[i] + out[i - 1];
   }
@@ -140,7 +140,7 @@ function tally(): u32 {
   calls += 1;
   return calls;
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = tally();
   }
@@ -158,7 +158,7 @@ class Voice {
     return calls;
   }
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = Voice.tally();
   }
@@ -174,7 +174,7 @@ export function count(a: array<u32>) {
     return Voice.count;
   }
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = Voice.tally();
   }
@@ -191,7 +191,7 @@ class Voice {
     return calls;
   }
 }
-export function count(a: array<u32>, vs: array<Voice>) {
+export function count(@inout a: array<u32>, vs: array<Voice>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = vs[i].bump();
   }
@@ -207,7 +207,7 @@ namespace Ns {
     return calls;
   }
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = Ns.f();
   }
@@ -225,7 +225,7 @@ namespace A {
     }
   }
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = A.B.f();
   }
@@ -244,7 +244,7 @@ function Ns_f(): u32 {
   calls += 1;
   return calls;
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = Ns_f();
   }
@@ -263,7 +263,7 @@ namespace Ns {
     return x;
   }
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = Ns.pick(a[i]);
   }
@@ -282,7 +282,7 @@ namespace Ns {
     return f(x);
   }
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = Ns.apply(inc, a[i]);
   }
@@ -300,7 +300,7 @@ namespace A {
     }
   }
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = A.B.pick(a[i]);
   }
@@ -319,7 +319,7 @@ function pick<T>(x: T): T {
   calls += 1;
   return x;
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = pick(a[i]);
   }
@@ -333,7 +333,7 @@ function pick<T>(x: T): T {
   calls += 1;
   return x;
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = pick<u32>(a[i]);
   }
@@ -350,7 +350,7 @@ function apply(f: (x: u32) => u32, x: u32): u32 {
   calls += 1;
   return f(x);
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = apply(inc, a[i]);
   }
@@ -364,7 +364,7 @@ export function count(a: array<u32>) {
   [
     'R5, a local function that writes a module variable',
     `let calls: u32 = 0;
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   function bump(x: u32): u32 {
     calls += 1;
     return x + 1;
@@ -378,7 +378,7 @@ export function count(a: array<u32>) {
   [
     'R5, a local arrow function that writes a module variable',
     `let calls: u32 = 0;
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   const bump = (x: u32): u32 => {
     calls += 1;
     return x + 1;
@@ -392,7 +392,7 @@ export function count(a: array<u32>) {
   [
     'R5, a local function whose own local function writes a module variable',
     `let calls: u32 = 0;
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   function outer(x: u32): u32 {
     function inner(y: u32): u32 {
       calls += 1;
@@ -412,7 +412,7 @@ export function count(a: array<u32>) {
 function inc(x: u32): u32 {
   return x + 1;
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   function apply(f: (x: u32) => u32, x: u32): u32 {
     calls += 1;
     return f(x);
@@ -437,7 +437,7 @@ namespace Ns {
     return x + 1;
   };
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = Ns.bump(a[i]);
   }
@@ -453,7 +453,7 @@ namespace Ns {
     return x + 1;
   };
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = Ns.bump(a[i]);
   }
@@ -471,7 +471,7 @@ namespace A {
     };
   }
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = A.B.bump(a[i]);
   }
@@ -490,7 +490,7 @@ namespace Ns {
     return f(x);
   };
 }
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = Ns.apply(inc, a[i]);
   }
@@ -504,7 +504,7 @@ const bump = (x: u32): u32 => {
   calls += 1;
   return x + 1;
 };
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = bump(a[i]);
   }
@@ -521,7 +521,7 @@ const Ns_bump = (x: u32): u32 => {
   calls += 1;
   return x + 1;
 };
-export function count(a: array<u32>) {
+export function count(@inout a: array<u32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = Ns_bump(a[i]);
   }
@@ -536,7 +536,7 @@ export function count(a: array<u32>) {
     `namespace Ns {
   export const K: u32 = 1;
 }
-export function f(a: array<f32>) {
+export function f(@inout a: array<f32>) {
   for (let i: u32 = 1; i < a.length; i++) {
     a[i] = a[i] + a[i - Ns.K];
   }
@@ -549,7 +549,7 @@ export function f(a: array<f32>) {
   A,
   B,
 }
-export function f(a: array<f32>) {
+export function f(@inout a: array<f32>) {
   for (let i: u32 = 1; i < a.length; i++) {
     a[i] = a[i] + a[u32(i32(i) - Mode.B)];
   }
@@ -558,7 +558,7 @@ export function f(a: array<f32>) {
   ],
   [
     'R4, a read at a call of a local function',
-    `export function f(a: array<f32>) {
+    `export function f(@inout a: array<f32>) {
   function behind(i: u32): u32 {
     return i - 1;
   }
@@ -577,7 +577,7 @@ export function f(a: array<f32>) {
     `class Voice {
   static OFFSET: u32 = 1;
 }
-export function f(xs: array<f32>, Voice_OFFSET: array<u32>) {
+export function f(@inout xs: array<f32>, @inout Voice_OFFSET: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     Voice_OFFSET.push(i);
     xs[i] = f32(Voice_OFFSET.length);
@@ -592,7 +592,7 @@ export function f(xs: array<f32>, Voice_OFFSET: array<u32>) {
     return i ^ 1;
   }
 }
-export function f(xs: array<f32>, Voice_shift: array<u32>) {
+export function f(xs: array<f32>, @inout Voice_shift: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     Voice_shift.push(i);
     Voice_shift[i] = 0;
@@ -607,7 +607,7 @@ export function f(xs: array<f32>, Voice_shift: array<u32>) {
     return i ^ 1;
   }
 }
-export function f(a: array<f32>) {
+export function f(@inout a: array<f32>) {
   let Voice_shift = 0.;
   for (let i: u32 = 0; i < a.length; i++) {
     Voice_shift = Voice_shift + a[i];
@@ -623,7 +623,7 @@ export function f(a: array<f32>) {
     `class Voice {
   static OFFSET: u32 = 1;
 }
-export function f(a: array<f32>, Voice_OFFSET: u32) {
+export function f(@inout a: array<f32>, Voice_OFFSET: u32) {
   for (let i: u32 = 1; i < a.length; i++) {
     a[i] = a[i] + a[i - Voice_OFFSET];
   }
@@ -637,7 +637,7 @@ export function f(a: array<f32>, Voice_OFFSET: u32) {
     return i ^ 1;
   }
 }
-export function f(a: array<f32>) {
+export function f(@inout a: array<f32>) {
   const Voice_shift: u32 = 1;
   for (let i: u32 = 1; i < a.length; i++) {
     a[i] = a[i] + a[i - Voice_shift];
@@ -650,7 +650,7 @@ export function f(a: array<f32>) {
     `class Voice {
   static count: f32 = 0.;
 }
-export function f(a: array<f32>) {
+export function f(@inout a: array<f32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     Voice.count = Voice.count + a[i];
     a[i] = Voice.count;
@@ -660,7 +660,7 @@ export function f(a: array<f32>) {
   ],
   [
     'R6, a console call',
-    `export function noisy(a: array<f32>) {
+    `export function noisy(@inout a: array<f32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     console.log(a[i]);
     a[i] = 1.;
@@ -671,7 +671,7 @@ export function f(a: array<f32>) {
   // Change 0078: an array a loop pushes onto is written by no other form, and is not read.
   [
     'R3, a push and a write in place to one array',
-    `export function keep(xs: array<f32>, out: array<f32>) {
+    `export function keep(xs: array<f32>, @inout out: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     out.push(xs[i]);
     out[i] = 0.;
@@ -681,7 +681,7 @@ export function f(a: array<f32>) {
   ],
   [
     'R4, a read of the length of a pushed array',
-    `export function keep(xs: array<f32>, out: array<u32>) {
+    `export function keep(xs: array<f32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (out.length < 4) {
       out.push(i);
@@ -692,7 +692,7 @@ export function f(a: array<f32>) {
   ],
   [
     'R4, a read of an element of a pushed array',
-    `export function keep(xs: array<u32>, out: array<u32>) {
+    `export function keep(xs: array<u32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     out.push(xs[i] + out[0]);
   }
@@ -701,7 +701,7 @@ export function f(a: array<f32>) {
   ],
   [
     'R4, the value push returns',
-    `export function keep(xs: array<u32>, out: array<u32>, at: array<u32>) {
+    `export function keep(xs: array<u32>, @inout out: array<u32>, @inout at: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     at[i] = out.push(xs[i]);
   }
@@ -720,7 +720,7 @@ describe('a loop that runs on the CPU says why, in the compiler and in the edito
     const body = `export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
-export function render(k: vec4, size: u32, out: array<f32>) {
+export function render(k: vec4, size: u32, @inout out: array<f32>) {
   for (let i: u32 = 0; i < size * size; i++) {
     const p = vec2(f32(i % size), f32(i / size)) / f32(size);
     out[i] = height(p, k);
@@ -738,7 +738,7 @@ export function total(xs: array<f32>): f32 {
   });
 
   it('is quiet on a loop that pushes and a length read after it, in both halves (change 0078)', () => {
-    const body = `export function strong(xs: array<f32>, t: f32, out: array<u32>): u32 {
+    const body = `export function strong(xs: array<f32>, t: f32, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > t) {
       out.push(i);
@@ -771,7 +771,7 @@ export function total(xs: array<f32>): f32 {
   });
 
   it('refuses a pushed value of another type, in both halves', () => {
-    const body = `export function keep(xs: array<f32>, out: array<u32>) {
+    const body = `export function keep(xs: array<f32>, @inout out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     out.push(xs[i]);
   }
@@ -783,7 +783,7 @@ export function total(xs: array<f32>): f32 {
   it('runs a loop that reads the length of the array it writes on the GPU, in both halves (#345)', () => {
     // The length is fixed when the host binds the buffer, so reading it is no element read: the
     // proof reads it as `access.ts` says, as the Rule 7.5 bound check already did.
-    const body = `export function fill(out: array<f32>) {
+    const body = `export function fill(@inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = f32(out.length);
   }
@@ -795,7 +795,7 @@ export function total(xs: array<f32>): f32 {
     expect(kernel?.kind === 'kernel' ? kernel.face.gpu?.loops.length : undefined).toBe(1);
     // An element of the array it writes, read at another index, is still refused.
     expect(
-      compiled(`export function smear(a: array<f32>) {
+      compiled(`export function smear(@inout a: array<f32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = a[i] + a[i > 0 ? i - 1 : i];
   }
@@ -806,7 +806,7 @@ export function total(xs: array<f32>): f32 {
   });
 
   it('runs the whole function on the CPU when its body is not a kernel call', () => {
-    const body = `export function f(a: array<f32>) {
+    const body = `export function f(@inout a: array<f32>) {
   a[0] = 1.;
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = 2.;
@@ -822,7 +822,7 @@ export function total(xs: array<f32>): f32 {
   // 0094, part 3): a reduction's result, a count, a store past the array's end, which every tier
   // drops, and a function with no loop at all (decision D7).
   it('is quiet on stores after the last loop, in both halves (change 0094)', () => {
-    const body = `export function sumInto(xs: array<f32>, sums: array<f32>, k: i32): f32 {
+    const body = `export function sumInto(xs: array<f32>, @inout sums: array<f32>, k: i32): f32 {
   let s = 0.;
   for (let i: u32 = 0; i < xs.length; i++) {
     s += xs[i];
@@ -832,7 +832,7 @@ export function total(xs: array<f32>): f32 {
   sums[sums.length + 1] = 7.;
   return s;
 }
-export function plan(count: array<u32>, wg: array<u32>) {
+export function plan(count: array<u32>, @inout wg: array<u32>) {
   wg[0] = (count[0] + 63) / 64;
   wg[1] = 1;
 }`;
@@ -841,7 +841,7 @@ export function plan(count: array<u32>, wg: array<u32>) {
   });
 
   it('runs a function with a store between two loops on the CPU, in both halves', () => {
-    const body = `export function twice(a: array<f32>, b: array<f32>) {
+    const body = `export function twice(@inout a: array<f32>, @inout b: array<f32>) {
   for (let i: u32 = 0; i < a.length; i++) {
     a[i] = 1.;
   }
@@ -953,7 +953,7 @@ describe('a kernel function (Rules 8.22, 8.23, 8.6)', () => {
   const RENDER = `export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
-export function render(k: vec4, size: u32, out: array<f32>) {
+export function render(k: vec4, size: u32, @inout out: array<f32>) {
   for (let i: u32 = 0; i < size * size; i++) {
     const p = vec2(f32(i % size), f32(i / size)) / f32(size);
     out[i] = height(p, k);
@@ -989,7 +989,7 @@ export function render(k: vec4, size: u32, out: array<f32>) {
   });
 
   it('counts the vectors of an array<vec4f>: .length is u32 and one iteration takes one vector (change 0068)', () => {
-    const body = `export function copy4(out: array<vec4f>, a: array<vec4f>): void {
+    const body = `export function copy4(@inout out: array<vec4f>, a: array<vec4f>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i];
   }
@@ -1014,7 +1014,7 @@ export function render(k: vec4, size: u32, out: array<f32>) {
 
   it('copies an array<vec4f> to the bits of the array<f32> copy of the same numbers (change 0068 validation)', () => {
     const vec = compile(
-      module(`export function copy4(out: array<vec4f>, a: array<vec4f>): void {
+      module(`export function copy4(@inout out: array<vec4f>, a: array<vec4f>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i];
   }
@@ -1022,7 +1022,7 @@ export function render(k: vec4, size: u32, out: array<f32>) {
       { fileName: 'm.shade.ts' },
     );
     const flat = compile(
-      module(`export function copy1(out: array<f32>, a: array<f32>): void {
+      module(`export function copy1(@inout out: array<f32>, a: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i];
   }
@@ -1089,7 +1089,7 @@ describe('a row-major write needs one width for the whole loop (#398)', () => {
     return kernel?.kind === 'kernel' ? kernel.face.gpu?.loops.length : undefined;
   };
   const grid = (width: string, before = '', inner = ''): string =>
-    `export function f(w: u32, h: u32, out: array<f32>) {${before}
+    `export function f(w: u32, h: u32, @inout out: array<f32>) {${before}
   for (let y: u32 = 0; y < h; y++) {${inner}
     for (let x: u32 = 0; x < ${width.split('|')[0]!}; x++) {
       out[${width.split('|')[1]!}] = f32(y);
@@ -1140,7 +1140,7 @@ describe('a write at the counter added to a value the loop does not change runs 
   // "write at an index made from n", which the author had written. `n * 1 + at` was accepted.
   const keep = (
     index: string,
-  ): string => `export function keep(tape: array<f32>, block: array<f32>, at: u32): void {
+  ): string => `export function keep(@inout tape: array<f32>, block: array<f32>, at: u32): void {
   for (let n: u32 = 0; n < block.length; n++) {
     tape[${index}] = block[n];
   }
@@ -1165,7 +1165,7 @@ describe('a write at the counter added to a value the loop does not change runs 
   ];
 
   it('runs the loop of the issue on the GPU: no TS8070 in the compiler, none in the editor', () => {
-    const issue = `export function keep(tape: array<f32>, block: array<f32>, at: u32): void {
+    const issue = `export function keep(@inout tape: array<f32>, block: array<f32>, at: u32): void {
   for (let n: u32 = 0; n < block.length; n++) tape[at + n] = block[n];
 }`;
     expect(compiled(issue)).toEqual([]);
@@ -1206,7 +1206,7 @@ describe('a write at the counter added to a value the loop does not change runs 
   });
 
   it('runs an i32 counter under a cast on the GPU too, in both halves', () => {
-    const body = `export function keep(tape: array<f32>, block: array<f32>, at: u32): void {
+    const body = `export function keep(@inout tape: array<f32>, block: array<f32>, at: u32): void {
   for (let k: i32 = 0; k < i32(block.length); k++) {
     tape[at + u32(k)] = block[u32(k)];
   }
@@ -1234,7 +1234,7 @@ describe("the first access that is not at the loop counter, in the author's word
   };
 
   it("prints the element with the author's names, and the one-based line of its statement", () => {
-    const body = `export function blur(out: array<f32>, t: array<f32>) {
+    const body = `export function blur(@inout out: array<f32>, t: array<f32>) {
   for (let i: u32 = 1; i < out.length - 1; i++) {
     out[i] = t[i] + t[i - 1];
   }
@@ -1246,7 +1246,7 @@ describe("the first access that is not at the loop counter, in the author's word
 
   it('prints a counter the lowering renamed as the author wrote it', () => {
     // The second `i` of a function is `i_1` in the IR.
-    const body = `export function two(out: array<f32>, t: array<f32>) {
+    const body = `export function two(@inout out: array<f32>, t: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i];
   }
@@ -1261,35 +1261,35 @@ describe("the first access that is not at the loop counter, in the author's word
   it.each([
     [
       'a field of the element',
-      'class P { pos: vec4; }\nexport function f(out: array<P>, ps: array<P>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i].pos = ps[i + 1].pos;\n  }\n}',
+      'class P { pos: vec4; }\nexport function f(@inout out: array<P>, ps: array<P>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i].pos = ps[i + 1].pos;\n  }\n}',
       'f',
       'ps',
       'ps[i + 1].pos',
     ],
     [
       'a stride',
-      'export function f(out: array<f32>, x: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[2 * i];\n  }\n}',
+      'export function f(@inout out: array<f32>, x: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[2 * i];\n  }\n}',
       'f',
       'x',
       'x[2 * i]',
     ],
     [
       'a gather',
-      'export function f(out: array<f32>, table: array<f32>, ix: array<u32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = table[ix[i]];\n  }\n}',
+      'export function f(@inout out: array<f32>, table: array<f32>, ix: array<u32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = table[ix[i]];\n  }\n}',
       'f',
       'table',
       'table[ix[i]]',
     ],
     [
       'a loop-invariant index',
-      'export function f(out: array<f32>, x: array<f32>, n: u32) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[n];\n  }\n}',
+      'export function f(@inout out: array<f32>, x: array<f32>, n: u32) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = x[n];\n  }\n}',
       'f',
       'x',
       'x[n]',
     ],
     [
       'a write',
-      'export function f(out: array<f32>, x: array<f32>) {\n  for (let i: u32 = 0; i < x.length; i++) {\n    out[i * 2 + 1] = x[i];\n  }\n}',
+      'export function f(@inout out: array<f32>, x: array<f32>) {\n  for (let i: u32 = 0; i < x.length; i++) {\n    out[i * 2 + 1] = x[i];\n  }\n}',
       'f',
       'out',
       'out[i * 2 + 1]',
@@ -1302,7 +1302,7 @@ describe("the first access that is not at the loop counter, in the author's word
     // The module emits a class's function as `Voice_shift` and a namespace's as `Ns_shift`; the
     // report says `Voice.shift`, as the sentence of TS8070 does.
     const reading = (declaration: string, call: string): string =>
-      `${declaration}\nexport function f(out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${call}];\n  }\n}`;
+      `${declaration}\nexport function f(@inout out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${call}];\n  }\n}`;
     const shift = (name: string): string => `  ${name}(i: u32): u32 {\n    return i ^ 1;\n  }\n`;
     expect(
       worded(reading(`class Voice {\n  static${shift('shift')}}`, 'Voice.shift(i)'), 'f', 't')
@@ -1336,7 +1336,7 @@ describe("the first access that is not at the loop counter, in the author's word
     // A static field that nothing writes is the module constant `Voice_OFFSET`, and one the file
     // writes is the module variable `Voice_count`; the report says `Voice.OFFSET` and `Voice.count`.
     const reading = (declaration: string, index: string): string =>
-      `${declaration}\nexport function f(out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${index}];\n  }\n}`;
+      `${declaration}\nexport function f(@inout out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${index}];\n  }\n}`;
     expect(
       worded(reading('class Voice {\n  static OFFSET: u32 = 1;\n}', 'i + Voice.OFFSET'), 'f', 't')
         ?.text,
@@ -1379,7 +1379,7 @@ describe("the first access that is not at the loop counter, in the author's word
     // copy of one that takes a function as `f_apply_inc`, after the functions handed to it. The
     // report says `bump` and `apply`. The copy takes the arguments its own parameters name, so the
     // function handed to it is not one of them.
-    const local = `export function f(out: array<f32>, t: array<f32>) {
+    const local = `export function f(@inout out: array<f32>, t: array<f32>) {
   function bump(i: u32): u32 {
     return i ^ 1;
   }
@@ -1393,7 +1393,7 @@ describe("the first access that is not at the loop counter, in the author's word
     const copy = `function inc(x: u32): u32 {
   return x + 1;
 }
-export function f(out: array<f32>, t: array<f32>) {
+export function f(@inout out: array<f32>, t: array<f32>) {
   function apply(g: (x: u32) => u32, x: u32): u32 {
     return g(x) ^ 1;
   }
@@ -1411,7 +1411,7 @@ export function f(out: array<f32>, t: array<f32>) {
     // the copy of one that takes a function as `Ns_apply_inc`. The report says `Ns.shift`,
     // `A.B.shift` and `Ns.apply`. A function of the top level declared as a constant keeps its name.
     const reading = (declaration: string, call: string): string =>
-      `${declaration}\nexport function f(out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${call}];\n  }\n}`;
+      `${declaration}\nexport function f(@inout out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${call}];\n  }\n}`;
     const inc = 'function inc(x: u32): u32 {\n  return x + 1;\n}\n';
     const cases: [string, string, string][] = [
       [
@@ -1457,7 +1457,7 @@ export function f(out: array<f32>, t: array<f32>) {
     // The module emits a namespace's constant as `Ns_K` and an enum's member as `Mode_B`, the same
     // joining a class's static field takes (`Voice_OFFSET`); the report says `Ns.K` and `Mode.B`.
     const reading = (declaration: string, index: string): string =>
-      `${declaration}\nexport function f(out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${index}];\n  }\n}`;
+      `${declaration}\nexport function f(@inout out: array<f32>, t: array<f32>) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[${index}];\n  }\n}`;
     const cases: [string, string, string][] = [
       ['namespace Ns {\n  export const K: u32 = 1;\n}', 'i + Ns.K', 't[i + Ns.K]'],
       ['enum Mode {\n  A,\n  B,\n}', 'u32(i32(i) + Mode.B)', 't[u32(i32(i) + Mode.B)]'],
@@ -1482,7 +1482,7 @@ export function f(out: array<f32>, t: array<f32>) {
       ['enum Mode {\n  A,\n  B,\n}', 'Mode_B'],
     ];
     for (const [declaration, name] of parameters) {
-      const body = `${declaration}\nexport function f(out: array<f32>, t: array<f32>, ${name}: u32) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[i + ${name}];\n  }\n}`;
+      const body = `${declaration}\nexport function f(@inout out: array<f32>, t: array<f32>, ${name}: u32) {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = t[i + ${name}];\n  }\n}`;
       expect(compiled(body), body).toEqual([]);
       expect(edited(body), body).toEqual([]);
       expect(worded(body, 'f', 't')?.text, body).toBe(`t[i + ${name}]`);
@@ -1505,7 +1505,7 @@ export function f(out: array<f32>, t: array<f32>) {
   }
 }`;
     const reading = (params: string, before: string, index: string): string =>
-      `${VOICE}\nexport function f(out: array<f32>, t: array<f32>${params}) {\n  for (let i: u32 = 0; i < out.length; i++) {${before}\n    out[i] = t[${index}];\n  }\n}`;
+      `${VOICE}\nexport function f(@inout out: array<f32>, t: array<f32>${params}) {\n  for (let i: u32 = 0; i < out.length; i++) {${before}\n    out[i] = t[${index}];\n  }\n}`;
     for (const name of ['Voice_OFFSET', 'Voice_count', 'Voice_shift']) {
       const sources = [
         reading(`, ${name}: u32`, '', `i + ${name}`),
@@ -1520,7 +1520,7 @@ export function f(out: array<f32>, t: array<f32>) {
     }
     // The static field and the function themselves keep the names the author gave them.
     const own = `${VOICE}
-export function g(out: array<f32>, t: array<f32>, u: array<f32>, v: array<f32>) {
+export function g(@inout out: array<f32>, t: array<f32>, u: array<f32>, v: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i + Voice.OFFSET] + u[i + Voice.count] + v[Voice.shift(i)];
   }
@@ -1533,7 +1533,7 @@ export function g(out: array<f32>, t: array<f32>, u: array<f32>, v: array<f32>) 
   });
 
   it('prints a length as the author wrote it, `xs.length`, and not as the IR spells it', () => {
-    const body = `export function reverse(out: array<f32>, t: array<f32>) {
+    const body = `export function reverse(@inout out: array<f32>, t: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[t.length - 1 - i];
   }
@@ -1544,7 +1544,7 @@ export function g(out: array<f32>, t: array<f32>, u: array<f32>, v: array<f32>) 
   it('says nothing about an array every access of which is at the counter', () => {
     expect(
       worded(
-        `export function add(out: array<f32>, a: array<f32>) {
+        `export function add(@inout out: array<f32>, a: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i];
   }
@@ -1557,7 +1557,7 @@ export function g(out: array<f32>, t: array<f32>, u: array<f32>, v: array<f32>) 
 
   it('is data: it survives JSON, which is how the generated module carries it', () => {
     const w = worded(
-      `export function f(out: array<f32>, x: array<f32>) {
+      `export function f(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i + 1];
   }
@@ -1571,7 +1571,7 @@ export function g(out: array<f32>, t: array<f32>, u: array<f32>, v: array<f32>) 
   it('prints a read as TS8070 prints the same read of a loop it refuses', () => {
     // `a[i - 1]` in a loop that writes `a` is refused (R4), and the warning names it; the same
     // read of an array the loop does not write is accepted, and `describeRead` names it alike.
-    const refused = compiled(`export function blend(a: array<f32>) {
+    const refused = compiled(`export function blend(@inout a: array<f32>) {
   for (let i: u32 = 1; i < a.length; i++) {
     a[i] = a[i] + a[i - 1];
   }
@@ -1579,7 +1579,7 @@ export function g(out: array<f32>, t: array<f32>, u: array<f32>, v: array<f32>) 
     expect(refused[0]).toContain('reads "a[i - 1]"');
     expect(
       worded(
-        `export function blend(out: array<f32>, a: array<f32>) {
+        `export function blend(@inout out: array<f32>, a: array<f32>) {
   for (let i: u32 = 1; i < a.length; i++) {
     out[i] = a[i] + a[i - 1];
   }
@@ -1621,7 +1621,7 @@ function nudge(@inout x: f32, d: f32): void {
   /** The kernel function `f` with `params` and one loop over `count` from `start` whose body is
    *  `body`, after the class; the loop's body is line 24. */
   const kernel = (params: string, body: string, count = 'vs.length', start = 0): string =>
-    `${CLASS}\nexport function f(${params}) {\n  for (let i: u32 = ${String(start)}; i < ${count}; i++) {\n    ${body}\n  }\n}`;
+    `${CLASS}\nexport function f(${params.replace(/(\w+): array</g, '@inout $1: array<')}) {\n  for (let i: u32 = ${String(start)}; i < ${count}; i++) {\n    ${body}\n  }\n}`;
 
   /** What the proof says of the loop: the facts the planner reads, or the rule that refuses it. */
   const verdict = (body: string): unknown => {
@@ -1767,13 +1767,13 @@ describe('a static field read in a kernel function that has a parameter or a loc
   static OFFSET: u32 = 1;
 }`;
   const WITH_PARAMETER = `${VOICE}
-export function f(out: array<f32>, t: array<f32>, Voice_OFFSET: u32) {
+export function f(@inout out: array<f32>, t: array<f32>, Voice_OFFSET: u32) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i + Voice_OFFSET] + f32(Voice.OFFSET);
   }
 }`;
   const WITH_LOCAL = `${VOICE}
-export function f(out: array<f32>, t: array<f32>) {
+export function f(@inout out: array<f32>, t: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     const Voice_OFFSET: u32 = 2;
     out[i] = t[i + Voice_OFFSET] + f32(Voice.OFFSET);
@@ -1837,7 +1837,7 @@ describe('a read under a guard on the counter is checked over the iterations the
   const padTo = (
     guard: string,
     extra = '',
-  ): string => `export function padTo(out: array<f32>, xs: array<f32>${extra}): void {
+  ): string => `export function padTo(@inout out: array<f32>, xs: array<f32>${extra}): void {
   for (let i: u32 = 0; i < 8; i++) {
     let v = 0.;
     if (${guard}) {
@@ -1846,7 +1846,7 @@ describe('a read under a guard on the counter is checked over the iterations the
     out[i] = v;
   }
 }`;
-  const plain = `export function padTo(out: array<f32>, xs: array<f32>): void {
+  const plain = `export function padTo(@inout out: array<f32>, xs: array<f32>): void {
   for (let i: u32 = 0; i < 8; i++) {
     out[i] = xs[i];
   }

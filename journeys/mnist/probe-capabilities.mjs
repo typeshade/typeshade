@@ -14,7 +14,7 @@ declare const weights: storage<array<f32>>;
 export function storageLoss(i: u32): f32 { return weights[i] * weights[i]; }
 `;
 const scatterSource = `"use typeshade";
-export function histogram(xs: array<f32>, indices: array<u32>, bins: array<f32>) {
+export function histogram(xs: array<f32>, indices: array<u32>, @inout bins: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) { bins[indices[i]] += xs[i]; }
 }
 `;

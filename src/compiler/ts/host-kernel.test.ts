@@ -58,7 +58,7 @@ const TERRAIN = `"use typeshade";
 export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
-export function render(k: vec4, size: u32, out: array<f32>) {
+export function render(k: vec4, size: u32, @inout out: array<f32>) {
   for (let i: u32 = 0; i < size * size; i++) {
     const p = vec2(f32(i % size), f32(i / size)) / f32(size);
     out[i] = height(p, k);
@@ -75,12 +75,12 @@ class Particle {
   pos: vec4;
   vel: vec4;
 }
-export function drift(ps: array<Particle>, dt: f32) {
+export function drift(@inout ps: array<Particle>, dt: f32) {
   for (let i: u32 = 0; i < ps.length; i++) {
     ps[i].pos = ps[i].pos + ps[i].vel * dt;
   }
 }
-export function prefix(out: array<f32>) {
+export function prefix(@inout out: array<f32>) {
   for (let i: u32 = 1; i < out.length; i++) {
     out[i] = out[i] + out[i - 1];
   }
@@ -203,7 +203,7 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
   it('checks an array a loop only reads against the indices it reads, before anything runs (#655)', async () => {
     // `a` is shorter than `out`: the CPU tier read past its end and threw an internal TypeError.
     const m = await load(
-      `"use typeshade";\nexport function copy4(out: array<vec4f>, a: array<vec4f>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = a[i] * 2.;\n  }\n}\n`,
+      `"use typeshade";\nexport function copy4(@inout out: array<vec4f>, a: array<vec4f>): void {\n  for (let i: u32 = 0; i < out.length; i++) {\n    out[i] = a[i] * 2.;\n  }\n}\n`,
     );
     const copy4 = m.copy4 as (...a: unknown[]) => Promise<void>;
     await expect(copy4(new Float32Array(4 * 4), new Float32Array(4 * 2))).rejects.toThrow(
@@ -220,7 +220,7 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     // The loop reads `xs` at `i` for `i` from 0 to 7, but only where `guard` holds. The call took
     // the counter's whole range for the range of the read and refused a 4-element `xs`.
     const loop = (inside: string, extra = ''): string =>
-      `"use typeshade";\nexport function padTo(out: array<f32>, xs: array<f32>${extra}): void {\n  for (let i: u32 = 0; i < 8; i++) {\n    let v = 0.;\n    ${inside}\n    out[i] = v;\n  }\n}\n`;
+      `"use typeshade";\nexport function padTo(@inout out: array<f32>, xs: array<f32>${extra}): void {\n  for (let i: u32 = 0; i < 8; i++) {\n    let v = 0.;\n    ${inside}\n    out[i] = v;\n  }\n}\n`;
     const guarded = (guard: string, extra = ''): string =>
       loop(`if (${guard}) {\n      v = xs[i];\n    }`, extra);
     const run = async (source: string, xs: number[], n?: number): Promise<number[]> => {
@@ -282,7 +282,7 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
 
   it('checks a store at i*s + b and at i*W + x against the array before anything runs (#775)', async () => {
     const m = await load(
-      `"use typeshade";\nexport function spread(out: array<f32>, s: u32, n: u32): void {\n  for (let i: u32 = 0; i < n; i++) {\n    out[i * s + 1] = f32(i);\n  }\n}\n`,
+      `"use typeshade";\nexport function spread(@inout out: array<f32>, s: u32, n: u32): void {\n  for (let i: u32 = 0; i < n; i++) {\n    out[i * s + 1] = f32(i);\n  }\n}\n`,
     );
     const spread = m.spread as (...a: unknown[]) => Promise<void>;
     await expect(spread(new Float32Array(8), 0, 3)).rejects.toThrow(
@@ -302,7 +302,7 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     await spread(ok, 3, 2);
     expect([...ok]).toEqual([0, 0, 0, 0, 1, 0, 0, 0]);
     const g = await load(
-      `"use typeshade";\nexport function grid(out: array<f32>, w: u32, h: u32): void {\n  for (let y: u32 = 0; y < h; y++) {\n    for (let x: u32 = 0; x < w; x++) {\n      out[y * w + x] = f32(x + y);\n    }\n  }\n}\n`,
+      `"use typeshade";\nexport function grid(@inout out: array<f32>, w: u32, h: u32): void {\n  for (let y: u32 = 0; y < h; y++) {\n    for (let x: u32 = 0; x < w; x++) {\n      out[y * w + x] = f32(x + y);\n    }\n  }\n}\n`,
     );
     const grid = g.grid as (...a: unknown[]) => Promise<void>;
     await expect(grid(new Float32Array(5), 2, 3)).rejects.toThrow(
@@ -320,7 +320,7 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     // `at + block.length - 1`, as it does for `out[i * s + 1]`, and the elements land where a
     // plain loop puts them.
     const m = await load(
-      `"use typeshade";\nexport function keep(tape: array<f32>, block: array<f32>, at: u32): void {\n  for (let n: u32 = 0; n < block.length; n++) tape[at + n] = block[n];\n}\n`,
+      `"use typeshade";\nexport function keep(@inout tape: array<f32>, block: array<f32>, at: u32): void {\n  for (let n: u32 = 0; n < block.length; n++) tape[at + n] = block[n];\n}\n`,
     );
     const keep = m.keep as (...a: unknown[]) => Promise<void>;
     const block = Float32Array.of(1, 2, 3);
@@ -362,7 +362,7 @@ describe('the call, on the CPU tier where there is no WebGPU', () => {
     // `Object.freeze` undefined, and the module did not load.
     const m = await load(`"use typeshade";
 export enum Mode { A, B = 4 }
-export function Object(xs: array<f32>) {
+export function Object(@inout xs: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] * 2.;
   }
@@ -378,7 +378,7 @@ export function Object(xs: array<f32>) {
 
 describe('a kernel function that takes an f64 (change 0013, the f64 split)', () => {
   const SCALE64 = `"use typeshade";
-export function scale(xs: array<f64>, k: f64) {
+export function scale(@inout xs: array<f64>, k: f64) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] * k;
   }
@@ -398,7 +398,7 @@ export function scale(xs: array<f64>, k: f64) {
 
   it('dispatches on the GPU, the guard bound and each reduction folded as an f64 by the tree', () => {
     const f = face(`"use typeshade";
-export function stats(xs: array<f64>, k: f64): vec2f64 {
+export function stats(@inout xs: array<f64>, k: f64): vec2f64 {
   let sum: f64 = 0;
   let lo: f64 = 1e30;
   for (let i: u32 = 0; i < xs.length; i++) {
@@ -571,17 +571,17 @@ describe('a Buffer of scalars and the tiers (Rule 11.8; change 0138, Amendment A
 
   it('takes a zeroed Buffer for an array of vectors as it takes the typed array of the same element', async () => {
     const m = await load(`"use typeshade";
-export function lift(out: array<vec4>) {
+export function lift(@inout out: array<vec4>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = vec4(f32(i), 1., 2., 3.);
   }
 }
-export function lift3(out: array<vec3>) {
+export function lift3(@inout out: array<vec3>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = vec3(f32(i), 1., 2.);
   }
 }
-export function ints(out: array<i32>) {
+export function ints(@inout out: array<i32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = 1;
   }
@@ -610,7 +610,7 @@ export function ints(out: array<i32>) {
 
   it('takes a Buffer<f32> for an array<vec4f>, and refuses a length that is not a whole number of vectors (change 0068; Amendment A11, Q5)', async () => {
     const m = await load(`"use typeshade";
-export function copy4(out: array<vec4f>, a: array<vec4f>): void {
+export function copy4(@inout out: array<vec4f>, a: array<vec4f>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i];
   }
@@ -675,7 +675,7 @@ export function copy4(out: array<vec4f>, a: array<vec4f>): void {
 
   it('refuses one Buffer passed as two parameters, at the call', async () => {
     const m = await load(`"use typeshade";
-export function copy(src: array<f32>, dst: array<f32>) {
+export function copy(src: array<f32>, @inout dst: array<f32>) {
   for (let i: u32 = 0; i < src.length; i++) {
     dst[i] = src[i];
   }
@@ -703,7 +703,7 @@ describe('what the call dispatches (change 0013 parts 2 and 3: maps and reductio
   it("lowers each accepted map to a compute entry, and its continue to the invocation's return", () => {
     const plan = lowered(
       `"use typeshade";
-export function odds(out: array<f32>, n: i32) {
+export function odds(@inout out: array<f32>, n: i32) {
   for (let i = n - 1; i >= 0; i--) {
     if (i % 2 === 0) {
       continue;
@@ -744,7 +744,7 @@ export function odds(out: array<f32>, n: i32) {
     // number and the body are one construction.
     const map = lowered(
       `"use typeshade";
-export function scale(out: array<f32>, x: array<f32>, k: f32) {
+export function scale(@inout out: array<f32>, x: array<f32>, k: f32) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * k;
   }
@@ -767,7 +767,7 @@ export function scale(out: array<f32>, x: array<f32>, k: f32) {
     // A loop that reduces runs its iteration in a helper, which is all iteration.
     const sum = lowered(
       `"use typeshade";
-export function stats(xs: array<f32>, out: array<f32>): f32 {
+export function stats(xs: array<f32>, @inout out: array<f32>): f32 {
   let s = 0.;
   for (let i: u32 = 0; i < xs.length; i++) {
     out[i] = xs[i] * 2.;
@@ -821,7 +821,7 @@ export function f(out: array<f32>, x: array<f32>) {
   it('lowers a reduction to a tree per workgroup, a fold of the partials, and a tail on the CPU', () => {
     const plan = lowered(
       `"use typeshade";
-export function stats(xs: array<f32>, out: array<f32>): f32 {
+export function stats(xs: array<f32>, @inout out: array<f32>): f32 {
   let s = 0.;
   let m = -1e30;
   for (let i: u32 = 0; i < xs.length; i++) {
@@ -866,7 +866,7 @@ export function stats(xs: array<f32>, out: array<f32>): f32 {
   it('lowers a scatter into an integer array to an atomic on array<atomic<T>>', () => {
     const plan = lowered(
       `"use typeshade";
-export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32) {
+export function histogram(xs: array<f32>, @inout bins: array<u32>, lo: f32, scale: f32) {
   const top = bins.length - 1;
   for (let i: u32 = 0; i < xs.length; i++) {
     const k = min(u32(max((xs[i] - lo) * scale, 0.)), top);
@@ -894,7 +894,7 @@ export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32)
     // The lowering kept one operator per array, the last loop's, so the first loop's `&=` ran as
     // `atomicOr` on WebGPU. The generated-kernel differential found it (#349).
     const source = `"use typeshade";
-export function mask(ks: array<u32>, bits: array<u32>) {
+export function mask(ks: array<u32>, @inout bits: array<u32>) {
   for (let i: u32 = 0; i < ks.length; i++) {
     bits[ks[i] % bits.length] &= ks[i];
   }
@@ -924,7 +924,7 @@ export function mask(ks: array<u32>, bits: array<u32>) {
   it('lowers a map that writes one f32 array at i to a WebGL2 fragment program', () => {
     const r = compile(
       `"use typeshade";
-export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
+export function axpy(a: f32, xs: array<f32>, ys: array<f32>, @inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     if (xs[i] < 0.) {
       continue;
@@ -967,25 +967,25 @@ export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
     ],
     [
       'a write other than at i',
-      `export function odds(out: array<f32>) { for (let i: u32 = 0; i < 8; i++) { out[i * 2] = 1.; } }`,
+      `export function odds(@inout out: array<f32>) { for (let i: u32 = 0; i < 8; i++) { out[i * 2] = 1.; } }`,
       'odds',
       'loop 1 writes "out" other than at i',
     ],
     [
       'a struct array',
-      `class P { a: vec4; }\nexport function zero(ps: array<P>) { for (let i: u32 = 0; i < ps.length; i++) { ps[i].a = vec4(0.); } }`,
+      `class P { a: vec4; }\nexport function zero(@inout ps: array<P>) { for (let i: u32 = 0; i < ps.length; i++) { ps[i].a = vec4(0.); } }`,
       'zero',
       'loop 1 writes "ps", whose element is not one f32, i32 or u32',
     ],
     [
       'a write through a reference',
-      `function bump(@inout v: f32): void { v += 1.; }\nexport function inc(out: array<f32>) { for (let i: u32 = 0; i < out.length; i++) { bump(out[i]); } }`,
+      `function bump(@inout v: f32): void { v += 1.; }\nexport function inc(@inout out: array<f32>) { for (let i: u32 = 0; i < out.length; i++) { bump(out[i]); } }`,
       'inc',
       'loop 1 writes "out" through a reference a call takes, and WebGL2 writes its texel by an assignment',
     ],
     [
       'a struct argument',
-      `class S { k: f32; }\nexport function scale(out: array<f32>, s: S) { for (let i: u32 = 0; i < out.length; i++) { out[i] = s.k; } }`,
+      `class S { k: f32; }\nexport function scale(@inout out: array<f32>, s: S) { for (let i: u32 = 0; i < out.length; i++) { out[i] = s.k; } }`,
       'scale',
       'parameter "s" is not a number or a vector, which a uniform holds',
     ],
@@ -1006,25 +1006,25 @@ export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
   it.each([
     [
       'a scatter with *',
-      `export function scale(bins: array<u32>, ks: array<u32>) { for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] *= 2; } }`,
+      `export function scale(@inout bins: array<u32>, ks: array<u32>) { for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] *= 2; } }`,
       'scale',
       'it scatters into "bins" with *, which no atomic does',
     ],
     [
       'a scattered array another loop writes in place',
-      `export function both(bins: array<u32>, ks: array<u32>) { for (let i: u32 = 0; i < bins.length; i++) { bins[i] = 0; } for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] += 1; } }`,
+      `export function both(@inout bins: array<u32>, ks: array<u32>) { for (let i: u32 = 0; i < bins.length; i++) { bins[i] = 0; } for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] += 1; } }`,
       'both',
       'a loop writes "bins" in place, and another scatters into it',
     ],
     [
       'a scattered array another loop reads',
-      `export function peek(bins: array<u32>, ks: array<u32>, out: array<u32>) { for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] += 1; } for (let i: u32 = 0; i < out.length; i++) { out[i] = bins[i]; } }`,
+      `export function peek(@inout bins: array<u32>, ks: array<u32>, @inout out: array<u32>) { for (let i: u32 = 0; i < ks.length; i++) { bins[ks[i]] += 1; } for (let i: u32 = 0; i < out.length; i++) { out[i] = bins[i]; } }`,
       'peek',
       'a loop reads "bins", which a loop scatters into: an atomic is read only by an atomic',
     ],
     [
       'a statement after a reduction that a later loop replays',
-      `export function norm(xs: array<f32>) { let s = 0.; for (const x of xs) { s += x; } const inv = 1. / s; for (let i: u32 = 0; i < xs.length; i++) { xs[i] = xs[i] * inv; } }`,
+      `export function norm(@inout xs: array<f32>) { let s = 0.; for (const x of xs) { s += x; } const inv = 1. / s; for (let i: u32 = 0; i < xs.length; i++) { xs[i] = xs[i] * inv; } }`,
       'norm',
       'a statement before loop 2 reads "s", which an earlier loop reduces',
     ],
@@ -1036,25 +1036,25 @@ export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
     ],
     [
       'a refused loop',
-      `export function prefix(out: array<f32>) { for (let i: u32 = 1; i < out.length; i++) { out[i] = out[i] + out[i - 1]; } }`,
+      `export function prefix(@inout out: array<f32>) { for (let i: u32 = 1; i < out.length; i++) { out[i] = out[i] + out[i - 1]; } }`,
       'prefix',
       'a loop of it runs on the CPU (TS8070)',
     ],
     [
       'a bool parameter',
-      `export function mask(out: array<f32>, on: bool) { for (let i: u32 = 0; i < out.length; i++) { out[i] = select(0., 1., on); } }`,
+      `export function mask(@inout out: array<f32>, on: bool) { for (let i: u32 = 0; i < out.length; i++) { out[i] = select(0., 1., on); } }`,
       'mask',
       'parameter "on" is a bool, which no buffer holds',
     ],
     [
       'a module binding',
-      `declare const scale: uniform<vec4>;\nexport function sc(out: array<f32>) { for (let i: u32 = 0; i < out.length; i++) { out[i] = scale.x; } }`,
+      `declare const scale: uniform<vec4>;\nexport function sc(@inout out: array<f32>) { for (let i: u32 = 0; i < out.length; i++) { out[i] = scale.x; } }`,
       'sc',
       'it reaches "scale", which the call does not pass',
     ],
     [
       'an element read before the loop',
-      `export function first(out: array<f32>) { const a = out[0]; for (let i: u32 = 0; i < out.length; i++) { out[i] = a; } }`,
+      `export function first(@inout out: array<f32>) { const a = out[0]; for (let i: u32 = 0; i < out.length; i++) { out[i] = a; } }`,
       'first',
       'loop 1 writes "out", which the statements before it read, and each of its invocations runs those statements again',
     ],
@@ -1071,32 +1071,32 @@ function act(x: f32): f32 {
 function neverCalled(x: f32): f32 {
   return x + 1.;
 }
-export function add(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
-export function relu(out: array<f32>, x: array<f32>) {
+export function relu(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = act(x[i]);
   }
 }
-export function blur(out: array<f32>, t: array<f32>) {
+export function blur(@inout out: array<f32>, t: array<f32>) {
   for (let i: u32 = 1; i < out.length - 1; i++) {
     out[i] = t[i - 1] + t[i] + t[i + 1];
   }
 }
-export function axpy(x: array<f32>, y: array<f32>) {
+export function axpy(x: array<f32>, @inout y: array<f32>) {
   for (let i: u32 = 0; i < y.length; i++) {
     y[i] += 2. * x[i];
   }
 }
-export function stride(out: array<f32>, x: array<f32>) {
+export function stride(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < x.length; i++) {
     out[2 * i] = x[i];
   }
 }
-export function skip(out: array<f32>, x: array<f32>) {
+export function skip(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     if (x[i] < 0.) {
       continue;
@@ -1111,12 +1111,12 @@ export function dot(a: array<f32>, b: array<f32>): f32 {
   }
   return s;
 }
-export function histogram(xs: array<f32>, bins: array<u32>) {
+export function histogram(xs: array<f32>, @inout bins: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     bins[u32(xs[i])] += 1;
   }
 }
-export function twice(out: array<f32>, t: array<f32>) {
+export function twice(@inout out: array<f32>, t: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i];
   }
@@ -1124,33 +1124,33 @@ export function twice(out: array<f32>, t: array<f32>) {
     out[i] = t[i - 1] + t[i + 1];
   }
 }
-export function prefix(out: array<f32>) {
+export function prefix(@inout out: array<f32>) {
   for (let i: u32 = 1; i < out.length; i++) {
     out[i] = out[i] + out[i - 1];
   }
 }
-export function lenscale(out: array<f32>, x: array<f32>) {
+export function lenscale(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * f32(x.length);
   }
 }
-export function measure(out: array<f32>, shape: array<f32>) {
+export function measure(@inout out: array<f32>, shape: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = f32(shape.length);
   }
 }
-export function mean(out: array<f32>, x: array<f32>) {
+export function mean(@inout out: array<f32>, x: array<f32>) {
   const n = f32(x.length);
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] / n;
   }
 }
-export function reverse(out: array<f32>, x: array<f32>) {
+export function reverse(@inout out: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[x.length - 1 - i];
   }
 }
-export function sizes(out: array<f32>, a: array<f32>, b: array<f32>) {
+export function sizes(@inout out: array<f32>, a: array<f32>, b: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = f32(b.length) + f32(a.length) + f32(out.length);
   }
@@ -1367,7 +1367,7 @@ export function sizes(out: array<f32>, a: array<f32>, b: array<f32>) {
 function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
-export function render(k: vec4, size: u32, out: array<f32>) {
+export function render(k: vec4, size: u32, @inout out: array<f32>) {
   for (let i: u32 = 0; i < size * size; i++) {
     const p = vec2(f32(i % size), f32(i / size)) / f32(size);
     out[i] = height(p, k);
@@ -1377,7 +1377,7 @@ export function render(k: vec4, size: u32, out: array<f32>) {
       [
         'a reduction and the map beside it',
         `"use typeshade";
-export function stats(xs: array<f32>, out: array<f32>): f32 {
+export function stats(xs: array<f32>, @inout out: array<f32>): f32 {
   let s = 0.;
   let m = -1e30;
   for (let i: u32 = 0; i < xs.length; i++) {
@@ -1391,7 +1391,7 @@ export function stats(xs: array<f32>, out: array<f32>): f32 {
       [
         'a map with a continue, counting down',
         `"use typeshade";
-export function odds(out: array<f32>, n: i32) {
+export function odds(@inout out: array<f32>, n: i32) {
   for (let i = n - 1; i >= 0; i--) {
     if (i % 2 === 0) {
       continue;
@@ -1403,7 +1403,7 @@ export function odds(out: array<f32>, n: i32) {
       [
         'a scatter',
         `"use typeshade";
-export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32) {
+export function histogram(xs: array<f32>, @inout bins: array<u32>, lo: f32, scale: f32) {
   const top = bins.length - 1;
   for (let i: u32 = 0; i < xs.length; i++) {
     const k = min(u32(max((xs[i] - lo) * scale, 0.)), top);
@@ -1418,7 +1418,7 @@ class Particle {
   pos: vec4;
   vel: vec4;
 }
-export function drift(ps: array<Particle>, dt: f32) {
+export function drift(@inout ps: array<Particle>, dt: f32) {
   for (let i: u32 = 0; i < ps.length; i++) {
     ps[i].pos = ps[i].pos + ps[i].vel * dt;
   }
@@ -1427,7 +1427,7 @@ export function drift(ps: array<Particle>, dt: f32) {
       [
         'an f64 array, whose guard the writer binds',
         `"use typeshade";
-export function scale(xs: array<f64>, k: f64) {
+export function scale(@inout xs: array<f64>, k: f64) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] * k;
   }
@@ -1534,7 +1534,7 @@ describe('a lane past the trip count (change 0096, Rule 8.22)', () => {
     return { want: { result, arrays: want.filter((a) => Array.isArray(a)) }, got };
   };
   const SCALE = `"use typeshade";
-export function scale(out: array<f32>, x: array<f32>, k: f32) {
+export function scale(@inout out: array<f32>, x: array<f32>, k: f32) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i] * k;
   }
@@ -1568,7 +1568,7 @@ export function scale(out: array<f32>, x: array<f32>, k: f32) {
   it('a loop that reads back what it writes skips the iteration under the flag (decision D2)', () => {
     const { plan, wgsl } = lowered(
       `"use typeshade";
-export function bump(out: array<f32>, k: f32) {
+export function bump(@inout out: array<f32>, k: f32) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = out[i] * k;
   }
@@ -1603,7 +1603,7 @@ export function half(img: texture_storage_2d<"r32float", "read_write">, w: u32, 
     const { wgsl } = lowered(
       `"use typeshade";
 function bump(@inout v: f32) { v = v + 1.; }
-export function viaRef(out: array<f32>) {
+export function viaRef(@inout out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) {
     bump(out[i]);
   }
@@ -1651,7 +1651,7 @@ export function total(xs: array<f32>): f32 {
     expect(Object.is(sum.got.result, sum.want.result)).toBe(true);
     const push = both(
       `"use typeshade";
-export function strong(xs: array<f32>, t: f32, out: array<u32>): u32 {
+export function strong(xs: array<f32>, t: f32, @inout out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > t) {
       out.push(i);
@@ -1670,7 +1670,7 @@ export function strong(xs: array<f32>, t: f32, out: array<u32>): u32 {
     // one lane within the trip count and 65,533 workgroups wholly past it.
     const { got, want } = both(
       `"use typeshade";
-@workgroup_size([1]) export function ramp(out: array<f32>, k: f32) {
+@workgroup_size([1]) export function ramp(@inout out: array<f32>, k: f32) {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = f32(i) * k;
   }
@@ -1695,10 +1695,10 @@ export function extremes(xs: array<i32>): vec2i {
   for (let i: u32 = 0; i < xs.length; i++) { lo = min(lo, xs[i]); hi = max(hi, xs[i]); }
   return vec2i(lo, hi);
 }
-export function histogram(xs: array<u32>, bins: array<u32>): void {
+export function histogram(xs: array<u32>, @inout bins: array<u32>): void {
   for (let i: u32 = 0; i < xs.length; i++) bins[xs[i] & 7] += 1;
 }
-export function masked(xs: array<u32>, bins: array<u32>): void {
+export function masked(xs: array<u32>, @inout bins: array<u32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > 3) { bins[xs[i] & 7] += xs[i]; }
   }
@@ -1708,13 +1708,13 @@ export function mean(xs: array<f32>): f32 {
   for (let i: u32 = 0; i < xs.length; i++) s += xs[i];
   return s / f32(xs.length);
 }
-export function skipping(xs: array<u32>, bins: array<u32>): void {
+export function skipping(xs: array<u32>, @inout bins: array<u32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] == 0) continue;
     bins[xs[i] & 7] += 1;
   }
 }
-export function repeated(xs: array<u32>, bins: array<u32>): void {
+export function repeated(xs: array<u32>, @inout bins: array<u32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     for (let j: u32 = 0; j < 2; j++) bins[(xs[i] + j) & 7] += 1;
   }

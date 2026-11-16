@@ -18,7 +18,7 @@ import { compileModuleJs } from '../src/core/cpu-codegen.js';
 import { ScatterRun } from '../src/core/kernel-tree.js';
 
 const SOURCE = `"use typeshade";
-export function splat(g: array<f32>, idx: array<u32>, x: array<f32>) {
+export function splat(@inout g: array<f32>, idx: array<u32>, x: array<f32>) {
   for (let i: u32 = 0; i < x.length; i++) {
     g[idx[i]] += x[i];
   }

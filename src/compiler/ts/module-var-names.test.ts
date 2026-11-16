@@ -158,7 +158,7 @@ describe('module variables and parameters occupy distinct IR slots (#1009)', () 
   it('keeps authored field names in kernel access reports after renaming', () => {
     const source = `"use typeshade"; ${voice}
       function bump(): void { Voice.count += 1; }
-      export function run(out: array<f32>, t: array<f32>, Voice_count: u32): void {
+      export function run(@inout out: array<f32>, t: array<f32>, Voice_count: u32): void {
         for (let i: u32 = 0; i < out.length; i++) {
           out[i] = t[i + Voice_count + Voice.count];
         }

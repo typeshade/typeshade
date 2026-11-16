@@ -189,7 +189,7 @@ export function play(gid: builtin<"global_invocation_id">): void {
 }
 
 /** Runs every filter of the bank over its block, one lane per filter. */
-export function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32) {
+export function run(@inout out: array<f32>, xs: array<f32>, @inout filters: array<OnePole>, block: u32) {
   for (let i: u32 = 0; i < filters.length; i++) {
     for (let n: u32 = 0; n < block; n++) {
       out[i * block + n] = filters[i].tick(xs[i * block + n]);

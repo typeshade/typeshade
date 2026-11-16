@@ -41,7 +41,7 @@ namespace N {
   });
 }
 export const scale = workgroup_size([128], function (xs: array<f32>) {
-  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; }
+  for (let i = 0; i < xs.length; i++) { const v = xs[i] * 2.; }
 });
 `;
     const after = `"use typeshade";
@@ -69,7 +69,7 @@ namespace N {
 }
 @workgroup_size([128])
 export function scale(xs: array<f32>) {
-  for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * 2.; }
+  for (let i = 0; i < xs.length; i++) { const v = xs[i] * 2.; }
 }
 `;
     const result = migrateSource(before);

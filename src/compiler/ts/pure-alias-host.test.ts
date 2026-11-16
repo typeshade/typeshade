@@ -28,7 +28,7 @@ function uncalled(): f32 { return 9.; }
 @compute([1]) function hidden(): void {}
 @fragment export function fs(): vec4 { return vec4(live.gain); }
 export function answer(): f32 { return 7.; }
-export function scale(xs: array<f32>): void {
+export function scale(@inout xs: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) { xs[i] *= 2.; }
 }
 `;

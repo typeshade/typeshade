@@ -18,7 +18,7 @@ export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
 
-export function render(k: vec4, size: u32, out: array<f32>) {
+export function render(k: vec4, size: u32, @inout out: array<f32>) {
   for (let i: u32 = 0; i < size * size; i++) {
     const p = vec2(f32(i % size), f32(i / size)) / f32(size);
     out[i] = height(p, k);

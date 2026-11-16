@@ -668,6 +668,39 @@ export function fromCpu(l: Layout, c: CpuValue, target: unknown, box: boolean): 
   }
 }
 
+/** Set every element of the caller's array `target` of layout `l` to the zero of its type, in
+ *  place: what the call of an `@out` array does before the body runs (change 0138, Amendment A15,
+ *  decision 2; Rule 8.23, Rule 8.25). A flat typed array is filled whole; a list of vectors, matrices or objects is
+ *  zeroed element by element, and its length stays. */
+export function zeroInPlace(l: Layout, target: unknown): unknown {
+  switch (l.k) {
+    case 's':
+      return 0;
+    case 'v':
+    case 'm':
+    case 'a': {
+      if (typeof target !== 'object' || target === null) return target;
+      const xs = target as unknown as {
+        length: number;
+        [i: number]: unknown;
+        fill?: (v: number) => void;
+      };
+      if (ArrayBuffer.isView(target)) {
+        (target as unknown as { fill(v: number): void }).fill(0);
+        return target;
+      }
+      const e: Layout = l.k === 'a' ? l.e : { k: 's', t: 'f32' };
+      for (let i = 0; i < xs.length; i++) xs[i] = zeroInPlace(e, xs[i]);
+      return target;
+    }
+    case 'o': {
+      const o = target as Record<string, unknown>;
+      for (const [name, , fl] of l.f) o[name] = zeroInPlace(fl, o[name]);
+      return o;
+    }
+  }
+}
+
 /** `target` as a list of `n` numbers to write into, when it is one (an array or a typed array);
  *  undefined when it is not, and the caller stores a new array where it came from. */
 function writableList(target: unknown, n: number): { [i: number]: number } | undefined {

@@ -20,7 +20,7 @@ import { KERNEL_TREE } from '../kernel-tree.js';
 const f = Math.fround;
 
 const SCATTER = `"use typeshade";
-export function scat(g: array<f32>, idx: array<u32>, x: array<f32>) {
+export function scat(@inout g: array<f32>, idx: array<u32>, x: array<f32>) {
   for (let i: u32 = 0; i < x.length; i++) {
     g[idx[i]] += x[i];
   }
@@ -28,7 +28,7 @@ export function scat(g: array<f32>, idx: array<u32>, x: array<f32>) {
 
 /** The same loop with two contributions per iteration, to the same element and program order. */
 const TWO = `"use typeshade";
-export function scat2(g: array<f32>, idx: array<u32>, x: array<f32>, y: array<f32>) {
+export function scat2(@inout g: array<f32>, idx: array<u32>, x: array<f32>, y: array<f32>) {
   for (let i: u32 = 0; i < x.length; i++) {
     g[idx[i]] += x[i];
     g[idx[i]] += y[i];
@@ -248,7 +248,7 @@ describe('the GPU tiers do not take the form (Rule 8.22, TS8070 stays)', () => {
 
   it('an f32 scatter that compiles today with an index the proof can show distinct stays affine', () => {
     const src = `"use typeshade";
-export function add(g: array<f32>, x: array<f32>) {
+export function add(@inout g: array<f32>, x: array<f32>) {
   for (let i: u32 = 0; i < x.length; i++) {
     g[i] += x[i];
   }

@@ -48,6 +48,7 @@ import {
   type CaptureKey,
 } from '../context.js';
 import { checkDefiniteAssignment } from '../definite.js';
+import { checkValueArrayWritesByEffects } from '../value-array-write.js';
 import {
   diagnosticAtSpan,
   keepUses,
@@ -2125,6 +2126,16 @@ export function lowerSourceFunctions(
   // A read before an assignment, and an `@out` parameter's definite writes, on the source
   // (Rules 7.6 and 8.25).
   checkDefiniteAssignment(sourceFile, diagnostics);
+  // A write to a value array parameter that only the lowered body shows: a method on an element
+  // (Rule 8.23, change 0138, Amendment A15).
+  checkValueArrayWritesByEffects(
+    funcs,
+    bindings,
+    vars,
+    (fn) => nodeByName.get(fn),
+    sourceFile,
+    diagnostics,
+  );
   // Two references to one place in one call, read off the lowered calls once every callee says
   // what it reads and writes (Rule 8.25).
   const shownAs = new Map([

@@ -17,7 +17,7 @@ export function sumOfSquares(xs: array<f32>): f32 {
   return xs.reduce((a, x) => a + x * x, 0);
 }
 
-export function scale(xs: array<f32>, out: array<f32>, k: f32) {
+export function scale(xs: array<f32>, @inout out: array<f32>, k: f32) {
   xs.forEach((x, i) => {
     out[i] = x * k;
   });

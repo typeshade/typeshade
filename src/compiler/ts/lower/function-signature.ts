@@ -295,12 +295,11 @@ export function parseParams(
       return undefined;
     }
     // An array with no size is a kernel function's parameter, the caller's storage (Rule 8.23),
-    // and nothing else's (Rule 12.6). A struct that holds one is not.
+    // and nothing else's (Rule 12.6). A struct that holds one is not. It carries no qualifier, or
+    // `@inout` or `@out` (change 0138, Amendment A15); an unqualified one is a value, and
+    // `value-array-write.ts` refuses a write to it that no `return` carries back.
     const kernelArray =
-      referenced === undefined &&
-      opts.mayBeKernel === true &&
-      pType.kind === 'array' &&
-      pType.size === undefined;
+      opts.mayBeKernel === true && pType.kind === 'array' && pType.size === undefined;
     if (
       !kernelArray &&
       refuseRuntimeArraySignature(

@@ -31,26 +31,26 @@ export class Params {
 export declare const camera: uniform<Params>;
 export declare const ps: storage<array<Particle>, "read_write">;
 
-export function age(xs: array<Particle>, dt: f32): void {
+export function age(@inout xs: array<Particle>, dt: f32): void {
   for (let i = 0; i < xs.length; i++) {
     xs[i].life = xs[i].life + dt;
   }
 }
 
-export function move(xs: array<Particle>, p: Params): void {
+export function move(@inout xs: array<Particle>, p: Params): void {
   for (let i = 0; i < xs.length; i++) {
     xs[i].life = xs[i].life * p.dt;
     xs[i].pos.x = xs[i].pos.x - p.drag;
   }
 }
 
-export function lives(xs: array<Particle>, out: array<f32>): void {
+export function lives(xs: array<Particle>, @inout out: array<f32>): void {
   for (let i = 0; i < xs.length; i++) {
     out[i] = xs[i].life;
   }
 }
 
-export function scale(xs: array<f32>, k: f32): void {
+export function scale(@inout xs: array<f32>, k: f32): void {
   for (let i = 0; i < xs.length; i++) {
     xs[i] = xs[i] * k;
   }
