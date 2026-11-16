@@ -392,6 +392,11 @@ by an eighth (the last item):
   a compiler error inside the value, because the compiler refuses what TypeScript types
   correctly: a function imported from another shader file is `TS8004` to the single-file
   compiler (#187), and TypeScript's TS2322 about what it returns stands.
+- **A call cycle.** WGSL has no call stack, so the compiler refuses a function, a method or a
+  getter in a call cycle (`TS8031`), a namespaced or a nested function among them. With no
+  written result type, TypeScript adds TS7023 ("implicitly has return type 'any'") on each member
+  of the cycle. It goes when a `TS8031` cycle the compiler refused has the declaration as a
+  member, found by the declaration and not by the name the message shows (#1298).
 - **An operation the compiler refuses.** An operator WGSL has no overload for on its operands'
   kind is the compiler's `TS8003` (Rule 7.1): `a + b` on two class instances, `a * b` on two
   bools, `-a` on a struct. TypeScript's refusal of the same operator (TS2365, TS2447, and

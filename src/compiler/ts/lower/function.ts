@@ -48,7 +48,13 @@ import {
   type CaptureKey,
 } from '../context.js';
 import { checkDefiniteAssignment } from '../definite.js';
-import { diagnosticAtSpan, keepUses, makeDiagnostic, noteUse } from '../diagnostic.js';
+import {
+  diagnosticAtSpan,
+  keepUses,
+  makeDiagnostic,
+  noteCycleMembers,
+  noteUse,
+} from '../diagnostic.js';
 import { calleeNamesOf } from '../function-call-graph.js';
 import { instanceUsesOf } from '../generic-structs.js';
 import {
@@ -594,6 +600,8 @@ export function lowerSourceFunctions(
   const cyclic = new Set<FuncDecl>();
   // Each call a cycle closes at, said once however many paths reach it.
   const cycleAt = new Set<ts.Node>();
+  // The cycles said above with the functions they run through, to record the declarations of.
+  const cycleNotes: { diagnostic: TsCompilerDiagnostic; path: readonly FuncDecl[] }[] = [];
   // A default is lowered before any body (below), so it cannot wait on one.
   let bodiesOpen = false;
   const shownOf = (f: FuncDecl): string =>
@@ -723,6 +731,9 @@ export function lowerSourceFunctions(
             `call stack, so a function must not take part in a call cycle.`,
           TS_CODES.RECURSION,
         );
+        // The declarations are known once every body is lowered, and a local function is
+        // added to `nodeByName` after its body.
+        cycleNotes.push({ diagnostic: diags[diags.length - 1]!, path });
       }
     }
     return false;
@@ -2104,6 +2115,12 @@ export function lowerSourceFunctions(
     sourceFile,
     diagnostics,
   );
+  for (const { diagnostic, path } of cycleNotes) {
+    noteCycleMembers(
+      diagnostic,
+      path.map((f) => nodeByName.get(f.name)),
+    );
+  }
   checkEntryStageUses(funcs, vars, nodeByName, sourceFile, diagnostics);
   // A read before an assignment, and an `@out` parameter's definite writes, on the source
   // (Rules 7.6 and 8.25).
