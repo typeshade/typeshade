@@ -646,6 +646,10 @@ export interface FuncDecl {
    *
    *  Structured only, with no `attrs` spelling: it is not a WGSL attribute. */
   readonly kernel?: boolean;
+  /** The array parameter a kernel function returns, by its name (Rule 8.22, change 0138, Amendment
+   *  A19): `return ps` of a parameter of an array with no size and no qualifier. The call copies
+   *  that argument first and writes the copy, which is the call's result. */
+  readonly returnsParam?: string;
   /** Return-value attribute for a bare (non-struct) stage output, e.g. a
    *  fragment `-> @location(0) vec4<f32>`. */
   readonly retAttr?: string;

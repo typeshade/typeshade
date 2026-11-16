@@ -47,6 +47,7 @@ import {
   writeRules,
   type CaptureKey,
 } from '../context.js';
+import { checkArrayReturns } from '../array-return.js';
 import { checkDefiniteAssignment } from '../definite.js';
 import { checkValueArrayWritesByEffects } from '../value-array-write.js';
 import {
@@ -2126,7 +2127,22 @@ export function lowerSourceFunctions(
   checkEntryStageUses(funcs, vars, nodeByName, sourceFile, diagnostics);
   // A read before an assignment, and an `@out` parameter's definite writes, on the source
   // (Rules 7.6 and 8.25).
-  checkDefiniteAssignment(sourceFile, diagnostics);
+  // A kernel function's `return` of an array, before the writes to its value arrays are read: a
+  // refused `return` gets no `TS8080` beside it (change 0138, Amendment A19).
+  const refusedReturns = checkArrayReturns(
+    funcs,
+    (fn) => nodeByName.get(fn),
+    (fn) => writtenAs.get(fn) ?? fn,
+    sourceFile,
+    diagnostics,
+  );
+  const kernelNodes = new Set<ts.Node>(
+    funcs.flatMap((f) => {
+      const n = f.kernel === true ? nodeByName.get(f.name) : undefined;
+      return n === undefined || refusedReturns.has(n) ? [] : [n];
+    }),
+  );
+  checkDefiniteAssignment(sourceFile, diagnostics, (fn) => kernelNodes.has(fn));
   // A write to a value array parameter that only the lowered body shows: a method on an element
   // (Rule 8.23, change 0138, Amendment A15).
   checkValueArrayWritesByEffects(
@@ -2136,6 +2152,7 @@ export function lowerSourceFunctions(
     (fn) => nodeByName.get(fn),
     sourceFile,
     diagnostics,
+    refusedReturns,
   );
   // Two references to one place in one call, read off the lowered calls once every callee says
   // what it reads and writes (Rule 8.25).

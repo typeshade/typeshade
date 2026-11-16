@@ -578,6 +578,7 @@ export function parseReturnType(
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
   stage: FuncDecl['stage'] | undefined,
+  kernel = false,
 ): ShaderType | undefined {
   if (!typeNode) return voidT;
   let ret: ShaderType = voidT;
@@ -585,7 +586,11 @@ export function parseReturnType(
     const mapped = mapTsTypeToShaderType(typeNode, sourceFile, diagnostics);
     if (refuseAtomicDeclaration(mapped, typeNode, sourceFile, diagnostics, 'a return type'))
       return undefined;
+    // A kernel function may return one of its arrays with no size (Rule 8.22, change 0138,
+    // Amendment A19): the body's `return` is checked against its parameters, in `array-return.ts`.
+    const kernelArray = kernel && mapped?.kind === 'array' && mapped.size === undefined;
     if (
+      !kernelArray &&
       refuseRuntimeArraySignature(
         mapped,
         { kind: 'result' },
@@ -689,6 +694,18 @@ export function parseSignature(
     },
   );
   if (!params) return undefined;
+  // An array with no size, or a 2D storage texture, makes an exported function a kernel function
+  // (Rule 8.22, change 0077). A sampled texture alone does not: a helper that reads one stays a
+  // helper an entry calls (0077, Amendment 1).
+  const kernel = params.some(
+    (p) =>
+      (p.type.kind === 'array' && p.type.size === undefined) ||
+      p.type.kind === 'collection' ||
+      (isExported(node) &&
+        stageInfo.stage === undefined &&
+        p.type.kind === 'storage-texture' &&
+        p.type.dim === '2d'),
+  );
   // A function that writes no return type says it in its body (Rule 8.19); an entry's is its
   // output, which its signature declares.
   // A result type the editor's projection wrote is not the author's (change 0134): the
@@ -699,6 +716,7 @@ export function parseSignature(
     diagnostics,
     structs,
     stageInfo.stage,
+    kernel,
   );
   if (!ret) return undefined;
   // A stage output of an emulated double is a varying or a render-target write (#151 F64-09).
@@ -716,21 +734,7 @@ export function parseSignature(
     return undefined;
   }
   const decl: FuncDecl = { name, params, ret, body: [] };
-  // An array with no size, or a 2D storage texture, makes an exported function a kernel function
-  // (Rule 8.22, change 0077). A sampled texture alone does not: a helper that reads one stays a
-  // helper an entry calls (0077, Amendment 1).
-  if (
-    params.some(
-      (p) =>
-        (p.type.kind === 'array' && p.type.size === undefined) ||
-        p.type.kind === 'collection' ||
-        (isExported(node) &&
-          stageInfo.stage === undefined &&
-          p.type.kind === 'storage-texture' &&
-          p.type.dim === '2d'),
-    )
-  )
-    (decl as { kernel?: boolean }).kernel = true;
+  if (kernel) (decl as { kernel?: boolean }).kernel = true;
   // A kernel function's parameters come from the host, so none is optional (Rule 7.10, change
   // 0093, decision D5).
   const optionalOnKernel =

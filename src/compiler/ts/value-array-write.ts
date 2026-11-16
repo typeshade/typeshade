@@ -93,13 +93,8 @@ export function isOutArrayParameter(
   return qualifiersOf(p).some((q) => q.name === 'out') && writesAnArray(p.type, sourceFile);
 }
 
-/** Whether a function may return an array with no size. It may not: `TS8020` refuses the return
- *  in every function. Slice 3 of change 0138 makes it legal and sets this to `true`, which adds the
- *  remedy "or return xs" to the text of `TS8080` (Amendment A16, decision 3). */
-export const ARRAY_RETURN_ALLOWED = false;
-
 /** `e` without parentheses, a non-null assertion, or a type assertion around it. */
-function bare(e: ts.Expression): ts.Expression {
+export function bare(e: ts.Expression): ts.Expression {
   let x = e;
   while (
     ts.isParenthesizedExpression(x) ||
@@ -149,14 +144,12 @@ export function writeAt(node: ts.Node): { place: ts.Expression; push: boolean } 
 }
 
 /** What `TS8080` says of a write to the array parameter `param` of `fn`. `how` is a push to a
- *  value, any other write to a value, or a push to an `@out` array. The remedy "or return xs" is
- *  left out while `returnable` is false, as `return xs` of an array with no size is refused
- *  (`TS8020`) until slice 3 of change 0138; slice 3 restores it (Amendment A16, decision 3). */
+ *  value, any other write to a value, or a push to an `@out` array. `TS8080` is said in a kernel
+ *  function only, which may return the parameter (Amendment A19, decision 3). */
 export function lostWriteText(
   fn: string,
   param: string,
   how: 'push' | 'write' | 'out-push',
-  returnable: boolean = ARRAY_RETURN_ALLOWED,
 ): string {
   if (how === 'out-push')
     return `${fn}(): parameter "${param}" is @out; a push to it needs @inout. Write @inout ${param}.`;
@@ -167,15 +160,15 @@ export function lostWriteText(
     );
   return (
     `${fn}(): parameter "${param}" is a value; its writes are lost. Write @inout ${param} to ` +
-    `update the caller's array${returnable ? `, or return ${param}.` : '.'}`
+    `update the caller's array, or return ${param}.`
   );
 }
 
 /** The writes `definite.ts` cannot see in the source: a call of a method on an element that
  *  changes its object (`vs[i].tick(dt)`, Rule 8.10), which only the lowered body shows. A value
  *  array parameter that the effects of the lowered function say is written, and that the source
- *  walk found no write to, is refused on its declaration, unless the function returns it
- *  somewhere. Path by path is not read here: such a write is not found in the source to follow. */
+ *  walk found no write to, is refused on its declaration, unless every `return` of the function
+ *  returns it (`returnsParam`, `array-return.ts`). */
 export function checkValueArrayWritesByEffects(
   funcs: readonly FuncDecl[],
   bindings: readonly BindingDecl[],
@@ -183,10 +176,14 @@ export function checkValueArrayWritesByEffects(
   nodeOf: (fn: string) => ts.Node | undefined,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  refused: ReadonlySet<ts.Node> = new Set(),
 ): void {
   const candidates = funcs.flatMap((f) => {
     const node = nodeOf(f.name);
     if (node === undefined || !ts.isFunctionDeclaration(node) || node.body === undefined) return [];
+    // A function that cannot be a kernel has `TS8020` on the parameter, and one whose `return` was
+    // refused has `TS8020` there: one mistake gets one diagnostic (Amendment A19, decisions 2, 3).
+    if (f.kernel !== true || refused.has(node)) return [];
     const names = node.parameters.filter((p) => isValueArrayParameter(p, sourceFile));
     return names.length === 0 ? [] : [{ f, node, params: names }];
   });
@@ -196,20 +193,12 @@ export function checkValueArrayWritesByEffects(
   for (const { f, node, params } of candidates) {
     const written = writes.get(f.name);
     if (written === undefined) continue;
-    const returned = new Set<string>();
-    const scan = (n: ts.Node): void => {
-      if (n !== node && ts.isFunctionLike(n)) return;
-      if (ts.isReturnStatement(n) && n.expression !== undefined) {
-        const e = bare(n.expression);
-        if (ts.isIdentifier(e)) returned.add(e.text);
-      }
-      ts.forEachChild(n, scan);
-    };
-    scan(node.body!);
     const shown = node.name?.text ?? f.name;
     for (const p of params) {
       const name = (p.name as ts.Identifier).text;
-      if (!written.has(name) || returned.has(name)) continue;
+      // Such a write is not found in the source to follow path by path, so it is kept only when
+      // every `return` of the function returns the parameter (Amendment A19, decision 3).
+      if (!written.has(name) || f.returnsParam === name) continue;
       const said = diagnostics.some(
         (d) =>
           d.code === TS_CODES.VALUE_ARRAY_WRITE_LOST &&

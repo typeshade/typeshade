@@ -101,6 +101,10 @@ const add = (s: State, t: Tracked): State => {
 export function checkDefiniteAssignment(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  /** The functions `TS8080` reads: the kernel functions whose `return` was not refused. A function
+   *  that cannot be a kernel has `TS8020` on its array parameter, and a refused `return` has
+   *  `TS8020` there (change 0138, Amendment A19, decisions 2 and 3). */
+  kernels: (fn: ts.Node) => boolean = () => true,
 ): void {
   const said = new Set<string>();
   const report = (node: ts.Node, message: string): void => {
@@ -122,7 +126,8 @@ export function checkDefiniteAssignment(
     const named =
       (ts.isFunctionDeclaration(fn) || ts.isMethodDeclaration(fn)) &&
       fn.name !== undefined &&
-      ts.isIdentifier(fn.name);
+      ts.isIdentifier(fn.name) &&
+      kernels(fn);
     for (const p of fn.parameters) {
       if (!ts.isIdentifier(p.name)) continue;
       // The call fills an `@out` array with zeros before the body runs, so the body may read it
