@@ -58,6 +58,42 @@ Likewise, test-only differential gates do not establish a delivered end-user div
 Each row is a PR series, not a deadline or a file-size target. Keep documentation and tests
 with each implementation slice. Record actual checks in that slice's PR.
 
+## Git branch strategy
+
+The owner requested branch-based execution on 2026-11-16: "진행은 깃브렌치 전략으로 하자."
+Use `main` as the integration baseline. Give each reviewable slice its own branch, worktree
+and pull request. Keep a branch focused on one responsibility and its tests and documentation.
+
+| Work                   | Branch                            | Review base                                         | Integration target             |
+| ---------------------- | --------------------------------- | --------------------------------------------------- | ------------------------------ |
+| Plan and status, #1282 | `codex/refactor-execution-plan`   | `main`                                              | `main`                         |
+| First R1 slice, #1283  | `codex/abstract-const-remedies`   | #1272's branch at the recorded head                 | `main`, after #1278 and #1272  |
+| Further R1 slices      | `codex/refactor-r1-<slice>`       | Updated `main`, or the specific prerequisite branch | `main`, after the prerequisite |
+| R2 through R5 slices   | `codex/refactor-r<stage>-<slice>` | Updated `main`, or the specific prerequisite branch | `main`, after the prerequisite |
+
+The future branch names are conventions; those branches do not exist until work starts.
+The plan branch records status and does not accumulate implementation commits.
+
+1. Fetch the integration baseline before starting a slice.
+2. Create its branch and separate worktree from the recorded base commit.
+3. Push its first reviewable commit and open a draft PR with its scope and dependencies.
+4. Push fixes to the same branch and record validation for the current head.
+5. Mark the PR ready when its required checks pass, following the repository's review rules.
+6. Integrate prerequisites before their dependent PRs.
+7. Retarget a dependent PR to `main` and verify that its diff contains only its own slice.
+8. Rerun affected checks after changing the base or resolving conflicts.
+9. Merge through the repository's approval and check requirements.
+10. Remove a completed worktree and branch only after verifying that its work is integrated and its worktree is clean.
+
+A dependent PR may temporarily target its prerequisite's branch to show the incremental diff.
+That target is for review only: do not merge the dependent work into the prerequisite branch.
+If a squash merge changes the prerequisite's ancestry, replay only the dependent commits onto
+the new `main`. Record the old and new heads, and use `--force-with-lease` only when updating
+that task branch after checking its remote head. Never rewrite `main` or another task's branch.
+
+Independent slices can start from `main` while a prerequisite waits. Work that changes the same
+analysis or resource contract follows its dependency order. R4 still waits for #1257's Buffer contract.
+
 ## First implementation boundary
 
 Constant tracking and use inference stay together. Candidate construction consumes their facts.
