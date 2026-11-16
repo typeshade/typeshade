@@ -16,6 +16,7 @@ import {
   compilingCheckedEdit,
   markProjectedAnnotations,
   projectedAnnotationStarts,
+  projectedReaderOf,
   reportAbstractDivisions,
   resetAbstractConsts,
   abstractConstFacts,
@@ -142,10 +143,6 @@ export interface CompileTsSourceOptions {
    *  file, `.js` and `.mjs` read as `.ts`, and `.ts` appended to any other path; any other
    *  specifier a package, found in `node_modules` through `readDocument` (surface §68). */
   readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
-  /** The offsets of the annotations the language service's projection wrote into the text
-   *  `readDocument` gives for `fileName` (`: u32` after an untyped getter), which are no written
-   *  type. Only the language service passes it. */
-  readonly projectedAnnotations?: (fileName: string) => readonly number[] | undefined;
 }
 
 /**
@@ -687,7 +684,12 @@ function compileLinked(
     true,
     ts.ScriptKind.TS,
   );
-  markLinkedProjections(sourceFile, entry, linked, options.projectedAnnotations);
+  markLinkedProjections(
+    sourceFile,
+    entry,
+    linked,
+    options.readDocument === undefined ? undefined : projectedReaderOf(options.readDocument),
+  );
   // A sentence names a declaration as its own file writes it, and says whether a name the
   // linker joined was declared in the file the sentence is about or imported into it.
   const origin: LinkedOrigin = {

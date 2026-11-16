@@ -57,10 +57,6 @@ export interface ImportHooks {
    *  Defaults to `resolveSpecifier` over `readDocument`, the rule the language service applies
    *  too: a relative path, or a package found in `node_modules` (`src/compiler/ts/specifier.ts`). */
   readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
-  /** The offsets of the annotations the language service's projection wrote into the text
-   *  `readDocument` gives for `fileName`, which are no written type (the third review of #1304,
-   *  B1). Only the language service passes it. */
-  readonly projectedAnnotations?: (fileName: string) => readonly number[] | undefined;
 }
 
 /** Whether `sourceFile` names another module at its top level, which is what sends a compile

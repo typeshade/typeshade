@@ -264,6 +264,30 @@ export function markProjectedAnnotations(
       starts.map((at, i) => ({ at, length: lengths[i] ?? 0 })),
     );
 }
+/** For a `readDocument` the language service passes the front end, the offsets of the
+ *  annotations its projection wrote into the text that reader gives for a file (`: u32` after an
+ *  untyped getter): no written type, in the program that links the file (the third review of
+ *  #1304, B1). Kept beside the reader, so no public option carries it. */
+const projectedReaders = new WeakMap<
+  (fileName: string) => string | undefined,
+  (fileName: string) => readonly number[] | undefined
+>();
+
+/** Records `offsets` as the projected annotations of each file `readDocument` reads. */
+export function markProjectedReader(
+  readDocument: (fileName: string) => string | undefined,
+  offsets: (fileName: string) => readonly number[] | undefined,
+): void {
+  projectedReaders.set(readDocument, offsets);
+}
+
+/** The projected annotations {@link markProjectedReader} recorded for `readDocument`. */
+export function projectedReaderOf(
+  readDocument: (fileName: string) => string | undefined,
+): ((fileName: string) => readonly number[] | undefined) | undefined {
+  return projectedReaders.get(readDocument);
+}
+
 /** The offsets {@link markProjectedAnnotations} recorded for `sourceFile`, if any. */
 export function projectedAnnotationStarts(
   sourceFile: ts.SourceFile,

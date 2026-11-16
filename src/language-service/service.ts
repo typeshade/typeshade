@@ -4,6 +4,7 @@ import { TS_CODES } from '../compiler/ts/codes.js';
 import {
   isAbstractDivisionRefusal,
   markProjectedAnnotations,
+  markProjectedReader,
 } from '../compiler/ts/abstract-const.js';
 import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import ts from 'typescript';
@@ -251,10 +252,10 @@ export function createTypeshadeLanguageServiceWith(
     readDocument: (uri) =>
       sourceFileOf(uri)?.text ?? tsHost.getDocumentText(uri) ?? tsHost.readOutsideProgram(uri),
     resolveImport: (fromUri, specifier) => tsHost.resolveImportUri(fromUri, specifier),
-    // An open document's text above is the projected one: the annotations the projection wrote
-    // into it are marked as no written type in the linked program (the third review of #1304).
-    projectedAnnotations: (uri) => tsHost.projectionOf(uri)?.insertionStarts(),
   };
+  // An open document's text above is the projected one: the annotations the projection wrote
+  // into it are marked as no written type in the linked program (the third review of #1304).
+  markProjectedReader(imports.readDocument!, (uri) => tsHost.projectionOf(uri)?.insertionStarts());
 
   /**
    * The cache key for everything computed about `uri` (design doc §8): its own script version
