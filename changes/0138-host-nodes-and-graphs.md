@@ -92,6 +92,7 @@ exports-removed:
   - Resident
 codes:
   - TS8079
+  - TS8080
 examples: []
 names: []
 downstream:
@@ -3502,6 +3503,95 @@ this amendment.
 - [fact] No review has read the revision that answers this review.
 
 - Affects: A13 decision 4 (the bundle budgets); A13's slice status table.
+- Status: `status: accepted` does not change.
+
+### A15. Slice 2: a write to a value array parameter, and `TS8075` on an `@out` array (2026-11-16)
+
+- [fact] Why. A10's open items for the owner name two points to ask before slice 2: new diagnostic
+  codes (Q-A, Q-F) and `TS8075` on an `@out` array (Q-A, "Open under Q-A"). The owner answered both on
+  2026-11-16, in the conversation. This amendment records the answers.
+- [fact] Baseline: `main` at `7e1c291e`.
+- [fact] This amendment adds `TS8080` to the front matter `codes`. It changes no rule text and no
+  code. Slice 2 changes Rules 8.23 and 8.25 and surface §65 and §70 in its own pull request.
+
+**The owner's answers.**
+
+- [decision, owner, 2026-11-16] The owner picked the recommended option of each question in the
+  question UI. The record has no other words. The labels and descriptions as the UI showed them, in
+  Korean, with English translations:
+  - Decision 1: "새 오류 코드로 거부 (추천)" (English translation: refuse with a new error code;
+    recommended). Description: "문구 예: `scale(): parameter "xs" is a value; its writes are lost.
+Write @inout xs to update the caller's array, or return xs.` 두 절반 모두 거부. 비용: 진단 코드
+    하나 추가(A15 수정안과 surface), 매개변수를 일부러 임시 공간으로 쓰는 코드도 거부됨(지역 배열로
+    바꿔 써야 함)." (English translation: example text …; both halves refuse; cost: one diagnostic
+    code (the A15 amendment and the surface); code that uses the parameter on purpose as scratch space
+    is refused too, and must use a local array.)
+  - Decision 2: "호출이 0으로 채움, 읽기 허용 (추천)" (English translation: the call fills it with
+    zeros; reads allowed; recommended). Description: "본문이 돌기 전에 호출이 @out 배열을 0으로
+    채웁니다. 지역 변수의 0 초기화(Rule 7.6)와 같은 방식이라, 예전 값은 절대 보이지 않고 모든 타깃에서
+    같은 결과입니다. OD-3(컴파일러가 일을 함)과 맞습니다. 비용: 호출마다 버퍼를 한 번 지움(GPU
+    clear는 싼 연산)." (English translation: before the body runs, the call fills the `@out` array with
+    zeros; as the zero initializer of a local (Rule 7.6), an old value is never visible and every
+    target gives one result; it fits OD-3; cost: one clear of the buffer for each call.)
+- [fact] The options not chosen:
+  - Decision 1: "경고만 (lint)" (a warning only; it is easy to ignore, and a warning channel must
+    agree on both halves) and "진단 없음" (no diagnostic; in-tree kernels migrate in the same pull
+    request, but a downstream repository can lose its writes silently at its next pin move).
+  - Decision 2: "쓰기 전용: 원소 읽기 거부" (write-only: a read of an element is refused with
+    `TS8075`, `.length` stays readable; a kernel that reads after it writes must use `@inout`) and
+    "검사 없음 (예전 값 보임)" (no check: a read before a write sees the caller's old value, and `@out`
+    becomes `@inout`).
+
+**Decision 1. A write to an array parameter with no qualifier that is not returned is refused
+(`TS8080`).**
+
+- What it means:
+  1. [proposal, agent, from the option's description] A kernel function's parameter of an array with
+     no size and no qualifier that the body writes (an element, a field of an element, or a push) and
+     that the function does not return on every path is refused with `TS8080`, on both halves (Rule
+     12.7).
+  2. The text names the parameter and the two remedies: `@inout` to update the caller's array, or
+     `return` of the parameter. The option's example is the model: `scale(): parameter "xs" is a
+value; its writes are lost. Write @inout xs to update the caller's array, or return xs.`
+  3. [inference, agent] A body that uses the parameter as scratch space on purpose writes a local
+     array instead. This is the cost the owner accepted.
+  4. [inference, agent] A parameter the body only reads is not refused (Q-A, "A parameter that the
+     body only reads needs no copy").
+  5. [fact] The code `TS8080` is the next free code at `7e1c291e` (`src/compiler/ts/codes.ts` ends at
+     `TS8079` before `TS8099`). Slice 2 adds it with its rule and surface text.
+- [fact] The other candidate codes of A10's open items (a returned array that is not a parameter, a
+  returned pushed array, two parameters returned on different paths) belong to slice 3. They stay
+  open and are asked before slice 3.
+
+**Decision 2. An `@out` array starts at zero; the body may read it.**
+
+- What it means:
+  1. Before the body runs, the call fills each `@out` array argument with the zero of its element
+     type, on every target. The caller's old values are never visible to the body.
+  2. [inference, agent] So an `@out` array is written whole before the body reads it, as Rule 8.25
+     asks, and `TS8075` refuses no read of its elements. `TS8075` still applies to an `@out`
+     parameter that is not an array.
+  3. [inference, agent] After the call, an element the body did not write is zero.
+  4. [fact] Cost: one clear of the argument's storage for each call. Slice 6 may remove a clear it
+     proves dead (R14).
+  5. Rule 12.7: slice 2 tests the zero start and a read after a write on both halves and on each tier.
+
+**Open items.**
+
+| Item                                                                                                                                            | Source         | Next action                                   |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | --------------------------------------------- |
+| The candidate codes of slice 3 (a returned array that is not a parameter, a returned pushed array, two parameters returned on different paths). | A10 open items | Ask the owner before slice 3.                 |
+| D-p: which slice closes it.                                                                                                                     | A13, A14       | Ask the owner when slices 2 to 6 are planned. |
+
+**Open, owner must settle.**
+
+- [fact] Nothing for A15's own decisions.
+- [inference, agent] Decision 2 follows OD-3: the compiler and the runtime do the work. Decision 1
+  adds a refusal, not a construct; OD-3 is not reversed. No decision conflicts with OD-1 to OD-8.
+
+- Affects: A10 Q-A ("Open under Q-A"; the agent's inference on an unmigrated kernel) and A10's open
+  items for the owner; Rules 8.23 and 8.25 and surface §65 and §70 (slice 2); the front matter
+  `codes`.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
