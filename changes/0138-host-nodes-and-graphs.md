@@ -3853,6 +3853,137 @@ WebGPU)`. `TypeNN candidate (build + CPU)`, which is not required, failed.
 - Affects: A16 decision 4 (the bundle sizes after the review fixes); A14's slice status table.
 - Status: `status: accepted` does not change.
 
+### A19. Slice 3: the plan for a kernel that returns an array (2026-11-16)
+
+- [fact] Why. Slice 3 of A10's slice table is "Array returns (Q-A, Q-F)". A10, A15 and A16 leave
+  four points open before it starts: the candidate diagnostic codes, the return remedy in the text
+  of `TS8080`, the slice that closes D-p, and review findings 4 and 5 of #1310 (A18).
+- [fact] Baseline: `main` at `e7653735` (#1313, Amendment A18).
+- [fact] This amendment changes no front matter, no rule text and no code. The pull request of
+  slice 3 carries them.
+- [fact] Who decided. The owner's instruction of 2026-11-16, in the conversation: "물어볼 때 추천이
+  있으면 그냥 물어보지 말고 추천으로 진행해요. 이 코드베이스의 주인이자 장기적인 메인테이너는
+  당신이니까요." (English translation: when you ask and have a recommendation, do not ask; go ahead
+  with the recommendation. You are the owner and long-term maintainer of this codebase.) Each
+  decision below is the agent's recommended option, taken under that instruction and reported to
+  the owner. The owner can reverse any of them.
+
+**The example, before and after (OD-4).**
+
+- [observed result] On 2026-11-16, at `main` `e7653735`, `compile()` refuses each function below
+  with `TS8020` ("This function returns array<f32>, an array with no size, which lives only in a
+  storage binding …"): a returned value parameter, a returned `@inout` parameter, two parameters
+  returned on different paths, and a returned array that a loop pushes onto.
+- Before slice 3, an author who wants the stepped values writes `@inout` and loses the old values:
+
+```ts
+export function step(@inout ps: array<f32>, dt: f32): void {
+  for (let i: u32 = 0; i < ps.length; i++) ps[i] = ps[i] + dt;
+}
+// host
+await step(old, 1 / 60); // old is overwritten
+```
+
+- After slice 3, the author can also write a return, and the caller's array keeps its values (A10
+  Q-A, items 1 and 2):
+
+```ts
+export function step(ps: array<f32>, dt: f32): array<f32> {
+  for (let i: u32 = 0; i < ps.length; i++) ps[i] = ps[i] + dt;
+  return ps;
+}
+// host
+const next = await step(old, 1 / 60); // a new array; old keeps its values
+const held = step(buffer, 1 / 60); // a Buffer argument gives a new Buffer, on the call's device
+```
+
+- [fact] The `@inout` form stays valid and unchanged. No in-tree example must change.
+
+**Decision 1. What a kernel may return.**
+
+- [decision, agent, 2026-11-16] A kernel function may return one of its parameters of an array with
+  no size and no qualifier, and the same parameter on every path that returns. The call copies the
+  argument first and writes the copy (A10 Q-A item 2). The result has the argument's length and
+  class, on the call's device (A10 Q-F items 1 and 2).
+- [fact] It rests on A10 Q-A and Q-F, Rule 8.23 and OD-5. A value parameter that the body only reads
+  and does not return still passes the caller's storage with no copy (Rule 8.23).
+- [fact] A function that cannot be a kernel (a helper, a method, an entry) keeps today's `TS8020` on
+  a parameter and on a return of an array with no size (Rule 12.6).
+
+**Decision 2. No new diagnostic code; the refused returns are `TS8020` with their own text.**
+
+- [decision, agent, 2026-11-16] Slice 3 adds no code. A10's three candidates are handled as follows.
+  The reason is OD-3 (the language stays small): `TS8020` is already the code of "this function
+  cannot return this array", and a second code would name the same refusal.
+
+| Candidate of A10                               | Handling                                                                                                                                                                                                                          |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A returned array that is not a parameter.      | `TS8020`, with a text that names the function and says a kernel returns one of its array parameters.                                                                                                                              |
+| A returned pushed array (Q-F item 3).          | No new refusal is needed. A push to a value array is `TS8080` already, also when the array is returned (A15). A pushed array is therefore `@inout`, and the next row refuses its return.                                          |
+| Two parameters returned on different paths.    | `TS8020`, with a text that names both parameters and says a kernel returns one array parameter on every path.                                                                                                                     |
+| (new) A returned `@inout` or `@out` parameter. | `TS8020`, with a text that says the call already updates the caller's array, and offers both edits: remove the `return`, or remove the qualifier to get a new array. A10 Q-A refused the alias reading (option (d)) of this form. |
+
+- [proposal, agent] The texts, to be settled in the pull request of slice 3 (Rule 12.5: the place,
+  the reason, the edit):
+  - `step(): "return tmp" returns an array that is no parameter. A kernel returns one of its array parameters, and the result has that argument's length. Write "return ps".`
+  - `pick(): returns "a" on one path and "b" on another. A kernel returns one array parameter on every path.`
+  - `step(): parameter "ps" is @inout, so the call already updates the caller's array. Remove "return ps", or remove @inout to return a new array.`
+- [fact] Each refusal is asserted in both halves on one source (Rule 12.7; CLAUDE.md, A test reads
+  both halves).
+
+**Decision 3. The text of `TS8080` offers the return again, in a kernel only.**
+
+- [decision, agent, 2026-11-16] In a function that can be a kernel, the text is A15's: `scale():
+parameter "xs" is a value; its writes are lost. Write @inout xs to update the caller's array, or
+return xs.` This carries out A16 decision 3's proposal. `ARRAY_RETURN_ALLOWED` becomes a fact of
+  the function, not a constant.
+- [decision, agent, 2026-11-16] Review finding 4 of #1310: a function that cannot be a kernel reports
+  only `TS8020` for its parameter of an array with no size, and no `TS8080` beside it. One mistake
+  gets one diagnostic (Rule 12.4).
+- [decision, agent, 2026-11-16] Review finding 5 of #1310: a write that only the lowered body shows
+  (a method on an element that changes its object) is judged path by path, as `definite.ts` judges a
+  written one. Where the lowered body cannot give paths, the write is refused unless every `return`
+  returns the parameter.
+
+**Decision 4. D-p closes in slice 3, in its own pull request.**
+
+- [decision, agent, 2026-11-16] D-p (A13 decision 2: a `Record` field in the struct of an `array<S,
+N>` result is refused at the call) is closed after the array-return pull request, as slice 3b.
+  [inference, agent] Both concern the layout of a kernel's result, and slice 4 records calls with
+  their results, so a result form left refused would need a second pass over the executor.
+- [fact] D-p stays open until that pull request merges.
+
+**The work of slice 3, in order.**
+
+1. Front end: accept the return of decision 1; refuse the forms of decision 2; change the text of
+   decision 3; both halves.
+2. Face and host view: the kernel's result is an array of the parameter's element; a plain argument
+   gives a promise of a new array of the argument's class, and a `Buffer` argument gives a `Buffer`.
+3. Runtime: copy first, then write the copy, on the CPU tier, WebGPU and WebGL2; the result on the
+   call's device.
+4. Rule 8.22, Rule 8.23 and surface §65 and §70; the Doorstop items they change.
+5. Tests of both halves, the CPU tier against the oracle, and the import journey on WebGPU.
+6. Slice 3b: D-p.
+
+**Open items.**
+
+| Item                                                                                           | Source                   | Next action                                               |
+| ---------------------------------------------------------------------------------------------- | ------------------------ | --------------------------------------------------------- |
+| The final wording of the three `TS8020` texts.                                                 | Decision 2               | The pull request of slice 3 shows them to the owner.      |
+| The copy of a returned array where nothing reads the old value.                                | A10 Q-A                  | Slice 6 removes it where proven dead (A10's slice table). |
+| A returned array inside a `fuse` plan.                                                         | A10                      | Slices 4 and 5.                                           |
+| The site's pin and examples (`typeshade/web`): the agent recommended one update after slice 5. | Conversation, 2026-11-16 | Reported to the owner; no answer recorded yet.            |
+
+**Open, owner must settle.**
+
+- [fact] Nothing blocks slice 3. The owner can reverse any decision above.
+- [inference, agent] No decision conflicts with an entry of `docs/owner-decisions.md`: OD-3 (no new
+  code), OD-4 (the example above), OD-5 (`@inout` and `@out` keep their spelling and meaning).
+
+- Affects: A10's open-items row "New diagnostic codes" (closed for slice 3: none is added); A16
+  decision 3 (the return remedy, in kernels); A18's open items (findings 4 and 5, D-p).
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground
