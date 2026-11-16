@@ -21,7 +21,7 @@
 //     the two apart where `array<T>` asks, as it tells a `mat2x3` from a `mat3x2`.
 //   - `array<T>` is what a kernel function's array with no size takes: the typed array of the
 //     scalar of `T`, a vector's components one after another, or an array of structs, each with
-//     its `Resident` (decision D3). `array<T, N>` is a `readonly T[]` (decision D4).
+//     a `Buffer` of it (decision D3; change 0138, Amendment A10, Q-I). `array<T, N>` is a `readonly T[]` (decision D4).
 //
 // No name is declared for a type that has no host value: an atomic, a texture, a sampler, a
 // binding, an override, a workgroup variable. A struct, an enum, a key type and a `Record` keep
@@ -31,7 +31,7 @@
 //
 // Types only: nothing here is a value, so this file adds no byte to a bundle.
 
-import type { Resident } from '../core/resident.js';
+import type { Buffer } from './resource.js';
 
 /** The key of the phantom property that holds a shader name. It is declared and never made: no
  *  value has the property, and no value of the family needs it. */
@@ -213,21 +213,26 @@ type Packed<T> = [NameOf<T>] extends [never]
     : never
   : Typed<NameOf<T>>;
 
+/** The scalar of a vector `T`, whose `Buffer` an array of `T` also takes (Amendment A11, Q5). */
+type ScalarOf<T> = T extends readonly (infer E)[] ? E : never;
+
 /** An array with no size of `T` on the host: its typed array, or a `readonly T[]` where `T` has
- *  none, each also as a {@link Resident} of it (decision D3). */
+ *  none; and for a scalar or a vector `T` a `Buffer` of it, and for a vector also a `Buffer` of its
+ *  scalar whose length is a whole number of vectors (change 0138, Amendments A10, Q-I, and A11,
+ *  Q5). An array of structs is a `Buffer` only of a class (A11, Q4), which the host view adds. */
 type Unsized<T> = [Packed<T>] extends [never]
-  ? readonly T[] | Resident<T[]>
-  : Packed<T> | Resident<Packed<T>>;
+  ? readonly T[]
+  : Packed<T> | Buffer<T> | ([NameOf<T>] extends [never] ? Buffer<ScalarOf<T>> : never);
 
 /**
  * An `array<T>` with no size as a host value, what a kernel function's array takes (Rule 8.21):
  * the typed array of the scalar of `T` (`Float32Array` for `f32`, `Float64Array` for `f64`,
  * `Int32Array` for `i32`, `Uint32Array` for `u32`), the same for a vector `T` with its
  * components one after another, and a `readonly T[]` for any other `T`, a struct or a matrix;
- * each also as a {@link Resident} of it (decision D3). `array<T, N>`, an array with a size, is a
+ * for a scalar or a vector `T` also a `Buffer` of it, and for a vector a `Buffer` of its scalar
+ * (change 0138, Amendments A10, Q-I, and A11, Q5). `array<T, N>`, an array with a size, is a
  * `readonly T[]` of `N` values (decision D4).
  *
- * A variable that holds a resident array keeps the `Resident` spelling:
- * `Resident<Float32Array>`.
+ * A variable that holds an array on the device is a `Buffer`: `Buffer<f32>`.
  */
 export type array<T, N extends number = number> = number extends N ? Unsized<T> : readonly T[];

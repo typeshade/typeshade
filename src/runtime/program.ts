@@ -21,7 +21,10 @@ import {
   type GpuDevice,
   type Layout,
 } from '../core/host-entry.js';
-import { residentState, type Resident } from '../core/resident.js';
+import { decide, geometryKind, layoutKind, residentState, tentatively } from '../core/resident.js';
+import { hostSite } from '../core/submission.js';
+import type { Buffer } from './resource.js';
+import type { f32, i32, u32 } from './host-types.js';
 import { VERSION } from '../core/version.js';
 import {
   PACK_SCHEMA,
@@ -53,11 +56,13 @@ import { cpuProgramOf } from './cpu-program.js';
 import type { DepthAttachment, PassTargets, RuntimeImpl } from './runtime.js';
 
 /** A draw or dispatch binds values by the names the source declares. Each is a `Texture`, a
- *  `Sampler`, a `Resident`, a plain host value (Rule 8.21), or a host GPU object (below).
+ *  `Sampler`, a `Buffer` of scalars for a buffer binding, a plain host value (Rule 8.21), or a
+ *  host GPU object (below). A `Buffer` binds to any buffer binding, a uniform and a sized storage
+ *  binding among them: deviation D-l, recorded on #1257 and open (change 0138, Amendment A11, Q3).
  *
  *  A plain value is packed by the binding's layout into its own buffer at each draw and dispatch.
  *  Draws of one pass that bind different values of one binding each read their own. The buffers
- *  return to the runtime once the frame has run. A `Resident` is one buffer every draw shares. A
+ *  return to the runtime once the frame has run. A `Buffer` is one buffer every draw shares. A
  *  draw names only the bindings its entries reach. A name they do not reach is refused.
  *
  *  Escape hatch (Rule 11.17): on WebGPU, a host `GPUBuffer`, `GPUSampler` or `GPUTextureView` is
@@ -327,7 +332,7 @@ export interface RenderState {
 }
 
 /** What a draw draws: `count` vertices (or indices), `instances` times, from the vertex buffer
- *  the manifest lays out. A typed array is uploaded at the draw; a `Resident` is uploaded on its
+ *  the manifest lays out. A typed array is uploaded at the draw; a `Buffer` is uploaded on its
  *  first use and bound as it is after (change 0053); a `GPUBuffer` is bound as is. */
 export interface Geometry {
   /** How many vertices, or indices when `indices` is given. */
@@ -335,27 +340,25 @@ export interface Geometry {
   /** How many instances: 1 when omitted. */
   readonly instances?: number;
   /** The vertex buffer, laid out as the manifest's vertex entry reads it (its `@location`
-   *  inputs, tightly packed): a typed array, uploaded at each draw; a `Resident` of a
-   *  `Float32Array`, `Int32Array` or `Uint32Array`, uploaded once; or the host's `GPUBuffer`.
+   *  inputs, tightly packed): a typed array, uploaded at each draw; a `Buffer<f32>`, `Buffer<i32>`
+   *  or `Buffer<u32>`, uploaded once (change 0138, Amendment A11, Q3), a `Buffer<number>` among
+   *  them, whose element the attributes' scalar fixes (Amendment A12, D3); or the host's
+   *  `GPUBuffer`.
    *  Omitted for a vertex entry with no `@location` input, such as a full-screen triangle drawn
    *  from `vertex_index`.
    *  Escape hatch (Rule 11.17): a host `GPUBuffer`, or on WebGL2 a `WebGLBuffer`, bound
    *  as it is. */
-  readonly vertices?:
-    | ArrayBufferView
-    | Resident<Float32Array>
-    | Resident<Int32Array>
-    | Resident<Uint32Array>
-    | object;
-  /** The index buffer: a `Uint16Array` or `Uint32Array`, uploaded at each draw; a `Resident` of a
-   *  `Uint32Array`, uploaded once, its format `uint32`; or `{ buffer, format }`, the host's
+  readonly vertices?: ArrayBufferView | Buffer<f32> | Buffer<i32> | Buffer<u32> | object;
+  /** The index buffer: a `Uint16Array` or `Uint32Array`, uploaded at each draw; a `Buffer<u32>`,
+   *  uploaded once, its format `uint32`, a `Buffer<number>` among them, which it fixes as `u32`
+   *  (Amendment A12, D3); or `{ buffer, format }`, the host's
    *  `GPUBuffer` bound as it is.
    *  Escape hatch (Rule 11.17): a host `GPUBuffer`, or on WebGL2 a `WebGLBuffer`, as the
    *  `buffer` of `{ buffer, format }`. */
   readonly indices?:
     | Uint16Array
     | Uint32Array
-    | Resident<Uint32Array>
+    | Buffer<u32>
     | { readonly buffer: object; readonly format: 'uint16' | 'uint32' };
 }
 
@@ -1820,6 +1823,16 @@ export class ProgramImpl implements Program {
               .join(', ') || 'nothing'
           }.`,
         );
+    // A binding the check refuses leaves every element it fixed open (Amendment A12, D2).
+    return tentatively(() => this.#groups(shape, entry, values, consoleBuffer));
+  }
+
+  #groups(
+    shape: PipelineShape,
+    entry: PackEntry,
+    values: Bindings,
+    consoleBuffer: RhiBuffer | undefined,
+  ): RhiBindGroup[] {
     return shape.groups.map((g) => {
       const resources: { binding: number; resource: RhiBindResource }[] = [];
       const key: (number | string)[] = [];
@@ -1858,9 +1871,11 @@ export class ProgramImpl implements Program {
       const state = residentState(v);
       if (state !== undefined && this.device.backend === 'cpu')
         throw new TypeError(
-          `${where} is a Resident, which the program runtime's CPU tier does not bind yet; pass its host value (change 0120, milestone M4).`,
+          `${where} is a Buffer, which the program runtime's CPU tier does not bind yet; pass its host value (change 0120, milestone M4).`,
         );
       if (state !== undefined) {
+        // The binding fixes an open element as its scalar (Amendment A12, D-l).
+        decide(state, s.layout === undefined ? undefined : layoutKind(s.layout), where, hostSite);
         // One buffer of both layers (change 0025): the Resident's, uploaded on its first use.
         if (s.layout === undefined)
           throw new TypeError(
@@ -1990,6 +2005,11 @@ export class ComputePipelineImpl implements ComputePipeline {
   }
 
   dispatch(target: object, bindings: Bindings, workgroups: number | readonly number[]): void {
+    // A dispatch the checks refuse fixes no open element (change 0138, Amendment A12, D2).
+    tentatively(() => this.#dispatch(target, bindings, workgroups));
+  }
+
+  #dispatch(target: object, bindings: Bindings, workgroups: number | readonly number[]): void {
     const wg = workgroupsOf(this.e, workgroups);
     const rt = this.program.rt;
     // The checks run before the console buffer is taken, so a refused call leaves no row (R5, R6).
@@ -2078,6 +2098,12 @@ export class RenderPipelineImpl implements RenderPipeline {
   }
 
   draw(target: object, bindings: Bindings, geometry: Geometry): void {
+    // A draw the checks refuse, its geometry's among them, fixes no open element (change 0138,
+    // Amendment A12, D2).
+    tentatively(() => this.#draw(target, bindings, geometry));
+  }
+
+  #draw(target: object, bindings: Bindings, geometry: Geometry): void {
     const rhi = this.program.device;
     // A frame's pass records into its RHI pass; a host's own pass is taken as it is.
     const pass =
@@ -2163,6 +2189,13 @@ export class RenderPipelineImpl implements RenderPipeline {
   #resident(v: unknown, field: 'indices' | 'vertices', entry: PackEntry): RhiBuffer | undefined {
     const state = residentState(v);
     if (state === undefined) return undefined;
+    // The geometry fixes an open element (change 0138, Amendment A12, D3).
+    decide(
+      state,
+      geometryKind(field, entry.vertex?.attributes),
+      `"${entry.name}"${at(entry)}: the geometry's ${field}`,
+      hostSite,
+    );
     const host = state.view();
     const takes =
       field === 'indices'
@@ -2170,10 +2203,10 @@ export class RenderPipelineImpl implements RenderPipeline {
         : host instanceof Float32Array || host instanceof Int32Array || host instanceof Uint32Array;
     if (!takes)
       throw new TypeError(
-        `"${entry.name}"${at(entry)}: the geometry's ${field} is a Resident of ${describe(host)}; ${
+        `"${entry.name}"${at(entry)}: the geometry's ${field} is a Buffer of ${describe(host)}; ${
           field === 'indices'
-            ? 'indices take a Resident of a Uint32Array'
-            : 'vertices take a Resident of a Float32Array, an Int32Array or a Uint32Array'
+            ? 'indices take a Buffer<u32>'
+            : 'vertices take a Buffer<f32>, a Buffer<i32> or a Buffer<u32>'
         }.`,
       );
     const t = host instanceof Float32Array ? 'f32' : host instanceof Int32Array ? 'i32' : 'u32';

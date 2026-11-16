@@ -578,9 +578,12 @@ function entryBindings(
   | {
       bindings: DrawBinding[];
       types: string[];
-      /** A compute entry's bindings as the call that only queues takes them: each written
-       *  storage array with no size a `Resident` alone. */
+      /** A full-screen draw's bindings, which take a `Buffer` of a storage array too. */
+      draw: string[];
+      /** A compute entry's bindings as a call on a resource takes them (`bindingsTypes`). */
       queued: string[];
+      /** And as a call on a resource that waits takes them (Amendment A11, Q7). */
+      waiting: string[];
       closure: ReadonlySet<string>;
     }
   | { none: string } {
@@ -647,12 +650,14 @@ function namedBindings(
   typeOf: (name: string) => ShaderType | undefined,
   naming: Naming,
 ): HostExport {
-  const { types, queued } = bindingsTypes(e.entry.bindings, typeOf, naming);
-  if (e.kind === 'fragment') return { ...e, bindingsType: objectType(types) };
+  const { types, draw, queued, waiting } = bindingsTypes(e.entry.bindings, typeOf, naming);
+  if (e.kind === 'fragment') return { ...e, bindingsType: objectType(draw) };
   return {
     ...e,
     bindingsType: objectType(types),
-    ...(e.queuedType !== undefined ? { queuedType: objectType(queued) } : {}),
+    ...(e.queuedType !== undefined
+      ? { queuedType: objectType(queued), waitingType: objectType(waiting) }
+      : {}),
   };
 }
 
@@ -693,7 +698,7 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       return never(name, `parameter "${p.name}" is not a builtin the call can fill in`);
   const reached = entryBindings(f, c);
   if ('none' in reached) return never(name, reached.none);
-  const { bindings, types, queued, closure } = reached;
+  const { bindings, types, queued, waiting, closure } = reached;
   if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
   const barrier = barrierIn(closure, c.byName, x.declared);
   const noCpu = noCpuTier(closure, bindings, c);
@@ -740,12 +745,13 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ...gl,
     },
     bindingsType: objectType(types),
-    // With every written binding a `Resident`, nothing waits: the call only queues.
+    // With every written binding a storage array with no size, a call may take it as a `Buffer`
+    // and not block (change 0138, R2), or as its plain value and wait (Amendment A11, Q7).
     ...(bindings.some((b) => isBufferBinding(b) && b.writes) &&
     bindings.every(
       (b) => !isBufferBinding(b) || !b.writes || (b.layout.k === 'a' && b.layout.n === null),
     )
-      ? { queuedType: objectType(queued) }
+      ? { queuedType: objectType(queued), waitingType: objectType(waiting) }
       : {}),
   };
 }
@@ -780,7 +786,7 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   if (out === undefined) return never(name, REASON.fragmentOutput);
   const reached = entryBindings(f, c);
   if ('none' in reached) return never(name, reached.none);
-  const { bindings, types, closure } = reached;
+  const { bindings, draw: drawTypes, closure } = reached;
   if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
   const draw = glDrawOf(x.module, f, bindings, closure, c.byName, x.declared);
   const gl =
@@ -800,7 +806,7 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ...(noCpu !== undefined ? { noCpu } : {}),
       ...gl,
     },
-    bindingsType: objectType(types),
+    bindingsType: objectType(drawTypes),
   };
 }
 
@@ -891,6 +897,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     if (p.type.kind === 'array' && p.type.size === undefined) {
       const layout = layoutOf(p.type, 'std430', c.structs, authorTypeText);
       if ('none' in layout) return never(name, `parameter "${p.name}": ${layout.none}`);
+      // An `array<K>` takes a `Buffer<K>` of the same key (change 0138, Amendment A12, B2-2).
+      const keys = p.type.elem.kind === 'scalar' ? keysOf(p.type.elem) : undefined;
       params.push({
         name: p.name,
         k: 'array',
@@ -898,6 +906,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         writes: written.has(p.name),
         s: spell(p.type),
         ...(pushedArrays.has(p.name) ? { pushed: true as const } : {}),
+        ...(keys !== undefined ? { keys } : {}),
       });
       continue;
     }

@@ -10,7 +10,7 @@ import { compile } from './compile.js';
 import { hostFace } from './host-face.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { checkCall } from '../../core/host-kernel.js';
-import { resident } from '../../core/resident.js';
+import { array } from '../../runtime.js';
 
 function face(body: string) {
   const source = `"use typeshade";\n${body}`;
@@ -112,7 +112,7 @@ export function k(out: array<u32>, x: array<u32>): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = x.length;
 }`);
       const view = new Float32Array(32).subarray(4, element === 'f32' ? 7 : 16);
-      const held = resident(view);
+      const held = array(view);
       try {
         for (const argument of [view, held]) {
           const checked = checkCall(cpu, { ...kernel, gpu: undefined }, 2, [
@@ -122,7 +122,7 @@ export function k(out: array<u32>, x: array<u32>): void {
           expect(checked.values).toEqual([2, 3]);
         }
       } finally {
-        held.destroy();
+        held.dispose();
       }
     }
   });
@@ -139,7 +139,7 @@ export function k(out: array<u32>, x: array<u32>): void {
     expect(() => checkCall(cpu, checked, 2, [new Uint32Array(0), new Float32Array(1)])).toThrow(
       'k(): parameter "out" (array<u32>): got an empty array, which WebGPU cannot bind.',
     );
-    const count = resident(new Uint32Array([1]));
+    const count = array(new Uint32Array([1]));
     try {
       expect(() =>
         checkCall(cpu, checked, 2, [
@@ -150,7 +150,7 @@ export function k(out: array<u32>, x: array<u32>): void {
         'k(): parameter "x" is an array no loop pushes onto, so it takes no { array, length, offset? }. Pass the array itself.',
       );
     } finally {
-      count.destroy();
+      count.dispose();
     }
   });
 

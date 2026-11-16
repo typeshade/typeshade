@@ -4,7 +4,8 @@
 // baseline f826ece5 refused all 10 WebGL2 calls with "arrayLength has no GLSL ES 3.00
 // spelling"; its 20 WebGPU/CPU controls passed. This fix passes all 30 exact readbacks,
 // including an actual input-length perturbation from 3 to 4 on each tier.
-import { createDevice, type Resident } from '../src/runtime.js';
+import { createDevice, type Buffer } from '../src/runtime.js';
+import type { u32 } from '../src/runtime/host-types.js';
 
 export const KERNEL_LENGTH_SOURCE = `"use typeshade";
 interface Item { value: vec4; flag: u32; }
@@ -26,11 +27,11 @@ export function dynamic(out: array<u32>, count: array<u32>, x: array<f32>): void
 `;
 
 export interface KernelLengthModule {
-  readonly measure: (out: Resident<Uint32Array>, x: unknown) => Promise<void>;
-  readonly own: (out: Resident<Uint32Array>, x: unknown) => Promise<void>;
-  readonly vector: (out: Resident<Uint32Array>, x: unknown) => Promise<void>;
-  readonly record: (out: Resident<Uint32Array>, x: unknown) => Promise<void>;
-  readonly dynamic: (out: Resident<Uint32Array>, count: Uint32Array, x: unknown) => Promise<void>;
+  readonly measure: (out: Buffer<u32>, x: unknown) => Promise<void>;
+  readonly own: (out: Buffer<u32>, x: unknown) => Promise<void>;
+  readonly vector: (out: Buffer<u32>, x: unknown) => Promise<void>;
+  readonly record: (out: Buffer<u32>, x: unknown) => Promise<void>;
+  readonly dynamic: (out: Buffer<u32>, count: Uint32Array, x: unknown) => Promise<void>;
 }
 type Tier = 'webgpu' | 'webgl2' | 'cpu';
 interface Readback {
@@ -70,7 +71,7 @@ export async function runKernelLengths(module: KernelLengthModule): Promise<Kern
       const held = device.array(subarray);
       const draw = async (
         name: string,
-        call: (out: Resident<Uint32Array>) => Promise<void>,
+        call: (out: Buffer<u32>) => Promise<void>,
       ): Promise<void> => {
         const out = device.array(new Uint32Array(5).fill(99));
         try {
@@ -79,7 +80,7 @@ export async function runKernelLengths(module: KernelLengthModule): Promise<Kern
         } catch (error) {
           rows.push({ name, tier, error: error instanceof Error ? error.message : String(error) });
         } finally {
-          out.destroy();
+          out.dispose();
         }
       };
       await draw('subarray', (out) => module.measure(out, subarray));
@@ -92,14 +93,14 @@ export async function runKernelLengths(module: KernelLengthModule): Promise<Kern
         ]),
       );
       await draw('resident', (out) => module.measure(out, held));
-      held.write(new Float32Array(4));
+      held.set(new Float32Array(4));
       await draw('resized', (out) => module.measure(out, held));
       await draw('dynamic', (out) => module.dynamic(out, new Uint32Array([2]), subarray));
       await draw('clipped', (out) => module.dynamic(out, new Uint32Array([8]), subarray));
       await draw('zeroRange', (out) => module.dynamic(out, new Uint32Array([0]), subarray));
       // Actual changed input, not a fabricated result: it must differ from the subarray call.
       await draw('perturbed', (out) => module.measure(out, new Float32Array(4)));
-      held.destroy();
+      held.dispose();
     } finally {
       await device.dispose();
     }

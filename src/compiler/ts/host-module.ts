@@ -1,10 +1,20 @@
 // Generate executable JavaScript from the analyzed host exports. No source analysis is performed here.
 import type { ConsoleLog } from '../../core/console.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
+import type { HostType } from '../../core/host-values.js';
 import { type Pack } from '../../core/manifest.js';
 import { hostContentReads } from './host-content-access.js';
 import { type ClassExport, type FaceExport, type MemberCall } from './host-face-contracts.js';
 import { REASON, baseClass, header, isRefused } from './host-face-shared.js';
+
+/** Whether a result of type `t` holds an `array<S, N>` of structs, whose `Buffer<S>` reads
+ *  instances of an exported class (Amendment A12, Q6). */
+function holdsStructs(t: HostType): boolean {
+  if (t.k === 'arr') return t.e.k === 'struct';
+  if (t.k === 'struct') return t.f.some(([, ft]) => holdsStructs(ft));
+  if (t.k === 'rec') return holdsStructs(t.e);
+  return false;
+}
 
 // ─── the generated module ────────────────────────────────────────────────────────────────────
 
@@ -151,8 +161,14 @@ export function moduleText(
         const id = `__ts_e${t++}`;
         const reads = `__ts_reads${t}`;
         const ps = e.face.params.map((_, i) => `__ts_p${i}`);
+        // A result `Buffer<S>` reads instances of `S`'s exported class (change 0138, Amendment
+        // A12, Q6): the face is handed the classes' prototypes.
+        const face =
+          classes.length > 0 && holdsStructs(e.face.result)
+            ? `{ ...${JSON.stringify(e.face)}, P: () => __ts_P }`
+            : JSON.stringify(e.face);
         out.push(
-          `const ${id} = ${JSON.stringify(e.face)};`,
+          `const ${id} = ${face};`,
           `const ${reads} = ${JSON.stringify([...contentReads.get(e.face.fn)!.params])};`,
           ...callable(e.name, ps, [
             `return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}], ${reads});`,

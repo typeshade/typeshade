@@ -54,7 +54,7 @@ The call contract must, however, make asynchronous GPU readback observable.
 | User                     | Surface                                                                  | Promise                                                              |
 | ------------------------ | ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
 | Application author       | Ordinary imported TypeShade-powered functions or a published npm library | Use results without learning GPU plumbing                            |
-| Numerical/library author | Imported functions plus `resident()`                                     | Reuse device-side values across calls and read explicitly            |
+| Numerical/library author | Imported functions plus `array()`                                        | Reuse device-side values across calls and read explicitly            |
 | Engine author            | `typeshade/runtime`, `packModule()`, `reflect()`                         | Own frame/pass structure and interoperate with GPU resources         |
 | Compiler/back-end author | Typed IR, passes, emitters, CPU oracle                                   | Extend targets and optimization under an explicit semantics contract |
 
@@ -78,8 +78,8 @@ or a freshly executed test suite.
 | Per-function IR optimization                                                                     | Implemented                                     | `src/core/passes/opt/`; constants, DCE, CSE, GVN, LICM and related passes, not cross-call graph fusion                                                                                  |
 | Resource layout and capability checks                                                            | Implemented                                     | `src/core/manifest-types.ts`, `src/core/backend.ts`, `reflect()`; target limits still differ                                                                                            |
 | Import from an ordinary TS/Vite host                                                             | Implemented, scoped                             | `src/compiler/ts/host-face.ts` and `src/vite.ts`; does not establish a bundler-free Node GPU deployment                                                                                 |
-| Device residency and host read/write                                                             | Implemented                                     | `src/core/resident.ts`; `read()`, whole-value `write()`, `destroy()`, ordered calls                                                                                                     |
-| Partial resident writes                                                                          | Proposal                                        | `changes/0048-partial-buffer-write.md` is a draft; no current partial-write overload in `Resident`                                                                                      |
+| Device residency and host read/write                                                             | Implemented                                     | `src/core/resident.ts`; `read()`, whole-value `set()`, `dispose()`, ordered calls                                                                                                       |
+| Partial resident writes                                                                          | Proposal                                        | `changes/0048-partial-buffer-write.md` is a draft; no current partial-write overload in `Buffer`                                                                                        |
 | Program runtime and render/compute passes                                                        | Implemented                                     | `src/runtime/runtime.ts`, `src/runtime/program.ts`; user journey `journeys/engine/engine.mjs` has shadow, scene and tone-map passes                                                     |
 | WebGL2 compute                                                                                   | Implemented, target-specific                    | `src/core/gl-compute.ts` and `src/runtime/gl.ts` (change 0054); phased execution is not native WebGPU compute performance                                                               |
 | Function-level forward/reverse autodiff                                                          | Implemented, scoped                             | `src/core/passes/grad.ts`, `src/core/passes/grad-reverse.ts`, `src/core/passes/grad-check.ts`; reverse function VJP and checkpointing exist                                             |
@@ -152,7 +152,7 @@ independence or optimize it.
 - Own and select execution tiers (default and explicit, with observable
   rejection/fallback and supported-feature checks).
 - Create/cache GPU programs, pipelines, bind groups and resources.
-- Provide one coherent `Resident` contract across call and program runtimes;
+- Provide one coherent `Buffer` contract across call and program runtimes;
   specify read/write visibility, asynchronous completion, failures and
   destruction.
 - Keep results on the device where possible. Avoid hidden downloads just
@@ -215,7 +215,7 @@ current-state audit.
 | Existing roadmap                              | Observed at baseline                                                                                                                                                                                                                                      | Next acceptance concern                                            |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | 0.2 Compute, 0.3 TS surface, 0.4 Textures     | Broadly shipped; target-specific exceptions remain                                                                                                                                                                                                        | Compatibility coverage, not repeated implementation                |
-| 0.5 Item 15 (parallel loop), 16 (host import) | Shipped via 0013/0009/0016; `resident` exists                                                                                                                                                                                                             | Stable calls, queue/fallback and fresh-package journey             |
+| 0.5 Item 15 (parallel loop), 16 (host import) | Shipped via 0013/0009/0016; `array()` exists                                                                                                                                                                                                              | Stable calls, queue/fallback and fresh-package journey             |
 | 0.6 Boundary B1-B3                            | Explicitly deferred by [#198](https://github.com/typeshade/typeshade/issues/198)                                                                                                                                                                          | Do not reintroduce one-file/two-worlds implicitly                  |
 | 0.6 B4-B7                                     | Open work with [#452](https://github.com/typeshade/typeshade/issues/452), [#453](https://github.com/typeshade/typeshade/issues/453), [#454](https://github.com/typeshade/typeshade/issues/454), [#455](https://github.com/typeshade/typeshade/issues/455) | Host boundary clarity and target diagnostics                       |
 | 0.7 Forward `grad` and `gradCheck`            | Present; function-level reverse is present too                                                                                                                                                                                                            | Broader 0056 GPU/storage differentiation, versioned manifest       |
@@ -280,7 +280,7 @@ equal results and measured improvement over unplanned execution;
 failing cases explain why optimization did not occur.
 
 **Status after the baseline.** Change 0058 delivered a first slice of P3 for kernel-function calls
-(Rule 11.13, surface §71). `typeshade/fuse` records the calls of a scope with their whole-`Resident`
+(Rule 11.13, surface §71). `typeshade/fuse` records the calls of a scope with their whole-`Buffer`
 reads and writes, the dependencies between them and a barrier between groups, and runs them in one
 submission. It fuses the calls that follow each other at the same index into one dispatch on WebGPU,
 a reduction last among them, and holds an intermediate the host never reads as a local of the fused
@@ -290,7 +290,7 @@ report, in the author's words. The arrays and results are the bits of the calls 
 chain over scratch arrays took 0.56 to 0.93 of the time of the calls apart, and the map chain over
 residents of 1,048,576 elements took 1.00 to 1.04 of it, so no hardware speedup is claimed. The change
 answers two of the decisions below for kernel functions: the minimal resource-access summary is the
-whole-`Resident` reads and writes with the proof's write-at-`i` and read-at-`i` facts, and a fusion
+whole-`Buffer` reads and writes with the proof's write-at-`i` and read-at-`i` facts, and a fusion
 requires exact equality, with no declared tolerance. That initial delivery did not fuse on WebGL2, plan transfers or
 reuse buffers across scopes. Device-owned scratch now borrows compatible buffers from the bounded
 array pool (#992). Change 0128 reports actual WebGPU scratch allocations and reuses, with buffer
@@ -367,7 +367,7 @@ records their results:
 The report also records runtime findings that belong to P2 in this plan.
 The device that the runtime requests keeps the default 128 MiB storage
 binding limit, although the adapter advertises 1 GiB (draft 0051).
-A `Resident.read()` makes the next writable binding upload the host copy
+A `Buffer`'s `read()` makes the next writable binding upload the host copy
 again. Every dispatch is submitted and awaited, except the dispatches of a `fuse` scope (change 0058),
 which share one submission.
 
@@ -525,7 +525,7 @@ silently decide them:
 - What is the minimal resource-access summary that is safe without a
   general pointer/alias analysis?
 - How is asynchronous host-call completion typed across CPU, Wasm and
-  GPU, especially for plain arrays versus `Resident`?
+  GPU, especially for plain arrays versus `Buffer`?
 - Which plan transformations require exact equality and which accept
   user-declared numerical tolerances?
 - Does large-data reverse-mode training require a more explicit

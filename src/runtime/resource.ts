@@ -50,22 +50,27 @@
 
 import type { Layout, LayoutNumber } from '../core/host-entry.js';
 import { describe, pack } from '../core/host-entry.js';
-import {
-  handleOf,
-  kernelQueue,
-  makeResident,
-  ResidentArrayState,
-  type Resident,
-  type ZeroedArray,
-  type ZeroedElement,
-} from '../core/resident.js';
-import type { array as HostArray, f32, f64, i32, u32 } from './host-types.js';
-import type { Texture } from './resources.js';
-import { globalRegion, type Range, type Region } from './region.js';
+import { handleOf, kernelQueue, makeResident, type ZeroedElement } from '../core/resident.js';
+import { resourceProbes } from '../core/resource-probe.js';
 import { defaultDevice } from './default-device.js';
-import { noteFailure, throwFailure } from '../core/submission.js';
+import type { f32, f64, array as HostArray, i32, u32, vec4f } from './host-types.js';
+import { globalRegion, type Range, type Region } from './region.js';
+import {
+  adopt,
+  captureOf,
+  Core,
+  cores,
+  dispose,
+  readValue,
+  RegionState,
+} from './resource-state.js';
+import type { Texture } from './resources.js';
+export { DIRTY_RANGE_LIMIT } from './resource-state.js';
+// Loads the module the declaration of `ScratchBuffers` below adds to, for a type only.
+import type {} from '../core/fuse-plan.js';
 import { resources, type RecordedBuffer as Recorded } from '../core/host-record.js';
-import { callDefault, type CallOwner } from '../core/owner.js';
+import { type CallOwner } from '../core/owner.js';
+import { noteFailure, throwFailure } from '../core/submission.js';
 
 // ─── the layouts a generated class carries ───────────────────────────────────────────────────
 
@@ -105,215 +110,6 @@ function layoutsOf(cls: unknown, at: string): ClassLayouts & { readonly name: st
       `${at}: ${name} is abstract, so it has no layout of its own; pass a class that extends it.`,
     );
   return { ...layouts, name };
-}
-
-// ─── the resource ────────────────────────────────────────────────────────────────────────────
-
-/** What the garbage collector's registry holds of a resource: its region and the range it has
- *  now, which a resize replaces. */
-interface Slot {
-  readonly region: Region;
-  range: Range;
-}
-
-/**
- * How many dirty ranges a storage array keeps before it joins them into one (change 0138,
- * Amendment A5, D2). Each range is one upload call at a submission (`writeBuffer` on WebGPU,
- * `bufferSubData` on WebGL2), and each call costs about as much as the bytes of a few elements.
- * Past 16 calls, a host that wrote scattered elements uploads one range from the first written
- * byte to the last instead: fewer calls for more bytes. Not API: a test reads it.
- */
-export const DIRTY_RANGE_LIMIT = 16;
-
-/** What every accessor of one resource shares: its range, its dirty ranges and its name. */
-class Core {
-  readonly region: Region;
-  readonly slot: Slot;
-  /** `Uniform<Camera>`, `Buffer<Particle>`: what an error names. */
-  readonly name: string;
-  /** How to make it again, for an error after `dispose()`. */
-  readonly remedy: string;
-  /** The bytes of one element of a storage array, whose dirty ranges are kept for each element
-   *  written (R9); 0 for a uniform, whose one dirty range is widened (R8). */
-  readonly stride: number;
-  /** The dirty byte ranges, relative to the resource's start: `[from, to)` pairs, sorted, with no
-   *  two that overlap or touch. Made once, so that `set` allocates nothing (R7). */
-  readonly #r: Float64Array;
-  /** How many pairs of {@link #r} are dirty ranges. */
-  #n = 0;
-  /** The bytes the resource's value takes of its range, which is rounded up. */
-  bytes: number;
-  /** The device copy a call wrote, when the host has not read it back since (change 0138, R2):
-   *  the region does not hold what that device holds. Undefined otherwise. */
-  ahead: RegionState | undefined;
-  /** The device copies of a storage array (milestone 3), one for each owner whose calls took it,
-   *  each made at the first such call. A resource of one device has one; an exported binding,
-   *  which belongs to no one device, has one for each device that ran a call that read it (R3). */
-  readonly states = new Map<CallOwner, RegionState>();
-  /** The device the resource belongs to (change 0138, R3): the device in use when it was made, or
-   *  the default owner when none was. Undefined for an exported binding, which belongs to no one
-   *  device. A Uniform's takes no part in the choice of a call's device (`resourceOf`; the owner's
-   *  decision of 2026-11-11 on Q-a). */
-  owner: CallOwner | undefined = callDefault();
-
-  constructor(region: Region, bytes: number, name: string, remedy: string, stride = 0) {
-    this.region = region;
-    this.slot = { region, range: region.allocate(bytes) };
-    this.name = name;
-    this.remedy = remedy;
-    this.bytes = bytes;
-    this.stride = stride;
-    this.#r = new Float64Array(stride > 0 ? 2 * (DIRTY_RANGE_LIMIT + 1) : 2);
-    // A new resource has never been uploaded: all of it is dirty.
-    this.markAll();
-  }
-
-  /** The resource's range now. A resize gives the resource another one (Amendment A3). */
-  get range(): Range {
-    return this.slot.range;
-  }
-
-  /** Whether the resource holds a change not yet uploaded. */
-  get dirty(): boolean {
-    return this.#n > 0;
-  }
-
-  /** The dirty ranges, as `[from, to)` pairs relative to the resource's start. */
-  ranges(): (readonly [number, number])[] {
-    const out: (readonly [number, number])[] = [];
-    for (let i = 0; i < this.#n; i++) out.push([this.#r[2 * i]!, this.#r[2 * i + 1]!]);
-    return out;
-  }
-
-  /** The bytes from the first dirty byte to the last, or undefined when it is clean. */
-  span(): { readonly from: number; readonly to: number } | undefined {
-    return this.#n === 0 ? undefined : { from: this.#r[0]!, to: this.#r[2 * this.#n - 1]! };
-  }
-
-  /** Mark the whole range dirty, as one range. */
-  markAll(): void {
-    this.#r[0] = 0;
-    this.#r[1] = this.range.size;
-    this.#n = 1;
-  }
-
-  /** Mark the resource clean, after its dirty ranges were uploaded. */
-  clean(): void {
-    this.#n = 0;
-  }
-
-  /** Give the resource a zeroed range of `bytes` that keeps the first `keep` bytes of the one it
-   *  has, free that one, and mark the whole new range dirty. Every accessor reads the range at
-   *  each use, so a view of the freed range is never used again (R17). */
-  resize(bytes: number, keep: number): void {
-    const old = this.slot.range;
-    // The allocation may compact the region or replace its buffer, so the old range's offset is
-    // read after it.
-    const next = this.region.allocate(bytes);
-    if (keep > 0)
-      new Uint8Array(this.region.buffer).copyWithin(next.offset, old.offset, old.offset + keep);
-    this.region.free(old);
-    this.slot.range = next;
-    this.bytes = bytes;
-    this.markAll();
-  }
-
-  /** Throw when a call wrote the resource and the host has not read it back: `at` is what reads
-   *  or writes it, `ps.at(0).pos.get()` (change 0138, R2; the owner's decision of 2026-11-11). */
-  current(at: string): void {
-    if (this.ahead !== undefined)
-      throw new TypeError(
-        `${at}: a call wrote ${this.name}, and its values are on the device until \`await ${this.name}.read()\` brings them back; await it first.`,
-      );
-  }
-
-  /** The error of a call that wrote the resource and failed, which each later call that takes it
-   *  and its `read()` throw (the owner's decision of 2026-11-11), or undefined. */
-  error(): unknown {
-    for (const s of this.states.values()) if (s.error !== undefined) return s.error;
-    return this.kept;
-  }
-
-  /** The error of a device copy that was dropped with its device (`BufferRoot.forget`), kept as a
-   *  failed call's until `set(data)` or `resize()`. */
-  kept: unknown;
-
-  /** Throw when the resource was freed: a freed range may be another resource's now. */
-  live(): void {
-    if (this.range.freed)
-      throw new TypeError(
-        `${this.name} was disposed; its fields cannot be read or set. Make a new one with ${this.remedy}.`,
-      );
-  }
-
-  /** Mark bytes `[from, to)` of the resource dirty. A uniform widens its one range (R8). A storage
-   *  array marks each element the bytes reach, and joins ranges that overlap or touch; when it
-   *  holds more than {@link DIRTY_RANGE_LIMIT}, it joins them all into one (R9, D2). */
-  mark(from: number, to: number): void {
-    const r = this.#r;
-    const st = this.stride;
-    if (st > 0) {
-      from = Math.floor(from / st) * st;
-      to = Math.ceil(to / st) * st;
-    }
-    let n = this.#n;
-    if (n === 0) {
-      r[0] = from;
-      r[1] = to;
-      this.#n = 1;
-      return;
-    }
-    if (st === 0) {
-      if (from < r[0]!) r[0] = from;
-      if (to > r[1]!) r[1] = to;
-      return;
-    }
-    // The first range that ends at or after `from`: every range before it lies wholly before.
-    let i = 0;
-    while (i < n && r[2 * i + 1]! < from) i++;
-    if (i === n || r[2 * i]! > to) {
-      // No range overlaps or touches `[from, to)`: insert it at `i`.
-      r.copyWithin(2 * i + 2, 2 * i, 2 * n);
-      r[2 * i] = from;
-      r[2 * i + 1] = to;
-      n++;
-    } else {
-      // Join range `i` and every later one that `[from, to)` reaches.
-      let j = i;
-      while (j + 1 < n && r[2 * (j + 1)]! <= to) j++;
-      if (from < r[2 * i]!) r[2 * i] = from;
-      r[2 * i + 1] = Math.max(r[2 * j + 1]!, to);
-      if (j > i) {
-        r.copyWithin(2 * i + 2, 2 * j + 2, 2 * n);
-        n -= j - i;
-      }
-    }
-    if (n > DIRTY_RANGE_LIMIT) {
-      r[1] = r[2 * n - 1]!;
-      n = 1;
-    }
-    this.#n = n;
-  }
-}
-
-const cores = new WeakMap<object, Core>();
-
-/** Frees the range of a resource the garbage collector reclaimed (R17). */
-const registry =
-  typeof FinalizationRegistry === 'function'
-    ? new FinalizationRegistry<Slot>(({ region, range }) => region.free(range))
-    : undefined;
-
-/** The core of `resource`, which `owner` holds. */
-function adopt(owner: object, core: Core): void {
-  cores.set(owner, core);
-  registry?.register(owner, core.slot, core);
-}
-
-function dispose(core: Core): void {
-  if (core.range.freed) return;
-  core.region.free(core.range);
-  registry?.unregister(core);
 }
 
 /** The bytes of a resource from its first dirty byte to its last, relative to its own start, and
@@ -445,6 +241,27 @@ class Leaf {
     return l.k === 'm' ? Math.floor(i / l.r) * (l.cs / 4) + (i % l.r) : i;
   }
 
+  /** The word of lane `i` of a value `v` the host gives a `bool` or a key field (Amendment A12,
+   *  Q4 and Q7), or the number of any other field. */
+  #word(v: unknown, i: number): number {
+    const l = this.#l;
+    const at = i < 0 ? this.#path : `${this.#path}[${i}]`;
+    if (l.k !== 'm' && l.b === 1) {
+      if (typeof v !== 'boolean')
+        throw new TypeError(`${at}: takes a boolean, got ${describe(v)}.`);
+      return v ? 1 : 0;
+    }
+    if (l.k === 's' && l.m !== undefined) {
+      const id = typeof v === 'string' ? l.m.indexOf(v) : -1;
+      if (id < 0)
+        throw new TypeError(
+          `${at}: takes one of ${l.m.map((m) => `'${m}'`).join(', ')}, got ${describe(v)}.`,
+        );
+      return id;
+    }
+    return numberOf(this.#t, v, this.#path, i);
+  }
+
   /** Write `x` to lane `i` of `view`; whether a number changed. */
   #put(view: Typed, i: number, x: number): boolean {
     if (this.#t === 'f64') {
@@ -485,12 +302,10 @@ class Leaf {
         throw new TypeError(
           `${this.#path}.set(): takes ${count} numbers, got ${describe(src)}${Array.isArray(src) ? '' : ` of length ${String(src.length)}`}.`,
         );
-      for (let i = 0; i < count; i++)
-        if (this.#put(view, i, numberOf(this.#t, src[i], this.#path, i))) changed = true;
+      for (let i = 0; i < count; i++) if (this.#put(view, i, this.#word(src[i], i))) changed = true;
     } else if (n === count) {
       for (let i = 0; i < count; i++)
-        if (this.#put(view, i, numberOf(this.#t, arguments[i], this.#path, count > 1 ? i : -1)))
-          changed = true;
+        if (this.#put(view, i, this.#word(arguments[i], count > 1 ? i : -1))) changed = true;
     } else
       throw new TypeError(
         count === 1
@@ -514,7 +329,12 @@ class Leaf {
       for (let i = 0; i < out.length; i++) out[i] = view[i]! + view[lo + i]!;
       return out;
     }
-    return this.#l.k === 's' ? view[0] : view;
+    const l = this.#l;
+    // A `bool` field reads as a `boolean`, and a key's id as its member (Amendment A12, Q4, Q7).
+    if (l.k !== 'm' && l.b === 1)
+      return l.k === 's' ? view[0] !== 0 : Array.from(view, (w) => w !== 0);
+    if (l.k === 's' && l.m !== undefined) return l.m[view[0]!];
+    return l.k === 's' ? view[0] : view;
   }
 }
 
@@ -688,51 +508,6 @@ function fieldOf(core: Core, at: number, l: Layout, path: string): Field {
   }
 }
 
-// ─── reading a value back ────────────────────────────────────────────────────────────────────
-
-function readNumber(dv: DataView, at: number, t: LayoutNumber): number {
-  if (t === 'f64') return dv.getFloat32(at, true) + dv.getFloat32(at + 4, true);
-  return t === 'f32'
-    ? dv.getFloat32(at, true)
-    : t === 'i32'
-      ? dv.getInt32(at, true)
-      : dv.getUint32(at, true);
-}
-
-/** The host value (Rule 8.21) laid out by `l` at `at`: a number, a tuple, an array or an object. */
-function readValue(dv: DataView, at: number, l: Layout, proto?: object): unknown {
-  switch (l.k) {
-    case 's':
-      return readNumber(dv, at, l.t);
-    case 'v': {
-      const out: number[] = [];
-      for (let i = 0; i < l.n; i++)
-        out.push(
-          l.t === 'f64'
-            ? dv.getFloat32(at + 4 * i, true) + dv.getFloat32(at + (l.lo ?? 0) + 4 * i, true)
-            : readNumber(dv, at + 4 * i, l.t),
-        );
-      return out;
-    }
-    case 'm': {
-      const out: number[] = [];
-      for (let c = 0; c < l.c; c++)
-        for (let r = 0; r < l.r; r++) out.push(dv.getFloat32(at + c * l.cs + 4 * r, true));
-      return out;
-    }
-    case 'a': {
-      const out: unknown[] = [];
-      for (let i = 0; i < (l.n ?? 0); i++) out.push(readValue(dv, at + i * l.st, l.e));
-      return out;
-    }
-    case 'o': {
-      const o = (proto === undefined ? {} : Object.create(proto)) as Record<string, unknown>;
-      for (const [name, off, fl] of l.f) o[name] = readValue(dv, at + off, fl);
-      return o;
-    }
-  }
-}
-
 // ─── the types ───────────────────────────────────────────────────────────────────────────────
 
 type AnyFunction = (...args: never) => unknown;
@@ -836,18 +611,22 @@ interface ArrayFieldOf<E> {
 
 /** The accessor of a field of type `T`. */
 type FieldOf<T> = T extends boolean
-  ? never
-  : T extends number
-    ? ScalarField<T>
-    : T extends readonly number[]
-      ? number extends T['length']
-        ? ArrayFieldOf<T[number]>
-        : TupleField<T>
-      : T extends readonly (infer E)[]
-        ? ArrayFieldOf<E>
-        : T extends object
-          ? StructOf<T>
-          : never;
+  ? ScalarField<boolean>
+  : T extends readonly boolean[]
+    ? number extends T['length']
+      ? never
+      : BoolTupleField<T>
+    : T extends number
+      ? ScalarField<T>
+      : T extends readonly number[]
+        ? number extends T['length']
+          ? ArrayFieldOf<T[number]>
+          : TupleField<T>
+        : T extends readonly (infer E)[]
+          ? ArrayFieldOf<E>
+          : T extends object
+            ? StructOf<T>
+            : never;
 
 /** The accessor of a struct: one accessor for each field, and `set` from some of them. */
 type StructOf<T> = { readonly [K in DataKeys<T>]: FieldOf<T[K]> } & {
@@ -877,52 +656,175 @@ export type Uniform<T> = StructOf<T> &
     dispose(): void;
   };
 
+/** The typed arrays a `Buffer` of scalars is made from (Rule 8.21; change 0138, Amendment A10,
+ *  Q-I). Not exported from a barrel. */
+export type ScalarArray = Float32Array | Int32Array | Uint32Array | Float64Array;
+
+/** The element of the `Buffer` that `array(xs)` makes from the typed array `T`: `f32` for a
+ *  `Float32Array`, and so on (Amendment A10, Q-I). Not exported from a barrel. */
+export type ElementOfTyped<T> = T extends Float32Array
+  ? f32
+  : T extends Int32Array
+    ? i32
+    : T extends Uint32Array
+      ? u32
+      : T extends Float64Array
+        ? f64
+        : never;
+
+/** The element of the zeroed `Buffer` that `array(length, element)` makes. Not exported from a
+ *  barrel. */
+export type ZeroedBufferElement<E> = E extends 'f32' ? f32 : E extends 'i32' ? i32 : u32;
+
+/** Any `Buffer`, of any element: what `device.release()` takes. Not exported from a barrel. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyBuffer = Buffer<any>;
+
+// What `scope.scratch()` of a `fuse` scope returns (`ScratchBuffers` in `core/fuse-plan.ts`), added
+// here so that `typeshade/fuse` imports no type of the program runtime (change 0138, Amendment
+// A10, slice 1).
+declare module '../core/fuse-plan.js' {
+  interface ScratchBuffers {
+    readonly f32: Buffer<f32>;
+    readonly i32: Buffer<i32>;
+    readonly u32: Buffer<u32>;
+    readonly vec4f: Buffer<vec4f>;
+  }
+}
+
+/** Whether `T` is `number` itself, the element of a `Buffer` that `array()` made of a `number[]`,
+ *  which its first use fixes (Amendment A12, decision 3): `number` is an `f32`, an `i32` and a
+ *  `u32` at once, which no name of the family is. */
+type IsOpen<T> = [T] extends [f32]
+  ? [T] extends [u32]
+    ? [T] extends [i32]
+      ? true
+      : false
+    : false
+  : false;
+
+/** What `read()` of a `Buffer<T>` gives: the typed array of the scalar for a scalar, a vector or a
+ *  matrix `T`, the components one after another (Amendment A11, Q2 and Q5; Amendment A12, Q2);
+ *  any of the four for an element no use has fixed (A12, Q8; `Float64Array` by the owner's
+ *  decision of 2026-11-11, recorded in Amendment A13); a `boolean[]` for a `bool` or a
+ *  `vecN<bool>` (A12, Q1); the member strings for a key (A12, Q4); `T[]` for a struct (R9). */
+type BufferRead<T> =
+  IsOpen<T> extends true
+    ? Float32Array | Int32Array | Uint32Array | Float64Array
+    : [T] extends [boolean]
+      ? boolean[]
+      : [T] extends [readonly boolean[]]
+        ? boolean[]
+        : [T] extends [string]
+          ? T[]
+          : NumberRead<T>;
+
+/** {@link BufferRead} of a number, a vector, a matrix or a struct, one member of a union at a
+ *  time: a `Buffer<f32 | u32>` reads a `Float32Array | Uint32Array`. */
+type NumberRead<T> = T extends number
+  ? ViewOf<T>
+  : T extends readonly number[]
+    ? ViewOf<T[number]>
+    : T[];
+
+/** What `set(data)` of a `Buffer<T>` takes: numbers for a scalar, a vector or a matrix `T`, the
+ *  components one after another; booleans for a `bool`, member strings for a key (Amendment A12,
+ *  Q1 and Q4); some of each struct's fields for a struct. */
+type BufferData<T> = [T] extends [boolean]
+  ? readonly boolean[]
+  : [T] extends [readonly boolean[]]
+    ? readonly boolean[]
+    : [T] extends [string]
+      ? readonly T[]
+      : T extends number | readonly number[]
+        ? ScalarArray | readonly number[]
+        : readonly Some<T>[];
+
+/** A `vecN<bool>` element or field: its components as booleans (Amendment A12, Q1 and Q7). */
+interface BoolTupleField<T extends readonly boolean[]> {
+  /** Write its components. */
+  set(...components: T): void;
+  /** Write the components of one array. */
+  set(components: readonly boolean[]): void;
+  /** Its components, a new `boolean[]`. */
+  get(): boolean[];
+}
+
+/** What `at(i)` of a `Buffer<T>` gives: the element view of a scalar, a vector or a matrix
+ *  (Amendment A11, Q1), of a `bool` or a key (Amendment A12, Q1 and Q4), or the struct's
+ *  accessor. */
+type BufferElement<T> = [T] extends [boolean]
+  ? ScalarField<boolean>
+  : [T] extends [readonly boolean[]]
+    ? BoolTupleField<T & readonly boolean[]>
+    : [T] extends [string]
+      ? ScalarField<T>
+      : NumberElement<T>;
+
+/** {@link BufferElement} of a number, a vector, a matrix or a struct, one member of a union at a
+ *  time. */
+type NumberElement<T> = T extends number
+  ? ScalarField<T>
+  : T extends readonly number[]
+    ? TupleField<T>
+    : StructOf<T>;
+
 /**
- * A storage array of `length` structs `T` (change 0138, R9): one range of the region laid out as
- * a storage array with no size (Rule 6.8). `ps.at(i).pos.set(x, y, z)` writes one field of element
- * `i`; `await ps.read()` gives every element, each an instance of the class. Made by
- * {@link zeros} or {@link array}; freed by `dispose()` or when the garbage collector reclaims
- * it, and by `[Symbol.dispose]()` as a uniform is, which the type declares as `Disposable` where
- * the host's `lib` declares `Symbol.dispose` (Amendment A5, D4). The host sets its length again with
- * `resize(n)` or `set(data)`. A binding a shader module exports is one too (Rule 6.1): a
- * `storage<array<T, N>>` keeps its `N` elements, and a `storage<array<T>>`, which states no
- * size, has no length until the host calls `resize` or `set`; until then `length` is 0, and
- * `at` and `read` throw a `TypeError` that names the binding. The view types an exported binding
- * without `dispose()` and `[Symbol.dispose]()` (D7).
+ * An array on the device of `length` elements `T` (change 0138, R9; Amendments A10, Q-I, and A11):
+ * a `Buffer` of structs, one range of the region laid out as a storage array with no size (Rule
+ * 6.8), made by {@link zeros} or {@link array} with a class; or a `Buffer` of scalars or vectors,
+ * made by `array(xs)` of a typed array, `array(length, element)` or a kernel called on a resource.
+ * Every `Buffer` has the same members (A11, Q1). `ps.at(i).pos.set(x, y, z)` writes one field of a
+ * struct element, and `xs.at(i).set(1.5)` one scalar; `await b.read()` gives every element: each
+ * an instance of the class for a struct, and one typed array of the scalar for a scalar or a
+ * vector, the components one after another (A11, Q2 and Q5). From a call that writes it until
+ * `read()` brings its values back, `set`, `resize`, `needsUpdate` and the accessors' `get` and `set`
+ * throw a `TypeError`. Freed by `dispose()` or when the garbage collector reclaims it, and by
+ * `[Symbol.dispose]()`, which the type declares as `Disposable` where the host's `lib` declares
+ * `Symbol.dispose` (Amendment A5, D4). A binding a shader module exports is a `Buffer` of structs
+ * too (Rule 6.1): a `storage<array<T, N>>` keeps its `N` elements, and a `storage<array<T>>`, which
+ * states no size, has no length until the host calls `resize` or `set`; until then `length` is 0,
+ * and `at` and `read` throw a `TypeError` that names the binding. The view types an exported
+ * binding without `dispose()` and `[Symbol.dispose]()` (D7).
  *
  * Exported from `typeshade/runtime`.
  */
 export interface Buffer<T> extends Disposable {
-  /** How many elements it holds. An exported storage array with no size holds 0 until the host
-   *  sets its length with `resize` or `set`. */
+  /** How many elements it holds; a vector is one element (Amendment A11, Q5). An exported storage
+   *  array with no size holds 0 until the host sets its length with `resize` or `set`. */
   readonly length: number;
   /** Give the array `length` elements (Amendment A3): the elements that fit keep their values, a
-   *  new element is zero, and the whole array is dirty. An accessor that `at` returned before
-   *  reads the array's new range, and throws a `TypeError` for an element that is gone.
-   *  @throws `TypeError` for a length that is not a whole number, and for another length than the
-   *  one a shader file states (`storage<array<T, N>>`). */
+   *  new element is zero. An accessor that `at` returned before reads the array's new range, and
+   *  throws a `TypeError` for an element that is gone.
+   *  @throws `TypeError` for a length that is not a whole number, for another length than the one
+   *  a shader file states (`storage<array<T, N>>`), and while a call's values are on the device. */
   resize(length: number): void;
-  /** Give the array the length of `data` and its values (Amendment A3): each element gives some
-   *  of its fields, and the others are zero, as `array(Class, data)` reads them. The whole array
-   *  is dirty. A `data` that does not fit changes nothing.
-   *  @throws `TypeError` for `data` that is no array, for an element that does not fit, and for
-   *  another length than the one a shader file states. */
-  set(data: readonly Some<T>[]): void;
-  /** Element `index`'s accessor. @throws `RangeError` for an index outside the array. */
-  at(index: number): StructOf<T>;
-  /** Every element, each an instance of the class, built without its constructor. */
-  read(): Promise<T[]>;
+  /** Give the array the length of `data` and its values (Amendment A3): for a struct, each element
+   *  gives some of its fields, and the others are zero, as `array(Class, data)` reads them; for a
+   *  scalar or a vector, the numbers, the components one after another. A `data` that does not fit
+   *  changes nothing.
+   *  @throws `TypeError` for `data` that is no array, for an element that does not fit, for
+   *  another length than the one a shader file states, and while a call's values are on the
+   *  device. */
+  set(data: BufferData<T>): void;
+  /** Element `index`'s accessor: a struct's fields, or a scalar's or a vector's element view with
+   *  `get` and `set` (Amendment A11, Q1). @throws `RangeError` for an index outside the array. */
+  at(index: number): BufferElement<T>;
+  /** Every element: each an instance of the class, built without its constructor, for a struct;
+   *  one typed array of the scalar for a scalar or a vector (Amendment A11, Q2 and Q5). */
+  read(): Promise<BufferRead<T>>;
   /** Whether the array holds a change not yet uploaded. Set it to `true` after writing through a
    *  view that `get` returned. A new array is dirty. */
   needsUpdate: boolean;
-  /** Free the array's range. A use of an accessor after it throws a `TypeError`. */
+  /** Free the array. A use of an accessor after it throws a `TypeError`. */
   dispose(): void;
 }
 
 /**
  * A host value of an array with no size, or the function that makes a storage array (change
  * 0138). As a type it is the host type family's `array<T>` (change 0116, Rule 8.21): the typed
- * array of `T`'s scalar, or an array of structs, each also as its `Resident`.
+ * array of `T`'s scalar, or an array of structs, and a `Buffer` of the scalars (Amendment A10,
+ * Q-I).
  *
  * Exported from `typeshade/runtime`.
  */
@@ -1094,7 +996,7 @@ class BufferRoot {
     if (core.ahead === state) core.ahead = undefined;
     if (state.error !== undefined) core.kept ??= state.error;
     core.states.delete(owner);
-    state.handle?.destroy();
+    state.handle?.dispose();
   }
 
   /** Every element laid out at `offset` of `buffer`, each an instance of the class. */
@@ -1102,7 +1004,7 @@ class BufferRoot {
     const dv = new DataView(buffer, offset, length * this.#l.st);
     const out: unknown[] = [];
     for (let i = 0; i < length; i++)
-      out.push(readValue(dv, i * this.#l.st, this.#l.e, this.#proto));
+      out.push(readValue(dv, i * this.#l.st, this.#l.e, this.#proto, true));
     return out;
   }
 
@@ -1237,7 +1139,7 @@ class BufferRoot {
   dispose(): void {
     dispose(this.#core);
     // The device copy goes after the calls recorded before (`Resident.destroy()`).
-    for (const state of this.#core.states.values()) state.handle?.destroy();
+    for (const state of this.#core.states.values()) state.handle?.dispose();
   }
 }
 
@@ -1360,29 +1262,33 @@ export function zeros<T extends object>(cls: ResourceClass<T, 'set'>, length: nu
 }
 
 /**
- * A storage array of the structs of `cls` that `data` holds (change 0138, R9), or, with one value,
- * a `Resident` that keeps it on the device across calls, as `resident()` made one (Amendment A1:
- * `array(xs)` replaces `resident(xs)`), and with a length and an element, a zeroed `Resident`.
- * What it makes belongs to the device in use (`using _ = device.use()`), or to the default owner
- * when none is in use (R3): a `Resident` is the one `device.array()` makes.
+ * A storage array of the structs of `cls` that `data` holds (change 0138, R9), a `Buffer`; or,
+ * with a typed array, a `Buffer` of its scalars that keeps it on the device across calls
+ * (Amendment A1: `array(xs)` replaces `resident(xs)`; Amendment A10, Q-I): a `Buffer<f32>` for a
+ * `Float32Array` or a `number[]`, and so on; or, with a length and an element, a zeroed `Buffer` of scalars. What
+ * it makes belongs to the device in use (`using _ = device.use()`), or to the default owner when
+ * none is in use (R3): a `Buffer` of scalars is the one `device.array()` makes.
  *
  * Exported from `typeshade/runtime`.
  *
  * @param cls - an exported class of a `.shade.ts`, whose elements `data` holds; each element
  *   gives some of its fields, and the others are zero.
- * @returns a `Buffer<T>` for a class; a `Resident` otherwise.
- * @throws `TypeError` as {@link zeros} does, for `data` that is no array, and as `resident()`
- *   throws for its forms.
+ * @returns a `Buffer<T>`.
+ * @throws `TypeError` as {@link zeros} does, for `data` that is no array, for a value that is not
+ *   an array (Amendment A11, Q3: write `uniform(Class, init)`, or pass the value to the call), and
+ *   for an array that holds anything but numbers (A11, Q4: write `array(Class, data)` for
+ *   structs).
  */
 export function array<T extends object>(
   cls: ResourceClass<T, 'set'>,
   data: readonly Some<T>[],
 ): Buffer<T>;
-export function array<T>(value: T): Resident<T>;
+export function array<T extends ScalarArray>(value: T): Buffer<ElementOfTyped<T>>;
+export function array(value: readonly number[]): Buffer<number>;
 export function array<E extends ZeroedElement>(
   length: number,
   element: E,
-): Resident<ZeroedArray<E>>;
+): Buffer<ZeroedBufferElement<E>>;
 export function array(...args: unknown[]): unknown {
   const [first, second] = args;
   if (typeof first === 'function' && args.length === 2) {
@@ -1402,8 +1308,8 @@ export function array(...args: unknown[]): unknown {
       'array()',
     );
   }
-  // A Resident belongs to the device in use, as `device.array()` makes one (R3); with none in
-  // use, to the default owner, as `resident()` made one.
+  // A `Buffer` of scalars belongs to the device in use, as `device.array()` makes one (R3); with
+  // none in use, to the default owner.
   const device = defaultDevice() as
     { arrayAs(at: string, a: readonly unknown[]): unknown } | undefined;
   if (device !== undefined) return device.arrayAs('array()', args);
@@ -1474,164 +1380,9 @@ export function texture(options: {
   return device.texture(options);
 }
 
-// ─── a call on a resource (change 0138, milestone 3) ─────────────────────────────────────────
-
-/** The values a call sees of a storage array (Amendment A5, default 3): every byte, when the device
- *  copy has none of its own yet or another length, or only the dirty ranges. */
-type Snapshot =
-  | { readonly full: ArrayBuffer; readonly length: number }
-  | { readonly ranges: readonly (readonly [number, Uint8Array])[] };
-
 /** What a call takes for a storage array, with its layout (`core/host-record.ts`). Not API. */
 export interface RecordedBuffer extends Recorded {
   readonly layout: Layout & { readonly k: 'a' };
-}
-
-/**
- * The device copy of a storage array (change 0138, R2, R8): the state of a `Resident` whose host
- * value is the CPU tier's array of elements and whose device buffer is WebGPU's, apart from the
- * region, which is the host's. A call writes the values it sees into it ({@link apply}); a read
- * brings it back into the region.
- */
-class RegionState extends ResidentArrayState {
-  readonly layout: Layout & { readonly k: 'a' };
-  readonly proto: object;
-  /** How many elements the device copy holds. */
-  length = 0;
-  /** How many elements the last values copied out of the region for a call held, or -1 before
-   *  the first: what the device copy will hold once the calls recorded so far have run. */
-  captured = -1;
-  /** The hidden `Resident` handle the call layer takes. */
-  handle: ReturnType<typeof handleOf> | undefined;
-  /** The array's length while a call is checked at the call, before its values are copied out. */
-  checking: number | undefined;
-  /** The dirty ranges another device's call took from the region since this copy's last call,
-   *  which this copy takes at its next call (an exported binding on two devices, R3). */
-  pending: (readonly [number, number])[] = [];
-  readonly #core: Core;
-
-  constructor(layout: Layout & { readonly k: 'a' }, proto: object, core: Core) {
-    super(undefined);
-    this.layout = layout;
-    this.proto = proto;
-    this.#core = core;
-  }
-
-  /** How many elements a call's check counts: the array's own while the call is checked at the
-   *  call, and the device copy's when the call runs. `recordArgument` checked the layout. */
-  override measure(): number {
-    return this.checking ?? this.length;
-  }
-
-  /** What an entry call's check reads: while the call is checked at the call, as many zeroed
-   *  elements as the array holds, whose shape is the array's, since its values are not copied
-   *  out yet; the CPU tier's elements when it runs. */
-  override view(): unknown {
-    if (this.checking === undefined) return this.host;
-    const zero = readValue(
-      new DataView(new ArrayBuffer(this.layout.st)),
-      0,
-      this.layout.e,
-      this.proto,
-    );
-    return new Array<unknown>(this.checking).fill(zero);
-  }
-
-  /** A call that wrote the array failed: the device copy holds nothing to read back, so the array
-   *  leaves the window; its error stays until `set(data)` or `resize()`. */
-  failed(): void {
-    if (this.#core.ahead === this) this.#core.ahead = undefined;
-  }
-
-  /** Write the values a call sees into the device copy: each dirty range of the region, as it
-   *  was at the call. On WebGPU, where the device's copy is the newer, each range is one
-   *  `writeBuffer` (R8); elsewhere each element the range holds is read into the CPU tier's
-   *  array, and a device buffer equal to it takes the same range. */
-  apply(s: Snapshot): void {
-    const st = this.layout.st;
-    const e = this.layout.e;
-    if ('full' in s) {
-      const dv = new DataView(s.full);
-      const host: unknown[] = [];
-      for (let i = 0; i < s.length; i++) host.push(readValue(dv, i * st, e, this.proto));
-      this.host = host;
-      this.length = s.length;
-      // The host copy is the newer; an upload of the whole array follows at the next WebGPU use.
-      this.fresh = 'host';
-      return;
-    }
-    const gpu = this.gpu;
-    const device = gpu !== undefined && this.fresh !== 'host';
-    if (device)
-      for (const [from, bytes] of s.ranges)
-        gpu.d.queue.writeBuffer(gpu.buffer, from, bytes.slice().buffer as ArrayBuffer);
-    if (this.fresh === 'device' && gpu !== undefined) return;
-    // The CPU tier's array takes each element the ranges hold.
-    const host = this.host as unknown[];
-    for (const [from, bytes] of s.ranges) {
-      const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      for (let at = 0; at + st <= bytes.byteLength; at += st)
-        host[(from + at) / st] = readValue(dv, at, e, this.proto);
-    }
-    const both = this.fresh === 'both' && device;
-    this.fresh = 'host';
-    // Set without moving the version back: the device buffer took the same ranges.
-    if (both) this.fresh = 'both';
-  }
-}
-
-/** `ranges` sorted, with ranges that overlap or touch joined, and all joined into one past
- *  {@link DIRTY_RANGE_LIMIT} (Amendment A5, D2). */
-function joinRanges(ranges: readonly (readonly [number, number])[]): (readonly [number, number])[] {
-  const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
-  const out: [number, number][] = [];
-  for (const [from, to] of sorted) {
-    const last = out[out.length - 1];
-    if (last !== undefined && from <= last[1]) last[1] = Math.max(last[1], to);
-    else out.push([from, to]);
-  }
-  return out.length > DIRTY_RANGE_LIMIT ? [[out[0]![0], out[out.length - 1]![1]]] : out;
-}
-
-/** The values a call of `core`'s storage array of `length` elements sees on the device copy
- *  `state`, copied out of the region now, and the array marked clean; undefined when the device
- *  copy holds them already. The ranges it takes stay pending for each other device copy, which
- *  takes them at its own next call (an exported binding, R3). */
-function captureOf(core: Core, state: RegionState, length: number): Snapshot | undefined {
-  core.live();
-  const region = core.region;
-  const offset = core.range.offset;
-  const bytes = length * state.layout.st;
-  const taken = core.ranges();
-  const hand = (): void => {
-    if (taken.length > 0)
-      for (const other of core.states.values())
-        if (other !== state) other.pending = joinRanges([...other.pending, ...taken]);
-    state.pending = [];
-    core.clean();
-  };
-  if (state.captured !== length) {
-    state.captured = length;
-    const full = new Uint8Array(region.buffer, offset, bytes).slice().buffer as ArrayBuffer;
-    hand();
-    return { full, length };
-  }
-  if (taken.length === 0 && state.pending.length === 0) return undefined;
-  const ranges = joinRanges([...state.pending, ...taken])
-    .map(
-      ([from, to]) =>
-        [
-          from,
-          new Uint8Array(
-            region.buffer,
-            offset + from,
-            Math.max(0, Math.min(to, bytes) - from),
-          ).slice(),
-        ] as const,
-    )
-    .filter(([, b]) => b.byteLength > 0);
-  hand();
-  return { ranges };
 }
 
 /** What a call takes for `v` when it is a resource (change 0138, R2): a uniform's value as it is
@@ -1678,11 +1429,59 @@ export function resourceOf(v: unknown):
   };
 }
 
+// A call with plain data names a `Buffer` of structs or a `Uniform` it refuses (Rule 12.5),
+// through the probes that `toShader` in `core/host-values.ts` reads.
+resourceProbes.push((v) => {
+  const r = resourceOf(v);
+  return r === undefined ? undefined : r.kind === 'uniform' ? 'Uniform' : 'Buffer';
+});
+
 /** The struct layout of each uniform, which a call reads its value by. */
 const uniformLayouts = new WeakMap<object, Layout & { k: 'o' }>();
 
 // The call layer reads resources through this, and imports no resource itself.
 resources.of = resourceOf;
+
+/** The words a copy of the region holds for host value `v` laid out by `l`: a `bool` is 0 or 1
+ *  and a key its id (Amendment A12, Q4 and Q7), as a call takes them; a number stays a number. */
+function rawOf(l: Layout, v: unknown): unknown {
+  switch (l.k) {
+    case 's':
+      return l.b === 1 ? (v === true ? 1 : 0) : l.m !== undefined ? l.m.indexOf(v as string) : v;
+    case 'v':
+      return Array.from(v as ArrayLike<unknown>, (x) => (l.b === 1 ? (x === true ? 1 : 0) : x));
+    case 'm':
+      return Array.from(v as ArrayLike<number>);
+    case 'a':
+      return Array.from(v as ArrayLike<unknown>, (x) => rawOf(l.e, x));
+    case 'o': {
+      const o: Record<string, unknown> = {};
+      for (const [name, , fl] of l.f) o[name] = rawOf(fl, (v as Record<string, unknown>)[name]);
+      return o;
+    }
+  }
+}
+
+// The result `Buffer<S>` of an `array<S, N>` (change 0138, Amendment A12, Q6 and Q7): a `Buffer`
+// of the region, written by the call that returns it, so it is ahead of the region until `read()`.
+resources.structs = (layout, proto, name, length, owner) => {
+  const core = new Core(globalRegion(), length * layout.st, name, `array(Class, data)`, layout.st);
+  const buffer = new BufferRoot(core, layout, length, proto, {});
+  const recorded = buffer.prepare(true, owner);
+  recorded.done();
+  const upload = recorded.commit();
+  const state = core.states.get(owner)!;
+  return {
+    value: buffer,
+    state,
+    upload,
+    fill: (values) => {
+      state.host = values.map((v) => rawOf(layout.e, v));
+      state.length = length;
+      state.fresh = 'host';
+    },
+  };
+};
 
 /** The storage arrays a shader module exports, which keep a copy for each device (R3). They live
  *  as long as their module, so the set holds them. */

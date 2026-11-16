@@ -2,7 +2,7 @@
 // (change 0058, step 5: a reduction as the last call of a fused group)
 //
 // `ops.shade.ts` is the loop-fuse journey's chain, here `add`, `mul` and `total`: two maps and a
-// sum, three kernel functions over `Resident` arrays. This script calls it on headless Chromium's
+// sum, three kernel functions over `Buffer`s. This script calls it on headless Chromium's
 // WebGPU, which here is software (SwiftShader), four ways:
 //
 //   apart    as a host calls them today: `add` and `mul` are a dispatch and a submission each, and
@@ -14,7 +14,7 @@
 //   fused    inside one `fuse` scope over the module built with the facts: the three calls are one
 //            group, whose loop dispatch runs `add` and `mul` as the prologue of each iteration of
 //            the sum, and one fold dispatch follows for each level of partials (step 5). The two
-//            intermediates are `Resident`s, so the entry stores them.
+//            intermediates are `Buffer`s, so the entry stores them.
 //   scratch  the same scope with the two intermediates made by `scope.scratch()`: the entry holds
 //            them as locals, and the device is asked for no buffer for either (step 4).
 //
@@ -73,7 +73,7 @@ const modules = {
 
 /** Runs INSIDE the page. `opts` is the length of the arrays, the samples and the warm-up runs. */
 async function measure(opts) {
-  const { createRuntime, configure, resident } = await import('typeshade/runtime');
+  const { createRuntime, configure, array } = await import('typeshade/runtime');
   const { fuse } = await import('typeshade/fuse');
   const plain = await import('/ops.shade.ts');
   const fusing = await import('/ops.fused.shade.ts');
@@ -92,19 +92,18 @@ async function measure(opts) {
       Math.fround(((x = (Math.imul(x, 1664525) + 1013904223) >>> 0) / 2 ** 32 - 0.5) * 8);
   };
   const [a, b, c] = [1, 2, 3].map((seed) => Float32Array.from({ length: N }, random(seed)));
-  const inputs = { a: resident(a), b: resident(b), c: resident(c) };
+  const inputs = { a: array(a), b: array(b), c: array(c) };
   /** The arrays one way owns. */
-  const own = () => ({ t: resident(new Float32Array(N)), u: resident(new Float32Array(N)) });
+  const own = () => ({ t: array(new Float32Array(N)), u: array(new Float32Array(N)) });
   /** What each way last returned: the sum. */
   const sums = {};
   const ways = {
     apart: async (s) => {
-      const calls = [
-        plain.add(s.t, inputs.a, inputs.b),
-        plain.mul(s.u, s.t, inputs.c),
-        plain.total(s.u),
-      ];
-      sums.apart = (await Promise.all(calls))[2];
+      // Calls on Buffers do not block, and the sum is a Buffer of one element (change 0138, R2;
+      // Amendment A10, Q-C).
+      plain.add(s.t, inputs.a, inputs.b);
+      plain.mul(s.u, s.t, inputs.c);
+      [sums.apart] = await plain.total(s.u).read();
       await queue.onSubmittedWorkDone();
     },
     batched: async (s) => {

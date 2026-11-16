@@ -11,7 +11,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { configure, resident } from 'typeshade/runtime';
+import { configure, array } from 'typeshade/runtime';
 import * as algorithms from 'typeshade/algorithms';
 import * as random from 'typeshade/random';
 import { COMMON_MODULES, bakeCommonModule, bakedFiles } from '../scripts/bake-common-modules.js';
@@ -249,14 +249,14 @@ describe('on the CPU tier', () => {
     });
 
     it('takes Resident arrays, as a host that keeps its data on the device calls it', async () => {
-      const a = resident(x);
-      const b = resident(f32(1, 1, 1, 1, 1, 1));
-      const out = resident(new Float32Array(6));
+      const a = array(x);
+      const b = array(f32(1, 1, 1, 1, 1, 1));
+      const out = array(new Float32Array(6));
       await algorithms.add(out, a, b);
       expect(await out.read()).toEqual(f32(2, -1, 4, -3, 6, 7));
-      a.destroy();
-      b.destroy();
-      out.destroy();
+      a.dispose();
+      b.dispose();
+      out.dispose();
     });
   });
 });

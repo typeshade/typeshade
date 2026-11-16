@@ -22,6 +22,7 @@ import { compileModule } from '../../core/oracle.js';
 import { wgslLayout } from '../../core/reflect.js';
 import { packed, type EntryBinding } from '../../core/host-entry.js';
 import { createTypeshadeLanguageService } from '../../language-service/index.js';
+import { array } from '../../runtime.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const ROOT = resolve(__dirname, '../../..');
@@ -163,34 +164,39 @@ describe('the host view of an entry', () => {
   it('types the bindings object exactly, read-only where the entry only reads', () => {
     const f = face(SCALE);
     expect(f.view).toContain(
-      'export declare function scale(bindings: { readonly k: f32; readonly xs: array<f32>; readonly ys: array<f32>; readonly pts: array<vec2> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): Promise<void>;',
+      'export declare function scale(bindings: { readonly k: f32; readonly xs: Float32Array; readonly ys: Float32Array; readonly pts: Float32Array }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Buffer<u32>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): Promise<void>;',
     );
     expect(f.view).toContain('An `@compute([8, 1, 1])` entry:');
   });
 
-  it('takes a Resident for a storage array with no size, and only queues when every written binding is one (Rule 11.8)', () => {
+  it('takes a Buffer for a storage array with no size on a call on a resource, which does not block, or waits for a written plain array (Rule 11.8; change 0138, Amendments A10 and A11)', () => {
     const f = face(SCALE);
-    expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
+    expect(f.view).toContain(`import type { Buffer } from ${JSON.stringify(RUNTIME)};`);
     expect(f.view).toContain(
-      'export declare function scale(bindings: { readonly k: f32; readonly xs: array<f32>; readonly ys: Resident<Float32Array>; readonly pts: Resident<Float32Array> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;',
+      'export declare function scale(bindings: { readonly k: f32; readonly xs: Float32Array | Buffer<f32>; readonly ys: Buffer<f32>; readonly pts: Buffer<vec2> | Buffer<f32> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Buffer<u32>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;',
     );
-    // A written binding a Resident cannot stand for (a struct, a boxed scalar) always waits.
+    expect(f.view).toContain(
+      'export declare function scale(bindings: { readonly k: f32; readonly xs: Float32Array | Buffer<f32>; readonly ys: Float32Array | Buffer<f32>; readonly pts: Float32Array | Buffer<vec2> | Buffer<f32> }, workgroups: number | readonly [number, number?, number?] | { readonly indirect: Buffer<u32>; readonly offset?: number }, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): Promise<void>;',
+    );
+    // A written binding a Buffer cannot stand for (a struct, a boxed scalar) always waits.
     expect(entryOf(face(HISTOGRAM).exports, 'histogram').queuedType).toBeUndefined();
-    // An array of structs takes one too.
+    // An array of structs of no exported class takes no Buffer (Amendment A11, Q4): no call on a
+    // resource that does not wait.
     expect(entryOf(face(PARTICLES).exports, 'step').queuedType).toContain(
-      'readonly particles: Resident<',
+      'readonly particles: never',
     );
+    expect(face(PARTICLES).view).not.toMatch(/function step\([^\n]*\): void;/);
   });
 
   it('boxes a written scalar, takes an atomic array as a typed array, and a written struct mutable', () => {
     const f = face(HISTOGRAM);
     const e = entryOf(f.exports, 'histogram');
     expect(e.bindingsType).toBe(
-      '{ readonly src: array<f32>; readonly bins: array<u32>; readonly summary: { count: u32; maxBin: i32 }; readonly firstValue: Uint32Array }',
+      '{ readonly src: Float32Array; readonly bins: Uint32Array; readonly summary: { count: u32; maxBin: i32 }; readonly firstValue: Uint32Array }',
     );
   });
 
-  it('type-checks a host call with plain tsc, a queued one with Residents, and catches a misspelled binding at the host line', async () => {
+  it('type-checks a host call with plain tsc, one on Buffers, and catches a misspelled binding at the host line', async () => {
     const f = face(SCALE);
     const dir = tempDir();
     writeFileSync(join(dir, 'm.shade.ts'), SCALE);
@@ -204,7 +210,7 @@ describe('the host view of an entry', () => {
       ],
       [
         'queued',
-        `import { scale } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst ys = resident(${xs});\nconst queued: void = scale({ k: 2, xs: ${xs}, ys, pts: resident(new Float32Array(32)) }, 2);\nexport const out: Float32Array = await ys.read();\nvoid queued;\n`,
+        `import { scale } from './m.shade.ts';\nimport { array } from ${JSON.stringify(resolve(__dirname, '../../runtime.ts'))};\nconst ys = array(${xs});\nconst queued: void = scale({ k: 2, xs: ${xs}, ys, pts: array(new Float32Array(32)) }, 2);\nexport const out: Float32Array = await ys.read();\nvoid queued;\n`,
         [],
       ],
       // No overload takes a misspelled binding.
@@ -477,7 +483,7 @@ declare const xs: storage<array<f32>, "read_write">;
     expect(face(DOUBLES).view).not.toContain('wgslInteger');
     // The host passes doubles, never the guard.
     expect(e.bindingsType).toBe(
-      '{ readonly affine: { readonly k: f64; readonly shift: f64 }; readonly xs: array<f64>; readonly ys: array<f64>; readonly ps: array<vec3f64> }',
+      '{ readonly affine: { readonly k: f64; readonly shift: f64 }; readonly xs: Float64Array; readonly ys: Float64Array; readonly ps: Float64Array }',
     );
   });
 
@@ -529,11 +535,10 @@ export function double(vs: array<f32>) {
 }
 `;
 
-  it('runs queued entry and kernel calls in order on a shared Resident, and read() waits for them', async () => {
+  it('runs entry and kernel calls on a shared Buffer in order, and read() waits for them', async () => {
     const m = await load(SHARED);
-    const rt = await runtime();
-    const ys = rt.resident(new Float32Array(16));
-    const pts = rt.resident(new Float32Array(32));
+    const ys = array(new Float32Array(16));
+    const pts = array(new Float32Array(32));
     const scale = m.scale as (b: unknown, w: unknown) => Promise<void>;
     const double = m.double as (ys: unknown) => Promise<void>;
     // Neither is awaited: each runs after the call before it.
@@ -544,51 +549,51 @@ export function double(vs: array<f32>) {
     expect([...(await pts.read())].filter((_, i) => i % 2 === 0)).toEqual(
       Array.from({ length: 16 }, (_, i) => i),
     );
-    // A plain array beside a Resident is still read back in place.
+    // A plain array written beside a Buffer: the call waits and fills it (Amendment A11, Q7).
     const plain = new Float32Array(16);
     await scale({ k: 1, xs, ys: plain, pts }, 2);
     expect([...plain]).toEqual([...xs]);
   });
 
-  it('takes a zeroed Resident where an entry takes a storage array, and holds it to the array`s element', async () => {
+  it('takes a zeroed Buffer where an entry takes a storage array, and holds it to the array`s element', async () => {
     const m = await load(SHARED);
-    const rt = await runtime();
     const scale = m.scale as (b: unknown, w: unknown) => Promise<void>;
-    const same = async (make: (n: number) => ReturnType<typeof rt.resident>) => {
+    const same = async (make: (n: number) => { read(): Promise<unknown> }) => {
       const ys = make(16);
       const pts = make(32);
       void scale({ k: 3, xs, ys, pts }, 2);
       return [await ys.read(), await pts.read()];
     };
-    // The handle of a zeroed array reads what the handle of the same zeros reads.
-    const zeroed = await same((n) => rt.resident(n, 'f32') as never);
-    const plain = await same((n) => rt.resident(new Float32Array(n)) as never);
+    // A zeroed Buffer reads what a Buffer of the same zeros reads.
+    const zeroed = await same((n) => array(n, 'f32') as never);
+    const plain = await same((n) => array(new Float32Array(n)) as never);
     expect(zeroed).toEqual(plain);
     expect(zeroed[0]).not.toEqual(new Float32Array(16));
-    // An element that is not the array's is refused by the call, naming the binding.
-    await expect(
-      scale({ k: 3, xs, ys: rt.resident(16, 'i32'), pts: rt.resident(32, 'f32') }, 2),
-    ).rejects.toThrow(/binding "ys"/);
+    // An element that is not the array's is refused at the call, naming the binding.
+    expect(() => scale({ k: 3, xs, ys: array(16, 'i32'), pts: array(32, 'f32') }, 2)).toThrow(
+      /binding "ys"/,
+    );
   });
 
-  it('refuses a Resident where the binding has a size or is not a storage array, and one Resident as two bindings', async () => {
+  it('refuses a Buffer where the binding has a size or is not a storage array, and one Buffer as two bindings, at the call', async () => {
     const m = await load(SCALE);
-    const rt = await runtime();
-    const scale = m.scale as (b: unknown, w: unknown) => Promise<void>;
-    const r = rt.resident(new Float32Array(16));
-    await expect(
-      scale({ k: rt.resident(new Float32Array(1)), xs, ys: r, pts: new Float32Array(32) }, 2),
-    ).rejects.toThrow(
+    const scale = m.scale as (b: unknown, w: unknown) => unknown;
+    const r = array(new Float32Array(16));
+    expect(() =>
+      scale({ k: array(new Float32Array(1)), xs, ys: r, pts: new Float32Array(32) }, 2),
+    ).toThrow(
       new TypeError(
-        'scale(): binding "k" (f32) takes no Resident: only a storage array with no size does.',
+        'scale(): binding "k" (f32) takes no Buffer: only a storage array with no size does.',
       ),
     );
-    await expect(scale({ k: 1, xs: r, ys: r, pts: new Float32Array(32) }, 2)).rejects.toThrow(
-      new TypeError('scale(): binding "ys" is the same resident array as binding "xs".'),
+    expect(() => scale({ k: 1, xs: r, ys: r, pts: new Float32Array(32) }, 2)).toThrow(
+      new TypeError('scale(): binding "ys" is the same Buffer as binding "xs".'),
     );
-    // A call that fails while nobody awaits it keeps its error for read() to throw.
-    void scale({ k: 1, xs: new Float32Array(3), ys: r, pts: 7 }, 2).catch(() => undefined);
-    await expect(r.read()).rejects.toThrow(/^scale\(\): binding "pts"/);
+    // A call on a Buffer is checked at the call, and a refused call leaves the Buffer as it was.
+    expect(() => scale({ k: 1, xs: new Float32Array(3), ys: r, pts: 7 }, 2)).toThrow(
+      /^scale\(\): binding "pts"/,
+    );
+    expect(await r.read()).toEqual(new Float32Array(16));
   });
 
   it('runs on the tiers configure names, and says why none could', async () => {
@@ -615,9 +620,7 @@ export function double(vs: array<f32>) {
   });
 });
 
-describe('a workgroup count a Resident holds (change 0075)', () => {
-  const runtime = async () =>
-    (await import(pathToFileURL(RUNTIME).href)) as typeof import('../../core/host-runtime.js');
+describe('a workgroup count a Buffer<u32> holds (change 0075)', () => {
   // `plan` writes the next count; `mark` runs over it, and records the grid it ran.
   const INDIRECT = `"use typeshade";
 declare const counts: storage<array<u32>, "read_write">;
@@ -647,11 +650,10 @@ declare const shape: storage<array<u32>, "read_write">;
 
   it('runs the grid an earlier call wrote, as the interpreter dispatches it, with no read between', async () => {
     const m = await load(INDIRECT);
-    const rt = await runtime();
     const [plan, mark] = [m.plan as Entry, m.mark as Entry];
-    const counts = rt.resident(3, 'u32');
-    const seen = rt.resident(new Uint32Array(16));
-    const shape = rt.resident(new Uint32Array(3));
+    const counts = array(3, 'u32');
+    const seen = array(new Uint32Array(16));
+    const shape = array(new Uint32Array(3));
     // Neither call is awaited: the second reads the counts when it runs.
     void plan({ counts, n: 4 }, 1);
     void mark({ seen, shape }, { indirect: counts });
@@ -670,11 +672,10 @@ declare const shape: storage<array<u32>, "read_write">;
 
   it('runs nothing for the words [0, 1, 1] and for a count past 65535, and reads from the offset', async () => {
     const m = await load(INDIRECT);
-    const rt = await runtime();
     const [plan, mark] = [m.plan as Entry, m.mark as Entry];
-    const counts = rt.resident(3, 'u32');
-    const seen = rt.resident(new Uint32Array(8));
-    const shape = rt.resident(new Uint32Array(3));
+    const counts = array(3, 'u32');
+    const seen = array(new Uint32Array(8));
+    const shape = array(new Uint32Array(3));
     void plan({ counts, n: 0 }, 1);
     void mark({ seen, shape }, { indirect: counts });
     expect(await counts.read()).toEqual(Uint32Array.of(0, 1, 1));
@@ -685,7 +686,7 @@ declare const shape: storage<array<u32>, "read_write">;
     expect(await seen.read()).toEqual(new Uint32Array(8));
     expect(await shape.read()).toEqual(new Uint32Array(3));
     // The three counts from element 3.
-    const six = rt.resident(Uint32Array.of(9, 9, 9, 3, 1, 1));
+    const six = array(Uint32Array.of(9, 9, 9, 3, 1, 1));
     await mark({ seen, shape }, { indirect: six, offset: 3 });
     expect(await shape.read()).toEqual(Uint32Array.of(3, 1, 1));
     expect(await seen.read()).toEqual(Uint32Array.of(1, 2, 3, 4, 5, 6, 0, 0));
@@ -694,11 +695,11 @@ declare const shape: storage<array<u32>, "read_write">;
   it('types the indirect form in the host view: tsc and the editor read the same program', async () => {
     const f = face(INDIRECT);
     const workgroups =
-      'workgroups: number | readonly [number, number?, number?] | { readonly indirect: Resident<Uint32Array>; readonly offset?: number }';
+      'workgroups: number | readonly [number, number?, number?] | { readonly indirect: Buffer<u32>; readonly offset?: number }';
     expect(f.view).toContain(
-      `export declare function mark(bindings: { readonly seen: Resident<Uint32Array>; readonly shape: Resident<Uint32Array> }, ${workgroups}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;`,
+      `export declare function mark(bindings: { readonly seen: Buffer<u32>; readonly shape: Buffer<u32> }, ${workgroups}, options?: { readonly constants?: Readonly<Record<string, number | boolean>> }): void;`,
     );
-    expect(f.view).toContain(`import type { Resident } from ${JSON.stringify(RUNTIME)};`);
+    expect(f.view).toContain(`import type { Buffer } from ${JSON.stringify(RUNTIME)};`);
     const dir = tempDir();
     writeFileSync(join(dir, 'm.shade.ts'), INDIRECT);
     writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
@@ -714,7 +715,7 @@ declare const shape: storage<array<u32>, "read_write">;
       types: [],
     };
     const host = (count: string) =>
-      `import { mark } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst seen = resident(new Uint32Array(8));\nconst shape = resident(new Uint32Array(3));\nconst counts = resident(new Uint32Array(6));\nmark({ seen, shape }, ${count});\nexport {};\n`;
+      `import { mark } from './m.shade.ts';\nimport { array } from ${JSON.stringify(resolve(__dirname, '../../runtime.ts'))};\nconst seen = array(new Uint32Array(8));\nconst shape = array(new Uint32Array(3));\nconst counts = array(new Uint32Array(6));\nmark({ seen, shape }, ${count});\nexport {};\n`;
     const app = join(dir, 'app.ts');
     // The checker the build runs (tsc), and the one an editor runs over the same files.
     let text = '';
@@ -743,7 +744,7 @@ declare const shape: storage<array<u32>, "read_write">;
       ['{ indirect: counts }', []],
       ['{ indirect: counts, offset: 3 }', []],
       ['{ indirect: new Uint32Array(3) }', ['TS2769']],
-      ['{ indirect: resident(new Float32Array(3)) }', ['TS2769']],
+      ['{ indirect: array(new Float32Array(3)) }', ['TS2769']],
       ['{ indirect: counts, offset: "3" }', ['TS2769']],
     ] as const;
     // Each case remains a module, but the program reads its shared library files once.
@@ -770,7 +771,7 @@ declare const shape: storage<array<u32>, "read_write">;
     text = host('{ indirect: counts, offset: 3 }');
     const info = editor.getQuickInfoAtPosition(app, text.indexOf('mark({') + 1);
     expect(ts.displayPartsToString(info?.displayParts).replace(/\s+/g, ' ')).toContain(
-      '| { readonly indirect: Resident<Uint32Array>; readonly offset?: number; }, options?: { readonly constants?: Readonly<Record<string, number | boolean>>; }): void (+1 overload)',
+      '| { readonly indirect: Buffer<u32>; readonly offset?: number; }, options?: { readonly constants?: Readonly<Record<string, number | boolean>>; }): void (+2 overloads)',
     );
     // The shader half: the language service reads the module with no diagnostic, and its hover
     // types the builtin an indirect count fills as the compiler does.

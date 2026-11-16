@@ -27,6 +27,7 @@ import { runKernelHeld, runKernelPlan, type HeldLengths } from '../../core/testi
 import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 // A device's fuse() runs through the planner `typeshade/fuse` loads (change 0071).
 import '../../fuse.js';
+import { array } from '../../runtime.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const dirs: string[] = [];
@@ -336,8 +337,6 @@ export function keepStore(xs: array<f32>, list: array<u32>, count: array<u32>) {
 `;
 
 type Call = (...a: unknown[]) => Promise<unknown>;
-const runtime = async (): Promise<typeof import('../../core/host-runtime.js')> =>
-  (await import(pathToFileURL(RUNTIME).href)) as typeof import('../../core/host-runtime.js');
 const words = async (r: { read(): Promise<unknown> }): Promise<number[]> => [
   ...((await r.read()) as Uint32Array),
 ];
@@ -352,21 +351,26 @@ describe('a push after a held length, read by both halves (change 0094)', () => 
 
   it('types a pushed array with its held length, and no other array, under tsc and in the editor (decision D5)', async () => {
     const f = face(HELD);
-    const held =
-      '{ readonly array: array<u32>; readonly length: Resident<Uint32Array>; readonly offset?: number }';
+    // A held length is a Buffer<u32> (change 0138, Amendment A10, confirmation item 3), so a call
+    // with one is a call on a resource: one that does not block, and one that writes a plain
+    // array and waits (Amendment A11, Q7).
+    const held = (array: string): string =>
+      `{ readonly array: ${array}; readonly length: Buffer<u32>; readonly offset?: number }`;
     expect(f.view).toContain(
-      `export declare function keepAbove(xs: array<f32>, t: f32, list: array<u32> | ${held}): Promise<void>;`,
+      'export declare function keepAbove(xs: Float32Array, t: f32, list: Uint32Array): Promise<void>;',
     );
-    // A call whose written arrays are all resident, and that returns nothing, only queues.
     expect(f.view).toContain(
-      'export declare function keepAbove(xs: array<f32>, t: f32, list: Resident<Uint32Array> | { readonly array: Resident<Uint32Array>; readonly length: Resident<Uint32Array>; readonly offset?: number }): void;',
+      `export declare function keepAbove(xs: Float32Array | Buffer<f32>, t: f32 | Buffer<f32>, list: Buffer<u32> | ${held('Buffer<u32>')}): void;`,
+    );
+    expect(f.view).toContain(
+      `export declare function keepAbove(xs: Float32Array | Buffer<f32>, t: f32 | Buffer<f32>, list: Uint32Array | Buffer<u32> | ${held('Uint32Array | Buffer<u32>')}): Promise<void>;`,
     );
     // An array no loop pushes onto takes no held length.
     expect(f.view).toContain(
-      `export declare function keepStore(xs: array<f32>, list: array<u32> | ${held}, count: array<u32>): Promise<void>;`,
+      `export declare function keepStore(xs: Float32Array | Buffer<f32>, list: Buffer<u32> | ${held('Buffer<u32>')}, count: Buffer<u32>): void;`,
     );
     expect(f.view).toContain(
-      'An array it pushes onto may come as { array, length, offset? }: its pushes start at the length the Resident length holds at offset, and the call leaves the new length there (Rule 8.23).',
+      'An array it pushes onto may come as { array, length, offset? }: its pushes start at the length the Buffer<u32> length holds at offset, and the call leaves the new length there (Rule 8.23).',
     );
     const dir = mkdtempSync(join(tmpdir(), 'typeshade-kernel-held-'));
     dirs.push(dir);
@@ -394,7 +398,7 @@ describe('a push after a held length, read by both halves (change 0094)', () => 
       ['keepAbove(xs, 0.5, { array: list, length: count, offset: "1" });', ['TS2769']],
       ['keepAbove({ array: xs, length: count }, 0.5, list);', ['TS2769']],
     ] as const;
-    const head = `import { keepAbove, keepCount } from './m.shade.ts';\nimport { resident } from ${JSON.stringify(RUNTIME)};\nconst xs = new Float32Array(4);\nconst list = resident(new Uint32Array(8));\nconst count = resident(new Uint32Array(2));\n`;
+    const head = `import { keepAbove, keepCount } from './m.shade.ts';\nimport { array } from ${JSON.stringify(resolve(__dirname, '../../runtime.ts'))};\nconst xs = new Float32Array(4);\nconst list = array(new Uint32Array(8));\nconst count = array(new Uint32Array(2));\n`;
     const text = `${head}${calls.map(([call]) => call).join('\n')}\nexport {};\n`;
     const first = head.split('\n').length;
     const want = calls.map(([call, codes]) => `${call}: ${codes.join(' ')}`);
@@ -441,7 +445,7 @@ describe('a push after a held length, read by both halves (change 0094)', () => 
     // The editor's hover on the call shows the held length.
     const info = editor.getQuickInfoAtPosition(app, text.indexOf('keepAbove(xs') + 1);
     expect(ts.displayPartsToString(info?.displayParts).replace(/\s+/g, ' ')).toContain(
-      'list: Resident<Uint32Array> | { readonly array: Resident<Uint32Array>; readonly length: Resident<Uint32Array>; readonly offset?: number; }): void (+1 overload)',
+      'list: Buffer<u32> | { readonly array: Buffer<u32>; readonly length: Buffer<u32>; readonly offset?: number; }): void (+2 overloads)',
     );
   });
 });
@@ -513,25 +517,24 @@ describe('the face of a push after a held length (change 0094)', () => {
 describe('a push after a held length on the CPU tier (change 0094, Rule 8.23)', () => {
   it('appends after the held length, and leaves the new length in the word', async () => {
     const m = (await load(HELD)) as Record<string, Call>;
-    const rt = await runtime();
     const xs = Float32Array.of(0.9, 0.1, 0.7, 0.2, 0.8);
     const list = new Uint32Array(8).fill(99);
-    const count = rt.resident(new Uint32Array([0, 3, 0]));
+    const count = array(new Uint32Array([0, 3, 0]));
     await m.keepAbove!(xs, 0.5, { array: list, length: count, offset: 1 });
     expect([...list]).toEqual([99, 99, 99, 0, 2, 4, 99, 99]);
     expect(await words(count)).toEqual([0, 6, 0]);
     // `offset` is 0 when left out; the result is the new length; a count past the capacity counts.
-    const c0 = rt.resident(new Uint32Array([6]));
+    const c0 = array(new Uint32Array([6]));
     expect(await m.keepCount!(xs, 0.5, { array: list, length: c0 })).toBe(9);
     expect([...list]).toEqual([99, 99, 99, 0, 2, 4, 0, 2]);
     expect(await words(c0)).toEqual([9]);
     // A held length past the capacity stores nothing, and still counts.
-    const far = rt.resident(new Uint32Array([20]));
+    const far = array(new Uint32Array([20]));
     expect(await m.keepCount!(xs, 0.5, { array: list, length: far })).toBe(23);
     expect([...list]).toEqual([99, 99, 99, 0, 2, 4, 0, 2]);
     // The array may be a Resident too, and a zeroed length starts at 0.
-    const r = rt.resident(new Uint32Array(4));
-    const z = rt.resident(1, 'u32');
+    const r = array(new Uint32Array(4));
+    const z = array(1, 'u32');
     await m.keepAbove!(xs, 0.5, { array: r, length: z });
     expect(await words(r)).toEqual([0, 2, 4, 0]);
     expect(await words(z)).toEqual([3]);
@@ -539,9 +542,8 @@ describe('a push after a held length on the CPU tier (change 0094, Rule 8.23)', 
 
   it('appends the second loop after the first, from the held length', async () => {
     const m = (await load(HELD)) as Record<string, Call>;
-    const rt = await runtime();
     const out = new Uint32Array(8);
-    const n = rt.resident(new Uint32Array([2]));
+    const n = array(new Uint32Array([2]));
     // Loop 1 appends 7, 8, 9 after 2; loop 2 appends the index of each even value.
     expect(await m.both!(Uint32Array.of(7, 8, 9), { array: out, length: n })).toBe(6);
     expect([...out]).toEqual([0, 0, 7, 8, 9, 1, 0, 0]);
@@ -550,12 +552,11 @@ describe('a push after a held length on the CPU tier (change 0094, Rule 8.23)', 
 
   it('stores the length that a store after the loops reads, from the held length', async () => {
     const m = (await load(HELD)) as Record<string, Call>;
-    const rt = await runtime();
     const list = new Uint32Array(4);
     const count = new Uint32Array(1);
     await m.keepStore!(Float32Array.of(1, -1, 2), list, count);
     expect([...count]).toEqual([2]);
-    const held = rt.resident(new Uint32Array([1]));
+    const held = array(new Uint32Array([1]));
     await m.keepStore!(Float32Array.of(1, -1, 2), { array: list, length: held }, count);
     expect([...list]).toEqual([0, 0, 2, 0]);
     expect([...count]).toEqual([3]);
@@ -571,14 +572,14 @@ describe('the refusals of a held length, before anything runs (change 0094)', ()
       'keepAbove(): parameter "xs" is an array no loop pushes onto, so it takes no { array, length, offset? }. Pass the array itself.',
     ],
     [
-      'a length that is no Resident',
+      'a length that is no Buffer',
       (r: Held) => ['keepAbove', r.xs, 0.5, { array: r.list, length: new Uint32Array(1) }],
-      'keepAbove(): "list.length" is a Resident<Uint32Array> that holds the length of "list"; got a Uint32Array.',
+      'keepAbove(): "list.length" is a Buffer<u32> that holds the length of "list"; got a Uint32Array.',
     ],
     [
-      'a Resident of another array',
+      'a Buffer of another element',
       (r: Held) => ['keepAbove', r.xs, 0.5, { array: r.list, length: r.floats }],
-      'keepAbove(): "list.length" is a Resident<Uint32Array>; got a Resident of a Float32Array.',
+      'keepAbove(): "list.length" is a Buffer<u32>; got a Buffer of a Float32Array.',
     ],
     [
       'an offset that is no whole number',
@@ -598,50 +599,48 @@ describe('the refusals of a held length, before anything runs (change 0094)', ()
     [
       'a length that is another argument',
       (r: Held) => ['keepStore', r.xs, { array: r.list, length: r.count }, r.count],
-      'keepStore(): "list.length" is the same resident array as parameter "count".',
+      'keepStore(): "list.length" is the same Buffer as parameter "count".',
     ],
     [
       'a length that is the array itself',
       (r: Held) => ['keepAbove', r.xs, 0.5, { array: r.count, length: r.count }],
-      'keepAbove(): "list.length" is the same resident array as parameter "list".',
+      'keepAbove(): "list.length" is the same Buffer as parameter "list".',
     ],
   ] as const)('%s', async (_name, args, message) => {
     const m = (await load(HELD)) as Record<string, Call>;
-    const rt = await runtime();
     const r: Held = {
-      xs: rt.resident(Float32Array.of(1, 2)),
+      xs: array(Float32Array.of(1, 2)),
       list: new Uint32Array(4).fill(9),
-      count: rt.resident(new Uint32Array(2)),
-      floats: rt.resident(new Float32Array(1)),
+      count: array(new Uint32Array(2)),
+      floats: array(new Float32Array(1)),
     };
     const [fn, ...rest] = args(r) as unknown as readonly [string, ...unknown[]];
-    await expect(m[fn]!(...rest)).rejects.toThrow(new TypeError(message));
+    // A call on a Buffer is checked at the call (change 0138, R2; Amendment A10, Q-I).
+    expect(() => m[fn]!(...rest)).toThrow(new TypeError(message));
     // Nothing ran: the array is as it was.
     expect([...r.list]).toEqual([9, 9, 9, 9]);
   });
 
   it('refuses a destroyed length, an object with another key, a length of another owner and a scratch array', async () => {
     const m = (await load(HELD)) as Record<string, Call>;
-    const rt = await runtime();
     const xs = Float32Array.of(1, 2);
     const list = new Uint32Array(4);
-    const gone = rt.resident(new Uint32Array(1));
-    gone.destroy();
-    await expect(m.keepAbove!(xs, 0.5, { array: list, length: gone })).rejects.toThrow(
+    const gone = array(new Uint32Array(1));
+    gone.dispose();
+    expect(() => m.keepAbove!(xs, 0.5, { array: list, length: gone })).toThrow(
       new TypeError(
-        'keepAbove(): "list.length": this Resident was destroyed; make a new one with array().',
+        'keepAbove(): "list.length": this Buffer was disposed; make a new one with array().',
       ),
     );
-    // A refused call leaves its error on the length, which it writes, for read() to throw.
-    const kept = rt.resident(new Uint32Array(1));
-    await expect(m.keepAbove!(xs, 0.5, { array: list, length: kept, offset: 1 })).rejects.toThrow(
-      TypeError,
-    );
-    await expect(kept.read()).rejects.toThrow(
+    // A call refused at the call leaves the length as it was (B2).
+    const kept = array(new Uint32Array(1));
+    expect(() => m.keepAbove!(xs, 0.5, { array: list, length: kept, offset: 1 })).toThrow(
       'keepAbove(): "list.offset" is 1, and the length at it needs 2 elements; "list.length" holds 1.',
     );
-    // Another key makes it no held length: the array's own check refuses it as a wrong value.
-    const count = rt.resident(new Uint32Array(1));
+    expect([...((await kept.read()) as Uint32Array)]).toEqual([0]);
+    // Another key makes it no held length, and the call one with plain data: the array's own check
+    // refuses it as a wrong value.
+    const count = array(new Uint32Array(1));
     await expect(m.keepAbove!(xs, 0.5, { array: list, length: count, extra: 1 })).rejects.toThrow(
       /^keepAbove\(\): parameter "list" \(array<u32>\): /,
     );
@@ -651,12 +650,12 @@ describe('the refusals of a held length, before anything runs (change 0094)', ()
       await createDevice({ prefer: ['cpu'] }),
     ];
     try {
-      await expect(
+      expect(() =>
         m.keepAbove!(xs, 0.5, {
           array: a.array(new Uint32Array(4)),
           length: b.array(new Uint32Array(1)),
         }),
-      ).rejects.toThrow(
+      ).toThrow(
         /^keepAbove\(\): "list\.length" belongs to .*, while parameter "list" belongs to .*\. A call takes resources from one owner\.$/,
       );
       await expect(

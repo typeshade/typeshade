@@ -3,7 +3,7 @@
 // A `fuse()` scope runs its kernel calls as dispatches of one batch: each scope takes the
 // pipelines of its entries (built once), then makes the buffers, bind groups and command buffers
 // of the dispatches it records, and submits them. This script times the host side of that work
-// for a five-call chain over `Resident` arrays, and counts what the device was asked to make per
+// for a five-call chain over `Buffer`s, and counts what the device was asked to make per
 // scope: buffers by usage, bind groups and `writeBuffer` calls. It runs on a recording device
 // (Node has no WebGPU), so it measures the CPU cost of the call layer, not a GPU.
 //
@@ -19,7 +19,9 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { hostFace } from '../src/compiler/ts/host-face.js';
 import { fuse } from '../src/fuse.js';
-import { configure, resident, type Resident } from '../src/core/resident.js';
+import { configure } from '../src/core/resident.js';
+import { array, type Buffer } from '../src/runtime.js';
+import type { f32 } from '../src/runtime/host-types.js';
 import { bindCacheStats, type GpuDevice } from '../src/core/host-entry.js';
 
 const RUNTIME = new URL('../src/core/host-runtime.ts', import.meta.url).pathname;
@@ -112,18 +114,15 @@ function recordingDevice() {
   };
 }
 
-/** The five calls of the chain: add, mul, relu, add, mul, over six residents. */
-async function scope(
-  ops: Record<string, (...a: unknown[]) => unknown>,
-  r: Resident<Float32Array>[],
-) {
+/** The five calls of the chain: add, mul, relu, add, mul, over six Buffers. */
+async function scope(ops: Record<string, (...a: unknown[]) => unknown>, r: Buffer<f32>[]) {
   const [t, u, out, a, b, c] = r as [
-    Resident<Float32Array>,
-    Resident<Float32Array>,
-    Resident<Float32Array>,
-    Resident<Float32Array>,
-    Resident<Float32Array>,
-    Resident<Float32Array>,
+    Buffer<f32>,
+    Buffer<f32>,
+    Buffer<f32>,
+    Buffer<f32>,
+    Buffer<f32>,
+    Buffer<f32>,
   ];
   return fuse(() => {
     void ops.add!(t, a, b);
@@ -149,8 +148,8 @@ try {
   const gpu = recordingDevice();
   configure({ runtime: { device: gpu as unknown as object } });
   const n = 64;
-  const arrays = (): Resident<Float32Array>[] =>
-    Array.from({ length: 6 }, (_, i) => resident(new Float32Array(n).fill(i + 1)));
+  const arrays = (): Buffer<f32>[] =>
+    Array.from({ length: 6 }, (_, i) => array(new Float32Array(n).fill(i + 1)));
   const r = arrays();
   // Warm-up: pipelines, fused entries and the first uploads are made once.
   await scope(ops, r);

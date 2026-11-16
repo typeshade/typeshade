@@ -17,7 +17,7 @@ Initial review baselines on 2026-11-16 (UTC):
   `58e8187a9320dc8b8b9643e335dfa8bcc10d6372`, the draft Resident-to-Buffer transition.
 
 These identify the original review configuration. The integration record below identifies completed merges.
-Recheck the current head and checks before each remaining integration.
+The reviewed R0–R5 sequence is complete on main `ad05431a`. The integration record below includes its prerequisites.
 
 The owner authorized this work in the conversation on 2026-11-16: "진행하세요".
 The owner subsequently delegated suitable integrations: "완료되거나 메인에 병합이 가능하거나 적절한 타이밍이라면 병합까지 맡길게".
@@ -54,7 +54,7 @@ Likewise, test-only differential gates do not establish a delivered end-user div
 | R1  | Extraction merged; remaining analysis retained | `src/compiler/ts/abstract-const.ts`: separate candidate construction and batch validation from constant analysis.                                            | Equal diagnostic text and order, compiler/editor parity, unchanged generated output, at most two edited compiles per module. |
 | R2  | Merged in #1284, #1285 and #1286               | `src/compiler/ts/context.ts`, `src/compiler/ts/lower/function.ts`, `src/language-service/diagnostics.ts`: explicit analysis lifetimes and shared results.    | Repeated compilation isolation and parity on the same source; no new semantic IR or query framework.                         |
 | R3  | Merged in #1288                                | `src/compiler/ts/host-face.ts`: separate export analysis, declaration generation and runtime wrapper generation.                                             | Generated JS, declarations and metadata agree; packed consumers pass.                                                        |
-| R4  | Implemented in #1289; depends on #1257         | `src/core/host-kernel.ts`, `src/core/resident.ts`, `src/runtime/resource.ts`, `src/runtime/program.ts`: ownership, visibility, lifetime and execution state. | Resource sharing, disposal, failure rollback and downstream tests on the resulting Buffer API.                               |
+| R4  | Merged in #1289 after #1257                    | `src/core/host-kernel.ts`, `src/core/resident.ts`, `src/runtime/resource.ts`, `src/runtime/program.ts`: ownership, visibility, lifetime and execution state. | Resource sharing, disposal, failure rollback and downstream tests on the resulting Buffer API.                               |
 | R5  | Merged in #1290                                | `src/core/passes/kernel-lower.ts`, `src/core/backends/`, validation scripts: separate transformation, execution and verdict responsibilities where useful.   | Source mapping and output preserved; relevant backend and differential gates.                                                |
 
 Each row is a PR series, not a deadline or a file-size target. Keep documentation and tests
@@ -73,7 +73,7 @@ and pull request. Keep a branch focused on one responsibility and its tests and 
 | Further R1 slices      | `codex/refactor-r1-<slice>`              | Updated `main`, or the specific prerequisite branch | `main`, after the prerequisite |
 | R2 through R5 slices   | `codex/refactor-r<stage>-<slice>`        | Updated `main`, or the specific prerequisite branch | `main`, after the prerequisite |
 
-The future branch names are conventions; those branches do not exist until work starts.
+Branch patterns in this table are naming conventions; the integration record identifies the delivered slices.
 The plan branch records status and does not accumulate implementation commits.
 
 1. Fetch the integration baseline before starting a slice.
@@ -94,7 +94,7 @@ the new `main`. Record the old and new heads, and use `--force-with-lease` only 
 that task branch after checking its remote head. Never rewrite `main` or another task's branch.
 
 Independent slices can start from `main` while a prerequisite waits. Work that changes the same
-analysis or resource contract follows its dependency order. R4 integration still waits for #1257's Buffer contract; its extraction may be prepared on that prerequisite branch.
+analysis or resource contract follows its dependency order. R4 followed this order: prepare on #1257, integrate that contract, then retarget and merge the focused extraction.
 
 ## First implementation boundary
 
@@ -126,10 +126,12 @@ Completed on 2026-11-16 after checking the current heads, required checks, confl
 - #1286 merged as `bd796a11c01e97b6b599b4cb8b3b71ae2663dd13`, after all 26 checks passed on `d66f33b7`.
 - #1288 merged as `b334eadd806c2baa75b0e8ae0ef065eb083ba78d`, after all 26 checks passed on `eaf5c635`.
 - #1290 merged as `ec746bcffc237dcd46022a952252aaa81ff02159`, after all 26 checks passed on `753744e7`.
+- #1257 merged as `3b579904d5e024d5e8380f9f0ab1e261e6968ee8`, after all 28 checks passed on `0d696ac0`.
+- #1289 merged as `ad05431a6409e0332083f4764dd425b7db4652d7`, after all 26 checks passed on `9311fc5a`.
 
-1. Integrate #1257 and then #1289 after their current-head checks pass.
-2. Retain analysis-dependent R1 wording with inference; no further split is justified by this review.
-3. Retarget #1289 after #1257's contract and consumer migration settle, then revalidate before merging.
+The reviewed refactoring sequence is complete. Analysis-dependent R1 wording remains with
+inference because no further independent boundary was justified. The Buffer prerequisite and
+TypeNN migration are integrated; R4 was retargeted to main with only its five-file extraction.
 
 [Issue #1280](https://github.com/typeshade/typeshade/issues/1280) records diagnostic disagreement
 already present on `main` `273125b3`. It is not evidence of a regression introduced by #1272.
@@ -196,7 +198,7 @@ source-file identity and the independence of the two scopes.
 
 This was the first R2 slice. At its merge, function lowering and compiler/editor analysis remained
 follow-up work, and R3 and R5 had not started. The implementation record below supersedes that
-status. R4 integration waits for the Buffer transition; its TypeNN failure and remediation are recorded below.
+status. R4 subsequently integrated after the Buffer transition; its TypeNN failure and remediation are recorded below.
 
 ## R2 entry-stage validation slice
 
@@ -225,12 +227,12 @@ The owner requested completion of the remaining sequence on 2026-11-16, with ind
 continuing while checks or prerequisites wait. The [project structure review](project-structure.md)
 records the hierarchy, file responsibilities, retained boundaries and limitations.
 
-| Stage | PR                                                        | Baseline            | Local evidence                                                                        | Integration condition                                      |
-| ----- | --------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| R2    | [#1286](https://github.com/typeshade/typeshade/pull/1286) | `5df77cb5`          | 1,600 tests; 12 diagnostic/emit comparisons; analysis-cache reuse and invalidation    | Merged as `bd796a11`; 26 checks passed                     |
-| R3    | [#1288](https://github.com/typeshade/typeshade/pull/1288) | `5df77cb5`          | 541 tests covered; 118 identical complete host faces; API definition-path-only change | Merged as `b334eadd`; 26 checks passed                     |
-| R4    | [#1289](https://github.com/typeshade/typeshade/pull/1289) | #1257 at `58e8187a` | 131 tests; measured runtime bundle caps; unchanged lifecycle/state objects            | #1257 and consumer migration, retargeting and revalidation |
-| R5    | [#1290](https://github.com/typeshade/typeshade/pull/1290) | `5df77cb5`          | 406 tests; 118 identical complete host faces; shared IR and both tier plans           | Merged as `ec746bcf`; 26 checks passed                     |
+| Stage | PR                                                        | Baseline            | Local evidence                                                                        | Integration result                     |
+| ----- | --------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------- | -------------------------------------- |
+| R2    | [#1286](https://github.com/typeshade/typeshade/pull/1286) | `5df77cb5`          | 1,600 tests; 12 diagnostic/emit comparisons; analysis-cache reuse and invalidation    | Merged as `bd796a11`; 26 checks passed |
+| R3    | [#1288](https://github.com/typeshade/typeshade/pull/1288) | `5df77cb5`          | 541 tests covered; 118 identical complete host faces; API definition-path-only change | Merged as `b334eadd`; 26 checks passed |
+| R4    | [#1289](https://github.com/typeshade/typeshade/pull/1289) | #1257 at `0d696ac0` | 131 tests; measured runtime bundle caps; unchanged lifecycle/state objects            | Merged as `ad05431a`; 26 checks passed |
+| R5    | [#1290](https://github.com/typeshade/typeshade/pull/1290) | `5df77cb5`          | 406 tests; 118 identical complete host faces; shared IR and both tier plans           | Merged as `ec746bcf`; 26 checks passed |
 
 R1 review: `divisionSentence` reads origin and carried-value maps, and `readingsRemedy` depends
 on the same refusal facts. Keep that analysis-dependent wording with its analysis. The extracted
@@ -246,13 +248,15 @@ R5 review: backend writers already use the shared emission walk; gate browser se
 cleanup already have dedicated modules. Preserve these boundaries instead of rewriting them to
 satisfy a file-size target. Further work needs a concrete coupling or correctness problem.
 
-## R4 integration prerequisite
+## R4 prerequisite resolution
 
 R4 changes internal ownership only. It does not restore the removed public `Resident` contract.
-At #1257 head `58e8187a`, the TypeNN candidate check fails before tests because four files import that removed type.
+At #1257 head `58e8187a`, the TypeNN candidate check failed before tests because four files imported that removed type.
 At that head, the downstream workflow pinned TypeNN to `3a7d66c623722cae4c1288a4a59e88bac1689fed`.
 A read-only inspection also found `write` and `destroy` calls in that consumer.
 The accepted proposal 0138, Amendments A10 and A11, describes its migration; a type alias alone would not complete it.
+
+All five steps of this integration procedure are complete:
 
 1. Migrate and validate the pinned TypeNN consumer against the Buffer contract under proposal 0138.
 2. Update the downstream pin deliberately and pass the candidate build and CPU tests.
@@ -262,8 +266,10 @@ The accepted proposal 0138, Amendments A10 and A11, describes its migration; a t
 
 TypeNN [PR #27](https://github.com/typeshade/typenn/pull/27) merged as `6ee9a603`, after CPU and Chromium/WebGPU CI passed. Its 684 CPU tests also pass locally. The migration preserves f32/u32 reads, uses set/dispose, and lands a stale parameter before replacement. #1257 now pins that validated consumer revision.
 
-The extraction is implemented and locally verified; its integration remains open.
-This blocker is distinct from issues #1280 and #1281 and from the completed compiler separations.
+At retargeting, main `3b579904` matched the tested prerequisite `0d696ac0` exactly.
+The diff contained only the five resource-state implementation, budget and architecture files.
+#1289 then merged as `ad05431a` after all 26 current-head checks passed.
+The former blocker is distinct from issues #1280 and #1281.
 
 ## Buffer prerequisite integration evidence
 

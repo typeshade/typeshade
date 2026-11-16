@@ -36,9 +36,13 @@ export type HostExport =
       readonly name: string;
       readonly entry: Omit<ComputeEntry, 'wgsl' | 'log'>;
       readonly bindingsType: string;
-      /** The bindings object of the call that only queues, when every binding the entry
-       *  writes is a storage array with no size, which a `Resident` may stand for. */
+      /** The bindings object of a call on a resource, which does not block, when every binding
+       *  the entry writes is a storage array with no size, which a `Buffer` may stand for (change
+       *  0138, R2; Amendment A10, Q-I). */
       readonly queuedType?: string;
+      /** The bindings object of a call on a resource that writes a plain array, which waits
+       *  (Amendment A11, Q7); present with {@link queuedType}. */
+      readonly waitingType?: string;
     }
   | {
       /** A full-screen `@fragment` entry a host can draw into a canvas (Rule 8.24): everything

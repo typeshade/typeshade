@@ -851,7 +851,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     evidence: 'src/core/resident.ts:53-72',
     webgpu: raw(
       'GPUBuffer',
-      'the host reads the size of its own GPUBuffer; the typed Resident returns no size',
+      'the host reads the size of its own GPUBuffer; the typed Buffer returns no size',
     ),
     webgl2: na(
       'a WebGLBuffer has no size or usage member; the runtime sizes its buffers from the host value',
@@ -865,7 +865,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     evidence: 'src/core/resident.ts:53-72',
     webgpu: raw(
       'GPUBuffer',
-      'the host reads the usage of its own GPUBuffer; the typed Resident returns no usage',
+      'the host reads the usage of its own GPUBuffer; the typed Buffer returns no usage',
     ),
     webgl2: na(
       'a WebGLBuffer has no size or usage member; the runtime sizes its buffers from the host value',
@@ -879,10 +879,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     evidence: 'src/core/resident.ts:85; src/core/resident.ts:228-237',
     webgpu: raw(
       'GPUBuffer',
-      'the host reads the map state of its own GPUBuffer; the typed Resident reports freshness (src/core/resident.ts:85), not map state',
+      'the host reads the map state of its own GPUBuffer; the typed Buffer reports freshness (src/core/resident.ts:85), not map state',
     ),
     webgl2: na(
-      'WebGPU-only concept: WebGL2 has no GPUBuffer mapping state; a Resident is read from its host copy (src/core/resident.ts:228-237)',
+      'WebGPU-only concept: WebGL2 has no GPUBuffer mapping state; a Buffer is read from its host copy (src/core/resident.ts:228-237)',
     ),
   },
   {
@@ -892,8 +892,8 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     covers: ['GPUBuffer.mapAsync'],
     evidence:
       'src/core/resident.ts:61; src/core/resident.ts:228-237; src/rhi/webgl2.ts:762; src/core/host-entry.ts:654-661',
-    webgpu: typed('src/runtime/runtime.test.ts', 'Resident.read() and Texture.read()'),
-    webgl2: typed('scripts/compile-gate.ts', 'Resident.read() and Texture.read()'),
+    webgpu: typed('src/runtime/runtime.test.ts', 'Buffer.read() and Texture.read()'),
+    webgl2: typed('scripts/compile-gate.ts', 'Buffer.read() and Texture.read()'),
   },
   {
     table: 'A',
@@ -902,8 +902,8 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     covers: ['GPUBuffer.getMappedRange'],
     evidence:
       'src/core/resident.ts:61; src/core/resident.ts:228-237; src/rhi/webgl2.ts:762; src/core/host-entry.ts:654-661',
-    webgpu: typed('src/runtime/runtime.test.ts', 'Resident.read() and Texture.read()'),
-    webgl2: typed('scripts/compile-gate.ts', 'Resident.read() and Texture.read()'),
+    webgpu: typed('src/runtime/runtime.test.ts', 'Buffer.read() and Texture.read()'),
+    webgl2: typed('scripts/compile-gate.ts', 'Buffer.read() and Texture.read()'),
   },
   {
     table: 'A',
@@ -914,7 +914,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'src/core/resident.ts:61; src/core/resident.ts:228-237; src/rhi/webgl2.ts:762; src/core/host-entry.ts:654-661',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test observes the unmap; the typed surface is Resident.read() and Texture.read()',
+      'typed in code; no test reads it on this target (Rule 11.18): no test observes the unmap; the typed surface is Buffer.read() and Texture.read()',
       645,
     ),
     webgl2: na('WebGL2 has no buffer mapping to end'),
@@ -926,10 +926,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     covers: ['GPUBuffer.destroy'],
     evidence:
       'src/core/resident.ts:71; src/core/resident.ts:249-257; src/runtime/gl-draw.ts:752-753',
-    webgpu: typed('journeys/mnist/test-webgpu.mjs', 'Resident.destroy()'),
+    webgpu: typed('journeys/mnist/test-webgpu.mjs', 'Buffer.dispose()'),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test reads the destroyed-Resident guard of the WebGL2 tier; the typed surface is Resident.destroy()',
+      'typed in code; no test reads it on this target (Rule 11.18): no test reads the disposed-Buffer guard of the WebGL2 tier; the typed surface is Buffer.dispose()',
       645,
     ),
   },
@@ -1095,12 +1095,12 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     webgpu: andGap(
       raw('Frame.encoder'),
       6,
-      'no typed buffer clear; Resident.write(zeros) is the typed way for a whole buffer',
+      'no typed buffer clear; Buffer.set(zeros) is the typed way for a whole buffer',
       637,
     ),
     webgl2: gap(
       6,
-      'Resident.write(zeros) is the typed way; the clear has no typed form of its own',
+      'Buffer.set(zeros) is the typed way; the clear has no typed form of its own',
       637,
     ),
   },
@@ -1258,7 +1258,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     evidence: 'src/core/host-entry.ts:1755-1756',
     webgpu: typed(
       'scripts/user-journey.ts',
-      'an entry call takes { indirect, offset? }, the counts a Resident holds (change 0075); the program runtime takes no indirect count yet, so a host cannot issue an indirect dispatch of a runtime program (#540)',
+      'an entry call takes { indirect, offset? }, the counts a Buffer<u32> holds (change 0075); the program runtime takes no indirect count yet, so a host cannot issue an indirect dispatch of a runtime program (#540)',
     ),
     webgl2: na(
       'WebGPU indirect dispatch; WebGL2 has no compute shader, so it has no indirect dispatch',
@@ -1497,11 +1497,11 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'src/core/resident.ts:68; changes/0048-partial-buffer-write.md:35; src/runtime/gl-draw.ts:886',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
-      'Resident.write(value); also: planned (0048, sub-range write)',
+      'Buffer.set(value); also: planned (0048, sub-range write)',
     ),
     webgl2: typed(
       'journeys/mnist/test-webgl2.mjs',
-      'Resident.write(value); also: planned (0048, sub-range write)',
+      'Buffer.set(value); also: planned (0048, sub-range write)',
     ),
   },
   {
@@ -2500,7 +2500,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     evidence: 'src/core/host-entry.ts:752-759',
     webgpu: typed(
       'scripts/user-journey.ts',
-      'every Resident buffer has the usage, so an entry call reads its counts from one (change 0075); a host cannot issue an indirect draw or dispatch of a runtime program yet (#540)',
+      'every Buffer has the usage, so an entry call reads its counts from one (change 0075); a host cannot issue an indirect draw or dispatch of a runtime program yet (#540)',
     ),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -2613,8 +2613,8 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUMapMode.READ`',
     covers: ['GPUMapMode.READ'],
     evidence: 'src/core/resident.ts:61; src/core/resident.ts:228-237; src/rhi/webgl2.ts:762',
-    webgpu: typed('journeys/engine/engine.mjs', 'Resident.read(); MAP_WRITE is never used'),
-    webgl2: typed('scripts/compile-gate.ts', 'Resident.read(); MAP_WRITE is never used'),
+    webgpu: typed('journeys/engine/engine.mjs', 'Buffer.read(); MAP_WRITE is never used'),
+    webgl2: typed('scripts/compile-gate.ts', 'Buffer.read(); MAP_WRITE is never used'),
   },
   {
     table: 'A',

@@ -320,7 +320,7 @@ exist.
 
 ### Phase 20 — Runtime 🟨 partial
 
-The CPU execution path, kernel and entry call layers, `resident()` and
+The CPU execution path, kernel and entry call layers, `array()` and
 `typeshade/runtime` are implemented. The runtime supports program compute,
 render pipelines, frame/passes and a WebGL2 compute execution path (change 0054).
 It does **not** yet provide a general multi-device runtime, Wasm/CUDA tiers,

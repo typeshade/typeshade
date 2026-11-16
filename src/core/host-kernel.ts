@@ -43,7 +43,14 @@ import { pushedLength, startPushesAt } from './push-count.js';
 import { CpuTexture, isCpuTexture } from './cpu-texture.js';
 import { fuseSlot } from './fuse-scope.js';
 import { checkIncoming, type IncomingReads } from './host-failure.js';
-import { callDefault, inferOwner, ownerOf, resourceOwner, type CallOwner } from './owner.js';
+import {
+  callDefault,
+  defaultOwner,
+  inferOwner,
+  ownerOf,
+  resourceOwner,
+  type CallOwner,
+} from './owner.js';
 import type { PortableIr } from './ir/portable.js';
 import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
@@ -53,18 +60,38 @@ import {
   programOf as compileGl,
   type KernelGlLoop,
 } from './host-kernel-gl.js';
-import { kernelQueue, residentState, type ResidentArrayState } from './resident.js';
+import {
+  decide,
+  handleOf,
+  kernelQueue,
+  layoutKind,
+  lengthOf,
+  isOpenHere,
+  kindName,
+  residentState,
+  ResidentArrayState,
+  tentatively,
+  type ElementKind,
+} from './resident.js';
 import {
   callSite,
   argumentOwner,
   commitArguments,
+  isRegionResource,
   isResource,
   joinRecorded,
   recordArgument,
+  resources,
   type RecordedArgument,
 } from './host-record.js';
 import { throwFailure, usedGl } from './submission.js';
-import { fromShader, toShader, type HostType } from './host-values.js';
+import {
+  fromShader,
+  toShader,
+  type HostClasses,
+  type HostNumber,
+  type HostType,
+} from './host-values.js';
 import type { Tier } from './tiers.js';
 import {
   bulkOf,
@@ -73,6 +100,7 @@ import {
   fromCpu,
   gpuDevice,
   imageOf,
+  matrixFlat,
   Misfit,
   pack,
   packed,
@@ -109,6 +137,9 @@ export type KernelParam =
       readonly writes: boolean;
       readonly s: string;
       readonly pushed?: true;
+      /** The members of a key element, in id order (change 0081), absent for any other
+       *  element: an `array<K>` takes a `Buffer<K>` (change 0138, Amendment A12, B2-2). */
+      readonly keys?: readonly string[];
     }
   /** A texture (change 0077): a `texture_2d<f32>` the loops read, or a 2D storage texture of
    *  `storage.format` they store into. `s` is its TypeShade type. */
@@ -294,6 +325,10 @@ export interface KernelFuse {
 /** A kernel function a host can call, as the generated module writes it. */
 export interface KernelFace {
   readonly name: string;
+  /** The prototypes of the module's exported classes by struct name (change 0109), present when
+   *  it exports one: a result `Buffer<S>` of such a class reads instances of it (change 0138,
+   *  Amendment A12, Q6). */
+  readonly P?: () => HostClasses;
   /** The function's name in the generated CPU code. */
   readonly fn: string;
   readonly params: readonly KernelParam[];
@@ -638,15 +673,23 @@ export function callKernel(
   const scope = fuseSlot.active;
   if (scope !== undefined) {
     // A graph that takes resources is milestone 4's `fuse(fn)` (change 0138, R4).
-    const r = args.findIndex(isResource);
+    // It records a `Buffer` of scalars, as it recorded a `Resident` (Amendment A10, slice 1).
+    const r = args.findIndex(isRegionResource);
     if (r >= 0)
       throw new TypeError(
-        `${k.name}(): parameter "${k.params[r]?.name ?? r}" is a resource, which the body of today's fuse() does not record; call the function outside it, or pass array(xs).`,
+        `${k.name}(): parameter "${k.params[r]?.name ?? r}" is a Buffer of structs or a Uniform, which the body of today's fuse() does not record; call the function outside it, or pass a Buffer of scalars made with array(xs).`,
       );
-    return scope.kernel(cpu, k, argc, args, reads);
+    return scope.kernel(cpu, k, argc, args, reads, callSite(callKernel));
   }
-  // A call on a resource does not block (change 0138, R2).
-  if (args.some(isResource)) return recordKernel(cpu, k, argc, args, reads) as never;
+  // A call on a resource does not block (change 0138, R2). A held length's length is a
+  // `Buffer<u32>` (Amendment A10, confirmation item 3), so a call that takes one is one too.
+  const onResource = args.some((a, i) => {
+    if (isResource(a)) return true;
+    const held = k.params[i]?.k === 'array' ? heldArgument(a) : undefined;
+    return held !== undefined && (isResource(held.array) || isResource(held.length));
+  });
+  // A use the check refuses fixes no open element (Amendment A12, D2).
+  if (onResource) return tentatively(() => recordKernel(cpu, k, argc, args, reads)) as never;
   // A recorded call that failed is thrown at the next call (Amendment A5, default 7).
   try {
     throwFailure();
@@ -716,11 +759,18 @@ function runKernel(
 
 /**
  * A call of a kernel function whose arguments include a resource (change 0138, R2): checked now,
- * recorded with the values it sees, and run once it is submitted. It returns nothing.
+ * recorded with the values it sees, and run once it is submitted. A function that returns nothing
+ * returns nothing. A function that returns a value returns `Buffer`s at once (Amendment A10, Q-C):
+ * a `Buffer` of length 1 for a number or a vector, a `Buffer` of `N` elements for an
+ * `array<T, N>`, and for a struct an object of them with the struct's own fields (Amendment A11,
+ * Q6). A call that also writes a plain array waits: it returns a promise of its result as plain
+ * data, and fills the plain array when it has run (A10's answer to A7's deferred question 4;
+ * A11, Q7). A number or vector parameter takes a `Buffer` of one element, read when the call runs
+ * (A10, Q-C: a result is another call's argument).
  *
- * @throws `TypeError` naming the function and the parameter, now: for a function that returns a
- *   value, for an array it writes that is no resource, and for a storage array of another class;
- *   the error of an earlier recorded call that failed (Amendment A5, default 7).
+ * @throws `TypeError` naming the function and the parameter, now: for a result no `Buffer` holds,
+ *   for a storage array of another class, and for a `Buffer` a parameter does not take; the error
+ *   of an earlier recorded call that failed (Amendment A5, default 7).
  */
 function recordKernel(
   cpu: GeneratedCpu,
@@ -728,75 +778,472 @@ function recordKernel(
   argc: number,
   args: readonly unknown[],
   reads: IncomingReads,
-): undefined {
+): unknown {
   const site = callSite(callKernel);
   throwFailure();
   const bad = arityError(k, argc);
   if (bad !== undefined) throw bad;
-  if (k.result.k !== 'void')
-    throw new TypeError(
-      `${k.name}(): takes a resource, and returns a value: a call on a resource that returns a value is not available yet (change 0138, milestone 3). Pass plain data and await the call, or return nothing and write a Buffer.`,
-    );
   // The device of the call, at the call (R3): the one its resources belong to, or with none of
   // its own the device in use. A call that mixes devices is refused before anything is taken.
   const owner = inferOwner(
     `${k.name}()`,
-    k.params.map((p, i): [string, CallOwner | undefined] => [
-      `parameter "${p.name}"`,
-      argumentOwner((p.k === 'array' ? heldArgument(args[i])?.array : undefined) ?? args[i]),
-    ]),
+    k.params.flatMap((p, i): [string, CallOwner | undefined][] => {
+      const held = p.k === 'array' ? heldArgument(args[i]) : undefined;
+      if (held === undefined) return [[`parameter "${p.name}"`, argumentOwner(args[i])]];
+      return [
+        [`parameter "${p.name}"`, argumentOwner(held.array)],
+        [`"${p.name}.length"`, argumentOwner(held.length, `${k.name}(): "${p.name}.length"`)],
+      ];
+    }),
     undefined,
     callDefault(),
   );
   // Each argument is taken with nothing changed yet; a refusal ends the check of what was taken.
   const taken: RecordedArgument[] = [];
+  const mapped: unknown[] = [];
+  // A number or vector parameter given a `Buffer` of one element: read when the call runs.
+  const bound: { readonly i: number; readonly state: ResidentArrayState }[] = [];
+  let waits = false;
   try {
     k.params.forEach((p, i) => {
       const at = `${k.name}(): parameter "${p.name}"`;
-      const held = p.k === 'array' ? heldArgument(args[i]) : undefined;
-      if (held !== undefined) {
-        if (isResource(held.array))
-          throw new TypeError(`${at}: a held length takes no Buffer yet; pass array(xs).`);
-        // A plain array the call pushes onto would be written in place with nothing waiting for it,
-        // as any written plain array would (deferred question 4: refused).
-        if (residentState(held.array) === undefined)
-          throw new TypeError(
-            `${at} is written by the call, which takes a resource, so it does not block and nothing waits to read it back: pass a Buffer, or array(xs), and await its read() (change 0138, R2).`,
-          );
-        // A held length on a call that takes a resource is not recorded yet: the call takes a
-        // Resident apart from a Buffer only as an array it writes or reads (today's refusal,
-        // kept with the deferred questions).
-        throw new TypeError(
-          `${at}: a call that takes a resource takes no held length { array, length } yet (change 0138, milestone 3); make the call with plain data and Residents only, and await it.`,
-        );
+      if (p.k === 'value' && residentState(args[i]) !== undefined) {
+        const state = residentState(args[i])!;
+        if (state.error !== undefined) throw state.error;
+        // The parameter fixes an open element (Amendment A12, decision 3).
+        decide(state, valueKind(p.type), at, site);
+        mapped[i] = placeholderOf(at, p.type, state);
+        bound.push({ i, state });
+        return;
       }
-      taken.push(
-        recordArgument(
-          at,
-          args[i],
-          p.k === 'array' ? p.layout : undefined,
-          (p.k === 'array' || p.k === 'collection') && p.writes,
-          p.k !== 'texture',
-          owner,
-        ),
+      const held = p.k === 'array' ? heldArgument(args[i]) : undefined;
+      // An array with no size fixes an open element, and a held length's `u32` its own
+      // (Amendment A12, decision 3 and D3).
+      if (p.k === 'array') {
+        decide(residentState(held?.array ?? args[i]), layoutKind(p.layout), at, site);
+        if (held !== undefined)
+          decide(residentState(held.length), 'u32', `${k.name}(): "${p.name}.length"`, site);
+      }
+      const r = recordArgument(
+        at,
+        held?.array ?? args[i],
+        p.k === 'array' ? p.layout : undefined,
+        (p.k === 'array' || p.k === 'collection') && p.writes,
+        p.k !== 'texture',
+        owner,
       );
+      taken.push(r);
+      if (r.waits === true) waits = true;
+      // A held length (change 0094): its length is a `Buffer<u32>` (Amendment A10, confirmation
+      // item 3), which the call reads and writes, and refuses as it refuses a failed array.
+      const lengthError = held === undefined ? undefined : residentState(held.length)?.error;
+      if (lengthError !== undefined) throw lengthError;
+      mapped[i] =
+        held === undefined
+          ? r.value
+          : {
+              array: r.value,
+              length: held.length,
+              ...(held.offset !== undefined ? { offset: held.offset } : {}),
+            };
     });
   } catch (e) {
     for (const t of taken) t.buffer?.done();
     throw e;
   }
-  const mapped = taken.map((t) => t.value);
+  // The `Buffer`s of the result, planned before anything is taken out (Amendment A10, Q-C).
+  let plan: ResultPlan | undefined;
+  if (k.result.k !== 'void' && !waits) {
+    const planned = resultPlan(k.result);
+    if (typeof planned === 'string') {
+      for (const t of taken) t.buffer?.done();
+      throw new TypeError(
+        `${k.name}(): takes a resource, and returns ${k.result.s}, ${planned}. A call on a resource gives a Buffer for a number, a vector, a bool, a key, a matrix of f32, an array<T, N> of them or of structs, and a struct or a Record of those (change 0138, Amendments A10 Q-C, A11 Q6 and A12, decision 4); pass plain data and await the call.`,
+      );
+    }
+    plan = planned;
+  }
   // Every argument is checked at the call, as a call with plain data checks it when it runs; only
   // then are the values the call sees copied out (the review of #1236, B2 and S2).
   const { uploads } = commitArguments(taken, () => checkCall(cpu, k, argc, mapped));
-  const written = k.params.flatMap((p, i) => {
-    const s = p.k === 'array' && p.writes ? residentState(mapped[i]) : undefined;
-    return s === undefined ? [] : [s];
+  const written: ResidentArrayState[] = [];
+  k.params.forEach((p, i) => {
+    if (p.k !== 'array') return;
+    const held = heldArgument(mapped[i]);
+    const s = p.writes ? residentState(held?.array ?? mapped[i]) : undefined;
+    if (s !== undefined) written.push(s);
+    const length = held === undefined ? undefined : residentState(held.length);
+    if (length !== undefined) written.push(length);
   });
-  joinRecorded(`${k.name}()`, site, uploads, written, () =>
-    runKernel(cpu, k, argc, mapped, owner, reads, true),
+  const results = plan === undefined ? undefined : makeResults(plan, owner, k);
+  if (results !== undefined) {
+    written.push(...results.states);
+    uploads.push(...results.uploads);
+  }
+  const done = joinRecorded(
+    `${k.name}()`,
+    site,
+    uploads,
+    written,
+    async () => {
+      for (const b of bound) mapped[b.i] = await boundValue(k, b.i, b.state);
+      const value = await runKernel(cpu, k, argc, mapped, owner, reads, true);
+      if (results !== undefined) results.fill(value);
+      return value;
+    },
+    waits,
   );
+  if (waits) return done;
+  return results?.value;
+}
+
+/** The element a value parameter of type `t` fixes on an open `Buffer` (change 0138, Amendment
+ *  A12, decision 3): the scalar of a number or a vector, `f32` for a matrix of `f32` (Q3);
+ *  undefined for any other type, a matrix of `f64` among them, which takes no `Buffer` (the
+ *  owner's answer to Q12, Amendment A13). */
+function valueKind(t: HostType): string | undefined {
+  if (t.k === 'num') return t.t;
+  if (t.k === 'vec') return t.e === 'bool' ? undefined : t.e;
+  if (t.k === 'mat') return t.e === 'f32' ? 'f32' : undefined;
   return undefined;
+}
+
+/** How a `Buffer`'s element reads in a refusal: `3 f32 numbers`, `1 bool`, `2 vec3<bool>`,
+ *  `1 mat4x4`, and `2 numbers whose element is not fixed` for a `Buffer<number>` whose element no
+ *  use has fixed, the refused call included (Amendment A12, D2). */
+function heldText(state: ResidentArrayState): string {
+  const n = lengthOf(state);
+  const e = state.elem;
+  const plural = (word: string, count: number): string =>
+    `${count} ${word}${count === 1 ? '' : 's'}`;
+  if (e?.k === 'bool')
+    return state.components > 1 ? `${n} vec${state.components}<bool>` : plural('bool', n);
+  if (e?.k === 'key') return `${plural('key', n)} of ${e.m.map((m) => `'${m}'`).join(' | ')}`;
+  if (e?.k === 'mat') return `${n} mat${e.c}x${e.r}`;
+  const scalars = n * state.components;
+  if (isOpenHere(state)) return `${plural('number', scalars)} whose element is not fixed`;
+  return `${plural(`${kindName(state)} number`, scalars)}`;
+}
+
+/** Whether two key types have the same members in the same order. */
+const sameKeys = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((m, i) => m === b[i]);
+
+/** A placeholder of a value parameter given a `Buffer` of one element, which the check at the call
+ *  reads; the call reads the element when it runs ({@link boundValue}). A number or a vector takes
+ *  a `Buffer` of it (Amendment A10, Q-C); a `bool`, a `vecN<bool>` and a key a `Buffer` of it
+ *  (Amendment A12, Q1 and Q4); a matrix a `Buffer` of it or a `Buffer<f32>` of its `C * R`
+ *  components, column-major (A12, Q3).
+ *  @throws `TypeError` for a parameter of another type, and for a `Buffer` of another element or
+ *    of more than one element. */
+function placeholderOf(at: string, t: HostType, state: ResidentArrayState): unknown {
+  const scalars = lengthOf(state) * state.components;
+  const e = state.elem;
+  if (e === undefined) {
+    const kind = kindName(state);
+    if (t.k === 'num' && kind === t.t && scalars === 1) return 0;
+    if (t.k === 'vec' && kind === t.e && scalars === t.n) return new Array<number>(t.n).fill(0);
+    if (
+      t.k === 'mat' &&
+      t.e === 'f32' &&
+      kind === 'f32' &&
+      state.components === 1 &&
+      scalars === t.c * t.r
+    )
+      return new Array<number>(t.c * t.r).fill(0);
+  } else if (e.k === 'bool') {
+    if (t.k === 'bool' && scalars === 1) return false;
+    if (t.k === 'vec' && t.e === 'bool' && scalars === t.n && state.components === t.n)
+      return new Array<boolean>(t.n).fill(false);
+  } else if (e.k === 'key') {
+    if (t.k === 'key' && scalars === 1 && sameKeys(e.m, t.m)) return t.m[0];
+  } else if (t.k === 'mat' && t.e === 'f32' && e.c === t.c && e.r === t.r && lengthOf(state) === 1)
+    return new Array<number>(t.c * t.r).fill(0);
+  if (
+    t.k !== 'num' &&
+    t.k !== 'vec' &&
+    t.k !== 'bool' &&
+    t.k !== 'key' &&
+    !(t.k === 'mat' && t.e === 'f32')
+  )
+    throw new TypeError(
+      `${at} (${t.s}) takes no Buffer: a Buffer is a parameter's value only for a number, a vector, a bool, a key or a matrix of f32 (change 0138, Amendment A10, Q-C; Amendment A12, decision 4).`,
+    );
+  const want = t.k === 'mat' ? `one ${t.s}, or of ${t.c * t.r} f32 numbers` : `one ${t.s}`;
+  throw new TypeError(
+    `${at} (${t.s}) takes a Buffer of ${want}; got a Buffer of ${heldText(state)}.`,
+  );
+}
+
+/** The value a parameter bound from `state` takes when the call runs: the one element the
+ *  `Buffer` holds after the calls made before (change 0138, Amendment A10, Q-C). It reads the host
+ *  copy, which holds the values of the call: a `set()` made after the call waits in `state.next`
+ *  until this call has run (Amendment A5, default 3). A `dispose()` made after the call releases
+ *  the device buffer only after it, so the call reads the values still. A `bool` word is a
+ *  `boolean`, and a key's id its member (Amendment A12, Q1 and Q4). */
+async function boundValue(k: KernelFace, i: number, state: ResidentArrayState): Promise<unknown> {
+  if (state.error !== undefined) throw state.error;
+  await state.fenced();
+  await state.sync(true);
+  const values = state.host as ArrayLike<number>;
+  const p = k.params[i]!;
+  const t = p.k === 'value' ? p.type : undefined;
+  if (t?.k === 'bool') return values[0] !== 0;
+  if (t?.k === 'key') return t.m[values[0]!];
+  if (t?.k === 'vec' && t.e === 'bool') return Array.from(values, (w) => w !== 0);
+  return t?.k === 'vec' || t?.k === 'mat' ? Array.from(values) : values[0];
+}
+
+/**
+ * Check that the `Buffer` given an array with no size holds an element it takes (change 0138,
+ * Amendment A12, decision 4): a `Buffer<bool>` none, since no `array<bool>` exists; a
+ * `Buffer<K>` an `array<K>` of the same key (B2-2); a `Buffer<matCxR>` an `array<matCxR>`, and a
+ * `Buffer<f32>` of scalars a whole number of its matrices (B2-1). Any other `Buffer` is checked by
+ * its typed array, as before.
+ * @throws `TypeError` naming the function and the parameter.
+ */
+function checkElement(
+  k: KernelFace,
+  p: KernelParam & { k: 'array' },
+  state: ResidentArrayState | undefined,
+): void {
+  if (state === undefined) return;
+  const e = state.elem;
+  const pe = p.layout.e;
+  const fits =
+    e === undefined
+      ? pe.k !== 'm' || state.components === 1
+      : e.k === 'key'
+        ? p.keys !== undefined && sameKeys(e.m, p.keys)
+        : e.k === 'mat'
+          ? pe.k === 'm' && pe.c === e.c && pe.r === e.r
+          : false;
+  if (!fits)
+    throw new TypeError(
+      `${k.name}(): parameter "${p.name}" (${p.s}) takes no Buffer of ${heldText(state)}${e?.k === 'bool' ? ': no array<bool> exists, since a bool has no storage layout' : ''} (change 0138, Amendment A12, decision 4).`,
+    );
+}
+
+/** How the `Buffer`s of a result are made: one handle of `n` elements of `c` words of `kind` for a
+ *  number, a vector, a `bool`, a key, a matrix or an array of them (`elem` says what a word is,
+ *  Amendment A12, Q1, Q2 and Q4); one `Buffer<S>` of the region for an `array<S, N>` (Q6, Q7); an
+ *  object of them for a struct or a `Record` (Amendment A11, Q6; A12, Q5). */
+type ResultPlan =
+  | {
+      readonly k: 'leaf';
+      readonly kind: HostNumber;
+      readonly n: number;
+      readonly c: number;
+      readonly elem?: ElementKind;
+    }
+  | {
+      readonly k: 'structs';
+      readonly s: string;
+      readonly n: number;
+      readonly layout: Layout & { readonly k: 'a' };
+    }
+  | { readonly k: 'struct'; readonly f: readonly (readonly [string, ResultPlan])[] };
+
+/** The plan of one element of type `t` held in a `Buffer` of `n` elements, or why no `Buffer`
+ *  holds it. */
+function elementPlan(t: HostType, n: number): ResultPlan | string {
+  switch (t.k) {
+    case 'num':
+      return { k: 'leaf', kind: t.t, n, c: 1 };
+    case 'bool':
+      return { k: 'leaf', kind: 'u32', n, c: 1, elem: { k: 'bool' } };
+    case 'key':
+      return { k: 'leaf', kind: 'u32', n, c: 1, elem: { k: 'key', m: t.m } };
+    case 'vec':
+      return t.e === 'bool'
+        ? { k: 'leaf', kind: 'u32', n, c: t.n, elem: { k: 'bool' } }
+        : { k: 'leaf', kind: t.e, n, c: t.n };
+    case 'mat':
+      // A matrix of `f64` has no host value (Rule 8.21; Amendment A12, decision 4).
+      return t.e === 'f64'
+        ? 'which has no host value'
+        : { k: 'leaf', kind: 'f32', n, c: t.c * t.r, elem: { k: 'mat', c: t.c, r: t.r } };
+    default:
+      return 'which no Buffer holds';
+  }
+}
+
+/** The plan of a result of type `t`, or why no `Buffer` holds it (change 0138, Amendment A12,
+ *  decision 4). An `array<Record<K, T>, N>` and a nested sized array stay refused, and so does a
+ *  matrix of `f64`. */
+function resultPlan(t: HostType): ResultPlan | string {
+  switch (t.k) {
+    case 'arr': {
+      if (t.e.k === 'struct') {
+        const layout = storageLayout(t.e);
+        if (typeof layout === 'string') return `whose element ${layout}`;
+        return {
+          k: 'structs',
+          s: t.e.s,
+          n: t.n,
+          layout: { k: 'a', n: null, st: layout.st, e: layout.l },
+        };
+      }
+      if (t.e.k === 'arr' || t.e.k === 'rec') return 'which no Buffer holds';
+      return elementPlan(t.e, t.n);
+    }
+    case 'struct':
+    case 'rec': {
+      // One output for each field (R1; A11, Q6), and for each member of a `Record` (A12, Q5).
+      const fields: readonly (readonly [string, HostType])[] =
+        t.k === 'struct' ? t.f : t.m.map((m) => [m, t.e] as const);
+      const f: (readonly [string, ResultPlan])[] = [];
+      for (const [name, ft] of fields) {
+        const sub = resultPlan(ft);
+        if (typeof sub === 'string')
+          return `whose field "${name}" (${ft.s}) ${sub.replace(/^which /u, '')}`;
+        f.push([name, sub]);
+      }
+      return { k: 'struct', f };
+    }
+    default:
+      return elementPlan(t, 1);
+  }
+}
+
+/** The std430 layout of a struct `t` for a result `Buffer<S>`, with its size and alignment
+ *  (Rule 6.8): the layout the compiler gives a storage array of it, with a `bool` as one `u32`
+ *  word and a `vecN<bool>` as a `vecN<u32>`, and a key's members kept for the host (change 0138,
+ *  Amendment A12, Q4 and Q7). Or why it has none: a `Record` field (a `Buffer<S>` has no accessor
+ *  of its members), and a matrix of `f64`. */
+function storageLayout(
+  t: HostType,
+):
+  | { readonly l: Layout; readonly size: number; readonly align: number; readonly st: number }
+  | string {
+  const up = (n: number, a: number): number => Math.ceil(n / a) * a;
+  const leaf = (l: Layout, size: number, align: number) => ({
+    l,
+    size,
+    align,
+    st: up(size, align),
+  });
+  switch (t.k) {
+    case 'num':
+      return t.t === 'f64' ? leaf({ k: 's', t: 'f64' }, 8, 8) : leaf({ k: 's', t: t.t }, 4, 4);
+    case 'bool':
+      return leaf({ k: 's', t: 'u32', b: 1 }, 4, 4);
+    case 'key':
+      return leaf({ k: 's', t: 'u32', m: t.m }, 4, 4);
+    case 'vec': {
+      const align = t.n === 2 ? 8 : 16;
+      if (t.e === 'f64') {
+        // `DF64VecN`: a `hi` and a `lo` plane of `vecN<f32>`, `lo` at the plane's aligned size.
+        const lo = t.n === 2 ? 8 : 16;
+        return leaf({ k: 'v', n: t.n, t: 'f64', lo }, up(lo + 4 * t.n, align), align);
+      }
+      const l: Layout =
+        t.e === 'bool' ? { k: 'v', n: t.n, t: 'u32', b: 1 } : { k: 'v', n: t.n, t: t.e };
+      return leaf(l, 4 * t.n, align);
+    }
+    case 'mat': {
+      if (t.e === 'f64') return 'holds a matrix of f64, which has no host value';
+      const cs = t.r === 2 ? 8 : 16;
+      return leaf({ k: 'm', c: t.c, r: t.r, cs }, t.c * cs, cs);
+    }
+    case 'arr': {
+      const e = storageLayout(t.e);
+      if (typeof e === 'string') return e;
+      return leaf({ k: 'a', n: t.n, st: e.st, e: e.l }, t.n * e.st, e.align);
+    }
+    case 'struct': {
+      const f: (readonly [string, number, Layout])[] = [];
+      let cursor = 0;
+      let align = 4;
+      for (const [name, ft] of t.f) {
+        const fl = storageLayout(ft);
+        if (typeof fl === 'string') return fl;
+        cursor = up(cursor, fl.align);
+        f.push([name, cursor, fl.l]);
+        cursor += fl.size;
+        align = Math.max(align, fl.align);
+      }
+      const size = up(cursor, align);
+      return leaf({ k: 'o', f, sz: size }, size, align);
+    }
+    case 'rec':
+      return `holds ${t.s}, whose members a Buffer of structs has no accessor for`;
+    default:
+      return `holds ${t.s}, which has no host value`;
+  }
+}
+
+/** The typed array of each scalar a result `Buffer` holds (Rule 8.21; Amendment A11, Q2). */
+const RESULT_ARRAYS = {
+  f32: Float32Array,
+  i32: Int32Array,
+  u32: Uint32Array,
+  f64: Float64Array,
+} as const;
+
+/** The words of one element `v` of a result as the `Buffer` holds them: a vector's or a
+ *  matrix's components one after another, a `bool` 0 or 1, a key its id (Amendment A12, Q1, Q2
+ *  and Q4). */
+function wordsOf(v: unknown, elem: ElementKind | undefined): number[] {
+  const xs = (Array.isArray(v) ? v.flat() : [v]) as unknown[];
+  if (elem?.k === 'bool') return xs.map((x) => (x === true ? 1 : 0));
+  if (elem?.k === 'key') return xs.map((x) => elem.m.indexOf(x as string));
+  return xs as number[];
+}
+
+/** The `Buffer`s of a result, made at the call on `owner` (R3): `value` is what the call returns,
+ *  `states` the handles it writes, `uploads` what gives a `Buffer<S>` the region's values when the
+ *  call runs, and `fill` writes the result into them when the call has run. */
+function makeResults(
+  plan: ResultPlan,
+  owner: CallOwner,
+  k: KernelFace,
+): {
+  readonly value: unknown;
+  readonly states: readonly ResidentArrayState[];
+  readonly uploads: readonly (() => void)[];
+  fill(result: unknown): void;
+} {
+  const states: ResidentArrayState[] = [];
+  const uploads: (() => void)[] = [];
+  const make = (p: ResultPlan): { readonly value: unknown; fill(v: unknown): void } => {
+    if (p.k === 'struct') {
+      // One output for each field, with the struct's own names (R1; Amendment A11, Q6).
+      const parts = p.f.map(([name, sub]) => [name, make(sub)] as const);
+      return {
+        value: Object.fromEntries(parts.map(([name, m]) => [name, m.value])),
+        fill: (v) => {
+          for (const [name, m] of parts) m.fill((v as Record<string, unknown>)[name]);
+        },
+      };
+    }
+    if (p.k === 'structs') {
+      // One `Buffer<S>` of the region (Amendment A12, Q6): instances of `S`'s class where the
+      // module exports it, plain objects otherwise.
+      const make = resources.structs;
+      if (make === undefined)
+        throw new TypeError(
+          `${k.name}(): returns ${p.s}s, whose Buffer is a resource of typeshade/runtime; import typeshade/runtime to call it on a resource.`,
+        );
+      const proto = k.P?.().get(p.s) ?? Object.prototype;
+      const r = make(p.layout, proto, `Buffer<${p.s}>`, p.n, owner);
+      states.push(r.state);
+      if (r.upload !== undefined) uploads.push(r.upload);
+      return { value: r.value, fill: (v) => r.fill(v as unknown[]) };
+    }
+    const C = RESULT_ARRAYS[p.kind];
+    const state = new ResidentArrayState(new C(p.n * p.c));
+    state.components = p.c;
+    state.elem = p.elem;
+    if (owner !== defaultOwner) state.ownedBy = owner;
+    states.push(state);
+    return {
+      value: owner.result?.(state) ?? handleOf(state),
+      fill: (v) => state.assign(new C(wordsOf(v, p.elem))),
+    };
+  };
+  const root = make(plan);
+  return { value: root.value, states, uploads, fill: root.fill };
 }
 
 /** Incoming contents in parameter order. A held length is data even for a write-only array. */
@@ -875,7 +1322,7 @@ export function checkCall(
   states.forEach((s, i) => {
     if (s !== undefined && states.indexOf(s) !== i)
       throw new TypeError(
-        `${k.name}(): parameter "${k.params[i]!.name}" is the same resident array as parameter "${k.params[states.indexOf(s)]!.name}".`,
+        `${k.name}(): parameter "${k.params[i]!.name}" is the same Buffer as parameter "${k.params[states.indexOf(s)]!.name}".`,
       );
   });
   // A held length is a `Resident` of its own: no array of the call, and no other held length.
@@ -884,12 +1331,14 @@ export function checkCall(
     const at = `${k.name}(): "${k.params[i]!.name}.length"`;
     const array = states.indexOf(h.state);
     if (array >= 0)
-      throw new TypeError(
-        `${at} is the same resident array as parameter "${k.params[array]!.name}".`,
-      );
+      throw new TypeError(`${at} is the same Buffer as parameter "${k.params[array]!.name}".`);
     const other = held.findIndex((g) => g?.state === h.state);
     if (other !== i)
-      throw new TypeError(`${at} is the same resident array as "${k.params[other]!.name}.length".`);
+      throw new TypeError(`${at} is the same Buffer as "${k.params[other]!.name}.length".`);
+  });
+  // A `Buffer` of `bool`, of a key or of a matrix is taken only where its element is (A12).
+  k.params.forEach((p, i) => {
+    if (p.k === 'array') checkElement(k, p, states[i]);
   });
   // A scratch array of a fuse scope holds no host array yet, so `hosts` has the handle there, and
   // `checkArray` asks the array's own state instead of reading it.
@@ -948,7 +1397,7 @@ function checkHeld(
   const s = residentState(h.length);
   if (s === undefined)
     throw new TypeError(
-      `${at} is a Resident<Uint32Array> that holds the length of "${p.name}"; got ${describe(h.length)}.`,
+      `${at} is a Buffer<u32> that holds the length of "${p.name}"; got ${describe(h.length)}.`,
     );
   // A scratch array of a fuse scope lives only until its plan has run (change 0058).
   if (s.outside !== undefined)
@@ -956,10 +1405,10 @@ function checkHeld(
       `${at} is a scratch array of fuse(), which the host never reads. Make the length with array() or device.array().`,
     );
   if (s.destroyed)
-    throw new TypeError(`${at}: this Resident was destroyed; make a new one with array().`);
+    throw new TypeError(`${at}: this Buffer was disposed; make a new one with array().`);
   const view = s.view();
   if (!(view instanceof Uint32Array))
-    throw new TypeError(`${at} is a Resident<Uint32Array>; got a Resident of ${describe(view)}.`);
+    throw new TypeError(`${at} is a Buffer<u32>; got a Buffer of ${describe(view)}.`);
   if (offset + 1 > view.length)
     throw new TypeError(
       `${k.name}(): "${p.name}.offset" is ${offset}, and the length at it needs ${offset + 1} elements; "${p.name}.length" holds ${view.length}.`,
@@ -1506,6 +1955,10 @@ function checkArray(
 ): number {
   if (s?.measure !== undefined) return s.measure(k.name, p);
   try {
+    // A plain `array<matCxR>` is an array of matrices; only a `Buffer` gives its components one
+    // after another (Amendment A12, B2-1).
+    if (s === undefined && matrixFlat(p.layout.e, v) !== undefined)
+      throw new Misfit('', 'got a Float32Array, not an array');
     const size = byteSize(p.layout, v, '');
     // A flat typed array is checked by `byteSize` alone: its bulk copy cannot fail, so no dry pack.
     if (bulkOf(p.layout, v) === undefined)

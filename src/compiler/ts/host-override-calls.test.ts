@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { hostFace } from './host-face.js';
-import { configure, resident } from '../../core/resident.js';
+import { configure } from '../../core/resident.js';
+import { array } from '../../runtime.js';
 import { createDevice } from '../../runtime/device.js';
 import '../../fuse.js';
 
@@ -149,19 +150,18 @@ describe('entry-call constants on generated CPU closures (0084)', () => {
     );
   });
 
-  it('keeps a queued preparation failure on its written Resident until a successful call', async () => {
+  it('refuses a preparation failure of a call on a Buffer at the call, and leaves the Buffer as it was', async () => {
     configure({ prefer: ['cpu'] });
     const { scale } = await load();
-    const src = resident(Float32Array.of(2)),
-      dst = resident(Float32Array.of(123));
-    await expect(scale({ src, dst }, 1, { constants: { WORK: 1.5 } })).rejects.toThrow(
-      'whole number',
-    );
-    await expect(dst.read()).rejects.toThrow('whole number');
-    await scale({ src, dst }, 1, { constants: { GAIN: 3 } });
+    const src = array(Float32Array.of(2)),
+      dst = array(Float32Array.of(123));
+    // A call on a Buffer is checked at the call (change 0138, R2; Amendment A10, Q-I).
+    expect(() => scale({ src, dst }, 1, { constants: { WORK: 1.5 } })).toThrow('whole number');
+    expect([...(await dst.read())]).toEqual([123]);
+    void scale({ src, dst }, 1, { constants: { GAIN: 3 } });
     expect([...(await dst.read())]).toEqual([6]);
-    src.destroy();
-    dst.destroy();
+    src.dispose();
+    dst.dispose();
   });
 
   it('drops a whole recorded scope on invalid constants and retains barrier refusal on CPU', async () => {

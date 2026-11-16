@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "A loop over an array of structs",
-  "blurb": "The particle step as a loop over `array<Particle>`: each iteration reads and writes only its own particle, so the loop runs on the GPU, one invocation per particle. A host passes an array of plain objects, `{ pos: [x, y, z, w], vel: [...] }`, and gets it back updated in place, or keeps it on the device across frames with `resident(ps)`.",
+  "blurb": "The particle step as a loop over `array<Particle>`: each iteration reads and writes only its own particle, so the loop runs on the GPU, one invocation per particle. A host passes an array of plain objects, `{ pos: [x, y, z, w], vel: [...] }`, and gets it back updated in place, or keeps it on the device across frames with `array(Particle, ps)`.",
   "renderable": false,
   "reason": "no entry point"
 }
