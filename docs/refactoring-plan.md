@@ -48,8 +48,8 @@ Likewise, test-only differential gates do not establish a delivered end-user div
 
 | ID  | Status                                       | Files and responsibility                                                                                                                                     | Exit evidence                                                                                                                |
 | --- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| R0  | In progress                                  | This plan; reconcile PR dependencies and document authority.                                                                                                 | Identified baselines, open items and links; documentation checks.                                                            |
-| R1  | In progress on a branch based on #1272       | `src/compiler/ts/abstract-const.ts`: separate candidate construction and batch validation from constant analysis.                                            | Equal diagnostic text and order, compiler/editor parity, unchanged generated output, at most two edited compiles per module. |
+| R0  | Review recorded in #1282                     | This plan; reconcile PR dependencies and document authority.                                                                                                 | Identified baselines, open items and links; documentation checks.                                                            |
+| R1  | First slice in #1283; integration pending    | `src/compiler/ts/abstract-const.ts`: separate candidate construction and batch validation from constant analysis.                                            | Equal diagnostic text and order, compiler/editor parity, unchanged generated output, at most two edited compiles per module. |
 | R2  | Not started                                  | `src/compiler/ts/context.ts`, `src/compiler/ts/lower/function.ts`, `src/language-service/diagnostics.ts`: explicit analysis lifetimes and shared results.    | Repeated compilation isolation and parity on the same source; no new semantic IR or query framework.                         |
 | R3  | Not started                                  | `src/compiler/ts/host-face.ts`: separate export analysis, declaration generation and runtime wrapper generation.                                             | Generated JS, declarations and metadata agree; packed consumers pass.                                                        |
 | R4  | Deferred until the Buffer transition settles | `src/core/host-kernel.ts`, `src/core/resident.ts`, `src/runtime/resource.ts`, `src/runtime/program.ts`: ownership, visibility, lifetime and execution state. | Resource sharing, disposal, failure rollback and downstream tests on the resulting Buffer API.                               |
@@ -68,6 +68,7 @@ The first slice extracts internal modules under `src/compiler/ts/remedies/`:
 
 - `candidates.ts`: candidate ordering, declaration edits and replacement construction.
 - `validate.ts`: batch checks, edited compilation, offset mapping and the bounded cache.
+- `contracts.ts`: shared internal edit and diagnostic contracts.
 
 Analysis supplies projection spans and reached source regions explicitly. The validator must not
 import the analysis implementation at runtime. The compiler callback remains the only re-entry point.
@@ -101,3 +102,24 @@ The other open items in #1272 remain its integration checklist, even though CI i
 
 Compare compile and editor latency on the same corpus and environment before claiming a performance
 improvement. A structural extraction alone establishes no speedup.
+
+## First slice verification record
+
+[PR #1283](https://github.com/typeshade/typeshade/pull/1283) contains the first R1 slice at
+`ae05785e29115ed79072d0d12bb0dec760ba860a`, based on the #1272 head above.
+It extracts constant-division candidate construction and module-wide edit validation.
+Other analysis-dependent refusal construction remains with the analysis.
+The PR is a draft with a temporary #1272 review base; integration into `main` remains pending.
+[PR #1282](https://github.com/typeshade/typeshade/pull/1282) records this plan.
+
+Local verification on 2026-11-16 UTC used Node 24.19.0, Bun 1.4.4 and TypeScript 5.6.3:
+
+- The four focused inference, constant, differential and remedy suites passed 497 tests before and after extraction.
+- Five validator boundary tests passed, including exception cleanup and original-position mapping.
+- Six API, emit-golden, example and ambient-parity suites passed 560 tests.
+- A separate comparison of 43 complete source literals preserved compiler/editor diagnostics and WGSL/GLSL byte for byte.
+- Build, lint, format, bundle boundary, documentation references, documentation impact and precommit checks passed.
+
+These results cover the first extraction, not the entire R1 or project plan.
+The full unit suite, newer TypeScript matrix, GPU gates, packed consumer journeys and performance
+benchmarks were not run locally. Broader integration checks remain in CI.
