@@ -6,21 +6,23 @@ The [1.0 roadmap](roadmap.md) remains the product scope authority.
 
 ## Baselines and authority
 
-Reviewed on 2026-11-16 (UTC):
+Initial review baselines on 2026-11-16 (UTC):
 
 - `main`: `273125b3378b258e654322e6338dd41014b23911`.
 - [PR #1272](https://github.com/typeshade/typeshade/pull/1272):
-  `96a2f419e3a130caedb5b6caa5ba423fd91fd6d3`, open; all 26 reported checks succeeded.
+  `96a2f419e3a130caedb5b6caa5ba423fd91fd6d3`, subsequently merged; all 26 reported checks succeeded before integration.
 - [PR #1278](https://github.com/typeshade/typeshade/pull/1278):
-  `8c62c95cc8143392db7e7335db9c0c9c533c76ee`, open; the A6 amendment must precede #1272.
+  `8c62c95cc8143392db7e7335db9c0c9c533c76ee`, subsequently merged before #1272.
 - [PR #1257](https://github.com/typeshade/typeshade/pull/1257):
   `58e8187a9320dc8b8b9643e335dfa8bcc10d6372`, the draft Resident-to-Buffer transition.
 
-These are review baselines, not claims that the open branches have shipped.
-Recheck their heads and checks before integration.
+These identify the original review configuration. The integration record below identifies completed merges.
+Recheck the current head and checks before each remaining integration.
 
 The owner authorized this work in the conversation on 2026-11-16: "진행하세요".
-This authorizes internal refactoring, not merging the prerequisite language amendment.
+The owner subsequently delegated suitable integrations: "완료되거나 메인에 병합이 가능하거나 적절한 타이밍이라면 병합까지 맡길게".
+This covers the reviewed refactoring sequence and its prerequisites. Required checks, scope review
+and dependency ordering still apply; new language design decisions remain outside this internal refactor.
 Under [change control](../changes/README.md#when-a-change-needs-one), an internal refactor
 needs no language proposal. Each implementing PR must preserve that scope.
 
@@ -67,7 +69,7 @@ and pull request. Keep a branch focused on one responsibility and its tests and 
 | Work                   | Branch                            | Review base                                         | Integration target             |
 | ---------------------- | --------------------------------- | --------------------------------------------------- | ------------------------------ |
 | Plan and status, #1282 | `codex/refactor-execution-plan`   | `main`                                              | `main`                         |
-| First R1 slice, #1283  | `codex/abstract-const-remedies`   | #1272's branch at the recorded head                 | `main`, after #1278 and #1272  |
+| First R1 slice, #1283  | `codex/abstract-const-remedies`   | `main` at `4bf416e`                                 | `main`                         |
 | Further R1 slices      | `codex/refactor-r1-<slice>`       | Updated `main`, or the specific prerequisite branch | `main`, after the prerequisite |
 | R2 through R5 slices   | `codex/refactor-r<stage>-<slice>` | Updated `main`, or the specific prerequisite branch | `main`, after the prerequisite |
 
@@ -113,18 +115,22 @@ Keep existing internal imports working where that avoids unrelated caller churn.
 
 ## Integration and open items
 
-1. Land #1278 through its existing approval process before #1272.
-2. Recheck #1272's head, unresolved review items and regression evidence.
-3. Review R1 as a separate diff against the pinned #1272 head.
-4. Retarget and revalidate R1 after its prerequisites land; do not merge it into #1272's branch.
-5. Start runtime restructuring after #1257's contract and consumer migration settle.
+Completed on 2026-11-16 after checking the current heads, required checks, conflicts and review threads:
+
+- #1278 merged as `1f4d726ddde75e3d9381e02092082de07eb33a1c`.
+- #1272 merged next as `4bf416e79ca402459455e99fe520cea5dcbe50f7`.
+- #1283 now targets `main`. Its branch incorporates those prerequisites for fresh validation.
+
+1. Verify the new #1283 head against `main` and merge when its checks pass.
+2. Keep subsequent R1 slices separate from new inference behavior.
+3. Start runtime restructuring after #1257's contract and consumer migration settle.
 
 [Issue #1280](https://github.com/typeshade/typeshade/issues/1280) records diagnostic disagreement
 already present on `main` `273125b3`. It is not evidence of a regression introduced by #1272.
 Keep it open; a refactor must not silently change the recorded behavior.
 [Issue #1281](https://github.com/typeshade/typeshade/issues/1281) records a possible widening of
 suggested edits. That design decision is outside this refactor.
-The other open items in #1272 remain its integration checklist, even though CI is green.
+The other open items recorded in #1272 remain follow-up issues; its merge does not close them.
 
 ## Verification procedure
 
@@ -145,7 +151,7 @@ improvement. A structural extraction alone establishes no speedup.
 `ae05785e29115ed79072d0d12bb0dec760ba860a`, based on the #1272 head above.
 It extracts constant-division candidate construction and module-wide edit validation.
 Other analysis-dependent refusal construction remains with the analysis.
-The PR is ready for review with a temporary #1272 review base; integration into `main` remains pending.
+The PR is ready for review and now targets `main`; integration remains pending on the new validation head.
 [PR #1282](https://github.com/typeshade/typeshade/pull/1282) records this plan.
 
 Local verification on 2026-11-16 UTC used Node 24.19.0, Bun 1.4.4 and TypeScript 5.6.3:
@@ -162,5 +168,6 @@ benchmarks were not run locally. Broader integration checks remain in CI.
 
 On 2026-11-16, all 26 reported CI checks passed for the first-slice head above, including
 the TypeScript matrix, GPU gates, packed consumer journeys, package smoke and TypeNN candidate.
-PR #1283 was then marked ready for review. These results apply to its temporary base;
-retargeting to `main` still requires validation after the prerequisites land.
+PR #1283 was then marked ready for review. Those results apply to its original review base.
+After retargeting, the branch merged `main` at `4bf416e`; its new head requires fresh CI.
+The synchronization changes only the prerequisite documents and traceability records; the refactored source is unchanged.
