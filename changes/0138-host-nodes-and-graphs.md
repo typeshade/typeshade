@@ -2835,6 +2835,7 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
   - What it means: a first use that the call refuses (for example `1.5` into a `u32`) does not fix the
     element type. The element stays open. [inference, agent] A call that the check at the call
     refuses is not recorded (R2), so it changes nothing.
+
 - D3. The places that are not parameters.
   - [decision, owner, 2026-11-11] The owner chose, in Korean:
 
@@ -2845,6 +2846,7 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
   - What it means: a held length's `length`, an indirect workgroup count, and a geometry's vertices
     and indices also take a `Buffer<number>`. That place fixes the type: `u32` for a held length, an
     indirect count and indices, and for vertices the element type that the geometry needs.
+
 - D5. A `Buffer` that the pool hands out again.
   - [decision, owner, 2026-11-11] The owner chose, in Korean:
 
@@ -2854,6 +2856,7 @@ element)` stays (`src/runtime/resource.ts:1382-1385`).
 
   - What it means: a `Buffer` that `device.array()`'s pool hands out again starts with an open element
     type, as a new one does.
+
 - [fact] Rule 12.7, the editor half of decision 3 (Q8 and D3). The host view and the runtime types
   change so:
   1. `array(xs: readonly number[]): Buffer<number>`, and the same overload of `device.array()`.
@@ -3337,7 +3340,7 @@ this amendment.
 - [fact] The option the owner did not choose, for each:
   - Q12: "f64로 고정, Buffer<f64> C*R개 받음" (English translation: fix `f64`, take a `Buffer<f64>` of
     `C * R`). Its cost: a layout path, tests and an editor overload for a matrix of `f64`, while a
-    matrix of `f64` as a result stays refused.
+matrix of `f64` as a result stays refused.
   - Q13: "항목 3에는 적음" (English translation: write it for item 3). Its cost: a `Buffer<i32>` passes
     at a `u32` place, such as indices or an indirect count, and the editor does not catch it.
   - [inference, agent] Neither option of either question reverses an entry of OD-1 to OD-8.
@@ -3763,6 +3766,91 @@ are lost. Write @inout xs to update the caller's array.` Where an array can be r
 - [fact] This amendment changes the front matter `rules` (adds `7.6`) and `surface` (adds 7, 73 and
   74). It changes no rule text and no code.
 - [inference, agent] Nothing here is a new design: each item follows from A10, A15 or A16.
+- Status: `status: accepted` does not change.
+
+### A18. Slice 2 merged: the review fixes, the bundle budgets, and its open items (2026-11-16)
+
+- [fact] Why. Slice 2 of A10's slice table merged on 2026-11-16 as #1310, squash commit `68864743`.
+  An independent review of #1310 found defects after A16. This amendment records the fixes, the
+  sizes they moved, the merged state and the items slice 2 leaves open.
+- [fact] Baseline: `main` at `68864743`.
+- [fact] This amendment changes no front matter, no rule text and no code.
+
+**The merge.**
+
+- [fact] Every required check was green at #1310's head `463668a8` on 2026-11-16: `typecheck + unit`,
+  `traceability (Doorstop)`, `compile gate (Tint + WebGL2)` and `user journeys (packed tarball,
+WebGPU)`. `TypeNN candidate (build + CPU)`, which is not required, failed.
+- [decision, owner, 2026-11-16] The agent showed the owner the example before and after (CLAUDE.md,
+  Merging) and said it would merge when the checks were green. The owner answered "네" (English
+  translation: yes). The record has no other words.
+- [fact] The owner's instruction of 2026-11-16 lets the agent take its own recommended option without
+  asking: "물어볼 때 추천이 있으면 그냥 물어보지 말고 추천으로 진행해요." (English translation: when you
+  ask and have a recommendation, do not ask; go ahead with the recommendation.)
+
+**The review fixes.**
+
+- [fact] Reviewer: an AI agent (Claude Code) that did not write #1310, on 2026-11-16, at `95291202`.
+  It reported 5 findings. The main session checked each one.
+
+| Finding                                                                                                  | Disposition                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1. A helper's `@out array<T, N>` was read without `TS8075` but was not filled with zeros.                | Fixed in `43c5d3c5`: the body starts with an assignment of the zero array, on every target (Rule 8.25, A15 decision 2: `N` elements of `array<T, N>`). |
+| 2. A kernel's `@out` zero fill ran before the owner check and the tier choice, so a refused call zeroed. | Fixed in `43c5d3c5`: the fill runs once a tier is chosen.                                                                                              |
+| 3a. `zeroInPlace` writes `0` for a `bool` layout.                                                        | Not a defect: an `@out array<bool>` cannot be called from host code ("a bool is not host-shareable").                                                  |
+| 3b. `ResidentArrayState.zero` made a plain-array host a list of numbers.                                 | Fixed in `43c5d3c5`: `copyOf` and `zeroInPlace` keep each element's shape; the numbers of an open element become zeros.                                |
+| 4. A function that cannot be a kernel reports `TS8080` beside `TS8020` for an unsized array parameter.   | Open (below).                                                                                                                                          |
+| 5. `checkValueArrayWritesByEffects` is not path-sensitive for writes only the lowered body shows.        | Open (below). [inference, agent] Nothing shows it while `return xs` is `TS8020`.                                                                       |
+
+- [fact] The main session first restored `TS8075` on an `@out array<T, N>` for finding 1. That reverses
+  Rule 8.25 and A15 decision 2, so it reverted it before commit and filled the array instead.
+- [fact] `463668a8` fixed a type error in the new test (`TS2488` under `tsconfig.tests.json`).
+
+**The bundle budgets.**
+
+| Bundle                 | `main` at `07a5c3c3` | A16 (#1310 at `eb0f87a9`) | `main` at `68864743` |
+| ---------------------- | -------------------- | ------------------------- | -------------------- |
+| `typeshade/runtime`    | 171,253              | 171,525                   | 171,589              |
+| `typeshade/fuse`       | 115,599              | 115,876                   | 115,949              |
+| `typeshade/algorithms` | 70,608               | 70,900                    | 70,969               |
+| `typeshade/random`     | 52,173               | 52,459                    | 52,517               |
+
+- [fact] The review fixes add 58 to 73 gzip bytes to each bundle after A16 decision 4.
+  `scripts/bundle-budget.json` records the measured bytes; its floors and its other budgets do not
+  change. `typeshade/emit` does not move (117,466).
+- [fact] The owner accepted A16's sizes. [decision, agent, 2026-11-16] The agent accepted the later
+  58 to 73 bytes under the owner's instruction above, and recorded them on #1310.
+
+**The slices of milestone 4, status.**
+
+- [fact] This statement updates A14's status table. A14's text stays as it is.
+
+| Slice  | Status                                                                                     |
+| ------ | ------------------------------------------------------------------------------------------ |
+| 0      | done: #1251, merged as `937147b8`.                                                         |
+| 1      | done: #1257, merged as `3b579904`.                                                         |
+| 2      | done: #1310, merged as `68864743` on 2026-11-16. Every required check green at `463668a8`. |
+| 3 to 6 | not started.                                                                               |
+
+**Open items after slice 2.**
+
+| Item                                                                                                                                                                     | Source                | Next action                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- | -------------------------------------------------------------- |
+| The candidate codes of slice 3 and the return remedy of `TS8080` in kernels.                                                                                             | A15, A16              | Settled before slice 3, in the amendment that plans it.        |
+| D-p: which slice closes it.                                                                                                                                              | A13 to A16            | Settled in the amendment that plans slice 3.                   |
+| Review finding 4: `TS8080` beside `TS8020` on a function that cannot be a kernel.                                                                                        | Review of #1310       | Slice 3, which changes where an unsized array can be returned. |
+| Review finding 5: writes only the lowered body shows are judged without paths.                                                                                           | Review of #1310       | Slice 3, with `return xs`.                                     |
+| A write inside a nested closure is not tracked by `TS8080`.                                                                                                              | A16                   | Recorded; no slice assigned.                                   |
+| One refusal message in `src/core/host-kernel.ts` cannot be reached.                                                                                                      | #1310 body            | Recorded; no slice assigned.                                   |
+| Rule 8.25's `Enforced by` names the zero fill of an `@out` array through Rule 8.23, which names only the kernel's fill in `runChecked`; `fillFunctionBody` is not named. | `43c5d3c5` trailer    | The next change to the text of Rule 8.25.                      |
+| In this container, 9 tests of `src/affected-tests.test.ts` and `src/doc-test-selection.test.ts` fail on `main` `05e8be0b` as on #1310; CI passes them.                   | Local run, 2026-11-16 | [inference, agent] Environmental; no action.                   |
+
+**Open, owner must settle.**
+
+- [fact] Nothing. [inference, agent] No statement of this amendment conflicts with an entry of
+  `docs/owner-decisions.md` (OD-1 to OD-8).
+
+- Affects: A16 decision 4 (the bundle sizes after the review fixes); A14's slice status table.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
