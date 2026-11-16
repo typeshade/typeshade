@@ -3907,6 +3907,21 @@ const held = step(buffer, 1 / 60); // a Buffer argument gives a new Buffer, on t
   class, on the call's device (A10 Q-F items 1 and 2).
 - [fact] It rests on A10 Q-A and Q-F, Rule 8.23 and OD-5. A value parameter that the body only reads
   and does not return still passes the caller's storage with no copy (Rule 8.23).
+- [decision, agent, 2026-11-16] The one accepted form is `return ps`, where `ps` is the identifier
+  of such a parameter and no statement of the body assigns `ps` whole. A kernel has at most one
+  array result. Every other expression of an array with no size is refused (decision 2): a
+  conditional `k ? ps : qs`, a method result such as `ps.slice(1)`, an object or a tuple that holds
+  the array, and a parameter the body assigned whole.
+- [decision, agent, 2026-11-16] A returned parameter is copied at the call also when the body never
+  writes it: the result is always a new array (A10 Q-A item 2).
+- [decision, agent, 2026-11-16] A path that ends with no `return`, in a function whose result is an
+  array, is refused as TypeScript refuses it for any result type; slice 3 adds no rule for it.
+- [decision, agent, 2026-11-16] The result's class is the argument's class (A10 Q-F item 1): a
+  `Buffer<f32>` passed for `array<vec3<f32>>` gives a `Buffer<f32>`, and a `Float32Array` gives a
+  `Float32Array`. This closes the open item of A11 and A12 on the result's class.
+- [fact] Unchanged by slice 3: a returned `array<T, N>` (a parameter or a local) compiles as today,
+  and a write to a fixed-size parameter keeps Rule 8.8 (A16 decision 2); a returned element
+  (`ps[1]`) is a value of its own type; an alias (`const q = ps; return q`) stays `TS8099`.
 - [fact] A function that cannot be a kernel (a helper, a method, an entry) keeps today's `TS8020` on
   a parameter and on a return of an array with no size (Rule 12.6).
 
@@ -3916,18 +3931,23 @@ const held = step(buffer, 1 / 60); // a Buffer argument gives a new Buffer, on t
   The reason is OD-3 (the language stays small): `TS8020` is already the code of "this function
   cannot return this array", and a second code would name the same refusal.
 
-| Candidate of A10                               | Handling                                                                                                                                                                                                                          |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A returned array that is not a parameter.      | `TS8020`, with a text that names the function and says a kernel returns one of its array parameters.                                                                                                                              |
-| A returned pushed array (Q-F item 3).          | No new refusal is needed. A push to a value array is `TS8080` already, also when the array is returned (A15). A pushed array is therefore `@inout`, and the next row refuses its return.                                          |
-| Two parameters returned on different paths.    | `TS8020`, with a text that names both parameters and says a kernel returns one array parameter on every path.                                                                                                                     |
-| (new) A returned `@inout` or `@out` parameter. | `TS8020`, with a text that says the call already updates the caller's array, and offers both edits: remove the `return`, or remove the qualifier to get a new array. A10 Q-A refused the alias reading (option (d)) of this form. |
+| Candidate of A10                               | Handling                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A returned array that is not a parameter.      | `TS8020`, with a text that names the function and says a kernel returns one of its array parameters.                                                                                                                                                                                                                                                |
+| A returned pushed array (Q-F item 3).          | No new refusal is needed. A push to a value array is `TS8080` already, also when the array is returned (A15). A pushed array is therefore `@inout`, and the next row refuses its return.                                                                                                                                                            |
+| Two parameters returned on different paths.    | `TS8020`, with a text that names both parameters and says a kernel returns one array parameter on every path.                                                                                                                                                                                                                                       |
+| (new) A returned `@inout` or `@out` parameter. | `TS8020`, with a text that says the call already updates the caller's array, and offers both edits: remove the `return`, or remove the qualifier to get a new array. [decision, agent] This row is new in A19; A10 does not state it. The reason: the result would alias the caller's array, and A10 Q-A item 2 makes a returned array a new value. |
 
 - [proposal, agent] The texts, to be settled in the pull request of slice 3 (Rule 12.5: the place,
   the reason, the edit):
   - `step(): "return tmp" returns an array that is no parameter. A kernel returns one of its array parameters, and the result has that argument's length. Write "return ps".`
   - `pick(): returns "a" on one path and "b" on another. A kernel returns one array parameter on every path.`
   - `step(): parameter "ps" is @inout, so the call already updates the caller's array. Remove "return ps", or remove @inout to return a new array.`
+- [decision, agent, 2026-11-16] A function that gets one of these `TS8020` refusals gets no `TS8080`
+  beside it: one mistake gets one diagnostic (Rule 12.4).
+- [observed result] The reviewer of A19 compiled a push inside a nested function (`const f = (v:
+f32) => ps.push(v)`) at `4ec28bf7`: it is refused with `TS8099`. A test of slice 3 pins it, so
+  the pushed-array row has no hole.
 - [fact] Each refusal is asserted in both halves on one source (Rule 12.7; CLAUDE.md, A test reads
   both halves).
 
@@ -3961,7 +3981,9 @@ N>` result is refused at the call) is closed after the array-return pull request
    gives a promise of a new array of the argument's class, and a `Buffer` argument gives a `Buffer`.
 3. Runtime: copy first, then write the copy, on the CPU tier, WebGPU and WebGL2; the result on the
    call's device.
-4. Rule 8.22, Rule 8.23 and surface §65 and §70; the Doorstop items they change.
+4. Rule 8.22 (its sentence on the kernel's tail, "an optional `return` of scalars"), Rule 8.23,
+   Rule 8.25 (a returned `@inout` or `@out` parameter) and Rule 8.21 where the host view changes;
+   surface §7 (the `TS8020` rows), §65 and §70; the Doorstop items they change.
 5. Tests of both halves, the CPU tier against the oracle, and the import journey on WebGPU.
 6. Slice 3b: D-p.
 
@@ -3980,7 +4002,25 @@ N>` result is refused at the call) is closed after the array-return pull request
 - [inference, agent] No decision conflicts with an entry of `docs/owner-decisions.md`: OD-3 (no new
   code), OD-4 (the example above), OD-5 (`@inout` and `@out` keep their spelling and meaning).
 
-- Affects: A10's open-items row "New diagnostic codes" (closed for slice 3: none is added); A16
+**Independent review record of A19.**
+
+- [fact] Reviewer: an AI agent (Claude Code) that did not write A19, on 2026-11-16. Revision
+  reviewed: `4ec28bf7`. It found no blocking finding, 4 should-fix findings and 4 notes. Verdict:
+  approve after fixes. It compiled the observed result and the example before.
+
+| Finding                                                                          | Answer                                                                              |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 1. A10 does not refuse a returned `@inout` parameter; the row is a new decision. | Fixed: the row is labelled a decision of A19, with its reason.                      |
+| 2. A11's and A12's open item on the result's class is dropped without a word.    | Fixed: decision 1 settles it (the argument's class).                                |
+| 3. `TS8080` beside the new `TS8020` on one function.                             | Fixed: decision 2 states one diagnostic.                                            |
+| 4. Return forms with no stated rule.                                             | Fixed: decision 1 states the one accepted form, the copy, and what does not change. |
+| 5. A push inside a nested function.                                              | Recorded as an observed result; a test of slice 3 pins it.                          |
+| 6. Step 4 misses Rule 8.25, surface §7 and the tail sentence of Rule 8.22.       | Fixed.                                                                              |
+| 7 and 8. Notes with no fix asked.                                                | No change.                                                                          |
+
+- [fact] No review has read the revision that answers this review.
+
+- Affects: A11's and A12's open item on the result's class (closed by decision 1); A10's open-items row "New diagnostic codes" (closed for slice 3: none is added); A16
   decision 3 (the return remedy, in kernels); A18's open items (findings 4 and 5, D-p).
 - Status: `status: accepted` does not change.
 
