@@ -113,6 +113,7 @@ import {
 import { deviceRangeLoops, lastLoopOf, readsElements, storeAfterLoops } from './kernel-stores.js';
 import { mapExpr } from './opt/ir-transform.js';
 import { proveKernels, type KernelProof, type LoopReduction } from './parallel-loop.js';
+// Rule 11.8: keep the WebGL2 lowering entry point here; kernel-lower-gl.ts owns its implementation.
 export { GL_DISPATCH, GL_OUT, lowerKernelGl, type KernelGlLoopPlan } from './kernel-lower-gl.js';
 export {
   type KernelCollection,
