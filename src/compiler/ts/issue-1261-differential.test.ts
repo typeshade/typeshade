@@ -173,6 +173,11 @@ function binary(op: string, a: V, b: V): V {
       break;
     case '%':
       if (y === 0) throw new Skip('zero');
+      // The oracle computes a float `%` in doubles, and `%` over values that are no integers
+      // carries the f32 rounding of its operands much further than one ulp (seed 123456 #1047).
+      if (t === 'f32' && !(Number.isInteger(x) && Number.isInteger(y))) {
+        throw new Skip('f32 remainder');
+      }
       r = x % y;
       break;
     case '&':
@@ -1161,6 +1166,9 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
         if (process.env.DIFF_ONLY !== undefined && String(i) !== process.env.DIFF_ONLY) continue;
         const program: Program2 = { main: built.source, lib: LIBS[built.lib]! };
         const ours = compiled(program);
+        // A program TypeScript cannot parse is no program of the corpus: `a < ((b > c) ? d : e)`
+        // reads as type arguments (seed 77 #663).
+        if (ours.some((d) => d.code === 'TS8030')) continue;
         const theirs = editor(program);
         // 2. Each file's diagnostics agree.
         const keysOf = (ds: readonly Line[]) => ds.map(key).sort();

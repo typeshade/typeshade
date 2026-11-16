@@ -700,6 +700,8 @@ export function lowerCall(
       readingsOf(a, (n) => scope.resolveIr(n)) === undefined &&
       twoReadingsOf(node.arguments[i]!) === undefined &&
       (a.op !== 'lit' || statesType(node.arguments[i]!)) &&
+      // A read of a constant of no fixed type is its written number, no typed peer (Rule 5.1).
+      !isAbstractRead(node.arguments[i]!) &&
       !isKindlessBitwise(a)
         ? typeKey(a.type)
         : undefined,
