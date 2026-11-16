@@ -486,6 +486,13 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
     `"K" is an integer by its bit operator, and this position takes an f32. Write "f32(K)" for the float value.`
     It replaces the type mismatch these positions gave since F7, the vector constructor's element
     mismatch among them.
+
+  `settleConstExprs` (#368) converts each arm of a `select` of abstract integers on its own under
+  `u32()`, as Tint folds the `select` on a condition it evaluates first: `u32(select(-7, 3, 0 >= KB))`
+  reached the target as written, which Tint refused. Measured bundle budgets move
+  (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime` 171177 to 171253 (split total
+  173631 to 173726), `typeshade/emit` 117380 to 117466 and `typeshade/fuse` 115529 to 115599
+  (split total 116533 to 116616): each one carries the pass.
   - `let a = 3000000000 | 0; min(a, ii)`: now refused under D2 with the edit `i32(a)`, where it was
     a plain mismatch.
 

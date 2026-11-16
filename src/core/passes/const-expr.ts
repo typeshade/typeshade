@@ -454,6 +454,27 @@ function settleNode(e: Expr, env: Env, writes: () => FnWrites): Expr {
       // concrete one keeps them.
       if (e.fn !== 'u32' || e.declRef !== undefined || e.args.length !== 1) return e;
       const arg = e.args[0]!;
+      // `u32(select(-7, 3, c))` with a condition Tint evaluates as a constant: each arm converts
+      // on its own, as Tint folds the `select` first (the differential test of #1291, seed 1261
+      // #533 gave `u32(select(-7, -268435456, (0 >= KB)))`, which Tint refused).
+      if (arg.op === 'select' && arg.type.kind === 'scalar') {
+        const arm = (x: Expr): Expr => {
+          if (!isAbstract(x)) return { op: 'call', type: e.type, fn: 'u32', args: [x] };
+          const v = constValue(x, env);
+          return v === undefined
+            ? { op: 'call', type: e.type, fn: 'u32', args: [x] }
+            : spell([wrapInt(v[0]!, 'u32')], e.type);
+        };
+        if (isAbstract(arg.ifTrue) || isAbstract(arg.ifFalse)) {
+          return {
+            op: 'select',
+            type: e.type,
+            cond: arg.cond,
+            ifTrue: arm(arg.ifTrue),
+            ifFalse: arm(arg.ifFalse),
+          };
+        }
+      }
       if (!isAbstract(arg)) return e;
       const v = constValue(arg, env);
       return v === undefined || v[0]! >= 0 ? e : spell([wrapInt(v[0]!, 'u32')], e.type);
