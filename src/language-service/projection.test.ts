@@ -184,7 +184,8 @@ describe('a function whose return does vector arithmetic has its vector type in 
       ' const a|: vec2',
       'pply((x)|: vec2',
       '+ apply(|(',
-      ' apply(x|): vec2',
+      ' apply(x|)',
+      ' apply(x|: vec2',
       ' const b|: vec2',
       'tion (x)|: vec2',
     ]);

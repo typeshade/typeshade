@@ -307,7 +307,9 @@ TypeScript value of "a + b" agree, so the "f32()" does not say which value it me
     `<T>` carry the origin. A mask of low bits is computed over proven readings
     (`(a & 0xFF) + 1` compiles), and an unproven value stays unproven under any mask.
   - An element of a destructuring pattern (`let [a] = [(0xF0000000|0)]`) is no typed value: it is
-    refused where a tree reaches it, and is no typed peer beside one. An annotation the editor's
+    refused where a tree reaches it, and is no typed peer beside one. An element of an object
+    pattern reads a property, so a getter or a field a tree reaches reaches it (`let { v } = s`
+    after `s.v = (0xF0000000|0)`), through a rename and nested patterns too. An annotation the editor's
     projection wrote into an open document (`: u32` after an untyped getter) is no written type
     in the program that links it, in an import and in the entry, so the editor and `compile()`
     give the same refusal with the imported file open or closed.

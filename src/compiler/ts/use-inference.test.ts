@@ -2555,6 +2555,86 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(4);
   });
 
+  // The fourth independent review of #1304, within D (the owner's decision of 2026-11-16): an
+  // element of an object pattern reads a property, so a getter or a field that a tree reaches
+  // reaches it, through a rename, a compound store, a method's store, a function's result and
+  // nested patterns.
+  it.each([
+    [
+      'struct untyped store then pat',
+      'class S2 { v = 0; w = 0; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v = (0xF0000000|0); let { v } = s; return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'store via fn then pat',
+      'class S2 { v = 0; w = 0; }\nfunction st(s: S2): void { }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v = (0xF0000000|0); let { v: a } = s; return f32(a + a);\n}\n',
+      'a + a',
+      'f32()',
+    ],
+    [
+      'nested struct pat',
+      'class S2 { v = 0; w = 0; }\nclass P { s: S2 = new S2(); }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let p = new P(); p.s.v = (0xF0000000|0); let { s: { v } } = p; return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'getter pattern',
+      'class C { get v() { return (0xF0000000|0); } }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let { v } = new C(); return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'getter pattern rename',
+      'class C { get v() { return (0xF0000000|0); } }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  const c = new C(); let { v: a } = c; return f32(a + a);\n}\n',
+      'a + a',
+      'f32()',
+    ],
+    [
+      'fn returns struct pattern',
+      'class S2 { v = 0; w = 0; }\nfunction mk() { const s = new S2(); s.v = (0xF0000000|0); return s; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let { v } = mk(); return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'this store in method + pattern',
+      'class S4 { v = 0; set(): void { this.v = (0xF0000000|0); } }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S4(); s.set(); let { v } = s; return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'compound store pattern',
+      'class S2 { v = 0; w = 0; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v += (0xF0000000|0); let { v } = s; return f32(v + v);\n}\n',
+      'v + v',
+      'f32()',
+    ],
+    [
+      'pattern direct in f32',
+      'class S2 { v = 0; w = 0; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v = (0xF0000000|0); let { v } = s; return f32(v);\n}\n',
+      'v',
+      'f32()',
+    ],
+    [
+      'pattern in compare',
+      'class S2 { v = 0; w = 0; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v = (0xF0000000|0); let { v } = s; return v < 0 ? 1.0 : 2.0;\n}\n',
+      'v',
+      '<',
+    ],
+    [
+      'pattern division',
+      'class S2 { v = 0; w = 0; }\nexport function t(ii: i32, vi: u32, f: f32): f32 {\n  let s = new S2(); s.v = (0xF0000000|0); let { v } = s; return f32(v / 2);\n}\n',
+      'v',
+      '/',
+    ],
+  ] as const)(
+    'fourth review of #1304 (D2): %s is refused in both halves',
+    (_, main, subject, at) => {
+      expect(both(`"use typeshade";\n${main}`)).toEqual([
+        unproven1299(subject, at, `i32(${subject})`),
+      ]);
+    },
+  );
+
   it('second review of #1304 (D2): a mask of low bits over proven readings is computed, and compiles', () => {
     const source = T12(A1299 + 'return f32((a & 0xFF) + 1);', 'f32');
     expect(both(source)).toEqual([]);

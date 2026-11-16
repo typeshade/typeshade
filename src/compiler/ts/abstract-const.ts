@@ -2820,7 +2820,12 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   const memo = readingMemo(sourceFile);
   if (memo.taint !== undefined) return memo.taint;
   const taint: FileTaint = { vars: new Set(), names: new Set(), groups: new Map() };
-  const vars: { d: ts.VariableDeclaration | ts.BindingElement; exprs: ts.Expression[] }[] = [];
+  const vars: {
+    d: ts.VariableDeclaration | ts.BindingElement;
+    exprs: ts.Expression[];
+    /** The properties an element of an object pattern reads, outermost last. */
+    names?: readonly string[];
+  }[] = [];
   const named: { name: string; exprs: ts.Expression[] }[] = [];
   const visit = (n: ts.Node): void => {
     if (
@@ -2882,7 +2887,20 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
         const up = skipParenUp(id);
         if (ts.isBinaryExpression(up.parent) && up.parent.left === up) exprs.push(up.parent.right);
       }
-      vars.push({ d: n, exprs });
+      // An element of an object pattern reads a property, as `p.v` does: a getter or a field
+      // that a tree reaches reaches it, at any depth of nested patterns (the fourth review of
+      // #1304). A computed property name may be any property.
+      const names: string[] = [];
+      for (let e: ts.Node = n; ts.isBindingElement(e); e = e.parent.parent) {
+        if (!ts.isObjectBindingPattern(e.parent)) continue;
+        const key = e.propertyName ?? e.name;
+        names.push(
+          ts.isIdentifier(key) || ts.isStringLiteral(key) || ts.isNumericLiteral(key)
+            ? key.text
+            : '*',
+        );
+      }
+      vars.push({ d: n, exprs, names });
     }
     if (
       ts.isPropertyDeclaration(n) &&
@@ -2924,7 +2942,10 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   for (let changed = true; changed;) {
     changed = false;
     for (const v of vars) {
-      if (!taint.vars.has(v.d) && v.exprs.some(reaches)) {
+      const byName = (v.names ?? []).some(
+        (name) => taint.names.has(name) || (name === '*' && taint.names.size > 0),
+      );
+      if (!taint.vars.has(v.d) && (byName || v.exprs.some(reaches))) {
         taint.vars.add(v.d);
         changed = true;
       }
