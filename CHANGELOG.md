@@ -304,7 +304,13 @@ TypeScript value of "a + b" agree, so the "f32()" does not say which value it me
     a variable's number only a u32 holds is a root for every number stored in it (`let M =
 0xF0000000; M = 1; M ^ 0xF0000000`). A variable's declaration and its stores are found in
     the whole file, so a function written above a module `let` stores into it. `as`, `!` and
-    `<T>` carry the origin. `& 0xFF` agrees on both readings, so it compiles.
+    `<T>` carry the origin. A mask of low bits is computed over proven readings
+    (`(a & 0xFF) + 1` compiles), and an unproven value stays unproven under any mask.
+  - An element of a destructuring pattern (`let [a] = [(0xF0000000|0)]`) is no typed value: it is
+    refused where a tree reaches it, and is no typed peer beside one. An annotation the editor's
+    projection wrote into an open document (`: u32` after an untyped getter) is no written type
+    in the program that links it, in an import and in the entry, so the editor and `compile()`
+    give the same refusal with the imported file open or closed.
   - A node no tree can reach is not walked. The variables that read one another are found
     together, once per file. Each node and each variable is read once per file, and a long
     chain of bindings is read from its far end first. The review's chain of 40 bindings with six

@@ -251,6 +251,9 @@ export function createTypeshadeLanguageServiceWith(
     readDocument: (uri) =>
       sourceFileOf(uri)?.text ?? tsHost.getDocumentText(uri) ?? tsHost.readOutsideProgram(uri),
     resolveImport: (fromUri, specifier) => tsHost.resolveImportUri(fromUri, specifier),
+    // An open document's text above is the projected one: the annotations the projection wrote
+    // into it are marked as no written type in the linked program (the third review of #1304).
+    projectedAnnotations: (uri) => tsHost.projectionOf(uri)?.insertionStarts(),
   };
 
   /**

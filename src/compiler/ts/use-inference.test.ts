@@ -2464,7 +2464,98 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(0);
   });
 
-  it('second review of #1304 (D2): a mask of low bits agrees on both readings, and compiles', () => {
+  // The third independent review of #1304 and the owner's decision of 2026-11-16 ("B1·B2·D는
+  // #1304"): an annotation the editor's projection wrote into an open document is no written
+  // type, in a linked import and in the entry that imports; an unproven value stays unproven
+  // under a mask; an element of a destructuring pattern is no typed value.
+  const LIB = '/p/lib.shade.ts';
+  const MAIN = '/p/main.shade.ts';
+  /** `main` importing `lib`: compile()'s diagnostics of main, and the editor's with lib closed,
+   *  opened before main and opened after it. */
+  const linkedHalves = (lib: string, main: string): string[][] => {
+    const files: Record<string, string> = { [LIB]: lib, [MAIN]: main };
+    const read = (u: string): string | undefined => files[u];
+    const compiled = compile(main, { fileName: MAIN, readDocument: read })
+      .diagnostics.filter((d) => d.fileName === undefined || d.fileName === MAIN)
+      .map((d) => `${d.code}: ${d.message}`);
+    const editorOf = (open: readonly string[]): string[] => {
+      const s = createTypeshadeLanguageService({ readDocument: read });
+      for (const u of open) s.openDocument(u, files[u]!);
+      return s.getDiagnostics(MAIN).map((d) => `${String(d.code)}: ${String(d.message)}`);
+    };
+    return [compiled, editorOf([MAIN]), editorOf([LIB, MAIN]), editorOf([MAIN, LIB])];
+  };
+  const IMPORT_C = 'import { C } from "./lib.shade";\n';
+  it.each([
+    [
+      'a getter',
+      `${HEAD2}export class C {\n  get v() {\n    return (0xF0000000|0);\n  }\n}\n`,
+      'new C().v',
+    ],
+    [
+      'a method',
+      `${HEAD2}export class C {\n  m() {\n    return (0xF0000000|0);\n  }\n}\n`,
+      'new C().m()',
+    ],
+    ['a static field', `${HEAD2}export class C {\n  static K = (0xF0000000|0);\n}\n`, 'C.K'],
+  ] as const)(
+    'third review of #1304 (D2): %s of an open import is no written type, in both halves',
+    (_, lib, read) => {
+      const main = `${HEAD2}${IMPORT_C}${FN2}  let a = ${read};\n  return f32(a + a);\n}\n`;
+      const [compiled, closed, libFirst, mainFirst] = linkedHalves(lib, main);
+      expect(compiled).toHaveLength(1);
+      expect(compiled[0]).toMatch(
+        /^TS8003: .*"a \+ a".*"f32\(\)" does not say which value it means\./,
+      );
+      expect(closed).toEqual(compiled);
+      expect(libFirst).toEqual(compiled);
+      expect(mainFirst).toEqual(compiled);
+    },
+  );
+
+  it('third review of #1304 (D2): the entry that imports keeps its own projected fields untyped', () => {
+    const lib = `${HEAD2}export const Z = 1;\n`;
+    const main =
+      `${HEAD2}import { Z } from "./lib.shade";\nclass D {\n  static K = (0xF0000000|0);\n}\n` +
+      `${FN2}  let a = D.K * Z;\n  return f32(a + a);\n}\n`;
+    const [compiled, closed, libFirst, mainFirst] = linkedHalves(lib, main);
+    expect(compiled).toHaveLength(1);
+    expect(compiled[0]).toMatch(/^TS8003: .*"a \+ a"/);
+    expect(closed).toEqual(compiled);
+    expect(libFirst).toEqual(compiled);
+    expect(mainFirst).toEqual(compiled);
+  });
+
+  it('third review of #1304 (D2): an unproven value stays unproven under a mask of low bits', () => {
+    // At ii = 34 the double past 2^53 loses its low bits: compiled 137, TypeScript 136.
+    const source = T12(
+      'let v = (0xF0000001 & 0xFF);\n  for (let i = 0; i < ii; i++) {\n    v = v * 3;\n  }\n  return f32(v & 0xFF);',
+      'f32',
+    );
+    expect(both(source)).toEqual([unproven1299('v & 0xFF', 'f32()', 'i32(v & 0xFF)')]);
+  });
+
+  it.each([
+    ['an array pattern', 'let [a] = [(0xF0000000|0)];\n  return f32(a + a);', 'a + a'],
+    [
+      'a pattern beside a tree',
+      'let [b] = [vi];\n  let a = (0xF0000000|0);\n  return f32(a + b);',
+      'a + b',
+    ],
+  ] as const)(
+    'third review of #1304 (D2): %s is no typed value, and is refused in both halves',
+    (_, body, subject) => {
+      expect(both(T12(body, 'f32'))).toEqual([unproven1299(subject, 'f32()', `i32(${subject})`)]);
+    },
+  );
+
+  it('third review of #1304 (D2): a pattern of plain numbers compiles', () => {
+    const source = T12('let [b] = [3];\n  return f32(b + 1);', 'f32');
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(4);
+  });
+
+  it('second review of #1304 (D2): a mask of low bits over proven readings is computed, and compiles', () => {
     const source = T12(A1299 + 'return f32((a & 0xFF) + 1);', 'f32');
     expect(both(source)).toEqual([]);
     expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(1);

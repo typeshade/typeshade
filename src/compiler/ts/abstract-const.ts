@@ -264,6 +264,13 @@ export function markProjectedAnnotations(
       starts.map((at, i) => ({ at, length: lengths[i] ?? 0 })),
     );
 }
+/** The offsets {@link markProjectedAnnotations} recorded for `sourceFile`, if any. */
+export function projectedAnnotationStarts(
+  sourceFile: ts.SourceFile,
+): ReadonlySet<number> | undefined {
+  return projectedAnnotations.get(sourceFile);
+}
+
 /** Each insertion of the projection, `[at, at + length)` in the projected text: what a named
  *  edit is checked without, so the check compiles the author's text as `compile()` does. */
 const projectedSpans = new WeakMap<
@@ -2555,18 +2562,41 @@ function mergedPicks(
 /** The declaration of the variable or parameter `name` read at `at`, in the scopes around it,
  *  wherever in its scope it stands: a function written above a module `let` reads and stores
  *  that `let` (the second review of #1304, A3). */
-function walkDeclarationOf(
-  name: string,
-  at: ts.Node,
-): ts.ParameterDeclaration | ts.VariableDeclaration | undefined {
-  const fromList = (list: ts.Node | undefined): ts.VariableDeclaration | undefined => {
+function walkDeclarationOf(name: string, at: ts.Node): WalkDeclaration | undefined {
+  /** The declaration of `name` in a binding name: the name itself, or an element of a
+   *  destructuring pattern (`let [a] = …`, `{ a }`), which is a binding element. */
+  const inName = (
+    d: ts.VariableDeclaration | ts.ParameterDeclaration,
+  ): WalkDeclaration | undefined => {
+    if (ts.isIdentifier(d.name)) return d.name.text === name ? d : undefined;
+    const find = (p: ts.BindingName): ts.BindingElement | undefined => {
+      if (ts.isIdentifier(p)) return undefined;
+      for (const e of p.elements) {
+        if (ts.isOmittedExpression(e)) continue;
+        if (ts.isIdentifier(e.name)) {
+          if (e.name.text === name) return e;
+        } else {
+          const inner = find(e.name);
+          if (inner !== undefined) return inner;
+        }
+      }
+      return undefined;
+    };
+    return find(d.name);
+  };
+  const fromList = (list: ts.Node | undefined): WalkDeclaration | undefined => {
     if (list === undefined || !ts.isVariableDeclarationList(list)) return undefined;
-    return list.declarations.find((d) => ts.isIdentifier(d.name) && d.name.text === name);
+    for (const d of list.declarations) {
+      const found = inName(d);
+      if (found !== undefined) return found;
+    }
+    return undefined;
   };
   for (let n: ts.Node | undefined = at.parent; n !== undefined; n = n.parent) {
     if (ts.isFunctionLike(n)) {
       for (const p of n.parameters) {
-        if (ts.isIdentifier(p.name) && p.name.text === name) return p;
+        const found = inName(p);
+        if (found !== undefined) return found;
       }
     }
     if (ts.isBlock(n) || ts.isSourceFile(n) || ts.isModuleBlock(n) || ts.isCaseOrDefaultClause(n)) {
@@ -2580,12 +2610,16 @@ function walkDeclarationOf(
       if (d !== undefined) return d;
     }
     if (ts.isCatchClause(n) && n.variableDeclaration !== undefined) {
-      const d = fromList(n.variableDeclaration.parent);
+      const d = inName(n.variableDeclaration);
       if (d !== undefined) return d;
     }
   }
   return undefined;
 }
+
+/** What {@link walkDeclarationOf} finds: a parameter, a variable, or an element of a
+ *  destructuring pattern. */
+type WalkDeclaration = ts.ParameterDeclaration | ts.VariableDeclaration | ts.BindingElement;
 
 /** The names a property access can reach user code through in `sourceFile`: a getter or a
  *  setter. A name of no field, method or swizzle of this file may be one of another file. */
@@ -2625,8 +2659,8 @@ function fileNames(sourceFile: ts.SourceFile): FileNames {
 /** Whether nothing in `node` can store a value between two reads: no call, no assignment, no
  *  `++` or `--`, and no property access that may run a getter (the second review of #1304,
  *  A1). Only there are two reads of one variable one value. */
-const storesNothing = new WeakMap<ts.Node, boolean>();
 function readsOnly(node: ts.Node, sourceFile: ts.SourceFile): boolean {
+  const storesNothing = readingMemo(sourceFile).pure;
   const known = storesNothing.get(node);
   if (known !== undefined) return known;
   let bad =
@@ -2672,8 +2706,10 @@ interface ReadingMemo {
   readonly nodes: Map<ts.Node, Reading[]>;
   readonly variables: Map<ts.Node, Reading[]>;
   readonly stores: Map<ts.Node, Store[]>;
-  readonly declarations: Map<ts.Node, ts.ParameterDeclaration | ts.VariableDeclaration | null>;
+  readonly declarations: Map<ts.Node, WalkDeclaration | null>;
   readonly tainted: Map<ts.Node, boolean>;
+  /** Whether a node stores nothing between two reads ({@link readsOnly}). */
+  readonly pure: Map<ts.Node, boolean>;
   taint?: FileTaint;
 }
 const readingMemos = new WeakMap<ts.SourceFile, ReadingMemo>();
@@ -2686,6 +2722,7 @@ function readingMemo(sourceFile: ts.SourceFile): ReadingMemo {
       stores: new Map(),
       declarations: new Map(),
       tainted: new Map(),
+      pure: new Map(),
     };
     readingMemos.set(sourceFile, memo);
   }
@@ -2693,10 +2730,7 @@ function readingMemo(sourceFile: ts.SourceFile): ReadingMemo {
 }
 
 /** {@link walkDeclarationOf} of the identifier `id`, found once. */
-function declarationAt(
-  id: ts.Identifier,
-  sourceFile: ts.SourceFile,
-): ts.ParameterDeclaration | ts.VariableDeclaration | undefined {
+function declarationAt(id: ts.Identifier, sourceFile: ts.SourceFile): WalkDeclaration | undefined {
   const memo = readingMemo(sourceFile).declarations;
   const known = memo.get(id);
   if (known !== undefined) return known ?? undefined;
@@ -2762,7 +2796,7 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   const memo = readingMemo(sourceFile);
   if (memo.taint !== undefined) return memo.taint;
   const taint: FileTaint = { vars: new Set(), names: new Set(), groups: new Map() };
-  const vars: { d: ts.VariableDeclaration; exprs: ts.Expression[] }[] = [];
+  const vars: { d: ts.VariableDeclaration | ts.BindingElement; exprs: ts.Expression[] }[] = [];
   const named: { name: string; exprs: ts.Expression[] }[] = [];
   const visit = (n: ts.Node): void => {
     if (
@@ -2795,6 +2829,36 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
       if (name !== undefined) {
         named.push({ name, exprs: ts.isBlock(fn.body) ? returnsOf(fn.body) : [fn.body] });
       }
+    }
+    if (ts.isBindingElement(n) && ts.isIdentifier(n.name)) {
+      // An element of a destructuring pattern: what its pattern destructures, a default, and
+      // what is assigned to it. A parameter's pattern is reached from its calls, which the walk
+      // does not follow: it is reached where any written number only a u32 holds is.
+      let root: ts.Node = n;
+      while (
+        ts.isBindingElement(root) ||
+        ts.isArrayBindingPattern(root) ||
+        ts.isObjectBindingPattern(root)
+      ) {
+        root = root.parent;
+      }
+      const exprs: ts.Expression[] = [];
+      if (n.initializer !== undefined) exprs.push(n.initializer);
+      if (ts.isVariableDeclaration(root)) {
+        if (root.initializer !== undefined) exprs.push(root.initializer);
+        const loop = root.parent.parent;
+        if (loop !== undefined && (ts.isForOfStatement(loop) || ts.isForInStatement(loop))) {
+          exprs.push(loop.expression);
+        }
+      } else if (ts.isParameter(root)) {
+        exprs.push(...bigLiteralsOf(sourceFile));
+      }
+      for (const id of identifiersNamed(sourceFile, n.name.text)) {
+        if (id === n.name || declarationAt(id, sourceFile) !== n) continue;
+        const up = skipParenUp(id);
+        if (ts.isBinaryExpression(up.parent) && up.parent.left === up) exprs.push(up.parent.right);
+      }
+      vars.push({ d: n, exprs });
     }
     if (
       ts.isPropertyDeclaration(n) &&
@@ -2899,7 +2963,9 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
       for (;;) {
         const w = stack.pop()!;
         onStack.delete(w);
-        if (typeof w !== 'string') group.push(w as ts.VariableDeclaration);
+        if (typeof w !== 'string' && ts.isVariableDeclaration(w as ts.Node)) {
+          group.push(w as ts.VariableDeclaration);
+        }
         if (w === v) break;
       }
       for (const d of group) taint.groups.set(d, group);
@@ -2908,6 +2974,17 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   for (const v of edges.keys()) if (!index.has(v)) connect(v);
   memo.taint = taint;
   return taint;
+}
+
+/** The written numbers of `sourceFile` that only a `u32` holds. */
+function bigLiteralsOf(sourceFile: ts.SourceFile): ts.Expression[] {
+  const out: ts.Expression[] = [];
+  const visit = (n: ts.Node): void => {
+    if (ts.isNumericLiteral(n) && isBigNumber(Number(n.text))) out.push(n);
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+  return out;
 }
 
 /** Whether a tree can reach `node` ({@link fileTaint}). */
@@ -3179,6 +3256,11 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
   if (ts.isIdentifier(n)) {
     const d = declarationAt(n, sourceFile);
     if (d === undefined) return unproven();
+    // An element of a destructuring pattern states no type and the walk reads no value of it:
+    // unproven where a tree reaches it, else unknown (the third review of #1304, D).
+    if (ts.isBindingElement(d)) {
+      return [fileTaint(sourceFile).vars.has(d) ? UNPROVEN : UNKNOWN];
+    }
     if (!ts.isVariableDeclaration(d) || !ts.isIdentifier(d.name)) return [];
     if (writtenTypeText(d, sourceFile) !== undefined) return [];
     return variableReadings(d, sourceFile, w);
@@ -3412,15 +3494,6 @@ function binaryReadingsOf(
         return unsigned ? x >>> (y & 31) : x >> (y & 31);
     }
   };
-  /** A mask that keeps only bits both readings share (`& 0xFF`): its result agrees whatever
-   *  the other value is. */
-  const lowMask = (x: Reading): boolean =>
-    k === ts.SyntaxKind.AmpersandToken &&
-    !x.tree &&
-    !x.unknown &&
-    Number.isInteger(x.ts) &&
-    x.ts >= 0 &&
-    x.ts <= 0x7fffffff;
   const pure = readsOnly(node, sourceFile);
   const out: Reading[] = [];
   for (const a of as) {
@@ -3433,8 +3506,7 @@ function binaryReadingsOf(
       }
       const tree = a.tree || b.tree;
       if (a.unknown || b.unknown || a.unproven || b.unproven) {
-        const masked = lowMask(a) || lowMask(b);
-        out.push({ ...(tree && !masked ? UNPROVEN : UNKNOWN), picks });
+        out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
       } else if (!tree) {
         if (bit && (isBigNumber(a.ts) || isBigNumber(b.ts))) {
           const u = rootOf(a.ts >>> 0, b.ts >>> 0);

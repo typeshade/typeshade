@@ -15,6 +15,7 @@ import {
 import {
   compilingCheckedEdit,
   markProjectedAnnotations,
+  projectedAnnotationStarts,
   reportAbstractDivisions,
   resetAbstractConsts,
   abstractConstFacts,
@@ -81,6 +82,7 @@ import {
   type LinkedProgram,
   type LinkRoot,
 } from './link.js';
+import { normalizeSourcePath } from './specifier.js';
 import { uniformityViolations, type UniformityViolation } from '../../core/passes/uniformity.js';
 import {
   reasonKey,
@@ -140,6 +142,10 @@ export interface CompileTsSourceOptions {
    *  file, `.js` and `.mjs` read as `.ts`, and `.ts` appended to any other path; any other
    *  specifier a package, found in `node_modules` through `readDocument` (surface §68). */
   readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
+  /** The offsets of the annotations the language service's projection wrote into the text
+   *  `readDocument` gives for `fileName` (`: u32` after an untyped getter), which are no written
+   *  type. Only the language service passes it. */
+  readonly projectedAnnotations?: (fileName: string) => readonly number[] | undefined;
 }
 
 /**
@@ -681,6 +687,7 @@ function compileLinked(
     true,
     ts.ScriptKind.TS,
   );
+  markLinkedProjections(sourceFile, entry, linked, options.projectedAnnotations);
   // A sentence names a declaration as its own file writes it, and says whether a name the
   // linker joined was declared in the file the sentence is about or imported into it.
   const origin: LinkedOrigin = {
@@ -838,6 +845,47 @@ function compileLinked(
   const linkedCompile: LinkedCompile = { linked, sourceFile, symbols: inner.symbols };
   linkedCompiles.set(result, linkedCompile);
   return { result, linked: linkedCompile };
+}
+
+/** Carries the annotations the language service's projection wrote into the entry and into
+ *  each file it imports (`: u32` after an untyped getter) to the linked source, so that the
+ *  linked program reads them as no written type, as each file's own analysis does (Rule 12.7;
+ *  the third review of #1304, B1). Each annotation's mark stands at its declaration's name end,
+ *  or at the colon of a result type. */
+function markLinkedProjections(
+  sourceFile: ts.SourceFile,
+  entry: ts.SourceFile,
+  linked: LinkedProgram,
+  projected: ((fileName: string) => readonly number[] | undefined) | undefined,
+): void {
+  const entryName = normalizeSourcePath(entry.fileName);
+  const startsOf = new Map<string, ReadonlySet<number> | undefined>();
+  const starts = (fileName: string): ReadonlySet<number> | undefined => {
+    const name = normalizeSourcePath(fileName);
+    if (!startsOf.has(name)) {
+      const own = name === entryName ? projectedAnnotationStarts(entry) : undefined;
+      const read = own ?? projected?.(name);
+      startsOf.set(name, read === undefined ? undefined : new Set(read));
+    }
+    return startsOf.get(name);
+  };
+  if (projectedAnnotationStarts(entry) === undefined && projected === undefined) return;
+  const marks: number[] = [];
+  const consider = (at: number): void => {
+    if (at < 0) return;
+    const m = linked.map(at, at + 1);
+    if (m !== undefined && starts(m.file.name)?.has(m.start) === true) marks.push(at);
+  };
+  const visit = (n: ts.Node): void => {
+    const typed = n as { readonly type?: ts.TypeNode; readonly name?: ts.Node };
+    if (typed.type !== undefined && ts.isTypeNode(typed.type)) {
+      if (typed.name !== undefined) consider(typed.name.getEnd());
+      consider(sourceFile.text.lastIndexOf(':', typed.type.getStart(sourceFile)));
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+  if (marks.length > 0) markProjectedAnnotations(sourceFile, marks);
 }
 
 /** Maps every `SourceSpan` the IR under `roots` carries from the linked source back to the file
