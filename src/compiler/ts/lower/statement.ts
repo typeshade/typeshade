@@ -429,7 +429,7 @@ function lowerStatementKind(
     if (
       fn !== undefined &&
       ts.isFunctionDeclaration(fn) &&
-      fn.type === undefined &&
+      hasNoWrittenResult(fn, sourceFile) &&
       ts.getCombinedModifierFlags(fn) & ts.ModifierFlags.Export
     ) {
       const readings =

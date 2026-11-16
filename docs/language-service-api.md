@@ -1084,7 +1084,9 @@ expression body applies one of those operators (`ERASING_OPERATORS`, so `return 
 too, `(x): vec2 => x * k`. The front end does not read an inserted return type as the author's (change 0134,
 `hasNoWrittenResult`): a function declaration, an arrow function or a function expression still
 infers its result, in the order `compile()` lowers it, and a method's or a getter's result still
-carries a constant's origin. And a class field with an initializer and no annotation, static or not,
+carries a constant's origin. A method and a getter infer in the same way, a compute or vertex
+entry's result is checked as `compile()` checks it, and a class upcast and the two-readings
+refusal at an exported function's `return` read the function as the author wrote it (#1295). And a class field with an initializer and no annotation, static or not,
 private or not, whose front-end type is a scalar gets its type after its name: `#width: f32 =
 0.05`, `static readonly MIN_WIDTH: f32 = 0.01`, which TypeScript would type `number` and the
 literal `0.01`. A local keeps the vector-and-matrix rule above: hover answers for a local from

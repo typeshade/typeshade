@@ -207,7 +207,11 @@ class DeclaredContexts {
         member !== undefined &&
         (ts.isPropertyDeclaration(member) || ts.isGetAccessor(member) || ts.isParameter(member))
       ) {
-        type = member.type;
+        // A getter's result type the editor's projection wrote is not the author's (#1280).
+        type =
+          ts.isGetAccessor(member) && hasNoWrittenResult(member, this.sourceFile)
+            ? undefined
+            : member.type;
       } else if (member !== undefined && ts.isSetAccessor(member)) {
         type = member.parameters[0]?.type;
       }

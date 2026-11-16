@@ -1,4 +1,5 @@
 // Implements: Rule 8.9 (docs/language-design.md; traced in reqs/).
+import { hasNoWrittenResult } from './abstract-const.js';
 import { logicalTypeKey as typeKey } from './optional.js';
 import ts from 'typescript';
 import type { Expr } from '../../core/ir/nodes.js';
@@ -60,7 +61,14 @@ function sourceType(
     return mapTsTypeToShaderType(node.type, sourceFile, []);
   if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
     const decl = declarationOf(node.expression);
-    if (decl !== undefined && ts.isFunctionDeclaration(decl) && decl.type !== undefined)
+    // A result type the editor's projection wrote is not the author's (change 0134): the call
+    // names no type, as `compile()` reads the same text (Rule 12.7).
+    if (
+      decl !== undefined &&
+      ts.isFunctionDeclaration(decl) &&
+      decl.type !== undefined &&
+      !hasNoWrittenResult(decl, sourceFile)
+    )
       return mapTsTypeToShaderType(decl.type, sourceFile, []);
   }
   return undefined;

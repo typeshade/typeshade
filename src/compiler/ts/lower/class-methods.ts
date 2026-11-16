@@ -24,7 +24,7 @@
 // The object's name in the emitted function is `self_`, not `self`: Tint refuses `self`, which
 // is on WGSL's reserved-word list (as `this` is), and GLSL ES 3.00 takes either.
 
-import { peekingReads } from '../abstract-const.js';
+import { hasNoWrittenResult, peekingReads } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, FuncDecl, Stmt } from '../../../core/ir/nodes.js';
@@ -1057,9 +1057,18 @@ function methodSignature(
     return { params, ret: selfT, callerClass: true };
   }
   if (method.type?.kind === ts.SyntaxKind.ThisType) return { params, ret: selfT };
-  const ret = parseReturnType(method.type, sourceFile, diagnostics, structs, undefined);
+  // A result type the editor's projection wrote is not the author's (change 0134): the method
+  // infers it, as `compile()` reads the same text (Rule 12.7).
+  const infers = hasNoWrittenResult(method, sourceFile);
+  const ret = parseReturnType(
+    infers ? undefined : method.type,
+    sourceFile,
+    diagnostics,
+    structs,
+    undefined,
+  );
   if (!ret) return undefined;
-  return method.type === undefined ? { params, ret, infers: true } : { params, ret };
+  return infers ? { params, ret, infers: true } : { params, ret };
 }
 
 /** The refusal of a static declared to return the class that declares it, which builds its value
@@ -1153,7 +1162,8 @@ function accessorSignature(
     return mapTsTypeToShaderType(t, sourceFile, undefined);
   };
   if (half === 'get') {
-    if (node.type === undefined) {
+    // A result type the editor's projection wrote is not the author's (change 0134).
+    if (node.type === undefined || hasNoWrittenResult(node, sourceFile)) {
       const inferred = pairType();
       if (inferred !== undefined) return { params: [], ret: inferred };
       // Neither half writes the property's type: the getter's body says it (Rule 8.19).
