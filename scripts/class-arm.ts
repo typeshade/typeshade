@@ -81,6 +81,7 @@ import { fileURLToPath } from 'node:url';
 import { compile } from '../src/compiler/ts/compile.js';
 import { authorTypeText } from '../src/compiler/ts/context.js';
 import { hostFace, type HostExport } from '../src/compiler/ts/host-face.js';
+import { REASON } from '../src/compiler/ts/host-face-shared.js';
 import type { CpuValue } from '../src/core/cpu-runtime.js';
 import { zeroOf } from '../src/core/cpu-runtime.js';
 import type { FuncDecl, ModuleDecl, StructDecl } from '../src/core/ir/nodes.js';
@@ -543,12 +544,12 @@ function probe(c: ClassCase, m: Member, f: FuncDecl): string | undefined {
     m.kind === 'static'
       ? `  return ${c.name}.${m.name}(${args});`
       : m.kind === 'getter'
-        ? `  let c = o;\n  return c.${m.name};`
+        ? `  return o.${m.name};`
         : m.kind === 'setter'
-          ? `  let c = o;\n  c.${m.name} = a0;`
+          ? `  o.${m.name} = a0;`
           : result === undefined
-            ? `  let c = o;\n  c.${m.name}(${args});`
-            : `  let c = o;\n  return c.${m.name}(${args});`;
+            ? `  o.${m.name}(${args});`
+            : `  return o.${m.name}(${args});`;
   const file = join(dirname(c.file), `__class_probe_${c.name}_${m.tag}.shade.ts`);
   const source = `"use typeshade";\n${imp.line}\nexport function probe_(${sig}): ${ret} {\n${body}\n}\n`;
   const face = hostFace(source, { fileName: file, readDocument: read, fuse: false });
@@ -559,6 +560,10 @@ function probe(c: ClassCase, m: Member, f: FuncDecl): string | undefined {
     );
   const e = face.exports?.find((x) => x.name === 'probe_');
   if (e === undefined) throw new Error(`the probe of ${c.name}.${m.name} has no export`);
+  // A member that changes its object makes the probe's `o` the caller's object (change 0142), and
+  // a host call of a function passes no object to write yet. That is no refusal of the member: a
+  // host class holds its own object, which the member writes (Rule 8.29).
+  if (e.kind === 'never' && e.reason === REASON.reference('o')) return undefined;
   return e.kind === 'function' ? undefined : e.kind === 'never' ? e.reason : `it is a ${e.kind}`;
 }
 
