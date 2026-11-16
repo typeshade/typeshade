@@ -44,6 +44,16 @@ const errorsOf = (src: string): string[] =>
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`);
 
+/** The errors of `src` in the editor, merged as the editor shows them. */
+const editorErrors = (src: string): string[] => {
+  const service = createTypeshadeLanguageService();
+  service.openDocument('/m.shade.ts', src);
+  return service
+    .getDiagnostics('/m.shade.ts')
+    .filter((d) => d.severity === 'error')
+    .map((d) => `${d.source} ${d.code}: ${d.message}`);
+};
+
 /** The one error `src` has, which the test then pins by code and text (Rule 12.4, 12.5). */
 const only = (src: string): string => {
   const errors = errorsOf(src);

@@ -689,7 +689,7 @@ let acc: C = { x: 10. };
     expect(r.eval('fs', [[1, 0]])).toEqual([6, 11, 0, 1]);
   });
 
-  it('refuses a receiver that is a const copy, and a call in expression position; takes a parameter', () => {
+  it('takes a second name and a parameter as the receiver; refuses a call in expression position', () => {
     const C = `"use typeshade"\nclass C {\n  x: f32\n  bump(): void { this.x = this.x + 1. }\n}\n`;
     const only = (src: string) => {
       const errors = errorsOf(src);
@@ -702,15 +702,11 @@ let acc: C = { x: 10. };
     expect(
       errorsOf(`${C}function g(): f32 { const c: C = { x: 1. }\n  c.bump()\n  return c.x }${TAIL}`),
     ).toEqual([]);
-    expect(
-      only(
-        `${C}function g(): f32 { let a: C = { x: 1. }\n  const c = a\n  c.bump()\n  return c.x }${TAIL}`,
-      ),
-    ).toBe(
-      `${M} "C.bump" changes its object, and "c" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
-    );
-    // A parameter of a struct is the caller's object (change 0142): a method that changes it is a
-    // write through it, so the function takes a pointer and the caller's value changes.
+    // `const c = a` is a second name of the object `a` holds, as in JavaScript (change 0142): the
+    // method writes that object, and `a` shows it.
+    const alias = `${C}function g(): f32 { let a: C = { x: 1. }\n  const c = a\n  c.bump()\n  return a.x }${TAIL}`;
+    expect(bothHalves(alias)).toEqual([]);
+    expect(compile(alias).eval('g', [])).toBe(2);
     expect(bothHalves(`${C}function g(c: C): f32 { c.bump()\n  return c.x }${TAIL}`)).toEqual([]);
     expect(only(`${C}function g(c: vec3): f32 { c.x = 1.\n  return c.x }${TAIL}`)).toMatch(
       /parameter/,
@@ -802,13 +798,10 @@ class Random {
       return errors[0]!;
     };
     const M = TS_CODES.CLASS_MEMBER;
-    expect(
-      only(
-        `${Gen}function g(): u32 { let r0: Gen = { s: 1 }\n  const r = r0\n  return r.next() }${TAIL}`,
-      ),
-    ).toBe(
-      `${M} "Gen.next" changes its object, and "r" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
-    );
+    // `const r = r0` is a second name of `r0`'s object (change 0142), as in JavaScript.
+    const alias = `${Gen}function g(): u32 { let r0: Gen = { s: 1 }\n  const r = r0\n  return r.next() + r0.s }${TAIL}`;
+    expect(bothHalves(alias)).toEqual([]);
+    expect(compile(alias).eval('g', [])).toBe(4);
     // A struct parameter is the caller's object (change 0142): the method writes through it.
     expect(bothHalves(`${Gen}function g(r: Gen): u32 { return r.next() }${TAIL}`)).toEqual([]);
     expect(only(`${Gen}function g(): u32 { return 1 + new Gen().next() }${TAIL}`)).toBe(
