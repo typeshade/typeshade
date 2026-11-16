@@ -2223,16 +2223,18 @@ export function wrapsCannotChoose(
   const offers = (t: string) => allowed.some((a) => a === t || (t === 'f32' && a === 'f32(i32'));
   // The refusal may stand on a minus around the `/` (`-((~(1|2)) / 7)`).
   let node: ts.Expression = at;
+  let negated = false;
   while (
     ts.isParenthesizedExpression(node) ||
     (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken)
   ) {
     if (ts.isPrefixUnaryExpression(node)) {
-      if (offers('u32')) return true;
+      negated = true;
       node = node.operand;
     } else node = node.expression;
   }
   if (!ts.isBinaryExpression(node)) return false;
+  if (negated && offers('u32')) return true;
   const outward = (n: ts.Node): ts.Node => {
     let u = n;
     while (ts.isParenthesizedExpression(u.parent)) u = u.parent;

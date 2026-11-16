@@ -36,6 +36,7 @@
 //      a use that asks the other type, which D4 of 2026-11-12 leaves to the generic text.
 
 import { writeFileSync } from 'node:fs';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { checkDocuments } from '../../language-service/check.js';
@@ -997,24 +998,34 @@ function genericEdits(text: string, d: Line): Change[][] | undefined {
     const forms = wrap[1]!.split(/, | or /).map((f) => f.replace(/…/, '%'));
     const subjects = [...wrap[2]!.matchAll(/"([^"]*)"/g)].map((x) => x[1]!);
     const span = text.slice(d.start, d.start + d.length);
-    return forms.map((form) =>
-      subjects.flatMap((subject) => {
-        // An operand the span does not hold (the span is the operand it names first) stands on
-        // the same line.
-        const inSpan = span.indexOf(subject);
-        const onLine = text.indexOf(subject, text.lastIndexOf('\n', d.start) + 1);
-        const i = inSpan >= 0 ? inSpan : onLine >= 0 ? onLine - d.start : -1;
-        if (inSpan < 0 && onLine < 0) return [];
-        return [
-          {
-            file: d.file,
-            start: d.start + i,
-            end: d.start + i + subject.length,
-            text: form.replace('%', subject),
-          },
-        ];
-      }),
-    );
+    // Every occurrence of an operand in the span is wrapped, as an author wraps the operand
+    // wherever the division reads it (`u32(a) / a`); one the span does not hold (the span is the
+    // operand it names first) stands on the same line.
+    const word = (c: string | undefined) => c !== undefined && /\w/.test(c);
+    const occurrences = (subject: string): number[] => {
+      const at: number[] = [];
+      for (let k = span.indexOf(subject); k >= 0; k = span.indexOf(subject, k + subject.length)) {
+        const bounded =
+          !(word(subject[0]) && word(span[k - 1])) &&
+          !(word(subject.at(-1)) && word(span[k + subject.length]));
+        if (bounded) at.push(k);
+      }
+      if (at.length > 0) return at;
+      const onLine = text.indexOf(subject, text.lastIndexOf('\n', d.start) + 1);
+      return onLine >= 0 ? [onLine - d.start] : [];
+    };
+    return forms.map((form) => {
+      const set: Change[] = [];
+      for (const subject of subjects) {
+        for (const k of occurrences(subject)) {
+          const start = d.start + k;
+          const end = start + subject.length;
+          if (set.some((c) => start < c.end && c.start < end)) continue;
+          set.push({ file: d.file, start, end, text: form.replace('%', subject) });
+        }
+      }
+      return set;
+    });
   }
   const declare =
     /Declare "(\w+)" with (\w+)(?: or (\w+))? to choose (?:the division|its value)\.$/.exec(
@@ -1042,6 +1053,34 @@ function editedRanges(changes: readonly Change[]): { file: string; start: number
     }
   }
   return out;
+}
+
+/** The two operands of the division a refusal stands on (through parentheses and a minus). */
+function divisionOperands(
+  text: string,
+  d: Line,
+): { start: number; end: number; text: string }[] | undefined {
+  const file = ts.createSourceFile('x.ts', text, ts.ScriptTarget.Latest, true);
+  let found: ts.Node | undefined;
+  const visit = (n: ts.Node): void => {
+    if (n.getStart(file) === d.start && n.getEnd() === d.start + d.length) found ??= n;
+    else if (n.getStart(file) <= d.start && d.start < n.getEnd()) ts.forEachChild(n, visit);
+  };
+  ts.forEachChild(file, visit);
+  let n = found;
+  while (
+    n !== undefined &&
+    (ts.isParenthesizedExpression(n) ||
+      (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.MinusToken))
+  ) {
+    n = ts.isParenthesizedExpression(n) ? n.expression : n.operand;
+  }
+  if (n === undefined || !ts.isBinaryExpression(n)) return undefined;
+  return [n.left, n.right].map((x) => ({
+    start: x.getStart(file),
+    end: x.getEnd(),
+    text: x.getText(file),
+  }));
 }
 
 /** The program with `changes` made in the files they name; `undefined` where two overlap. */
@@ -1241,14 +1280,18 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
           let offered = genericEdits(textOf(only.file), only);
           const noWrap = only.message.endsWith(NO_WRAP);
           if (noWrap) {
-            const subject = /^"([^"]+)" is /.exec(only.message)?.[1];
-            if (subject === undefined) continue;
-            offered = ['i32', 'u32', 'f32'].map(
-              (t) =>
-                genericEdits(textOf(only.file), {
-                  ...only,
-                  message: `Write ${t}(…) around "${subject}" to choose the division.`,
-                })![0]!,
+            // The sentence says that declaring the type of the division's operands chooses it:
+            // a conversion of one type around both operands does (E2 of 2026-11-13: what it says
+            // is true).
+            const parts = divisionOperands(textOf(only.file), only);
+            if (parts === undefined) continue;
+            offered = ['f32', 'i32', 'u32'].map((t) =>
+              parts.map((x) => ({
+                file: only.file,
+                start: x.start,
+                end: x.end,
+                text: `${t}(${x.text})`,
+              })),
             );
           }
           if (offered === undefined) continue;
@@ -1297,9 +1340,9 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
             }
             if (good) chose++;
           }
-          if (noWrap && chose === offered.length) {
+          if (noWrap && chose === 0) {
             failures.push(
-              `no-wrap #${String(i)}: every wrap of the operand chooses the division\n${show(program)}`,
+              `no-wrap #${String(i)}: no type of the division's operands chooses it\n${show(program)}`,
             );
           }
         }
