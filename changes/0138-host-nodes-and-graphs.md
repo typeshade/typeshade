@@ -5,6 +5,7 @@ status: accepted
 rules:
   - '6.1'
   - '6.6'
+  - '7.6'
   - '8.20'
   - '8.21'
   - '8.22'
@@ -18,6 +19,7 @@ rules:
   - '11.13'
   - '11.17'
 surface:
+  - 7
   - 26
   - 64
   - 65
@@ -26,6 +28,8 @@ surface:
   - 70
   - 71
   - 72
+  - 73
+  - 74
 exports:
   - zeros
   - array
@@ -3742,6 +3746,23 @@ are lost. Write @inout xs to update the caller's array.` Where an array can be r
 - [fact] No review has read the revision that answers this review.
 
 - Affects: A15 decision 1 items 1, 2 and 4 (narrowed to arrays with no size; the texts) and decision 2 item 2a (the declared `@out` push); A15's `Affects` (Rule 8.25 and surface §70 state the `@out` push refusal); Rule 8.8 (kept); the bundle sizes of slice 2.
+- Status: `status: accepted` does not change.
+
+### A17. Slice 2's scope in the front matter (2026-11-16)
+
+- [fact] Why. #1310 (slice 2) changes Rule 7.6 and surface §7, §73 and §74 besides the rules and
+  sections A10's slice table names. The commit-msg hook refuses a commit that reaches past the
+  proposal's front matter, so the front matter is widened first, in its own pull request.
+- [fact] What each one is:
+  - Rule 7.6: an argument of an `@out` parameter counts as an assignment; for an array it holds
+    through the zero fill. A15 decision 2 item 6 and A15's and A16's `Affects` name it.
+  - Surface §7: the diagnostics table gains the `TS8080` row and narrows the `TS8075` row to an
+    `@out` parameter that is no array (A15 decision 2 item 2).
+  - Surface §73 and §74: their examples write `@inout` on a kernel's array that the body writes
+    (A10's slice table, row 2: "`@inout` or `@out` is added to every kernel that writes an array").
+- [fact] This amendment changes the front matter `rules` (adds `7.6`) and `surface` (adds 7, 73 and
+  74). It changes no rule text and no code.
+- [inference, agent] Nothing here is a new design: each item follows from A10, A15 or A16.
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
