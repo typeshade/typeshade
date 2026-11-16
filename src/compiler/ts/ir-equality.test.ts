@@ -260,17 +260,18 @@ describe('IR equality: use typeshade vs fn()', () => {
         a: f32;
       }
       export function put(p: P, x: f32): f32 {
-        p.a = x;
-        return p.a;
+        let o: P = { a: 0. };
+        o.a = x;
+        return o.a;
       }
     `);
     expect(tsResult.diagnostics).toEqual([]);
     const P = structT('P');
-    // Change 0142: `let o: P = p; o.a = x` makes `o` a second name of `p`, so the shape under
-    // test is the write on the parameter itself.
-    const edsl = fn('put', { p: P, x: f32T }, f32T, ({ p, x }) => {
-      member(p, 'a', f32T).assign(x);
-      return member(p, 'a', f32T);
+    // Change 0142: `let o: P = p; o.a = x` makes `o` a second name of `p`, so `o` is built in place.
+    const edsl = fn('put', { p: P, x: f32T }, f32T, ({ x }, bld) => {
+      const o = bld.var('o', P, construct(P, [f32(0)]));
+      member(o, 'a', f32T).assign(x);
+      return member(o, 'a', f32T);
     });
     assertSameCore(tsResult.funcs[0]!, edsl);
   });
