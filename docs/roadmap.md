@@ -11,6 +11,9 @@ decide what is in it. It was written against `main` at 5891d46 and against the T
 documentation as of September 2026. Each item links the issue that tracks it where one exists;
 an item without a link gets its issue when it is picked up.
 
+The [refactoring execution plan](refactoring-plan.md) tracks internal restructuring, its PR
+dependencies and verification evidence within this product scope.
+
 ## What 1.0.0 means
 
 Two things, and both have to hold.

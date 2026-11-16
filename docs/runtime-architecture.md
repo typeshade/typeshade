@@ -835,9 +835,21 @@ The runtime should grow from the compiler's existing IR and metadata rather than
 
 **Status:** architectural direction only. Public APIs should be designed and implemented in separate proposals with concrete compiler/runtime constraints and tests.
 
+## Host compilation boundaries
+
+`src/compiler/ts/host-face.ts` owns the single compile and export analysis. It hands analyzed
+export records from `host-face-contracts.ts` to `host-view.ts` for TypeScript declarations and
+`host-module.ts` for executable JavaScript. `host-types.ts` converts shader types to host layouts;
+`host-face-shared.ts` keeps common refusal wording and class identity. Neither generator imports
+the analysis coordinator. Existing `hostFace`, `HostExport` and `hostTypeOf` imports remain valid.
+
+These are internal module boundaries. Generated code, declarations, metadata and the public host
+contract retain their existing shapes. The API snapshot records the moved definition of
+`HostExport`; its public subpaths and type structure do not change.
+
 ## Resource state ownership
 
-On the Buffer transition branch, `src/runtime/resource-state.ts` owns the region allocation,
+`src/runtime/resource-state.ts` owns the region allocation,
 dirty ranges, finalization registry and per-owner device copies of a structured resource.
 `resource.ts` retains typed accessors, public constructors and recording integration. It passes
 the same `Core` and `RegionState` objects between those operations; no state is copied by the split.
@@ -847,7 +859,8 @@ remain unchanged. The state module imports no compiler or resource facade. `core
 continues to own the underlying device-copy state and queue integration, and `runtime/program.ts`
 continues to own pipeline recording. This extraction changes neither contract.
 
-Bun 1.4.4 measures the runtime at 171,144 gzip bytes after extraction (four bytes above the
-Buffer baseline). Split initial download is 52,023 bytes (+4); aggregate is 173,600 (+3).
-Only those three caps in `scripts/bundle-budget.json` follow the measurements; floors and the
-compiler/dynamic-code boundary checks remain unchanged. This is not a size improvement claim.
+Bun 1.4.4 measures the runtime at 171,177 gzip bytes after extraction (six bytes above the
+integrated Buffer baseline `1aba11a9`). Split initial download is 52,025 bytes (+5); aggregate is
+173,631 (+5). Only those three caps in `scripts/bundle-budget.json` follow the measurements;
+floors and the compiler/dynamic-code boundary checks remain unchanged. This is not a size
+improvement claim.

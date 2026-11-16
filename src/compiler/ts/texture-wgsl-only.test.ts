@@ -19,7 +19,7 @@ import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { reflect } from '../../core/reflect.js';
 import { compileModule } from '../../core/oracle.js';
-import { FRAGMENT_ONLY_CALLS } from './lower/function.js';
+import { FRAGMENT_ONLY_CALLS } from './stage-restrictions.js';
 import { FRAGMENT_ONLY_IDS } from '../../core/passes/lint/rules/fragment-only-builtin.js';
 import { INTRINSICS } from '../../core/intrinsics.js';
 

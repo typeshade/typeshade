@@ -81,7 +81,7 @@
 // settled program compiles with none. It rewrites only what WGSL would refuse, so a module that
 // compiled before emits the same bytes. What it cannot evaluate it leaves alone: a float
 // operation over constants (its rounding is the target's), an element of a constant array, an
-// integer builtin other than `abs`, `sign`, `min`, `max` and `clamp`, and any operand that is
+// integer builtin other than `abs`, `sign`, `min`, `max`, `clamp` and `~`, and any operand that is
 // not a const-expression (a `let` is not one, whatever it holds). Tint still evaluates the
 // first two when it creates the shader, so `x / u32(f32(0u) - 1.0)` and `x / u32(A[0])` for
 // `const A = array(-1., 2.)` are refused, and nothing here settles them yet.
@@ -148,6 +148,10 @@ function builtinValue(
       return args.length === 1 ? a!.map((v) => wrapInt(Math.abs(v), int)) : undefined;
     case 'sign':
       return args.length === 1 ? a!.map((v) => wrapInt(Math.sign(v), int)) : undefined;
+    // The complement, the IR's `~` intrinsic: `u32(~min((9 | 0), 5))` reached the target as
+    // `u32(~5)`, the abstract `-6`, which Tint refused as no `u32` (issue 1261).
+    case '~':
+      return args.length === 1 ? a!.map((v) => wrapInt(~v, int)) : undefined;
     case 'min':
       return args.length === 2 ? zip(a!, b!, Math.min) : undefined;
     case 'max':
@@ -343,6 +347,9 @@ function isAbstract(e: Expr): boolean {
     case 'binop':
       // A shift's type is its left operand's; its amount is a `u32` either way.
       return isAbstract(e.a) && (e.bop === '<<' || e.bop === '>>' || isAbstract(e.b));
+    case 'call':
+      // `~5` is the IR's `~` intrinsic over an abstract integer, and abstract itself.
+      return e.fn === '~' && e.args.length === 1 && isAbstract(e.args[0]!);
     default:
       return false;
   }
