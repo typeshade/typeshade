@@ -2583,6 +2583,16 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **An entry binds only what its emitted program reads** (#1337, a regression from #839). Since
+  #839 the default emit specializes a call at module scope, so `shade(uv, false)` loses the
+  branch that reads a texture. The manifest still listed that texture for the entry, from the
+  authored calls, and the entry's WebGL2 draw failed with `its GLSL declares no sampler2D`.
+  `packModule()` and the host face now list an entry's bindings from the module the WGSL writer
+  emits, and the WebGL2 draw skips a texture its GLSL never names. Measured bundle budgets move
+  (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime` 171589 to 171620, split total
+  174063 to 174090, `typeshade/emit` 117466 to 117540 and `typeshade/fuse` 115949 to 115977,
+  split total 117013 to 117036: each carries the reach walk over the emitted module.
+
 - **An integer conversion that starts a `for` counter declares the counter's type** (Rule 7.5).
   A header name with no annotation is an `i32` (or a `u32` beside a `u32` bound) only when its
   value is written as an integer, and any other value gives it the value's type. `u32(x)`
