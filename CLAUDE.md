@@ -200,6 +200,9 @@ the compiler and `number` to the editor, and no test failed.
   source: `compile()`'s diagnostics (code and text, Rule 12.5) or its emit, and the language
   service's `getDiagnostics`, plus `getHover` where the type is the point.
   `src/language-service/ambient-parity.test.ts` is the shape for a program the two must agree on.
+- Write that assertion with `bothTake` or `bothRefuse` of `src/core/testing/both-halves.ts`.
+  `src/both-halves-policy.test.ts` fails a new test file that names a `TS8xxx` code and never
+  reads the language service.
 - A front-end refusal that stands in for a Tint error (Rule 12.6) is measured against Tint once,
   with its valid neighbours, so it neither misses what Tint refuses nor refuses what Tint accepts
   (Rule 13.3).
