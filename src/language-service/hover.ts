@@ -4,7 +4,7 @@ import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { entryNode } from '../compiler/ts/entry-locations.js';
-import { qualifiersOf } from '../compiler/ts/lower/references.js';
+import { referenceOf } from '../compiler/ts/lower/references.js';
 import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import {
   abstractConstTableOf,
@@ -884,7 +884,7 @@ function structNamesOf(
 
 /**
  * The parameters of the function whose name is declared at offset `start` of `sourceFile`, as
- * a hover writes them: each with its qualifier (Rule 8.25), the name the author wrote and the
+ * a hover writes them: each with the name the author wrote and the
  * type the symbol `fn` of `program` has for it.
  *
  * The front end keeps no parameter that takes a function, so `fn.params` can be shorter than
@@ -892,7 +892,7 @@ function structNamesOf(
  * (`lib_K`). The join is the declaration: a parameter is kept when the program recorded a
  * parameter at the place of its name (`programIndexOf`), and the kept parameters stand in the
  * order of `fn.params`. Where the two lists do not pair, the parameters are the names and the
- * types of `fn.params`, with no qualifier.
+ * types of `fn.params`.
  */
 function writtenParams(
   sourceFile: ts.SourceFile,
@@ -912,18 +912,19 @@ function writtenParams(
   );
   if (kept.length !== types.length)
     return (fn.params ?? []).map((p, i) => `${p.name}: ${types[i]!}`);
-  return kept.map((p, i) => {
-    const q = qualifiersOf(p)[0]?.name;
-    return `${q !== undefined ? `@${q} ` : ''}${(p.name as ts.Identifier).text}: ${types[i]!}`;
-  });
+  return kept.map((p, i) => `${(p.name as ts.Identifier).text}: ${types[i]!}`);
 }
 
-/** The qualifier written on the parameter the front end recorded as `param`, `@inout` or `@out`
- *  (Rule 8.25), read off the declaration in the source. */
-function qualifierOfParam(sourceFile: ts.SourceFile, param: DeclaredSymbol): string | undefined {
+/** Whether the parameter the front end recorded as `param` is the caller's object: an object
+ *  parameter that its function writes (change 0142), read off the declaration in the source. */
+function isReferenceParam(sourceFile: ts.SourceFile, param: DeclaredSymbol): boolean {
   let node: ts.Node | undefined = nodeAt(sourceFile, param.start);
   while (node !== undefined && !ts.isParameter(node)) node = node.parent;
-  return node === undefined ? undefined : qualifiersOf(node)[0]?.name;
+  return (
+    node !== undefined &&
+    ts.isFunctionDeclaration(node.parent) &&
+    referenceOf(node, sourceFile) !== undefined
+  );
 }
 
 /** The innermost node of `sourceFile` that starts at or covers `pos`. */
@@ -966,18 +967,14 @@ function nodeAt(sourceFile: ts.SourceFile, pos: number): ts.Node | undefined {
   return found;
 }
 
-/** What an `@inout` or `@out` parameter is, in one paragraph: the caller's place, and how each
- *  target spells it (Rule 8.25, surface section 70). */
-function referenceLine(param: DeclaredSymbol, qualifier: string): string {
-  return qualifier === 'out'
-    ? `Names a place of the caller's that the function writes: write \`${param.name}\` before ` +
-        `reading it, and on every path before returning. The caller passes a variable, which ` +
-        `may have no value yet. WGSL takes it as a pointer, \`ptr<function, ` +
-        `${wgslType(param.type)}>\` for a local; GLSL ES 3.00 as an \`out\` parameter.`
-    : `Names the caller's place: reading \`${param.name}\` reads it, and assigning to it, or to ` +
-        `a field, component or element of it, writes it. The caller passes a variable. WGSL ` +
-        `takes it as a pointer, \`ptr<function, ${wgslType(param.type)}>\` for a local; GLSL ES ` +
-        `3.00 as an \`inout\` parameter.`;
+/** What an object parameter that its function writes is, in one paragraph: the caller's object,
+ *  and how each target spells it (Rule 8.8, change 0142). */
+function referenceLine(param: DeclaredSymbol): string {
+  return (
+    `The caller's object: this function writes it. Assigning to a field or an element of ` +
+    `\`${param.name}\` changes the object the caller passed. WGSL takes it as a pointer, ` +
+    `\`ptr<function, ${wgslType(param.type)}>\` for a local; GLSL ES 3.00 as an \`inout\` parameter.`
+  );
 }
 
 /**
@@ -1476,17 +1473,16 @@ export function getHover(
     declared !== undefined
       ? analysis.vars.some((v) => v.name === declared.name)
       : imported?.moduleVar === true;
-  // An `@inout` or `@out` parameter is a `param` to the symbol table, and its declaration
-  // carries the qualifier (Rule 8.25).
-  const qualifier = declared?.kind === 'param' ? qualifierOfParam(sourceFile, declared) : undefined;
+  // An object parameter that its function writes is the caller's object, which the inference of
+  // change 0142 finds on the declaration in the source.
+  const isReference = declared?.kind === 'param' && isReferenceParam(sourceFile, declared);
   // The names of the program the symbol was read in, as this document writes them. Nothing
   // here runs for a hover that keeps TypeScript's quick info.
   const program = imported?.program ?? self;
   const struct = structNamesOf(program, sourceFile, checker);
   const line = (): string | undefined => {
     if (shown === undefined || read === undefined) return undefined;
-    if (qualifier !== undefined)
-      return `(parameter) @${qualifier} ${shown.name}: ${spellShaderType(shown.type, struct)}`;
+    if (isReference) return `(parameter) ${shown.name}: ${spellShaderType(shown.type, struct)}`;
     // A field that more than one struct holds has no one owner in the table. TypeScript's
     // quick info names the owner of the hovered use, part by part, up to the field's name.
     const owner = read.oneOwner ? undefined : ownerOf(quickInfo);
@@ -1529,7 +1525,7 @@ export function getHover(
       ? bindingLine(imported.binding)
       : resourceBindingLine(analysis, sourceFile, uri, defs, node);
   const sections = [`\`\`\`ts\n${display}\n\`\`\``];
-  if (qualifier !== undefined) sections.push(referenceLine(declared!, qualifier));
+  if (isReference) sections.push(referenceLine(declared!));
   if (resource !== undefined) sections.push(resource);
   // The location line reads the definitions of a property alone, as it did before the hover
   // asked for the definition of every identifier of a linked program: another name is no field,

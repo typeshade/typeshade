@@ -122,14 +122,14 @@ export function f(k: u32): vec4f {
   });
 
   it('reads an index that calls once, before the right-hand side', () => {
-    const { compiled, result } = bothHalves(`function next(@inout n: u32): u32 {
+    const { compiled, result } = bothHalves(`let n: u32 = 0;
+function next(): u32 {
   n = n + 1;
   return n - 1;
 }
 export function f(): vec4f {
-  let n: u32 = 0;
   let a: array<vec2f, 2> = [vec2f(1., 2.), vec2f(3., 4.)];
-  a[next(n)].xy += vec2f(f32(n), 10.);
+  a[next()].xy += vec2f(f32(n), 10.);
   return vec4f(a[0], f32(n), a[1].x);
 }`);
     expect(compiled).toEqual([]);
@@ -154,7 +154,7 @@ let shared: workgroup<vec2f>;
   });
 
   it('lets a kernel function write a swizzle of its element, on the GPU and the CPU tier', () => {
-    const { compiled, result } = bothHalves(`export function swap(@inout v: array<vec2f>) {
+    const { compiled, result } = bothHalves(`export function swap(v: array<vec2f>) {
   for (let i: u32 = 0; i < v.length; i++) {
     v[i].yx = v[i];
   }

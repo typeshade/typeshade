@@ -6,8 +6,8 @@
 // once through the members of `Voice` and once with each member's body written into the loop,
 // and plans both from their faces as the runtime plans them. One chain per form fuses and one
 // stands apart: a method that changes its object, a method that reads it, a static function, and
-// a method that hands a field to an `@inout` parameter. A reason that names an access names it
-// as the author wrote it: the object a method is called on, or the field the inline form reads.
+// a method that hands its object to a function that writes it. A reason that names an access names it
+// as the author wrote it: the object a method is called on, or the element the inline form reads.
 //
 // Verifies: Rule 8.29 (docs/language-design.md; traced in reqs/).
 
@@ -32,11 +32,11 @@ const CLASS = `class Voice {
     return a * 0.5 + b * 0.5;
   }
   bumpBy(d: f32): void {
-    nudge(this.phase, d);
+    nudge(this, d);
   }
 }
-function nudge(@inout x: f32, d: f32): void {
-  x = x + d;
+function nudge(v: Voice, d: f32): void {
+  v.phase = v.phase + d;
 }`;
 
 /** Each kernel function: its parameters, its loop's bound, and its body through the members and
@@ -44,42 +44,36 @@ function nudge(@inout x: f32, d: f32): void {
 const FUNCTIONS: readonly (readonly [string, string, string, string, string])[] = [
   [
     'tickAll',
-    '@inout vs: array<Voice>, @inout t: array<f32>, dt: f32',
+    'vs: array<Voice>, t: array<f32>, dt: f32',
     'vs.length',
     't[i] = vs[i].tick(dt);',
     'vs[i].phase = vs[i].phase + vs[i].freq * dt; t[i] = vs[i].phase;',
   ],
   [
     'levelAll',
-    '@inout u: array<f32>, vs: array<Voice>',
+    'u: array<f32>, vs: array<Voice>',
     'u.length',
     'u[i] = vs[i].level();',
     'u[i] = vs[i].phase * 0.5;',
   ],
   [
     'levelNext',
-    '@inout u: array<f32>, vs: array<Voice>',
+    'u: array<f32>, vs: array<Voice>',
     'u.length',
     'u[i] = vs[i + 1].level();',
     'u[i] = vs[i + 1].phase * 0.5;',
   ],
   [
     'mixAll',
-    '@inout t: array<f32>, a: array<f32>, b: array<f32>',
+    't: array<f32>, a: array<f32>, b: array<f32>',
     't.length',
     't[i] = Voice.mixOf(a[i], b[i]);',
     't[i] = a[i] * 0.5 + b[i] * 0.5;',
   ],
-  [
-    'bumpAll',
-    '@inout vs: array<Voice>, d: f32',
-    'vs.length',
-    'vs[i].bumpBy(d);',
-    'nudge(vs[i].phase, d);',
-  ],
+  ['bumpAll', 'vs: array<Voice>, d: f32', 'vs.length', 'vs[i].bumpBy(d);', 'nudge(vs[i], d);'],
   [
     'scale',
-    '@inout out: array<f32>, t: array<f32>',
+    'out: array<f32>, t: array<f32>',
     'out.length',
     'out[i] = t[i] * 2.;',
     'out[i] = t[i] * 2.;',
@@ -231,7 +225,7 @@ describe('a chain of methods plans as the same chain written inline (change 0110
       ],
     ],
     [
-      'a method that hands a field to an @inout parameter',
+      'a method that hands its object to a writing function',
       [
         { fn: 'bumpAll', args: [vs, 0.25] },
         { fn: 'levelAll', args: [u, vs] },

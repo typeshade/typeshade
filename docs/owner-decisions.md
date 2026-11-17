@@ -171,3 +171,19 @@ and every person reads this file before any other document of this repository.
     the diagnostic says so. Or no compilation can give it its meaning.
   - Cost recorded: the emitted code does not have to look like the source, so the size of the
     emit and the debugging of it are the compiler's work.
+- Addition, 2026-11-17. The owner said this while the agent explained proposal 0114's stage S5
+  (pull request #1351). The owner's words: "언어랑 매칭이 1:1 로 꼭 TS -> WGSL , TS -> GLSL 이렇게
+  가는건 맞는데 무조건 1:1로 매칭될 필요는 없다는거예요 … map 이라던가, set 같은 구현체라던가
+  그런거 얘기하는거예요"; "class 가 무조건 struct 로 변환되어야할 필요도 없고, function 이나, 그런게
+  꼭 무조건 함수 형태로 존재할 필요도 없지요 컴파일단계에서 결정적으로 처리될 수 있는게 있다면 모두
+  생략하고 단순한 const 값으로 사용될 수도 있고요"; "in/out 이 사라졌다고 컴파일된곳에서 ptr 이
+  사용되지 않아야할 이유도 없어요. 컴파일 단계에서 최적화가 일어날 수도 있는데 말이죠". The agent
+  wrote the meaning below and asked whether it was right; the owner answered "네".
+  - A class need not become a struct, and a function need not remain a function. A `Map` or a
+    `Set` is held in whatever form the compiler chooses.
+  - What the compiler can decide at compile time, it may evaluate and replace with a constant,
+    and leave out the rest.
+  - The removal of `@inout` and `@out` from the language (proposal 0142) does not stop the
+    emitted code from using a WGSL pointer. The compiler may use one as an optimization.
+  - The only bound is the program's meaning: the same result, the same values the host sees, and
+    objects as references (OD-5).

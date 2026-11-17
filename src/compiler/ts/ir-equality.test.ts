@@ -260,15 +260,15 @@ describe('IR equality: use typeshade vs fn()', () => {
         a: f32;
       }
       export function put(p: P, x: f32): f32 {
-        let o: P = p;
+        let o: P = { a: 0. };
         o.a = x;
         return o.a;
       }
     `);
     expect(tsResult.diagnostics).toEqual([]);
     const P = structT('P');
-    const edsl = fn('put', { p: P, x: f32T }, f32T, ({ p, x }, bld) => {
-      const o = bld.var('o', P, p);
+    const edsl = fn('put', { p: P, x: f32T }, f32T, ({ x }, bld) => {
+      const o = bld.var('o', P, construct(P, [f32(0)]));
       member(o, 'a', f32T).assign(x);
       return member(o, 'a', f32T);
     });

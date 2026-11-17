@@ -189,18 +189,23 @@ function run(): f32 {
     expect(glsl).not.toContain('Cell_peek_G');
   });
 
-  it('an argument another argument writes through is copied', () => {
-    const { wgsl } = runs(
-      `class Cell { a: f32; }
-function take(@inout into: Cell, src: Cell): f32 { into.a = 7.; return src.a; }
-function run(): f32 {
+  it('refuses one object as the argument a callee writes and as one it reads', () => {
+    const source = `"use typeshade";
+class Cell { a: f32; }
+function take(into: Cell, src: Cell): f32 { into.a = 7.; return src.a; }
+export function run(): f32 {
   let c: Cell = { a: 1. };
   return take(c, c) + c.a;
-}`,
-      8,
+}`;
+    const said = compile(source).diagnostics.map((d) => `${d.code} ${d.message}`);
+    expect(said).toEqual([
+      'TS8074 This call hands "c" to "take" twice, and "take" writes one of the two: one object under two names inside "take", which is not supported yet (change 0142, stage 2). Pass two variables, or give "take" one parameter for it.',
+    ]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', source);
+    expect(service.getDiagnostics('a.ts').map((d) => `${String(d.code)} ${d.message}`)).toEqual(
+      said,
     );
-    expect(wgsl).toContain('fn take(into: ptr<function, Cell>, src: Cell) -> f32');
-    expect(wgsl).toContain('take(&c, c)');
   });
 
   it('shared memory read across a barrier is copied', () => {

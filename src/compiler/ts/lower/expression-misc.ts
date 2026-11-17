@@ -307,8 +307,8 @@ export function lowerUserCall(
     }
   } else {
     for (const [i, arg] of written.entries()) {
-      // An `@inout` or `@out` parameter takes the place its argument names, unmarked
-      // (Rule 8.25). Only a function of the file has a written `inout` parameter: a kernel
+      // An object parameter that its function writes takes the place its argument names, unmarked
+      // (change 0142). Only a function of the file has such a parameter: a kernel
       // function's arrays are too, and no function calls one (above).
       const param = decl.params[leading.length + i];
       if (param?.mode === 'inout') {

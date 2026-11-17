@@ -34,7 +34,7 @@ export function meanVariance(xs: array<f32>): vec2 {
 }
 
 // A scatter into an integer array: `bins` comes back with the counts added.
-export function histogram(xs: array<f32>, @inout bins: array<u32>, lo: f32, scale: f32) {
+export function histogram(xs: array<f32>, bins: array<u32>, lo: f32, scale: f32) {
   const top = bins.length - 1;
   for (let i: u32 = 0; i < xs.length; i++) {
     const k = min(u32(max((xs[i] - lo) * scale, 0)), top);

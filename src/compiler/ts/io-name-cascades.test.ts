@@ -230,7 +230,7 @@ describe('a refused entry IO name is one diagnostic', () => {
           ? {
               code: 'TS8028',
               message:
-                'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, @builtin, @location, @interpolate, @invariant, @blend_src, @inout, @out.',
+                'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, @builtin, @location, @interpolate, @invariant, @blend_src.',
               at: '@bogus',
             }
           : unknown(),
