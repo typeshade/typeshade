@@ -117,13 +117,25 @@ function fileFunction(
   return undefined;
 }
 
-/** Whether a method named `name` of a class of the file writes its own object: an assignment to
- *  `this` or to a part of it. The class of the receiver is not read here, so a method of that
- *  name on any class of the file counts. */
+/** Whether a method named `name` of a class of the file writes its own object (Rule 8.10): an
+ *  assignment to `this` or to a part of it, a `push` or a `fill` on a part of it, or a call on
+ *  `this`, on a part of it or through `super` of a method that does. The class of the receiver is
+ *  not read here, so a method of that name on any class of the file counts. */
 function methodWritesThis(name: string, sourceFile: ts.SourceFile): boolean {
-  const cached = METHODS.get(sourceFile)?.get(name);
+  let byName = METHODS.get(sourceFile);
+  if (byName === undefined) METHODS.set(sourceFile, (byName = new Map()));
+  const cached = byName.get(name);
   if (cached !== undefined) return cached;
+  // A method that calls itself through another is read as not writing while it is being read.
+  byName.set(name, false);
   let writes = false;
+  /** Whether `e` is `this`, `super`, or a field or an element of one. */
+  const ownPart = (e: ts.Expression): boolean => {
+    let at = bare(e);
+    while (ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at))
+      at = bare(at.expression);
+    return at.kind === ts.SyntaxKind.ThisKeyword || at.kind === ts.SyntaxKind.SuperKeyword;
+  };
   const visitClass = (n: ts.Node): void => {
     if (ts.isClassDeclaration(n)) {
       for (const m of n.members) {
@@ -132,11 +144,24 @@ function methodWritesThis(name: string, sourceFile: ts.SourceFile): boolean {
         const scan = (b: ts.Node): void => {
           if (writes || (b !== m.body && ts.isFunctionLike(b) && !ts.isArrowFunction(b))) return;
           const target = writeTarget(b);
-          if (target !== undefined) {
-            let at = bare(target);
-            while (ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at))
-              at = bare(at.expression);
-            if (at.kind === ts.SyntaxKind.ThisKeyword) writes = true;
+          if (target !== undefined && ownPart(target)) writes = true;
+          if (ts.isCallExpression(b) && ts.isPropertyAccessExpression(b.expression)) {
+            const method = b.expression.name.text;
+            if (
+              ownPart(b.expression.expression) &&
+              (ARRAY_MUTATORS.has(method) || methodWritesThis(method, sourceFile))
+            )
+              writes = true;
+          }
+          // An argument a function of the file writes through (Rule 8.10).
+          if (ts.isCallExpression(b)) {
+            const callee = fileFunction(b, sourceFile);
+            if (callee !== undefined) {
+              b.arguments.forEach((a, i) => {
+                const q = callee.parameters[i];
+                if (q !== undefined && ownPart(a) && takesThePlace(q, sourceFile)) writes = true;
+              });
+            }
           }
           ts.forEachChild(b, scan);
         };
@@ -146,8 +171,6 @@ function methodWritesThis(name: string, sourceFile: ts.SourceFile): boolean {
     ts.forEachChild(n, visitClass);
   };
   visitClass(sourceFile);
-  let byName = METHODS.get(sourceFile);
-  if (byName === undefined) METHODS.set(sourceFile, (byName = new Map()));
   byName.set(name, writes);
   return writes;
 }
@@ -240,7 +263,7 @@ export function objectWrites(
             root !== undefined &&
             names.has(root.name.text) &&
             q !== undefined &&
-            isWrittenObjectParameter(q, sourceFile)
+            takesThePlace(q, sourceFile)
           )
             member = true;
         });
@@ -250,6 +273,17 @@ export function objectWrites(
   };
   scan(body);
   return { member, whole, shadowed };
+}
+
+/** Whether `q` names its caller's place: an object parameter its function writes, or a parameter
+ *  that still carries a written `@inout` or `@out`. */
+function takesThePlace(q: ts.ParameterDeclaration, sourceFile: ts.SourceFile): boolean {
+  const qualified = (ts.canHaveDecorators(q) ? (ts.getDecorators(q) ?? []) : []).some(
+    (d) =>
+      ts.isIdentifier(d.expression) &&
+      (d.expression.text === 'inout' || d.expression.text === 'out'),
+  );
+  return qualified || isWrittenObjectParameter(q, sourceFile);
 }
 
 const WRITTEN = new WeakMap<ts.ParameterDeclaration, boolean>();
