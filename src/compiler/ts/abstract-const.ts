@@ -2840,8 +2840,9 @@ function ownerOfType(
   if (ts.isClassDeclaration(d) || ts.isClassExpression(d) || ts.isInterfaceDeclaration(d)) {
     return { cls: d, static: false };
   }
-  // A type parameter is what its constraint states, or nothing the walk can read.
-  if (ts.isTypeParameterDeclaration(d)) return ownerOfType(d.constraint, sourceFile, depth + 1);
+  // A type parameter names no class: the compiler does not hold a value to its constraint by
+  // name, so the walk reads its members by name (the owner's decision of 2026-11-17).
+  if (ts.isTypeParameterDeclaration(d)) return undefined;
   if (ts.isTypeAliasDeclaration(d)) return ownerOfType(d.type, sourceFile, depth + 1);
   return undefined;
 }
@@ -3294,10 +3295,6 @@ interface FileTaint {
   readonly fieldNames: Set<string>;
   /** The names of the fields with no written type: a read by name may reach one. */
   readonly untypedFieldNames: Set<string>;
-  /** What each field with no written type is stored, and what a store by name stores: a
-   *  written `=` (`plain`) or another store (a compound one, `++`), which the walk cannot read. */
-  readonly fieldStores: Map<ts.Node, FieldStore[]>;
-  readonly looseStores: Map<string, FieldStore[]>;
   /** The tainted variables found together: each variable's group of variables that read one
    *  another, through stores, calls and getters (a strongly connected component). */
   readonly groups: Map<ts.Node, readonly ts.VariableDeclaration[]>;
@@ -3317,12 +3314,6 @@ function accessTainted(
     : taint.memberNames.has(p.name.text);
 }
 
-/** A store into a field ({@link FileTaint.fieldStores}). */
-interface FieldStore {
-  readonly expr?: ts.Expression;
-  readonly plain: boolean;
-}
-
 function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   const memo = readingMemo(sourceFile);
   if (memo.taint !== undefined) return memo.taint;
@@ -3333,20 +3324,7 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
     memberNames: new Set(),
     fieldNames: new Set(),
     untypedFieldNames: new Set(),
-    fieldStores: new Map(),
-    looseStores: new Map(),
     groups: new Map(),
-  };
-  const fieldStore = (target: ts.Node | string, store: FieldStore): void => {
-    if (typeof target === 'string') {
-      const list = taint.looseStores.get(target);
-      if (list === undefined) taint.looseStores.set(target, [store]);
-      else list.push(store);
-    } else {
-      const list = taint.fieldStores.get(target);
-      if (list === undefined) taint.fieldStores.set(target, [store]);
-      else list.push(store);
-    }
   };
   /** The field a store into `access` reaches: its declaration, its name where the source does
    *  not state it, or `undefined` for a field that states its type. */
@@ -3484,22 +3462,20 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
       } else if (target !== undefined) {
         memberEntry(target, n.left.name.text, true).push(n.right);
       }
-      if (target !== undefined) {
-        fieldStore(target, {
-          expr: n.right,
-          plain: n.operatorToken.kind === ts.SyntaxKind.EqualsToken,
-        });
-      }
     }
+    // A property of an object literal is a store by name: the walk does not find the struct
+    // the literal builds (`return { v: (0xF0000000|0), w: 0 }` from a function of result
+    // `S2`), so a tree there reaches every field of that name (the second review of #1322).
     if (
-      (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
-      (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)
+      (ts.isPropertyAssignment(n) || ts.isShorthandPropertyAssignment(n)) &&
+      ts.isObjectLiteralExpression(n.parent) &&
+      (ts.isIdentifier(n.name) || ts.isStringLiteral(n.name))
     ) {
-      const operand = skipParenNodes(n.operand);
-      if (ts.isPropertyAccessExpression(operand)) {
-        const target = storeTarget(operand);
-        if (target !== undefined) fieldStore(target, { plain: false });
-      }
+      const name = n.name.text;
+      const value = ts.isPropertyAssignment(n) ? n.initializer : n.name;
+      const list = loose.get(name);
+      if (list === undefined) loose.set(name, [value]);
+      else list.push(value);
     }
     ts.forEachChild(n, visit);
   };
@@ -3948,10 +3924,9 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
       const m = memberOfBinding(d, sourceFile);
       if (m !== undefined && memberTyped(m, sourceFile)) return [];
       if (fileTaint(sourceFile).vars.has(d)) return [UNPROVEN];
-      // An element that reads a field with no written type reads its values, as `s.v` does.
-      return m !== undefined && isFieldMember(m) && d.initializer === undefined
-        ? fieldReadings(m, sourceFile)
-        : [UNKNOWN];
+      // An element that reads a field with no written type is unproven, as `s.v` is (the
+      // owner's decision of 2026-11-17, "단순 규칙: 타입 없는 필드는 항상 증명 못 함").
+      return m !== undefined && isFieldMember(m) ? [UNPROVEN] : [UNKNOWN];
     }
     if (!ts.isVariableDeclaration(d) || !ts.isIdentifier(d.name)) return [];
     if (writtenTypeText(d, sourceFile) !== undefined) return [];
@@ -4020,9 +3995,12 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
       if (ts.isGetAccessorDeclaration(m) || ts.isMethodDeclaration(m)) {
         return m.body === undefined ? unproven() : unpicked(arms(returnsOf(m.body)));
       }
-      // A field with no written type: unproven where a tree reaches it (E1), whatever the type
-      // of the variable that holds the struct; else its written numbers, or no typed value.
-      return fieldReadings(m, sourceFile);
+      // A field with no written type is always unproven (E1; the owner's decision of
+      // 2026-11-17, "단순 규칙: 타입 없는 필드는 항상 증명 못 함"): values reach it from places
+      // the walk does not list (an entry's parameter, a uniform, storage, an object literal),
+      // whatever the type of the variable that holds the struct. A position no tree reaches is
+      // not walked, so a read of it alone is not refused.
+      return [UNPROVEN];
     }
     const returns: ts.Expression[] = [];
     let typedResult = false;
@@ -4034,19 +4012,16 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
       if (writtenResultText(d, sourceFile) !== undefined) typedResult = true;
       else if (d.body !== undefined) returns.push(...returnsOf(d.body));
     }
-    // A field of that name with no written type that a tree reaches, or a store by name that
-    // one reaches, may be what the access reads.
-    const field = member.getter && fileTaint(sourceFile).fieldNames.has(name);
-    if (returns.length > 0) {
-      const xs = unpicked(arms(returns));
-      return field ? boundedReadings([...xs, UNPROVEN]) : xs;
+    // A field of that name with no written type, or a store by name that a tree reaches, may be
+    // what the access reads: unproven, before any getter's written result is read (the owner's
+    // decision of 2026-11-17, "단순 규칙: 타입 없는 필드는 항상 증명 못 함").
+    const taint = fileTaint(sourceFile);
+    if (member.getter && (taint.untypedFieldNames.has(name) || taint.fieldNames.has(name))) {
+      return [UNPROVEN];
     }
-    if (field) return [UNPROVEN];
+    if (returns.length > 0) return unpicked(arms(returns));
     // Every method or getter of that name in the file has a written result: it states its type.
     if (typedResult) return [];
-    // A field of that name with no written type may be what the access reads: no typed value
-    // (the owner's decision of 2026-11-17, "거부: let b = vi와 같게").
-    if (member.getter && fileTaint(sourceFile).untypedFieldNames.has(name)) return [UNKNOWN];
     // A field declared with a written type, a component of a typed value, or of a
     // constructor's (`vec2u(a, 1).x`), states its type.
     if (
@@ -4060,26 +4035,6 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
     }
   }
   return unproven();
-}
-
-/** The values of a field with no written type ({@link readingsAt}): {@link UNPROVEN} where a
- *  tree reaches it (E1); else the written number each store gives it, its initializer's among
- *  them, and {@link UNKNOWN} for any other store. A field with no written type is no typed peer,
- *  as a variable with none is not (the owner's decision of 2026-11-17, "거부: let b = vi와
- *  같게"; issue 1319). Two reads of one field may be of two objects, so no pick holds. */
-function fieldReadings(m: MemberDecl, sourceFile: ts.SourceFile): Reading[] {
-  const taint = fileTaint(sourceFile);
-  if (taint.members.has(m)) return [UNPROVEN];
-  const name = (m.name as ts.Identifier).text;
-  const out: Reading[] = [];
-  const read = (expr: ts.Expression | undefined, plain: boolean): void => {
-    const c = plain && expr !== undefined ? constNumber(expr) : undefined;
-    out.push(c === undefined ? UNKNOWN : numberReading(c));
-  };
-  read(ts.isPropertyDeclaration(m) ? m.initializer : undefined, true);
-  for (const st of taint.fieldStores.get(m) ?? []) read(st.expr, st.plain);
-  for (const st of taint.looseStores.get(name) ?? []) read(st.expr, st.plain);
-  return boundedReadings(out);
 }
 
 /** The values of `abs`, `min`, `max`, `clamp` or `sign` over its arguments' values: a builtin
@@ -4236,6 +4191,17 @@ function binaryReadingsOf(
         return unsigned ? x >>> (y & 31) : x >> (y & 31);
     }
   };
+  // A value the walk could not prove beside a typed peer (`f32(s.v + vi)`, with `s.v` an
+  // untyped field) is unproven, not dropped: no position accepts what the compiler cannot prove
+  // (the owner's decisions of 2026-11-16, "증명 못 하면 거부", and of 2026-11-17, "단순 규칙:
+  // 타입 없는 필드는 항상 증명 못 함"). A proven tree beside a typed peer keeps its reading, as
+  // the owner deferred (`f32(a + vi)`).
+  if (
+    (as.length === 0 && bs.some((x) => x.unproven)) ||
+    (bs.length === 0 && as.some((x) => x.unproven))
+  ) {
+    return [UNPROVEN];
+  }
   const pure = readsOnly(node, sourceFile);
   const out: Reading[] = [];
   for (const a of as) {

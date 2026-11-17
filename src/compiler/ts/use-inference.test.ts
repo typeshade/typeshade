@@ -2837,7 +2837,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
       1,
     ],
   ] as const)(
-    'review of #1322, A1: a type parameter that shadows a class is its constraint, through %s',
+    'review of #1322, A1: a type parameter that shadows a class is no class, and its fields are read by name, through %s',
     (_, h, subject, at, written, edit, value) => {
       refusedThenEdited(
         `"use typeshade";\n${GENERIC_1319}${h}${CALL_H}`,
@@ -2848,7 +2848,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     },
   );
 
-  it("review of #1322, A1: a generic class's type parameter that shadows a class is its constraint", () => {
+  it("review of #1322, A1: a generic class's type parameter that shadows a class is no class", () => {
     const source =
       `"use typeshade";\n${GENERIC_1319}class Box<Q extends S2> { s: Q; constructor(s: Q) { this.s = s; } ` +
       'get(): f32 { return f32(this.s.v + this.s.v); } }\n' +
@@ -2956,11 +2956,12 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(-1);
   });
 
-  const B1_1319 = (subject: string): string =>
-    `TS8003: "${subject}" is 4026531840 on its u32 bits and -268435456 in TypeScript, so the ` +
-    `"f32()" does not say which value it means. Write "i32(${subject})" for the i32 value.`;
+  // The owner's decision of 2026-11-17, "단순 규칙: 타입 없는 필드는 항상 증명 못 함": a field
+  // with no written type is always unproven beside a tree, so it is said with the sentence that
+  // states no numbers, as `let b = vi` is.
+  const B1_1319 = (subject: string): string => unproven1299(subject, 'f32()', `i32(${subject})`);
   it.each([
-    ['a let, the control', '', 'let b = 0; b = vi; return f32(a + b);', 'a + b'],
+    ['a let, the control', '', 'let b = vi; return f32(a + b);', 'a + b'],
     [
       'a property access',
       'class S2 { v = 0; }\n',
@@ -2995,6 +2996,166 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     const source = `"use typeshade";\nclass Q { v: u32 = 0; }\n${FN2}  let a = (0xF0000000|0); let s = new Q(); s.v = vi; return f32(a + s.v);\n}\n`;
     expect(both(source)).toEqual([]);
     expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(4026531847);
+  });
+
+  // The second review of #1322 and the owner's decision of 2026-11-17, "단순 규칙: 타입 없는
+  // 필드는 항상 증명 못 함": a field with no written type is always unproven beside a tree or in
+  // a position D2 reads, whatever reaches it (a store the walk lists or not: an entry's
+  // parameter, a uniform, storage, an object literal); a type parameter names no class, so its
+  // fields are read by name; a read by name of a field name some untyped field has is unproven,
+  // before any getter's written result. Each is refused in both halves with the approved
+  // sentence, and its edit compiles to its value.
+  const S2W = 'class S2 { v = 0; w = 0; }\n';
+  it.each([
+    [
+      'R extends Q, called at S2',
+      `${Q_1319}${S2W}function h<R extends Q>(s: R): f32 { return f32(s.v + s.v); }\n${FN2}  ${STORE_1319}return h<S2>(s);\n}\n`,
+      's.v + s.v',
+      'f32()',
+      'f32(s.v + s.v)',
+      'f32(i32(s.v + s.v))',
+      -536870912,
+    ],
+    [
+      'R extends Q, inferred',
+      `${Q_1319}${S2W}function h<R extends Q>(s: R): f32 { return f32(s.v + s.v); }\n${FN2}  ${STORE_1319}return h(s);\n}\n`,
+      's.v + s.v',
+      'f32()',
+      'f32(s.v + s.v)',
+      'f32(i32(s.v + s.v))',
+      -536870912,
+    ],
+    [
+      'R extends an interface',
+      `interface I { v: i32; }\n${S2W}function h<R extends I>(s: R): f32 { return f32(s.v + s.v); }\n${FN2}  ${STORE_1319}return h(s);\n}\n`,
+      's.v + s.v',
+      'f32()',
+      'f32(s.v + s.v)',
+      'f32(i32(s.v + s.v))',
+      -536870912,
+    ],
+    [
+      'R extends Q, a pattern',
+      `${Q_1319}${S2W}function h<R extends Q>(s: R): f32 { let { v } = s; return f32(v + v); }\n${FN2}  ${STORE_1319}return h(s);\n}\n`,
+      'v + v',
+      'f32()',
+      'f32(v + v)',
+      'f32(i32(v + v))',
+      -536870912,
+    ],
+    [
+      'R extends Q, a comparison',
+      `${Q_1319}${S2W}function h<R extends Q>(s: R): f32 { return s.v < 0 ? 1.0 : 2.0; }\n${FN2}  ${STORE_1319}return h(s);\n}\n`,
+      's.v',
+      '<',
+      's.v < 0',
+      'i32(s.v) < 0',
+      1,
+    ],
+    [
+      'class Box<R extends Q>',
+      `${Q_1319}${S2W}class Box<R extends Q> { s: R; constructor(s: R) { this.s = s; } m(): f32 { return f32(this.s.v + this.s.v); } }\n${FN2}  ${STORE_1319}let b = new Box<S2>(s); return b.m();\n}\n`,
+      'this.s.v + this.s.v',
+      'f32()',
+      'f32(this.s.v + this.s.v)',
+      'f32(i32(this.s.v + this.s.v))',
+      -536870912,
+    ],
+    [
+      'an object literal a function returns, beside a typed peer',
+      `${S2W}function mk(): S2 { return { v: (0xF0000000|0), w: 0 }; }\n${FN2}  let s = mk(); return f32(s.v + vi);\n}\n`,
+      's.v + vi',
+      'f32()',
+      'f32(s.v + vi)',
+      'f32(i32(s.v + vi))',
+      -268435449,
+    ],
+    [
+      'an object literal of a parameter',
+      `${S2W}function mk(x: u32): S2 { return { v: x, w: 0 }; }\n${FN2}  let a = (0xF0000000|0); return f32(a * mk(vi).v);\n}\n`,
+      'a * mk(vi).v',
+      'f32()',
+      'f32(a * mk(vi).v)',
+      'f32(i32(a * mk(vi).v))',
+      -1879048192,
+    ],
+    [
+      'a getter with a written u32 of that name, through an owner the source does not state',
+      `class G { get v(): u32 { return 1; } }\nclass S2 { v = 0; }\n${FN2}  let a = (0xF0000000|0); let s = new S2(); s.v = vi; let x = (vi > 2 ? s : s); return f32(a + x.v);\n}\n`,
+      'a + x.v',
+      'f32()',
+      'f32(a + x.v)',
+      'f32(i32(a + x.v))',
+      -268435449,
+    ],
+    [
+      'a getter that returns 0 of that name, through an owner the source does not state',
+      `class G { get v() { return 0; } }\nclass S2 { v = 0; }\n${FN2}  let a = (0xF0000000|0); let s = new S2(); s.v = vi; let x = (vi > 2 ? s : s); return f32(a * x.v);\n}\n`,
+      'a * x.v',
+      'f32()',
+      'f32(a * x.v)',
+      'f32(i32(a * x.v))',
+      -1879048192,
+    ],
+  ] as const)(
+    'second review of #1322: an untyped field is always unproven: %s',
+    (_, main, subject, at, written, edit, value) => {
+      refusedThenEdited(
+        `"use typeshade";\n${main}`,
+        [unproven1299(subject, at, `i32(${subject})`)],
+        [[written, edit]],
+        value,
+      );
+    },
+  );
+
+  it("second review of #1322: an untyped field of an entry's parameter is unproven", () => {
+    const source = `"use typeshade";\n${S2W}export function t(s: S2): f32 {\n  let a = (0xF0000000|0); return f32(a * s.v);\n}\n`;
+    expect(both(source)).toEqual([unproven1299('a * s.v', 'f32()', 'i32(a * s.v)')]);
+    const fixed = source.replace('f32(a * s.v)', 'f32(i32(a * s.v))');
+    expect(both(fixed)).toEqual([]);
+    expect(compile(fixed).eval('t', [{ v: 7, w: 0 }])).toBe(-1879048192);
+  });
+
+  it.each([
+    [
+      'a uniform copied into a variable',
+      'declare const u: uniform<S2>;\n',
+      '',
+      'let a = (0xF0000000|0); let s: S2 = u; return f32(a * s.v);',
+    ],
+    [
+      'storage passed to a function',
+      'declare const b: storage<array<S2>, "read">;\n',
+      'function g(s: S2): f32 { let a = (0xF0000000|0); return f32(a * s.v); }\n',
+      'return g(b[0]);',
+    ],
+    [
+      'a uniform passed to a function',
+      'declare const u: uniform<S2>;\n',
+      'function g(s: S2): f32 { let a = (0xF0000000|0); return f32(a * s.v); }\n',
+      'return g(u);',
+    ],
+  ] as const)(
+    'second review of #1322: an untyped field of %s is unproven, and its edit compiles',
+    (_, binding, g, body) => {
+      const source = `"use typeshade";\n${S2W}${binding}${g}${FN2}  ${body}\n}\n`;
+      expect(both(source)).toEqual([unproven1299('a * s.v', 'f32()', 'i32(a * s.v)')]);
+      expect(both(source.replace('f32(a * s.v)', 'f32(i32(a * s.v))'))).toEqual([]);
+    },
+  );
+
+  it('second review of #1322: an object literal a function returns, compared, is unproven', () => {
+    // The first refusal is the inference of `S2.v` from the literal, which is outside D2.
+    const source = `"use typeshade";\n${S2W}function mk(): S2 { return { v: (0xF0000000|0), w: 0 }; }\n${FN2}  let s = mk(); return s.v < vi ? 1.0 : 2.0;\n}\n`;
+    const got = both(source);
+    expect(got).toContain(unproven1299('s.v', '<', 'u32(s.v)'));
+  });
+
+  it('second review of #1322: an untyped field with no tree in the expression keeps its value', () => {
+    const source = `"use typeshade";\n${S2W}${FN2}  let s = new S2(); s.v = 5; return f32(s.v / 2);\n}\n`;
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(2.5);
   });
 
   it('issue #1319 (D2): a component of a value type states its type beside an untyped field of its name', () => {
