@@ -45,7 +45,7 @@
   "src/compiler/ts/inheritance.test.ts": 722,
   "src/compiler/ts/int-lit-context.test.ts": 646,
   "src/compiler/ts/ir-equality.test.ts": 634,
-  "src/compiler/ts/issue-1261-differential.test.ts": 1349,
+  "src/compiler/ts/issue-1261-differential.test.ts": 1341,
   "src/compiler/ts/kernel-corpus.test.ts": 649,
   "src/compiler/ts/kernel-loops.test.ts": 1912,
   "src/compiler/ts/key-types.test.ts": 490,

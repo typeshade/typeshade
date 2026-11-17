@@ -191,3 +191,6 @@ export function unaryValue(op: '-' | '~', x: V): V {
   const u = (op === '~' ? ~x.bits : -x.bits) >>> 0;
   return u === v ? { t: x.t, v } : { t: x.t, v, bits: u };
 }
+
+export const bitsValue = (bits: number): V => ({ t: 'k', v: bits | 0, bits });
+export const bitsLit = (bits: number, text: string) => ({ text, value: () => bitsValue(bits) });
