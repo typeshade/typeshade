@@ -221,7 +221,7 @@
   "src/compiler/ts/lower/operator-kinds.ts": 64,
   "src/compiler/ts/lower/optional-values.ts": 118,
   "src/compiler/ts/lower/param-defaults.ts": 50,
-  "src/compiler/ts/lower/references.ts": 18,
+  "src/compiler/ts/lower/references.ts": 16,
   "src/compiler/ts/lower/runtime-array.ts": 26,
   "src/compiler/ts/lower/statement.test.ts": 6,
   "src/compiler/ts/lower/statement.ts": 555,

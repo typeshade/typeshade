@@ -1,5 +1,3 @@
-// === TypeScript + TypeShade diagnostics, merged into one TypeshadeDiagnostic list (§5, §6) ===
-
 import ts from 'typescript';
 import type { CompileTsSourceResult, TsCompilerDiagnostic } from '../compiler/ts/source-file.js';
 import { TS_CODES } from '../compiler/ts/codes.js';
@@ -2735,10 +2733,7 @@ function isAboutRefusedOperation(
   return subject !== undefined && fromRefusedOperation(context, subject, refusals);
 }
 
-/** The codes the compiler refuses a whole decorator with: `TS8028` for a name nothing reads
- *  there, `TS8024` for a malformed builtin argument, `TS8010` for `@align` or `@std140` it does
- *  not apply, `TS8035` for one on a method, and `TS8073` for a qualifier, `@inout` or `@out`,
- *  where a parameter takes its value only (an entry, a local function; Rule 8.25, change 0137). */
+// Rule 8.25 (docs/language-design.md).
 const DECORATOR_REFUSALS: ReadonlySet<string> = new Set([
   TS_CODES.BUILTIN_NAME,
   TS_CODES.ATTRIBUTE_NAME,
