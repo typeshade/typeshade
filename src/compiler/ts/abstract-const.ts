@@ -3280,7 +3280,7 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   const untypedFields = new Map<string, ts.Node[]>();
   const readByBitOperator = new Set<ts.Node>();
   const visit = (n: ts.Node): void => {
-    for (const operand of bitOperands(n)) {
+    for (const operand of untypedTreeSource(n) ? bitOperands(n) : []) {
       const d = ts.isIdentifier(operand) ? declarationAt(operand, sourceFile) : undefined;
       if (d !== undefined) readByBitOperator.add(d);
     }
@@ -3412,7 +3412,7 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   };
   visit(sourceFile);
   const reaches = (e: ts.Node): boolean => {
-    if (isTreeSource(e)) return true;
+    if (untypedTreeSource(e)) return true;
     if (ts.isIdentifier(e)) {
       const d = declarationAt(e, sourceFile);
       if (d !== undefined && taint.vars.has(d)) return true;
@@ -3572,7 +3572,7 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
 function bigLiteralsOf(sourceFile: ts.SourceFile): ts.Expression[] {
   const out: ts.Expression[] = [];
   const visit = (n: ts.Node): void => {
-    if (isTreeSource(n)) out.push(n as ts.Expression);
+    if (untypedTreeSource(n)) out.push(n as ts.Expression);
     ts.forEachChild(n, visit);
   };
   visit(sourceFile);
@@ -3580,13 +3580,19 @@ function bigLiteralsOf(sourceFile: ts.SourceFile): ts.Expression[] {
 }
 
 /** Whether a tree can reach `node` ({@link fileTaint}). */
+function untypedTreeSource(n: ts.Node): boolean {
+  if (!isTreeSource(n)) return false;
+  const typed = (e: ts.Expression): boolean => typedNode(e) || ts.isElementAccessExpression(e);
+  return ts.isNumericLiteral(n) || !bitOperands(n).some(typed);
+}
+
 function taintedNode(node: ts.Node, sourceFile: ts.SourceFile): boolean {
   const memo = readingMemo(sourceFile);
   const known = memo.tainted.get(node);
   if (known !== undefined) return known;
   const taint = fileTaint(sourceFile);
   let result: boolean;
-  if (isTreeSource(node)) result = true;
+  if (untypedTreeSource(node)) result = true;
   else if (ts.isNumericLiteral(node)) result = false;
   else if (ts.isIdentifier(node)) {
     const d = declarationAt(node, sourceFile);
@@ -3896,7 +3902,11 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
     const f = calleeAt(callee, n);
     if (f === undefined) {
       if (TYPED_BUILTIN.test(callee)) return [];
-      if (VALUE_BUILTINS.has(callee)) return builtinReadings(callee, n, sourceFile, w);
+      if (VALUE_BUILTINS.has(callee)) {
+        const args = n.arguments.map((a) => readingsOfNode(a, sourceFile, w));
+        const pure = () => readsOnly(n, sourceFile);
+        return builtinReadingsOf(callee, args, () => taintedNode(n, sourceFile), pure, w);
+      }
       // Another builtin carries its arguments' origin (Amendment A3): over a tree its result
       // is unproven, and over a typed value it is typed.
       const args = n.arguments.map(of);
@@ -3983,21 +3993,6 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
     }
   }
   return unproven();
-}
-
-function builtinReadings(
-  callee: string,
-  n: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-  w: ReadingWalk,
-): Reading[] {
-  return builtinReadingsOf(
-    callee,
-    n.arguments.map((a) => readingsOfNode(a, sourceFile, w)),
-    () => taintedNode(n, sourceFile),
-    () => readsOnly(n, sourceFile),
-    w,
-  );
 }
 
 /** The values of `left op right`, the binary expression `node` or a compound assignment's;
