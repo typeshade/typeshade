@@ -16,6 +16,7 @@ import type { CpuValue } from '../cpu-runtime.js';
 import { proveKernels } from './parallel-loop.js';
 import { determinismReport } from './determinism.js';
 import { KERNEL_TREE } from '../kernel-tree.js';
+import { bothHalves } from '../testing/both-halves.js';
 
 const f = Math.fround;
 
@@ -244,6 +245,9 @@ describe('the GPU tiers do not take the form (Rule 8.22, TS8070 stays)', () => {
   it('the compiler still says TS8070 for the loop, so the GPU route is not taken', () => {
     const r = compile(SCATTER, { fileName: 'm.shade.ts' });
     expect(r.diagnostics.map((d) => d.code)).toEqual(['TS8070']);
+    expect(bothHalves(SCATTER, { fileName: 'm.shade.ts' }).editor).toEqual([
+      `typeshade TS8070: ${r.diagnostics[0]!.message}`,
+    ]);
   });
 
   it('an f32 scatter that compiles today with an index the proof can show distinct stays affine', () => {

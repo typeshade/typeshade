@@ -24,17 +24,13 @@ const KNOWN: readonly string[] = [
   'compiler/ts/convert-ctor.test.ts',
   'compiler/ts/declare-bind.test.ts',
   'compiler/ts/int-lit-context.test.ts',
-  'compiler/ts/math-args.test.ts',
   'compiler/ts/member-assign.test.ts',
   'compiler/ts/mixins.test.ts',
   'compiler/ts/module-const-value.test.ts',
   'compiler/ts/module.test.ts',
-  'compiler/ts/packed-4x8.test.ts',
   'compiler/ts/recursion.test.ts',
   'compiler/ts/runtime-loop-bound.test.ts',
-  'compiler/ts/swizzle-random.test.ts',
   'compiler/ts/texture-dims.test.ts',
-  'core/passes/scatter-f32.test.ts',
   'vite.test.ts',
 ];
 
