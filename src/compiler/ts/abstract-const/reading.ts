@@ -7,6 +7,7 @@ export interface Reading {
   readonly unknown?: boolean;
   readonly unproven?: boolean;
   readonly congruent?: boolean;
+  readonly signed?: boolean;
   readonly agreeing?: boolean;
   readonly picks: readonly (readonly [ts.Node, string])[];
 }
@@ -15,6 +16,13 @@ export const UNKNOWN: Reading = { u32: NaN, ts: NaN, tree: false, unknown: true,
 export const UNPROVEN: Reading = { u32: NaN, ts: NaN, tree: true, unproven: true, picks: [] };
 export const CONGRUENT: Reading = { ...UNPROVEN, congruent: true };
 export const AGREEING: Reading = { u32: NaN, ts: NaN, tree: true, agreeing: true, picks: [] };
+
+export const signedPair = (a: Reading, b: Reading): boolean =>
+  (a.signed === true || !a.tree) && (b.signed === true || !b.tree) && (a.tree || b.tree);
+
+export function signedReading(ts: number, picks: Reading['picks'] = []): Reading {
+  return { u32: ts | 0, ts, tree: true, signed: true, picks };
+}
 
 export const provenDiffering = (x: Reading): boolean =>
   x.tree && x.unproven !== true && x.agreeing !== true && x.u32 !== x.ts;
@@ -28,7 +36,8 @@ export const READING_STEP_LIMIT = 100000;
 export function readingValue(x: Reading): string {
   if (x.congruent === true) return 'c';
   if (x.agreeing === true) return 'a';
-  return x.unknown ? '?' : x.unproven ? '!' : `${String(x.u32)}:${String(x.ts)}:${x.tree ? 1 : 0}`;
+  const kind = x.signed === true ? 's' : x.tree ? 1 : 0;
+  return x.unknown ? '?' : x.unproven ? '!' : `${String(x.u32)}:${String(x.ts)}:${kind}`;
 }
 
 export function readingKey(x: Reading): string {
@@ -75,10 +84,17 @@ export function mergedPicks(
 
 export function heldByTreeVariable(xs: readonly Reading[]): readonly Reading[] {
   if (!xs.some((x) => x.tree)) return xs;
+  const signed =
+    xs.some((x) => x.signed === true) &&
+    xs.every((x) => !x.tree || x.signed === true || x.unproven || x.agreeing);
   return xs.map((x) => {
     if (x.tree) return x;
+    if (signed && !x.unknown && Number.isInteger(x.u32) && Math.abs(x.u32) <= 2147483648) {
+      return { ...x, u32: x.u32 | 0, tree: true, signed: true };
+    }
     const holdsBits =
       !x.unknown && Number.isInteger(x.u32) && x.u32 >= -2147483648 && x.u32 <= 4294967295;
+    if (signed && x.unknown) return x;
     return holdsBits ? { ...x, u32: x.u32 >>> 0, tree: true } : { ...UNPROVEN, picks: x.picks };
   });
 }

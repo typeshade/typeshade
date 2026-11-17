@@ -94,3 +94,46 @@ export function integerWrittenLiteral(node: ts.NumericLiteral): boolean {
   const written = node.getText();
   return /^0[xXbBoO]/.test(written) || !/[.eE]/.test(written);
 }
+
+export function typeScriptBitOp(k: ts.SyntaxKind, x: number, y: number): number {
+  switch (k) {
+    case ts.SyntaxKind.BarToken:
+      return x | y;
+    case ts.SyntaxKind.AmpersandToken:
+      return x & y;
+    case ts.SyntaxKind.CaretToken:
+      return x ^ y;
+    case ts.SyntaxKind.LessThanLessThanToken:
+      return x << (y & 31);
+    default:
+      return x >> (y & 31);
+  }
+}
+
+const BIT_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.BarToken,
+  ts.SyntaxKind.AmpersandToken,
+  ts.SyntaxKind.CaretToken,
+  ts.SyntaxKind.LessThanLessThanToken,
+  ts.SyntaxKind.GreaterThanGreaterThanToken,
+  ts.SyntaxKind.BarEqualsToken,
+  ts.SyntaxKind.AmpersandEqualsToken,
+  ts.SyntaxKind.CaretEqualsToken,
+  ts.SyntaxKind.LessThanLessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanGreaterThanEqualsToken,
+]);
+
+export function bitOperands(n: ts.Node): ts.Expression[] {
+  if (ts.isBinaryExpression(n) && BIT_OPERATORS.has(n.operatorToken.kind)) {
+    return [skipParenNodes(n.left), skipParenNodes(n.right)];
+  }
+  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.TildeToken) {
+    return [skipParenNodes(n.operand)];
+  }
+  return [];
+}
+
+export function isTreeSource(n: ts.Node): boolean {
+  if (ts.isNumericLiteral(n)) return isBigNumber(Number(n.text));
+  return bitOperands(n).length > 0;
+}

@@ -58,19 +58,7 @@ import {
   unaryValue,
 } from './issue-1261-differential/oracle.js';
 import { rng } from './issue-1261-differential/rng.js';
-
-const INPUTS = { ii: -3, vi: 7, f: 2.5 } as const;
-/** The imported file: the same exports in each, and in three of them one more that the file
- *  itself refuses, so that an edit lands in the imported file. */
-const LIB_BASE =
-  '"use typeshade";\nexport const L = 3;\nexport const LB = 0xF0000000 | 0;\n' +
-  'export const LK = 1 | 2;\nexport function lg() {\n  return 6 ^ 3;\n}\n';
-const LIBS = [
-  LIB_BASE,
-  `${LIB_BASE}export const LQ = (1|2)/2;\n`,
-  `${LIB_BASE}export function lh() {\n  return (5|0)/2;\n}\n`,
-  `${LIB_BASE}export const LS = 0xF0000000 >> 28;\n`,
-] as const;
+import { FILE, INPUTS, LIBS, LIB_FILE } from './issue-1261-differential/libs.js';
 
 /** One generated expression: its source text and its reference value. */
 interface Expr {
@@ -714,6 +702,8 @@ class Program {
           () => this.tree(),
           () => this.tree(),
           () => lit(this.pick([2, 3, 4, 7, 268435456])),
+          () => this.bin(this.pick(['|', '^']), this.bin('+', lit(2147483647), lit(1)), lit(0)),
+          () => this.bin('<<', lit(1), lit(this.pick([30, 31]))),
           () => this.expr('k', 1),
         ])();
       const ea = init();
@@ -751,6 +741,17 @@ class Program {
         : init();
       this.lines.push(`let c = ${ec.text};`);
       this.bind('c', 'k', () => ec.value());
+      if (this.chance(0.2)) {
+        const trips = this.pick([2, 3, 4, 30]);
+        const step = this.pick([() => this.tree(), () => this.name('a'), () => lit(1073741824)])();
+        this.lines.push(
+          `for (let i = 0; i < ${String(trips)}; i++) {\n    c += ${step.text};\n  }`,
+        );
+        this.steps.push(() => {
+          for (let i = 0; i < trips; i++)
+            this.env.set('c', binary('+', this.env.get('c')!, step.value()));
+        });
+      }
       if (this.chance(0.2)) {
         const n = this.chance(0.25) ? this.name('vi') : lit(this.pick([1, 5, 9]));
         this.lines.push(`c = ${n.text};`);
@@ -848,9 +849,6 @@ class Program {
     return { source, value: expected, lib: this.lib };
   }
 }
-
-const FILE = '/p/a.shade.ts';
-const LIB_FILE = '/p/lib.shade.ts';
 
 /** One error of one file of the program, from either half. */
 interface Line {
