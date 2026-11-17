@@ -219,6 +219,21 @@ export function objectWrites(
           grew = true;
         }
       }
+      // `for (const q of ps)`: `q` names each element of `ps` in turn.
+      if (ts.isForOfStatement(n) && ts.isVariableDeclarationList(n.initializer)) {
+        const d = n.initializer.declarations[0];
+        const root = rootOf(n.expression);
+        if (
+          d !== undefined &&
+          ts.isIdentifier(d.name) &&
+          root !== undefined &&
+          names.has(root.name.text) &&
+          !names.has(d.name.text)
+        ) {
+          names.add(d.name.text);
+          grew = true;
+        }
+      }
       ts.forEachChild(n, find);
     };
     find(body);

@@ -16,6 +16,7 @@ import {
 } from '../abstract-const.js';
 import { localNumericInference } from '../local-numeric-inference.js';
 import ts from 'typescript';
+import { objectWrites } from '../object-reference.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -822,6 +823,23 @@ export function lowerForOf(
       mutable,
     });
     const read: Expr = { op: 'index', type: elemType, base: array, idx: i };
+    // An element that is an object, and that the body writes through the loop's name, is the
+    // array's own element, as in JavaScript (change 0142, Table 1): each use of the name is the
+    // element's place, and no copy is declared.
+    const names =
+      (elemType.kind === 'struct' || elemType.kind === 'array') &&
+      isPlace(array) &&
+      objectWrites(decl.name.text, node.statement, sourceFile).member &&
+      !objectWrites(decl.name.text, node.statement, sourceFile).whole;
+    if (names) {
+      for (const use of usesOf(decl.name.text, node.statement))
+        scope.setChainAlias(use, (): Expr => ({
+          op: 'index',
+          type: elemType,
+          base: array,
+          idx: i,
+        }));
+    }
     const bind: Stmt = mutable
       ? { s: 'var', name: irNameOf(element), type: elemType, init: read }
       : { s: 'let', name: irNameOf(element), expr: read };
@@ -833,7 +851,7 @@ export function lowerForOf(
       init: { s: 'var', name: i.name, type: u32T, init: { op: 'lit', type: u32T, value: 0 } },
       cond: { op: 'compare', type: boolT, cop: '<', a: i, b: length },
       update: { s: 'assign', target: i, expr: { op: 'binop', type: u32T, bop: '+', a: i, b: one } },
-      body: [bind, ...body],
+      body: names ? body : [bind, ...body],
       // A counted loop over the array's indices (Rule 7.5), from 0 by 1.
       counted: {
         name: i.name,
@@ -849,6 +867,30 @@ export function lowerForOf(
     scope.exitLoop();
     scope.pop();
   }
+}
+
+/** The identifiers in `body` that read or write the variable `name`, outside every function that
+ *  declares the name again and every declaration that shadows it. A property name is not a use. */
+function usesOf(name: string, body: ts.Node): ts.Identifier[] {
+  const out: ts.Identifier[] = [];
+  const walk = (n: ts.Node): void => {
+    if (
+      ts.isFunctionLike(n) &&
+      n.parameters.some((q) => ts.isIdentifier(q.name) && q.name.text === name)
+    )
+      return;
+    if (ts.isIdentifier(n) && n.text === name) {
+      const parent = n.parent;
+      const property =
+        (ts.isPropertyAccessExpression(parent) && parent.name === n) ||
+        (ts.isPropertyAssignment(parent) && parent.name === n) ||
+        (ts.isVariableDeclaration(parent) && parent.name === n);
+      if (!property) out.push(n);
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(body);
+  return out;
 }
 
 /** The counted fact the IR `for` carries (Rule 7.5), with no absent field written out. */

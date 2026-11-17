@@ -2902,6 +2902,14 @@ function checkRootMutable(
   if (!root) return true;
   // A static root was judged whole by {@link checkRootNamed} (Rule 8.13).
   if (staticRootOf(node, scope, sourceFile, into) !== undefined) return true;
+  // A name that stands for a place (an element a `for…of` names, change 0142) is written as
+  // that place is; only a write to the name itself keeps the name's own rules.
+  if (
+    ts.isIdentifier(root) &&
+    scope.chainAlias(root) !== undefined &&
+    (into || !ts.isIdentifier(unwrapParens(node)))
+  )
+    return true;
   const rootName = ts.isIdentifier(root) ? root.text : 'this';
   const binding = scope.resolve(rootName);
   if (!binding) return true;

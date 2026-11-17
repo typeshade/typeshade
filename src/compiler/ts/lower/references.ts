@@ -175,7 +175,8 @@ export function lowerReferenceArgument(
   // The root of the chain decides, as it does for a method's object: `o.a` and `xs[i]` are
   // places when `o` and `xs` are.
   const root = rootIdentifier(place);
-  if (root !== undefined) {
+  // A name that stands for a place (an element a `for…of` names, change 0142) is that place.
+  if (root !== undefined && scope.chainAlias(root) === undefined) {
     const found = scope.resolve(root.text);
     const b = found === undefined ? undefined : writeRules(found);
     if (b !== undefined && b.reference !== true && b.kind === 'param' && b.space !== 'storage') {
