@@ -100,6 +100,7 @@ import {
   isAggregateType,
   elemKindOf,
   zeroOf,
+  VALUE_BINDING_KINDS,
   comparesAsF32,
   TYPED_BIT_BUILTINS,
 } from './cpu-runtime.js';
@@ -1952,6 +1953,7 @@ export function generateModuleJs(
     ...(constEnv.hoisted.length > 0 ? [`let ${constEnv.hoisted.join(', ')};`] : []),
     ...constDecls,
     ...inoutBuffers,
+    ...unboundBindings(mv, mod.structs),
   ];
   return {
     module: mv,
@@ -1961,6 +1963,25 @@ export function generateModuleJs(
     fallbacks: fallbackNames,
     factorySource: `${decls.join('\n')}\nreturn {\n${fnSrcs.join(',\n')}\n};`,
   };
+}
+
+function unboundBindings(m: ModuleDecl, structs: ReadonlyMap<string, StructDecl>): string[] {
+  return m.bindings
+    .filter((b) => VALUE_BINDING_KINDS.has(b.type.kind))
+    .map((b) => `$.bindings[${q(b.name)}] = ${unboundValue(b.type, structs)};`);
+}
+
+function unboundValue(t: ShaderType, structs: ReadonlyMap<string, StructDecl>): string {
+  if (t.kind === 'array' && (t.size === undefined || t.sizeOverride !== undefined))
+    return `$.absent(${unboundValue(t.elem, structs)})`;
+  if (t.kind === 'array')
+    return `Array.from({ length: ${t.size} }, () => ${unboundValue(t.elem, structs)})`;
+  if (t.kind === 'struct') {
+    const decl = structs.get(t.name);
+    if (decl === undefined) return '{}';
+    return `{ ${decl.fields.map((f) => `${q(f.name)}: ${unboundValue(f.type, structs)}`).join(', ')} }`;
+  }
+  return JSON.stringify(zeroOf(t, structs));
 }
 
 /** Compile a module for the CPU by generating JavaScript, returning the same

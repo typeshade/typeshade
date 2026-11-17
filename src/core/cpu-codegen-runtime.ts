@@ -32,6 +32,7 @@ import {
   intDiv,
   intRem,
   cloneValue,
+  absentArray,
   inoutReturn,
   convertComponent,
   convertComponents,
@@ -117,6 +118,7 @@ export interface CodegenRuntime {
   intRem: typeof intRem;
   /** Aggregate copy at a `let` / `var` binding — the SAME helper the interpreter calls. */
   clone: typeof cloneValue;
+  absent: typeof absentArray;
   inout: typeof inoutReturn;
   /** Element-converting vector constructor components — the SAME helpers the interpreter's
    *  `construct` case calls, so the two CPU backends convert identically. */
@@ -180,6 +182,7 @@ export function createCodegenRuntime(opts?: CodegenRuntimeOptions): CodegenRunti
       throw barrierOutsideDispatch(fn);
     },
     clone: cloneValue,
+    absent: absentArray,
     inout: inoutReturn,
     cvt: convertComponent,
     cvtVec: convertComponents,

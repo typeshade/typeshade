@@ -239,6 +239,7 @@ export function glDrawOf(
   emit?: EmitOptions,
   dataTextures?: ReadonlySet<string>,
   sources?: GlslSources,
+  texturesMayDrop = false,
 ): PackGlDraw | { none: string } {
   const stage = glStageOf(
     m,
@@ -251,6 +252,7 @@ export function glDrawOf(
     emit,
     dataTextures,
     sources,
+    texturesMayDrop,
   );
   if ('none' in stage) return stage;
   const { source, ...rest } = stage;
@@ -269,6 +271,7 @@ export function glVertexOf(
   emit: EmitOptions | undefined,
   dataTextures: ReadonlySet<string>,
   sources: GlslSources | undefined,
+  texturesMayDrop = false,
 ): PackGlVertex | { none: string } {
   const stage = glStageOf(
     m,
@@ -281,6 +284,7 @@ export function glVertexOf(
     emit,
     dataTextures,
     sources,
+    texturesMayDrop,
   );
   if ('none' in stage) return stage;
   const { source, ...rest } = stage;
@@ -404,6 +408,7 @@ function glStageOf(
   emit: EmitOptions | undefined,
   dataTextures: ReadonlySet<string> | undefined,
   sources: GlslSources | undefined,
+  texturesMayDrop: boolean,
 ):
   | {
       readonly source: string;
@@ -456,7 +461,8 @@ function glStageOf(
       const g = gl(b.name);
       const has = sampled(g);
       // The guard is bound only where the program reads it.
-      if (!has && ('guard' in b || !new RegExp(`\\b${g}\\b`).test(text))) continue;
+      if (!has && ('guard' in b || (texturesMayDrop && !new RegExp(`\\b${g}\\b`).test(text))))
+        continue;
       if (!has) return { none: `its GLSL declares no sampler2D for "${b.name}"` };
       declared.add(gl(b.name));
     }
@@ -808,6 +814,7 @@ export function buildManifest(
   const emitted = glslOfEntries(m, renderJobs, plan.options, hasVs && hasFs);
   const glsl: Pack['glsl'] = emitted.glsl;
   const glsls = emitted.entries;
+  const texturesMayDrop = plan.level !== undefined && plan.level !== 'O2';
   for (const j of renderJobs) {
     const data = new Set(
       j.list
@@ -826,6 +833,7 @@ export function buildManifest(
         plan.options,
         data,
         sources,
+        texturesMayDrop,
       );
     else
       vertices[j.f.name] = glVertexOf(
@@ -838,6 +846,7 @@ export function buildManifest(
         plan.options,
         data,
         sources,
+        texturesMayDrop,
       );
   }
 

@@ -600,7 +600,14 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
         wgslBackend,
       );
       wgsl = emitted.code;
-      wgslLowered.set(funcs, emitted.lowered);
+      wgslLowered.set(funcs, {
+        consts,
+        bindings,
+        structs,
+        overrides,
+        vars,
+        lowered: emitted.lowered,
+      });
     } catch (e) {
       // No fallback to emitFuncs(funcs): it emits the functions without the consts, structs
       // and bindings they reference, which is not this module's WGSL. The throw is the answer.
@@ -630,10 +637,27 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   };
 }
 
-const wgslLowered = new WeakMap<readonly FuncDecl[], ModuleDecl>();
+interface LoweredFor {
+  readonly consts: CompileTsSourceResult['consts'];
+  readonly bindings: CompileTsSourceResult['bindings'];
+  readonly structs: CompileTsSourceResult['structs'];
+  readonly overrides: CompileTsSourceResult['overrides'];
+  readonly vars: CompileTsSourceResult['vars'];
+  readonly lowered: ModuleDecl;
+}
 
-export function wgslLoweredOf(funcs: readonly FuncDecl[]): ModuleDecl | undefined {
-  return wgslLowered.get(funcs);
+const wgslLowered = new WeakMap<readonly FuncDecl[], LoweredFor>();
+
+export function wgslLoweredOf(r: CompileTsSourceResult): ModuleDecl | undefined {
+  const at = wgslLowered.get(r.funcs);
+  return at !== undefined &&
+    at.consts === r.consts &&
+    at.bindings === r.bindings &&
+    at.structs === r.structs &&
+    at.overrides === r.overrides &&
+    at.vars === r.vars
+    ? at.lowered
+    : undefined;
 }
 
 /** The codes an unknown name is reported under, which a refused import already accounts for. */

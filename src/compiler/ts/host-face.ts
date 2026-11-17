@@ -359,7 +359,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     return undefined;
   };
 
-  const lowered = r.wgsl !== undefined ? wgslLoweredOf(r.funcs) : undefined;
+  const lowered = r.wgsl !== undefined ? wgslLoweredOf(r) : undefined;
   let emittedReach: ((entry: string) => EntryReach) | undefined;
   const faces: (FaceExport | BindingRef)[] = [];
   // The author's JSDoc of each export, which the view carries (change 0108).
@@ -679,6 +679,14 @@ const STORAGE_ACCESS = {
 
 /** Why the CPU tier cannot run `closure`, when it cannot: it reaches a texture or a call only a
  *  GPU computes. */
+const CPU_HANDLES: ReadonlySet<ShaderType['kind']> = new Set([
+  'texture',
+  'storage-texture',
+  'depth-texture',
+  'sampler',
+  'sampler-comparison',
+]);
+
 function noCpuTier(
   closure: ReadonlySet<string>,
   bindings: readonly DrawBinding[],
@@ -690,6 +698,12 @@ function noCpuTier(
   );
   if (handle !== undefined)
     return `it reaches the ${handle.s} "${handle.name}", which the CPU tier cannot read`;
+  for (const g of closure)
+    for (const n of [...(c.entry.reads.get(g) ?? []), ...(c.entry.writes.get(g) ?? [])]) {
+      const b = c.entry.bindings.find((x) => x.name === n);
+      if (b !== undefined && CPU_HANDLES.has(b.type.kind))
+        return `it reaches the ${spell(b.type)} "${b.name}", which the CPU tier cannot read`;
+    }
   for (const g of closure) {
     const gpu = gpuOnlyCall(c.byName.get(g)!, c.entry.declared);
     if (gpu !== undefined && !isAtomicIntrinsic(gpu) && !isBarrierIntrinsic(gpu))
