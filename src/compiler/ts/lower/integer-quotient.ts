@@ -1,11 +1,10 @@
 // Why: TypeScript's ToInt32 and ToUint32 read the ±Infinity or NaN of a division by zero as 0,
-// and WGSL's integer `x / 0` is `x` (issue 1320, Amendment A4 of change 0134).
+// and WGSL's integer `x / 0` is `x` (issue 1320, Amendment A4 of change 0134). A call of the
+// helper evaluates each operand once, in order, where a select's arms would be sequenced lazily.
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, u32T } from '../../../core/ir/types.js';
-import { isKnownIntrinsic } from '../../../core/intrinsics.js';
-import { EFFECTFUL_INTRINSICS } from '../../../core/passes/effects.js';
-import { logicalTypeKey as typeKey } from '../optional.js';
+import { logicalTypeKey as typeKey, optionalHelper } from '../optional.js';
 import {
   fitsTarget,
   integerQuotientAt,
@@ -14,55 +13,21 @@ import {
   retypeKindlessDeclared,
 } from '../lit-coerce.js';
 
-function readsAgain(e: Expr): boolean {
-  switch (e.op) {
-    case 'lit':
-    case 'varref':
-    case 'param':
-    case 'constref':
-    case 'overrideref':
-      return true;
-    case 'member':
-      return readsAgain(e.base);
-    case 'index':
-      return readsAgain(e.base) && readsAgain(e.idx);
-    case 'unop':
-      return readsAgain(e.a);
-    case 'binop':
-    case 'compare':
-    case 'logical':
-      return readsAgain(e.a) && readsAgain(e.b);
-    case 'select':
-      return readsAgain(e.cond) && readsAgain(e.ifTrue) && readsAgain(e.ifFalse);
-    case 'construct':
-      return e.args.every(readsAgain);
-    case 'call':
-      return (
-        e.declRef === undefined &&
-        (['i32', 'u32', 'f32'].includes(e.fn) ||
-          (isKnownIntrinsic(e.fn) && !EFFECTFUL_INTRINSICS.has(e.fn))) &&
-        e.args.every(readsAgain)
-      );
-    default:
-      return false;
-  }
-}
-
 function guardZero(div: Expr & { op: 'binop' }): Expr {
-  if (div.b.op === 'lit' || !readsAgain(div.b)) return div;
-  return {
+  if (div.b.op === 'lit') return div;
+  return optionalHelper('div0', [div.a, div.b], ([a, b]) => ({
     op: 'select',
     type: div.type,
     cond: {
       op: 'compare',
       type: boolT,
       cop: '==',
-      a: div.b,
-      b: { op: 'lit', type: div.b.type, value: 0 },
+      a: b!,
+      b: { op: 'lit', type: b!.type, value: 0 },
     },
     ifTrue: { op: 'lit', type: div.type, value: 0 },
-    ifFalse: div,
-  };
+    ifFalse: { ...div, a: a!, b: b! },
+  }));
 }
 
 export function integerQuotientIn(

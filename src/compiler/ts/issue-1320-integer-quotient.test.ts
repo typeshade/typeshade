@@ -41,7 +41,7 @@ describe('an integer position reads the integer quotient of integers by inferenc
     expect(valuesAt(source, [0, 7])).toEqual(LEVELS.map(() => 0));
     for (const { wgsl, glsl } of emitsAt(source)) {
       expect(wgsl).not.toContain('f32(a)');
-      expect(wgsl).toMatch(/u32\(\(a \/ b\)\)/);
+      expect(wgsl).toContain('u32(_opt_div0_i32_i32_(a, b))');
       expect(glsl).not.toContain('float(a)');
     }
   });
@@ -72,8 +72,8 @@ describe('an integer position reads the integer quotient of integers by inferenc
       );
       expect(valuesAt(source, [0, 0])).toEqual(LEVELS.map(() => tsValue));
       for (const { wgsl, glsl } of emitsAt(source)) {
-        expect(wgsl).toContain('select(');
-        expect(glsl).toMatch(/z == 0|\(z == 0\)/);
+        expect(wgsl).toContain('_opt_div0_i32_i32_(a, z)');
+        expect(glsl).toContain('_opt_div0_i32_i32_(a, z)');
       }
     }
     const nan = program('u32', 'let z = gg() - 5;\n  let a = z;\n  return u32(a / z);');
@@ -114,5 +114,49 @@ describe('an integer position reads the integer quotient of integers by inferenc
       'TS8003',
       '"a" is an integer by its bit operator, and no operand of "a / 2" has a declared type, so the "/" does not say which division it is. Write "u32(a) / 2" for the integer division.',
     );
+  });
+});
+
+const MODULE_G = (body: string): string => `"use typeshade";\nlet g = 1 | 0;\n${body}\n`;
+
+const valuesOf = (source: string, args: readonly unknown[]): unknown[] => {
+  const { result } = bothTake(source);
+  return LEVELS.map((level) => {
+    const cpu = compileModule(optimizeAt(result.module, level), { precision: 'f32' });
+    return (cpu.fns['t'] as (...a: readonly unknown[]) => unknown)(...args);
+  });
+};
+
+describe('the zero test evaluates each operand of the quotient once, in order (issue 1320)', () => {
+  it('a dividend that writes runs whatever the divisor is', () => {
+    const source = MODULE_G(
+      'function bump() {\n  g = g + 10;\n  return -7 | 0;\n}\nfunction passi(v: i32) {\n  return v;\n}\n' +
+        'export function t(jj: i32): i32 {\n  let b = passi(jj);\n  let q = u32(bump() / b);\n  return g + i32(q);\n}',
+    );
+    expect(valuesOf(source, [0])).toEqual(LEVELS.map(() => 11));
+  });
+
+  it('a dividend that writes the divisor runs before the divisor is read', () => {
+    const source = MODULE_G(
+      'function bump() {\n  g = 0;\n  return -7 | 0;\n}\n' +
+        'export function t(jj: i32): u32 {\n  g = jj;\n  return u32(bump() / g);\n}',
+    );
+    expect(valuesOf(source, [3])).toEqual(LEVELS.map(() => toUint32(-7 / 0)));
+  });
+
+  it('a divisor that is a call takes the zero test too', () => {
+    const passi = 'function passi(v: i32) {\n  return v;\n}\n';
+    for (const [result, body] of [
+      ['u32', 'let a = (-7|0);\n  return u32(a / passi(jj));'],
+      ['i32', 'let a = (-7|0);\n  return i32(a / passi(jj));'],
+      ['i32', 'let a = (-7|0);\n  let j: i32 = a / passi(jj);\n  return j;'],
+      ['i32', 'let a = passi(-7);\n  let b = passi(jj);\n  return a / b;'],
+    ] as const) {
+      const source = `"use typeshade";\n${passi}export function t(jj: i32): ${result} {\n  ${body}\n}\n`;
+      expect(valuesOf(source, [0])).toEqual(LEVELS.map(() => 0));
+      expect(valuesOf(source, [2])).toEqual(
+        LEVELS.map(() => (result === 'u32' ? toUint32(-7 / 2) : toInt32(-7 / 2))),
+      );
+    }
   });
 });

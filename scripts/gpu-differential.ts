@@ -1126,7 +1126,7 @@ export function quotients(xs: array<i32>, ys: array<i32>, @inout out: array<u32>
     let a = pass(xs[i]);
     let b = pass(ys[i]) % 5;
     out[i] = u32(a / b);
-    outi[i] = i32(a / b) + i32(a / 3);
+    outi[i] = i32(a / b) + i32(a / 3) + i32(a / pass(ys[i] % 3));
   }
 }
 `;
