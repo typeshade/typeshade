@@ -7,6 +7,7 @@ rules:
   - '8.22'
   - '8.23'
   - '9.2'
+  - '11.13'
 surface:
   - 20
   - 64
@@ -29,7 +30,7 @@ downstream:
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity and status           | Proposal 0143, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Date and attribution          | Drafted 2026-11-17 (UTC) by an AI agent (Claude Code) at the owner's request. Revision 2, the same day, records the owner's answer to Q1 and the review of revision 1 (`a5e336c`). Revision 3, the same day, records the owner's answer to Q2 and the review of revision 2 (`12c65a6`).                                                                                                                                                                                                       |
+| Date and attribution          | Drafted 2026-11-17 (UTC) by an AI agent (Claude Code) at the owner's request. Revision 2, the same day, records the owner's answer to Q1 and the review of revision 1 (`a5e336c`). Revision 3, the same day, records the owner's answer to Q2 and the review of revision 2 (`12c65a6`). Revision 4, the same day, answers the re-review of revision 3 (`42f63a4`).                                                                                                                            |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-17, in Korean. Asked whether `render(k: vec4, size: u32): array<f32>` can replace an `out` parameter, and, told it cannot: "안되는건 사실 말이 안되죠? typeshade 는 typescript 와 같은 계열의 언어인데".                                                                                                                                                                                                                             |
 | Applicability / effectivity   | Expected: Rules 8.21, 8.22, 8.23 and 9.2 of `docs/language-design.md`; surface §20, §64 and §65; the front end (`src/compiler/ts/lower/runtime-array.ts`, `src/compiler/ts/lower/expression-array.ts` and the kernel-function analysis); the host call on WebGPU, WebGL2 and the CPU tier (`src/core/host-kernel.ts`, `src/core/host-kernel-gl.ts`); the host face (`HostExport`) and the host view; the ambient library (`src/language-service/ambient.ts`). No release version is assigned. |
 | Review baseline               | `main` at `7513a9a` (merge of pull request #1350), read on 2026-11-17.                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -101,8 +102,12 @@ below, and only for it.
    `T` a type a kernel's `array<T>` parameter may hold.
 2. Rule 9.2: a third recorded exception. `array<T>(n)`, with an element type and one argument,
    makes an array of `n` elements, each the zero of `T`, as `array<T, N>()` does for a sized
-   array (change 0047). `array` is already a name of WGSL; this is a new signature of it, not a
-   new name, so `names` stays empty and §9.3 does not change.
+   array (change 0047). Its source is ECMA-262's `Array(len)`, where one number argument is a
+   length, as the `Math` arity exception's source is ECMA-262 (§2.1, Rule 13.6). `array` is
+   already a name of WGSL; this is a new signature of it, not a new name, so `names` stays
+   empty and §9.3 does not change. Rule 9.2's rationale and its "Enforced by" line gain the
+   exception, and `surface-names.test.ts` pins every declared signature of `array`, as it pins
+   `f64`'s.
 3. Rule 8.23: the function makes one such array, as a `const` at the top level of its body,
    before its first candidate loop, or, in a function with no loop (Rule 8.22, decision D7),
    before its first store.
@@ -112,8 +117,11 @@ below, and only for it.
      parameter;
    - a module constant;
    - the `.length` of an array parameter;
-   - integer `+`, `-`, `*`, `/`, `%`, `min` and `max`, with the program's arithmetic
-     (`size * size` of two `u32`s wraps as a `u32` does).
+   - an integer literal, and the casts `u32(…)` and `i32(…)` of a listed operand;
+   - a top-level `const` of the function whose initializer reads only listed operands;
+   - integer `+`, `-`, `*`, `/`, `%`, `min` and `max`, with the program's arithmetic:
+     `size * size` of two `u32`s wraps as a `u32` does, and `/` and `%` by zero follow WGSL's
+     integer rules.
 5. Rule 8.22's body shape: the new array is one of the function's arrays. Its loops write and
    read it, the stores after the last loop store into it, and the function ends with
    `return out` on every path. `out.length` reads `n` on every tier.
@@ -122,8 +130,9 @@ below, and only for it.
    struct. The host view gives one type, not the parameter's union: `Promise<Float32Array>` for
    `array<f32>` or `array<vec4f>`, `Promise<T[]>` for a struct `T`. The caller owns the result
    and may write it.
-7. Rule 8.21, on a resource: the result is a new `Buffer` of the scalars, on the device the call
-   ran on. The caller owns it and disposes it (Rule 11.8).
+7. Rule 8.21, on a resource: the result is a new `Buffer` on the device the call ran on: a
+   `Buffer` of the scalar for a scalar or a vector element, a `Buffer<C>` for an element of an
+   exported class `C`, as Rule 8.21 gives for a parameter. The caller owns it and disposes it (Rule 11.8).
 8. The host call treats the new array as an array parameter of `n` elements. Whatever each tier
    does with such an array, it does with this one:
    - WebGPU: the storage binding and its size limit;
@@ -134,10 +143,12 @@ below, and only for it.
    the function and the length. For `n = 0` the result is empty, and the call binds one element
    in its place.
 
-9. A write past the end: the call checks the indices a loop writes at `a*i + c` against `n`
-   before anything runs, and refuses with the `TypeError` the parameter form gives for an array
-   too short (Rule 8.21), naming the function, `out` and both numbers. A loop whose range the
-   device holds drops such a write, as it does for a parameter (change 0094).
+9. Indices past the end: the call makes every check against `n` that it makes for an array
+   parameter, reads included (`a*i + c` with its guards, strides `i*k + b`, rows `i*W + x`), and
+   refuses before anything runs with the `TypeError` the parameter form gives for an array too
+   short (Rule 8.21). The sentence names the function and the result, not a parameter, and both
+   numbers. A loop whose range the device holds drops such a write, as it does for a parameter
+   (change 0094).
 10. Refused as "not supported yet" (OD-9), in both halves, with `TS8099`, each with a sentence
     that names the form and says it is not supported yet:
     - `array<T>(n)` anywhere else: in a helper, in an entry, inside a loop, under a branch;
@@ -170,10 +181,11 @@ below, and only for it.
   of writing (OD-1). Writing the result as a parameter is the shape C and WGSL force.
 - [fact] `TS8020` gives a target's reason: WGSL has no array whose length a call chooses. OD-9
   says a target's lack is no reason to refuse a form.
-- [inference, agent; checked by both independent reviews] The rewrite exists. The host call
+- [inference, agent; checked by the independent reviews] The rewrite exists. The host call
   already checks, uploads and reads back a kernel's arrays and returns results
-  (`host-kernel.ts`, `tailResult`). With the length known before the dispatch, it allocates the
-  storage, binds it where the parameter form binds `out`, and returns it.
+  (`host-kernel.ts`). With the length known before the dispatch, it allocates the storage, binds
+  it where the parameter form binds `out`, and returns the read-back of that binding.
+  `tailResult` does not carry it: it evaluates a tail over lengths and folded values only.
 
 ### Alternatives for Q1, and why the owner chose C
 
@@ -193,6 +205,8 @@ The owner chose C on 2026-11-17.
   `array<u32>(3)` for an array holding 3; that form is no valid WGSL.
 - Q2, a typed array: a vector array comes back flat (`array<vec4f>` is a `Float32Array` of `4n`
   scalars), as a parameter takes it.
+- Two spellings of a zeroed array: the host writes `array(length, 'f32')` (change 0138,
+  Amendment A10, Q-I), the shader `array<f32>(n)`.
 - A write past the end is refused before the run for a parameter and for the result alike
   (rule 9), so the two forms agree; WGSL's robust access, which may clamp, is not relied on.
 
@@ -228,10 +242,13 @@ signature of `array` and a rule; it adds no name, binding, qualifier or attribut
 - Rule 8.21: the result's host value, with a plain call and on a resource.
 - Rule 8.22: the kind, and the body shape.
 - Rule 8.23: where `array<T>(n)` may stand, its length, its zero fill, its `.length`.
-- Rule 9.2: the third recorded exception.
+- Rule 9.2: the third recorded exception, its source, its rationale and its "Enforced by".
+- Rule 11.13: the refusal of a result fed to another call inside one fusion.
 - Surface §20 (a local of `array<T>`), §64 (the host call's result) and §65 (the kernel loop).
-- `exports`: `HostExport`. A kernel function's entry gains the length expression, which the host
-  call evaluates from the arguments.
+- `exports`: `HostExport`. A kernel function's entry (its `face`, a `KernelFace`) gains the
+  length expression, which the host call evaluates from the arguments. `src/__api__/surface.md`
+  prints `HostExport` with `face: KernelFace` only, so the implementing pull request checks
+  whether the bake shows the change and amends this entry if it does not.
 - `codes`: none new. The refusals reuse `TS8099` ("not supported yet") and `TS8003` (the length's
   type); `TS8020` stays for every other function shape.
 - `examples`: none added or removed. `loop-kernel` may gain the result form in the implementing
@@ -302,12 +319,33 @@ and answers:
 12. The record of the first review overstated five fixes. Fixed: this record says which
     revision completed each.
 
-Revision 3 has not been reviewed again.
+**Revision 3** (`42f63a4`) was reviewed on 2026-11-17 by the reviewer of revision 2, as the
+short re-review it asked for. It ran `tsc` over `SHADE_DTS` with the new overload. Findings and
+answers:
+
+1. The third exception cited no source; Rule 9.2's rationale calls an overload no WGSL form has
+   "a spelling from nowhere", and `changes/README.md` sends such a conflict to the owner. Fixed:
+   rule 2 names ECMA-262's `Array(len)` as the source and amends Rule 9.2's rationale and
+   "Enforced by"; the conflict is shown to the owner with the request for acceptance.
+2. Rule 4 left out literals, casts and a top-level `const`. Fixed: rule 4.
+3. Rule 9 named one index form of four, and the error text names a parameter. Fixed: rule 9.
+4. Rule 7 covered scalars only. Fixed: rule 7.
+5. The rewrite claim leaned on `tailResult`. Fixed: "Why".
+6. The two spellings of a zeroed array were not a recorded cost. Fixed: "Costs of the owner's
+   decisions".
+7. `exports` may show no diff, and Rule 11.13 was not in `rules`. Fixed: `'11.13'` is in
+   `rules`; the `exports` entry says the implementing pull request checks it.
+
+It confirmed the overload placement (`array(u32(3))` stays `array<u32, 1>`, `array<f32>(size *
+size)` is `array<f32, number>` with a `u32` `.length`), rule 8 against `host-kernel-gl.ts`, and
+the answers to revision 2's findings 5, 8, 9, 10 and 12.
+
+Revision 4 makes the text fixes above and changes no rule's direction.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require a review of revision 3 and a merge of
-this file as `accepted`.
+This record does not yet apply. Acceptance will require the owner's decision, after the source of
+Rule 9.2's third exception is shown, and a merge of this file as `accepted`.
 
 ### Configuration and validation record
 
