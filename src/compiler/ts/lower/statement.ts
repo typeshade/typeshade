@@ -1829,6 +1829,16 @@ export function lowerExpressionAsStatement(
       // never — so the author's `_` is a statement of intent, not a token to carry through.
       return { s: 'call', expr: dropped };
     }
+    // `[a, b] = f(a, b)`: each name takes one element of the list, as in JavaScript (change
+    // 0142, decision 8), so a function gives back two values without a qualifier.
+    if (ts.isArrayLiteralExpression(unwrapParens(expr.left)))
+      return lowerListAssign(
+        unwrapParens(expr.left) as ts.ArrayLiteralExpression,
+        expr.right,
+        sourceFile,
+        scope,
+        diagnostics,
+      );
     return splitSwizzleWrite(
       lowerAssign(expr.left, expr.right, sourceFile, scope, diagnostics),
       scope,
@@ -1967,6 +1977,91 @@ function splitSwizzleWrite(
       },
     });
   });
+  return out;
+}
+
+/** `[a, o.b, xs[i]] = list`: the list is read once, then each target takes the element at its
+ *  place, in order. The list is an array with a size of at least as many elements as there are
+ *  targets, and each target is a place of the element's type. */
+function lowerListAssign(
+  left: ts.ArrayLiteralExpression,
+  right: ts.Expression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt[] | undefined {
+  const bad = left.elements.find(
+    (e) => ts.isSpreadElement(e) || ts.isOmittedExpression(e) || ts.isBinaryExpression(e),
+  );
+  if (bad !== undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      left,
+      'A list assignment takes a name, a field or an element at each place: no rest element, no ' +
+        'hole and no default. Write one assignment for that place.',
+      TS_CODES.ASSIGN_TARGET,
+    );
+    return undefined;
+  }
+  // The places first: their type is the context for a list written in place, `[a, b] = [b, a]`.
+  const places: Expr[] = [];
+  for (const target of left.elements) {
+    const place = lowerLValue(target, sourceFile, scope, diagnostics);
+    if (!place) return undefined;
+    places.push(place);
+  }
+  const context: ShaderType | undefined =
+    places[0] === undefined
+      ? undefined
+      : { kind: 'array', elem: places[0].type, size: places.length };
+  const value = lowerExpression(right, sourceFile, scope, diagnostics, context);
+  if (!value) return undefined;
+  if (
+    value.type.kind !== 'array' ||
+    value.type.size === undefined ||
+    value.type.size < left.elements.length
+  ) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      right,
+      `A list assignment of ${String(left.elements.length)} names needs an array of at least ` +
+        `${String(left.elements.length)} elements, and "${truncate(right.getText(sourceFile))}" ` +
+        `is ${authorTypeText(value.type)}.`,
+      TS_CODES.TYPE_MISMATCH,
+    );
+    return undefined;
+  }
+  const elem = value.type.elem;
+  // Read once, before any target is written: `[a, b] = [b, a]` swaps.
+  const list = scope.canHoist() ? scope.hoistTemp('_list', value) : value;
+  const out: Stmt[] = [];
+  for (const [i, target] of left.elements.entries()) {
+    const place = places[i]!;
+    if (typeKey(place.type) !== typeKey(elem)) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        target,
+        `"${truncate(target.getText(sourceFile))}" is ${authorTypeText(place.type)}, and the ` +
+          `list gives ${authorTypeText(elem)} at place ${String(i)}.`,
+        TS_CODES.TYPE_MISMATCH,
+      );
+      return undefined;
+    }
+    out.push(
+      withSpan(
+        {
+          s: 'assign',
+          target: place,
+          expr: { op: 'index', type: elem, base: list, idx: { op: 'lit', type: u32T, value: i } },
+        } as Stmt,
+        sourceFile,
+        target,
+      ),
+    );
+  }
   return out;
 }
 

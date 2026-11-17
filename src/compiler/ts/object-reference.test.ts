@@ -153,6 +153,58 @@ ${P}declare const dst: storage<array<f32>, "read_write">;
   });
 });
 
+describe('a function gives back two values through a list (change 0142, decision 8)', () => {
+  const runs: readonly (readonly [string, string, number])[] = [
+    [
+      "two names take the two elements of a function's result",
+      `function order(lo: f32, hi: f32): [f32, f32] { return lo > hi ? [hi, lo] : [lo, hi]; }
+export function f(): f32 { let a: f32 = 5.; let b: f32 = 2.; [a, b] = order(a, b); return a * 10. + b; }`,
+      25,
+    ],
+    [
+      'the list is read before a name is written: a swap',
+      `export function f(): f32 { let p: f32 = 1.; let q: f32 = 3.; [p, q] = [q, p]; return p * 10. + q; }`,
+      31,
+    ],
+    [
+      'a field is a target',
+      `class Q { x: f32 = 0; y: f32 = 0; }
+function two(): [f32, f32] { return [4., 6.]; }
+export function f(): f32 { let p = new Q(); [p.x, p.y] = two(); return p.x * 10. + p.y; }`,
+      46,
+    ],
+    [
+      'a list assignment is a first assignment of its names',
+      `function two(): [f32, f32] { return [4., 6.]; }
+export function f(): f32 { let a: f32; let b: f32; [a, b] = two(); return a + b; }`,
+      10,
+    ],
+  ];
+  for (const [name, body, expected] of runs) {
+    it(`${name}: both halves, and the oracle`, () => {
+      const r = read(body);
+      expect(r.compiler).toEqual([]);
+      expect(r.editor).toEqual([]);
+      expect(r.value).toBe(expected);
+    });
+  }
+
+  it('refuses a const among the names, in both halves', () => {
+    const r = read(`function two(): [f32, f32] { return [4., 6.]; }
+export function f(): f32 { const a: f32 = 1.; let b: f32 = 0.; [a, b] = two(); return a + b; }`);
+    expect(r.compiler).toEqual(['TS8005 Cannot assign to "a" — it is declared with const.']);
+    expect(r.editor).toEqual(r.compiler);
+  });
+
+  it('refuses a list that is too short, in both halves', () => {
+    const r = read(`function one(): [f32] { return [4.]; }
+export function f(): f32 { let a: f32 = 0.; let b: f32 = 0.; [a, b] = one(); return a + b; }`);
+    expect(r.compiler).toHaveLength(1);
+    expect(r.compiler[0]).toMatch(/^TS\d+ /);
+    expect(r.editor.length).toBeGreaterThan(0);
+  });
+});
+
 describe('a value stays a value (change 0142, decision 1)', () => {
   it('refuses a write through a vector parameter, in both halves', () => {
     const r = read(`function h(v: vec3f): f32 { v.x = 1.; return v.x; }

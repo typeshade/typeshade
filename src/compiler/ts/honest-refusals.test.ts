@@ -1246,7 +1246,8 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       ).replace('namespace N', `${LIST}namespace N`),
       [IN_NAMESPACE('a variable')],
     ],
-    // `...q` in a list assigned to collects; the target's refusal is the one sentence.
+    // `...q` in a list assigned to collects; the list assignment's refusal is the one sentence
+    // (change 0142, decision 8).
     [
       'a rest element in a list assigned to',
       shader(
@@ -1254,7 +1255,9 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
         '  let p = 0.;\n  let q: array<f32, 2> = [0., 0.];\n  const b: array<f32, 3> = [a, a, a];\n' +
           '  [p, ...q] = b;\n  return p;',
       ),
-      ['TS8018 Assignment target must be a name, or a field, component or element of one.'],
+      [
+        'TS8018 A list assignment takes a name, a field or an element at each place: no rest element, no hole and no default. Write one assignment for that place.',
+      ],
     ],
     [
       'an interface in a namespace, and a function whose parameter names it',
