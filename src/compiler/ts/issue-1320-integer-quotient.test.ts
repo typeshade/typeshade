@@ -33,7 +33,10 @@ const toInt32 = (x: number): number => Math.trunc(x) | 0;
 
 describe('an integer position reads the integer quotient of integers by inference (issue 1320)', () => {
   it("u32() of a negative quotient over i32 operands is ToUint32 of TypeScript's quotient", () => {
-    const source = program('u32', 'let a = -21 - gg();\n  let b = a;\n  a *= ii;\n  return u32(a / b);');
+    const source = program(
+      'u32',
+      'let a = -21 - gg();\n  let b = a;\n  a *= ii;\n  return u32(a / b);',
+    );
     expect(valuesAt(source, [-3, 7])).toEqual(LEVELS.map(() => toUint32((-26 * -3) / -26)));
     expect(valuesAt(source, [0, 7])).toEqual(LEVELS.map(() => 0));
     for (const { wgsl, glsl } of emitsAt(source)) {
@@ -83,7 +86,10 @@ describe('an integer position reads the integer quotient of integers by inferenc
       'let a = (-7|0);\n  let z = gg() - 5;\n  let j: i32 = a / z;\n  return j;',
     );
     expect(valuesAt(source, [0, 0])).toEqual(LEVELS.map(() => 0));
-    const nonzero = program('i32', 'let a = (-7|0);\n  let z = gg() - 3;\n  let j: i32 = a / z;\n  return j;');
+    const nonzero = program(
+      'i32',
+      'let a = (-7|0);\n  let z = gg() - 3;\n  let j: i32 = a / z;\n  return j;',
+    );
     expect(valuesAt(nonzero, [0, 0])).toEqual(LEVELS.map(() => toInt32(-7 / 2)));
   });
 
