@@ -219,6 +219,10 @@ goes stale, so the code carries the knowledge instead.
 - Two kinds of comment stay: a marker that a check reads (`Verifies: Rule N.M`,
   `LINT.IfChange`), and the doc comment of a definition of `src/__api__/surface.md`, which the
   API reference and the editor's hover show.
+- A comment that is truly necessary stays too. The owner said on 2026-11-17: "주석이 꼭 필요한 경우는
+  1%에 들어갑니다. 그런것만 있으면 돼요". It states what no name, test or assert can: where a
+  method comes from, or what a target or a specification forces. Begin it with `Why:`. The check
+  spares it, and fails when these comments take more than 1% of the lines of `src/`.
 - `src/comment-policy.test.ts` fails a file that has more comment lines than
   `scripts/comment-baseline.json` records. Never raise a number there.
 - An existing comment goes in a pull request for its directory. Before a comment that states an

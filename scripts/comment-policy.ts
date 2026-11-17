@@ -30,7 +30,20 @@ function declaredNames(node: ts.Node): string[] {
   return name && ts.isIdentifier(name) ? [name.text] : [];
 }
 
+const NECESSARY = /^(?:\/\/|\/\*)\s*Why:/;
+
+export const NECESSARY_SHARE = 0.01;
+
+export interface CommentLines {
+  readonly banned: number;
+  readonly necessary: number;
+}
+
 export function bannedCommentLines(path: string, text: string, publicKeys: Set<string>): number {
+  return commentLines(path, text, publicKeys).banned;
+}
+
+export function commentLines(path: string, text: string, publicKeys: Set<string>): CommentLines {
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
   const allowed = new Set<number>();
   const visit = (node: ts.Node, isPublic: boolean): void => {
@@ -48,13 +61,26 @@ export function bannedCommentLines(path: string, text: string, publicKeys: Set<s
 
   const seen = new Set<number>();
   let banned = 0;
+  let necessary = 0;
+  const lineOf = (pos: number): number => source.getLineAndCharacterOfPosition(pos).line;
   const count = (ranges: readonly ts.CommentRange[] | undefined): void => {
+    let necessaryUntilLine: number | undefined;
     for (const range of ranges ?? []) {
       if (seen.has(range.pos)) continue;
       seen.add(range.pos);
       const body = text.slice(range.pos, range.end);
       if (allowed.has(range.pos) || MARKER.test(body)) continue;
-      banned += body.split('\n').length;
+      const lines = body.split('\n').length;
+      const continues =
+        range.kind === ts.SyntaxKind.SingleLineCommentTrivia &&
+        necessaryUntilLine !== undefined &&
+        lineOf(range.pos) === necessaryUntilLine + 1;
+      if (NECESSARY.test(body) || continues) {
+        necessary += lines;
+        necessaryUntilLine = lineOf(range.end);
+      } else {
+        banned += lines;
+      }
     }
   };
   const scan = (node: ts.Node): void => {
@@ -63,7 +89,7 @@ export function bannedCommentLines(path: string, text: string, publicKeys: Set<s
     ts.forEachChild(node, scan);
   };
   scan(source);
-  return banned;
+  return { banned, necessary };
 }
 
 export function policedFiles(root: string): string[] {
@@ -74,14 +100,29 @@ export function policedFiles(root: string): string[] {
     .sort();
 }
 
-export function countComments(root: string): Record<string, number> {
+export interface CommentCounts {
+  readonly banned: Record<string, number>;
+  readonly necessary: number;
+  readonly lines: number;
+}
+
+export function countAllComments(root: string): CommentCounts {
   const publicKeys = publicDefinitions(readFileSync(join(root, 'src/__api__/surface.md'), 'utf8'));
-  const counts: Record<string, number> = {};
+  const banned: Record<string, number> = {};
+  let necessary = 0;
+  let lines = 0;
   for (const path of policedFiles(root)) {
-    const lines = bannedCommentLines(path, readFileSync(join(root, path), 'utf8'), publicKeys);
-    if (lines > 0) counts[path] = lines;
+    const text = readFileSync(join(root, path), 'utf8');
+    const counted = commentLines(path, text, publicKeys);
+    if (counted.banned > 0) banned[path] = counted.banned;
+    necessary += counted.necessary;
+    lines += text.split('\n').length;
   }
-  return counts;
+  return { banned, necessary, lines };
+}
+
+export function countComments(root: string): Record<string, number> {
+  return countAllComments(root).banned;
 }
 
 export function readBaseline(root: string): Record<string, number> {
