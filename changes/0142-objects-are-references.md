@@ -601,6 +601,64 @@ p.x = 9.; // ps[i].x is 9., as in JavaScript
   `mv(ps[i], ps[i - 1])`, where `mv` writes one of the two, stays `TS8074`.
 - Status: `status: accepted` does not change.
 
+### A4. An object of a type that the program never writes (2026-11-17)
+
+- [fact] Why. Rule 2 of Amendment A3 refuses a store of an object that has a name. Two sources
+  of the repository are such stores, and nothing writes the stored object afterwards:
+  `examples/capsule-corp-namek-class.shade.ts` builds a part around two parts of the same scene
+  (`this.details = new ShipDetails(this.ship, this.trees)`), and
+  `journeys/optional-values/optional.shade.ts` names an array that may be absent
+  (`const maybeItems = x < 0. ? null : items`). #1324 found them at `b7f4a738`.
+- [proposal, agent] Rule 6, beside the five of Amendment A3. An object of a type that the
+  program never writes after the object is built cannot be told from a copy of it: no write
+  shows through a second name, and `===` between objects is refused. So a store of such an
+  object (rule 2), and a name for such an object that a call or a conditional gives (rule 4),
+  are accepted, and the compiler makes a copy.
+- [fact] How "never writes" is decided. The compiler reads the lowered program whole, by type
+  and not by name. A struct or an array type is written where any function of the module
+  assigns through a place that passes through a value of that type: for `r.a.b[i].c = v`, the
+  types of `r`, `r.a`, `r.a.b` and `r.a.b[i]`. A constructor's own stores to `this.f = …` build
+  the object and do not count; any other write in a constructor does. A type is never written
+  where it and every struct and array type inside it are not written. The compiler holds a
+  refusal that rule 6 can lift until every function is lowered, and reports it only where the
+  type is written.
+- [fact] Two more refusals that rule 6 lifts, found when #1324 was written. A `let` second
+  name that is assigned whole later (rule 1): where its type is never written, a copy and the
+  second name give one result. And `xs.fill(o)` of a new object (rule 2), which makes every
+  element one object: where the type is never written, the copies and the one object give one
+  result.
+- [fact] What rule 6 does not change. Rule 5 (the place must stay), a second name that a function
+  inside the body uses, a parameter or a loop name assigned whole after a write, and `TS8074`
+  keep their refusals whatever the type.
+- [inference, agent] Why this does not bring back what Amendment A3 removed. Amendment A3
+  removed a decision made statement by statement, from names: "does anything write this object
+  afterwards". Rule 6 asks one question of the whole program, from types: "does anything write
+  an object of this type". A write the compiler misses under rule 6 would have to be a write
+  with no assignment in the lowered program.
+- [fact] Cost. A program that writes one object of a type loses rule 6 for every object of
+  that type: the shared, never-written `Config` is accepted, and a `Particle` that a kernel
+  writes is not.
+
+**One example, before and after.**
+
+```ts
+// Refused by rule 2 of Amendment A3, accepted by rule 6: nothing in the program writes a Ship.
+class Scene {
+  private ship: Ship;
+  private details: ShipDetails;
+  constructor() {
+    this.ship = new Ship();
+    this.details = new ShipDetails(this.ship);
+  }
+}
+
+// Still refused: `drift` writes a Ship somewhere in the program.
+function drift(s: Ship): void { s.x += 1.; }
+```
+
+- Status: `status: accepted` does not change. Rule 6 adds accepted programs; it refuses none that
+  Amendment A3 accepts.
+
 ## What it owes downstream
 
 - **typeshade.github.io.** Every page and Playground starter that writes `@inout` or `@out`; the
