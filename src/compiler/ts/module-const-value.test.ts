@@ -8,9 +8,19 @@ import { compileTsSource } from './source-file.js';
 import { compile } from './compile.js';
 import { typeKey } from '../../core/ir/types.js';
 import type { ConstDecl } from '../../core/ir/nodes.js';
+import { bothHalves } from '../../core/testing/both-halves.js';
+
+function editorAgrees(source: string): ReturnType<typeof compileTsSource> {
+  const r = compileTsSource(source);
+  const editor = bothHalves(source).editor;
+  for (const d of r.diagnostics.filter((e) => e.category === 'error')) {
+    expect(editor).toContain(`typeshade ${d.code}: ${d.message}`);
+  }
+  return r;
+}
 
 function constsOf(source: string): readonly ConstDecl[] {
-  const r = compileTsSource(`"use typeshade";\n${source}`);
+  const r = editorAgrees(`"use typeshade";\n${source}`);
   expect(r.diagnostics).toEqual([]);
   return r.consts;
 }
@@ -21,7 +31,7 @@ function diagnose(source: string): string {
 
 /** The first diagnostic whole, for an assertion that wants the code as well as the text. */
 function diagnoseFull(source: string): { code: string | undefined; message: string } {
-  const r = compileTsSource(`"use typeshade";\n${source}`);
+  const r = editorAgrees(`"use typeshade";\n${source}`);
   expect(r.diagnostics.length).toBeGreaterThan(0);
   const d = r.diagnostics[0]!;
   return { code: d.code, message: d.message };
@@ -52,7 +62,7 @@ describe('a vector module constant', () => {
   });
 
   it('reads as a constref in a function body, and evaluates', () => {
-    const r = compileTsSource(`"use typeshade";\n${SRC}`);
+    const r = editorAgrees(`"use typeshade";\n${SRC}`);
     const stmt = r.funcs[0]!.body[0]!;
     if (stmt.s !== 'return' || !stmt.expr) throw new Error('expected a return');
     expect(stmt.expr.op).toBe('constref');

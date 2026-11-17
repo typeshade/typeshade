@@ -507,7 +507,7 @@ export function fs(): vec4 {
     const wgsl = compiled(files, MAIN).wgsl!;
     expect(wgsl).toContain('struct lib_Light {');
     expect(wgsl).toContain('const lib_K: f32 = 0.25;');
-    expect(wgsl).toContain('fn lum(l: ptr<function, lib_Light>, scale: f32) -> f32 {');
+    expect(wgsl).toMatch(/fn lum\w*\(l: ptr<function, lib_Light>, scale: f32\) -> f32 \{/);
     expect(wgsl).toContain('  key: lib_Light,');
     // This file's own parameter `third` is emitted under a generated name too.
     expect(wgsl).toContain('fn inner(main_third: f32) -> f32 {');

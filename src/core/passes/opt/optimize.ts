@@ -31,6 +31,7 @@ import { duplicateLocalNames } from '../lint/rules/no-shadowed-local.js';
 import { dslError } from '../../diagnostics/error.js';
 import { structCtor } from './struct-ctor.js';
 import { sinkAggregateInit } from './sink-aggregate-init.js';
+import { splitLocalArrays } from './sroa.js';
 import { loopLoadReuse } from './loop-load-reuse.js';
 import { memberFold } from './member-fold.js';
 import { unrollLoops } from './unroll.js';
@@ -78,6 +79,7 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   // Unroll a small fixed-count loop, so its state propagates and its last updates die (#845).
   unrollLoops,
   sinkAggregateInit,
+  splitLocalArrays,
   // …then collapse a write-once struct local into the constructor it is assembling
   // (X-GIS #1867), so CSE below sees one value rather than N field writes and BOTH writers
   // emit the shorter shape.

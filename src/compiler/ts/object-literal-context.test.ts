@@ -320,7 +320,7 @@ describe('a position that declares a type through something else', () => {
 
   it('an array constructor names its element type in its own type argument', () => {
     const w = wgslOf(
-      `${TWINS}export function f(): f32 {\n  const xs = array<Q, 2>({ a: 1., b: 2. }, { a: 3., b: 4. });\n  return xs[0].a;\n}`,
+      `${TWINS}export function f(n: u32): f32 {\n  const xs = array<Q, 2>({ a: 1., b: 2. }, { a: 3., b: 4. });\n  return xs[n].a;\n}`,
     );
     expect(w).toContain('array<Q, 2>(Q(1.0, 2.0), Q(3.0, 4.0))');
   });

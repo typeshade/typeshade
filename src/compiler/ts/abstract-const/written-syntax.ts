@@ -133,8 +133,8 @@ export function peerOperands(n: ts.Node): (readonly [ts.Identifier, ts.Expressio
   if (!ts.isBinaryExpression(n) || !PEER_OPERATORS.has(n.operatorToken.kind)) return [];
   const [l, r] = [skipParenNodes(n.left), skipParenNodes(n.right)];
   return [
-    ...(ts.isIdentifier(l) ? [[l, r] as const] : []),
-    ...(ts.isIdentifier(r) ? [[r, l] as const] : []),
+    ...(ts.isIdentifier(l) && !ts.isNumericLiteral(r) ? [[l, r] as const] : []),
+    ...(ts.isIdentifier(r) && !ts.isNumericLiteral(l) ? [[r, l] as const] : []),
   ];
 }
 

@@ -77,7 +77,7 @@ export function mergedPicks(
 export function heldByTreeVariable(xs: readonly Reading[], pulled = false): readonly Reading[] {
   if (!pulled && !xs.some((x) => x.tree)) return xs;
   return xs.map((x) => {
-    if (x.tree) return x;
+    if (x.tree || (x.unknown && !xs.some((y) => y.tree))) return x;
     const holdsBits =
       !x.unknown && Number.isInteger(x.u32) && x.u32 >= -2147483648 && x.u32 <= 4294967295;
     return holdsBits ? { ...x, u32: x.u32 >>> 0, tree: true } : { ...UNPROVEN, picks: x.picks };

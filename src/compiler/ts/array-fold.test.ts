@@ -70,7 +70,7 @@ describe('reduce / min / max / fill / some', () => {
   s[1] = 7;
   const t = fill<i32, 3>(-1);
   const w = fill<vec2, 2>(vec2(1., 2.));
-  return vec4(f32(s[0] + s[1]), f32(t[2]), w[1].y, 1.);
+  return vec4(f32(s[u32(w[0].x) - 1] + s[1]), f32(t[u32(w[1].y)]), w[u32(s[0])].y, 1.);
 }
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);

@@ -34,6 +34,7 @@ import ts from 'typescript';
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, boolT, i32T, u32T, isF64, isVec64 } from '../../../core/ir/types.js';
+import { integerQuotientIn } from './integer-quotient.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, dropsRecoveredUse, irNameOf, type LoweringScope } from '../context.js';
 import { LANG_CONST, resolveLangConst, resolveMathConst } from '../math-alias.js';
@@ -1609,19 +1610,18 @@ function lowerBinary(
           intElem(e.type) === undefined ? e : { op: 'call', type: f32T, fn: 'f32', args: [e] };
         const [l, r] = [left, right];
         const integerAt = (target: ShaderType, declared = true): Expr | undefined => {
-          const a = retargetIntLitCtx(l, node.left, target);
-          const b = retargetIntLitCtx(r, node.right, target);
-          if (typeKey(a.type) !== typeKey(target) || typeKey(b.type) !== typeKey(target)) {
-            return undefined;
-          }
-          // A position that states an integer type reads the quotient (A4); a peer that states
-          // none keeps the `/` refused, with the edit in its type.
+          const quotient = integerQuotientIn(
+            (t) => [retargetIntLitCtx(l, node.left, t), retargetIntLitCtx(r, node.right, t)],
+            target,
+            declared,
+          );
+          if (quotient === undefined) return undefined;
           noteWrittenDivisionRead(
             node,
             sourceFile,
             declared ? 'read' : typeKey(target) === 'u32' ? 'u32' : 'i32',
           );
-          return { op: 'binop', type: target, bop: '/', a, b };
+          return quotient;
         };
         // An integer position that states its type reads the quotient: the integer division of
         // that type (Amendment A4). Anywhere else the `f32` its edit names, which an integer

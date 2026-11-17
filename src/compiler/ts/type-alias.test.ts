@@ -59,7 +59,7 @@ function lit(m: Mask): bool {
     const arr = compile(
       file(
         `type Grid = array<f32, 3>\n`,
-        `  const g: Grid = [1., 2., 3.]\n  return vec4(g[1], 0., 0., 1.)`,
+        `  const g: Grid = [1., 2., 3.]\n  return vec4(g[1], g[u32(uv.x)], 0., 1.)`,
       ),
     );
     expect(arr.diagnostics).toEqual([]);
