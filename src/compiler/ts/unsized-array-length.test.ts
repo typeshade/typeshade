@@ -19,6 +19,7 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
+import { bothHalves } from '../../core/testing/both-halves.js';
 
 const KERNEL = `"use typeshade";
 declare const src: storage<array<f32>>;
@@ -89,6 +90,10 @@ describe('#46 — the message tells each shape the truth about its own fix', () 
       mine,
       `expected one ${TS_CODES.UNSIZED_ARRAY_LENGTH}, got: ${errors.map((d) => `${d.code ?? '—'} ${d.message}`).join(' | ')}`,
     ).toHaveLength(1);
+    const halves = bothHalves(src);
+    expect(halves.editor).toContain(
+      `typeshade ${TS_CODES.UNSIZED_ARRAY_LENGTH}: ${mine[0]!.message}`,
+    );
     return mine[0]!.message;
   };
 
@@ -122,6 +127,8 @@ declare const src: storage<array<f32>>;
   const declarationRefusal = (src: string): string => {
     const errors = compileTsSource(src).diagnostics.filter((d) => d.category === 'error');
     expect(errors).toHaveLength(1);
+    const halves = bothHalves(src);
+    expect(halves.editor).toContain(`typeshade ${errors[0]!.code}: ${errors[0]!.message}`);
     return `${errors[0]!.code} ${errors[0]!.message}`;
   };
 

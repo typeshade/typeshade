@@ -39,7 +39,6 @@ const KNOWN: readonly string[] = [
   'compiler/ts/runtime-loop-bound.test.ts',
   'compiler/ts/swizzle-random.test.ts',
   'compiler/ts/texture-dims.test.ts',
-  'compiler/ts/unsized-array-length.test.ts',
   'core/passes/scatter-f32.test.ts',
   'vite.test.ts',
 ];
