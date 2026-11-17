@@ -209,6 +209,22 @@ the compiler and `number` to the editor, and no test failed.
 - When a bug reached `main` past the tests, its fix says in the pull request which half the tests
   read, and adds the test for the half they missed next to the fix.
 
+## Comments
+
+The owner's rule, given on 2026-11-17: "99% 가까운 금지로". A comment cannot be enforced and it
+goes stale, so the code carries the knowledge instead.
+
+- Write no comment in a file of `src/`. Name the thing so that the code says it. Hold an
+  invariant with a test or an assert. Put the reason for a change in the commit message.
+- Two kinds of comment stay: a marker that a check reads (`Verifies: Rule N.M`,
+  `LINT.IfChange`), and the doc comment of a definition of `src/__api__/surface.md`, which the
+  API reference and the editor's hover show.
+- `src/comment-policy.test.ts` fails a file that has more comment lines than
+  `scripts/comment-baseline.json` records. Never raise a number there.
+- An existing comment goes in a pull request for its directory. Before a comment that states an
+  invariant goes, a test or an assert holds the invariant. Then run
+  `bun run bake:comment-baseline`.
+
 ## Before pushing
 
 Run the gates `AGENTS.md#tests` lists that the change can reach. CI runs the same ones, and a
