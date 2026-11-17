@@ -17,6 +17,7 @@ import {
 import { localNumericInference } from '../local-numeric-inference.js';
 import ts from 'typescript';
 import { objectWrites } from '../object-reference.js';
+import { optionalInner } from '../optional.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -823,14 +824,30 @@ export function lowerForOf(
       mutable,
     });
     const read: Expr = { op: 'index', type: elemType, base: array, idx: i };
-    // An element that is an object, and that the body writes through the loop's name, is the
-    // array's own element, as in JavaScript (change 0142, Table 1): each use of the name is the
-    // element's place, and no copy is declared.
-    const names =
-      (elemType.kind === 'struct' || elemType.kind === 'array') &&
-      isPlace(array) &&
-      objectWrites(decl.name.text, node.statement, sourceFile).member &&
-      !objectWrites(decl.name.text, node.statement, sourceFile).whole;
+    // An element that is an object is the array's own element, as in JavaScript (change 0142,
+    // Table 1): each use of the name is the element's place, and no copy is declared. A copy
+    // taken at the top of each turn would not show a write to the element through the name, nor
+    // a write to it through the array while the name is read.
+    const through = objectWrites(decl.name.text, node.statement, sourceFile);
+    // An optional of a number (`f32 | undefined`) is a value in a struct's clothes: only an
+    // optional of an object is one.
+    const held = optionalInner(elemType) ?? elemType;
+    const object = held.kind === 'struct' || held.kind === 'array';
+    const names = object && isPlace(array) && !through.whole;
+    // A function inside the body that uses the loop's name takes it as a variable of its own.
+    if (names && through.captured) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl.name,
+        `"${decl.name.text}" names an element of the array, and a function inside the loop ` +
+          `uses "${decl.name.text}". A loop name that a local function captures is not ` +
+          `supported yet (change 0142, stage 2). Loop over the indexes and read the element ` +
+          `in that function.`,
+        TS_CODES.UNSUPPORTED,
+      );
+      return undefined;
+    }
     if (names) {
       for (const use of usesOf(decl.name.text, node.statement))
         scope.setChainAlias(use, (): Expr => ({

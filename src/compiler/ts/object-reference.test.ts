@@ -727,6 +727,96 @@ export function f(): f32 { const a = new P(); const b = new C(a, bump(a)); retur
   }
 });
 
+// The programs of a fourth review, at c2b7781c.
+describe('a loop name, an object that may be absent, and a call on a new object (change 0142)', () => {
+  const Q = `class P { x: f32 = 0; }
+class H { c: P; constructor(p: P) { this.c = p; } get1(): P { return this.c; } }
+`;
+  const runs: readonly (readonly [string, string, number])[] = [
+    [
+      'a loop name reads the element as a write through the array left it',
+      `${Q}export function f(): f32 {
+  const xs: array<P, 2> = [new P(), new P()];
+  let s = 0.;
+  for (const p of xs) { xs[0].x += 1.; s += p.x; }
+  return s;
+}`,
+      1,
+    ],
+    [
+      'a loop name reads what an inner loop over the same array wrote',
+      `${Q}export function f(): f32 {
+  const xs: array<P, 2> = [new P(), new P()];
+  let s = 0.;
+  for (const p of xs) { for (const q of xs) { q.x += 1.; } s += p.x; }
+  return s;
+}`,
+      3,
+    ],
+    [
+      'a second name of a loop name reads the element too',
+      `${Q}export function f(): f32 {
+  const xs: array<P, 2> = [new P(), new P()];
+  let s = 0.;
+  for (const p of xs) { const q = p; xs[0].x = 2.; s += q.x; }
+  return s;
+}`,
+      2,
+    ],
+    [
+      'a write before a second name is declared is no write the two names share',
+      `${Q}export function f(): f32 {
+  const a = new P(); a.x = 1.; let b = a; b = new P(); return a.x + b.x;
+}`,
+      1,
+    ],
+  ];
+  for (const [name, body, expected] of runs) {
+    it(`${name}: both halves, and the oracle`, () => {
+      const r = read(body);
+      expect(r.compiler).toEqual([]);
+      expect(r.editor).toEqual([]);
+      expect(r.value).toBe(expected);
+    });
+  }
+
+  const refused: readonly (readonly [string, string, RegExp])[] = [
+    [
+      'a loop name that a function inside the loop writes',
+      `${Q}export function f(): f32 {
+  const xs: array<P, 2> = [new P(), new P()];
+  for (const p of xs) { const g = (): void => { p.x += 1.; }; g(); }
+  return xs[0].x + xs[1].x * 10.;
+}`,
+      /^TS8099 "p" names an element of the array, and a function inside the loop uses "p"\. A loop name that a local function captures is not supported yet \(change 0142, stage 2\)\./,
+    ],
+    [
+      'a name declared as an object that may be absent, then written',
+      `${Q}export function f(): f32 { const a = new P(); let q: P | undefined = a; q.x = 3.; return a.x; }`,
+      /^TS8099 "q" would name the object "a" names, under another type or from a variable of the module, and the object is written after that\./,
+    ],
+    [
+      'one object handed as itself and as a parameter that may be absent',
+      `${Q}function g(p: P | undefined, r: P): f32 { r.x = 3.; if (p !== undefined) { return p.x; } return 0.; }
+export function f(): f32 { const a = new P(); return g(a, a); }`,
+      /^TS8074 This call hands the object "a" names to "g" twice/,
+    ],
+    [
+      'the result of a method called on a new object that was built around a name',
+      `${Q}export function f(): f32 { const a = new P(); const q = new H(a).get1(); q.x = 3.; return a.x; }`,
+      /^TS8005 "q" is a const that may name an object something else holds, and "q" is written\./,
+    ],
+  ];
+  for (const [name, body, text] of refused) {
+    it(`refuses ${name}, in both halves`, () => {
+      const r = read(body);
+      expect(r.compiler).toHaveLength(1);
+      expect(r.compiler[0]).toMatch(text);
+      expect(r.editor).toEqual(r.compiler);
+    });
+  }
+});
+
 describe('a value stays a value (change 0142, decision 1)', () => {
   it('refuses a write through a vector parameter, in both halves', () => {
     const r = read(`function h(v: vec3f): f32 { v.x = 1.; return v.x; }

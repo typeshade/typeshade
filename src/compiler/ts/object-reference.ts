@@ -38,6 +38,15 @@ export function writesAnObject(type: ts.TypeNode | undefined, sourceFile: ts.Sou
   let at = type;
   while (at !== undefined) {
     while (ts.isParenthesizedTypeNode(at)) at = at.type;
+    // `P | undefined`, `P | null`: an object that may be absent is an object.
+    if (ts.isUnionTypeNode(at)) {
+      return at.types.some(
+        (t) =>
+          t.kind !== ts.SyntaxKind.UndefinedKeyword &&
+          !(ts.isLiteralTypeNode(t) && t.literal.kind === ts.SyntaxKind.NullKeyword) &&
+          writesAnObject(t, sourceFile),
+      );
+    }
     if (ts.isArrayTypeNode(at) || ts.isTypeLiteralNode(at) || ts.isTupleTypeNode(at)) return true;
     if (!ts.isTypeReferenceNode(at) || !ts.isIdentifier(at.typeName)) return false;
     const name = at.typeName.text;
@@ -248,10 +257,10 @@ function namesOfOneObject(name: string, body: ts.Node, sourceFile: ts.SourceFile
           d !== undefined &&
           ts.isIdentifier(d.name) &&
           root !== undefined &&
-          names.has(root.name.text) &&
-          !names.has(d.name.text)
+          names.has(root.name.text) !== names.has(d.name.text)
         ) {
           names.add(d.name.text);
+          names.add(root.name.text);
           grew = true;
         }
       }

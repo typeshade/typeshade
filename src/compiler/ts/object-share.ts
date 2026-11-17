@@ -529,8 +529,9 @@ class Reader {
           if (elem !== undefined && !writesAnObject(elem, this.sourceFile)) return out;
         }
         // A method that returns an object may return its own object, a part of it, or an
-        // argument; so may a method of an array that takes a function (`map`, `reduce`).
-        add(out, this.shares(receiver), fresh, false);
+        // argument; so may a method of an array that takes a function (`map`, `reduce`). What
+        // it gives may be the object a holder it is called on keeps: `new H(a).get()`.
+        for (const k of this.shares(receiver).keys()) out.set(k, { part: fresh, place: undefined });
       }
       for (const a of x.arguments) add(out, this.shares(a), false, false);
       return out;
@@ -1025,7 +1026,17 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
           const mine = namesOf(a);
           n.arguments.forEach((b, j) => {
             if (j === i) return;
-            if (isPlainPlace(a, sourceFile) && isPlainPlace(b, sourceFile)) return;
+            // Two plain places of one root are `TS8074`'s to pair on the lowered call, but for a
+            // parameter that may be absent, whose argument the lowering wraps.
+            const absent = (t: ts.TypeNode | undefined): boolean =>
+              t !== undefined && ts.isUnionTypeNode(t);
+            if (
+              isPlainPlace(a, sourceFile) &&
+              isPlainPlace(b, sourceFile) &&
+              !absent(q.type) &&
+              !absent(callee.parameters[j]?.type)
+            )
+              return;
             const shared = [...namesOf(b)].find((name) => mine.has(name));
             if (shared === undefined) return;
             calls.push({

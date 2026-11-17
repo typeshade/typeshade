@@ -43,7 +43,7 @@ import { logicalTypeKey as typeKey } from '../optional.js';
 import { foldIndexConst } from '../index-bound.js';
 import ts from 'typescript';
 import { objectWrites } from '../object-reference.js';
-import { aliasedCall } from '../object-share.js';
+import { aliasedCall, namesShared } from '../object-share.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, isF64, isVec, isVec64, u32T } from '../../../core/ir/types.js';
@@ -1117,24 +1117,71 @@ function secondNameOf(
   diagnostics: TsCompilerDiagnostic[],
 ): 'bound' | 'refused' | 'none' {
   const type = annotated ?? init.type;
-  if (type.kind !== 'struct' && !(type.kind === 'array' && type.size !== undefined)) return 'none';
+  const object = (t: ShaderType): boolean =>
+    t.kind === 'struct' || (t.kind === 'array' && t.size !== undefined);
+  // `let q: P | undefined = a` is declared with another type and names the object of `a` too.
+  if (!object(type) && !object(init.type)) return 'none';
   if (!ts.isIdentifier(decl.name) || decl.initializer === undefined) return 'none';
   // `let b = f(a)` where `f` returns its parameter: `b` is a second name of `a`'s object too.
   const direct = unwrapParens(decl.initializer);
   const from = ts.isIdentifier(direct) ? direct : aliasedCall(decl, sourceFile)?.argument;
   if (from === undefined) return 'none';
   const target = scope.resolve(from.text);
-  if (target === undefined || (target.kind !== 'local' && target.kind !== 'param')) return 'none';
-  // A name of another type is a view of the object (a base class of it), which keeps its own
-  // rules (change 0110).
-  if (typeKey(target.type) !== typeKey(type)) return 'none';
+  // A name of another type (a base class of the object, `P | undefined`) and a name of a
+  // variable of the module are second names the lowering does not bind.
+  const binds =
+    target !== undefined &&
+    (target.kind === 'local' || target.kind === 'param') &&
+    typeKey(target.type) === typeKey(type);
   let body: ts.Node = decl;
   while (body.parent !== undefined && !ts.isFunctionLike(body)) body = body.parent;
   if (!ts.isFunctionLike(body)) return 'none';
   const name = decl.name.text;
   const mine = objectWrites(name, body, sourceFile);
   const theirs = objectWrites(from.text, body, sourceFile);
-  if (!mine.member && !theirs.member) return 'none';
+  // A write before the declaration is in the object when the second name takes it: only a
+  // write after it, or in a loop that holds both, is one that the two names must share.
+  const later = (n: ts.Node): boolean => {
+    // A write in the declaration's own initializer runs before the name is bound to its result,
+    // and a write in a function inside the body runs whenever that function is called.
+    if (n.getStart() >= decl.getStart()) return true;
+    for (let at: ts.Node | undefined = n.parent; at !== undefined && at !== body; at = at.parent) {
+      if (ts.isFunctionLike(at)) return true;
+    }
+    for (
+      let at: ts.Node | undefined = decl.parent;
+      at !== undefined && at !== body;
+      at = at.parent
+    ) {
+      if (ts.isIterationStatement(at, false) && n.getStart() >= at.getStart() && n.end <= at.end)
+        return true;
+    }
+    return false;
+  };
+  if (!mine.memberAt.some(later) && !theirs.memberAt.some(later)) return 'none';
+  if (!binds || target === undefined) {
+    // A binding is read through its own rules (Rule 12.6): `const a = src` names the binding.
+    if (target?.kind === 'binding') return 'none';
+    // A base class's view of the object has its own refusal (change 0110).
+    if (
+      target !== undefined &&
+      target.type.kind === 'struct' &&
+      type.kind === 'struct' &&
+      optionalInner(type) === undefined
+    )
+      return 'none';
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl.name,
+      `"${decl.name.text}" would name the object "${from.text}" names, under another type or ` +
+        `from a variable of the module, and the object is written after that. One object under ` +
+        `two names is not supported yet here (change 0142, stage 2): a copy would not show the ` +
+        `write. Write the object through "${from.text}".`,
+      TS_CODES.UNSUPPORTED,
+    );
+    return 'refused';
+  }
   // A function inside the body that reads or writes the second name takes it as a variable of
   // its own, which is not the object the two names share.
   if (mine.captured) {
@@ -1161,6 +1208,25 @@ function secondNameOf(
       TS_CODES.UNSUPPORTED,
     );
     return 'refused';
+  }
+  // A second name of a loop name, which names an element of the loop's array: each use of the
+  // second name is that element's place too.
+  const element = scope.chainAlias(from);
+  if (element !== undefined) {
+    let block: ts.Node = decl;
+    while (block.parent !== undefined && !ts.isBlock(block)) block = block.parent;
+    const uses = (n: ts.Node): void => {
+      if (ts.isIdentifier(n) && n.text === name) {
+        const parent = n.parent;
+        const property =
+          (ts.isPropertyAccessExpression(parent) && parent.name === n) ||
+          (ts.isPropertyAssignment(parent) && parent.name === n) ||
+          (ts.isVariableDeclaration(parent) && parent.name === n);
+        if (!property) scope.setChainAlias(n, element);
+      }
+      ts.forEachChild(n, uses);
+    };
+    uses(block);
   }
   try {
     scope.defineAlias(name, target);
@@ -1206,10 +1272,21 @@ function buildsFreshValue(init: ts.Expression, lowered: Expr): boolean {
     )
       return true;
   }
+  const whole = x;
   while (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression)) {
     x = unwrapParens(x.expression.expression);
   }
-  return ts.isNewExpression(x) || ts.isObjectLiteralExpression(x) || ts.isArrayLiteralExpression(x);
+  if (!ts.isNewExpression(x) && !ts.isObjectLiteralExpression(x) && !ts.isArrayLiteralExpression(x))
+    return false;
+  // A method called on a new object may give back an object the new one was built around, or
+  // an argument: `new H(a).get()`, `new H(b).id(a)`. Such a result is no value nothing holds.
+  if (whole === x) return true;
+  let owner: ts.Node | undefined = init;
+  while (owner !== undefined && !ts.isFunctionLike(owner)) owner = owner.parent;
+  return (
+    namesShared(whole, owner as ts.SignatureDeclaration | undefined, init.getSourceFile())
+      .length === 0
+  );
 }
 
 /** Why a write through a `const` that holds a copy is refused (Rule 6.10). */

@@ -2522,11 +2522,13 @@ export function lit(p: vec3): f32 {
 }
 ```
 
-It lowers to `for (var _i: u32 = 0u; _i < 4u; _i = _i + 1u) { let l = scene.lights[_i]; … }`,
-with `arrayLength(&xs)`, which `xs.length` lowers to, as the bound of a runtime-sized array. The element is read at the top
-of each trip, as TypeScript's array iterator reads it, and `for (let x of xs)` over numbers or
-vectors gives a copy the body may change without writing the array. Over an array of objects,
-`for (const p of ps)` names each element, and a write through `p` writes the array (§70). `break` and `continue` do what they do in any loop.
+It lowers to a counted loop, `for (var _i: u32 = 0u; _i < 4u; _i = _i + 1u) { … }`, with
+`arrayLength(&xs)`, which `xs.length` lowers to, as the bound of a runtime-sized array. Over
+numbers or vectors, the element is read at the top of each trip, `let x = xs[_i];`, as
+TypeScript's array iterator reads it, and `for (let x of xs)` gives a copy the body may change
+without writing the array. Over an array of objects, `for (const p of ps)` names each element:
+no copy is taken, each use of `p` is `ps[_i]`, and a write through `p` or through `ps` is one
+write to the element (§70, change 0142). `break` and `continue` do what they do in any loop.
 The counter `_i`, like the `_w` a `while` counts with, is a name of the compiler's own, and the
 source cannot reach it (Rule 2.2): an `_i` the body reads is the author's, and a counter whose
 name a local, a module constant, a binding, a function or a struct already has takes the next free
