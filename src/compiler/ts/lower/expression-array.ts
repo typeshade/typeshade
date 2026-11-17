@@ -331,8 +331,15 @@ function spreadElements(
   if (type?.kind !== 'array' || type.size === undefined) return undefined;
   const at = (i: number): string => `${shown}[${String(i)}]`;
   const n = type.size;
-  if (n <= 4) return Array.from({ length: n }, (_, i) => at(i)).join(', ');
-  return `${at(0)}, ${at(1)}, …, ${at(n - 1)}`;
+  const each =
+    n <= 4
+      ? Array.from({ length: n }, (_, i) => at(i)).join(', ')
+      : `${at(0)}, ${at(1)}, …, ${at(n - 1)}`;
+  // `[...a]` alone is JavaScript's copy of the array, which `a.slice()` writes here (change
+  // 0142, Table 3).
+  const alone = ts.isArrayLiteralExpression(spread.parent) && spread.parent.elements.length === 1;
+  const values = type.elem.kind !== 'struct' && type.elem.kind !== 'array';
+  return alone && values ? `${each}, or ${shown}.slice() for a copy of the whole array` : each;
 }
 
 /** One element of an `array<T, N>`, list or call, given the element type it sits in. Shared by

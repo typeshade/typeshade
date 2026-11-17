@@ -319,13 +319,9 @@ class Reader {
     }
     if (ts.isArrayLiteralExpression(x)) {
       for (const el of x.elements) {
-        if (ts.isSpreadElement(el)) {
-          // `[...xs]` holds the elements of `xs`: objects only where its elements are.
-          const t = this.typeOf(el.expression);
-          const elem = elementType(t);
-          const values = elem !== undefined && !writesAnObject(elem, this.sourceFile);
-          if (!values) add(out, this.shares(el.expression), true);
-        } else add(out, this.shares(el), true);
+        // A spread in a list is refused where it is written (TS8013), which is its one sentence.
+        if (ts.isSpreadElement(el)) continue;
+        add(out, this.shares(el), true);
       }
       return out;
     }

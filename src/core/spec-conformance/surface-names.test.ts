@@ -157,6 +157,9 @@ const ECMASCRIPT_LIB_STANDINS = new Set([
   // value (an unknown name, TS8022), so an author still cannot write it.
   'Symbol',
   'SymbolConstructor',
+  // lib.dom.d.ts: the web platform's deep copy, which is how an author writes a copy of a struct
+  // or an array (change 0142, Table 3 and Amendment A1).
+  'structuredClone',
   'console',
   // lib.es2015.collection.d.ts: a kernel function's Map and Set parameter (change 0080), with
   // the members it has there.

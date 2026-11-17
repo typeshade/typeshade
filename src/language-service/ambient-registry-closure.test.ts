@@ -101,6 +101,7 @@ function surfaceNameOf(id: string): string {
  *  decorators and the two binding forms. Each carries a program that proves the lowerer takes
  *  it, so this list cannot claim something the compiler refuses. */
 const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
+  structuredClone: 'structuredClone(0.5)',
   vec2: 'vec2(0., 0.)',
   vec3: 'vec3(0., 0., 0.)',
   vec4: 'vec4(0., 0., 0., 1.)',

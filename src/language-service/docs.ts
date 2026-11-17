@@ -309,6 +309,8 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   zip: 'A fixed-size array built from two of one length, element by element: `zip(xs, ys, (a, b) => a * b)`. Unrolled into one call per element; the function may read the variables around it.',
   select:
     "Returns `trueValue` where `cond` is true and `falseValue` where it is false, in WGSL's argument order: the condition comes last. Compiles to the same code as a ternary over `cond`.",
+  structuredClone:
+    'A deep copy of a value, as in JavaScript: `const b = structuredClone(a)` gives a struct or an array whose fields and elements are its own, so a write to `b` does not change `a`. An instance of a class is not copied this way yet; build one with `new`.',
   bool: 'Converts a numeric scalar to `bool`: true where `x` is not zero, spelled as the compare `x != 0`. A `bool` argument is returned as it is.',
   f64: 'Widens an `f32` to the emulated double `f64`. A value that is already `f64` is returned as it is; cast an integer to `f32` first.',
   textureSample:

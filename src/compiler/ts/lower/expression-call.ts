@@ -587,6 +587,9 @@ export function lowerCall(
       if (folded !== 'fallback') return folded;
     }
     if (name === 'select') return lowerSelectCall(node, sourceFile, scope, diagnostics);
+    if (name === 'structuredClone') {
+      return lowerStructuredClone(node, sourceFile, scope, diagnostics);
+    }
     if (isAtomicIntrinsic(name)) return lowerAtomicCall(name, node, sourceFile, scope, diagnostics);
     // In expression position only: a barrier standing alone is lowered by the statement path.
     if (isBarrierIntrinsic(name)) {
@@ -1395,6 +1398,73 @@ function retargetIntrinsicLiterals(
  *  node `cond ? trueValue : falseValue` already lowers to, so the two spellings are one IR and
  *  the backends spell it as `select(f, t, c)` in WGSL and `(c ? t : f)` in GLSL. It is not a
  *  call: the oracle and both writers handle `select` as an Expr, never as an intrinsic call. */
+/** `structuredClone(v)`: JavaScript's deep copy (change 0142, Table 3). A struct, an array and a
+ *  number are values in the IR, so the copy is the value read where the call is written: what is
+ *  declared from it holds its own fields. An instance of a class comes back from JavaScript's
+ *  `structuredClone` as a plain object with no methods, which has no type here until stage 3. */
+function lowerStructuredClone(
+  node: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Expr | undefined {
+  if (node.arguments.length !== 1) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `structuredClone expects 1 argument(s), got ${node.arguments.length}.`,
+      TS_CODES.ARITY_MISMATCH,
+    );
+    return undefined;
+  }
+  const value = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
+  if (value === undefined) return undefined;
+  const classes = new Set(
+    scope
+      .classOrigins()
+      .filter((c) => c.spelling === 'class')
+      .map((c) => c.decl.name),
+  );
+  const seen = new Set<string>();
+  const classIn = (t: ShaderType): string | undefined => {
+    if (t.kind === 'array') return classIn(t.elem);
+    if (t.kind !== 'struct' || seen.has(t.name)) return undefined;
+    seen.add(t.name);
+    if (classes.has(t.name)) return t.name;
+    for (const f of scope.structByName(t.name)?.fields ?? []) {
+      const inner = classIn(f.type);
+      if (inner !== undefined) return inner;
+    }
+    return undefined;
+  };
+  const cls = classIn(value.type);
+  if (cls !== undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `structuredClone gives back a plain object with no methods for an instance of the class ` +
+        `"${cls}", which is not supported yet (change 0142, stage 3). To copy an instance, build ` +
+        `one: new ${cls}(...), or a method of the class that returns a new one.`,
+      TS_CODES.UNSUPPORTED,
+    );
+    return undefined;
+  }
+  if (value.type.kind === 'array' && value.type.size === undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `structuredClone of an array with no size needs storage for a copy of a length known only ` +
+        `when the program runs, which is not supported yet (change 0142, stage 3).`,
+      TS_CODES.UNSUPPORTED,
+    );
+    return undefined;
+  }
+  return value;
+}
+
 function lowerSelectCall(
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
@@ -2944,6 +3014,7 @@ const NAMED_FORMS: readonly string[] = [
   'all',
   'zip',
   'select',
+  'structuredClone',
   'workgroupUniformLoad',
   'random',
   'mod',

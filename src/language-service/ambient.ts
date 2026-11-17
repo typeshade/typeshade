@@ -1617,6 +1617,8 @@ declare function select<T extends Numeric | bool | BoolVec | Vec64Any | f64>(
   trueValue: T,
   cond: bool | BoolVec,
 ): T
+${renderJSDoc(FUNCTION_DOCS.structuredClone)}
+declare function structuredClone<T>(value: T): T
 ${renderJSDoc(FUNCTION_DOCS.any)}
 declare function any(v: bool | BoolVec): bool
 ${renderJSDoc(FUNCTION_DOCS.all)}

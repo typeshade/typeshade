@@ -320,6 +320,56 @@ ${P}export function f(): f32 { let a = new P(); let b = new B(a); a.x = 5.; retu
   }
 });
 
+describe('a copy is written with a name JavaScript has (change 0142, Table 3)', () => {
+  const S = `interface S { x: f32; y: f32 }
+`;
+  const runs: readonly (readonly [string, string, number])[] = [
+    [
+      'structuredClone of a struct that is no class is its own object',
+      `${S}export function f(): f32 { let a: S = { x: 1., y: 2. }; let b = structuredClone(a); b.x = 9.; return a.x * 10. + b.x; }`,
+      19,
+    ],
+    [
+      'structuredClone of an array of numbers is its own array',
+      `export function f(): f32 { let a: array<f32, 2> = [1., 2.]; let b = structuredClone(a); b[0] = 9.; return a[0] * 10. + b[0]; }`,
+      19,
+    ],
+    [
+      'an object spread of a struct with no object field is its own object',
+      `${S}export function f(): f32 { let a: S = { x: 1., y: 2. }; let b: S = { ...a }; b.x = 9.; return a.x * 10. + b.x; }`,
+      19,
+    ],
+  ];
+  for (const [name, body, expected] of runs) {
+    it(`${name}: both halves, and the oracle`, () => {
+      const r = read(body);
+      expect(r.compiler).toEqual([]);
+      expect(r.editor).toEqual([]);
+      expect(r.value).toBe(expected);
+    });
+  }
+
+  it('refuses structuredClone of an instance of a class as not supported yet, in both halves', () => {
+    const r = read(
+      `${P}export function f(): f32 { let a = new P(); let b = structuredClone(a); b.x = 9.; return a.x; }`,
+    );
+    expect(r.compiler).toEqual([
+      'TS8099 structuredClone gives back a plain object with no methods for an instance of the class "P", which is not supported yet (change 0142, stage 3). To copy an instance, build one: new P(...), or a method of the class that returns a new one.',
+    ]);
+    expect(r.editor).toEqual(r.compiler);
+  });
+
+  it('refuses a lone spread of an array and names slice(), in both halves', () => {
+    const r = read(
+      `export function f(): f32 { const a: array<f32, 3> = [1., 2., 3.]; let b = [...a]; b[0] = 9.; return a[0] + b[0]; }`,
+    );
+    expect(r.compiler).toEqual([
+      'TS8013 "...a" spreads a list into a list, which a shader array does not do: write its elements, a[0], a[1], a[2], or a.slice() for a copy of the whole array.',
+    ]);
+    expect(r.editor).toEqual(r.compiler);
+  });
+});
+
 describe('a value stays a value (change 0142, decision 1)', () => {
   it('refuses a write through a vector parameter, in both halves', () => {
     const r = read(`function h(v: vec3f): f32 { v.x = 1.; return v.x; }

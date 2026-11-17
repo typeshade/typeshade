@@ -219,7 +219,7 @@ describe('what a list is refused for', () => {
     );
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
       'TS8013 "...a" spreads a list into a list, which a shader array does not do: write its ' +
-        'elements, a[0], a[1].',
+        'elements, a[0], a[1], or a.slice() for a copy of the whole array.',
     ]);
   });
 
