@@ -194,7 +194,6 @@
   "src/core/passes/opt/gvn.test.ts": 1202,
   "src/core/passes/opt/pass-skeleton-differential.test.ts": 433,
   "src/core/passes/opt/unroll.test.ts": 784,
-  "src/core/passes/opt/unroll.ts": 462,
   "src/core/passes/parallel-loop.test.ts": 934,
   "src/core/passes/parallel-loop.ts": 1411,
   "src/core/passes/phase-split.ts": 1039,
