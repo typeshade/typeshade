@@ -34,6 +34,8 @@ type Fn = ts.FunctionLikeDeclaration;
 interface Share {
   readonly part: boolean;
   readonly place: ts.Expression | undefined;
+  /** Whether one value holds the object at two places: `[a, a]`, `new B(a, a)`. */
+  readonly twice?: boolean;
 }
 type Shares = Map<string, Share>;
 
@@ -44,8 +46,8 @@ const add = (into: Shares, from: Shares, asPart = false, keepPlace = true): void
     into.set(
       k,
       had === undefined
-        ? { part, place: asPart || !keepPlace ? undefined : share.place }
-        : { part: had.part && part, place: undefined },
+        ? { part, place: asPart || !keepPlace ? undefined : share.place, twice: share.twice }
+        : { part: had.part && part, place: undefined, twice: had.twice === true || asPart },
     );
   }
 };
@@ -117,6 +119,45 @@ function membersNamed(name: string, sourceFile: ts.SourceFile): readonly ts.Node
   return byName.get(name) ?? [];
 }
 const MEMBERS = new WeakMap<ts.SourceFile, Map<string, ts.Node[]>>();
+
+/** Whether every member named `name` in the file is a field: no getter and no method. A name
+ *  the file does not declare is a builtin's, which is read as no field. */
+function isField(name: string, sourceFile: ts.SourceFile): boolean {
+  const members = membersNamed(name, sourceFile);
+  return (
+    members.length > 0 &&
+    members.every(
+      (m) => ts.isPropertyDeclaration(m) || ts.isPropertySignature(m) || ts.isParameter(m),
+    )
+  );
+}
+
+/** Whether `e` is a place the source names step by step: a name or `this`, then fields and
+ *  elements. A getter, a method and a call in the chain may give any object. */
+function isPlainPlace(e: ts.Expression, sourceFile: ts.SourceFile): boolean {
+  let at = bare(e);
+  for (;;) {
+    if (ts.isIdentifier(at) || at.kind === ts.SyntaxKind.ThisKeyword) return true;
+    if (ts.isPropertyAccessExpression(at)) {
+      if (!isField(at.name.text, sourceFile)) return false;
+      at = bare(at.expression);
+    } else if (ts.isElementAccessExpression(at)) at = bare(at.expression);
+    else return false;
+  }
+}
+
+/** The array methods of ECMAScript that give back a number, a `bool` or nothing. */
+const VALUE_METHODS = new Set([
+  'indexOf',
+  'lastIndexOf',
+  'includes',
+  'some',
+  'every',
+  'findIndex',
+  'forEach',
+  'push',
+  'join',
+]);
 
 /** The element type an array type is written with. */
 function elementType(type: ts.TypeNode | undefined): ts.TypeNode | undefined {
@@ -352,11 +393,31 @@ class Reader {
       const callee = fileFunction(x, this.sourceFile);
       if (callee !== undefined)
         return callee.type === undefined || writesAnObject(callee.type, this.sourceFile);
+      const local = this.localFunction(x);
+      if (local !== undefined)
+        return local.type === undefined || writesAnObject(local.type, this.sourceFile);
       if (ts.isPropertyAccessExpression(x.expression)) {
-        const methods = membersNamed(x.expression.name.text, this.sourceFile).filter(
+        const name = x.expression.name.text;
+        const methods = membersNamed(name, this.sourceFile).filter(
           (m) => ts.isMethodDeclaration(m) || ts.isMethodSignature(m),
         ) as ts.MethodDeclaration[];
-        return methods.some((m) => m.type === undefined || writesAnObject(m.type, this.sourceFile));
+        if (methods.length > 0)
+          return methods.some(
+            (m) => m.type === undefined || writesAnObject(m.type, this.sourceFile),
+          );
+        // A method of an array: `map` gives what its function gives, `reduce` what it starts
+        // from, and any other one that is not known to give a value may give an element.
+        if (!this.isObject(x.expression.expression) || VALUE_METHODS.has(name)) return false;
+        const f = x.arguments[0] === undefined ? undefined : bare(x.arguments[0]);
+        if (name === 'map' && f !== undefined && ts.isArrowFunction(f)) {
+          if (f.type !== undefined) return writesAnObject(f.type, this.sourceFile);
+          return ts.isBlock(f.body) || this.isObject(f.body);
+        }
+        if (name === 'reduce' || name === 'reduceRight') {
+          const start = x.arguments[1];
+          return start === undefined || this.isObject(start);
+        }
+        return true;
       }
       return false;
     }
@@ -379,8 +440,12 @@ class Reader {
       if (!this.isObject(x)) return out;
       const root = rootOf(x);
       if (root !== undefined) {
+        // A getter in the chain may give any object the root holds, so the place is not known.
         if (this.declOf(root.name.text, root.name) !== undefined)
-          out.set(root.name.text, { part: false, place: x });
+          out.set(root.name.text, {
+            part: false,
+            place: isPlainPlace(x, this.sourceFile) ? x : undefined,
+          });
       } else {
         let at: ts.Expression = x;
         while (ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at))
@@ -436,28 +501,82 @@ class Reader {
       const callee = fileFunction(x, this.sourceFile);
       if (callee !== undefined) {
         const s = summaryOf(callee, this.sourceFile);
-        for (const [i, part] of s.result) {
+        for (const i of s.result.keys()) {
           const a = x.arguments[i];
-          // The result is the argument's own object only where every `return` names it.
-          if (a !== undefined) add(out, this.shares(a), part, s.exact === i);
+          // The result is the argument's own object only where every `return` names it. In any
+          // other case it may be the object or hold it, and is read as the object.
+          if (a !== undefined) add(out, this.shares(a), false, s.exact === i);
         }
         return out;
       }
-      // A method that returns an object may return its own object, a part of it, or an argument.
+      // A function declared inside this one may give back an argument, or an object it reads
+      // from the function around it.
+      const local = this.localFunction(x);
+      if (local !== undefined) {
+        for (const a of x.arguments) add(out, this.shares(a), false, false);
+        for (const name of this.outerObjectsOf(local))
+          out.set(name, { part: false, place: undefined });
+        return out;
+      }
       if (ts.isPropertyAccessExpression(x.expression)) {
         const method = x.expression.name.text;
+        const receiver = x.expression.expression;
+        const ofFile = membersNamed(method, this.sourceFile).length > 0;
         // `xs.slice()` is a new array of the same elements (Table 3).
-        const fresh = method === 'slice' && membersNamed(method, this.sourceFile).length === 0;
+        const fresh = method === 'slice' && !ofFile;
         if (fresh) {
-          const elem = elementType(this.typeOf(x.expression.expression));
+          const elem = elementType(this.typeOf(receiver));
           if (elem !== undefined && !writesAnObject(elem, this.sourceFile)) return out;
         }
-        add(out, this.shares(x.expression.expression), fresh, false);
+        // A method that returns an object may return its own object, a part of it, or an
+        // argument; so may a method of an array that takes a function (`map`, `reduce`).
+        add(out, this.shares(receiver), fresh, false);
       }
       for (const a of x.arguments) add(out, this.shares(a), false, false);
       return out;
     }
     return out;
+  }
+
+  /** The function declared inside this one that a call written `g(...)` names. */
+  localFunction(call: ts.CallExpression): ts.FunctionLikeDeclaration | undefined {
+    const callee = bare(call.expression);
+    if (!ts.isIdentifier(callee)) return undefined;
+    const d = this.declOf(callee.text, callee);
+    if (d !== undefined && ts.isVariableDeclaration(d) && d.initializer !== undefined) {
+      const f = bare(d.initializer);
+      if (ts.isArrowFunction(f) || ts.isFunctionExpression(f)) return f;
+    }
+    for (
+      let scope: ts.Node | undefined = callee.parent;
+      scope !== undefined;
+      scope = scope.parent
+    ) {
+      if (!ts.isBlock(scope)) continue;
+      for (const st of scope.statements) {
+        if (ts.isFunctionDeclaration(st) && st.name?.text === callee.text && st.body) return st;
+      }
+    }
+    return undefined;
+  }
+
+  /** The object variables of the functions around `local` that its body names. */
+  outerObjectsOf(local: ts.FunctionLikeDeclaration): string[] {
+    const own = new Set<string>();
+    const names = new Set<string>();
+    const visit = (n: ts.Node): void => {
+      if ((ts.isParameter(n) || ts.isVariableDeclaration(n)) && ts.isIdentifier(n.name))
+        own.add(n.name.text);
+      if (
+        ts.isIdentifier(n) &&
+        !(ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) &&
+        this.isObject(n)
+      )
+        names.add(n.text);
+      ts.forEachChild(n, visit);
+    };
+    visit(local);
+    return [...names].filter((n) => !own.has(n));
   }
 
   /** Whether the object `e` names has a field that is an object, as far as the source says. */
@@ -613,6 +732,20 @@ function storesOf(fn: Fn, reader: Reader): Store[] {
         }
         return;
       }
+      // A function declared inside this one may keep an argument in an object of the function
+      // around it that its body names.
+      const local = reader.localFunction(n);
+      if (local !== undefined) {
+        const shares: Shares = new Map();
+        for (const a of n.arguments) add(shares, reader.shares(a), true);
+        if (shares.size > 0) {
+          for (const dest of reader.outerObjectsOf(local)) {
+            if (!shares.has(dest))
+              out.push({ node: n, dest, whole: false, shares, isConst: false });
+          }
+        }
+        return;
+      }
       // `xs.push(p)`, `xs.fill(p)` and a method of the file that writes its object may keep an
       // argument in it.
       if (ts.isPropertyAccessExpression(n.expression)) {
@@ -723,6 +856,8 @@ export interface SharedObject {
   readonly written: string;
   /** Whether `dest` would name the object itself, not an aggregate that holds it. */
   readonly whole: boolean;
+  /** The whole sentence, where the store is none of the shapes the other fields word. */
+  readonly text?: string;
 }
 
 /** The loops around `n`, inside `body`. */
@@ -751,7 +886,6 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
   if (body === undefined) return out;
   const reader = new Reader(fn, sourceFile);
   const stores = storesOf(fn, reader);
-  if (stores.length === 0) return out;
   const params = new Set(
     fn.parameters.flatMap((p) => (ts.isIdentifier(p.name) ? [p.name.text] : [])),
   );
@@ -771,17 +905,27 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
     anytime: boolean;
   }[] = [];
   const mentions: { name: string; node: ts.Node; anytime: boolean }[] = [];
+  const calls: SharedObject[] = [];
   const declared = new Map<string, ts.Node>();
   // The object a name is a second name of: `const q = p`, `let b = f(a)`, and the array a
   // `for (const q of ps)` names an element of. A write through the name writes that object.
-  const namedFrom = new Map<string, { root: string; element: boolean }>();
+  const namedFrom = new Map<string, Set<string>>();
+  const nameFrom = (name: string, root: string): void => {
+    const roots = namedFrom.get(name) ?? new Set<string>();
+    roots.add(root);
+    namedFrom.set(name, roots);
+  };
   const through = (name: string): { name: string; derived: boolean }[] => {
+    // Two variables of one name in two blocks are read as one, which names every object either
+    // may name.
     const all = [{ name, derived: false }];
     const seen = new Set([name]);
-    for (let at = namedFrom.get(name); at !== undefined && !seen.has(at.root);) {
-      seen.add(at.root);
-      all.push({ name: at.root, derived: true });
-      at = namedFrom.get(at.root);
+    for (const at of all) {
+      for (const root of namedFrom.get(at.name) ?? []) {
+        if (seen.has(root)) continue;
+        seen.add(root);
+        all.push({ name: root, derived: true });
+      }
     }
     return all;
   };
@@ -814,7 +958,7 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
         name: via.name,
         node,
         deep: deep || via.derived,
-        place: via.derived ? undefined : place,
+        place: via.derived || !isPlainPlace(place, sourceFile) ? undefined : place,
         replaces: via.derived ? false : replaces,
         anytime,
       });
@@ -826,8 +970,7 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
       if (n.initializer !== undefined) {
         const init = bare(n.initializer);
         const from = ts.isIdentifier(init) ? init : aliasedCall(n, sourceFile)?.argument;
-        if (from !== undefined && reader.isObject(from))
-          namedFrom.set(n.name.text, { root: from.text, element: false });
+        if (from !== undefined && reader.isObject(from)) nameFrom(n.name.text, from.text);
       }
     }
     if (ts.isForOfStatement(n) && ts.isVariableDeclarationList(n.initializer)) {
@@ -839,7 +982,7 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
         root !== undefined &&
         reader.isObject(d.name)
       )
-        namedFrom.set(d.name.text, { root: root.name.text, element: true });
+        nameFrom(d.name.text, root.name.text);
     }
     ts.forEachChild(n, names);
   };
@@ -867,11 +1010,49 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
           const q = callee.parameters[i];
           if (q !== undefined && takesThePlace(q, sourceFile)) noteWrite(a, n, false, inner, true);
         });
+        // One object handed twice, where the callee writes one of the two and one argument is
+        // no plain place (`w(a, id(a))`, `w(k.c, k.get())`, `g(a, [a])`): the check of two
+        // places of one root (`TS8074`) does not see it.
+        const namesOf = (a: ts.Expression): Set<string> => {
+          const all = new Set(reader.shares(a).keys());
+          const root = rootOf(a);
+          if (root !== undefined) all.add(root.name.text);
+          return all;
+        };
+        n.arguments.forEach((a, i) => {
+          const q = callee.parameters[i];
+          if (q === undefined || !takesThePlace(q, sourceFile)) return;
+          const mine = namesOf(a);
+          n.arguments.forEach((b, j) => {
+            if (j === i) return;
+            if (isPlainPlace(a, sourceFile) && isPlainPlace(b, sourceFile)) return;
+            const shared = [...namesOf(b)].find((name) => mine.has(name));
+            if (shared === undefined) return;
+            calls.push({
+              node: n,
+              held: shared,
+              dest: undefined,
+              written: shared,
+              whole: true,
+              text:
+                `This call hands the object "${shared}" names to "${callee.name?.text ?? ''}" ` +
+                `twice, and "${callee.name?.text ?? ''}" writes one of the two: one object ` +
+                `under two names, which is not supported yet (change 0142, stage 2). Pass two ` +
+                `objects, or give the function one parameter for it.`,
+            });
+          });
+        });
       }
     }
     ts.forEachChild(n, (c) => collect(c, inner));
   };
   collect(body, false);
+  const said = new Set<ts.Node>();
+  for (const c of calls) {
+    if (said.has(c.node)) continue;
+    said.add(c.node);
+    out.push(c);
+  }
   // What each name holds, through every store of the body: a name that holds a name that holds
   // an object holds that object.
   const holds = new Map<string, Set<string>>();
@@ -885,8 +1066,7 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
     const all = new Set(first);
     for (const name of all) {
       for (const inner of holds.get(name) ?? []) all.add(inner);
-      const from = namedFrom.get(name);
-      if (from !== undefined) all.add(from.root);
+      for (const root of namedFrom.get(name) ?? []) all.add(root);
     }
     return [...all];
   };
@@ -899,7 +1079,10 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
     at: ts.Node,
     ...living: (string | undefined)[]
   ): boolean => {
-    if (within(node, at)) return false;
+    // The store's own write is the store. Any other write inside the storing statement may run
+    // after the object is taken: `new B(a, bump(a))`.
+    if (node === at) return false;
+    if (within(node, at)) return true;
     if (anytime || node.getStart() >= at.end) return true;
     const lives = (loop: ts.Node): boolean =>
       living.every((name) => {
@@ -918,20 +1101,29 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
   ): boolean => {
     if (!s.whole || s.dest === undefined || place === undefined || w.place === undefined)
       return true;
+    if (!isPlainPlace(place, sourceFile) || !isPlainPlace(w.place, sourceFile)) return true;
     const suffix = stepsOf(w.place).slice(stepsOf(place).length);
     if (suffix.length === 0) return true;
     return mentions.some((m) => {
       if (m.name !== s.dest || m.node === s.node) return false;
       if (within(m.node, s.node)) return false;
       // A read inside the writing statement itself runs before the write.
+      if (within(m.node, w.node)) return false;
       if (!after(m.node, m.anytime, w.node, s.dest)) return false;
       // The place read through the name: `p.tag` for the `p` of `p.tag`.
       let read: ts.Node = m.node;
       while (
         (ts.isPropertyAccessExpression(read.parent) || ts.isElementAccessExpression(read.parent)) &&
         read.parent.expression === read
-      )
+      ) {
+        // A getter, a method and a builtin's member read the object whole.
+        if (
+          ts.isPropertyAccessExpression(read.parent) &&
+          !isField(read.parent.name.text, sourceFile)
+        )
+          return true;
         read = read.parent;
+      }
       const steps = stepsOf(read as ts.Expression);
       for (let i = 0; i < Math.min(steps.length, suffix.length); i++) {
         const a = steps[i];
@@ -976,9 +1168,13 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
       const others = stores.flatMap((o) =>
         o.dest !== undefined && o.dest !== dest && o.shares.has(held) ? [o.dest] : [],
       );
+      // An object one value holds at two places, or one that another holder keeps, is seen
+      // through the other place whether or not a name of it is written again.
       const seen =
         params.has(held) ||
         held === 'this' ||
+        s.shares.get(held)?.twice === true ||
+        others.length > 0 ||
         mentions.some(
           (m) =>
             (m.name === held || others.includes(m.name)) &&
@@ -1029,6 +1225,8 @@ export function namesShared(
 export interface ReassignedObject {
   readonly node: ts.Node;
   readonly name: string;
+  /** For a loop name: the array the loop reads, which `node` writes inside the loop. */
+  readonly array?: string;
 }
 
 export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): ReassignedObject[] {
@@ -1050,6 +1248,40 @@ export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): Reassigned
       if (d !== undefined && ts.isIdentifier(d.name) && reader.isObject(d.name))
         candidates.push({ name: d.name.text, scope: n.statement });
     }
+  });
+  // `for (const e of xs)` names each element of `xs` as the loop finds it. A body that assigns
+  // the array whole, puts another object at an element, or hands the array to a function that
+  // writes it changes which object the name should be, which the compiler does not follow.
+  eachOwn(body, (n) => {
+    if (!ts.isForOfStatement(n) || !ts.isVariableDeclarationList(n.initializer)) return;
+    const d = n.initializer.declarations[0];
+    const root = rootOf(n.expression);
+    if (d === undefined || !ts.isIdentifier(d.name) || root === undefined) return;
+    if (!reader.isObject(d.name)) return;
+    const array = root.name.text;
+    let replaced: ts.Node | undefined;
+    const scan = (m: ts.Node): void => {
+      if (replaced !== undefined) return;
+      if (ts.isBinaryExpression(m) && m.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+        for (const target of writeTargets(m)) {
+          const t = rootOf(target);
+          if (t === undefined || t.name.text !== array) continue;
+          // The array whole, or an element whole: the last step is an element.
+          if (t.whole || ts.isElementAccessExpression(bare(target))) replaced = m;
+        }
+      }
+      if (ts.isCallExpression(m)) {
+        const callee = fileFunction(m, sourceFile);
+        m.arguments.forEach((a, i) => {
+          const q = callee?.parameters[i];
+          if (q !== undefined && takesThePlace(q, sourceFile) && rootOf(a)?.name.text === array)
+            replaced = m;
+        });
+      }
+      ts.forEachChild(m, scan);
+    };
+    scan(n.statement);
+    if (replaced !== undefined) out.push({ node: replaced, name: d.name.text, array });
   });
   for (const { name, scope } of candidates) {
     const w = objectWrites(name, scope, sourceFile);

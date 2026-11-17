@@ -267,6 +267,35 @@ function rootOf(e: Expr): string | undefined {
   }
 }
 
+/** The steps of a place from its root: a field's name, or an element's index where it is a
+ *  literal. */
+function stepsOfPlace(e: Expr): (string | number | undefined)[] {
+  const steps: (string | number | undefined)[] = [];
+  for (let at = e; at.op === 'member' || at.op === 'index'; at = at.base) {
+    if (at.op === 'member') steps.unshift(at.field);
+    else
+      steps.unshift(
+        at.idx.op === 'lit' && typeof at.idx.value === 'number' ? at.idx.value : undefined,
+      );
+  }
+  return steps;
+}
+
+/** Whether two places of one root are two parts that share nothing: they part at two fields of
+ *  different names, or at two elements of different literal indexes. */
+function partAtOnce(a: Expr, b: Expr): boolean {
+  const x = stepsOfPlace(a);
+  const y = stepsOfPlace(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const p = x[i];
+    const q = y[i];
+    if (typeof p === 'string' || typeof q === 'string') {
+      if (p !== q) return true;
+    } else if (p !== undefined && q !== undefined && p !== q) return true;
+  }
+  return false;
+}
+
 /** Two references to one place in one call, refused where the call is written (Rule 8.25).
  *
  *  Every argument a callee takes by reference counts: a written object parameter's, the object of a
@@ -318,7 +347,7 @@ export function checkReferenceAliases(
       if (callee === undefined) return;
       const written = writes.get(callee.name) ?? new Set<string>();
       const touched = new Set([...(reads.get(callee.name) ?? []), ...written]);
-      const refs: { root: string; writes: boolean }[] = [];
+      const refs: { root: string; writes: boolean; place: Expr; taken: boolean }[] = [];
       callee.params.forEach((p, i) => {
         // An object the callee only reads is one of the names too: in JavaScript it is the
         // object the other parameter writes, and a copy of it would not show the write.
@@ -326,7 +355,12 @@ export function checkReferenceAliases(
         if (p.mode !== 'inout' && !object) return;
         const root = x.args[i] === undefined ? undefined : rootOf(x.args[i]!);
         if (root !== undefined)
-          refs.push({ root, writes: p.mode === 'inout' && written.has(p.name) });
+          refs.push({
+            root,
+            writes: p.mode === 'inout' && written.has(p.name),
+            place: x.args[i]!,
+            taken: p.mode === 'inout',
+          });
       });
       const report = (message: string): void => {
         const span = sourceSpanOf(x);
@@ -341,6 +375,10 @@ export function checkReferenceAliases(
       for (let i = 0; i < refs.length; i++) {
         for (let j = i + 1; j < refs.length; j++) {
           if (refs[i]!.root !== refs[j]!.root || !(refs[i]!.writes || refs[j]!.writes)) continue;
+          // An object the callee only reads is a copy, which is the object where the two places
+          // are two parts of the root that share nothing: `w(b.p, b.q)`, `w(xs[0], xs[1])`.
+          if (!(refs[i]!.taken && refs[j]!.taken) && partAtOnce(refs[i]!.place, refs[j]!.place))
+            continue;
           report(
             `This call hands "${refs[i]!.root}" to "${shown}" twice, and "${shown}" writes one ` +
               `of the two: one object under two names inside "${shown}", which is not ` +

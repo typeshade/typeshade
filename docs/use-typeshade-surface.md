@@ -10945,6 +10945,11 @@ assigned another object here, after a write to the object it named until now. A 
 naming the caller's object part of the way through is not supported yet (change 0142, stage 2).
 Declare a local for the other object.` A loop name, `for (let p of ps)`, follows the same rule.
 
+**A loop that changes its array.** `for (const e of xs)` names each element as the loop finds
+it. A body that assigns `xs` whole, puts another object at an element (`xs[k] = new P()`), or
+hands `xs` to a function that writes it, is `TS8099`, not supported yet (change 0142, stage 2).
+The sentence names the loop over the indexes to write in its place.
+
 **A second name.** An object that a second name holds is one object, as in JavaScript:
 
 - `const q = p` and `let q = p`, with `q` not assigned again, name the object of `p`;

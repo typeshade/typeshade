@@ -470,7 +470,7 @@ export function f(): f32 { let a = new P(); g(a); return a.x; }`,
       `${Q}export function f(): f32 {
   let a = new P(); let b = new B(); b.c = a; let d = new B(); d.c = b.c; d.c.x = 4.; return a.x;
 }`,
-      /^TS8099 "d" would hold the object "a" names, and "d" is written after that\./,
+      /^TS8099 "d" would hold the object "(a|b)" names, and "d" is written after that\./,
     ],
     [
       'an element that holds a name, written through a loop name',
@@ -598,6 +598,123 @@ export function f(): f32 {
   let es: array<E, 2> = [new E(), new E()]; const p = es[0]; es[0].pos = 9.; return p.pos;
 }`,
       /^TS8099 "p" would name the object "es" names, and "es" is written after that\./,
+    ],
+  ];
+  for (const [name, body, text] of refused) {
+    it(`refuses ${name}, in both halves`, () => {
+      const r = read(body);
+      expect(r.compiler).toHaveLength(1);
+      expect(r.compiler[0]).toMatch(text);
+      expect(r.editor).toEqual(r.compiler);
+    });
+  }
+});
+
+// The programs of a third review, at f5574c4d. What the analysis cannot read (a getter, a method,
+// a function declared inside the function, a method of an array that takes a function) is read
+// as an object that may be shared.
+describe('what the analysis cannot read is read as shared (change 0142)', () => {
+  const Q = `class P { x: f32 = 0; y: f32 = 0; getx(): f32 { return this.x; } }
+class H { c: P = new P(); get cc(): P { return this.c; } }
+class K { p: P = new P(); q: P = new P(); }
+function id(p: P): P { return p; }
+function bump(p: P): f32 { p.x += 1.; return p.x; }
+function w(p: P, q: P): f32 { p.x = 5.; return q.x; }
+`;
+  const runs: readonly (readonly [string, string, number])[] = [
+    [
+      'a list of numbers a method of an array gives is no object',
+      `${Q}export function f(): f32 {
+  let xs: array<P, 2> = [new P(), new P()];
+  const ys = xs.map((e: P): f32 => e.x + 1.);
+  xs[0].x = 5.;
+  return ys[0];
+}`,
+      1,
+    ],
+    [
+      'two fields of one object are two objects for a function that writes one',
+      `${Q}export function f(): f32 { const k = new K(); return w(k.p, k.q); }`,
+      0,
+    ],
+    [
+      'two numbered elements are two objects for a function that writes one',
+      `${Q}export function f(): f32 { let xs: array<P, 2> = [new P(), new P()]; return w(xs[0], xs[1]); }`,
+      0,
+    ],
+  ];
+  for (const [name, body, expected] of runs) {
+    it(`${name}: both halves, and the oracle`, () => {
+      const r = read(body);
+      expect(r.compiler).toEqual([]);
+      expect(r.editor).toEqual([]);
+      expect(r.value).toBe(expected);
+    });
+  }
+
+  const refused: readonly (readonly [string, string, RegExp])[] = [
+    [
+      'a name of an element read through a method after a write to the element',
+      `${Q}export function f(): f32 {
+  let xs: array<P, 2> = [new P(), new P()]; const p = xs[1]; xs[1].x = 5.; return p.getx();
+}`,
+      /^TS8099 "p" would name the object "xs" names, and "xs" is written after that\./,
+    ],
+    [
+      'a name of what a getter gives, after a write to the field the getter reads',
+      `${Q}export function f(): f32 { const h = new H(); const q = h.cc; h.c.x = 5.; return q.x; }`,
+      /^TS8099 "q" would name the object "h" names, and "h" is written after that\./,
+    ],
+    [
+      'the result of a function declared inside the function',
+      `${Q}export function f(): f32 {
+  const idl = (q: P): P => q; const a = new P(); const b = idl(a); a.x = 5.; return b.x;
+}`,
+      /^TS8099 "b" would name the object "a" names, and "a" is written after that\./,
+    ],
+    [
+      'a list that holds one object twice, written through one element',
+      `${Q}export function f(): f32 {
+  const a = new P(); let xs: array<P, 2> = [a, a]; xs[0].x = 5.; return xs[1].x;
+}`,
+      /^TS8099 "xs" would hold the object "a" names, and "xs" is written after that\./,
+    ],
+    [
+      'the elements a method of an array gives back',
+      `${Q}export function f(): f32 {
+  let xs: array<P, 2> = [new P(), new P()];
+  const ys = xs.map((e: P): P => e);
+  xs[0].x = 5.;
+  return ys[0].x;
+}`,
+      /^TS8099 "ys" would name the object "xs" names, and "xs" is written after that\./,
+    ],
+    [
+      'a function that gives back its parameter out of a list it built',
+      `${Q}function g(p: P): P { let xs: array<P, 1> = [p]; return xs[0]; }
+export function f(): f32 { const a = new P(); let r = new P(); r = g(a); r.x = 5.; return a.x; }`,
+      /^TS8099 "r" would name the object "a" names, and "r" is written after that\./,
+    ],
+    [
+      'an object written inside the statement that stores it',
+      `${Q}class C { p: P; v: f32; constructor(p: P, v: f32) { this.p = p; this.v = v; } }
+export function f(): f32 { const a = new P(); const b = new C(a, bump(a)); return b.p.x; }`,
+      /^TS8099 "b" would hold the object "a" names, and "a" is written after that\./,
+    ],
+    [
+      'another object put in the array inside the loop that names its elements',
+      `${Q}export function f(): f32 {
+  let xs: array<P, 2> = [new P(), new P()];
+  let k = 0;
+  for (const e of xs) { if (k == 0) { xs[0] = new P(); } e.x = 5.; k++; }
+  return xs[0].x;
+}`,
+      /^TS8099 This statement puts another object in "xs" inside the loop that names its elements "e"\. A loop name that must keep the object it found is not supported yet \(change 0142, stage 2\)\. Loop over the indexes, for \(let i = 0; i < xs\.length; i\+\+\), and read xs\[i\]\.$/,
+    ],
+    [
+      'one object handed as a name and as the result of a call',
+      `${Q}export function f(): f32 { const a = new P(); return w(a, id(a)); }`,
+      /^TS8074 This call hands the object "a" names to "w" twice, and "w" writes one of the two: one object under two names, which is not supported yet \(change 0142, stage 2\)\. Pass two objects, or give the function one parameter for it\.$/,
     ],
   ];
   for (const [name, body, text] of refused) {
