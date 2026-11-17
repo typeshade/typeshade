@@ -1,21 +1,20 @@
-// ═══ Parameter qualifiers: `@inout` and `@out` (Rule 8.25, surface §70, proposal 0040) ═══
+// ═══ An object parameter that is the caller's object (Rule 8.8, change 0142, stage 1) ═══
 //
-// A function of the file may take the caller's place instead of a copy of its value: `@inout p:
-// T` or `@out p: T` on the parameter, and the variable itself, unmarked, at the call. The model is
-// the one a method that changes its object already has (Rule 8.10): the IR marks the parameter
-// `mode: 'inout'`, the callee's body reads and writes it as a local, and each target spells it its
-// own way, a pointer on WGSL (`swap(&x, &y)`, `*a = *b`), an `inout` qualifier on GLSL ES 3.00, a
-// copy in and a store back on the CPU. Nothing new reaches the IR: `@out`'s definite writes
-// (`definite.ts`) make it equal to `@inout` on every target.
+// A function of the file may take the caller's place instead of a copy of its value: an object
+// parameter that its function writes (`object-reference.ts`), and the variable itself at the call.
+// The model is the one a method that changes its object already has (Rule 8.10): the IR marks the
+// parameter `mode: 'inout'`, the callee's body reads and writes it as a local, and each target
+// spells it its own way, a pointer on WGSL (`swap(&x, &y)`, `*a = *b`), an `inout` qualifier on
+// GLSL ES 3.00, a copy in and a store back on the CPU.
 //
 // This file is the front end's half that is new: what such a parameter may be handed (the place
-// rule a method's object already follows), which parameters are `@out`, and the one check a call
-// with references gets, two references to one place (`checkReferenceAliases`).
+// rule a method's object already follows), and the one check a call with references gets, two
+// references to one place (`checkReferenceAliases`). A written `@inout` or `@out` is refused
+// (`TS8073`, `decorated-form.ts`).
 
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import { namesShared } from '../object-share.js';
-import { attributeDecoratorsOf } from '../attribute-types.js';
 import type {
   BindingDecl,
   Expr,
@@ -41,46 +40,18 @@ import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
 import { lowerExpression } from './expression.js';
 import { lowerLValue } from './statement.js';
-import { QUALIFIER_NAMES } from '../builtin-check.js';
 import { isWrittenObjectParameter } from '../object-reference.js';
 
-/** The parameters declared `@out`, which `definite.ts` holds to their definite writes and
- *  whose argument assigns the caller's local (proposal 0043). The IR keeps one mode for `@inout`
- *  and `@out`, so the front end keeps this mark beside it. */
-const OUT_PARAMS = new WeakSet<object>();
-
-/** Mark `param` as one written `@out`. */
-export function markOutParam(param: FuncDecl['params'][number]): void {
-  OUT_PARAMS.add(param);
-}
-
-/** Whether `param` was written `@out`. */
-export function isOutParam(param: FuncDecl['params'][number] | undefined): boolean {
-  return param !== undefined && OUT_PARAMS.has(param);
-}
-
-/** The qualifier decorators written on `p` (`@inout`, `@out`), in source order. */
-export function qualifiersOf(p: ts.ParameterDeclaration): { name: string; node: ts.Decorator }[] {
-  const out: { name: string; node: ts.Decorator }[] = [];
-  // With the qualifier the refused type form stands for, `x: inout<f32>`, so that its `TS8028`
-  // is the one diagnostic (change 0137; Rule 12.4).
-  for (const d of attributeDecoratorsOf(p)) {
-    if (ts.isIdentifier(d.expression) && QUALIFIER_NAMES.includes(d.expression.text)) {
-      out.push({ name: d.expression.text, node: d });
-    }
-  }
-  return out;
-}
-
-/** How `p` is passed when it names the caller's place: `'inout'` or `'out'` as written, `'inout'`
- *  for an object parameter that its function writes (change 0142, stage 1), or `undefined` for a
- *  value. */
+/** How `p` is passed when it names the caller's place: `'inout'` for an object parameter that its
+ *  function writes (change 0142, stage 1), or `undefined` for a value. A written `@inout` or
+ *  `@out` is refused (`TS8073`, `refuseRemovedQualifiers`) and read as no qualifier.
+ *
+ *  The narrowing walk reads this too: a call that hands a narrowed name to a parameter its
+ *  function writes ends the narrowing (Rule 7.10). */
 export function referenceOf(
   p: ts.ParameterDeclaration,
   sourceFile: ts.SourceFile = p.getSourceFile(),
-): 'inout' | 'out' | undefined {
-  const written = qualifiersOf(p)[0]?.name;
-  if (written === 'inout' || written === 'out') return written;
+): 'inout' | undefined {
   return isWrittenObjectParameter(p, sourceFile) ? 'inout' : undefined;
 }
 
@@ -116,8 +87,8 @@ export function fileFunctionCalled(
   return undefined;
 }
 
-/** Whether `call` hands its argument at `index` to an `@inout` or `@out` parameter of a function
- *  of the file. */
+/** Whether `call` hands its argument at `index` to a parameter of a function of the file that is
+ *  the caller's object. */
 export function writesThroughArgument(
   call: ts.CallExpression,
   index: number,
@@ -134,8 +105,8 @@ function bare(e: ts.Expression): ts.Expression {
   return x;
 }
 
-/** The argument an `@inout` or `@out` parameter takes, lowered as the place it names: `x`,
- *  `o.a`, `xs[i]`, `buf[i]` on a `read_write` storage binding, or a qualified parameter the
+/** The argument an object parameter that its function writes takes, lowered as the place it
+ *  names: `x`, `o.a`, `xs[i]`, `buf[i]` on a `read_write` storage binding, or a parameter the
  *  caller holds itself, passed on as it is. Anything else is refused, with the edit, having said
  *  why.
  *
@@ -155,12 +126,11 @@ export function lowerReferenceArgument(
     diagnostics.push(makeDiagnostic(sourceFile, node, message, TS_CODES.REFERENCE));
     return undefined;
   };
-  const qualifier = isOutParam(param) ? 'out' : 'inout';
   const takes =
-    `"${shown}" writes "${param.name}" back to the caller ` +
-    `(@${qualifier} ${param.name}: ${authorTypeText(param.type)})`;
+    `"${shown}" writes its parameter "${param.name}", the caller's object ` +
+    `(${param.name}: ${authorTypeText(param.type)})`;
   const place = bare(arg);
-  // A qualified parameter the caller holds is passed on as the same place (Rule 8.25), and so is
+  // A parameter that is the caller's object, held here, is passed on as the same place (Rule 8.25), and so is
   // one a local function captures, which the local function then takes by reference (Rule 8.17).
   if (ts.isIdentifier(place)) {
     const held = scope.resolve(place.text);
@@ -184,8 +154,7 @@ export function lowerReferenceArgument(
       return push(
         place,
         `${takes}, and "${root.text}" is a parameter that holds a copy of its caller's value, ` +
-          `which this function cannot hand on as a place. Declare it "@inout ${root.text}: ` +
-          `${authorTypeText(b.type)}" to pass its caller's place on, or copy it into a let.`,
+          `which this function cannot hand on as a place. Copy it into a let.`,
       );
     }
     // `const v = new V(); f(v)`: a `const` that holds a value nothing else does is written
@@ -300,7 +269,7 @@ function rootOf(e: Expr): string | undefined {
 
 /** Two references to one place in one call, refused where the call is written (Rule 8.25).
  *
- *  Every argument a callee takes by reference counts: an `@inout` or `@out` parameter's, the object of a
+ *  Every argument a callee takes by reference counts: a written object parameter's, the object of a
  *  method that changes it, and a variable a local function writes (Rules 8.10 and 8.17), which
  *  the IR carries alike as `mode: 'inout'`. Two of them whose places share a root, when the
  *  callee writes either, are one place reached two ways: WGSL's alias analysis refuses the

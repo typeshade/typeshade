@@ -47,15 +47,12 @@ export const ATTRIBUTE_NAMES: readonly string[] = [
   'interpolate',
   'invariant',
   'blend_src',
-  // Change 0040: GLSL's parameter qualifiers, which make a parameter name the caller's place
-  // (Rule 8.25). GLSL's third, `in`, is a reserved word TypeScript does not parse after `@`,
-  // and is the value a parameter already is.
-  'inout',
-  'out',
 ];
 
-/** The parameter qualifiers of {@link ATTRIBUTE_NAMES} (Rule 8.25), which `parseParams` reads. */
-export const QUALIFIER_NAMES: readonly string[] = ['inout', 'out'];
+/** The parameter qualifiers `@inout` and `@out`, which change 0142 removed. They are no attribute
+ *  name: `refuseRemovedQualifiers` (`decorated-form.ts`) refuses one on a parameter with `TS8073`,
+ *  so {@link checkAttributeName} stays silent there and says "unknown attribute" elsewhere. */
+export const REMOVED_QUALIFIER_NAMES: readonly string[] = ['inout', 'out'];
 
 /** The interpolation TYPES WGSL names, and the SAMPLINGS each admits. `flat` takes `first`
  *  or `either` and nothing else; `perspective` and `linear` take the three positions. A
@@ -166,10 +163,7 @@ export type AttributeSite =
 const SITE_ATTRIBUTES: Readonly<Partial<Record<AttributeSite, readonly string[]>>> = {
   'a function': ['vertex', 'fragment', 'compute'],
   "a namespace's function": ['vertex', 'fragment', 'compute'],
-  // A qualifier is read on any parameter, and `parseParams` refuses it, with `TS8073`, where a
-  // function takes its parameters by value (Rule 8.25).
-  'a parameter': ['builtin', 'location', 'interpolate', 'invariant', 'inout', 'out'],
-  'a parameter of a function that is not an entry': ['inout', 'out'],
+  'a parameter': ['builtin', 'location', 'interpolate', 'invariant'],
   'a struct field': ['builtin', 'location', 'interpolate', 'invariant', 'blend_src'],
 };
 
@@ -245,9 +239,19 @@ const ATTRIBUTE_TARGET: Readonly<Record<string, string>> = {
   interpolate: "an entry's input or output",
   invariant: "an entry's input or output",
   blend_src: "a field of a fragment entry's output",
-  inout: 'a parameter of a function',
-  out: 'a parameter of a function',
 };
+
+/** Whether `d` is a removed qualifier, `@inout` or `@out`, on a parameter of a function: the one
+ *  decorator `TS8073` refuses, so no other refusal says a second word about it (change 0142). */
+function isRemovedQualifierOnParameter(d: ts.Decorator): boolean {
+  const name = attributeNameOf(d);
+  return (
+    name !== undefined &&
+    REMOVED_QUALIFIER_NAMES.includes(name) &&
+    ts.isParameter(d.parent) &&
+    ts.isFunctionLike(d.parent.parent)
+  );
+}
 
 /** The decorator identifier `@name` or `@name(...)` reads off, or `undefined` for any other
  *  decorator shape (`@N.k`, `@(fragment)`), which no place reads as an attribute. */
@@ -609,6 +613,8 @@ function attributeRefusal(
         `"@name(...)". Remove it.`,
     };
   }
+  // A removed qualifier on a parameter is `TS8073`'s, once, at the decorator (change 0142).
+  if (isRemovedQualifierOnParameter(decorator)) return undefined;
   if (ATTRIBUTE_NAMES.includes(name)) {
     if (SITE_ATTRIBUTES[site]?.includes(name) === true) return undefined;
     if (site === 'a class' && STAGE_ATTRIBUTES.includes(name)) return undefined;
@@ -783,7 +789,8 @@ export function checkDeclarationDecorators(
     const site = unreadDecoratorSite(node);
     if (site !== undefined && ts.canHaveModifiers(node)) {
       for (const d of node.modifiers ?? []) {
-        if (ts.isDecorator(d)) diagnostics.push(unreadDecoratorRefusal(sourceFile, d, site));
+        if (ts.isDecorator(d) && !isRemovedQualifierOnParameter(d))
+          diagnostics.push(unreadDecoratorRefusal(sourceFile, d, site));
       }
     }
     ts.forEachChild(node, visit);

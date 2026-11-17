@@ -135,11 +135,9 @@ function isDecoratorOnTopLevelFunctionParameter(
 
 /**
  * Whether TS1206 sits on a parameter qualifier, `@inout` or `@out`, on a parameter of a function
- * declared at the top of the file or of a namespace, overloads included: the language's form
- * (Rule 8.25, change 0137), whatever else the file writes. TypeScript parses it and keeps the
- * parameter's type, references and rename; only its grammar report goes. The compiler checks
- * the qualifier itself (`TS8073`, `TS8074`, `TS8075`, and `TS8028` on an overload signature),
- * so no second checker reads it (Rule 1.7).
+ * declared at the top of the file or of a namespace, overloads included. Change 0142 removed the
+ * qualifiers, and the compiler refuses each with `TS8073` at the decorator, so TypeScript's
+ * grammar report is the same mistake (Rule 1.7, Rule 12.4).
  */
 function isQualifierOnModuleFunction(
   context: DiagnosticFilterContext,
@@ -1213,10 +1211,9 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
     code: 1206,
     reason:
       "A parameter qualifier, @inout or @out, on a parameter of a top-level or a namespace's " +
-      "function is the language's form (Rule 8.25, change 0137), in every file: TypeScript " +
-      "parses it and keeps the parameter's type, references and rename, and the compiler checks " +
-      "it (TS8073, TS8074, TS8075). Legacy decorators forbid a function's parameter as a target, " +
-      'and no compiler option relaxes that.',
+      'function is removed (change 0142), and the compiler refuses it with TS8073 at the ' +
+      "decorator, so TypeScript's grammar report is the same mistake. Legacy decorators forbid " +
+      "a function's parameter as a target, and no compiler option relaxes that.",
     when: isQualifierOnModuleFunction,
   },
   {
@@ -1366,9 +1363,7 @@ const TS_DIAGNOSTIC_FILTERS: readonly DiagnosticFilterRule[] = [
     code: 2454,
     reason:
       "The compiler reads a local before its assignment itself, by TypeScript's rule, and " +
-      'reports TS8075 where it does (Rule 7.6, proposal 0043), with one difference TypeScript ' +
-      'cannot see: an argument an `@out` parameter takes assigns the variable, so `let s: f32; ' +
-      'add(a, b, s); return s;` reads an assigned `s`. A module variable may be declared with ' +
+      'reports TS8075 where it does (Rule 7.6, proposal 0043). A module variable may be declared with ' +
       'no initializer, and it then starts at zero on every target (surface §24), where ' +
       "TypeScript 5.7 and later report every read. So TypeScript's TS2454 is dropped, and the " +
       "compiler's TS8075 is the one report.",
@@ -2748,7 +2743,7 @@ function isAboutRefusedOperation(
 
 /** The codes the compiler refuses a whole decorator with: `TS8028` for a name nothing reads
  *  there, `TS8024` for a malformed builtin argument, `TS8010` for `@align` or `@std140` it does
- *  not apply, `TS8035` for one on a method, and `TS8073` for a qualifier, `@inout` or `@out`,
+ *  not apply, `TS8035` for one on a method, and `TS8073` for a removed qualifier, `@inout` or `@out`,
  *  where a parameter takes its value only (an entry, a local function; Rule 8.25, change 0137). */
 const DECORATOR_REFUSALS: ReadonlySet<string> = new Set([
   TS_CODES.BUILTIN_NAME,
@@ -2849,6 +2844,23 @@ function isInRefusedDecorator(
   const declaration = node.parent;
   const siblings = ts.canHaveDecorators(declaration) ? (ts.getDecorators(declaration) ?? []) : [];
   return siblings.some((d) => refused(d, METHOD_DECORATOR_REFUSAL));
+}
+
+/** TypeScript's "Cannot find name" (TS2304, TS2552) for the name of a removed qualifier type form,
+ *  `inout<T>` or `out<T>`, which the ambient library no longer declares (change 0142). The
+ *  compiler's `TS8028` on the written form is the one diagnostic (Rule 12.4). */
+function isRemovedQualifierTypeName(
+  context: DiagnosticFilterContext,
+  diagnostic: TypeshadeDiagnostic,
+  compilerErrors: readonly TypeshadeDiagnostic[],
+): boolean {
+  if (diagnostic.code !== 2304 && diagnostic.code !== 2552) return false;
+  const node = nodeAtPosition(context.sourceFile, diagnostic.span.start);
+  if (!ts.isIdentifier(node) || !QUALIFIER_DECORATORS.has(node.text)) return false;
+  if (!ts.isTypeReferenceNode(node.parent) || node.parent.typeName !== node) return false;
+  return compilerErrors.some(
+    (error) => error.code === TS_CODES.ATTRIBUTE_NAME && within(diagnostic.span, error.span),
+  );
 }
 
 /** An IO attribute type's malformed argument or unknown builtin name is the compiler's refusal.
@@ -3076,6 +3088,7 @@ export function mergeDiagnostics(
     if (isInRefusedDecorator(context, diagnostic, compilerErrors)) return false;
     if (isAboutRefusedStageCall(context, diagnostic, compilerErrors)) return false;
     if (isAboutRefusedIoArgument(context, diagnostic, compilerErrors)) return false;
+    if (isRemovedQualifierTypeName(context, diagnostic, compilerErrors)) return false;
     if (isAboutRefusedBuiltinValue(context, diagnostic, refusedBuiltins, importedBuiltinRefusals))
       return false;
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;

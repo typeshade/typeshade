@@ -1,5 +1,7 @@
 // ═══ One object under two names (change 0142, Tables 1 and 3) ═══
 //
+// Implements: Rule 8.8, Rule 8.25 (docs/language-design.md; traced in reqs/).
+//
 // An object has the identity a JavaScript object has. A statement that stores an object another
 // name holds (`q = a`, `xs[0] = a`, `b.child = a`, `[a, a]`, `new B(a)`, a function that returns
 // its parameter) makes two names of one object in JavaScript. Where nothing writes the object

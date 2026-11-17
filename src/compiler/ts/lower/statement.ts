@@ -1180,6 +1180,18 @@ const isComposite = (t: ShaderType): boolean =>
 function buildsFreshValue(init: ts.Expression, lowered: Expr): boolean {
   if (lowered.op === 'construct') return true;
   let x = unwrapParens(init);
+  // `xs.slice()` and `structuredClone(v)` are JavaScript's copies (change 0142, Table 3).
+  if (ts.isCallExpression(x)) {
+    const callee = x.expression;
+    if (ts.isIdentifier(callee) && callee.text === 'structuredClone') return true;
+    if (
+      ts.isPropertyAccessExpression(callee) &&
+      callee.name.text === 'slice' &&
+      x.arguments.length === 0 &&
+      lowered.type.kind === 'array'
+    )
+      return true;
+  }
   while (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression)) {
     x = unwrapParens(x.expression.expression);
   }
@@ -1187,11 +1199,19 @@ function buildsFreshValue(init: ts.Expression, lowered: Expr): boolean {
 }
 
 /** Why a write through a `const` that holds a copy is refused (Rule 6.10). */
-export function constCopyWrite(name: string): string {
+export function constCopyWrite(name: string, type: ShaderType): string {
+  // A vector and a matrix are values: the const holds its own, and `let` is what makes a
+  // component of it writable.
+  if (type.kind !== 'struct' && type.kind !== 'array') {
+    return (
+      `"${name}" is a const, and a write to a component of it changes it. Declare it with let ` +
+      `to write it.`
+    );
+  }
   return (
-    `"${name}" is a const whose value may be one something else holds, which TypeScript would ` +
-    `change with it and a copy here would not. Declare it with let to write a copy, or write ` +
-    `through the value itself.`
+    `"${name}" is a const that may name an object something else holds, and "${name}" is ` +
+    `written. One object under two names is not supported yet here (change 0142, stage 2): a ` +
+    `copy would not show the write. Write through the name that holds the object.`
   );
 }
 
@@ -2695,7 +2715,7 @@ export function lowerLValue(
       sourceFile,
       node,
       into && rules.kind === 'local' && isComposite(rules.type)
-        ? constCopyWrite(node.text)
+        ? constCopyWrite(node.text, rules.type)
         : `Cannot assign to "${node.text}" — it is ${ro}.${writableRemedy(rules, sourceFile)}`,
       TS_CODES.CONST_ASSIGN,
     );
@@ -2957,12 +2977,19 @@ function checkRootNamed(
       diagnostics,
       sourceFile,
       node,
-      `Cannot write through parameter "${rootName}" — parameters are not writable. Use a local or storage.` +
-        // A value parameter is a copy; the caller's value changes through a reference, which a
-        // function of the file may take (Rule 8.25).
-        (mayTakeReference(node, rootName)
-          ? ` To change the caller's value, declare "@inout ${rootName}: ${authorTypeText(rules.type)}".`
-          : ''),
+      // An object parameter of a method, a constructor, a setter, a local function, a function
+      // passed as an argument and a generic function is the caller's object at stage 2 (change
+      // 0142, Table 2); a function of the file takes it today.
+      rules.type.kind === 'struct' || rules.type.kind === 'array'
+        ? `Cannot write through parameter "${rootName}": this kind of function does not take ` +
+            `the caller's object yet (change 0142, stage 2). A function of the file or of a ` +
+            `namespace does: move the write there, or return the new value.`
+        : `Cannot write through parameter "${rootName}" — parameters are not writable. Use a local or storage.` +
+            // A value parameter is a copy; the caller's value changes through the result, which
+            // a function of the file may give back (change 0142, decision 8).
+            (mayTakeReference(node, rootName)
+              ? ` To change the caller's value, return it, and write [a, b] = f(a, b) for more than one.`
+              : ''),
       TS_CODES.ASSIGN_TARGET,
     );
     return false;
@@ -2971,9 +2998,8 @@ function checkRootNamed(
 }
 
 /** Whether the function that declares the parameter `name`, the nearest one around `node`,
- *  may declare it `@inout` instead (Rule 8.25): a function declared at the top of the file or of
- *  a namespace, neither generic nor an entry. A method, an accessor, a constructor and a local
- *  function take values, so the remedy would name a refusal there. */
+ *  may give its value back (change 0142): a function declared at the top of the file or of a
+ *  namespace, neither generic nor an entry. */
 function mayTakeReference(node: ts.Node, name: string): boolean {
   for (let at: ts.Node = node; ; at = at.parent) {
     if (ts.isSourceFile(at)) return false;
@@ -3034,7 +3060,7 @@ function checkRootMutable(
       sourceFile,
       node,
       through && rules.kind === 'local' && isComposite(rules.type)
-        ? constCopyWrite(rootName)
+        ? constCopyWrite(rootName, rules.type)
         : `Cannot assign to "${rootName}" — it is ${readOnlyPhrase(rules.kind)}.` +
             writableRemedy(rules, sourceFile),
       TS_CODES.CONST_ASSIGN,
@@ -3252,8 +3278,9 @@ export function refuseParamWrite(
     diagnostics,
     sourceFile,
     node,
-    `Cannot assign to "${name}" — a parameter is a value, not a variable. Copy it ` +
-      `into a local first: "let ${name}_ = ${name};", then write that.`,
+    `Cannot assign to "${name}": a parameter that names another value from here on is not ` +
+      `supported yet in this position (change 0142, stage 2). Declare a local for the other ` +
+      `value: "let ${name}_ = …;", then use that.`,
     TS_CODES.ASSIGN_TARGET,
   );
 }

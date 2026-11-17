@@ -298,8 +298,8 @@ export function returnInto(m: ModuleDecl): ModuleDecl {
   };
   const funcs = m.funcs.map((f) => walk(f, varsOf(f)));
   // An `_into` copy writes through its `_dst`, which every call of it points at a local of its
-  // caller, so a call inside it that returns into `*_dst` can write there too. A parameter an
-  // author declared `@inout` may point at a module variable the callee reads by name, so it is
+  // caller, so a call inside it that returns into `*_dst` can write there too. A parameter
+  // that is the caller's object may point at a module variable the callee reads by name, so it is
   // never a destination. Walked until no new copy appears.
   const walked = new Set<string>();
   for (;;) {

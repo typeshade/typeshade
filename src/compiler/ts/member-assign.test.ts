@@ -362,7 +362,7 @@ export function f(a: f32): vec4 {
     `;
     expect(diagnose(src)).toBe(
       'Cannot write through parameter "v" — parameters are not writable. Use a local or storage. ' +
-        'To change the caller\'s value, declare "@inout v: vec3".',
+        "To change the caller's value, return it, and write [a, b] = f(a, b) for more than one.",
     );
     expect(code(src)).toBe('TS8018');
   });
@@ -380,7 +380,7 @@ export function f(a: f32): vec4 {
       }
     `;
     expect(diagnose(src)).toBe(
-      '"v" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to write a copy, or write through the value itself.',
+      '"v" is a const, and a write to a component of it changes it. Declare it with let to write it.',
     );
     expect(code(src)).toBe('TS8005');
   });

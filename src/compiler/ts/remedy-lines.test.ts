@@ -687,12 +687,6 @@ describe('every refusal that names a line is pinned above', () => {
       note: 'the resource that needs declare; the one sentence names a line, except for a resource with no type argument, where it names a `storage<...>` shape and the case above pins that',
     },
     {
-      file: 'definite.ts',
-      sites: 2,
-      lines: 0,
-      note: 'names the @out parameter to write (`Write "c" first`, `Write "c" on every path`): a variable to assign, not a line',
-    },
-    {
       file: 'generic-structs.ts',
       sites: 2,
       lines: 0,
@@ -766,9 +760,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'decorated-form.ts',
-      sites: 2,
+      sites: 1,
       lines: 0,
-      note: "names a parameter's or field's attribute type, which is no declaration; `tshc migrate` writes it (a stage attribute is the entry's form since change 0130, and has no sentence here); and, for the refused type form of a qualifier (change 0137), the parameter as the language writes it, `@inout a: f32`, a parameter to rewrite and no declaration",
+      note: "names a parameter's or field's attribute type, which is no declaration; `tshc migrate` writes it (a stage attribute is the entry's form since change 0130, and has no sentence here)",
     },
     {
       file: 'abstract-const.ts',

@@ -1,3 +1,5 @@
+// Verifies: Rule 6.10, Rule 8.8, Rule 8.25, Rule 12.7 (docs/language-design.md; traced in reqs/).
+//
 // An object has the identity a JavaScript object has (change 0142, stage 1): a struct, an instance
 // of a class and an array are passed, named and iterated as JavaScript passes, names and iterates
 // them. Each row of the proposal's Table 1 that stage 1 implements is read here by both halves
@@ -261,6 +263,17 @@ ${P}export function f(): f32 { let b = new B(); const q = b.c; b.k = 3.; return 
     });
   }
 
+  it('reads a number from a uniform as a value: a field that takes it holds no object', () => {
+    const source = `"use typeshade";
+${P}declare const k: uniform<f32>;
+export function f(): f32 { let a = new P(); a.x = k; nudge(a); return a.x + k; }
+`;
+    expect(compile(source).diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', source);
+    expect(service.getDiagnostics('m.shade.ts').filter((d) => d.severity === 'error')).toEqual([]);
+  });
+
   const refused: readonly (readonly [string, string, RegExp])[] = [
     [
       'a name assigned another name, then written',
@@ -402,5 +415,66 @@ describe('a form of a later stage is refused as not supported yet (change 0142, 
       /^TS8099 "ps\.slice\(\)" gives a new array of the same objects, .* not supported yet \(change 0142, stage 3\)/,
     );
     expect(r.editor).toEqual(r.compiler);
+  });
+});
+
+describe('@inout and @out are removed (change 0142, decision 8)', () => {
+  const OBJECT = (q: string): string =>
+    `"@${q}" was removed (change 0142): an object parameter is the caller's object with no mark. Delete "@${q}".`;
+  const VALUE = (q: string): string =>
+    `"@${q}" was removed (change 0142): a number, a bool, a vector and a matrix are values. ` +
+    `Return the value, and write [a, b] = f(a, b) for more than one.`;
+
+  const refused: readonly (readonly [string, string, string])[] = [
+    [
+      '@inout on an array',
+      `function h(@inout a: array<f32, 2>): void { a[0] = 1.; }
+export function f(): f32 { let a: array<f32, 2> = [0., 0.]; h(a); return a[0]; }`,
+      OBJECT('inout'),
+    ],
+    [
+      '@out on a struct',
+      `${P}function h(@out p: P): void { p.x = 1.; }
+export function f(): f32 { let a = new P(); h(a); return a.x; }`,
+      OBJECT('out'),
+    ],
+    [
+      '@inout on a number',
+      `function h(@inout v: f32): void { v += 1.; }
+export function f(): f32 { let a = 0.; h(a); return a; }`,
+      VALUE('inout'),
+    ],
+    [
+      '@out on a vector',
+      `function h(@out v: vec3): void { v = vec3(1., 2., 3.); }
+export function f(): f32 { let a = vec3(0., 0., 0.); h(a); return a.x; }`,
+      VALUE('out'),
+    ],
+  ];
+  for (const [name, body, text] of refused) {
+    it(`refuses ${name} with one TS8073 at the decorator, in both halves`, () => {
+      const { compiler, editor } = read(body);
+      expect(compiler).toEqual([`TS8073 ${text}`]);
+      expect(editor).toEqual([`TS8073 ${text}`]);
+    });
+  }
+
+  it('refuses the type form with the removal sentence, in both halves', () => {
+    const body = `function h(a: inout<array<f32, 2>>): void { a[0] = 1.; }
+export function f(): f32 { let a: array<f32, 2> = [0., 0.]; h(a); return a[0]; }`;
+    const { compiler, editor } = read(body);
+    expect(compiler).toHaveLength(1);
+    expect(compiler[0]).toMatch(/^TS8028 "inout<array<f32, 2>>" was removed \(change 0142\)/);
+    expect(editor).toEqual(compiler);
+  });
+
+  it('lowers a refused object parameter as one with no qualifier, which the function writes', () => {
+    const r = compile(
+      `"use typeshade";\nfunction h(@inout a: array<f32, 2>): void { a[0] = 1.; }\nexport function f(): f32 { let a: array<f32, 2> = [0., 0.]; h(a); return a[0]; }\n`,
+      { fileName: 'm.shade.ts' },
+    );
+    expect(r.diagnostics.filter((d) => d.category === 'error').map((d) => d.code)).toEqual([
+      'TS8073',
+    ]);
   });
 });

@@ -5,9 +5,8 @@
 // is the entry's form (change 0130), with no warning, and the editor drops TypeScript's TS1206 on
 // it in every file. The editor drops TS1206 on a parameter's decorator only while `compile()`
 // warns on it, and never reports TS2564 (`strictPropertyInitialization: false`, change 0130 D3).
-// A parameter qualifier, `@inout` or `@out`, is no decorated form either: it is the language's
-// form (Rule 8.25, change 0137), which neither half warns on and the editor's TS1206 filter keeps
-// in every file.
+// A parameter qualifier, `@inout` or `@out`, is no decorated form either: change 0142 removed it,
+// and both halves refuse it with `TS8073`, at the decorator, in every file.
 //
 // Verifies: Rule 1.7, Rule 6.6, Rule 6.7 (docs/language-design.md; traced in reqs/).
 
@@ -51,15 +50,15 @@ class VsOut {
 export function vs(@builtin("vertex_index") i: u32): VsOut {
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(0., 0.), id: i };
 }
-function bump(@inout v: f32): void { v += 1.; }
-function put(@out v: f32): void { v = 2.; }
+function bump(v: f32): f32 { return v + 1.; }
+function put(): f32 { return 2.; }
 @fragment
 @diagnostic("off", "derivative_uniformity")
 export function fs(v: VsOut): vec4 {
   let a = v.uv.x;
-  bump(a);
+  a = bump(a);
   let b: f32;
-  put(b);
+  b = put();
   return vec4(a, b, f32(v.id), 1.);
 }
 @compute([8, 8])
@@ -67,7 +66,7 @@ export function main(@builtin("global_invocation_id") gid: vec3u): void { xs[gid
 @compute
 function plain(): void {}
 @workgroup_size([128])
-export function scale(@inout ys: array<f32>, k: f32): void {
+export function scale(ys: array<f32>, k: f32): void {
   for (let i = 0; i < ys.length; i++) { ys[i] = ys[i] * k; }
 }
 `;
@@ -77,8 +76,7 @@ const FILTER = '@diagnostic("off", "derivative_uniformity")\n';
 
 /** The warning on each decorator of `DECORATED` on a parameter or a field, in source order, and
  *  the one refusal: the filter, which change 0132 removed, warned here until it was refused. A
- *  stage attribute (change 0130) and a qualifier (change 0137) are the language's forms and have
- *  none. */
+ *  stage attribute (change 0130) is the language's form and has none. */
 const WARNINGS = [
   warns('@builtin("position")', 'write "pos: builtin<"position", { invariant: true }>"'),
   warns('@invariant', 'write "pos: builtin<"position", { invariant: true }>"'),
@@ -93,14 +91,14 @@ const WARNINGS = [
 ];
 
 describe('the decorated form warns once on each decorator, in both halves (TS8028)', () => {
-  it('names the attribute type or its option to write, and nothing on a stage or a qualifier', () => {
+  it('names the attribute type or its option to write, and nothing on a stage', () => {
     expect(compiled(DECORATED)).toEqual(WARNINGS);
     expect(edited(DECORATED)).toEqual(WARNINGS);
   });
 
-  it('gives one warning for each decorator but a stage or a qualifier, and still compiles as the new form does', () => {
+  it('gives one warning for each decorator but a stage, and still compiles as the new form does', () => {
     const count = DECORATED.match(/@\w+/g)!.filter(
-      (d) => !/^@(vertex|fragment|compute|workgroup_size|inout|out)$/.test(d),
+      (d) => !/^@(vertex|fragment|compute|workgroup_size)$/.test(d),
     ).length;
     expect(WARNINGS).toHaveLength(count);
     // The migration deletes the filter (change 0132), so the new form is the decorated one
@@ -239,19 +237,22 @@ export function fs(@builtin("position") p: vec4): vec4 { return p; }
     expect(edited(source)).toEqual(said);
   });
 
-  it('keeps TS1206 out of a parameter qualifier in a file in the new form (change 0137)', () => {
+  it('keeps TS1206 out of a removed parameter qualifier, under the one TS8073 (change 0142)', () => {
     const source = `"use typeshade";
 function bump(@inout v: f32): void { v += 1.; }
 @fragment
 export function fs(): vec4 { let a: f32 = 0.; bump(a); return vec4(a); }
 `;
+    const said = [
+      'error TS8073 "@inout" was removed (change 0142): a number, a bool, a vector and a matrix are values. Return the value, and write [a, b] = f(a, b) for more than one.',
+    ];
     expect(
       usesDecoratedForm(ts.createSourceFile('a.ts', source, ts.ScriptTarget.Latest, true)),
     ).toBe(false);
     expect(plainTscCodes(source)).toEqual([1206, 1206]);
     expect(typescriptCodes(source)).toEqual([]);
-    expect(compiled(source)).toEqual([]);
-    expect(edited(source)).toEqual([]);
+    expect(compiled(source)).toEqual(said);
+    expect(edited(source)).toEqual(said);
   });
 
   it('keeps TS1206 on a decorator that is no attribute, under the refusal of the compiler', () => {

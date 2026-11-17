@@ -33,7 +33,6 @@ const KNOWN: readonly string[] = [
   'compiler/ts/math-alias.test.ts',
   'compiler/ts/math-args.test.ts',
   'compiler/ts/math-expand.test.ts',
-  'compiler/ts/member-assign.test.ts',
   'compiler/ts/mixins.test.ts',
   'compiler/ts/module-const-value.test.ts',
   'compiler/ts/module.test.ts',

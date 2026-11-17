@@ -36,7 +36,11 @@ import type {
   OverrideDecl,
 } from '../../core/ir/nodes.js';
 import { refuseStageCalls, stageCallOf } from './stage-call.js';
-import { refuseQualifierTypes, warnDecoratedForm } from './decorated-form.js';
+import {
+  refuseQualifierTypes,
+  refuseRemovedQualifiers,
+  warnDecoratedForm,
+} from './decorated-form.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
@@ -531,8 +535,9 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
       );
     }
   }
-  // The type form of a parameter qualifier, `a: inout<f32>`, refused at once in every type
-  // position (Rule 8.25, change 0137).
+  // The qualifiers `@inout` and `@out` are removed (change 0142), and so is their type form,
+  // `a: inout<f32>`, in every type position.
+  refuseRemovedQualifiers(sourceFile, diagnostics);
   refuseQualifierTypes(sourceFile, diagnostics);
   // A kernel function's loops run as dispatches when the proof accepts them, and on the CPU
   // with a warning that names why when it does not (Rule 8.22, TS8070). After the functions,

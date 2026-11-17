@@ -19,7 +19,6 @@
 // lowering's symbol table, and the IR is consulted for what each callable function reaches.
 
 import ts from 'typescript';
-import { isOutParam } from './lower/references.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import type { ConsoleLog } from '../../core/console.js';
@@ -904,11 +903,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         name: p.name,
         k: 'array',
         layout: layout as Layout & { k: 'a' },
-        // An `@out` array is zero-filled by the call and written whole, so it is always
-        // written back (Rule 8.25, change 0138, Amendment A15, decision 2).
-        writes: written.has(p.name) || isOutParam(p),
+        writes: written.has(p.name),
         s: spell(p.type),
-        ...(isOutParam(p) ? { out: true as const } : {}),
         ...(pushedArrays.has(p.name) ? { pushed: true as const } : {}),
         ...(keys !== undefined ? { keys } : {}),
       });

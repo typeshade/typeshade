@@ -2261,8 +2261,8 @@ export const WGSL_ROWS: readonly Row[] = [
     covers: ['wgsl:typeGenerators:ptr'],
     evidence: 'docs/language-design.md:678; docs/language-design.md:918-934',
     note: 'pointer values: §14 row, docs/language-design.md:1506; roadmap After 1.0, docs/roadmap.md:305',
-    webgpu: refused('Rule 8.8', '@inout / @out (Rule 8.25)'),
-    webgl2: refused('Rule 8.8', '@inout / @out (Rule 8.25)'),
+    webgpu: refused('Rule 8.8', 'an object parameter that its function writes (change 0142)'),
+    webgl2: refused('Rule 8.8', 'an object parameter that its function writes (change 0142)'),
   },
   {
     table: 'B',

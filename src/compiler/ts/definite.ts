@@ -1,14 +1,11 @@
-// ═══ A read before an assignment (Rule 7.6, proposal 0043; `@out`, Rule 8.25, proposal 0040) ═══
+// ═══ A read before an assignment (Rule 7.6, proposal 0043) ═══
 //
 // TypeScript reports TS2454 ("Variable 'x' is used before being assigned") where a local declared
 // with no initializer is read on a path that has not assigned it. The compiler accepted those
 // programs, and the targets disagreed on what such a read gives: WGSL and the CPU read zero, and
 // GLSL ES 3.00 an undefined value. This pass refuses them with `TS8075`, by TypeScript's rule, so
-// the compiler and the editor say one thing (Rule 12.7).
-//
-// It cannot take TypeScript's own answer, because of `@out`: TypeScript reads `add(a, b, s)` as a
-// read of `s` and keeps `s` unassigned after it, where an argument an `@out` parameter takes is
-// an assignment. So the flow is walked here, on the source, in TypeScript's terms:
+// the compiler and the editor say one thing (Rule 12.7). The flow is walked here, on the source,
+// in TypeScript's terms:
 //
 //   - a `let` with no initializer starts unassigned; `x = e` assigns `x` after `e`; `x += e`,
 //     `x++`, `x.f = e` and `x[i] = e` read `x` and assign nothing, as TypeScript reads them;
@@ -17,51 +14,26 @@
 //     run, so what only the body assigns is unassigned after a `while` or a `for`;
 //   - `return`, `break`, `continue` and `throw` end a path;
 //   - a read inside a local function or a function written as an argument is not checked, as
-//     TypeScript does not check it, and an assignment there does not count outside it;
-//   - an argument handed to an `@out` parameter of a function of the file assigns the variable.
+//     TypeScript does not check it, and an assignment there does not count outside it.
 //
 // The walk reads no types, so one case is stricter than TypeScript: a `switch` with no `default`
 // whose cases cover every value of a literal type (`switch (c ? 1 : 2) { case 1: … case 2: … }`)
 // joins the path that matches no case, which TypeScript knows cannot run. A shader's `switch`
 // is over an `i32` or a `u32`, which no list of cases covers.
 //
-// The same walk holds an `@out` parameter to its definite writes (Rule 8.25): the body reads it
-// only after writing the whole parameter, and writes it on every path that returns. An `@out`
-// array is no such parameter: the call fills it with zeros before the body runs, so the body may
-// read it and need not write it.
-//
-// The same walk, with the join of its paths turned the other way, holds a parameter of an array
-// with no qualifier to its writes (`TS8080`, Rule 8.23, change 0138, Amendment A15): the
-// parameter is a value, so a write to it that any path carries to a `return` that does not return
-// the parameter, or to the end of the function, is lost. A variable is assigned after a join when
-// every path assigned it; a write is carried after a join when any path carried it.
+// Change 0142 removed `@out` (a call no longer assigns the caller's local through an argument,
+// and no parameter is held to its definite writes) and `TS8080` with the value reading of an
+// array parameter.
 
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
-import { fileFunctionCalled, qualifiersOf, referenceOf } from './lower/references.js';
 import { writesUndefinedUnion } from './optional.js';
-import {
-  isOutArrayParameter,
-  isValueArrayParameter,
-  lostWriteText,
-  rootIdentifier,
-  writeAt,
-  writesAnUnsizedArray,
-} from './value-array-write.js';
 
-/** A variable the walk follows: a local declared with no initializer, or an `@out` parameter. */
+/** A variable the walk follows: a local declared with no initializer. */
 interface Tracked {
   readonly name: string;
-  readonly out: boolean;
-  /** A parameter of an array with no qualifier, a value (`TS8080`): never read-checked. */
-  readonly value?: true;
-  /** A declared `@out` array: a push to it is refused (`TS8080`), no other write is followed. */
-  readonly outArray?: true;
-  /** A write to a value array parameter. It stays in the state while no path has carried it
-   *  here: the state holds it from the write on, and a join keeps it when any path holds it. */
-  readonly write?: { readonly param: Tracked; readonly node: ts.Node; readonly push: boolean };
 }
 
 /** The variables assigned on every path that reaches a point, or `null` where no path does. */
@@ -78,11 +50,9 @@ interface Target {
 const join = (a: State, b: State): State => {
   if (a === null) return b;
   if (b === null) return a;
-  // A variable is assigned after a join when every path assigned it; a write to a value array
-  // parameter is carried when any path carried it.
+  // A variable is assigned after a join when every path assigned it.
   const out = new Set<Tracked>();
-  for (const t of a) if (t.write !== undefined || b.has(t)) out.add(t);
-  for (const t of b) if (t.write !== undefined) out.add(t);
+  for (const t of a) if (b.has(t)) out.add(t);
   return out;
 };
 
@@ -96,8 +66,7 @@ const add = (s: State, t: Tracked): State => {
   return out;
 };
 
-/** Refuse each read of a local before it is assigned, and each `@out` parameter read before it
- *  is written or left unwritten on a path that returns, in every function `sourceFile` holds. */
+/** Refuse each read of a local before it is assigned, in every function `sourceFile` holds. */
 export function checkDefiniteAssignment(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -114,77 +83,9 @@ export function checkDefiniteAssignment(
     const body = fn.body;
     if (body === undefined) return;
     const scopes: Map<string, Tracked | null>[] = [new Map()];
-    const outs: Tracked[] = [];
-    const shown =
-      fn.name !== undefined && ts.isIdentifier(fn.name) ? fn.name.text : 'this function';
-    const writes = new Map<ts.Node, Tracked>();
-    // A function expression, an arrow function and an accessor have no declared name to say.
-    const named =
-      (ts.isFunctionDeclaration(fn) || ts.isMethodDeclaration(fn)) &&
-      fn.name !== undefined &&
-      ts.isIdentifier(fn.name);
     for (const p of fn.parameters) {
-      if (!ts.isIdentifier(p.name)) continue;
-      // The call fills an `@out` array with zeros before the body runs, so the body may read it
-      // and need not write it (Rule 8.25, change 0138, Amendment A15, decision 2).
-      const out =
-        ts.isFunctionDeclaration(fn) &&
-        qualifiersOf(p).some((q) => q.name === 'out') &&
-        !isOutArrayParameter(p, sourceFile)
-          ? { name: p.name.text, out: true }
-          : null;
-      const value: Tracked | null =
-        out === null && named && isValueArrayParameter(p, sourceFile)
-          ? { name: p.name.text, out: false, value: true }
-          : null;
-      const outArray: Tracked | null =
-        named && isOutArrayParameter(p, sourceFile) && writesAnUnsizedArray(p.type, sourceFile)
-          ? { name: p.name.text, out: false, value: true, outArray: true }
-          : null;
-      scopes[0]!.set(p.name.text, out ?? value ?? outArray);
-      if (out !== null) outs.push(out);
+      if (ts.isIdentifier(p.name)) scopes[0]!.set(p.name.text, null);
     }
-    const valueNames = new Set(
-      fn.parameters.flatMap((p) =>
-        ts.isIdentifier(p.name) &&
-        named &&
-        (isValueArrayParameter(p, sourceFile) ||
-          (isOutArrayParameter(p, sourceFile) && writesAnUnsizedArray(p.type, sourceFile)))
-          ? [p.name.text]
-          : [],
-      ),
-    );
-    // Each write to such a parameter, found before the walk (shadowing is settled in the walk).
-    const collect = (n: ts.Node): void => {
-      if (n !== body && ts.isFunctionLike(n)) return;
-      const w = writeAt(n);
-      if (w !== undefined) {
-        const root = rootIdentifier(w.place);
-        if (root !== undefined && valueNames.has(root.text))
-          writes.set(n, {
-            name: root.text,
-            out: false,
-            write: { param: null as unknown as Tracked, node: w.place, push: w.push },
-          });
-      }
-      if (ts.isCallExpression(n)) {
-        for (const [i, arg] of n.arguments.entries()) {
-          const root = rootIdentifier(arg);
-          if (root !== undefined && valueNames.has(root.text) && qualified(n, i))
-            writes.set(arg, {
-              name: root.text,
-              out: false,
-              write: { param: null as unknown as Tracked, node: arg, push: false },
-            });
-        }
-      }
-      ts.forEachChild(n, collect);
-    };
-    const qualified = (call: ts.CallExpression, index: number): boolean => {
-      const p = fileFunctionCalled(call, sourceFile)?.parameters[index];
-      return p !== undefined && referenceOf(p, sourceFile) !== undefined;
-    };
-    if (valueNames.size > 0) collect(body);
     const targets: Target[] = [];
 
     const resolve = (name: string): Tracked | null => {
@@ -200,84 +101,13 @@ export function checkDefiniteAssignment(
 
     const read = (id: ts.Identifier, s: State): void => {
       const t = resolve(id.text);
-      if (t === null || s === null || t.value === true) return;
+      if (t === null || s === null) return;
       if (s.has(t)) return;
       report(
         id,
-        t.out
-          ? `"${t.name}" is an @out parameter, and is read here before ${shown} writes it: it ` +
-              `holds no value until the function writes it. Write "${t.name}" first, or declare ` +
-              `it @inout (Rule 8.25).`
-          : `"${t.name}" is read here before it is assigned on every path. Assign it before ` +
-              `this read, or declare it with a value (Rule 7.6).`,
+        `"${t.name}" is read here before it is assigned on every path. Assign it before ` +
+          `this read, or declare it with a value (Rule 7.6).`,
       );
-    };
-
-    /** The write `node` makes, if it writes a value array parameter: a push is refused where it
-     *  stands, any other write is left in the state until a path carries it to a return. */
-    const reach = (node: ts.Node, s: State): State => {
-      const ev = writes.get(node);
-      if (ev === undefined || s === null) return s;
-      const w = ev.write!;
-      const param = resolve(ev.name);
-      if (param === null || param.value !== true) return s;
-      const key = { ...ev, write: { ...w, param } } as Tracked;
-      // An `@out` array is written freely; only a push to it is refused.
-      if (param.outArray === true && !w.push) return s;
-      if (w.push) {
-        reportLost(w.node, param, true);
-        return s;
-      }
-      const known = reached.get(node) ?? key;
-      reached.set(node, known);
-      const out = new Set(s);
-      out.add(known);
-      return out;
-    };
-
-    /** One state item for each write, so a join of two paths that carry it holds it once. */
-    const reached = new Map<ts.Node, Tracked>();
-    const reportLost = (node: ts.Node, param: Tracked, push: boolean): void => {
-      // A write TS8018 already refuses (an element of a fixed-size array parameter) says so once.
-      const start = node.getStart(sourceFile);
-      if (
-        diagnostics.some(
-          (d) =>
-            d.code === TS_CODES.ASSIGN_TARGET && d.start <= start && start < d.start + d.length,
-        )
-      )
-        return;
-      const key = `${String(start)}|lost`;
-      if (said.has(key)) return;
-      said.add(key);
-      diagnostics.push(
-        makeDiagnostic(
-          sourceFile,
-          node,
-          lostWriteText(
-            shown,
-            param.name,
-            param.outArray === true ? 'out-push' : push ? 'push' : 'write',
-          ),
-          TS_CODES.VALUE_ARRAY_WRITE_LOST,
-        ),
-      );
-    };
-
-    const checkReturn = (at: ts.Node, s: State, returned: Tracked | null = null): void => {
-      if (s === null) return;
-      for (const ev of s) {
-        if (ev.write !== undefined && ev.write.param !== returned)
-          reportLost(ev.write.node, ev.write.param, false);
-      }
-      for (const t of outs) {
-        if (s.has(t)) continue;
-        report(
-          at,
-          `"${shown}" returns here without writing "${t.name}", an @out parameter: the caller's ` +
-            `variable would hold no value. Write "${t.name}" on every path (Rule 8.25).`,
-        );
-      }
     };
 
     /** The variable `e` assigns when it stands where a value is written, if one is followed. */
@@ -287,13 +117,7 @@ export function checkDefiniteAssignment(
       return ts.isIdentifier(x) ? resolve(x.text) : null;
     };
 
-    const isOutArgument = (call: ts.CallExpression, index: number): boolean => {
-      const p = fileFunctionCalled(call, sourceFile)?.parameters[index];
-      return p !== undefined && qualifiersOf(p).some((q) => q.name === 'out');
-    };
-
-    const expr = (e: ts.Node | undefined, s: State): State =>
-      e === undefined ? s : reach(e, exprOf(e, s));
+    const expr = (e: ts.Node | undefined, s: State): State => (e === undefined ? s : exprOf(e, s));
 
     const exprOf = (e: ts.Node | undefined, s: State): State => {
       if (e === undefined || s === null) return s;
@@ -351,15 +175,7 @@ export function checkDefiniteAssignment(
       }
       if (ts.isCallExpression(e) || ts.isNewExpression(e)) {
         let after: State = expr(e.expression, s);
-        const assigned: Tracked[] = [];
-        for (const [i, arg] of (e.arguments ?? []).entries()) {
-          const target = ts.isCallExpression(e) && isOutArgument(e, i) ? assignedBy(arg) : null;
-          if (target !== null) {
-            assigned.push(target);
-            after = reach(arg, after);
-          } else after = expr(arg, after);
-        }
-        for (const t of assigned) after = add(after, t);
+        for (const arg of e.arguments ?? []) after = expr(arg, after);
         return after;
       }
       if (ts.isObjectLiteralExpression(e)) {
@@ -393,7 +209,7 @@ export function checkDefiniteAssignment(
             (list.flags & ts.NodeFlags.Const) === 0 &&
             !writesUndefinedUnion(d.type)
           ) {
-            define(d.name.text, { name: d.name.text, out: false });
+            define(d.name.text, { name: d.name.text });
           } else define(d.name.text, null);
         } else {
           const each = (n: ts.Node): void => {
@@ -463,14 +279,7 @@ export function checkDefiniteAssignment(
         return join(then, other);
       }
       if (ts.isReturnStatement(st)) {
-        const after = expr(st.expression, s);
-        let returned: Tracked | null = null;
-        if (st.expression !== undefined) {
-          let r: ts.Expression = st.expression;
-          while (ts.isParenthesizedExpression(r)) r = r.expression;
-          if (ts.isIdentifier(r)) returned = resolve(r.text);
-        }
-        checkReturn(st, after, returned);
+        expr(st.expression, s);
         return null;
       }
       if (ts.isThrowStatement(st)) {
@@ -570,12 +379,8 @@ export function checkDefiniteAssignment(
     };
 
     const start: State = new Set<Tracked>();
-    let end: State;
-    if (ts.isBlock(body)) end = block(body.statements, start);
-    else end = expr(body, start);
-    if (ts.isBlock(body)) {
-      checkReturn(body.getLastToken(sourceFile) ?? body, end);
-    }
+    if (ts.isBlock(body)) block(body.statements, start);
+    else expr(body, start);
   };
 
   const visit = (node: ts.Node): void => {

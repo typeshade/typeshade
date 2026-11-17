@@ -100,8 +100,9 @@ export function derivative(x: f32): f32 { return dpdx(x); }
 export function sampled(uv: vec2): vec4 { return textureSample(albedo, samp, uv); }
 export function fromTile(i: u32): u32 { return tile[i]; }
 export function usesIdent(x: f32): f32 { return ident(x) + apply(helper, x); }
-export function bump(@inout v: f32): void { v += 1.; }
-export function usesBump(x: f32): f32 { let y = x; bump(y); return y; }
+class Cell { v: f32; }
+export function bump(c: Cell): void { c.v += 1.; }
+export function usesBump(x: f32): f32 { let c = new Cell(); c.v = x; bump(c); return c.v; }
 
 @fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(helper(uv.x), 0., 0., 1.); }
 `);
@@ -110,8 +111,8 @@ export function usesBump(x: f32): f32 { let y = x; bump(y); return y; }
     expect(k.usesIdent).toBe('function');
     expect(k.ident).toMatch(/^it is generic/);
     expect(k.apply).toMatch(/^it takes a function/);
-    // Verifies: Rule 8.25. A host call passes values, and a reference names a shader's place.
-    expect(k.bump).toMatch(/^parameter "v" is @inout or @out/);
+    // Verifies: Rule 8.25. A host call passes values, and an object a function writes is the caller's.
+    expect(k.bump).toMatch(/^parameter "c" is the caller's object, which the function writes/);
     expect(k.usesBump).toBe('function');
     expect(k.readsBinding).toMatch(/^it reaches a resource binding/);
     expect(k.reachesBinding).toMatch(/^it reaches a resource binding/);
@@ -122,7 +123,9 @@ export function usesBump(x: f32): f32 { let y = x; bump(y); return y; }
     // Each refusal names the work that adds it, or says none does yet.
     for (const e of f.exports)
       if (e.kind === 'never')
-        expect(e.reason).toMatch(/roadmap item 1[56] adds it|no proposal|Rule 8\.24|#204/);
+        expect(e.reason).toMatch(
+          /roadmap item 1[56] adds it|no proposal|not supported yet|Rule 8\.24|#204/,
+        );
   });
 
   it('refuses a parameter or a result with no host value, naming the type', () => {
@@ -296,7 +299,7 @@ declare const hs: storage<array<Hidden>>;
 export function use(c: Cam, h: Hidden, k: Keyed, p: P): P { return p; }
 export function area(s: Shape): f32 { return s.w; }
 export function asShape(w: f32): Shape { return { w: w }; }
-export function kern(xs: array<P>, ks: array<Keyed>, @inout out: array<f32>) {
+export function kern(xs: array<P>, ks: array<Keyed>, out: array<f32>) {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = xs[i].x + ks[i].w; }
 }
 @compute([8])
@@ -878,7 +881,7 @@ declare const out: storage<array<u32>, "read_write">;
  * Scales \`a\` in place.
  * @param s the factor
  */
-export function scale(@inout a: array<f32>, s: f32): void {
+export function scale(a: array<f32>, s: f32): void {
   for (let i = 0; i < a.length; i++) a[i] = a[i] * s;
 }
 `);
@@ -1118,7 +1121,7 @@ export function twice(x: f32): f32 {
   return x * 2.;
 }
 
-export function scale(@inout a: array<f32>, s: f32): void {
+export function scale(a: array<f32>, s: f32): void {
   for (let i = 0; i < a.length; i++) a[i] = a[i] * s;
 }
 
@@ -1205,7 +1208,7 @@ export class Particle {
 }
 
 /** Scales \`a\` in place. */
-export function scale(@inout a: array<f32>, s: f32): void {
+export function scale(a: array<f32>, s: f32): void {
   for (let i = 0; i < a.length; i++) a[i] = a[i] * s;
 }
 

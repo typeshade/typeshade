@@ -485,7 +485,7 @@ function writesThis(
       found = true;
       return;
     }
-    // `bump(this.n)`, where `bump` takes `@inout` or `@out`, hands a place of the object to a
+    // `bump(this.n)`, where `bump` writes its object parameter, hands a place of the object to a
     // function that writes it (Rule 8.25), as `this.n = …` does.
     if (
       ts.isCallExpression(n) &&

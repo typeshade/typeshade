@@ -72,6 +72,8 @@ downstream:
     what: Each kernel and helper that writes `@inout` or `@out` drops the qualifier; compiler-changes.md records 0142 when the pin moves. Not yet searched.
 ---
 
+<!-- doc-refs: skip-file — a proposal that names TS8080 and the files of its refusal, which this change retired and removed -->
+
 **Document control**
 
 | Field                         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |

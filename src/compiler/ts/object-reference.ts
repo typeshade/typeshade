@@ -1,5 +1,7 @@
 // ═══ An object parameter that its function writes (Rule 8.8, change 0142, stage 1) ═══
 //
+// Implements: Rule 8.8, Rule 8.25 (docs/language-design.md; traced in reqs/).
+//
 // An object is a struct, an instance of a class, or an array, and it has the identity a JavaScript
 // object has: a function that writes its parameter changes the caller's object (OD-5, OD-9). The
 // author writes no qualifier. This file finds, on the source, which object parameters a function
@@ -39,6 +41,12 @@ export function writesAnObject(type: ts.TypeNode | undefined, sourceFile: ts.Sou
     if (!ts.isTypeReferenceNode(at) || !ts.isIdentifier(at.typeName)) return false;
     const name = at.typeName.text;
     if (name === 'array' || name === 'Array') return true;
+    // A binding is what it holds: `uniform<f32>` reads as a number, `storage<array<P>>` as an
+    // array.
+    if (name === 'uniform' || name === 'storage' || name === 'override') {
+      at = at.typeArguments?.[0];
+      continue;
+    }
     if (VALUE_TYPE.test(name)) return false;
     if (seen.has(name)) return false;
     seen.add(name);

@@ -30,8 +30,8 @@
 // A member path rooted at a local or a parameter, `h.n` and `h.a.n`, is narrowed by the same
 // forms (change 0093, decision D2), and keyed by the path's text under its root. An assignment
 // to the path narrows it; an assignment to a prefix of it or to the root, a compound assignment
-// or `++` on any of them, and a call that takes the root by reference (an `@inout` or `@out`
-// parameter of a function of the file, or a method of a class of the file that writes through
+// or `++` on any of them, and a call that takes the root by reference (an object parameter that
+// a function of the file writes, or a method of a class of the file that writes through
 // `this`) clear every path under the target. Inside a closure a path keeps nothing: TypeScript
 // keeps a path's narrowing there only for a `readonly` field, which this walk does not read
 // (a recorded divergence, Rule 7.2). An element access `xs[i]` is not narrowed, with a literal
@@ -252,7 +252,7 @@ function pathText(e: ts.Expression): string | undefined {
   return undefined;
 }
 
-/** The functions of the file with a parameter written `@inout` or `@out`, by name, with the
+/** The functions of the file with a parameter that is the caller's object, by name, with the
  *  indexes of those parameters (Rule 8.25): a call that hands one a root writes the root. */
 function referenceParams(sourceFile: ts.SourceFile): ReadonlyMap<string, ReadonlySet<number>> {
   const out = new Map<string, Set<number>>();
@@ -260,7 +260,7 @@ function referenceParams(sourceFile: ts.SourceFile): ReadonlyMap<string, Readonl
     if (ts.isFunctionDeclaration(n) && n.name !== undefined) {
       const refs = new Set<number>();
       n.parameters.forEach((p, i) => {
-        // `@inout x: T` (Rule 8.25), or the refused type form `x: inout<T>` (change 0137).
+        // An object parameter that its function writes (change 0142).
         if (referenceOf(p, sourceFile) !== undefined) refs.add(i);
       });
       if (refs.size > 0) out.set(n.name.text, refs);
@@ -451,8 +451,8 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
       return set(cleared, t, n);
     };
 
-    /** A call that takes a root by reference writes it: `f(h)` where `f`'s parameter is
-     *  `@inout` or `@out`, and `h.m()` where `m` writes through `this`. */
+    /** A call that takes a root by reference writes it: `f(h)` where `f` writes its
+     *  parameter, and `h.m()` where `m` writes through `this`. */
     const callWrites = (e: ts.CallExpression, s: State): State => {
       let after = s;
       const callee = skipParens(e.expression);

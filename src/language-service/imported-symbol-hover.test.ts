@@ -102,9 +102,12 @@ export function shade(n: vec3, steps: i32): f32 {
   for (let i = 0; i < steps; i++) acc += n.x;
   return acc;
 }
-export function bump(@inout v: f32, @out w: f32, k: f32): void {
-  v = v + k;
-  w = k;
+export class Cell {
+  x: f32;
+}
+export function bump(v: Cell, w: Cell, k: f32): void {
+  v.x = v.x + k;
+  w.x = k;
 }
 export function twice<T extends f32 | vec3>(x: T): T {
   return x;
@@ -136,9 +139,10 @@ export function fs(): vec4 {
   const w: ${q}Pair = { a: vec2(1., 0.), b: 1. };
   const r = new ${q}Ray();
   let a = ${q}shade(l.dir, 2) * ${q}tint;
-  let b: f32;
-  ${q}bump(a, b, 2.);
-  const c = ${q}twice(a) + b + r.t + r.origin.x;
+  const ca = new ${q}Cell();
+  const cb = new ${q}Cell();
+  ${q}bump(ca, cb, 2.);
+  const c = ${q}twice(a) + cb.x + r.t + r.origin.x;
   const d = r.reach(1.) + r.far + ${q}Ray.unit() + ${q}Tone.GAMMA + ${q}Tone.map(1.);
   const m: ${q}Mode = ${q}Mode.Lit;
   const e = ${q}scene.power + f32(${q}frame) + ${q}data[0] + f32(m);
@@ -146,7 +150,7 @@ export function fs(): vec4 {
 }
 `;
 const NAMES =
-  'Light, Pair, Ray, shade, bump, twice, HALF, AXIS, frame, tint, scene, data, Tone, Mode';
+  'Light, Pair, Ray, Cell, shade, bump, twice, HALF, AXIS, frame, tint, scene, data, Tone, Mode';
 
 /** The same program four ways: in one file, and with its declarations in `lib.shade.ts`, read
  *  by name, through a file that re-exports them, and through a namespace import. */
@@ -200,7 +204,7 @@ describe('the hover of a symbol another document declares is the compiler’s (R
         '@group(0) @binding(0) var<uniform> scene: Light;',
         '@group(0) @binding(1) var<storage, read> data: array<f32>;',
         'fn shade(n: vec3<f32>, steps: i32) -> f32 {',
-        'fn bump(v: ptr<function, f32>, w: ptr<function, f32>, k: f32) {',
+        'fn bump(v: ptr<function, Cell>, w: ptr<function, Cell>, k: f32) {',
         'fn twice_f32(x: f32) -> f32 {',
       ])
         expect(wgsl, `${name}: ${declaration}`).toContain(declaration);
@@ -233,9 +237,9 @@ describe('the hover of a symbol another document declares is the compiler’s (R
       bare('function shade(n: vec3<f32>, steps: i32): f32'),
     ],
     [
-      'a function with @inout and @out parameters',
-      { needle: 'bump(a', skip: 0, ns: ['lib.bump(a', 4] },
-      bare('function bump(@inout v: f32, @out w: f32, k: f32): void'),
+      'a function that writes its object parameters',
+      { needle: 'bump(c', skip: 0, ns: ['lib.bump(c', 4] },
+      bare('function bump(v: Cell, w: Cell, k: f32): void'),
     ],
     [
       'an instance of a generic function',
@@ -282,9 +286,7 @@ describe('the hover of a symbol another document declares is the compiler’s (R
     expect(atDeclaration('a: vec2;')).toBe(bare('(property) Pair.a: vec2<f32>'));
     expect(atDeclaration('origin: vec3;')).toBe(bare('(property) Ray.origin: vec3<f32>'));
     expect(atDeclaration('shade(n')).toBe(bare('function shade(n: vec3<f32>, steps: i32): f32'));
-    expect(atDeclaration('bump(@inout')).toBe(
-      bare('function bump(@inout v: f32, @out w: f32, k: f32): void'),
-    );
+    expect(atDeclaration('bump(v')).toBe(bare('function bump(v: Cell, w: Cell, k: f32): void'));
     // A generic function has no instance in the library's own program. Only a field is read
     // in the program of a document that imports the file, so the declaration keeps
     // TypeScript's generic text, though each importing program lowers one instance.
@@ -359,14 +361,16 @@ export function fs(): vec4 {
     }
   });
 
-  it('signature help of an imported function shows its qualifiers (Rule 8.25)', () => {
+  it('signature help of an imported function shows its parameters (change 0142)', () => {
     // The compiler takes both as pointers, and the test above holds the emit to that.
-    const label = ['bump(@inout v: f32, @out w: f32, k: f32): void'];
+    const label = ['bump(v: Cell, w: Cell, k: f32): void'];
     expect(signaturesAt(service, FILES, ONE, '  bump(')).toEqual(label);
     expect(signaturesAt(service, FILES, MAIN, '  bump(')).toEqual(label);
     expect(signaturesAt(service, FILES, VIA, '  bump(')).toEqual(label);
-    expect(signaturesAt(service, FILES, NS, '  lib.bump(')).toEqual(label);
-    // A function with no qualifier is unchanged.
+    expect(signaturesAt(service, FILES, NS, '  lib.bump(')).toEqual([
+      'bump(v: lib.Cell, w: lib.Cell, k: f32): void',
+    ]);
+    // A function that writes no parameter is unchanged.
     expect(signaturesAt(service, FILES, MAIN, '= shade(')).toEqual(
       signaturesAt(service, FILES, ONE, '= shade('),
     );
@@ -389,7 +393,7 @@ export let frame: u32 = 0;
 export const tint: override<f32> = 0.85;
 declare const scene: uniform<Light>;
 export { scene };
-export function shade(@inout n: vec3, k: f32): f32 {
+export function shade(n: vec3, k: f32): f32 {
   n = n * k;
   return n.x;
 }
@@ -421,7 +425,7 @@ export function fs(): vec4 {
     expect(wgsl).toContain('var<private> lib_frame: u32 = 0u;');
     expect(wgsl).toContain('override tint: f32 = 0.85;');
     expect(wgsl).toContain('@group(0) @binding(0) var<uniform> scene: lib_Light;');
-    expect(wgsl).toContain('fn lib_shade(n: ptr<function, vec3<f32>>, k: f32) -> f32 {');
+    expect(wgsl).toContain('fn lib_shade(n: vec3<f32>, k: f32) -> f32 {');
     const service = opened(files);
     const at = (needle: string, skip = 0) => hoverAt(service, files, MAIN, needle, skip, 'fs()');
     // The library's, under the names this file gives them.
@@ -433,16 +437,16 @@ export function fs(): vec4 {
     expect(at('fr)')).toBe(bare('let fr: u32'));
     expect(at('tn +')).toBe(bare('const tn: f32'));
     expect(at('sc.dir')).toBe(lines('const sc: L', 'uniform resource at @group(0) @binding(0)'));
-    expect(at('s(far')).toBe(bare('function s(@inout n: vec3<f32>, k: f32): f32'));
+    expect(at('s(far')).toBe(bare('function s(n: vec3<f32>, k: f32): f32'));
     expect(signaturesAt(service, files, MAIN, '= s(')).toEqual([
-      's(@inout n: vec3<f32>, k: f32): f32'.replace('vec3<f32>', 'vec3'),
+      's(n: vec3<f32>, k: f32): f32'.replace('vec3<f32>', 'vec3'),
     ]);
     // In the library, under the names the library writes.
     expect(hoverAt(service, files, LIB, 'HALF = ')).toBe(
       bare('const HALF = 0.5 (f32 or f64 where it is read)'),
     );
-    expect(hoverAt(service, files, LIB, 'shade(@inout')).toBe(
-      bare('function shade(@inout n: vec3<f32>, k: f32): f32'),
+    expect(hoverAt(service, files, LIB, 'shade(n')).toBe(
+      bare('function shade(n: vec3<f32>, k: f32): f32'),
     );
     expect(hoverAt(service, files, LIB, 'dir: vec3;')).toBe(
       bare('(property) Light.dir: vec3<f32>'),
@@ -687,7 +691,7 @@ describe('an import the hovered file’s program does not keep', () => {
     [LIB]: `"use typeshade";
 export const K = 0.5;
 export const J: u32 = 3;
-export function g(@inout a: f32): f32 {
+export function g(a: f32): f32 {
   a = a + 1.;
   return a;
 }
@@ -715,7 +719,7 @@ export function fs(): vec4 {
     // An import names no read: the constant of no fixed type reads in the language's words, as
     // an alias, the mark TypeScript gives every import binding.
     expect(inImport('K,')).toBe(bare('(alias) const K = 0.5 (f32 or f64 where it is read)'));
-    expect(inImport('g }')).toBe(bare('function g(@inout a: f32): f32'));
+    expect(inImport('g }')).toBe(bare('function g(a: f32): f32'));
     expect(inImport('J,')).toBe(bare('const J: u32'));
     expect(hoverAt(service, files, LIB, 'K = ')).toBe(
       bare('const K = 0.5 (f32 or f64 where it is read)'),
@@ -763,14 +767,17 @@ export function fs(): vec4 {
 
 describe('a function’s parameters are joined by their declaration', () => {
   // The front end keeps no parameter that takes a function, so the symbol's list is shorter
-  // than the declaration's. A qualifier must stay on the parameter that writes it (Rule 8.25).
+  // than the declaration's. The object a function writes must stay on the parameter that writes it.
   const DECLS = `
-export function apply(f: (x: f32) => f32, @inout v: f32, k: f32): void {
-  v = f(v) * k;
+export class Cell {
+  x: f32;
 }
-export function both(g: (x: f32) => f32, @inout v: f32, h: (x: f32) => f32, @out w: f32): void {
-  v = g(v);
-  w = h(v);
+export function apply(f: (x: f32) => f32, v: Cell, k: f32): void {
+  v.x = f(v.x) * k;
+}
+export function both(g: (x: f32) => f32, v: Cell, h: (x: f32) => f32, w: Cell): void {
+  v.x = g(v.x);
+  w.x = h(v.x);
 }
 `;
   const USES = `
@@ -779,36 +786,37 @@ function dbl(x: f32): f32 {
 }
 @fragment
 export function fs(): vec4 {
-  let a = 1.;
-  let b: f32;
+  let a = new Cell();
+  a.x = 1.;
+  let b = new Cell();
   apply(dbl, a, 2.);
   both(dbl, a, dbl, b);
-  return vec4(a, b, 0., 1.);
+  return vec4(a.x, b.x, 0., 1.);
 }
 `;
   const files: Files = {
     [ONE]: `"use typeshade";${DECLS}${USES}`,
     [LIB]: `"use typeshade";${DECLS}`,
-    [MAIN]: `"use typeshade";\nimport { apply, both } from "./lib.shade.ts";${USES}`,
+    [MAIN]: `"use typeshade";\nimport { apply, both, Cell } from "./lib.shade.ts";${USES}`,
   };
-  it('a function-typed parameter before a qualified one does not move the qualifier', () => {
+  it('a function-typed parameter before an object one does not move it', () => {
     const service = opened(files);
     for (const name of [ONE, MAIN]) {
       expect(errorsOf(files, name)).toEqual([]);
       const wgsl = compiled(files, name).wgsl!;
-      // The pointers are the qualified parameters, in both halves.
-      expect(wgsl).toMatch(/fn apply\w*\(v: ptr<function, f32>, k: f32\)/);
-      expect(wgsl).toMatch(/fn both\w*\(v: ptr<function, f32>, w: ptr<function, f32>\)/);
+      // The pointers are the parameters the function writes, in both halves.
+      expect(wgsl).toMatch(/fn apply\w*\(v: ptr<function, \w*Cell>, k: f32\)/);
+      expect(wgsl).toMatch(/fn both\w*\(v: ptr<function, \w*Cell>, w: ptr<function, \w*Cell>\)/);
       expect(hoverAt(service, files, name, 'apply(dbl', 0, 'fs()'), name).toBe(
-        bare('function apply(@inout v: f32, k: f32): void'),
+        bare('function apply(v: Cell, k: f32): void'),
       );
       expect(hoverAt(service, files, name, 'both(dbl', 0, 'fs()'), name).toBe(
-        bare('function both(@inout v: f32, @out w: f32): void'),
+        bare('function both(v: Cell, w: Cell): void'),
       );
     }
     // At the declaration, in the file that calls it.
     expect(hoverAt(service, files, ONE, 'apply(f')).toBe(
-      bare('function apply(@inout v: f32, k: f32): void'),
+      bare('function apply(v: Cell, k: f32): void'),
     );
   });
 });
@@ -1501,36 +1509,40 @@ export function fs(): vec4 {
     expect(at('a.power', 2)).toBe(bare('(property) Lt.power: f32'));
   });
 
-  it('an overloaded function reads its implementation, with its qualifiers, in one file and imported', () => {
+  it('an overloaded function reads its implementation in one file and imported', () => {
     const DECLS = `
-export function bump(v: f32, k: f32): void;
-export function bump(@inout v: f32, k: f32): void {
-  v = v * k;
+export class Cell {
+  x: f32;
+}
+export function bump(v: Cell, k: f32): void;
+export function bump(v: Cell, k: f32): void {
+  v.x = v.x * k;
 }
 `;
     const USES = `
 @fragment
 export function fs(): vec4 {
-  let a = 1.;
+  let a = new Cell();
+  a.x = 1.;
   bump(a, 2.);
-  return vec4(a, 0., 0., 1.);
+  return vec4(a.x, 0., 0., 1.);
 }
 `;
     const files: Files = {
       [ONE]: `"use typeshade";${DECLS}${USES}`,
       [LIB]: `"use typeshade";${DECLS}`,
-      [MAIN]: `"use typeshade";\nimport { bump as bp } from "./lib.shade.ts";${USES.replace('bump(a', 'bp(a')}`,
+      [MAIN]: `"use typeshade";\nimport { bump as bp, Cell } from "./lib.shade.ts";${USES.replace('bump(a', 'bp(a')}`,
     };
     for (const name of [ONE, MAIN]) {
       expect(errorsOf(files, name)).toEqual([]);
-      expect(compiled(files, name).wgsl).toContain('fn bump(v: ptr<function, f32>, k: f32) {');
+      expect(compiled(files, name).wgsl).toMatch(/fn bump\(v: ptr<function, \w*Cell>, k: f32\) \{/);
     }
     const service = opened(files);
     expect(hoverAt(service, files, ONE, 'bump(a', 0, 'fs()')).toBe(
-      bare('function bump(@inout v: f32, k: f32): void'),
+      bare('function bump(v: Cell, k: f32): void'),
     );
     expect(hoverAt(service, files, MAIN, 'bp(a', 0, 'fs()')).toBe(
-      bare('function bp(@inout v: f32, k: f32): void'),
+      bare('function bp(v: Cell, k: f32): void'),
     );
   });
 

@@ -49,7 +49,6 @@ import {
   type CaptureKey,
 } from '../context.js';
 import { checkDefiniteAssignment } from '../definite.js';
-import { checkValueArrayWritesByEffects } from '../value-array-write.js';
 import {
   diagnosticAtSpan,
   keepUses,
@@ -124,7 +123,6 @@ import {
   ctorPrologue,
   registerClassCopy,
   selfRef,
-  zeroExprOf,
   type ClassFunction,
   type Receiver,
 } from './class-methods.js';
@@ -136,7 +134,6 @@ import {
   type ScopedConst,
   decoratorsOf,
   parseSignature,
-  refuseQualifiedParameter,
   settleInferredEntryResult,
 } from './function-signature.js';
 import { functionParams, functionTypeOf, shapeOf, type FunctionShape } from './function-types.js';
@@ -164,7 +161,7 @@ import {
   recordParamDefaults,
   setParamDefault,
 } from './param-defaults.js';
-import { checkReferenceAliases, isOutParam, qualifiersOf } from './references.js';
+import { checkReferenceAliases } from './references.js';
 import { lowerStatements, lowerVoidArrowBody } from './statement.js';
 export { FRAGMENT_ONLY_CALLS, FRAGMENT_OR_COMPUTE_CALLS } from '../stage-restrictions.js';
 export {
@@ -369,20 +366,6 @@ export function lowerSourceFunctions(
         );
         refused.add(base);
         continue;
-      }
-      // A generic function takes no qualified parameter (Rule 8.25), said where it is
-      // declared, since its body is lowered only where a call makes an instance and one nothing
-      // calls says nothing.
-      if ((stmt.typeParameters?.length ?? 0) > 0) {
-        const takes = stmt.parameters.find((p) => qualifiersOf(p).length > 0);
-        if (takes !== undefined) {
-          const refusal = refuseQualifiedParameter(takes, qualifiersOf(takes), undefined, {})!;
-          // The type form's own refusal says it (`TS8028`, change 0137; Rule 12.4).
-          if (!refusal.typeForm)
-            pushDiag(diagnostics, sourceFile, refusal.at, refusal.message, TS_CODES.REFERENCE);
-          refused.add(base);
-          continue;
-        }
       }
       const lengths = arrayLengthParameters(stmt);
       if (lengths.length > 0) {
@@ -2125,19 +2108,8 @@ export function lowerSourceFunctions(
     );
   }
   checkEntryStageUses(funcs, vars, nodeByName, sourceFile, diagnostics);
-  // A read before an assignment, and an `@out` parameter's definite writes, on the source
-  // (Rules 7.6 and 8.25).
+  // A read before an assignment, on the source (Rule 7.6).
   checkDefiniteAssignment(sourceFile, diagnostics);
-  // A write to a value array parameter that only the lowered body shows: a method on an element
-  // (Rule 8.23, change 0138, Amendment A15).
-  checkValueArrayWritesByEffects(
-    funcs,
-    bindings,
-    vars,
-    (fn) => nodeByName.get(fn),
-    sourceFile,
-    diagnostics,
-  );
   // Two references to one place in one call, read off the lowered calls once every callee says
   // what it reads and writes (Rule 8.25).
   const shownAs = new Map([
@@ -2754,7 +2726,7 @@ function fillFunctionBodyNow(
     parameterNames.add(p.name);
     // A kernel function's array is the caller's storage, read and written in place (Rule 8.23).
     const storage = stub.kernel === true && p.type.kind === 'array' && p.type.size === undefined;
-    // An `@inout` or `@out` parameter names the caller's place (Rule 8.25): bound as the object of a
+    // An object parameter that its function writes names the caller's object (change 0142): bound as the object of a
     // method that changes it is, a local the body writes under the parameter's own IR name,
     // which the targets spell as the pointer or the `inout` parameter. A whole write lands on
     // the caller's place, so it takes no local copy (Rule 8.8).
@@ -2765,18 +2737,6 @@ function fillFunctionBodyNow(
         true,
       );
       scope.bindDeclaration(declared, place);
-      // An `@out array<T, N>` starts at zeros, on every target, before the body runs (Rule 8.25,
-      // change 0138, Amendment A15, decision 2): the caller's old values are never visible.
-      const zero =
-        isOutParam(p) && p.type.kind === 'array' && p.type.size !== undefined
-          ? zeroExprOf(p.type, scope)
-          : undefined;
-      if (zero !== undefined)
-        parameterLocals.push({
-          s: 'assign',
-          target: { op: 'varref', type: p.type, name: place.irName ?? place.name },
-          expr: zero,
-        });
       return;
     }
     const copy =

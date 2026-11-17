@@ -349,18 +349,6 @@ const TYPESHADE_EXTENSIONS: readonly { name: string; reason: string }[] = [
   // `TAU` reaches the text as an inlined `f32` literal. The six free spellings of a `Math`
   // constant were removed (change 0112): a member carries each of them.
   { name: 'TAU', reason: '2π, which neither WGSL nor ECMAScript `Math` predeclares' },
-
-  // A reference parameter (Rule 8.25, proposal 0040). WGSL spells it as a pointer and GLSL with a
-  // qualifier; the surface writes GLSL's qualifier as a parameter decorator.
-  {
-    name: 'inout',
-    reason: "GLSL's qualifier: a parameter that names the caller's place, WGSL `ptr<AS, T>`",
-  },
-  {
-    name: 'out',
-    reason:
-      "GLSL's qualifier: a parameter that names a place the function writes, WGSL `ptr<AS, T>`",
-  },
 ];
 // LINT.ThenChange(docs/language-design.md:extensions)
 
@@ -569,7 +557,7 @@ function internalLeaks(dts: string, rows: ReadonlyMap<string, unknown>): string[
  *  is `| family | \`name\` | reason |`; no other table in the document is read. */
 function documentedExtensions(markdown: string): { name: string; reason: string }[] {
   const start = markdown.indexOf('**Rule 9.6.**');
-  const stop = markdown.indexOf('Ten families', start);
+  const stop = markdown.indexOf('Nine families', start);
   if (start < 0 || stop < 0) throw new Error('docs/language-design.md has no §9.3 extension table');
   const rows: { name: string; reason: string }[] = [];
   for (const line of markdown.slice(start, stop).split('\n')) {

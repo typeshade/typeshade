@@ -412,10 +412,10 @@ let hits: u32 = 0; // var hits: u32 = 0u;
 ```
 
 A `const` and a module constant are read-only, and assigning to one is `TS8005` at the line
-that writes it. Declare with `let` when you mean to mutate. A parameter is a copy of the
-value the call passes, so a write to it changes the copy and leaves the caller's variable
-alone; [A function that changes its caller's variable](#a-function-that-changes-its-callers-variable)
-is the form that writes the caller's.
+that writes it. Declare with `let` when you mean to mutate. A number, a vector or a matrix
+parameter is a copy of the value the call passes, so a write to it changes the copy and leaves
+the caller's variable alone; an object a function writes is the caller's
+([An object a function writes, and a value it gives back](#an-object-a-function-writes-and-a-value-it-gives-back)).
 
 A variable read before it is assigned on every path is `TS8075`, by TypeScript's own rule.
 A derivative such as `fwidth` needs a value of its own for a different reason: WGSL requires
@@ -1841,19 +1841,19 @@ These three kernel functions are one dispatch:
 ```ts
 "use typeshade";
 
-export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function add(out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
 
-export function mul(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function mul(out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * b[i];
   }
 }
 
-export function relu(@inout out: array<f32>, x: array<f32>): void {
+export function relu(out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = max(x[i], 0.);
   }
@@ -1989,16 +1989,14 @@ with the directive, a package no `node_modules` holds, a subpath its `exports` d
 name the file does not export, a default import. The surface reference has every form an import
 takes, the names the module emits and each refusal: `docs/use-typeshade-surface.md` §68.
 
-### A function that changes its caller's variable
+### An object a function writes, and a value it gives back
 
-A parameter is a copy of the value the call passes, so a write to it leaves the caller alone. To
-change the caller's variable, write `@inout` before the parameter, `@inout a: f32`, as GLSL
-writes its qualifier, and pass the variable itself. Inside the function the parameter is the
-caller's variable: read it, assign to it, and reach its fields as you would reach `this` in a
-method. A parameter the function only writes is `@out c: f32`: it starts with no value, so write
-it before reading it, and on every path. A local that such a call fills first is declared with no value and no `!`, `let s: f32;`. The type form of
-change 0111, `a: inout<f32>`, is refused (`TS8028`), and `tshc migrate` rewrites it to
-`@inout a: f32`.
+An object is a struct, an instance of a class or an array, and it has the identity a JavaScript
+object has: a function that writes a field or an element of its parameter changes the object the
+caller passed, and the author writes no mark on either side. A number, a `bool`, a vector and a
+matrix are values, as a JavaScript primitive is, so a function that changes one gives it back,
+and `[a, b] = f(a, b)` assigns more than one. `@inout` and `@out` are removed (`TS8073`), and
+`tshc migrate` deletes them from an object parameter.
 
 ```ts
 "use typeshade";
@@ -2008,26 +2006,24 @@ class Ray {
   dir: vec3;
 }
 
-function swap(@inout a: f32, @inout b: f32): void {
-  const t = a;
-  a = b;
-  b = t;
+function swap(a: f32, b: f32): [f32, f32] {
+  return [b, a];
 }
 
-function add(a: f32, b: f32, @out c: f32): void {
-  c = a + b;
+function add(a: f32, b: f32): f32 {
+  return a + b;
 }
 
-function advance(@inout r: Ray, t: f32): void {
+function advance(r: Ray, t: f32): void {
   r.origin = r.origin + r.dir * t;
 }
 
 export function demo(): f32 {
   let x: f32 = 1.;
   let y: f32 = 2.;
-  swap(x, y); // x is 2. and y is 1.
+  [x, y] = swap(x, y); // x is 2. and y is 1.
   let s: f32;
-  add(x, y, s); // s is 3.
+  s = add(x, y); // s is 3.
   let r = new Ray();
   r.dir = vec3(1., 0., 0.);
   advance(r, 3.); // r.origin.x is 3.
@@ -2035,17 +2031,15 @@ export function demo(): f32 {
 }
 ```
 
-WGSL receives a pointer, `swap(&x, &y)` with `*a = *b` in the body, and GLSL ES 3.00 an `inout`
-parameter; the CPU oracle copies the value in and stores it back. The argument is a `let`, a
-module variable, an element of a `read_write` storage binding, or a field or an element of one;
-a value, a literal and a vector's component are refused with `TS8073`. One call may not take two
-references to one variable that the function writes, `swap(x, x)`, which is `TS8074`. A read
-before a variable is assigned, or an `@out` parameter read before it is written, is `TS8075`. A
-function of the file or of a namespace takes a qualifier; a method, an entry and a local
-function take values, and a local function inside such a function may still read and write the
-parameter, as it reads and writes any variable around it. There is no `@in`: a parameter with no
-qualifier is GLSL's `in`. The surface reference has every rule and refusal:
-`docs/use-typeshade-surface.md` §70.
+WGSL receives a pointer for `advance`, `advance(&r, 3.0)` with `(*r).origin = …` in the body, and
+GLSL ES 3.00 an `inout` parameter; the CPU oracle copies the object in and stores it back. The
+argument is a `let`, a `const` that built its object, a module variable, an element of a
+`read_write` storage binding, or a field or an element of one. One call may not take two names
+for one object that the function writes, `swapFields(r, r)`, which is `TS8074`. A read before a
+variable is assigned is `TS8075`. A function of the file or of a namespace takes the caller's
+object; a method, an entry and a local function take values for now, and a local function inside
+such a function may still read and write the parameter, as it reads and writes any variable around
+it. The surface reference has every rule and refusal: `docs/use-typeshade-surface.md` §70.
 
 ## Diagnostics
 
@@ -3186,20 +3180,20 @@ A construct here is one piece of GLSL source you have to account for: a uniform 
 preprocessor branch, an `#include`, an extension directive. Find the row, follow the
 spelling to the page that explains it, and read the note for what changes.
 
-| GLSL construct                                 | `"use typeshade"` spelling                                                          | WGSL result                                     | Notes                                                                                                                                                                  |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `uniform Block { … } name;`                    | [`declare const name: uniform<Block>`](/guide/authoring/layouts-and-resources/)     | `@group`/`@binding` `var<uniform>`              | the std140 layout comes from `reflect()`, so no offset is counted by hand                                                                                              |
-| a loose `uniform float u_x;`                   | a field of a uniform struct                                                         | a field of a `var<uniform>` struct              | `declare const u_x: uniform<f32>` is WGSL-only, since GLSL ES 3.00 spells a uniform binding as a std140 block                                                          |
-| a symbol or a block the host prelude declares  | none; the IR builder's `externVar`, `hostUniform` and `hostBlock`                   | the same reference, spelled per target          | [`docs/ir-builder.md`](docs/ir-builder.md) has them                                                                                                                    |
-| `in` / `out` / `inout` on a function parameter | none / [`@out`, `@inout`](#a-function-that-changes-its-callers-variable)            | a pointer parameter                             | a parameter with no qualifier is GLSL's `in`                                                                                                                           |
-| `#ifdef FEATURE` where this module decides     | [one file per variant](/guide/authoring/conditional-programs/)                      | no preprocessor                                 | the variant that does not declare a binding never has it                                                                                                               |
-| `#ifdef FEATURE` where the host decides        | [`variantFamily`](/guide/authoring/conditional-programs/)                           | one module per point in the matrix              | `emitGuarded` generates the `#if` ladder for a GLSL host that owns the define, and every arm is byte-identical to the standalone variant                               |
-| a variant that changes only a value            | [`override<T>` with `overrideValues`](/guide/authoring/conditional-programs/)       | `override` plus pipeline constants              | building a separate variant for this multiplies pipelines for nothing                                                                                                  |
-| `#include "helper.glsl"`                       | [`import` from another shader file](/guide/authoring/functions-and-entry-points/)   | one module                                      | for a host that composes its own program, `emitGlslFragment` and `emitFragment` return a module fragment                                                               |
-| `precision mediump float;`                     | [the `floatPrecision` emit option](/guide/authoring/glsl-float-precision/)          | nothing, since WGSL has no precision qualifiers | it sets the stage-wide default at emit                                                                                                                                 |
-| `usampler2D` and `isampler2D`                  | [`texture_2d<u32>` and `texture_2d<i32>`](/guide/authoring/layouts-and-resources/)  | `texture_2d<u32>` and `texture_2d<i32>`         | the sampler precision line is emitted for you                                                                                                                          |
-| `#extension … : require`                       | [the use that needs it, or `"enable …"`](/guide/authoring/capabilities-extensions/) | `enable …;`                                     | fails closed with SD0030 on a backend whose profile has no row. That page also says which capabilities survive on WGSL                                                 |
-| comparing two emits after an optimizer pass    | [`semanticDiff`](/guide/authoring/production-emit/)                                 | the same                                        | compares IR and reflection, so folding and renaming do not drown the diff. Declare the production plugins as `transforms` and their rewrites classify into `explained` |
+| GLSL construct                                 | `"use typeshade"` spelling                                                                     | WGSL result                                     | Notes                                                                                                                                                                  |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `uniform Block { … } name;`                    | [`declare const name: uniform<Block>`](/guide/authoring/layouts-and-resources/)                | `@group`/`@binding` `var<uniform>`              | the std140 layout comes from `reflect()`, so no offset is counted by hand                                                                                              |
+| a loose `uniform float u_x;`                   | a field of a uniform struct                                                                    | a field of a `var<uniform>` struct              | `declare const u_x: uniform<f32>` is WGSL-only, since GLSL ES 3.00 spells a uniform binding as a std140 block                                                          |
+| a symbol or a block the host prelude declares  | none; the IR builder's `externVar`, `hostUniform` and `hostBlock`                              | the same reference, spelled per target          | [`docs/ir-builder.md`](docs/ir-builder.md) has them                                                                                                                    |
+| `in` / `out` / `inout` on a function parameter | none / [an object the function writes](#an-object-a-function-writes-and-a-value-it-gives-back) | a pointer parameter                             | an object is the caller's, a value is returned                                                                                                                         |
+| `#ifdef FEATURE` where this module decides     | [one file per variant](/guide/authoring/conditional-programs/)                                 | no preprocessor                                 | the variant that does not declare a binding never has it                                                                                                               |
+| `#ifdef FEATURE` where the host decides        | [`variantFamily`](/guide/authoring/conditional-programs/)                                      | one module per point in the matrix              | `emitGuarded` generates the `#if` ladder for a GLSL host that owns the define, and every arm is byte-identical to the standalone variant                               |
+| a variant that changes only a value            | [`override<T>` with `overrideValues`](/guide/authoring/conditional-programs/)                  | `override` plus pipeline constants              | building a separate variant for this multiplies pipelines for nothing                                                                                                  |
+| `#include "helper.glsl"`                       | [`import` from another shader file](/guide/authoring/functions-and-entry-points/)              | one module                                      | for a host that composes its own program, `emitGlslFragment` and `emitFragment` return a module fragment                                                               |
+| `precision mediump float;`                     | [the `floatPrecision` emit option](/guide/authoring/glsl-float-precision/)                     | nothing, since WGSL has no precision qualifiers | it sets the stage-wide default at emit                                                                                                                                 |
+| `usampler2D` and `isampler2D`                  | [`texture_2d<u32>` and `texture_2d<i32>`](/guide/authoring/layouts-and-resources/)             | `texture_2d<u32>` and `texture_2d<i32>`         | the sampler precision line is emitted for you                                                                                                                          |
+| `#extension … : require`                       | [the use that needs it, or `"enable …"`](/guide/authoring/capabilities-extensions/)            | `enable …;`                                     | fails closed with SD0030 on a backend whose profile has no row. That page also says which capabilities survive on WGSL                                                 |
+| comparing two emits after an optimizer pass    | [`semanticDiff`](/guide/authoring/production-emit/)                                            | the same                                        | compares IR and reflection, so folding and renaming do not drown the diff. Declare the production plugins as `transforms` and their rewrites classify into `explained` |
 
 A block this module owns is the most common first row. Declare the struct and the binding,
 and read the fields by name:

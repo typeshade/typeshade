@@ -8,7 +8,7 @@ the array methods `ArrayOps` picks. `src/author-names.test.ts` fails when this f
 library disagree. `scripts/changes.ts` reads this file on both sides of a diff: a name it
 gains needs an accepted proposal that lists the name under `names:` (changes/README.md).
 
-## Declared names — 282
+## Declared names — 280
 
 ```
 AnyClass
@@ -129,7 +129,6 @@ fwidthCoarse
 fwidthFine
 i32
 i32Tag
-inout
 insertBits
 interpolate
 invariant
@@ -166,7 +165,6 @@ min
 mix
 mod
 normalize
-out
 override
 pack2x16float
 pack2x16snorm

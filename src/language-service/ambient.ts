@@ -1656,18 +1656,10 @@ ${renderJSDoc(ATTRIBUTE_DOCS.invariant)}
 declare function invariant(target: unknown, context?: unknown): void
 ${renderJSDoc(ATTRIBUTE_DOCS.blend_src)}
 declare function blend_src(n: number): (target: unknown, context?: unknown) => void
-${renderJSDoc(ATTRIBUTE_DOCS.inout)}
-declare function inout(target: unknown, context?: unknown, index?: number): void
-${renderJSDoc(ATTRIBUTE_DOCS.out)}
-declare function out(target: unknown, context?: unknown, index?: number): void
 ${renderJSDoc(ATTRIBUTE_TYPE_DOCS.builtin!)}
 type builtin<N extends ${WGSL_BUILTIN_NAMES.map((n) => `'${n}'`).join(' | ')}, T = ${BUILTIN_VALUE_TYPE}, O extends { readonly invariant?: true } = {}> = T extends boolean ? T : T extends { readonly invariant?: true } ? ${BUILTIN_VALUE_TYPE} : T
 ${renderJSDoc(ATTRIBUTE_TYPE_DOCS.location!)}
 type location<I extends number, T, O extends { readonly interpolate?: 'perspective' | 'linear' | 'flat' | readonly [type: 'perspective' | 'linear' | 'flat', sampling: 'center' | 'centroid' | 'sample' | 'first' | 'either']; readonly blend_src?: 0 | 1 } = {}> = T
-${renderJSDoc(ATTRIBUTE_TYPE_DOCS.inout!)}
-type inout<T> = T
-${renderJSDoc(ATTRIBUTE_TYPE_DOCS.out!)}
-type out<T> = T
 ${renderJSDoc(ATTRIBUTE_DOCS.vertex)}
 declare function vertex(target: Function, context?: unknown): void
 ${renderJSDoc(ATTRIBUTE_DOCS.fragment)}
