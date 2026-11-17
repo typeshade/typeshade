@@ -186,8 +186,8 @@ export const isCompound = (e: Expr): boolean =>
 
 /** The unconditionally-evaluated VALUE positions of a statement, rewritten through `f`
  *  (the lvalue TARGET is not one, and the nested block bodies are their own blocks).
- *  Shared by `cse-local` and `gvn`, which must name exactly the same set as their
- *  `valueExprs`: a position that is tallied but not rewritten mints a temp and leaves
+ *  Shared by `cse-local` and `gvn`, which must name exactly the set they tally (`valueExprs`,
+ *  `exprsRunOncePerBlockRun`): a position tallied but not rewritten mints a temp and leaves
  *  the original recomputing beside it. `glsl-legalize` keeps its OWN version — it also
  *  rewrites the target's INDEX subexpressions, a different set on purpose. */
 export function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
