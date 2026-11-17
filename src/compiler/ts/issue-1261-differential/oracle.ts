@@ -110,9 +110,7 @@ function typedBinary(op: string, a: V, b: V): V {
     default:
       r = t === 'u32' ? (x >>> 0) >>> (y & 31) : x >> (y & 31);
   }
-  if (out === 'k' && Number.isInteger(r) && !inRange('i32', r) && !inRange('u32', r)) {
-    throw new Skip('untyped integer past both types');
-  }
+  if (out === 'k' && Number.isInteger(r) && Math.abs(r) > 2 ** 53) throw new Skip('past doubles');
   return { t: out, v: wrap(out, r) };
 }
 

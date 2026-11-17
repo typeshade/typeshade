@@ -745,6 +745,12 @@ class Program {
       this.lines.push(`let c = ${ec.text};`);
       this.bind('c', 'k', () => ec.value());
       if (this.chance(0.2)) {
+        const n = this.chance(0.25) ? this.name('vi') : lit(this.pick([1, 5, 9]));
+        this.lines.push(`c = ${n.text};`);
+        this.steps.push(() => this.env.set('c', n.value()));
+      }
+      const accumulated = this.chance(0.25);
+      if (accumulated) {
         const trips = this.pick([2, 3, 4, 30]);
         const step = this.pick([() => this.tree(), () => this.name('a'), () => lit(1073741824)])();
         this.lines.push(
@@ -755,13 +761,7 @@ class Program {
             this.env.set('c', binary('+', this.env.get('c')!, step.value()));
         });
       }
-      if (this.chance(0.2)) {
-        const n = this.chance(0.25) ? this.name('vi') : lit(this.pick([1, 5, 9]));
-        this.lines.push(`c = ${n.text};`);
-        this.steps.push(() => this.env.set('c', n.value()));
-      }
-      // A store that reads its own variable (the review of #1304): `a = a - K`, `a -= K`, once,
-      // inside `if`, or twice in a loop.
+      // A store that reads its own variable (#1304): `a = a - K`, `a -= K`, once, in `if` or a loop.
       if (this.chance(0.3)) {
         const op = this.pick(['+', '-', '|', '^']);
         const n = lit(this.pick([0x10000000, 0x40000000, 3]));
@@ -795,7 +795,7 @@ class Program {
         this.bind('sa', 'i32', () => ({ t: 'i32', v: n }));
         amount = this.name(this.pick(['sa', 'sa', 'ii', 'vi']));
       }
-      let e = this.bin(op, this.name(l), amount);
+      let e = accumulated && this.chance(0.5) ? this.name('c') : this.bin(op, this.name(l), amount);
       if (this.chance(0.3))
         e = this.bin(this.pick(['+', '-']), e, this.name(this.pick(['a', 'c'])));
       if (this.chance(0.5)) {
