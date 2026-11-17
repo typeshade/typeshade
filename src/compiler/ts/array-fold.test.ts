@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { compile } from './compile.js';
+import { bothRefuse } from '../../core/testing/both-halves.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 
@@ -85,28 +86,26 @@ describe('reduce / min / max / fill / some', () => {
   });
 
   it('refuses a value of another type with the element message (#498)', () => {
-    const r = compile(`"use typeshade";
+    bothRefuse(
+      `"use typeshade";
 export function f(n: u32): u32 {
   const s = fill<u32, 4>(1.5);
   return n;
 }
-`);
-    expect(
-      r.diagnostics.filter((d) => d.category === 'error').map((d) => `${d.code} ${d.message}`),
-    ).toEqual([
-      'TS8003 array<u32, 4> element 0 must be u32, got f32. There is no implicit conversion; cast it.',
-    ]);
-    const v = compile(`"use typeshade";
+`,
+      'TS8003',
+      'array<u32, 4> element 0 must be u32, got f32. There is no implicit conversion; cast it.',
+    );
+    bothRefuse(
+      `"use typeshade";
 export function f(n: u32): u32 {
   const w = fill<vec2, 2>(vec3(1., 2., 3.));
   return n;
 }
-`);
-    expect(
-      v.diagnostics.filter((d) => d.category === 'error').map((d) => `${d.code} ${d.message}`),
-    ).toEqual([
-      'TS8003 array<vec2, 2> element 0 must be vec2, got vec3. There is no implicit conversion; cast it.',
-    ]);
+`,
+      'TS8003',
+      'array<vec2, 2> element 0 must be vec2, got vec3. There is no implicit conversion; cast it.',
+    );
   });
 
   it('!xs.some(pred) is none', () => {
