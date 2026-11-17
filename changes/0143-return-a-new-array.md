@@ -100,7 +100,9 @@ below, and only for it.
 4. Rule 8.22's body shape: the new array is one of the function's arrays. Its loops write it
    and read it, its `.length` is read, the stores after the last loop store into it, and the
    function ends with `return out` on every path.
-5. Rule 8.21: the result's host value (Q2). On a resource, the result is a `Buffer` of the
+5. Rule 8.21: the result's host value is the one a kernel's `array<T>` parameter takes: the
+   scalar's typed array, a vector's components one after another, an array of objects for a
+   struct (Q2). On a resource, the result is a `Buffer` of the
    scalars, as the second signature gives a result.
 6. The host call, on WebGPU, WebGL2 and the CPU tier:
    - computes `n` from the arguments before anything runs;
@@ -160,7 +162,10 @@ refused as such). It reverses no entry.
 - Q1, the spelling: **C, `array<T>(n)`**, 2026-11-17 (the owner's selection in the session,
   after "array 여도 좋고").
 
-### Questions for the owner
+- Q2, the result's host value: **A, a typed array as a kernel's `array<T>` parameter takes**,
+  2026-11-17 (the owner's "네" to the recommendation).
+
+### Q2 as it was asked
 
 **Q2. The result's host value.** Rule 8.21 gives two precedents, and they differ.
 
@@ -233,8 +238,8 @@ Revision 2 has not been reviewed again.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's answer to Q2, a review of
-revision 2, and a merge of this file as `accepted`.
+This record does not yet apply. Acceptance will require a review of revision 2 and a merge of
+this file as `accepted`.
 
 ### Configuration and validation record
 
