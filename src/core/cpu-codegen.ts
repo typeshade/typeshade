@@ -1979,7 +1979,7 @@ function unboundValue(t: ShaderType, structs: ReadonlyMap<string, StructDecl>): 
   if (t.kind === 'struct') {
     const decl = structs.get(t.name);
     if (decl === undefined) return '{}';
-    return `{ ${decl.fields.map((f) => `${q(f.name)}: ${unboundValue(f.type, structs)}`).join(', ')} }`;
+    return `({ ${decl.fields.map((f) => `${q(f.name)}: ${unboundValue(f.type, structs)}`).join(', ')} })`;
   }
   return JSON.stringify(zeroOf(t, structs));
 }
