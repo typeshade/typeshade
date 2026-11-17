@@ -11,8 +11,8 @@ export interface MintedTemp {
 }
 
 export interface FnScope extends TallyScope {
-  readonly nextTemp: { n: number };
-  readonly deniedKeysByBlock: ReadonlyMap<readonly Stmt[], ReadonlySet<string>>;
+  readonly next: { n: number };
+  readonly deny: ReadonlyMap<readonly Stmt[], ReadonlySet<string>>;
   readonly minted: Map<string, MintedTemp>;
 }
 
@@ -59,18 +59,18 @@ function mintTempsBeforeFirstOccurrence(
   writtenByStmt: readonly ReadonlySet<string>[],
 ): Map<number, TempLet[]> {
   const letsBeforeStmt = new Map<number, TempLet[]>();
-  const keys = keysToBindInTallyOrder({
+  const keys = keysToBindInTallyOrder(
     body,
-    tally: tallyBlock(body, scope),
+    tallyBlock(body, scope),
     writtenByStmt,
     enclosing,
-    deniedKeys: scope.deniedKeysByBlock.get(body),
-    reads: scope.reads,
-  });
+    scope.deny.get(body),
+    scope.reads,
+  );
   for (const [key, occur] of keys) {
     const at = firstStmtOf(occur);
     const lets = letsBeforeStmt.get(at) ?? [];
-    const name = `_gv${scope.nextTemp.n++}`;
+    const name = `_gv${scope.next.n++}`;
     lets.push({ name, expr: occur.exemplar });
     scope.minted.set(name, { block: body, key });
     letsBeforeStmt.set(at, lets);

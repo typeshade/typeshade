@@ -4,14 +4,11 @@ import { isCompound, isWorthHoisting, keyOf, refsLocal } from '../expr-utils.js'
 import { exprsRunOncePerBlockRun } from './positions.js';
 
 export interface Occur {
-  readonly unguardedStmts: Set<number>;
+  readonly stmts: Set<number>;
   readonly exemplar: Expr;
 }
 
-export interface Tally {
-  readonly unguarded: Map<string, Occur>;
-  readonly guardedKeys: Set<string>;
-}
+export type Tally = readonly [unguarded: Map<string, Occur>, guardedKeys: Set<string>];
 
 export interface TallyScope {
   readonly localSet: ReadonlySet<string>;
@@ -21,14 +18,15 @@ export interface TallyScope {
 
 function tallyExpr(e: Expr, stmt: number, guarded: boolean, scope: TallyScope, into: Tally): void {
   const { localSet, loadRoots, reads } = scope;
+  const [unguarded, guardedKeys] = into;
   if (isCompound(e) && isWorthHoisting(e, loadRoots) && refsLocal(e, localSet, reads)) {
     const k = keyOf(e);
     if (guarded) {
-      into.guardedKeys.add(k);
+      guardedKeys.add(k);
     } else {
-      const o = into.unguarded.get(k);
-      if (o) o.unguardedStmts.add(stmt);
-      else into.unguarded.set(k, { unguardedStmts: new Set([stmt]), exemplar: e });
+      const o = unguarded.get(k);
+      if (o) o.stmts.add(stmt);
+      else unguarded.set(k, { stmts: new Set([stmt]), exemplar: e });
     }
   }
   const same = (x: Expr): void => tallyExpr(x, stmt, guarded, scope, into);
@@ -73,11 +71,11 @@ function tallyExpr(e: Expr, stmt: number, guarded: boolean, scope: TallyScope, i
 }
 
 export function tallyBlock(body: readonly Stmt[], scope: TallyScope): Tally {
-  const tally: Tally = { unguarded: new Map(), guardedKeys: new Set() };
+  const tally: Tally = [new Map(), new Set()];
   body.forEach((s, stmt) => {
     for (const e of exprsRunOncePerBlockRun(s)) tallyExpr(e, stmt, false, scope, tally);
   });
   return tally;
 }
 
-export const firstStmtOf = (o: Occur): number => Math.min(...o.unguardedStmts);
+export const firstStmtOf = (o: Occur): number => Math.min(...o.stmts);

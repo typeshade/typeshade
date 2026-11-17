@@ -13,14 +13,7 @@ export interface EnclosingTemp {
 
 type Candidate = [key: string, occur: Occur];
 
-export interface ChoiceInput {
-  readonly body: readonly Stmt[];
-  readonly tally: Tally;
-  readonly writtenByStmt: readonly ReadonlySet<string>[];
-  readonly enclosing: ReadonlyMap<string, EnclosingTemp>;
-  readonly deniedKeys: ReadonlySet<string> | undefined;
-  readonly reads: FnReads;
-}
+type WrittenByStmt = readonly ReadonlySet<string>[];
 
 function strictPartKeys(o: Occur): string[] {
   const keys: string[] = [];
@@ -37,29 +30,42 @@ function notInsideAnotherCandidate(cands: readonly Candidate[]): Candidate[] {
   return cands.filter(([k]) => !nested.has(k));
 }
 
-function enclosingTempStillHolds(k: string, o: Occur, input: ChoiceInput): boolean {
-  const temp = input.enclosing.get(k);
+function enclosingTempStillHolds(
+  k: string,
+  o: Occur,
+  enclosing: ReadonlyMap<string, EnclosingTemp>,
+  writtenByStmt: WrittenByStmt,
+): boolean {
+  const temp = enclosing.get(k);
   if (temp === undefined) return false;
   const first = firstStmtOf(o);
-  for (let m = 0; m < first; m++)
-    if (writesAnyRoot(input.writtenByStmt[m]!, temp.roots)) return false;
+  for (let m = 0; m < first; m++) if (writesAnyRoot(writtenByStmt[m]!, temp.roots)) return false;
   return true;
 }
 
-function noRootWrittenBetweenOccurrences(o: Occur, input: ChoiceInput): boolean {
-  const stmts = [...o.unguardedStmts].sort((a, b) => a - b);
+function noRootWrittenBetweenOccurrences(
+  o: Occur,
+  writtenByStmt: WrittenByStmt,
+  reads: FnReads,
+): boolean {
+  const stmts = [...o.stmts].sort((a, b) => a - b);
   const last = stmts[stmts.length - 1]!;
-  const roots = rootsOf(o.exemplar, input.reads);
-  for (let m = stmts[0]!; m < last; m++)
-    if (writesAnyRoot(input.writtenByStmt[m]!, roots)) return false;
+  const roots = rootsOf(o.exemplar, reads);
+  for (let m = stmts[0]!; m < last; m++) if (writesAnyRoot(writtenByStmt[m]!, roots)) return false;
   return true;
 }
 
-function readByANestedBlockBeforeARootMoves(k: string, o: Occur, input: ChoiceInput): boolean {
-  const roots = rootsOf(o.exemplar, input.reads);
-  for (let j = firstStmtOf(o); j < input.body.length; j++) {
-    if (tempIsReadInside(input.body[j]!, k, roots)) return true;
-    if (writesAnyRoot(input.writtenByStmt[j]!, roots)) return false;
+function readByANestedBlockBeforeARootMoves(
+  k: string,
+  o: Occur,
+  body: readonly Stmt[],
+  writtenByStmt: WrittenByStmt,
+  reads: FnReads,
+): boolean {
+  const roots = rootsOf(o.exemplar, reads);
+  for (let j = firstStmtOf(o); j < body.length; j++) {
+    if (tempIsReadInside(body[j]!, k, roots)) return true;
+    if (writesAnyRoot(writtenByStmt[j]!, roots)) return false;
   }
   return false;
 }
@@ -68,9 +74,11 @@ function keysDominatingANestedRead(
   eligible: readonly Candidate[],
   repeats: readonly Candidate[],
   keptRepeats: ReadonlySet<string>,
-  input: ChoiceInput,
+  body: readonly Stmt[],
+  writtenByStmt: WrittenByStmt,
+  reads: FnReads,
 ): Candidate[] {
-  const mentionedInside = keysMentionedInside(input.body);
+  const mentionedInside = keysMentionedInside(body);
   const partsOfKeptRepeats = new Set<string>();
   for (const [k, o] of repeats)
     if (keptRepeats.has(k)) for (const part of strictPartKeys(o)) partsOfKeptRepeats.add(part);
@@ -83,25 +91,41 @@ function keysDominatingANestedRead(
         !keptRepeats.has(k) &&
         !partsOfKeptRepeats.has(k) &&
         !holdsAKeptRepeat(o) &&
-        readByANestedBlockBeforeARootMoves(k, o, input),
+        readByANestedBlockBeforeARootMoves(k, o, body, writtenByStmt, reads),
     ),
   );
 }
 
-export function keysToBindInTallyOrder(input: ChoiceInput): Candidate[] {
-  const eligible = [...input.tally.unguarded.entries()].filter(
+export function keysToBindInTallyOrder(
+  body: readonly Stmt[],
+  [unguarded, guardedKeys]: Tally,
+  writtenByStmt: WrittenByStmt,
+  enclosing: ReadonlyMap<string, EnclosingTemp>,
+  deniedKeys: ReadonlySet<string> | undefined,
+  reads: FnReads,
+): Candidate[] {
+  const eligible = [...unguarded.entries()].filter(
     ([k, o]) =>
-      !input.tally.guardedKeys.has(k) &&
-      input.deniedKeys?.has(k) !== true &&
-      !enclosingTempStillHolds(k, o, input),
+      !guardedKeys.has(k) &&
+      deniedKeys?.has(k) !== true &&
+      !enclosingTempStillHolds(k, o, enclosing, writtenByStmt),
   );
-  const repeats = notInsideAnotherCandidate(eligible.filter(([, o]) => o.unguardedStmts.size >= 2));
+  const repeats = notInsideAnotherCandidate(eligible.filter(([, o]) => o.stmts.size >= 2));
   const keptRepeats = new Set(
-    repeats.filter(([, o]) => noRootWrittenBetweenOccurrences(o, input)).map(([k]) => k),
+    repeats
+      .filter(([, o]) => noRootWrittenBetweenOccurrences(o, writtenByStmt, reads))
+      .map(([k]) => k),
   );
   const chosen = new Set(keptRepeats);
-  if (input.body.some(isNestingStmt))
-    for (const [k] of keysDominatingANestedRead(eligible, repeats, keptRepeats, input))
+  if (body.some(isNestingStmt))
+    for (const [k] of keysDominatingANestedRead(
+      eligible,
+      repeats,
+      keptRepeats,
+      body,
+      writtenByStmt,
+      reads,
+    ))
       chosen.add(k);
   return eligible.filter(([k]) => chosen.has(k));
 }

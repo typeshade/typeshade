@@ -55,8 +55,8 @@ function numberFn(
       localSet,
       loadRoots,
       reads,
-      nextTemp: { n: firstTemp },
-      deniedKeysByBlock,
+      next: { n: firstTemp },
+      deny: deniedKeysByBlock,
       minted,
     });
     if (minted.size === 0) return { ...f, body };
