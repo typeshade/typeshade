@@ -225,6 +225,17 @@ goes stale, so the code carries the knowledge instead.
   invariant goes, a test or an assert holds the invariant. Then run
   `bun run bake:comment-baseline`.
 
+## File size
+
+The owner's rule, given on 2026-11-17: "한 파일당 주석 포흠 400줄이 넘어가지 않도록 프로젝트 구조를
+잡고 싶은데". A long file hides its parts, and a directory named for a module shows them.
+
+- A file of `src/` has at most 400 lines, comments included.
+- `src/file-size-policy.test.ts` fails a new file above the limit, and a file of
+  `scripts/file-size-baseline.json` that grew. Never raise a number there.
+- To add code to a file of the baseline, first move one responsibility out of it, into a file
+  of its own in a directory named for the module. Then run `bun run bake:file-size-baseline`.
+
 ## Before pushing
 
 Run the gates `AGENTS.md#tests` lists that the change can reach. CI runs the same ones, and a
