@@ -74,4 +74,11 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
   ] as const)('a neighbour whose readings agree still compiles: %s', (_, body, ret, value) => {
     expect(run(program(body, ret))).toBe(value);
   });
+
+  it('an exported function with no written result refuses to return such a shift', () => {
+    const exported = (ret: string): string =>
+      `"use typeshade";\nexport function g(vi: u32) {\n  ${TREE}c = 9;\n  return ${ret};\n}\n`;
+    bothRefuse(exported('c << vi'), 'TS8003', unproven('c << vi', 'return', 'i32(c << vi)'));
+    expect(bothTake(exported('i32(c << vi)')).result.eval('g', [31])).toBe(-2147483648);
+  });
 });

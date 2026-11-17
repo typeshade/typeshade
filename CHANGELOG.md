@@ -359,7 +359,9 @@ f32(v / 2)` after `s.v = ii` is refused, as `f32(s.v / 2)` is. A swizzle of a sw
   the walk cannot read there (`c = vi`) is unproven, and a shift of a tree by an amount of a
   written type is unproven. Each is refused in both halves with the D2 sentence and a verified
   edit (`u32(c << a)`). Cost: `f32(((c << a) < vi) ? 1 : 0)` without the store gave the right
-  value 1 and is refused now, since the walk does not know `a`.
+  value 1 and is refused now, since the walk does not know `a`. An exported function with no
+  written result that returns such a shift (`return c << vi`) is refused too, as D2 refuses every
+  exported result whose readings differ.
 
 - **Buffer integration with the compiler refactor** (2026-11-16, change 0138). Host analysis
   keeps the Buffer overload records; the extracted host view and module generators consume them.
