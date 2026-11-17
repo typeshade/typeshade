@@ -24,7 +24,7 @@ import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js';
 import { specializeCalls } from './passes/specialize-calls.js';
 import { restructureCalls } from './passes/restructure-calls.js';
 import { storageLoadReuse } from './passes/storage-load-reuse.js';
-import { mapExpr, mapStmt } from './passes/opt/ir-transform.js';
+import { spellExterns } from './passes/spell-externs.js';
 import { renameFunctions, renameTargetOf } from './passes/rename-predeclared.js';
 import { spellModule } from './passes/spell-names.js';
 import { assertHostOwnedSpellable, inheritSpellings, spellingsOf } from './spelling-plan.js';
@@ -555,27 +555,6 @@ function lowerTimed(
   return step('postLower', () => (be.postLower === undefined ? guarded : be.postLower(guarded)));
 }
 
-/** Resolve each `externref` to the spelling THIS target's host uses (X-GIS #1713).
- *
- *  Done as a lowering pass rather than in `emitLeaf` because the spelling lives on the
- *  DECLARATION and the emit walk only ever sees the Expr — threading the module through
- *  the walk to look it up would widen the neutral emitter's contract for one node kind.
- *  Identity for every module with no externs, and for every extern whose host spells it
- *  the same on both targets, so nothing else changes bytes. */
-function spellExterns(m: ModuleDecl, be: Backend): ModuleDecl {
-  const map = new Map<string, string>();
-  for (const e of m.externs ?? []) {
-    const to = be.id === 'wgsl' ? e.spelling?.wgsl : e.spelling?.glsl;
-    if (to !== undefined && to !== e.name) map.set(e.name, to);
-  }
-  if (map.size === 0) return m;
-  const rE = (e: Expr): Expr =>
-    mapExpr(e, (x) =>
-      x.op === 'externref' && map.has(x.name) ? { ...x, name: map.get(x.name)! } : x,
-    );
-  return { ...m, funcs: m.funcs.map((f) => ({ ...f, body: f.body.map((s) => mapStmt(s, rE)) })) };
-}
-
 /** Assemble an ALREADY-lowered module into a target string: the declaration assembly
  *  (consts → structs → bindings → funcs, only non-empty sections), joined `\n\n` with a
  *  trailing newline. Split out of `emitModule` so the string and the reflection can be
@@ -824,15 +803,35 @@ export function emitModule(
   opts?: EmitOptions,
   level?: OptLevel,
 ): string {
-  const authoredLowered = lowerForBackend(m, be, level, opts?.fp64Flavor);
-  const lowered = inheritSpellings(applyIRPlugins(authoredLowered, opts), authoredLowered);
+  return emitModuleLowered(m, be, opts, level).code;
+}
+
+export function emitModuleLowered(
+  m: ModuleDecl,
+  be: Backend,
+  opts?: EmitOptions,
+  level?: OptLevel,
+): { readonly code: string; readonly lowered: ModuleDecl } {
+  const lowered = loweredWithPlugins(m, be, opts, level);
   // The `enable`-directive header (X-GIS #628) is derived from the AUTHORED module's opt-in
   // caps (m.enables) — the lowering passes rebuild the module object and do not carry
   // it — and prepended to the assembled declarations. '' for enables-free modules, so
   // their emit stays byte-identical.
-  return (
-    directiveHeader(be, m) + applyTextPlugins(assembleLowered(lowered, be, opts?.parens), opts)
-  );
+  return {
+    code:
+      directiveHeader(be, m) + applyTextPlugins(assembleLowered(lowered, be, opts?.parens), opts),
+    lowered,
+  };
+}
+
+export function loweredWithPlugins(
+  m: ModuleDecl,
+  be: Backend,
+  opts?: EmitOptions,
+  level?: OptLevel,
+): ModuleDecl {
+  const authoredLowered = lowerForBackend(m, be, level, opts?.fp64Flavor);
+  return inheritSpellings(applyIRPlugins(authoredLowered, opts), authoredLowered);
 }
 
 /** Emit a ModuleDecl as a header-less FRAGMENT for `be` (X-GIS #1711) — the declaration

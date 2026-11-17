@@ -23,13 +23,13 @@ import {
   type StructDecl,
 } from './ir/nodes.js';
 import { typeKey, type ShaderType } from './ir/types.js';
-import { eachExpr, eachStmtExpr } from './ir/visit.js';
 import { sourceSpanOf } from './ir/span.js';
-import { fnReads, fnWrites } from './passes/effects.js';
+import { calleesOf, closureOf, reachOf } from './manifest/reach.js';
+export { calleesOf, closureOf };
 import { texturePairs } from './passes/texture-pairs.js';
 import { wgslBackend } from './backends/wgsl.js';
 import { emitGlslEntries } from './backends/glsl.js';
-import { emitModule as emitWith, type EmitOptions, type ParenMode } from './emit.js';
+import { emitModuleLowered, loweredWithPlugins, type EmitOptions, type ParenMode } from './emit.js';
 import { hostFeaturesFor } from './backend.js';
 import {
   reflect,
@@ -162,37 +162,6 @@ export function layoutOf(
   }
 }
 
-// ─── what a function reaches ─────────────────────────────────────────────────────────────────
-
-/** The functions `f` calls, directly. */
-export function calleesOf(f: FuncDecl, declared: ReadonlySet<string>): Set<string> {
-  const out = new Set<string>();
-  for (const s of f.body)
-    eachStmtExpr(s, (e) =>
-      eachExpr(e, (x) => {
-        if (x.op === 'call' && declared.has(x.fn)) out.add(x.fn);
-      }),
-    );
-  return out;
-}
-
-/** `root` and every function it reaches through calls. */
-export function closureOf(
-  root: string,
-  callees: ReadonlyMap<string, ReadonlySet<string>>,
-): Set<string> {
-  const out = new Set<string>([root]);
-  const todo = [root];
-  while (todo.length > 0) {
-    for (const c of callees.get(todo.pop()!) ?? [])
-      if (!out.has(c)) {
-        out.add(c);
-        todo.push(c);
-      }
-  }
-  return out;
-}
-
 /** What the WebGL2 tier draws a fragment entry with: its GLSL ES 3.00 fragment program, the block
  *  name of each uniform binding, the sampler of each texture, and the read-only storage arrays it
  *  reads as data textures; or why it cannot. `bindings` are the ones the entry reaches, the
@@ -211,6 +180,7 @@ export function glDrawOf(
   emit?: EmitOptions,
   dataTextures?: ReadonlySet<string>,
   sources?: GlslSources,
+  texturesMayDrop = false,
 ): PackGlDraw | { none: string } {
   const stage = glStageOf(
     m,
@@ -223,6 +193,7 @@ export function glDrawOf(
     emit,
     dataTextures,
     sources,
+    texturesMayDrop,
   );
   if ('none' in stage) return stage;
   const { source, ...rest } = stage;
@@ -241,6 +212,7 @@ export function glVertexOf(
   emit: EmitOptions | undefined,
   dataTextures: ReadonlySet<string>,
   sources: GlslSources | undefined,
+  texturesMayDrop = false,
 ): PackGlVertex | { none: string } {
   const stage = glStageOf(
     m,
@@ -253,6 +225,7 @@ export function glVertexOf(
     emit,
     dataTextures,
     sources,
+    texturesMayDrop,
   );
   if ('none' in stage) return stage;
   const { source, ...rest } = stage;
@@ -273,11 +246,10 @@ function ownGlsl(
   m: ModuleDecl,
   f: FuncDecl,
   stage: 'vertex' | 'fragment',
-  bindings: readonly DrawBinding[],
   closure: ReadonlySet<string>,
   emit: EmitOptions | undefined,
 ): GlslSources {
-  const own = pruned(m, closure, new Set(bindings.map((b) => b.name)));
+  const own = pruned(m, closure);
   const one = (o: EmitOptions | undefined): string | Error =>
     emitGlslEntries(own, [{ stage, name: f.name }], o).programs[0]!;
   const shipped = one(emit);
@@ -290,13 +262,11 @@ function ownGlsl(
   };
 }
 
-/** `m` with only the functions of `closure` and the bindings of `reached`, and no workgroup
+/** `m` with only the functions of `closure` and the bindings they touch, and no workgroup
  *  memory: the module a vertex or fragment program is emitted from. */
-function pruned(
-  m: ModuleDecl,
-  closure: ReadonlySet<string>,
-  reached: ReadonlySet<string>,
-): ModuleDecl {
+function pruned(m: ModuleDecl, closure: ReadonlySet<string>): ModuleDecl {
+  const reach = reachOf(m);
+  const reached = new Set([...closure].flatMap((g) => [...reach(g).touched]));
   // A pruned module keeps the names of the module it was cut from (Proposal 0070, finding 8).
   return inheritSpellings(
     {
@@ -350,8 +320,7 @@ function glslOfEntries(
     return { ...(glsl !== undefined ? { glsl } : {}), entries };
   }
   const closure = new Set(jobs.flatMap((j) => [...j.closure]));
-  const reached = new Set(jobs.flatMap((j) => j.bindings.map((b) => b.name)));
-  const all = pruned(m, closure, reached);
+  const all = pruned(m, closure);
   const together = emitGlslEntries(all, list.slice(0, jobs.length), emit);
   const plain =
     together.lowered && plugins
@@ -362,7 +331,7 @@ function glslOfEntries(
       j.f.name,
       together.lowered
         ? { shipped: together.programs[i]!, text: plain[i]! }
-        : ownGlsl(m, j.f, j.stage, j.bindings, j.closure, emit),
+        : ownGlsl(m, j.f, j.stage, j.closure, emit),
     ),
   );
   return { ...(glsl !== undefined ? { glsl } : {}), entries };
@@ -380,6 +349,7 @@ function glStageOf(
   emit: EmitOptions | undefined,
   dataTextures: ReadonlySet<string> | undefined,
   sources: GlslSources | undefined,
+  texturesMayDrop: boolean,
 ):
   | {
       readonly source: string;
@@ -397,7 +367,7 @@ function glStageOf(
     return {
       none: `it reaches the storage binding "${storage.name}", and GLSL ES 3.00 has no storage buffer`,
     };
-  const emitted = sources ?? ownGlsl(m, f, stage, bindings, closure, emit);
+  const emitted = sources ?? ownGlsl(m, f, stage, closure, emit);
   const failed = [emitted.shipped, emitted.text].find((v) => v instanceof Error);
   if (failed !== undefined)
     return { none: `the GLSL backend refuses it: ${failed.message.replace(/\.$/, '')}` };
@@ -429,9 +399,11 @@ function glStageOf(
       data.push(b.name);
       declared.add(gl(b.name));
     } else if (b.space === 'texture') {
-      const has = sampled(gl(b.name));
+      const g = gl(b.name);
+      const has = sampled(g);
       // The guard is bound only where the program reads it.
-      if (!has && 'guard' in b) continue;
+      if (!has && ('guard' in b || (texturesMayDrop && !new RegExp(`\\b${g}\\b`).test(text))))
+        continue;
       if (!has) return { none: `its GLSL declares no sampler2D for "${b.name}"` };
       declared.add(gl(b.name));
     }
@@ -652,8 +624,13 @@ function emitPlanOf(options: PackOptions): EmitPlan {
 }
 
 /** `m` as WGSL under the plan's options and level. With none it is `emitModule(m)`. */
-const emitWgsl = (m: ModuleDecl, plan: EmitPlan): string =>
-  emitWith(m, wgslBackend, plan.options, plan.level);
+const emitWgsl = (m: ModuleDecl, plan: EmitPlan): string => emittedWgsl(m, plan).code;
+
+const emittedWgsl = (
+  m: ModuleDecl,
+  plan: EmitPlan,
+): { readonly code: string; readonly lowered: ModuleDecl } =>
+  emitModuleLowered(m, wgslBackend, plan.options, plan.level);
 
 /**
  * Everything a host needs to run a compiled module, in one plain object (Rule 11.10): the
@@ -681,13 +658,22 @@ export function buildManifest(
   m: ModuleDecl,
   options: PackOptions = {},
   defaultWgsl?: string,
+  defaultLowered?: ModuleDecl,
 ): Pack {
   // The spelling plan of the kernel-free module the writers lower (Proposal 0070): the records of
   // structs and fields read it, as `reflect()` does.
   const spelled = spellingsOf(inheritSpellings(withoutKernels(m), m));
   const plan = emitPlanOf(options);
   const fp64Flavor = plan.options?.fp64Flavor;
-  const wgsl = options.emit === undefined ? (defaultWgsl ?? emitWgsl(m, plan)) : emitWgsl(m, plan);
+  const own =
+    options.emit === undefined && defaultWgsl !== undefined
+      ? {
+          code: defaultWgsl,
+          lowered: defaultLowered ?? loweredWithPlugins(m, wgslBackend, plan.options, plan.level),
+        }
+      : emittedWgsl(m, plan);
+  const wgsl = own.code;
+  const emittedReach = reachOf(own.lowered);
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   // Through `stageOf`, as every stage decision is: a `fn()` handle carries `attrs`, not `stage`.
   const hasVs = m.funcs.some((f) => stageOf(f) === 'vertex');
@@ -699,23 +685,13 @@ export function buildManifest(
   const declared = new Set(m.funcs.map((f) => f.name));
   const byName = new Map(m.funcs.map((f) => [f.name, f]));
   const callees = new Map(m.funcs.map((f) => [f.name, calleesOf(f, declared)]));
-  const reads = fnReads(m);
-  const writes = fnWrites(m);
   const guard = bindings.find((b) => b.injected && b.name === '_fp64');
 
   const reached = (
     f: FuncDecl,
   ): { closure: Set<string>; list: { name: string; writes: boolean }[] } => {
     const closure = closureOf(f.name, callees);
-    const touched = new Set<string>();
-    const written = new Set<string>();
-    for (const g of closure) {
-      for (const n of reads.get(g) ?? []) touched.add(n);
-      for (const n of writes.get(g) ?? []) {
-        touched.add(n);
-        written.add(n);
-      }
-    }
+    const { touched, written } = emittedReach(f.name);
     const list = m.bindings
       .filter((b) => touched.has(b.name))
       .map((b) => ({ name: b.name, writes: written.has(b.name) }));
@@ -779,6 +755,7 @@ export function buildManifest(
   const emitted = glslOfEntries(m, renderJobs, plan.options, hasVs && hasFs);
   const glsl: Pack['glsl'] = emitted.glsl;
   const glsls = emitted.entries;
+  const texturesMayDrop = plan.level !== undefined && plan.level !== 'O2';
   for (const j of renderJobs) {
     const data = new Set(
       j.list
@@ -797,6 +774,7 @@ export function buildManifest(
         plan.options,
         data,
         sources,
+        texturesMayDrop,
       );
     else
       vertices[j.f.name] = glVertexOf(
@@ -809,6 +787,7 @@ export function buildManifest(
         plan.options,
         data,
         sources,
+        texturesMayDrop,
       );
   }
 

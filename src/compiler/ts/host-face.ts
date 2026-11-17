@@ -59,8 +59,17 @@ import { toPortable } from '../../core/ir/portable.js';
 import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
+import { addsTo, colourOf } from './host-face/entry-shapes.js';
+import { wgslLoweredOf } from './source-file/wgsl-lowered.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
-import { buildManifest, calleesOf, closureOf, glDrawOf, layoutOf } from '../../core/manifest.js';
+import { buildManifest, glDrawOf, layoutOf } from '../../core/manifest.js';
+import {
+  calleesOf,
+  closureOf,
+  emittedReachOf,
+  reachOf,
+  type BindingReach,
+} from '../../core/manifest/reach.js';
 import { callArgAccess } from '../../core/passes/access.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
@@ -349,6 +358,8 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     return undefined;
   };
 
+  const lowered = r.wgsl !== undefined ? wgslLoweredOf(r) : undefined;
+  let emittedReach: ((entry: string) => BindingReach) | undefined;
   const faces: (FaceExport | BindingRef)[] = [];
   // The author's JSDoc of each export, which the view carries (change 0108).
   const docs = new Map<string, ExportDocs>();
@@ -377,6 +388,8 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
           bindings: m.bindings,
           reads,
           writes,
+          reach: (entry) =>
+            (emittedReach ??= lowered !== undefined ? reachOf(lowered) : emittedReachOf(m))(entry),
           callees,
           declared,
           workgroupZero: Object.fromEntries(
@@ -481,6 +494,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       ...(options.ir === true ? { ir: true } : {}),
     },
     r.wgsl,
+    lowered,
   );
   logged = logged.map((e) =>
     e.kind === 'compute' && pack.overrides.length !== 0
@@ -549,6 +563,7 @@ interface EntryCtx {
   readonly bindings: readonly BindingDecl[];
   readonly reads: ReadonlyMap<string, ReadonlySet<string>>;
   readonly writes: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly reach: (entry: string) => BindingReach;
   readonly callees: ReadonlyMap<string, ReadonlySet<string>>;
   readonly declared: ReadonlySet<string>;
   readonly workgroupZero: Readonly<Record<string, unknown>>;
@@ -590,15 +605,7 @@ function entryBindings(
   | { none: string } {
   const x = c.entry;
   const closure = closureOf(f.name, x.callees);
-  const touched = new Set<string>();
-  const written = new Set<string>();
-  for (const g of closure) {
-    for (const n of x.reads.get(g) ?? []) touched.add(n);
-    for (const n of x.writes.get(g) ?? []) {
-      touched.add(n);
-      written.add(n);
-    }
-  }
+  const { touched, written } = x.reach(f.name);
   const bindings: DrawBinding[] = [];
   for (const b of x.bindings) {
     if (!touched.has(b.name)) continue;
@@ -671,6 +678,14 @@ const STORAGE_ACCESS = {
 
 /** Why the CPU tier cannot run `closure`, when it cannot: it reaches a texture or a call only a
  *  GPU computes. */
+const CPU_HANDLES: ReadonlySet<ShaderType['kind']> = new Set([
+  'texture',
+  'storage-texture',
+  'depth-texture',
+  'sampler',
+  'sampler-comparison',
+]);
+
 function noCpuTier(
   closure: ReadonlySet<string>,
   bindings: readonly DrawBinding[],
@@ -682,6 +697,12 @@ function noCpuTier(
   );
   if (handle !== undefined)
     return `it reaches the ${handle.s} "${handle.name}", which the CPU tier cannot read`;
+  for (const g of closure)
+    for (const n of [...(c.entry.reads.get(g) ?? []), ...(c.entry.writes.get(g) ?? [])]) {
+      const b = c.entry.bindings.find((x) => x.name === n);
+      if (b !== undefined && CPU_HANDLES.has(b.type.kind))
+        return `it reaches the ${spell(b.type)} "${b.name}", which the CPU tier cannot read`;
+    }
   for (const g of closure) {
     const gpu = gpuOnlyCall(c.byName.get(g)!, c.entry.declared);
     if (gpu !== undefined && !isAtomicIntrinsic(gpu) && !isBarrierIntrinsic(gpu))
@@ -809,46 +830,6 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     },
     bindingsType: objectType(drawTypes),
   };
-}
-
-const isVec4F32 = (t: ShaderType): boolean => t.kind === 'vec' && t.n === 4 && t.elem === 'f32';
-
-/** Where a fragment entry's one `@location(0)` colour is: null for a bare `vec4` result, the
- *  field's name for a struct of that one field; undefined when it writes anything else. */
-function colourOf(
-  f: FuncDecl,
-  structs: ReadonlyMap<string, StructDecl>,
-): string | null | undefined {
-  if (isVec4F32(f.ret)) return f.retAttr === '@location(0)' ? null : undefined;
-  if (f.ret.kind !== 'struct') return undefined;
-  const fields = structs.get(f.ret.name)?.fields ?? [];
-  if (fields.length !== 1) return undefined;
-  const [only] = fields;
-  return only!.location === 0 && only!.builtin === undefined && isVec4F32(only!.type)
-    ? only!.name
-    : undefined;
-}
-
-/** Whether `f` adds to its Map or Set parameter `name` (change 0080). */
-function addsTo(f: FuncDecl, name: string): boolean {
-  let found = false;
-  const visit = (s: Stmt): void =>
-    eachStmtExpr(
-      s,
-      (e) =>
-        eachExpr(e, (x) => {
-          if (
-            x.op === 'call' &&
-            (x.fn === 'collectionAdd' || x.fn === 'collectionSet') &&
-            x.args[0]?.op === 'param' &&
-            x.args[0].name === name
-          )
-            found = true;
-        }),
-      visit,
-    );
-  f.body.forEach(visit);
-  return found;
 }
 
 /** The face of a kernel function (Rule 8.22; host values and parameters follow Rules 8.21 and 8.23): each value parameter's host type, each
