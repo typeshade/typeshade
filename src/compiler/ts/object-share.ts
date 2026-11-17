@@ -19,9 +19,10 @@ import {
   bare,
   fileFunction,
   methodWritesThis,
+  objectWrites,
   rootOf,
   takesThePlace,
-  writeTarget,
+  writeTargets,
   writesAnObject,
 } from './object-reference.js';
 
@@ -451,6 +452,32 @@ function storesOf(fn: Fn, reader: Reader): Store[] {
       }
       return;
     }
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isArrayLiteralExpression(bare(n.left))
+    ) {
+      // `[a, b] = [b, a]`: each place takes the value at its position. A list that only puts
+      // the same names in another order gives each name one object, as before it.
+      const places = (bare(n.left) as ts.ArrayLiteralExpression).elements;
+      const right = bare(n.right);
+      const values = ts.isArrayLiteralExpression(right) ? right.elements : undefined;
+      const text = (es: readonly ts.Expression[]): string[] => es.map((e) => e.getText()).sort();
+      const reorders =
+        values !== undefined &&
+        values.length === places.length &&
+        new Set(text(values)).size === values.length &&
+        text(values).join('\n') === text(places).join('\n');
+      if (reorders) return;
+      places.forEach((place, i) => {
+        const root = rootOf(place);
+        const shares = reader.shares(values?.[i] ?? n.right);
+        if (root === undefined || shares.size === 0) return;
+        const whole = root.whole && [...shares.values()].some((share) => !share.part);
+        out.push({ node: n, dest: root.name.text, whole, shares, isConst: false });
+      });
+      return;
+    }
     if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
       const root = rootOf(n.left);
       const shares = reader.shares(n.right);
@@ -549,9 +576,10 @@ function summaryOf(fn: ts.FunctionDeclaration, sourceFile: ts.SourceFile): Summa
     // A parameter the body assigns whole, or declares again, names another object by then.
     const name = params[exact]!;
     eachOwn(fn.body, (n) => {
-      const target = writeTarget(n);
-      const root = target === undefined ? undefined : rootOf(target);
-      if (root !== undefined && root.whole && root.name.text === name) exactly = false;
+      for (const target of writeTargets(n)) {
+        const root = rootOf(target);
+        if (root !== undefined && root.whole && root.name.text === name) exactly = false;
+      }
       if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name)
         exactly = false;
     });
@@ -615,23 +643,41 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
   const params = new Set(
     fn.parameters.flatMap((p) => (ts.isIdentifier(p.name) ? [p.name.text] : [])),
   );
-  // Every write of a field or an element in the body, by the name at its root, with whether the
-  // object written is a part of what the name holds; and every mention of a name.
+  // Every write of a field or an element in the body and in the functions inside it, by the name
+  // at its root, with whether the object written is a part of what the name holds; and every
+  // mention of a name. A write in a function inside the body runs when that function is called,
+  // which may be after any statement.
   const writes: {
     name: string;
     node: ts.Node;
     deep: boolean;
-    /** The place written, and whether the write puts another value there (an assignment) or
-     *  changes the object at the place (a method, a function that writes its parameter). */
-    place: ts.Expression;
+    /** The place written, where the write is through the name itself, and whether the write
+     *  puts another value there (an assignment) or changes the object at the place (a method, a
+     *  function that writes its parameter). */
+    place: ts.Expression | undefined;
     replaces: boolean;
+    anytime: boolean;
   }[] = [];
-  const mentions: { name: string; node: ts.Node }[] = [];
+  const mentions: { name: string; node: ts.Node; anytime: boolean }[] = [];
   const declared = new Map<string, ts.Node>();
+  // The object a name is a second name of: `const q = p`, `let b = f(a)`, and the array a
+  // `for (const q of ps)` names an element of. A write through the name writes that object.
+  const namedFrom = new Map<string, { root: string; element: boolean }>();
+  const through = (name: string): { name: string; derived: boolean }[] => {
+    const all = [{ name, derived: false }];
+    const seen = new Set([name]);
+    for (let at = namedFrom.get(name); at !== undefined && !seen.has(at.root);) {
+      seen.add(at.root);
+      all.push({ name: at.root, derived: true });
+      at = namedFrom.get(at.root);
+    }
+    return all;
+  };
   const noteWrite = (
     place: ts.Expression,
     node: ts.Node,
     replaces: boolean,
+    anytime: boolean,
     deepAlways = false,
   ): void => {
     const root = rootOf(place);
@@ -644,43 +690,102 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
       at = bare(at.expression);
       if (!ts.isIdentifier(at) && reader.isObject(at)) deep = true;
     }
-    writes.push({ name: root.name.text, node, deep, place, replaces });
+    for (const via of through(root.name.text)) {
+      writes.push({
+        name: via.name,
+        node,
+        deep: deep || via.derived,
+        place: via.derived ? undefined : place,
+        replaces: via.derived ? false : replaces,
+        anytime,
+      });
+    }
   };
-  eachOwn(body, (n) => {
-    if (ts.isIdentifier(n)) mentions.push({ name: n.text, node: n });
-    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && !declared.has(n.name.text))
-      declared.set(n.name.text, n);
-    const target = writeTarget(n);
-    if (target !== undefined) {
+  const names = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
+      if (!declared.has(n.name.text)) declared.set(n.name.text, n);
+      if (n.initializer !== undefined) {
+        const init = bare(n.initializer);
+        const from = ts.isIdentifier(init) ? init : aliasedCall(n, sourceFile)?.argument;
+        if (from !== undefined && reader.isObject(from))
+          namedFrom.set(n.name.text, { root: from.text, element: false });
+      }
+    }
+    if (ts.isForOfStatement(n) && ts.isVariableDeclarationList(n.initializer)) {
+      const d = n.initializer.declarations[0];
+      const root = rootOf(n.expression);
+      if (
+        d !== undefined &&
+        ts.isIdentifier(d.name) &&
+        root !== undefined &&
+        reader.isObject(d.name)
+      )
+        namedFrom.set(d.name.text, { root: root.name.text, element: true });
+    }
+    ts.forEachChild(n, names);
+  };
+  names(body);
+  const collect = (n: ts.Node, anytime: boolean): void => {
+    const inner = anytime || (n !== body && ts.isFunctionLike(n));
+    if (ts.isIdentifier(n)) {
+      for (const via of through(n.text)) mentions.push({ name: via.name, node: n, anytime: inner });
+    }
+    for (const target of writeTargets(n)) {
       const root = rootOf(target);
-      if (root !== undefined && !root.whole) noteWrite(target, n, true);
+      if (root !== undefined && !root.whole) noteWrite(target, n, true, inner);
     }
     if (ts.isCallExpression(n)) {
       if (ts.isPropertyAccessExpression(n.expression)) {
         const method = n.expression.name.text;
         const object = n.expression.expression;
-        if (ARRAY_MUTATORS.has(method)) noteWrite(object, n, false, !ts.isIdentifier(bare(object)));
-        else if (methodWritesThis(method, sourceFile)) noteWrite(object, n, false, true);
+        if (ARRAY_MUTATORS.has(method))
+          noteWrite(object, n, false, inner, !ts.isIdentifier(bare(object)));
+        else if (methodWritesThis(method, sourceFile)) noteWrite(object, n, false, inner, true);
       }
       const callee = fileFunction(n, sourceFile);
       if (callee !== undefined) {
         n.arguments.forEach((a, i) => {
           const q = callee.parameters[i];
           if (q !== undefined && takesThePlace(q, sourceFile) && rootOf(a) !== undefined) {
-            noteWrite(a, n, false, true);
+            noteWrite(a, n, false, inner, true);
           }
         });
       }
     }
-  });
+    ts.forEachChild(n, (c) => collect(c, inner));
+  };
+  collect(body, false);
+  // What each name holds, through every store of the body: a name that holds a name that holds
+  // an object holds that object.
+  const holds = new Map<string, Set<string>>();
+  for (const s of stores) {
+    if (s.dest === undefined) continue;
+    const h = holds.get(s.dest) ?? new Set<string>();
+    for (const k of s.shares.keys()) h.add(k);
+    holds.set(s.dest, h);
+  }
+  const heldBy = (first: Iterable<string>): string[] => {
+    const all = new Set(first);
+    for (const name of all) {
+      for (const inner of holds.get(name) ?? []) all.add(inner);
+      const from = namedFrom.get(name);
+      if (from !== undefined) all.add(from.root);
+    }
+    return [...all];
+  };
   /** Whether `node` runs after the store `at` while both names still hold the object: it is
    *  written after the store, or a loop holds both and each of `names` lives across its turns. A
    *  name declared in the loop is a new variable at each turn. */
-  const after = (node: ts.Node, at: ts.Node, ...names: (string | undefined)[]): boolean => {
+  const after = (
+    node: ts.Node,
+    anytime: boolean,
+    at: ts.Node,
+    ...living: (string | undefined)[]
+  ): boolean => {
     if (within(node, at)) return false;
-    if (node.getStart() >= at.end) return true;
+    if (anytime || node.getStart() >= at.end) return true;
     const lives = (loop: ts.Node): boolean =>
-      names.every((name) => {
+      living.every((name) => {
         const decl = name === undefined ? undefined : declared.get(name);
         return decl === undefined || !within(decl, loop);
       });
@@ -690,13 +795,15 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
     // `const q = p`, `let q = p`: the lowering binds `q` as a second name, or refuses it.
     if (ts.isVariableDeclaration(s.node) && ts.isIdentifier(bare(s.node.initializer!))) continue;
     if (ts.isVariableDeclaration(s.node) && aliasedCall(s.node, sourceFile) !== undefined) continue;
-    for (const held of s.shares.keys()) {
-      const place = s.shares.get(held)?.place;
+    const direct = new Set(s.shares.keys());
+    for (const held of heldBy(direct)) {
+      if (held === s.dest && !direct.has(held)) continue;
+      const place = direct.has(held) ? s.shares.get(held)?.place : undefined;
       const heldWrite = writes.find(
         (w) =>
           w.name === held &&
-          after(w.node, s.node, held, s.dest) &&
-          mayChange(w.place, place, w.replaces),
+          after(w.node, w.anytime, s.node, held, s.dest) &&
+          (w.place === undefined || mayChange(w.place, place, w.replaces)),
       );
       if (heldWrite !== undefined) {
         out.push({ node: s.node, held, dest: s.dest, written: held, whole: s.whole });
@@ -705,13 +812,14 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
       if (s.dest === undefined || s.isConst) continue;
       const dest = s.dest;
       const destWrite = writes.find(
-        (w) => w.name === dest && (s.whole || w.deep) && after(w.node, s.node, held, dest),
+        (w) =>
+          w.name === dest && (s.whole || w.deep) && after(w.node, w.anytime, s.node, held, dest),
       );
       if (destWrite === undefined) continue;
       const seen =
         params.has(held) ||
         held === 'this' ||
-        mentions.some((m) => m.name === held && after(m.node, s.node, held, dest));
+        mentions.some((m) => m.name === held && after(m.node, m.anytime, s.node, held, dest));
       if (seen) {
         out.push({ node: s.node, held, dest, written: dest, whole: s.whole });
         break;
@@ -749,3 +857,47 @@ export function namesShared(
   const owner = fn !== undefined && ts.isFunctionLike(fn) ? (fn as Fn) : undefined;
   return [...new Reader(owner, sourceFile).shares(e).keys()];
 }
+
+/** A name that stops naming the caller's object: `node` assigns the object parameter or the loop
+ *  name `name` whole after the body wrote the object it named until then. From that assignment
+ *  on the name is a local (Rule 8.8), which the compiler does not yet keep apart from the
+ *  caller's object before it. */
+export interface ReassignedObject {
+  readonly node: ts.Node;
+  readonly name: string;
+}
+
+export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): ReassignedObject[] {
+  const cached = REASSIGNED.get(fn);
+  if (cached !== undefined) return cached;
+  const out: ReassignedObject[] = [];
+  REASSIGNED.set(fn, out);
+  const body = fn.body;
+  if (body === undefined) return out;
+  const reader = new Reader(fn, sourceFile);
+  const candidates: { name: string; scope: ts.Node }[] = [];
+  for (const p of fn.parameters) {
+    if (ts.isIdentifier(p.name) && writesAnObject(p.type, sourceFile))
+      candidates.push({ name: p.name.text, scope: body });
+  }
+  eachOwn(body, (n) => {
+    if (ts.isForOfStatement(n) && ts.isVariableDeclarationList(n.initializer)) {
+      const d = n.initializer.declarations[0];
+      if (d !== undefined && ts.isIdentifier(d.name) && reader.isObject(d.name))
+        candidates.push({ name: d.name.text, scope: n.statement });
+    }
+  });
+  for (const { name, scope } of candidates) {
+    const w = objectWrites(name, scope, sourceFile);
+    for (const whole of w.wholeAt) {
+      const before = w.memberAt.some(
+        (m) =>
+          m.getStart() < whole.getStart() ||
+          loopsAround(whole, scope).some((loop) => within(m, loop)),
+      );
+      if (before) out.push({ node: whole, name });
+    }
+  }
+  return out;
+}
+const REASSIGNED = new WeakMap<Fn, ReassignedObject[]>();

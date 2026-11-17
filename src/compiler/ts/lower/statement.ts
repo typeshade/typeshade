@@ -1135,6 +1135,20 @@ function secondNameOf(
   const mine = objectWrites(name, body, sourceFile);
   const theirs = objectWrites(from.text, body, sourceFile);
   if (!mine.member && !theirs.member) return 'none';
+  // A function inside the body that reads or writes the second name takes it as a variable of
+  // its own, which is not the object the two names share.
+  if (mine.captured) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      decl.name,
+      `"${name}" is a second name of the object "${from.text}" names, and a function inside ` +
+        `this one uses "${name}". A second name that a local function captures is not supported ` +
+        `yet (change 0142, stage 2). Use "${from.text}" in that function.`,
+      TS_CODES.UNSUPPORTED,
+    );
+    return 'refused';
+  }
   if (mine.whole || theirs.whole) {
     pushDiag(
       diagnostics,

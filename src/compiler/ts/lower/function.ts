@@ -3,7 +3,7 @@
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
-import { sharedObjects } from '../object-share.js';
+import { reassignedObjects, sharedObjects } from '../object-share.js';
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js';
 import type {
   BindingDecl,
@@ -2549,6 +2549,17 @@ function reportSharedObjects(
   if (reported === undefined) SHARED_REPORTED.set(diagnostics, (reported = new Set()));
   if (reported.has(node)) return;
   reported.add(node);
+  for (const again of reassignedObjects(node, sourceFile)) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      again.node,
+      `"${again.name}" is assigned another object here, after a write to the object it named ` +
+        `until now. A name that stops naming the caller's object part of the way through is not ` +
+        `supported yet (change 0142, stage 2). Declare a local for the other object.`,
+      TS_CODES.UNSUPPORTED,
+    );
+  }
   for (const shared of sharedObjects(node, sourceFile)) {
     const other = shared.written === shared.held ? shared.dest : shared.held;
     const where =

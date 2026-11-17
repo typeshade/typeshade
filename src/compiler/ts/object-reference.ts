@@ -25,6 +25,7 @@
 // 12.7).
 
 import ts from 'typescript';
+import { aliasedCall } from './object-share.js';
 
 /** The type names that are values, as a JavaScript primitive is (change 0142, decision 1). */
 const VALUE_TYPE =
@@ -151,8 +152,7 @@ export function methodWritesThis(name: string, sourceFile: ts.SourceFile): boole
         if (!ts.isIdentifier(m.name) || m.name.text !== name) continue;
         const scan = (b: ts.Node): void => {
           if (writes || (b !== m.body && ts.isFunctionLike(b) && !ts.isArrowFunction(b))) return;
-          const target = writeTarget(b);
-          if (target !== undefined && ownPart(target)) writes = true;
+          if (writeTargets(b).some((target) => ownPart(target))) writes = true;
           if (ts.isCallExpression(b) && ts.isPropertyAccessExpression(b.expression)) {
             const method = b.expression.name.text;
             if (
@@ -184,45 +184,58 @@ export function methodWritesThis(name: string, sourceFile: ts.SourceFile): boole
 }
 const METHODS = new WeakMap<ts.SourceFile, Map<string, boolean>>();
 
-/** The place an assignment, an increment or a decrement writes, if `node` is one. */
-export function writeTarget(node: ts.Node): ts.Expression | undefined {
+/** The places an assignment, an increment or a decrement writes, if `node` is one. A list
+ *  assignment, `[a, o.b] = list`, writes each place of its list. */
+export function writeTargets(node: ts.Node): readonly ts.Expression[] {
   if (ts.isBinaryExpression(node)) {
     const k = node.operatorToken.kind;
-    return k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment
-      ? node.left
-      : undefined;
+    if (k < ts.SyntaxKind.FirstAssignment || k > ts.SyntaxKind.LastAssignment) return [];
+    const left = bare(node.left);
+    if (k === ts.SyntaxKind.EqualsToken && ts.isArrayLiteralExpression(left)) {
+      return left.elements.filter((e) => !ts.isOmittedExpression(e) && !ts.isSpreadElement(e));
+    }
+    return [node.left];
   }
   if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
     const k = node.operator;
     return k === ts.SyntaxKind.PlusPlusToken || k === ts.SyntaxKind.MinusMinusToken
-      ? node.operand
-      : undefined;
+      ? [node.operand]
+      : [];
   }
-  return undefined;
+  return [];
 }
 
-/** What `body` does to the object `name` names: whether it writes a field or an element of it
- *  (itself, through a method or a function that writes, or through a second name declared from
- *  it), and whether it assigns `name` whole or declares the name again. `body` is the body of the
- *  function that holds the name. */
-export function objectWrites(
-  name: string,
-  body: ts.Node,
-  sourceFile: ts.SourceFile,
-): { readonly member: boolean; readonly whole: boolean; readonly shadowed: boolean } {
-  // The second names of the object: `const q = p`, `let r = q` (change 0142, Table 1).
+/** Whether `scope`, a block, a loop or a function inside a body, declares `name` again, so that
+ *  the name inside it is another variable. */
+function declaresAgain(scope: ts.Node, name: string): boolean {
+  const named = (list: ts.VariableDeclarationList): boolean =>
+    list.declarations.some((d) => ts.isIdentifier(d.name) && d.name.text === name);
+  if (ts.isBlock(scope) || ts.isCaseClause(scope) || ts.isDefaultClause(scope)) {
+    return scope.statements.some((st) => ts.isVariableStatement(st) && named(st.declarationList));
+  }
+  if (ts.isForStatement(scope) || ts.isForOfStatement(scope) || ts.isForInStatement(scope)) {
+    const init = scope.initializer;
+    return init !== undefined && ts.isVariableDeclarationList(init) && named(init);
+  }
+  if (ts.isFunctionLike(scope)) {
+    return scope.parameters.some((q) => ts.isIdentifier(q.name) && q.name.text === name);
+  }
+  return false;
+}
+
+/** The names of one object in `body`, from `name`: `const q = p`, `let r = q`, `for (const q of
+ *  ps)` and `let b = f(a)` where `f` returns its parameter, read in both directions, so that a
+ *  second name of a second name is one of them (change 0142, Table 1). */
+function namesOfOneObject(name: string, body: ts.Node, sourceFile: ts.SourceFile): Set<string> {
   const names = new Set([name]);
   for (let grew = true; grew;) {
     grew = false;
     const find = (n: ts.Node): void => {
-      if (
-        ts.isVariableDeclaration(n) &&
-        ts.isIdentifier(n.name) &&
-        n.initializer !== undefined &&
-        !names.has(n.name.text)
-      ) {
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer !== undefined) {
         const init = bare(n.initializer);
-        if (ts.isIdentifier(init) && names.has(init.text)) {
+        const from = ts.isIdentifier(init) ? init : aliasedCall(n, sourceFile)?.argument;
+        if (from !== undefined && names.has(from.text) !== names.has(n.name.text)) {
+          names.add(from.text);
           names.add(n.name.text);
           grew = true;
         }
@@ -246,22 +259,55 @@ export function objectWrites(
     };
     find(body);
   }
-  let member = false;
-  let whole = false;
-  let shadowed = false;
-  const scan = (n: ts.Node): void => {
-    if (n !== body && ts.isFunctionLike(n)) {
-      // A local function that declares the name again hides it.
-      if (n.parameters.some((q) => ts.isIdentifier(q.name) && q.name.text === name)) return;
+  return names;
+}
+
+/** What `body` does to the object `name` names: whether it writes a field or an element of it
+ *  (itself, through a method or a function that writes, or through a second name declared from
+ *  it), and whether it assigns `name` whole or declares the name again. `body` is the body of the
+ *  function that holds the name. */
+export function objectWrites(
+  name: string,
+  body: ts.Node,
+  sourceFile: ts.SourceFile,
+): {
+  readonly member: boolean;
+  readonly whole: boolean;
+  readonly shadowed: boolean;
+  /** Each write of a field or an element through a name of the object, and each assignment of
+   *  `name` whole. */
+  readonly memberAt: readonly ts.Node[];
+  readonly wholeAt: readonly ts.Node[];
+  /** Whether a function inside the body reads or writes `name`. */
+  readonly captured: boolean;
+} {
+  const names = namesOfOneObject(name, body, sourceFile);
+  const memberAt: ts.Node[] = [];
+  const wholeAt: ts.Node[] = [];
+  let captured = false;
+  // The scope that declares the name: the body itself for a parameter, or the first block, loop
+  // or function that declares it. A scope inside that declares the name again holds another
+  // variable.
+  let home: ts.Node | undefined =
+    ts.isFunctionLike(body) && declaresAgain(body, name) ? body : undefined;
+  const findHome = (n: ts.Node): void => {
+    if (home !== undefined) return;
+    if (declaresAgain(n, name)) {
+      home = n;
+      return;
     }
-    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name)
-      shadowed = true;
-    const target = writeTarget(n);
-    if (target !== undefined) {
+    ts.forEachChild(n, findHome);
+  };
+  findHome(body);
+  const scan = (n: ts.Node, inner: boolean): void => {
+    if (n !== body && n !== home && declaresAgain(n, name)) return;
+    const within = inner || (n !== body && ts.isFunctionLike(n));
+    if (within && ts.isIdentifier(n) && n.text === name) captured = true;
+    for (const target of writeTargets(n)) {
       const root = rootOf(target);
       if (root !== undefined && names.has(root.name.text)) {
-        if (!root.whole) member = true;
-        else if (root.name.text === name) whole = true;
+        if (!root.whole) memberAt.push(n);
+        else if (root.name.text === name) wholeAt.push(n);
       }
     }
     if (ts.isCallExpression(n)) {
@@ -274,7 +320,7 @@ export function objectWrites(
           names.has(root.name.text) &&
           (ARRAY_MUTATORS.has(method) || methodWritesThis(method, sourceFile))
         )
-          member = true;
+          memberAt.push(n);
       }
       // An argument a function of the file writes through.
       const callee = fileFunction(n, sourceFile);
@@ -288,14 +334,21 @@ export function objectWrites(
             q !== undefined &&
             takesThePlace(q, sourceFile)
           )
-            member = true;
+            memberAt.push(n);
         });
       }
     }
-    ts.forEachChild(n, scan);
+    ts.forEachChild(n, (c) => scan(c, within));
   };
-  scan(body);
-  return { member, whole, shadowed };
+  scan(body, false);
+  return {
+    member: memberAt.length > 0,
+    whole: wholeAt.length > 0,
+    shadowed: false,
+    memberAt,
+    wholeAt,
+    captured,
+  };
 }
 
 /** Whether `q` names its caller's place: an object parameter its function writes, or a parameter

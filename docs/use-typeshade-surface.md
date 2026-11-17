@@ -764,7 +764,8 @@ writing it **whole** (`p = 1.`, `p += 1.`, `p++`) alike. The whole write used to
 emitted as `p = 1.0;`, which Tint refuses; it is `TS8018` now, naming the local to copy it into
 (§52). An object parameter (a struct, a class instance or an array) is the exception: it is the
 caller's object, so `p.x = 1.` and `p[i] = 1.` write the object the caller passed. A whole write
-`p = new P()` makes a local from that write on (§70, change 0142).
+`p = new P()` makes `p` a local. After a write to the caller's object through `p`, it is `TS8099`,
+not supported yet (§70, change 0142).
 
 A swizzle target of `=` and of every compound `op=` may name **two to four distinct**
 components (change 0106): `v.xy = r`, `p.zx += r`, `c.rgb *= s`. The right-hand side has the
@@ -7171,7 +7172,8 @@ writes `a_1`. Its signature retains `a`, and the caller's argument is unchanged.
 `var a = a;` would be a redeclaration in WGSL, so the scope allocator chooses a distinct
 local name, avoiding collisions with another input or a shadowing local. This holds for a number,
 a `bool`, a vector and a matrix. An object parameter that its function writes is the caller's
-object until the first whole write; from that write on, the name is a local (change 0142, §70).
+object. A whole write makes the name a local; after a write to the caller's object it is `TS8099`,
+not supported yet (change 0142, §70).
 
 Plain and compound assignments and integer prefix/postfix updates use the same copy.
 The permitted loop-update forms remain those section 17 describes. A local function that
@@ -7184,8 +7186,8 @@ arrays are not copyable value parameters.
 A write through a number, a `bool`, a vector or a matrix parameter (`v.x = …` on `v: vec3`) is
 `TS8018`, and its message names the remedy: return the value, and write `[a, b] = f(a, b)` for
 more than one (§70). An object parameter of a function of the file or of a namespace takes no
-copy: `p.x = v` writes the caller's object, and `p = v` makes a local from that write on (change
-0142). A write through an object parameter of a method, a constructor, a local function or a
+copy: `p.x = v` writes the caller's object, and `p = v` makes `p` a local (change 0142). After a
+write to the caller's object, `p = v` is `TS8099`, not supported yet (§70). A write through an object parameter of a method, a constructor, a local function or a
 generic function is `TS8018`, not supported yet: `Cannot write through parameter "p": this kind
 of function does not take the caller's object yet (change 0142, stage 2). A function of the file
 or of a namespace does: move the write there, or return the new value.`
@@ -10936,6 +10938,12 @@ size, and the refusal of its lost writes, are removed: a write to an array param
 is lost. The zero fill of an `@out` array is removed: a kernel function that the host calls
 writes the host's array in place, and nothing is zeroed first (§65). `TS8075` keeps one rule,
 a local read before it is assigned on every path (Rule 7.6). A call assigns no local.
+
+**A parameter assigned whole.** `p = new P()` makes `p` a local, and the caller's object does not
+change. After a write to the caller's object through `p`, the assignment is `TS8099`: `"p" is
+assigned another object here, after a write to the object it named until now. A name that stops
+naming the caller's object part of the way through is not supported yet (change 0142, stage 2).
+Declare a local for the other object.` A loop name, `for (let p of ps)`, follows the same rule.
 
 **A second name.** An object that a second name holds is one object, as in JavaScript:
 

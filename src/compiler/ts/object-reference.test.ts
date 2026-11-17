@@ -383,6 +383,136 @@ describe('a copy is written with a name JavaScript has (change 0142, Table 3)', 
   });
 });
 
+// Each program here compiled to a result JavaScript does not give, with no diagnostic, at
+// 497efc30. A review that ran each program as JavaScript too found them. Both halves read each
+// one, and the oracle's number is the one JavaScript gives.
+describe('programs a review found with a result JavaScript does not give (change 0142)', () => {
+  const Q = `class P { x: f32 = 0; y: f32 = 0; }
+class B { c: P = new P(); }
+function wp(p: P): void { p.x = 7.; }
+function id(p: P): P { return p; }
+`;
+  const runs: readonly (readonly [string, string, number])[] = [
+    [
+      'a second name of a second name, written through the first name',
+      `${Q}export function f(): f32 { let a = new P(); let q = a; let r = q; a.x = 1.; return r.x; }`,
+      1,
+    ],
+    [
+      'a second name through two calls that return their parameter',
+      `${Q}export function f(): f32 { let a = new P(); let q = id(a); let r = id(q); wp(r); return a.x; }`,
+      7,
+    ],
+    [
+      'a list assignment to two fields is a write that a second name sees',
+      `${Q}export function f(): f32 { let a = new P(); let q = a; [a.x, a.y] = [1., 2.]; return q.x + q.y * 10.; }`,
+      21,
+    ],
+    [
+      "a list assignment to two fields of a parameter writes the caller's object",
+      `${Q}function w(p: P): void { [p.x, p.y] = [1., 2.]; }
+export function f(): f32 { let a = new P(); w(a); return a.x + a.y * 10.; }`,
+      21,
+    ],
+    [
+      "a block that declares the parameter's name again does not hide the write outside it",
+      `${Q}function g(p: P): void { p.x = 3.; { let p = new P(); p.x = 9.; } }
+export function f(): f32 { let a = new P(); g(a); return a.x; }`,
+      3,
+    ],
+    [
+      'a second name of a parameter through a call that returns it',
+      `${Q}function g(p: P): void { const q = id(p); q.x = 1.; }
+export function f(): f32 { let a = new P(); g(a); return a.x; }`,
+      1,
+    ],
+    [
+      'a parameter assigned whole before any write is a local, and the caller sees nothing',
+      `${Q}function g(p: P): void { p = new P(); p.x = 9.; }
+export function f(): f32 { let a = new P(); g(a); return a.x; }`,
+      0,
+    ],
+    [
+      'two objects that change places stay two objects',
+      `${Q}export function f(): f32 {
+  let a = new P(); let b = new P(); a.x = 1.; [a, b] = [b, a]; b.x += 5.; return a.x * 10. + b.x;
+}`,
+      6,
+    ],
+  ];
+  for (const [name, body, expected] of runs) {
+    it(`${name}: both halves, and the oracle`, () => {
+      const r = read(body);
+      expect(r.compiler).toEqual([]);
+      expect(r.editor).toEqual([]);
+      expect(r.value).toBe(expected);
+    });
+  }
+
+  const refused: readonly (readonly [string, string, RegExp])[] = [
+    [
+      "a parameter assigned whole after a write to the caller's object",
+      `${Q}function g(p: P): void { p.x = 3.; p = new P(); p.x = 9.; }
+export function f(): f32 { let a = new P(); g(a); return a.x; }`,
+      /^TS8099 "p" is assigned another object here, after a write to the object it named until now\. A name that stops naming the caller's object part of the way through is not supported yet \(change 0142, stage 2\)\. Declare a local for the other object\.$/,
+    ],
+    [
+      'a loop name assigned whole after a write to the element',
+      `${Q}export function f(): f32 {
+  let ps: array<P, 2> = [new P(), new P()];
+  for (let p of ps) { p.x = 2.; p = new P(); p.x = 7.; }
+  return ps[0].x + ps[1].x;
+}`,
+      /^TS8099 "p" is assigned another object here/,
+    ],
+    [
+      'a field that takes an object from a field that holds a name',
+      `${Q}export function f(): f32 {
+  let a = new P(); let b = new B(); b.c = a; let d = new B(); d.c = b.c; d.c.x = 4.; return a.x;
+}`,
+      /^TS8099 "d" would hold the object "a" names, and "d" is written after that\./,
+    ],
+    [
+      'an element that holds a name, written through a loop name',
+      `${Q}export function f(): f32 {
+  let a = new P(); let ps: array<P, 2> = [new P(), new P()]; ps[0] = a;
+  for (const p of ps) { p.x += 1.; }
+  return a.x;
+}`,
+      /^TS8099 "ps" would hold the object "a" names, and "ps" is written after that\./,
+    ],
+    [
+      'a stored object written by a function declared before the store',
+      `${Q}export function f(): f32 {
+  let a = new P(); let b = new B(); const g = (): void => { a.x = 1.; }; b.c = a; g(); return b.c.x;
+}`,
+      /^TS8099 "b" would hold the object "a" names, and "a" is written after that\./,
+    ],
+    [
+      'a second name that a local function writes',
+      `${Q}export function f(): f32 {
+  let a = new P(); let q = a; const g = (): void => { q.x = 1.; }; g(); return a.x;
+}`,
+      /^TS8099 "q" is a second name of the object "a" names, and a function inside this one uses "q"\. A second name that a local function captures is not supported yet \(change 0142, stage 2\)\. Use "a" in that function\.$/,
+    ],
+    [
+      'a list that gives one object to two names',
+      `${Q}export function f(): f32 {
+  let a = new P(); let b = new P(); a.x = 1.; [a, b] = [a, a]; b.x += 5.; return a.x;
+}`,
+      /^TS8099 "b" would name the object "a" names, and "b" is written after that\./,
+    ],
+  ];
+  for (const [name, body, text] of refused) {
+    it(`refuses ${name}, in both halves`, () => {
+      const r = read(body);
+      expect(r.compiler).toHaveLength(1);
+      expect(r.compiler[0]).toMatch(text);
+      expect(r.editor).toEqual(r.compiler);
+    });
+  }
+});
+
 describe('a value stays a value (change 0142, decision 1)', () => {
   it('refuses a write through a vector parameter, in both halves', () => {
     const r = read(`function h(v: vec3f): f32 { v.x = 1.; return v.x; }

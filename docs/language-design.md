@@ -831,7 +831,7 @@ A function gives a value back by returning it, and a list assignment, `[a, b] = 
 An author writes no pointer value: no `ptr`, no `&` and no qualifier.
 Whole-value assignment, compound assignment and integer updates of a value parameter must
 rebind a mutable local initialized from the input, leaving the caller's value unchanged.
-A whole assignment to an object parameter (`p = new P()`) makes `p` name a local from that assignment on: a write before it reached the caller's object, and a write after it does not.
+A whole assignment to an object parameter (`p = new P()`) makes `p` name a local, and the caller's object does not change. Where the body writes the caller's object through `p` before that assignment, the assignment is `TS8099`, not supported yet (change 0142, stage 2): the compiler does not yet keep the caller's object and the local apart under one name. A loop name, `for (let p of ps)`, follows the same rule.
 Only a parameter whose declaration a whole write resolves to gets this local; a shadowing
 declaration does not count. Within that body's scope the local may be written through its
 fields or elements. A value parameter with no whole write retains its existing read-only place
