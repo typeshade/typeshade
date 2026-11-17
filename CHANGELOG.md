@@ -347,7 +347,10 @@ TypeScript value of "a + b" agree, so the "f32()" does not say which value it me
     tree in the expression keeps its value (`s.v = 5; f32(s.v / 2)` is 2.5). An element of an
     object pattern that reads such a field is no typed operand of `/` either: `let { v } = s;
 f32(v / 2)` after `s.v = ii` is refused, as `f32(s.v / 2)` is. A swizzle of a swizzle of a
-    written vector (`vec2u(…).yx.x`) states its type.
+    written vector (`vec2u(…).yx.x`) states its type. A field whose initializer is a written conversion or a value type's
+    constructor (`v = u32(0)`, `p = vec2u(0, 0)`) states its type, as an annotation does (the
+    owner's decision of 2026-11-17, "변환식도 적은 타입"); a field of a plain number (`v = 0`)
+    does not.
 
 - **Buffer integration with the compiler refactor** (2026-11-16, change 0138). Host analysis
   keeps the Buffer overload records; the extracted host view and module generators consume them.

@@ -2669,7 +2669,7 @@ function fileNames(sourceFile: ts.SourceFile): FileNames {
       ts.isIdentifier(n.name)
     ) {
       names!.members.add(n.name.text);
-      if (!ts.isMethodDeclaration(n) && writtenTypeText(n, sourceFile) !== undefined) {
+      if (!ts.isMethodDeclaration(n) && fieldTypeWritten(n, sourceFile)) {
         names!.typed.add(n.name.text);
       }
     }
@@ -3121,7 +3121,26 @@ function memberTyped(m: MemberDecl, sourceFile: ts.SourceFile): boolean {
     ? writtenResultText(m, sourceFile) !== undefined
     : ts.isSetAccessorDeclaration(m)
       ? false
-      : writtenTypeText(m, sourceFile) !== undefined;
+      : fieldTypeWritten(m, sourceFile);
+}
+
+/** Whether the field, property or parameter property `m` states its type: an annotation the
+ *  author wrote, or an initializer that is a written conversion or a value type's constructor
+ *  (`v = u32(0)`, `p = vec2u(0, 0)`; the owner's decision of 2026-11-17, "변환식도 적은 타입").
+ *  A field of a plain number (`v = 0`) states none. */
+function fieldTypeWritten(
+  m: { readonly type?: ts.TypeNode; readonly name: ts.Node; readonly initializer?: ts.Expression },
+  sourceFile: ts.SourceFile,
+): boolean {
+  if (writtenTypeText(m, sourceFile) !== undefined) return true;
+  const init = m.initializer === undefined ? undefined : skipParenNodes(m.initializer);
+  return (
+    init !== undefined &&
+    ts.isCallExpression(init) &&
+    ts.isIdentifier(init.expression) &&
+    TYPED_BUILTIN.test(init.expression.text) &&
+    calleeAt(init.expression.text, init) === undefined
+  );
 }
 
 /** Whether a call through the member `m` gives a value of a written type: a method with a
@@ -3439,7 +3458,7 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
     if (
       (ts.isPropertyDeclaration(n) || ts.isPropertySignature(n)) &&
       ts.isIdentifier(n.name) &&
-      writtenTypeText(n, sourceFile) === undefined
+      !fieldTypeWritten(n, sourceFile)
     ) {
       const list = untypedFields.get(n.name.text);
       if (list === undefined) untypedFields.set(n.name.text, [n]);

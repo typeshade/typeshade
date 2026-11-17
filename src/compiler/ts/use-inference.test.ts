@@ -3264,6 +3264,57 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     },
   );
 
+  // The fourth review of #1322 and the owner's decision of 2026-11-17, "변환식도 적은 타입": a
+  // field whose initializer is a written conversion or a value type's constructor (`v = u32(0)`,
+  // `p = vec2u(0, 0)`) states its type, as an annotation does. A field of a plain number
+  // (`v = 0`) states none, and stays unproven.
+  it.each([
+    ['a property access', 'return f32(s.v / 2);'],
+    ['a pattern', 'let { v } = s; return f32(v / 2);'],
+  ] as const)(
+    'fourth review of #1322: a field initialized by u32(0) is a u32, read through %s',
+    (_, read) => {
+      const source = `"use typeshade";\nclass S { v = u32(0); }\n${FN2}  let s = new S(); s.v = vi; ${read}\n}\n`;
+      expect(both(source)).toEqual([]);
+      expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(3);
+    },
+  );
+
+  it.each([
+    [
+      'u32(0) beside a tree',
+      'class S { v = u32(0); }\n',
+      'class S { v: u32 = 0; }\n',
+      'let a = (0xF0000000|0); let s = new S(); s.v = vi; return f32(s.v + a);',
+    ],
+    [
+      'vec2u(0, 0) under a swizzle',
+      'class S { p = vec2u(0, 0); }\n',
+      'class S { p: vec2u = vec2u(0, 0); }\n',
+      'let s = new S(); s.p = vec2u(1, ~(0xF0000000|0)); return f32(s.p.yx.x + vi);',
+    ],
+  ] as const)(
+    'fourth review of #1322: a field of %s compiles as the annotated field does',
+    (_, converted, annotated, body) => {
+      const source = `"use typeshade";\n${converted}${FN2}  ${body}\n}\n`;
+      const control = `"use typeshade";\n${annotated}${FN2}  ${body}\n}\n`;
+      expect(both(source)).toEqual([]);
+      expect(both(control)).toEqual([]);
+      expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(
+        compile(control).eval('t', [-3, 7, 2.5]) as number,
+      );
+    },
+  );
+
+  it('fourth review of #1322: a field of a plain number stays unproven beside a tree', () => {
+    refusedThenEdited(
+      `"use typeshade";\nclass S { v = 0; }\n${FN2}  let a = (0xF0000000|0); let s = new S(); s.v = vi; return f32(s.v + a);\n}\n`,
+      [unproven1299('s.v + a', 'f32()', 'i32(s.v + a)')],
+      [['f32(s.v + a)', 'f32(i32(s.v + a))']],
+      -268435449,
+    );
+  });
+
   it('issue #1319 (D2): a component of a value type states its type beside an untyped field of its name', () => {
     const source = `"use typeshade";\nclass S2 { x = 0; }\n${FN2}  let s = new S2(); s.x = (0xF0000000|0); let p: vec2u = vec2u(3, 4); return f32(p.x + p.x);\n}\n`;
     expect(both(source)).toEqual([]);
