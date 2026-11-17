@@ -1,4 +1,4 @@
-// Why: Implements: Rule 8.8, Rule 8.25 (docs/language-design.md; traced in reqs/).
+// Implements: Rule 8.8, Rule 8.25 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import {

@@ -217,7 +217,7 @@ goes stale, so the code carries the knowledge instead.
 - Write no comment in a file of `src/`. Name the thing so that the code says it. Hold an
   invariant with a test or an assert. Put the reason for a change in the commit message.
 - Two kinds of comment stay: a marker that a check reads (`Verifies: Rule N.M`,
-  `LINT.IfChange`), and the doc comment of a definition of `src/__api__/surface.md`, which the
+  `Implements: Rule N.M`, which `reqs/` reads, and `LINT.IfChange`), and the doc comment of a definition of `src/__api__/surface.md`, which the
   API reference and the editor's hover show.
 - A comment that is truly necessary stays too. The owner said on 2026-11-17: "주석이 꼭 필요한 경우는
   1%에 들어갑니다. 그런것만 있으면 돼요". It states what no name, test or assert can: where a

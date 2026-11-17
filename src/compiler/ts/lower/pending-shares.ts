@@ -1,4 +1,4 @@
-// Why: Implements: Rule 8.8 (docs/language-design.md; traced in reqs/).
+// Implements: Rule 8.8 (docs/language-design.md; traced in reqs/).
 
 import type ts from 'typescript';
 import type { FuncDecl, StructDecl } from '../../../core/ir/nodes.js';

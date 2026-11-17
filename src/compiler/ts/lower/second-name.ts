@@ -1,4 +1,4 @@
-// Why: Implements: Rule 6.10, Rule 8.8, Rule 8.28 (docs/language-design.md; traced in reqs/).
+// Implements: Rule 6.10, Rule 8.8, Rule 8.28 (docs/language-design.md; traced in reqs/).
 
 import { copiedObjectsActive } from '../../../core/copied-objects.js';
 import ts from 'typescript';

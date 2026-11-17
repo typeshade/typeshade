@@ -1,4 +1,4 @@
-// Why: Implements: Rule 8.8 (docs/language-design.md; traced in reqs/).
+// Implements: Rule 8.8 (docs/language-design.md; traced in reqs/).
 
 import type { FuncDecl, Expr, Stmt, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
