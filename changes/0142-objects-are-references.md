@@ -529,6 +529,78 @@ write [a, b] = f(a, b) for more than one.` `tshc migrate` deletes the first kind
 - Status: `status: accepted` does not change. No decision of the owner is changed: Table 3's
   forms keep their JavaScript meaning, and one of them arrives one stage later.
 
+### A3. A second name is the same place, and a store is a move (2026-11-17)
+
+- [fact] Why. Six independent reviews of #1324 ran each program as plain JavaScript beside the
+  compiler. Each found programs with a result JavaScript does not give and no diagnostic: 5
+  groups, 5 groups, 11 kinds, 4 kinds, 4 kinds and 5 kinds, at `497efc30`, `1967abb3`,
+  `f5574c4d`, `c2b7781c`, `1c3e64b7` and `57b6286a`. About half of the last three rounds'
+  findings came from the fix of the round before.
+- [inference, agent] The cause is one row of Table 1 and Amendment A2's reading of it: "a store
+  with no later write is a copy". To apply it, the compiler must decide, for every store, whether
+  anything writes the object afterwards, through any name, call or loop. That decision has too
+  many cases to hold, and a missed case is a silent copy, which is what OD-9 forbids.
+- [decision, owner, 2026-11-17] "B": the compiler no longer decides whether a copy is safe. The
+  owner saw the three examples below before the decision.
+
+**The rule that replaces "a store with no later write is a copy".**
+
+1. A second name is the same place. `const q = p`, `let q = p`, `const q = ps[i]`,
+   `const q = h.c`, `for (const q of ps)` and `let b = f(a)`, where every `return` of `f` names
+   one parameter, make `q` a name of that place. The compiler makes no copy. An index in the
+   place is read once, where the name is declared.
+2. A store is a move. A statement that puts an object that has a name into another holder
+   (`xs[i] = p`, `h.c = p`, `[p, …]`, `{ c: p }`, `new B(p)`, `xs.push(p)`, `q = p` for a `q`
+   that exists) is accepted only where `p` is a local of the function that the function does
+   not use after the statement. From then on the holder is the only name of the object, so no
+   second name exists. In every other case the statement is `TS8099`, not supported yet.
+3. A new object is one the source shows to be new: `new`, an object or an array literal,
+   `structuredClone(v)`, `xs.slice()`, and the result of a function of the file whose every
+   `return` gives an object that the function built and stored nowhere else.
+4. The result of any other call that gives an object may be an object that has a name. A
+   `const` may take it where the function, after that declaration, writes no object and only
+   reads the `const`. In every other case the declaration is `TS8099`.
+5. A place that a second name names must stay that place while the name is read: a statement
+   that assigns the place, or a holder of it, with a read of the name after it, is `TS8099`.
+
+**One example, before and after** (the three the owner saw):
+
+```ts
+// Accepted before and after: read an element, then put a new object in its place.
+const p = ps[i];
+ps[i] = { pos: p.pos + p.vel * dt, vel: p.vel };
+
+// Accepted under Amendment A2, refused now: the object is read after it is stored.
+xs[0] = a;
+return a.x + xs[0].x; // TS8099: read `a` first, or store it last
+
+// Refused under Amendment A2, accepted now: a name of an element writes the element.
+const p = ps[i];
+p.x = 9.; // ps[i].x is 9., as in JavaScript
+```
+
+- [fact] What this changes in the text above. Table 1, row "`arr[i] = p`, `a.child = p`, with no
+  later write that both names can see": the store is accepted where `p` is not used after it,
+  and is `TS8099` otherwise (stage 3 lifts the refusal). Amendment A2's items "How stage 1 keeps
+  the contract", "The reading refuses more than it must" and "Programs that compiled before and
+  are refused now" are replaced by the five rules above. Table 1's rows for a second name
+  (`const q = p`, `for (const p of ps)`, `return p`) do not change; rule 1 extends them to a
+  field and an element (`const q = ps[i]`), which Table 1 gave stage 2 as `const { child } = a`.
+  The pattern form, `const { child } = a`, stays at stage 2.
+- [deviation, open] Table 1 gives `p.x = 1; p = new P(); p.x = 2` stage 1. A parameter or a
+  loop name assigned whole after a write to the caller's object is `TS8099` at stage 1; stage 2
+  lifts it.
+- [deviation, open] Table 2 gives a write to an entry's parameter stage 1. It is `TS8018` at
+  stage 1.
+- [deviation, open] A host that passes one array to two parameters of a kernel function reads
+  the values of before the call through the second on the CPU oracle. Decision 7 has the host
+  call refuse it; that refusal is not built yet.
+- [fact] Cost, measured by the reviews on ordinary programs (66, 66 and 60 programs): under
+  Amendment A2 the forms most often refused were `const p = xs[i]; p.x = …` and
+  `const n = nearest(xs); n.d = …`. Rule 1 accepts the first. Rule 4 still refuses the second.
+  `mv(ps[i], ps[i - 1])`, where `mv` writes one of the two, stays `TS8074`.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io.** Every page and Playground starter that writes `@inout` or `@out`; the
