@@ -94,3 +94,46 @@ export function integerWrittenLiteral(node: ts.NumericLiteral): boolean {
   const written = node.getText();
   return /^0[xXbBoO]/.test(written) || !/[.eE]/.test(written);
 }
+
+const PATTERN_PARTS = (n: ts.Node): boolean =>
+  ts.isArrayLiteralExpression(n) ||
+  ts.isObjectLiteralExpression(n) ||
+  ts.isPropertyAssignment(n) ||
+  ts.isShorthandPropertyAssignment(n) ||
+  ts.isSpreadElement(n) ||
+  ts.isParenthesizedExpression(n);
+
+export function destructuringSource(target: ts.Node): ts.Expression | undefined {
+  let n = target;
+  while (PATTERN_PARTS(n.parent)) n = n.parent;
+  if (n === target) return undefined;
+  const p = n.parent;
+  if (ts.isBinaryExpression(p) && p.left === n) {
+    return p.operatorToken.kind === ts.SyntaxKind.EqualsToken ? p.right : undefined;
+  }
+  return (ts.isForOfStatement(p) || ts.isForInStatement(p)) && p.initializer === n
+    ? p.expression
+    : undefined;
+}
+
+export function containsPart(e: ts.Node, part: (e: ts.Expression) => boolean): boolean {
+  if (ts.isExpression(e) && part(e)) return true;
+  return ts.forEachChild(e, (c) => (containsPart(c, part) ? true : undefined)) === true;
+}
+
+const PEER_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ...[ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.AsteriskToken],
+  ...[ts.SyntaxKind.BarToken, ts.SyntaxKind.AmpersandToken, ts.SyntaxKind.CaretToken],
+  ...[ts.SyntaxKind.LessThanToken, ts.SyntaxKind.LessThanEqualsToken],
+  ...[ts.SyntaxKind.GreaterThanToken, ts.SyntaxKind.GreaterThanEqualsToken],
+  ...[ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken],
+]);
+
+export function peerOperands(n: ts.Node): (readonly [ts.Identifier, ts.Expression])[] {
+  if (!ts.isBinaryExpression(n) || !PEER_OPERATORS.has(n.operatorToken.kind)) return [];
+  const [l, r] = [skipParenNodes(n.left), skipParenNodes(n.right)];
+  return [
+    ...(ts.isIdentifier(l) ? [[l, r] as const] : []),
+    ...(ts.isIdentifier(r) ? [[r, l] as const] : []),
+  ];
+}

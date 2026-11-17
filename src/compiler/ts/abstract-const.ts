@@ -48,6 +48,9 @@ import {
   BITWISE,
   COMPOUND_BASE,
   integerWrittenLiteral,
+  containsPart,
+  destructuringSource,
+  peerOperands,
   isBigNumber,
   returnsOf,
   scalarOfTypeText,
@@ -55,6 +58,15 @@ import {
   writtenBitTree,
   writtenNumber,
 } from './abstract-const/written-syntax.js';
+import {
+  floatPositionOperands,
+  identifiersNamed,
+  isTypedConstructor,
+  nodeAtOffset,
+  nodeSpanning,
+  regionOf,
+  skipParenUp,
+} from './abstract-const/syntax-lookup.js';
 import {
   READING_DEPTH,
   READING_ROUNDS,
@@ -740,15 +752,6 @@ export function noteIntegerContext(
 }
 
 const CASTS: ReadonlySet<string> = new Set(['f32', 'f64', 'i32', 'u32', 'bool']);
-
-/** Whether `call` constructs a vector or a matrix of a written component type: `vec3u(…)`,
- *  `vec2f(…)`, `mat2x2f(…)`, or a type argument `vec2<u32>(…)`. */
-function isTypedConstructor(call: ts.CallExpression): boolean {
-  const callee = call.expression;
-  if (!ts.isIdentifier(callee)) return false;
-  if (/^(vec[234]|mat[234]x[234])[uifh]$/.test(callee.text)) return true;
-  return /^(vec[234]|mat[234]x[234])$/.test(callee.text) && (call.typeArguments?.length ?? 0) > 0;
-}
 
 /** The origin of `node` (Amendment A3, "보수적 추적 규칙"): the constants of no fixed type it
  *  comes from, through every expression and binding with no declared type between. A written
@@ -1681,30 +1684,6 @@ const VALUE_EDIT =
 const FLOAT_MISMATCH =
   /(?:cannot \S+ (?:i32|u32) and f32|cannot \S+ f32 and (?:i32|u32)|cannot let\/const \S+ f32 and (?:i32|u32)|return type mismatch: declared f32, got (?:i32|u32)|Vector constructor element type mismatch: expected f32|takes an f32[^;]*; got (?:i32|u32)|the first is (?:i32|u32), this one f32|the first is f32, this one (?:i32|u32)|Argument \d+ of "[^"]+" type mismatch)/;
 
-/** The node of `sourceFile` that spans exactly `start` to `end`, the outermost such. */
-function nodeSpanning(sourceFile: ts.SourceFile, start: number, end: number): ts.Node | undefined {
-  let found: ts.Node | undefined;
-  const visit = (n: ts.Node): void => {
-    if (found !== undefined || n.getStart(sourceFile) > start || n.getEnd() < end) return;
-    if (n.getStart(sourceFile) === start && n.getEnd() === end) found = n;
-    else ts.forEachChild(n, visit);
-  };
-  ts.forEachChild(sourceFile, visit);
-  return found;
-}
-
-/** The operands a type error at `at` between an integer and an `f32` may stand on: a return's
- *  value, a declaration's initializer, an operator's operands, a call's arguments, or, for an
- *  argument the error stands on, the arguments of its call. */
-function floatPositionOperands(at: ts.Node): ts.Expression[] {
-  if (ts.isReturnStatement(at)) return at.expression === undefined ? [] : [at.expression];
-  if (ts.isVariableDeclaration(at)) return at.initializer === undefined ? [] : [at.initializer];
-  if (ts.isBinaryExpression(at)) return [at.left, at.right];
-  if (ts.isCallExpression(at) || ts.isNewExpression(at)) return [...(at.arguments ?? [])];
-  if (ts.isExpression(at) && ts.isCallExpression(at.parent)) return [...at.parent.arguments];
-  return [];
-}
-
 /** Whether `e` is a tree of written integers, or a read of a constant or a binding with no
  *  written type that holds one and that nothing assigns again. */
 function isTreeOperand(e: ts.Expression): boolean {
@@ -1738,19 +1717,6 @@ function constantBitRoot(e: ts.Expression): boolean {
     k === ts.SyntaxKind.LessThanLessThanToken ||
     k === ts.SyntaxKind.GreaterThanGreaterThanToken;
   return bit && constNumber(n) !== undefined;
-}
-
-/** The innermost node of `sourceFile` that starts at `offset`. */
-function nodeAtOffset(sourceFile: ts.SourceFile, offset: number): ts.Node | undefined {
-  let found: ts.Node | undefined;
-  const visit = (n: ts.Node): void => {
-    if (n.getStart(sourceFile) <= offset && offset < n.getEnd()) {
-      if (n.getStart(sourceFile) === offset) found = n;
-      ts.forEachChild(n, visit);
-    }
-  };
-  ts.forEachChild(sourceFile, visit);
-  return found;
 }
 
 /** The type the author wrote on `decl`, not one the editor's projection wrote. */
@@ -1839,27 +1805,6 @@ const SHIFTS = new Set([
   ts.SyntaxKind.GreaterThanGreaterThanToken,
   ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
 ]);
-
-const identifiersOf = new WeakMap<ts.SourceFile, Map<string, ts.Identifier[]>>();
-
-/** The identifiers of `sourceFile` spelled `name`, found in one walk of the file. */
-function identifiersNamed(sourceFile: ts.SourceFile, name: string): readonly ts.Identifier[] {
-  let index = identifiersOf.get(sourceFile);
-  if (index === undefined) {
-    const found = new Map<string, ts.Identifier[]>();
-    const visit = (k: ts.Node): void => {
-      if (ts.isIdentifier(k)) {
-        const list = found.get(k.text);
-        if (list === undefined) found.set(k.text, [k]);
-        else list.push(k);
-      }
-      ts.forEachChild(k, visit);
-    };
-    visit(sourceFile);
-    identifiersOf.set(sourceFile, (index = found));
-  }
-  return index.get(name) ?? [];
-}
 
 /** What a walk of the places quotients flow to shares: the refused quotients, whose own lowered
  *  type is the refusal's and says nothing of a peer, and what the walk has followed. */
@@ -2354,20 +2299,6 @@ function declarationChange(name: string, at: ts.Node, type: string): SourceChang
   }
   if (d === undefined) return undefined;
   return { start: d.name.getEnd(), end: d.type?.getEnd() ?? d.name.getEnd(), text: `: ${type}` };
-}
-
-/** The statement, member or declaration that holds `node`. */
-function regionOf(node: ts.Node, sourceFile: ts.SourceFile): readonly [number, number] {
-  let n: ts.Node = node;
-  while (
-    n.parent !== undefined &&
-    !ts.isSourceFile(n.parent) &&
-    !(ts.isStatement(n) && !ts.isBlock(n)) &&
-    !ts.isClassElement(n)
-  ) {
-    n = n.parent;
-  }
-  return [n.getStart(sourceFile), n.getEnd()];
 }
 
 /** The two values of `node` where a tree's `u32` bits and its TypeScript value reach it and
@@ -3176,6 +3107,8 @@ function storesOf(d: ts.VariableDeclaration, sourceFile: ts.SourceFile): Store[]
       stores.push({ kind: 'opaque' });
       continue;
     }
+    const pattern = destructuringSource(up);
+    if (pattern !== undefined) stores.push({ kind: 'opaque', expr: pattern });
     if (!ts.isBinaryExpression(p) || p.left !== up) continue;
     const k = p.operatorToken.kind;
     if (k === ts.SyntaxKind.EqualsToken) {
@@ -3217,6 +3150,7 @@ interface FileTaint {
   /** The tainted variables found together: each variable's group of variables that read one
    *  another, through stores, calls and getters (a strongly connected component). */
   readonly groups: Map<ts.Node, readonly ts.VariableDeclaration[]>;
+  readonly pulled: Set<ts.Node>;
 }
 
 /** Whether a tree reaches the property access whose name is `name`: by its member where the
@@ -3244,7 +3178,9 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
     fieldNames: new Set(),
     untypedFieldNames: new Set(),
     groups: new Map(),
+    pulled: new Set(),
   };
+  const peers: (readonly [ts.Identifier, ts.Expression])[] = [];
   /** The field a store into `access` reaches: its declaration, its name where the source does
    *  not state it, or `undefined` for a field that states its type. */
   const storeTarget = (access: ts.PropertyAccessExpression): ts.Node | string | undefined => {
@@ -3272,6 +3208,7 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   /** The fields with no written type, by name: a store by name may reach each. */
   const untypedFields = new Map<string, ts.Node[]>();
   const visit = (n: ts.Node): void => {
+    peers.push(...peerOperands(n));
     if (
       ts.isVariableDeclaration(n) &&
       ts.isIdentifier(n.name) &&
@@ -3422,6 +3359,14 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   const looseTainted = new Set<string>();
   for (let changed = true; changed;) {
     changed = false;
+    for (const [id, other] of peers) {
+      const d = declarationAt(id, sourceFile);
+      if (d === undefined || !ts.isVariableDeclaration(d) || taint.vars.has(d)) continue;
+      if (writtenTypeText(d, sourceFile) !== undefined || !reaches(other)) continue;
+      taint.vars.add(d);
+      taint.pulled.add(d);
+      changed = true;
+    }
     for (const v of vars) {
       if (taint.vars.has(v.d)) continue;
       const byMember =
@@ -3730,7 +3675,9 @@ function variableReadings(
     for (const v of group) {
       const next: Reading[] = [];
       for (const s of storesOf(v, sourceFile)) next.push(...storedReadings(v, s, sourceFile, own));
-      const bounded = boundedReadings(heldByTreeVariable(next));
+      const bounded = boundedReadings(
+        heldByTreeVariable(next, fileTaint(sourceFile).pulled.has(v)),
+      );
       if (!sameReadings(bounded, values.get(v)!)) settled = false;
       values.set(v, bounded);
       w.pending.set(v, bounded);
@@ -3789,9 +3736,8 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
   /** The values of the arms of a choice: an arm the walk cannot read is {@link UNKNOWN}. */
   const arms = (xs: readonly ts.Expression[]): Reading[] => {
     const all = xs.map(of);
-    return all.some((a) => a.length > 0)
-      ? boundedReadings(all.flatMap((a) => (a.length === 0 ? [UNKNOWN] : a)))
-      : [];
+    const read = all.flatMap((a) => (a.length === 0 ? [UNKNOWN] : a));
+    return all.some((a) => a.length > 0) ? boundedReadings(heldByTreeVariable(read)) : [];
   };
   if (ts.isNumericLiteral(n)) return [numberReading(Number(n.text))];
   // A type assertion, a non-null assertion and `satisfies` carry the origin (Amendment A3).
@@ -4105,8 +4051,10 @@ function binaryReadingsOf(
   // (the owner's decisions of 2026-11-16, "증명 못 하면 거부", and of 2026-11-17, "단순 규칙:
   // 타입 없는 필드는 항상 증명 못 함"). A proven tree beside a typed peer keeps its reading, as
   // the owner deferred (`f32(a + vi)`).
+  const typedPart = (e: ts.Expression) =>
+    typedNode(e) || ts.isElementAccessExpression(e) || ts.isPropertyAccessExpression(e);
   const shiftByTypedAmount =
-    bs.length === 0 &&
+    (bs.length === 0 || (rv === undefined && containsPart(right, typedPart))) &&
     (k === ts.SyntaxKind.LessThanLessThanToken || k === ts.SyntaxKind.GreaterThanGreaterThanToken);
   const keepsCongruence = k !== ts.SyntaxKind.GreaterThanGreaterThanToken;
   const withoutNumbers = (x: Reading): boolean =>
@@ -4346,12 +4294,6 @@ export function reassignedAnywhere(d: ts.VariableDeclaration): boolean {
           parent.operator === ts.SyntaxKind.MinusMinusToken));
     return target && declarationOf(name, id) === d;
   });
-}
-
-function skipParenUp(n: ts.Node): ts.Node {
-  let u = n;
-  while (ts.isParenthesizedExpression(u.parent)) u = u.parent;
-  return u;
 }
 
 /** The function a call of `name` at `at` reaches: one declared in a block around `at` or at the
