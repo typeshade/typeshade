@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
+import { bothRefuse } from '../../core/testing/both-halves.js';
 
 describe('constant loop bounds', () => {
   it('accepts i < 16', () => {
@@ -50,7 +51,9 @@ describe('constant loop bounds', () => {
   });
 
   it('rejects while (true) with no way out', () => {
-    const r = compileTsSource(`
+    // Both breaks leave something else: the inner for, and the switch.
+    bothRefuse(
+      `
       "use typeshade";
       export function f(): f32 {
         let a = 0.;
@@ -61,10 +64,11 @@ describe('constant loop bounds', () => {
         }
         return a;
       }
-    `);
-    // Both breaks leave something else: the inner for, and the switch.
-    expect(r.diagnostics.map((d) => d.code)).toEqual(['TS8007']);
-    expect(r.diagnostics[0]!.message).toMatch(/^while \(true\) has no break or return/);
+    `,
+      'TS8007',
+      'while (true) has no break or return in its body, so it never ends. Leave it with a ' +
+        'break, or write the exit into the condition.',
+    );
   });
 
   it('takes for (;;) with a break, and refuses one with no way out (change 0136)', () => {
@@ -75,19 +79,17 @@ describe('constant loop bounds', () => {
       }
     `);
     expect(open.diagnostics).toEqual([]);
-    const never = compileTsSource(`
+    bothRefuse(
+      `
       "use typeshade";
       export function f(): void {
         let a = 0.;
         for (;;) { a += 1.; }
       }
-    `);
-    expect(never.diagnostics.map((d) => [d.code, d.message])).toEqual([
-      [
-        'TS8007',
-        'for (;;) has no break or return in its body, so it never ends. Leave it with a ' +
-          'break, or write the exit into the condition.',
-      ],
-    ]);
+    `,
+      'TS8007',
+      'for (;;) has no break or return in its body, so it never ends. Leave it with a ' +
+        'break, or write the exit into the condition.',
+    );
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
+import { bothHalves } from '../../core/testing/both-halves.js';
 
 describe('array DX', () => {
   it('constructs array<f32, 2>(a, b)', () => {
@@ -42,18 +43,20 @@ describe('array DX', () => {
   });
 
   it('rejects xs.filter, which is not one of the methods an array has (surface §63)', () => {
-    const r = compileTsSource(`
+    const halves = bothHalves(`
       "use typeshade";
       export function f(xs: array<f32, 4>): f32 {
         return xs.filter((x) => x > 0.)[0];
       }
     `);
-    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
-      `TS8099 ".filter" is not one of an array's methods here, which are map, forEach, some, ` +
-        `every, reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf and includes. An ` +
-        `array's length is fixed, so a copy or a change of length is a loop: ` +
-        `"for (const x of xs) { … }".`,
-    ]);
+    const sentence =
+      `typeshade TS8099: ".filter" is not one of an array's methods here, which are map, forEach, ` +
+      `some, every, reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf and includes. An ` +
+      `array's length is fixed, so a copy or a change of length is a loop: ` +
+      `"for (const x of xs) { … }".`;
+    expect(halves.compiler).toEqual([sentence]);
+    // The editor shows TypeScript's 2339 and 7006 beside the sentence.
+    expect(halves.editor).toContain(sentence);
   });
 
   it('rejects construct arity mismatch', () => {

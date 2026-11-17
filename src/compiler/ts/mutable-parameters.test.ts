@@ -1,6 +1,7 @@
 // Verifies: Rule 8.8, Rule 8.17 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { bothHalves, bothRefuse } from '../../core/testing/both-halves.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
@@ -121,15 +122,22 @@ export function run(): f32 { return id(2., 3.) + apply((x) => { x *= 2.; return 
   });
 
   it('retains refusal of writes through parameters without whole rebinding', () => {
-    const r = compile(`"use typeshade"; export function f(a: vec2): vec2 { a.x = 1.; return a; }`);
-    expect(r.diagnostics.some((d) => d.category === 'error')).toBe(true);
+    bothRefuse(
+      `"use typeshade"; export function f(a: vec2): vec2 { a.x = 1.; return a; }`,
+      'TS8018',
+      'Cannot write through parameter "a" — parameters are not writable. Use a local or ' +
+        'storage. To change the caller\'s value, declare "@inout a: vec2".',
+    );
   });
 
   it('diagnoses duplicate parameter declarations instead of duplicating a hidden input', () => {
-    const r = compile(
+    const halves = bothHalves(
       `"use typeshade"; export function f(a: f32, a: f32): f32 { a = 1.; return a; }`,
     );
-    expect(r.diagnostics.some((d) => d.code === 'TS8023')).toBe(true);
-    expect(r.wgsl).toBeUndefined();
+    const sentence = 'typeshade TS8023: Duplicate parameter "a" in this scope.';
+    expect(halves.compiler).toEqual([sentence]);
+    // The editor shows TypeScript's 2300 beside the sentence, twice.
+    expect(halves.editor).toContain(sentence);
+    expect(halves.result.wgsl).toBeUndefined();
   });
 });
