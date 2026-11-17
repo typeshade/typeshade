@@ -24,4 +24,20 @@ describe('collectMutatedRoots', () => {
     );
     expect([...out]).toEqual(['ps']);
   });
+
+  it('counts a write through a parameter, which a program may assign to', () => {
+    const out = new Set<string>();
+    collectMutatedRoots(
+      [
+        write({
+          op: 'index',
+          type: f32T,
+          base: { op: 'param', type: f32T, name: 'xs' },
+          idx: { op: 'lit', type: f32T, value: 0 },
+        }),
+      ],
+      out,
+    );
+    expect([...out]).toEqual(['xs']);
+  });
 });
