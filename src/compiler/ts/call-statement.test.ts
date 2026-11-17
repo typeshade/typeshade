@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
+import { bothHalves } from '../../core/testing/both-halves.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { emitStmt, withDeclaredFns } from '../../core/emit.js';
@@ -93,15 +94,17 @@ describe('a call as a statement', () => {
   });
 
   it('refuses a value that is not a call standing alone', () => {
-    const r = compileTsSource(`"use typeshade";
+    const source = `"use typeshade";
 interface Color { color: location<0, vec4>; }
 @fragment export function fs(uv: location<0, vec2>): Color {
   vec3(1., 2., 3.);
   return { color: vec4(uv, 0., 1.) };
 }
-`);
+`;
+    const r = compileTsSource(source);
     expect(r.diagnostics.map((d) => d.code)).toEqual(['TS8099']);
     expect(r.diagnostics[0]!.message).toContain('builds a value and drops it');
+    expect(bothHalves(source).editor).toEqual([`typeshade TS8099: ${r.diagnostics[0]!.message}`]);
   });
 
   it("spells a dropped builtin result behind WGSL's phony assignment and bare on GLSL", () => {

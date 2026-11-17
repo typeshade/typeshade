@@ -20,16 +20,11 @@ const SRC = fileURLToPath(new URL('.', import.meta.url));
  *  `bothHalves` (`src/core/testing/both-halves.ts`), then remove its line. Never add a line. */
 const KNOWN: readonly string[] = [
   'cli/migrate.test.ts',
-  'compiler/ts/array-literal.test.ts',
-  'compiler/ts/bindings.test.ts',
   'compiler/ts/builtins.test.ts',
-  'compiler/ts/call-statement.test.ts',
   'compiler/ts/convert-ctor.test.ts',
   'compiler/ts/declare-bind.test.ts',
   'compiler/ts/int-lit-context.test.ts',
-  'compiler/ts/math-alias.test.ts',
   'compiler/ts/math-args.test.ts',
-  'compiler/ts/math-expand.test.ts',
   'compiler/ts/member-assign.test.ts',
   'compiler/ts/mixins.test.ts',
   'compiler/ts/module-const-value.test.ts',

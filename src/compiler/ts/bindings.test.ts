@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
+import { bothHalves } from '../../core/testing/both-halves.js';
+
+function refused(source: string): ReturnType<typeof compileTsSource> {
+  const r = compileTsSource(source);
+  const editor = bothHalves(source).editor;
+  for (const d of r.diagnostics.filter((e) => e.category === 'error')) {
+    expect(editor).toContain(`typeshade ${d.code}: ${d.message}`);
+  }
+  return r;
+}
 
 describe('uniform / storage', () => {
   it('collects uniform<f32>({ binding: 0 }) and reads it', () => {
@@ -50,7 +60,7 @@ describe('uniform / storage', () => {
   // into the type is that an author who asks for a writable buffer gets one. The remedy names
   // the mode they asked for, with the option removed from the object they wrote.
   it('refuses the retired { access } option and names the type-argument spelling', () => {
-    const r = compileTsSource(`
+    const r = refused(`
       "use typeshade";
       const ys = storage<array<f32, 4>>({ binding: 3, access: "read_write" });
       export function f(): f32 { return ys[0]; }
@@ -69,7 +79,7 @@ describe('uniform / storage', () => {
   // has none, and the line it named was a two-type-argument `uniform<...>`, which the same
   // commit refuses with TS8002. The uniform arm has its own sentence.
   it('refuses the retired { access } option on a uniform with its own sentence', () => {
-    const r = compileTsSource(`
+    const r = refused(`
       "use typeshade";
       const cam = uniform<f32>({ binding: 3, access: "read_write" });
       export function f(): f32 { return cam; }
@@ -86,7 +96,7 @@ describe('uniform / storage', () => {
   // remedy quote a line the same file refuses: `{ access: "write" }` was answered with
   // `storage<..., "write">`, which is TS8002 the moment it is written.
   it("names read_write, not the author's word, when the word is not one of the two", () => {
-    const r = compileTsSource(`
+    const r = refused(`
       "use typeshade";
       const ys = storage<array<f32, 4>>({ binding: 3, access: "write" });
       @compute([1, 1, 1]) export function k(): void { ys[0] = 1.; }
@@ -100,7 +110,7 @@ describe('uniform / storage', () => {
   // Widened from a uniform-only guard: a storage binding written `let` is refused with the same
   // sentence shape, and the storage arm names the type argument rather than the keyword.
   it('refuses a call-form binding declared let, for both kinds', () => {
-    const storageForm = compileTsSource(`
+    const storageForm = refused(`
       "use typeshade";
       let xs = storage<f32>();
       export function f(): f32 { return 0.; }
@@ -110,7 +120,7 @@ describe('uniform / storage', () => {
         '"const xs = storage<f32, \"read_write\">()". A storage binding\'s access mode is its ' +
         'second type argument, not the declaration keyword.',
     );
-    const uniformForm = compileTsSource(`
+    const uniformForm = refused(`
       "use typeshade";
       let gain = uniform<f32>();
       export function f(): f32 { return 0.; }
@@ -123,7 +133,7 @@ describe('uniform / storage', () => {
   });
 
   it('refuses a second type argument on a uniform call form', () => {
-    const r = compileTsSource(`
+    const r = refused(`
       "use typeshade";
       const cam = uniform<f32, "read">();
       export function f(): f32 { return cam; }
