@@ -283,10 +283,6 @@ declare const U_: uniform<U>`;
 
   it.each([
     [
-      'an alias',
-      `@fragment export function fs(): vec4 { const w = U_.xs; return vec4(w[1] * U_.k) }`,
-    ],
-    [
       'a helper argument',
       `export function pick(a: array<f32, 4>): f32 { return a[2] }
 @fragment export function fs(): vec4 { return vec4(pick(U_.xs) * U_.k) }`,
@@ -303,6 +299,16 @@ declare const U_: uniform<U>`;
     // the authored array from its elements costs the loads the copy was going to do anyway.
     const c = compiled(`${U}\n${body}`);
     expect(c.wgsl).toContain('array<f32, 4>(U_.xs[0].v, U_.xs[1].v, U_.xs[2].v, U_.xs[3].v)');
+    expect(c.wgsl).not.toMatch(/let \w+ = U_\.xs;/);
+  });
+
+  // A second name is the place it names (change 0142, rule 1): the array is not copied, and an
+  // element is read where the uniform keeps it.
+  it('reads an element through a second name where the uniform keeps it', () => {
+    const c = compiled(
+      `${U}\n@fragment export function fs(): vec4 { const w = U_.xs; return vec4(w[1] * U_.k) }`,
+    );
+    expect(c.wgsl).toContain('U_.xs[1].v');
     expect(c.wgsl).not.toMatch(/let \w+ = U_\.xs;/);
   });
 

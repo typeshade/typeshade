@@ -14,7 +14,7 @@
 
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
-import { namesShared } from '../object-share.js';
+import { isNewObject } from '../new-object.js';
 import type {
   BindingDecl,
   Expr,
@@ -39,7 +39,7 @@ import {
 import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
 import { lowerExpression } from './expression.js';
-import { lowerLValue } from './statement.js';
+import { checkPlaceWritable, lowerLValue } from './statement.js';
 import { isWrittenObjectParameter } from '../object-reference.js';
 
 /** How `p` is passed when it names the caller's place: `'inout'` for an object parameter that its
@@ -147,7 +147,10 @@ export function lowerReferenceArgument(
   // places when `o` and `xs` are.
   const root = rootIdentifier(place);
   // A name that stands for a place (an element a `for…of` names, change 0142) is that place.
-  if (root !== undefined && scope.chainAlias(root) === undefined) {
+  const alias = root === undefined ? undefined : scope.chainAlias(root);
+  if (alias !== undefined && !checkPlaceWritable(alias(), place, sourceFile, scope, diagnostics))
+    return undefined;
+  if (root !== undefined && alias === undefined) {
     const found = scope.resolve(root.text);
     const b = found === undefined ? undefined : writeRules(found);
     if (b !== undefined && b.reference !== true && b.kind === 'param' && b.space !== 'storage') {
@@ -189,14 +192,13 @@ export function lowerReferenceArgument(
     // An object nothing else holds is legal in JavaScript, and nothing else sees the write: the
     // compiler holds it in a variable for the call (change 0142, Table 1).
     const object = param.type.kind === 'struct' || param.type.kind === 'array';
-    // A call that gives back an object another name holds is no such value: the write is one
-    // that name sees in JavaScript, and a variable for the call would hide it (OD-9).
-    const held = object ? namesShared(place, scope.ownerNode(), sourceFile) : [];
-    if (held.length > 0) {
+    // An object that is not known to be new may be one that has a name: the write is one that
+    // name sees in JavaScript, and a variable for the call would hide it (OD-9, rule 3).
+    if (object && !isNewObject(place, sourceFile)) {
       return push(
         place,
         `"${shown}" writes its parameter "${param.name}", and "${place.getText(sourceFile)}" ` +
-          `may be the object "${held[0]}" names. Passing it on from an expression is not ` +
+          `may be an object that already has a name. Passing it on from an expression is not ` +
           `supported yet (change 0142, stage 2): name it first, const r = ` +
           `${place.getText(sourceFile)}, and pass r.`,
       );

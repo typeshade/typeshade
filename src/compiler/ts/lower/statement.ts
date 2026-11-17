@@ -42,8 +42,8 @@ import {
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { foldIndexConst } from '../index-bound.js';
 import ts from 'typescript';
-import { fileFunction, objectWrites } from '../object-reference.js';
-import { aliasedCall, namesShared, returnsWhatItBuilt } from '../object-share.js';
+import { isNewObject } from '../new-object.js';
+import { copyOfObject, secondNameOf } from './second-name.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, isF64, isVec, isVec64, u32T } from '../../../core/ir/types.js';
@@ -256,7 +256,12 @@ export function lowerStatement(
     lowerStatementNode(node, sourceFile, scope, diagnostics),
   );
   const hoisted = scope.takeHoisted(mark);
-  if (lowered === undefined) return undefined;
+  // A second name binds no statement, and the index it reads once is still held ahead of it
+  // (change 0142, rule 1).
+  if (lowered === undefined) {
+    for (const s of hoisted) withSpan(s, sourceFile, node);
+    return hoisted.length > 0 ? hoisted : undefined;
+  }
   const list = Array.isArray(lowered) ? lowered : [lowered];
   for (const s of list) withSpan(s, sourceFile, node);
   for (const s of hoisted) withSpan(s, sourceFile, node);
@@ -1098,201 +1103,17 @@ function lowerDeclarationKind(
   return withSpan({ s: 'var', name: ir, type: bindingType, init } as Stmt, sourceFile, spanNode);
 }
 
-/**
- * `const q = p` or `let q = p` where `p` names an object and something writes a field or an
- * element through one of the two names: `q` is a second name of `p`'s object, as it is in
- * JavaScript, and no declaration is emitted (change 0142, Table 1). Where nothing writes through
- * either name a copy has JavaScript's result, and the declaration stays a copy (`'none'`).
- *
- * A second name that one of the two is assigned whole after (`q = r`, `p = new P()`) names an
- * object the compiler must follow at each write, which is stage 2: it is refused as not supported
- * yet (`'refused'`), never compiled to a copy JavaScript would not make (OD-9).
- */
-function secondNameOf(
-  decl: ts.VariableDeclaration,
-  init: Expr,
-  annotated: ShaderType | undefined,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): 'bound' | 'refused' | 'none' {
-  const type = annotated ?? init.type;
-  const object = (t: ShaderType): boolean =>
-    t.kind === 'struct' || (t.kind === 'array' && t.size !== undefined);
-  // `let q: P | undefined = a` is declared with another type and names the object of `a` too.
-  if (!object(type) && !object(init.type)) return 'none';
-  if (!ts.isIdentifier(decl.name) || decl.initializer === undefined) return 'none';
-  // `let b = f(a)` where `f` returns its parameter: `b` is a second name of `a`'s object too.
-  const direct = unwrapParens(decl.initializer);
-  const from = ts.isIdentifier(direct) ? direct : aliasedCall(decl, sourceFile)?.argument;
-  if (from === undefined) return 'none';
-  const target = scope.resolve(from.text);
-  // A name of another type (a base class of the object, `P | undefined`) and a name of a
-  // variable of the module are second names the lowering does not bind.
-  const binds =
-    target !== undefined &&
-    (target.kind === 'local' || target.kind === 'param') &&
-    typeKey(target.type) === typeKey(type);
-  let body: ts.Node = decl;
-  while (body.parent !== undefined && !ts.isFunctionLike(body)) body = body.parent;
-  if (!ts.isFunctionLike(body)) return 'none';
-  const name = decl.name.text;
-  const mine = objectWrites(name, body, sourceFile, decl);
-  const theirs = objectWrites(from.text, body, sourceFile, from);
-  // A write before the declaration is in the object when the second name takes it: only a
-  // write after it, or in a loop that holds both, is one that the two names must share.
-  const later = (n: ts.Node): boolean => {
-    // A write in the declaration's own initializer runs before the name is bound to its result,
-    // and a write in a function inside the body runs whenever that function is called.
-    if (n.getStart() >= decl.getStart()) return true;
-    for (let at: ts.Node | undefined = n.parent; at !== undefined && at !== body; at = at.parent) {
-      if (ts.isFunctionLike(at)) return true;
-    }
-    for (
-      let at: ts.Node | undefined = decl.parent;
-      at !== undefined && at !== body;
-      at = at.parent
-    ) {
-      if (ts.isIterationStatement(at, false) && n.getStart() >= at.getStart() && n.end <= at.end)
-        return true;
-    }
-    return false;
-  };
-  if (!mine.memberAt.some(later) && !theirs.memberAt.some(later)) return 'none';
-  if (!binds || target === undefined) {
-    // A binding is read through its own rules (Rule 12.6): `const a = src` names the binding.
-    if (target?.kind === 'binding') return 'none';
-    // A base class's view of the object has its own refusal (change 0110).
-    if (
-      target !== undefined &&
-      target.type.kind === 'struct' &&
-      type.kind === 'struct' &&
-      optionalInner(type) === undefined
-    )
-      return 'none';
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      decl.name,
-      `"${decl.name.text}" would name the object "${from.text}" names, under another type or ` +
-        `from a variable of the module, and the object is written after that. One object under ` +
-        `two names is not supported yet here (change 0142, stage 2): a copy would not show the ` +
-        `write. Write the object through "${from.text}".`,
-      TS_CODES.UNSUPPORTED,
-    );
-    return 'refused';
-  }
-  // A function inside the body that reads or writes the second name takes it as a variable of
-  // its own, which is not the object the two names share.
-  if (mine.captured) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      decl.name,
-      `"${name}" is a second name of the object "${from.text}" names, and a function inside ` +
-        `this one uses "${name}". A second name that a local function captures is not supported ` +
-        `yet (change 0142, stage 2). Use "${from.text}" in that function.`,
-      TS_CODES.UNSUPPORTED,
-    );
-    return 'refused';
-  }
-  if (mine.whole || theirs.whole) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      decl.name,
-      `"${name}" is a second name of the object "${from.text}" names, and ` +
-        `"${mine.whole ? name : from.text}" is assigned again later. Following which object each ` +
-        `name then refers to is not supported yet (change 0142, stage 2). Give ` +
-        `"${mine.whole ? name : from.text}" its own variable for the second object.`,
-      TS_CODES.UNSUPPORTED,
-    );
-    return 'refused';
-  }
-  // A second name of a loop name, which names an element of the loop's array: each use of the
-  // second name is that element's place too.
-  const element = scope.chainAlias(from);
-  if (element !== undefined) {
-    let block: ts.Node = decl;
-    while (block.parent !== undefined && !ts.isBlock(block)) block = block.parent;
-    const uses = (n: ts.Node): void => {
-      if (ts.isIdentifier(n) && n.text === name) {
-        const parent = n.parent;
-        const property =
-          (ts.isPropertyAccessExpression(parent) && parent.name === n) ||
-          (ts.isPropertyAssignment(parent) && parent.name === n) ||
-          (ts.isVariableDeclaration(parent) && parent.name === n);
-        if (!property) scope.setChainAlias(n, element);
-      }
-      ts.forEachChild(n, uses);
-    };
-    uses(block);
-  }
-  try {
-    scope.defineAlias(name, target);
-  } catch (e) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      decl.name,
-      e instanceof Error ? e.message : String(e),
-      TS_CODES.DUPLICATE_SYMBOL,
-    );
-    return 'refused';
-  }
-  scope.recordDeclaration(sourceFile, decl.name, {
-    name,
-    kind: 'local',
-    type: target.type,
-    mutable: target.mutable,
-  });
-  return 'bound';
-}
-
 /** A value a name can be written through: a struct, an array, a vector or a matrix. */
 const isComposite = (t: ShaderType): boolean =>
   t.kind === 'struct' || t.kind === 'array' || t.kind === 'vec' || t.kind === 'mat';
 
 /** Whether a `const`'s initializer builds a value nothing else holds (Rule 6.10): `new`, an
- *  object or an array literal, a type's constructor, or calls on one of those, which leave
- *  nothing else holding what they return. A name, a field, an element or a function's result
- *  may be a value something else holds, which TypeScript would share and a copy here would not. */
+ *  object or an array literal, a type's constructor, `structuredClone(v)`, `xs.slice()` of values,
+ *  and a call of a function of the file that gives back an object it built (rule 3). A name, a
+ *  field, an element or any other call's result may be a value something else holds, which
+ *  TypeScript would share and a copy here would not. */
 function buildsFreshValue(init: ts.Expression, lowered: Expr): boolean {
-  if (lowered.op === 'construct') return true;
-  let x = unwrapParens(init);
-  // `xs.slice()` and `structuredClone(v)` are JavaScript's copies (change 0142, Table 3).
-  if (ts.isCallExpression(x)) {
-    const callee = x.expression;
-    if (ts.isIdentifier(callee) && callee.text === 'structuredClone') return true;
-    if (
-      ts.isPropertyAccessExpression(callee) &&
-      callee.name.text === 'slice' &&
-      x.arguments.length === 0 &&
-      lowered.type.kind === 'array'
-    )
-      return true;
-  }
-  const whole = x;
-  // A function of the file that gives back an object it built, and no parameter or part of
-  // one, gives a value nothing else holds: `const p = make(3.); p.y = 2.;`.
-  if (ts.isCallExpression(x) && (lowered.type.kind === 'struct' || lowered.type.kind === 'array')) {
-    const callee = fileFunction(x, init.getSourceFile());
-    if (callee !== undefined) return returnsWhatItBuilt(callee, init.getSourceFile());
-  }
-  while (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression)) {
-    x = unwrapParens(x.expression.expression);
-  }
-  if (!ts.isNewExpression(x) && !ts.isObjectLiteralExpression(x) && !ts.isArrayLiteralExpression(x))
-    return false;
-  // A method called on a new object may give back an object the new one was built around, or
-  // an argument: `new H(a).get()`, `new H(b).id(a)`. Such a result is no value nothing holds.
-  if (whole === x) return true;
-  let owner: ts.Node | undefined = init;
-  while (owner !== undefined && !ts.isFunctionLike(owner)) owner = owner.parent;
-  return (
-    namesShared(whole, owner as ts.SignatureDeclaration | undefined, init.getSourceFile())
-      .length === 0
-  );
+  return lowered.op === 'construct' || isNewObject(init, init.getSourceFile());
 }
 
 /** Why a write through a `const` that holds a copy is refused (Rule 6.10). */
@@ -1648,6 +1469,13 @@ function lowerPatternInto(
       }
       continue;
     }
+    // A name a pattern reads out of an object names the object the field holds (rule 4).
+    if (
+      (read.type.kind === 'struct' ||
+        (read.type.kind === 'array' && read.type.size !== undefined)) &&
+      !copyOfObject(decl, element.name, isConst, sourceFile, diagnostics)
+    )
+      return false;
     if (refuseAtomicDeclaration(read.type, element.name, sourceFile, diagnostics, 'a local'))
       return false;
     if (
@@ -3135,7 +2963,7 @@ function checkRootMutable(
     scope.chainAlias(root) !== undefined &&
     (into || !ts.isIdentifier(unwrapParens(node)))
   )
-    return true;
+    return checkPlaceWritable(scope.chainAlias(root)!(), node, sourceFile, scope, diagnostics);
   const rootName = ts.isIdentifier(root) ? root.text : 'this';
   const binding = scope.resolve(rootName);
   if (!binding) return true;
@@ -3160,6 +2988,42 @@ function checkRootMutable(
         ? constCopyWrite(rootName, rules.type)
         : `Cannot assign to "${rootName}" — it is ${readOnlyPhrase(rules.kind)}.` +
             writableRemedy(rules, sourceFile),
+      TS_CODES.CONST_ASSIGN,
+    );
+    return false;
+  }
+  binding.capture?.byRef();
+  return true;
+}
+
+/** The root of the place a second name or a loop name stands for accepts a write, as it does when
+ *  the place is written by its own name (change 0142, rule 1). Returns false having pushed a
+ *  diagnostic. */
+export function checkPlaceWritable(
+  place: Expr,
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): boolean {
+  let at = place;
+  while (at.op === 'member' || at.op === 'index') at = at.base;
+  if (at.op !== 'varref' && at.op !== 'param' && at.op !== 'externref') return true;
+  const binding = scope.resolveIr(at.name);
+  if (binding === undefined) return true;
+  const rules = writeRules(binding);
+  if (!rules.mutable) {
+    if (rules.toVar !== undefined) {
+      rules.toVar();
+      binding.capture?.byRef();
+      return true;
+    }
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node,
+      `Cannot assign to "${rules.name}" — it is ${readOnlyPhrase(rules.kind)}.` +
+        writableRemedy(rules, sourceFile),
       TS_CODES.CONST_ASSIGN,
     );
     return false;

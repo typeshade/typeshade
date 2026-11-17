@@ -83,6 +83,7 @@ import {
 } from '../class-names.js';
 import { mapTsTypeToShaderType, writesUndeclaredType } from '../type-map.js';
 import { writesThroughArgument } from './references.js';
+import { ownParts } from '../object-reference.js';
 import {
   checkFunctionAccess,
   checkInheritedPrivateStatic,
@@ -393,15 +394,18 @@ function unparen(e: ts.Expression): ts.Expression {
   return ts.isParenthesizedExpression(e) ? unparen(e.expression) : e;
 }
 
-/** Whether a write target (`this.x`, `this.xs[i].y`, `(this).z`) is rooted in `this`. */
-function rootedInThis(e: ts.Expression): boolean {
+/** Whether a write target (`this.x`, `this.xs[i].y`, `(this).z`) is rooted in `this`, or in a
+ *  local that names a part of it. */
+function rootedInThis(e: ts.Expression, parts: ReadonlyMap<string, unknown> = NO_PARTS): boolean {
   const n = unparen(e);
   if (n.kind === ts.SyntaxKind.ThisKeyword) return true;
   if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) {
-    return rootedInThis(n.expression);
+    return rootedInThis(n.expression, parts);
   }
-  return false;
+  // A local that names a part of the object (change 0142, rule 1) is rooted in it.
+  return ts.isIdentifier(n) && parts.has(n.text);
 }
+const NO_PARTS: ReadonlyMap<string, unknown> = new Map();
 
 /** The key a member function has in the set {@link mutatingMembersOf} builds: the method as
  *  written, `step` or `#step`, and an accessor half as `get x` or `set x`. */
@@ -425,9 +429,16 @@ function writesThis(
   /** The type of a place reached from `this`: a field, an element, or what a method that
    *  returns `this` hands back, which is its receiver. Undefined for anything not rooted in
    *  `this`, which a write through cannot change. */
+  const parts = ownParts(body, body.getSourceFile());
   const placeType = (e: ts.Expression): ShaderType | undefined => {
     const x = unparen(e);
     if (x.kind === ts.SyntaxKind.ThisKeyword) return structT(self);
+    if (ts.isIdentifier(x)) {
+      const part = parts.get(x.text);
+      if (part === undefined) return undefined;
+      const from = placeType(part.from);
+      return part.element ? (from?.kind === 'array' ? from.elem : undefined) : from;
+    }
     if (ts.isPropertyAccessExpression(x)) {
       const base = placeType(x.expression);
       if (base?.kind !== 'struct') return undefined;
@@ -459,7 +470,7 @@ function writesThis(
       ts.isBinaryExpression(n) &&
       n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
       n.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
-      rootedInThis(n.left)
+      rootedInThis(n.left, parts)
     ) {
       found = true;
       return;
@@ -468,7 +479,7 @@ function writesThis(
       (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
       (n.operator === ts.SyntaxKind.PlusPlusToken ||
         n.operator === ts.SyntaxKind.MinusMinusToken) &&
-      rootedInThis(n.operand)
+      rootedInThis(n.operand, parts)
     ) {
       found = true;
       return;
@@ -490,7 +501,7 @@ function writesThis(
     if (
       ts.isCallExpression(n) &&
       n.arguments.some(
-        (a, i) => rootedInThis(a) && writesThroughArgument(n, i, body.getSourceFile()),
+        (a, i) => rootedInThis(a, parts) && writesThroughArgument(n, i, body.getSourceFile()),
       )
     ) {
       found = true;

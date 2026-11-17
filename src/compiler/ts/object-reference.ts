@@ -25,11 +25,12 @@
 // 12.7).
 
 import ts from 'typescript';
-import { aliasedCall } from './object-share.js';
+import { aliasedCall } from './new-object.js';
+import { Reader } from './source-types.js';
 
 /** The type names that are values, as a JavaScript primitive is (change 0142, decision 1). */
 const VALUE_TYPE =
-  /^(f16|f32|f64|i32|u32|bool|number|boolean|string|vec[234][fiuh]?|mat[234]x[234][fh]?|mat[234][fh]?|atomic|texture\w*|sampler\w*|builtin|location)$/;
+  /^(f16|f32|f64|i32|u32|bool|number|boolean|string|Map|Set|ReadonlyMap|ReadonlySet|vec[234][fiuh]?|mat[234]x[234][fh]?|mat[234][fh]?|atomic|texture\w*|sampler\w*|builtin|location)$/;
 
 /** Whether `type` is written as an object's type: an array, or a name that is none of the value
  *  types. A type alias of the file is followed to what it names. */
@@ -135,6 +136,56 @@ export function fileFunction(
   return undefined;
 }
 
+/** The locals of a method body that name a part of its object (change 0142, rule 1): `const q =
+ *  this.c`, `const r = q.d`, and `for (const e of this.items)`, each with the place it names and
+ *  whether it names an element of it. A part that is a vector is a value, and no part. */
+export function ownParts(
+  body: ts.Node,
+  sourceFile: ts.SourceFile,
+): ReadonlyMap<string, { readonly from: ts.Expression; readonly element: boolean }> {
+  const parts = new Map<string, { from: ts.Expression; element: boolean }>();
+  const reader = new Reader(sourceFile);
+  const rooted = (e: ts.Expression): boolean => {
+    let at = bare(e);
+    while (ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at))
+      at = bare(at.expression);
+    return (
+      at.kind === ts.SyntaxKind.ThisKeyword ||
+      at.kind === ts.SyntaxKind.SuperKeyword ||
+      (ts.isIdentifier(at) && parts.has(at.text))
+    );
+  };
+  for (let grew = true; grew;) {
+    grew = false;
+    const find = (b: ts.Node): void => {
+      let from: ts.Expression | undefined;
+      let into: ts.Identifier | undefined;
+      let element = false;
+      if (ts.isVariableDeclaration(b) && ts.isIdentifier(b.name) && b.initializer) {
+        from = b.initializer;
+        into = b.name;
+      } else if (
+        ts.isForOfStatement(b) &&
+        ts.isVariableDeclarationList(b.initializer) &&
+        ts.isIdentifier(b.initializer.declarations[0]!.name)
+      ) {
+        from = b.expression;
+        into = b.initializer.declarations[0]!.name as ts.Identifier;
+        element = true;
+      }
+      if (from !== undefined && into !== undefined && !parts.has(into.text)) {
+        if (rooted(from) && (element || reader.isObject(from))) {
+          parts.set(into.text, { from, element });
+          grew = true;
+        }
+      }
+      ts.forEachChild(b, find);
+    };
+    find(body);
+  }
+  return parts;
+}
+
 /** Whether a method named `name` of a class of the file writes its own object (Rule 8.10): an
  *  assignment to `this` or to a part of it, a `push` or a `fill` on a part of it, or a call on
  *  `this`, on a part of it or through `super` of a method that does. The class of the receiver is
@@ -147,18 +198,23 @@ export function methodWritesThis(name: string, sourceFile: ts.SourceFile): boole
   // A method that calls itself through another is read as not writing while it is being read.
   byName.set(name, false);
   let writes = false;
-  /** Whether `e` is `this`, `super`, or a field or an element of one. */
-  const ownPart = (e: ts.Expression): boolean => {
-    let at = bare(e);
-    while (ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at))
-      at = bare(at.expression);
-    return at.kind === ts.SyntaxKind.ThisKeyword || at.kind === ts.SyntaxKind.SuperKeyword;
-  };
   const visitClass = (n: ts.Node): void => {
     if (ts.isClassDeclaration(n)) {
       for (const m of n.members) {
         if (!ts.isMethodDeclaration(m) || m.body === undefined) continue;
         if (!ts.isIdentifier(m.name) || m.name.text !== name) continue;
+        const parts = ownParts(m.body, sourceFile);
+        /** Whether `e` is `this`, `super`, or a field or an element of one, or of a part. */
+        const ownPart = (e: ts.Expression): boolean => {
+          let at = bare(e);
+          while (ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at))
+            at = bare(at.expression);
+          return (
+            at.kind === ts.SyntaxKind.ThisKeyword ||
+            at.kind === ts.SyntaxKind.SuperKeyword ||
+            (ts.isIdentifier(at) && parts.has(at.text))
+          );
+        };
         const scan = (b: ts.Node): void => {
           if (writes || (b !== m.body && ts.isFunctionLike(b) && !ts.isArrowFunction(b))) return;
           if (writeTargets(b).some((target) => ownPart(target))) writes = true;
@@ -232,37 +288,42 @@ function declaresAgain(scope: ts.Node, name: string): boolean {
   return false;
 }
 
-/** The names of one object in `body`, from `name`: `const q = p`, `let r = q`, `for (const q of
- *  ps)` and `let b = f(a)` where `f` returns its parameter, read in both directions, so that a
- *  second name of a second name is one of them (change 0142, Table 1). */
-function namesOfOneObject(name: string, body: ts.Node, sourceFile: ts.SourceFile): Set<string> {
+/** The names of one object in `body`, from `name`: `const q = p`, `let r = q`, `const q = p.c`
+ *  and `const q = ps[i]` where the place holds an object, `for (const q of ps)` and `let b = f(a)`
+ *  where `f` returns its parameter, read in both directions, so that a second name of a second
+ *  name is one of them (change 0142, rule 1). A write through a name of a part is a write of the
+ *  object that holds the part. */
+export function namesOfOneObject(
+  name: string,
+  body: ts.Node,
+  sourceFile: ts.SourceFile,
+): Set<string> {
   const names = new Set([name]);
+  const reader = new Reader(sourceFile);
   for (let grew = true; grew;) {
     grew = false;
+    const join = (a: string, b: string): void => {
+      if (names.has(a) === names.has(b)) return;
+      names.add(a);
+      names.add(b);
+      grew = true;
+    };
     const find = (n: ts.Node): void => {
       if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer !== undefined) {
         const init = bare(n.initializer);
-        const from = ts.isIdentifier(init) ? init : aliasedCall(n, sourceFile)?.argument;
-        if (from !== undefined && names.has(from.text) !== names.has(n.name.text)) {
-          names.add(from.text);
-          names.add(n.name.text);
-          grew = true;
-        }
+        const from = aliasedCall(n, sourceFile)?.argument ?? init;
+        const root = rootOf(from);
+        // A place of a name, `p.c`, `ps[i]`: its name is one of the object only where the place
+        // holds an object, and not a vector's component.
+        if (root !== undefined && (root.whole || reader.isObject(from)))
+          join(root.name.text, n.name.text);
       }
       // `for (const q of ps)`: `q` names each element of `ps` in turn.
       if (ts.isForOfStatement(n) && ts.isVariableDeclarationList(n.initializer)) {
         const d = n.initializer.declarations[0];
         const root = rootOf(n.expression);
-        if (
-          d !== undefined &&
-          ts.isIdentifier(d.name) &&
-          root !== undefined &&
-          names.has(root.name.text) !== names.has(d.name.text)
-        ) {
-          names.add(d.name.text);
-          names.add(root.name.text);
-          grew = true;
-        }
+        if (d !== undefined && ts.isIdentifier(d.name) && root !== undefined)
+          join(root.name.text, d.name.text);
       }
       ts.forEachChild(n, find);
     };

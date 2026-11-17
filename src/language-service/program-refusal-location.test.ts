@@ -493,7 +493,7 @@ export class Box<T> {
 `,
       [B]: USES(
         'Box',
-        '  const first: Box<P> = { x: p };\n  const second: Box<P> = { x: p };\n' +
+        '  const first: Box<P> = { x: { a: 1. } };\n  const second: Box<P> = { x: { a: 2. } };\n' +
           '  return vec4(first.same(p) ? 1. : 0., second.same(p) ? 1. : 0., v.uv);',
       ),
     };

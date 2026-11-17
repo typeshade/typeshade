@@ -32,6 +32,42 @@ function read(body: string): { compiler: string[]; editor: string[]; value: unkn
   return { compiler, editor, value };
 }
 
+const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Amendment A3, rule 2: an object that has a name is stored in a second place where it is used
+ *  after, or is no local. */
+const STORED = (name: string): RegExp =>
+  new RegExp(
+    `^TS8099 "${esc(name)}" is stored in a second place here, and it is used after that\\. One object under two names is not supported yet \\(change 0142, stage 3\\)\\. Store it where it is last used, or build a new object for the second place\\.$`,
+  );
+const NAMED = (text: string): RegExp =>
+  new RegExp(
+    `^TS8099 "${esc(text)}" already has a name, and this statement gives it a second place\\. One object under two names is not supported yet \\(change 0142, stage 3\\)\\. Build a new object for the second place\\.$`,
+  );
+/** Rule 4: a declaration of the result of a call that may give back an object that has a name,
+ *  where the function writes an object after it. */
+const CALLED = (name: string, call: string): RegExp =>
+  new RegExp(
+    `^TS8099 "${esc(name)}" would name an object that "${esc(call)}" gives back, which may already have a name, and the function writes an object after that\\. One object under two names is not supported yet \\(change 0142, stage 2\\)\\. Read what you need from the call first, or write through the name that holds the object\\.$`,
+  );
+/** Rule 5: a statement puts another object at the place a second name names. */
+const MOVED = (name: string, place: string): RegExp =>
+  new RegExp(
+    `^TS8099 "${esc(name)}" names "${esc(place)}", and this statement puts another object there while "${esc(name)}" is still used\\. That is not supported yet \\(change 0142, stage 2\\)\\. Read what you need from "${esc(name)}" before this statement\\.$`,
+  );
+/** A second name that is assigned whole later. */
+const AGAIN = (name: string): RegExp =>
+  new RegExp(
+    `^TS8099 "${esc(name)}" is a second name of an object that already has a name, and "${esc(name)}" is assigned again later\\. Following which object each name then refers to is not supported yet \\(change 0142, stage 2\\)\\. Give "${esc(name)}" its own variable for the second object\\.$`,
+  );
+
+/** Each refusal of `r`, in order, matches the one pattern at its place, and the editor says the same. */
+function refusedAs(r: ReturnType<typeof read>, want: readonly RegExp[]): void {
+  expect(r.compiler).toHaveLength(want.length);
+  want.forEach((w, i) => expect(r.compiler[i]).toMatch(w));
+  expect(r.editor).toEqual(r.compiler);
+}
+
 describe('an object is passed, named and iterated as JavaScript does (change 0142, stage 1)', () => {
   const runs: readonly (readonly [string, string, number])[] = [
     [
@@ -237,15 +273,25 @@ function touched(p: P): P { p.x = 1.; return p; }
       12,
     ],
     [
-      'an assignment to the place itself puts another object there',
+      'a name of an element sees a write through the array',
       `${P}export function f(): f32 {
-  let xs: array<P, 2> = [new P(), new P()];
-  xs[0].x = 3.;
-  const q = xs[0];
-  xs[0] = new P();
-  return q.x * 10. + xs[0].x;
+  let xs: array<P, 2> = [new P(), new P()]; const q = xs[0]; xs[0].x = 5.; return q.x;
 }`,
-      30,
+      5,
+    ],
+    [
+      'a name of an element writes the element',
+      `${P}export function f(): f32 {
+  const ps: array<P, 2> = [new P(), new P()]; let i = 1; const p = ps[i]; p.x = 9.; i = 0; return ps[1].x + ps[0].x;
+}`,
+      9,
+    ],
+    [
+      'a let name of an element writes the element',
+      `${P}export function f(): f32 {
+  const ps: array<P, 2> = [new P(), new P()]; let p = ps[1]; p.x = 9.; return ps[1].x;
+}`,
+      9,
     ],
     [
       'a write to another field leaves the object named as it was',
@@ -274,38 +320,42 @@ export function f(): f32 { let a = new P(); a.x = k; nudge(a); return a.x + k; }
     expect(service.getDiagnostics('m.shade.ts').filter((d) => d.severity === 'error')).toEqual([]);
   });
 
-  const refused: readonly (readonly [string, string, RegExp])[] = [
+  const refused: readonly (readonly [string, string, RegExp | readonly RegExp[]])[] = [
+    [
+      'an assignment to the place itself puts another object there, while the name is read',
+      `${P}export function f(): f32 {
+  let xs: array<P, 2> = [new P(), new P()];
+  xs[0].x = 3.;
+  const q = xs[0];
+  xs[0] = new P();
+  return q.x * 10. + xs[0].x;
+}`,
+      MOVED('q', 'xs[0]'),
+    ],
     [
       'a name assigned another name, then written',
       `${P}export function f(): f32 { let a = new P(); let q = new P(); q = a; q.x = 5.; return a.x; }`,
-      /^TS8099 "q" would name the object "a" names, and "q" is written after that\. One object under two names is not supported yet \(change 0142, stage 2\): a copy here would not show the write through "a"\./,
+      STORED('a'),
     ],
     [
       'an element that holds a name, then the name written',
       `${P}export function f(): f32 {
   let a = new P(); let xs: array<P, 2> = [new P(), new P()]; xs[0] = a; a.x = 5.; return xs[0].x;
 }`,
-      /^TS8099 "xs" would hold the object "a" names, and "a" is written after that\. One object under two names is not supported yet \(change 0142, stage 3\)/,
+      STORED('a'),
     ],
     [
       'a list that holds a name twice, then written',
       `${P}export function f(): f32 {
   let a = new P(); let xs: array<P, 2> = [a, a]; xs[0].x = 5.; return a.x + xs[1].x;
 }`,
-      /^TS8099 "xs" would hold the object "a" names, and "xs" is written after that\./,
+      [STORED('a'), STORED('a')],
     ],
     [
       'an object built around a name, then the name written',
       `class B { c: P; constructor(c: P) { this.c = c; } }
 ${P}export function f(): f32 { let a = new P(); let b = new B(a); a.x = 5.; return b.c.x; }`,
-      /^TS8099 "b" would hold the object "a" names, and "a" is written after that\./,
-    ],
-    [
-      'an element named, then written through the array',
-      `${P}export function f(): f32 {
-  let xs: array<P, 2> = [new P(), new P()]; const q = xs[0]; xs[0].x = 5.; return q.x;
-}`,
-      /^TS8099 "q" would name the object "xs" names, and "xs" is written after that\./,
+      STORED('a'),
     ],
     [
       'a variable stored at each turn of a loop and written at each',
@@ -315,20 +365,17 @@ ${P}export function f(): f32 { let a = new P(); let b = new B(a); a.x = 5.; retu
   for (let i = 0; i < 2; i++) { p.x = f32(i) + 1.; xs[i] = p; }
   return xs[0].x;
 }`,
-      /^TS8099 "xs" would hold the object "p" names, and "p" is written after that\./,
+      STORED('p'),
     ],
     [
       'the result of a function that returns its parameter, passed on to be written',
       `${ID}export function f(): f32 { let a = new P(); nudge(id(a)); return a.x; }`,
-      /^TS8073 "nudge" writes its parameter "p", and "id\(a\)" may be the object "a" names\. Passing it on from an expression is not supported yet \(change 0142, stage 2\): name it first, const r = id\(a\), and pass r\.$/,
+      /^TS8073 "nudge" writes its parameter "p", and "id\(a\)" may be an object that already has a name\. Passing it on from an expression is not supported yet \(change 0142, stage 2\): name it first, const r = id\(a\), and pass r\.$/,
     ],
   ];
   for (const [name, body, text] of refused) {
     it(`refuses ${name}, in both halves`, () => {
-      const r = read(body);
-      expect(r.compiler).toHaveLength(1);
-      expect(r.compiler[0]).toMatch(text);
-      expect(r.editor).toEqual(r.compiler);
+      refusedAs(read(body), Array.isArray(text) ? text : [text as RegExp]);
     });
   }
 });
@@ -449,7 +496,7 @@ export function f(): f32 { let a = new P(); g(a); return a.x; }`,
     });
   }
 
-  const refused: readonly (readonly [string, string, RegExp])[] = [
+  const refused: readonly (readonly [string, string, RegExp | readonly RegExp[]])[] = [
     [
       "a parameter assigned whole after a write to the caller's object",
       `${Q}function g(p: P): void { p.x = 3.; p = new P(); p.x = 9.; }
@@ -470,7 +517,7 @@ export function f(): f32 { let a = new P(); g(a); return a.x; }`,
       `${Q}export function f(): f32 {
   let a = new P(); let b = new B(); b.c = a; let d = new B(); d.c = b.c; d.c.x = 4.; return a.x;
 }`,
-      /^TS8099 "d" would hold the object "(a|b)" names, and "d" is written after that\./,
+      [STORED('a'), NAMED('b.c')],
     ],
     [
       'an element that holds a name, written through a loop name',
@@ -479,36 +526,33 @@ export function f(): f32 { let a = new P(); g(a); return a.x; }`,
   for (const p of ps) { p.x += 1.; }
   return a.x;
 }`,
-      /^TS8099 "ps" would hold the object "a" names, and "ps" is written after that\./,
+      STORED('a'),
     ],
     [
       'a stored object written by a function declared before the store',
       `${Q}export function f(): f32 {
   let a = new P(); let b = new B(); const g = (): void => { a.x = 1.; }; b.c = a; g(); return b.c.x;
 }`,
-      /^TS8099 "b" would hold the object "a" names, and "a" is written after that\./,
+      STORED('a'),
     ],
     [
       'a second name that a local function writes',
       `${Q}export function f(): f32 {
   let a = new P(); let q = a; const g = (): void => { q.x = 1.; }; g(); return a.x;
 }`,
-      /^TS8099 "q" is a second name of the object "a" names, and a function inside this one uses "q"\. A second name that a local function captures is not supported yet \(change 0142, stage 2\)\. Use "a" in that function\.$/,
+      /^TS8099 "q" is a second name of an object that already has a name, and a function inside this one uses "q"\. A second name that a local function captures is not supported yet \(change 0142, stage 2\)\. Use the first name in that function\.$/,
     ],
     [
       'a list that gives one object to two names',
       `${Q}export function f(): f32 {
   let a = new P(); let b = new P(); a.x = 1.; [a, b] = [a, a]; b.x += 5.; return a.x;
 }`,
-      /^TS8099 "b" would name the object "a" names, and "b" is written after that\./,
+      [STORED('a'), STORED('a')],
     ],
   ];
   for (const [name, body, text] of refused) {
     it(`refuses ${name}, in both halves`, () => {
-      const r = read(body);
-      expect(r.compiler).toHaveLength(1);
-      expect(r.compiler[0]).toMatch(text);
-      expect(r.editor).toEqual(r.compiler);
+      refusedAs(read(body), Array.isArray(text) ? text : [text as RegExp]);
     });
   }
 });
@@ -533,6 +577,20 @@ export function f(): f32 { let p = vec2(0., 0.); const [a, b] = two(); p.x = a; 
       14,
     ],
     [
+      'a name of an element, read at the field a later write changes',
+      `class E { pos: f32 = 1; tag: f32 = 2; }
+export function f(): f32 {
+  let es: array<E, 2> = [new E(), new E()]; const p = es[0]; es[0].pos = 9.; return p.pos;
+}`,
+      9,
+    ],
+    [
+      'a second name of this, read after a write through this',
+      `class S { x: f32 = 0; m(): f32 { const s = this; this.x = 5.; return s.x; } }
+export function f(): f32 { const a = new S(); return a.m(); }`,
+      5,
+    ],
+    [
       'a name of an element, read at a field that a later write to the element leaves alone',
       `class E { pos: f32 = 1; tag: f32 = 2; }
 export function f(): f32 {
@@ -554,7 +612,7 @@ export function f(): f32 {
     });
   }
 
-  const refused: readonly (readonly [string, string, RegExp])[] = [
+  const refused: readonly (readonly [string, string, RegExp | readonly RegExp[]])[] = [
     [
       'one object handed twice to a function that writes one and reads the other',
       `${Q}function w(p: P, q: P): f32 { p.x = 5.; return q.x; }
@@ -564,17 +622,17 @@ export function f(): f32 { const a = new P(); return w(a, a); }`,
     [
       'a const that holds a name in a field, written through the field',
       `${Q}export function f(): f32 { const p = new P(); const h = new H(p); h.c.x = 5.; return p.x; }`,
-      /^TS8099 "h" would hold the object "p" names, and "h" is written after that\./,
+      STORED('p'),
     ],
     [
       'a name a pattern takes from a field, then written',
       `${Q}export function f(): f32 { const b = new B(); let { c } = b; c.x = 5.; return b.c.x; }`,
-      /^TS8099 "c" would name the object "b" names, and "c" is written after that\./,
+      CALLED('c', 'b'),
     ],
     [
       'two names a pattern takes from one object',
       `${Q}export function f(): f32 { const a = new P(); let [p, q] = [a, a]; p.x = 5.; return q.x; }`,
-      /^TS8099 "p" would name the object "a" names, and "p" is written after that\./,
+      [CALLED('p', '[a, a]'), STORED('a'), STORED('a')],
     ],
     [
       'an object whose name another block declares first as a number',
@@ -583,29 +641,12 @@ export function f(): f32 { const a = new P(); return w(a, a); }`,
   { const a = new P(); let xs: array<P, 1> = [new P()]; xs[0] = a; a.x = 5.; return xs[0].x; }
   return 0.;
 }`,
-      /^TS8099 "xs" would hold the object "a" names, and "a" is written after that\./,
-    ],
-    [
-      'a second name of this, read after a write through this',
-      `class S { x: f32 = 0; m(): f32 { const s = this; this.x = 5.; return s.x; } }
-export function f(): f32 { const a = new S(); return a.m(); }`,
-      /^TS8099 "s" would name the object "this" names, and "this" is written after that\./,
-    ],
-    [
-      'a name of an element, read at the field a later write changes',
-      `class E { pos: f32 = 1; tag: f32 = 2; }
-export function f(): f32 {
-  let es: array<E, 2> = [new E(), new E()]; const p = es[0]; es[0].pos = 9.; return p.pos;
-}`,
-      /^TS8099 "p" would name the object "es" names, and "es" is written after that\./,
+      STORED('a'),
     ],
   ];
   for (const [name, body, text] of refused) {
     it(`refuses ${name}, in both halves`, () => {
-      const r = read(body);
-      expect(r.compiler).toHaveLength(1);
-      expect(r.compiler[0]).toMatch(text);
-      expect(r.editor).toEqual(r.compiler);
+      refusedAs(read(body), Array.isArray(text) ? text : [text as RegExp]);
     });
   }
 });
@@ -633,6 +674,13 @@ function w(p: P, q: P): f32 { p.x = 5.; return q.x; }
       1,
     ],
     [
+      'a name of an element read through a method after a write to the element',
+      `${Q}export function f(): f32 {
+  let xs: array<P, 2> = [new P(), new P()]; const p = xs[1]; xs[1].x = 5.; return p.getx();
+}`,
+      5,
+    ],
+    [
       'two fields of one object are two objects for a function that writes one',
       `${Q}export function f(): f32 { const k = new K(); return w(k.p, k.q); }`,
       0,
@@ -652,32 +700,25 @@ function w(p: P, q: P): f32 { p.x = 5.; return q.x; }
     });
   }
 
-  const refused: readonly (readonly [string, string, RegExp])[] = [
-    [
-      'a name of an element read through a method after a write to the element',
-      `${Q}export function f(): f32 {
-  let xs: array<P, 2> = [new P(), new P()]; const p = xs[1]; xs[1].x = 5.; return p.getx();
-}`,
-      /^TS8099 "p" would name the object "xs" names, and "xs" is written after that\./,
-    ],
+  const refused: readonly (readonly [string, string, RegExp | readonly RegExp[]])[] = [
     [
       'a name of what a getter gives, after a write to the field the getter reads',
       `${Q}export function f(): f32 { const h = new H(); const q = h.cc; h.c.x = 5.; return q.x; }`,
-      /^TS8099 "q" would name the object "h" names, and "h" is written after that\./,
+      CALLED('q', 'h.cc'),
     ],
     [
       'the result of a function declared inside the function',
       `${Q}export function f(): f32 {
   const idl = (q: P): P => q; const a = new P(); const b = idl(a); a.x = 5.; return b.x;
 }`,
-      /^TS8099 "b" would name the object "a" names, and "a" is written after that\./,
+      CALLED('b', 'idl(a)'),
     ],
     [
       'a list that holds one object twice, written through one element',
       `${Q}export function f(): f32 {
   const a = new P(); let xs: array<P, 2> = [a, a]; xs[0].x = 5.; return xs[1].x;
 }`,
-      /^TS8099 "xs" would hold the object "a" names, and "xs" is written after that\./,
+      [STORED('a'), STORED('a')],
     ],
     [
       'the elements a method of an array gives back',
@@ -687,19 +728,19 @@ function w(p: P, q: P): f32 { p.x = 5.; return q.x; }
   xs[0].x = 5.;
   return ys[0].x;
 }`,
-      /^TS8099 "ys" would name the object "xs" names, and "xs" is written after that\./,
+      CALLED('ys', 'xs.map((e: P): P => e)'),
     ],
     [
       'a function that gives back its parameter out of a list it built',
       `${Q}function g(p: P): P { let xs: array<P, 1> = [p]; return xs[0]; }
 export function f(): f32 { const a = new P(); let r = new P(); r = g(a); r.x = 5.; return a.x; }`,
-      /^TS8099 "r" would name the object "a" names, and "r" is written after that\./,
+      [NAMED('p'), NAMED('g(a)')],
     ],
     [
       'an object written inside the statement that stores it',
       `${Q}class C { p: P; v: f32; constructor(p: P, v: f32) { this.p = p; this.v = v; } }
 export function f(): f32 { const a = new P(); const b = new C(a, bump(a)); return b.p.x; }`,
-      /^TS8099 "b" would hold the object "a" names, and "a" is written after that\./,
+      STORED('a'),
     ],
     [
       'another object put in the array inside the loop that names its elements',
@@ -719,10 +760,7 @@ export function f(): f32 { const a = new P(); const b = new C(a, bump(a)); retur
   ];
   for (const [name, body, text] of refused) {
     it(`refuses ${name}, in both halves`, () => {
-      const r = read(body);
-      expect(r.compiler).toHaveLength(1);
-      expect(r.compiler[0]).toMatch(text);
-      expect(r.editor).toEqual(r.compiler);
+      refusedAs(read(body), Array.isArray(text) ? text : [text as RegExp]);
     });
   }
 });
@@ -763,13 +801,6 @@ class H { c: P; constructor(p: P) { this.c = p; } get1(): P { return this.c; } }
 }`,
       2,
     ],
-    [
-      'a write before a second name is declared is no write the two names share',
-      `${Q}export function f(): f32 {
-  const a = new P(); a.x = 1.; let b = a; b = new P(); return a.x + b.x;
-}`,
-      1,
-    ],
   ];
   for (const [name, body, expected] of runs) {
     it(`${name}: both halves, and the oracle`, () => {
@@ -780,7 +811,14 @@ class H { c: P; constructor(p: P) { this.c = p; } get1(): P { return this.c; } }
     });
   }
 
-  const refused: readonly (readonly [string, string, RegExp])[] = [
+  const refused: readonly (readonly [string, string, RegExp | readonly RegExp[]])[] = [
+    [
+      'a let second name that is assigned another object, after a write before it',
+      `${Q}export function f(): f32 {
+  const a = new P(); a.x = 1.; let b = a; b = new P(); return a.x + b.x;
+}`,
+      AGAIN('b'),
+    ],
     [
       'a loop name that a function inside the loop writes',
       `${Q}export function f(): f32 {
@@ -793,7 +831,7 @@ class H { c: P; constructor(p: P) { this.c = p; } get1(): P { return this.c; } }
     [
       'a name declared as an object that may be absent, then written',
       `${Q}export function f(): f32 { const a = new P(); let q: P | undefined = a; q.x = 3.; return a.x; }`,
-      /^TS8099 "q" would name the object "a" names, under another type or from a variable of the module, and the object is written after that\./,
+      CALLED('q', 'a'),
     ],
     [
       'one object handed as itself and as a parameter that may be absent',
@@ -804,15 +842,12 @@ export function f(): f32 { const a = new P(); return g(a, a); }`,
     [
       'the result of a method called on a new object that was built around a name',
       `${Q}export function f(): f32 { const a = new P(); const q = new H(a).get1(); q.x = 3.; return a.x; }`,
-      /^TS8005 "q" is a const that may name an object something else holds, and "q" is written\./,
+      [CALLED('q', 'new H(a).get1()'), STORED('a')],
     ],
   ];
   for (const [name, body, text] of refused) {
     it(`refuses ${name}, in both halves`, () => {
-      const r = read(body);
-      expect(r.compiler).toHaveLength(1);
-      expect(r.compiler[0]).toMatch(text);
-      expect(r.editor).toEqual(r.compiler);
+      refusedAs(read(body), Array.isArray(text) ? text : [text as RegExp]);
     });
   }
 });
@@ -881,11 +916,10 @@ export function f(): f32 { const xs = two(); let s = 0.; for (const q of xs) { s
   for (const p of h.ps) { h.ps = o; s += p.x; }
   return s;
 }`);
-    expect(r.compiler).toHaveLength(1);
-    expect(r.compiler[0]).toMatch(
+    refusedAs(r, [
       /^TS8099 This statement may put another object in "h\.ps" inside the loop that names its elements "p"\./,
-    );
-    expect(r.editor).toEqual(r.compiler);
+      STORED('o'),
+    ]);
   });
 });
 
@@ -904,12 +938,7 @@ describe('a form of a later stage is refused as not supported yet (change 0142, 
     const r = read(
       `${P}export function f(): f32 { let a = new P(); let q = a; q = new P(); q.x = 1.; return a.x; }`,
     );
-    expect(r.compiler).toEqual([
-      'TS8099 "q" is a second name of the object "a" names, and "q" is assigned again later. ' +
-        'Following which object each name then refers to is not supported yet (change 0142, ' +
-        'stage 2). Give "q" its own variable for the second object.',
-    ]);
-    expect(r.editor).toEqual(r.compiler);
+    refusedAs(r, [AGAIN('q')]);
   });
 
   it('slice() of an array of objects, in both halves', () => {

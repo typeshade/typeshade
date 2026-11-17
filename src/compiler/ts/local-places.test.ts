@@ -55,16 +55,6 @@ function runs(body: string, expected: number) {
 
 const Q = `class Q { a: f32; b: f32; ws: array<f32, 4>; }`;
 
-/** `body` beside an entry that calls `run()` is refused with one diagnostic that matches `text`,
- *  the same one in the compiler and in the editor. */
-function refuses(body: string, text: RegExp) {
-  const source = `"use typeshade";\n${body}\n${FRAGMENT}\n${RUN_FS}`;
-  const compiler = compile(source).diagnostics.map((d) => `${d.code} ${d.message}`);
-  expect(compiler).toHaveLength(1);
-  expect(compiler[0]).toMatch(text);
-  expect(editor(source)).toEqual(compiler);
-}
-
 /** The text of the WGSL function `name`. */
 const fnText = (wgsl: string, name: string): string => {
   const at = wgsl.indexOf(`fn ${name}(`);
@@ -89,8 +79,11 @@ describe('item 1: a local that only reads a place reads the place', () => {
     // The index calls no function of the module and nothing writes its names in the loop body,
     // so it holds one value and needs no temporary (change 0105, item 3).
     expect(fs).not.toContain('_pl0');
-    expect(fs).toMatch(/items\[\(u32\(i\) \+ \w+\)\]\.a/);
-    expect(fs).toMatch(/items\[\(u32\(i\) \+ \w+\)\]\.c\[\(i & 3\)\]/);
+    // The name is the place, and its index is read once where the name is declared (change 0142,
+    // rule 1): `const q = items[k]` is `items[_at]`, whatever `k` becomes.
+    expect(fs).toMatch(/let _at = \(u32\(i\) \+ \w+\);/);
+    expect(fs).toContain('items[_at].a');
+    expect(fs).toMatch(/items\[_at\]\.c\[\(i & 3\)\]/);
     // On WebGL2 the emulated element is read one field at a time, which compiles.
     expect(glsl).not.toMatch(/\bS\w* q = /);
   });
@@ -112,7 +105,7 @@ function run(): f32 {
     // The front end's place, before O2 unrolls the two trips.
     const run = fnText(emitModuleAt(module, 'O1'), 'run');
     expect(run).not.toMatch(/let q = /);
-    expect(run).toContain('qs[i].a');
+    expect(run).toContain('qs[_at].a');
   });
 
   it('a let that is never written is read in place too (Decision D2)', () => {
@@ -128,11 +121,11 @@ function run(): f32 {
     expect(fnText(wgsl, 'run')).not.toMatch(/var q: /);
   });
 
-  // In JavaScript `q` and `qs[0]` are one object, so a write through one shows through the
-  // other. A copy would not show it, and the form is refused until one storage holds both names
-  // (change 0142, OD-9).
-  it('refuses a local of a place that is written while the local is read, in both halves', () => {
-    refuses(
+  // In JavaScript `q` and `qs[0]` are one object, so a write through one shows through the other.
+  // The name is the place (change 0142, rule 1), so both halves accept the program and the CPU
+  // gives the number JavaScript gives.
+  it('a name of a place sees a write to the place, and the place sees a write through the name', () => {
+    runs(
       `${Q}
 function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
@@ -140,12 +133,9 @@ function run(): f32 {
   qs[0].a = 50.;
   return q.a + qs[0].a;
 }`,
-      /^TS8099 "q" would name the object "qs" names, and "qs" is written after that\. One object under two names is not supported yet \(change 0142, stage 2\)/,
+      100,
     );
-  });
-
-  it('refuses a local of a place that is written through the local, in both halves', () => {
-    refuses(
+    runs(
       `${Q}
 function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
@@ -153,11 +143,13 @@ function run(): f32 {
   q.a = 9.;
   return q.a + qs[0].a;
 }`,
-      /^TS8099 "q" would name the object "qs" names, and "q" is written after that\./,
+      18,
     );
   });
 
-  it('stays a copy of shared memory across a barrier', () => {
+  // A name of an element of shared memory is the element (change 0142, rule 1): a read after the
+  // barrier reads the element as it is then, as a read of `tile[…]` there does.
+  it('reads shared memory where the name is read, after a barrier', () => {
     const r = compile(`"use typeshade";
 class Cell { a: f32; b: f32; }
 let tile: workgroup<array<Cell, 64>>;
@@ -169,7 +161,10 @@ const out = storage<array<f32>, "read_write">();
   out[i] = c.a;
 }`);
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([]);
-    expect(fnText(r.wgsl!, 'main')).toMatch(/var c: Cell = tile\[/);
+    const main = fnText(r.wgsl!, 'main');
+    expect(main).toMatch(/let _at = \(\(i \+ 1u\) % 64u\);/);
+    expect(main).not.toMatch(/var c: Cell/);
+    expect(main).toContain('tile[_at].a');
   });
 });
 
@@ -326,11 +321,11 @@ function run(): f32 {
     expect(run).not.toMatch(/var q: /);
     expect(run).not.toMatch(/var w: /);
     expect(run).toContain('qs[0].a');
-    expect(run).toContain('qs[i].ws[1]');
+    expect(run).toMatch(/qs\[_at\w*\]\.ws\[1\]/);
   });
 
-  it('item 4: a write that may reach the part read is one object under two names', () => {
-    refuses(
+  it('item 4: a write that may reach the part read is seen through the name', () => {
+    runs(
       `${Q}
 function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
@@ -342,7 +337,7 @@ function run(): f32 {
   }
   return acc;
 }`,
-      /^TS8099 "q" would name the object "qs" names, and "qs" is written after that\./,
+      100,
     );
   });
 
@@ -357,6 +352,6 @@ function run(): f32 {
 }`,
       7,
     );
-    expect(fnText(wgsl, 'run')).toMatch(/let _pl0 = pick\(3\);/);
+    expect(fnText(wgsl, 'run')).toMatch(/let _at = pick\(3\);/);
   });
 });

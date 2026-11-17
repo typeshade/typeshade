@@ -499,7 +499,7 @@ function inner(third: f32): f32 {
 export function fs(): vec4 {
   const mine: Light = { c: 1. };
   const made = mk();
-  const sc: Scene = { key: made, all: [DEF, one] };
+  const sc: Scene = { key: made, all: [mk(), mk()] };
   const a = lum(sc.key, K) + third(1.) + lum(sc.all[0], 1.) + inner(mine.c);
   return vec4(a, DEF.power, one.power, 1.);
 }
@@ -519,7 +519,7 @@ export function fs(): vec4 {
       [at('lum(sc.key'), 'function lum(l: Light, scale: f32): f32'],
       [at('mk()'), 'function mk(): Light'],
       [at('third(1.)'), 'function third(K: f32): f32'],
-      [at('DEF, one'), 'const DEF: Light'],
+      [at('DEF.power'), 'const DEF: Light'],
       [at('made = '), 'const made: Light'],
       [at('sc.key', 3), '(property) Scene.key: Light'],
       [at('sc.all', 3), '(property) Scene.all: array<Light, 2>'],

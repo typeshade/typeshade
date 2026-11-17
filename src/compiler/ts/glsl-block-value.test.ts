@@ -12,6 +12,10 @@
 // Such a value now takes a twin struct, `U_value`, and a read of the block whole is rebuilt from
 // its members (src/core/backends/glsl-block-values.ts). The block itself is emitted as before.
 //
+// Since change 0142 (rule 1) `let c: U = u` is a second name of the block, and no value: a local
+// that is a value of the block's struct takes the block or another value in a `?:`, which the
+// cases below write as `COPY`.
+//
 // Since change 0103 (Rule 8.28) a helper or a method called on the block itself no longer takes
 // it as a value: the call reads the block by its name through a copy of the callee
 // (src/core/backends/glsl-global-places.ts), so no twin is needed there. The cases below that
@@ -63,6 +67,9 @@ ${body}
 }
 `;
 
+/** A local that is a value of the block's struct: where the condition says, the block. */
+const COPY = '  const z: U = { a: 0., b: vec2(0.) };\n  const c: U = v.uv.x > 9. ? u : z;';
+
 const U = `class U {
   a: f32;
   b: vec2;
@@ -93,18 +100,14 @@ const CASES: readonly (readonly [label: string, source: string, lines: readonly 
 function f(x: U): f32 {
   return x.a + x.b.y;
 }`,
-      '  let c: U = u;\n  return vec4(f(c), v.uv.x, 0., 1.);',
+      `${COPY}\n  return vec4(f(c), v.uv.x, 0., 1.);`,
     ),
-    [
-      'float f(U_value x) {',
-      '  U_value c = U_value(u.a, u.b);',
-      '  _ret = vec4(f(c), uv.x, 0.0, 1.0);',
-    ],
+    ['float f(U_value x) {', '  U_value c = _sel0;', '  _ret = vec4(f(c), uv.x, 0.0, 1.0);'],
   ],
   [
-    'a local the uniform is assigned to',
-    program(U, '  let copy: U;\n  copy = u;\n  return vec4(copy.a, copy.b.y, v.uv.x, 1.);'),
-    ['  U_value copy = U_value(0.0, vec2(0.0));', '  copy = U_value(u.a, u.b);'],
+    'a local that takes the uniform where a condition says',
+    program(U, `${COPY}\n  return vec4(c.a, c.b.y, v.uv.x, 1.);`),
+    ['  U_value c = _sel0;', '    _sel0 = U_value(u.a, u.b);'],
   ],
   [
     'a method called on the uniform',
@@ -118,30 +121,13 @@ function f(x: U): f32 {
 }
 
 declare const u: uniform<U>;`,
-      '  let c: U = u;\n  return vec4(c.sum(), v.uv.x, 0., 1.);',
+      `${COPY}\n  return vec4(c.sum(), v.uv.x, 0., 1.);`,
     ),
     [
       'float U_sum(U_value self_) {',
-      '  U_value c = U_value(u.a, u.b);',
+      '  U_value c = _sel0;',
       '  _ret = vec4(U_sum(c), uv.x, 0.0, 1.0);',
     ],
-  ],
-  [
-    'a method that writes its object, on a local copy',
-    program(
-      `class U {
-  a: f32;
-  b: vec2;
-  bump(): void {
-    this.a = this.a + 1.;
-  }
-}
-
-declare const u: uniform<U>;`,
-      '  let c: U = u;\n  c.bump();\n  return vec4(c.a, c.b.y, v.uv.x, 1.);',
-    ),
-    // The `inout` argument is the local itself, never a rebuilt copy of it.
-    ['void U_bump(inout U_value self_) {', '  U_value c = U_value(u.a, u.b);', '  U_bump(c);'],
   ],
   [
     'a field of another block',
@@ -192,6 +178,39 @@ describe('a uniform block struct used as a value, on GLSL ES 3.00', () => {
   }
 });
 
+describe('a method that writes its object, called on a name of the block', () => {
+  // `let c: U = u` is a second name of the block (change 0142, rule 1), so `c.bump()` writes the
+  // block, which is a read-only resource: the refusal names it, in both halves.
+  const src = program(
+    `class U {
+  a: f32;
+  b: vec2;
+  bump(): void {
+    this.a = this.a + 1.;
+  }
+}
+
+declare const u: uniform<U>;`,
+    '  let c: U = u;\n  c.bump();\n  return vec4(c.a, c.b.y, v.uv.x, 1.);',
+  );
+
+  it('is refused by compile() and by the language service', () => {
+    const said = compile(src)
+      .diagnostics.filter((d) => d.category === 'error')
+      .map((d) => d.message);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/"U\.bump" changes its object, and "c" is a read-only resource/);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', src);
+    expect(
+      service
+        .getDiagnostics('a.ts')
+        .filter((d) => d.severity === 'error')
+        .map((d) => d.message),
+    ).toEqual(said);
+  });
+});
+
 describe('what does not move', () => {
   it('the block keeps the name reflect() gives a host for getUniformBlockIndex', () => {
     const r = compile(CASES[0]![1]);
@@ -233,14 +252,14 @@ describe('the twin and its name', () => {
 }
 
 declare const u: uniform<U>;`,
-        '  let c: U = u;\n  return vec4(c.value(), v.uv.x, 0., 1.);',
+        `${COPY}\n  return vec4(c.value(), v.uv.x, 0., 1.);`,
       ),
     );
     expect(r.diagnostics).toEqual([]);
     const glsl = r.glsl!.fragment.split('\n');
     expect(glsl).toContain('struct U_value_1 {');
     expect(glsl).toContain('float U_value(U_value_1 self_) {');
-    expect(glsl).toContain('  U_value_1 c = U_value_1(u.a, u.b);');
+    expect(glsl).toContain('  U_value_1 c = _sel0;');
     expect(glsl).toContain('  _ret = vec4(U_value(c), uv.x, 0.0, 1.0);');
   });
 
@@ -256,7 +275,7 @@ declare const u: uniform<Pad_>;
 function f(x: Pad_): f32 {
   return x.a;
 }`,
-        '  let c: Pad_ = u;\n  return vec4(f(c), v.uv.x, 0., 1.);',
+        '  const z: Pad_ = { a: 0. };\n  const c: Pad_ = v.uv.x > 9. ? u : z;\n  return vec4(f(c), v.uv.x, 0., 1.);',
       ),
     );
     expect(r.diagnostics).toEqual([]);
@@ -273,7 +292,7 @@ function f(x: U): f32 {
   return x.a + x.b.y;
 }
 
-${VS.replace('return {', 'let c: U = u;\n  return {').replace('uv: vec2(x, y)', 'uv: vec2(x, y * f(c))')}
+${VS.replace('return {', 'const z: U = { a: 0., b: vec2(0.) };\n  const c: U = x > 9. ? u : z;\n  return {').replace('uv: vec2(x, y)', 'uv: vec2(x, y * f(c))')}
 
 @fragment export function fs(v: VsOut): vec4 {
   return vec4(v.uv, u.a, 1.);
@@ -282,7 +301,7 @@ ${VS.replace('return {', 'let c: U = u;\n  return {').replace('uv: vec2(x, y)', 
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     expect(r.glsl!.vertex).toContain(TWIN);
-    expect(r.glsl!.vertex).toContain('  U_value c = U_value(u.a, u.b);');
+    expect(r.glsl!.vertex).toContain('  U_value c = _sel0;');
     expect(r.glsl!.vertex).toContain('  uv = vec2(x, (y * f(c)));');
     expect(r.glsl!.fragment).not.toContain('U_value');
   });

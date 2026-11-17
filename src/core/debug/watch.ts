@@ -39,6 +39,7 @@ import { eachExpr } from '../ir/visit.js';
 import type { ShaderType } from '../ir/types.js';
 import { typeKey } from '../ir/types.js';
 import { compileTsSource } from '../../compiler/ts/source-file.js';
+import { withCopiedObjects } from '../../compiler/ts/lower/second-name.js';
 
 /** The watch text did not compile, or referred to something the snippet could not be given.
  *
@@ -251,10 +252,12 @@ export function compileWatch(
     '}',
   ].join('\n');
 
-  const r = compileTsSource(source, {
-    fileName: `watch:${trimmed}`,
-    emit: false,
-  });
+  const r = withCopiedObjects(() =>
+    compileTsSource(source, {
+      fileName: `watch:${trimmed}`,
+      emit: false,
+    }),
+  );
   const errors = r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message);
   if (errors.length > 0) throw new DebugWatchError(expression, errors);
 

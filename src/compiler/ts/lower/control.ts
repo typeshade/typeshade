@@ -51,6 +51,7 @@ import {
   lowerStatements,
   refuseParamWrite,
 } from './statement.js';
+import { holdIndexesOnce } from './second-name.js';
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { fallsIntoABody } from '../fallthrough.js';
@@ -168,7 +169,23 @@ function lowerForLoop(
         ) {
           writtenCounter = decl;
         }
-        if (isLet && isHeaderCounter(decl, sourceFile) && !isOpenCounter(sourceFile, decl)) {
+        // An object that starts the loop, `for (let b = ps[k]; …)`, is a second name or a copy,
+        // as any declaration of one is (change 0142, rule 1), and no counter.
+        const startsObject =
+          isLet &&
+          decl.initializer !== undefined &&
+          ((): boolean => {
+            const t = peekingReads(() =>
+              lowerExpression(decl.initializer!, sourceFile, scope, []),
+            )?.type;
+            return t !== undefined && (t.kind === 'struct' || t.kind === 'array');
+          })();
+        if (
+          isLet &&
+          !startsObject &&
+          isHeaderCounter(decl, sourceFile) &&
+          !isOpenCounter(sourceFile, decl)
+        ) {
           const one = lowerHeaderCounter(node, decl, sourceFile, scope, diagnostics);
           if (!one) return undefined;
           // The `for` header's own statements never pass through `lowerStatement`, so the
@@ -178,6 +195,7 @@ function lowerForLoop(
           lowered = [one];
           if (single) counter = one;
         } else {
+          const before = diagnostics.length;
           const list = lowerDeclarationList(
             init,
             single ? init : decl,
@@ -186,8 +204,10 @@ function lowerForLoop(
             diagnostics,
             [decl],
           );
-          if (list === undefined) return undefined;
-          lowered = Array.isArray(list) ? list : [list];
+          // A second name binds no statement (change 0142, rule 1): nothing is not a refusal.
+          if (list === undefined && (startsObject ? diagnostics.length > before : true))
+            return undefined;
+          lowered = list === undefined ? [] : Array.isArray(list) ? list : [list];
         }
         if (mark !== undefined) pre.push(...scope.takeHoisted(mark));
         pre.push(...lowered);
@@ -792,21 +812,7 @@ export function lowerForOf(
   }
   // JavaScript reads `hs[k].ps` once, before the first turn. The loop reads the place on every
   // turn, so an index in it that is no literal is read once, into a name of the compiler's own.
-  const once = (e: Expr): Expr | undefined => {
-    if (e.op === 'member') {
-      const base = once(e.base);
-      return base === undefined ? undefined : { ...e, base };
-    }
-    if (e.op === 'index') {
-      const base = once(e.base);
-      if (base === undefined) return undefined;
-      if (e.idx.op === 'lit') return { ...e, base };
-      if (!scope.canHoist()) return undefined;
-      return { ...e, base, idx: scope.hoistTemp('_at', e.idx) };
-    }
-    return e;
-  };
-  const fixed = once(array);
+  const fixed = holdIndexesOnce(array, scope);
   if (fixed === undefined) {
     pushDiag(
       diagnostics,

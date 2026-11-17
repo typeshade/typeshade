@@ -154,7 +154,7 @@ import {
   type LocalFunction,
   type LocalFunctionDecl,
 } from './local-functions.js';
-import { bodyReturnsAbsence } from './optional-values.js';
+import { bodyReturnsAbsence, recordedValueType } from './optional-values.js';
 import {
   filledCallsOf,
   paramDefaultNodes,
@@ -2538,8 +2538,9 @@ export function fillFunctionBody(
     : inCopy(home, () => unpeekedReads(() => fillFunctionBodyNow(...args)));
 }
 
-/** The stores of a body that would make two names of one object, each refused once (change
- *  0142): a body lowered again for another copy of its function says nothing new. */
+/** The statements of a body that would make two names of one object, each refused once (change
+ *  0142): a body lowered again for another copy of its function reads each store by the types of
+ *  that copy, and says nothing a copy said already. */
 function reportSharedObjects(
   node: FunctionNode,
   sourceFile: ts.SourceFile,
@@ -2547,12 +2548,14 @@ function reportSharedObjects(
 ): void {
   let reported = SHARED_REPORTED.get(diagnostics);
   if (reported === undefined) SHARED_REPORTED.set(diagnostics, (reported = new Set()));
-  if (reported.has(node)) return;
-  reported.add(node);
+  const say = (at: ts.Node, message: string, code: TsCode = TS_CODES.UNSUPPORTED): void => {
+    const key = `${at.getStart(sourceFile)}:${message}`;
+    if (reported.has(key)) return;
+    reported.add(key);
+    pushDiag(diagnostics, sourceFile, at, message, code);
+  };
   for (const again of reassignedObjects(node, sourceFile)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
+    say(
       again.node,
       again.array !== undefined
         ? `This statement may put another object in "${again.array}" inside the loop that ` +
@@ -2564,34 +2567,17 @@ function reportSharedObjects(
             `named until now. A name that stops naming the caller's object part of the way ` +
             `through is not supported yet (change 0142, stage 2). Declare a local for the ` +
             `other object.`,
-      TS_CODES.UNSUPPORTED,
     );
   }
-  for (const shared of sharedObjects(node, sourceFile)) {
-    if (shared.text !== undefined) {
-      pushDiag(diagnostics, sourceFile, shared.node, shared.text, TS_CODES.REFERENCE_ALIAS);
-      continue;
-    }
-    const other = shared.written === shared.held ? shared.dest : shared.held;
-    const where =
-      shared.dest === undefined
-        ? `This statement keeps the object "${shared.held}" names in a second place`
-        : shared.whole
-          ? `"${shared.dest}" would name the object "${shared.held}" names`
-          : `"${shared.dest}" would hold the object "${shared.held}" names`;
-    pushDiag(
-      diagnostics,
-      sourceFile,
+  const clean = errorsOf(diagnostics) === 0;
+  for (const shared of sharedObjects(node, sourceFile, recordedValueType, clean))
+    say(
       shared.node,
-      `${where}, and "${shared.written}" is written after that. One object under two names is ` +
-        `not supported yet (change 0142, stage ${shared.whole ? 2 : 3}): a copy here would not ` +
-        `show the write${other === undefined ? '' : ` through "${other}"`}. Write the object ` +
-        `through one name, or finish writing it before this statement.`,
-      TS_CODES.UNSUPPORTED,
+      shared.text,
+      shared.pairing === true ? TS_CODES.REFERENCE_ALIAS : TS_CODES.UNSUPPORTED,
     );
-  }
 }
-const SHARED_REPORTED = new WeakMap<TsCompilerDiagnostic[], Set<ts.Node>>();
+const SHARED_REPORTED = new WeakMap<TsCompilerDiagnostic[], Set<string>>();
 
 function fillFunctionBodyNow(
   node: FunctionNode,
@@ -2630,7 +2616,6 @@ function fillFunctionBodyNow(
   receiverKeys?: readonly CaptureKey[],
 ): void {
   const errorsBefore = errorsOf(diagnostics);
-  reportSharedObjects(node, sourceFile, diagnostics);
   const scope = functionScope(
     stub,
     callees,
@@ -2843,6 +2828,8 @@ function fillFunctionBodyNow(
           ? lowerVoidArrowBody(node.body, sourceFile, scope, diagnostics)
           : lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
         : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics);
+  // Every expression of the body is lowered, so each store is read by the type it lowered to.
+  reportSharedObjects(node, sourceFile, diagnostics);
   if (inferRet === true) recordName();
   // An expression body is the function's one `return`: a value that comes from a constant of no
   // fixed type hands its origin to each call (Amendment A3 of change 0134), as a `return` does.
