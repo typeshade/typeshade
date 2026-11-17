@@ -328,6 +328,17 @@ TypeScript value of "a + b" agree, so the "f32()" does not say which value it me
   typed, whatever other class has a field or a getter of its name, so `f32(s.v + s.v)` and
   `let { v } = s` of an `i32` field beside a getter `v` that returns a tree compile. Where the
   declaration cannot be found, the walk reads the field by its name and refuses.
+  - A name is read in its scope (the owner's decision of 2026-11-17, "#1322에서 A1~A4까지"): a
+    type parameter that shadows a class (`function h<Q extends S2>(s: Q)`) is its constraint,
+    and a mixin's base parameter that shadows a class (`class extends Base` with `Base: TB`) is
+    no class, so an untyped field reached through either is refused. The editor with an import
+    open names the edit `compile()` names: a named edit is checked without the annotations the
+    projection wrote into the import. A call through a field that holds a function
+    (`m = (x: i32) => x`) is typed only where its result is written, so `f32(b.m(ii) / 2)` is
+    refused as a division that does not say which it is.
+  - An untyped field is no typed peer, as a variable with no written type is not (the owner's
+    decision of 2026-11-17, "거부: let b = vi와 같게"): `f32(a + s.v)` after `s.v = vi` is
+    refused as `let b = 0; b = vi; f32(a + b)` is. A field with a written `u32` is a typed peer.
 
 - **Buffer integration with the compiler refactor** (2026-11-16, change 0138). Host analysis
   keeps the Buffer overload records; the extracted host view and module generators consume them.

@@ -2698,31 +2698,24 @@ type MemberOwner =
   | { readonly cls: ts.ClassLikeDeclaration | ts.InterfaceDeclaration; readonly static: boolean }
   | 'value';
 
-/** The classes and interfaces of a file by name, and each class's subclasses. Found once per
- *  file. A name declared more than once (two namespaces, a class and an interface) names no one
- *  declaration. */
+/** Each class of a file and the classes that extend it, found once per file. A class whose
+ *  base the source does not state (a parameter of a mixin, a call) is under no class. */
 interface FileClasses {
-  readonly byName: Map<string, (ts.ClassLikeDeclaration | ts.InterfaceDeclaration)[]>;
   readonly subclasses: Map<ts.Node, ts.ClassLikeDeclaration[]>;
 }
 const fileClassesOf = new WeakMap<ts.SourceFile, FileClasses>();
 function fileClasses(sourceFile: ts.SourceFile): FileClasses {
   let found = fileClassesOf.get(sourceFile);
   if (found !== undefined) return found;
-  const classes: FileClasses = { byName: new Map(), subclasses: new Map() };
+  const classes: FileClasses = { subclasses: new Map() };
   const all: ts.ClassLikeDeclaration[] = [];
   const visit = (n: ts.Node): void => {
-    if ((ts.isClassDeclaration(n) || ts.isInterfaceDeclaration(n)) && n.name !== undefined) {
-      const list = classes.byName.get(n.name.text);
-      if (list === undefined) classes.byName.set(n.name.text, [n]);
-      else list.push(n);
-      if (ts.isClassDeclaration(n)) all.push(n);
-    }
+    if (ts.isClassDeclaration(n) || ts.isClassExpression(n)) all.push(n);
     ts.forEachChild(n, visit);
   };
   visit(sourceFile);
   for (const c of all) {
-    const base = baseClassOf(c, classes);
+    const base = baseClassOf(c);
     if (base === undefined) continue;
     const list = classes.subclasses.get(base);
     if (list === undefined) classes.subclasses.set(base, [c]);
@@ -2733,42 +2726,124 @@ function fileClasses(sourceFile: ts.SourceFile): FileClasses {
   return found;
 }
 
-/** The one class or interface of the file named `name`. */
-function classNamed(
-  name: string,
-  classes: FileClasses,
-): ts.ClassLikeDeclaration | ts.InterfaceDeclaration | undefined {
-  const list = classes.byName.get(name);
-  return list?.length === 1 ? list[0] : undefined;
+/** What a name binds in the scopes around `at`: the declaration of the innermost scope that
+ *  declares it, as a type (`'type'`: a class, an interface, a type parameter, a type alias, an
+ *  enum or a namespace) or as a value (`'value'`: a class, a parameter, a variable, a function,
+ *  an enum or a namespace). `null` where one scope declares it twice (a class and an interface
+ *  merged); `undefined` where no scope of the file declares it. Read by scope, so that a type
+ *  parameter or a parameter that shadows a class of the file is not that class (issue 1319,
+ *  the review of #1322, A1 and A2). */
+function nameAt(name: string, at: ts.Node, space: 'type' | 'value'): ts.Node | null | undefined {
+  const binds = (d: ts.Node): boolean =>
+    space === 'type'
+      ? ts.isClassDeclaration(d) ||
+        ts.isInterfaceDeclaration(d) ||
+        ts.isTypeAliasDeclaration(d) ||
+        ts.isEnumDeclaration(d) ||
+        ts.isModuleDeclaration(d)
+      : ts.isClassDeclaration(d) ||
+        ts.isFunctionDeclaration(d) ||
+        ts.isEnumDeclaration(d) ||
+        ts.isModuleDeclaration(d);
+  const named = (d: ts.Node): boolean => {
+    const n = (d as { readonly name?: ts.Node }).name;
+    return n !== undefined && ts.isIdentifier(n) && n.text === name;
+  };
+  const bindsIn = (b: ts.BindingName): boolean =>
+    ts.isIdentifier(b)
+      ? b.text === name
+      : b.elements.some((e) => !ts.isOmittedExpression(e) && bindsIn(e.name));
+  for (let n: ts.Node | undefined = at.parent; n !== undefined; n = n.parent) {
+    if (space === 'type') {
+      const params = (n as { readonly typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> })
+        .typeParameters;
+      const tp = params?.find((p) => p.name.text === name);
+      if (tp !== undefined) return tp;
+    } else {
+      if (ts.isFunctionLike(n)) {
+        for (const p of n.parameters) {
+          if (bindsIn(p.name)) return p;
+        }
+      }
+      if (ts.isForStatement(n) || ts.isForOfStatement(n) || ts.isForInStatement(n)) {
+        const list = n.initializer;
+        if (list !== undefined && ts.isVariableDeclarationList(list)) {
+          const d = list.declarations.find((x) => bindsIn(x.name));
+          if (d !== undefined) return d;
+        }
+      }
+      if (ts.isCatchClause(n) && n.variableDeclaration !== undefined) {
+        if (bindsIn(n.variableDeclaration.name)) return n.variableDeclaration;
+      }
+    }
+    if (ts.isClassExpression(n) && named(n)) return n;
+    if (ts.isBlock(n) || ts.isSourceFile(n) || ts.isModuleBlock(n) || ts.isCaseOrDefaultClause(n)) {
+      const found: ts.Node[] = [];
+      for (const st of n.statements) {
+        if (binds(st) && named(st)) found.push(st);
+        if (space === 'value' && ts.isVariableStatement(st)) {
+          for (const d of st.declarationList.declarations) {
+            if (bindsIn(d.name)) found.push(d);
+          }
+        }
+        if (ts.isImportDeclaration(st)) found.push(st);
+      }
+      // An import binds a name the file does not declare: no class this walk can read.
+      const own = found.filter((d) => !ts.isImportDeclaration(d));
+      if (own.length > 1) return null;
+      if (own.length === 1) return own[0];
+      if (found.length > 0) return null;
+    }
+  }
+  return undefined;
 }
 
-/** The class `c` extends, where it extends one class of the file by its name. */
-function baseClassOf(
-  c: ts.ClassLikeDeclaration,
-  classes: FileClasses,
-): ts.ClassLikeDeclaration | undefined {
+/** The class a value name at `at` binds (`new C()`, `C.K`, `extends C`), where it binds one. */
+function classAt(name: string, at: ts.Node): ts.ClassLikeDeclaration | undefined {
+  const d = nameAt(name, at, 'value');
+  return d !== null && d !== undefined && (ts.isClassDeclaration(d) || ts.isClassExpression(d))
+    ? d
+    : undefined;
+}
+
+/** The class `c` extends, where it extends a class the scope around it declares by its name. */
+function baseClassOf(c: ts.ClassLikeDeclaration): ts.ClassLikeDeclaration | undefined {
   const e = c.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)?.types[0];
   if (e === undefined || !ts.isIdentifier(e.expression)) return undefined;
-  const base = classNamed(e.expression.text, classes);
-  return base !== undefined && !ts.isInterfaceDeclaration(base) ? base : undefined;
+  return classAt(e.expression.text, e.expression);
 }
 
 /** The scalars, vectors, matrices and arrays a written type can name: their components and
  *  `length` state their type. */
 const VALUE_TYPE = /^(f32|f16|f64|i32|u32|bool|vec[234][fiuh]?|mat[234](x[234])?[fh]?|array)$/;
 
-/** The owner a written type names: a class or an interface of the file, or a value type. */
+/** The owner a written type names, in the scopes around it: a class or an interface, the
+ *  constraint of a type parameter or the type of an alias, or a value type the file does not
+ *  declare. */
 function ownerOfType(
   type: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
+  depth = 0,
 ): MemberOwner | undefined {
-  if (type === undefined || !ts.isTypeReferenceNode(type) || !ts.isIdentifier(type.typeName)) {
+  if (
+    depth > 8 ||
+    type === undefined ||
+    !ts.isTypeReferenceNode(type) ||
+    !ts.isIdentifier(type.typeName)
+  ) {
     return undefined;
   }
   const name = type.typeName.text;
-  const cls = classNamed(name, fileClasses(sourceFile));
-  if (cls !== undefined) return { cls, static: false };
-  return VALUE_TYPE.test(name) ? 'value' : undefined;
+  const d = nameAt(name, type, 'type');
+  if (d === null) return undefined;
+  if (d === undefined) return VALUE_TYPE.test(name) ? 'value' : undefined;
+  if (ts.isClassDeclaration(d) || ts.isClassExpression(d) || ts.isInterfaceDeclaration(d)) {
+    return { cls: d, static: false };
+  }
+  // A type parameter is what its constraint states, or nothing the walk can read.
+  if (ts.isTypeParameterDeclaration(d)) return ownerOfType(d.constraint, sourceFile, depth + 1);
+  if (ts.isTypeAliasDeclaration(d)) return ownerOfType(d.type, sourceFile, depth + 1);
+  return undefined;
 }
 
 /** Whether `m` is a `static` member. */
@@ -2836,7 +2911,7 @@ function memberIn(
       return found.find((m) => !ts.isSetAccessorDeclaration(m)) ?? found[0];
     }
     if (ts.isInterfaceDeclaration(c)) return undefined;
-    c = baseClassOf(c, classes);
+    c = baseClassOf(c);
   }
   return undefined;
 }
@@ -2885,19 +2960,14 @@ function ownerAt(
   }
   if (ts.isNewExpression(n)) {
     if (!ts.isIdentifier(n.expression)) return undefined;
-    const cls = classNamed(n.expression.text, fileClasses(sourceFile));
-    return cls !== undefined && !ts.isInterfaceDeclaration(cls)
-      ? { cls, static: false }
-      : undefined;
+    const cls = classAt(n.expression.text, n.expression);
+    return cls !== undefined ? { cls, static: false } : undefined;
   }
   if (ts.isIdentifier(n)) {
+    const cls = classAt(n.text, n);
+    if (cls !== undefined) return { cls, static: true };
     const d = declarationAt(n, sourceFile);
-    if (d === undefined) {
-      const cls = classNamed(n.text, fileClasses(sourceFile));
-      return cls !== undefined && !ts.isInterfaceDeclaration(cls)
-        ? { cls, static: true }
-        : undefined;
-    }
+    if (d === undefined) return undefined;
     if (ts.isBindingElement(d)) {
       const m = memberOfBinding(d, sourceFile);
       return m === undefined ? undefined : ownerOfMember(m, sourceFile, depth);
@@ -3048,6 +3118,24 @@ function memberTyped(m: MemberDecl, sourceFile: ts.SourceFile): boolean {
     : ts.isSetAccessorDeclaration(m)
       ? false
       : writtenTypeText(m, sourceFile) !== undefined;
+}
+
+/** Whether a call through the member `m` gives a value of a written type: a method with a
+ *  written result, or a field whose written type or arrow writes the result of the function it
+ *  holds. A generic result is no written type. */
+function callResultWritten(m: MemberDecl, sourceFile: ts.SourceFile): boolean {
+  if (ts.isMethodDeclaration(m) || ts.isMethodSignature(m)) return writesResult(m);
+  if (ts.isGetAccessorDeclaration(m) || ts.isSetAccessorDeclaration(m)) return false;
+  const written = writtenTypeText(m, sourceFile) !== undefined ? m.type : undefined;
+  if (written !== undefined) {
+    return ts.isFunctionTypeNode(written) && writesResult(written);
+  }
+  const init = ts.isPropertyDeclaration(m) ? m.initializer : undefined;
+  return (
+    init !== undefined &&
+    (ts.isArrowFunction(skipParenNodes(init)) || ts.isFunctionExpression(skipParenNodes(init))) &&
+    writesResult(skipParenNodes(init) as ts.ArrowFunction | ts.FunctionExpression)
+  );
 }
 
 /** Whether `m` is a field: a property, a property signature or a parameter property. */
@@ -3204,6 +3292,12 @@ interface FileTaint {
   /** The names of the fields with no written type that a tree reaches, and of the stores into
    *  a member the source does not state: a read by name of such a name is unproven. */
   readonly fieldNames: Set<string>;
+  /** The names of the fields with no written type: a read by name may reach one. */
+  readonly untypedFieldNames: Set<string>;
+  /** What each field with no written type is stored, and what a store by name stores: a
+   *  written `=` (`plain`) or another store (a compound one, `++`), which the walk cannot read. */
+  readonly fieldStores: Map<ts.Node, FieldStore[]>;
+  readonly looseStores: Map<string, FieldStore[]>;
   /** The tainted variables found together: each variable's group of variables that read one
    *  another, through stores, calls and getters (a strongly connected component). */
   readonly groups: Map<ts.Node, readonly ts.VariableDeclaration[]>;
@@ -3223,6 +3317,12 @@ function accessTainted(
     : taint.memberNames.has(p.name.text);
 }
 
+/** A store into a field ({@link FileTaint.fieldStores}). */
+interface FieldStore {
+  readonly expr?: ts.Expression;
+  readonly plain: boolean;
+}
+
 function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   const memo = readingMemo(sourceFile);
   if (memo.taint !== undefined) return memo.taint;
@@ -3232,7 +3332,28 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
     members: new Set(),
     memberNames: new Set(),
     fieldNames: new Set(),
+    untypedFieldNames: new Set(),
+    fieldStores: new Map(),
+    looseStores: new Map(),
     groups: new Map(),
+  };
+  const fieldStore = (target: ts.Node | string, store: FieldStore): void => {
+    if (typeof target === 'string') {
+      const list = taint.looseStores.get(target);
+      if (list === undefined) taint.looseStores.set(target, [store]);
+      else list.push(store);
+    } else {
+      const list = taint.fieldStores.get(target);
+      if (list === undefined) taint.fieldStores.set(target, [store]);
+      else list.push(store);
+    }
+  };
+  /** The field a store into `access` reaches: its declaration, its name where the source does
+   *  not state it, or `undefined` for a field that states its type. */
+  const storeTarget = (access: ts.PropertyAccessExpression): ts.Node | string | undefined => {
+    const m = memberOfAccess(access, sourceFile);
+    if (m === undefined || ts.isSetAccessorDeclaration(m as ts.Node)) return access.name.text;
+    return m !== 'value' && isFieldMember(m) && !memberTyped(m, sourceFile) ? m : undefined;
   };
   const vars: {
     d: ts.VariableDeclaration | ts.BindingElement;
@@ -3342,6 +3463,7 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
       const list = untypedFields.get(n.name.text);
       if (list === undefined) untypedFields.set(n.name.text, [n]);
       else list.push(n);
+      taint.untypedFieldNames.add(n.name.text);
       const exprs = memberEntry(n, n.name.text, true);
       if (ts.isPropertyDeclaration(n) && n.initializer !== undefined) exprs.push(n.initializer);
     }
@@ -3354,14 +3476,29 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
       // A store into a field: into the field its declaration names (issue 1319). A field with a
       // written type, or a component of a value type, states its type. A store into a member
       // the source does not state may reach every field of that name.
-      const m = memberOfAccess(n.left, sourceFile);
-      if (m === undefined || ts.isSetAccessorDeclaration(m as ts.Node)) {
-        const name = n.left.name.text;
-        const list = loose.get(name);
-        if (list === undefined) loose.set(name, [n.right]);
+      const target = storeTarget(n.left);
+      if (typeof target === 'string') {
+        const list = loose.get(target);
+        if (list === undefined) loose.set(target, [n.right]);
         else list.push(n.right);
-      } else if (m !== 'value' && isFieldMember(m) && !memberTyped(m, sourceFile)) {
-        memberEntry(m, n.left.name.text, true).push(n.right);
+      } else if (target !== undefined) {
+        memberEntry(target, n.left.name.text, true).push(n.right);
+      }
+      if (target !== undefined) {
+        fieldStore(target, {
+          expr: n.right,
+          plain: n.operatorToken.kind === ts.SyntaxKind.EqualsToken,
+        });
+      }
+    }
+    if (
+      (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+      (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      const operand = skipParenNodes(n.operand);
+      if (ts.isPropertyAccessExpression(operand)) {
+        const target = storeTarget(operand);
+        if (target !== undefined) fieldStore(target, { plain: false });
       }
     }
     ts.forEachChild(n, visit);
@@ -3810,7 +3947,11 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
       // 1319).
       const m = memberOfBinding(d, sourceFile);
       if (m !== undefined && memberTyped(m, sourceFile)) return [];
-      return [fileTaint(sourceFile).vars.has(d) ? UNPROVEN : UNKNOWN];
+      if (fileTaint(sourceFile).vars.has(d)) return [UNPROVEN];
+      // An element that reads a field with no written type reads its values, as `s.v` does.
+      return m !== undefined && isFieldMember(m) && d.initializer === undefined
+        ? fieldReadings(m, sourceFile)
+        : [UNKNOWN];
     }
     if (!ts.isVariableDeclaration(d) || !ts.isIdentifier(d.name)) return [];
     if (writtenTypeText(d, sourceFile) !== undefined) return [];
@@ -3880,8 +4021,8 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
         return m.body === undefined ? unproven() : unpicked(arms(returnsOf(m.body)));
       }
       // A field with no written type: unproven where a tree reaches it (E1), whatever the type
-      // of the variable that holds the struct.
-      return fileTaint(sourceFile).members.has(m) ? [UNPROVEN] : [];
+      // of the variable that holds the struct; else its written numbers, or no typed value.
+      return fieldReadings(m, sourceFile);
     }
     const returns: ts.Expression[] = [];
     let typedResult = false;
@@ -3903,6 +4044,9 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
     if (field) return [UNPROVEN];
     // Every method or getter of that name in the file has a written result: it states its type.
     if (typedResult) return [];
+    // A field of that name with no written type may be what the access reads: no typed value
+    // (the owner's decision of 2026-11-17, "거부: let b = vi와 같게").
+    if (member.getter && fileTaint(sourceFile).untypedFieldNames.has(name)) return [UNKNOWN];
     // A field declared with a written type, a component of a typed value, or of a
     // constructor's (`vec2u(a, 1).x`), states its type.
     if (
@@ -3916,6 +4060,26 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
     }
   }
   return unproven();
+}
+
+/** The values of a field with no written type ({@link readingsAt}): {@link UNPROVEN} where a
+ *  tree reaches it (E1); else the written number each store gives it, its initializer's among
+ *  them, and {@link UNKNOWN} for any other store. A field with no written type is no typed peer,
+ *  as a variable with none is not (the owner's decision of 2026-11-17, "거부: let b = vi와
+ *  같게"; issue 1319). Two reads of one field may be of two objects, so no pick holds. */
+function fieldReadings(m: MemberDecl, sourceFile: ts.SourceFile): Reading[] {
+  const taint = fileTaint(sourceFile);
+  if (taint.members.has(m)) return [UNPROVEN];
+  const name = (m.name as ts.Identifier).text;
+  const out: Reading[] = [];
+  const read = (expr: ts.Expression | undefined, plain: boolean): void => {
+    const c = plain && expr !== undefined ? constNumber(expr) : undefined;
+    out.push(c === undefined ? UNKNOWN : numberReading(c));
+  };
+  read(ts.isPropertyDeclaration(m) ? m.initializer : undefined, true);
+  for (const st of taint.fieldStores.get(m) ?? []) read(st.expr, st.plain);
+  for (const st of taint.looseStores.get(name) ?? []) read(st.expr, st.plain);
+  return boundedReadings(out);
 }
 
 /** The values of `abs`, `min`, `max`, `clamp` or `sign` over its arguments' values: a builtin
@@ -4394,14 +4558,27 @@ export function provenTyped(node: ts.Expression, depth = 0): boolean {
       return n.arguments.length === 0 || n.arguments.some((e) => provenTyped(e, depth + 1));
     }
     if (ts.isPropertyAccessExpression(callee)) {
-      // A method: every method of that name in the file writes its result type.
-      const methods = identifiersNamed(n.getSourceFile(), callee.name.text)
+      // A call through a member: the member its declaration names writes its result type (E1;
+      // issue 1319, the review of #1322, A4). A field that holds a function states it where
+      // its written type or its arrow writes the result (`m = (x: i32): i32 => x`). Where the
+      // source does not state the member, every member of that name in the file must.
+      const sourceFile = n.getSourceFile();
+      const m = memberOfAccess(callee, sourceFile);
+      if (m === 'value') return true;
+      if (m !== undefined) return callResultWritten(m, sourceFile);
+      const members = identifiersNamed(sourceFile, callee.name.text)
         .map((id) => id.parent)
         .filter(
-          (p): p is ts.MethodDeclaration =>
-            ts.isMethodDeclaration(p) && p.name.kind === ts.SyntaxKind.Identifier,
+          (p): p is MemberDecl =>
+            (ts.isMethodDeclaration(p) ||
+              ts.isMethodSignature(p) ||
+              ts.isPropertyDeclaration(p) ||
+              ts.isPropertySignature(p) ||
+              ts.isGetAccessorDeclaration(p)) &&
+            p.name.kind === ts.SyntaxKind.Identifier &&
+            (p.name as ts.Identifier).text === callee.name.text,
         );
-      return methods.length === 0 || methods.every(writesResult);
+      return members.every((d) => callResultWritten(d, sourceFile));
     }
     return true;
   }

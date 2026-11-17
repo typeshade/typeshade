@@ -1115,7 +1115,9 @@ document that another document imports is linked into that document's program as
 holds it, projected. The service records each file's insertion offsets beside its reader
 (`markProjectedReader` in `src/compiler/ts/abstract-const.ts`), and the linked program reads none of the inserted
 annotations as written, in an import and in the importing entry, so `compile()` and the editor
-give the same answer with the import open or closed (#1299). Planning costs
+give the same answer with the import open or closed (#1299). A named edit is checked without
+those annotations, as `compile()` reads the files, so the editor names the same edit with the
+import open (#1319). Planning costs
 one extra front-end pass per document version, skipped when a syntax scan finds no candidate
 declaration and no `&` or `|`. Measured on the three largest examples: 3 to 36 ms, against 52 to 79 ms for the
 whole `getDiagnostics`. `projection.test.ts` pins diagnostics, hover, completion, references,
