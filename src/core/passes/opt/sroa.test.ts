@@ -116,7 +116,10 @@ describe('splitLocalArrays', () => {
   it.each([
     ['a dynamic index', 'let xs = array<f32, 3>(a, b, c); return xs[vi];'],
     ['a dynamic write', 'let xs = array<f32, 3>(a, b, c); xs[vi] = a; return xs[0];'],
-    ['a whole copy', 'let xs = array<f32, 3>(a, b, c); let ys = xs; return ys[0] + xs[1];'],
+    [
+      'a whole copy',
+      'let xs = array<f32, 3>(a, b, c); let ys = structuredClone(xs); ys[0] = 1.; return ys[0] + xs[1];',
+    ],
     ['a whole assignment', 'let xs = array<f32, 3>(a, b, c); xs = [c, b, a]; return xs[0];'],
     ['a call argument', 'let xs = array<f32, 3>(a, b, c); return sum3(xs);'],
     ['an initializer that is not a construct', 'let xs = make(a); return xs[0] + xs[1];'],
