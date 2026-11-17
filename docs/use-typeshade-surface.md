@@ -8902,7 +8902,7 @@ compiler and in the editor. A fixed-size array parameter, `array<T, N>`, is a va
 storage, passed by reference, the one exception to Rule 8.8: the body writes `out[i]` and reads
 `xs.length`, and the call writes the caller's array in place. An array written `@out` is the
 caller's storage too, which the call fills with zeros before the body runs (§70). Any other
-function that takes an array with no size is refused (TS8020, §20).
+function that takes an array with no size is refused as not supported yet (TS8020, §20).
 
 ```ts
 export function scale(xs: array<f32>, k: f32) {
