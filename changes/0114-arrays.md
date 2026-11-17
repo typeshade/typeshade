@@ -6,7 +6,12 @@ rules:
   - '4.5'
   - '6.1'
   - '6.2'
+  - '8.18'
+  - '8.21'
+  - '8.22'
+  - '8.23'
   - '9.6'
+  - '11.13'
 surface:
   - 1
   - 7
@@ -15,11 +20,16 @@ surface:
   - 20
   - 28
   - 63
+  - 64
+  - 65
   - 76
 exports: []
 exports-removed: []
 codes: []
 examples: []
+names:
+  - Float32Array
+  - Array.from
 downstream:
   - repo: typeshade.github.io
     what: The guide pages and rule pages that spell `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)` and `storage<T, "read_write">` are written again in the new spellings at each stage that changes them; the Korean translations of Rules 6.1 and 6.2 follow.
@@ -269,6 +279,229 @@ vocabulary and module isolation.
 This record does not yet apply. Each stage will record its pull request, its commits, the checks
 that ran (both halves for every form it adds or refuses, the compile gate for the emitted WGSL and
 GLSL, the CPU oracle) and its deviations.
+
+## Amendments
+
+An amendment changes the accepted text. Its pull request is proposal-only, and its merge is its
+acceptance. Git holds the earlier text. The decided text stays in place, and an amendment record
+sits under it.
+
+### A1. Stage S5: a kernel function makes and returns an array whose length its arguments give (plan unit B8) (2026-11-17)
+
+**Why.**
+
+- [fact] On 2026-11-17 the owner asked whether `render(k: vec4, size: u32): array<f32>` can
+  replace the `out` parameter of `examples/loop-kernel.shade.ts`. At `main` `7513a9a` both halves
+  refuse it with `TS8020`, whose sentence gives a target's reason: WGSL has no array whose length
+  a call chooses. The owner: "안되는건 사실 말이 안되죠? typeshade 는 typescript 와 같은 계열의
+  언어인데".
+- [fact] OD-9 says that a target's lack of a form is no reason to refuse it.
+- [fact] The agent first drafted the change as its own proposal, 0143 (pull request #1351,
+  revisions 1 to 5). That draft missed this proposal and plan unit B8
+  (`docs/typeshade-plan.md`: "`new Float32Array(n)` and `new Array(n)` with `n` known when the
+  call runs"). Proposal 0100, decision D4, puts each unit of an area in one proposal, as one
+  stage. So the change is this amendment, and draft 0143 is withdrawn unmerged. Its number is
+  not reused.
+- [fact] Baseline: `main` at `7513a9a` (merge of pull request #1350).
+
+**The owner's decisions.**
+
+- [decision, owner, 2026-11-17] The spelling: the spellings of this proposal (`T[]`,
+  `new Float32Array(n)`, `new Array(n).fill(v)`), "좋아요", after the owner asked how
+  TypeScript writes it. The owner had first chosen `array<T>(n)`, the same day, among options
+  that did not show this proposal. That choice, its Rule 9.2 exception and `array.of(x)` are
+  withdrawn.
+- [decision, owner, 2026-11-17] The result's host value: the value a kernel's array parameter
+  takes (Rule 8.21), "네".
+- [decision, owner, 2026-11-17] The form of the change: stage S5 of this proposal, not a
+  proposal of its own. The storage: the host call allocates a binding for the new array, as it
+  binds an array parameter, first. When the arena exists (plan units A1 and A2), the storage
+  moves to a region of the arena reserved for the call. The owner: "권도안대로", to these two
+  recommendations.
+- [fact] The change rests on OD-1 (TypeScript's way of writing), OD-3 (the compiler allocates;
+  the author states only the length), OD-5 (each constructor keeps its JavaScript meaning; a
+  returned array is the caller's), OD-7 (an integer literal takes the type its use needs) and
+  OD-9. It reverses no entry.
+
+**One example, before and after.**
+
+Before, with proposal 0142 stage 1 (#1324, which removes `@inout`) and S1 (#934, `T[]`), the
+result is a parameter:
+
+```ts
+export function render(k: vec4, size: u32, out: f32[]) {
+  for (let i: u32 = 0; i < size * size; i++) {
+    const p = vec2(f32(i % size), f32(i / size)) / f32(size);
+    out[i] = height(p, k);
+  }
+}
+
+// host
+const img = new Float32Array(512 * 512);
+await render(k, 512, img);
+```
+
+After S5, the author may also write it as a result. The parameter form stays.
+
+```ts
+export function render(k: vec4, size: u32): f32[] {
+  const out = new Float32Array(size * size);
+  for (let i: u32 = 0; i < size * size; i++) {
+    const p = vec2(f32(i % size), f32(i / size)) / f32(size);
+    out[i] = height(p, k);
+  }
+  return out;
+}
+
+// host
+const img: Float32Array = await render(k, 512);
+```
+
+**S5. An array whose length a kernel function's arguments give (plan unit B8).**
+
+S2 builds an array with a constant length. S5 takes S2's constructors where the length is no
+constant, in one place: a kernel function that returns the array. It adds no spelling.
+
+1. Rule 8.22: a kernel function is also an exported function whose result is an array with no
+   size (`T[]`, or `array<T>` until S4), with `T` a type a kernel's array parameter may hold.
+2. Rule 8.23: the function makes one array, with one of S2's constructors and a length `n` that
+   item 4 admits:
+   - `new Float32Array(n)`: `n` zeros of `f32`, as in JavaScript;
+   - `new Array(n).fill(v)`: `n` copies of `v`, for any `v` a kernel's array may hold. The
+     element type is the type of `v`, as S2 gives it.
+
+   `Int32Array`, `Uint32Array` and `Float64Array` join when plan unit B2 lands, in the same
+   position. Until then they are refused as S2 refuses them.
+
+3. Rule 8.23: the array is a `const` at the top level of the body, before the first candidate
+   loop. In a function with no loop (Rule 8.22, decision D7 of change 0142), it comes before the
+   first store.
+4. Rule 8.23: `n` is a `u32` or an `i32` (OD-7). It reads only these operands, which the host
+   evaluates before the dispatch:
+   - a scalar value parameter, a component of a vector parameter, a field of a struct parameter;
+   - a module constant;
+   - the `.length` of an array parameter;
+   - an integer literal, and `u32(…)` and `i32(…)` of a listed operand;
+   - a top-level `const` of the function whose initializer reads only listed operands;
+   - integer `+`, `-`, `*`, `/`, `%`, `min` and `max`, with the program's arithmetic: `size *
+size` of two `u32`s wraps as a `u32` does, and `/` and `%` by zero follow WGSL's integer
+     rules.
+5. Rule 8.22's body shape: the new array is one of the function's arrays. Its loops read and
+   write it. A store after the last loop stores into it. The function ends with `return out` on
+   every path. `out.length` reads `n` on every tier.
+6. Rule 8.21, a call with plain data: the result's host value is the value a kernel's array
+   parameter takes: the scalar's typed array, a vector's components one after another, an array
+   of objects for a struct. A struct element is laid out as proposal 0082 lays out a parameter.
+   The host view gives one type: `Promise<Float32Array>` for `f32[]` and `vec4f[]`,
+   `Promise<T[]>` for a struct `T`. The caller owns the result.
+7. Rule 8.21, a call on a resource: the result is a new `Buffer` on the call's device, of the
+   scalar for a scalar or vector element, or a `Buffer<C>` for an element of an exported class
+   `C`. The caller owns it and disposes it (Rule 11.8).
+8. Every tier treats the new array as an array parameter of `n` elements, with that tier's
+   limit: WebGPU (a storage binding), WebGL2 (the data texture of 2048 columns,
+   `src/core/host-kernel-gl.ts`, `MAX_W`), the WebAssembly tier (proposal 0042) and the
+   JavaScript CPU tier (a typed array). A negative `n` throws a `RangeError` that names the
+   function and the length before anything runs, as JavaScript's constructors throw one. For
+   `n = 0` the result is empty, and the call binds one element in its place.
+9. Indices past the end: the call makes every check against `n` that it makes for an array
+   parameter, reads included (`a*i + c` with its guards, strides `i*k + b`, rows `i*W + x`). A
+   failed check throws the `TypeError` that the parameter form throws for an array too short,
+   before anything runs. The sentence names the function, the result and both numbers. A loop
+   whose range the device holds drops such a write, as for a parameter (change 0094). A store
+   after the loops past the end is dropped, as for a parameter, not refused.
+10. Refused as "not supported yet" (OD-9) in both halves, with `TS8099` and a sentence that names
+    the form:
+    - one of these constructors with a length that is no constant anywhere else: in a helper, in
+      an entry, inside a loop, under a branch;
+    - a length that reads an operand item 4 does not list;
+    - `Array.from({ length: n }, f)` with a length that is no constant;
+    - a second new array, or a new array the function does not return;
+    - one path that returns a parameter (`return ps`, change 0142, Table 2) and another that
+      returns the new array;
+    - `out.push(v)`, a second name for `out` (`const o = out`), and `out` passed to a helper;
+    - a kernel function that has a 2D storage texture and makes an array;
+    - the result passed to another call inside one fusion (Rule 11.13), until the fusion facts
+      describe it.
+11. Kept: `new Array(n)` with no `fill` stays `TS8035` (surface §7, the `new` row), since
+    JavaScript gives an array of holes, which a shader value cannot hold. A result of an array
+    with no size that is no new array, and a struct whose last field is one, stay `TS8020`.
+
+**What S5 needs of S2.**
+
+- `fill` gives back the array it fills, as ECMAScript's `Array.prototype.fill` does. Today it
+  gives nothing (change 0079; the `fill` sentence under Rule 8.18; surface §63). S2 needs the
+  same for `new Array(N).fill(v)`, so S2 changes the sentence and §63, and S5 uses it.
+- [fact] S2 names `Float32Array` and `Array.from`, but this proposal predates the `names` field.
+  This amendment declares them in `names`, so that S2's implementation passes
+  `scripts/changes.ts` (`changes/README.md`, The front matter). `Array` and
+  `Array.prototype.fill` are listed in `src/__api__/author-names.md` already.
+
+**The editor (Rule 12.7).**
+
+- [proposal] The ambient library declares S2's constructors with the length as a type
+  parameter, so a literal length gives the sized type and any other length gives the unsized
+  one. A sketch, for the implementing pull request to fix:
+  `new <N extends number>(length: N): array<f32, N>`. With `N` a `u32`, `array<f32, N>` is the
+  ambient library's unsized `array<f32>`, whose `length` is a `u32`
+  (`src/language-service/ambient.ts`, `type array<T, N>`).
+- In a `"use typeshade"` file, `new Float32Array(n)` is the shader array `f32[]`. On the host
+  side of a call it is the JavaScript `Float32Array` (item 6). These are two positions of one
+  name, as Rule 8.21 already gives a kernel's array parameter.
+- The editor cannot refuse an `f32` length by type alone, since the brands are optional. The
+  compiler checks the length's type and reports `TS8003`, and the editor reports the compiler's
+  code and sentence.
+- `out` is a `T[]`: its index reads a `T`, its `.length` is a `u32`, and its hover shows `f32[]`.
+- Each refusal of item 10 reaches the editor with the compiler's code and sentence.
+- The test asserts both halves on the example above with `bothTake`
+  (`src/core/testing/both-halves.ts`): `compile()` gives no diagnostic, the language service
+  gives none, and `getHover` on `out` shows `f32[]`. Each refusal is a `bothRefuse` case.
+
+**Costs of the owner's decisions.**
+
+- S5 waits for S1 (`T[]`), S2 (the constructors and `fill`'s result) and proposal 0142 stage 1
+  (#1324). All edit the same rules and the same array code.
+- `Float32Array` spells `f32` only until B2. A vector array is `new Array(n).fill(vec4f())`.
+- A vector array comes back flat (`vec4f[]` is a `Float32Array` of `4n` scalars), as a
+  parameter takes it.
+- A write past the end is refused before the run for a parameter and for the result alike
+  (item 9). WGSL's robust access, which may clamp, is not relied on.
+- The first implementation allocates a binding for each call's new array. The arena (A1, A2)
+  will reserve a region of one buffer instead. The author's program does not change.
+
+**Related accepted proposals.**
+
+- Change 0079, deferred item 3(a): `return xs.map(f)`, a method whose result the call makes on
+  the host. S5 is the first form of a kernel function that makes a new array; 3(a) stays
+  deferred and can build on S5.
+- Change 0082: a struct element of the new array takes the layout a parameter takes.
+- Change 0042: the WebAssembly tier holds the result as the other tiers do (item 8).
+- Change 0094: a loop whose range the device holds drops a write past the end (item 9).
+- Change 0142: Table 2's `return ps` stays. S5 adds a second kind of returned array.
+
+**What S5 touches.**
+
+- Rule 8.18 (the `fill` sentence, through S2), Rules 8.21, 8.22 and 8.23, and Rule 11.13.
+- Surface §20 (a local array with no size), §63 (`fill`'s result), §64 (the host call's result)
+  and §65 (the kernel loop).
+- `exports`: none declared. A kernel function's `face` (a `KernelFace` of `HostExport`) gains the
+  length expression, which the host call evaluates. `src/__api__/surface.md` prints `HostExport`
+  with `face: KernelFace` only. If the bake shows the change, the implementing pull request
+  amends this entry first.
+- `codes`: none. The refusals use `TS8099`, `TS8003`, `TS8035` and `TS8020`.
+- `examples`: none added or removed. `loop-kernel` may gain the result form.
+- `docs/typeshade-plan.md`: unit B8 names this stage and the storage decision.
+
+**Status.**
+
+- S5: not started. Its prerequisites are S1 (#934, draft), S2 (not started) and proposal 0142
+  stage 1 (#1324, draft).
+- The interim text of `TS8020` ("not supported yet", OD-9) is a bug fix in its own pull request.
+  Not started.
+
+- Affects: the front matter (`rules` gains 8.18, 8.21, 8.22, 8.23 and 11.13; `surface` gains 64
+  and 65; `names` lists `Float32Array` and `Array.from`), section 2 (stage S5) and section 3 (unit
+  B8).
+- Status: `status: accepted` does not change.
 
 ## What it owes downstream
 
