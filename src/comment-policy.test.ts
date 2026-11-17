@@ -1,8 +1,10 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  NECESSARY_SHARE,
   bannedCommentLines,
-  countComments,
+  commentLines,
+  countAllComments,
   publicDefinitions,
   readBaseline,
 } from '../scripts/comment-policy.js';
@@ -10,7 +12,8 @@ import {
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 describe('a file of src/ gains no comment (CLAUDE.md, Comments)', () => {
-  const found = countComments(ROOT);
+  const counted = countAllComments(ROOT);
+  const found = counted.banned;
   const known = readBaseline(ROOT);
 
   it('no file has more comment lines than scripts/comment-baseline.json records', () => {
@@ -34,6 +37,32 @@ describe('a file of src/ gains no comment (CLAUDE.md, Comments)', () => {
           `${path}: the baseline records ${lines}, the file has ${found[path] ?? 0}`,
       );
     expect(stale, 'Run `bun run bake:comment-baseline`: the baseline only goes down.').toEqual([]);
+  });
+
+  it('the necessary comments stay within one line in a hundred', () => {
+    expect(
+      counted.necessary,
+      'A comment that begins "Why:" is a necessary one. Together they take more than ' +
+        `${NECESSARY_SHARE * 100}% of the lines of src/. Remove the ones the code can say.`,
+    ).toBeLessThanOrEqual(Math.floor(counted.lines * NECESSARY_SHARE));
+  });
+
+  it('spares a comment that begins Why:, with the lines that continue it', () => {
+    const keys = publicDefinitions('');
+    const text = [
+      '// A header on the first line.',
+      '',
+      '// Why: fdlibm splits at 7/16, where the polynomial',
+      '// stops being exact.',
+      'const split = 7 / 16;',
+      '',
+      '// why not',
+      'const other = 1; // Why: a trailing reason',
+      '/* Why: a block',
+      '   of two lines */',
+      'const third = 2;',
+    ].join('\n');
+    expect(commentLines('src/a.ts', text, keys)).toEqual({ banned: 2, necessary: 5 });
   });
 
   it('counts a comment, and spares a marker and the doc comment of a public definition', () => {
