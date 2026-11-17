@@ -3853,6 +3853,61 @@ WebGPU)`. `TypeNN candidate (build + CPU)`, which is not required, failed.
 - Affects: A16 decision 4 (the bundle sizes after the review fixes); A14's slice status table.
 - Status: `status: accepted` does not change.
 
+### A19. The value reading of an array parameter is withdrawn (2026-11-16)
+
+- [fact] Why. On 2026-11-16 the owner decided that an object is passed as JavaScript passes it and
+  that `@inout` and `@out` are removed: OD-9 (`cf8beaa5`), proposal 0142 (accepted, merged as
+  `cc4c1292`) and the new OD-5 (`fec0c3a0`). A10 Q-A, A15 and A16 rest on the opposite reading, in
+  which a kernel's `array<T>` parameter is a value. An entry of `docs/owner-decisions.md` takes
+  precedence over a proposal, so those parts of this proposal no longer hold.
+- [fact] Baseline: `main` at `fec0c3a0`.
+- [fact] This amendment changes no front matter, no rule text and no code. Stage 1 of change 0142
+  changes them (0142, decision 5).
+- [fact] An earlier draft named A19 (#1315, "the plan for slice 3") was closed without merging on
+  2026-11-16. This amendment takes its number.
+
+**What is withdrawn.**
+
+| Text                                                                                                             | State after this amendment                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| A10 Q-A: an array parameter with no qualifier is a value; `return ps` gives a new value; one copy for each call. | Withdrawn. The array is the caller's array; `return ps` gives the same array or the same `Buffer` (0142, Table 2). |
+| A10 Q-A: `@inout` and `@out` on a kernel's array.                                                                | Withdrawn with the qualifiers (0142).                                                                              |
+| A10 Q-F: a returned array's length, class and device.                                                            | No longer a question: the result is the argument.                                                                  |
+| A10's conflict C1, settled for side 2 (a new value).                                                             | Settled for side 1 (written in place) by the owner's later decision.                                               |
+| R14: "otherwise it writes a new resource", for a kernel that writes an array argument.                           | Read against 0142: the call writes the argument in place. The planner of slices 4 to 6 reads calls that do so.     |
+| A15 and A16: `TS8080`, the zero fill of an `@out` array, the texts.                                              | Withdrawn. Stage 1 of 0142 removes `TS8080` and the zero fill.                                                     |
+| A10's slice table, row 2 (delivered as #1310, `68864743`).                                                       | Its language part is removed by stage 1 of 0142. Its `@inout` on in-tree kernels is deleted by `tshc migrate`.     |
+| A10's slice table, row 3 (array returns).                                                                        | Delivered by stage 1 of 0142, with no copy. #1316 was closed without merging.                                      |
+| A18's open items on `TS8080` (review findings 4 and 5, a write inside a nested function, the unreachable text).  | Closed: the code they concern is removed.                                                                          |
+| D-p (A13 decision 2): a `Record` field in the struct of an `array<S, N>` result.                                 | Open, unchanged. It is settled when slice 4 is planned.                                                            |
+
+**What stays.**
+
+- [fact] Slices 0 and 1 (`Buffer`, results on a resource) stay as delivered.
+- [fact] A10's decisions that do not rest on the value reading stay: Q-B to Q-E and Q-H to Q-J.
+  [inference, agent] Q-F's item 3 ("an array that a loop pushes onto cannot be returned") has no
+  subject left: a returned array is the argument, pushed or not.
+- [fact] The bundle sizes that A16 and A18 record are measurements of delivered code. Stage 1 of
+  0142 measures them again.
+
+**The slices of milestone 4, status.**
+
+| Slice  | Status                                                                                            |
+| ------ | ------------------------------------------------------------------------------------------------- |
+| 0      | done: #1251, merged as `937147b8`.                                                                |
+| 1      | done: #1257, merged as `3b579904`.                                                                |
+| 2      | delivered as #1310 (`68864743`); its language part is withdrawn and removed by stage 1 of 0142.   |
+| 3      | withdrawn as a slice of this proposal; `return ps` is delivered by stage 1 of 0142.               |
+| 4 to 6 | not started. They start after stage 1 of 0142, since the planner reads calls that write in place. |
+
+**Open, owner must settle.**
+
+- [fact] Nothing. [inference, agent] Each statement follows the owner's entries OD-5 and OD-9 and
+  the accepted proposal 0142.
+
+- Affects: A10 (Q-A, Q-F, C1, the slice table rows 2 and 3), A15, A16, A18's open items, R14.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io** (`typeshade/web`, `apps/typeshade`). Every host page and Playground

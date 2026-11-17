@@ -53,6 +53,9 @@ codes:
   - TS8075
   - TS8080
 examples: []
+names:
+  - Array.prototype.slice
+  - structuredClone
 downstream:
   - repo: typeshade.github.io
     what: Every page and Playground starter that writes `@inout` or `@out`, or that explains that a parameter is a value, is written again; the reference pages for Rules 8.8, 8.23 and 8.25 change, in English and in Korean, when the compiler pin passes this change.
@@ -275,6 +278,39 @@ JavaScript meaning.
 | JavaScript's meaning with silent copies where the compiler cannot keep it. | It breaks the contract above.                                                                          |
 | Keep `@inout` for a number or a vector only.                               | A mark JavaScript does not have, kept for 6 parameters in the tree; a returned value says the same.    |
 
+## Owner's decisions
+
+- OD-1: TypeShade is a language of its own; the contract is about an object's identity, and the
+  language's other differences from JavaScript stay.
+- OD-3: the compiler's work is not pushed onto the author. `@inout` and `@out` say what the
+  compiler can read from the function, so they are removed.
+- OD-4: the two examples of "What changes" show an author's source before and after.
+- OD-5: this proposal carries the rule text of the entry as the owner replaced it on 2026-11-16
+  (#1321, `fec0c3a0`). The first draft of this proposal was written against the entry of
+  2026-11-09, at the owner's request in the conversation, and the entry was replaced after the
+  proposal was accepted.
+- OD-9: a form is refused only when the compiler does not implement it yet, and says so, or when
+  no compilation can give it its meaning.
+- This proposal reverses no entry as the entries stand on `main` at `fec0c3a0`.
+
+## Why the compiler cannot do it
+
+- [fact] The proposal removes two constructs, `@inout` and `@out`, because the compiler can decide
+  what they said: `fnWrites` reads which parameters a function writes.
+- [fact] It adds two names, `Array.prototype.slice` and `structuredClone` (Amendment A1), and each
+  says one thing the compiler cannot decide from the program: that the author wants a **new**
+  object and not the one a name already refers to. With `let r = xs`, `r` is the same array, as in
+  JavaScript. Whether the author meant the same array or a snapshot of it is the author's intent;
+  both programs are valid, and they give different results as soon as one name is written through.
+- [observed result] On 2026-11-16, at #1324's `9dc3d135`, three tests of
+  `src/core/passes/opt/sink-aggregate-init.test.ts` failed for this reason: their fixture took a
+  snapshot with `let result = source`, which now names the same array. The fixture writes
+  `source.slice()`.
+- [fact] Both names are ECMAScript's and the web platform's, as TypeScript spells them
+  (`docs/language-design.md` §2.1). The proposal adds no name of its own and no copy construct
+  (decision 2).
+- [fact] No downstream repository asked for this change; no issue is linked.
+
 ## What it touches
 
 - Rules 1.7 and 1.8: the sentences on a qualifier.
@@ -412,6 +448,27 @@ JavaScript meaning.
 
 This record does not yet apply; delivery will require the tests of both halves for each row of the
 table of forms, the gates of `AGENTS.md`, and the document audit of the rules and sections above.
+
+## Amendments
+
+### A1. The names of Table 3 in the front matter (2026-11-16)
+
+- [fact] Why. Table 3 gives `xs.slice()` and `structuredClone(v)` their JavaScript meaning at stage
+  1. Each is a name an author could not write before, so the front matter lists it under `names`
+     (`changes/README.md`): `scripts/changes.ts` and `src/author-names.test.ts` refuse an added name
+     that no accepted proposal lists. The first draft of the front matter had no `names`.
+- [fact] How it was found. #1324 (stage 1) added `Array.prototype.slice` to the ambient library at
+  `483ac8d5`, and `src/author-names.test.ts` failed in CI at `518ba043`: "the set of
+  author-facing names changed; added: Array.prototype.slice".
+- [fact] Both names come from ECMAScript and the web platform as TypeScript spells them
+  (`docs/language-design.md` §2.1); neither is a name of the compiler's own.
+- [fact] This amendment changes the front matter `names`, and adds the sections "Owner's
+  decisions" and "Why the compiler cannot do it" that `changes/TEMPLATE.md` asks of a proposal that
+  adds a name; the first draft was written from an older copy of the template and had neither. It
+  changes no rule text and no code. Nothing here is a new design: Table 3 and decision 2 are the approved text.
+- [fact] Not listed: `[...xs]` and `{ ...p }` are syntax and add no name. `clone()` is a method an
+  author's class writes.
+- Status: `status: accepted` does not change.
 
 ## What it owes downstream
 
