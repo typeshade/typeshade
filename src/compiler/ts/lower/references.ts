@@ -369,10 +369,10 @@ export function checkReferenceAliases(
         for (let j = i + 1; j < refs.length; j++) {
           if (refs[i]!.root !== refs[j]!.root || !(refs[i]!.writes || refs[j]!.writes)) continue;
           report(
-            `This call hands "${refs[i]!.root}" to "${shown}" by reference twice, as two places ` +
-              `it may change: one variable reached two ways, which WGSL refuses and which ` +
-              `GLSL's copy-in and copy-out would settle in no fixed order (Rule 8.25). Pass ` +
-              `distinct variables, or copy one into a let and pass the let.`,
+            `This call hands "${refs[i]!.root}" to "${shown}" twice, and "${shown}" writes one ` +
+              `of the two: one object under two names inside "${shown}", which is not ` +
+              `supported yet (change 0142, stage 2). Pass two variables, or give "${shown}" one ` +
+              `parameter for it.`,
           );
         }
       }
@@ -380,9 +380,10 @@ export function checkReferenceAliases(
         if (!moduleNames.has(r.root) || !touched.has(r.root)) continue;
         if (!r.writes && !written.has(r.root)) continue;
         report(
-          `This call hands "${r.root}" to "${shown}" by reference, and "${shown}" also reads ` +
-            `or writes "${r.root}" by its name: one variable reached two ways, which WGSL ` +
-            `refuses (Rule 8.25). Use the reference alone inside "${shown}", or pass a copy.`,
+          `This call hands "${r.root}" to "${shown}", which writes its parameter, and ` +
+            `"${shown}" also reads or writes "${r.root}" by its name: one object under two ` +
+            `names inside "${shown}", which is not supported yet (change 0142, stage 2). Use ` +
+            `the parameter alone inside "${shown}", or the name alone.`,
         );
       }
     };

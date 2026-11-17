@@ -135,12 +135,12 @@ function operatorKindRefusal(op: string, t: ShaderType, compound = false): strin
     }
     case 'equality': {
       if (kind === undefined || t.kind === 'scalar' || t.kind === 'vec') return undefined;
-      // A class instance is a value here, so `a === b` cannot ask TypeScript's question (the
-      // same object?) either: two `new A()` with one set of fields are one value.
+      // `a === b` asks whether two names are one object, which the compiler answers once it
+      // follows which object each name refers to (change 0142, Table 1, stage 2).
       if (t.kind === 'struct') {
         return (
-          `${cannot}: a struct is a value with no identity here, and WGSL compares scalars ` +
-          `and vectors only. Compare its fields one by one.`
+          `${cannot}: whether two names are one object is not supported yet (change 0142, ` +
+          `stage 2). To compare what they hold, compare the fields one by one.`
         );
       }
       // Indexing a matrix of doubles is refused (`Cannot index mat3x3<f64>.`), so a column

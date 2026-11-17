@@ -545,12 +545,13 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
       'Cannot + A: WGSL has no arithmetic on a struct. Write it field by field.',
     ],
     [
-      // Two `new A()` with one set of fields are one value (the optimizer folds them into one
-      // `_cse0`), so TypeScript's question, the same object?, has no answer here either.
+      // TypeScript's question, the same object?, is answered once the compiler follows which
+      // object each name refers to (change 0142, stage 2). Until then it is refused, not
+      // answered by comparing fields.
       '=== on two built instances',
       `${A}export function k(): bool { const a = new A(); const b = new A(); return a === b }`,
-      'Cannot === A: a struct is a value with no identity here, and WGSL compares scalars ' +
-        'and vectors only. Compare its fields one by one.',
+      'Cannot === A: whether two names are one object is not supported yet (change 0142, ' +
+        'stage 2). To compare what they hold, compare the fields one by one.',
     ],
     [
       '< on two class instances',

@@ -443,22 +443,22 @@ function add(a: f32, b: f32, @out c: f32): void { c = a + b; }
     [
       'one variable twice',
       `export function r(): f32 { let x: f32 = 1.; swap(x, x); return x; }`,
-      'TS8074 This call hands "x" to "swap" by reference twice, as two places it may change: one variable reached two ways, which WGSL refuses and which GLSL\'s copy-in and copy-out would settle in no fixed order (Rule 8.25). Pass distinct variables, or copy one into a let and pass the let.',
+      'TS8074 This call hands "x" to "swap" twice, and "swap" writes one of the two: one object under two names inside "swap", which is not supported yet (change 0142, stage 2). Pass two variables, or give "swap" one parameter for it.',
     ],
     [
       'one variable twice to a function whose local function writes one of them',
       `function g(@inout a: f32, @inout b: f32): void { const f = (): void => { a = b; }; f(); } export function r(): f32 { let x: f32 = 1.; g(x, x); return x; }`,
-      'TS8074 This call hands "x" to "g" by reference twice, as two places it may change: one variable reached two ways, which WGSL refuses and which GLSL\'s copy-in and copy-out would settle in no fixed order (Rule 8.25). Pass distinct variables, or copy one into a let and pass the let.',
+      'TS8074 This call hands "x" to "g" twice, and "g" writes one of the two: one object under two names inside "g", which is not supported yet (change 0142, stage 2). Pass two variables, or give "g" one parameter for it.',
     ],
     [
       'one captured reference twice, inside the local function',
       `function g(@inout a: f32): void { const f = (): void => { swap(a, a); }; f(); } export function r(): f32 { let x: f32 = 1.; g(x); return x; }`,
-      'TS8074 This call hands "a" to "swap" by reference twice, as two places it may change: one variable reached two ways, which WGSL refuses and which GLSL\'s copy-in and copy-out would settle in no fixed order (Rule 8.25). Pass distinct variables, or copy one into a let and pass the let.',
+      'TS8074 This call hands "a" to "swap" twice, and "swap" writes one of the two: one object under two names inside "swap", which is not supported yet (change 0142, stage 2). Pass two variables, or give "swap" one parameter for it.',
     ],
     [
       'two fields of one variable',
       `export function r(): f32 { let o = new Ob(); swap(o.a, o.b); return o.a; }`,
-      'TS8074 This call hands "o" to "swap" by reference twice, as two places it may change: one variable reached two ways, which WGSL refuses and which GLSL\'s copy-in and copy-out would settle in no fixed order (Rule 8.25). Pass distinct variables, or copy one into a let and pass the let.',
+      'TS8074 This call hands "o" to "swap" twice, and "swap" writes one of the two: one object under two names inside "swap", which is not supported yet (change 0142, stage 2). Pass two variables, or give "swap" one parameter for it.',
     ],
     [
       'a texture as @inout',
@@ -468,7 +468,7 @@ function add(a: f32, b: f32, @out c: f32): void { c = a + b; }
     [
       'a module variable the callee also writes',
       `let counter: f32 = 0.; function bumpC(@inout v: f32): void { v += counter; } export function r(): f32 { bumpC(counter); return counter; }`,
-      'TS8074 This call hands "counter" to "bumpC" by reference, and "bumpC" also reads or writes "counter" by its name: one variable reached two ways, which WGSL refuses (Rule 8.25). Use the reference alone inside "bumpC", or pass a copy.',
+      'TS8074 This call hands "counter" to "bumpC", which writes its parameter, and "bumpC" also reads or writes "counter" by its name: one object under two names inside "bumpC", which is not supported yet (change 0142, stage 2). Use the parameter alone inside "bumpC", or the name alone.',
     ],
   ];
   for (const [name, body, message] of cases) {
