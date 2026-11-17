@@ -133,7 +133,8 @@ export function bitOperands(n: ts.Node): ts.Expression[] {
   return [];
 }
 
-export function isTreeSource(n: ts.Node): boolean {
+export function isTreeSource(n: ts.Node, typed: (e: ts.Expression) => boolean): boolean {
   if (ts.isNumericLiteral(n)) return isBigNumber(Number(n.text));
-  return bitOperands(n).length > 0;
+  const operands = bitOperands(n);
+  return operands.length > 0 && !operands.some(typed);
 }

@@ -17,6 +17,8 @@ export const UNPROVEN: Reading = { u32: NaN, ts: NaN, tree: true, unproven: true
 export const CONGRUENT: Reading = { ...UNPROVEN, congruent: true };
 export const AGREEING: Reading = { u32: NaN, ts: NaN, tree: true, agreeing: true, picks: [] };
 
+export const exactSigned = (x: Reading): boolean => x.signed === true && x.u32 === x.ts;
+
 export const signedPair = (a: Reading, b: Reading): boolean =>
   (a.signed === true || !a.tree) && (b.signed === true || !b.tree) && (a.tree || b.tree);
 

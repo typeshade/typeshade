@@ -69,6 +69,7 @@ import {
   boundedReadings,
   heldByTreeVariable,
   mergedPicks,
+  exactSigned,
   signedPair,
   signedReading,
   plainUnproven,
@@ -3580,11 +3581,8 @@ function bigLiteralsOf(sourceFile: ts.SourceFile): ts.Expression[] {
 }
 
 /** Whether a tree can reach `node` ({@link fileTaint}). */
-function untypedTreeSource(n: ts.Node): boolean {
-  if (!isTreeSource(n)) return false;
-  const typed = (e: ts.Expression): boolean => typedNode(e) || ts.isElementAccessExpression(e);
-  return ts.isNumericLiteral(n) || !bitOperands(n).some(typed);
-}
+const untypedTreeSource = (n: ts.Node): boolean =>
+  isTreeSource(n, (e) => typedNode(e) || ts.isElementAccessExpression(e));
 
 function taintedNode(node: ts.Node, sourceFile: ts.SourceFile): boolean {
   const memo = readingMemo(sourceFile);
@@ -3847,7 +3845,8 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
       k === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken ||
       k === ts.SyntaxKind.AsteriskAsteriskToken
     ) {
-      return [n.left, n.right].some((x) => of(x).length > 0) ? [UNKNOWN] : [];
+      const read = (x: ts.Expression) => of(x).some((r) => r.tree || r.unknown === true);
+      return [n.left, n.right].some(read) ? [UNKNOWN] : [];
     }
     return [];
   }
@@ -3910,9 +3909,8 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
       // Another builtin carries its arguments' origin (Amendment A3): over a tree its result
       // is unproven, and over a typed value it is typed.
       const args = n.arguments.map(of);
-      const exact = (x: Reading): boolean => x.signed === true && x.u32 === x.ts;
-      if (args.some((a) => a.some((x) => x.tree && !exact(x)))) return [UNPROVEN];
-      if (args.some((a) => a.some(exact))) return [];
+      if (args.some((a) => a.some((x) => x.tree && !exactSigned(x)))) return [UNPROVEN];
+      if (args.some((a) => a.some(exactSigned))) return [];
       return args.some((a) => a.length > 0) ? [UNKNOWN] : [];
     }
     if (f.body === undefined) return unproven();
@@ -4092,7 +4090,7 @@ function binaryReadingsOf(
     return [UNPROVEN];
   }
   if (shiftByTypedAmount && as.some((x) => x.tree && !(x.u32 === 0 && x.ts === 0))) {
-    const exact = as.every((x) => !x.tree || (x.signed === true && x.u32 === x.ts));
+    const exact = as.every((x) => !x.tree || exactSigned(x));
     return [exact ? AGREEING : keepsCongruence ? CONGRUENT : UNPROVEN];
   }
   const typedSide = as.length === 0 ? left : bs.length === 0 ? right : undefined;
@@ -4120,7 +4118,9 @@ function binaryReadingsOf(
       }
       const tree = a.tree || b.tree;
       if (a.unknown || b.unknown || plainUnproven(a) || plainUnproven(b)) {
-        out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
+        const exact = (x: Reading) => !x.tree || exactSigned(x);
+        const besideUnknown = (a.unknown && exact(b)) || (b.unknown && exact(a));
+        out.push({ ...(tree && !besideUnknown ? UNPROVEN : UNKNOWN), picks });
       } else if (a.unproven || b.unproven || a.agreeing || b.agreeing) {
         const masked = k === ts.SyntaxKind.AmpersandToken && (mask(a) || mask(b));
         out.push({ ...(!keepsCongruence ? UNPROVEN : masked ? AGREEING : CONGRUENT), picks });
