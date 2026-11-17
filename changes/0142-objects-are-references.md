@@ -27,13 +27,18 @@ surface:
   - 6
   - 7
   - 9
+  - 10
   - 14
+  - 16
+  - 17
+  - 18
   - 23
   - 26
   - 28
   - 44
   - 49
   - 52
+  - 63
   - 64
   - 65
   - 70
@@ -46,12 +51,14 @@ exports-removed: []
 codes:
   - TS8003
   - TS8005
+  - TS8013
   - TS8018
   - TS8035
   - TS8073
   - TS8074
   - TS8075
   - TS8080
+  - TS8099
 examples: []
 names:
   - Array.prototype.slice
@@ -205,7 +212,8 @@ JavaScript meaning.
 
 | Form                                               | JavaScript meaning                                 | Stage                                |
 | -------------------------------------------------- | -------------------------------------------------- | ------------------------------------ |
-| `xs.slice()`, `[...xs]` of numbers or vectors      | A new array.                                       | 1                                    |
+| `xs.slice()` of numbers or vectors                 | A new array.                                       | 1                                    |
+| `[...xs]` of numbers or vectors (Amendment A2)     | A new array.                                       | 2                                    |
 | `new P(p.x, p.y)`, or a `clone()` the class writes | A new instance.                                    | 1 (nothing new)                      |
 | `structuredClone(v)` of structs that are no class  | A deep copy.                                       | 1                                    |
 | `{ ...p }` of a struct that is no class            | A new object; a field that is an object is shared. | 1 when no field is an object, else 3 |
@@ -469,6 +477,57 @@ table of forms, the gates of `AGENTS.md`, and the document audit of the rules an
 - [fact] Not listed: `[...xs]` and `{ ...p }` are syntax and add no name. `clone()` is a method an
   author's class writes.
 - Status: `status: accepted` does not change.
+
+### A2. What stage 1 found: the sections and codes it touches, `[...xs]`, and how a copy is kept honest (2026-11-17)
+
+Each item below was found while #1324 (stage 1) was implemented, at `23384aad`.
+
+- [fact] Front matter. `surface` gains §10 (`structuredClone` among the builtins), §16 (`{ ...p }`
+  as a copy), §17 (`for (const p of ps)` names the element), §18 (the sentence of a lone spread)
+  and §63 (`xs.slice()`). `codes` gains `TS8013` (the lone spread's sentence names `xs.slice()`)
+  and `TS8099` (each "not supported yet" refusal below). The first text listed none of them, and
+  `scripts/changes.ts` refuses a commit that edits a section or a code its proposal does not list.
+- [deviation, made part of the approved text here] Table 3 gave `[...xs]` of numbers or vectors
+  stage 1. It moves to stage 2. The editor reads `[...xs]` as `f32[]`, which no `array<T, N>`
+  takes, so the compiler and the editor would not agree on one program (Rule 12.7). Until the
+  ambient library gives a spread of an `array<T, N>` its length, `[...xs]` alone stays `TS8013`,
+  and its sentence names `xs.slice()`, which is the same copy.
+- [fact] How stage 1 keeps the contract. The contract says that who sees a write is never other
+  than what JavaScript says, and Table 1 says that a store with no later write is a copy. Stage 1
+  enforces the two with one reading of the source (a file that #1324 adds to the front end). A
+  statement that stores an object another name holds (`q = a`, `xs[0] = a`, `b.child = a`,
+  `[a, a]`, `new B(a)`, `const q = xs[0]`, a function that returns its parameter) stays a copy
+  where nothing writes the object after it. Where something does, the statement is `TS8099`:
+  "One object under two names is not supported yet (change 0142, stage N)", with N the stage of
+  the row in Table 1.
+- [fact] `let b = f(a)` where every `return` of `f` names one parameter: `b` is a second name of
+  `a`, and the call still runs (Table 1, "`return p` of a parameter", stage 1).
+- [deviation, open until stage 3] The reading refuses more than it must, and never less. It reads
+  types only as far as the source writes them, and it does not follow which element an index
+  names at run time. So a program that exchanges two elements of an array of objects and then
+  writes an element is refused, although a copy has JavaScript's result there. Stage 3 (one
+  storage for both names) ends the refusal.
+- [fact] Programs that compiled before and are refused now. `const q = xs[0]; xs[0].a = 1; … q.a`
+  and `let q = xs[0]; q.a = 1; … xs[0].a` compiled to a copy (change 0105, items 1 and 4), which
+  is a result JavaScript does not give. They are `TS8099` now. Three tests of
+  `src/compiler/ts/local-places.test.ts` held the copy and now hold the refusal.
+- [fact] Decision 8 in the compiler. A parameter still written `@inout` or `@out` is `TS8073` with
+  one sentence, in both halves. For an object: `"@inout" was removed (change 0142): an object
+parameter is the caller's object with no mark. Delete "@inout".` For a value: `"@inout" was
+removed (change 0142): a number, a bool, a vector and a matrix are values. Return the value, and
+write [a, b] = f(a, b) for more than one.` `tshc migrate` deletes the first kind and reports the
+  second.
+- [fact] The other texts of stage 1. `TS8074` (`f(a, a)`, a module variable passed to a function
+  that also uses its name) and `TS8003` on `===` between objects say "not supported yet (change
+  0142, stage 2)". `structuredClone` of an instance of a class says "not supported yet (change
+  0142, stage 3)" and names `new C(...)`.
+- [deviation, closed] "Draft impact estimate" said that each function of
+  `journeys/class-twins/units.shade.ts` is written again to return its values. `Counter` instead
+  holds a `Tally` object that `advance` writes. The class arm of `bun run gate:differential`
+  requires a member that hands a field to a parameter its function writes, and a number is no
+  such parameter after decision 8.
+- Status: `status: accepted` does not change. No decision of the owner is changed: Table 3's
+  forms keep their JavaScript meaning, and one of them arrives one stage later.
 
 ## What it owes downstream
 
