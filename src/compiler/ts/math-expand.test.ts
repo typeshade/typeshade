@@ -8,6 +8,7 @@ import { MATH_EXPAND_ALIAS, resolveMathExpand, isCanonicalMathFn } from './math-
 import type { Expr } from '../../core/ir/nodes.js';
 import { f32T } from '../../core/ir/types.js';
 import { stripSpans } from '../../core/testing/strip-spans.js';
+import { bothHalves, bothRefuse } from '../../core/testing/both-halves.js';
 
 describe('missing Math + shader free math', () => {
   it('classifies expansions and free names', () => {
@@ -126,14 +127,19 @@ describe('the Math members WGSL has no builtin for are ECMAScript names with no 
       expect(
         compileTsSource(free).diagnostics.map((d) => `${String(d.code)} ${d.message}`),
       ).toEqual([`TS8004 ${name} was removed: write Math.${name}.`]);
+      bothRefuse(free, 'TS8004', `${name} was removed: write Math.${name}.`);
     });
   }
 
   it('an expansion is refused when an argument is not an f32', () => {
-    const refused = (expression: string): string[] =>
-      compileTsSource(
-        `"use typeshade"\nexport function f(i: i32, x: f32): f32 {\n  return ${expression}\n}\n`,
-      ).diagnostics.map((d) => `${d.code} ${d.message}`);
+    const refused = (expression: string): string[] => {
+      const source = `"use typeshade"\nexport function f(i: i32, x: f32): f32 {\n  return ${expression}\n}\n`;
+      const lines = compileTsSource(source).diagnostics.map((d) => `${d.code} ${d.message}`);
+      expect(bothHalves(source).editor).toEqual(
+        lines.map((l) => `typeshade ${l.replace(' ', ': ')}`),
+      );
+      return lines;
+    };
     expect(refused('Math.cbrt(i)')).toEqual(['TS8003 cbrt expects f32, got i32.']);
     expect(refused('Math.hypot(x, i)')).toEqual(['TS8003 hypot arguments must be f32, got i32.']);
     expect(refused('Math.hypot(i, x)')).toEqual(['TS8003 hypot arguments must be f32, got i32.']);

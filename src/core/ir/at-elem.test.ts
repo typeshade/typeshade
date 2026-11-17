@@ -105,9 +105,9 @@ describe('#8 S3 — .at(i) without the element token', () => {
     const src = emitModule(
       module({
         funcs: [
-          fn('g', {}, f32T, () => {
+          fn('g', { i: u32T }, f32T, ({ i }) => {
             const xs = Var('xs', arrayLit(f32T, f32(1), f32(2)));
-            return xs.at(0);
+            return xs.at(0).add(xs.at(i));
           }),
         ],
       }),

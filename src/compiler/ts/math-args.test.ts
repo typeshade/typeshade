@@ -12,6 +12,16 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { MATH_ARG_SPECS } from './lower/math-args.js';
 import { MATH_FN_ARITY } from './math-alias.js';
+import { bothHalves } from '../../core/testing/both-halves.js';
+
+function editorAgrees(source: string): ReturnType<typeof compileTsSource> {
+  const r = compileTsSource(source);
+  const editor = bothHalves(source).editor;
+  for (const d of r.diagnostics.filter((e) => e.category === 'error')) {
+    expect(editor).toContain(`typeshade ${d.code}: ${d.message}`);
+  }
+  return r;
+}
 
 const M = TS_CODES.MATH_ARGUMENT;
 const fn = (params: string, ret: string, body: string) => `"use typeshade"
@@ -20,12 +30,12 @@ export function f(${params}): ${ret} {
 }
 `;
 const errorsOf = (src: string) =>
-  compileTsSource(src)
+  editorAgrees(src)
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`);
 /** The source text the one diagnostic of `src` points at. */
 const spanOf = (src: string) => {
-  const d = compileTsSource(src).diagnostics.filter((x) => x.category === 'error');
+  const d = editorAgrees(src).diagnostics.filter((x) => x.category === 'error');
   expect(d).toHaveLength(1);
   return src.slice(d[0]!.start, d[0]!.start + d[0]!.length);
 };

@@ -58,6 +58,7 @@ import { isBuiltinId } from '../../core/builtin-ids.js';
 import { TS_CODES } from './codes.js';
 import { diagnosticAtSpan, makeDiagnostic, noteCycleMembers } from './diagnostic.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
+import { writtenFile } from './written-context.js';
 
 /** One node of the call graph, as the caller's own compile path already knows it.
  *
@@ -146,6 +147,38 @@ function cycleKey(names: readonly string[]): string {
   return [...names.slice(best), ...names.slice(0, best)].join(' ');
 }
 
+function placeOf(node: ts.Node | undefined): readonly [string, number] | undefined {
+  return node === undefined ? undefined : [writtenFile(node), node.getStart()];
+}
+
+function firstPlaced(
+  found: readonly string[],
+  place: (name: string) => readonly [string, number] | undefined,
+): number {
+  let best = 0;
+  for (let i = 1; i < found.length; i++) {
+    const here = place(found[i]!);
+    const top = place(found[best]!);
+    if (here === undefined || top === undefined) continue;
+    if (here[0] < top[0] || (here[0] === top[0] && here[1] < top[1])) best = i;
+  }
+  return best;
+}
+
+function firstDeclaredFirst(
+  found: readonly string[],
+  closing: Edge,
+  outgoing: ReadonlyMap<string, readonly Edge[]>,
+  firstNode: ReadonlyMap<string, RecursionNode>,
+): { cycle: readonly string[]; closing: Edge } {
+  const best = firstPlaced(found, (n) => placeOf(firstNode.get(n)?.decl));
+  if (best === 0) return { cycle: found, closing };
+  const cycle = [...found.slice(best), ...found.slice(0, best)];
+  const last = cycle[cycle.length - 1]!;
+  const edge = (outgoing.get(last) ?? []).find((e) => e.to === cycle[0]) ?? closing;
+  return { cycle, closing: edge };
+}
+
 /**
  * Report every call cycle in `nodes` as an error on the call that closes it.
  *
@@ -183,6 +216,8 @@ export function checkRecursion(
   const reported = new Set<string>();
   const shown = new Map(nodes.map((n) => [n.name, n.shown ?? n.name] as const));
   const declOf = new Map(nodes.map((n) => [n.name, n.decl] as const));
+  const firstNode = new Map<string, RecursionNode>();
+  for (const n of nodes) if (!firstNode.has(n.name)) firstNode.set(n.name, n);
 
   const visit = (name: string): void => {
     colour.set(name, GREY);
@@ -191,17 +226,21 @@ export function checkRecursion(
       const state = colour.get(edge.to);
       if (state === undefined) continue; // not a graph node after all
       if (state === GREY) {
-        const from = stack.lastIndexOf(edge.to);
-        const cycle = stack.slice(from);
+        const { cycle, closing } = firstDeclaredFirst(
+          stack.slice(stack.lastIndexOf(edge.to)),
+          edge,
+          outgoing,
+          firstNode,
+        );
         const key = cycleKey(cycle);
         if (!reported.has(key)) {
           reported.add(key);
           diagnostics.push(
             noteCycleMembers(
               makeDiagnostic(
-                edge.sourceFile,
-                edge.node,
-                `Recursive call: ${renderCycle([...cycle, edge.to].map((n) => shown.get(n)!))}. WGSL has no call stack, so a function must not take part in a call cycle.`,
+                closing.sourceFile,
+                closing.node,
+                `Recursive call: ${renderCycle([...cycle, cycle[0]!].map((n) => shown.get(n)!))}. WGSL has no call stack, so a function must not take part in a call cycle.`,
                 TS_CODES.RECURSION,
               ),
               cycle.map((n) => declOf.get(n)),
@@ -240,6 +279,14 @@ export function writtenHops(nodes: readonly RecursionNode[]): Set<string> {
  * instance of a generic function closes. A cycle is named the way an author writes its members,
  * `"N.f" -> "N.g" -> "N.f"`, through `shownOf`.
  */
+function startAtFirstDeclared(
+  found: readonly string[],
+  nodeOf: ReadonlyMap<string, ts.Node>,
+): readonly string[] {
+  const best = firstPlaced(found, (n) => placeOf(nodeOf.get(n)));
+  return [...found.slice(best), ...found.slice(0, best)];
+}
+
 export function checkLoweredRecursion(
   nodes: readonly RecursionNode[],
   funcs: readonly FuncDecl[],
@@ -275,17 +322,20 @@ export function checkLoweredRecursion(
       const state = colour.get(edge.to);
       if (state === undefined) visit(edge.to);
       if (state !== 'grey') continue;
-      const cycle = [...stack.slice(stack.lastIndexOf(edge.to)), edge.to];
+      const members = startAtFirstDeclared(stack.slice(stack.lastIndexOf(edge.to)), nodeOf);
+      const cycle = [...members, members[0]!];
       const hops = cycle.slice(1).map((to, i) => `${cycle[i]} ${to}`);
-      const at = edge.span?.start ?? -1;
+      const from = members[members.length - 1]!;
+      const closing = (outgoing.get(from) ?? []).find((e) => e.to === members[0]) ?? edge;
+      const at = closing.span?.start ?? -1;
       if (hops.every((h) => written.has(h)) || said.has(at)) continue;
       said.add(at);
       diagnostics.push(
         noteCycleMembers(
           diagnosticAtSpan(
             sourceFile,
-            edge.span,
-            nodeOf.get(name),
+            closing.span,
+            nodeOf.get(from),
             `Recursive call: ${renderCycle(cycle.map((n) => shownOf.get(n) ?? n))}. ` +
               `WGSL has no call stack, so a function must not take part in a call cycle.`,
             TS_CODES.RECURSION,

@@ -59,9 +59,10 @@ describe('fixed-array binding declarations', () => {
       let [copy] = xs;
       copy += 7.;
       const [a, b]: [u32, u32] = [11, 13];
-      return first + last + copy + f32(a + b);
+      const probe = xs[u32(first)];
+      return first + last + copy + f32(a + b) + probe;
     `,
-      40,
+      45,
     );
     expect(r.wgsl).toContain('let first = xs[0u];');
     expect(r.wgsl).toContain('let last = xs[2u];');

@@ -1043,10 +1043,8 @@ export function count(xs: array<f32 | undefined, 3>): i32 { let n: i32 = 0; for 
     );
     expect(r.wgsl).toContain('fn fill(x: f32) -> array<_opt_f32_, 3> {');
     expect(emitModuleAt(r.module, 'O1')).toContain('select(0.0, xs[i].value, xs[i].present)');
-    // O2 unrolls the three trips, so the element is read at a constant index or at the counter.
-    expect(r.wgsl).toMatch(
-      /select\(0\.0, (_flow\d+_arg)\[(_flow\d+_local|\d+)\]\.value, \1\[\2\]\.present\)/,
-    );
+    // O2 unrolls the three trips and splits the array they read, so no element is read by index.
+    expect(r.wgsl).not.toMatch(/_flow\d+_arg\[/);
     const run = cpu(r);
     expect(run('fill', 1)).toEqual([present(1), absent(0), present(2)]);
     // An array of structs is a CPU value the oracle runs; the type names a scalar array only.
