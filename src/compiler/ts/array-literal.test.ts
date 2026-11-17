@@ -8,6 +8,7 @@ import { compileTsSource } from './source-file.js';
 import { compile } from './compile.js';
 import { stripSpans } from '../../core/testing/strip-spans.js';
 import type { Stmt } from '../../core/ir/nodes.js';
+import { bothHalves } from '../../core/testing/both-halves.js';
 
 function src(body: string, ret = 'f32', params = ''): string {
   return `"use typeshade";\nexport function f(${params}): ${ret} {\n${body}\n}`;
@@ -28,7 +29,9 @@ function wgslOf(text: string): string {
 function diagnose(text: string): string {
   const r = compileTsSource(text);
   expect(r.diagnostics.length).toBeGreaterThan(0);
-  return r.diagnostics[0]!.message;
+  const first = r.diagnostics[0]!;
+  expect(bothHalves(text).editor).toContain(`typeshade ${first.code}: ${first.message}`);
+  return first.message;
 }
 
 describe('the call form types its elements', () => {
@@ -214,8 +217,14 @@ describe('what a list is refused for', () => {
     // One sentence naming the elements to write, and nothing after it: not the count, not a
     // second refusal of the spread from semantic.ts, and not "xs" unknown where it is read
     // (proposal 0008 §3, Rule 12.4).
-    const r = compileTsSource(
-      src('  const xs: array<f32, 2> = [...a];\n  return xs[0];', 'f32', 'a: array<f32, 2>'),
+    const text = src(
+      '  const xs: array<f32, 2> = [...a];\n  return xs[0];',
+      'f32',
+      'a: array<f32, 2>',
+    );
+    const r = compileTsSource(text);
+    expect(bothHalves(text).editor).toEqual(
+      r.diagnostics.map((d) => `typeshade ${d.code}: ${d.message}`),
     );
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
       'TS8013 "...a" spreads a list into a list, which a shader array does not do: write its ' +

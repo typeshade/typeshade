@@ -4,6 +4,16 @@ import { typeKey } from '../../core/ir/types.js';
 import { parseSwizzle } from './swizzle.js';
 import { vec2fT, vec3fT, vec4fT, f32T } from '../../core/ir/types.js';
 import { stripSpans } from '../../core/testing/strip-spans.js';
+import { bothHalves } from '../../core/testing/both-halves.js';
+
+function editorAgrees(source: string): ReturnType<typeof compileTsSource> {
+  const r = compileTsSource(source);
+  const editor = bothHalves(source).editor;
+  for (const d of r.diagnostics.filter((e) => e.category === 'error')) {
+    expect(editor).toContain(`typeshade ${d.code}: ${d.message}`);
+  }
+  return r;
+}
 
 describe('swizzle', () => {
   it('parses .yx and rejects mix/range', () => {
@@ -44,7 +54,7 @@ describe('swizzle', () => {
     // `.swizzle()` is the IR builder's method (src/core/ir/swizzle.test.ts). It is not WGSL, not
     // ECMAScript and no §9.3 row, so it is no name an author writes (Rule 2.1, Rule 2.2), and the
     // editor already said so (TS2339). It compiled here because a call was routed by its name.
-    const r = compileTsSource(`
+    const r = editorAgrees(`
       "use typeshade";
       export function f(a: f32): vec3 {
         const v = vec3(a, 1, 2);
@@ -60,7 +70,7 @@ describe('swizzle', () => {
     // A vector has no method at all (Rule 2.2); `v.length()` is the builtin `length(v)`, and the
     // sentence names it rather than a component, which is not what the author meant.
     const said = (call: string) =>
-      compileTsSource(`
+      editorAgrees(`
       "use typeshade";
       export function f(v: vec3, w: vec3): f32 {
         const r = ${call};
@@ -85,7 +95,7 @@ describe('swizzle', () => {
     // TS8036, `sqrt(v)` on a vec3u takes no integer, and `v.xyzw` is out of range on a vec3;
     // `b.any()` was told about components, although `any(b)` compiles (Rule 12.1).
     const said = (params: string, call: string) =>
-      compileTsSource(`
+      editorAgrees(`
       "use typeshade";
       export function f(${params}): f32 {
         const r = ${call};

@@ -4,10 +4,20 @@ import { compileTsSource } from './source-file.js';
 import { STORAGE_BUFFER_ACCESS } from './bindings.js';
 import { compile, reflect } from '../../index.js';
 import { compileModule } from '../../core/oracle.js';
+import { bothHalves } from '../../core/testing/both-halves.js';
+
+function editorAgrees(source: string): ReturnType<typeof compileTsSource> {
+  const r = compileTsSource(source);
+  const editor = bothHalves(source).editor;
+  for (const d of r.diagnostics.filter((e) => e.category === 'error')) {
+    expect(editor).toContain(`typeshade ${d.code}: ${d.message}`);
+  }
+  return r;
+}
 
 describe('declare uniform / storage', () => {
   it('binds declare const camera: uniform<f32>', () => {
-    const r = compileTsSource(`
+    const r = editorAgrees(`
       "use typeshade";
       declare const camera: uniform<f32>;
       export function f(x: f32): f32 {
@@ -21,7 +31,7 @@ describe('declare uniform / storage', () => {
   });
 
   it('collects storage<T, "read_write"> as read_write', () => {
-    const r = compileTsSource(`
+    const r = editorAgrees(`
       "use typeshade";
       declare const pixels: storage<f32, "read_write">;
       export function f(): f32 { return 0.; }
@@ -31,7 +41,7 @@ describe('declare uniform / storage', () => {
   });
 
   it("collects storage<T> as read, which is WGSL's own default for the address space", () => {
-    const r = compileTsSource(`
+    const r = editorAgrees(`
       "use typeshade";
       declare const src: storage<f32>;
       export function f(): f32 { return src; }
@@ -41,7 +51,7 @@ describe('declare uniform / storage', () => {
   });
 
   it('rejects writing a declare const uniform', () => {
-    const r = compileTsSource(`
+    const r = editorAgrees(`
       "use typeshade";
       declare const camera: uniform<f32>;
       export function f(): void { camera = 1.; }
@@ -62,7 +72,7 @@ describe('declare uniform / storage', () => {
   // diagnostic AND that the binding was still collected.
   describe('the keyword is refused, and the binding is recovered', () => {
     it('refuses declare let on a storage binding and recovers it as read_write', () => {
-      const r = compileTsSource(`
+      const r = editorAgrees(`
         "use typeshade";
         declare let counts: storage<array<u32>>;
         @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
@@ -86,7 +96,7 @@ describe('declare uniform / storage', () => {
     it('refuses declare let on a uniform binding and recovers it as a uniform', () => {
       // Appendix B's recorded hole: measured on main this program produced ZERO diagnostics
       // and emitted `var<uniform> gain: f32;`.
-      const r = compileTsSource(`
+      const r = editorAgrees(`
         "use typeshade";
         declare let gain: uniform<f32>;
         export function f(x: f32): f32 { return x * gain; }
@@ -104,7 +114,7 @@ describe('declare uniform / storage', () => {
     // The word was discarded on this path (`isConst ? readStorageAccess(...) : 'read_write'`),
     // so a `let` that explicitly asked for `"read"` was told to write `"read_write"` — the
     // opposite mode — and was recovered as writable.
-    const r = compileTsSource(`
+    const r = editorAgrees(`
         "use typeshade";
         declare let counts: storage<array<u32>, "read">;
         export function f(): u32 { return counts[0]; }
@@ -120,7 +130,7 @@ describe('declare uniform / storage', () => {
   it('checks the word on a let declaration too', () => {
     // Measured before: this program got no TS8002 at all from the compiler, only the
     // editor's TS2344, because the word was never read on the `let` path.
-    const r = compileTsSource(`
+    const r = editorAgrees(`
         "use typeshade";
         declare let counts: storage<array<u32>, "nope">;
         export function f(): u32 { return counts[0]; }
@@ -133,7 +143,7 @@ describe('declare uniform / storage', () => {
   it('reports the missing type argument alone, without quoting a T nobody wrote', () => {
     // The keyword check used to run first and quote `storage<T, "read_write">`, a type the
     // author never wrote, beside the sentence that says the type argument is missing.
-    const r = compileTsSource(`
+    const r = editorAgrees(`
         "use typeshade";
         declare let s: storage;
         export function f(): f32 { return 0.; }
@@ -145,7 +155,7 @@ describe('declare uniform / storage', () => {
 
   describe('the access word, and what is not one', () => {
     it('refuses an access word outside the two and recovers as read_write', () => {
-      const r = compileTsSource(`
+      const r = editorAgrees(`
         "use typeshade";
         declare const dst: storage<array<f32>, "write">;
         @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
@@ -166,7 +176,7 @@ describe('declare uniform / storage', () => {
       // The second sentence answers ONE mistake, asking a buffer for the write-only mode, and
       // was printed for every other one too — including a non-literal argument, which has
       // nothing to do with `"write"`.
-      const r = compileTsSource(`
+      const r = editorAgrees(`
         "use typeshade";
         declare const dst: storage<array<f32>, "nope">;
         export function f(): f32 { return dst[0]; }
@@ -183,7 +193,7 @@ describe('declare uniform / storage', () => {
     // same array against the editor.
     it('collects every word in STORAGE_BUFFER_ACCESS, and nothing else', () => {
       for (const word of STORAGE_BUFFER_ACCESS) {
-        const r = compileTsSource(`
+        const r = editorAgrees(`
           "use typeshade";
           declare const dst: storage<array<f32>, "${word}">;
           export function f(): f32 { return dst[0]; }
@@ -194,7 +204,7 @@ describe('declare uniform / storage', () => {
         ).toEqual([]);
         expect(r.bindings[0]).toMatchObject({ name: 'dst', access: word });
       }
-      const outside = compileTsSource(`
+      const outside = editorAgrees(`
         "use typeshade";
         declare const dst: storage<array<f32>, "write_only">;
         export function f(): f32 { return dst[0]; }
@@ -203,7 +213,7 @@ describe('declare uniform / storage', () => {
     });
 
     it('refuses a second type argument on a uniform', () => {
-      const r = compileTsSource(`
+      const r = editorAgrees(`
         "use typeshade";
         interface Camera { pos: vec4 }
         declare const cam: uniform<Camera, "read">;
@@ -220,7 +230,7 @@ describe('declare uniform / storage', () => {
   // A write to a read binding is still TS8005, and the sentence now names the declaration that
   // would permit it. The first clause and its em dash are origin/main's, verbatim.
   it('names the storage<T, "read_write"> remedy on a write to a read binding', () => {
-    const r = compileTsSource(`
+    const r = editorAgrees(`
       "use typeshade";
       declare const src: storage<array<f32>>;
       @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
@@ -234,7 +244,7 @@ describe('declare uniform / storage', () => {
   });
 
   it('rejects declare const camera: Camera without a space', () => {
-    const r = compileTsSource(`
+    const r = editorAgrees(`
       "use typeshade";
       declare const camera: f32;
       export function f(): f32 { return camera; }
@@ -267,7 +277,7 @@ describe('a binding is a module-scope var, not a const (#14)', () => {
   `;
 
   it('lowers a binding read to varref and a module const read to constref', () => {
-    const r = compileTsSource(src);
+    const r = editorAgrees(src);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     const ops = new Map<string, string>();
     const walk = (n: unknown): void => {
@@ -351,7 +361,7 @@ describe('cannot assign to — the phrase names what the target actually is', ()
       ['increment', `${c.target}++`],
     ] as const) {
       it(`${c.what}, by ${path}`, () => {
-        const errors = compileTsSource(program(c.head, stmt)).diagnostics.filter(
+        const errors = editorAgrees(program(c.head, stmt)).diagnostics.filter(
           (d) => d.category === 'error',
         );
         expect(errors.map((d) => d.message)).toContain(c.expected);
@@ -361,7 +371,7 @@ describe('cannot assign to — the phrase names what the target actually is', ()
 
   it('both paths report an unknown name under the same code', () => {
     const code = (stmt: string): string | undefined =>
-      compileTsSource(program('', stmt))
+      editorAgrees(program('', stmt))
         .diagnostics.filter((d) => d.category === 'error')
         .find((d) => d.message.includes('unknown name'))?.code;
     // TS8022 (UNKNOWN_NAME) on both. `lowerAssign` used to raise TS8018 (ASSIGN_TARGET),

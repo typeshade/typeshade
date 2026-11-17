@@ -10,14 +10,17 @@ import { typeKey } from '../../core/ir/types.js';
 import type { Expr } from '../../core/ir/nodes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { withEditor } from '../../core/testing/both-halves.js';
 
-function lowerReturn(body: string, params: string, ret: string): Expr {
-  const r = compileTsSource(`
+const returning = (body: string, params: string, ret: string): string => `
     "use typeshade";
     export function f(${params}): ${ret} {
       return ${body};
     }
-  `);
+  `;
+
+function lowerReturn(body: string, params: string, ret: string): Expr {
+  const r = compileTsSource(returning(body, params, ret));
   expect(r.diagnostics).toEqual([]);
   const stmt = r.funcs[0]!.body[0]!;
   if (stmt.s !== 'return' || !stmt.expr) throw new Error(`expected a return, got ${stmt.s}`);
@@ -25,12 +28,7 @@ function lowerReturn(body: string, params: string, ret: string): Expr {
 }
 
 function diagnose(body: string, params: string, ret: string): string {
-  const r = compileTsSource(`
-    "use typeshade";
-    export function f(${params}): ${ret} {
-      return ${body};
-    }
-  `);
+  const r = withEditor(compileTsSource)(returning(body, params, ret));
   expect(r.diagnostics.length).toBeGreaterThan(0);
   return r.diagnostics[0]!.message;
 }
@@ -251,11 +249,13 @@ class P {
 
   it('keeps a wrong count TS8019, and refuses an array with no size or no zero literal', () => {
     const err = (body: string): string[] =>
-      compile(`"use typeshade";
+      withEditor(compile)(
+        `"use typeshade";
 export function f(n: u32): u32 {
 ${body}
 }
-`)
+`,
+      )
         .diagnostics.filter((d) => d.category === 'error')
         .map((d) => `${d.code} ${d.message}`);
     expect(err('  const a = array<u32, 32>(1, 2);\n  return n;')).toEqual([

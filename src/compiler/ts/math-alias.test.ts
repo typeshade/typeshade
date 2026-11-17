@@ -10,6 +10,7 @@ import { f32T, typeKey } from '../../core/ir/types.js';
 import type { Expr } from '../../core/ir/nodes.js';
 import { MATH_CONST_ALIAS, resolveMathFn } from './math-alias.js';
 import { stripSpans } from '../../core/testing/strip-spans.js';
+import { bothRefuse } from '../../core/testing/both-halves.js';
 
 function parseExpr(source: string): { expr: ts.Expression; sourceFile: ts.SourceFile } {
   const text = `const __e = ${source}`;
@@ -133,6 +134,11 @@ describe('Phase 7 - Math aliases', () => {
         diagnostics.map((d) => `${d.code} ${d.message}`),
         written,
       ).toEqual([`TS8019 Math.atan expects 1 argument, or 2 for atan(y, x), got ${count}.`]);
+      bothRefuse(
+        `"use typeshade";\nexport function f(a: f32, b: f32): f32 {\n  return ${written};\n}\n`,
+        'TS8019',
+        `Math.atan expects 1 argument, or 2 for atan(y, x), got ${count}.`,
+      );
     }
   });
 
