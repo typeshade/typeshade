@@ -32,6 +32,7 @@ import {
 } from '../lit-coerce.js';
 import { readonlyClassUpcast } from '../class-upcasts.js';
 import { lowerExpression } from './expression.js';
+import { integerConversionArg } from './integer-quotient.js';
 import { captureArguments } from './local-functions.js';
 import { lowerReferenceArgument } from './references.js';
 import { makeDiagnostic } from '../diagnostic.js';
@@ -85,7 +86,7 @@ export function lowerScalarCastCall(
     );
     return undefined;
   }
-  const lowered = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
+  let lowered = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
   if (!lowered) return undefined;
   // `f32()` of a tree whose `u32` bits and TypeScript value differ gives two values (D2).
   if (name === 'f32') {
@@ -103,16 +104,14 @@ export function lowerScalarCastCall(
       return undefined;
     }
   }
-  // `i32()` and `u32()` state an integer type: a quotient of written integers they read is
-  // truncated by that type, which is TypeScript's value truncated, so its `/` stands (issue
-  // 1261, `lit-coerce.ts` THE RULE, verdict 4; Amendment A4).
   if (name === 'i32' || name === 'u32') {
-    readKindlessExactly(lowered);
     if (isIntegerQuotient(lowered)) {
       let inner: ts.Expression = node.arguments[0]!;
       while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
       noteWrittenDivisionRead(inner, sourceFile, 'read');
     }
+    lowered = integerConversionArg(lowered, name === 'u32' ? u32T : i32T);
+    readKindlessExactly(lowered);
   }
   // A cast is a read of a constant of no fixed type: `u32(K)` converts the written number, as
   // `u32(3)` does, at its exact value (change 0134 item 2). `f32(K)` keeps the name: the
