@@ -41,7 +41,7 @@ import {
   refuseRemovedQualifiers,
   warnDecoratedForm,
 } from './decorated-form.js';
-import { emitModule } from '../../core/backends/wgsl.js';
+import { emitWgslKept } from './source-file/wgsl-lowered.js';
 import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
 import { lowerSourceFunctions } from './lower/function.js';
@@ -591,15 +591,7 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   const shouldEmit = options.emit ?? true;
   if (shouldEmit && funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
     try {
-      wgsl = emitModule({
-        consts: [...consts],
-        structs: emittedStructDecls(structs),
-        bindings: [...bindings],
-        funcs: [...funcs],
-        overrides: [...overrides],
-        vars: [...vars],
-        enables,
-      });
+      wgsl = emitWgslKept({ consts, structs, bindings, funcs, overrides, vars, enables });
     } catch (e) {
       // No fallback to emitFuncs(funcs): it emits the functions without the consts, structs
       // and bindings they reference, which is not this module's WGSL. The throw is the answer.
@@ -877,22 +869,34 @@ function markLinkedProjections(
     return startsOf.get(name);
   };
   if (projectedAnnotationStarts(entry) === undefined && projected === undefined) return;
-  const marks: number[] = [];
-  const consider = (at: number): void => {
-    if (at < 0) return;
+  // Each mark with the length of its insertion (`: T`, up to the end of the type), so that a
+  // named edit is checked without them, as `compile()` reads the files (issue 1319, A3: an
+  // import open in the editor left its projected `: f32` in the checked copy, which then
+  // refused the edit, and the editor dropped a remedy `compile()` names).
+  const marks = new Map<number, number>();
+  const consider = (at: number, end: number): void => {
+    if (at < 0 || marks.has(at)) return;
     const m = linked.map(at, at + 1);
-    if (m !== undefined && starts(m.file.name)?.has(m.start) === true) marks.push(at);
+    if (m !== undefined && starts(m.file.name)?.has(m.start) === true) marks.set(at, end - at);
   };
   const visit = (n: ts.Node): void => {
     const typed = n as { readonly type?: ts.TypeNode; readonly name?: ts.Node };
     if (typed.type !== undefined && ts.isTypeNode(typed.type)) {
-      if (typed.name !== undefined) consider(typed.name.getEnd());
-      consider(sourceFile.text.lastIndexOf(':', typed.type.getStart(sourceFile)));
+      const end = typed.type.getEnd();
+      if (typed.name !== undefined) consider(typed.name.getEnd(), end);
+      consider(sourceFile.text.lastIndexOf(':', typed.type.getStart(sourceFile)), end);
     }
     ts.forEachChild(n, visit);
   };
   visit(sourceFile);
-  if (marks.length > 0) markProjectedAnnotations(sourceFile, marks);
+  if (marks.size > 0) {
+    const sorted = [...marks.entries()].sort((a, b) => a[0] - b[0]);
+    markProjectedAnnotations(
+      sourceFile,
+      sorted.map(([at]) => at),
+      sorted.map(([, length]) => length),
+    );
+  }
 }
 
 /** Maps every `SourceSpan` the IR under `roots` carries from the linked source back to the file

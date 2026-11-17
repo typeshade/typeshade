@@ -319,6 +319,39 @@ TypeScript value of "a + b" agree, so the "f32()" does not say which value it me
     stores each compiled in 4.4 s and checked in 9.6 s in the editor, and takes 0.5 s each now;
     plain integer code of four variables with four stores each takes 0.1 s, as on `main`.
 
+- **D2 tracks a field by its declaration, not by its name** (issue #1319; change 0134,
+  Amendments A2-A6; E1; the owner's decisions of 2026-11-16). A typed field `v` of another
+  class hid a store `s.v = (0xF0000000|0)` into an untyped field `v`, and a variable or a
+  parameter with a written struct type (`s: S2`) made the untyped field `s.v` typed: `f32(a + a)`
+  after `let a = s.v` gave 3758096384, where TypeScript gives -536870912. Each is now refused
+  with the approved unproven sentence and the edit `i32(…)`. A field with a written type is
+  typed, whatever other class has a field or a getter of its name, so `f32(s.v + s.v)` and
+  `let { v } = s` of an `i32` field beside a getter `v` that returns a tree compile. Where the
+  declaration cannot be found, the walk reads the field by its name and refuses.
+  - A name is read in its scope (the owner's decision of 2026-11-17, "#1322에서 A1~A4까지"): a
+    type parameter (`function h<Q extends S2>(s: Q)`) names no class, so its fields are read by
+    name, and a mixin's base parameter that shadows a class (`class extends Base` with `Base: TB`) is
+    no class, so an untyped field reached through either is refused. The editor with an import
+    open names the edit `compile()` names: a named edit is checked without the annotations the
+    projection wrote into the import. A call through a field that holds a function
+    (`m = (x: i32) => x`) is typed only where its result is written, so `f32(b.m(ii) / 2)` is
+    refused as a division that does not say which it is.
+  - A field with no written type is always unproven beside a tree or in a position D2 reads
+    (the owner's decisions of 2026-11-17, "거부: let b = vi와 같게" and "단순 규칙: 타입 없는
+    필드는 항상 증명 못 함"), whatever reaches it: a store, an entry's parameter, a uniform,
+    storage or an object literal. `f32(a + s.v)` after `s.v = vi` is refused as
+    `let b = vi; f32(a + b)` is, with the sentence that states no numbers, and so is
+    `f32(s.v + vi)` after `return { v: (0xF0000000|0), w: 0 }`. A read whose member the source
+    does not state is unproven where some untyped field has its name, before any getter's
+    written result. A field with a written `u32` is a typed peer, and an untyped field with no
+    tree in the expression keeps its value (`s.v = 5; f32(s.v / 2)` is 2.5). An element of an
+    object pattern that reads such a field is no typed operand of `/` either: `let { v } = s;
+f32(v / 2)` after `s.v = ii` is refused, as `f32(s.v / 2)` is. A swizzle of a swizzle of a
+    written vector (`vec2u(…).yx.x`) states its type. A field whose initializer is a written conversion or a value type's
+    constructor (`v = u32(0)`, `p = vec2u(0, 0)`) states its type, as an annotation does (the
+    owner's decision of 2026-11-17, "변환식도 적은 타입"); a field of a plain number (`v = 0`)
+    does not.
+
 - **Buffer integration with the compiler refactor** (2026-11-16, change 0138). Host analysis
   keeps the Buffer overload records; the extracted host view and module generators consume them.
   TypeNN #27 migrates scalar storage and stale parameter assignment; the downstream gate pins its
@@ -2549,6 +2582,29 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
   `docs/ir-builder.md` describes the builder for engines and tools.
 
 ### Fixed
+
+- **An entry binds only what its emitted program reads** (#1337, a regression from #839). Since
+  #839 the default emit specializes a call at module scope, so `shade(uv, false)` loses the
+  branch that reads a texture. The manifest still listed that texture for the entry, from the
+  authored calls, and the entry's WebGL2 draw failed with `its GLSL declares no sampler2D`.
+  `packModule()` and the host face now list an entry's bindings from the module the WGSL writer
+  emits. The CPU tier binds a zero value for a binding its program still reads and the entry no
+  longer lists, so the entry runs there with exactly its listed bindings; an entry whose calls
+  reach a texture stays off the CPU tier. At an emit `level` other than the default, the WebGL2
+  draw skips a texture its GLSL never names.
+  - For host authors: an entry's bindings, the `bindings` argument of its call and the typed
+    manifest's binding types (change 0030) now follow the optimized program, as the owner decided
+    on 2026-11-17 ("최적화 결과 기준"). A binding that only a dropped branch or an unused value
+    read is no longer listed, and passing it is refused with "reaches no binding". The list can
+    differ by emit `level`, and the specializer's module budget can change one entry's list when
+    another entry is added.
+
+  Measured bundle budgets move (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime`
+  171589 to 171630, split total 174063 to 174086; `typeshade/emit` 117466 to 117480;
+  `typeshade/fuse` 115949 to 115991, split 17793 to 17794 and total 117013 to 117029;
+  `typeshade/algorithms` 70969 to 71019, split 69889 to 69938; `typeshade/random` 52517 to
+  52567, split 51570 to 51621: each carries the reach walk over the emitted module or the CPU
+  tier's zero values.
 
 - **An integer conversion that starts a `for` counter declares the counter's type** (Rule 7.5).
   A header name with no annotation is an `i32` (or a `u32` beside a `u32` bound) only when its

@@ -152,20 +152,6 @@ describe('gvn — cross-statement value numbering', () => {
   });
 });
 
-// ═══ Control-flow CONDITIONS (X-GIS #1886) ═══
-//
-// `valueExprs` used to return [] for every control-flow statement, so an `if`
-// condition was never tallied and never rewritten — "handled by recursion" was true
-// of the BODIES and false of the CONDITIONS.
-//
-// Measured effect on the 87-source baked corpus, before vs after a real build + bake:
-// raw call sites 12239 -> 12233, i.e. SIX. This pass earns its place as the
-// prerequisite for cross-block dominance, not on that number.
-//
-// Only the FIRST arm's condition is unconditionally evaluated, which is what makes
-// binding it to a `let` before the statement free. The two exclusions below are not
-// hypothetical caution — they are the cases that would make this unsound, and each
-// has its own arm here.
 describe('gvn — control-flow conditions (X-GIS #1886)', () => {
   it('numbers a repeat shared between an `if` condition and a later statement', () => {
     // normalize(v) is evaluated by the `if` condition on every path, then again by
@@ -217,15 +203,8 @@ describe('gvn — control-flow conditions (X-GIS #1886)', () => {
   });
 
   it('does NOT number from a `for` condition — it is re-evaluated per iteration', () => {
-    // A loop condition runs once per iteration; lifting one out is loop-invariance,
-    // which is licm's job and needs an invariance proof gvn does not have.
-    //
-    // The repeat sits on the LEFT of the `&&`, deliberately. On the RIGHT it would be
-    // excluded by the short-circuit guard whatever `valueExprs` returns, and this arm
-    // would then pass with `for` conditions tallied — i.e. prove nothing. It is the
-    // left operand that `tally` treats as unconditional, so the only thing keeping
-    // this green is `for` being absent from `valueExprs`. (`normalize(vec3(x,x,x)).x`
-    // is ±0.577, so the left operand is always true and `i < 2` still terminates.)
+    // Why: the repeat is the left operand of `&&`. On the right the short-circuit guard
+    // excludes it, and this test would pass with `for` conditions tallied.
     const m = module({
       funcs: [
         fn('l', { x: f32T }, f32T, ({ x }, b) => {
@@ -878,11 +857,6 @@ describe('gvn — cross-block dominance (the fp64 escape loop)', () => {
   });
 
   it('every temp is read at least twice — a reuse the rewrite masks is denied, not left behind', () => {
-    // The reach check sees normalize(v).x inside the nested `if` and proposes a temp for it in
-    // the arm. But that occurrence sits inside normalize(v).x + 1, which the OUTER block has
-    // already bound, and the rewrite takes the larger temp first: the proposed temp would be
-    // read once, by `c`. gvnFn counts the reads of the real output, denies it for that block
-    // and numbers the function again.
     const m = module({
       funcs: [
         fn('mk', { x: f32T }, f32T, ({ x }, b) => {

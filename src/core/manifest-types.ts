@@ -231,7 +231,7 @@ export interface PackEntry {
   readonly workgroupSizeOverrides?: readonly [string | null, string | null, string | null];
   readonly inputs?: readonly PackIo[];
   readonly outputs?: readonly PackIo[];
-  /** The bindings the entry reaches through its calls, and whether it writes each. */
+  /** The bindings the emitted entry reaches through its calls, and whether it writes each. */
   readonly bindings?: readonly { readonly name: string; readonly writes: boolean }[];
   /** A vertex entry's vertex buffer, tightly packed, with formats. */
   readonly vertex?: GpuVertexLayout;

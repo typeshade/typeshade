@@ -2635,6 +2635,692 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     },
   );
 
+  // Issue #1319 (the fifth review of #1304) and the owner's decision of 2026-11-16 ("#1304 머지,
+  // 필드는 다음 PR"): a field is tracked by its declaration, not by its name. A typed field of
+  // another class does not hide a store into an untyped field, and a variable or a parameter
+  // with a written struct type does not make an untyped field typed (E1). Each is refused in
+  // both halves with the approved unproven sentence, and its edit compiles to its value.
+  const S2_1319 = 'class S2 { v = 0; w = 0; }\n';
+  const Q_1319 = 'class Q { v: i32 = 0; }\n';
+  const STORE_1319 = 'let s = new S2(); s.v = (0xF0000000|0); ';
+  it.each([
+    [
+      'case 1: a typed field of another class, a pattern',
+      `${Q_1319}${S2_1319}${FN2}  ${STORE_1319}let { v } = s; return f32(v + v);\n}\n`,
+      'v + v',
+      'f32()',
+      'f32(v + v)',
+      'f32(i32(v + v))',
+      -536870912,
+    ],
+    [
+      'case 1: a typed field of another class, a property access',
+      `${Q_1319}${S2_1319}${FN2}  ${STORE_1319}let a = s.v; return f32(a + a);\n}\n`,
+      'a + a',
+      'f32()',
+      'f32(a + a)',
+      'f32(i32(a + a))',
+      -536870912,
+    ],
+    [
+      'case 1: a typed field of another class, a store in a method',
+      `${Q_1319}class S4 { v = 0; set(): void { this.v = (0xF0000000|0); } }\n${FN2}  let s = new S4(); s.set(); let a = s.v; return f32(a + a);\n}\n`,
+      'a + a',
+      'f32()',
+      'f32(a + a)',
+      'f32(i32(a + a))',
+      -536870912,
+    ],
+    [
+      'case 1: a field of a base class',
+      `class B { v = 0; }\nclass D extends B { w: i32 = 0; }\n${Q_1319}${FN2}  let s = new D(); s.v = (0xF0000000|0); let a = s.v; return f32(a + a);\n}\n`,
+      'a + a',
+      'f32()',
+      'f32(a + a)',
+      'f32(i32(a + a))',
+      -536870912,
+    ],
+    [
+      'case 2: a variable with a written struct type',
+      `${S2_1319}${FN2}  let s: S2 = new S2(); s.v = (0xF0000000|0); let a = s.v; return f32(a + a);\n}\n`,
+      'a + a',
+      'f32()',
+      'f32(a + a)',
+      'f32(i32(a + a))',
+      -536870912,
+    ],
+    [
+      'case 2: a parameter with a written struct type',
+      `${S2_1319}function h(s: S2): f32 { return f32(s.v + s.v); }\n${FN2}  ${STORE_1319}return h(s);\n}\n`,
+      's.v + s.v',
+      'f32()',
+      'f32(s.v + s.v)',
+      'f32(i32(s.v + s.v))',
+      -536870912,
+    ],
+    [
+      'case 2: a parameter with a written struct type, compared',
+      `${S2_1319}function h(s: S2): f32 { return s.v < 0 ? 1.0 : 2.0; }\n${FN2}  ${STORE_1319}return h(s);\n}\n`,
+      's.v',
+      '<',
+      's.v < 0',
+      'i32(s.v) < 0',
+      1,
+    ],
+    [
+      'a member the source does not state, read by its name',
+      `${Q_1319}${S2_1319}${FN2}  ${STORE_1319}let a = (vi > 2 ? s : s).v; return f32(a + a);\n}\n`,
+      'a + a',
+      'f32()',
+      'f32(a + a)',
+      'f32(i32(a + a))',
+      -536870912,
+    ],
+  ] as const)(
+    'issue #1319 (D2): %s is refused in both halves, and its edit compiles',
+    (_, main, subject, at, written, edit, value) => {
+      const source = `"use typeshade";\n${main}`;
+      expect(both(source)).toEqual([unproven1299(subject, at, `i32(${subject})`)]);
+      const fixed = source.replace(written, edit);
+      expect(fixed).not.toEqual(source);
+      expect(both(fixed)).toEqual([]);
+      expect(compile(fixed).eval('t', [-3, 7, 2.5])).toBe(value);
+    },
+  );
+
+  it('issue #1319 (D2): case 1 with the typed field in an import, the lib closed and open', () => {
+    const lib = `${HEAD2}export ${Q_1319}`;
+    const main =
+      `${HEAD2}import { Q } from "./lib.shade";\n${S2_1319}${FN2}  const q = new Q();\n` +
+      `  ${STORE_1319}let { v } = s; return f32(v + v) + f32(q.v);\n}\n`;
+    const [compiled, closed, libFirst, mainFirst] = linkedHalves(lib, main);
+    expect(compiled).toEqual([unproven1299('v + v', 'f32()', 'i32(v + v)')]);
+    expect(closed).toEqual(compiled);
+    expect(libFirst).toEqual(compiled);
+    expect(mainFirst).toEqual(compiled);
+    const fixed = main.replace('f32(v + v)', 'f32(i32(v + v))');
+    expect(linkedHalves(lib, fixed)).toEqual([[], [], [], []]);
+    const read = (u: string): string | undefined =>
+      u === LIB ? lib : u === MAIN ? fixed : undefined;
+    const linked = compile(fixed, { fileName: MAIN, readDocument: read });
+    expect(linked.eval('t', [-3, 7, 2.5])).toBe(-536870912);
+  });
+
+  it.each([
+    ['a pattern', 'let { v } = s; return f32(v + v);'],
+    ['a property access', 'return f32(s.v + s.v);'],
+  ] as const)(
+    'issue #1319 (D2): a typed field beside a getter of its name that returns a tree compiles: %s',
+    (_, read) => {
+      const source =
+        '"use typeshade";\nclass C { get v() { return (0xF0000000|0); } }\nclass S { v: i32 = 0; }\n' +
+        `${FN2}  let s = new S(); s.v = -3; ${read}\n}\n`;
+      expect(both(source)).toEqual([]);
+      expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(-6);
+    },
+  );
+
+  it('issue #1319 (D2): a field with a written type stays typed when a tree is stored in it', () => {
+    const source = `"use typeshade";\nclass S { v: u32 = 0; }\n${FN2}  let s: S = new S(); s.v = (0xF0000000|0); return f32(s.v + s.v);\n}\n`;
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(3758096384);
+  });
+
+  // The review of #1322 and the owner's decisions of 2026-11-17 ("#1322에서 A1~A4까지" and
+  // "거부: let b = vi와 같게"): a name is read in its scope, so a type parameter or a mixin's
+  // parameter that shadows a class of the file is not that class (A1, A2); the editor with an
+  // import open names the edit `compile()` names (A3); a call through a field that holds a
+  // function is typed only where its result is written (A4); an untyped field is no typed peer
+  // (B1). Each refusal is checked in both halves with its exact text, and its edit compiles.
+  /** Both halves give `expected`; the program with `edits` made gives none and `value`. */
+  const refusedThenEdited = (
+    source: string,
+    expected: readonly string[],
+    edits: readonly (readonly [string, string])[],
+    value: number,
+  ): void => {
+    expect(both(source)).toEqual(expected);
+    let fixed = source;
+    for (const [from, to] of edits) {
+      expect(fixed).toContain(from);
+      fixed = fixed.replace(from, to);
+    }
+    expect(both(fixed)).toEqual([]);
+    expect(compile(fixed).eval('t', [-3, 7, 2.5])).toBe(value);
+  };
+  const GENERIC_1319 = `${Q_1319}${S2_1319}`;
+  const CALL_H = `${FN2}  ${STORE_1319}return h(s);\n}\n`;
+  it.each([
+    [
+      'a property access',
+      'function h<Q extends S2>(s: Q): f32 { return f32(s.v + s.v); }\n',
+      's.v + s.v',
+      'f32()',
+      'f32(s.v + s.v)',
+      'f32(i32(s.v + s.v))',
+      -536870912,
+    ],
+    [
+      'a local copy of the field',
+      'function h<Q extends S2>(s: Q): f32 { let a = s.v; return f32(a + a); }\n',
+      'a + a',
+      'f32()',
+      'f32(a + a)',
+      'f32(i32(a + a))',
+      -536870912,
+    ],
+    [
+      'a pattern',
+      'function h<Q extends S2>(s: Q): f32 { let { v } = s; return f32(v + v); }\n',
+      'v + v',
+      'f32()',
+      'f32(v + v)',
+      'f32(i32(v + v))',
+      -536870912,
+    ],
+    [
+      'a variable of the type parameter',
+      'function h<Q extends S2>(s: Q): f32 { let x: Q = s; return f32(x.v + x.v); }\n',
+      'x.v + x.v',
+      'f32()',
+      'f32(x.v + x.v)',
+      'f32(i32(x.v + x.v))',
+      -536870912,
+    ],
+    [
+      'a comparison',
+      'function h<Q extends S2>(s: Q): f32 { return s.v < 0 ? 1.0 : 2.0; }\n',
+      's.v',
+      '<',
+      's.v < 0',
+      'i32(s.v) < 0',
+      1,
+    ],
+  ] as const)(
+    'review of #1322, A1: a type parameter that shadows a class is no class, and its fields are read by name, through %s',
+    (_, h, subject, at, written, edit, value) => {
+      refusedThenEdited(
+        `"use typeshade";\n${GENERIC_1319}${h}${CALL_H}`,
+        [unproven1299(subject, at, `i32(${subject})`)],
+        [[written, edit]],
+        value,
+      );
+    },
+  );
+
+  it("review of #1322, A1: a generic class's type parameter that shadows a class is no class", () => {
+    const source =
+      `"use typeshade";\n${GENERIC_1319}class Box<Q extends S2> { s: Q; constructor(s: Q) { this.s = s; } ` +
+      'get(): f32 { return f32(this.s.v + this.s.v); } }\n' +
+      `${FN2}  ${STORE_1319}let b = new Box<S2>(s); return b.get();\n}\n`;
+    refusedThenEdited(
+      source,
+      [unproven1299('this.s.v + this.s.v', 'f32()', 'i32(this.s.v + this.s.v)')],
+      [['f32(this.s.v + this.s.v)', 'f32(i32(this.s.v + this.s.v))']],
+      -536870912,
+    );
+  });
+
+  const MIX_1319 =
+    'class Base { v: i32 = 0; }\nclass S2 { v = 0; }\n' +
+    'function Mix<TB extends new (...args: any[]) => S2>(Base: TB) { return class extends Base { ' +
+    'set(): void { this.v = (0xF0000000|0); } sum(): f32 { return f32(this.v + this.v); } }; }\n' +
+    'class D extends Mix(S2) { }\n';
+  const SUM_1319 = unproven1299('this.v + this.v', 'f32()', 'i32(this.v + this.v)');
+  const SUM_EDIT = ['f32(this.v + this.v)', 'f32(i32(this.v + this.v))'] as const;
+  it.each([
+    [
+      'a store in the mixin, a read outside',
+      'let d = new D(); d.set(); return f32(d.v + d.v);',
+      [SUM_1319, unproven1299('d.v + d.v', 'f32()', 'i32(d.v + d.v)')],
+      [SUM_EDIT, ['f32(d.v + d.v)', 'f32(i32(d.v + d.v))']],
+    ],
+    [
+      'a store and a read in the mixin',
+      'let d = new D(); d.set(); return d.sum();',
+      [SUM_1319],
+      [SUM_EDIT],
+    ],
+    [
+      'a store in the mixin, a pattern outside',
+      'let d = new D(); d.set(); let { v } = d; return f32(v + v);',
+      [SUM_1319, unproven1299('v + v', 'f32()', 'i32(v + v)')],
+      [SUM_EDIT, ['f32(v + v)', 'f32(i32(v + v))']],
+    ],
+    [
+      'a store outside, a read in the mixin',
+      'let d = new D(); d.v = (0xF0000000|0); return d.sum();',
+      [SUM_1319],
+      [SUM_EDIT],
+    ],
+  ] as const)(
+    "review of #1322, A2: a mixin's base parameter that shadows a class is no class: %s",
+    (_, body, expected, edits) => {
+      refusedThenEdited(
+        `"use typeshade";\n${MIX_1319}${FN2}  ${body}\n}\n`,
+        expected,
+        edits,
+        -536870912,
+      );
+    },
+  );
+
+  it.each([
+    ['a property access', 'return f32(s.v + s.v);', 's.v + s.v'],
+    ['a local copy of the field', 'let a = s.v; return f32(a + a);', 'a + a'],
+    ['a pattern', 'let { v } = s; return f32(v + v);', 'v + v'],
+    ['a variable with a written struct type', 'return f32(t2.v + t2.v);', 't2.v + t2.v'],
+  ] as const)(
+    'review of #1322, A3: an untyped field of an import, read through %s, names its edit with the lib closed and open',
+    (_, read, subject) => {
+      const lib = `${HEAD2}export ${S2_1319}`;
+      const store = read.includes('t2')
+        ? 'let t2: S2 = new S2(); t2.v = (0xF0000000|0); '
+        : STORE_1319;
+      const main = `${HEAD2}import { S2 } from "./lib.shade";\n${FN2}  ${store}${read}\n}\n`;
+      const want = [unproven1299(subject, 'f32()', `i32(${subject})`)];
+      expect(linkedHalves(lib, main)).toEqual([want, want, want, want]);
+      const fixed = main.replace(`f32(${subject})`, `f32(i32(${subject}))`);
+      expect(linkedHalves(lib, fixed)).toEqual([[], [], [], []]);
+      const files: Record<string, string> = { [LIB]: lib, [MAIN]: fixed };
+      const linked = compile(fixed, { fileName: MAIN, readDocument: (u) => files[u] });
+      expect(linked.eval('t', [-3, 7, 2.5])).toBe(-536870912);
+    },
+  );
+
+  const DIV_1319 = (call: string): string =>
+    `TS8003: "${call}" is an integer by its bit operator, and no operand of "${call} / 2" has a ` +
+    `declared type, so the "/" does not say which division it is. Write "f32(${call}) / 2" for ` +
+    'the float division.';
+  it.each([
+    ['an arrow with no written result', 'class B { m = (x: i32) => x; }\n'],
+    [
+      'beside a typed method of that name',
+      'class A { m(x: i32): i32 { return x; } }\nclass B { m = (x: i32) => x; }\n',
+    ],
+  ] as const)(
+    'review of #1322, A4: a call through a field that holds a function is no written type: %s',
+    (_, pre) => {
+      refusedThenEdited(
+        `"use typeshade";\n${pre}${FN2}  let b = new B(); return f32(b.m(ii) / 2);\n}\n`,
+        [DIV_1319('b.m(ii)')],
+        [['f32(b.m(ii) / 2)', 'f32(f32(b.m(ii)) / 2)']],
+        -1.5,
+      );
+    },
+  );
+
+  it('review of #1322, A4: a field that holds an arrow with a written result is typed', () => {
+    const source = `"use typeshade";\nclass B { m = (x: i32): i32 => x; }\n${FN2}  let b = new B(); return f32(b.m(ii) / 2);\n}\n`;
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(-1);
+  });
+
+  // The owner's decision of 2026-11-17, "단순 규칙: 타입 없는 필드는 항상 증명 못 함": a field
+  // with no written type is always unproven beside a tree, so it is said with the sentence that
+  // states no numbers, as `let b = vi` is.
+  const B1_1319 = (subject: string): string => unproven1299(subject, 'f32()', `i32(${subject})`);
+  it.each([
+    ['a let, the control', '', 'let b = vi; return f32(a + b);', 'a + b'],
+    [
+      'a property access',
+      'class S2 { v = 0; }\n',
+      'let s = new S2(); s.v = vi; return f32(a + s.v);',
+      'a + s.v',
+    ],
+    [
+      'a pattern',
+      'class S2 { v = 0; }\n',
+      'let s = new S2(); s.v = vi; let { v } = s; return f32(a + v);',
+      'a + v',
+    ],
+    [
+      'a renamed pattern',
+      'class S2 { v = 0; }\n',
+      'let s = new S2(); s.v = vi; let { v: b } = s; return f32(a + b);',
+      'a + b',
+    ],
+  ] as const)(
+    'review of #1322, B1: an untyped field is no typed peer, as a let is not: %s',
+    (_, pre, body, subject) => {
+      refusedThenEdited(
+        `"use typeshade";\n${pre}${FN2}  let a = (0xF0000000|0); ${body}\n}\n`,
+        [B1_1319(subject)],
+        [[`f32(${subject})`, `f32(i32(${subject}))`]],
+        -268435449,
+      );
+    },
+  );
+
+  it('review of #1322, B1: a field with a written u32 is a typed peer', () => {
+    const source = `"use typeshade";\nclass Q { v: u32 = 0; }\n${FN2}  let a = (0xF0000000|0); let s = new Q(); s.v = vi; return f32(a + s.v);\n}\n`;
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(4026531847);
+  });
+
+  // The second review of #1322 and the owner's decision of 2026-11-17, "단순 규칙: 타입 없는
+  // 필드는 항상 증명 못 함": a field with no written type is always unproven beside a tree or in
+  // a position D2 reads, whatever reaches it (a store the walk lists or not: an entry's
+  // parameter, a uniform, storage, an object literal); a type parameter names no class, so its
+  // fields are read by name; a read by name of a field name some untyped field has is unproven,
+  // before any getter's written result. Each is refused in both halves with the approved
+  // sentence, and its edit compiles to its value.
+  const S2W = 'class S2 { v = 0; w = 0; }\n';
+  it.each([
+    [
+      'R extends Q, called at S2',
+      `${Q_1319}${S2W}function h<R extends Q>(s: R): f32 { return f32(s.v + s.v); }\n${FN2}  ${STORE_1319}return h<S2>(s);\n}\n`,
+      's.v + s.v',
+      'f32()',
+      'f32(s.v + s.v)',
+      'f32(i32(s.v + s.v))',
+      -536870912,
+    ],
+    [
+      'R extends Q, inferred',
+      `${Q_1319}${S2W}function h<R extends Q>(s: R): f32 { return f32(s.v + s.v); }\n${FN2}  ${STORE_1319}return h(s);\n}\n`,
+      's.v + s.v',
+      'f32()',
+      'f32(s.v + s.v)',
+      'f32(i32(s.v + s.v))',
+      -536870912,
+    ],
+    [
+      'R extends an interface',
+      `interface I { v: i32; }\n${S2W}function h<R extends I>(s: R): f32 { return f32(s.v + s.v); }\n${FN2}  ${STORE_1319}return h(s);\n}\n`,
+      's.v + s.v',
+      'f32()',
+      'f32(s.v + s.v)',
+      'f32(i32(s.v + s.v))',
+      -536870912,
+    ],
+    [
+      'R extends Q, a pattern',
+      `${Q_1319}${S2W}function h<R extends Q>(s: R): f32 { let { v } = s; return f32(v + v); }\n${FN2}  ${STORE_1319}return h(s);\n}\n`,
+      'v + v',
+      'f32()',
+      'f32(v + v)',
+      'f32(i32(v + v))',
+      -536870912,
+    ],
+    [
+      'R extends Q, a comparison',
+      `${Q_1319}${S2W}function h<R extends Q>(s: R): f32 { return s.v < 0 ? 1.0 : 2.0; }\n${FN2}  ${STORE_1319}return h(s);\n}\n`,
+      's.v',
+      '<',
+      's.v < 0',
+      'i32(s.v) < 0',
+      1,
+    ],
+    [
+      'class Box<R extends Q>',
+      `${Q_1319}${S2W}class Box<R extends Q> { s: R; constructor(s: R) { this.s = s; } m(): f32 { return f32(this.s.v + this.s.v); } }\n${FN2}  ${STORE_1319}let b = new Box<S2>(s); return b.m();\n}\n`,
+      'this.s.v + this.s.v',
+      'f32()',
+      'f32(this.s.v + this.s.v)',
+      'f32(i32(this.s.v + this.s.v))',
+      -536870912,
+    ],
+    [
+      'an object literal a function returns, beside a typed peer',
+      `${S2W}function mk(): S2 { return { v: (0xF0000000|0), w: 0 }; }\n${FN2}  let s = mk(); return f32(s.v + vi);\n}\n`,
+      's.v + vi',
+      'f32()',
+      'f32(s.v + vi)',
+      'f32(i32(s.v + vi))',
+      -268435449,
+    ],
+    [
+      'an object literal of a parameter',
+      `${S2W}function mk(x: u32): S2 { return { v: x, w: 0 }; }\n${FN2}  let a = (0xF0000000|0); return f32(a * mk(vi).v);\n}\n`,
+      'a * mk(vi).v',
+      'f32()',
+      'f32(a * mk(vi).v)',
+      'f32(i32(a * mk(vi).v))',
+      -1879048192,
+    ],
+    [
+      'a getter with a written u32 of that name, through an owner the source does not state',
+      `class G { get v(): u32 { return 1; } }\nclass S2 { v = 0; }\n${FN2}  let a = (0xF0000000|0); let s = new S2(); s.v = vi; let x = (vi > 2 ? s : s); return f32(a + x.v);\n}\n`,
+      'a + x.v',
+      'f32()',
+      'f32(a + x.v)',
+      'f32(i32(a + x.v))',
+      -268435449,
+    ],
+    [
+      'a getter that returns 0 of that name, through an owner the source does not state',
+      `class G { get v() { return 0; } }\nclass S2 { v = 0; }\n${FN2}  let a = (0xF0000000|0); let s = new S2(); s.v = vi; let x = (vi > 2 ? s : s); return f32(a * x.v);\n}\n`,
+      'a * x.v',
+      'f32()',
+      'f32(a * x.v)',
+      'f32(i32(a * x.v))',
+      -1879048192,
+    ],
+  ] as const)(
+    'second review of #1322: an untyped field is always unproven: %s',
+    (_, main, subject, at, written, edit, value) => {
+      refusedThenEdited(
+        `"use typeshade";\n${main}`,
+        [unproven1299(subject, at, `i32(${subject})`)],
+        [[written, edit]],
+        value,
+      );
+    },
+  );
+
+  it("second review of #1322: an untyped field of an entry's parameter is unproven", () => {
+    const source = `"use typeshade";\n${S2W}export function t(s: S2): f32 {\n  let a = (0xF0000000|0); return f32(a * s.v);\n}\n`;
+    expect(both(source)).toEqual([unproven1299('a * s.v', 'f32()', 'i32(a * s.v)')]);
+    const fixed = source.replace('f32(a * s.v)', 'f32(i32(a * s.v))');
+    expect(both(fixed)).toEqual([]);
+    expect(compile(fixed).eval('t', [{ v: 7, w: 0 }])).toBe(-1879048192);
+  });
+
+  it.each([
+    [
+      'a uniform copied into a variable',
+      'declare const u: uniform<S2>;\n',
+      '',
+      'let a = (0xF0000000|0); let s: S2 = u; return f32(a * s.v);',
+    ],
+    [
+      'storage passed to a function',
+      'declare const b: storage<array<S2>, "read">;\n',
+      'function g(s: S2): f32 { let a = (0xF0000000|0); return f32(a * s.v); }\n',
+      'return g(b[0]);',
+    ],
+    [
+      'a uniform passed to a function',
+      'declare const u: uniform<S2>;\n',
+      'function g(s: S2): f32 { let a = (0xF0000000|0); return f32(a * s.v); }\n',
+      'return g(u);',
+    ],
+  ] as const)(
+    'second review of #1322: an untyped field of %s is unproven, and its edit compiles',
+    (_, binding, g, body) => {
+      const source = `"use typeshade";\n${S2W}${binding}${g}${FN2}  ${body}\n}\n`;
+      expect(both(source)).toEqual([unproven1299('a * s.v', 'f32()', 'i32(a * s.v)')]);
+      expect(both(source.replace('f32(a * s.v)', 'f32(i32(a * s.v))'))).toEqual([]);
+    },
+  );
+
+  it('second review of #1322: an object literal a function returns, compared, is unproven', () => {
+    // The first refusal is the inference of `S2.v` from the literal, which is outside D2.
+    const source = `"use typeshade";\n${S2W}function mk(): S2 { return { v: (0xF0000000|0), w: 0 }; }\n${FN2}  let s = mk(); return s.v < vi ? 1.0 : 2.0;\n}\n`;
+    const got = both(source);
+    expect(got).toContain(unproven1299('s.v', '<', 'u32(s.v)'));
+  });
+
+  it('second review of #1322: an untyped field with no tree in the expression keeps its value', () => {
+    const source = `"use typeshade";\n${S2W}${FN2}  let s = new S2(); s.v = 5; return f32(s.v / 2);\n}\n`;
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(2.5);
+  });
+
+  // The third review of #1322, within the owner's decision of 2026-11-17 ("단순 규칙: 타입 없는
+  // 필드는 항상 증명 못 함", which names `/`): an element of an object pattern that reads a field
+  // with no written type is no typed operand of `/`, as `s.v` is not (A); a swizzle of a written
+  // vector is a value type at every depth, so `.yx.x` states its type (B).
+  const S_1319 = 'class S { v = 0; }\n';
+  const DIVIDED = (x: string): string =>
+    `TS8003: "${x}" is an integer by its bit operator, and no operand of "${x} / 2" has a ` +
+    `declared type, so the "/" does not say which division it is. Write "f32(${x}) / 2" for ` +
+    'the float division.';
+  it.each([
+    [
+      'a pattern',
+      S_1319,
+      'let s = new S(); s.v = ii; let { v } = s; return f32(v / 2);',
+      'v',
+      -1.5,
+    ],
+    [
+      'a renamed pattern',
+      S_1319,
+      'let s = new S(); s.v = ii; let { v: q } = s; return f32(q / 2);',
+      'q',
+      -1.5,
+    ],
+    [
+      'a const pattern',
+      S_1319,
+      'let s = new S(); s.v = ii; const { v } = s; return f32(v / 2);',
+      'v',
+      -1.5,
+    ],
+    [
+      "a constructor's store",
+      'class S { v = 0; constructor(x: i32) { this.v = x; } }\n',
+      'let s = new S(ii); let { v } = s; return f32(v / 2);',
+      'v',
+      -1.5,
+    ],
+    [
+      'a pattern of a parameter',
+      `${S_1319}function g(s: S): f32 { let { v } = s; return f32(v / 2); }\n`,
+      'let s = new S(); s.v = ii; return g(s);',
+      'v',
+      -1.5,
+    ],
+    [
+      'a copy of the element',
+      S_1319,
+      'let s = new S(); s.v = ii; let { v } = s; let r = v; return f32(r / 2);',
+      'r',
+      -1.5,
+    ],
+    [
+      'a u32 stored',
+      S_1319,
+      'let s = new S(); s.v = vi; let { v } = s; return f32(v / 2);',
+      'v',
+      3.5,
+    ],
+  ] as const)(
+    'third review of #1322, A: an element of %s that reads an untyped field is no typed operand of /',
+    (_, pre, body, x, value) => {
+      refusedThenEdited(
+        `"use typeshade";\n${pre}${FN2}  ${body}\n}\n`,
+        [DIVIDED(x)],
+        [[`f32(${x} / 2)`, `f32(f32(${x}) / 2)`]],
+        value,
+      );
+    },
+  );
+
+  it('third review of #1322, A: a comparison of the quotient of a pattern element computes as TypeScript does', () => {
+    // A comparison reads the quotient of a value of no declared type as TypeScript does (the
+    // value of #1322's third review was 2.0, against TypeScript's 1.0).
+    const source = `"use typeshade";\n${S_1319}${FN2}  let s = new S(); s.v = ii; let { v } = s; return (v / 2) < -1 ? 1.0 : 2.0;\n}\n`;
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(1);
+  });
+
+  it('third review of #1322, A: the access form of that comparison stays refused, and its edit compiles', () => {
+    const source = `"use typeshade";\n${S_1319}${FN2}  let s = new S(); s.v = ii; return (s.v / 2) < -1 ? 1.0 : 2.0;\n}\n`;
+    refusedThenEdited(
+      source,
+      [
+        'TS8003: "v" is an i32 where another line reads it, and no operand of "s.v / 2" has a ' +
+          'declared type, so the "/" does not say which division it is. Write "f32(s.v) / 2" ' +
+          'for the float division.',
+      ],
+      [['(s.v / 2)', '(f32(s.v) / 2)']],
+      1,
+    );
+  });
+
+  it.each([
+    ['a constructor', 'return f32(vec2u(1, (~(0xF0000000|0))).yx.x + vi);', 268435462],
+    ['a local', 'let p = vec2u(1, ~(0xF0000000|0)); return f32((vi ^ p.yx.x) % 5);', 3],
+    ['a bit operator', 'let a = (vi*vi) ^ vec2u(1, ~(0xF0000000|0)).yx.x; return f32(a % 5);', 1],
+  ] as const)(
+    'third review of #1322, B: a swizzle of a swizzle of a written vector states its type: %s',
+    (_, body, value) => {
+      const source = `"use typeshade";\n${FN2}  ${body}\n}\n`;
+      expect(both(source)).toEqual([]);
+      expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(value);
+    },
+  );
+
+  // The fourth review of #1322 and the owner's decision of 2026-11-17, "변환식도 적은 타입": a
+  // field whose initializer is a written conversion or a value type's constructor (`v = u32(0)`,
+  // `p = vec2u(0, 0)`) states its type, as an annotation does. A field of a plain number
+  // (`v = 0`) states none, and stays unproven.
+  it.each([
+    ['a property access', 'return f32(s.v / 2);'],
+    ['a pattern', 'let { v } = s; return f32(v / 2);'],
+  ] as const)(
+    'fourth review of #1322: a field initialized by u32(0) is a u32, read through %s',
+    (_, read) => {
+      const source = `"use typeshade";\nclass S { v = u32(0); }\n${FN2}  let s = new S(); s.v = vi; ${read}\n}\n`;
+      expect(both(source)).toEqual([]);
+      expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(3);
+    },
+  );
+
+  it.each([
+    [
+      'u32(0) beside a tree',
+      'class S { v = u32(0); }\n',
+      'class S { v: u32 = 0; }\n',
+      'let a = (0xF0000000|0); let s = new S(); s.v = vi; return f32(s.v + a);',
+    ],
+    [
+      'vec2u(0, 0) under a swizzle',
+      'class S { p = vec2u(0, 0); }\n',
+      'class S { p: vec2u = vec2u(0, 0); }\n',
+      'let s = new S(); s.p = vec2u(1, ~(0xF0000000|0)); return f32(s.p.yx.x + vi);',
+    ],
+  ] as const)(
+    'fourth review of #1322: a field of %s compiles as the annotated field does',
+    (_, converted, annotated, body) => {
+      const source = `"use typeshade";\n${converted}${FN2}  ${body}\n}\n`;
+      const control = `"use typeshade";\n${annotated}${FN2}  ${body}\n}\n`;
+      expect(both(source)).toEqual([]);
+      expect(both(control)).toEqual([]);
+      expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(
+        compile(control).eval('t', [-3, 7, 2.5]) as number,
+      );
+    },
+  );
+
+  it('fourth review of #1322: a field of a plain number stays unproven beside a tree', () => {
+    refusedThenEdited(
+      `"use typeshade";\nclass S { v = 0; }\n${FN2}  let a = (0xF0000000|0); let s = new S(); s.v = vi; return f32(s.v + a);\n}\n`,
+      [unproven1299('s.v + a', 'f32()', 'i32(s.v + a)')],
+      [['f32(s.v + a)', 'f32(i32(s.v + a))']],
+      -268435449,
+    );
+  });
+
+  it('issue #1319 (D2): a component of a value type states its type beside an untyped field of its name', () => {
+    const source = `"use typeshade";\nclass S2 { x = 0; }\n${FN2}  let s = new S2(); s.x = (0xF0000000|0); let p: vec2u = vec2u(3, 4); return f32(p.x + p.x);\n}\n`;
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(6);
+  });
+
   it('second review of #1304 (D2): a mask of low bits over proven readings is computed, and compiles', () => {
     const source = T12(A1299 + 'return f32((a & 0xFF) + 1);', 'f32');
     expect(both(source)).toEqual([]);
