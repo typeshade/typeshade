@@ -90,3 +90,26 @@ export function bothRefuse(
   }
   return halves;
 }
+
+interface Diagnosed {
+  readonly diagnostics: readonly { category: string; code?: string; message: string }[];
+}
+
+export function withEditor<A extends unknown[], R extends Diagnosed>(
+  read: (source: string, ...rest: A) => R,
+): (source: string, ...rest: A) => R {
+  return (source, ...rest) => {
+    const result = read(source, ...rest);
+    const editor = bothHalves(source).editor;
+    const missing = result.diagnostics
+      .filter((d) => d.category === 'error')
+      .map((d) => `typeshade ${d.code ?? ''}: ${d.message}`)
+      .filter((line) => !editor.includes(line));
+    if (missing.length > 0) {
+      throw new Error(
+        `the editor did not report:\n${missing.join('\n')}\nit reported:\n${editor.join('\n')}`,
+      );
+    }
+    return result;
+  };
+}

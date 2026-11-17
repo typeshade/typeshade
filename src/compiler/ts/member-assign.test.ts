@@ -12,6 +12,7 @@ import { typeKey } from '../../core/ir/types.js';
 import type { Expr, ModuleDecl, Stmt } from '../../core/ir/nodes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { withEditor } from '../../core/testing/both-halves.js';
 
 const STRUCTS = `
   class P {
@@ -26,17 +27,16 @@ function lowerBody(source: string): readonly Stmt[] {
   return r.funcs[0]!.body;
 }
 
-function diagnose(source: string): string {
-  const r = compileTsSource(`"use typeshade";\n${source}`);
+function first(source: string): { code?: string; message: string } {
+  const r = withEditor(compileTsSource)(`"use typeshade";\n${source}`);
   expect(r.diagnostics.length).toBeGreaterThan(0);
-  return r.diagnostics[0]!.message;
+  return r.diagnostics[0]!;
 }
 
-function code(source: string): string | undefined {
-  const r = compileTsSource(`"use typeshade";\n${source}`);
-  expect(r.diagnostics.length).toBeGreaterThan(0);
-  return r.diagnostics[0]!.code;
+function diagnose(source: string): string {
+  return first(source).message;
 }
+const code = (source: string): string | undefined => first(source).code;
 
 function expectMember(e: Expr, field: string, type: string, base: (x: Expr) => void): void {
   expect(e.op).toBe('member');

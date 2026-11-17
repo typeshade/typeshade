@@ -15,6 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { migrateSource } from './migrate.js';
 import { runCli, type CliHost } from './run.js';
 import { compile } from '../compiler/ts/compile.js';
+import { withEditor } from '../core/testing/both-halves.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -83,7 +84,7 @@ export function scale(xs: array<f32>) {
     const refusal = (callee: string, written: string) =>
       `error TS8028 ${callee === 'workgroup_size' ? "a kernel's size" : 'a stage'} is an attribute on the function declaration: write "${written}", or run "tshc migrate" (change 0130)`;
     expect(
-      compile(before)
+      withEditor(compile)(before)
         .diagnostics.filter((d) => d.category === 'error')
         .map((d) => `${d.category} ${d.code} ${d.message}`),
     ).toEqual([
@@ -197,9 +198,9 @@ declare const out: storage<array<f32>, "read_write">;
     expect(migrateSource(after)).toEqual({ text: after, changes: 0, skipped: [] });
     // The entry as written is refused on `default` (Rule 8.1, change 0140); the named entry the
     // rewrite writes compiles, with no diagnostic.
-    expect(compile(before).diagnostics.map((d) => `${d.category} ${d.code} ${d.message}`)).toEqual([
-      'error TS8028 an entry takes its declaration\'s name; write "export function k"',
-    ]);
+    expect(
+      withEditor(compile)(before).diagnostics.map((d) => `${d.category} ${d.code} ${d.message}`),
+    ).toEqual(['error TS8028 an entry takes its declaration\'s name; write "export function k"']);
     expect(compile(after).diagnostics).toEqual([]);
     expect(compile(after).wgsl).toContain('fn k(');
   });
@@ -264,7 +265,11 @@ export function main(): void {}
     expect(result).toEqual({ text: after, changes: 3, skipped: [] });
     expect(migrateSource(after)).toEqual({ text: after, changes: 0, skipped: [] });
     // The source the migration leaves compiles: the sample under the branch is rewritten.
-    expect(compile(before).diagnostics.map((d) => d.code)).toEqual(['TS8028', 'TS8028', 'TS8028']);
+    expect(withEditor(compile)(before).diagnostics.map((d) => d.code)).toEqual([
+      'TS8028',
+      'TS8028',
+      'TS8028',
+    ]);
     expect(compile(after).diagnostics).toEqual([]);
     expect(compile(after).wgsl).toContain('textureSampleGrad(');
   });
