@@ -40,15 +40,15 @@ describe('the call form types its elements', () => {
   // WebGL2 context accepts, while the list `array<i32, 3> = [1, 2, 3]` emitted integers.
   // Surface §18. The call and the list are one program again.
   it('emits integer literals for an i32 or u32 element type, on both targets', () => {
-    expect(wgslOf(src('  const xs = array<i32, 3>(1, 2, 3);\n  return xs[0];', 'i32'))).toContain(
-      'array<i32, 3>(1, 2, 3)',
-    );
-    expect(wgslOf(src('  const xs = array<u32, 2>(1, 2);\n  return xs[0];', 'u32'))).toContain(
-      'array<u32, 2>(1u, 2u)',
-    );
-    expect(wgslOf(src('  const xs = array<i32, 2>(-1, 2);\n  return xs[0];', 'i32'))).toContain(
-      'array<i32, 2>(-1, 2)',
-    );
+    expect(
+      wgslOf(src('  const xs = array<i32, 3>(1, 2, 3);\n  return xs[n];', 'i32', 'n: u32')),
+    ).toContain('array<i32, 3>(1, 2, 3)');
+    expect(
+      wgslOf(src('  const xs = array<u32, 2>(1, 2);\n  return xs[n];', 'u32', 'n: u32')),
+    ).toContain('array<u32, 2>(1u, 2u)');
+    expect(
+      wgslOf(src('  const xs = array<i32, 2>(-1, 2);\n  return xs[n];', 'i32', 'n: u32')),
+    ).toContain('array<i32, 2>(-1, 2)');
     const c = compile(`"use typeshade";
 interface Out {
   color: location<0, vec4>;
@@ -56,7 +56,7 @@ interface Out {
 @fragment export function fs(): Out {
   const xs = array<i32, 3>(1, 2, 3);
   const us = array<u32, 2>(4, 5);
-  return { color: vec4(f32(xs[0]), f32(xs[2]), f32(us[1]), 1.) };
+  return { color: vec4(f32(xs[0]), f32(xs[us[1]]), f32(us[u32(xs[0])]), 1.) };
 }`);
     expect(c.diagnostics).toEqual([]);
     expect(c.wgsl).toContain('array<i32, 3>(1, 2, 3)');
@@ -84,18 +84,22 @@ interface Out {
   it('leaves the inferred form f32, as §13 types an undeclared literal', () => {
     // `array(1, 2, 3)` states no element type, so each literal is the f32 `const x = 1` gives
     // (Rule 5.1); a typed element decides it.
-    expect(wgslOf(src('  const xs = array(1, 2, 3);\n  return xs[0];'))).toContain(
+    expect(wgslOf(src('  const xs = array(1, 2, 3);\n  return xs[n];', 'f32', 'n: u32'))).toContain(
       'array<f32, 3>(1.0, 2.0, 3.0)',
     );
-    expect(wgslOf(src('  const xs = array(i32(1), i32(2));\n  return xs[0];', 'i32'))).toContain(
-      'array<i32, 2>(1, 2)',
-    );
+    expect(
+      wgslOf(src('  const xs = array(i32(1), i32(2));\n  return xs[n];', 'i32', 'n: u32')),
+    ).toContain('array<i32, 2>(1, 2)');
   });
 });
 
 describe('a list initializes a local array', () => {
-  const LIST = src('  const xs: array<f32, 3> = [1., 2., 3.];\n  return xs[0];');
-  const CALL = src('  const xs: array<f32, 3> = array<f32, 3>(1., 2., 3.);\n  return xs[0];');
+  const LIST = src('  const xs: array<f32, 3> = [1., 2., 3.];\n  return xs[n];', 'f32', 'n: u32');
+  const CALL = src(
+    '  const xs: array<f32, 3> = array<f32, 3>(1., 2., 3.);\n  return xs[n];',
+    'f32',
+    'n: u32',
+  );
 
   it('builds exactly what the array<T, N>(...) call builds', () => {
     // Spans stripped: the two spellings are two spellings, so they carry different source
@@ -124,7 +128,7 @@ interface Out {
 }
 @fragment export function fs(): Out {
   const xs: array<f32, 3> = [1., 2., 3.];
-  return { color: vec4(xs[0], xs[1], xs[2], 1.) };
+  return { color: vec4(xs[0], xs[1], xs[u32(xs[0])], 1.) };
 }`);
     expect(c.diagnostics).toEqual([]);
     expect(c.glsl?.fragment).toContain('float[3](1.0, 2.0, 3.0)');
@@ -141,35 +145,45 @@ interface Out {
   it('takes an integer element type', () => {
     // The list is lowered AGAINST the annotation, so it knows what each element must be. The
     // call form now does the same (see 'the call form types its elements' below).
-    expect(wgslOf(src('  const xs: array<i32, 3> = [1, 2, 3];\n  return xs[0];', 'i32'))).toContain(
-      'array<i32, 3>(1, 2, 3)',
-    );
-    expect(wgslOf(src('  const xs: array<u32, 2> = [1, 2];\n  return xs[0];', 'u32'))).toContain(
-      'array<u32, 2>(1u, 2u)',
-    );
-    expect(wgslOf(src('  const xs: array<i32, 2> = [-1, 2];\n  return xs[0];', 'i32'))).toContain(
-      'array<i32, 2>(-1, 2)',
-    );
+    expect(
+      wgslOf(src('  const xs: array<i32, 3> = [1, 2, 3];\n  return xs[n];', 'i32', 'n: u32')),
+    ).toContain('array<i32, 3>(1, 2, 3)');
+    expect(
+      wgslOf(src('  const xs: array<u32, 2> = [1, 2];\n  return xs[n];', 'u32', 'n: u32')),
+    ).toContain('array<u32, 2>(1u, 2u)');
+    expect(
+      wgslOf(src('  const xs: array<i32, 2> = [-1, 2];\n  return xs[n];', 'i32', 'n: u32')),
+    ).toContain('array<i32, 2>(-1, 2)');
   });
 
   it('takes a bool, a vector and an arbitrary expression as elements', () => {
     expect(
-      wgslOf(src('  const xs: array<bool, 2> = [true, false];\n  return xs[0];', 'bool')),
+      wgslOf(src('  const xs: array<bool, 2> = [true, false];\n  return xs[n];', 'bool', 'n: u32')),
     ).toContain('array<bool, 2>(true, false)');
     expect(
       wgslOf(
-        src('  const xs: array<vec2, 2> = [vec2(0., 0.), vec2(1., 1.)];\n  return xs[1];', 'vec2'),
+        src(
+          '  const xs: array<vec2, 2> = [vec2(0., 0.), vec2(1., 1.)];\n  return xs[n];',
+          'vec2',
+          'n: u32',
+        ),
       ),
     ).toContain('array<vec2<f32>, 2>(vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0))');
     expect(
       wgslOf(
-        src('  const xs: array<f32, 2> = [a * 2., a + 1.];\n  return xs[0];', 'f32', 'a: f32'),
+        src(
+          '  const xs: array<f32, 2> = [a * 2., a + 1.];\n  return xs[n];',
+          'f32',
+          'a: f32, n: u32',
+        ),
       ),
     ).toContain('array<f32, 2>((a * 2.0), (a + 1.0))');
   });
 
   it('takes a `let` as readily as a `const`, and the binding stays writable', () => {
-    const wgsl = wgslOf(src('  let xs: array<f32, 2> = [1., 2.];\n  xs[0] = 5.;\n  return xs[0];'));
+    const wgsl = wgslOf(
+      src('  let xs: array<f32, 2> = [1., 2.];\n  xs[0] = 5.;\n  return xs[n];', 'f32', 'n: u32'),
+    );
     expect(wgsl).toContain('var xs: array<f32, 2> = array<f32, 2>(1.0, 2.0);');
     expect(wgsl).toContain('xs[0] = 5.0;');
   });
@@ -259,9 +273,9 @@ describe('what a list is refused for', () => {
     );
     // And what that rule ACCEPTS stays accepted: a single literal written as a float but
     // valued as a whole number, exactly as §13 accepts `const x: i32 = 1.`
-    expect(wgslOf(src('  const xs: array<i32, 2> = [1., 2.];\n  return xs[0];', 'i32'))).toContain(
-      'array<i32, 2>(1, 2)',
-    );
+    expect(
+      wgslOf(src('  const xs: array<i32, 2> = [1., 2.];\n  return xs[n];', 'i32', 'n: u32')),
+    ).toContain('array<i32, 2>(1, 2)');
   });
 
   it('refuses an array of arrays, because GLSL ES 3.00 has none', () => {
