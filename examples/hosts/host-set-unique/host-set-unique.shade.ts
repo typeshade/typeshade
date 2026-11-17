@@ -28,7 +28,7 @@ export function latest(keys: array<u32>, values: array<f32>, last: Map<u32, f32>
 
 // One call adds in its first loop and reads in its second: each probe is 1 when an earlier pixel
 // of the image holds its label, 0 otherwise.
-export function present(pixels: array<u32>, seen: Set<u32>, probes: array<u32>, @inout out: array<u32>) {
+export function present(pixels: array<u32>, seen: Set<u32>, probes: array<u32>, out: array<u32>) {
   for (let i: u32 = 0; i < pixels.length; i++) {
     seen.add(pixels[i]);
   }
@@ -38,7 +38,7 @@ export function present(pixels: array<u32>, seen: Set<u32>, probes: array<u32>, 
 }
 
 // A later call reads the map: a key it does not hold reads as -1.
-export function lookup(keys: array<u32>, last: Map<u32, f32>, @inout out: array<f32>) {
+export function lookup(keys: array<u32>, last: Map<u32, f32>, out: array<f32>) {
   for (let i: u32 = 0; i < keys.length; i++) {
     out[i] = last.has(keys[i]) ? last.get(keys[i])! : -1.;
   }
@@ -46,7 +46,7 @@ export function lookup(keys: array<u32>, last: Map<u32, f32>, @inout out: array<
 
 // A closed set of string keys uses ids on the GPU and strings on the host (change 0081).
 type Channel = "r" | "g" | "b";
-export function channels(xs: array<f32>, seen: Set<Channel>, last: Map<Channel, f32>, @inout out: array<f32>): u32 {
+export function channels(xs: array<f32>, seen: Set<Channel>, last: Map<Channel, f32>, out: array<f32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     const c: Channel = i % 3 === 0 ? "g" : i % 3 === 1 ? "r" : "b";
     seen.add(c);
@@ -63,7 +63,7 @@ export function channels(xs: array<f32>, seen: Set<Channel>, last: Map<Channel, 
 }
 
 // Keys used as Map values also cross the boundary as strings, including an initial lookup.
-export function channelNames(xs: array<f32>, names: Map<Channel, Channel>, @inout out: array<u32>) {
+export function channelNames(xs: array<f32>, names: Map<Channel, Channel>, out: array<u32>) {
   for (let i: u32 = 0; i < xs.length; i++) {
     names.set("g", "r");
     names.set("b", "g");

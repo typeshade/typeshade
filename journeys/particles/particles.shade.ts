@@ -18,7 +18,7 @@ class Sim {
   bounce: f32;
 }
 
-export function step(@inout particles: array<Particle>, sim: Sim) {
+export function step(particles: array<Particle>, sim: Sim) {
   for (let i: u32 = 0; i < particles.length; i++) {
     const p = particles[i];
     let pos: vec3 = p.pos.xyz;

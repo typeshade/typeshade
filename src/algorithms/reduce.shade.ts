@@ -35,7 +35,7 @@ export function minAll(x: array<f32>): f32 {
 }
 
 /** `out[o * inner + n] = Σ_k x[(o * axis + k) * inner + n]`, in ascending `k`. */
-export function sumAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
+export function sumAxis(out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     const o = i / inner;
     const n = i % inner;
@@ -46,7 +46,7 @@ export function sumAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner:
 }
 
 /** The sum along the axis divided by `axis`. */
-export function meanAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
+export function meanAxis(out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     const o = i / inner;
     const n = i % inner;
@@ -57,7 +57,7 @@ export function meanAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner
 }
 
 /** The product along the axis, in ascending `k`. */
-export function prodAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
+export function prodAxis(out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     const o = i / inner;
     const n = i % inner;
@@ -68,7 +68,7 @@ export function prodAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner
 }
 
 /** The largest element along the axis. */
-export function maxAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
+export function maxAxis(out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     const o = i / inner;
     const n = i % inner;
@@ -79,7 +79,7 @@ export function maxAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner:
 }
 
 /** The smallest element along the axis. */
-export function minAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
+export function minAxis(out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     const o = i / inner;
     const n = i % inner;
@@ -90,7 +90,7 @@ export function minAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner:
 }
 
 /** The index along the axis of the largest element, as an `f32`; the first largest wins a tie. */
-export function argMaxAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
+export function argMaxAxis(out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     const o = i / inner;
     const n = i % inner;
@@ -109,7 +109,7 @@ export function argMaxAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inn
 
 /** The index along the axis of the smallest element, as an `f32`; the first smallest wins a
  *  tie. */
-export function argMinAxis(@inout out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
+export function argMinAxis(out: array<f32>, x: array<f32>, axis: u32, inner: u32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     const o = i / inner;
     const n = i % inner;

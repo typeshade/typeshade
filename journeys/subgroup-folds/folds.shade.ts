@@ -7,7 +7,7 @@
 // is the same sum and the same bins in plain JavaScript, and the two must agree to the bit.
 
 /** The sum of every element, written to `out[0]`. */
-export function total(xs: array<u32>, @inout out: array<u32>): void {
+export function total(xs: array<u32>, out: array<u32>): void {
   let s: u32 = 0;
   for (let i: u32 = 0; i < xs.length; i++) s += xs[i];
   out[0] = s;
@@ -15,7 +15,7 @@ export function total(xs: array<u32>, @inout out: array<u32>): void {
 
 /** How many elements fall in each of eight bins, by the low three bits, and the sum of the
  *  elements above a threshold in each bin: two scatters into one array of 16 counters. */
-export function histogram(xs: array<u32>, @inout bins: array<u32>, threshold: u32): void {
+export function histogram(xs: array<u32>, bins: array<u32>, threshold: u32): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     const b = xs[i] & 7;
     bins[b] += 1;
@@ -24,7 +24,7 @@ export function histogram(xs: array<u32>, @inout bins: array<u32>, threshold: u3
 }
 
 /** The least and the greatest element, written to `out[0]` and `out[1]`. */
-export function extremes(xs: array<i32>, @inout out: array<i32>): void {
+export function extremes(xs: array<i32>, out: array<i32>): void {
   let lo: i32 = 2147483647;
   let hi: i32 = -2147483648;
   for (let i: u32 = 0; i < xs.length; i++) {

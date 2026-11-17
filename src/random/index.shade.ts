@@ -40,12 +40,12 @@ export function uniform(word: u32): f32 {
 /** Element `i` of `out` is `uniform(hash32(seed ^ i))`: the draw depends on the seed and the
  *  index only, not on the tier or the dispatch shape, and `generator(seed)` on the host gives the
  *  same numbers in the same order. */
-export function fillUniform(@inout out: array<f32>, seed: u32): void {
+export function fillUniform(out: array<f32>, seed: u32): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = uniform(hash32(seed ^ i));
 }
 
 /** Element `i` of `out` is `hash32(seed ^ i)`: the words `fillUniform` maps to [0, 1), for a
  *  caller that wants the bits (a seed per element, a Bernoulli draw by a mask). */
-export function fillWords(@inout out: array<u32>, seed: u32): void {
+export function fillWords(out: array<u32>, seed: u32): void {
   for (let i: u32 = 0; i < out.length; i++) out[i] = hash32(seed ^ i);
 }

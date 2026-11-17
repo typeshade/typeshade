@@ -12,7 +12,7 @@ const CLASSES: u32 = 10;
 
 /** The logit of each class for each row: `logits[row * 10 + c]`. */
 export function forward(
-  @inout logits: array<f32>,
+  logits: array<f32>,
   pixels: array<f32>,
   weights: array<f32>,
 ): void {
@@ -30,7 +30,7 @@ export function forward(
 /** The gradient of the mean cross-entropy at each logit: softmax minus the one-hot label, over
  *  the rows in the batch. */
 export function objective(
-  @inout delta: array<f32>,
+  delta: array<f32>,
   logits: array<f32>,
   labels: array<u32>,
   rows: u32,
@@ -53,7 +53,7 @@ export function objective(
 
 /** The gradient of each weight: the sum over the rows of its pixel times the delta of its class. */
 export function backward(
-  @inout grad: array<f32>,
+  grad: array<f32>,
   pixels: array<f32>,
   delta: array<f32>,
   rows: u32,
@@ -70,7 +70,7 @@ export function backward(
 }
 
 /** Stochastic gradient descent, in place. */
-export function update(@inout weights: array<f32>, grad: array<f32>, rate: f32): void {
+export function update(weights: array<f32>, grad: array<f32>, rate: f32): void {
   for (let k: u32 = 0; k < weights.length; k++) {
     weights[k] = weights[k] - rate * grad[k];
   }
