@@ -20,8 +20,8 @@ export default tseslint.config(
       '.codebase-memory/**',
       'examples/**/*.shade.ts',
       'journeys/**/*.shade.ts',
-      // The common modules' shader source: an `@inout` or `@out` on a parameter is the language's
-      // own attribute (change 0138, Amendment A15), which ESLint's TypeScript parser refuses.
+      // The common modules' shader source: a stage attribute on a function is the language's own
+      // attribute (change 0130), which ESLint's TypeScript parser refuses.
       'src/algorithms/**/*.shade.ts',
       'src/random/**/*.shade.ts',
       // Host views, generated and git-ignored (surface §64).

@@ -71,7 +71,7 @@ migrate rewrites each *.shade.ts to the language's own forms (changes 0130,
 vs" for "export const vs = vertex(function vs"), a named entry for an "export
 default" one, an attribute type for each @builtin or @location, builtin<N> for
 a built-in value's written type that WGSL fixes ("builtin<"vertex_index">" for
-"builtin<"vertex_index", u32>"), "@inout v: T" for "v: inout<T>", and no "!" on
+"builtin<"vertex_index", u32>"), "v: T" for "v: inout<T>", and no "!" on
 a field or a local. It keeps every other byte and
 names, by line, a form it leaves as written. With --check it writes nothing and
 fails when a file would

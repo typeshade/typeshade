@@ -10,13 +10,13 @@
 */
 
 // Each loop writes only its own element, so each runs on the GPU, one invocation per element.
-export function decay(k: f32, @inout ys: array<f32>) {
+export function decay(k: f32, ys: array<f32>) {
   for (let i: u32 = 0; i < ys.length; i++) {
     ys[i] = ys[i] * k;
   }
 }
 
-export function accumulate(xs: array<f32>, @inout ys: array<f32>) {
+export function accumulate(xs: array<f32>, ys: array<f32>) {
   for (let i: u32 = 0; i < ys.length; i++) {
     ys[i] = ys[i] + xs[i];
   }

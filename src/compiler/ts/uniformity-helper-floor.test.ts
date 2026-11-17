@@ -17,7 +17,7 @@ ${helpers}
 ${body}
  out[lid.x] = 1.;
 }`;
-const setter = 'function set(@inout a: f32, x: f32): void { a = x; }';
+const setter = 'class Cell { v: f32 = 0.; }\nfunction set(c: Cell, x: f32): void { c.v = x; }';
 
 function readBoth(source: string) {
   const result = compile(source, { fileName: 'helper-floor.shade.ts' });
@@ -37,17 +37,17 @@ describe('helper conditions retain the unknown floor after caller writes', () =>
     [
       'a direct setter',
       setter,
-      'let a = k; set(a, f32(lid.x)); if (edge(a)) { workgroupBarrier(); }',
+      'let a = new Cell(); a.v = k; set(a, f32(lid.x)); if (edge(a.v)) { workgroupBarrier(); }',
     ],
     [
       'a nested setter',
-      `${setter}\nfunction nested(@inout a: f32, x: f32): void { set(a, x); }`,
-      'let a = k; nested(a, f32(lid.x)); if (edge(a)) { workgroupBarrier(); }',
+      `${setter}\nfunction nested(c: Cell, x: f32): void { set(c, x); }`,
+      'let a = new Cell(); a.v = k; nested(a, f32(lid.x)); if (edge(a.v)) { workgroupBarrier(); }',
     ],
     [
       'reference-dependent caller control flow',
       setter,
-      'let a = k; set(a, f32(lid.x)); if (a > 0.5) { if (edge(k)) { workgroupBarrier(); } }',
+      'let a = new Cell(); set(a, f32(lid.x)); if (a.v > 0.5) { if (edge(k)) { workgroupBarrier(); } }',
     ],
     [
       'a mutating method',
@@ -62,21 +62,16 @@ describe('helper conditions retain the unknown floor after caller writes', () =>
     [
       'a uniform setter, conservatively',
       setter,
-      'let a = k; set(a, k); if (edge(a)) { workgroupBarrier(); }',
+      'let a = new Cell(); set(a, k); if (edge(a.v)) { workgroupBarrier(); }',
     ],
     [
-      'an unused reference function, conservatively',
+      'an unused function that writes its object, conservatively',
       setter,
-      'if (edge(k)) { workgroupBarrier(); }',
-    ],
-    [
-      'an unused out parameter, conservatively',
-      'function initialize(@out a: f32): void { a = 1.; }',
       'if (edge(k)) { workgroupBarrier(); }',
     ],
   ])('keeps the unknown floor with %s', (_name, helpers, body) => {
     const { result, compiler } = readBoth(shader(helpers, body));
-    // Includes references introduced by class/closure lowering, without an authored inout.
+    // Includes references introduced by class/closure lowering, without an authored qualifier.
     expect(result.module.funcs.some((f) => f.params.some((p) => p.mode !== undefined))).toBe(true);
     expect(compiler).toHaveLength(1);
     expect(compiler[0]).toContain('TS8052 workgroupBarrier() is reached under');

@@ -101,6 +101,7 @@ function surfaceNameOf(id: string): string {
  *  decorators and the two binding forms. Each carries a program that proves the lowerer takes
  *  it, so this list cannot claim something the compiler refuses. */
 const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
+  structuredClone: 'structuredClone(0.5)',
   vec2: 'vec2(0., 0.)',
   vec3: 'vec3(0., 0., 0.)',
   vec4: 'vec4(0., 0., 0., 1.)',
@@ -138,8 +139,8 @@ const EXPRESSION_FORMS: Readonly<Record<string, string>> = {
 };
 
 /** The forms that are written in a DECLARATION rather than in an expression. One program
- *  exercises all thirteen, which is also the shape every example opens with. The three before
- *  `inout` are the entry-IO attributes #158 added (§53); `diagnostic`, which #161 added beside
+ *  exercises all eleven, which is also the shape every example opens with. The three before
+ *  `uniform` are the entry-IO attributes #158 added (§53); `diagnostic`, which #161 added beside
  *  them, left the language with change 0132. They are listed here
  *  rather than excused on `DECLARED_NOT_LOWERABLE` because the witness below really does
  *  compile them and each one really does reach the emitted WGSL. */
@@ -154,10 +155,6 @@ const DECLARATION_FORMS: readonly string[] = [
   'interpolate',
   'invariant',
   'blend_src',
-  // GLSL's qualifiers on a parameter of a function of the file (Rule 8.25), written before the
-  // parameter (change 0137), which the witness's `bump` and `put` take.
-  'inout',
-  'out',
   // A kernel function's size attribute (Rule 8.22, change 0130), which the witness's `scale`
   // takes; `vertex`, `fragment` and `compute` are the stage attributes of its entries.
   'workgroup_size',
@@ -185,17 +182,17 @@ interface Dual {
   const c = vec4(un.k, 0., 0., 1.);
   return { a: c, b: c };
 }
-function bump(@inout v: f32): void {
-  v += un.k;
+function bump(v: f32): f32 {
+  return v + un.k;
 }
-function put(@out v: f32): void {
-  v = un.k;
+function put(): f32 {
+  return un.k;
 }
 @compute([64, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
-  put(out[gid.x]);
-  bump(out[gid.x]);
+  out[gid.x] = put();
+  out[gid.x] = bump(out[gid.x]);
 }
-@workgroup_size([128]) export function scale(@inout xs: array<f32>): void {
+@workgroup_size([128]) export function scale(xs: array<f32>): void {
   for (let i = 0; i < xs.length; i++) { xs[i] = xs[i] * un.k; }
 }
 `;

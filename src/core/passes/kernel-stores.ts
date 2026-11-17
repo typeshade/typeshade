@@ -12,7 +12,7 @@
 // statement. So a store past the end writes nothing anywhere, and `a.length` after it is the
 // array's length on the CPU tier too, where an array is a JavaScript array that a store past its
 // end would grow. The guard reads the index a second time, which changes nothing for an index with
-// no effect. An index whose reading has an effect (a call that writes through an `@inout`
+// no effect. An index whose reading has an effect (a call that writes through an object
 // argument, an atomic) is read once, into a `let` before the guard, so the guard and the store see
 // one value, read before the stored value as ECMAScript reads `a[k] = e`.
 //
@@ -70,7 +70,7 @@ function asU32(k: Expr): Expr {
 }
 
 /** Whether reading `k` a second time could change what it reads or what anything else holds: a
- *  call that writes through an `@inout` argument (Rule 8.25), or a builtin with an effect. */
+ *  call that writes through an object argument (change 0142), or a builtin with an effect. */
 function hasEffect(k: Expr): boolean {
   let found = false;
   eachExpr(k, (x) => {
@@ -148,7 +148,7 @@ function guardOne(
 }
 
 /** `st`, a call statement that passes an element of an array parameter of `arrays` as an
- *  `@inout` or `@out` argument (Rule 8.25), guarded by each such array's length, so a callee that
+ *  object argument a callee writes (change 0142), guarded by each such array's length, so a callee that
  *  would write past the array's end does not run (change 0094, decision S3-5). Undefined for any
  *  other statement, and for an index whose reading has an effect, which runs as written. */
 function guardCall(

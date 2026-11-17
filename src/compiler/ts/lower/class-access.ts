@@ -42,10 +42,10 @@ import {
   classFunctionOf,
   isCollidedFunction,
   methodFnName,
-  mutatingReceiver,
   superFieldKey,
   type ClassFunction,
 } from './class-methods.js';
+import { mutatingReceiver } from './class-methods/mutating.js';
 import { lowerExpression } from './expression.js';
 
 function pushDiag(

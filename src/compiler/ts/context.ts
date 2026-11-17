@@ -39,70 +39,11 @@ export type PrivateFieldTable = ReadonlyMap<string, ReadonlyMap<string, PrivateF
  *  of one was already explained where it was declared (Rule 12.4). */
 export type WithheldTable = ReadonlyMap<string, ReadonlySet<string>>;
 
-/** The {@link WithheldTable} `structs` carry. */
-export function withheldTableOf(
-  structs: readonly { readonly decl: StructDecl; readonly withheld?: ReadonlySet<string> }[],
-): WithheldTable {
-  const out = new Map<string, ReadonlySet<string>>();
-  for (const s of structs) {
-    if (s.withheld !== undefined && s.withheld.size > 0) out.set(s.decl.name, s.withheld);
-  }
-  return out;
-}
-
 /** The `readonly` fields of each struct, with the class whose constructor may assign each. */
 export type ReadonlyFieldTable = ReadonlyMap<string, ReadonlyMap<string, ts.ClassLikeDeclaration>>;
 
 /** The `private` and `protected` fields of each struct (Rule 8.15). */
 export type RestrictedFieldTable = ReadonlyMap<string, ReadonlyMap<string, RestrictedField>>;
-
-/** The {@link RestrictedFieldTable} `structs` carry. */
-export function restrictedFieldTableOf(
-  structs: readonly {
-    readonly decl: StructDecl;
-    readonly restrictedFields?: ReadonlyMap<string, RestrictedField>;
-  }[],
-): RestrictedFieldTable {
-  const out = new Map<string, ReadonlyMap<string, RestrictedField>>();
-  for (const s of structs) {
-    if (s.restrictedFields !== undefined && s.restrictedFields.size > 0) {
-      out.set(s.decl.name, s.restrictedFields);
-    }
-  }
-  return out;
-}
-
-/** The {@link ReadonlyFieldTable} `structs` carry. */
-export function readonlyFieldTableOf(
-  structs: readonly {
-    readonly decl: StructDecl;
-    readonly readonlyFields?: ReadonlyMap<string, ts.ClassLikeDeclaration>;
-  }[],
-): ReadonlyFieldTable {
-  const out = new Map<string, ReadonlyMap<string, ts.ClassLikeDeclaration>>();
-  for (const s of structs) {
-    if (s.readonlyFields !== undefined && s.readonlyFields.size > 0) {
-      out.set(s.decl.name, s.readonlyFields);
-    }
-  }
-  return out;
-}
-
-/** The table `structs` carry, for a scope that is handed the collected list. */
-export function privateFieldTableOf(
-  structs: readonly {
-    readonly decl: StructDecl;
-    readonly privateFields?: ReadonlyMap<string, PrivateField>;
-  }[],
-): PrivateFieldTable {
-  const out = new Map<string, ReadonlyMap<string, PrivateField>>();
-  for (const s of structs) {
-    if (s.privateFields !== undefined && s.privateFields.size > 0) {
-      out.set(s.decl.name, s.privateFields);
-    }
-  }
-  return out;
-}
 
 /** The names a file declares as functions and could not lower, one set per callee table
  *  (roadmap 0.3 item T10, #92). It hangs off the table instead of being threaded through every
@@ -460,9 +401,6 @@ export interface Binding {
    *  `byRef`, which makes the parameter a reference to the variable, the way a closure writes
    *  the variable itself, the first time something writes it. */
   readonly capture?: { readonly of: Binding; readonly byRef: () => void };
-  /** For an `@inout` or `@out` parameter (Rule 8.25): the binding names the caller's place, which the body
-   *  reads and writes as a local, and which a local function captures as any variable
-   *  (Rule 8.17). */
   readonly reference?: boolean;
 }
 
@@ -1174,6 +1112,12 @@ export class LoweringScope {
   hoistTemp(prefix: string, init: Expr): Expr {
     const name = this.defineTemp(prefix, init.type);
     this.hoisted.push({ s: 'let', name, expr: init });
+    return { op: 'varref', type: init.type, name };
+  }
+
+  hoistVar(prefix: string, init: Expr): Expr {
+    const name = this.defineTemp(prefix, init.type, true);
+    this.hoisted.push({ s: 'var', name, type: init.type, init });
     return { op: 'varref', type: init.type, name };
   }
 
