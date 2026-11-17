@@ -19,6 +19,14 @@ describe('issue 1307: the result of an operation beside a typed u32 keeps two re
     ['max(a + vi, vi)', 'u32', 'a + vi', 'max', 'max(u32(a + vi), vi)', 4026531847],
     ['f32(~(a ^ vi))', 'f32', '~(a ^ vi)', 'f32()', 'f32(i32(~(a ^ vi)))', ~(-268435456 ^ 7)],
     ['f32((a | vi) - vi)', 'f32', '(a | vi) - vi', 'f32()', 'f32(i32((a | vi) - vi))', -268435456],
+    [
+      'f32(((a + vi) & 0xFF) << 31)',
+      'f32',
+      '((a + vi) & 0xFF) << 31',
+      'f32()',
+      'f32(i32(((a + vi) & 0xFF) << 31))',
+      -2147483648,
+    ],
   ] as const)(
     'return %s is refused in both halves, and its edit compiles',
     (returned, ret, subject, at, edited, value) => {
@@ -42,6 +50,8 @@ describe('issue 1307: the result of an operation beside a typed u32 keeps two re
     ['a + vi alone, in a u32 result', 'return a + vi;', 'u32', 4026531847],
     ['an annotation ends the origin', 'let x: u32 = a + vi;\n  return f32(x);', 'f32', 4026531847],
     ['a mask whose readings agree', 'return f32((a & 0xFF) + vi);', 'f32', 7],
+    ['a mask of the result', 'return f32((a + vi) & 0xFF);', 'f32', 7],
+    ['a typed peer of a masked result', 'return f32(((a + vi) & 0xFF) + vi);', 'f32', 14],
     ['a conversion before f32()', 'return f32(i32(a + vi));', 'f32', -268435449],
     ['a typed left operand of a shift', 'return f32(vi << a);', 'f32', 7],
   ] as const)('a neighbour still compiles with its value: %s', (_, body, ret, value) => {

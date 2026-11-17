@@ -6,11 +6,19 @@ export interface Reading {
   readonly tree: boolean;
   readonly unknown?: boolean;
   readonly unproven?: boolean;
+  readonly congruent?: boolean;
+  readonly agreeing?: boolean;
   readonly picks: readonly (readonly [ts.Node, string])[];
 }
 
 export const UNKNOWN: Reading = { u32: NaN, ts: NaN, tree: false, unknown: true, picks: [] };
 export const UNPROVEN: Reading = { u32: NaN, ts: NaN, tree: true, unproven: true, picks: [] };
+export const CONGRUENT: Reading = { ...UNPROVEN, congruent: true };
+export const AGREEING: Reading = { u32: NaN, ts: NaN, tree: true, agreeing: true, picks: [] };
+
+export const provenDiffering = (x: Reading): boolean =>
+  x.tree && x.unproven !== true && x.agreeing !== true && x.u32 !== x.ts;
+export const plainUnproven = (x: Reading): boolean => x.unproven === true && x.congruent !== true;
 
 export const READINGS_PER_NODE = 32;
 export const READING_ROUNDS = 24;
@@ -18,6 +26,8 @@ export const READING_DEPTH = 400;
 export const READING_STEP_LIMIT = 100000;
 
 export function readingValue(x: Reading): string {
+  if (x.congruent === true) return 'c';
+  if (x.agreeing === true) return 'a';
   return x.unknown ? '?' : x.unproven ? '!' : `${String(x.u32)}:${String(x.ts)}:${x.tree ? 1 : 0}`;
 }
 
@@ -26,8 +36,7 @@ export function readingKey(x: Reading): string {
 }
 
 export function boundedReadings(xs: readonly Reading[]): Reading[] {
-  const differs = (x: Reading) => x.tree && !x.unproven && x.u32 !== x.ts;
-  const ordered = [...xs.filter(differs), ...xs.filter((x) => !differs(x))];
+  const ordered = [...xs.filter(provenDiffering), ...xs.filter((x) => !provenDiffering(x))];
   const keys = new Set<string>();
   const out: Reading[] = [];
   let over = false;
