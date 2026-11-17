@@ -1131,12 +1131,12 @@ describe('a layout that holds an optional is refused where it is declared, namin
     ],
     [
       "a kernel function's storage array",
-      `export function kern(@inout xs: array<U>): void { xs[0].k = 1.; }`,
+      `export function kern(xs: array<U>): void { xs[0].k = 1.; }`,
       HOLDS('array<U>', '[i].w', 'f32', "a kernel function's parameter"),
     ],
     [
       "a kernel function's Map value",
-      `export function kern(m: Map<u32, U>, @inout xs: array<f32>): void { xs[0] = 1.; }`,
+      `export function kern(m: Map<u32, U>, xs: array<f32>): void { xs[0] = 1.; }`,
       HOLDS('U', 'w', 'f32', "a kernel function's parameter"),
     ],
   ];
@@ -1231,7 +1231,7 @@ export function opt(x: f32, k?: f32): f32 { return x + (k ?? 0.); }`,
 describe('a member path rooted at a local or a parameter is narrowed (Rule 7.10, change 0093, decision D2)', () => {
   const HIT = `class Inner { d: f32 | undefined; }
 class Hit { t: f32; n: vec2 | undefined; k: f32 | undefined; a: Inner; bump(): void { this.k = undefined; } peek(): f32 { return this.t; } }
-function setK(@inout h: Hit, v: f32): void { h.k = v; }`;
+function setK(h: Hit, v: f32): void { h.k = v; }`;
   const UNNARROWED = (path: string, inner: string, takes: string, zero: string): string =>
     `TS8003 "${path}" is "${inner} | undefined" here, and ${takes} ${inner}. Test it first, ` +
     `"if (${path} !== undefined)", or give the absent case a value, "${path} ?? ${zero}".`;
@@ -1282,7 +1282,7 @@ export function kept(x: f32): f32 { let h = new Hit(); h.k = x; h.peek(); h.a = 
     for (const [name, body] of [
       ['the root', `let h = new Hit(); h.k = 2.; h = new Hit(); return h.k;`],
       ['a prefix', `let h = new Hit(); h.a.d = 2.; h.a = new Inner(); return h.a.d;`],
-      ['an @inout call', `let h = new Hit(); h.k = 2.; setK(h, 3.); return h.k;`],
+      ['a call that writes its object', `let h = new Hit(); h.k = 2.; setK(h, 3.); return h.k;`],
       ['a method that writes its object', `let h = new Hit(); h.k = 2.; h.bump(); return h.k;`],
       [
         'a closure',
@@ -1410,7 +1410,7 @@ export function run(): f32 { return f() + f(1., 2, 3); }`,
     ],
     [
       "a kernel function's parameter",
-      `export function kern(@inout xs: array<f32>, k?: f32): void { xs[0] = k ?? 0.; }`,
+      `export function kern(xs: array<f32>, k?: f32): void { xs[0] = k ?? 0.; }`,
       'TS8020 A kernel function\'s parameters come from the host, not from a call, so "k" cannot ' +
         'be optional. Write "k: T".',
     ],
@@ -1750,7 +1750,7 @@ return c.count + (x === undefined ? k : 0.); }`,
     [
       'nullish conversion fallback preserves short circuit',
       `class C { count: f32 = 0.; next(): f32 | null { this.count += 1.; return null; } }
-function f(x: f32 | undefined, @inout c: C): f32 | null | undefined { return x ?? c.next(); }
+function f(x: f32 | undefined, c: C): f32 | null | undefined { return x ?? c.next(); }
 function run(k: f32): f32 { let c = new C(); const x = f(k, c); return c.count + (x ?? 0.); }`,
       4,
     ],
@@ -1805,7 +1805,7 @@ function run(k: f32): f32 { return (id<f32 | null>(null) ?? 1.) + (id<f32 | unde
     );
     expect(cpu(r)('run', 4)).toBe(7);
   });
-  it('reference arguments require the exact logical storage type', () => {
+  it('a removed qualifier on an optional number is refused with TS8073 in both halves', () => {
     const source = program(`function set(@inout x: f32 | null): void { x = null; }
 function run(): f32 { let x: f32 | undefined; set(x); return x ?? 0.; }`);
     expect(errorsOf(source).some((d) => d.startsWith('TS8073'))).toBe(true);

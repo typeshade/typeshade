@@ -12,7 +12,7 @@ function heavy(x: f32): f32 {
   return s;
 }
 
-export function branchy(@inout out: array<f32>, xs: array<f32>): void {
+export function branchy(out: array<f32>, xs: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     const x = xs[i];
     out[i] = x > 0.75 ? heavy(x) : x;

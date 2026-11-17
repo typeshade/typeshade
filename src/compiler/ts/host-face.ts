@@ -19,7 +19,6 @@
 // lowering's symbol table, and the IR is consulted for what each callable function reaches.
 
 import ts from 'typescript';
-import { isOutParam } from './lower/references.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import type { ConsoleLog } from '../../core/console.js';
@@ -885,11 +884,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
         name: p.name,
         k: 'array',
         layout: layout as Layout & { k: 'a' },
-        // An `@out` array is zero-filled by the call and written whole, so it is always
-        // written back (Rule 8.25, change 0138, Amendment A15, decision 2).
-        writes: written.has(p.name) || isOutParam(p),
+        writes: written.has(p.name),
         s: spell(p.type),
-        ...(isOutParam(p) ? { out: true as const } : {}),
         ...(pushedArrays.has(p.name) ? { pushed: true as const } : {}),
         ...(keys !== undefined ? { keys } : {}),
       });
@@ -1586,9 +1582,6 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
     if (f.kernel === true) return kernelFace(name, f, c);
     const params: { name: string; type: HostType }[] = [];
     for (const p of f.params) {
-      // A host call passes values (Rule 8.21), and a reference names a place of the caller's,
-      // which a host value is not (Rule 8.25).
-      if (p.mode === 'inout') return never(name, REASON.reference(p.name));
       const t = hostTypeOf(p.type, c.structs);
       if ('none' in t) return never(name, `parameter "${p.name}": ${t.none}`);
       if (t.k === 'void') return never(name, `parameter "${p.name}" is void`);
@@ -1598,6 +1591,11 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
     if ('none' in result) return never(name, `its result: ${result.none}`);
     const problem = c.reachProblem(f.name);
     if (problem !== undefined) return never(name, problem);
+    // A host call passes values (Rule 8.21), and a parameter the function writes names the
+    // caller's object, which a host call does not write back yet (change 0142, Table 2, stage 2).
+    // It is said last, so a function with another reason is refused with that reason.
+    const written = f.params.find((p) => p.mode === 'inout');
+    if (written !== undefined) return never(name, REASON.reference(written.name));
     return { kind: 'function', name, fn: f.name, params, result };
   }
 

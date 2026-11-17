@@ -2,7 +2,6 @@ import {
   counterDefaultI32,
   inferredReadAt,
   isOpenCounter,
-  noteDemand,
   noteOpenCounter,
   readsUndecided,
 } from '../use-inference.js';
@@ -16,6 +15,8 @@ import {
 } from '../abstract-const.js';
 import { localNumericInference } from '../local-numeric-inference.js';
 import ts from 'typescript';
+import { objectWrites } from '../object-reference/written.js';
+import { optionalInner } from '../optional.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -33,7 +34,6 @@ import {
 } from '../loop-bound.js';
 import { fitsTarget, isIntegerLiteralTree, isIntegerWritten, isIntScalar } from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
-import { keyTypeText, keysOf, sameKeys } from '../key-types.js';
 import { numericMismatch } from '../numeric.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
@@ -47,11 +47,11 @@ import {
   lowerLValue,
   lowerStatement,
   lowerStatements,
-  refuseParamWrite,
 } from './statement.js';
+import { refuseParamWrite } from './statement/writable.js';
+import { holdIndexesOnce } from './second-name.js';
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
-import { fallsIntoABody } from '../fallthrough.js';
 import { optionalConditionSentence } from './optional-values.js';
 
 /**
@@ -166,7 +166,21 @@ function lowerForLoop(
         ) {
           writtenCounter = decl;
         }
-        if (isLet && isHeaderCounter(decl, sourceFile) && !isOpenCounter(sourceFile, decl)) {
+        const startsObject =
+          isLet &&
+          decl.initializer !== undefined &&
+          ((): boolean => {
+            const t = peekingReads(() =>
+              lowerExpression(decl.initializer!, sourceFile, scope, []),
+            )?.type;
+            return t !== undefined && (t.kind === 'struct' || t.kind === 'array');
+          })();
+        if (
+          isLet &&
+          !startsObject &&
+          isHeaderCounter(decl, sourceFile) &&
+          !isOpenCounter(sourceFile, decl)
+        ) {
           const one = lowerHeaderCounter(node, decl, sourceFile, scope, diagnostics);
           if (!one) return undefined;
           // The `for` header's own statements never pass through `lowerStatement`, so the
@@ -176,6 +190,7 @@ function lowerForLoop(
           lowered = [one];
           if (single) counter = one;
         } else {
+          const before = diagnostics.length;
           const list = lowerDeclarationList(
             init,
             single ? init : decl,
@@ -184,8 +199,9 @@ function lowerForLoop(
             diagnostics,
             [decl],
           );
-          if (list === undefined) return undefined;
-          lowered = Array.isArray(list) ? list : [list];
+          if (list === undefined && (startsObject ? diagnostics.length > before : true))
+            return undefined;
+          lowered = list === undefined ? [] : Array.isArray(list) ? list : [list];
         }
         if (mark !== undefined) pre.push(...scope.takeHoisted(mark));
         pre.push(...lowered);
@@ -788,6 +804,38 @@ export function lowerForOf(
     );
     return undefined;
   }
+  const fixed = holdIndexesOnce(array, scope);
+  if (fixed === undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.expression,
+      'for-of reads its array on every trip, and this array is reached through an index that ' +
+        'may change: bind the index first, `const k = …; for (const x of xs[k])`.',
+      TS_CODES.LOOP_BOUND,
+    );
+    return undefined;
+  }
+  return lowerForOfOver(
+    node,
+    list,
+    decl as ts.VariableDeclaration & { readonly name: ts.Identifier },
+    fixed as Expr & { readonly type: { readonly kind: 'array' } & ShaderType },
+    sourceFile,
+    scope,
+    diagnostics,
+  );
+}
+
+function lowerForOfOver(
+  node: ts.ForOfStatement,
+  list: ts.VariableDeclarationList,
+  decl: ts.VariableDeclaration & { readonly name: ts.Identifier },
+  array: Expr & { readonly type: { readonly kind: 'array' } & ShaderType },
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
   const length =
     array.type.size !== undefined
       ? ({ op: 'lit', type: u32T, value: array.type.size } as const)
@@ -822,6 +870,56 @@ export function lowerForOf(
       mutable,
     });
     const read: Expr = { op: 'index', type: elemType, base: array, idx: i };
+    const through = objectWrites(decl.name.text, node.statement, sourceFile, node);
+    const inner = optionalInner(elemType);
+    const held = inner ?? elemType;
+    const object = held.kind === 'struct' || held.kind === 'array';
+    const names = object && inner === undefined && isPlace(array) && !through.whole;
+    const arrayRoot = ((): string | undefined => {
+      let at = array as Expr;
+      while (at.op === 'member' || at.op === 'index') at = at.base;
+      return at.op === 'varref' || at.op === 'param' ? at.name : undefined;
+    })();
+    if (
+      object &&
+      inner !== undefined &&
+      (through.member ||
+        (arrayRoot !== undefined &&
+          objectWrites(arrayRoot, node.statement, sourceFile, node).member))
+    ) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl.name,
+        `"${decl.name.text}" names an element that may be absent, and the loop writes the ` +
+          `array or the element. A loop name over objects that may be absent, written in the ` +
+          `loop, is not supported yet (change 0142, stage 2). Loop over the indexes.`,
+        TS_CODES.UNSUPPORTED,
+      );
+      return undefined;
+    }
+    if (names && through.captured) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl.name,
+        `"${decl.name.text}" names an element of the array, and a function inside the loop ` +
+          `uses "${decl.name.text}". A loop name that a local function captures is not ` +
+          `supported yet (change 0142, stage 2). Loop over the indexes and read the element ` +
+          `in that function.`,
+        TS_CODES.UNSUPPORTED,
+      );
+      return undefined;
+    }
+    if (names) {
+      for (const use of usesOf(decl.name.text, node.statement))
+        scope.setChainAlias(use, (): Expr => ({
+          op: 'index',
+          type: elemType,
+          base: array,
+          idx: i,
+        }));
+    }
     const bind: Stmt = mutable
       ? { s: 'var', name: irNameOf(element), type: elemType, init: read }
       : { s: 'let', name: irNameOf(element), expr: read };
@@ -833,7 +931,7 @@ export function lowerForOf(
       init: { s: 'var', name: i.name, type: u32T, init: { op: 'lit', type: u32T, value: 0 } },
       cond: { op: 'compare', type: boolT, cop: '<', a: i, b: length },
       update: { s: 'assign', target: i, expr: { op: 'binop', type: u32T, bop: '+', a: i, b: one } },
-      body: [bind, ...body],
+      body: names ? body : [bind, ...body],
       // A counted loop over the array's indices (Rule 7.5), from 0 by 1.
       counted: {
         name: i.name,
@@ -849,6 +947,28 @@ export function lowerForOf(
     scope.exitLoop();
     scope.pop();
   }
+}
+
+function usesOf(name: string, body: ts.Node): ts.Identifier[] {
+  const out: ts.Identifier[] = [];
+  const walk = (n: ts.Node): void => {
+    if (
+      ts.isFunctionLike(n) &&
+      n.parameters.some((q) => ts.isIdentifier(q.name) && q.name.text === name)
+    )
+      return;
+    if (ts.isIdentifier(n) && n.text === name) {
+      const parent = n.parent;
+      const property =
+        (ts.isPropertyAccessExpression(parent) && parent.name === n) ||
+        (ts.isPropertyAssignment(parent) && parent.name === n) ||
+        (ts.isVariableDeclaration(parent) && parent.name === n);
+      if (!property) out.push(n);
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(body);
+  return out;
 }
 
 /** The counted fact the IR `for` carries (Rule 7.5), with no absent field written out. */
@@ -880,164 +1000,6 @@ function isPlace(e: Expr): boolean {
   }
 }
 
-export function lowerSwitch(
-  node: ts.SwitchStatement,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): Stmt | undefined {
-  const scrut = lowerExpression(node.expression, sourceFile, scope, diagnostics);
-  // A value its uses decide is an integer of no kind here (change 0134 item 1).
-  if (scrut) noteDemand(scrut, 'int');
-  if (!scrut) return undefined;
-  const k = typeKey(scrut.type);
-  if (k !== 'i32' && k !== 'u32') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node.expression,
-      `switch scrutinee must be i32 or u32, got ${authorTypeText(scrut.type)}.`,
-      TS_CODES.TYPE_MISMATCH,
-    );
-    return undefined;
-  }
-  const cases: { values: number[]; body: readonly Stmt[] }[] = [];
-  const seen = new Set<number>();
-  // Selectors written above a clause with no body of its own. `case 0: case 1: return 1;` is
-  // how TypeScript spells one body under two labels, and it read as "switch case
-  // fall-through is not allowed" — the one shape that is NOT fall-through, since an empty
-  // clause has nothing to fall through. WGSL spells it `case 0, 1:` and GLSL ES 3.00 stacks
-  // the labels; both are one clause with several selectors, which is what the IR now holds.
-  let pending: number[] = [];
-  let defaultBody: readonly Stmt[] | undefined;
-  let seenDefault = false;
-  // Inside the case bodies a `break` is the switch's own, not an enclosing loop's.
-  scope.enterSwitch();
-  try {
-    const clauses = node.caseBlock.clauses;
-    for (const [index, clause] of clauses.entries()) {
-      if (ts.isDefaultClause(clause)) {
-        // Keep the first clause: overwriting it silently accepted a second default (#321).
-        // Track its presence separately, since an empty clause may itself be refused below.
-        if (seenDefault) {
-          pushDiag(
-            diagnostics,
-            sourceFile,
-            clause,
-            'Duplicate switch default; each switch may have only one default clause.',
-            TS_CODES.SWITCH_CASE,
-          );
-          continue;
-        }
-        seenDefault = true;
-      }
-      // A body whose end is reachable runs on into the next body in TypeScript, and WGSL has
-      // no fall-through: the lowering ends the clause here, so `case 0: x = 1.` above
-      // `case 1: x += 2.; break` gave `k = 0` 3 in TypeScript and 1 on the GPU, with no
-      // diagnostic (Rule 7.3, #202). The label is the anchor, as TypeScript's own TS7029 is.
-      if (fallsIntoABody(clauses, index)) {
-        const isDefault = ts.isDefaultClause(clause);
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          isDefault ? (clause.getFirstToken(sourceFile) ?? clause) : clause.expression,
-          `${isDefault ? '"default:"' : `switch case ${clause.expression.getText(sourceFile)}`} ` +
-            `falls through into the next case: TypeScript runs both bodies, and WGSL runs only ` +
-            `this one. End it with "break", or repeat the shared statements in each case.`,
-          TS_CODES.SWITCH_CASE,
-        );
-      }
-      if (ts.isDefaultClause(clause)) {
-        // Selectors written ABOVE `default:` share the DEFAULT's body, not the body of
-        // whatever clause follows. Carrying them past here attached `case 1:` to the next
-        // case's body — `case 1: default: r = 10; break; case 2: r = 20;` lowered to
-        // `case 1, 2: { r = 20; } default: { r = 10; }`, which is a silent miscompile both
-        // CPU engines agreed with. WGSL has no way to say "these selectors run the default",
-        // so they are reported rather than guessed at.
-        if (pending.length > 0) {
-          pushDiag(
-            diagnostics,
-            sourceFile,
-            clause,
-            `switch case ${pending.map(String).join(', ')} sits above "default:" with no body ` +
-              `of its own. A case that should do what the default does needs its own body; ` +
-              `WGSL has no form for sharing the default's.`,
-            TS_CODES.SWITCH_CASE,
-          );
-          pending = [];
-        }
-        // The mirror image, and the same silent miscompile the other way round. An EMPTY
-        // `default:` above another clause falls through to it in TypeScript and does nothing
-        // on both targets: `default: case 2: return 0;` emitted `default: { }`, so `f(5)`
-        // left the switch where TypeScript returns 0. An empty default as the LAST clause is
-        // harmless — it does nothing in either language — so only this shape is refused.
-        if (clause.statements.length === 0 && index < clauses.length - 1) {
-          pushDiag(
-            diagnostics,
-            sourceFile,
-            clause,
-            `"default:" has no body of its own and a clause follows it. In TypeScript it runs ` +
-              `that clause's body; on both targets it runs nothing. Give the default its own ` +
-              `body, or move it below the clause it should share.`,
-            TS_CODES.SWITCH_CASE,
-          );
-          continue;
-        }
-        defaultBody = caseBody(clause.statements, sourceFile, scope, diagnostics);
-        continue;
-      }
-      const value = caseValue(clause, k, scrut.type, sourceFile, scope, diagnostics);
-      if (value === undefined) continue;
-      // Both compilers reject a repeated label, and this surface makes one easy to write
-      // without seeing it: `case 1 + 1:` beside `case 2:`, or two module constants that fold
-      // to the same number. Reported here rather than at the backend, where the message names
-      // neither the label nor the file.
-      if (seen.has(value)) {
-        pushDiag(
-          diagnostics,
-          sourceFile,
-          clause.expression,
-          `Duplicate switch case ${String(value)}; each label may appear once.`,
-          TS_CODES.SWITCH_CASE,
-        );
-        // Drop what this clause had accumulated: the program is already failing, and
-        // carrying the selectors on would add "has no body" about the same mistake.
-        if (clause.statements.length > 0) pending = [];
-        continue;
-      }
-      seen.add(value);
-      if (clause.statements.length === 0) {
-        // No body: this selector shares the NEXT clause's. A trailing empty clause with no
-        // clause after it falls out of the loop and is reported below, since WGSL has no
-        // label without a body to run.
-        pending.push(value);
-        continue;
-      }
-      cases.push({
-        values: [...pending, value],
-        body: caseBody(clause.statements, sourceFile, scope, diagnostics),
-      });
-      pending = [];
-    }
-  } finally {
-    scope.exitSwitch();
-  }
-  // A TRAILING empty clause: `case 2:` as the last one names a value and then runs nothing,
-  // and neither target has a label without a body. (An empty clause above `default:` is a
-  // different mistake with a different message, raised in the loop above.)
-  if (pending.length > 0) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `switch case ${pending.map(String).join(', ')} has no body: an empty case shares the ` +
-        `body of the case below it, and there is none. Give it a body, or delete it.`,
-      TS_CODES.SWITCH_CASE,
-    );
-  }
-  return { s: 'switch', scrut, cases, defaultBody };
-}
-
 /** The compound assignments a `for` update may use: `+=`, `-=`, `*=` and `/=`. Multiplication
  *  and division are here because a loop that scales its induction variable is still counted.
  *
@@ -1053,104 +1015,6 @@ const FOR_UPDATE_OP: Readonly<Record<number, BinOp>> = {
   [ts.SyntaxKind.AsteriskEqualsToken]: '*',
   [ts.SyntaxKind.SlashEqualsToken]: '/',
 };
-
-/** The constant a `case` label selects on. A bare literal is the common form; `case -1:` is
- *  a PrefixUnaryExpression and `case MODE_B:` a module constant, and both fold to the same
- *  number the IR's `cases[].values` holds — the same fold `xs[N]` and a loop bound use, so
- *  the three places a constant has to be known at compile time agree on what counts as one.
- *
- *  `scrutKind` is the selector's own type, and the label has to fit it: the emitter spells
- *  every label with the selector's suffix, so `case -1:` on a u32 selector emitted `case -1u:`
- *  and Tint answered `no matching overload for 'operator - (u32)'`. That source was refused
- *  before this item accepted a negative label at all, so refusing it here takes nothing back. */
-function caseValue(
-  clause: ts.CaseClause,
-  scrutKind: string,
-  scrutType: ShaderType,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): number | undefined {
-  // A label over a key type is one of its members, written as a string (change 0081), and the
-  // scrutinee's type gives it its id.
-  const keys = keysOf(scrutType);
-  const expr = lowerExpression(
-    clause.expression,
-    sourceFile,
-    scope,
-    diagnostics,
-    keys !== undefined ? scrutType : undefined,
-  );
-  // `lowerExpression` already reported an unresolvable label (`case ZZZ:`), and a second
-  // diagnostic saying it is not a constant adds nothing but noise.
-  if (!expr) return undefined;
-  const labelKeys = keysOf(expr.type);
-  if (keys !== undefined && (labelKeys === undefined || !sameKeys(keys, labelKeys))) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      clause.expression,
-      `The switch is over ${keyTypeText(keys)}, so each case is one of its members, written ` +
-        `as a string.`,
-      TS_CODES.SWITCH_CASE,
-    );
-    return undefined;
-  }
-  if (keys === undefined && labelKeys !== undefined) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      clause.expression,
-      `A case of ${keyTypeText(labelKeys)} labels a switch over a number, and the two have no ` +
-        `value in common.`,
-      TS_CODES.SWITCH_CASE,
-    );
-    return undefined;
-  }
-  const value = foldConstNumber(expr, scope);
-  if (value === undefined || !Number.isInteger(value)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      clause.expression,
-      'switch case must be an integer constant: a literal or a module const.',
-      TS_CODES.SWITCH_CASE,
-    );
-    return undefined;
-  }
-  if (!fitsTarget(value, scrutType)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      clause.expression,
-      `switch case ${String(value)} does not fit a ${scrutKind} selector.`,
-      TS_CODES.SWITCH_CASE,
-    );
-    return undefined;
-  }
-  // A constant of no fixed type as an accepted label is read at the selector's type, as the
-  // written number is (the hover, change 0134 item 4).
-  if (scrutType.kind === 'scalar') noteFoldedRead(clause.expression, scrutType);
-  return value;
-}
-
-/** Lower one clause's statements, dropping a TRAILING `break`.
- *
- *  The IR switch does not fall through — WGSL's does not, and {@link emitStmt} writes the
- *  C-style `break;` GLSL needs itself — so the `break` TypeScript requires at the end of a
- *  case carries no information here, and keeping it would emit `break; break;` in GLSL and
- *  a dead `break;` in WGSL. Dropping only the last statement leaves an early
- *  `if (c) { break }` inside the case exactly where the author put it. */
-function caseBody(
-  statements: readonly ts.Statement[],
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): Stmt[] {
-  const body = lowerStatements(statements, sourceFile, scope, diagnostics);
-  if (body.length > 0 && body[body.length - 1]!.s === 'break') body.pop();
-  return body;
-}
 
 /**
  * `x++` and `x--` as a statement, and a `for` header's update. `counter` is the header's
@@ -1503,7 +1367,7 @@ function lowerBody(
   return Array.isArray(one) ? one : [one];
 }
 
-function pushDiag(
+export function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
   node: ts.Node,

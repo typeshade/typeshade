@@ -35,17 +35,16 @@ import {
 } from '../context.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
-import { namesInScope, unknownNameRemedy } from '../unknown-names.js';
 import { lowerScalarCast } from '../numeric.js';
 import { retargetDeclaredIntLit } from '../lit-coerce.js';
 import { mapTsTypeToShaderType } from '../type-map.js';
 import { spanOf } from '../span.js';
 import { lowerExpression } from './expression.js';
-import { captureArguments, namesLocalFunction } from './local-functions.js';
-import { constructorCallbackMessage, isValueConstructor } from './constructors.js';
+import { captureArguments } from './local-functions.js';
 import { declarationOf } from './closures.js';
-import { misfit, type FunctionShape } from './function-types.js';
+import { type FunctionShape } from './function-types.js';
 import { liftWritten } from './function-args.js';
+import { namedFunction } from './array-methods/named-function.js';
 
 type Method = 'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'findIndex' | 'findLastIndex';
 
@@ -80,10 +79,11 @@ export const KERNEL_LOOPS = new WeakSet<FuncDecl>();
 /** The sentence for a method of `Array.prototype` an array does not have here. */
 export const otherArrayMethod = (name: string): string =>
   `".${name}" is not one of an array's methods here, which are map, forEach, some, every, ` +
-  `reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf and includes. An array's length ` +
-  `is fixed, so a copy or a change of length is a loop: "for (const x of xs) { … }".`;
+  `reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf, includes and slice() with no ` +
+  `argument, which copies it. An array's length is fixed, so a change of length is a loop: ` +
+  `"for (const x of xs) { … }".`;
 
-function push(
+export function push(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
   node: ts.Node,
@@ -518,98 +518,6 @@ function pathKey(e: Expr): string {
     default:
       return '?';
   }
-}
-
-/** A function the file declares, handed over by its name: it takes the first of the arguments
- *  the loop passes, as many as it declares, of their types. TypeScript lets a function take
- *  fewer than a method passes, and the loop passes it only those. */
-function namedFunction(
-  x: ts.Identifier,
-  most: number,
-  shapeOf: (n: number) => FunctionShape,
-  shown: string,
-  hint: string,
-  fixed: boolean,
-  recvText: string,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): FuncDecl | undefined {
-  const decl = scope.resolveCallee(x.text);
-  // A call of a value constructor's name builds the value whatever the file declares (Rule 9.5),
-  // and a callback follows the call: no method takes a constructor, and the declaration is not
-  // what its name means there. A local function or a parameter of the name is the body's own.
-  if (decl !== undefined && isValueConstructor(x.text) && !namesLocalFunction(x)) {
-    return push(
-      diagnostics,
-      sourceFile,
-      x,
-      constructorCallbackMessage(x.text, `"${shown}"`),
-      TS_CODES.TYPE_MISMATCH,
-    );
-  }
-  if (decl === undefined) {
-    // A declaration that was refused already said why.
-    if (scope.declarationRefused(x.text)) return undefined;
-    // A name nothing declares is an unknown name like any other, so its remedy comes first
-    // (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name, or the function it is spelled
-    // like. With neither, the sentence says how to hand one over.
-    const remedy = unknownNameRemedy(x.text, namesInScope(x, 'callee'));
-    const message = scope.isGenericFunction(x.text)
-      ? `"${x.text}" is generic, and which of its instances to hand to "${shown}" is written ` +
-        `nowhere; write an arrow function that calls it here: "(…) => ${x.text}(…)".`
-      : scope.resolve(x.text) !== undefined
-        ? `"${x.text}" is a value, and "${shown}" takes a function: hand one over by its name, ` +
-          `or write it here as an arrow function.`
-        : remedy !== undefined
-          ? `"${x.text}" is no function this file declares, and "${shown}" takes one. ${remedy}`
-          : `"${x.text}" is no function this file declares, and "${shown}" takes one: hand over ` +
-            `one the file declares, or write an arrow function that calls it here, ` +
-            `"(…) => ${x.text}(…)".`;
-    return push(diagnostics, sourceFile, x, message, TS_CODES.TYPE_MISMATCH);
-  }
-  if (decl.stage !== undefined) {
-    return push(
-      diagnostics,
-      sourceFile,
-      x,
-      `"${x.text}" is a ${decl.stage} entry point, which the pipeline invokes and no call may; ` +
-        `move its body into a function both can call.`,
-      TS_CODES.UNSUPPORTED,
-    );
-  }
-  // What it captures is read where the call runs it (Rule 8.17), and what it returns, when it
-  // writes no return type, is its body's to say (Rule 8.19).
-  if (captureArguments(decl, x.text, x, sourceFile, scope, diagnostics) === undefined) {
-    return undefined;
-  }
-  if (!scope.calleeReady(decl, x, sourceFile, diagnostics)) return undefined;
-  const own = decl.params.slice(scope.capturesOf(decl.name).length).map((p) => p.type);
-  if (own.length > most) {
-    return push(
-      diagnostics,
-      sourceFile,
-      x,
-      !fixed && own.length === most + 1
-        ? `"${x.text}" takes the array as well, and "${recvText}" has no size before the host ` +
-            `binds it: a function cannot take an array with none. Read "${recvText}" by its ` +
-            `name inside it instead.`
-        : `"${x.text}" takes ${String(own.length)} argument(s), and "${shown}" passes at most ` +
-            `${String(most)}.`,
-      TS_CODES.TYPE_MISMATCH,
-    );
-  }
-  const why = misfit(own, decl.ret, shapeOf(own.length));
-  if (why !== undefined) {
-    return push(
-      diagnostics,
-      sourceFile,
-      x,
-      `"${x.text}" ${why}, so it cannot be "${hint}" of "${shown}".`,
-      TS_CODES.TYPE_MISMATCH,
-    );
-  }
-  return decl;
 }
 
 /** The loop a method's call runs: the function of the module made for it. */

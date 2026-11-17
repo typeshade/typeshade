@@ -49,8 +49,9 @@ class Leaf {
 }
 `,
         `const value = new LeafMaterial(3., 9.);
+const transmission = value.transmission();
 const leaf = new Leaf(value);
-return vec4(leaf.material.response(), value.transmission(), 0., 1.);`,
+return vec4(leaf.material.response(), transmission, 0., 1.);`,
       ),
       [6, 9, 0, 1],
     );
@@ -65,9 +66,11 @@ function consume(m: Material): f32 { return m.response(); }
 `,
         `const derived = new LeafMaterial(3., 9.);
 const declared: Material = derived;
+const consumed = consume(derived);
+const viewed = declared.response();
 let assigned: Material = new Material(1.);
 assigned = derived;
-return vec4(declared.response(), assigned.response(), consume(derived), returned().response());`,
+return vec4(viewed, assigned.response(), consumed, returned().response());`,
       ),
       [6, 6, 6, 8],
     );
@@ -84,7 +87,8 @@ interface Pair { first: Material; second: Material; }
 `,
         `const d = new LeafMaterial(3., 9.);
 const pair: Pair = { first: d, second: new LeafMaterial(4., 7.) };
-const values: array<Material, 2> = [d, new LeafMaterial(6., 10.)];
+const e = new LeafMaterial(3., 9.);
+const values: array<Material, 2> = [e, new LeafMaterial(6., 10.)];
 const holder = new Holder();
 return vec4(pair.first.response(), pair.second.response(), values[1].response(), holder.material.response());`,
       ),

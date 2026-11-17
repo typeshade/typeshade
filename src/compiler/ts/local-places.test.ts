@@ -79,8 +79,9 @@ describe('item 1: a local that only reads a place reads the place', () => {
     // The index calls no function of the module and nothing writes its names in the loop body,
     // so it holds one value and needs no temporary (change 0105, item 3).
     expect(fs).not.toContain('_pl0');
-    expect(fs).toMatch(/items\[\(u32\(i\) \+ \w+\)\]\.a/);
-    expect(fs).toMatch(/items\[\(u32\(i\) \+ \w+\)\]\.c\[\(i & 3\)\]/);
+    expect(fs).toMatch(/let _at = \(u32\(i\) \+ \w+\);/);
+    expect(fs).toContain('items[_at].a');
+    expect(fs).toMatch(/items\[_at\]\.c\[\(i & 3\)\]/);
     // On WebGL2 the emulated element is read one field at a time, which compiles.
     expect(glsl).not.toMatch(/\bS\w* q = /);
   });
@@ -102,7 +103,7 @@ function run(): f32 {
     // The front end's place, before O2 unrolls the two trips.
     const run = fnText(emitModuleAt(module, 'O1'), 'run');
     expect(run).not.toMatch(/let q = /);
-    expect(run).toContain('qs[i].a');
+    expect(run).toContain('qs[_at].a');
   });
 
   it('a let that is never written is read in place too (Decision D2)', () => {
@@ -111,43 +112,37 @@ function run(): f32 {
 function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
   let q = qs[1];
-  return q.a + q.ws[0] + qs[u32(q.a) - 3].b;
+  return q.a + q.ws[0];
 }`,
-      10,
+      8,
     );
     expect(fnText(wgsl, 'run')).not.toMatch(/var q: /);
   });
 
-  it('stays a copy when the place is written while the local is read', () => {
-    const { wgsl } = runs(
+  it('a name of a place sees a write to the place, and the place sees a write through the name', () => {
+    runs(
       `${Q}
 function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
   const q = qs[0];
   qs[0].a = 50.;
-  return q.a + qs[0].a + qs[u32(q.b) - 2].b;
+  return q.a + qs[0].a;
 }`,
-      53,
+      100,
     );
-    // A copy still, now a `var` (change 0105, item 1).
-    expect(fnText(wgsl, 'run')).toMatch(/var q: Q = qs\[0\];/);
-  });
-
-  it('stays a copy when the local is written', () => {
-    const { wgsl } = runs(
+    runs(
       `${Q}
 function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
   let q = qs[0];
   q.a = 9.;
-  return q.a + qs[0].a + qs[u32(q.b) - 2].b;
+  return q.a + qs[0].a;
 }`,
-      12,
+      18,
     );
-    expect(fnText(wgsl, 'run')).toMatch(/var q: Q = qs\[0\];/);
   });
 
-  it('stays a copy of shared memory across a barrier', () => {
+  it('reads shared memory where the name is read, after a barrier', () => {
     const r = compile(`"use typeshade";
 class Cell { a: f32; b: f32; }
 let tile: workgroup<array<Cell, 64>>;
@@ -159,7 +154,10 @@ const out = storage<array<f32>, "read_write">();
   out[i] = c.a;
 }`);
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([]);
-    expect(fnText(r.wgsl!, 'main')).toMatch(/var c: Cell = tile\[/);
+    const main = fnText(r.wgsl!, 'main');
+    expect(main).toMatch(/let _at = \(\(i \+ 1u\) % 64u\);/);
+    expect(main).not.toMatch(/var c: Cell/);
+    expect(main).toContain('tile[_at].a');
   });
 });
 
@@ -316,11 +314,11 @@ function run(): f32 {
     expect(run).not.toMatch(/var q: /);
     expect(run).not.toMatch(/var w: /);
     expect(run).toContain('qs[0].a');
-    expect(run).toContain('qs[i].ws[1]');
+    expect(run).toMatch(/qs\[_at\w*\]\.ws\[1\]/);
   });
 
-  it('item 4: a write that may reach the part read keeps the copy', () => {
-    const { module } = runs(
+  it('item 4: a write that may reach the part read is seen through the name', () => {
+    runs(
       `${Q}
 function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
@@ -332,10 +330,8 @@ function run(): f32 {
   }
   return acc;
 }`,
-      1 + 50,
+      100,
     );
-    // The front end's copy, before O2 unrolls the two trips.
-    expect(fnText(emitModuleAt(module, 'O1'), 'run')).toMatch(/var q: Q = qs\[0\];/);
   });
 
   it('item 3: an index a call of the module computes is still bound once', () => {
@@ -349,6 +345,6 @@ function run(): f32 {
 }`,
       7,
     );
-    expect(fnText(wgsl, 'run')).toMatch(/let _pl0 = pick\(3\);/);
+    expect(fnText(wgsl, 'run')).toMatch(/let _at = pick\(3\);/);
   });
 });

@@ -561,7 +561,7 @@ export function captureArguments(
       );
       return undefined;
     }
-    // An `@inout` or `@out` parameter is passed as any other variable: a value while the local function
+    // An object parameter that its function writes is passed as any other variable: a value while the local function
     // only reads it, and the pointer or `inout` parameter itself once it writes it, so the write
     // reaches the place the parameter names (Rules 8.17 and 8.25).
     const param = callee.params[i]!;

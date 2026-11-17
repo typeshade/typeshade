@@ -1,7 +1,7 @@
 // Stable diagnostic codes (Phase 10 / 12). Messages stay readable.
 //
 // Numbering: `TS8` + a zero-padded sequential number, assigned in the order a code was added.
-// A gap (8011, 8012, 8053 and 8078 are retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
+// A gap (8011, 8012, 8053, 8078 and 8080 are retired) is never reused. `UNSUPPORTED` (TS8099) is the one deliberate
 // exception to "sequential": it is the catch-all for a diagnostic whose site does not yet
 // deserve its own code, so it stays parked past the sequential range instead of at its head.
 //
@@ -12,7 +12,7 @@
 // from blocks, and the numbers a block did not spend stay unspent. A block's unused codes stay
 // unused, exactly as 8011 does — a gap is never reused.
 //
-// Implements: Rule 3.7 (docs/language-design.md; traced in reqs/).
+// Implements: Rule 3.7, Rule 8.23 (docs/language-design.md; traced in reqs/).
 
 export const TS_CODES = {
   MISSING_DIRECTIVE: 'TS8001',
@@ -274,13 +274,10 @@ export const TS_CODES = {
    *  text of its error on `uniform(Class, …)`, `zeros(Class, n)` and `array(Class, data)`, and the
    *  runtime keeps its `TypeError`. */
   HOST_RESERVED_FIELD: 'TS8079',
-  /** A write to a parameter of an array with no qualifier that a path carries to a `return` that
-   *  does not return the parameter, or to the end of the function (Rule 8.23, change 0138,
-   *  Amendment A15, decision 1). The parameter is a value, so the write changes a copy that no
-   *  one reads. The text names the parameter and offers `@inout`, to update the caller's array,
-   *  or `return` of the parameter; a push is refused even when the parameter is returned, and
-   *  offers `@inout` only. On the write, in the compiler and in the editor (Rule 12.7). */
-  VALUE_ARRAY_WRITE_LOST: 'TS8080',
+  // TS8080 was `VALUE_ARRAY_WRITE_LOST`, the refused write to an array parameter that no `return`
+  // carries back (change 0138, Amendment A15). Change 0142 makes an array parameter the caller's
+  // object, so such a write is the program's meaning and no refusal has a true text. The number
+  // is retired and not reused.
   UNSUPPORTED: 'TS8099',
 } as const;
 

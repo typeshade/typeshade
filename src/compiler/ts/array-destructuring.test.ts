@@ -6,6 +6,7 @@ import { compileTsSource } from './source-file.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { typeKey } from '../../core/ir/types.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const source = (body: string, head = '') => `"use typeshade";
 ${head}
@@ -83,21 +84,35 @@ describe('fixed-array binding declarations', () => {
     expect(errors('const [a]: [u32] = [-1]; return f32(a);')).not.toEqual([]);
   });
 
-  it('nests object and array patterns, copies struct values, and captures the bound names', () => {
+  it('nests object and array patterns, names the element an object pattern reads, and captures the bound names', () => {
     agree(
       `
       const xs = array<P, 2>(new P(2.), new P(5.));
-      let [{ x: a }, item] = xs;
-      item.x = 10.;
-      const { xs: [, { x: b }] } = new Box(xs);
+      const [{ x: a }, item] = xs;
+      const { xs: [, { x: b }] } = new Box(array<P, 2>(new P(1.), new P(7.)));
       function captured(): f32 { return a + b; }
       { const [a] = [100.]; if (a < 0.) { return a; } }
       return captured() + item.x + xs[1].x;
     `,
-      22,
+      19,
       `class P { constructor(public x: f32) {} }
 class Box { constructor(public xs: array<P, 2>) {} }`,
     );
+  });
+
+  it('refuses a write through the name an object pattern reads, where JavaScript writes the element', () => {
+    const head = `class P { constructor(public x: f32) {} }`;
+    const body = `const xs = array<P, 2>(new P(2.), new P(5.));
+      let [{ x: a }, item] = xs;
+      item.x = 10.;
+      return a + xs[1].x;`;
+    const found = errors(body, head);
+    expect(found.map((d) => d.code)).toEqual(['TS8099']);
+    expect(found[0]!.message).toMatch(/^"item" would name an object that "xs" gives back/);
+    const service = createTypeshadeLanguageService();
+    service.openDocument('m.shade.ts', source(body, head));
+    const editor = service.getDiagnostics('m.shade.ts').filter((d) => d.severity === 'error');
+    expect(editor.map((d) => [d.code, d.message])).toEqual(found.map((d) => [d.code, d.message]));
   });
 
   it('evaluates a source call once, including when the pattern binds no names', () => {
@@ -141,17 +156,18 @@ declare const xs: storage<array<P, 2>>;
     }
   });
 
-  it('copies a readonly uniform struct element and preserves reserved-name and shadow bindings', () => {
+  it('reads a readonly uniform struct element and preserves reserved-name and shadow bindings', () => {
     const r = compile(`"use typeshade";
 class P { x: f32; }
 class Frame { points: array<P, 2>; }
 declare const u: uniform<Frame>;
 @fragment export function fs(): vec4 {
-  let [copy] = u.points;
-  copy.x = 9.;
+  const [first] = u.points;
+  let copy: f32 = first.x;
+  copy = 9.;
   const [_d, texture] = array(1., 2.);
-  { const [texture] = [3.]; copy.x += texture; }
-  return vec4(copy.x, u.points[0].x, _d, texture);
+  { const [texture] = [3.]; copy += texture; }
+  return vec4(copy, u.points[0].x, _d, texture);
 }`);
     expect(r.diagnostics).toEqual([]);
     for (const make of [compileModule, compileModuleJs]) {

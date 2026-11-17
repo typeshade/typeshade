@@ -3,8 +3,8 @@
 // a field to the attribute type, and no `!` on a field or a local, keeping every byte it does not
 // need to change. The rewrite is held to the compiler: each registered example, migrated, gives
 // the WGSL, the GLSL ES 3.00 and the diagnostic codes the example gives as written.
-// A parameter qualifier stays written before the parameter, `@inout v: f32`, and the type form of
-// change 0111, `v: inout<f32>`, is rewritten back to it (Rule 8.25, change 0137).
+// A parameter qualifier, `@inout` or `@out`, is deleted from an object parameter, and left on a
+// number or a vector with a line that says the function must return its value (change 0142).
 // A built-in value's written type that WGSL fixes is deleted, `builtin<"vertex_index">` (Rule 6.6,
 // change 0135).
 
@@ -28,10 +28,9 @@ class VsOut {
   c!: location<1, vec4>;
 }
 declare const out: storage<array<f32>, "read_write">;
-function put(@out v: f32): void { v = 2.; }
 export const vs = vertex(function vs(i: builtin<"vertex_index">): VsOut {
   let b!: f32;
-  put(b);
+  b = 2.;
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(b, 0.), c: vec4(1.) };
 });
 export const fs = fragment((v: VsOut): location<0, vec4> => v.c * v.uv.x);
@@ -52,11 +51,10 @@ class VsOut {
   c: location<1, vec4>;
 }
 declare const out: storage<array<f32>, "read_write">;
-function put(@out v: f32): void { v = 2.; }
 @vertex
 export function vs(i: builtin<"vertex_index">): VsOut {
   let b: f32;
-  put(b);
+  b = 2.;
   return { pos: vec4(0., 0., 0., 1.), uv: vec2(b, 0.), c: vec4(1.) };
 }
 @fragment
@@ -97,26 +95,44 @@ export function scale(xs: array<f32>) {
     expect(compile(after).wgsl).toContain('@compute @workgroup_size(8, 8)');
   });
 
-  it('keeps a qualifier before the parameter, and rewrites the type form to it (change 0137)', () => {
-    const kept = `"use typeshade";
-function swap(@inout a: f32, @inout b: f32): void { const t = a; a = b; b = t; }
-function add(a: f32, b: f32, @out c: f32): void { c = a + b; }
+  it('deletes a qualifier from an object parameter and the type form with it (change 0142)', () => {
+    const before = `"use typeshade";
+class P { x: f32 = 0; }
+function fill(@inout xs: array<f32, 3>, @out p: P): void { xs[0] = 1.; p.x = 2.; }
+function typed(xs: inout<array<f32, 3>>, p: out<P>): void { xs[0] = 1.; p.x = 2.; }
+namespace N { export function grow(@inout xs: array<f32, 3>): void { xs[1] = 1.; } }
 `;
-    expect(migrateSource(kept)).toEqual({ text: kept, changes: 0, skipped: [] });
-    const typed = `"use typeshade";
-function swap(a: inout<f32>, b: inout<f32>): void { const t = a; a = b; b = t; }
-namespace N { export function grow(xs: inout<array<f32, 3>>, c: out<vec2>): void { c = vec2(xs[0]); } }
-function both(@inout a: inout<f32>): void { a = 1.; }
-`;
-    const result = migrateSource(typed);
+    const result = migrateSource(before);
     expect(result.text).toBe(`"use typeshade";
-function swap(@inout a: f32, @inout b: f32): void { const t = a; a = b; b = t; }
-namespace N { export function grow(@inout xs: array<f32, 3>, @out c: vec2): void { c = vec2(xs[0]); } }
-function both(@inout a: f32): void { a = 1.; }
+class P { x: f32 = 0; }
+function fill(xs: array<f32, 3>, p: P): void { xs[0] = 1.; p.x = 2.; }
+function typed(xs: array<f32, 3>, p: P): void { xs[0] = 1.; p.x = 2.; }
+namespace N { export function grow(xs: array<f32, 3>): void { xs[1] = 1.; } }
 `);
+    expect(result.changes).toBe(5);
     expect(result.skipped).toEqual([]);
+    expect(compile(before).diagnostics.filter((d) => d.category === 'error')).not.toEqual([]);
     expect(compile(result.text).diagnostics).toEqual([]);
     expect(migrateSource(result.text).changes).toBe(0);
+  });
+
+  it('leaves a qualifier on a number or a vector, and says the function must return it (change 0142)', () => {
+    const kept = `"use typeshade";
+function swap(@inout a: f32, @inout b: f32): void { const t = a; a = b; b = t; }
+function add(a: f32, b: f32, @out c: vec2): void { c = vec2(a + b); }
+function typed(v: inout<f32>): void { v = 1.; }
+`;
+    const result = migrateSource(kept);
+    expect(result.text).toBe(kept);
+    expect(result.changes).toBe(0);
+    const why =
+      'the function must return its value, and the call writes [a, b] = f(a, b) for more than one (change 0142)';
+    expect(result.skipped).toEqual([
+      `line 2: parameter "a" is @inout: ${why}`,
+      `line 2: parameter "b" is @inout: ${why}`,
+      `line 3: parameter "c" is @out: ${why}`,
+      `line 4: parameter "v" is inout<f32>: ${why}`,
+    ]);
   });
 
   it("deletes a built-in value's written type that WGSL fixes (change 0135, decision D1.2)", () => {
@@ -173,17 +189,15 @@ export function fs(v: VsOut, ff: builtin<"front_facing">, bad: builtin<"sample_i
     expect(warned(after)).toEqual([]);
   });
 
-  it('leaves a type form that is no parameter of a module function, and names it', () => {
+  it('leaves a type form that is no parameter, and names it', () => {
     const result = migrateSource(`"use typeshade";
 type R = inout<f32>;
-class C { m(p: inout<f32>): void {} }
 export function f(): f32 { let x: out<f32> = 1.; return x; }
 `);
     expect(result.changes).toBe(0);
     expect(result.skipped).toEqual([
-      'line 2: "inout<f32>" is no parameter\'s type of a module function: write the qualifier before the parameter by hand, "@inout a: T"',
-      'line 3: "inout<f32>" is no parameter\'s type of a module function: write the qualifier before the parameter by hand, "@inout a: T"',
-      'line 4: "out<f32>" is no parameter\'s type of a module function: write the qualifier before the parameter by hand, "@out a: T"',
+      'line 2: "inout<f32>" is no parameter\'s type: write the type by hand',
+      'line 3: "out<f32>" is no parameter\'s type: write the type by hand',
     ]);
   });
 
