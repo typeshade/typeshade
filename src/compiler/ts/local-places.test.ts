@@ -111,9 +111,9 @@ function run(): f32 {
 function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
   let q = qs[1];
-  return q.a + q.ws[0];
+  return q.a + q.ws[0] + qs[u32(q.a) - 3].b;
 }`,
-      8,
+      10,
     );
     expect(fnText(wgsl, 'run')).not.toMatch(/var q: /);
   });
@@ -125,9 +125,9 @@ function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
   const q = qs[0];
   qs[0].a = 50.;
-  return q.a + qs[0].a;
+  return q.a + qs[0].a + qs[u32(q.b) - 2].b;
 }`,
-      51,
+      53,
     );
     // A copy still, now a `var` (change 0105, item 1).
     expect(fnText(wgsl, 'run')).toMatch(/var q: Q = qs\[0\];/);
@@ -140,9 +140,9 @@ function run(): f32 {
   let qs: array<Q, 2> = [{ a: 1., b: 2., ws: [1., 2., 3., 4.] }, { a: 3., b: 4., ws: [5., 6., 7., 8.] }];
   let q = qs[0];
   q.a = 9.;
-  return q.a + qs[0].a;
+  return q.a + qs[0].a + qs[u32(q.b) - 2].b;
 }`,
-      10,
+      12,
     );
     expect(fnText(wgsl, 'run')).toMatch(/var q: Q = qs\[0\];/);
   });

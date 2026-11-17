@@ -284,7 +284,7 @@ declare const U_: uniform<U>`;
   it.each([
     [
       'an alias',
-      `@fragment export function fs(): vec4 { const w = U_.xs; return vec4(w[1] * U_.k) }`,
+      `@fragment export function fs(): vec4 { const w = U_.xs; return vec4(w[u32(U_.k)] * U_.k) }`,
     ],
     [
       'a helper argument',
