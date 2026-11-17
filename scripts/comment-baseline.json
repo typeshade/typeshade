@@ -708,7 +708,6 @@
   "src/core/passes/opt/expr-utils.ts": 193,
   "src/core/passes/opt/fixpoint-ireq.test.ts": 25,
   "src/core/passes/opt/guard-producers.test.ts": 6,
-  "src/core/passes/opt/guard-producers.ts": 77,
   "src/core/passes/opt/gvn.test.ts": 171,
   "src/core/passes/opt/index.ts": 1,
   "src/core/passes/opt/ir-transform.ts": 29,

@@ -190,7 +190,6 @@
   "src/core/passes/memory-words.ts": 638,
   "src/core/passes/opt/dce.test.ts": 743,
   "src/core/passes/opt/expr-utils.ts": 449,
-  "src/core/passes/opt/guard-producers.ts": 481,
   "src/core/passes/opt/gvn.test.ts": 1202,
   "src/core/passes/opt/pass-skeleton-differential.test.ts": 433,
   "src/core/passes/opt/unroll.test.ts": 784,
