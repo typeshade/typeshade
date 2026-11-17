@@ -64,4 +64,30 @@ describe('issue 1307: the result of an operation beside a typed u32 keeps two re
     bothRefuse(exported('a + vi'), 'TS8003', unproven('a + vi', 'return', 'i32(a + vi)'));
     expect(bothTake(exported('i32(a + vi)')).result.eval('g', [7])).toBe(-268435449);
   });
+
+  it.each([
+    ['+ 1', 'f32(((a + vi) & 0xFF) + 1)', 8],
+    ['| 0x100', 'f32(((a + vi) & 0xFF) | 0x100)', 263],
+    ['<< 2', 'f32(((a + vi) & 0xFF) << 2)', 28],
+    ['>> 2', 'f32(((a + vi) & 0xFF) >> 2)', 1],
+    ['& u32(0xFF)', 'f32((a + vi) & u32(0xFF))', 7],
+    ['& M, a typed constant', 'f32((a + vi) & M)', 7],
+  ] as const)(
+    'review of #1356: a masked value stays in range, so it compiles: %s',
+    (_, ret, value) => {
+      expect(run(program(`${A}const M: u32 = 0xFF;\n  return ${ret};`, 'f32'))).toBe(value);
+    },
+  );
+
+  it.each([
+    ['<< 31', '((a + vi) & 0xFF) << 31', -2147483648],
+    ['* 16777216', '((a + vi) & 0xFF) * 16777216', 117440512],
+  ] as const)(
+    'review of #1356: a masked value past i32 is refused again: %s',
+    (_, subject, value) => {
+      const source = program(`${A}return f32(${subject});`, 'f32');
+      bothRefuse(source, 'TS8003', unproven(subject, 'f32()', `i32(${subject})`));
+      expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(value);
+    },
+  );
 });

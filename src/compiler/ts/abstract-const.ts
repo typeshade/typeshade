@@ -45,6 +45,9 @@ import { loweredTypeOf } from './symbols.js';
 import {
   constantTree,
   ARITH,
+  isBitwise,
+  maskValue,
+  wrapList,
   BITWISE,
   COMPOUND_BASE,
   integerWrittenLiteral,
@@ -76,6 +79,7 @@ import {
   CONGRUENT,
   UNKNOWN,
   UNPROVEN,
+  agreeingBound,
   boundedReadings,
   heldByTreeVariable,
   mergedPicks,
@@ -858,14 +862,6 @@ export function noteAbstractDivision(
   const division: Division = { node, reads };
   table.set(node, division);
   divisionByNode.set(node, division);
-}
-
-/** Whether `node` is a bitwise or shift operation, whose value is an integer's. */
-function isBitwise(node: ts.Node): boolean {
-  return (
-    (ts.isBinaryExpression(node) && BITWISE.has(node.operatorToken.kind)) ||
-    (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.TildeToken)
-  );
 }
 
 /** The parts of `node` that carry an origin as a whole: a read of a constant of no fixed type,
@@ -2113,13 +2109,6 @@ function typesFromUse(
 
 const ALL_SCALARS: readonly Scalar[] = ['i32', 'u32', 'f32'];
 
-/** The operands to wrap, as a remedy lists them: `"k"`, or `each of "a" and "b"`. */
-function wrapList(subjects: readonly string[]): string {
-  const quoted = [...new Set(subjects)].map((s) => `"${s}"`);
-  if (quoted.length <= 1) return quoted[0] ?? 'an operand';
-  return `each of ${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]!}`;
-}
-
 /** The sentence of a refusal whose wraps would not choose the division (the owner's decision
  *  of 2026-11-13, "그 경우 감싸기 안 제시"): what is true, and no wrap. */
 export const NO_WRAP_REMEDY = "Declare the type of the division's operands to choose it.";
@@ -2374,6 +2363,13 @@ export function assignedReadings(
 
 /** The declaration of the constant `node` reads, where it is a `const` with no written type
  *  (`const K = 3000000000 | 0`, in a module, a function or another file). */
+const constantOf = (id: ts.Identifier): readonly [ts.Expression, boolean] | undefined => {
+  const d = declarationOf(id.text, id);
+  if (d === undefined || !ts.isVariableDeclaration(d) || !(d.parent.flags & ts.NodeFlags.Const))
+    return undefined;
+  return d.initializer && [d.initializer, writtenTypeText(d, id.getSourceFile()) !== undefined];
+};
+
 function untypedConstant(node: ts.Expression): ts.VariableDeclaration | undefined {
   const n = skipParenNodes(node);
   if (!ts.isIdentifier(n)) return undefined;
@@ -4075,10 +4071,13 @@ function binaryReadingsOf(
     const flow = { sourceFile, refused: new Set<ts.Node>(), tainted: new Map(), reached: [] };
     const peer = peerScalar(typedSide, flow);
     const differing = besideTyped.some((x) => x.congruent === true || provenDiffering(x));
+    const typedMask =
+      k === ts.SyntaxKind.AmpersandToken ? maskValue(typedSide, constantOf) : undefined;
+    if (typedMask !== undefined && !besideTyped.some((x) => x.unknown || plainUnproven(x))) {
+      return [{ ...AGREEING, bound: typedMask }];
+    }
     if (peer !== 'i32' && peer !== 'f32' && differing) return [CONGRUENT];
   }
-  const mask = (x: Reading): boolean =>
-    !x.tree && !x.unknown && Number.isInteger(x.u32) && x.u32 >= 0 && x.u32 <= 0x7fffffff;
   const pure = readsOnly(node, sourceFile);
   const out: Reading[] = [];
   for (const a of as) {
@@ -4093,8 +4092,8 @@ function binaryReadingsOf(
       if (a.unknown || b.unknown || plainUnproven(a) || plainUnproven(b)) {
         out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
       } else if (a.unproven || b.unproven || a.agreeing || b.agreeing) {
-        const masked = k === ts.SyntaxKind.AmpersandToken && (mask(a) || mask(b));
-        out.push({ ...(!keepsCongruence ? UNPROVEN : masked ? AGREEING : CONGRUENT), picks });
+        const kept = keepsCongruence ? CONGRUENT : UNPROVEN;
+        out.push({ ...(agreeingBound(k, a, b) ?? kept), picks });
       } else if (!tree) {
         if (bit && (isBigNumber(a.ts) || isBigNumber(b.ts))) {
           const u = rootOf(a.ts >>> 0, b.ts >>> 0);

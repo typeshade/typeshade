@@ -8,6 +8,7 @@ export interface Reading {
   readonly unproven?: boolean;
   readonly congruent?: boolean;
   readonly agreeing?: boolean;
+  readonly bound?: number;
   readonly picks: readonly (readonly [ts.Node, string])[];
 }
 
@@ -27,7 +28,7 @@ export const READING_STEP_LIMIT = 100000;
 
 export function readingValue(x: Reading): string {
   if (x.congruent === true) return 'c';
-  if (x.agreeing === true) return 'a';
+  if (x.agreeing === true) return `a${String(x.bound ?? '')}`;
   return x.unknown ? '?' : x.unproven ? '!' : `${String(x.u32)}:${String(x.ts)}:${x.tree ? 1 : 0}`;
 }
 
@@ -81,4 +82,37 @@ export function heldByTreeVariable(xs: readonly Reading[], pulled = false): read
       !x.unknown && Number.isInteger(x.u32) && x.u32 >= -2147483648 && x.u32 <= 4294967295;
     return holdsBits ? { ...x, u32: x.u32 >>> 0, tree: true } : { ...UNPROVEN, picks: x.picks };
   });
+}
+
+const MOST = 0x7fffffff;
+const boundOf = (x: Reading): number | undefined =>
+  x.agreeing === true
+    ? x.bound
+    : !x.tree && !x.unknown && Number.isInteger(x.u32) && x.u32 >= 0 && x.u32 <= MOST
+      ? x.u32
+      : undefined;
+const bitsBelow = (n: number): number => (n === 0 ? 0 : 2 ** Math.ceil(Math.log2(n + 1)) - 1);
+
+export function agreeingBound(k: ts.SyntaxKind, a: Reading, b: Reading): Reading | undefined {
+  const [x, y] = [boundOf(a), boundOf(b)];
+  if (k === ts.SyntaxKind.AmpersandToken && (a.congruent === true || b.congruent === true)) {
+    const mask = a.congruent === true ? (b.tree ? undefined : y) : a.tree ? undefined : x;
+    return mask === undefined ? undefined : { ...AGREEING, bound: mask };
+  }
+  if (x === undefined || y === undefined || a.unproven || b.unproven) return undefined;
+  const bound =
+    k === ts.SyntaxKind.PlusToken
+      ? x + y
+      : k === ts.SyntaxKind.AsteriskToken
+        ? x * y
+        : k === ts.SyntaxKind.AmpersandToken
+          ? Math.min(x, y)
+          : k === ts.SyntaxKind.BarToken || k === ts.SyntaxKind.CaretToken
+            ? bitsBelow(Math.max(x, y))
+            : k === ts.SyntaxKind.LessThanLessThanToken && b.agreeing !== true && y < 31
+              ? x * 2 ** y
+              : k === ts.SyntaxKind.GreaterThanGreaterThanToken && b.agreeing !== true
+                ? x
+                : undefined;
+  return bound !== undefined && bound <= MOST ? { ...AGREEING, bound } : undefined;
 }

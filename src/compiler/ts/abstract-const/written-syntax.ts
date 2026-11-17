@@ -137,3 +137,29 @@ export function peerOperands(n: ts.Node): (readonly [ts.Identifier, ts.Expressio
     ...(ts.isIdentifier(r) ? [[r, l] as const] : []),
   ];
 }
+
+export function isBitwise(node: ts.Node): boolean {
+  return (
+    (ts.isBinaryExpression(node) && BITWISE.has(node.operatorToken.kind)) ||
+    (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.TildeToken)
+  );
+}
+
+export function wrapList(subjects: readonly string[]): string {
+  const quoted = [...new Set(subjects)].map((s) => `"${s}"`);
+  if (quoted.length <= 1) return quoted[0] ?? 'an operand';
+  return `each of ${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]!}`;
+}
+
+export function maskValue(
+  node: ts.Expression,
+  constantOf: (id: ts.Identifier) => readonly [ts.Expression, boolean] | undefined,
+  declared = false,
+): number | undefined {
+  const n = skipParenNodes(node);
+  const constant = ts.isIdentifier(n) ? constantOf(n) : undefined;
+  if (constant !== undefined) return maskValue(constant[0], constantOf, constant[1]);
+  const call = ts.isCallExpression(n) && /^[iu]32$/.test(n.expression.getText()) ? n : undefined;
+  const v = declared ? writtenNumber(n) : call && writtenNumber(call.arguments[0]!);
+  return v !== undefined && Number.isInteger(v) && v >= 0 && v <= 0x7fffffff ? v : undefined;
+}
