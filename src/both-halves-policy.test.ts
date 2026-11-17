@@ -23,7 +23,6 @@ const KNOWN: readonly string[] = [
   'compiler/ts/int-lit-context.test.ts',
   'compiler/ts/mixins.test.ts',
   'compiler/ts/module.test.ts',
-  'compiler/ts/recursion.test.ts',
   'compiler/ts/texture-dims.test.ts',
   'vite.test.ts',
 ];
