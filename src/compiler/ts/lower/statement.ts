@@ -42,8 +42,8 @@ import {
 import { logicalTypeKey as typeKey } from '../optional.js';
 import { foldIndexConst } from '../index-bound.js';
 import ts from 'typescript';
-import { objectWrites } from '../object-reference.js';
-import { aliasedCall, namesShared } from '../object-share.js';
+import { fileFunction, objectWrites } from '../object-reference.js';
+import { aliasedCall, namesShared, returnsWhatItBuilt } from '../object-share.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, isF64, isVec, isVec64, u32T } from '../../../core/ir/types.js';
@@ -1137,8 +1137,8 @@ function secondNameOf(
   while (body.parent !== undefined && !ts.isFunctionLike(body)) body = body.parent;
   if (!ts.isFunctionLike(body)) return 'none';
   const name = decl.name.text;
-  const mine = objectWrites(name, body, sourceFile);
-  const theirs = objectWrites(from.text, body, sourceFile);
+  const mine = objectWrites(name, body, sourceFile, decl);
+  const theirs = objectWrites(from.text, body, sourceFile, from);
   // A write before the declaration is in the object when the second name takes it: only a
   // write after it, or in a loop that holds both, is one that the two names must share.
   const later = (n: ts.Node): boolean => {
@@ -1273,6 +1273,12 @@ function buildsFreshValue(init: ts.Expression, lowered: Expr): boolean {
       return true;
   }
   const whole = x;
+  // A function of the file that gives back an object it built, and no parameter or part of
+  // one, gives a value nothing else holds: `const p = make(3.); p.y = 2.;`.
+  if (ts.isCallExpression(x) && (lowered.type.kind === 'struct' || lowered.type.kind === 'array')) {
+    const callee = fileFunction(x, init.getSourceFile());
+    if (callee !== undefined) return returnsWhatItBuilt(callee, init.getSourceFile());
+  }
   while (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression)) {
     x = unwrapParens(x.expression.expression);
   }

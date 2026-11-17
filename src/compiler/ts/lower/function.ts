@@ -2555,10 +2555,11 @@ function reportSharedObjects(
       sourceFile,
       again.node,
       again.array !== undefined
-        ? `This statement puts another object in "${again.array}" inside the loop that names ` +
-            `its elements "${again.name}". A loop name that must keep the object it found is ` +
-            `not supported yet (change 0142, stage 2). Loop over the indexes, for (let i = 0; ` +
-            `i < ${again.array}.length; i++), and read ${again.array}[i].`
+        ? `This statement may put another object in "${again.array}" inside the loop that ` +
+            `names its elements "${again.name}". A loop that must keep the array and the ` +
+            `objects it found is not supported yet (change 0142, stage 2). Loop over the ` +
+            `indexes, for (let i = 0; i < ${again.array}.length; i++), and read ` +
+            `${again.array}[i].`
         : `"${again.name}" is assigned another object here, after a write to the object it ` +
             `named until now. A name that stops naming the caller's object part of the way ` +
             `through is not supported yet (change 0142, stage 2). Declare a local for the ` +

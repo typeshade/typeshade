@@ -709,7 +709,7 @@ export function f(): f32 { const a = new P(); const b = new C(a, bump(a)); retur
   for (const e of xs) { if (k == 0) { xs[0] = new P(); } e.x = 5.; k++; }
   return xs[0].x;
 }`,
-      /^TS8099 This statement puts another object in "xs" inside the loop that names its elements "e"\. A loop name that must keep the object it found is not supported yet \(change 0142, stage 2\)\. Loop over the indexes, for \(let i = 0; i < xs\.length; i\+\+\), and read xs\[i\]\.$/,
+      /^TS8099 This statement may put another object in "xs" inside the loop that names its elements "e"\. A loop that must keep the array and the objects it found is not supported yet \(change 0142, stage 2\)\. Loop over the indexes, for \(let i = 0; i < xs\.length; i\+\+\), and read xs\[i\]\.$/,
     ],
     [
       'one object handed as a name and as the result of a call',
@@ -815,6 +815,78 @@ export function f(): f32 { const a = new P(); return g(a, a); }`,
       expect(r.editor).toEqual(r.compiler);
     });
   }
+});
+
+// The programs of a fifth review, at 1c3e64b7.
+describe('a loop reads its array once, and a name is read in its own block (change 0142)', () => {
+  const Q = `class P { x: f32 = 0; y: f32 = 0; }
+class H { ps: array<P, 2> = [new P(), new P()]; }
+function mk(v: f32): P { const p = new P(); p.x = v; return p; }
+`;
+  const runs: readonly (readonly [string, string, number])[] = [
+    [
+      'two blocks that each declare the same two names',
+      `${Q}export function f(): f32 {
+  let s = 0.;
+  { const a = new P(); const b = a; b.y = 1.; s += a.y; }
+  { const a = new P(); let b = a; a.y += 2.; s += b.y; }
+  return s;
+}`,
+      3,
+    ],
+    [
+      'a loop over an array reached through an index that the body changes',
+      `${Q}export function f(): f32 {
+  let hs: array<H, 2> = [new H(), new H()];
+  hs[0].ps[0].x = 1.; hs[0].ps[1].x = 2.; hs[1].ps[0].x = 10.; hs[1].ps[1].x = 20.;
+  let k = 0;
+  let s = 0.;
+  for (const p of hs[k].ps) { k = 1; s += p.x; }
+  return s;
+}`,
+      3,
+    ],
+    [
+      'a const that takes what a function built is written like any new object',
+      `${Q}export function f(): f32 { const p = mk(3.); p.y = 2.; return p.x + p.y; }`,
+      5,
+    ],
+  ];
+  for (const [name, body, expected] of runs) {
+    it(`${name}: both halves, and the oracle`, () => {
+      const r = read(body);
+      expect(r.compiler).toEqual([]);
+      expect(r.editor).toEqual([]);
+      expect(r.value).toBe(expected);
+    });
+  }
+
+  it('reads an element that may be absent through a loop name', () => {
+    const r = read(`class P { x: f32 = 0; }
+function two(): array<P | undefined, 2> {
+  const p = new P(); p.x = 3.; const a: array<P | undefined, 2> = [p, undefined]; return a;
+}
+export function f(): f32 { const xs = two(); let s = 0.; for (const q of xs) { s += q?.x ?? 7.; } return s; }`);
+    expect(r.compiler).toEqual([]);
+    expect(r.editor).toEqual([]);
+    expect(r.value).toBe(10);
+  });
+
+  it('refuses a loop whose body assigns the holder of its array, in both halves', () => {
+    const r = read(`${Q}export function f(): f32 {
+  const h = new H();
+  const o: array<P, 2> = [new P(), new P()];
+  o[0].x = 100.;
+  let s = 0.;
+  for (const p of h.ps) { h.ps = o; s += p.x; }
+  return s;
+}`);
+    expect(r.compiler).toHaveLength(1);
+    expect(r.compiler[0]).toMatch(
+      /^TS8099 This statement may put another object in "h\.ps" inside the loop that names its elements "p"\./,
+    );
+    expect(r.editor).toEqual(r.compiler);
+  });
 });
 
 describe('a value stays a value (change 0142, decision 1)', () => {

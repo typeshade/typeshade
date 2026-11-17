@@ -642,10 +642,12 @@ interface Summary {
   /** Parameter `from` stored into the object of parameter `into`. */
   readonly into: readonly { readonly from: number; readonly into: number }[];
   readonly exact: number | undefined;
+  /** Whether a `return` may give an object of a variable outside the function. */
+  readonly outer: boolean;
 }
 const SUMMARY = new WeakMap<ts.FunctionDeclaration, Summary>();
 const SUMMING = new Set<ts.FunctionDeclaration>();
-const NOTHING: Summary = { result: new Map(), into: [], exact: undefined };
+const NOTHING: Summary = { result: new Map(), into: [], exact: undefined, outer: true };
 
 function storesOf(fn: Fn, reader: Reader): Store[] {
   const out: Store[] = [];
@@ -801,6 +803,13 @@ function summaryOf(fn: ts.FunctionDeclaration, sourceFile: ts.SourceFile): Summa
     return all;
   };
   const result = new Map<number, boolean>();
+  // The variables the body declares: a name that is none of them, and no parameter, is a
+  // variable of the file or `this`.
+  const inside = new Set<string>();
+  eachOwn(fn.body, (n) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) inside.add(n.name.text);
+  });
+  let outer = false;
   let exact: number | undefined;
   let exactly = true;
   let returns = 0;
@@ -813,6 +822,7 @@ function summaryOf(fn: ts.FunctionDeclaration, sourceFile: ts.SourceFile): Summa
     else exact = direct;
     for (const [name, share] of close(reader.shares(n.expression))) {
       const i = params.indexOf(name);
+      if (i < 0 && !inside.has(name)) outer = true;
       if (i < 0) continue;
       const had = result.get(i);
       result.set(i, had === undefined ? share.part : had && share.part);
@@ -842,6 +852,7 @@ function summaryOf(fn: ts.FunctionDeclaration, sourceFile: ts.SourceFile): Summa
     result,
     into,
     exact: exactly && result.size > 0 ? exact : undefined,
+    outer,
   };
   SUMMING.delete(fn);
   SUMMARY.set(fn, summary);
@@ -1260,39 +1271,65 @@ export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): Reassigned
         candidates.push({ name: d.name.text, scope: n.statement });
     }
   });
-  // `for (const e of xs)` names each element of `xs` as the loop finds it. A body that assigns
-  // the array whole, puts another object at an element, or hands the array to a function that
-  // writes it changes which object the name should be, which the compiler does not follow.
+  // `for (const e of xs)` reads `xs` once, and names each element as the loop finds it. A body
+  // that assigns the array or a holder of it (`xs = …`, `h.ps = …` in a loop over `h.ps`)
+  // changes which array the loop should read. Over objects, a body that puts another object at
+  // an element, or hands the array to a function or a method that writes it, changes which
+  // object the name should be. The compiler follows neither.
+  const rootNameOf = (e: ts.Expression): string | undefined => {
+    let at = bare(e);
+    while (ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at))
+      at = bare(at.expression);
+    if (at.kind === ts.SyntaxKind.ThisKeyword) return 'this';
+    return ts.isIdentifier(at) ? at.text : undefined;
+  };
   eachOwn(body, (n) => {
     if (!ts.isForOfStatement(n) || !ts.isVariableDeclarationList(n.initializer)) return;
     const d = n.initializer.declarations[0];
-    const root = rootOf(n.expression);
-    if (d === undefined || !ts.isIdentifier(d.name) || root === undefined) return;
-    if (!reader.isObject(d.name)) return;
-    const array = root.name.text;
+    const array = rootNameOf(n.expression);
+    if (d === undefined || !ts.isIdentifier(d.name) || array === undefined) return;
+    const objects = reader.isObject(d.name);
+    const path = stepsOf(n.expression);
     let replaced: ts.Node | undefined;
     const scan = (m: ts.Node): void => {
       if (replaced !== undefined) return;
       if (ts.isBinaryExpression(m) && m.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
         for (const target of writeTargets(m)) {
-          const t = rootOf(target);
-          if (t === undefined || t.name.text !== array) continue;
-          // The array whole, or an element whole: the last step is an element.
-          if (t.whole || ts.isElementAccessExpression(bare(target))) replaced = m;
+          if (rootNameOf(target) !== array) continue;
+          const steps = stepsOf(target);
+          // The array itself, or a holder on the way to it: the target's steps begin the
+          // array's steps.
+          const holder =
+            steps.length <= path.length &&
+            steps.every(
+              (step, k) => step === undefined || path[k] === undefined || step === path[k],
+            );
+          // An element of the array, whole.
+          const element = objects && steps.length === path.length + 1;
+          if (holder || element) replaced = m;
         }
       }
       if (ts.isCallExpression(m)) {
         const callee = fileFunction(m, sourceFile);
         m.arguments.forEach((a, i) => {
           const q = callee?.parameters[i];
-          if (q !== undefined && takesThePlace(q, sourceFile) && rootOf(a)?.name.text === array)
+          if (q !== undefined && takesThePlace(q, sourceFile) && rootNameOf(a) === array)
             replaced = m;
         });
+        // A method that writes its object, called on the array's holder.
+        if (
+          ts.isPropertyAccessExpression(m.expression) &&
+          rootNameOf(m.expression.expression) === array &&
+          methodWritesThis(m.expression.name.text, sourceFile) &&
+          (objects || path.length > 0)
+        )
+          replaced = m;
       }
       ts.forEachChild(m, scan);
     };
     scan(n.statement);
-    if (replaced !== undefined) out.push({ node: replaced, name: d.name.text, array });
+    if (replaced !== undefined)
+      out.push({ node: replaced, name: d.name.text, array: n.expression.getText(sourceFile) });
   });
   for (const { name, scope } of candidates) {
     const w = objectWrites(name, scope, sourceFile);
@@ -1308,3 +1345,13 @@ export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): Reassigned
   return out;
 }
 const REASSIGNED = new WeakMap<Fn, ReassignedObject[]>();
+
+/** Whether every `return` of `callee` gives an object the function built: no parameter, no part
+ *  of one, and no object of a variable outside it. */
+export function returnsWhatItBuilt(
+  callee: ts.FunctionDeclaration,
+  sourceFile: ts.SourceFile,
+): boolean {
+  const s = summaryOf(callee, sourceFile);
+  return s.result.size === 0 && !s.outer;
+}

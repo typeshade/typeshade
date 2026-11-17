@@ -790,6 +790,54 @@ export function lowerForOf(
     );
     return undefined;
   }
+  // JavaScript reads `hs[k].ps` once, before the first turn. The loop reads the place on every
+  // turn, so an index in it that is no literal is read once, into a name of the compiler's own.
+  const once = (e: Expr): Expr | undefined => {
+    if (e.op === 'member') {
+      const base = once(e.base);
+      return base === undefined ? undefined : { ...e, base };
+    }
+    if (e.op === 'index') {
+      const base = once(e.base);
+      if (base === undefined) return undefined;
+      if (e.idx.op === 'lit') return { ...e, base };
+      if (!scope.canHoist()) return undefined;
+      return { ...e, base, idx: scope.hoistTemp('_at', e.idx) };
+    }
+    return e;
+  };
+  const fixed = once(array);
+  if (fixed === undefined) {
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      node.expression,
+      'for-of reads its array on every trip, and this array is reached through an index that ' +
+        'may change: bind the index first, `const k = …; for (const x of xs[k])`.',
+      TS_CODES.LOOP_BOUND,
+    );
+    return undefined;
+  }
+  return lowerForOfOver(
+    node,
+    list,
+    decl as ts.VariableDeclaration & { readonly name: ts.Identifier },
+    fixed as Expr & { readonly type: { readonly kind: 'array' } & ShaderType },
+    sourceFile,
+    scope,
+    diagnostics,
+  );
+}
+
+function lowerForOfOver(
+  node: ts.ForOfStatement,
+  list: ts.VariableDeclarationList,
+  decl: ts.VariableDeclaration & { readonly name: ts.Identifier },
+  array: Expr & { readonly type: { readonly kind: 'array' } & ShaderType },
+  sourceFile: ts.SourceFile,
+  scope: LoweringScope,
+  diagnostics: TsCompilerDiagnostic[],
+): Stmt | undefined {
   const length =
     array.type.size !== undefined
       ? ({ op: 'lit', type: u32T, value: array.type.size } as const)
@@ -828,12 +876,38 @@ export function lowerForOf(
     // Table 1): each use of the name is the element's place, and no copy is declared. A copy
     // taken at the top of each turn would not show a write to the element through the name, nor
     // a write to it through the array while the name is read.
-    const through = objectWrites(decl.name.text, node.statement, sourceFile);
+    const through = objectWrites(decl.name.text, node.statement, sourceFile, node);
     // An optional of a number (`f32 | undefined`) is a value in a struct's clothes: only an
     // optional of an object is one.
-    const held = optionalInner(elemType) ?? elemType;
+    const inner = optionalInner(elemType);
+    const held = inner ?? elemType;
     const object = held.kind === 'struct' || held.kind === 'array';
-    const names = object && isPlace(array) && !through.whole;
+    // An object that may be absent is read through its own forms (`q?.x`, `q ?? o`), which read
+    // the loop's name as a variable: it stays a copy, and is refused where the body writes.
+    const names = object && inner === undefined && isPlace(array) && !through.whole;
+    const arrayRoot = ((): string | undefined => {
+      let at = array as Expr;
+      while (at.op === 'member' || at.op === 'index') at = at.base;
+      return at.op === 'varref' || at.op === 'param' ? at.name : undefined;
+    })();
+    if (
+      object &&
+      inner !== undefined &&
+      (through.member ||
+        (arrayRoot !== undefined &&
+          objectWrites(arrayRoot, node.statement, sourceFile, node).member))
+    ) {
+      pushDiag(
+        diagnostics,
+        sourceFile,
+        decl.name,
+        `"${decl.name.text}" names an element that may be absent, and the loop writes the ` +
+          `array or the element. A loop name over objects that may be absent, written in the ` +
+          `loop, is not supported yet (change 0142, stage 2). Loop over the indexes.`,
+        TS_CODES.UNSUPPORTED,
+      );
+      return undefined;
+    }
     // A function inside the body that uses the loop's name takes it as a variable of its own.
     if (names && through.captured) {
       pushDiag(

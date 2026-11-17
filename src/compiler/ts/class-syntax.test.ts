@@ -1729,10 +1729,17 @@ class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this; }
       expect(editorErrors(src)).toEqual([]);
       expect(runAll(src)).toBe(expected);
     }
-    // A function's result may be a value something else holds.
+    // A function that builds the object it returns gives a value nothing else holds.
+    {
+      const src = `${V}function mk(): V { return new V() }\nexport function run(): f32 { const b = mk(); b.bump(); return b.x }${RUN_TAIL}`;
+      expect(errorsOf(src)).toEqual([]);
+      expect(editorErrors(src)).toEqual([]);
+      expect(runAll(src)).toBe(1);
+    }
+    // A function's result that may be one of its parameters is a value something else holds.
     expect(
       only(
-        `${V}function mk(): V { return new V() }\nexport function run(): f32 { const b = mk(); b.bump(); return b.x }${RUN_TAIL}`,
+        `${V}function pick(p: V, q: V, k: f32): V { return k > 0. ? p : q }\nexport function run(): f32 { let a = new V(); let c = new V(); const b = pick(a, c, 1.); b.bump(); return b.x }${RUN_TAIL}`,
       ),
     ).toContain(`${M} "V.bump" changes its object, and "b" is a const whose value may be`);
     // The name itself is still bound once.
@@ -2127,8 +2134,8 @@ export function f(a: A): f32 { return a.#x }`,
     'a getter with no setter assigned': `class A { x: f32; get y(): f32 { return this.x } }
 export function f(): f32 { let a: A = { x: 1. }; a.y = 2.; return a.x }`,
     'a mutating method on a const that holds a function result': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
-function mk(): A { return new A() }
-export function f(): f32 { const b = mk(); b.bump(); return b.x }`,
+function pick(p: A, q: A, k: f32): A { return k > 0. ? p : q }
+export function f(): f32 { let a = new A(); let c = new A(); const b = pick(a, c, 1.); b.bump(); return b.x }`,
   };
 
   it.each(Object.entries(COMPILES))('compiles %s', (_what, body) => {

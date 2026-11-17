@@ -279,6 +279,9 @@ export function objectWrites(
   name: string,
   body: ts.Node,
   sourceFile: ts.SourceFile,
+  /** A node in the scope that declares the name: its declaration, or a use of it. Two blocks
+   *  that each declare a variable of this name hold two variables, and only this one is read. */
+  at?: ts.Node,
 ): {
   readonly member: boolean;
   readonly whole: boolean;
@@ -294,11 +297,17 @@ export function objectWrites(
   const memberAt: ts.Node[] = [];
   const wholeAt: ts.Node[] = [];
   let captured = false;
-  // The scope that declares the name: the body itself for a parameter, or the first block, loop
-  // or function that declares it. A scope inside that declares the name again holds another
-  // variable.
-  let home: ts.Node | undefined =
-    ts.isFunctionLike(body) && declaresAgain(body, name) ? body : undefined;
+  // The scope that declares the name: the nearest one around `at` that declares it, or else
+  // the body itself for a parameter, or the first block, loop or function that declares it. A
+  // scope inside that declares the name again holds another variable.
+  let home: ts.Node | undefined;
+  for (let scope: ts.Node | undefined = at; scope !== undefined; scope = scope.parent) {
+    if (declaresAgain(scope, name)) {
+      home = scope;
+      break;
+    }
+  }
+  if (home === undefined && ts.isFunctionLike(body) && declaresAgain(body, name)) home = body;
   const findHome = (n: ts.Node): void => {
     if (home !== undefined) return;
     if (declaresAgain(n, name)) {
@@ -308,9 +317,12 @@ export function objectWrites(
     ts.forEachChild(n, findHome);
   };
   findHome(body);
+  // Outside the declaring scope the name is another variable, where that scope is in the body.
+  const inBody = (n: ts.Node): boolean => n.getStart() >= body.getStart() && n.end <= body.end;
+  const root = home !== undefined && home !== body && inBody(home) ? home : body;
   const scan = (n: ts.Node, inner: boolean): void => {
-    if (n !== body && n !== home && declaresAgain(n, name)) return;
-    const within = inner || (n !== body && ts.isFunctionLike(n));
+    if (n !== root && n !== home && declaresAgain(n, name)) return;
+    const within = inner || (n !== root && ts.isFunctionLike(n));
     if (within && ts.isIdentifier(n) && n.text === name) captured = true;
     for (const target of writeTargets(n)) {
       const root = rootOf(target);
@@ -349,7 +361,7 @@ export function objectWrites(
     }
     ts.forEachChild(n, (c) => scan(c, within));
   };
-  scan(body, false);
+  scan(root, false);
   return {
     member: memberAt.length > 0,
     whole: wholeAt.length > 0,
