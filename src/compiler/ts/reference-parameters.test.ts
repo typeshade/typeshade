@@ -361,9 +361,9 @@ function add(a: f32, b: f32, @out c: f32): void { c = a + b; }
       'TS8073 "bump" writes "v" back to the caller (@inout v: f32), and "c" is declared with const; declare it with let.',
     ],
     [
-      'a value parameter, through a field',
-      `function g(o: Ob): void { bump(o.a); } export function r(): f32 { return 0.; }`,
-      'TS8073 "bump" writes "v" back to the caller (@inout v: f32), and "o" is a parameter that holds a copy of its caller\'s value, which this function cannot hand on as a place. Declare it "@inout o: Ob" to pass its caller\'s place on, or copy it into a let.',
+      'a number parameter, which is a value',
+      `function g(o: f32): void { bump(o); } export function r(): f32 { return 0.; }`,
+      'TS8073 "bump" writes "v" back to the caller (@inout v: f32), and "o" is a parameter that holds a copy of its caller\'s value, which this function cannot hand on as a place. Declare it "@inout o: f32" to pass its caller\'s place on, or copy it into a let.',
     ],
     [
       'a read-only binding',
@@ -478,6 +478,17 @@ function add(a: f32, b: f32, @out c: f32): void { c = a + b; }
       expect(said).toContain(message);
     });
   }
+
+  it("hands a field of an object parameter on: the parameter is the caller's object (change 0142)", () => {
+    // `o` is an object, so a function that writes a field of it through `bump` changes the
+    // caller's `Ob`, as JavaScript does; the same form on a number parameter is refused above.
+    const source = `"use typeshade";\n${pre}function g(o: Ob): void { bump(o.a); }
+export function r(): f32 { let o = new Ob(); o.a = 1.; g(o); return o.a; }`;
+    const r = compile(source);
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    expect(editor(source)).toEqual([]);
+    expect(r.wgsl).toContain('fn g(o: ptr<function, Ob>)');
+  });
 
   it('names @inout in TS8018 only where a function may take one', () => {
     const said = (body: string): string[] =>
