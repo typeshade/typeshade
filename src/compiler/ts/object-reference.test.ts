@@ -632,7 +632,7 @@ export function f(): f32 { const a = new P(); return w(a, a); }`,
     [
       'two names a pattern takes from one object',
       `${Q}export function f(): f32 { const a = new P(); let [p, q] = [a, a]; p.x = 5.; return q.x; }`,
-      [CALLED('p', '[a, a]'), STORED('a'), STORED('a')],
+      [CALLED('p', '[a, a]'), CALLED('q', '[a, a]'), STORED('a'), STORED('a')],
     ],
     [
       'an object whose name another block declares first as a number',

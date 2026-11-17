@@ -369,3 +369,89 @@ describe('the three examples of the amendment', () => {
     );
   });
 });
+
+describe('rule 6: an object of a type that is never written is a copy', () => {
+  /** `body` compiles in both halves and the oracle gives `expected`. */
+  const compiles = (body: string, expected: number): void => {
+    const r = read(body);
+    expect(r.compiler).toEqual([]);
+    expect(r.editor).toEqual([]);
+    expect(r.value).toBe(expected);
+  };
+  /** `body` is refused in both halves, once for each of `starts`. */
+  const refused = (body: string, ...starts: string[]): void => {
+    const r = read(body);
+    expect(r.compiler).toHaveLength(starts.length);
+    starts.forEach((t, i) => expect(r.compiler[i]!.startsWith(t), r.compiler[i]).toBe(true));
+    expect(r.editor).toEqual(r.compiler);
+  };
+
+  const SCENE = (leaf: string): string => `class Leaf { v: f32 = 1.; ${leaf} }
+class Holder { a: Leaf; b: Leaf; constructor(a: Leaf, b: Leaf) { this.a = a; this.b = b; } }
+class Scene {
+  l: Leaf = new Leaf();
+  m: Leaf = new Leaf();
+  h: Holder;
+  constructor() { this.h = new Holder(this.l, this.m); }
+}
+export function f(): f32 { const s = new Scene(); return s.h.a.v + s.h.b.v * 10. + s.l.v * 100.; }`;
+
+  it('a holder built around two fields of this, of a class nothing writes, compiles', () => {
+    compiles(SCENE(''), 111);
+  });
+
+  it('is refused where a method writes the shared class somewhere else in the file', () => {
+    refused(SCENE('bump(): void { this.v += 1.; }'), NAMED('this.l'), NAMED('this.m'));
+  });
+
+  it('a type written only in its own constructor is never written', () => {
+    compiles(
+      `class T { x: f32; constructor(x: f32) { this.x = x; } }
+export function f(): f32 { const a = new T(1.); const xs: array<T, 2> = [a, new T(2.)]; return a.x + xs[0].x; }`,
+      2,
+    );
+  });
+
+  it('a type whose nested field type is written is written', () => {
+    const OUT = `class In { n: f32 = 0.; }
+class Out { i: In = new In(); }
+`;
+    compiles(
+      `${OUT}export function f(): f32 { const a = new Out(); const xs: array<Out, 2> = [a, new Out()]; return a.i.n + xs[0].i.n; }`,
+      0,
+    );
+    refused(
+      `${OUT}export function f(): f32 { const a = new Out(); const xs: array<Out, 2> = [a, new Out()]; const q = new In(); q.n = 5.; return a.i.n + xs[0].i.n; }`,
+      STORED('a'),
+    );
+  });
+
+  it('a conditional of null and a name compiles where no array of that type is written', () => {
+    compiles(
+      `class P { x: f32 = 0; }
+export function f(): f32 {
+  const items: array<f32, 2> = [3., 4.];
+  const p = new P();
+  const c = items[0] > 9.;
+  const m: array<f32, 2> | null = c ? null : items;
+  p.x = 1.;
+  return (m?.[1] ?? 0.) + p.x;
+}`,
+      5,
+    );
+  });
+
+  it('is refused where an array of that type is written elsewhere', () => {
+    refused(
+      `export function f(): f32 {
+  const items: array<f32, 2> = [3., 4.];
+  const other: array<f32, 2> = [0., 0.];
+  const c = items[0] > 9.;
+  const m: array<f32, 2> | null = c ? null : items;
+  other[0] = 1.;
+  return (m?.[1] ?? 0.) + other[0];
+}`,
+      CALLED('m', 'c ? null : items'),
+    );
+  });
+});

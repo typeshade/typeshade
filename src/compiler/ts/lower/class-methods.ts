@@ -84,6 +84,7 @@ import {
 import { mapTsTypeToShaderType, writesUndeclaredType } from '../type-map.js';
 import { writesThroughArgument } from './references.js';
 import { ownParts } from '../object-reference.js';
+import { heldRefusal } from './pending-shares.js';
 import {
   checkFunctionAccess,
   checkInheritedPrivateStatic,
@@ -2369,6 +2370,15 @@ export function mutatingReceiver(
     // `const v = new V(); v.setX(1.)`: a `const` that holds a value nothing else does is
     // written through as TypeScript's is, and becomes a `var` (Rule 6.10).
     if (b !== undefined && !b.mutable && b.toVar !== undefined) b.toVar();
+    // A `const` that holds a refusal of rule 4 is said by that refusal, once the module is read.
+    if (
+      b !== undefined &&
+      !b.mutable &&
+      b.kind === 'local' &&
+      b.type.kind === 'struct' &&
+      heldRefusal(diagnostics, bare.text, b.type)
+    )
+      return undefined;
     if (b !== undefined && !b.mutable) {
       const copy = b.kind === 'local' && b.type.kind === 'struct';
       pushDiag(

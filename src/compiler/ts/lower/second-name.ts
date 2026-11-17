@@ -18,8 +18,9 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import { cloneIr, type LoweringScope } from '../context.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES, type TsCode } from '../codes.js';
-import { bare, objectWrites } from '../object-reference.js';
+import { bare } from '../object-reference.js';
 import { aliasedCall, isNewObject, isObjectType } from '../new-object.js';
+import { deferRefusal } from './pending-shares.js';
 import { objectWrittenAround, usesOfDeclared, wholeWrite } from '../object-share.js';
 
 function pushDiag(
@@ -70,20 +71,25 @@ export function copyOfObject(
   isConst: boolean,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  /** The lowered type of the object: where no body writes it, the copy stands (rule 6). */
+  type: ShaderType,
 ): boolean {
   if (isConst && !objectWrittenAround(decl, sourceFile)) return true;
   const call = (decl.initializer ?? decl).getText(sourceFile).replace(/\s+/g, ' ');
-  pushDiag(
-    diagnostics,
+  deferRefusal(diagnostics, {
     sourceFile,
-    name,
-    `"${name.getText(sourceFile)}" would name an object that "${call}" gives back, which may ` +
+    node: name,
+    type,
+    name: name.getText(sourceFile),
+    code: TS_CODES.UNSUPPORTED,
+    message:
+      `"${name.getText(sourceFile)}" would name an object that "${call}" gives back, which may ` +
       `already have a name, and the function writes an object after that. One object under two ` +
       `names is not supported yet (change 0142, stage 2). Read what you need from the call ` +
       `first, or write through the name that holds the object.`,
-    TS_CODES.UNSUPPORTED,
-  );
-  return false;
+  });
+  // The declaration is a copy; the refusal, if rule 6 keeps it, is the diagnostic.
+  return true;
 }
 
 let copying = false;
@@ -150,7 +156,8 @@ export function secondNameOf(
       typeKey(type) !== typeKey(init.type)
     )
       return 'none';
-    return copyOfObject(decl, decl.name, isConst, sourceFile, diagnostics) ? 'none' : 'refused';
+    copyOfObject(decl, decl.name, isConst, sourceFile, diagnostics, init.type);
+    return 'none';
   }
   let region: ts.Node = list.parent;
   if (ts.isVariableStatement(region)) region = region.parent;
@@ -167,18 +174,21 @@ export function secondNameOf(
   // declaration as a copy leaves to the statement that writes it.
   if (uses.some((u) => wholeWrite(u) === 'compound')) return 'none';
   const assigned = uses.some((u) => wholeWrite(u) === 'assign');
-  // Where nothing writes through any name of the object, a name that is assigned later is a copy
-  // with JavaScript's result: `let ray = primary; … ray = new Ray(…)` (as before change 0142's
-  // Amendment A3).
-  if (assigned && !objectWrites(name, functionOf(decl), sourceFile, decl).member) return 'none';
+  // A name that is assigned again later cannot be the place. It is a copy, which stands where no
+  // body writes the object's type (rule 6), and is refused otherwise.
   if (assigned) {
-    return refuse(
-      decl.name,
-      `"${name}" is a second name of an object that already has a name, and "${name}" is ` +
+    deferRefusal(diagnostics, {
+      sourceFile,
+      node: decl.name,
+      type,
+      code: TS_CODES.UNSUPPORTED,
+      message:
+        `"${name}" is a second name of an object that already has a name, and "${name}" is ` +
         `assigned again later. Following which object each name then refers to is not ` +
         `supported yet (change 0142, stage 2). Give "${name}" its own variable for the second ` +
         `object.`,
-    );
+    });
+    return 'none';
   }
   const mutable = !isConst;
   try {
@@ -220,11 +230,4 @@ function functionBetween(n: ts.Node, region: ts.Node): boolean {
   for (let at = n.parent; at !== undefined && at !== region; at = at.parent)
     if (ts.isFunctionLike(at)) return true;
   return false;
-}
-
-/** The function that holds `n`. */
-function functionOf(n: ts.Node): ts.Node {
-  let at = n;
-  while (at.parent !== undefined && !ts.isFunctionLike(at)) at = at.parent;
-  return at;
 }

@@ -162,6 +162,7 @@ import {
   setParamDefault,
 } from './param-defaults.js';
 import { checkReferenceAliases } from './references.js';
+import { deferRefusal, resolvePendingShares } from './pending-shares.js';
 import { lowerStatements, lowerVoidArrowBody } from './statement.js';
 export { FRAGMENT_ONLY_CALLS, FRAGMENT_OR_COMPUTE_CALLS } from '../stage-restrictions.js';
 export {
@@ -2125,6 +2126,13 @@ export function lowerSourceFunctions(
     sourceFile,
     diagnostics,
   );
+  // The refusals that rule 6 may drop, now that every body says which types it writes.
+  resolvePendingShares(
+    funcs,
+    new Set(classFns.filter((cf) => cf.kind === 'ctor').map((cf) => cf.stub)),
+    structs.map((st) => st.decl),
+    diagnostics,
+  );
   return funcs;
 }
 
@@ -2548,11 +2556,19 @@ function reportSharedObjects(
 ): void {
   let reported = SHARED_REPORTED.get(diagnostics);
   if (reported === undefined) SHARED_REPORTED.set(diagnostics, (reported = new Set()));
-  const say = (at: ts.Node, message: string, code: TsCode = TS_CODES.UNSUPPORTED): void => {
+  const say = (
+    at: ts.Node,
+    message: string,
+    code: TsCode = TS_CODES.UNSUPPORTED,
+    store?: { readonly type: ShaderType | undefined },
+  ): void => {
     const key = `${at.getStart(sourceFile)}:${message}`;
     if (reported.has(key)) return;
     reported.add(key);
-    pushDiag(diagnostics, sourceFile, at, message, code);
+    // A store waits until every body says which types are written (rule 6).
+    if (store !== undefined)
+      deferRefusal(diagnostics, { sourceFile, node: at, message, code, type: store.type });
+    else pushDiag(diagnostics, sourceFile, at, message, code);
   };
   for (const again of reassignedObjects(node, sourceFile)) {
     say(
@@ -2575,6 +2591,7 @@ function reportSharedObjects(
       shared.node,
       shared.text,
       shared.pairing === true ? TS_CODES.REFERENCE_ALIAS : TS_CODES.UNSUPPORTED,
+      shared.store,
     );
 }
 const SHARED_REPORTED = new WeakMap<TsCompilerDiagnostic[], Set<string>>();

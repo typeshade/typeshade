@@ -44,6 +44,7 @@ import { foldIndexConst } from '../index-bound.js';
 import ts from 'typescript';
 import { isNewObject } from '../new-object.js';
 import { copyOfObject, secondNameOf } from './second-name.js';
+import { heldRefusal } from './pending-shares.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, isF64, isVec, isVec64, u32T } from '../../../core/ir/types.js';
@@ -1473,7 +1474,7 @@ function lowerPatternInto(
     if (
       (read.type.kind === 'struct' ||
         (read.type.kind === 'array' && read.type.size !== undefined)) &&
-      !copyOfObject(decl, element.name, isConst, sourceFile, diagnostics)
+      !copyOfObject(decl, element.name, isConst, sourceFile, diagnostics, read.type)
     )
       return false;
     if (refuseAtomicDeclaration(read.type, element.name, sourceFile, diagnostics, 'a local'))
@@ -2634,6 +2635,13 @@ export function lowerLValue(
   const rules = writeRules(binding);
   if (!rules.mutable && into && rules.toVar !== undefined) rules.toVar();
   if (!rules.mutable) {
+    if (
+      into &&
+      rules.kind === 'local' &&
+      isComposite(rules.type) &&
+      heldRefusal(diagnostics, node.text, rules.type)
+    )
+      return undefined;
     const ro = readOnlyPhrase(rules.kind);
     pushDiag(
       diagnostics,
@@ -2977,6 +2985,13 @@ function checkRootMutable(
       binding.capture?.byRef();
       return true;
     }
+    if (
+      through &&
+      rules.kind === 'local' &&
+      isComposite(rules.type) &&
+      heldRefusal(diagnostics, rootName, rules.type)
+    )
+      return false;
     // readOnlyPhrase, not a local ternary: #18 gave a binding its own BindingKind, so the
     // message can say WHICH of the two a name is — and the root of a chain deserves the same
     // sentence a bare name gets.

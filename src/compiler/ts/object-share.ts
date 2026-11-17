@@ -139,6 +139,9 @@ export interface SharedObject {
   readonly text: string;
   /** `TS8074` for one object handed twice to a call; `TS8099` otherwise. */
   readonly pairing?: true;
+  /** A refusal of rule 2, which rule 6 drops where the stored value's type is never written:
+   *  the lowered type of the value, where the lowering said. */
+  readonly store?: { readonly type: ShaderType | undefined };
 }
 
 const ASSIGNS = new Set([
@@ -239,6 +242,7 @@ export function sharedObjects(
     if (d !== undefined && !usedAfter(v as ts.Identifier, d, value)) return;
     out.push({
       node: value,
+      store: { type: typeOf(v) },
       text:
         d !== undefined
           ? `"${text(value)}" is stored in a second place here, and it is used after that. One ` +
@@ -308,6 +312,7 @@ export function sharedObjects(
           if (objectLike(v) && newObject(v, reader))
             out.push({
               node: n,
+              store: { type: typeOf(v) },
               text:
                 `"${text(n)}" puts one object in every element, and the elements are then one ` +
                 `object. One object under two names is not supported yet (change 0142, stage ` +
