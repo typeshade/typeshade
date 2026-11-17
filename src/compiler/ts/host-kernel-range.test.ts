@@ -31,23 +31,23 @@ afterAll(() => {
 });
 
 const RANGES = `"use typeshade";
-export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, @inout out: array<f32>): void {
+export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, out: array<f32>): void {
   const n: u32 = count[0];
   for (let j: u32 = 0; j < n; j++) {
     out[j] = xs[list[j]];
   }
 }
-export function down(count: array<u32>, @inout out: array<i32>, k: i32): void {
+export function down(count: array<u32>, out: array<i32>, k: i32): void {
   for (let j: i32 = i32(count[0]) + k; j >= 0; j -= 3) {
     out[j] = j * 7;
   }
 }
-export function upto(bounds: array<u32>, @inout out: array<u32>): void {
+export function upto(bounds: array<u32>, out: array<u32>): void {
   for (let j: u32 = bounds[0]; j <= bounds[1]; j += 2) {
     out[j] = j + 1;
   }
 }
-export function compact(xs: array<f32>, @inout list: array<u32>, @inout out: array<f32>): void {
+export function compact(xs: array<f32>, list: array<u32>, out: array<f32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > 0.) {
       list.push(i);
@@ -58,7 +58,7 @@ export function compact(xs: array<f32>, @inout list: array<u32>, @inout out: arr
     out[j] = xs[list[j]] * 2.;
   }
 }
-export function chain(count: array<u32>, @inout out: array<u32>, @inout more: array<u32>): void {
+export function chain(count: array<u32>, out: array<u32>, more: array<u32>): void {
   for (let j: u32 = 0; j < count[0]; j++) {
     out[j] = j + 1;
   }
@@ -196,8 +196,9 @@ describe('a trip count the device holds on the CPU tier (change 0094)', () => {
 
   it('does not run a call that would write past the end through a reference (decision S3-5)', () => {
     const source = `"use typeshade";
-function bump(@inout p: f32) { p = p + 1.; }
-export function inc(count: array<u32>, @inout out: array<f32>): u32 {
+class Cell { v: f32; }
+function bump(p: Cell) { p.v = p.v + 1.; }
+export function inc(count: array<u32>, out: array<Cell>): u32 {
   for (let j: u32 = 0; j < count[0]; j++) {
     bump(out[j]);
   }
@@ -205,11 +206,11 @@ export function inc(count: array<u32>, @inout out: array<f32>): u32 {
 }
 `;
     const r = compile(source, { fileName: 'm.shade.ts' });
-    const out = [1, 2];
+    const out = [{ v: 1 }, { v: 2 }];
     // The oracle is the CPU tier's code: the array is a JavaScript array, which a write past its
     // end would grow.
-    expect(compileModule(r.module, { precision: 'f32' }).fns['inc']!([4], out)).toBe(2);
-    expect(out).toEqual([2, 3]);
+    expect(compileModule(r.module, { precision: 'f32' }).fns['inc']!([4], out as never)).toBe(2);
+    expect(out).toEqual([{ v: 2 }, { v: 3 }]);
   });
 
   it('drops a write past the end on every tier, and the length stays the array’s (decision D2)', async () => {
@@ -303,7 +304,7 @@ describe('loops over a device range that still run on the CPU tier, and why (cha
     ],
     [
       'a loop that pushes',
-      `export function keep(count: array<u32>, xs: array<f32>, @inout list: array<u32>) {
+      `export function keep(count: array<u32>, xs: array<f32>, list: array<u32>) {
   for (let j: u32 = 0; j < count[0]; j++) {
     if (xs[j] > 0.) {
       list.push(j);
@@ -315,14 +316,15 @@ describe('loops over a device range that still run on the CPU tier, and why (cha
     ],
     [
       'a loop that writes what the statements before it read',
-      `export function first(@inout out: array<f32>) { const a = out[0]; for (let i: u32 = 0; i < out.length; i++) { out[i] = a; } }`,
+      `export function first(out: array<f32>) { const a = out[0]; for (let i: u32 = 0; i < out.length; i++) { out[i] = a; } }`,
       'first',
       'loop 1 writes "out", which the statements before it read, and each of its invocations runs those statements again',
     ],
     [
       'a loop that writes through a reference a call takes',
-      `function bump(@inout p: f32) { p = p + 1.; }
-export function inc(count: array<u32>, @inout out: array<f32>) {
+      `class Cell { v: f32; }
+function bump(p: Cell) { p.v = p.v + 1.; }
+export function inc(count: array<u32>, out: array<Cell>) {
   for (let j: u32 = 0; j < count[0]; j++) {
     bump(out[j]);
   }
@@ -332,7 +334,7 @@ export function inc(count: array<u32>, @inout out: array<f32>) {
     ],
     [
       'a function that takes a Set',
-      `export function marks(count: array<u32>, seen: Set<u32>, @inout out: array<u32>) {
+      `export function marks(count: array<u32>, seen: Set<u32>, out: array<u32>) {
   for (let j: u32 = 0; j < count[0]; j++) {
     if (seen.has(j)) {
       out[j] = 1;
@@ -344,7 +346,7 @@ export function inc(count: array<u32>, @inout out: array<f32>) {
     ],
     [
       'a range that reads the length of an array a later loop pushes onto',
-      `export function late(xs: array<u32>, @inout list: array<u32>, @inout out: array<u32>) {
+      `export function late(xs: array<u32>, list: array<u32>, out: array<u32>) {
   for (let j: u32 = 0; j < list.length; j++) {
     out[j] = j;
   }

@@ -9,7 +9,7 @@ function fixture(branch = 'if (take) { result = make(x); }', prelude = '') {
     ${prelude}
     export function f(x: f32, take: bool): array<f32, 3> {
       let source: array<f32, 3> = [x * 2., x * 3., x * 4.];
-      let result = source;
+      let result = source.slice();
       ${branch}
       return result;
     }`);
@@ -58,7 +58,7 @@ describe('sink aggregate initialization to the path that needs its snapshot', ()
   it('does not delay the snapshot across a condition that mutates its source', () => {
     const m = fixture(
       'if (change(source)) { result = make(x); }',
-      'function change(@inout a: array<f32, 3>): bool { a[0] = 99.; return false; }',
+      'function change(a: array<f32, 3>): bool { a[0] = 99.; return false; }',
     );
     expect(sinkAggregateInit(m)).toEqual(m);
     expect(compileModule(m).fns.f!(2, false)).toEqual([4, 6, 8]);

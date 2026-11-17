@@ -1,6 +1,6 @@
 // === `tshc migrate`: a "use typeshade" file to the language's own forms ===
 //
-// Implements: Rule 6.6 (docs/language-design.md; traced in reqs/).
+// Implements: Rule 6.6, Rule 8.25 (docs/language-design.md; traced in reqs/).
 //
 // Change 0130 (with change 0140): an entry's stage is an attribute on its function declaration,
 // and the stage calls of change 0111, which the compiler refuses (`TS8028`) with a text that
@@ -20,8 +20,6 @@
 //   let q!: f32; put(q);                                → let q: f32; put(q);
 //
 // The `!` on a field or a local is not written (change 0130, D3): an entry I/O field is filled by
-// the stage that produces it, a struct field is zero until written, and a local an `out<T>`
-// argument fills first is read as assigned (Rule 7.6).
 //
 // The decorated form of change 0111 on a parameter or a field is still rewritten to the
 // attribute type that replaces it (change 0130, Migration order step 3):
@@ -36,21 +34,15 @@
 //   i: builtin<"vertex_index", u32>                  → i: builtin<"vertex_index">
 //   pos: builtin<"position", vec4, { invariant: true }> → pos: builtin<"position", { invariant: true }>
 //
-// A parameter qualifier is written before the parameter, `@inout v: f32` (Rule 8.25, change
-// 0137): the rewrite leaves a written `@inout` or `@out` as it is, and rewrites the type form of
-// change 0111 back to it on a parameter of a module function:
 //
-//   v: inout<f32>, w: out<f32>                       → @inout v: f32, @out w: f32
+//
 //
 // The diagnostic filter is deleted, wherever it is written (change 0132, item 7): the compiler
 // rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5), and refuses a
 // written filter (`TS8028`).
-//
 // A form the rewrite cannot carry is left as written and named in `skipped`, with its line,
 // so the author finishes it by hand: an entry with no body, an attribute on a parameter with
 // no type, a stage call whose function has a name of its own or options beyond the filter, an
-// `export default` entry with no name, a type form of a qualifier that is no parameter's type of
-// a module function.
 
 import ts from 'typescript';
 import {
@@ -60,6 +52,7 @@ import {
   decoratorParts,
   isQualifierTypeForm,
 } from '../compiler/ts/decorated-form.js';
+import { writesAnObject } from '../compiler/ts/object-reference.js';
 import { shortBuiltinForm, writtenBuiltinTypes } from '../compiler/ts/builtin-type-form.js';
 import { stageCallOf, type StageCall } from '../compiler/ts/stage-call.js';
 
@@ -235,8 +228,6 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
   };
   visitParams(sf);
 
-  // The type form of a qualifier, `v: inout<f32>`, back to the language's form, `@inout v: f32`,
-  // on a parameter of a module function (change 0137). Any other type form is left as written.
   const declared = new Set<string>();
   const visitDeclared = (n: ts.Node): void => {
     if (
@@ -250,47 +241,47 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
     ts.forEachChild(n, visitDeclared);
   };
   visitDeclared(sf);
-  const visitQualifierTypes = (n: ts.Node): void => {
+  const valueRemedy =
+    'the function must return its value, and the call writes [a, b] = f(a, b) for more than one ' +
+    '(change 0142)';
+  const visitQualifiers = (n: ts.Node): void => {
+    if (ts.isParameter(n) && ts.isFunctionLike(n.parent)) {
+      const written = decoratorsOf(n).filter(
+        (d) => ts.isIdentifier(d.expression) && QUALIFIERS.has(d.expression.text),
+      );
+      const shown = `parameter "${n.name.getText(sf)}"`;
+      if (written.length > 0) {
+        const qualifier = (written[0]!.expression as ts.Identifier).text;
+        if (decoratorsOf(n).some((d) => ATTRIBUTES.has(partsOf(d, sf).name))) {
+          skip(n, `${shown} carries @${qualifier} and an attribute: delete @${qualifier} by hand`);
+        } else if (!writesAnObject(n.type, sf)) {
+          skip(n, `${shown} is @${qualifier}: ${valueRemedy}`);
+        } else {
+          for (const d of written) {
+            const range = decoratorRange([d], sf);
+            edits.push({ start: range.pos, end: range.end, text: '' });
+          }
+          changes++;
+        }
+      }
+    }
     if (isQualifierTypeForm(n, declared)) {
       const ref = n as ts.TypeReferenceNode;
-      const name = (ref.typeName as ts.Identifier).text;
       const value = ref.typeArguments?.length === 1 ? ref.typeArguments[0] : undefined;
       const p = ref.parent;
-      const fn = ts.isParameter(p) ? p.parent : undefined;
-      const moduleFunction =
-        fn !== undefined &&
-        ts.isFunctionDeclaration(fn) &&
-        (ts.isSourceFile(fn.parent) || ts.isModuleBlock(fn.parent));
-      const written = ts.isParameter(p)
-        ? decoratorsOf(p).filter((d) => QUALIFIERS.has(partsOf(d, sf).name))
-        : [];
-      if (
-        value === undefined ||
-        !ts.isParameter(p) ||
-        p.type !== ref ||
-        !moduleFunction ||
-        written.some((d) => partsOf(d, sf).name !== name) ||
-        // An entry's attribute decorator moves into the same type (above).
-        decoratorsOf(p).some((d) => ATTRIBUTES.has(partsOf(d, sf).name))
-      ) {
-        skip(
-          ref,
-          `"${ref.getText(sf)}" is no parameter's type of a module function: write the ` +
-            `qualifier before the parameter by hand, "@${name} a: T"`,
-        );
-        return;
+      if (value === undefined || !ts.isParameter(p) || p.type !== ref) {
+        skip(ref, `"${ref.getText(sf)}" is no parameter's type: write the type by hand`);
+      } else if (!writesAnObject(value, sf)) {
+        skip(p, `parameter "${p.name.getText(sf)}" is ${ref.getText(sf)}: ${valueRemedy}`);
+      } else if (!decoratorsOf(p).some((d) => ATTRIBUTES.has(partsOf(d, sf).name))) {
+        edits.push({ start: ref.getStart(sf), end: ref.getEnd(), text: value.getText(sf) });
+        changes++;
       }
-      edits.push({ start: ref.getStart(sf), end: ref.getEnd(), text: value.getText(sf) });
-      if (written.length === 0) {
-        const at = p.getStart(sf);
-        edits.push({ start: at, end: at, text: `@${name} ` });
-      }
-      changes++;
       return;
     }
-    ts.forEachChild(n, visitQualifierTypes);
+    ts.forEachChild(n, visitQualifiers);
   };
-  visitQualifierTypes(sf);
+  visitQualifiers(sf);
 
   // Fields: a decorated field's attributes go into its type, and the `!` on a field is not
   // written (change 0130, D3). A class stays a class.

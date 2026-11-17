@@ -10,25 +10,25 @@
 // each of its iterations, so that `add`, `mul` and `total` are one loop dispatch and the folds of
 // its partials.
 
-export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function add(out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
 
-export function mul(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function mul(out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * b[i];
   }
 }
 
-export function relu(@inout out: array<f32>, x: array<f32>): void {
+export function relu(out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = max(x[i], 0.);
   }
 }
 
-export function pairsum(@inout out: array<f32>, t: array<f32>): void {
+export function pairsum(out: array<f32>, t: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = t[i] + t[i ^ 1];
   }

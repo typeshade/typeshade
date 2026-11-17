@@ -632,8 +632,8 @@ Same Expr / Stmt / FuncDecl / BindingDecl / StructDecl as the EDSL.
    wrote a stage as a call, `vertex(f)`, `fragment(f)`, `compute([…], f)` and
    `workgroup_size([…], f)`, which step 8 replaces. The decorators of steps 2 and 4 on a
    parameter or a field stay accepted until the release after the migration release.
-   A parameter qualifier is written before the parameter, `@inout a: f32` and `@out c: f32`
-   (change 0137).
+   Change 0137 added a parameter qualifier, `@inout` or `@out`. Change 0142 removed it: an
+   object parameter is the caller's object with no mark (§70).
 8. **Stage attributes** (change 0130): `@vertex`, `@fragment`, `@compute([…])` and
    `@workgroup_size([n])` on the function declaration are the language's form, as in steps 2
    and 5. The stage calls of step 7 and `export default` on an entry are refused with `TS8028`
@@ -674,8 +674,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | `export default` on an entry | `TS8028`, an error, on `default`, in the compiler and in the editor (Rule 8.1, change 0140): `an entry takes its declaration's name; write "export function k"` (§3) |
 | an argument or an empty argument list on `@vertex` or `@fragment`: `@vertex(1)`, `@fragment({ … })`, `@vertex()`, `@fragment()` | `TS8028`, an error, once, on the attribute, in the compiler and in the editor (Rule 8.1): `"@vertex" takes no argument: write "@vertex" and delete "(1)" (Rule 8.1).`, and for the empty list `… delete "()" (Rule 8.1).` (change 0130, amendment A1). The function is still read as the entry (§3). `@compute()` is accepted (Rule 8.7). A type argument, `@compute<f32>([8])`, is the row "a decorator that is not a name" above |
 | a second `@workgroup_size([n])` on one function | `TS8028`, an error, on the second attribute, and on each further one, in the compiler and in the editor (Rule 8.22; change 0130, amendment A1): `"@workgroup_size([16])" is a second "@workgroup_size" on "scale", after "@workgroup_size([8])": a function takes at most one "@workgroup_size([n])"; delete "@workgroup_size([16])" (Rule 8.22).` The first one sets the size (§3, §65) |
-| a decorator of the decorated form where it is read: `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): for an attribute the member's type, `write "pos: builtin<"position", { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 on a parameter's decorator only while `compile()` warns on it. A stage attribute on a function, `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)`, is the entry's form (change 0130): no warning, and the editor drops its TS1206 in every file. A parameter qualifier, `@inout` or `@out`, is no decorated form and warns nowhere (change 0137). The editor reports no TS2564 (`strictPropertyInitialization: false`) |
-| the type form of a parameter qualifier, `inout<T>` or `out<T>`, in any type position: a parameter, a local, a result, a type alias, a generic argument or a field | a `TS8028` error, once, at the written `inout<…>`, in the compiler and in the editor (change 0137): `"inout<f32>" is the type form of a parameter qualifier, which the language does not have: write "@inout a: f32", or run "tshc migrate" (change 0137).`; away from a parameter, `… a qualifier is written before a parameter, as "@inout a: f32", and here the type is "f32"; "tshc migrate" rewrites a parameter's type form (change 0137).` |
+| a decorator of the decorated form where it is read: `@builtin`, `@location`, `@interpolate`, `@invariant` or `@blend_src` on a parameter or a field | a `TS8028` warning, one per decorator, in the compiler and in the editor, naming the new spelling (change 0111, the migration release): for an attribute the member's type, `write "pos: builtin<"position", { invariant: true }>"`. A decorator refused where it is written keeps that refusal alone. The release after it refuses each one. The editor drops TypeScript's TS1206 on a parameter's decorator only while `compile()` warns on it. A stage attribute on a function, `@vertex`, `@fragment`, `@compute(…)` or `@workgroup_size(…)`, is the entry's form (change 0130): no warning, and the editor drops its TS1206 in every file. A parameter qualifier, `@inout` or `@out`, is no decorated form. Change 0142 removed it, and `TS8073` refuses it (§70). The editor reports no TS2564 (`strictPropertyInitialization: false`) |
+| the type form of a parameter qualifier, `inout<T>` or `out<T>`, in any type position: a parameter, a local, a result, a type alias, a generic argument or a field | a `TS8028` error, once, at the written `inout<…>`, in the compiler and in the editor (change 0142). On an object parameter: `"inout<array<f32, 2>>" was removed (change 0142): an object parameter is the caller's object with no mark. Delete "inout<>" and write the type: "a: array<f32, 2>".` Elsewhere: `"inout<f32>" was removed (change 0142): it was the type form of a parameter qualifier, and here the type is "f32". Write that type.` The ambient library no longer declares `inout<T>` and `out<T>` |
 | a function that reaches itself, directly or through other functions | `TS8031` on the call that closes the cycle, naming the whole cycle |
 | `.length` on an `array<T>` with no `N` that is not in storage | `TS8032`. A `storage` array reads the bound buffer's length as `arrayLength(&x)` (§20); for a local, a parameter or a `uniform<array<T>>` the fix is an explicit size, `array<f32, 3>` |
 | a call of a name that change 0112 removed: `arrayLength`, `log10`, `log1p`, `expm1`, `cbrt`, `hypot`, `sum`, `none`, `pow`; a read of `PI`, `E`, `LN2`, `LN10`, `LOG2E` or `LOG10E`; `any(xs, p)` or `all(xs, p)` | `TS8004` for a call, `TS8022` for a read, `TS8019` for the two folds, each in one sentence that names the spelling to write: `arrayLength was removed: write xs.length.`, `PI was removed: write Math.PI.`, `any expects 1 argument, got 2; the array fold was removed: write xs.some(p).` (§10) |
@@ -687,9 +687,9 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A name the file does not declare: a value, a callee, a type, a field, a member, an assignment target, an attribute, a `@builtin` id, an `enable` extension, an import | `TS8022`, `TS8004`, `TS8002` and the rest, on the name, with the remedy in one order (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name (`lerp` is `mix`), else the name of the same kind it is spelled like (`Did you mean "clamp"?`), else the declaration it needs. `window`, `Date` and `fetch` are such names, once, where they are used, in a body a call lowers or not; a type nothing declares is `TS8002` wherever it is written, a claim, a type argument (`B<vec3<Foo>>` included), an alias, an `implements` clause and the base a class or an interface extends included. A type the library declares for TypeScript's own use (`Number`, `Object`) read or called is said to be one, and `Math`, `console` and `Symbol` to be what they are. A name the file declares is the file's, whatever it spells, `class Mat` and `interface Pick` included (§28), except `eval` and `arguments`, which strict mode lets no variable, parameter or function bind (`TS8068`) |
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 | `new` on anything but a class the file declares | `TS8035`, once for the file, naming what the target is and what to write: a WGSL constructor or a function is called without `new`, a WGSL type with no constructor (`sampler`, a texture) and a type the library declares for TypeScript (`Array`) are types, `Symbol` is the library's own, an enum's values are its members, a mixin applied to a class is built through a class that extends it, and an interface, a type alias, a namespace, a type parameter, a value and an `abstract` class are no class to build. A target nothing declares, and a member the object before it does not have, is `TS8022` (§26) |
-| A local read before it is assigned on every path, an `@out` parameter that is no array read before the function writes it, or a path that returns without writing one | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` An argument an `@out` parameter takes assigns the variable (§70) |
-| A write to a parameter of an array with no qualifier that a path carries to a `return` that does not return it, or to the end of the function; a push to one, even when it is returned | `TS8080`, on the write, in the compiler and in the editor: `scale(): parameter "xs" is a value; its writes are lost. Write @inout xs to update the caller's array.` (The text offers `@inout` alone, because `return xs` of an array with no size is refused in every function (`TS8020`) until slice 3 of change 0138, which restores `, or return xs`.) A push says `add(): parameter "xs" is a value; a push to it is lost. Write @inout xs to push into the caller's array.` A push to a declared `@out` array says `grow(): parameter "list" is @out; a push to it needs @inout. Write @inout list.` `TS8080` reads an array with no size, `array<T>`, only: a fixed-size array parameter is a value as before (Rule 8.8, change 0031). A parameter the body only reads, an `@inout` array and an element write to an `@out` array are not refused (Rule 8.23, §65, §70; change 0138, Amendments A15 and A16) |
-| A value nothing holds, or a place no function may write, handed to an `@inout` or `@out` parameter; a qualifier where a function takes its parameters by value | `TS8073`, naming the edit (§70); the editor shows it alone, with no TS1206 beside it |
+| A local read before it is assigned on every path | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` No parameter qualifier assigns a variable now (change 0142, §70) |
+| A statement that puts an object that has a name into another holder (`q = a`, `xs[0] = a`, `[a, a]`, `new B(a)`, `xs.push(a)`) where `a` is no local of the function, or is used after the statement; a `const` that names the result of a call that may give an object that has a name, where the function writes an object after it; a statement that puts another object where a second name still names | `TS8099`, one sentence for each of rules 2, 4 and 5 of §70. Rule 2: `"a" is stored in a second place here, and it is used after that. One object under two names is not supported yet (change 0142, stage 3). Store it where it is last used, or build a new object for the second place.` Where the value is no local, `"xs[1]" already has a name, and this statement gives it a second place.`. Rule 4: `"c" would name an object that "pick(a, b)" gives back, which may already have a name, and the function writes an object after that. One object under two names is not supported yet (change 0142, stage 2).` Rule 5: `"q" names "ps[0]", and this statement puts another object there while "q" is still used. That is not supported yet (change 0142, stage 2).` Rule 6 of §70 lifts the first two where the program never writes an object of that type |
+| A parameter qualifier, `@inout` or `@out`, on any parameter | `TS8073`, naming the edit (§70): `"@inout" was removed (change 0142): an object parameter is the caller's object with no mark. Delete "@inout".` On a number, a `bool`, a vector or a matrix: `"@inout" was removed (change 0142): a number, a bool, a vector and a matrix are values. Return the value, and write [a, b] = f(a, b) for more than one.` The editor shows it alone, with no TS1206 beside it. `TS8073` also refuses an argument that may be a second name of an object, handed on from an expression to a written parameter (stage 2) |
 | A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
 | An optional value (`T \| undefined`, §76) read where a `T` is needed and nothing narrowed it: an operand, an argument, a `return` of a non-optional function, an index, a member read | `TS8003`, in TypeScript's TS18048, TS2532 and TS2538 place, which the editor shows alone: `"v" is "f32 \| undefined" here, and "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ?? 0.".` An optional as a condition, `v!`, `undefined` where nothing expects an optional, and `x === undefined` on a value that is always there are `TS8003` too, each naming the edit; `o?.m()`, `typeof v` and a call read twice in a loop condition are `TS8099` (Rule 7.10) |
 | `T \| null`, `T \| undefined` or `T \| null \| undefined` where no optional may stand: an enum member, a `Map` or `Record` value, or a struct or an array that holds one in a binding, a module variable or constant, an override, an entry point's parameter or result, or a kernel function's parameter or result | `TS8002`. `"f32 \| undefined" holds a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".`, and through a struct or an array `"U" holds "w: f32 \| undefined", a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".` A kernel function's result names its own two forms: `…; a kernel function's result may not. Carry a u32 flag beside the value, "f32", in an array the function writes, or return a struct with a "found: u32" field beside it.` (#792) (change 0093; §28, §76) |
@@ -756,15 +756,16 @@ pixels[i] = 1.;            // an element
 | `const` local | no: `TS8005` |
 | `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
 | a function parameter | no: `TS8018` |
-| an `@inout` or `@out` parameter | yes: the caller's place (§70) |
+| an object parameter that the function writes | yes: the caller's object (§70) |
 | anything that is not a name (`vec3(0.).x`) | no: `TS8018` |
 
 The parameter row covers writing **through** a parameter (`p.x = 1.`, `p.xs[i] = 1.`) and
 writing it **whole** (`p = 1.`, `p += 1.`, `p++`) alike. The whole write used to be accepted and
 emitted as `p = 1.0;`, which Tint refuses; it is `TS8018` now, naming the local to copy it into
-(§52). A parameter declared `@inout` or `@out` is the one parameter a write lands on whole and
-through: it names the caller's place, so `p = 1.` and `p.x = 1.` write the variable the caller
-passed (§70).
+(§52). An object parameter (a struct, a class instance or an array) is the exception: it is the
+caller's object, so `p.x = 1.` and `p[i] = 1.` write the object the caller passed. A whole write
+`p = new P()` makes `p` a local. After a write to the caller's object through `p`, it is `TS8099`,
+not supported yet (§70, change 0142).
 
 A swizzle target of `=` and of every compound `op=` may name **two to four distinct**
 components (change 0106): `v.xy = r`, `p.zx += r`, `c.rgb *= s`. The right-hand side has the
@@ -775,7 +776,7 @@ gives `vec2(4., 1.5)`. A non-constant index of the target (`ps[next()].xy += r`)
 before the right-hand side. The emitted code is a `let` of the result and one write per
 component, on WGSL and on GLSL ES 3.00 alike, so no `swizzle_assignment` extension is needed.
 A swizzle that names a component twice (`v.xx = …`) is rejected with `TS8018`, which names the
-repeated component. A swizzle as an `@inout` or `@out` argument, `++` and `--` still take one
+repeated component. `++` and `--` still take one
 component, and a lane of an emulated-double vector is no place (§39). `v.r` `v.g` `v.b` `v.a`
 are components like `v.x` … `v.w`.
 
@@ -839,6 +840,13 @@ builtins by the argument's static kind where a `u32` and an `i32` differ (a reve
 reads negative, a "none" is `0xffffffff` or `-1`, an extracted field is sign-extended). `frexp`
 and `modf` return a struct on WGSL and are not here yet; they come with the implicit result
 struct they need on GLSL.
+
+**`structuredClone(v)`** (change 0142) gives a deep copy, as ECMAScript's function of that name
+does. It takes a struct that is no class, or an array with a size, and the result is a new
+object that no other name holds. A struct and an array are objects here (§70), so a copy is the
+one way to get a second object from a first. `structuredClone` of an instance of a class is
+`TS8099`, not supported yet (change 0142, stage 3): to copy an instance, build one with `new`,
+or call a method of the class that returns a new one.
 
 GLSL ES 3.00, which is what WebGL2 compiles, has none of the eight bit builtins (GLSL ES 3.10
 added `bitCount`, `findMSB` and the rest, and ANGLE refuses each with "no matching overloaded
@@ -1562,12 +1570,12 @@ also permits writes to the local's components, fields or elements. A parameter w
 whole write keeps its existing read-only place restriction; resource handles and a kernel
 function's reference-backed arrays do not become local copies.
 
-A parameter declared `@inout` or `@out` takes no copy: it names the caller's place, and the
-call passes the variable itself (§70). The qualifier is written before a parameter of a
-function declared at the top of the file or of a namespace; a method, a constructor, an
-accessor, an entry, a local function and a generic function take values, and each refuses a
-qualifier with `TS8073`. A local function captures a qualified parameter as it captures any variable, and
-writes the caller's place through it (§70).
+An object parameter that a function of the file or of a namespace writes takes no copy: it is
+the caller's object, and the call passes the object itself (§70, change 0142). The author
+writes no mark. A method, a constructor, an accessor, an entry, a local function and a generic
+function still take values at stage 1, and a write through an object parameter of one is
+`TS8018`. A local function captures a written object parameter as it captures any variable, and
+writes the caller's object through it (§70).
 
 Four ordinary TypeScript shapes that the grammar admits and the language now lowers (one of
 them, the object-literal shorthand, is an expression rather than a statement).
@@ -1615,8 +1623,7 @@ The annotation is what carries the type, so it is required; a `const` still need
 read before the local is assigned on every path is refused with `TS8075`, by TypeScript's rule
 for its TS2454, which the editor shows in TypeScript's place (Rule 7.6): `x += 1.`, `x.y = 1.`
 and `x[0] = 1.` read `x` and assign nothing, and an assignment inside a local function does not
-count outside it. An argument an `@out` parameter takes assigns the local, so `let s: f32;
-add(a, b, s); return s;` is accepted (§70). Every target starts the local at the zero of its
+count outside it. No call assigns the local: a function returns a value, and the caller assigns it (§70). Every target starts the local at the zero of its
 type all the same: WGSL and both CPU backends always did (`0.`, `false` for a `bool`, an array of
 zeros, and a struct with every field zeroed, recursively), and GLSL ES 3.00 writes the zero as
 the initializer, where it left the value undefined.
@@ -2291,6 +2298,12 @@ const q: P = { y: 9., ...p };     // P(p.x, p.y)
 const q: Inner = { ...o.i, b: 9. }; // Inner(o.i.a, 9.0)
 ```
 
+`{ ...p }` of a struct that has no object field is a copy: a new object that no other name holds
+(change 0142, §70). A struct with an object field shares that field with the original, as in
+JavaScript. That is a store of `p`, so it follows rule 2 of §70: it is accepted where `p` is a
+local that the function does not use after the statement, and it is `TS8099` otherwise (stage 3),
+unless the program never writes an object of that type (rule 6 of §70).
+
 Later wins, over a written field and over an earlier spread, which is TypeScript's own rule and
 already how a repeated field was taken. A spread may fill part of a bigger struct with the rest
 written, and the target struct is decided by an annotation or, with none, by the field names the
@@ -2304,7 +2317,7 @@ target struct has not got, which names the field rather than saying the literal 
 
 Every other spread has no form here. `f(...args)` needs an argument count known only at run
 time. `[...xs]` spreads a list into a list, which a shader array does not do, and the refusal
-names the elements to write in its place, `xs[0], xs[1]` (§18).
+names the elements to write in its place, `xs[0], xs[1]`, or `xs.slice()` for a copy of the whole array (§18, §63).
 
 ## 17. What a `for` loop may say, and what it is told
 
@@ -2520,10 +2533,13 @@ export function lit(p: vec3): f32 {
 }
 ```
 
-It lowers to `for (var _i: u32 = 0u; _i < 4u; _i = _i + 1u) { let l = scene.lights[_i]; … }`,
-with `arrayLength(&xs)`, which `xs.length` lowers to, as the bound of a runtime-sized array. The element is read at the top
-of each trip, as TypeScript's array iterator reads it, and `for (let x of xs)` gives a copy the
-body may change without writing the array. `break` and `continue` do what they do in any loop.
+It lowers to a counted loop, `for (var _i: u32 = 0u; _i < 4u; _i = _i + 1u) { … }`, with
+`arrayLength(&xs)`, which `xs.length` lowers to, as the bound of a runtime-sized array. Over
+numbers or vectors, the element is read at the top of each trip, `let x = xs[_i];`, as
+TypeScript's array iterator reads it, and `for (let x of xs)` gives a copy the body may change
+without writing the array. Over an array of objects, `for (const p of ps)` names each element:
+no copy is taken, each use of `p` is `ps[_i]`, and a write through `p` or through `ps` is one
+write to the element (§70, change 0142). `break` and `continue` do what they do in any loop.
 The counter `_i`, like the `_w` a `while` counts with, is a name of the compiler's own, and the
 source cannot reach it (Rule 2.2): an `_i` the body reads is the author's, and a counter whose
 name a local, a module constant, a binding, a function or a struct already has takes the next free
@@ -2646,8 +2662,9 @@ means:
   `row * width + column`.
 - A spread and a hole are refused. A spread is one sentence that names the elements to write in
   its place: `[...xs, 3.]` with an `array<f32, 2>` `xs` is `"...xs" spreads a list into a list,
-  which a shader array does not do: write its elements, xs[0], xs[1].` A hole is an element with
-  no value.
+  which a shader array does not do: write its elements, xs[0], xs[1].` A list that is the spread
+  alone, `[...xs]`, ends its sentence with `, or xs.slice() for a copy of the whole array.`
+  (change 0142, §63). A hole is an element with no value.
 
 The call form types its arguments by the same rule and the same check, so
 `array<i32, 3>(1, 2, 3)` emits `array<i32, 3>(1, 2, 3)` (GLSL `int[3](1, 2, 3)`) and
@@ -2764,12 +2781,14 @@ second form. An element has no runtime length, and a sized array's `.length` is 
 `const` that names the binding (`const a = src`) is the binding, as it is in
 TypeScript: nothing is copied, and `a[i]` and `a.length` read `src`.
 
-**An unsized array lives in a storage binding alone** (Tint: "runtime-sized arrays can only be
-used in the <storage> address space"). A parameter or a result that holds one, directly or as a
-struct's last field, is refused (TS8020), and so is a local that would hold a copy, a `let`
-(TS8099): read the binding by its name instead. A `uniform<array<f32>>` is refused (TS8051), and
-`.length` on it (TS8032) with the one fix that works: give the type a size,
-`array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
+**An unsized array outside a storage binding is not supported yet.** WGSL lets one live in the
+storage address space alone (Tint: "runtime-sized arrays can only be used in the <storage>
+address space"), and the compiler does not yet rewrite another place to one (OD-9). A parameter
+or a result that holds one, directly or as a struct's last field, is refused as not supported
+yet (TS8020), and so is a local that would hold a copy, a `let` (TS8099): read the binding by
+its name instead. A kernel function that returns a new array is proposal 0114's stage S5. A
+`uniform<array<f32>>` is refused (TS8051), and `.length` on it (TS8032) with the one fix that
+works: give the type a size, `array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
 
 **The editor gives it the same type.** The ambient `array<T, N>` declares `length` as its size
 `N` when it has one and as `u32` when it has none, so the hover over `src.length` reads
@@ -3202,9 +3221,9 @@ function with no receiver, `Ray_up()`, called on the class: `Ray.up()`. The cons
 in declaration order (`hits: u32 = 0`), runs the body with `this` as that local, and returns
 it; `new Ray(a, b)` is a call of it. A class with no constructor still answers `new P()` with
 the zero struct and its field initializers, spelled out on both targets since GLSL ES 3.00
-leaves a bare declaration undefined. `r` is a `const`, which is a value on both targets, so
-`Ray_at` takes a copy of it, as both targets take a struct parameter; a receiver that is a place
-is read in place (below). Both targets spell a struct constructor, so both carry every one of
+leaves a bare declaration undefined. `r` is a `const` that `Ray_at` only reads, so
+`Ray_at` takes it as a plain struct parameter, as both targets take one; a
+receiver that is a place is read in place (below). Both targets spell a struct constructor, so both carry every one of
 these as written; the IR is the functions and structs it already had, so the oracle, the CPU
 codegen and the debug stepper run them unchanged.
 
@@ -3237,8 +3256,8 @@ function holds for its constructor, its methods, its accessors and its static fu
 true in every place a struct or a function can be: a binding, a local, a workgroup variable, a
 kernel function's array, a `Buffer`, the host face, the CPU tier, the oracle, the host view,
 reflection and a package. `new Ray(a, b)` is a call of `Ray_new` wherever you write it. A method
-that changes its object writes the object you call it on, as an `@inout` argument writes its
-place (§70), so `voices[v].tick()` in a kernel function's loop writes `voices` at `v` (§65).
+that changes its object writes the object you call it on, as a function that writes its object
+parameter does (§70, change 0142), so `voices[v].tick()` in a kernel function's loop writes `voices` at `v` (§65).
 Where a host may call a function (§64), the same conditions decide for a method, and a method
 that fails one has the reason a function would have. The rule claims no more than that: a method
 that reaches a binding, a workgroup variable or a builtin only a GPU computes has no host call, a
@@ -3271,21 +3290,22 @@ reference the callee writes through to the same place; and for a workgroup varia
 `read_write` storage element, when the method runs a barrier. So no program computes another
 value. A function of the file takes a struct or an array argument the same way (§70).
 
-**A local that only reads a place reads it in place** (Rule 8.28, changes 0104 and 0105). `const
-q = items[i]` is a copy of the whole element, made again on each iteration of a loop. When `q` is
-never written (a `let` that is never written counts too) and nothing writes the part of `items`
-that `q` reads while `q` is read, each read of `q` reads the element instead. An index that can
-change, or that calls a function of the file, is evaluated once, where `q` was declared, and any
-other index is read in place. A call handed `q` is handed the element, by pointer on WGSL. On
-WebGL2 the element of an emulated storage binding is then read one field at a time, which
-compiles where the copy was refused. A write to another part of `items` leaves `q` in place:
-`items[1].a = 5.` does not reach `const q = items[0]`, and `items[i].vel = v` does not reach
-`const pos = items[j].pos`. `q` stays a copy when a write can reach what it reads, and when
-`items` is workgroup or `read_write` storage memory and a barrier runs.
+**A local that only reads a place reads it in place** (Rule 8.28, changes 0104, 0105 and 0142).
+`const q = items[i]` names the element. An element is an object, so `q` is a second name of that
+place (rule 1 of §70): the front end emits no declaration, and each read of `q` reads the
+element. An index that is no literal is evaluated once, where `q` is declared, into a name of the
+compiler's own, `_at`. A call handed `q` is handed the element, by pointer on WGSL. On WebGL2 the
+element of an emulated storage binding is then read one field at a time, which compiles where the
+copy was refused. A write to the element shows through `q`, and a write through `q` shows in the
+element, as in JavaScript: `items[1].a = 5.` does not reach `const q = items[0]`, and
+`items[0].a = 5.` does. `q` is the place across a barrier, and it reads the element where `q` is
+read. A statement that puts another object at the place while `q` is read is `TS8099` (rule 5 of
+§70).
 
 ```wgsl
 for (var i: i32 = 0; (i < 4); i = (i + 1)) {
-  acc += ((items[(u32(i) + base)].a * items[(u32(i) + base)].b) + items[(u32(i) + base)].c[(i & 3)]);
+  let _at = (u32(i) + base);
+  acc += ((items[_at].a * items[_at].b) + items[_at].c[(i & 3)]);
 }
 ```
 
@@ -3311,13 +3331,14 @@ takes its object as a parameter the callee writes THROUGH, and the call is a pla
 GLSL ES 3.00 spells that with the qualifier it has, `inout Particle self_`; WGSL has no such
 qualifier and spells it as a pointer, `self_: ptr<function, Particle>`, read through as
 `(*self_)`. The IR says which parameters are written and nothing about how a target spells it.
-A function of the file takes a place the same way when its parameter is declared `@inout`
-(§70): `function step(@inout p: Particle, dt: f32)` called as `step(ps[gid.x], 0.5)` is the
-method above with its object named. A method itself takes no qualified parameter in this
-version (`TS8073`), and a call counts its object as one of its references when it checks that
-no two name one variable (`TS8074`). A method that hands its object, or a field, a component or
-an element of it, to an `@inout` or `@out` parameter, `bump(this.n)`, writes its object as an
-assignment to it does, and takes it by reference: `bump(&(*self_).n)` on WGSL. On GLSL ES 3.00
+A function of the file takes a place the same way when it writes its object parameter, with
+no mark (§70, change 0142): `function step(p: Particle, dt: f32)` called as
+`step(ps[gid.x], 0.5)` is the method above with its object named. A method's own parameters
+are values at stage 1, and a write through one is `TS8018`. A call counts its object as one of
+its references when it checks that no two name one object (`TS8074`, stage 2). A method that
+hands its object, or a field or an element of it that is an object, to a parameter the callee
+writes, `bump(this.child)`, writes its object as an assignment to it does, and takes it by
+reference: `bump(&(*self_).child)` on WGSL. On GLSL ES 3.00
 a module variable handed to such a method is written by its name, through a copy of the
 function, `Particle_step_p(0.5)` for `p.step(0.5)`, and not copied in and out.
 
@@ -3735,8 +3756,8 @@ calls it. Arguments, defaults and field initializers follow the same order as co
 
 A method whose every `return` is `return this` hands back its own object, so TypeScript runs the
 next call of a chain on the same one: `b.sized(2.).tinted(red)` sizes `b` and tints it (Rule
-8.10). A struct is a value here, and what such a method returns is a copy of it: the reference is
-how the method changed the object, and the return is a value like any other. So where a chain is
+8.10). The reference is how the method changed the object, so the return is a value like any
+other, and the call does not need to hand the object back. So where a chain is
 the whole of a statement, of a declaration's initializer or of a `return`, each call but the last
 runs as a statement of its own, in source order, on the object the chain starts from, and the
 last runs in the statement, on that object too. The object is found once, before the first call,
@@ -4102,24 +4123,31 @@ object, so a method may change what it holds (Rule 6.10). Nothing else holds the
 built, so the local is that object, and the declaration is a `var` from the first write through
 it; a `const` nothing writes through stays WGSL's `let`. An object literal, an array literal and a
 type's constructor build a value of their own too, so `const v = vec3(0.); v.x = 1.` is a write to
-`v`. A `const` that copies what another name holds is where TypeScript and a struct part: its write
-would reach the object both names hold, and a write here the copy alone. So it is refused, and the
-message asks which is meant, `let c = a` to write a copy or the write on `a` itself:
+`v`. A `const` that names a place is a second name of it (change 0142):
+`let a = new V(); const b = a; b.bump()` writes `a`, as in JavaScript, and
+`const b = h.v; b.bump()` writes the field `h.v`. A `const` that takes the result of a function
+call is the one case left: the result may be an object that has a name, and the compiler cannot
+say which. Where the function writes an object after the declaration, the declaration is
+`TS8099` (rule 4 of §70), and the message names the remedy:
 
 ```
-TS8035  "C.bump" changes its object, and "c" is a const whose value may be one something else
-        holds, which TypeScript would change with it and a copy here would not. Declare it with
-        let to change a copy, or call it on the value itself.
+TS8099 "c" would name an object that "pickV(a, b)" gives back, which may already have a name,
+       and the function writes an object after that. One object under two names is not
+       supported yet (change 0142, stage 2). Read what you need from the call first, or write
+       through the name that holds the object.
 ```
+
+A write through that `const`, `c.bump()`, adds no second message. Where the program never writes
+an object of that type, the declaration is accepted as a copy (rule 6 of §70).
 
 Until this, every write through a `const` was refused, with `let` as the fix: `"Ship.drift"
 changes its object, and "ship" is declared with const; declare it with let.`
 
-What holds for that refusal holds for every struct local, `let` as well as `const`: a struct is a
-value here, so `const w = v` and `let w = v` copy it, where TypeScript hands `w` the object `v`
-holds. A write through one name after the copy is not seen through the other:
-`const v = new V(); const w = v; v.bump(); w.x` is 0 here and 1 in TypeScript. Write through one
-name, or copy after the last write.
+A struct is an object here (change 0142), so `const w = v` and `let w = v` name the object `v`
+holds, as in TypeScript. A write through one name is seen through the other:
+`const v = new V(); const w = v; v.bump(); w.x` is 1 here and in TypeScript. A statement that
+stores the object under a second name and is followed by a use of it is `TS8099` where the
+compiler cannot keep the identity yet (§70).
 
 ### A field that holds a function
 
@@ -4707,7 +4735,8 @@ included. An interface or a type alias inside a namespace is refused once, and a
 it, `N.I`, says nothing more. A spread in a list is refused wherever it is written, before the
 list is counted or asked for a type. When the lowering reads its operand as a vector or an array
 of fixed length, the sentence names the elements to write, `"...a" spreads a list into a list,
-which a shader array does not do: write its elements, a[0], a[1].`; where it reads none (a body
+which a shader array does not do: write its elements, a[0], a[1].`, and for a list that is the
+spread alone it ends `, or a.slice() for a copy of the whole array.` (change 0142); where it reads none (a body
 no call lowers, a namespace's constant, which reads no other by its short name, a struct), it
 says `"...s" spreads into a list, which a shader array does not do: write the elements one by
 one.` The name the list initializes, a local, a constant, a variable, a field or a static field,
@@ -6722,26 +6751,20 @@ spelling; the gate classifies such a call by the rule instead of listing it.
 
 ### A reference, to the editor
 
-A qualifier is written before the parameter, `@inout v: f32` (§70, change 0137). TypeScript
-parses it and reads the parameter as its plain type, which the body reads and writes, so
-references, rename and completion stay TypeScript's; the service drops TypeScript's grammar
-report on the decorator (TS1206) on a parameter of a function at the top of the file or of a
-namespace, in every file, and where the compiler refuses the qualifier, so a program the
-compiler accepts is clean in the editor. A plain `tsc` reports TS1206 on each qualifier, a cost
-of the owner's decision OD-5. What the checker cannot see (a value handed where a place is
-taken, two references to one variable in one call, an `@out` parameter read before it is
-written) is the compiler's to say, `TS8073`, `TS8074` and `TS8075`, and the service shows its
-diagnostics with its own; TypeScript's TS2454 gives way to the compiler's `TS8075`, which knows
-that an `@out` argument assigns. A hover is the compiler's, and it spells the qualifier as an
-author writes it: `(parameter) @inout v: f32` on the parameter, then that it names the caller's
-place and how WGSL and GLSL ES 3.00 take it, and `function bump(@inout v: f32): void` on the
-function, where it is declared and where it is called; signature help shows the same
-`bump(@inout v: f32): void`. Go-to-definition, rename and prepare-rename at `@inout` answer
-nothing and do not throw. The ambient library keeps the types `inout<T>` and `out<T>`, each of
-which means `T`, only so that TypeScript adds no diagnostic beside the compiler's `TS8028` on
-the refused type form, and completion offers neither in a type position. The call site carries no mark; an editor may show one as
-an inlay hint, from the qualifier on the declaration. `src/compiler/ts/reference-parameters.test.ts`
-reads each program and each refusal in both halves.
+An object parameter that its function writes is the caller's object, and the author writes no
+mark on it (§70, change 0142). TypeScript reads the parameter as its plain type, so references,
+rename and completion stay TypeScript's. A written `@inout` or `@out` is the compiler's to
+refuse, `TS8073`, and the editor shows that diagnostic alone, with no TS1206 beside it. What the
+checker cannot see is the compiler's to say too: an argument that may be a second name of an
+object (`TS8073`), two names of one object in one call (`TS8074`) and a local read before it is
+assigned (`TS8075`). The service shows these diagnostics with its own. A hover is the
+compiler's. On a parameter that the function writes it shows `(parameter) c: Cell`, then
+"The caller's object: this function writes it", that assigning to a field or an element changes
+the object the caller passed, and how WGSL and GLSL ES 3.00 take it. Signature help shows the
+plain signature. The ambient library does not declare `inout<T>` and `out<T>`: a written type
+form is `TS8028` with the removal sentence, in the editor as in the compiler. The call site
+carries no mark. `src/compiler/ts/reference-parameters.test.ts` and
+`src/compiler/ts/object-reference.test.ts` read each program and each refusal in both halves.
 
 ### An optional value, to the editor
 
@@ -7166,7 +7189,10 @@ parameter write operates on a fresh mutable local initialized from the input (Ru
 change 0031). For `a = 1.`, a function taking `a: f32` starts with `var a_1: f32 = a;` and
 writes `a_1`. Its signature retains `a`, and the caller's argument is unchanged. A same-name
 `var a = a;` would be a redeclaration in WGSL, so the scope allocator chooses a distinct
-local name, avoiding collisions with another input or a shadowing local.
+local name, avoiding collisions with another input or a shadowing local. This holds for a number,
+a `bool`, a vector and a matrix. An object parameter that its function writes is the caller's
+object. A whole write makes the name a local; after a write to the caller's object it is `TS8099`,
+not supported yet (change 0142, §70).
 
 Plain and compound assignments and integer prefix/postfix updates use the same copy.
 The permitted loop-update forms remain those section 17 describes. A local function that
@@ -7176,11 +7202,14 @@ including component, field or element writes. Parameters with no whole write ret
 read-only place restriction. Resource handles and a kernel function's reference-backed
 arrays are not copyable value parameters.
 
-A write through such a parameter (`r.origin = …` on `r: Ray`) is `TS8018`, and its message
-names a local copy to change; in a function that may take a reference, one declared at the top
-of the file or of a namespace, it names the second remedy too, `@inout r: Ray`, to change the
-caller's value (§70). A parameter declared `@inout` takes no copy: `p = v` writes the caller's
-place, which is the difference its qualifier makes, as GLSL's `inout` makes it from `in`.
+A write through a number, a `bool`, a vector or a matrix parameter (`v.x = …` on `v: vec3`) is
+`TS8018`, and its message names the remedy: return the value, and write `[a, b] = f(a, b)` for
+more than one (§70). An object parameter of a function of the file or of a namespace takes no
+copy: `p.x = v` writes the caller's object, and `p = v` makes `p` a local (change 0142). After a
+write to the caller's object, `p = v` is `TS8099`, not supported yet (§70). A write through an object parameter of a method, a constructor, a local function or a
+generic function is `TS8018`, not supported yet: `Cannot write through parameter "p": this kind
+of function does not take the caller's object yet (change 0142, stage 2). A function of the file
+or of a namespace does: move the write there, or return the new value.`
 
 **Three more that now say what is wrong.**
 
@@ -7868,8 +7897,8 @@ says and what Tint enforces.
 
 ## 63. An array's methods
 
-An array has eleven of the methods of ECMAScript's `Array.prototype`, and each runs as
-TypeScript runs it (Rule 8.18). They work on an `array<T, N>`, and all but `map` on a
+An array has eleven of the methods of ECMAScript's `Array.prototype`, and `slice()` with no
+argument. Each runs as TypeScript runs it (Rule 8.18). They work on an `array<T, N>`, and all but `map` on a
 runtime-sized storage array and on a kernel function's array too (§65). Before this section
 every method of an array was `TS8099 JS Array method ".map" is not a shader op`.
 
@@ -7887,6 +7916,7 @@ every method of an array was `TS8099 JS Array method ".map" is not a shader op`.
 | `xs.indexOf(v)`       | `i32`              | the first index where the element `=== v`, or `-1`                    |
 | `xs.lastIndexOf(v)`   | `i32`              | the last index where the element `=== v`, or `-1`                     |
 | `xs.includes(v)`      | `bool`             | whether an element is `v` by SameValueZero: a NaN finds a NaN         |
+| `xs.slice()`          | `array<T, N>`      | a new array with the same elements (change 0142)                      |
 
 ```ts
 "use typeshade";
@@ -7966,14 +7996,14 @@ An index on the way to the array, `cells[k].xs.some(…)`, is read once before t
 TypeScript reads the receiver once.
 
 **Where it differs from TypeScript** (Rule 7.2): `index` is an `i32` where TypeScript passes a
-`number`, and `map`'s value is an array value that a `const` holds a copy of, as every array
-here is, where TypeScript builds a new array object.
+`number`, and `map`'s value is an array value that a `const` holds. An array of values is new, as in
+TypeScript, and an array of objects follows rules 3 and 4 of §70.
 
 **Refused, each naming what to write:**
 
-- the other methods of `Array.prototype` (`filter`, `find`, `slice`, `push`, `sort`, …): an
-  array's length is fixed, so a copy or a change of length is a loop, `for (const x of xs)`
-  (§17). `find` gives `undefined` where nothing matches, which no shader value is:
+- the other methods of `Array.prototype` (`filter`, `find`, `slice(1)`, `push`, `sort`, …): an
+  array's length is fixed, so a change of length is a loop, `for (const x of xs)` (§17); only
+  `xs.slice()` with no argument copies the whole array. `find` gives `undefined` where nothing matches, which no shader value is:
   `findIndex` is the fix. One exception: `out.push(v)` on a kernel function's array
   parameter, inside its loop, appends in the order of the iterations (§65, change 0078);
 - `map` on a runtime-sized array, whose value would be an array with no size, which exists only
@@ -7992,6 +8022,11 @@ here is, where TypeScript builds a new array object.
 `sum(xs)`, `any(xs, p)`, `all(xs, p)` and `none(xs, p)`, the folds §27 once named, were removed
 (change 0112): write `xs.reduce((a, b) => a + b)`, `xs.some(p)`, `xs.every(p)` and `!xs.some(p)`.
 `zip` stays, unrolled, since no ECMAScript form builds an array from two.
+
+**A copy (change 0142).** An array is an object with the identity a JavaScript object has, so
+`let ys = xs` names the same array (§70). `xs.slice()` with no argument gives a new array
+instead, for numbers and vectors. `xs.slice()` of an array of objects is `TS8099`, not supported
+yet (change 0142, stage 3): `"ps.slice()" gives a new array of the same objects, each one shared with "ps". Sharing the elements of two arrays is not supported yet (change 0142, stage 3). To copy each element, build the new array in a loop.` `structuredClone(xs)` gives a deep copy too (§10).
 
 **The editor types all of it.** `interface Array<T>` in the ambient library declares the five,
 as `lib.es5.d.ts` spells them with a `this` of `array<T, N>` and `index: i32`, and
@@ -8449,7 +8484,7 @@ export class OnePole {
 }
 
 /** Runs every filter of the bank over its block, one lane per filter. */
-export function run(@inout out: array<f32>, xs: array<f32>, @inout filters: array<OnePole>, block: u32) {
+export function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32) {
   for (let i: u32 = 0; i < filters.length; i++) {
     for (let n: u32 = 0; n < block; n++) {
       out[i * block + n] = filters[i].tick(xs[i * block + n]);
@@ -8691,8 +8726,8 @@ reads as its member, and an `array<S>` takes the ids, as a plain array of `S` ho
 // shade: export function test(ps: array<Particle>): bool { … }
 //        export function pose(ps: array<Particle>): mat4x4<f32> { … }
 //        export function top(ps: array<Particle>): array<Particle, 4> { … }
-//        export function aim(@inout ps: array<Particle>, m: mat4x4<f32>): void { … }
-//        export function step(@inout ps: array<Particle>, dt: f32): void { … }
+//        export function aim(ps: array<Particle>, m: mat4x4<f32>): void { … }
+//        export function step(ps: array<Particle>, dt: f32): void { … }
 const b = test(ps); // Buffer<bool> of 1
 const [ok] = await b.read(); // a boolean
 const m = pose(ps); // Buffer<mat4x4> of 1
@@ -8863,8 +8898,7 @@ generated module imports, not API for a host to import.
 A function that takes an array with no size, `array<T>`, or a 2D storage texture,
 `texture_storage_2d<F, A>` (change 0077), and is exported is a **kernel function** (Rule 8.22).
 A sampled texture alone makes none: an exported helper that reads one stays a helper an entry
-calls. Its array with no qualifier is a value, and an array written `@inout` or `@out` is the
-caller's storage, read and written in place (§70); each `for` at the
+calls. Its array is the caller's storage, read and written in place (§70, change 0142); each `for` at the
 top level of its body is a loop that can run on the GPU, one invocation per iteration, when the
 compiler proves that no iteration touches what another one does. No `compute` call, no binding and no
 `global_invocation_id` is written:
@@ -8876,7 +8910,7 @@ export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
 
-export function render(k: vec4, size: u32, @inout out: array<f32>) {
+export function render(k: vec4, size: u32, out: array<f32>) {
   for (let i: u32 = 0; i < size * size; i++) {
     const p = vec2(f32(i % size), f32(i / size)) / f32(size);
     out[i] = height(p, k);
@@ -8892,37 +8926,27 @@ export function total(xs: array<f32>): f32 {
 }
 ```
 
-**The array parameter** (Rule 8.23, change 0138, Amendments A15 and A16). An array with no size and no qualifier is a
-value, as every parameter with none is (Rule 8.8): the body reads `xs[i]` and `xs.length`, and
-cannot assign `xs` whole. A write to it is lost, so `TS8080` refuses it where it is made, in the
-compiler and in the editor. A fixed-size array parameter, `array<T, N>`, is a value as before
-(Rule 8.8, change 0031), and `TS8080` does not read it. An array written `@inout` is the caller's
-storage, passed by reference, the one exception to Rule 8.8: the body writes `out[i]` and reads
-`xs.length`, and the call writes the caller's array in place. An array written `@out` is the
-caller's storage too, which the call fills with zeros before the body runs (§70). Any other
-function that takes an array with no size is refused (TS8020, §20).
+**The array parameter** (Rule 8.23, changes 0138 and 0142). An array with no size is the
+caller's array, as a JavaScript array is. The author writes no qualifier. The body writes
+`out[i]` and reads `xs.length`, and the call, when the host makes it, writes the host's array
+in place. Nothing is zeroed before the body runs, and nothing is lost: a write to an array
+parameter is a write to the caller's array (§70). `return xs` gives the same array, or the
+same `Buffer`. Any other function that takes an array with no size is refused as not supported yet (TS8020,
+§20).
+A fixed-size array parameter, `array<T, N>`, is an object too (Rule 8.8, change 0142).
 
 ```ts
 export function scale(xs: array<f32>, k: f32) {
-  for (let i: u32 = 0; i < xs.length; i++) {
-    xs[i] = xs[i] * k; // TS8080: scale(): parameter "xs" is a value; its writes are lost. Write @inout xs to update the caller's array.
-  }
-}
-
-export function scaled(@inout xs: array<f32>, k: f32) {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] * k; // the caller's array
   }
 }
 ```
 
-A texture, a storage texture, a `Map` and a `Set` stay by reference, with no qualifier. A pushed
-array carries `@inout`, and a push to a value array is refused even when the function returns
-it: `add(): parameter "xs" is a value; a push to it is lost. Write @inout xs to push into the
-caller's array.` (`TS8080`). A push to a declared `@out` array is `TS8080` too: `grow(): parameter
-"list" is @out; a push to it needs @inout. Write @inout list.` A kernel function is emitted by no target and
-is not called from another function (Rule 8.6); `height` above is an ordinary function both the
-loop and the host can call.
+A texture, a storage texture, a `Map` and a `Set` are the caller's too, with no qualifier. A
+push to an array parameter, `out.push(v)`, writes the caller's array as an element write does.
+A kernel function is emitted by no target and is not called from another function (Rule 8.6);
+`height` above is an ordinary function both the loop and the host can call.
 
 **The body** is scalar statements, then the loops, then stores into elements of its arrays and an
 optional `return` of scalars (change 0094). After the last loop, `a[k] = e`, or `a[k] += e` and
@@ -8933,7 +8957,7 @@ and the elements of its arrays, and the stores run in the order you write them:
 ```ts
 "use typeshade";
 
-export function sumInto(xs: array<f32>, @inout sums: array<f32>) {
+export function sumInto(xs: array<f32>, sums: array<f32>) {
   let s = 0.;
   for (let i: u32 = 0; i < xs.length; i++) {
     s += xs[i];
@@ -8957,7 +8981,7 @@ loop's range is then the device's, and the loop runs on the GPU from a count no 
 ```ts
 "use typeshade";
 
-export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, @inout out: array<f32>) {
+export function gather(count: array<u32>, list: array<u32>, xs: array<f32>, out: array<f32>) {
   const n: u32 = count[0];
   for (let j: u32 = 0; j < n; j++) {
     out[j] = xs[list[j]];
@@ -8969,7 +8993,7 @@ The host cannot check such a loop's writes before it runs, since it does not kno
 a write past an array's end is dropped on every tier, so `out.length` after it is still the
 array's length, and the call throws no `TypeError` for it. A loop whose range reads only the
 arrays' `.length` and the scalars keeps the check below. In this version a loop over such a range
-that pushes or reduces, stores into a texture, writes an array through an `@inout` argument, or
+that pushes or reduces, stores into a texture, writes an array through an argument that a function writes, or
 writes an array the statements before it read, and such a range in a function that takes a `Map`
 or a `Set`, run the whole function on the CPU, and the view's comment says why:
 `It runs on the CPU: loop 1 reduces "s" over a trip count it reads from an array, and the call
@@ -9013,7 +9037,7 @@ is selected. A smaller upload is a memory result; complete-call speed requires m
 - R6: it has no barrier, no workgroup memory and no `console` call.
 
 A method that changes its object, called on an element of an array parameter, is a write to that
-element at that index, as an `@inout` argument is (Rule 8.29), so `voices[v].tick()` is a write
+element at that index, as an object argument that a function writes is (Rule 8.29), so `voices[v].tick()` is a write
 at `v`, which R3 admits.
 
 **A loop the proof refuses runs on the CPU**, with a warning, TS8070, on the loop. The program is
@@ -9099,7 +9123,7 @@ masked, so every lane of the workgroup runs the same control flow: a workgroup w
 returned before heavy loops hung the D3D12 device of `docs/hardware-notes.md` A1, and this form
 completed there. Where the extra lane would read what another lane writes in the same dispatch (a
 loop that reads back what it writes, one that loads a texel it stores, one that writes through an
-`@inout` argument, a fused group with an edge), it skips the iteration under the same flag instead.
+argument that a function writes, a fused group with an edge), it skips the iteration under the same flag instead.
 The results do not change: the masked lane writes nothing, a reduction takes the identity from it,
 a push counts nothing for it, and the CPU tier runs the function as written.
 
@@ -9113,7 +9137,7 @@ index (issue #350):
 ```ts
 "use typeshade";
 
-export function shade(w: u32, h: u32, @inout out: array<f32>) {
+export function shade(w: u32, h: u32, out: array<f32>) {
   for (let i: u32 = 0; i < w * h; i++) {
     const x = i % w;
     const y = i / w;
@@ -9188,7 +9212,7 @@ reads the `for` loop:
 ```ts
 "use typeshade";
 
-export function stats(xs: array<f32>, @inout out: array<f32>): f32 {
+export function stats(xs: array<f32>, out: array<f32>): f32 {
   xs.forEach((x, i) => {
     out[i] = x * 2.;
   });
@@ -9216,7 +9240,7 @@ elements land in the order a sequential run of the loop appends them, on every t
 ```ts
 "use typeshade";
 
-export function strong(xs: array<f32>, t: f32, @inout out: array<u32>): u32 {
+export function strong(xs: array<f32>, t: f32, out: array<u32>): u32 {
   for (let i: u32 = 0; i < xs.length; i++) {
     if (xs[i] > t) {
       out.push(i);
@@ -9559,7 +9583,7 @@ The default owner, `configure()` and `fuse()`, has no budget. Which loop to cut,
 state lives, stays yours: the compiler does not cut a loop.
 
 **A texture parameter** (change 0077) is the caller's texture, passed by reference with no
-qualifier, as an `@inout` array is. A `texture_2d<f32>` is read with `textureLoad`; a 2D storage texture is stored into with
+qualifier, as an array parameter is (change 0142). A `texture_2d<f32>` is read with `textureLoad`; a 2D storage texture is stored into with
 `textureStore` at `vec2u(i % W, i / W)`, the one coordinate the proof accepts, and loaded only at
 the texel the iteration stores:
 
@@ -10851,18 +10875,27 @@ const program = rt.load(brick, { console: true }); // recorded, though the build
 
 The runtime runs on WebGPU and on WebGL2 (change 0054); the CPU tier stays the call layer's (§67).
 
-## 70. Parameter qualifiers: `@inout` and `@out`
+## 70. Objects, passed as JavaScript passes them
 
-A function changes its caller's variable when the parameter is declared `@inout` or `@out`,
-GLSL's qualifiers written before the parameter, `@inout a: f32` and `@out c: f32`, and the call
-passes the variable itself (Rule 8.25, changes 0040 and 0137). To TypeScript the parameter is
-its written type, and an assignment to it is local; that the write reaches the caller is a
-divergence Rule 7.2 records. The type form of change 0111, `a: inout<f32>` and `c: out<f32>`, is
-refused with `TS8028` wherever a type is written, naming the attribute form and `tshc migrate`,
-which rewrites it on a parameter (change 0137). Inside the function the parameter is the caller's variable: reading it reads that
-place, and assigning to it, or to a field, component or element of it, writes it. There is no
-`*` and no `&`, and a field is reached as `r.origin`, the way a method reaches `this.origin`
-(§26).
+An object has the identity a JavaScript object has (Rule 8.8, change 0142). An object is a
+struct, an instance of a class or an array, with a size or with none. A number, a `bool`, a
+vector and a matrix are values, as a JavaScript primitive is. The author writes no qualifier:
+`@inout` and `@out` are removed. Rule 7.2 records the other differences from JavaScript, and
+they stay.
+
+**A function that writes its object parameter changes the caller's object.** A function of the
+file or of a namespace writes a field or an element of its parameter, calls `push` or `fill` on
+it, calls a method that writes its object, or hands it to a parameter that another function
+writes. The compiler reads that from the function (`isWrittenObjectParameter`) and passes the caller's place.
+WGSL takes a pointer, `advance(&rays[id.x], 2.0)`. GLSL ES 3.00 takes an `inout` parameter. The
+author writes neither mark, and no `*` or `&`. A field is reached as `r.origin`, the way a
+method reaches `this.origin` (§26).
+
+**A function gives a value back.** A parameter that is a number, a `bool`, a vector or a matrix
+is a value. An assignment to it changes the function's own copy, as in JavaScript, and a write
+through it is `TS8018`. A function that computes one value returns it. A function that computes
+two returns a list, and the caller takes the list apart with a list assignment,
+`[a, b] = f(a, b)`. `[p, q] = [q, p]` swaps two names.
 
 ```ts
 "use typeshade";
@@ -10873,91 +10906,322 @@ class Ray {
 }
 declare const rays: storage<array<Ray>, "read_write">;
 
-function swap(@inout a: f32, @inout b: f32): void {
-  const t = a;
-  a = b;
-  b = t;
+function order(lo: f32, hi: f32): [f32, f32] {
+  return lo > hi ? [hi, lo] : [lo, hi];
 }
 
-function add(a: f32, b: f32, @out c: f32): void {
-  c = a + b;
-}
-
-function advance(@inout r: Ray, t: f32): void {
+function advance(r: Ray, t: f32): void {
   r.origin = r.origin + r.dir * t;
+}
+
+function scaleBoth(xs: array<f32, 2>, k: f32): void {
+  const scale = (): void => {
+    xs[0] = xs[0] * k;
+    xs[1] = xs[1] * k;
+  };
+  scale();
 }
 
 @compute([64, 1, 1])
 export function main(id: builtin<"global_invocation_id">): void {
-  let x: f32 = 1.;
-  let y: f32 = 2.;
-  swap(x, y); // x is 2., y is 1.
-  let s: f32;
-  add(x, y, s); // s is 3.
+  let x: f32 = 2.;
+  let y: f32 = 1.;
+  [x, y] = order(x, y); // x is 1., y is 2.
   advance(rays[id.x], 2.); // the storage element itself
+  let w: array<f32, 2> = [x, y];
+  scaleBoth(w, 3.); // w is [3., 6.]
 }
 ```
 
-GLSL's third qualifier, `in`, is the value every parameter already is: a parameter with no
-qualifier is GLSL's `in`, and there is no `@in`.
-A struct or an array parameter with no qualifier is still read in place when its argument is a
-place, as a method reads its object (Rule 8.28, §26): `function area(r: Rect)` called as
-`area(box)` on a `let` local is `fn area(r: ptr<function, Rect>)` and `area(&box)` on WGSL, and
-on a uniform or a module variable both targets read it by name or by pointer. The function
-cannot write it, so the argument may be any value; a value that is no place is copied.
-A method that hands a place of its object to a qualified parameter, `bump(this.n)`, writes its
-object, and takes it by reference (§26).
+A list assignment takes a name, a field or an element at each place. A rest element, a hole and
+a default are `TS8018`: `A list assignment takes a name, a field or an element at each place:
+no rest element, no hole and no default. Write one assignment for that place.` A `const` among
+the names is `TS8005`.
 
-**`@out`.** An `@out` parameter that is no array starts with no value in the function, as GLSL's
-does: the body writes it, whole, before it reads it or a field, component or element of it, and
-writes it on every path before it returns. Each of those is `TS8075`:
+A write through a number or a vector parameter is `TS8018`, and its sentence says how to change
+the caller's value: `Cannot write through parameter "v" — parameters are not writable. Use a
+local or storage. To change the caller's value, return it, and write [a, b] = f(a, b) for more
+than one.`
+
+**A qualifier is refused with the edit.** A parameter that still writes `@inout` or `@out` is
+`TS8073`, once, at the decorator, in the compiler and in the editor, with no TS1206 beside it.
+For an object parameter: `"@inout" was removed (change 0142): an object parameter is the
+caller's object with no mark. Delete "@inout".` For a number, a `bool`, a vector or a matrix:
+`"@inout" was removed (change 0142): a number, a bool, a vector and a matrix are values. Return
+the value, and write [a, b] = f(a, b) for more than one.` The type forms `inout<T>` and `out<T>`
+are `TS8028` with the removal sentence (§7). The compiler lowers a refused object parameter as
+one with no qualifier. `tshc migrate` deletes the qualifier from an object parameter and
+reports a value parameter, which the author writes again by hand.
+
+**The rules that went with them.** The value reading of an array parameter with no
+size, and the refusal of its lost writes, are removed: a write to an array parameter is a write to the caller's array, and nothing
+is lost. The zero fill of an `@out` array is removed: a kernel function that the host calls
+writes the host's array in place, and nothing is zeroed first (§65). `TS8075` keeps one rule,
+a local read before it is assigned on every path (Rule 7.6). A call assigns no local.
+
+**A parameter assigned whole.** `p = new P()` makes `p` a local, and the caller's object does not
+change. After a write to the caller's object through `p`, the assignment is `TS8099`: `"p" is
+assigned another object here, after a write to the object it named until now. A name that stops
+naming the caller's object part of the way through is not supported yet (change 0142, stage 2).
+Declare a local for the other object.` A loop name, `for (let p of ps)`, follows the same rule.
+
+**A loop that changes its array.** `for (const e of xs)` reads `xs` once, as JavaScript does,
+and names each element as the loop finds it. An index in the array's place that is no literal,
+`for (const p of hs[k].ps)`, is read once before the first turn. A body that assigns the array
+or a holder of it (`xs = …`, `h.ps = …` in a loop over `h.ps`) is `TS8099`, not supported yet
+(change 0142, stage 2). Over objects, so is a body that puts another object at an element
+(`xs[k] = new P()`), or that hands the array to a function or a method that writes it. The
+sentence names the loop over the indexes to write in its place. A loop name over objects that
+may be absent (`array<P | undefined, N>`) is a copy of the element, and a body that writes the
+array or the element is `TS8099`.
+
+**A second name.** An object that has two names is one object, as in JavaScript. The compiler
+never compiles a program to a copy that JavaScript would not make. Six rules keep that
+(change 0142, Amendments A3 and A4; Rule 8.8). Rules 1 to 5 read one function. Rule 6 reads the
+whole program. A refusal is `TS8099`, not supported yet, unless a rule names another code. The
+snippets below use these types:
 
 ```ts
-function f(@out c: f32): void { c = c + 1.; } // TS8075: read before f writes it
-function g(@out c: f32, k: bool): void { if (k) { c = 1.; } } // TS8075: returns without writing c
+class P { x: f32 = 0.; y: f32 = 0.; }
+class B { c: P = new P(); }
+function id(p: P): P { return p; }
+function pick(p: P, q: P): P { return q.x > p.x ? q : p; }
+function mk(v: f32): P { const p = new P(); p.x = v; return p; }
 ```
 
-Under that rule `@out` and `@inout` give one result on every target for a parameter that is no
-array, so the IR keeps one mode for both. An `@out` array is the exception, with a rule of its
-own below. The argument of an `@out` parameter assigns the caller's variable, so a local declared
-with no value may be handed to one and read after the call (Rule 7.6). Declare that local
-without `!`, `let s: f32;`, as the program above does (change 0130, D3). A written `!`,
-`let s!: f32;`, is accepted and changes nothing. The compiler reads both spellings alike, and
-refuses a read of the local that no assignment and no argument of an `@out` parameter comes
-before (`TS8075`).
-
-**An array parameter** (Rule 8.23, Rule 8.25, change 0138, Amendment A15). A parameter of an
-array with no qualifier is a value, and a write to it that no `return` carries back is
-`TS8080`, path by path, where the array has no size; a fixed-size array parameter is a value as before (change 0031). `@inout xs` is the
-caller's array, written in place; the call leaves what the body does not write as it was.
-`@out xs` is the caller's array too, but the call fills it with zeros before the body runs, on
-every tier: the whole storage of an array with no size, and `N` elements of `array<T, N>`. The
-body may read it, `TS8075` refuses no read of its elements, and an `@out` array that the body
-never writes comes back all zeros:
+1. **A second name is the same place.** `const q = p`, `let q = p`, `const q = ps[i]`,
+   `const q = h.c`, `for (const q of ps)` and `let b = f(a)`, where every `return` of `f` names
+   one parameter, make `q` a name of that place. The compiler makes no copy. It reads an index
+   in the place once, where the name is declared, so `q` stays the place when the index
+   changes. A second name that is assigned whole later, or that a function inside the body
+   uses, is `TS8099`.
 
 ```ts
-export function scale(xs: array<f32>, k: f32) {
-  for (let i: u32 = 0; i < xs.length; i++) {
-    xs[i] = xs[i] * k; // TS8080: write @inout xs to update the caller's array
-  }
-}
-
-export function scaleInPlace(@inout xs: array<f32>, k: f32) {
-  for (let i: u32 = 0; i < xs.length; i++) {
-    xs[i] = xs[i] * k; // the caller's array, updated
-  }
-}
-
-export function ramp(@out xs: array<f32>) {
-  for (let i: u32 = 0; i < xs.length; i++) {
-    xs[i] = xs[i] + f32(i); // xs[i] was 0, whatever the caller held
-  }
+// rule 1: accepted. `q` is `ps[1]`, and `i` is read once, where `q` is declared.
+export function f(): f32 {
+  const ps: array<P, 2> = [new P(), new P()];
+  let i = 1;
+  const q = ps[i];
+  i = 0;
+  q.x = 9.;
+  return ps[1].x; // 9., as in JavaScript
 }
 ```
 
-A held-length argument `{ array, length, offset? }` is taken by an `@inout` parameter only; an
-`@out` one refuses it with a `TypeError` at the call, and the host view's type has no such
-form. An `@out` texture, `Map` or `Set` gets no fill and keeps the whole write of `TS8075`.
+2. **A store is a move.** A statement that puts an object that has a name into another holder
+   is accepted only where the object is a local of the function that the function does not use
+   after the statement. The holder is then the only name of the object. The statements are
+   `xs[i] = p`, `h.c = p`, `[p, …]`, `{ c: p }`, `new B(p)`, `xs.push(p)`, and `q = p` for a `q`
+   that exists. Every other such statement is `TS8099`, and so is `xs.fill(v)` of a new object,
+   which makes every element one object. The sentence for a local that is used after the store
+   says `"a" is stored in a second place here, and it is used after that`. For a value that is no
+   local it says `"xs[1]" already has a name, and this statement gives it a second place`.
+
+```ts
+// rule 2: accepted. `a` is a local that the function does not use after the store.
+export function f(): f32 {
+  const a = new P();
+  a.x = 3.;
+  const xs: array<P, 2> = [new P(), new P()];
+  xs[1] = a;
+  return xs[1].x;
+}
+```
+
+```ts
+// TS8099: rule 2. The function uses `a` after the store: read `a` first, or store it last.
+export function f(): f32 {
+  const a = new P();
+  const xs: array<P, 2> = [new P(), new P()];
+  xs[0] = a;
+  return a.x + xs[0].x;
+}
+```
+
+```ts
+// TS8099: rule 2. `xs[1]` already has a name.
+export function f(): f32 {
+  const xs: array<P, 2> = [new P(), new P()];
+  xs[0] = xs[1];
+  return xs[0].x;
+}
+```
+
+3. **A new object is one the source shows to be new.** The forms are `new`, an object literal,
+   an array literal, `structuredClone(v)` of a struct that is no class, `xs.slice()` and
+   `xs.map(f)` of values, and a call of a function of the file whose every `return` gives an
+   object that the function built and stored nowhere else. A store of a new object is no
+   refusal. A call of a function that may give back an object that has a name is no new object.
+
+```ts
+// accepted: rule 3. `mk(3.)` builds its result and stores it nowhere else.
+export function f(): f32 {
+  const xs: array<P, 2> = [new P(), new P()];
+  xs[0] = mk(3.);
+  return xs[0].x;
+}
+```
+
+```ts
+// TS8099: rule 3. `id(a)` gives back its argument, so it is no new object.
+export function f(): f32 {
+  const a = new P();
+  const b = new B();
+  b.c = id(a);
+  return b.c.x;
+}
+```
+
+4. **The result of any other call may be an object that has a name.** A `const` may take it
+   where the function, after that declaration, writes no object and only reads the `const`. A
+   `let`, and a `const` where the function writes an object after the declaration, is `TS8099`:
+   `"c" would name an object that "pick(a, b)" gives back, which may already have a name, and the
+   function writes an object after that`. A call that is read directly, `pick(a, b).x`, is no
+   declaration and no refusal.
+
+```ts
+// accepted: rule 4. The function writes no object after the declaration.
+export function f(): f32 {
+  const a = new P();
+  const b = new P();
+  b.x = 2.;
+  const c = pick(a, b);
+  return c.x;
+}
+```
+
+```ts
+// TS8099: rule 4. The function writes an object after the declaration.
+export function f(): f32 {
+  const a = new P();
+  const b = new P();
+  const c = pick(a, b);
+  c.x = 1.;
+  return a.x;
+}
+```
+
+5. **A place that a second name names stays that place while the name is read.** A statement
+   that assigns the place, or a holder of it, is `TS8099` where the function reads the name after
+   it, or in a loop that holds the statement. The sentence says `"q" names "ps[0]", and this
+   statement puts another object there while "q" is still used`. The right side of such a
+   statement is read before the place is assigned, so `ps[i] = { x: p.x + 1., y: p.y }` is no
+   refusal for `const p = ps[i]`.
+
+```ts
+// TS8099: rule 5. `q` is read after the statement that puts another object at `ps[0]`.
+export function f(): f32 {
+  const ps: array<P, 2> = [new P(), new P()];
+  const q = ps[0];
+  ps[0] = new P();
+  return q.x;
+}
+```
+
+6. **An object of a type that the program never writes is a copy.** No write shows through a
+   second name of such an object, and `===` between objects is `TS8003`, so a copy and the
+   object cannot be told apart. A store of such an object (rule 2), a name for such an object
+   that a call or a conditional gives (rule 4) and a `let` second name that is assigned whole
+   later (rule 1) are accepted, and the compiler makes a copy. A struct or an array type is
+   written where a store, an atomic or a texture store reaches a field or an element through a
+   value of that type: `r.a.b[i].c = v` writes the types of `r`, `r.a`, `r.a.b` and `r.a.b[i]`.
+   A type is never written where it and every struct and array type inside it are not. A
+   constructor's own stores to `this` build the object and do not count. The compiler reads the
+   whole program by type and not by name, and it reports a refusal that rule 6 can lift only
+   where the type is written. One write of a type loses rule 6 for every object of that type.
+   Rule 6 lifts no other refusal: rule 5, a parameter or a loop name assigned whole after a
+   write, `TS8074`, `xs.slice()` of objects and `structuredClone` of a class instance stay.
+
+```ts
+// accepted: rule 6. Nothing in the program writes a `Ship` or a `Details`.
+class Ship { x: f32 = 0.; }
+class Details { ship: Ship; constructor(ship: Ship) { this.ship = ship; } }
+class Scene {
+  ship: Ship = new Ship();
+  details: Details;
+  constructor() { this.details = new Details(this.ship); }
+}
+export function f(): f32 {
+  const s = new Scene();
+  return s.details.ship.x + s.ship.x;
+}
+```
+
+```ts
+// TS8099: rule 6 does not apply. `drift` writes a `Ship`, so the store is refused again.
+class Ship { x: f32 = 0.; }
+class Details { ship: Ship; constructor(ship: Ship) { this.ship = ship; } }
+class Scene {
+  ship: Ship = new Ship();
+  details: Details;
+  constructor() { this.details = new Details(this.ship); }
+}
+function drift(s: Ship): void { s.x += 1.; }
+export function f(): f32 {
+  const s = new Scene();
+  return s.details.ship.x + s.ship.x;
+}
+```
+
+**Three programs that changed with Amendment A3.** The first program is accepted before and
+after: it reads an element, then puts a new object in its place. The second was accepted before
+and is refused now, by rule 2, because the object is read after it is stored. The third was
+refused before and is accepted now, by rule 1, because a name of an element writes the element.
+
+```ts
+// accepted: example 1. `p` is read before the new object is put in its place.
+export function f(): f32 {
+  const ps: array<P, 2> = [new P(), new P()];
+  ps[0].x = 2.;
+  ps[0].y = 3.;
+  const i = 0;
+  const p = ps[i];
+  ps[i] = { x: p.x + p.y * 2., y: p.y };
+  return ps[0].x * 10. + ps[0].y; // 83.
+}
+```
+
+```ts
+// accepted: example 3. A name of an element writes the element.
+export function f(): f32 {
+  const ps: array<P, 2> = [new P(), new P()];
+  const i = 1;
+  const p = ps[i];
+  p.x = 9.;
+  return ps[i].x; // 9., as in JavaScript
+}
+```
+
+Example 2 is the second snippet of rule 2 above.
+
+**A copy.** The language adds no copy construct. A copy is a name JavaScript has:
+
+| Written | Gives | Section |
+| --- | --- | --- |
+| `xs.slice()` with no argument, on numbers or vectors | a new array | §63 |
+| `structuredClone(v)` of a struct that is no class, or of an array with a size | a deep copy | §10 |
+| `{ ...p }` of a struct with no object field | a new object | §16 |
+| `[...xs]` alone | `TS8013`; the sentence ends `…, or xs.slice() for a copy of the whole array.` | §18 |
+| `new P(p.x, p.y)`, or a `clone()` the class writes | a new instance | §26 |
+
+Two forms are `TS8099`, not supported yet (change 0142, stage 3): `structuredClone` of an
+instance of a class, and `xs.slice()` of an array of objects. Each sentence says what to write
+instead: build an instance with `new`, or build the new array in a loop.
+
+**What the argument may be.** Any object: a `let`, a `const` that built its value or names a place, a module
+variable, an element of a `read_write` storage binding, a field or an element of one of those, a
+parameter handed on as itself, `this` where a method may write it, or a value nothing holds,
+`advance(new Ray(), 1.)`, which only the callee sees. Refused as `TS8073`, with the edit:
+
+- a read-only resource, a `uniform<T>` or a `storage<T>` with no `"read_write"`:
+  `"bump" writes its parameter "p", the caller's object (p: Cell), and "src" is a read-only
+  resource. Write "declare const src: storage<array<Cell>, "read_write">" to write to it.`
+- an expression that may be an object that has a name, handed to a parameter that the callee
+  writes, `nudge(pick(a, a))`: `"nudge" writes its parameter "p", and "pick(a, a)" may be an
+  object that already has a name. Passing it on from an expression is not supported yet
+  (change 0142, stage 2): name it first, const r = pick(a, a), and pass r.` A `const` of a call
+  of a function whose every `return` names one parameter is the same place (rule 1), so
+  `const r = id(a)` and `nudge(r)` is accepted.
 
 **What each target writes.** The IR marks the parameter as one the callee writes through,
 which is what a method that changes its object already is, and each target spells it its own
@@ -10965,81 +11229,66 @@ way:
 
 | | WGSL | GLSL ES 3.00 | CPU (oracle, generated code, debugger) |
 | --- | --- | --- | --- |
-| the parameter | `a: ptr<function, f32>`; `r: ptr<storage, Ray, read_write>` for a storage element | `inout float a` | a copy in |
-| a read and a write in the body | `(*a)`, `(*a) = (*b)`, `(*r).origin` | `a`, `a = b`, `r.origin` | the copy |
-| the call | `swap(&x, &y)`, `advance(&rays[id.x], 2.0)` | `swap(x, y)` | stored back into the place on return |
+| the parameter | `r: ptr<function, Ray>`; `r: ptr<storage, Ray, read_write>` for a storage element | `inout Ray r` | a copy in |
+| a read and a write in the body | `(*r).origin = …` | `r.origin = …` | the copy |
+| the call | `advance(&rays[id.x], 2.0)` | `advance(r, 2.0)` | stored back into the place on return |
 
 A function whose calls pass places in more than one address space is compiled once for each on
 WGSL, as a method is. A reference to a storage element or to a field or element of a local
 relies on WGSL's `unrestricted_pointer_parameters`, which Chromium's WebGPU lists.
 
-**What the argument may be.** A place a function may write, by the rule a method that changes
-its object follows (Rule 8.10): a `let`; a `const` whose initializer built its value (`const p =
-new P()`, which then becomes a `var`, Rule 6.10); a module variable; an element of a
-`read_write` storage binding; `this` where a method may write it; a qualified parameter of the
-function, passed on as itself; a column of a matrix; or a field or an element of one of those,
-of exactly the parameter's type.
-
-Refused, each with the edit, as `TS8073`:
-
-- a value nothing holds, `swap(1., y)` or `swap(a * b, y)`: keep it in a `let` and pass the `let`;
-- a value parameter, a `const` that may share its value, a read-only binding, and a vector's
-  component, `swap(v.x, y)`, which WGSL takes no address of;
-- a qualifier on a parameter of a method, a constructor, an accessor, an entry, a local function
-  or a generic function, which is told where it is declared whether a call makes an instance of
-  it or not; two qualifiers on one parameter; a default on a qualified parameter.
-
 **The place is fixed when the call is made.** `f(xs[i], i)` where `f` sets `i` and then writes
-through the first reference writes `xs` at the old `i`: WGSL takes `&xs[i]` once, and the CPU
+through the first parameter writes `xs` at the old `i`: WGSL takes `&xs[i]` once, and the CPU
 paths resolve the place once and store back into it. A call that writes a variable, written in
-an argument after that variable is handed to a qualified parameter, runs first (Rule 7.9), so
+an argument after that variable is handed to a written parameter, runs first (Rule 7.9), so
 every target reads the write through the reference.
 
-**One call, one reference to a variable it writes.** One call must not take two references
+**One call, one name for an object it writes.** In JavaScript, `f(a, a)` is one object under two
+names. Stage 1 refuses it where a target could disagree. One call must not take two arguments
 whose places share a root, the local, module variable or binding they are reached through, when
-the callee writes either; nor a reference to a module variable or a binding the callee also
+the callee writes either. It must not take a module variable or a binding that the callee also
 reads or writes by its name, when either side is written. A method's object and a variable a
-local function writes count as references. Each is `TS8074`, which names the variable:
+local function writes count. Each is `TS8074`, which names the variable and says "not supported
+yet (change 0142, stage 2)":
 
 ```ts
-swap(x, x); // TS8074: one variable twice
-swap(o.a, o.b); // TS8074: two fields of one variable
+swapV(x, x); // TS8074: one object twice
+swapV(o.a, o.b); // TS8074: two fields of one variable
 addUp(o.a, o.b); // fine when addUp only reads both
 ```
 
-This is WGSL's alias analysis, measured on Tint (`invalid aliased pointer argument`) with the
-neighbours it accepts; GLSL ES 3.00 copies an `inout` argument in at the call and out at the
-return in an order it leaves undefined, so these calls are the one place two targets could
-disagree. A reference lives for its call only: between calls the variable is read and written
-as always.
+`TS8074` has no reason in a target's limit once stage 2 lands (change 0142, decision 7). It is
+WGSL's alias analysis, measured on Tint (`invalid aliased pointer argument`) with the neighbours
+it accepts. GLSL ES 3.00 copies an `inout` argument in at the call and out at the return in an
+order it leaves undefined, so these calls are the one place two targets could disagree. A
+reference lives for its call only: between calls the variable is read and written as always.
+`a === b` and `a !== b` on two objects are `TS8003`, "not supported yet (change 0142, stage 2)":
+`Cannot === P: whether two names are one object is not supported yet (change 0142, stage 2). To
+compare what they hold, compare the fields one by one.`
 
-**A local function captures a reference.** A local function reads and writes a qualified
-parameter of the function around it as it does any variable it captures (§14): it takes the
-place by value while it only reads it, and by reference once it writes it. Inside it, the
-parameter is the caller's place, handed on as itself.
+**A local function captures an object.** A local function reads and writes an object parameter
+of the function around it as it does any variable it captures (§14): it takes the object by
+value while it only reads it, and by reference once it writes it. Inside it, the parameter is
+the caller's object, handed on as itself. `scaleBoth` above is the form. WGSL hands the pointer
+on, `scaleBoth_scale(xs, k)` with `xs: ptr<function, array<f32, 2>>`, and GLSL ES 3.00 the
+`inout` parameter. The call of the local function counts the captured objects as arguments in
+the check above.
 
-```ts
-function scaleBoth(@inout a: f32, @inout b: f32, k: f32): void {
-  const scale = (): void => {
-    a = a * k;
-    b = b * k;
-  };
-  scale();
-}
-```
+**Which functions take the caller's object.** At stage 1, a function of the file or of a
+namespace, a method's object (`this`, Rule 8.10) and a kernel function's array parameter. Every
+other parameter is a value that the function may not write, and a write through it is `TS8018`:
+a parameter of a method, a constructor, a local function or a generic function. Stage 2 gives them the caller's object (Table 2 of change 0142).
 
-WGSL hands the pointer on, `scaleBoth_scale(a, k, b)` with `a: ptr<function, f32>`, and GLSL
-ES 3.00 the `inout` parameter, `inout float a`. The call of `scale` counts `a` and `b` as
-references in the check above, so `scaleBoth(x, x, 2.)` is `TS8074`.
-
-**The host.** A host call passes values (§64), so an export whose parameter is qualified is
-declared `never` in the host view, with the reason; a function of the module calls it. A kernel
-function's array parameter, `@inout` or `@out`, is the exception: the host passes the array
-(§65), and `@out` gives it back filled.
+**The host.** A host call of a kernel function writes the host's array in place (§65, §67), and
+`return xs` gives the same array or the same `Buffer`. A host call of a function whose struct
+parameter the function writes is not supported yet (change 0142, stage 2): the host view
+declares the export `never`, with the reason `parameter "c" is the caller's object, which the
+function writes, and a host call of it is not supported yet (change 0142, stage 2); call it from
+a function of the module`.
 
 **Later, on the same model.** Change 0040 lists what may follow: a local reference, a read-only
-reference, a slice of an array, and `this` restated as an `@inout` parameter. None of a
-reference stored, returned, compared or offset follows, since no GPU target has it.
+reference, and a slice of an array. None of a reference stored, returned, compared or offset
+follows, since no GPU target has it.
 
 ## 71. A chain of kernel calls in one dispatch: `fuse`
 
@@ -11050,19 +11299,19 @@ The kernel functions are written as before. These three, in `ops.shade.ts`, are 
 ```ts
 "use typeshade";
 
-export function add(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function add(out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] + b[i];
   }
 }
 
-export function mul(@inout out: array<f32>, a: array<f32>, b: array<f32>): void {
+export function mul(out: array<f32>, a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = a[i] * b[i];
   }
 }
 
-export function relu(@inout out: array<f32>, x: array<f32>): void {
+export function relu(out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = max(x[i], 0.);
   }
@@ -11410,7 +11659,7 @@ its own kernel or entry:
 "use typeshade";
 import { xorshift32, hash32, uniform } from "typeshade/random";
 
-export function jitter(@inout out: array<f32>, seed: u32): void {
+export function jitter(out: array<f32>, seed: u32): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = uniform(hash32(seed ^ i));
   }
@@ -11452,7 +11701,7 @@ export function labels(pixels: array<u32>, seen: Set<u32>): u32 {
   return seen.size;
 }
 
-export function lookup(keys: array<u32>, last: Map<u32, f32>, @inout out: array<f32>) {
+export function lookup(keys: array<u32>, last: Map<u32, f32>, out: array<f32>) {
   for (let i: u32 = 0; i < keys.length; i++) {
     out[i] = last.has(keys[i]) ? last.get(keys[i])! : -1.;
   }
@@ -11859,8 +12108,8 @@ decision D2; `src/compiler/ts/narrowing.ts`), so a program the editor accepts co
   `readonly` field, which the walk does not read (a recorded divergence, Rule 7.2);
 - a member path is cleared by an assignment to a prefix of the path or to the root (`h = …`,
   `h.a = …`), by a compound assignment, `++` or `--` on the path, a prefix or the root, and by
-  a call that takes the root by reference: `f(h)` where `f` is a function of the file whose
-  parameter at that index is `@inout` or `@out` (§70), and `h.m()` where `m` is a method of a
+  a call that takes the root by reference: `f(h)` where `f` is a function of the file that
+  writes its parameter at that index (§70, change 0142), and `h.m()` where `m` is a method of a
   class of the file that writes through `this` (§26) or a setter; after one the path reads
   un-narrowed.
 

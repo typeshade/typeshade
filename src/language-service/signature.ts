@@ -1,28 +1,14 @@
-// === Signature help: TypeScript's own signature items, with each qualifier written (§4, §5) ===
+// === Signature help: TypeScript's own signature items (§4, §5) ===
 //
 // The ambient GPU types are named type aliases (`f32`, `vec4`, ...), and TypeScript's own type
 // printer already prints a named alias by its name rather than expanding its branded
 // structure, so `ts.displayPartsToString` over `getSignatureHelpItems`'s parts already renders
 // labels with TypeShade type names with no extra work — this file is the thin, testable seam
-// design doc §5's "signature help" row names, not a re-implementation. The one addition is a
-// parameter qualifier, `@inout` or `@out`, which TypeScript's parts leave out: each label shows
-// it before the parameter, as the author writes it (Rule 8.25, change 0137).
+// design doc §5's "signature help" row names, not a re-implementation.
 
 import ts from 'typescript';
-import { QUALIFIER_DECORATORS } from '../compiler/ts/decorated-form.js';
 import { STAGE_CALLEES } from '../compiler/ts/stage-call.js';
 import type { TypeshadeSignatureHelp } from './types.js';
-
-/** The qualifier written on `p`, `inout` or `out`, or undefined. */
-function qualifierOf(p: ts.ParameterDeclaration): string | undefined {
-  const modifiers = (p as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? [];
-  for (const m of modifiers) {
-    if (ts.isDecorator(m) && ts.isIdentifier(m.expression)) {
-      if (QUALIFIER_DECORATORS.has(m.expression.text)) return m.expression.text;
-    }
-  }
-  return undefined;
-}
 
 /** The call around `start`, the innermost one whose arguments hold it, with the symbol of
  *  the name it calls. */
@@ -47,25 +33,6 @@ function callAround(
   let callee: ts.Node = call.expression;
   if (ts.isPropertyAccessExpression(callee)) callee = callee.name;
   return { call, symbol: program.getTypeChecker().getSymbolAtLocation(callee), sourceFile };
-}
-
-/** The declarations of the function the call around `start` names, or none. */
-function calledDeclarations(
-  languageService: ts.LanguageService,
-  uri: string,
-  start: number,
-): readonly ts.SignatureDeclaration[] {
-  const named = callAround(languageService, uri, start)?.symbol;
-  // An imported function is an alias of its declaration in the file that declares it, and
-  // that declaration carries the parameters and their qualifiers (Rule 12.7).
-  const checker = languageService.getProgram()?.getTypeChecker();
-  const symbol =
-    named !== undefined && checker !== undefined && named.flags & ts.SymbolFlags.Alias
-      ? checker.getAliasedSymbol(named)
-      : named;
-  return (symbol?.declarations ?? []).filter(
-    (d): d is ts.SignatureDeclaration => ts.isFunctionDeclaration(d) && d.parameters.length > 0,
-  );
 }
 
 /**
@@ -97,22 +64,9 @@ export function getSignatureHelp(
   const items = languageService.getSignatureHelpItems(uri, offset, undefined);
   if (!items) return undefined;
   if (isStageCall(languageService, uri, items.applicableSpan.start)) return undefined;
-  const declarations = calledDeclarations(languageService, uri, items.applicableSpan.start);
   return {
     signatures: items.items.map((item) => {
-      // The declaration whose parameter names are the item's, so an overload reads its own.
-      const names = item.parameters.map((p) => p.name);
-      const declaration = declarations.find(
-        (d) =>
-          d.parameters.length === names.length &&
-          d.parameters.every((p, i) => ts.isIdentifier(p.name) && p.name.text === names[i]),
-      );
-      const labels = item.parameters.map((p, i) => {
-        const text = ts.displayPartsToString(p.displayParts);
-        const parameter = declaration?.parameters[i];
-        const qualifier = parameter === undefined ? undefined : qualifierOf(parameter);
-        return qualifier === undefined ? text : `@${qualifier} ${text}`;
-      });
+      const labels = item.parameters.map((p) => ts.displayPartsToString(p.displayParts));
       return {
         label:
           ts.displayPartsToString(item.prefixDisplayParts) +

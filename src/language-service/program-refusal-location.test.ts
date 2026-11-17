@@ -390,7 +390,7 @@ ${body}
 }
 `;
 const NO_IDENTITY =
-  'Cannot === P: a struct is a value with no identity here, and WGSL compares scalars and vectors only. Compare its fields one by one.';
+  'Cannot === P: whether two names are one object is not supported yet (change 0142, stage 2). To compare what they hold, compare the fields one by one.';
 const refused = (at: string, related: readonly string[]): Said => ({
   code: 'TS8003',
   message: NO_IDENTITY,
@@ -493,7 +493,7 @@ export class Box<T> {
 `,
       [B]: USES(
         'Box',
-        '  const first: Box<P> = { x: p };\n  const second: Box<P> = { x: p };\n' +
+        '  const first: Box<P> = { x: { a: 1. } };\n  const second: Box<P> = { x: { a: 2. } };\n' +
           '  return vec4(first.same(p) ? 1. : 0., second.same(p) ? 1. : 0., v.uv);',
       ),
     };

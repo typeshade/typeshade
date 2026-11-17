@@ -730,7 +730,7 @@ ${body}
     [
       'in an arm of an array ?: on it',
       load(
-        '  const z: array<u32, 64> = tile;\n  const a = lid.x > 2 ? workgroupUniformLoad(tile) : z;\n  o[lid.x] = a[lid.x];',
+        '  const z: array<u32, 64> = tile;\n  o[lid.x] = (lid.x > 2 ? workgroupUniformLoad(tile) : z)[lid.x];',
         'let tile: workgroup<array<u32, 64>>;\n',
       ),
       refusal(
@@ -742,7 +742,7 @@ ${body}
     [
       'in an arm of a struct ?: on it',
       load(
-        '  const z = new P2(0, 0);\n  const a = lid.x > 2 ? workgroupUniformLoad(ps) : z;\n  o[lid.x] = a.x;',
+        '  const z = new P2(0, 0);\n  o[lid.x] = (lid.x > 2 ? workgroupUniformLoad(ps) : z).x;',
         'class P2 {\n  x: u32;\n  y: u32;\n  constructor(x: u32, y: u32) {\n    this.x = x;\n    this.y = y;\n  }\n}\nlet ps: workgroup<P2>;\n',
       ),
       refusal(
@@ -784,7 +784,7 @@ ${body}
 
   it('takes workgroupUniformLoad in an arm of an array ?: on a uniform', () => {
     const src = load(
-      '  const z: array<u32, 64> = tile;\n  const a = k > 0.5 ? workgroupUniformLoad(tile) : z;\n  o[lid.x] = a[lid.x];',
+      '  const z: array<u32, 64> = tile;\n  o[lid.x] = (k > 0.5 ? workgroupUniformLoad(tile) : z)[lid.x];',
       'let tile: workgroup<array<u32, 64>>;\n',
     );
     const r = compile(src);

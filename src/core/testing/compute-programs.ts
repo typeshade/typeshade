@@ -240,20 +240,21 @@ function count(v: u32): void {
     workgroups: 2,
     bindings: () => ({ total: 0, out: new Array(4).fill(0) }),
   },
-  'an inout helper that reaches an atomic, on a local and on a computed storage place, in one workgroup':
+  'a helper that reaches an atomic and returns a value, on a local and on a computed storage place, in one workgroup':
     {
       src: `"use typeshade";
 declare const total: storage<atomic<u32>, "read_write">;
 declare const out: storage<array<u32>, "read_write">;
-function bump(@inout x: u32, by: u32): void {
-  x = x + atomicAdd(total, by) % 7 + by;
+function bump(x: u32, by: u32): u32 {
+  return x + atomicAdd(total, by) % 7 + by;
 }
 @compute([8, 1, 1]) export function main(gid: builtin<"global_invocation_id">): void {
   let acc: u32 = gid.x;
-  bump(acc, 1);
-  bump(acc, 2);
+  acc = bump(acc, 1);
+  acc = bump(acc, 2);
   out[gid.x] = acc;
-  bump(out[(gid.x * 3 + 1) % 8 + 8], gid.x);
+  const at = (gid.x * 3 + 1) % 8 + 8;
+  out[at] = bump(out[at], gid.x);
 }
 `,
       entry: 'main',

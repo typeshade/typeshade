@@ -108,21 +108,26 @@ export class Envelope {
   }
 }
 
-/** Adds `by` to the count it is handed: the caller's place, through `@inout`. */
-function advance(@inout count: u32, by: u32): void {
-  count = count + by;
+/** How many samples a counter has seen. */
+class Tally {
+  count: u32 = 0;
 }
 
-/** A sample counter that a helper advances through an `@inout` parameter. */
+/** Adds `by` to the tally it is handed. A tally is an object, so this is the caller's tally. */
+function advance(tally: Tally, by: u32): void {
+  tally.count = tally.count + by;
+}
+
+/** A sample counter that a helper advances: the method hands its own field to the helper. */
 export class Counter {
-  count: u32 = 0;
+  tally: Tally = new Tally();
   constructor(start: u32) {
-    this.count = start;
+    this.tally.count = start;
   }
   /** The count after `by` more samples. */
   skip(by: u32): u32 {
-    advance(this.count, by);
-    return this.count;
+    advance(this.tally, by);
+    return this.tally.count;
   }
 }
 
@@ -189,7 +194,7 @@ export function play(gid: builtin<"global_invocation_id">): void {
 }
 
 /** Runs every filter of the bank over its block, one lane per filter. */
-export function run(@inout out: array<f32>, xs: array<f32>, @inout filters: array<OnePole>, block: u32) {
+export function run(out: array<f32>, xs: array<f32>, filters: array<OnePole>, block: u32) {
   for (let i: u32 = 0; i < filters.length; i++) {
     for (let n: u32 = 0; n < block; n++) {
       out[i * block + n] = filters[i].tick(xs[i * block + n]);

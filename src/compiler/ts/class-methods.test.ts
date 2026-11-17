@@ -565,7 +565,10 @@ class Particle {
 }
 @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   ps[gid.x].tick(0.5);
-  let p = ps[gid.x];
+  let p = new Particle();
+  p.pos = ps[gid.x].pos;
+  p.vel = ps[gid.x].vel;
+  p.age = ps[gid.x].age;
   p.step(1.);
   ps[gid.x].vel = vec2(p.speed(), f32(p.age));
 }
@@ -689,7 +692,7 @@ let acc: C = { x: 10. };
     expect(r.eval('fs', [[1, 0]])).toEqual([6, 11, 0, 1]);
   });
 
-  it('refuses a receiver a function cannot write, and a call in expression position', () => {
+  it('takes a second name and a parameter as the receiver; refuses a call in expression position', () => {
     const C = `"use typeshade"\nclass C {\n  x: f32\n  bump(): void { this.x = this.x + 1. }\n}\n`;
     const only = (src: string) => {
       const errors = errorsOf(src);
@@ -702,15 +705,12 @@ let acc: C = { x: 10. };
     expect(
       errorsOf(`${C}function g(): f32 { const c: C = { x: 1. }\n  c.bump()\n  return c.x }${TAIL}`),
     ).toEqual([]);
-    expect(
-      only(
-        `${C}function g(): f32 { let a: C = { x: 1. }\n  const c = a\n  c.bump()\n  return c.x }${TAIL}`,
-      ),
-    ).toBe(
-      `${M} "C.bump" changes its object, and "c" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
-    );
-    expect(only(`${C}function g(c: C): f32 { c.bump()\n  return c.x }${TAIL}`)).toBe(
-      `${M} "C.bump" changes its object, and "c" is a parameter, which a function cannot write; copy it into a let first.`,
+    const alias = `${C}function g(): f32 { let a: C = { x: 1. }\n  const c = a\n  c.bump()\n  return a.x }${TAIL}`;
+    expect(bothHalves(alias)).toEqual([]);
+    expect(compile(alias).eval('g', [])).toBe(2);
+    expect(bothHalves(`${C}function g(c: C): f32 { c.bump()\n  return c.x }${TAIL}`)).toEqual([]);
+    expect(only(`${C}function g(c: vec3): f32 { c.x = 1.\n  return c.x }${TAIL}`)).toMatch(
+      /parameter/,
     );
     // A `new` inside a larger expression has no place to hold the object the method changes.
     // As the whole of a statement it is a chain's root, held in a temporary (Rule 8.10).
@@ -791,7 +791,7 @@ class Random {
     expect(s.result).toEqual(expected);
   });
 
-  it('one that returns a value takes the receivers a void one does, wherever it is called', () => {
+  it('one that returns a value takes the receivers a void one does, a parameter included', () => {
     const Gen = `"use typeshade"\nclass Gen {\n  s: u32\n  next(): u32 {\n    this.s = this.s + 1\n    return this.s\n  }\n}\n`;
     const only = (src: string) => {
       const errors = errorsOf(src);
@@ -799,16 +799,10 @@ class Random {
       return errors[0]!;
     };
     const M = TS_CODES.CLASS_MEMBER;
-    expect(
-      only(
-        `${Gen}function g(): u32 { let r0: Gen = { s: 1 }\n  const r = r0\n  return r.next() }${TAIL}`,
-      ),
-    ).toBe(
-      `${M} "Gen.next" changes its object, and "r" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
-    );
-    expect(only(`${Gen}function g(r: Gen): u32 { return r.next() }${TAIL}`)).toBe(
-      `${M} "Gen.next" changes its object, and "r" is a parameter, which a function cannot write; copy it into a let first.`,
-    );
+    const alias = `${Gen}function g(): u32 { let r0: Gen = { s: 1 }\n  const r = r0\n  return r.next() + r0.s }${TAIL}`;
+    expect(bothHalves(alias)).toEqual([]);
+    expect(compile(alias).eval('g', [])).toBe(4);
+    expect(bothHalves(`${Gen}function g(r: Gen): u32 { return r.next() }${TAIL}`)).toEqual([]);
     expect(only(`${Gen}function g(): u32 { return 1 + new Gen().next() }${TAIL}`)).toBe(
       `${M} "Gen.next" changes its object, and this one is a value that is dropped; keep it in a let and call the method on that.`,
     );

@@ -838,7 +838,7 @@ export const isRuntimeArray = (t: ShaderType): boolean =>
  * program; every other shape goes to the next tier.
  */
 /** Whether a call in `loop` hands an element of `array` to a parameter its callee writes
- *  through, `bump(out[i])` to an `@inout` parameter (Rule 8.25). */
+ *  through, `bump(out[i])` to an object parameter it writes (change 0142). */
 export function writesThroughCall(loop: Stmt, array: string, m: ModuleDecl): boolean {
   const byName = new Map(m.funcs.map((g) => [g.name, g]));
   let found = false;

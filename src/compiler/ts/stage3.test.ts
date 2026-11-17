@@ -651,7 +651,7 @@ declare const s: sampler
 @fragment export function fs(): vec4 { return vec4(K) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @inout, @out.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src.',
       ],
     ],
     [
@@ -728,7 +728,7 @@ declare const u: uniform<S>
       `@fragment export function fs(): vec4 { @bogus const k = 1.; return vec4(k) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @inout, @out.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src.',
       ],
     ],
     [
@@ -737,7 +737,7 @@ declare const u: uniform<S>
 @fragment export function fs(): vec4 { return vec4(f32(Mode.B)) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @inout, @out.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src.',
       ],
     ],
     [
@@ -760,7 +760,7 @@ declare const u: uniform<T>
 @fragment export function fs(): vec4 { return vec4(N.K) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @inout, @out.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src.',
       ],
     ],
     [
@@ -769,7 +769,7 @@ declare const u: uniform<T>
 @fragment export function fs(): vec4 { return vec4(N.f()) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @inout, @out.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src.',
       ],
     ],
     [
@@ -777,7 +777,7 @@ declare const u: uniform<T>
       `@fragment export function fs(): vec4 { @bogus function g(): f32 { return 1. } return vec4(g()) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @inout, @out.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src.',
       ],
     ],
     [
@@ -791,7 +791,7 @@ declare const u: uniform<T>
 @fragment export function fs(): vec4 { return vec4(A.K) }`,
       [
         'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-          '@builtin, @location, @interpolate, @invariant, @blend_src, @inout, @out.',
+          '@builtin, @location, @interpolate, @invariant, @blend_src.',
       ],
     ],
     [
@@ -823,8 +823,6 @@ declare const u: uniform<T>
       interpolate: "an entry's input or output",
       invariant: "an entry's input or output",
       blend_src: "a field of a fragment entry's output",
-      inout: 'a parameter of a function',
-      out: 'a parameter of a function',
     };
     expect(Object.keys(marks)).toEqual(ATTRIBUTE_NAMES);
     for (const name of ATTRIBUTE_NAMES) {
@@ -879,7 +877,7 @@ const K: f32 = 1.;
 describe('a decorator where nothing reads it (Rule 6.7)', () => {
   const UNKNOWN_BOGUS =
     'Unknown attribute "@bogus". Supported attributes: @vertex, @fragment, @compute, ' +
-    '@builtin, @location, @interpolate, @invariant, @blend_src, @inout, @out.';
+    '@builtin, @location, @interpolate, @invariant, @blend_src.';
   const NOT_A_NAME = (text: string): string =>
     `"${text}" is not applied: an attribute is written "@name" or "@name(...)". Remove it.`;
   const NOT_AN_ENTRY = (name: string): string =>
@@ -1396,7 +1394,7 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
     const k = (attr: string) =>
       `"use typeshade";\n${BUF}const E: u32 = 1;\n${attr}\nexport function k(${GID}) { buf[gid.x] = 1.; }\n`;
     const scale = (attr: string) =>
-      `"use typeshade";\nconst E: u32 = 1;\n${attr}\nexport function scale(xs: array<f32>, @inout out: array<f32>) { for (let i = 0; i < xs.length; i++) { out[i] = xs[i] * 2.; } }\n`;
+      `"use typeshade";\nconst E: u32 = 1;\n${attr}\nexport function scale(xs: array<f32>, out: array<f32>) { for (let i = 0; i < xs.length; i++) { out[i] = xs[i] * 2.; } }\n`;
     const noArgument = (name: string, written: string) =>
       `"@${name}" takes no argument: write "@${name}" and delete "(${written})" (Rule 8.1).`;
     const notApplied = (written: string) =>
@@ -1575,7 +1573,7 @@ describe('the stage attributes are the form of an entry (Rule 8.1, change 0130)'
   });
 
   it('reads @workgroup_size([n]) on a kernel function, and refuses it elsewhere (Rule 8.22)', () => {
-    const kernel = `"use typeshade";\n@workgroup_size([128])\nexport function k(@inout a: array<f32>) { for (let i = 0; i < a.length; i++) { a[i] = a[i] * 2.; } }\n`;
+    const kernel = `"use typeshade";\n@workgroup_size([128])\nexport function k(a: array<f32>) { for (let i = 0; i < a.length; i++) { a[i] = a[i] * 2.; } }\n`;
     expect(both(kernel)).toEqual(clean);
     const reduces = `"use typeshade";\n@workgroup_size([128])\nexport function k(a: array<f32>): f32 { let s = 0.; for (let i = 0; i < a.length; i++) { s += a[i]; } return s; }\n`;
     expect(both(reduces).compiler.map((d) => d[1])).toEqual(['TS8077']);

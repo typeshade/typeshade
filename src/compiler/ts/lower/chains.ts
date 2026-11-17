@@ -23,7 +23,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { LoweringScope } from '../context.js';
 import { lowerExpression } from './expression.js';
 import { lowerCall } from './expression-call.js';
-import { lowerMutatingCall } from './class-methods.js';
+import { lowerMutatingCall } from './class-methods/mutating.js';
 import { memberFunctionOf } from './class-access.js';
 
 const unparen = (e: ts.Expression): ts.Expression =>

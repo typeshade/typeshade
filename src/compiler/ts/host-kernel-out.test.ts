@@ -2,14 +2,13 @@
 // Verifies: Rule 8.25 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 7.6 (docs/language-design.md; traced in reqs/).
 //
-// An `@out` array of a kernel function (change 0138, Amendment A15, decision 2): the call fills
-// the whole argument with zeros before the body runs, so the body reads zeros whatever the caller
-// held, an element the body did not write comes back zero, and an array the body never writes comes
-// back all zeros. Read by both halves (`compile()` and the language service), by the face, by the
-// call on the CPU tier with plain arrays and with a `Buffer`, and by the host view under `tsc`,
-// which gives an `@out` array no `{ array, length, offset? }`. An `@inout` array keeps the
-// caller's values. The WebGPU and WebGL2 tiers are read by `journeys/_host-import`, which runs the
-// same kernels on a device (`bun run gate:journeys`).
+// A kernel function's array parameter, written in place (change 0142, which removed `@out` and its
+// zero fill): the call writes the caller's array, an element the body did not write keeps its value,
+// and an array the body never writes comes back as it went in, as JavaScript does. Read by both
+// halves (`compile()` and the language service), by the face, by the call on the CPU tier with plain
+// arrays and with a `Buffer`, and by the host view under `tsc`. The WebGPU and WebGL2 tiers are
+// read by `journeys/_host-import`, which runs the same kernels on a device (`bun run
+// gate:journeys`).
 
 import { afterAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -47,37 +46,36 @@ async function load(source: string): Promise<Record<string, Call>> {
 }
 
 const SOURCE = `"use typeshade";
-export function ramp(@out xs: array<f32>, k: f32): void {
+export function ramp(xs: array<f32>, k: f32): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] + k * f32(i);
   }
 }
-export function untouched(@out xs: array<f32>, k: f32): void {
+export function untouched(xs: array<f32>, k: f32): void {
   let s: f32 = k;
   s += 1.;
 }
-export function head(@out xs: array<f32>): void {
+export function head(xs: array<f32>): void {
   for (let i: u32 = 0; i < 2; i++) {
     xs[i] = 1.;
   }
 }
-export function bump(@inout xs: array<f32>, k: f32): void {
+export function bump(xs: array<f32>, k: f32): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] + k;
   }
 }
-export function shift(@out vs: array<vec2f>): void {
+export function shift(vs: array<vec2f>): void {
   for (let i: u32 = 0; i < vs.length; i++) {
     vs[i] = vs[i] + vec2f(1., 2.);
   }
 }
-export function fillWith(@out xs: array<u32>): void {
+export function fillWith(xs: array<u32>): void {
   for (let i: u32 = 0; i < xs.length; i++) {
     xs[i] = xs[i] + 7;
   }
 }
-export function grow(xs: array<f32>, @out list: array<u32>): void {
-  // A push onto a declared @out array is refused (TS8080, Amendment A16, decision 1), so it writes.
+export function grow(xs: array<f32>, list: array<u32>): void {
   for (let i: u32 = 0; i < list.length; i++) {
     list[i] = i;
   }
@@ -90,34 +88,29 @@ const kernelOf = (f: ReturnType<typeof face>, name: string): KernelFace => {
   return (e as { face: KernelFace }).face;
 };
 
-describe('an @out array, read by both halves (change 0138, Amendment A15)', () => {
-  it('compiles with no diagnostic, and the editor gives none: no TS8075 on a read or an unwritten path', () => {
+describe("a kernel function's array, read by both halves (change 0142)", () => {
+  it('compiles with no diagnostic, and the editor gives none', () => {
     expect(compile(SOURCE, { fileName: 'm.shade.ts' }).diagnostics).toEqual([]);
     const service = createTypeshadeLanguageService();
     service.openDocument('m.shade.ts', SOURCE);
     expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
   });
 
-  it('marks the parameter out in the face, and writes it back whether the body writes it or not', () => {
+  it('writes the parameter back only when the body writes it, and marks none out', () => {
     const f = face(SOURCE);
-    expect(kernelOf(f, 'ramp').params[0]).toMatchObject({ k: 'array', out: true, writes: true });
-    expect(kernelOf(f, 'untouched').params[0]).toMatchObject({
-      k: 'array',
-      out: true,
-      writes: true,
-    });
+    expect(kernelOf(f, 'ramp').params[0]).toMatchObject({ k: 'array', writes: true });
+    expect(kernelOf(f, 'untouched').params[0]).toMatchObject({ k: 'array', writes: false });
     expect(kernelOf(f, 'bump').params[0]).toMatchObject({ k: 'array', writes: true });
-    expect(kernelOf(f, 'bump').params[0]).not.toHaveProperty('out');
+    for (const name of ['ramp', 'untouched', 'bump'])
+      expect(kernelOf(f, name).params[0]).not.toHaveProperty('out');
   });
 });
 
-describe('an @out fixed-size array of a helper starts at zeros (Rule 8.25, Rule 7.6)', () => {
-  // The call fills `N` elements of an `@out array<T, N>` with zeros before the body runs, on every
-  // target (Amendment A15, decision 2), so the body may read it and need not write it.
+describe("a fixed-size array of a helper is the caller's array, and nothing is zeroed (Rule 8.25)", () => {
   const READS = `"use typeshade";
-function h(@out a: array<f32, 4>): void { a[1] = a[0] + 1.; }
-function none(@out a: array<f32, 4>): void { }
-export function f(@inout ys: array<f32>): void {
+function h(a: array<f32, 4>): void { a[1] = a[0] + 1.; }
+function none(a: array<f32, 4>): void { }
+export function f(ys: array<f32>): void {
   let a: array<f32, 4> = [5., 5., 5., 5.];
   h(a);
   ys[0] = a[1];
@@ -135,17 +128,17 @@ export function f(@inout ys: array<f32>): void {
     service.openDocument('m.shade.ts', READS);
     expect(service.getDiagnostics('m.shade.ts').filter((d) => d.severity === 'error')).toEqual([]);
   });
-  it('reads zeros on the CPU tier, whatever the caller held', async () => {
+  it('reads the values the caller holds on the CPU tier', async () => {
     const m = await load(READS);
     const ys = new Float32Array(3).fill(9);
     await m.f!(ys);
-    expect([...ys]).toEqual([1, 0, 0]);
+    expect([...ys]).toEqual([6, 5, 5]);
   });
-  it('writes the zeros first in the WGSL of the helper', () => {
+  it('writes no zeros at the start of the helper in the WGSL', () => {
     const out = compile(
       `"use typeshade";
 declare const dst: storage<array<f32>, "read_write">;
-function h(@out a: array<f32, 4>): void { a[1] = a[0] + 1.; }
+function h(a: array<f32, 4>): void { a[1] = a[0] + 1.; }
 @compute([1]) export function main(): void {
   let a: array<f32, 4> = [5., 5., 5., 5.];
   h(a);
@@ -155,78 +148,77 @@ function h(@out a: array<f32, 4>): void { a[1] = a[0] + 1.; }
       { fileName: 'm.shade.ts' },
     );
     expect(out.diagnostics).toEqual([]);
-    expect(out.wgsl).toContain(
-      'fn h(a: ptr<function, array<f32, 4>>) {\n  (*a) = array<f32, 4>(0.0, 0.0, 0.0, 0.0);\n',
-    );
+    expect(out.wgsl).toContain('fn h(a: ptr<function, array<f32, 4>>) {');
+    expect(out.wgsl).not.toContain('(*a) = array<f32, 4>(0.0, 0.0, 0.0, 0.0);');
   });
 });
 
-describe('the call of an @out array on the CPU tier (Rule 8.25)', () => {
-  it('fills the argument with zeros before the body runs, so the body reads zeros', async () => {
+describe("the call of a kernel function on the CPU tier writes the caller's array in place", () => {
+  it('reads the values the caller held, so the body adds to them', async () => {
     const m = await load(SOURCE);
     const xs = new Float32Array(4).fill(9);
     await m.ramp!(xs, 2);
-    expect([...xs]).toEqual([0, 2, 4, 6]);
+    expect([...xs]).toEqual([9, 11, 13, 15]);
   });
 
-  it('comes back all zeros when the body never writes it', async () => {
+  it('comes back as it went in when the body never writes it', async () => {
     const m = await load(SOURCE);
     const xs = new Float32Array(4).fill(9);
     await m.untouched!(xs, 2);
-    expect([...xs]).toEqual([0, 0, 0, 0]);
+    expect([...xs]).toEqual([9, 9, 9, 9]);
   });
 
-  it('leaves an element the body did not write at zero', async () => {
+  it('keeps the value of an element the body did not write', async () => {
     const m = await load(SOURCE);
     const xs = new Float32Array(5).fill(9);
     await m.head!(xs);
-    expect([...xs]).toEqual([1, 1, 0, 0, 0]);
+    expect([...xs]).toEqual([1, 1, 9, 9, 9]);
   });
 
-  it('fills a whole array of vectors, and an unsigned array', async () => {
+  it('writes a whole array of vectors, and an unsigned array', async () => {
     const m = await load(SOURCE);
     const vs = new Float32Array(6).fill(5);
     await m.shift!(vs);
-    expect([...vs]).toEqual([1, 2, 1, 2, 1, 2]);
+    expect([...vs]).toEqual([6, 7, 6, 7, 6, 7]);
     const us = new Uint32Array(3).fill(5);
     await m.fillWith!(us);
-    expect([...us]).toEqual([7, 7, 7]);
+    expect([...us]).toEqual([12, 12, 12]);
   });
 
-  it('keeps the caller’s values for an @inout array', async () => {
+  it('keeps the caller’s values under a body that adds to them', async () => {
     const m = await load(SOURCE);
     const xs = Float32Array.of(1, 2, 3);
     await m.bump!(xs, 10);
     expect([...xs]).toEqual([11, 12, 13]);
   });
 
-  it('fills a Buffer, and the host reads zeros where the body wrote none', async () => {
+  it('writes a Buffer, and the host reads what the body left', async () => {
     const m = await load(SOURCE);
     const buffer = array(new Float32Array(4).fill(9));
     await m.ramp!(buffer, 2);
-    expect([...((await buffer.read()) as Float32Array)]).toEqual([0, 2, 4, 6]);
+    expect([...((await buffer.read()) as Float32Array)]).toEqual([9, 11, 13, 15]);
     const again = array(new Float32Array(3).fill(9));
     await m.untouched!(again, 1);
-    expect([...((await again.read()) as Float32Array)]).toEqual([0, 0, 0]);
-    // A second call starts from zero again, not from what the first left.
+    expect([...((await again.read()) as Float32Array)]).toEqual([9, 9, 9]);
+    // A second call starts from what the first left.
     await m.ramp!(buffer, 1);
-    expect([...((await buffer.read()) as Float32Array)]).toEqual([0, 1, 2, 3]);
+    expect([...((await buffer.read()) as Float32Array)]).toEqual([9, 12, 15, 18]);
   });
 
-  it('fills a Buffer made of a number[], whose element is open, and a Buffer of vectors', async () => {
+  it('writes a Buffer made of a number[], whose element is open, and a Buffer of vectors', async () => {
     const m = await load(SOURCE);
     const open = array([9, 9, 9, 9]);
     await m.ramp!(open, 2);
-    expect(Array.from((await open.read()) as ArrayLike<number>)).toEqual([0, 2, 4, 6]);
+    expect(Array.from((await open.read()) as ArrayLike<number>)).toEqual([9, 11, 13, 15]);
     const unwritten = array([9, 9, 9]);
     await m.untouched!(unwritten, 1);
-    expect(Array.from((await unwritten.read()) as ArrayLike<number>)).toEqual([0, 0, 0]);
+    expect(Array.from((await unwritten.read()) as ArrayLike<number>)).toEqual([9, 9, 9]);
     const vs = array(new Float32Array(6).fill(9));
     await m.shift!(vs);
-    expect(Array.from((await vs.read()) as ArrayLike<number>).slice(0, 2)).toEqual([1, 2]);
+    expect(Array.from((await vs.read()) as ArrayLike<number>).slice(0, 2)).toEqual([10, 11]);
   });
 
-  it('fills a Buffer of a device, in a plan, after the call that wrote it', async () => {
+  it('writes a Buffer of a device, in a plan, after the call that wrote it', async () => {
     const { createDevice } = await import('../../runtime/device.js');
     const m = await load(SOURCE);
     const dev = await createDevice({ prefer: ['cpu'] });
@@ -235,13 +227,13 @@ describe('the call of an @out array on the CPU tier (Rule 8.25)', () => {
       void m.bump!(xs, 1);
       void m.ramp!(xs, 3);
     });
-    expect([...((await xs.read()) as Float32Array)]).toEqual([0, 3, 6, 9]);
+    expect([...((await xs.read()) as Float32Array)]).toEqual([10, 13, 16, 19]);
     await dev.dispose();
   });
 });
 
-describe('a held length on an @out array (change 0138, Amendment A15, follow-up question 5)', () => {
-  it('is refused at the call with a TypeError, and an array with its length is taken by @inout only', async () => {
+describe('a held length on an array no loop pushes onto (change 0094, change 0142)', () => {
+  it('is refused at the call with a TypeError', async () => {
     const m = await load(SOURCE);
     const list = new Uint32Array(8);
     const length = array(new Uint32Array([0]));
@@ -250,15 +242,13 @@ describe('a held length on an @out array (change 0138, Amendment A15, follow-up 
       Promise.resolve().then(() => m.grow!(Float32Array.of(1, 2), { array: list, length })),
     ).rejects.toThrow(
       new TypeError(
-        // A push onto an @out array is refused (TS8080), so an @out array is never pushed onto, and
-        // the call says what it says of any array no loop pushes onto.
         'grow(): parameter "list" is an array no loop pushes onto, so it takes no { array, length, offset? }. Pass the array itself.',
       ),
     );
   });
 });
 
-describe('the host view of an @out array, under tsc (change 0138, Amendment A15)', () => {
+describe('the host view of an array no loop pushes onto, under tsc (change 0142)', () => {
   it('takes the array and a Buffer, and no { array, length, offset? }', async () => {
     const f = face(SOURCE);
     expect(f.view).toContain(
