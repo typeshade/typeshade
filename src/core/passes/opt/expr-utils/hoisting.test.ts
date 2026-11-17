@@ -33,4 +33,15 @@ describe('isWorthHoisting', () => {
       }),
     ).toBe(true);
   });
+
+  it('binds an index into a binding, a memory load, and not one into a local', () => {
+    const at = (name: string): Expr => ({
+      op: 'index',
+      type: f32T,
+      base: { op: 'varref', type: { kind: 'array', elem: f32T, size: 4 }, name },
+      idx: i,
+    });
+    expect(isWorthHoisting(at('buf'), new Set(['buf']))).toBe(true);
+    expect(isWorthHoisting(at('local'), new Set(['buf']))).toBe(false);
+  });
 });
