@@ -60,7 +60,15 @@ import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
-import { buildManifest, calleesOf, closureOf, glDrawOf, layoutOf } from '../../core/manifest.js';
+import {
+  buildManifest,
+  calleesOf,
+  closureOf,
+  emittedReachOf,
+  glDrawOf,
+  layoutOf,
+  type EntryReach,
+} from '../../core/manifest.js';
 import { callArgAccess } from '../../core/passes/access.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
@@ -349,6 +357,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     return undefined;
   };
 
+  let emittedReach: ((entry: string) => EntryReach) | undefined;
   const faces: (FaceExport | BindingRef)[] = [];
   // The author's JSDoc of each export, which the view carries (change 0108).
   const docs = new Map<string, ExportDocs>();
@@ -377,6 +386,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
           bindings: m.bindings,
           reads,
           writes,
+          reach: (entry) => (emittedReach ??= emittedReachOf(m))(entry),
           callees,
           declared,
           workgroupZero: Object.fromEntries(
@@ -549,6 +559,7 @@ interface EntryCtx {
   readonly bindings: readonly BindingDecl[];
   readonly reads: ReadonlyMap<string, ReadonlySet<string>>;
   readonly writes: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly reach: (entry: string) => EntryReach;
   readonly callees: ReadonlyMap<string, ReadonlySet<string>>;
   readonly declared: ReadonlySet<string>;
   readonly workgroupZero: Readonly<Record<string, unknown>>;
@@ -590,15 +601,7 @@ function entryBindings(
   | { none: string } {
   const x = c.entry;
   const closure = closureOf(f.name, x.callees);
-  const touched = new Set<string>();
-  const written = new Set<string>();
-  for (const g of closure) {
-    for (const n of x.reads.get(g) ?? []) touched.add(n);
-    for (const n of x.writes.get(g) ?? []) {
-      touched.add(n);
-      written.add(n);
-    }
-  }
+  const { touched, written } = x.reach(f.name);
   const bindings: DrawBinding[] = [];
   for (const b of x.bindings) {
     if (!touched.has(b.name)) continue;

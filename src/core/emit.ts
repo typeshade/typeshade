@@ -824,15 +824,35 @@ export function emitModule(
   opts?: EmitOptions,
   level?: OptLevel,
 ): string {
-  const authoredLowered = lowerForBackend(m, be, level, opts?.fp64Flavor);
-  const lowered = inheritSpellings(applyIRPlugins(authoredLowered, opts), authoredLowered);
+  return emitModuleLowered(m, be, opts, level).code;
+}
+
+export function emitModuleLowered(
+  m: ModuleDecl,
+  be: Backend,
+  opts?: EmitOptions,
+  level?: OptLevel,
+): { readonly code: string; readonly lowered: ModuleDecl } {
+  const lowered = loweredWithPlugins(m, be, opts, level);
   // The `enable`-directive header (X-GIS #628) is derived from the AUTHORED module's opt-in
   // caps (m.enables) — the lowering passes rebuild the module object and do not carry
   // it — and prepended to the assembled declarations. '' for enables-free modules, so
   // their emit stays byte-identical.
-  return (
-    directiveHeader(be, m) + applyTextPlugins(assembleLowered(lowered, be, opts?.parens), opts)
-  );
+  return {
+    code:
+      directiveHeader(be, m) + applyTextPlugins(assembleLowered(lowered, be, opts?.parens), opts),
+    lowered,
+  };
+}
+
+export function loweredWithPlugins(
+  m: ModuleDecl,
+  be: Backend,
+  opts?: EmitOptions,
+  level?: OptLevel,
+): ModuleDecl {
+  const authoredLowered = lowerForBackend(m, be, level, opts?.fp64Flavor);
+  return inheritSpellings(applyIRPlugins(authoredLowered, opts), authoredLowered);
 }
 
 /** Emit a ModuleDecl as a header-less FRAGMENT for `be` (X-GIS #1711) — the declaration
