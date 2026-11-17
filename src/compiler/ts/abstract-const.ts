@@ -50,6 +50,20 @@ import {
   writtenBitTree,
   writtenNumber,
 } from './abstract-const/written-syntax.js';
+import {
+  READING_DEPTH,
+  READING_ROUNDS,
+  READING_STEP_LIMIT,
+  READINGS_PER_NODE,
+  UNKNOWN,
+  UNPROVEN,
+  boundedReadings,
+  heldByTreeVariable,
+  mergedPicks,
+  readingValue,
+  sameReadings,
+  type Reading,
+} from './abstract-const/reading.js';
 import { divisionEdits as buildDivisionEdits } from './remedies/candidates.js';
 import { NO_DIVISION } from './remedies/contracts.js';
 import type {
@@ -2482,88 +2496,6 @@ function typedNode(node: ts.Expression): boolean {
   return false;
 }
 
-/** One value a node can have, read both ways (`u32`: what the lowering computes from a tree's
- *  bits, `ts`: TypeScript's). `tree` is whether a tree reaches it: a written number alone is no
- *  reading. `unknown` is a value the walk cannot read, with no tree (`let b = vi`: a variable
- *  with no written type is no typed peer, E1). `unproven` is a value with a tree that the walk
- *  could not follow to its end. `picks` names the variable read and which of its values this
- *  one is, so that one variable read twice (`a - a`) is one value at both reads. */
-interface Reading {
-  readonly u32: number;
-  readonly ts: number;
-  readonly tree: boolean;
-  readonly unknown?: boolean;
-  readonly unproven?: boolean;
-  readonly picks: readonly (readonly [ts.Node, string])[];
-}
-
-const UNKNOWN: Reading = { u32: NaN, ts: NaN, tree: false, unknown: true, picks: [] };
-const UNPROVEN: Reading = { u32: NaN, ts: NaN, tree: true, unproven: true, picks: [] };
-
-/** The most values one node keeps. Past it the node keeps a mark that refuses (the owner's
- *  decision of 2026-11-16, "증명 못 하면 거부"): no value is dropped and then accepted. */
-const READINGS_PER_NODE = 32;
-/** The most rounds a variable's values are found in (a store that reads the variable, as in a
- *  loop, adds a value each round). Past it the variable keeps a mark that refuses. */
-const READING_ROUNDS = 24;
-/** The deepest walk, and the most work (nodes read and pairs of values combined) one walk does.
- *  Past the work the value is unproven, and a position that needs it refuses it. */
-const READING_DEPTH = 400;
-const READING_STEP_LIMIT = 100000;
-
-/** The value of a reading, without its picks. */
-function readingValue(x: Reading): string {
-  return x.unknown ? '?' : x.unproven ? '!' : `${String(x.u32)}:${String(x.ts)}:${x.tree ? 1 : 0}`;
-}
-
-function readingKey(x: Reading): string {
-  return `${readingValue(x)}|${x.picks.map(([d, v]) => `${String(d.pos)}.${String(d.end)}=${v}`).join(',')}`;
-}
-
-/** `xs` without repeats, those whose two readings differ first. Past {@link READINGS_PER_NODE}
- *  the rest is replaced by a mark: {@link UNPROVEN} where a tree reaches one of them, else
- *  {@link UNKNOWN}. */
-function boundedReadings(xs: readonly Reading[]): Reading[] {
-  const differs = (x: Reading) => x.tree && !x.unproven && x.u32 !== x.ts;
-  const ordered = [...xs.filter(differs), ...xs.filter((x) => !differs(x))];
-  const keys = new Set<string>();
-  const out: Reading[] = [];
-  let over = false;
-  for (const x of ordered) {
-    const key = readingKey(x);
-    if (keys.has(key)) continue;
-    keys.add(key);
-    if (out.length >= READINGS_PER_NODE) {
-      over = true;
-      continue;
-    }
-    out.push(x);
-  }
-  if (over) out.push(xs.some((x) => x.tree) ? UNPROVEN : UNKNOWN);
-  return out;
-}
-
-function sameReadings(a: readonly Reading[], b: readonly Reading[]): boolean {
-  if (a.length !== b.length) return false;
-  const keys = new Set(a.map(readingKey));
-  return b.every((x) => keys.has(readingKey(x)));
-}
-
-/** The picks of `a` and `b` together, or `undefined` where they choose two values of one
- *  variable. */
-function mergedPicks(
-  a: readonly (readonly [ts.Node, string])[],
-  b: readonly (readonly [ts.Node, string])[],
-): (readonly [ts.Node, string])[] | undefined {
-  const out = [...a];
-  for (const [d, v] of b) {
-    const at = out.find(([e]) => e === d);
-    if (at === undefined) out.push([d, v]);
-    else if (at[1] !== v) return undefined;
-  }
-  return out;
-}
-
 /** The declaration of the variable or parameter `name` read at `at`, in the scopes around it,
  *  wherever in its scope it stands: a function written above a module `let` reads and stores
  *  that `let` (the second review of #1304, A3). */
@@ -3814,7 +3746,7 @@ function variableReadings(
     for (const v of group) {
       const next: Reading[] = [];
       for (const s of storesOf(v, sourceFile)) next.push(...storedReadings(v, s, sourceFile, own));
-      const bounded = boundedReadings(next);
+      const bounded = boundedReadings(heldByTreeVariable(next));
       if (!sameReadings(bounded, values.get(v)!)) settled = false;
       values.set(v, bounded);
       w.pending.set(v, bounded);
@@ -4199,9 +4131,13 @@ function binaryReadingsOf(
   // (the owner's decisions of 2026-11-16, "증명 못 하면 거부", and of 2026-11-17, "단순 규칙:
   // 타입 없는 필드는 항상 증명 못 함"). A proven tree beside a typed peer keeps its reading, as
   // the owner deferred (`f32(a + vi)`).
+  const shiftByTypedAmount =
+    bs.length === 0 &&
+    (k === ts.SyntaxKind.LessThanLessThanToken || k === ts.SyntaxKind.GreaterThanGreaterThanToken);
   if (
     (as.length === 0 && bs.some((x) => x.unproven)) ||
-    (bs.length === 0 && as.some((x) => x.unproven))
+    (bs.length === 0 && as.some((x) => x.unproven)) ||
+    (shiftByTypedAmount && as.some((x) => x.tree && !(x.u32 === 0 && x.ts === 0)))
   ) {
     return [UNPROVEN];
   }
