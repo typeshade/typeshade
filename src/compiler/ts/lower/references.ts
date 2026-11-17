@@ -14,6 +14,7 @@
 
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
+import { namesShared } from '../object-share.js';
 import { attributeDecoratorsOf } from '../attribute-types.js';
 import type {
   BindingDecl,
@@ -219,6 +220,18 @@ export function lowerReferenceArgument(
     // An object nothing else holds is legal in JavaScript, and nothing else sees the write: the
     // compiler holds it in a variable for the call (change 0142, Table 1).
     const object = param.type.kind === 'struct' || param.type.kind === 'array';
+    // A call that gives back an object another name holds is no such value: the write is one
+    // that name sees in JavaScript, and a variable for the call would hide it (OD-9).
+    const held = object ? namesShared(place, scope.ownerNode(), sourceFile) : [];
+    if (held.length > 0) {
+      return push(
+        place,
+        `"${shown}" writes its parameter "${param.name}", and "${place.getText(sourceFile)}" ` +
+          `may be the object "${held[0]}" names. Passing it on from an expression is not ` +
+          `supported yet (change 0142, stage 2): name it first, const r = ` +
+          `${place.getText(sourceFile)}, and pass r.`,
+      );
+    }
     if (object && scope.canHoist()) {
       const value = lowerExpression(place, sourceFile, scope, diagnostics, param.type);
       if (value === undefined) return undefined;

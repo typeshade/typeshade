@@ -58,7 +58,7 @@ export function writesAnObject(type: ts.TypeNode | undefined, sourceFile: ts.Sou
 }
 
 /** `e` without parentheses, a non-null assertion, or a type assertion around it. */
-function bare(e: ts.Expression): ts.Expression {
+export function bare(e: ts.Expression): ts.Expression {
   let x = e;
   while (
     ts.isParenthesizedExpression(x) ||
@@ -71,7 +71,7 @@ function bare(e: ts.Expression): ts.Expression {
 }
 
 /** The identifier at the root of a place, and whether the place is the bare name. */
-function rootOf(place: ts.Expression): { name: ts.Identifier; whole: boolean } | undefined {
+export function rootOf(place: ts.Expression): { name: ts.Identifier; whole: boolean } | undefined {
   let at = bare(place);
   let whole = true;
   for (;;) {
@@ -84,10 +84,10 @@ function rootOf(place: ts.Expression): { name: ts.Identifier; whole: boolean } |
 }
 
 /** The array methods that change the array they are called on. */
-const ARRAY_MUTATORS = new Set(['push', 'fill']);
+export const ARRAY_MUTATORS = new Set(['push', 'fill']);
 
 /** The function of the file a call written `callee(...)` or `N.callee(...)` names. */
-function fileFunction(
+export function fileFunction(
   call: ts.CallExpression,
   sourceFile: ts.SourceFile,
 ): ts.FunctionDeclaration | undefined {
@@ -121,7 +121,7 @@ function fileFunction(
  *  assignment to `this` or to a part of it, a `push` or a `fill` on a part of it, or a call on
  *  `this`, on a part of it or through `super` of a method that does. The class of the receiver is
  *  not read here, so a method of that name on any class of the file counts. */
-function methodWritesThis(name: string, sourceFile: ts.SourceFile): boolean {
+export function methodWritesThis(name: string, sourceFile: ts.SourceFile): boolean {
   let byName = METHODS.get(sourceFile);
   if (byName === undefined) METHODS.set(sourceFile, (byName = new Map()));
   const cached = byName.get(name);
@@ -177,7 +177,7 @@ function methodWritesThis(name: string, sourceFile: ts.SourceFile): boolean {
 const METHODS = new WeakMap<ts.SourceFile, Map<string, boolean>>();
 
 /** The place an assignment, an increment or a decrement writes, if `node` is one. */
-function writeTarget(node: ts.Node): ts.Expression | undefined {
+export function writeTarget(node: ts.Node): ts.Expression | undefined {
   if (ts.isBinaryExpression(node)) {
     const k = node.operatorToken.kind;
     return k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment
@@ -292,7 +292,7 @@ export function objectWrites(
 
 /** Whether `q` names its caller's place: an object parameter its function writes, or a parameter
  *  that still carries a written `@inout` or `@out`. */
-function takesThePlace(q: ts.ParameterDeclaration, sourceFile: ts.SourceFile): boolean {
+export function takesThePlace(q: ts.ParameterDeclaration, sourceFile: ts.SourceFile): boolean {
   const qualified = (ts.canHaveDecorators(q) ? (ts.getDecorators(q) ?? []) : []).some(
     (d) =>
       ts.isIdentifier(d.expression) &&

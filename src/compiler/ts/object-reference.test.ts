@@ -205,6 +205,121 @@ export function f(): f32 { let a: f32 = 0.; let b: f32 = 0.; [a, b] = one(); ret
   });
 });
 
+describe('one object under two names (change 0142, Table 1)', () => {
+  const ID = `${P}function id(p: P): P { return p; }
+function touched(p: P): P { p.x = 1.; return p; }
+`;
+  const runs: readonly (readonly [string, string, number])[] = [
+    [
+      'the result of a function that returns its parameter is the argument',
+      `${ID}export function f(): f32 { let a = new P(); let b = id(a); b.x = 5.; return a.x; }`,
+      5,
+    ],
+    [
+      'the call still runs for what it writes',
+      `${ID}export function f(): f32 { let a = new P(); const b = touched(a); b.x += 4.; return a.x; }`,
+      5,
+    ],
+    [
+      'a result nothing writes is read as a copy, with the same result',
+      `${ID}export function f(): f32 { let a = new P(); a.x = 2.; let b = id(a); return a.x + b.x; }`,
+      4,
+    ],
+    [
+      'an object written before it is stored is stored as it is',
+      `${P}export function f(): f32 {
+  let xs: array<P, 2> = [new P(), new P()];
+  for (let i = 0; i < 2; i++) { let p = new P(); p.x = f32(i) + 1.; xs[i] = p; }
+  return xs[0].x * 10. + xs[1].x;
+}`,
+      12,
+    ],
+    [
+      'an assignment to the place itself puts another object there',
+      `${P}export function f(): f32 {
+  let xs: array<P, 2> = [new P(), new P()];
+  xs[0].x = 3.;
+  const q = xs[0];
+  xs[0] = new P();
+  return q.x * 10. + xs[0].x;
+}`,
+      30,
+    ],
+    [
+      'a write to another field leaves the object named as it was',
+      `class B { c: P = new P(); k: f32 = 0; }
+${P}export function f(): f32 { let b = new B(); const q = b.c; b.k = 3.; return q.x + b.k; }`,
+      3,
+    ],
+  ];
+  for (const [name, body, expected] of runs) {
+    it(`${name}: both halves, and the oracle`, () => {
+      const r = read(body);
+      expect(r.compiler).toEqual([]);
+      expect(r.editor).toEqual([]);
+      expect(r.value).toBe(expected);
+    });
+  }
+
+  const refused: readonly (readonly [string, string, RegExp])[] = [
+    [
+      'a name assigned another name, then written',
+      `${P}export function f(): f32 { let a = new P(); let q = new P(); q = a; q.x = 5.; return a.x; }`,
+      /^TS8099 "q" would name the object "a" names, and "q" is written after that\. One object under two names is not supported yet \(change 0142, stage 2\): a copy here would not show the write through "a"\./,
+    ],
+    [
+      'an element that holds a name, then the name written',
+      `${P}export function f(): f32 {
+  let a = new P(); let xs: array<P, 2> = [new P(), new P()]; xs[0] = a; a.x = 5.; return xs[0].x;
+}`,
+      /^TS8099 "xs" would hold the object "a" names, and "a" is written after that\. One object under two names is not supported yet \(change 0142, stage 3\)/,
+    ],
+    [
+      'a list that holds a name twice, then written',
+      `${P}export function f(): f32 {
+  let a = new P(); let xs: array<P, 2> = [a, a]; xs[0].x = 5.; return a.x + xs[1].x;
+}`,
+      /^TS8099 "xs" would hold the object "a" names, and "xs" is written after that\./,
+    ],
+    [
+      'an object built around a name, then the name written',
+      `class B { c: P; constructor(c: P) { this.c = c; } }
+${P}export function f(): f32 { let a = new P(); let b = new B(a); a.x = 5.; return b.c.x; }`,
+      /^TS8099 "b" would hold the object "a" names, and "a" is written after that\./,
+    ],
+    [
+      'an element named, then written through the array',
+      `${P}export function f(): f32 {
+  let xs: array<P, 2> = [new P(), new P()]; const q = xs[0]; xs[0].x = 5.; return q.x;
+}`,
+      /^TS8099 "q" would name the object "xs" names, and "xs" is written after that\./,
+    ],
+    [
+      'a variable stored at each turn of a loop and written at each',
+      `${P}export function f(): f32 {
+  let xs: array<P, 2> = [new P(), new P()];
+  let p = new P();
+  for (let i = 0; i < 2; i++) { p.x = f32(i) + 1.; xs[i] = p; }
+  return xs[0].x;
+}`,
+      /^TS8099 "xs" would hold the object "p" names, and "p" is written after that\./,
+    ],
+    [
+      'the result of a function that returns its parameter, passed on to be written',
+      `${ID}export function f(): f32 { let a = new P(); nudge(id(a)); return a.x; }`,
+      /^TS8073 "nudge" writes its parameter "p", and "id\(a\)" may be the object "a" names\. Passing it on from an expression is not supported yet \(change 0142, stage 2\): name it first, const r = id\(a\), and pass r\.$/,
+    ],
+  ];
+  for (const [name, body, text] of refused) {
+    it(`refuses ${name}, in both halves`, () => {
+      const r = read(body);
+      expect(r.compiler).toHaveLength(1);
+      expect(r.compiler[0]).toMatch(text);
+      expect(r.editor).toEqual(r.compiler);
+    });
+  }
+});
+
 describe('a value stays a value (change 0142, decision 1)', () => {
   it('refuses a write through a vector parameter, in both halves', () => {
     const r = read(`function h(v: vec3f): f32 { v.x = 1.; return v.x; }

@@ -43,6 +43,7 @@ import { logicalTypeKey as typeKey } from '../optional.js';
 import { foldIndexConst } from '../index-bound.js';
 import ts from 'typescript';
 import { objectWrites } from '../object-reference.js';
+import { aliasedCall } from '../object-share.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, isF64, isVec, isVec64, u32T } from '../../../core/ir/types.js';
@@ -908,7 +909,12 @@ function lowerDeclarationKind(
   // declaration is emitted, so `a[i]` and `a.length` read `src` (#46). A `let` would be a copy,
   // and so would anything but the bare name.
   const secondName = secondNameOf(decl, init, annotated, sourceFile, scope, diagnostics);
-  if (secondName !== 'none') return undefined;
+  if (secondName !== 'none') {
+    // The call that gave the second name still runs, for what it writes.
+    return secondName === 'bound' && init.op === 'call'
+      ? withSpan({ s: 'call', expr: init } as Stmt, sourceFile, decl)
+      : undefined;
+  }
   const holdsRuntimeArray =
     runtimeArrayWithin(annotated ?? init.type, (n) => scope.structByName(n)) !== undefined;
   if (holdsRuntimeArray) {
@@ -1113,8 +1119,10 @@ function secondNameOf(
   const type = annotated ?? init.type;
   if (type.kind !== 'struct' && !(type.kind === 'array' && type.size !== undefined)) return 'none';
   if (!ts.isIdentifier(decl.name) || decl.initializer === undefined) return 'none';
-  const from = unwrapParens(decl.initializer);
-  if (!ts.isIdentifier(from)) return 'none';
+  // `let b = f(a)` where `f` returns its parameter: `b` is a second name of `a`'s object too.
+  const direct = unwrapParens(decl.initializer);
+  const from = ts.isIdentifier(direct) ? direct : aliasedCall(decl, sourceFile)?.argument;
+  if (from === undefined) return 'none';
   const target = scope.resolve(from.text);
   if (target === undefined || (target.kind !== 'local' && target.kind !== 'param')) return 'none';
   // A name of another type is a view of the object (a base class of it), which keeps its own

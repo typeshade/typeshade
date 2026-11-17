@@ -3,6 +3,7 @@
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
+import { sharedObjects } from '../object-share.js';
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js';
 import type {
   BindingDecl,
@@ -2565,6 +2566,39 @@ export function fillFunctionBody(
     : inCopy(home, () => unpeekedReads(() => fillFunctionBodyNow(...args)));
 }
 
+/** The stores of a body that would make two names of one object, each refused once (change
+ *  0142): a body lowered again for another copy of its function says nothing new. */
+function reportSharedObjects(
+  node: FunctionNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  let reported = SHARED_REPORTED.get(diagnostics);
+  if (reported === undefined) SHARED_REPORTED.set(diagnostics, (reported = new Set()));
+  if (reported.has(node)) return;
+  reported.add(node);
+  for (const shared of sharedObjects(node, sourceFile)) {
+    const other = shared.written === shared.held ? shared.dest : shared.held;
+    const where =
+      shared.dest === undefined
+        ? `This statement keeps the object "${shared.held}" names in a second place`
+        : shared.whole
+          ? `"${shared.dest}" would name the object "${shared.held}" names`
+          : `"${shared.dest}" would hold the object "${shared.held}" names`;
+    pushDiag(
+      diagnostics,
+      sourceFile,
+      shared.node,
+      `${where}, and "${shared.written}" is written after that. One object under two names is ` +
+        `not supported yet (change 0142, stage ${shared.whole ? 2 : 3}): a copy here would not ` +
+        `show the write${other === undefined ? '' : ` through "${other}"`}. Write the object ` +
+        `through one name, or finish writing it before this statement.`,
+      TS_CODES.UNSUPPORTED,
+    );
+  }
+}
+const SHARED_REPORTED = new WeakMap<TsCompilerDiagnostic[], Set<ts.Node>>();
+
 function fillFunctionBodyNow(
   node: FunctionNode,
   stub: FuncDecl,
@@ -2602,6 +2636,7 @@ function fillFunctionBodyNow(
   receiverKeys?: readonly CaptureKey[],
 ): void {
   const errorsBefore = errorsOf(diagnostics);
+  reportSharedObjects(node, sourceFile, diagnostics);
   const scope = functionScope(
     stub,
     callees,
