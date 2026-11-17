@@ -67,6 +67,7 @@ import {
   emittedReachOf,
   glDrawOf,
   layoutOf,
+  reachOf,
   type EntryReach,
 } from '../../core/manifest.js';
 import { callArgAccess } from '../../core/passes/access.js';
@@ -132,6 +133,7 @@ import { pushedParams } from './lower/kernel-push.js';
 import { staticConstName } from './module-const.js';
 import {
   compileTsProgram,
+  wgslLoweredOf,
   type TsCompilerDiagnostic,
   type compileTsSource,
 } from './source-file.js';
@@ -357,6 +359,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     return undefined;
   };
 
+  const lowered = r.wgsl !== undefined ? wgslLoweredOf(r.funcs) : undefined;
   let emittedReach: ((entry: string) => EntryReach) | undefined;
   const faces: (FaceExport | BindingRef)[] = [];
   // The author's JSDoc of each export, which the view carries (change 0108).
@@ -386,7 +389,8 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
           bindings: m.bindings,
           reads,
           writes,
-          reach: (entry) => (emittedReach ??= emittedReachOf(m))(entry),
+          reach: (entry) =>
+            (emittedReach ??= lowered !== undefined ? reachOf(lowered) : emittedReachOf(m))(entry),
           callees,
           declared,
           workgroupZero: Object.fromEntries(
@@ -491,6 +495,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       ...(options.ir === true ? { ir: true } : {}),
     },
     r.wgsl,
+    lowered,
   );
   logged = logged.map((e) =>
     e.kind === 'compute' && pack.overrides.length !== 0

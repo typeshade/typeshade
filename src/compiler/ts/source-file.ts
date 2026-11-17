@@ -37,7 +37,8 @@ import type {
 } from '../../core/ir/nodes.js';
 import { refuseStageCalls, stageCallOf } from './stage-call.js';
 import { refuseQualifierTypes, warnDecoratedForm } from './decorated-form.js';
-import { emitModule } from '../../core/backends/wgsl.js';
+import { wgslBackend } from '../../core/backends/wgsl.js';
+import { emitModuleLowered } from '../../core/emit.js';
 import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
 import { lowerSourceFunctions } from './lower/function.js';
@@ -586,15 +587,20 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   const shouldEmit = options.emit ?? true;
   if (shouldEmit && funcs.length > 0 && !diagnostics.some((d) => d.category === 'error')) {
     try {
-      wgsl = emitModule({
-        consts: [...consts],
-        structs: emittedStructDecls(structs),
-        bindings: [...bindings],
-        funcs: [...funcs],
-        overrides: [...overrides],
-        vars: [...vars],
-        enables,
-      });
+      const emitted = emitModuleLowered(
+        {
+          consts: [...consts],
+          structs: emittedStructDecls(structs),
+          bindings: [...bindings],
+          funcs: [...funcs],
+          overrides: [...overrides],
+          vars: [...vars],
+          enables,
+        },
+        wgslBackend,
+      );
+      wgsl = emitted.code;
+      wgslLowered.set(funcs, emitted.lowered);
     } catch (e) {
       // No fallback to emitFuncs(funcs): it emits the functions without the consts, structs
       // and bindings they reference, which is not this module's WGSL. The throw is the answer.
@@ -622,6 +628,12 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
       wgsl,
     },
   };
+}
+
+const wgslLowered = new WeakMap<readonly FuncDecl[], ModuleDecl>();
+
+export function wgslLoweredOf(funcs: readonly FuncDecl[]): ModuleDecl | undefined {
+  return wgslLowered.get(funcs);
 }
 
 /** The codes an unknown name is reported under, which a refused import already accounts for. */

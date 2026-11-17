@@ -711,6 +711,7 @@ export function buildManifest(
   m: ModuleDecl,
   options: PackOptions = {},
   defaultWgsl?: string,
+  defaultLowered?: ModuleDecl,
 ): Pack {
   // The spelling plan of the kernel-free module the writers lower (Proposal 0070): the records of
   // structs and fields read it, as `reflect()` does.
@@ -721,7 +722,7 @@ export function buildManifest(
     options.emit === undefined && defaultWgsl !== undefined
       ? {
           code: defaultWgsl,
-          lowered: loweredWithPlugins(m, wgslBackend, plan.options, plan.level),
+          lowered: defaultLowered ?? loweredWithPlugins(m, wgslBackend, plan.options, plan.level),
         }
       : emittedWgsl(m, plan);
   const wgsl = own.code;

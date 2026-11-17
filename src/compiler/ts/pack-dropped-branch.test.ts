@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bothHalves } from '../../core/testing/both-halves.js';
+import { hostFace } from './host-face.js';
 import { packModule, type Pack, type PackOptions } from './pack.js';
 
 const TEXTURE = `"use typeshade";
@@ -20,6 +21,15 @@ function freshColor(uv: vec2): vec4 { return vec4(uv, 0, 1); }
 function shade(uv: vec2, cached: bool): vec4 { return cached ? cachedColor(uv) : freshColor(uv); }
 @fragment export function drawCached(uv: location<0, vec2>): vec4 { return shade(uv, true); }
 @fragment export function drawReference(uv: location<0, vec2>): vec4 { return shade(uv, false); }
+`;
+
+const FULL_SCREEN = `"use typeshade";
+declare const labelsTex: texture_2d<f32>;
+function cachedColor(p: vec2): vec4 { return textureLoad(labelsTex, vec2i(p), 0); }
+function freshColor(p: vec2): vec4 { return vec4(p, 0, 1); }
+function shade(p: vec2, cached: bool): vec4 { return cached ? cachedColor(p) : freshColor(p); }
+@fragment export function drawCached(p: builtin<"position">): location<0, vec4> { return shade(p.xy, true); }
+@fragment export function drawReference(p: builtin<"position">): location<0, vec4> { return shade(p.xy, false); }
 `;
 
 const ENTRIES = ['drawCached', 'drawReference'] as const;
@@ -56,7 +66,7 @@ function wgslReads(wgsl: string, entry: string, names: readonly string[]): strin
 function bound(p: Pack, entry: string): string[] {
   return p.entries
     .find((e) => e.name === entry)!
-    .bindings.map((b) => b.name)
+    .bindings!.map((b) => b.name)
     .sort();
 }
 
@@ -110,5 +120,24 @@ describe('an entry binds what its emitted body reads after a constant branch is 
         'records',
       ]);
     }
+  });
+
+  it('gives the host face of a full-screen entry the bindings its program reads', () => {
+    const halves = bothHalves(FULL_SCREEN);
+    expect(halves.compiler).toEqual([]);
+    expect(halves.editor).toEqual([]);
+    const face = hostFace(FULL_SCREEN, { fileName: 'labels.shade.ts' });
+    expect(face.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    const entries = Object.fromEntries(
+      (face.exports ?? []).flatMap((e) =>
+        e.kind === 'fragment'
+          ? [[e.name, { bindings: e.entry.bindings.map((b) => b.name), gl: 'gl' in e.entry }]]
+          : [],
+      ),
+    );
+    expect(entries).toEqual({
+      drawCached: { bindings: ['labelsTex'], gl: true },
+      drawReference: { bindings: [], gl: true },
+    });
   });
 });
