@@ -2981,7 +2981,10 @@ function ownerAt(
   }
   if (ts.isPropertyAccessExpression(n)) {
     const m = memberOfAccess(n, sourceFile);
-    return m === undefined || m === 'value' ? undefined : ownerOfMember(m, sourceFile, depth);
+    // A component or a swizzle of a value type is a value type too (`p.yx.x`, the third review
+    // of #1322, B).
+    if (m === 'value') return 'value';
+    return m === undefined ? undefined : ownerOfMember(m, sourceFile, depth);
   }
   if (ts.isCallExpression(n)) {
     if (ts.isIdentifier(n.expression)) {
@@ -4549,14 +4552,30 @@ export function provenTyped(node: ts.Expression, depth = 0): boolean {
     return true;
   }
   if (ts.isPropertyAccessExpression(n)) {
-    // A getter with no written result is a call of it (E1).
-    const getters = identifiersNamed(n.getSourceFile(), n.name.text)
-      .map((id) => id.parent)
-      .filter((p): p is ts.GetAccessorDeclaration => ts.isGetAccessorDeclaration(p));
-    return getters.every(writesResult);
+    // The member its declaration names states its type: a field with a written type, or a
+    // getter with a written result (a getter with none is a call of it, E1). A field with no
+    // written type states none (the owner's decision of 2026-11-17, "단순 규칙: 타입 없는
+    // 필드는 항상 증명 못 함"; the third review of #1322, A).
+    const sourceFile = n.getSourceFile();
+    const m = memberOfAccess(n, sourceFile);
+    if (m === 'value') return true;
+    if (m !== undefined && !ts.isSetAccessorDeclaration(m)) return memberTyped(m, sourceFile);
+    return memberNameTyped(n.name.text, sourceFile);
   }
   if (ts.isElementAccessExpression(n)) return true;
   if (ts.isIdentifier(n)) {
+    // An element of an object pattern reads a member, as a property access does.
+    const element = walkDeclarationOf(n.text, n);
+    if (element !== undefined && ts.isBindingElement(element)) {
+      const sourceFile = n.getSourceFile();
+      const m = memberOfBinding(element, sourceFile);
+      if (m !== undefined && !ts.isSetAccessorDeclaration(m)) return memberTyped(m, sourceFile);
+      if (!ts.isObjectBindingPattern(element.parent)) return true;
+      const key = element.propertyName ?? element.name;
+      return ts.isIdentifier(key) || ts.isStringLiteral(key)
+        ? memberNameTyped(key.text, sourceFile)
+        : false;
+    }
     const d = declarationOf(n.text, n);
     if (d === undefined) return true;
     if (ts.isParameter(d)) return writtenTypeText(d, n.getSourceFile()) !== undefined;
@@ -4582,6 +4601,17 @@ export function provenTyped(node: ts.Expression, depth = 0): boolean {
     return provenTyped(n.left, depth + 1) || provenTyped(n.right, depth + 1);
   }
   return true;
+}
+
+/** Whether a read by the name `name` of a member the source does not state gives a value of a
+ *  written type: no field of that name has no written type, and every getter of that name writes
+ *  its result. */
+function memberNameTyped(name: string, sourceFile: ts.SourceFile): boolean {
+  if (fileTaint(sourceFile).untypedFieldNames.has(name)) return false;
+  return identifiersNamed(sourceFile, name)
+    .map((id) => id.parent)
+    .filter((p): p is ts.GetAccessorDeclaration => ts.isGetAccessorDeclaration(p))
+    .every(writesResult);
 }
 
 /** The arms of a `?:` or a `select`, or the arguments of an integer builtin, that carry their

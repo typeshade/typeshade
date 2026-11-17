@@ -3158,6 +3158,112 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(2.5);
   });
 
+  // The third review of #1322, within the owner's decision of 2026-11-17 ("단순 규칙: 타입 없는
+  // 필드는 항상 증명 못 함", which names `/`): an element of an object pattern that reads a field
+  // with no written type is no typed operand of `/`, as `s.v` is not (A); a swizzle of a written
+  // vector is a value type at every depth, so `.yx.x` states its type (B).
+  const S_1319 = 'class S { v = 0; }\n';
+  const DIVIDED = (x: string): string =>
+    `TS8003: "${x}" is an integer by its bit operator, and no operand of "${x} / 2" has a ` +
+    `declared type, so the "/" does not say which division it is. Write "f32(${x}) / 2" for ` +
+    'the float division.';
+  it.each([
+    [
+      'a pattern',
+      S_1319,
+      'let s = new S(); s.v = ii; let { v } = s; return f32(v / 2);',
+      'v',
+      -1.5,
+    ],
+    [
+      'a renamed pattern',
+      S_1319,
+      'let s = new S(); s.v = ii; let { v: q } = s; return f32(q / 2);',
+      'q',
+      -1.5,
+    ],
+    [
+      'a const pattern',
+      S_1319,
+      'let s = new S(); s.v = ii; const { v } = s; return f32(v / 2);',
+      'v',
+      -1.5,
+    ],
+    [
+      "a constructor's store",
+      'class S { v = 0; constructor(x: i32) { this.v = x; } }\n',
+      'let s = new S(ii); let { v } = s; return f32(v / 2);',
+      'v',
+      -1.5,
+    ],
+    [
+      'a pattern of a parameter',
+      `${S_1319}function g(s: S): f32 { let { v } = s; return f32(v / 2); }\n`,
+      'let s = new S(); s.v = ii; return g(s);',
+      'v',
+      -1.5,
+    ],
+    [
+      'a copy of the element',
+      S_1319,
+      'let s = new S(); s.v = ii; let { v } = s; let r = v; return f32(r / 2);',
+      'r',
+      -1.5,
+    ],
+    [
+      'a u32 stored',
+      S_1319,
+      'let s = new S(); s.v = vi; let { v } = s; return f32(v / 2);',
+      'v',
+      3.5,
+    ],
+  ] as const)(
+    'third review of #1322, A: an element of %s that reads an untyped field is no typed operand of /',
+    (_, pre, body, x, value) => {
+      refusedThenEdited(
+        `"use typeshade";\n${pre}${FN2}  ${body}\n}\n`,
+        [DIVIDED(x)],
+        [[`f32(${x} / 2)`, `f32(f32(${x}) / 2)`]],
+        value,
+      );
+    },
+  );
+
+  it('third review of #1322, A: a comparison of the quotient of a pattern element computes as TypeScript does', () => {
+    // A comparison reads the quotient of a value of no declared type as TypeScript does (the
+    // value of #1322's third review was 2.0, against TypeScript's 1.0).
+    const source = `"use typeshade";\n${S_1319}${FN2}  let s = new S(); s.v = ii; let { v } = s; return (v / 2) < -1 ? 1.0 : 2.0;\n}\n`;
+    expect(both(source)).toEqual([]);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(1);
+  });
+
+  it('third review of #1322, A: the access form of that comparison stays refused, and its edit compiles', () => {
+    const source = `"use typeshade";\n${S_1319}${FN2}  let s = new S(); s.v = ii; return (s.v / 2) < -1 ? 1.0 : 2.0;\n}\n`;
+    refusedThenEdited(
+      source,
+      [
+        'TS8003: "v" is an i32 where another line reads it, and no operand of "s.v / 2" has a ' +
+          'declared type, so the "/" does not say which division it is. Write "f32(s.v) / 2" ' +
+          'for the float division.',
+      ],
+      [['(s.v / 2)', '(f32(s.v) / 2)']],
+      1,
+    );
+  });
+
+  it.each([
+    ['a constructor', 'return f32(vec2u(1, (~(0xF0000000|0))).yx.x + vi);', 268435462],
+    ['a local', 'let p = vec2u(1, ~(0xF0000000|0)); return f32((vi ^ p.yx.x) % 5);', 3],
+    ['a bit operator', 'let a = (vi*vi) ^ vec2u(1, ~(0xF0000000|0)).yx.x; return f32(a % 5);', 1],
+  ] as const)(
+    'third review of #1322, B: a swizzle of a swizzle of a written vector states its type: %s',
+    (_, body, value) => {
+      const source = `"use typeshade";\n${FN2}  ${body}\n}\n`;
+      expect(both(source)).toEqual([]);
+      expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(value);
+    },
+  );
+
   it('issue #1319 (D2): a component of a value type states its type beside an untyped field of its name', () => {
     const source = `"use typeshade";\nclass S2 { x = 0; }\n${FN2}  let s = new S2(); s.x = (0xF0000000|0); let p: vec2u = vec2u(3, 4); return f32(p.x + p.x);\n}\n`;
     expect(both(source)).toEqual([]);
