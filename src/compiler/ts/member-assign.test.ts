@@ -480,7 +480,7 @@ describe('a write through a storage binding survives the optimizer', () => {
   // surface spells a binding read). CSE used to hoist the whole `ps[…]` navigation into an
   // immutable `let` and rewrite the store into it — `let _cse1 = ps[i]; _cse1.b = …` — which
   // Tint rejects with "cannot assign to value of type 'f32'". The guard is targetRoot /
-  // refsLocal in src/core/passes/opt/expr-utils.ts, pinned there too.
+  // refsLocal in src/core/passes/opt/expr-utils/roots.ts, pinned there too.
   const COMPUTED = `
     "use typeshade";
     ${STRUCTS}

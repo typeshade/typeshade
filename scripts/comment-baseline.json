@@ -705,7 +705,6 @@
   "src/core/passes/opt/dce.ts": 51,
   "src/core/passes/opt/dead-branch.test.ts": 7,
   "src/core/passes/opt/dead-branch.ts": 22,
-  "src/core/passes/opt/expr-utils.ts": 193,
   "src/core/passes/opt/fixpoint-ireq.test.ts": 25,
   "src/core/passes/opt/guard-producers.test.ts": 6,
   "src/core/passes/opt/gvn.test.ts": 171,
