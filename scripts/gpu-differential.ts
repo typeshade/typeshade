@@ -1114,6 +1114,42 @@ export function projected(xs:array<Item>,@inout out:array<f32>)${seed >= 4 ? ':f
   });
 }
 
+/** Quotients of integers by inference that `i32()` and `u32()` read, over negative operands,
+ *  `-2147483648 / -1` and divisors of zero, which the boundary pool holds (issue 1320). */
+function quotientCorpus(): KernelCorpus[] {
+  const source = `"use typeshade";
+function pass(v: i32) {
+  return v;
+}
+export function quotients(xs: array<i32>, ys: array<i32>, @inout out: array<u32>, @inout outi: array<i32>) {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    let a = pass(xs[i]);
+    let b = pass(ys[i]) % 5;
+    out[i] = u32(a / b);
+    outi[i] = i32(a / b) + i32(a / 3);
+  }
+}
+`;
+  const result = compile(source);
+  const editor = createTypeshadeLanguageService();
+  editor.openDocument('quotients.shade.ts', source);
+  if (result.diagnostics.length || editor.getDiagnostics('quotients.shade.ts').length)
+    throw new Error('gpu-differential: the quotient source disagrees with compiler or editor');
+  const i32Elem: ShaderType = { kind: 'scalar', scalar: 'i32' };
+  return [0, 1].map((seed) => ({
+    module: result.module,
+    seed: 12000 + seed,
+    features: { quotient: 1 },
+    kernel: 'quotients',
+    arrays: [
+      { name: 'xs', elem: i32Elem, role: 'in' },
+      { name: 'ys', elem: i32Elem, role: 'in' },
+      { name: 'out', elem: { kind: 'scalar', scalar: 'u32' }, role: 'out' },
+      { name: 'outi', elem: i32Elem, role: 'out' },
+    ],
+  }));
+}
+
 /** The WebGPU arm: each generated kernel function's plan dispatched on WebGPU. */
 async function webgpuArm(page: Page): Promise<number> {
   const corpus = Array.from({ length: SEEDS }, (_, i) =>
@@ -1161,7 +1197,7 @@ async function webgpuArm(page: Page): Promise<number> {
       }),
     ),
   );
-  corpus.push(...recordCorpus(), ...projectionCorpus());
+  corpus.push(...recordCorpus(), ...projectionCorpus(), ...quotientCorpus());
   let failures = 0;
   // The claim this gate compares bit for bit: the report lists nothing but `order`.
   const listed = new Map<string, number>();
