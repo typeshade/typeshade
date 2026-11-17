@@ -73,6 +73,11 @@ export const CODE_GAPS: readonly Gap[] = [
     to: 8078,
     why: 'retired by change 0131 (numerics); recorded in codes.ts above UNSUPPORTED',
   },
+  {
+    from: 8080,
+    to: 8080,
+    why: 'retired by change 0142 (VALUE_ARRAY_WRITE_LOST); recorded in codes.ts above UNSUPPORTED',
+  },
 ];
 
 /** The recorded gaps in the surface document's `§` numbers. */

@@ -2,9 +2,9 @@
 //
 // A read before an assignment (proposal 0043). The compiler refuses a read of a local before it
 // is assigned on every path, by TypeScript's TS2454 rule, and the editor shows the compiler's
-// TS8075 in TypeScript's place. The one difference is `@out`: an argument an `@out` parameter
-// takes assigns the variable (proposal 0040). Every target starts such a local at zero, GLSL ES
-// 3.00 included.
+// TS8075 in TypeScript's place. Change 0142 removed `@out`, the one difference there was: an
+// argument is a read, as TypeScript reads it. Every target starts a local at zero, GLSL ES 3.00
+// included.
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { compile } from './compile.js';
@@ -55,7 +55,7 @@ function typescriptReads(body: string): string[] {
 }
 
 describe('a read before an assignment is refused as TypeScript refuses it (Rule 7.6)', () => {
-  // Each body is a whole function with no `@out` argument, so the compiler's reports and
+  // Each body is a whole function, so the compiler's reports and
   // TypeScript's must fall on the same reads.
   const corpus: Record<string, string> = {
     'a read with no assignment': `export function run(c: bool): f32 { let s: f32; return s; }`,
@@ -100,18 +100,15 @@ describe('a read before an assignment is refused as TypeScript refuses it (Rule 
     expect(editor.some((d) => d.startsWith('2454'))).toBe(false);
   });
 
-  it('takes an argument an @out parameter takes as an assignment, which TypeScript cannot', () => {
-    const body = `function add(a: f32, b: f32, @out c: f32): void { c = a + b; }
-export function run(): f32 { let s: f32; add(1., 2., s); return s; }`;
-    expect(compilerReads(body)).toEqual([]);
+  it('reads an argument of a call as TypeScript does (change 0142: no @out assigns it)', () => {
+    const body = `function add(a: f32, b: f32, c: f32): f32 { return a + b + c; }
+export function run(): f32 { let s: f32; return add(1., 2., s); }`;
+    expect(compilerReads(body)).toEqual(typescriptReads(body));
+    expect(compilerReads(body)).toHaveLength(1);
     const source = `"use typeshade";\n${body}\n${FRAGMENT}`;
     const service = createTypeshadeLanguageService();
     service.openDocument('o.ts', source);
-    expect(service.getDiagnostics('o.ts')).toEqual([]);
-    const r = compile(source);
-    expect(r.diagnostics).toEqual([]);
-    expect(compileModule(r.module).fns.run!()).toBe(3);
-    expect(compileModuleJs(r.module).fns.run!()).toBe(3);
+    expect(service.getDiagnostics('o.ts').filter((d) => d.code === 'TS8075')).toHaveLength(1);
   });
 
   it('starts a local with no initializer at zero on GLSL ES 3.00, as on WGSL and the CPU', () => {

@@ -916,7 +916,7 @@ declare const arrayTag: unique symbol
 // is the first mutating member (change 0078), and the compiler refuses it everywhere but on a
 // kernel function's array parameter inside a candidate loop, a read binding included; the editor
 // shows that refusal, since it runs the same front end.
-type ArrayOps = 'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'push' | 'fill' | 'findIndex' | 'findLastIndex' | 'indexOf' | 'lastIndexOf' | 'includes'
+type ArrayOps = 'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'push' | 'fill' | 'findIndex' | 'findLastIndex' | 'indexOf' | 'lastIndexOf' | 'includes' | 'slice'
 // Iterable, so \`for (const x of xs)\` type-checks (Rule 7.5): the compiler lowers it to a counted
 // loop over the indices. The iterator's shape is written inline so it adds no global name.
 //
@@ -1617,6 +1617,8 @@ declare function select<T extends Numeric | bool | BoolVec | Vec64Any | f64>(
   trueValue: T,
   cond: bool | BoolVec,
 ): T
+${renderJSDoc(FUNCTION_DOCS.structuredClone)}
+declare function structuredClone<T>(value: T): T
 ${renderJSDoc(FUNCTION_DOCS.any)}
 declare function any(v: bool | BoolVec): bool
 ${renderJSDoc(FUNCTION_DOCS.all)}
@@ -1654,18 +1656,10 @@ ${renderJSDoc(ATTRIBUTE_DOCS.invariant)}
 declare function invariant(target: unknown, context?: unknown): void
 ${renderJSDoc(ATTRIBUTE_DOCS.blend_src)}
 declare function blend_src(n: number): (target: unknown, context?: unknown) => void
-${renderJSDoc(ATTRIBUTE_DOCS.inout)}
-declare function inout(target: unknown, context?: unknown, index?: number): void
-${renderJSDoc(ATTRIBUTE_DOCS.out)}
-declare function out(target: unknown, context?: unknown, index?: number): void
 ${renderJSDoc(ATTRIBUTE_TYPE_DOCS.builtin!)}
 type builtin<N extends ${WGSL_BUILTIN_NAMES.map((n) => `'${n}'`).join(' | ')}, T = ${BUILTIN_VALUE_TYPE}, O extends { readonly invariant?: true } = {}> = T extends boolean ? T : T extends { readonly invariant?: true } ? ${BUILTIN_VALUE_TYPE} : T
 ${renderJSDoc(ATTRIBUTE_TYPE_DOCS.location!)}
 type location<I extends number, T, O extends { readonly interpolate?: 'perspective' | 'linear' | 'flat' | readonly [type: 'perspective' | 'linear' | 'flat', sampling: 'center' | 'centroid' | 'sample' | 'first' | 'either']; readonly blend_src?: 0 | 1 } = {}> = T
-${renderJSDoc(ATTRIBUTE_TYPE_DOCS.inout!)}
-type inout<T> = T
-${renderJSDoc(ATTRIBUTE_TYPE_DOCS.out!)}
-type out<T> = T
 ${renderJSDoc(ATTRIBUTE_DOCS.vertex)}
 declare function vertex(target: Function, context?: unknown): void
 ${renderJSDoc(ATTRIBUTE_DOCS.fragment)}
@@ -1713,6 +1707,9 @@ interface Array<T> {
   // ECMAScript gives the array back: a shader has no reference to hand back. An index is an
   // \`i32\`, \`-1\` where nothing matches.
   fill(value: T): void
+  // \`slice()\` with no argument is a new array of the same elements (change 0142, Table 3): the
+  // start and the end are not taken, since an array's length is fixed.
+  slice<N extends number>(this: array<T, N>): array<T, N>
   findIndex<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): i32
   findLastIndex<N extends number>(this: array<T, N>, predicate: (value: T, index: i32, array: array<T, N>) => bool): i32
   indexOf(searchElement: T): i32

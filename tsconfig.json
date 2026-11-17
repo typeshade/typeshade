@@ -84,6 +84,7 @@
     "src/core/spec-conformance/coredef-witness.ts",
     "src/core/testing/tsc-diagnostics.ts",
     "src/core/testing/yield-between-tests.ts",
+    "src/compiler/ts/remedy-lines/sites.ts",
     "examples/**/*.test.ts",
     "examples/**/*.shade.ts",
     "src/**/*.shade.ts",

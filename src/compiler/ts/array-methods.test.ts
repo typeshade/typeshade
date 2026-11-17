@@ -523,7 +523,7 @@ export function run(k: f32): f32 {
 describe('what an array method refuses, each with the fix (Rule 8.18)', () => {
   it('the other methods of Array.prototype', () => {
     expect(only(XS('return xs.filter((x) => x > k)[0];'))).toBe(
-      `${F.UNSUPPORTED} ".filter" is not one of an array's methods here, which are map, forEach, some, every, reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf and includes. An array's length is fixed, so a copy or a change of length is a loop: "for (const x of xs) { … }".`,
+      `${F.UNSUPPORTED} ".filter" is not one of an array's methods here, which are map, forEach, some, every, reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf, includes and slice() with no argument, which copies it. An array's length is fixed, so a change of length is a loop: "for (const x of xs) { … }".`,
     );
     expect(only(XS('const g = xs.map;\n  return 0.;'))).toBe(
       `${F.UNSUPPORTED} ".map" is a method of the array, and a shader has no function values: call it where its value is needed, "xs.map(…)".`,

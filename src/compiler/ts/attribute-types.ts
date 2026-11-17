@@ -16,11 +16,9 @@
 // fixes, `builtin<'vertex_index', u32>`, is the migration form: it is still read, and
 // `builtin-type-form.ts` warns on it (`TS8028`).
 //
-// The type form of a parameter qualifier, `x: inout<f32>` and `y: out<f32>`, is not the
-// language's form: a qualifier is written before the parameter, `@inout x: f32` (Rule 8.25,
-// change 0137), and the type form is refused with `TS8028` (`refuseQualifierTypes`). The
-// refused type still stands for its qualifier on a parameter, so that the refusal is the one
-// diagnostic its mistake gets (Rule 12.4), and it still means its value type everywhere.
+// The type form of a parameter qualifier, `x: inout<f32>` and `y: out<f32>`, is removed (change
+// 0142; the qualifiers were refused as a type form by change 0137) and refused with `TS8028`
+// (`refuseQualifierTypes`). It stands for no decorator, and it still means its value type.
 //
 // Each type stands for the decorators the decorated form writes. The decorators are made of the
 // type's own nodes: the callee is the type's name or the option's name, and each argument is the
@@ -148,7 +146,6 @@ export function typeDecoratorsOf(node: ts.Node): readonly ts.Decorator[] {
   const known = cache.get(node);
   if (known !== undefined) return known;
   const out: ts.Decorator[] = [];
-  const parameter = ts.isParameter(node);
   const type = (node as { type?: ts.TypeNode }).type;
   const f = ts.factory;
   const decorator = (
@@ -170,9 +167,8 @@ export function typeDecoratorsOf(node: ts.Node): readonly ts.Decorator[] {
     const name = ref.typeName as ts.Identifier;
     const args = ref.typeArguments ?? ts.factory.createNodeArray<ts.TypeNode>();
     if (name.text === 'inout' || name.text === 'out') {
-      // The refused type form stands for its qualifier on a parameter alone, where the front
-      // end reads a qualifier; elsewhere it is its value type (change 0137).
-      if (parameter) decorator(name, undefined, ref);
+      // The removed type form is its value type, and `TS8028` is the one diagnostic on it
+      // (change 0142).
     } else {
       const literal = literalOf(args[0]);
       decorator(name, literal === undefined ? [] : [literal], ref);
