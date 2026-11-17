@@ -126,7 +126,8 @@ export function run(): f32 { return id(2., 3.) + apply((x) => { x *= 2.; return 
       `"use typeshade"; export function f(a: vec2): vec2 { a.x = 1.; return a; }`,
       'TS8018',
       'Cannot write through parameter "a" — parameters are not writable. Use a local or ' +
-        'storage. To change the caller\'s value, declare "@inout a: vec2".',
+        "storage. To change the caller's value, return it, and write [a, b] = f(a, b) for more " +
+        'than one.',
     );
   });
 

@@ -236,6 +236,7 @@ ${body}
       ],
       ['a pattern that reads the field', '  const { cd } = out;\n  out.pos.z = cd[0];'],
     ];
+    const COPIES_AN_OBJECT = new Set(['a pattern that reads the field']);
 
     for (const [name, body] of BODIES) {
       it(`${name}: the one TS8003, in both halves`, () => {
@@ -243,6 +244,13 @@ ${body}
       });
       it(`${name}: the valid neighbour array<f32, 2> compiles, with no diagnostic`, () => {
         const source = DECLARED('builtin<"clip_distances", array<f32, 2>>', body);
+        if (COPIES_AN_OBJECT.has(name)) {
+          const said = compilerSays(source);
+          expect(said.map((d) => d.code)).toEqual(['TS8099']);
+          expect(said[0]!.message).toMatch(/^"cd" would name an object that "out" gives back/);
+          expect(editorSays(source)).toEqual(said);
+          return;
+        }
         bothSay(source, []);
         expect(compiled(source).wgsl).toContain('@builtin(clip_distances) cd: array<f32, 2>,');
       });

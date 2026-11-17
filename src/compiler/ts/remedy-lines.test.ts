@@ -38,11 +38,11 @@
 // to apply either.
 
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compileTsSource } from './source-file.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { frontEndSources, remedySitesIn } from './remedy-lines/sites.js';
 
 /** The quoted declarations in one message. The closing quote is the one followed by the end of
  *  the sentence, because the line itself contains quotes: `storage<array<f32>, "read_write">`.
@@ -638,29 +638,6 @@ describe('a refusal names no line when it could not make the line good', () => {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-/** Every non-test source of the front end, read rather than listed so a new file joins by
- *  existing — the same reason `ambient.test.ts` reads the examples directory. */
-function frontEndSources(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const path = join(dir, name);
-    if (statSync(path).isDirectory()) return frontEndSources(path);
-    return name.endsWith('.ts') && !name.endsWith('.test.ts') ? [path] : [];
-  });
-}
-
-/** The sentences a file builds that quote something after "write". Comments are stripped first
- *  (a comment that quotes a remedy is not one), and the `` ` + ` `` joins of a message split
- *  across lines are closed up, because a template literal broken at the quote is still one
- *  sentence to the reader. */
-function remedySitesIn(path: string): string[] {
-  const source = readFileSync(path, 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
-    .replace(/`\s*\+\s*`/g, '')
-    .replace(/\s*\n\s*/g, ' ');
-  return [...source.matchAll(/[Ww]rite \\?"[^`]{0,80}/g)].map((m) => m[0]);
-}
-
 describe('every refusal that names a line is pinned above', () => {
   // One row per file that builds such a sentence, with the count, so that a remedy ADDED to a
   // covered file trips this test too. `lines` is how many of them name a whole declaration —
@@ -685,12 +662,6 @@ describe('every refusal that names a line is pinned above', () => {
       sites: 1,
       lines: 1,
       note: 'the resource that needs declare; the one sentence names a line, except for a resource with no type argument, where it names a `storage<...>` shape and the case above pins that',
-    },
-    {
-      file: 'definite.ts',
-      sites: 2,
-      lines: 0,
-      note: 'names the @out parameter to write (`Write "c" first`, `Write "c" on every path`): a variable to assign, not a line',
     },
     {
       file: 'generic-structs.ts',
@@ -724,9 +695,15 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'lower/statement.ts',
-      sites: 3,
+      sites: 1,
       lines: 0,
-      note: 'the array-pattern refusal names an EXAMPLE read (`const x = v.x`) that name no declaration in the program; the do-while refusal quotes a `while (c) { … }` shape; the other two say a body cannot `write "this"`, which is prose and names nothing to write',
+      note: 'the array-pattern refusal names an EXAMPLE read (`const x = v.x`) that name no declaration in the program; the do-while refusal quotes a `while (c) { … }` shape',
+    },
+    {
+      file: 'lower/statement/writable.ts',
+      sites: 2,
+      lines: 0,
+      note: 'two refusals say a body cannot `write "this"`, which is prose and names nothing to write',
     },
     {
       file: 'lower/array-methods.ts',
@@ -742,9 +719,15 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'lower/function.ts',
-      sites: 3,
+      sites: 2,
       lines: 0,
-      note: 'quotes a setter signature with its type left open, a return type annotation for a void function returning a value, and a paired return-expression edit around a newline; none is a complete declaration to replace',
+      note: 'quotes a setter signature with its type left open and a return type annotation for a void function returning a value; neither is a complete declaration to replace',
+    },
+    {
+      file: 'lower/function/return-checks.ts',
+      sites: 1,
+      lines: 0,
+      note: 'quotes a paired return-expression edit around a newline; it is no complete declaration to replace',
     },
     {
       file: 'lower/function-signature.ts',
@@ -766,9 +749,9 @@ describe('every refusal that names a line is pinned above', () => {
     },
     {
       file: 'decorated-form.ts',
-      sites: 2,
+      sites: 1,
       lines: 0,
-      note: "names a parameter's or field's attribute type, which is no declaration; `tshc migrate` writes it (a stage attribute is the entry's form since change 0130, and has no sentence here); and, for the refused type form of a qualifier (change 0137), the parameter as the language writes it, `@inout a: f32`, a parameter to rewrite and no declaration",
+      note: "names a parameter's or field's attribute type, which is no declaration; `tshc migrate` writes it (a stage attribute is the entry's form since change 0130, and has no sentence here)",
     },
     {
       file: 'abstract-const.ts',

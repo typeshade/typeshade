@@ -5,7 +5,7 @@ level: 17
 links:
 - RULE-0202: X0g_aM9dhyo0h4x4klnU_hRQiKqok1jFPsVAbMRIgag=
 - RULE-0701: slGgWLh0LvX-AtHwWav2IAGdVekgx7fNu2sYqitl4Kk=
-- RULE-0702: n80y261InLeIFFQe38cBrTreiZKqZvRwFA1R21AMbwA=
+- RULE-0702: 6Uyi-hi9WG1tu7ax9gh2n6Q-f8q302HzylDMEN84kKI=
 - RULE-0705: CUrzkI9eGk0xwAyA0bb0613QOpkgfcDc4AXAx5UZSAA=
 normative: true
 ref: ''

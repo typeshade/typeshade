@@ -61,10 +61,10 @@ describe('module variables and parameters occupy distinct IR slots (#1009)', () 
     );
   });
 
-  it('keeps an inout parameter distinct', () => {
+  it('keeps a parameter its function writes distinct', () => {
     check(
       `${voice}
-      function adjust(@inout Voice_count: u32): u32 {
+      function adjust(Voice_count: u32): u32 {
         Voice_count += 2;
         Voice.count += 1;
         return Voice_count + Voice.count;
@@ -74,7 +74,7 @@ describe('module variables and parameters occupy distinct IR slots (#1009)', () 
         const result = adjust(v);
         return result + v;
       }`,
-      22,
+      20,
     );
   });
 
@@ -158,7 +158,7 @@ describe('module variables and parameters occupy distinct IR slots (#1009)', () 
   it('keeps authored field names in kernel access reports after renaming', () => {
     const source = `"use typeshade"; ${voice}
       function bump(): void { Voice.count += 1; }
-      export function run(@inout out: array<f32>, t: array<f32>, Voice_count: u32): void {
+      export function run(out: array<f32>, t: array<f32>, Voice_count: u32): void {
         for (let i: u32 = 0; i < out.length; i++) {
           out[i] = t[i + Voice_count + Voice.count];
         }

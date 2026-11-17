@@ -40,12 +40,12 @@ export function runtimeArrayWithin(
 function described(t: ShaderType, within: { array: ShaderType; field?: string }): string {
   const own = authorTypeText(t);
   return within.field === undefined
-    ? `${authorTypeText(within.array)}, ${WHY}`
-    : `${own}, whose field "${within.field}" is ${authorTypeText(within.array)}, ${WHY}`;
+    ? `${authorTypeText(within.array)}, an array with no size`
+    : `${own}, whose field "${within.field}" is ${authorTypeText(within.array)}, an array with no size`;
 }
 
-const WHY =
-  'an array with no size, which lives only in a storage binding because its length is known only when the host binds it';
+const notYet = (place: string): string =>
+  `${place} that holds an array with no size is not supported yet`;
 
 /**
  * Refuse a parameter or a result whose type holds an array with no size, pushing `TS8020` on
@@ -64,8 +64,8 @@ export function refuseRuntimeArraySignature(
   if (within === undefined) return false;
   const message =
     what.kind === 'parameter'
-      ? `Parameter "${what.name}" is ${described(t, within)}. Give it a size, array<${authorTypeText(elemOf(within.array))}, N>, or read the binding by its name inside the function instead.`
-      : `This function returns ${described(t, within)}. Read the binding by its name where the value is needed.`;
+      ? `Parameter "${what.name}" is ${described(t, within)}. ${notYet('A parameter')}. Give it a size, array<${authorTypeText(elemOf(within.array))}, N>, or read the binding by its name inside the function instead.`
+      : `This function returns ${described(t, within)}. ${notYet('A result')}. Read the binding by its name where the value is needed.`;
   push(diagnostics, sourceFile, node, message, TS_CODES.FUNCTION_SHAPE);
   return true;
 }
@@ -90,8 +90,8 @@ export function refuseRuntimeArrayLocal(
   if (within === undefined) return false;
   const message =
     from === undefined
-      ? `"${name}" would be ${described(t, within)}. Give the array a size: array<${authorTypeText(elemOf(within.array))}, ${count ?? 'N'}>.`
-      : `"${name}" would copy "${from}", which is ${described(t, within)}. Read "${from}" by its name instead.`;
+      ? `"${name}" would be ${described(t, within)}. ${notYet('A local')}. Give the array a size: array<${authorTypeText(elemOf(within.array))}, ${count ?? 'N'}>.`
+      : `"${name}" would copy "${from}", which is ${described(t, within)}. ${notYet('A local')}. Read "${from}" by its name instead.`;
   push(diagnostics, sourceFile, node, message, TS_CODES.UNSUPPORTED);
   return true;
 }

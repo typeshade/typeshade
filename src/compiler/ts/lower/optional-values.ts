@@ -100,7 +100,7 @@ export function noteValueType(node: ts.Node, type: ShaderType): void {
   else trial.set(node, type);
 }
 
-function recordedValueType(node: ts.Node): ShaderType | undefined {
+export function recordedValueType(node: ts.Node): ShaderType | undefined {
   for (let i = valueTypeTrials.length - 1; i >= 0; i--) {
     const type = valueTypeTrials[i]!.get(node);
     if (type !== undefined) return type;

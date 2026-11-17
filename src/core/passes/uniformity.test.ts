@@ -959,9 +959,9 @@ ${helper}
       '',
     ],
     [
-      'an inout parameter',
-      'function edge(@inout x: f32): bool { return x > 0.5; }',
-      'edge(local)',
+      'an object parameter that its function writes',
+      'class Cell { v: f32 = 0.; } function edge(c: Cell): bool { c.v = 1.; return c.v > 0.5; }',
+      'edge(new Cell())',
       '',
     ],
     [

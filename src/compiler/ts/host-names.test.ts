@@ -239,7 +239,7 @@ ${FS}`;
     for (const [call, name] of [
       ['fetch("x")', 'fetch'],
       ['parseFloat("1.5")', 'parseFloat'],
-      ['structuredClone("x")', 'structuredClone'],
+      ['encodeURI("x")', 'encodeURI'],
       ['map(xs, h)', 'map'],
     ]) {
       expect(

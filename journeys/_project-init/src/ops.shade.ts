@@ -1,6 +1,6 @@
 "use typeshade";
 
-export function twice(xs: array<f32>, @inout out: array<f32>) {
+export function twice(xs: array<f32>, out: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) { out[i] = xs[i] * 2.; }
 }
 

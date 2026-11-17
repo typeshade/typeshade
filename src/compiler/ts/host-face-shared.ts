@@ -17,7 +17,7 @@ export const REASON = {
   takesFunction:
     'it takes a function, and such a function exists only as the copies the module uses; no proposal adds it yet',
   reference: (p: string) =>
-    `parameter "${p}" is @inout or @out, which names a place of a shader's caller, and a host call passes values (Rule 8.21); call it from a function of the module, since no proposal adds a host reference yet`,
+    `parameter "${p}" is the caller's object, which the function writes, and a host call of it is not supported yet (change 0142, stage 2); call it from a function of the module`,
   binding:
     'it reaches a resource binding, which a helper call passes none of; call the entry that uses it (Rule 8.24)',
   workgroup:
