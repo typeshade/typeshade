@@ -1434,7 +1434,17 @@ and so does a module `const K = 1 | 2`. An exported constant whose own file refu
 `f32` its importers read (Amendment A5); any other exported constant is read as it is. Only a type
 the author wrote counts as declared: a call's result of any kind, a generic result, a module `let`
 and a read of a variable assigned anywhere are integers by inference, refused at `/` and read with
-their two readings (the owner's decision of 2026-11-13, E1). A tree in a position that takes an
+their two readings (the owner's decision of 2026-11-13, E1). A field whose initializer is a
+written conversion or value-type constructor (`v = u32(0)`, `p = vec2u(0, 0)`) has a written
+type; `v = 0` has none. A binding or a field with no written type is no typed peer of a tree:
+with `let a = (0xF0000000|0)`, `let b = vi; f32(a + b)` and `s.v = vi; f32(a + s.v)` are refused,
+and `let b: u32 = vi` is a typed peer. A value the compiler cannot prove is refused, never
+accepted: a bound of the walk, a node kind it does not know, a mask over an unproven value, a
+destructuring element that a tree reaches, and a field with no written type read beside a tree
+or in a position the two readings decide (a type parameter names no class). The sentence is
+`The compiler cannot prove that the u32 bits and the TypeScript value of "a + b" agree, so the "f32()" does not say which value it means. Write "i32(a + b)" for the i32 value.`
+A field with no written type that no tree reaches is read as before: `s.v = 5; f32(s.v / 2)` is
+2.5 (the owner's decisions of 2026-11-16 and 2026-11-17, Amendment A7). A tree in a position that takes an
 `f32` (`return K`, `K * 0.5`, `vec3(K, 0.5, 1.0)`, `sin(K)`) is refused with the tree named and the
 verified edit `f32(K)` (E3). Every edit a refusal names, a `>>`'s and a value form's too, is verified. A refusal that names no edit offers no wrap that the structure shows would not choose the
 division, and says "Declare the type of the division's operands to choose it." (the owner's
