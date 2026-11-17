@@ -346,7 +346,7 @@ TypeScript value of "a + b" agree, so the "f32()" does not say which value it me
     written result. A field with a written `u32` is a typed peer, and an untyped field with no
     tree in the expression keeps its value (`s.v = 5; f32(s.v / 2)` is 2.5). An element of an
     object pattern that reads such a field is no typed operand of `/` either: `let { v } = s;
-    f32(v / 2)` after `s.v = ii` is refused, as `f32(s.v / 2)` is. A swizzle of a swizzle of a
+f32(v / 2)` after `s.v = ii` is refused, as `f32(s.v / 2)` is. A swizzle of a swizzle of a
     written vector (`vec2u(…).yx.x`) states its type.
 
 - **Buffer integration with the compiler refactor** (2026-11-16, change 0138). Host analysis
