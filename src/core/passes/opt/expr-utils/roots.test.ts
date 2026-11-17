@@ -40,4 +40,10 @@ describe('collectMutatedRoots', () => {
     );
     expect([...out]).toEqual(['xs']);
   });
+
+  it('counts a write through an externref, a host-bound global', () => {
+    const out = new Set<string>();
+    collectMutatedRoots([write({ op: 'externref', type: f32T, name: 'host' })], out);
+    expect([...out]).toEqual(['host']);
+  });
 });
