@@ -688,7 +688,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A math builtin called with arguments its signature does not take | `TS8036`. Two shapes that had to agree (`dot(vec3, vec2)`, `clamp(v, 0., 1.)` on a vector), an element kind the builtin has no form for (`sin` on an integer vector), a scalar where a vector is due (`normalize(s)`, `cross` on a `vec2`), `mix`'s factor, `refract`'s eta, `ldexp`'s exponent or a bit offset of the wrong shape, or `transpose` on a non-matrix; the fix is named (§10) |
 | `new` on anything but a class the file declares | `TS8035`, once for the file, naming what the target is and what to write: a WGSL constructor or a function is called without `new`, a WGSL type with no constructor (`sampler`, a texture) and a type the library declares for TypeScript (`Array`) are types, `Symbol` is the library's own, an enum's values are its members, a mixin applied to a class is built through a class that extends it, and an interface, a type alias, a namespace, a type parameter, a value and an `abstract` class are no class to build. A target nothing declares, and a member the object before it does not have, is `TS8022` (§26) |
 | A local read before it is assigned on every path | `TS8075`, by TypeScript's TS2454 rule, which the editor shows in TypeScript's place: `"s" is read here before it is assigned on every path. Assign it before this read, or declare it with a value (Rule 7.6).` No parameter qualifier assigns a variable now (change 0142, §70) |
-| A statement that stores an object another name holds (`q = a`, `xs[0] = a`, `[a, a]`, `new B(a)`, `const q = xs[0]`) when something writes the object afterwards | `TS8099`: `"q" would name the object "a" names, and "q" is written after that. One object under two names is not supported yet (change 0142, stage 2): a copy here would not show the write through "a".` With nothing written afterwards the statement is a copy (§70, change 0142) |
+| A statement that puts an object that has a name into another holder (`q = a`, `xs[0] = a`, `[a, a]`, `new B(a)`, `xs.push(a)`) where `a` is no local of the function, or is used after the statement; a `const` that names the result of a call that may give an object that has a name, where the function writes an object after it; a statement that puts another object where a second name still names | `TS8099`, one sentence for each of rules 2, 4 and 5 of §70. Rule 2: `"a" is stored in a second place here, and it is used after that. One object under two names is not supported yet (change 0142, stage 3). Store it where it is last used, or build a new object for the second place.` Where the value is no local, `"xs[1]" already has a name, and this statement gives it a second place.`. Rule 4: `"c" would name an object that "pick(a, b)" gives back, which may already have a name, and the function writes an object after that. One object under two names is not supported yet (change 0142, stage 2).` Rule 5: `"q" names "ps[0]", and this statement puts another object there while "q" is still used. That is not supported yet (change 0142, stage 2).` Rule 6 of §70 lifts the first two where the program never writes an object of that type |
 | A parameter qualifier, `@inout` or `@out`, on any parameter | `TS8073`, naming the edit (§70): `"@inout" was removed (change 0142): an object parameter is the caller's object with no mark. Delete "@inout".` On a number, a `bool`, a vector or a matrix: `"@inout" was removed (change 0142): a number, a bool, a vector and a matrix are values. Return the value, and write [a, b] = f(a, b) for more than one.` The editor shows it alone, with no TS1206 beside it. `TS8073` also refuses an argument that may be a second name of an object, handed on from an expression to a written parameter (stage 2) |
 | A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
 | An optional value (`T \| undefined`, §76) read where a `T` is needed and nothing narrowed it: an operand, an argument, a `return` of a non-optional function, an index, a member read | `TS8003`, in TypeScript's TS18048, TS2532 and TS2538 place, which the editor shows alone: `"v" is "f32 \| undefined" here, and "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ?? 0.".` An optional as a condition, `v!`, `undefined` where nothing expects an optional, and `x === undefined` on a value that is always there are `TS8003` too, each naming the edit; `o?.m()`, `typeof v` and a call read twice in a loop condition are `TS8099` (Rule 7.10) |
@@ -2290,8 +2290,9 @@ const q: Inner = { ...o.i, b: 9. }; // Inner(o.i.a, 9.0)
 
 `{ ...p }` of a struct that has no object field is a copy: a new object that no other name holds
 (change 0142, §70). A struct with an object field shares that field with the original, as in
-JavaScript. That is a second name for an object, so it follows the rule of §70: a copy when
-nothing writes the shared object afterwards, and `TS8099` when something does (stage 3).
+JavaScript. That is a store of `p`, so it follows rule 2 of §70: it is accepted where `p` is a
+local that the function does not use after the statement, and it is `TS8099` otherwise (stage 3),
+unless the program never writes an object of that type (rule 6 of §70).
 
 Later wins, over a written field and over an earlier spread, which is TypeScript's own rule and
 already how a repeated field was taken. A spread may fill part of a bigger struct with the rest
@@ -3277,24 +3278,22 @@ reference the callee writes through to the same place; and for a workgroup varia
 `read_write` storage element, when the method runs a barrier. So no program computes another
 value. A function of the file takes a struct or an array argument the same way (§70).
 
-**A local that only reads a place reads it in place** (Rule 8.28, changes 0104 and 0105). `const
-q = items[i]` holds the whole element, made again on each iteration of a loop. An element is an
-object, so `q` is a second name of it (change 0142): a copy when nothing writes the element
-after the declaration, and `TS8099` when something does (§70). When `q` is
-never written (a `let` that is never written counts too) and nothing writes the part of `items`
-that `q` reads while `q` is read, each read of `q` reads the element instead. An index that can
-change, or that calls a function of the file, is evaluated once, where `q` was declared, and any
-other index is read in place. A call handed `q` is handed the element, by pointer on WGSL. On
-WebGL2 the element of an emulated storage binding is then read one field at a time, which
-compiles where the copy was refused. A write to another part of `items` leaves `q` in place:
-`items[1].a = 5.` does not reach `const q = items[0]`, and `items[i].vel = v` does not reach
-`const pos = items[j].pos`. `q` stays a copy when `items` is workgroup or `read_write` storage
-memory and a barrier runs. A write after the declaration that can reach what `q` reads is
-`TS8099` (change 0142).
+**A local that only reads a place reads it in place** (Rule 8.28, changes 0104, 0105 and 0142).
+`const q = items[i]` names the element. An element is an object, so `q` is a second name of that
+place (rule 1 of §70): the front end emits no declaration, and each read of `q` reads the
+element. An index that is no literal is evaluated once, where `q` is declared, into a name of the
+compiler's own, `_at`. A call handed `q` is handed the element, by pointer on WGSL. On WebGL2 the
+element of an emulated storage binding is then read one field at a time, which compiles where the
+copy was refused. A write to the element shows through `q`, and a write through `q` shows in the
+element, as in JavaScript: `items[1].a = 5.` does not reach `const q = items[0]`, and
+`items[0].a = 5.` does. `q` is the place across a barrier, and it reads the element where `q` is
+read. A statement that puts another object at the place while `q` is read is `TS8099` (rule 5 of
+§70).
 
 ```wgsl
 for (var i: i32 = 0; (i < 4); i = (i + 1)) {
-  acc += ((items[(u32(i) + base)].a * items[(u32(i) + base)].b) + items[(u32(i) + base)].c[(i & 3)]);
+  let _at = (u32(i) + base);
+  acc += ((items[_at].a * items[_at].b) + items[_at].c[(i & 3)]);
 }
 ```
 
@@ -4112,16 +4111,22 @@ object, so a method may change what it holds (Rule 6.10). Nothing else holds the
 built, so the local is that object, and the declaration is a `var` from the first write through
 it; a `const` nothing writes through stays WGSL's `let`. An object literal, an array literal and a
 type's constructor build a value of their own too, so `const v = vec3(0.); v.x = 1.` is a write to
-`v`. A `const` that names the object another name holds is a second name of it (change 0142):
-`let a = new V(); const b = a; b.bump()` writes `a`, as in JavaScript. A `const` that takes the
-result of a function call is the one case left: the result may be an object something else holds,
-and the compiler cannot say which. Its write is refused, and the message names both remedies:
+`v`. A `const` that names a place is a second name of it (change 0142):
+`let a = new V(); const b = a; b.bump()` writes `a`, as in JavaScript, and
+`const b = h.v; b.bump()` writes the field `h.v`. A `const` that takes the result of a function
+call is the one case left: the result may be an object that has a name, and the compiler cannot
+say which. Where the function writes an object after the declaration, the declaration is
+`TS8099` (rule 4 of §70), and the message names the remedy:
 
 ```
-TS8035 "V.bump" changes its object, and "b" is a const whose value may be one something else
-       holds, which TypeScript would change with it and a copy here would not. Declare it with
-       let to change a copy, or call it on the value itself.
+TS8099 "c" would name an object that "pickV(a, b)" gives back, which may already have a name,
+       and the function writes an object after that. One object under two names is not
+       supported yet (change 0142, stage 2). Read what you need from the call first, or write
+       through the name that holds the object.
 ```
+
+A write through that `const`, `c.bump()`, adds no second message. Where the program never writes
+an object of that type, the declaration is accepted as a copy (rule 6 of §70).
 
 Until this, every write through a `const` was refused, with `let` as the fix: `"Ship.drift"
 changes its object, and "ship" is declared with const; declare it with let.`
@@ -4129,8 +4134,8 @@ changes its object, and "ship" is declared with const; declare it with let.`
 A struct is an object here (change 0142), so `const w = v` and `let w = v` name the object `v`
 holds, as in TypeScript. A write through one name is seen through the other:
 `const v = new V(); const w = v; v.bump(); w.x` is 1 here and in TypeScript. A statement that
-stores the object under a second name and is followed by a write is `TS8099` where the compiler
-cannot keep the identity yet (§70).
+stores the object under a second name and is followed by a use of it is `TS8099` where the
+compiler cannot keep the identity yet (§70).
 
 ### A field that holds a function
 
@@ -7979,8 +7984,8 @@ An index on the way to the array, `cells[k].xs.some(…)`, is read once before t
 TypeScript reads the receiver once.
 
 **Where it differs from TypeScript** (Rule 7.2): `index` is an `i32` where TypeScript passes a
-`number`, and `map`'s value is an array value that a `const` holds a copy of, as every array
-here is, where TypeScript builds a new array object.
+`number`, and `map`'s value is an array value that a `const` holds. An array of values is new, as in
+TypeScript, and an array of objects follows rules 3 and 4 of §70.
 
 **Refused, each naming what to write:**
 
@@ -10957,27 +10962,224 @@ sentence names the loop over the indexes to write in its place. A loop name over
 may be absent (`array<P | undefined, N>`) is a copy of the element, and a body that writes the
 array or the element is `TS8099`.
 
-**A second name.** An object that a second name holds is one object, as in JavaScript:
-
-- `const q = p` and `let q = p`, with `q` not assigned again, name the object of `p`;
-- `for (const q of ps)` names each element of `ps`;
-- `let b = f(a)`, where every `return` of `f` names one parameter, names the object of `a`.
-
-A statement that stores an object another name holds is a copy when nothing writes the object
-afterwards. The statements are `q = a`, `xs[0] = a`, `[a, a]`, `new B(a)` and
-`const q = xs[0]`. When something does write it afterwards, the statement is `TS8099`, and the
-sentence names the stage that will allow it: `"q" would name the object "a" names, and "q" is
-written after that. One object under two names is not supported yet (change 0142, stage 2): a
-copy here would not show the write through "a".` A name assigned again after it named an
-object is `TS8099` too, stage 2.
+**A second name.** An object that has two names is one object, as in JavaScript. The compiler
+never compiles a program to a copy that JavaScript would not make. Six rules keep that
+(change 0142, Amendments A3 and A4; Rule 8.8). Rules 1 to 5 read one function. Rule 6 reads the
+whole program. A refusal is `TS8099`, not supported yet, unless a rule names another code. The
+snippets below use these types:
 
 ```ts
-function f(a: P): f32 {
-  const q = a;
-  q.x = 1.; // a.x is 1., as in JavaScript
+class P { x: f32 = 0.; y: f32 = 0.; }
+class B { c: P = new P(); }
+function id(p: P): P { return p; }
+function pick(p: P, q: P): P { return q.x > p.x ? q : p; }
+function mk(v: f32): P { const p = new P(); p.x = v; return p; }
+```
+
+1. **A second name is the same place.** `const q = p`, `let q = p`, `const q = ps[i]`,
+   `const q = h.c`, `for (const q of ps)` and `let b = f(a)`, where every `return` of `f` names
+   one parameter, make `q` a name of that place. The compiler makes no copy. It reads an index
+   in the place once, where the name is declared, so `q` stays the place when the index
+   changes. A second name that is assigned whole later, or that a function inside the body
+   uses, is `TS8099`.
+
+```ts
+// rule 1: accepted. `q` is `ps[1]`, and `i` is read once, where `q` is declared.
+export function f(): f32 {
+  const ps: array<P, 2> = [new P(), new P()];
+  let i = 1;
+  const q = ps[i];
+  i = 0;
+  q.x = 9.;
+  return ps[1].x; // 9., as in JavaScript
+}
+```
+
+2. **A store is a move.** A statement that puts an object that has a name into another holder
+   is accepted only where the object is a local of the function that the function does not use
+   after the statement. The holder is then the only name of the object. The statements are
+   `xs[i] = p`, `h.c = p`, `[p, …]`, `{ c: p }`, `new B(p)`, `xs.push(p)`, and `q = p` for a `q`
+   that exists. Every other such statement is `TS8099`, and so is `xs.fill(v)` of a new object,
+   which makes every element one object. The sentence for a local that is used after the store
+   says `"a" is stored in a second place here, and it is used after that`. For a value that is no
+   local it says `"xs[1]" already has a name, and this statement gives it a second place`.
+
+```ts
+// rule 2: accepted. `a` is a local that the function does not use after the store.
+export function f(): f32 {
+  const a = new P();
+  a.x = 3.;
+  const xs: array<P, 2> = [new P(), new P()];
+  xs[1] = a;
+  return xs[1].x;
+}
+```
+
+```ts
+// TS8099: rule 2. The function uses `a` after the store: read `a` first, or store it last.
+export function f(): f32 {
+  const a = new P();
+  const xs: array<P, 2> = [new P(), new P()];
+  xs[0] = a;
+  return a.x + xs[0].x;
+}
+```
+
+```ts
+// TS8099: rule 2. `xs[1]` already has a name.
+export function f(): f32 {
+  const xs: array<P, 2> = [new P(), new P()];
+  xs[0] = xs[1];
+  return xs[0].x;
+}
+```
+
+3. **A new object is one the source shows to be new.** The forms are `new`, an object literal,
+   an array literal, `structuredClone(v)` of a struct that is no class, `xs.slice()` and
+   `xs.map(f)` of values, and a call of a function of the file whose every `return` gives an
+   object that the function built and stored nowhere else. A store of a new object is no
+   refusal. A call of a function that may give back an object that has a name is no new object.
+
+```ts
+// accepted: rule 3. `mk(3.)` builds its result and stores it nowhere else.
+export function f(): f32 {
+  const xs: array<P, 2> = [new P(), new P()];
+  xs[0] = mk(3.);
+  return xs[0].x;
+}
+```
+
+```ts
+// TS8099: rule 3. `id(a)` gives back its argument, so it is no new object.
+export function f(): f32 {
+  const a = new P();
+  const b = new B();
+  b.c = id(a);
+  return b.c.x;
+}
+```
+
+4. **The result of any other call may be an object that has a name.** A `const` may take it
+   where the function, after that declaration, writes no object and only reads the `const`. A
+   `let`, and a `const` where the function writes an object after the declaration, is `TS8099`:
+   `"c" would name an object that "pick(a, b)" gives back, which may already have a name, and the
+   function writes an object after that`. A call that is read directly, `pick(a, b).x`, is no
+   declaration and no refusal.
+
+```ts
+// accepted: rule 4. The function writes no object after the declaration.
+export function f(): f32 {
+  const a = new P();
+  const b = new P();
+  b.x = 2.;
+  const c = pick(a, b);
+  return c.x;
+}
+```
+
+```ts
+// TS8099: rule 4. The function writes an object after the declaration.
+export function f(): f32 {
+  const a = new P();
+  const b = new P();
+  const c = pick(a, b);
+  c.x = 1.;
   return a.x;
 }
 ```
+
+5. **A place that a second name names stays that place while the name is read.** A statement
+   that assigns the place, or a holder of it, is `TS8099` where the function reads the name after
+   it, or in a loop that holds the statement. The sentence says `"q" names "ps[0]", and this
+   statement puts another object there while "q" is still used`. The right side of such a
+   statement is read before the place is assigned, so `ps[i] = { x: p.x + 1., y: p.y }` is no
+   refusal for `const p = ps[i]`.
+
+```ts
+// TS8099: rule 5. `q` is read after the statement that puts another object at `ps[0]`.
+export function f(): f32 {
+  const ps: array<P, 2> = [new P(), new P()];
+  const q = ps[0];
+  ps[0] = new P();
+  return q.x;
+}
+```
+
+6. **An object of a type that the program never writes is a copy.** No write shows through a
+   second name of such an object, and `===` between objects is `TS8003`, so a copy and the
+   object cannot be told apart. A store of such an object (rule 2), a name for such an object
+   that a call or a conditional gives (rule 4) and a `let` second name that is assigned whole
+   later (rule 1) are accepted, and the compiler makes a copy. A struct or an array type is
+   written where a store, an atomic or a texture store reaches a field or an element through a
+   value of that type: `r.a.b[i].c = v` writes the types of `r`, `r.a`, `r.a.b` and `r.a.b[i]`.
+   A type is never written where it and every struct and array type inside it are not. A
+   constructor's own stores to `this` build the object and do not count. The compiler reads the
+   whole program by type and not by name, and it reports a refusal that rule 6 can lift only
+   where the type is written. One write of a type loses rule 6 for every object of that type.
+   Rule 6 lifts no other refusal: rule 5, a parameter or a loop name assigned whole after a
+   write, `TS8074`, `xs.slice()` of objects and `structuredClone` of a class instance stay.
+
+```ts
+// accepted: rule 6. Nothing in the program writes a `Ship` or a `Details`.
+class Ship { x: f32 = 0.; }
+class Details { ship: Ship; constructor(ship: Ship) { this.ship = ship; } }
+class Scene {
+  ship: Ship = new Ship();
+  details: Details;
+  constructor() { this.details = new Details(this.ship); }
+}
+export function f(): f32 {
+  const s = new Scene();
+  return s.details.ship.x + s.ship.x;
+}
+```
+
+```ts
+// TS8099: rule 6 does not apply. `drift` writes a `Ship`, so the store is refused again.
+class Ship { x: f32 = 0.; }
+class Details { ship: Ship; constructor(ship: Ship) { this.ship = ship; } }
+class Scene {
+  ship: Ship = new Ship();
+  details: Details;
+  constructor() { this.details = new Details(this.ship); }
+}
+function drift(s: Ship): void { s.x += 1.; }
+export function f(): f32 {
+  const s = new Scene();
+  return s.details.ship.x + s.ship.x;
+}
+```
+
+**Three programs that changed with Amendment A3.** The first program is accepted before and
+after: it reads an element, then puts a new object in its place. The second was accepted before
+and is refused now, by rule 2, because the object is read after it is stored. The third was
+refused before and is accepted now, by rule 1, because a name of an element writes the element.
+
+```ts
+// accepted: example 1. `p` is read before the new object is put in its place.
+export function f(): f32 {
+  const ps: array<P, 2> = [new P(), new P()];
+  ps[0].x = 2.;
+  ps[0].y = 3.;
+  const i = 0;
+  const p = ps[i];
+  ps[i] = { x: p.x + p.y * 2., y: p.y };
+  return ps[0].x * 10. + ps[0].y; // 83.
+}
+```
+
+```ts
+// accepted: example 3. A name of an element writes the element.
+export function f(): f32 {
+  const ps: array<P, 2> = [new P(), new P()];
+  const i = 1;
+  const p = ps[i];
+  p.x = 9.;
+  return ps[i].x; // 9., as in JavaScript
+}
+```
+
+Example 2 is the second snippet of rule 2 above.
 
 **A copy.** The language adds no copy construct. A copy is a name JavaScript has:
 
@@ -10993,7 +11195,7 @@ Two forms are `TS8099`, not supported yet (change 0142, stage 3): `structuredClo
 instance of a class, and `xs.slice()` of an array of objects. Each sentence says what to write
 instead: build an instance with `new`, or build the new array in a loop.
 
-**What the argument may be.** Any object: a `let`, a `const` that built its value, a module
+**What the argument may be.** Any object: a `let`, a `const` that built its value or names a place, a module
 variable, an element of a `read_write` storage binding, a field or an element of one of those, a
 parameter handed on as itself, `this` where a method may write it, or a value nothing holds,
 `advance(new Ray(), 1.)`, which only the callee sees. Refused as `TS8073`, with the edit:
@@ -11001,9 +11203,12 @@ parameter handed on as itself, `this` where a method may write it, or a value no
 - a read-only resource, a `uniform<T>` or a `storage<T>` with no `"read_write"`:
   `"bump" writes its parameter "p", the caller's object (p: Cell), and "src" is a read-only
   resource. Write "declare const src: storage<array<Cell>, "read_write">" to write to it.`
-- an expression that may be a second name of an object, handed to a parameter that the callee
-  writes, `nudge(id(a))` where `id` returns its parameter: `Passing it on from an expression is
-  not supported yet (change 0142, stage 2): name it first, const r = id(a), and pass r.`
+- an expression that may be an object that has a name, handed to a parameter that the callee
+  writes, `nudge(pick(a, a))`: `"nudge" writes its parameter "p", and "pick(a, a)" may be an
+  object that already has a name. Passing it on from an expression is not supported yet
+  (change 0142, stage 2): name it first, const r = pick(a, a), and pass r.` A `const` of a call
+  of a function whose every `return` names one parameter is the same place (rule 1), so
+  `const r = id(a)` and `nudge(r)` is accepted.
 
 **What each target writes.** The IR marks the parameter as one the callee writes through,
 which is what a method that changes its object already is, and each target spells it its own

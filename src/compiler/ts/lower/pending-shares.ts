@@ -1,5 +1,7 @@
 // ═══ Refusals that wait for every body (change 0142, rule 6) ═══
 //
+// Implements: Rule 8.8 (docs/language-design.md; traced in reqs/).
+//
 // A store of an object that has a name (rule 2) and a name for an object that may have one (rule
 // 4) are refused only where the object's type is written somewhere in the module. That is known
 // when every body is lowered, so each such refusal waits here with the lowered type of its value,

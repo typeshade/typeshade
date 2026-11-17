@@ -218,6 +218,14 @@ export function methodWritesThis(name: string, sourceFile: ts.SourceFile): boole
         const scan = (b: ts.Node): void => {
           if (writes || (b !== m.body && ts.isFunctionLike(b) && !ts.isArrowFunction(b))) return;
           if (writeTargets(b).some((target) => ownPart(target))) writes = true;
+          // A getter or a setter that may write its object, used on `this` or a part of it.
+          if (
+            ts.isPropertyAccessExpression(b) &&
+            !(ts.isCallExpression(b.parent) && b.parent.expression === b) &&
+            ownPart(b.expression) &&
+            accessorMayWrite(b.name.text, sourceFile)
+          )
+            writes = true;
           if (ts.isCallExpression(b) && ts.isPropertyAccessExpression(b.expression)) {
             const method = b.expression.name.text;
             if (
@@ -476,3 +484,39 @@ export function isWrittenObjectParameter(
   WRITTEN.set(p, written);
   return written;
 }
+
+/** Whether a getter or a setter named `name` in a class of the file may write: its body
+ *  assigns, or calls a method or a function of the file. Read by name, so an accessor of that
+ *  name on any class counts. A write it hides is a write of its own object, as a method's is. */
+export function accessorMayWrite(name: string, sourceFile: ts.SourceFile): boolean {
+  let byName = ACCESSORS.get(sourceFile);
+  if (byName === undefined) ACCESSORS.set(sourceFile, (byName = new Map()));
+  const known = byName.get(name);
+  if (known !== undefined) return known;
+  byName.set(name, false);
+  let writes = false;
+  const scan = (n: ts.Node): void => {
+    if (writes) return;
+    if (writeTargets(n).length > 0) writes = true;
+    if (
+      ts.isCallExpression(n) &&
+      (ts.isPropertyAccessExpression(n.expression) || fileFunction(n, sourceFile) !== undefined)
+    )
+      writes = true;
+    ts.forEachChild(n, scan);
+  };
+  const visit = (n: ts.Node): void => {
+    if (
+      (ts.isGetAccessorDeclaration(n) || ts.isSetAccessorDeclaration(n)) &&
+      n.body !== undefined &&
+      (ts.isIdentifier(n.name) || ts.isPrivateIdentifier(n.name)) &&
+      n.name.text === name
+    )
+      scan(n.body);
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+  byName.set(name, writes);
+  return writes;
+}
+const ACCESSORS = new WeakMap<ts.SourceFile, Map<string, boolean>>();

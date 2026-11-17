@@ -22,6 +22,7 @@ import {
   ARRAY_MUTATORS,
   bare,
   fileFunction,
+  accessorMayWrite,
   methodWritesThis,
   namesOfOneObject,
   objectWrites,
@@ -113,6 +114,8 @@ export function objectWrittenAround(decl: ts.Node, sourceFile: ts.SourceFile): b
     const within1 = inner || (n !== owner && ts.isFunctionLike(n));
     if (within1 || n.getStart(sourceFile) >= decl.end || loops.some((l) => within(n, l))) {
       if (writeTargets(n).some(intoObject)) found = true;
+      // A getter or a setter that may write its object.
+      if (accessorReceiver(n, sourceFile) !== undefined) found = true;
       if (ts.isCallExpression(n)) {
         if (ts.isPropertyAccessExpression(n.expression)) {
           const method = n.expression.name.text;
@@ -129,6 +132,36 @@ export function objectWrittenAround(decl: ts.Node, sourceFile: ts.SourceFile): b
   };
   visit(owner, false);
   return found;
+}
+
+// ─── What runs where it is not written: accessors and functions declared inside ───
+
+/** The object a use of an accessor that may write runs on: `h` for `h.r` and `h.r = v`. */
+export function accessorReceiver(n: ts.Node, sourceFile: ts.SourceFile): ts.Expression | undefined {
+  if (!ts.isPropertyAccessExpression(n)) return undefined;
+  // A method's name is a call's, which the call scans read.
+  if (ts.isCallExpression(n.parent) && n.parent.expression === n) return undefined;
+  return accessorMayWrite(n.name.text, sourceFile) ? n.expression : undefined;
+}
+
+/** Each node of the body of a function declared inside the function, for a call of it: what
+ *  the call runs. A function it calls in turn is read too, once. */
+export function eachRunBy(
+  call: ts.Node,
+  reader: Reader,
+  visit: (n: ts.Node) => void,
+  seen: Set<ts.Node> = new Set(),
+): void {
+  if (!ts.isCallExpression(call)) return;
+  const local = reader.localFunction(call);
+  if (local === undefined || local.body === undefined || seen.has(local)) return;
+  seen.add(local);
+  const walk = (n: ts.Node): void => {
+    visit(n);
+    eachRunBy(n, reader, visit, seen);
+    ts.forEachChild(n, walk);
+  };
+  walk(local.body);
 }
 
 // ─── Rules 2 and 5: stores and places that must stay ───
@@ -443,7 +476,8 @@ export function sharedObjects(
           `"${n.name.getText(sourceFile)}" before this statement.`,
       });
     };
-    eachOwn(body, (t) => {
+    /** Whether `t` puts another object at the place; `at` is the statement to refuse. */
+    const check = (t: ts.Node, at: ts.Node): void => {
       if (ts.isBinaryExpression(t) && ASSIGNS.has(t.operatorToken.kind)) {
         const left = bare(t.left);
         const targets = ts.isArrayLiteralExpression(left) ? left.elements : [left];
@@ -453,7 +487,7 @@ export function sharedObjects(
           return ts.isIdentifier(id) && id.text === n.name.getText(sourceFile) && uses.includes(id);
         };
         if (targets.some((x) => !ts.isOmittedExpression(x) && !own(x) && holds(x, place, true)))
-          put(t);
+          put(at);
       } else if (ts.isCallExpression(t)) {
         if (ts.isPropertyAccessExpression(t.expression)) {
           const m = t.expression.name.text;
@@ -461,14 +495,22 @@ export function sharedObjects(
             (m === 'fill' || methodWritesThis(m, sourceFile)) &&
             holds(t.expression.expression, place, false)
           )
-            put(t);
+            put(at);
         }
         const callee = fileFunction(t, sourceFile);
         t.arguments.forEach((a, i) => {
           const q = callee?.parameters[i];
-          if (q !== undefined && takesThePlace(q, sourceFile) && holds(a, place, false)) put(t);
+          if (q !== undefined && takesThePlace(q, sourceFile) && holds(a, place, false)) put(at);
         });
       }
+      // A getter or a setter that may write its object, used on a holder of the place.
+      const receiver = accessorReceiver(t, sourceFile);
+      if (receiver !== undefined && holds(receiver, place, false)) put(at);
+    };
+    eachOwn(body, (t) => {
+      check(t, t);
+      // A call of a function declared inside this one runs its body here.
+      eachRunBy(t, reader, (u) => check(u, t));
     });
   });
   return out;
@@ -525,8 +567,13 @@ export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): Reassigned
     const objects = reader.isObject(d.name);
     const path = stepsOf(n.expression);
     let replaced: ts.Node | undefined;
-    const scan = (m: ts.Node): void => {
+    const scan = (m: ts.Node, at: ts.Node = m): void => {
       if (replaced !== undefined) return;
+      // A getter or a setter that may write its object, used on the array's holder.
+      const receiver = accessorReceiver(m, sourceFile);
+      if (receiver !== undefined && rootNameOf(receiver) === array) replaced = at;
+      // A call of a function declared inside this one runs its body here.
+      if (at === m) eachRunBy(m, reader, (u) => scan(u, m));
       if (ts.isBinaryExpression(m) && m.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
         for (const target of writeTargets(m)) {
           if (rootNameOf(target) !== array) continue;
@@ -540,7 +587,7 @@ export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): Reassigned
             );
           // An element of the array, whole.
           const element = objects && steps.length === path.length + 1;
-          if (holder || element) replaced = m;
+          if (holder || element) replaced = at;
         }
       }
       if (ts.isCallExpression(m)) {
@@ -548,7 +595,7 @@ export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): Reassigned
         m.arguments.forEach((a, i) => {
           const q = callee?.parameters[i];
           if (q !== undefined && takesThePlace(q, sourceFile) && rootNameOf(a) === array)
-            replaced = m;
+            replaced = at;
         });
         // A method that writes its object, called on the array's holder.
         if (
@@ -557,9 +604,9 @@ export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): Reassigned
           methodWritesThis(m.expression.name.text, sourceFile) &&
           (objects || path.length > 0)
         )
-          replaced = m;
+          replaced = at;
       }
-      ts.forEachChild(m, scan);
+      if (at === m) ts.forEachChild(m, (c) => scan(c));
     };
     scan(n.statement);
     if (replaced !== undefined)

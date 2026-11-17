@@ -1,5 +1,7 @@
 // ═══ A second name is the same place (Rule 8.8, change 0142, Amendment A3, rule 1) ═══
 //
+// Implements: Rule 6.10, Rule 8.8, Rule 8.28 (docs/language-design.md; traced in reqs/).
+//
 // `const q = ps[i]`, `let q = h.c`, `const q = p` and `let b = f(a)` (where every `return` of `f`
 // names one parameter) make `q` a name of an object that already has a name. In JavaScript the
 // two names are one object. The lowering therefore emits no declaration for `q`: each use of `q`

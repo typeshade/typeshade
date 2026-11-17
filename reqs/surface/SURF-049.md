@@ -3,9 +3,9 @@ active: true
 derived: false
 level: 49
 links:
-- RULE-0702: 0gUOhExu8W5adX_v_FeKLauNzpe7YAOKmbf9-SeVkis=
+- RULE-0702: 6Uyi-hi9WG1tu7ax9gh2n6Q-f8q302HzylDMEN84kKI=
 - RULE-0710: GXxkvnbJKUohEN272SJJAQZnGr_9xYbxSLZHW3LCi5s=
-- RULE-1207: ezADWkeKTegibyzvJogrL52eY4pSipsOS9VmePD5xoA=
+- RULE-1207: tHE2_o7jcKe6znaJ0pVmYrpGtfJFNlHCKBh1CpurGi0=
 normative: true
 ref: ''
 reviewed: uiMU_LV15wmSV33OF1RFU2TcWnil6IrKD8vHpyrn0Mw=

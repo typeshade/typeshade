@@ -4,7 +4,7 @@ derived: false
 level: 78
 links:
 - RULE-1122: nwx5rIJLmy6dnWlPUr6iBujW_5A-6wD-6W47z5vwgrI=
-- RULE-1207: ezADWkeKTegibyzvJogrL52eY4pSipsOS9VmePD5xoA=
+- RULE-1207: tHE2_o7jcKe6znaJ0pVmYrpGtfJFNlHCKBh1CpurGi0=
 normative: true
 ref: ''
 reviewed: cSCDFfUVt0I0EInWMfOXICisMx0rDb-8p-2qEGNgeec=

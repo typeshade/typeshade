@@ -1,5 +1,4 @@
-// Rules 6.10, 8.8 and 12.7 (docs/language-design.md). The `Verifies:` tag of this file waits for
-// the reqs/ sync that follows the rule text of Amendment A3.
+// Verifies: Rule 6.10, Rule 8.8, Rule 12.7 (docs/language-design.md; traced in reqs/).
 //
 // Change 0142, Amendment A3: a second name is the same place, and a store is a move. Each of the
 // five rules is read here by both halves (`compile()` and the language service) on one source,
@@ -452,6 +451,75 @@ export function f(): f32 {
   return (m?.[1] ?? 0.) + other[0];
 }`,
       CALLED('m', 'c ? null : items'),
+    );
+  });
+});
+
+// The programs of a seventh review, at 2fc7beee: each gave a result JavaScript does not give.
+describe('what runs where it is not written: accessors, functions declared inside, constructors', () => {
+  it('reads a local whose name starts like the built object as another variable', () => {
+    refuses(
+      `class D { a: P = new P(); b: P = new P(); constructor() { const self_a = new P(); this.a = self_a; this.b = self_a; self_a.x = 2.; } }
+export function f(): f32 { const d = new D(); return d.a.x + d.b.x * 10.; }`,
+      'TS8099 "self_a"',
+      'TS8099 "self_a"',
+    );
+  });
+
+  it('counts a getter that writes its object as a write after a name of a call result', () => {
+    refuses(
+      `class G { x: f32 = 0.; get nx(): f32 { this.x += 1.; return this.x; } }
+function choose(a: G, b: G): G { return a.x > 5. ? a : b; }
+export function f(): f32 { const a = new G(); const b = new G(); const q = choose(a, b); const t = b.nx; return q.x * 10. + t; }`,
+      'TS8099 "q" would name an object',
+    );
+  });
+
+  it('counts a method that reads a getter that writes as a method that writes its object', () => {
+    refuses(
+      `class G { x: f32 = 0.; get nx(): f32 { this.x += 1.; return this.x; } peek(): f32 { return this.nx; } }
+function choose(a: G, b: G): G { return a.x > 5. ? a : b; }
+export function f(): f32 { const a = new G(); const b = new G(); const q = choose(a, b); const t = b.peek(); return q.x * 10. + t; }`,
+      'TS8099 "q" would name an object',
+    );
+  });
+
+  it('refuses a call of a function declared earlier that puts another object at the place', () => {
+    refuses(
+      `export function f(): f32 { const h = new B(); h.c.x = 1.; const g = (): void => { h.c = new P(); }; const q = h.c; g(); q.x += 5.; return h.c.x * 10. + q.x; }`,
+      'TS8099 "q" names "h.c", and this statement puts another object there while "q" is still used.',
+    );
+  });
+
+  it('refuses a setter that puts another object at the place', () => {
+    refuses(
+      `class S { c: P = new P(); set r(v: f32) { this.c = new P(); } }
+export function f(): f32 { const h = new S(); h.c.x = 1.; const q = h.c; h.r = 0.; q.x += 5.; return h.c.x * 10. + q.x; }`,
+      'TS8099 "q" names "h.c", and this statement puts another object there while "q" is still used.',
+    );
+  });
+
+  it('refuses a loop whose body replaces its array through a function declared earlier', () => {
+    refuses(
+      `class L { ps: array<P, 2> = [new P(), new P()]; }
+export function f(): f32 { const h = new L(); h.ps[1].x = 2.; const g = (): void => { h.ps[1] = new P(); }; let s = 0.; for (const e of h.ps) { g(); e.x += 10.; s += e.x; } return s + h.ps[1].x * 100.; }`,
+      'TS8099 This statement may put another object in "h.ps"',
+    );
+  });
+
+  it('refuses a loop whose body replaces its array through a setter', () => {
+    refuses(
+      `class L { ps: array<P, 2> = [new P(), new P()]; set z(v: f32) { this.ps = [new P(), new P()]; } }
+export function f(): f32 { const h = new L(); h.ps[1].x = 2.; let s = 0.; for (const e of h.ps) { h.z = 1.; e.x += 10.; s += e.x; } return s + h.ps[1].x * 100.; }`,
+      'TS8099 This statement may put another object in "h.ps"',
+    );
+  });
+
+  it('runs a function declared earlier that only writes fields of the element', () => {
+    runs(
+      `class L { ps: array<P, 2> = [new P(), new P()]; }
+export function f(): f32 { const h = new L(); const g = (): void => { h.ps[0].x += 1.; }; let s = 0.; for (const e of h.ps) { g(); s += e.x; } return s; }`,
+      1,
     );
   });
 });

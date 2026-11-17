@@ -1,5 +1,7 @@
 // ═══ The types a module writes (change 0142, rule 6) ═══
 //
+// Implements: Rule 8.8 (docs/language-design.md; traced in reqs/).
+//
 // An object of a type that the program never writes after the object is built cannot be told
 // from a copy of it: `===` on objects is refused, and nothing can show the two names apart. So a
 // store or a name that rules 2 and 4 would refuse is a copy there. This file answers which types
@@ -61,7 +63,15 @@ export function writtenTypes(
     }
     holders.forEach((h, i) => {
       // The constructor's own object is being built, not written.
-      if (building && i === 0 && root.op === 'varref' && root.name.startsWith('self_')) return;
+      // Its IR name is exactly `self_`, which no author's local takes: a local of that name is
+      // renamed, and one that only starts with it (`self_a`) is another variable.
+      if (
+        building &&
+        i === 0 &&
+        (root.op === 'varref' || root.op === 'param') &&
+        root.name === 'self_'
+      )
+        return;
       mark(h.type);
     });
   };
