@@ -35,8 +35,8 @@ function spanOfNode(node: ts.Node): { start: number; length: number } {
  * definition, must refuse the position before calling into `ts`. A decorator that is a call,
  * `@compute([WG])` or `@workgroup_size([n])`, resolves: definition, references, rename and quick
  * info at its name and inside its argument are TypeScript's (change 0130, The editor, item 4).
- * A decorator on a parameter of a function that is no class member, a qualifier `@inout` or
- * `@out` (Rule 8.25, change 0137), throws in definition and in rename alike
+ * A decorator on a parameter of a function that is no class member, a removed qualifier
+ * `@inout` or `@out` (change 0142), throws in definition and in rename alike
  * (`getEffectiveDecoratorArguments`), so it is refused too.
  */
 function isDecoratorOnFunctionDeclarationAt(sourceFile: ts.SourceFile, offset: number): boolean {
@@ -46,7 +46,7 @@ function isDecoratorOnFunctionDeclarationAt(sourceFile: ts.SourceFile, offset: n
       if (ts.isDecorator(node)) {
         const decorated = node.parent;
         if (ts.isFunctionDeclaration(decorated)) return !ts.isCallExpression(node.expression);
-        // A parameter qualifier, `@inout a: f32`, on a parameter of a function that is no class
+        // A removed parameter qualifier, `@inout a: f32`, on a parameter of a function that is no class
         // member (Rule 8.25, change 0137): TypeScript throws on it as on a decorator of the
         // function itself, where a method's or a constructor's parameter decorator resolves.
         return (

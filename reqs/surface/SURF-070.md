@@ -3,20 +3,17 @@ active: true
 derived: false
 level: 70
 links:
-- RULE-0610: suiaQZS1y-SaWxDmJXHL21Qzp_yYkddUlpCNV8AsLVc=
-- RULE-0702: n80y261InLeIFFQe38cBrTreiZKqZvRwFA1R21AMbwA=
-- RULE-0706: eN5EjwmlzUaFuDP4-ME_MX3lDdsjX3FDl93NKZgQnWU=
-- RULE-0709: I2kb4szrYiKtmhAPhRUfI3BqKOo-DmLFxyCamUwLrCA=
-- RULE-0810: Ykj9-mn7nKHgjj7lumMInvpMX5beYmLXczu7AxLc3Yo=
-- RULE-0823: Ob7exBJenHecLyaxO9nYzz3moDzAxIYaab3FLp0LHaY=
-- RULE-0825: R66uVodgMHP9Y1tLnJgAEAPO7X1-jnWQS_g-txdtzi4=
-- RULE-0828: V8ipeRbiwYGOQTgzqHmfFLsSBod7WJW41jqlpKUUxJE=
+- RULE-0702: 6Uyi-hi9WG1tu7ax9gh2n6Q-f8q302HzylDMEN84kKI=
+- RULE-0706: QwxPeHG5qtWmKYXe_xw6n22Y4c3K-gndLK4E9xd25lE=
+- RULE-0709: 8M-r67z6H9eBIqQMd8HeEByTgvJ2lC6xmupTyXCuGwg=
+- RULE-0808: blo_5VKDAcz6mieEVARfHU2XlBIY2l7sRbnJ7C7Cvis=
+- RULE-0810: XI_jp5nAwGrgwLJNhHZHT2ilL4n6CUtl3L1FlctT4Hc=
 normative: true
 ref: ''
-reviewed: dk2z1q2YWT13Apob5K5VkJ2zYio3_BrQpiebxOQszZA=
+reviewed: BFQR9AWCAQeBlYPreSmV3LuMqbW9MGqbdUAb6A7rX4w=
 source: docs/use-typeshade-surface.md §70
 ---
 
-# Parameter qualifiers: `@inout` and `@out`
+# Objects, passed as JavaScript passes them
 
-docs/use-typeshade-surface.md §70, "Parameter qualifiers: `@inout` and `@out`": the surface section that explains Rule 6.10, Rule 7.2, Rule 7.6, Rule 7.9, Rule 8.10, Rule 8.23, Rule 8.25, Rule 8.28.
+docs/use-typeshade-surface.md §70, "Objects, passed as JavaScript passes them": the surface section that explains Rule 7.2, Rule 7.6, Rule 7.9, Rule 8.8, Rule 8.10.

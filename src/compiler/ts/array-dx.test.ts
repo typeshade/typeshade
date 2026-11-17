@@ -51,9 +51,9 @@ describe('array DX', () => {
     `);
     const sentence =
       `typeshade TS8099: ".filter" is not one of an array's methods here, which are map, forEach, ` +
-      `some, every, reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf and includes. An ` +
-      `array's length is fixed, so a copy or a change of length is a loop: ` +
-      `"for (const x of xs) { … }".`;
+      `some, every, reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf, includes and ` +
+      `slice() with no argument, which copies it. An array's length is fixed, so a change of ` +
+      `length is a loop: "for (const x of xs) { … }".`;
     expect(halves.compiler).toEqual([sentence]);
     // The editor shows TypeScript's 2339 and 7006 beside the sentence.
     expect(halves.editor).toContain(sentence);

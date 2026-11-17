@@ -251,7 +251,7 @@ describe('a struct that holds itself (#1204)', () => {
 
   it('a read of the refused field says nothing more', () => {
     const { compiler, editor } = bothHalves(
-      program('interface R { a: f32; r: R; }', 'let r: R = { a: 1. }; let q = r.r; q.a = 2.;'),
+      program('interface R { a: f32; r: R; }', 'let r: R = { a: 1. }; let q = r.r.a; q = 2.;'),
     );
     expect(compiler[0]).toBe(ONE(R_CYCLE)[0]);
     expect(compiler.filter((d) => d.includes('"r"') || d.includes('.r'))).toEqual(ONE(R_CYCLE));

@@ -1,7 +1,7 @@
 // The attribute types of change 0111 (decision D2, D8, amendment 1): an entry input's or
 // output's attribute written in its type, `builtin<'position'>`, `location<0, vec2>`. A
-// parameter's qualifier is written before the parameter, `@inout v: f32` (Rule 8.25, change
-// 0137), in both programs, and each entry carries its stage attribute (change 0130). Each
+// function gives a number back as its result (change 0142), in both programs, and each entry
+// carries its stage attribute (change 0130). Each
 // program is read by both halves, and the emit of each pair is the decorated form's byte for
 // byte. A plain `tsc` is no criterion of the surface (Rule 1.8), so no test here asks one
 // (change 0140, amendment A1): `src/language-service/new-entry-forms.test.ts` holds the
@@ -33,14 +33,14 @@ export function vs(@builtin("vertex_index") i: u32): VsOut {
   if (i === 1) { x = 0.8; }
   return { pos: vec4(x, -0.8, 0., 1.), uv: vec2(x, 0.), id: i };
 }
-function bump(@inout v: f32): void { v += 1.; }
-function put(@out v: f32): void { v = 2.; }
+function bump(v: f32): f32 { return v + 1.; }
+function put(): f32 { return 2.; }
 @fragment
 export function fs(v: VsOut): vec4 {
   let a = v.uv.x;
-  bump(a);
+  a = bump(a);
   let b: f32;
-  put(b);
+  b = put();
   return vec4(a, b, f32(v.id), 1.);
 }
 `;
@@ -59,14 +59,14 @@ export function vs(i: builtin<"vertex_index">): VsOut {
   if (i === 1) { x = 0.8; }
   return { pos: vec4(x, -0.8, 0., 1.), uv: vec2(x, 0.), id: i };
 }
-function bump(@inout v: f32): void { v += 1.; }
-function put(@out v: f32): void { v = 2.; }
+function bump(v: f32): f32 { return v + 1.; }
+function put(): f32 { return 2.; }
 @fragment
 export function fs(v: VsOut): vec4 {
   let a = v.uv.x;
-  bump(a);
+  a = bump(a);
   let b!: f32;
-  put(b);
+  b = put();
   return vec4(a, b, f32(v.id), 1.);
 }
 `;
@@ -77,12 +77,11 @@ describe('an attribute type compiles as the decorator it stands for (change 0111
       const a = compiled(DECORATED);
       const b = compiled(TYPED(struct));
       // The decorated form warns once on each decorator of a parameter or a field (TS8028,
-      // change 0111, milestone 4), and says nothing else; a stage attribute (change 0130) and a
-      // qualifier (change 0137) are the language's forms, with no warning.
+      // change 0111, milestone 4), and says nothing else; a stage attribute (change 0130) is
+      // the language's form, with no warning.
       expect(a.diagnostics.filter((d) => !isDecoratedFormWarning(d))).toEqual([]);
       expect(a.diagnostics).toHaveLength(
-        DECORATED.match(/@\w+/g)!.filter((d) => !/^@(vertex|fragment|compute|inout|out)$/.test(d))
-          .length,
+        DECORATED.match(/@\w+/g)!.filter((d) => !/^@(vertex|fragment|compute)$/.test(d)).length,
       );
       expect(b.diagnostics).toEqual([]);
       expect(b.wgsl).toBe(a.wgsl);
@@ -104,10 +103,10 @@ describe('an attribute type compiles as the decorator it stands for (change 0111
     expect(typed).toEqual(codes(DECORATED.replace('"vertex_index"', '"vertex_idx"')));
   });
 
-  it('a read of a local before an @out argument fills it is TS8075', () => {
+  it('a read of a local before it is assigned is TS8075', () => {
     const source = TYPED('interface').replace(
-      'let b!: f32;\n  put(b);',
-      'let b!: f32;\n  a += b;\n  put(b);',
+      'let b!: f32;\n  b = put();',
+      'let b!: f32;\n  a += b;\n  b = put();',
     );
     expect(compiled(source).diagnostics.map((d) => d.code)).toContain('TS8075');
   });

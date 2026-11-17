@@ -83,7 +83,7 @@ describe('a message names a class by the name the author gave it', () => {
     // (`a + vec3(…)`) where the fix casts the value. The editor shows the one sentence.
     const assigns: [string, string][] = [
       [
-        'export function k(a: A, b: B): f32 { let c = a; c = b; return c.x; }',
+        'export function k(): f32 { let c = new A(); c = new B(); return c.x; }',
         'TS8003 Type mismatch: cannot assign B to A. Types must match.',
       ],
       [
@@ -133,7 +133,7 @@ describe('a message names a class by the name the author gave it', () => {
 
   it('an array element of the wrong class, told no cast since a class has none', () => {
     expect(
-      said('export function k(a: A, b: B): f32 { const xs: array<A, 2> = [a, b]; return 1.; }'),
+      said('export function k(): f32 { const xs: array<A, 2> = [new A(), new B()]; return 1.; }'),
     ).toEqual(['TS8003 array<A, 2> element 1 must be A, got B. There is no implicit conversion.']);
     // A number against a number still has the cast.
     expect(

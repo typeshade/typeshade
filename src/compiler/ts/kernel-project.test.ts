@@ -15,7 +15,7 @@ import { emitModule } from '../../core/backends/wgsl.js';
 const item = 'class Item { a:f32; b:i32; c:u32; unused:f32; }';
 function read(body: string, helpers = '', fuse?: boolean, declaration = item) {
   const source = `"use typeshade"; ${declaration} ${helpers}
-export function sample(@inout xs:array<Item>,@inout out:array<f32>) { ${body} }`;
+export function sample(xs:array<Item>,out:array<f32>) { ${body} }`;
   const result = compile(source);
   expect(result.diagnostics).toEqual([]);
   const editor = createTypeshadeLanguageService();
@@ -139,7 +139,6 @@ describe('private kernel input projection', () => {
       '',
     ],
     ['no live field', 'for(let i:u32=0;i<xs.length;i++){out[i]=1.;}', ''],
-    ['whole-value alias', 'for(let i:u32=0;i<xs.length;i++){const x=xs[i];out[i]=x.a;}', ''],
     [
       'helper returns its value',
       'for(let i:u32=0;i<xs.length;i++){out[i]=identity(xs[i]).a;}',
@@ -153,6 +152,12 @@ describe('private kernel input projection', () => {
     ['writes object fields', 'for(let i:u32=0;i<xs.length;i++){xs[i].a=2.;out[i]=xs[i].a;}', ''],
   ])('keeps full AoS for %s', (_name, body, helper) => {
     expect(fields(read(body, helper).face)).toBeUndefined();
+  });
+
+  it('projects through a second name of an element', () => {
+    expect(
+      fields(read('for(let i:u32=0;i<xs.length;i++){const x=xs[i];out[i]=x.a;}', '').face),
+    ).toEqual(['a']);
   });
 
   it.each([undefined, true, false])(

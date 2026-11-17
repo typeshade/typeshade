@@ -3,6 +3,8 @@
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
+import { sharedObjects } from '../object-share.js';
+import { reassignedObjects } from '../object-share/reassigned.js';
 import { isBarrierIntrinsic } from '../../../core/intrinsics.js';
 import type {
   BindingDecl,
@@ -37,18 +39,19 @@ import {
   THIS_CAPTURE,
   authorTypeText,
   fileFunctionsOf,
-  privateFieldTableOf,
-  readonlyFieldTableOf,
   recoveredUsesDroppedSoFar,
   refusedDeclarationsOf,
   refusedModuleNames,
-  restrictedFieldTableOf,
-  withheldTableOf,
   writeRules,
   type CaptureKey,
 } from '../context.js';
+import {
+  privateFieldTableOf,
+  readonlyFieldTableOf,
+  restrictedFieldTableOf,
+  withheldTableOf,
+} from '../context/field-tables.js';
 import { checkDefiniteAssignment } from '../definite.js';
-import { checkValueArrayWritesByEffects } from '../value-array-write.js';
 import {
   diagnosticAtSpan,
   keepUses,
@@ -58,13 +61,7 @@ import {
 } from '../diagnostic.js';
 import { calleeNamesOf } from '../function-call-graph.js';
 import { instanceUsesOf } from '../generic-structs.js';
-import {
-  currentTypeArguments,
-  inferFrom,
-  instanceName,
-  typeSuffix,
-  withTypeArguments,
-} from '../generics.js';
+import { currentTypeArguments, instanceName, withTypeArguments } from '../generics.js';
 import { hostExportedDeclarations } from '../host-exports.js';
 import { moduleIndexConst } from '../index-bound.js';
 import { kernelSourceNames, type KernelNames } from '../kernel-loops.js';
@@ -102,7 +99,6 @@ import {
   recordResultCopies,
   type DeclaredSymbolSink,
 } from '../symbols.js';
-import { mapTsTypeToShaderType } from '../type-map.js';
 import {
   askedOf,
   calleeKeyOf,
@@ -123,7 +119,6 @@ import {
   ctorPrologue,
   registerClassCopy,
   selfRef,
-  zeroExprOf,
   type ClassFunction,
   type Receiver,
 } from './class-methods.js';
@@ -135,7 +130,6 @@ import {
   type ScopedConst,
   decoratorsOf,
   parseSignature,
-  refuseQualifiedParameter,
   settleInferredEntryResult,
 } from './function-signature.js';
 import { functionParams, functionTypeOf, shapeOf, type FunctionShape } from './function-types.js';
@@ -156,15 +150,23 @@ import {
   type LocalFunction,
   type LocalFunctionDecl,
 } from './local-functions.js';
-import { bodyReturnsAbsence } from './optional-values.js';
+import { bodyReturnsAbsence, recordedValueType } from './optional-values.js';
 import {
   filledCallsOf,
   paramDefaultNodes,
   recordParamDefaults,
   setParamDefault,
 } from './param-defaults.js';
-import { checkReferenceAliases, isOutParam, qualifiersOf } from './references.js';
+import { checkReferenceAliases } from './references.js';
+import { deferRefusal, resolvePendingShares } from './pending-shares.js';
 import { lowerStatements, lowerVoidArrowBody } from './statement.js';
+import {
+  decidedResultMismatch,
+  newlineReturnRemedy,
+  collectReturns,
+  skipParens,
+} from './function/return-checks.js';
+import { arrayLengthParameters, typeArgumentsFor } from './function/type-arguments.js';
 export { FRAGMENT_ONLY_CALLS, FRAGMENT_OR_COMPUTE_CALLS } from '../stage-restrictions.js';
 export {
   type F64IoPlace,
@@ -368,20 +370,6 @@ export function lowerSourceFunctions(
         );
         refused.add(base);
         continue;
-      }
-      // A generic function takes no qualified parameter (Rule 8.25), said where it is
-      // declared, since its body is lowered only where a call makes an instance and one nothing
-      // calls says nothing.
-      if ((stmt.typeParameters?.length ?? 0) > 0) {
-        const takes = stmt.parameters.find((p) => qualifiersOf(p).length > 0);
-        if (takes !== undefined) {
-          const refusal = refuseQualifiedParameter(takes, qualifiersOf(takes), undefined, {})!;
-          // The type form's own refusal says it (`TS8028`, change 0137; Rule 12.4).
-          if (!refusal.typeForm)
-            pushDiag(diagnostics, sourceFile, refusal.at, refusal.message, TS_CODES.REFERENCE);
-          refused.add(base);
-          continue;
-        }
       }
       const lengths = arrayLengthParameters(stmt);
       if (lengths.length > 0) {
@@ -2124,19 +2112,8 @@ export function lowerSourceFunctions(
     );
   }
   checkEntryStageUses(funcs, vars, nodeByName, sourceFile, diagnostics);
-  // A read before an assignment, and an `@out` parameter's definite writes, on the source
-  // (Rules 7.6 and 8.25).
+  // A read before an assignment, on the source (Rule 7.6).
   checkDefiniteAssignment(sourceFile, diagnostics);
-  // A write to a value array parameter that only the lowered body shows: a method on an element
-  // (Rule 8.23, change 0138, Amendment A15).
-  checkValueArrayWritesByEffects(
-    funcs,
-    bindings,
-    vars,
-    (fn) => nodeByName.get(fn),
-    sourceFile,
-    diagnostics,
-  );
   // Two references to one place in one call, read off the lowered calls once every callee says
   // what it reads and writes (Rule 8.25).
   const shownAs = new Map([
@@ -2150,6 +2127,13 @@ export function lowerSourceFunctions(
     (fn) => shownAs.get(fn) ?? fn,
     (fn) => nodeByName.get(fn),
     sourceFile,
+    diagnostics,
+  );
+  // The refusals that rule 6 may drop, now that every body says which types it writes.
+  resolvePendingShares(
+    funcs,
+    new Set(classFns.filter((cf) => cf.kind === 'ctor').map((cf) => cf.stub)),
+    structs.map((st) => st.decl),
     diagnostics,
   );
   return funcs;
@@ -2565,6 +2549,56 @@ export function fillFunctionBody(
     : inCopy(home, () => unpeekedReads(() => fillFunctionBodyNow(...args)));
 }
 
+/** The statements of a body that would make two names of one object, each refused once (change
+ *  0142): a body lowered again for another copy of its function reads each store by the types of
+ *  that copy, and says nothing a copy said already. */
+function reportSharedObjects(
+  node: FunctionNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  let reported = SHARED_REPORTED.get(diagnostics);
+  if (reported === undefined) SHARED_REPORTED.set(diagnostics, (reported = new Set()));
+  const say = (
+    at: ts.Node,
+    message: string,
+    code: TsCode = TS_CODES.UNSUPPORTED,
+    store?: { readonly type: ShaderType | undefined },
+  ): void => {
+    const key = `${at.getStart(sourceFile)}:${message}`;
+    if (reported.has(key)) return;
+    reported.add(key);
+    // A store waits until every body says which types are written (rule 6).
+    if (store !== undefined)
+      deferRefusal(diagnostics, { sourceFile, node: at, message, code, type: store.type });
+    else pushDiag(diagnostics, sourceFile, at, message, code);
+  };
+  for (const again of reassignedObjects(node, sourceFile)) {
+    say(
+      again.node,
+      again.array !== undefined
+        ? `This statement may put another object in "${again.array}" inside the loop that ` +
+            `names its elements "${again.name}". A loop that must keep the array and the ` +
+            `objects it found is not supported yet (change 0142, stage 2). Loop over the ` +
+            `indexes, for (let i = 0; i < ${again.array}.length; i++), and read ` +
+            `${again.array}[i].`
+        : `"${again.name}" is assigned another object here, after a write to the object it ` +
+            `named until now. A name that stops naming the caller's object part of the way ` +
+            `through is not supported yet (change 0142, stage 2). Declare a local for the ` +
+            `other object.`,
+    );
+  }
+  const clean = errorsOf(diagnostics) === 0;
+  for (const shared of sharedObjects(node, sourceFile, recordedValueType, clean))
+    say(
+      shared.node,
+      shared.text,
+      shared.pairing === true ? TS_CODES.REFERENCE_ALIAS : TS_CODES.UNSUPPORTED,
+      shared.store,
+    );
+}
+const SHARED_REPORTED = new WeakMap<TsCompilerDiagnostic[], Set<string>>();
+
 function fillFunctionBodyNow(
   node: FunctionNode,
   stub: FuncDecl,
@@ -2719,7 +2753,7 @@ function fillFunctionBodyNow(
     parameterNames.add(p.name);
     // A kernel function's array is the caller's storage, read and written in place (Rule 8.23).
     const storage = stub.kernel === true && p.type.kind === 'array' && p.type.size === undefined;
-    // An `@inout` or `@out` parameter names the caller's place (Rule 8.25): bound as the object of a
+    // An object parameter that its function writes names the caller's object (change 0142): bound as the object of a
     // method that changes it is, a local the body writes under the parameter's own IR name,
     // which the targets spell as the pointer or the `inout` parameter. A whole write lands on
     // the caller's place, so it takes no local copy (Rule 8.8).
@@ -2730,18 +2764,6 @@ function fillFunctionBodyNow(
         true,
       );
       scope.bindDeclaration(declared, place);
-      // An `@out array<T, N>` starts at zeros, on every target, before the body runs (Rule 8.25,
-      // change 0138, Amendment A15, decision 2): the caller's old values are never visible.
-      const zero =
-        isOutParam(p) && p.type.kind === 'array' && p.type.size !== undefined
-          ? zeroExprOf(p.type, scope)
-          : undefined;
-      if (zero !== undefined)
-        parameterLocals.push({
-          s: 'assign',
-          target: { op: 'varref', type: p.type, name: place.irName ?? place.name },
-          expr: zero,
-        });
       return;
     }
     const copy =
@@ -2826,6 +2848,8 @@ function fillFunctionBodyNow(
           ? lowerVoidArrowBody(node.body, sourceFile, scope, diagnostics)
           : lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
         : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics);
+  // Every expression of the body is lowered, so each store is read by the type it lowered to.
+  reportSharedObjects(node, sourceFile, diagnostics);
   if (inferRet === true) recordName();
   // An expression body is the function's one `return`: a value that comes from a constant of no
   // fixed type hands its origin to each call (Amendment A3 of change 0134), as a `return` does.
@@ -3019,45 +3043,6 @@ function fillFunctionBodyNow(
   }
 }
 
-/** The sentence of a `return` whose type differs from the result its calls fixed (Rule 8.19,
- *  change 0134), naming the function as the author wrote it (Rule 12.5). Where the `return` reads
- *  a variable the function captures, that is why: every copy reads the one variable, which has
- *  one type. */
-function decidedResultMismatch(
-  node: FunctionNode,
-  shown: string | undefined,
-  stub: FuncDecl,
-  r: { readonly expr?: Expr; readonly span?: SourceSpan },
-  captures: readonly CaptureBinding[] | undefined,
-  sourceFile: ts.SourceFile,
-): string {
-  const written =
-    (node as { name?: ts.Node }).name ??
-    (ts.isVariableDeclaration(node.parent) ? node.parent.name : undefined);
-  const name =
-    shown ?? (written !== undefined && ts.isIdentifier(written) ? written.text : stub.name);
-  const got = authorTypeText(r.expr!.type);
-  const text =
-    r.span === undefined ? '' : sourceFile.text.slice(r.span.start, r.span.start + r.span.length);
-  const captured = (captures ?? [])
-    .filter((c) => c.byName)
-    .map((c) => c.binding.name)
-    .find((n) => new RegExp(`(^|[^\\w$])${n.replace(/\$/g, '\\$')}($|[^\\w$])`).test(text));
-  if (captured !== undefined) {
-    return (
-      `Function "${name}" returns ${authorTypeText(stub.ret)} where its calls use it and ${got} ` +
-      `at a "return" that reads "${captured}", a variable of the function around it: every copy ` +
-      `of "${name}" reads the one "${captured}", which has one type (Rule 8.19). Write the type ` +
-      `of "${captured}", or the return type of "${name}".`
-    );
-  }
-  return (
-    `Function "${name}" returns ${authorTypeText(stub.ret)} where its calls use it and ${got} at ` +
-    `a "return"; a function returns one type (Rule 8.19): make them agree, or write the return ` +
-    `type.`
-  );
-}
-
 /** How many errors `diagnostics` holds. */
 function errorsOf(diagnostics: readonly TsCompilerDiagnostic[]): number {
   return diagnostics.filter((d) => d.category === 'error').length;
@@ -3079,64 +3064,7 @@ function resourceStructsOf(
   return out;
 }
 
-/** ASI keeps a newline after `return` from handing back the following expression. Explain
- *  that spelling without joining the statements or changing a deliberate `return;`. */
-function newlineReturnRemedy(sourceFile: ts.SourceFile, span: SourceSpan | undefined): string {
-  if (span === undefined) return '';
-  let remedy = '';
-  const visit = (node: ts.Node): void => {
-    if (ts.isReturnStatement(node) && node.getStart(sourceFile) === span.start) {
-      if (node.expression !== undefined || node.getText(sourceFile).endsWith(';')) return;
-      const parent = node.parent;
-      const siblings =
-        ts.isBlock(parent) || ts.isCaseClause(parent) || ts.isDefaultClause(parent)
-          ? parent.statements
-          : undefined;
-      if (siblings === undefined) return;
-      const next = siblings[siblings.indexOf(node) + 1];
-      if (
-        next !== undefined &&
-        ts.isExpressionStatement(next) &&
-        /[\r\n\u2028\u2029]/.test(sourceFile.text.slice(node.end, next.getStart(sourceFile)))
-      ) {
-        remedy =
-          ' The newline after "return" ends the return statement in TypeScript. Put the expression on the same line, or write "return (" before the newline and close it with ");".';
-      }
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return remedy;
-}
-
-function collectReturns(stmts: readonly Stmt[]): { expr?: Expr; span?: SourceSpan }[] {
-  const out: { expr?: Expr; span?: SourceSpan }[] = [];
-  const walk = (list: readonly Stmt[]) => {
-    for (const s of list) {
-      if (s.s === 'return') out.push(s);
-      else if (s.s === 'if') {
-        for (const arm of s.arms) walk(arm.body);
-        if (s.elseBody) walk(s.elseBody);
-      } else if (s.s === 'for') walk(s.body);
-      else if (s.s === 'switch') {
-        for (const c of s.cases) walk(c.body);
-        if (s.defaultBody) walk(s.defaultBody);
-      }
-    }
-  };
-  walk(stmts);
-  return out;
-}
-
-/** `e` without the parentheses around it. */
-function skipParens(e: ts.Expression): ts.Expression {
-  let x = e;
-  while (ts.isParenthesizedExpression(x)) x = x.expression;
-  return x;
-}
-
-function pushDiag(
+export function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
   node: ts.Node,
@@ -3144,106 +3072,4 @@ function pushDiag(
   code: TsCode,
 ): void {
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
-}
-
-/** A type parameter used as an array length cannot be supplied by a type argument. */
-function arrayLengthParameters(decl: ts.FunctionDeclaration): ts.TypeParameterDeclaration[] {
-  const used = new Set<string>();
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isTypeReferenceNode(node) &&
-      ts.isIdentifier(node.typeName) &&
-      node.typeName.text === 'array'
-    ) {
-      const length = node.typeArguments?.[1];
-      if (
-        length !== undefined &&
-        ts.isTypeReferenceNode(length) &&
-        ts.isIdentifier(length.typeName)
-      )
-        used.add(length.typeName.text);
-    }
-    ts.forEachChild(node, visit);
-  };
-  for (const parameter of decl.parameters) if (parameter.type !== undefined) visit(parameter.type);
-  if (decl.type !== undefined) visit(decl.type);
-  return decl.typeParameters?.filter((parameter) => used.has(parameter.name.text)) ?? [];
-}
-
-/** The type arguments one call settles: the ones it writes, or the ones its arguments show.
- *  Reports and returns undefined for a type parameter neither reaches (roadmap 0.3 item T9,
- *  #92). */
-function typeArgumentsFor(
-  decl: ts.FunctionDeclaration,
-  order: readonly string[],
-  node: ts.CallExpression,
-  argTypes: readonly (ShaderType | undefined)[],
-  sourceFile: ts.SourceFile,
-  diagnostics: TsCompilerDiagnostic[],
-  /** The functions a call hands over by name, by parameter index (Rule 8.18): their own
-   *  parameters' types and return type say what the type parameters in the parameter's type
-   *  are. */
-  named: ReadonlyMap<
-    number,
-    { readonly params: readonly ShaderType[]; readonly ret: ShaderType }
-  > = new Map(),
-): Map<string, ShaderType> | undefined {
-  if (order.length === 0) return new Map();
-  const shown = decl.name?.text ?? 'this function';
-  const out = new Map<string, ShaderType>();
-  const written = node.typeArguments ?? [];
-  if (written.length > 0) {
-    if (written.length !== order.length) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `"${shown}" takes ${String(order.length)} type argument(s), got ${String(written.length)}.`,
-        TS_CODES.ARITY_MISMATCH,
-      );
-      return undefined;
-    }
-    for (const [i, typeNode] of written.entries()) {
-      // Mapped in the CALLER's scope, whose own type arguments are still bound: a generic
-      // calling `pick<T>(…)` passes its own T through.
-      const mapped = mapTsTypeToShaderType(typeNode, sourceFile, diagnostics);
-      if (!mapped) return undefined;
-      out.set(order[i]!, mapped);
-    }
-    return out;
-  }
-  const names = new Set(order);
-  for (const [i, p] of decl.parameters.entries()) {
-    const fnType = functionTypeOf(p.type);
-    const handed = named.get(i);
-    if (fnType !== undefined) {
-      if (handed === undefined) continue;
-      fnType.parameters.forEach((fp, j) => {
-        const actual = handed.params[j];
-        if (fp.type !== undefined && actual !== undefined) inferFrom(fp.type, actual, names, out);
-      });
-      if (fnType.type.kind !== ts.SyntaxKind.VoidKeyword) {
-        inferFrom(fnType.type, handed.ret, names, out);
-      }
-      continue;
-    }
-    const actual = argTypes[i];
-    if (p.type === undefined || actual === undefined) continue;
-    inferFrom(p.type, actual, names, out);
-  }
-  const missing = order.filter((n) => !out.has(n));
-  if (missing.length > 0) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `This call does not say what ${missing.map((n) => `"${n}"`).join(' and ')} ` +
-        `${missing.length === 1 ? 'is' : 'are'} in "${shown}". A type argument is read off an ` +
-        `argument whose parameter is written as it, or as array<it, N>; write it instead, as ` +
-        `"${shown}<${order.map((n) => (out.get(n) === undefined ? 'f32' : typeSuffix(out.get(n)!))).join(', ')}>(…)".`,
-      TS_CODES.UNKNOWN_TYPE,
-    );
-    return undefined;
-  }
-  return out;
 }

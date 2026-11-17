@@ -59,11 +59,6 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
     `TS8099 "a" would copy "b", which is array<f32>, ${WHY}. ${NOT_YET('A local')}. Read "b" by its name instead.`,
   ],
   [
-    'a local copy of a struct',
-    `@compute([1]) export function cs() { let v = s; b[0] = v.xs[0]; }`,
-    `TS8099 "v" would copy "s", which is S, whose field "xs" is array<f32>, ${WHY}. ${NOT_YET('A local')}. Read "s" by its name instead.`,
-  ],
-  [
     'a declared local',
     `@compute([1]) export function cs() { let a: array<f32>; b[0] = 1.; }`,
     `TS8099 "a" would be array<f32>, ${WHY}. ${NOT_YET('A local')}. Give the array a size: array<f32, N>.`,
@@ -95,6 +90,10 @@ const ACCEPTED: readonly (readonly [string, string])[] = [
   [
     'a const that names a struct binding',
     `@compute([1]) export function cs() { const v = s; b[0] = v.xs[0]; }`,
+  ],
+  [
+    'a let that names a struct binding',
+    `@compute([1]) export function cs() { let v = s; b[0] = v.xs[0]; }`,
   ],
   [
     'a loop over the binding',

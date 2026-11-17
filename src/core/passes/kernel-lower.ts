@@ -1068,7 +1068,7 @@ function laneScaffold(wg: number, n: Expr): Stmt[] {
  *  beside the lane that runs it (change 0096, decision D2): where that iteration reads an
  *  element it also writes, the clamped lane would read what the other lane writes in the same
  *  dispatch, a data race. The cases: the loop reads back an element of an array it writes
- *  (R4), it loads a texel of a texture it stores (R4), or it writes through an `@inout` argument
+ *  (R4), it loads a texel of a texture it stores (R4), or it writes through an object argument
  *  of a call (Rule 8.25), whose store is in the callee. A fused group with an edge is the
  *  fourth, decided in `fuse-entry.ts`. */
 function laneSkips(

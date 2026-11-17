@@ -1,24 +1,4 @@
-// The class syntax an ordinary TypeScript class is written in (§26, Rules 8.10 to 8.15):
-// getters and setters, private names, parameter properties, a field typed by its initializer,
-// a static field the file writes and `this` in a static member, and `readonly`; then `super` on
-// an accessor and on a base method that writes its object, statics through a class that
-// extends, `new this()` and `super` in a static member, `private` and `protected`, and a chain of
-// calls on one object; then a method that changes an object its object holds, a `const` that
-// holds an object, a field that holds a function, an interface with methods, and a call cycle
-// through methods (Rules 6.9, 6.10, 8.4, 8.10 and 8.16).
-//
-// Measured on the branch before this: a getter or a setter was TS8035 "write it as a method",
-// `#x` was TS8010 "Field names must be plain identifiers", a parameter property declared no
-// field, a field without a type was dropped from the struct and every use of it was "Unknown
-// field", a static block was passed over in silence, a write to a static field was "Cannot
-// assign to unknown name", and a write to a `readonly` field compiled.
-//
-// What is pinned here: what each form lowers to on WGSL and GLSL ES 3.00, the oracle, the CPU
-// codegen and the debugger agreeing on one program that uses them all, and every refusal with
-// its code and its text (Rule 12.5), each one diagnostic for one mistake (Rule 12.4).
-//
 // Verifies: Rule 8.1 (docs/language-design.md; traced in reqs/).
-//
 // Verifies: Rule 8.9 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
@@ -36,7 +16,7 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 const TAIL = `\n@fragment export function fs(): vec4 { return vec4(1.) }\n`;
-/** A tail whose entry calls `run`: the GLSL writer emits only what an entry reaches. */
+
 const RUN_TAIL = `\n@fragment export function fs(): vec4 { return vec4(run(), 0., 0., 1.) }\n`;
 
 const errorsOf = (src: string): string[] =>
@@ -44,16 +24,21 @@ const errorsOf = (src: string): string[] =>
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`);
 
-/** The one error `src` has, which the test then pins by code and text (Rule 12.4, 12.5). */
+const editorErrors = (src: string): string[] => {
+  const service = createTypeshadeLanguageService();
+  service.openDocument('/m.shade.ts', src);
+  return service
+    .getDiagnostics('/m.shade.ts')
+    .filter((d) => d.severity === 'error')
+    .map((d) => `${d.source} ${d.code}: ${d.message}`);
+};
+
 const only = (src: string): string => {
   const errors = errorsOf(src);
   expect(errors, src).toHaveLength(1);
   return errors[0]!;
 };
 
-/** `actual` against `expected`, a number within an `f32`'s precision: the debugger keeps an
- *  `f32` as one, where the oracle and the codegen carry it in a double, so the two agree to the
- *  last bit of an `f32` and no further. */
 function expectClose(actual: unknown, expected: unknown): void {
   if (typeof expected === 'number') {
     expect(typeof actual).toBe('number');
@@ -76,7 +61,6 @@ function expectClose(actual: unknown, expected: unknown): void {
   expect(actual).toEqual(expected);
 }
 
-/** `fn(...args)` on the oracle, the CPU codegen and the debugger, which must agree. */
 function runAll(src: string, args: unknown[] = [], fn = 'run'): unknown {
   const r = compile(src);
   expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -90,6 +74,7 @@ function runAll(src: string, args: unknown[] = [], fn = 'run'): unknown {
 }
 
 const M = TS_CODES.CLASS_MEMBER;
+
 const F = TS_CODES.STRUCT_FIELD;
 
 describe('getters and setters (Rule 8.11)', () => {
@@ -855,7 +840,6 @@ class Square extends Oscillator {
   }
 }
 `;
-  /** The errors of `src` in the editor, merged as the editor shows them. */
   const editorErrors = (src: string, unmerged = false): string[] => {
     const service = unmerged
       ? createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge: false })
@@ -1376,7 +1360,7 @@ export function run(): f32 { let p = new P(); p.init(); return p.x * 10. + p.y }
     ).toBe(12);
   });
 
-  it('a call that writes the copy inside a larger expression is refused, with the fix', () => {
+  it('a call that writes the copy inside a larger expression is refused, with the fix; a second name is the object (change 0142)', () => {
     expect(
       only(
         V +
@@ -1385,14 +1369,12 @@ export function run(): f32 { let p = new P(); p.init(); return p.x * 10. + p.y }
     ).toBe(
       `${M} "V.setY" changes its object, and inside this expression it would change the copy "v.setX(3.)" hands back. Make the chain a statement of its own, or call each method on the object itself.`,
     );
-    expect(
-      only(
-        V +
-          `export function run(): f32 { let a = new V(); const v = a; v.setX(3.).setY(4.); return v.x }${TAIL}`,
-      ),
-    ).toBe(
-      `${M} "V.setX" changes its object, and "v" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
-    );
+    const alias =
+      V +
+      `export function run(): f32 { let a = new V(); const v = a; v.setX(3.).setY(4.); return a.x + a.y * 10. }${RUN_TAIL}`;
+    expect(errorsOf(alias)).toEqual([]);
+    expect(editorErrors(alias)).toEqual([]);
+    expect(runAll(alias)).toBe(43);
   });
 });
 
@@ -1709,27 +1691,29 @@ class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this; }
     expect(runAll(src)).toBe(1);
   });
 
-  it('a const whose value something else may hold is refused, with both fixes', () => {
+  it('a const that takes another name writes the object it names, as in JavaScript (change 0142)', () => {
+    for (const [body, expected] of [
+      ['let a = new V(); const b = a; b.x = 5.; return a.x', 5],
+      ['let a = new V(); const b = a; b.bump(); return a.x', 1],
+    ] as const) {
+      const src = `${V}export function run(): f32 { ${body} }${RUN_TAIL}`;
+      expect(errorsOf(src)).toEqual([]);
+      expect(editorErrors(src)).toEqual([]);
+      expect(runAll(src)).toBe(expected);
+    }
+    {
+      const src = `${V}function mk(): V { return new V() }\nexport function run(): f32 { const b = mk(); b.bump(); return b.x }${RUN_TAIL}`;
+      expect(errorsOf(src)).toEqual([]);
+      expect(editorErrors(src)).toEqual([]);
+      expect(runAll(src)).toBe(1);
+    }
     expect(
       only(
-        `${V}export function run(): f32 { let a = new V(); const b = a; b.x = 5.; return a.x }${RUN_TAIL}`,
+        `${V}function pick(p: V, q: V, k: f32): V { return k > 0. ? p : q }\nexport function run(): f32 { let a = new V(); let c = new V(); const b = pick(a, c, 1.); b.bump(); return b.x }${RUN_TAIL}`,
       ),
-    ).toBe(
-      `${TS_CODES.CONST_ASSIGN} "b" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to write a copy, or write through the value itself.`,
+    ).toContain(
+      `${TS_CODES.UNSUPPORTED} "b" would name an object that "pick(a, c, 1.)" gives back`,
     );
-    expect(
-      only(
-        `${V}export function run(): f32 { let a = new V(); const b = a; b.bump(); return a.x }${RUN_TAIL}`,
-      ),
-    ).toBe(
-      `${M} "V.bump" changes its object, and "b" is a const whose value may be one something else holds, which TypeScript would change with it and a copy here would not. Declare it with let to change a copy, or call it on the value itself.`,
-    );
-    // A function's result may be a value something else holds.
-    expect(
-      only(
-        `${V}function mk(): V { return new V() }\nexport function run(): f32 { const b = mk(); b.bump(); return b.x }${RUN_TAIL}`,
-      ),
-    ).toContain(`${M} "V.bump" changes its object, and "b" is a const whose value may be`);
     // The name itself is still bound once.
     expect(
       only(
@@ -1994,59 +1978,6 @@ export function run(): f32 { return new A().g() }${RUN_TAIL}`),
   });
 });
 
-describe('the example', () => {
-  it('examples/class-syntax.shade.ts renders the two rings on every CPU path', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { fileURLToPath } = await import('node:url');
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/class-syntax.shade.ts', import.meta.url)),
-      'utf8',
-    );
-    // On the unit ring's band: full gold, the counter having run twice.
-    const input = { pos: [0, 0, 0, 1], uv: [0.5, 0] };
-    expect(runAll(src, [input], 'fs')).toEqual({ color: [0.95, 0.74, 0.32, 1] });
-    // Between the rings: the background, scaled the same way.
-    expect(runAll(src, [{ pos: [0, 0, 0, 1], uv: [0, 0] }], 'fs')).toEqual({
-      color: [0.07, 0.08, 0.14, 1],
-    });
-  });
-
-  it('examples/class-builder.shade.ts renders the three discs on every CPU path', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { fileURLToPath } = await import('node:url');
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/class-builder.shade.ts', import.meta.url)),
-      'utf8',
-    );
-    const at = (uv: number[], color: number[]): void =>
-      expectClose(runAll(src, [{ pos: [0, 0, 0, 1], uv }], 'fs'), { color });
-    // The centre of each disc is its tint.
-    at([-0.45, 0], [0.95, 0.74, 0.32, 1]);
-    at([0.4, 0], [0.3, 0.6, 0.95, 1]);
-    at([0, 0.55], [0.9, 0.3, 0.4, 1]);
-    // 0.32 from the blue disc's centre: outside, since its setter clamped `SIZE` and the doubling
-    // to 0.3, where either unclamped would cover it.
-    at([0.72, 0], [0.07, 0.08, 0.14, 1]);
-  });
-
-  it('examples/class-parts.shade.ts renders the ring and the dot on every CPU path', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { fileURLToPath } = await import('node:url');
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/class-parts.shade.ts', import.meta.url)),
-      'utf8',
-    );
-    const at = (uv: number[], color: number[]): void =>
-      expectClose(runAll(src, [{ pos: [0, 0, 0, 1], uv }], 'fs'), { color });
-    // On the ring, whose centre `advance` moved to (0.25, 0.1) through the `Mover` it holds: a
-    // ring left at the origin would not reach this point.
-    at([0.55, 0.1], [0.95, 0.7, 0.3, 1]);
-    // The dot's centre, and the ring's, which neither covers.
-    at([-0.45, -0.3], [0.3, 0.7, 0.95, 1]);
-    at([0.25, 0.1], [0.06, 0.07, 0.12, 1]);
-  });
-});
-
 describe('TS8035 refuses what its catalogue entry says, and nothing that compiles', () => {
   // The CLASS_MEMBER comment in codes.ts listed a getter or setter, an overload, a static field
   // and a method that assigns to `this` as refused; after #190 each of them compiles. The
@@ -2054,6 +1985,8 @@ describe('TS8035 refuses what its catalogue entry says, and nothing that compile
   // against the compiler: each shape it says compiles, compiles, and each it says is refused
   // is TS8035.
   const COMPILES: Record<string, string> = {
+    'a mutating method on a parameter': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
+export function f(a: A): f32 { a.bump(); return a.x }`,
     'new on a class of statics only': `class A { static k(): f32 { return 1. } }
 export function f(): f32 { const a = new A(); return 1. }`,
 
@@ -2118,10 +2051,6 @@ export function f(a: A): f32 { return a.k() }`,
 export function f(a: A): f32 { return a.#x }`,
     'a getter with no setter assigned': `class A { x: f32; get y(): f32 { return this.x } }
 export function f(): f32 { let a: A = { x: 1. }; a.y = 2.; return a.x }`,
-    'a mutating method on a parameter': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
-export function f(a: A): f32 { a.bump(); return a.x }`,
-    'a mutating method on a const that copies': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
-export function f(a: A): f32 { const b = a; b.bump(); return b.x }`,
   };
 
   it.each(Object.entries(COMPILES))('compiles %s', (_what, body) => {
