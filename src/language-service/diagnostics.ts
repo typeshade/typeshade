@@ -133,12 +133,6 @@ function isDecoratorOnTopLevelFunctionParameter(
   );
 }
 
-/**
- * Whether TS1206 sits on a parameter qualifier, `@inout` or `@out`, on a parameter of a function
- * declared at the top of the file or of a namespace, overloads included. Change 0142 removed the
- * qualifiers, and the compiler refuses each with `TS8073` at the decorator, so TypeScript's
- * grammar report is the same mistake (Rule 1.7, Rule 12.4).
- */
 function isQualifierOnModuleFunction(
   context: DiagnosticFilterContext,
   diagnostic: ts.Diagnostic,
@@ -2743,7 +2737,7 @@ function isAboutRefusedOperation(
 
 /** The codes the compiler refuses a whole decorator with: `TS8028` for a name nothing reads
  *  there, `TS8024` for a malformed builtin argument, `TS8010` for `@align` or `@std140` it does
- *  not apply, `TS8035` for one on a method, and `TS8073` for a removed qualifier, `@inout` or `@out`,
+ *  not apply, `TS8035` for one on a method, and `TS8073` for a qualifier, `@inout` or `@out`,
  *  where a parameter takes its value only (an entry, a local function; Rule 8.25, change 0137). */
 const DECORATOR_REFUSALS: ReadonlySet<string> = new Set([
   TS_CODES.BUILTIN_NAME,
@@ -2846,9 +2840,6 @@ function isInRefusedDecorator(
   return siblings.some((d) => refused(d, METHOD_DECORATOR_REFUSAL));
 }
 
-/** TypeScript's "Cannot find name" (TS2304, TS2552) for the name of a removed qualifier type form,
- *  `inout<T>` or `out<T>`, which the ambient library no longer declares (change 0142). The
- *  compiler's `TS8028` on the written form is the one diagnostic (Rule 12.4). */
 function isRemovedQualifierTypeName(
   context: DiagnosticFilterContext,
   diagnostic: TypeshadeDiagnostic,

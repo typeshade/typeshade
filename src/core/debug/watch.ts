@@ -39,7 +39,7 @@ import { eachExpr } from '../ir/visit.js';
 import type { ShaderType } from '../ir/types.js';
 import { typeKey } from '../ir/types.js';
 import { compileTsSource } from '../../compiler/ts/source-file.js';
-import { withCopiedObjects } from '../../compiler/ts/lower/second-name.js';
+import { withCopiedObjects } from '../copied-objects.js';
 
 /** The watch text did not compile, or referred to something the snippet could not be given.
  *

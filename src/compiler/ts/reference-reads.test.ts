@@ -189,9 +189,6 @@ function run(): f32 {
     expect(glsl).not.toContain('Cell_peek_G');
   });
 
-  // In JavaScript `into` and `src` are one object, so `take` returns 7. A copy of `src` gives 1,
-  // which is the result this test held before change 0142. The call is refused until the
-  // compiler follows one object under two names (stage 2).
   it('refuses one object as the argument a callee writes and as one it reads', () => {
     const source = `"use typeshade";
 class Cell { a: f32; }

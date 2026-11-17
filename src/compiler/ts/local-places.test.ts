@@ -79,8 +79,6 @@ describe('item 1: a local that only reads a place reads the place', () => {
     // The index calls no function of the module and nothing writes its names in the loop body,
     // so it holds one value and needs no temporary (change 0105, item 3).
     expect(fs).not.toContain('_pl0');
-    // The name is the place, and its index is read once where the name is declared (change 0142,
-    // rule 1): `const q = items[k]` is `items[_at]`, whatever `k` becomes.
     expect(fs).toMatch(/let _at = \(u32\(i\) \+ \w+\);/);
     expect(fs).toContain('items[_at].a');
     expect(fs).toMatch(/items\[_at\]\.c\[\(i & 3\)\]/);
@@ -121,9 +119,6 @@ function run(): f32 {
     expect(fnText(wgsl, 'run')).not.toMatch(/var q: /);
   });
 
-  // In JavaScript `q` and `qs[0]` are one object, so a write through one shows through the other.
-  // The name is the place (change 0142, rule 1), so both halves accept the program and the CPU
-  // gives the number JavaScript gives.
   it('a name of a place sees a write to the place, and the place sees a write through the name', () => {
     runs(
       `${Q}
@@ -147,8 +142,6 @@ function run(): f32 {
     );
   });
 
-  // A name of an element of shared memory is the element (change 0142, rule 1): a read after the
-  // barrier reads the element as it is then, as a read of `tile[…]` there does.
   it('reads shared memory where the name is read, after a barrier', () => {
     const r = compile(`"use typeshade";
 class Cell { a: f32; b: f32; }

@@ -302,8 +302,6 @@ declare const U_: uniform<U>`;
     expect(c.wgsl).not.toMatch(/let \w+ = U_\.xs;/);
   });
 
-  // A second name is the place it names (change 0142, rule 1): the array is not copied, and an
-  // element is read where the uniform keeps it.
   it('reads an element through a second name where the uniform keeps it', () => {
     const c = compiled(
       `${U}\n@fragment export function fs(): vec4 { const w = U_.xs; return vec4(w[1] * U_.k) }`,

@@ -705,8 +705,6 @@ let acc: C = { x: 10. };
     expect(
       errorsOf(`${C}function g(): f32 { const c: C = { x: 1. }\n  c.bump()\n  return c.x }${TAIL}`),
     ).toEqual([]);
-    // `const c = a` is a second name of the object `a` holds, as in JavaScript (change 0142): the
-    // method writes that object, and `a` shows it.
     const alias = `${C}function g(): f32 { let a: C = { x: 1. }\n  const c = a\n  c.bump()\n  return a.x }${TAIL}`;
     expect(bothHalves(alias)).toEqual([]);
     expect(compile(alias).eval('g', [])).toBe(2);
@@ -801,11 +799,9 @@ class Random {
       return errors[0]!;
     };
     const M = TS_CODES.CLASS_MEMBER;
-    // `const r = r0` is a second name of `r0`'s object (change 0142), as in JavaScript.
     const alias = `${Gen}function g(): u32 { let r0: Gen = { s: 1 }\n  const r = r0\n  return r.next() + r0.s }${TAIL}`;
     expect(bothHalves(alias)).toEqual([]);
     expect(compile(alias).eval('g', [])).toBe(4);
-    // A struct parameter is the caller's object (change 0142): the method writes through it.
     expect(bothHalves(`${Gen}function g(r: Gen): u32 { return r.next() }${TAIL}`)).toEqual([]);
     expect(only(`${Gen}function g(): u32 { return 1 + new Gen().next() }${TAIL}`)).toBe(
       `${M} "Gen.next" changes its object, and this one is a value that is dropped; keep it in a let and call the method on that.`,

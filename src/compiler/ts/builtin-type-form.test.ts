@@ -236,8 +236,6 @@ ${body}
       ],
       ['a pattern that reads the field', '  const { cd } = out;\n  out.pos.z = cd[0];'],
     ];
-    // A name a pattern takes from an object names an object the object holds (change 0142, rule 4):
-    // where the function writes an object after it, the declaration is not supported yet.
     const COPIES_AN_OBJECT = new Set(['a pattern that reads the field']);
 
     for (const [name, body] of BODIES) {

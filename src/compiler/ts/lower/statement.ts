@@ -257,8 +257,6 @@ export function lowerStatement(
     lowerStatementNode(node, sourceFile, scope, diagnostics),
   );
   const hoisted = scope.takeHoisted(mark);
-  // A second name binds no statement, and the index it reads once is still held ahead of it
-  // (change 0142, rule 1).
   if (lowered === undefined) {
     for (const s of hoisted) withSpan(s, sourceFile, node);
     return hoisted.length > 0 ? hoisted : undefined;
@@ -916,7 +914,6 @@ function lowerDeclarationKind(
   // and so would anything but the bare name.
   const secondName = secondNameOf(decl, init, annotated, sourceFile, scope, diagnostics);
   if (secondName !== 'none') {
-    // The call that gave the second name still runs, for what it writes.
     return secondName === 'bound' && init.op === 'call'
       ? withSpan({ s: 'call', expr: init } as Stmt, sourceFile, decl)
       : undefined;
@@ -1108,19 +1105,12 @@ function lowerDeclarationKind(
 const isComposite = (t: ShaderType): boolean =>
   t.kind === 'struct' || t.kind === 'array' || t.kind === 'vec' || t.kind === 'mat';
 
-/** Whether a `const`'s initializer builds a value nothing else holds (Rule 6.10): `new`, an
- *  object or an array literal, a type's constructor, `structuredClone(v)`, `xs.slice()` of values,
- *  and a call of a function of the file that gives back an object it built (rule 3). A name, a
- *  field, an element or any other call's result may be a value something else holds, which
- *  TypeScript would share and a copy here would not. */
 function buildsFreshValue(init: ts.Expression, lowered: Expr): boolean {
   return lowered.op === 'construct' || isNewObject(init, init.getSourceFile());
 }
 
 /** Why a write through a `const` that holds a copy is refused (Rule 6.10). */
 export function constCopyWrite(name: string, type: ShaderType): string {
-  // A vector and a matrix are values: the const holds its own, and `let` is what makes a
-  // component of it writable.
   if (type.kind !== 'struct' && type.kind !== 'array') {
     return (
       `"${name}" is a const, and a write to a component of it changes it. Declare it with let ` +
@@ -1470,7 +1460,6 @@ function lowerPatternInto(
       }
       continue;
     }
-    // A name a pattern reads out of an object names the object the field holds (rule 4).
     if (
       (read.type.kind === 'struct' ||
         (read.type.kind === 'array' && read.type.size !== undefined)) &&
@@ -1783,8 +1772,6 @@ export function lowerExpressionAsStatement(
       // never — so the author's `_` is a statement of intent, not a token to carry through.
       return { s: 'call', expr: dropped };
     }
-    // `[a, b] = f(a, b)`: each name takes one element of the list, as in JavaScript (change
-    // 0142, decision 8), so a function gives back two values without a qualifier.
     if (ts.isArrayLiteralExpression(unwrapParens(expr.left)))
       return lowerListAssign(
         unwrapParens(expr.left) as ts.ArrayLiteralExpression,
@@ -1934,9 +1921,6 @@ function splitSwizzleWrite(
   return out;
 }
 
-/** `[a, o.b, xs[i]] = list`: the list is read once, then each target takes the element at its
- *  place, in order. The list is an array with a size of at least as many elements as there are
- *  targets, and each target is a place of the element's type. */
 function lowerListAssign(
   left: ts.ArrayLiteralExpression,
   right: ts.Expression,
@@ -1958,7 +1942,6 @@ function lowerListAssign(
     );
     return undefined;
   }
-  // The places first: their type is the context for a list written in place, `[a, b] = [b, a]`.
   const places: Expr[] = [];
   for (const target of left.elements) {
     const place = lowerLValue(target, sourceFile, scope, diagnostics);
@@ -1988,7 +1971,6 @@ function lowerListAssign(
     return undefined;
   }
   const elem = value.type.elem;
-  // Read once, before any target is written: `[a, b] = [b, a]` swaps.
   const list = scope.canHoist() ? scope.hoistTemp('_list', value) : value;
   const out: Stmt[] = [];
   for (const [i, target] of left.elements.entries()) {
@@ -2910,16 +2892,11 @@ function checkRootNamed(
       diagnostics,
       sourceFile,
       node,
-      // An object parameter of a method, a constructor, a setter, a local function, a function
-      // passed as an argument and a generic function is the caller's object at stage 2 (change
-      // 0142, Table 2); a function of the file takes it today.
       rules.type.kind === 'struct' || rules.type.kind === 'array'
         ? `Cannot write through parameter "${rootName}": this kind of function does not take ` +
             `the caller's object yet (change 0142, stage 2). A function of the file or of a ` +
             `namespace does: move the write there, or return the new value.`
         : `Cannot write through parameter "${rootName}" — parameters are not writable. Use a local or storage.` +
-            // A value parameter is a copy; the caller's value changes through the result, which
-            // a function of the file may give back (change 0142, decision 8).
             (mayTakeReference(node, rootName)
               ? ` To change the caller's value, return it, and write [a, b] = f(a, b) for more than one.`
               : ''),
@@ -2930,9 +2907,6 @@ function checkRootNamed(
   return true;
 }
 
-/** Whether the function that declares the parameter `name`, the nearest one around `node`,
- *  may give its value back (change 0142): a function declared at the top of the file or of a
- *  namespace, neither generic nor an entry. */
 function mayTakeReference(node: ts.Node, name: string): boolean {
   for (let at: ts.Node = node; ; at = at.parent) {
     if (ts.isSourceFile(at)) return false;
@@ -2964,8 +2938,6 @@ function checkRootMutable(
   if (!root) return true;
   // A static root was judged whole by {@link checkRootNamed} (Rule 8.13).
   if (staticRootOf(node, scope, sourceFile, into) !== undefined) return true;
-  // A name that stands for a place (an element a `for…of` names, change 0142) is written as
-  // that place is; only a write to the name itself keeps the name's own rules.
   if (
     ts.isIdentifier(root) &&
     scope.chainAlias(root) !== undefined &&
@@ -3011,9 +2983,6 @@ function checkRootMutable(
   return true;
 }
 
-/** The root of the place a second name or a loop name stands for accepts a write, as it does when
- *  the place is written by its own name (change 0142, rule 1). Returns false having pushed a
- *  diagnostic. */
 export function checkPlaceWritable(
   place: Expr,
   node: ts.Node,

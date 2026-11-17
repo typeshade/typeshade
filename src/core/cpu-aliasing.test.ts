@@ -51,8 +51,6 @@ export function run(): f32 {
   return vec4(run(), 0., 0., 1.);
 }
 `;
-    // `o` is another object, x = 1: 1 + 1 + 1. `a.add(a)` is one object under two names, which
-    // is refused until the compiler follows it (TS8074, change 0142, stage 2).
     expect(everyPath(src)).toEqual([3, 3, 3, 3, 3]);
     expect(compile(src).wgsl).toContain('V_add(&a, ');
   });

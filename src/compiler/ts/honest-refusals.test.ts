@@ -1246,8 +1246,6 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       ).replace('namespace N', `${LIST}namespace N`),
       [IN_NAMESPACE('a variable')],
     ],
-    // `...q` in a list assigned to collects; the list assignment's refusal is the one sentence
-    // (change 0142, decision 8).
     [
       'a rest element in a list assigned to',
       shader(

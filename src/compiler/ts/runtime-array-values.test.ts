@@ -90,8 +90,6 @@ const ACCEPTED: readonly (readonly [string, string])[] = [
     'a const that names a struct binding',
     `@compute([1]) export function cs() { const v = s; b[0] = v.xs[0]; }`,
   ],
-  // A `let` that names a struct is a second name of it too (change 0142, rule 1): nothing is
-  // copied, so the field with no size stays in the binding.
   [
     'a let that names a struct binding',
     `@compute([1]) export function cs() { let v = s; b[0] = v.xs[0]; }`,

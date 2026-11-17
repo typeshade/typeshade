@@ -48,8 +48,6 @@ class Leaf {
   constructor(material: Material) { this.material = material; }
 }
 `,
-        // `leaf` takes `value`, as `new` takes an argument in JavaScript (change 0142, rule 2): the
-        // function reads `value` before, and not after.
         `const value = new LeafMaterial(3., 9.);
 const transmission = value.transmission();
 const leaf = new Leaf(value);

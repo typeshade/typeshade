@@ -1,16 +1,4 @@
-// ═══ An object parameter that is the caller's object (Rule 8.8, change 0142, stage 1) ═══
-//
-// A function of the file may take the caller's place instead of a copy of its value: an object
-// parameter that its function writes (`object-reference.ts`), and the variable itself at the call.
-// The model is the one a method that changes its object already has (Rule 8.10): the IR marks the
-// parameter `mode: 'inout'`, the callee's body reads and writes it as a local, and each target
-// spells it its own way, a pointer on WGSL (`swap(&x, &y)`, `*a = *b`), an `inout` qualifier on
-// GLSL ES 3.00, a copy in and a store back on the CPU.
-//
-// This file is the front end's half that is new: what such a parameter may be handed (the place
-// rule a method's object already follows), and the one check a call with references gets, two
-// references to one place (`checkReferenceAliases`). A written `@inout` or `@out` is refused
-// (`TS8073`, `decorated-form.ts`).
+// Rule 7.10, Rule 8.25 (docs/language-design.md; the keyword that reqs/ reads in this file).
 
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
@@ -42,12 +30,6 @@ import { lowerExpression } from './expression.js';
 import { checkPlaceWritable, lowerLValue } from './statement.js';
 import { isWrittenObjectParameter } from '../object-reference.js';
 
-/** How `p` is passed when it names the caller's place: `'inout'` for an object parameter that its
- *  function writes (change 0142, stage 1), or `undefined` for a value. A written `@inout` or
- *  `@out` is refused (`TS8073`, `refuseRemovedQualifiers`) and read as no qualifier.
- *
- *  The narrowing walk reads this too: a call that hands a narrowed name to a parameter its
- *  function writes ends the narrowing (Rule 7.10). */
 export function referenceOf(
   p: ts.ParameterDeclaration,
   sourceFile: ts.SourceFile = p.getSourceFile(),
@@ -87,8 +69,6 @@ export function fileFunctionCalled(
   return undefined;
 }
 
-/** Whether `call` hands its argument at `index` to a parameter of a function of the file that is
- *  the caller's object. */
 export function writesThroughArgument(
   call: ts.CallExpression,
   index: number,
@@ -105,15 +85,6 @@ function bare(e: ts.Expression): ts.Expression {
   return x;
 }
 
-/** The argument an object parameter that its function writes takes, lowered as the place it
- *  names: `x`, `o.a`, `xs[i]`, `buf[i]` on a `read_write` storage binding, or a parameter the
- *  caller holds itself, passed on as it is. Anything else is refused, with the edit, having said
- *  why.
- *
- *  The argument takes what a method that changes its object takes as that object (Rule 8.10): a
- *  `let`, a `const` whose initializer built its value (Rule 6.10), a module variable, a storage
- *  element, `this` where it is written, or a field or an element of one; and in addition a
- *  vector's component is refused, whose address WGSL does not take. */
 export function lowerReferenceArgument(
   arg: ts.Expression,
   param: FuncDecl['params'][number],
@@ -130,7 +101,6 @@ export function lowerReferenceArgument(
     `"${shown}" writes its parameter "${param.name}", the caller's object ` +
     `(${param.name}: ${authorTypeText(param.type)})`;
   const place = bare(arg);
-  // A parameter that is the caller's object, held here, is passed on as the same place (Rule 8.25), and so is
   // one a local function captures, which the local function then takes by reference (Rule 8.17).
   if (ts.isIdentifier(place)) {
     const held = scope.resolve(place.text);
@@ -146,7 +116,6 @@ export function lowerReferenceArgument(
   // The root of the chain decides, as it does for a method's object: `o.a` and `xs[i]` are
   // places when `o` and `xs` are.
   const root = rootIdentifier(place);
-  // A name that stands for a place (an element a `for…of` names, change 0142) is that place.
   const alias = root === undefined ? undefined : scope.chainAlias(root);
   if (alias !== undefined && !checkPlaceWritable(alias(), place, sourceFile, scope, diagnostics))
     return undefined;
@@ -189,11 +158,7 @@ export function lowerReferenceArgument(
     ts.isObjectLiteralExpression(place) ||
     ts.isArrayLiteralExpression(place)
   ) {
-    // An object nothing else holds is legal in JavaScript, and nothing else sees the write: the
-    // compiler holds it in a variable for the call (change 0142, Table 1).
     const object = param.type.kind === 'struct' || param.type.kind === 'array';
-    // An object that is not known to be new may be one that has a name: the write is one that
-    // name sees in JavaScript, and a variable for the call would hide it (OD-9, rule 3).
     if (object && !isNewObject(place, sourceFile)) {
       return push(
         place,
@@ -269,8 +234,6 @@ function rootOf(e: Expr): string | undefined {
   }
 }
 
-/** The steps of a place from its root: a field's name, or an element's index where it is a
- *  literal. */
 function stepsOfPlace(e: Expr): (string | number | undefined)[] {
   const steps: (string | number | undefined)[] = [];
   for (let at = e; at.op === 'member' || at.op === 'index'; at = at.base) {
@@ -283,8 +246,6 @@ function stepsOfPlace(e: Expr): (string | number | undefined)[] {
   return steps;
 }
 
-/** Whether two places of one root are two parts that share nothing: they part at two fields of
- *  different names, or at two elements of different literal indexes. */
 function partAtOnce(a: Expr, b: Expr): boolean {
   const x = stepsOfPlace(a);
   const y = stepsOfPlace(b);
@@ -298,33 +259,6 @@ function partAtOnce(a: Expr, b: Expr): boolean {
   return false;
 }
 
-/** Two references to one place in one call, refused where the call is written (Rule 8.25).
- *
- *  Every argument a callee takes by reference counts: a written object parameter's, the object of a
- *  method that changes it, and a variable a local function writes (Rules 8.10 and 8.17), which
- *  the IR carries alike as `mode: 'inout'`. Two of them whose places share a root, when the
- *  callee writes either, are one place reached two ways: WGSL's alias analysis refuses the
- *  call, and GLSL's copy-in and copy-out and the CPU's store back would each settle it in an
- *  order of their own. So is a reference to a module variable or a binding the callee reads or
- *  writes by its name, when either side is written. Run once every body is lowered, since a
- *  callee's reads and writes are read off its body.
- *
- *  Measured on Tint (Chromium's WebGPU on SwiftShader, 2026-10-05, whose
- *  `wgslLanguageFeatures` list `unrestricted_pointer_parameters`), each with `fn f(a: ptr<…>,
- *  b: ptr<…>)` or `fn g(p: ptr<private, f32>)`:
- *
- *    f(&x, &x), f writes *a                      REFUSED "invalid aliased pointer argument"
- *    f(&o.a, &o.b), f writes *a                  REFUSED "invalid aliased pointer argument"
- *    f(&o.a, &o.b), f only reads                 accepted
- *    f(&x, &y)                                   accepted
- *    g(&c), g writes c and *p                    REFUSED "invalid aliased pointer argument"
- *    g(&c), g reads c and writes *p              REFUSED "invalid aliased pointer argument"
- *    g(&c), g reads c and *p                     accepted
- *    g(&c), g touches *p only                    accepted
- *    g(&xs[1]) on a function-space array         accepted
- *
- *  So the rule below refuses exactly the refused rows, in the author's words, before Tint
- *  (Rules 12.6 and 13.3). */
 export function checkReferenceAliases(
   funcs: readonly FuncDecl[],
   bindings: readonly BindingDecl[],
@@ -351,8 +285,6 @@ export function checkReferenceAliases(
       const touched = new Set([...(reads.get(callee.name) ?? []), ...written]);
       const refs: { root: string; writes: boolean; place: Expr; taken: boolean }[] = [];
       callee.params.forEach((p, i) => {
-        // An object the callee only reads is one of the names too: in JavaScript it is the
-        // object the other parameter writes, and a copy of it would not show the write.
         const object = p.type.kind === 'struct' || p.type.kind === 'array';
         if (p.mode !== 'inout' && !object) return;
         const root = x.args[i] === undefined ? undefined : rootOf(x.args[i]!);
@@ -377,8 +309,6 @@ export function checkReferenceAliases(
       for (let i = 0; i < refs.length; i++) {
         for (let j = i + 1; j < refs.length; j++) {
           if (refs[i]!.root !== refs[j]!.root || !(refs[i]!.writes || refs[j]!.writes)) continue;
-          // An object the callee only reads is a copy, which is the object where the two places
-          // are two parts of the root that share nothing: `w(b.p, b.q)`, `w(xs[0], xs[1])`.
           if (!(refs[i]!.taken && refs[j]!.taken) && partAtOnce(refs[i]!.place, refs[j]!.place))
             continue;
           report(

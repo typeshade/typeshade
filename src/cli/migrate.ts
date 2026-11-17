@@ -20,8 +20,6 @@
 //   let q!: f32; put(q);                                → let q: f32; put(q);
 //
 // The `!` on a field or a local is not written (change 0130, D3): an entry I/O field is filled by
-// the stage that produces it, a struct field is zero until written, and a local read
-// before an assignment is the compiler's `TS8075` (Rule 7.6).
 //
 // The decorated form of change 0111 on a parameter or a field is still rewritten to the
 // attribute type that replaces it (change 0130, Migration order step 3):
@@ -36,25 +34,15 @@
 //   i: builtin<"vertex_index", u32>                  → i: builtin<"vertex_index">
 //   pos: builtin<"position", vec4, { invariant: true }> → pos: builtin<"position", { invariant: true }>
 //
-// The parameter qualifiers `@inout` and `@out` are removed (change 0142, decision 8). An object
-// parameter (a struct, a class instance, an array) is the caller's object with no mark, so the
-// rewrite deletes the qualifier, and the type form of change 0111 with it:
 //
-//   @inout xs: array<f32>, @out p: P                 → xs: array<f32>, p: P
-//   xs: inout<array<f32>>                            → xs: array<f32>
 //
-// A number, a bool, a vector or a matrix is a value: the rewrite leaves the source as written and
-// names the parameter in `skipped`, since the function must return its value, and the call
-// writes `[a, b] = f(a, b)` for more than one. That edit needs the author.
 //
 // The diagnostic filter is deleted, wherever it is written (change 0132, item 7): the compiler
 // rewrites each implicit-LOD sample or derivative it can reach (Rule 8.5), and refuses a
 // written filter (`TS8028`).
-//
 // A form the rewrite cannot carry is left as written and named in `skipped`, with its line,
 // so the author finishes it by hand: an entry with no body, an attribute on a parameter with
 // no type, a stage call whose function has a name of its own or options beyond the filter, an
-// `export default` entry with no name, a qualifier on a number, a bool, a vector or a matrix.
 
 import ts from 'typescript';
 import {
@@ -240,9 +228,6 @@ export function migrateSource(text: string, fileName = 'a.shade.ts'): MigrateRes
   };
   visitParams(sf);
 
-  // The qualifiers `@inout` and `@out` and the type form `inout<T>` (change 0142): deleted from an
-  // object parameter, which is the caller's object with no mark; left as written on a value, whose
-  // function returns it instead. Both need the author's edit for a value, so it is named.
   const declared = new Set<string>();
   const visitDeclared = (n: ts.Node): void => {
     if (

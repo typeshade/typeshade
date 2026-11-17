@@ -84,8 +84,6 @@ describe('fixed-array binding declarations', () => {
   });
 
   it('nests object and array patterns, names the element an object pattern reads, and captures the bound names', () => {
-    // `item` names `xs[1]`, as it does in JavaScript (change 0142, rule 4): the function writes no
-    // object after it, so the name is read.
     agree(
       `
       const xs = array<P, 2>(new P(2.), new P(5.));
@@ -110,7 +108,6 @@ class Box { constructor(public xs: array<P, 2>) {} }`,
     const found = errors(body, head);
     expect(found.map((d) => d.code)).toEqual(['TS8099']);
     expect(found[0]!.message).toMatch(/^"item" would name an object that "xs" gives back/);
-    // The editor says the same.
     const service = createTypeshadeLanguageService();
     service.openDocument('m.shade.ts', source(body, head));
     const editor = service.getDiagnostics('m.shade.ts').filter((d) => d.severity === 'error');

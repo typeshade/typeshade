@@ -865,7 +865,6 @@ class Square extends Oscillator {
   }
 }
 `;
-  /** The errors of `src` in the editor, merged as the editor shows them. */
   const editorErrors = (src: string, unmerged = false): string[] => {
     const service = unmerged
       ? createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge: false })
@@ -1395,8 +1394,6 @@ export function run(): f32 { let p = new P(); p.init(); return p.x * 10. + p.y }
     ).toBe(
       `${M} "V.setY" changes its object, and inside this expression it would change the copy "v.setX(3.)" hands back. Make the chain a statement of its own, or call each method on the object itself.`,
     );
-    // `const v = a` is a second name of the object `a` holds, as in JavaScript (change 0142): the
-    // chain, a statement of its own, writes that object. Both halves agree.
     const alias =
       V +
       `export function run(): f32 { let a = new V(); const v = a; v.setX(3.).setY(4.); return a.x + a.y * 10. }${RUN_TAIL}`;
@@ -1729,15 +1726,12 @@ class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this; }
       expect(editorErrors(src)).toEqual([]);
       expect(runAll(src)).toBe(expected);
     }
-    // A function that builds the object it returns gives a value nothing else holds.
     {
       const src = `${V}function mk(): V { return new V() }\nexport function run(): f32 { const b = mk(); b.bump(); return b.x }${RUN_TAIL}`;
       expect(errorsOf(src)).toEqual([]);
       expect(editorErrors(src)).toEqual([]);
       expect(runAll(src)).toBe(1);
     }
-    // A function's result that may be one of its parameters is a value something else holds, and
-    // the function writes an object after the declaration (change 0142, rule 4).
     expect(
       only(
         `${V}function pick(p: V, q: V, k: f32): V { return k > 0. ? p : q }\nexport function run(): f32 { let a = new V(); let c = new V(); const b = pick(a, c, 1.); b.bump(); return b.x }${RUN_TAIL}`,
@@ -2069,7 +2063,6 @@ describe('TS8035 refuses what its catalogue entry says, and nothing that compile
   // against the compiler: each shape it says compiles, compiles, and each it says is refused
   // is TS8035.
   const COMPILES: Record<string, string> = {
-    // A struct parameter is the caller's object (change 0142), so a method may change it.
     'a mutating method on a parameter': `class A { x: f32; bump(): void { this.x = this.x + 1. } }
 export function f(a: A): f32 { a.bump(); return a.x }`,
     'new on a class of statics only': `class A { static k(): f32 { return 1. } }

@@ -1,21 +1,4 @@
-// ═══ One object under two names (change 0142, Amendment A3) ═══
-//
-// Implements: Rule 8.8, Rule 8.25 (docs/language-design.md; traced in reqs/).
-//
-// An object has the identity a JavaScript object has. Two rules of Amendment A3 are read here, on
-// the source of one function, because one statement does not show them:
-//
-//   2. A store is a move. A statement that puts an object that has a name into another holder is
-//      accepted only where the object is a local of the function that the function does not use
-//      after the statement (`sharedObjects`).
-//   5. A place that a second name names must stay that place while the name is read
-//      (`sharedObjects`).
-//
-// Rule 4 reads the function around a declaration (`objectWrittenAround`). Rule 1 is the lowering's
-// (`lower/second-name.ts`), and rule 3 is `new-object.ts`. A type is read as the lowering gave it,
-// where it lowered the expression, and as the source writes it elsewhere (`source-types.ts`): a
-// name whose type the source does not show is read as an object, so these rules refuse more than
-// they must and never less (Rule 12.7).
+// Why: Implements: Rule 8.8, Rule 8.25 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import {
@@ -46,12 +29,8 @@ import {
 
 type Fn = ts.FunctionLikeDeclaration;
 
-/** A step of a place from its root: a field's name, an element's literal index, or `undefined`
- *  for an index that is no literal. */
 type Step = string | number | undefined;
 
-/** The steps of a place from its root name: a field's name, or an element's index where it is
- *  written as a number. */
 function stepsOf(place: ts.Expression): (string | number | undefined)[] {
   const steps: (string | number | undefined)[] = [];
   let at = bare(place);
@@ -66,7 +45,6 @@ function stepsOf(place: ts.Expression): (string | number | undefined)[] {
   return steps;
 }
 
-/** The identifiers in `region` that read or write the variable `decl` declares. */
 export function usesOfDeclared(
   decl: ts.VariableDeclaration,
   region: ts.Node,
@@ -89,12 +67,6 @@ export function usesOfDeclared(
   return out;
 }
 
-// ─── Rule 4: a write of an object around a declaration ───
-
-/** Whether the function around `decl` writes an object after it, or in a loop that holds it, or
- *  in a function inside it (rule 4): an assignment or an increment through a field or an element
- *  of an object, a `push` or a `fill`, a method that writes its object, and a call that hands an
- *  object to a parameter its function writes. */
 export function objectWrittenAround(decl: ts.Node, sourceFile: ts.SourceFile): boolean {
   let owner: ts.Node = decl;
   while (owner.parent !== undefined && !ts.isFunctionLike(owner)) owner = owner.parent;
@@ -114,7 +86,6 @@ export function objectWrittenAround(decl: ts.Node, sourceFile: ts.SourceFile): b
     const within1 = inner || (n !== owner && ts.isFunctionLike(n));
     if (within1 || n.getStart(sourceFile) >= decl.end || loops.some((l) => within(n, l))) {
       if (writeTargets(n).some(intoObject)) found = true;
-      // A getter or a setter that may write its object.
       if (accessorReceiver(n, sourceFile) !== undefined) found = true;
       if (ts.isCallExpression(n)) {
         if (ts.isPropertyAccessExpression(n.expression)) {
@@ -134,18 +105,12 @@ export function objectWrittenAround(decl: ts.Node, sourceFile: ts.SourceFile): b
   return found;
 }
 
-// ─── What runs where it is not written: accessors and functions declared inside ───
-
-/** The object a use of an accessor that may write runs on: `h` for `h.r` and `h.r = v`. */
 export function accessorReceiver(n: ts.Node, sourceFile: ts.SourceFile): ts.Expression | undefined {
   if (!ts.isPropertyAccessExpression(n)) return undefined;
-  // A method's name is a call's, which the call scans read.
   if (ts.isCallExpression(n.parent) && n.parent.expression === n) return undefined;
   return accessorMayWrite(n.name.text, sourceFile) ? n.expression : undefined;
 }
 
-/** Each node of the body of a function declared inside the function, for a call of it: what
- *  the call runs. A function it calls in turn is read too, once. */
 export function eachRunBy(
   call: ts.Node,
   reader: Reader,
@@ -164,16 +129,10 @@ export function eachRunBy(
   walk(local.body);
 }
 
-// ─── Rules 2 and 5: stores and places that must stay ───
-
-/** A statement the compiler refuses, with the sentence that says why (`TS8099`). */
 export interface SharedObject {
   readonly node: ts.Node;
   readonly text: string;
-  /** `TS8074` for one object handed twice to a call; `TS8099` otherwise. */
   readonly pairing?: true;
-  /** A refusal of rule 2, which rule 6 drops where the stored value's type is never written:
-   *  the lowered type of the value, where the lowering said. */
   readonly store?: { readonly type: ShaderType | undefined };
 }
 
@@ -184,8 +143,6 @@ const ASSIGNS = new Set([
   ts.SyntaxKind.AmpersandAmpersandEqualsToken,
 ]);
 
-/** How the use `id` of a name writes the whole name: `'assign'` for `q = r` and `[q, r] = list`,
- *  `'compound'` for `q += r` and `q++`. */
 export function wholeWrite(id: ts.Identifier): 'assign' | 'compound' | undefined {
   let at: ts.Node = id.parent;
   while (ts.isParenthesizedExpression(at) || ts.isArrayLiteralExpression(at)) at = at.parent;
@@ -194,30 +151,22 @@ export function wholeWrite(id: ts.Identifier): 'assign' | 'compound' | undefined
   return ts.isBinaryExpression(at) && ASSIGNS.has(at.operatorToken.kind) ? 'assign' : 'compound';
 }
 
-/** The nearest function around `n`. */
 const ownerOf = (n: ts.Node): ts.Node | undefined => {
   let at = n.parent;
   while (at !== undefined && !ts.isFunctionLike(at)) at = at.parent;
   return at;
 };
 
-/** The statements of `fn` that store an object that has a name in a second place (rule 2), and
- *  the statements that put another object where a second name still names (rule 5). */
 export function sharedObjects(
   fn: Fn,
   sourceFile: ts.SourceFile,
-  /** What the lowering found an expression to be, where it lowered it. */
   typeOf: (e: ts.Expression) => ShaderType | undefined = () => undefined,
-  /** Whether the source may say what the lowering did not: nothing was refused so far. */
   readSource = true,
 ): SharedObject[] {
   const out: SharedObject[] = [];
   const body = fn.body;
   if (body === undefined) return out;
   const reader = new Reader(sourceFile, typeOf);
-  // What the lowering found; else what the source says, except in a generic body, whose copies
-  // are each lowered and read by their own types, and in a body that a refusal cut short. A function inside this one that was not lowered
-  // yet is read by its own pass, when it is.
   const generic =
     fn.typeParameters !== undefined ||
     (ts.isClassLike(fn.parent) && fn.parent.typeParameters !== undefined);
@@ -229,8 +178,6 @@ export function sharedObjects(
   const isCtor = ts.isConstructorDeclaration(fn);
   const text = (e: ts.Node): string => e.getText(sourceFile).replace(/\s+/g, ' ');
 
-  /** A local the function declares from a new object, or a parameter of a constructor that
-   *  stores it in `this`, where the caller's `new` already moved it. */
   const localOf = (id: ts.Identifier, intoThis: boolean): ts.Node | undefined => {
     const d = reader.declOf(id.text, id);
     if (d === undefined) return undefined;
@@ -242,14 +189,10 @@ export function sharedObjects(
     return d.initializer === undefined || newObject(d.initializer, reader) ? d : undefined;
   };
 
-  /** Whether the object `id` names, or a name of it, is used after `stored`, or in a loop that
-   *  holds the statement and not the declaration, or in a function inside the body. */
   const usedAfter = (id: ts.Identifier, d: ts.Node, stored: ts.Node): boolean => {
     const names = namesOfOneObject(id.text, body, sourceFile);
     const loops = loopsAround(stored, body).filter((l) => !within(d, l));
     if (loops.length > 0) return true;
-    // The statement holds the call or the `new` that runs after its arguments: any mention in
-    // it may run while the second place exists.
     let statement: ts.Node = stored;
     while (statement.parent !== undefined && !isStatement(statement)) statement = statement.parent;
     let hit = false;
@@ -267,7 +210,6 @@ export function sharedObjects(
 
   const store = (value: ts.Expression, intoThis = false): void => {
     const v = bare(value);
-    // Absence has no identity.
     if (v.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(v) && v.text === 'undefined'))
       return;
     if (!objectLike(v) || newObject(v, reader)) return;
@@ -298,8 +240,6 @@ export function sharedObjects(
     if (ts.isBinaryExpression(n) && ASSIGNS.has(n.operatorToken.kind)) {
       const left = bare(n.left);
       if (!ts.isArrayLiteralExpression(left)) return store(n.right, rootIsThis(left));
-      // `[a, b] = [b, a]`: each place takes the value at its position. A list that only puts the
-      // same names in another order gives each name one object.
       const right = bare(n.right);
       const values = ts.isArrayLiteralExpression(right) ? right.elements : undefined;
       const key = (es: readonly ts.Expression[]): string => es.map(text).sort().join('\n');
@@ -314,7 +254,6 @@ export function sharedObjects(
         return;
       left.elements.forEach((p, i) => {
         if (ts.isOmittedExpression(p) || ts.isSpreadElement(p)) return;
-        // The elements of one value, `[a, b] = f()`, are objects only where a place takes one.
         const value = values?.[i];
         if (value !== undefined) store(value, rootIsThis(p));
         else if (objectLike(p)) store(n.right, rootIsThis(p));
@@ -339,7 +278,6 @@ export function sharedObjects(
         membersNamed(n.expression.name.text, sourceFile).length === 0
       ) {
         for (const a of n.arguments) store(a);
-        // `xs.fill(v)` puts one object in every element, and the elements are then one object.
         if (n.expression.name.text === 'fill' && n.arguments[0] !== undefined) {
           const v = bare(n.arguments[0]);
           if (objectLike(v) && newObject(v, reader))
@@ -356,9 +294,6 @@ export function sharedObjects(
     }
   });
 
-  // One object handed twice, where the callee writes one of the two and one argument is no plain
-  // place (`w(a, id(a))`, `w(k.c, k.get())`): the check of two places of one root (`TS8074`) does
-  // not see it. An argument that is not new may be, or hold, any object a name of the first holds.
   const absent = (t: ts.TypeNode | undefined): boolean => t !== undefined && ts.isUnionTypeNode(t);
   eachOwn(body, (n) => {
     const callee = ts.isCallExpression(n) ? fileFunction(n, sourceFile) : undefined;
@@ -402,8 +337,6 @@ export function sharedObjects(
     });
   });
 
-  // Rule 5: a statement that puts another object at the place a second name names, where the name
-  // is read after it.
   const placeOf = (e: ts.Expression, depth = 0): { root: string; steps: Step[] } | undefined => {
     const at = bare(e);
     const steps = stepsOf(at);
@@ -432,7 +365,6 @@ export function sharedObjects(
     }
     return { root: root.text, steps };
   };
-  /** Whether `t` is `p` itself (`orSelf`) or a holder on the way to it. */
   const holds = (
     t: ts.Expression,
     p: { root: string; steps: Step[] },
@@ -476,12 +408,10 @@ export function sharedObjects(
           `"${n.name.getText(sourceFile)}" before this statement.`,
       });
     };
-    /** Whether `t` puts another object at the place; `at` is the statement to refuse. */
     const check = (t: ts.Node, at: ts.Node): void => {
       if (ts.isBinaryExpression(t) && ASSIGNS.has(t.operatorToken.kind)) {
         const left = bare(t.left);
         const targets = ts.isArrayLiteralExpression(left) ? left.elements : [left];
-        // The assignment of the name itself is refused where the name is declared.
         const own = (x: ts.Expression): boolean => {
           const id = bare(x);
           return ts.isIdentifier(id) && id.text === n.name.getText(sourceFile) && uses.includes(id);
@@ -503,27 +433,20 @@ export function sharedObjects(
           if (q !== undefined && takesThePlace(q, sourceFile) && holds(a, place, false)) put(at);
         });
       }
-      // A getter or a setter that may write its object, used on a holder of the place.
       const receiver = accessorReceiver(t, sourceFile);
       if (receiver !== undefined && holds(receiver, place, false)) put(at);
     };
     eachOwn(body, (t) => {
       check(t, t);
-      // A call of a function declared inside this one runs its body here.
       eachRunBy(t, reader, (u) => check(u, t));
     });
   });
   return out;
 }
 
-/** A name that stops naming the caller's object: `node` assigns the object parameter or the loop
- *  name `name` whole after the body wrote the object it named until then. From that assignment
- *  on the name is a local (Rule 8.8), which the compiler does not yet keep apart from the
- *  caller's object before it. */
 export interface ReassignedObject {
   readonly node: ts.Node;
   readonly name: string;
-  /** For a loop name: the array the loop reads, which `node` writes inside the loop. */
   readonly array?: string;
 }
 
@@ -547,11 +470,6 @@ export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): Reassigned
         candidates.push({ name: d.name.text, scope: n.statement });
     }
   });
-  // `for (const e of xs)` reads `xs` once, and names each element as the loop finds it. A body
-  // that assigns the array or a holder of it (`xs = …`, `h.ps = …` in a loop over `h.ps`)
-  // changes which array the loop should read. Over objects, a body that puts another object at
-  // an element, or hands the array to a function or a method that writes it, changes which
-  // object the name should be. The compiler follows neither.
   const rootNameOf = (e: ts.Expression): string | undefined => {
     let at = bare(e);
     while (ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at))
@@ -569,23 +487,18 @@ export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): Reassigned
     let replaced: ts.Node | undefined;
     const scan = (m: ts.Node, at: ts.Node = m): void => {
       if (replaced !== undefined) return;
-      // A getter or a setter that may write its object, used on the array's holder.
       const receiver = accessorReceiver(m, sourceFile);
       if (receiver !== undefined && rootNameOf(receiver) === array) replaced = at;
-      // A call of a function declared inside this one runs its body here.
       if (at === m) eachRunBy(m, reader, (u) => scan(u, m));
       if (ts.isBinaryExpression(m) && m.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
         for (const target of writeTargets(m)) {
           if (rootNameOf(target) !== array) continue;
           const steps = stepsOf(target);
-          // The array itself, or a holder on the way to it: the target's steps begin the
-          // array's steps.
           const holder =
             steps.length <= path.length &&
             steps.every(
               (step, k) => step === undefined || path[k] === undefined || step === path[k],
             );
-          // An element of the array, whole.
           const element = objects && steps.length === path.length + 1;
           if (holder || element) replaced = at;
         }
@@ -597,7 +510,6 @@ export function reassignedObjects(fn: Fn, sourceFile: ts.SourceFile): Reassigned
           if (q !== undefined && takesThePlace(q, sourceFile) && rootNameOf(a) === array)
             replaced = at;
         });
-        // A method that writes its object, called on the array's holder.
         if (
           ts.isPropertyAccessExpression(m.expression) &&
           rootNameOf(m.expression.expression) === array &&

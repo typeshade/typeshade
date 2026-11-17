@@ -169,8 +169,6 @@ function lowerForLoop(
         ) {
           writtenCounter = decl;
         }
-        // An object that starts the loop, `for (let b = ps[k]; …)`, is a second name or a copy,
-        // as any declaration of one is (change 0142, rule 1), and no counter.
         const startsObject =
           isLet &&
           decl.initializer !== undefined &&
@@ -204,7 +202,6 @@ function lowerForLoop(
             diagnostics,
             [decl],
           );
-          // A second name binds no statement (change 0142, rule 1): nothing is not a refusal.
           if (list === undefined && (startsObject ? diagnostics.length > before : true))
             return undefined;
           lowered = list === undefined ? [] : Array.isArray(list) ? list : [list];
@@ -810,8 +807,6 @@ export function lowerForOf(
     );
     return undefined;
   }
-  // JavaScript reads `hs[k].ps` once, before the first turn. The loop reads the place on every
-  // turn, so an index in it that is no literal is read once, into a name of the compiler's own.
   const fixed = holdIndexesOnce(array, scope);
   if (fixed === undefined) {
     pushDiag(
@@ -878,18 +873,10 @@ function lowerForOfOver(
       mutable,
     });
     const read: Expr = { op: 'index', type: elemType, base: array, idx: i };
-    // An element that is an object is the array's own element, as in JavaScript (change 0142,
-    // Table 1): each use of the name is the element's place, and no copy is declared. A copy
-    // taken at the top of each turn would not show a write to the element through the name, nor
-    // a write to it through the array while the name is read.
     const through = objectWrites(decl.name.text, node.statement, sourceFile, node);
-    // An optional of a number (`f32 | undefined`) is a value in a struct's clothes: only an
-    // optional of an object is one.
     const inner = optionalInner(elemType);
     const held = inner ?? elemType;
     const object = held.kind === 'struct' || held.kind === 'array';
-    // An object that may be absent is read through its own forms (`q?.x`, `q ?? o`), which read
-    // the loop's name as a variable: it stays a copy, and is refused where the body writes.
     const names = object && inner === undefined && isPlace(array) && !through.whole;
     const arrayRoot = ((): string | undefined => {
       let at = array as Expr;
@@ -914,7 +901,6 @@ function lowerForOfOver(
       );
       return undefined;
     }
-    // A function inside the body that uses the loop's name takes it as a variable of its own.
     if (names && through.captured) {
       pushDiag(
         diagnostics,
@@ -966,8 +952,6 @@ function lowerForOfOver(
   }
 }
 
-/** The identifiers in `body` that read or write the variable `name`, outside every function that
- *  declares the name again and every declaration that shadows it. A property name is not a use. */
 function usesOf(name: string, body: ts.Node): ts.Identifier[] {
   const out: ts.Identifier[] = [];
   const walk = (n: ts.Node): void => {

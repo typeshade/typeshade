@@ -335,8 +335,6 @@ function spreadElements(
     n <= 4
       ? Array.from({ length: n }, (_, i) => at(i)).join(', ')
       : `${at(0)}, ${at(1)}, …, ${at(n - 1)}`;
-  // `[...a]` alone is JavaScript's copy of the array, which `a.slice()` writes here (change
-  // 0142, Table 3).
   const alone = ts.isArrayLiteralExpression(spread.parent) && spread.parent.elements.length === 1;
   const values = type.elem.kind !== 'struct' && type.elem.kind !== 'array';
   return alone && values ? `${each}, or ${shown}.slice() for a copy of the whole array` : each;

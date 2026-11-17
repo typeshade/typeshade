@@ -545,9 +545,6 @@ describe('an operator takes the kinds of operand WGSL gives it (Rule 7.1)', () =
       'Cannot + A: WGSL has no arithmetic on a struct. Write it field by field.',
     ],
     [
-      // TypeScript's question, the same object?, is answered once the compiler follows which
-      // object each name refers to (change 0142, stage 2). Until then it is refused, not
-      // answered by comparing fields.
       '=== on two built instances',
       `${A}export function k(): bool { const a = new A(); const b = new A(); return a === b }`,
       'Cannot === A: whether two names are one object is not supported yet (change 0142, ' +

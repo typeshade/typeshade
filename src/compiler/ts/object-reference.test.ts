@@ -1,11 +1,4 @@
 // Verifies: Rule 6.10, Rule 8.8, Rule 8.25, Rule 12.7 (docs/language-design.md; traced in reqs/).
-//
-// An object has the identity a JavaScript object has (change 0142, stage 1): a struct, an instance
-// of a class and an array are passed, named and iterated as JavaScript passes, names and iterates
-// them. Each row of the proposal's Table 1 that stage 1 implements is read here by both halves
-// (`compile()` and the language service) on one source, and run on the CPU oracle, whose result
-// is the number JavaScript gives for the same program. A row of a later stage is read as its
-// "not supported yet" refusal, in both halves.
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
@@ -15,7 +8,6 @@ const P = `class P { x: f32 = 0; bump(): void { this.x += 1.; } }
 function nudge(p: P): void { p.x += 1.; }
 `;
 
-/** The errors of each half on `body`, and what `f()` gives on the CPU oracle. */
 function read(body: string): { compiler: string[]; editor: string[]; value: unknown } {
   const source = `"use typeshade";\n${body}\n`;
   const r = compile(source, { fileName: 'm.shade.ts' });
@@ -34,8 +26,6 @@ function read(body: string): { compiler: string[]; editor: string[]; value: unkn
 
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Amendment A3, rule 2: an object that has a name is stored in a second place where it is used
- *  after, or is no local. */
 const STORED = (name: string): RegExp =>
   new RegExp(
     `^TS8099 "${esc(name)}" is stored in a second place here, and it is used after that\\. One object under two names is not supported yet \\(change 0142, stage 3\\)\\. Store it where it is last used, or build a new object for the second place\\.$`,
@@ -44,24 +34,19 @@ const NAMED = (text: string): RegExp =>
   new RegExp(
     `^TS8099 "${esc(text)}" already has a name, and this statement gives it a second place\\. One object under two names is not supported yet \\(change 0142, stage 3\\)\\. Build a new object for the second place\\.$`,
   );
-/** Rule 4: a declaration of the result of a call that may give back an object that has a name,
- *  where the function writes an object after it. */
 const CALLED = (name: string, call: string): RegExp =>
   new RegExp(
     `^TS8099 "${esc(name)}" would name an object that "${esc(call)}" gives back, which may already have a name, and the function writes an object after that\\. One object under two names is not supported yet \\(change 0142, stage 2\\)\\. Read what you need from the call first, or write through the name that holds the object\\.$`,
   );
-/** Rule 5: a statement puts another object at the place a second name names. */
 const MOVED = (name: string, place: string): RegExp =>
   new RegExp(
     `^TS8099 "${esc(name)}" names "${esc(place)}", and this statement puts another object there while "${esc(name)}" is still used\\. That is not supported yet \\(change 0142, stage 2\\)\\. Read what you need from "${esc(name)}" before this statement\\.$`,
   );
-/** A second name that is assigned whole later. */
 const AGAIN = (name: string): RegExp =>
   new RegExp(
     `^TS8099 "${esc(name)}" is a second name of an object that already has a name, and "${esc(name)}" is assigned again later\\. Following which object each name then refers to is not supported yet \\(change 0142, stage 2\\)\\. Give "${esc(name)}" its own variable for the second object\\.$`,
   );
 
-/** Each refusal of `r`, in order, matches the one pattern at its place, and the editor says the same. */
 function refusedAs(r: ReturnType<typeof read>, want: readonly RegExp[]): void {
   expect(r.compiler).toHaveLength(want.length);
   want.forEach((w, i) => expect(r.compiler[i]).toMatch(w));
@@ -430,9 +415,6 @@ describe('a copy is written with a name JavaScript has (change 0142, Table 3)', 
   });
 });
 
-// Each program here compiled to a result JavaScript does not give, with no diagnostic, at
-// 497efc30. A review that ran each program as JavaScript too found them. Both halves read each
-// one, and the oracle's number is the one JavaScript gives.
 describe('programs a review found with a result JavaScript does not give (change 0142)', () => {
   const Q = `class P { x: f32 = 0; y: f32 = 0; }
 class B { c: P = new P(); }
@@ -557,7 +539,6 @@ export function f(): f32 { let a = new P(); g(a); return a.x; }`,
   }
 });
 
-// The programs of a second review, at 1967abb3: each gave a result JavaScript does not give.
 describe('more programs a review found (change 0142)', () => {
   const Q = `class P { x: f32 = 0; y: f32 = 0; }
 class B { c: P = new P(); }
@@ -651,9 +632,6 @@ export function f(): f32 { const a = new P(); return w(a, a); }`,
   }
 });
 
-// The programs of a third review, at f5574c4d. What the analysis cannot read (a getter, a method,
-// a function declared inside the function, a method of an array that takes a function) is read
-// as an object that may be shared.
 describe('what the analysis cannot read is read as shared (change 0142)', () => {
   const Q = `class P { x: f32 = 0; y: f32 = 0; getx(): f32 { return this.x; } }
 class H { c: P = new P(); get cc(): P { return this.c; } }
@@ -765,7 +743,6 @@ export function f(): f32 { const a = new P(); const b = new C(a, bump(a)); retur
   }
 });
 
-// The programs of a fourth review, at c2b7781c.
 describe('a loop name, an object that may be absent, and a call on a new object (change 0142)', () => {
   const Q = `class P { x: f32 = 0; }
 class H { c: P; constructor(p: P) { this.c = p; } get1(): P { return this.c; } }
@@ -852,7 +829,6 @@ export function f(): f32 { const a = new P(); return g(a, a); }`,
   }
 });
 
-// The programs of a fifth review, at 1c3e64b7.
 describe('a loop reads its array once, and a name is read in its own block (change 0142)', () => {
   const Q = `class P { x: f32 = 0; y: f32 = 0; }
 class H { ps: array<P, 2> = [new P(), new P()]; }

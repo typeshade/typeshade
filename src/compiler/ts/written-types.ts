@@ -1,20 +1,4 @@
-// ═══ The types a module writes (change 0142, rule 6) ═══
-//
-// Implements: Rule 8.8 (docs/language-design.md; traced in reqs/).
-//
-// An object of a type that the program never writes after the object is built cannot be told
-// from a copy of it: `===` on objects is refused, and nothing can show the two names apart. So a
-// store or a name that rules 2 and 4 would refuse is a copy there. This file answers which types
-// the module writes, on the lowered IR of every function, so the answer does not depend on names.
-//
-// A struct or array type is WRITTEN when a store reaches a field or an element through a value of
-// that type: for the target `root.a.b[i].c`, the types of `root`, `root.a`, `root.a.b` and
-// `root.a.b[i]` are written. An atomic or a texture store, and `push` and `fill` (which lower to
-// stores), count the same way. What this file cannot read is written.
-//
-// Construction: in a constructor, a store whose target root is the constructor's own object
-// builds it, so the type of that root is not written by it. The types below the root on the
-// chain still are (`this.c.x = 1` writes the type of `this.c`).
+// Why: Implements: Rule 8.8 (docs/language-design.md; traced in reqs/).
 
 import type { FuncDecl, Expr, Stmt, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
@@ -24,7 +8,6 @@ import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { optionalDeclOf, optionalInner } from './optional.js';
 
 export interface WrittenTypes {
-  /** Whether `t`, or a struct or an array nested in it, is written. */
   writes(t: ShaderType): boolean;
 }
 
@@ -32,7 +15,6 @@ export function writtenTypes(
   funcs: readonly FuncDecl[],
   constructors: ReadonlySet<FuncDecl>,
   structs: readonly StructDecl[],
-  /** Types a refused statement wrote, which no IR carries. */
   also: readonly ShaderType[] = [],
 ): WrittenTypes {
   const written = new Set<string>();
@@ -43,7 +25,6 @@ export function writtenTypes(
   const fieldsOf = (name: string): readonly { readonly type: ShaderType }[] | undefined =>
     structs.find((s) => s.name === name)?.fields ?? optionalDeclOf(name)?.fields;
 
-  /** The target's chain: the holders from the root up to the value written. */
   const store = (target: Expr, building: boolean): void => {
     const holders: Expr[] = [];
     let at: Expr = target;
@@ -62,9 +43,6 @@ export function writtenTypes(
       return;
     }
     holders.forEach((h, i) => {
-      // The constructor's own object is being built, not written.
-      // Its IR name is exactly `self_`, which no author's local takes: a local of that name is
-      // renamed, and one that only starts with it (`self_a`) is another variable.
       if (
         building &&
         i === 0 &&
@@ -85,7 +63,6 @@ export function writtenTypes(
         s,
         (e) =>
           eachExpr(e, (x) => {
-            // An atomic or a texture store writes through its first argument.
             if (
               x.op === 'call' &&
               (isAtomicIntrinsic(x.fn) || x.fn.startsWith('textureStore')) &&
@@ -110,7 +87,6 @@ export function writtenTypes(
     if (t.kind === 'struct') {
       if (written.has(key)) return true;
       const fields = fieldsOf(t.name);
-      // A struct that cannot be read is written.
       return fields === undefined || fields.some((fd) => nestedWritten(fd.type, seen));
     }
     return false;

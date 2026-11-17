@@ -12,9 +12,6 @@
 // Such a value now takes a twin struct, `U_value`, and a read of the block whole is rebuilt from
 // its members (src/core/backends/glsl-block-values.ts). The block itself is emitted as before.
 //
-// Since change 0142 (rule 1) `let c: U = u` is a second name of the block, and no value: a local
-// that is a value of the block's struct takes the block or another value in a `?:`, which the
-// cases below write as `COPY`.
 //
 // Since change 0103 (Rule 8.28) a helper or a method called on the block itself no longer takes
 // it as a value: the call reads the block by its name through a copy of the callee
@@ -27,7 +24,6 @@
 // What no test read was this shape's GLSL on a driver. The compile gate compiles the registered
 // examples, and none of them hands a uniform to a helper or copies one, so the text below is
 // what these tests pin for both halves, and the measurement is the driver's.
-//
 // Measured on 2026-09-24 through the compile gate's instruments (Chromium's WebGPU and WebGL2 on
 // SwiftShader, each handed a broken shader first), over temporary examples holding these
 // programs (Rule 13.3). Before the fix, Tint accepted every WGSL and WebGL2 refused the fragment
@@ -67,7 +63,6 @@ ${body}
 }
 `;
 
-/** A local that is a value of the block's struct: where the condition says, the block. */
 const COPY = '  const z: U = { a: 0., b: vec2(0.) };\n  const c: U = v.uv.x > 9. ? u : z;';
 
 const U = `class U {
@@ -179,8 +174,6 @@ describe('a uniform block struct used as a value, on GLSL ES 3.00', () => {
 });
 
 describe('a method that writes its object, called on a name of the block', () => {
-  // `let c: U = u` is a second name of the block (change 0142, rule 1), so `c.bump()` writes the
-  // block, which is a read-only resource: the refusal names it, in both halves.
   const src = program(
     `class U {
   a: f32;

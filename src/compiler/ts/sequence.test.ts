@@ -224,8 +224,6 @@ describe('what the passes after it would have done to such a call', () => {
 
   it('a number read before the call keeps the value before it', () => {
     // Copy propagation read `p` where `before` was written: the effect table named the write
-    // by the callee's `self_` rather than by the receiver it lands in. A number is a value
-    // (change 0142), so `before` keeps what `p.v` held.
     const src = `"use typeshade";
 class P {
   v: f32;

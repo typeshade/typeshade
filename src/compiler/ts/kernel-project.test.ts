@@ -154,8 +154,6 @@ describe('private kernel input projection', () => {
     expect(fields(read(body, helper).face)).toBeUndefined();
   });
 
-  // A second name is the place it names (change 0142, rule 1): `const x = xs[i]` reads `xs[i].a`
-  // and no whole element, so the projection keeps the one field.
   it('projects through a second name of an element', () => {
     expect(
       fields(read('for(let i:u32=0;i<xs.length;i++){const x=xs[i];out[i]=x.a;}', '').face),

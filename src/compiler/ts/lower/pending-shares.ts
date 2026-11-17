@@ -1,11 +1,4 @@
-// ═══ Refusals that wait for every body (change 0142, rule 6) ═══
-//
-// Implements: Rule 8.8 (docs/language-design.md; traced in reqs/).
-//
-// A store of an object that has a name (rule 2) and a name for an object that may have one (rule
-// 4) are refused only where the object's type is written somewhere in the module. That is known
-// when every body is lowered, so each such refusal waits here with the lowered type of its value,
-// and `resolvePendingShares` says the ones whose type is written.
+// Why: Implements: Rule 8.8 (docs/language-design.md; traced in reqs/).
 
 import type ts from 'typescript';
 import type { FuncDecl, StructDecl } from '../../../core/ir/nodes.js';
@@ -21,17 +14,13 @@ interface Pending {
   readonly node: ts.Node;
   readonly message: string;
   readonly code: TsCode;
-  /** The lowered type of the value; absent where the lowering did not say, which is written. */
   readonly type: ShaderType | undefined;
-  /** For a name a declaration would give an object: the name, which a write through it finds. */
   readonly name?: string;
 }
 
 const PENDING = new WeakMap<TsCompilerDiagnostic[], Map<string, Pending>>();
 const WRITTEN = new WeakMap<TsCompilerDiagnostic[], ShaderType[]>();
 
-/** Whether a declaration of `name` of this type holds a refusal, so that a write through it is
- *  said by that refusal; the write then counts, since no IR carries it. */
 export function heldRefusal(
   diagnostics: TsCompilerDiagnostic[],
   name: string,
@@ -49,14 +38,12 @@ export function heldRefusal(
   return hit;
 }
 
-/** Hold a refusal until the module's written types are known. */
 export function deferRefusal(diagnostics: TsCompilerDiagnostic[], p: Pending): void {
   let held = PENDING.get(diagnostics);
   if (held === undefined) PENDING.set(diagnostics, (held = new Map()));
   held.set(`${p.node.getStart(p.sourceFile)}:${p.message}`, p);
 }
 
-/** Say each held refusal whose value's type is written, and drop the others. */
 export function resolvePendingShares(
   funcs: readonly FuncDecl[],
   constructors: ReadonlySet<FuncDecl>,

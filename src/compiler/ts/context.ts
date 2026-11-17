@@ -460,9 +460,6 @@ export interface Binding {
    *  `byRef`, which makes the parameter a reference to the variable, the way a closure writes
    *  the variable itself, the first time something writes it. */
   readonly capture?: { readonly of: Binding; readonly byRef: () => void };
-  /** For an object parameter that its function writes (change 0142): the binding names the caller's place, which the body
-   *  reads and writes as a local, and which a local function captures as any variable
-   *  (Rule 8.17). */
   readonly reference?: boolean;
 }
 
@@ -1177,9 +1174,6 @@ export class LoweringScope {
     return { op: 'varref', type: init.type, name };
   }
 
-  /** Hold `init` in a fresh variable ahead of the statement being lowered, and return the
-   *  variable as a place: what a function that writes its parameter is handed for a value nothing
-   *  else holds (`f(new P())`, change 0142). Only where {@link canHoist} says so. */
   hoistVar(prefix: string, init: Expr): Expr {
     const name = this.defineTemp(prefix, init.type, true);
     this.hoisted.push({ s: 'var', name, type: init.type, init });

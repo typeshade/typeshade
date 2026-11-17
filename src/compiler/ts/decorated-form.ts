@@ -9,8 +9,6 @@
 // `@workgroup_size([n])`, is no decorated form: it is the language's form of an entry and of a
 // kernel function's size (Rules 1.8, 8.1 and 8.22, change 0130), read in `lower/function.ts`.
 //
-// A parameter qualifier, `@inout` or `@out`, is no decorated form: change 0142 removed it, and
-// `refuseRemovedQualifiers` refuses it with `TS8073`. Its type form of change 0111,
 // `a: inout<f32>`, is refused at once (`refuseQualifierTypes`, `TS8028`).
 //
 // The list of what the codemod rewrites is one authority: `tshc migrate` (`src/cli/migrate.ts`)
@@ -232,9 +230,6 @@ export function declaredTypeNames(sf: ts.SourceFile): ReadonlySet<string> {
   return out;
 }
 
-/** The sentence for a removed qualifier `written` (`"@inout"`, or `"inout<f32>"` for the type
- *  form) on a parameter whose type is `type` (change 0142, decision 8): an object parameter is
- *  the caller's object with no mark, and a number, a bool, a vector and a matrix are values. */
 function removedQualifierSentence(written: string, object: boolean, remedy: string): string {
   return object
     ? `"${written}" was removed (change 0142): an object parameter is the caller's object with ` +
@@ -243,13 +238,6 @@ function removedQualifierSentence(written: string, object: boolean, remedy: stri
         `values. Return the value, and write [a, b] = f(a, b) for more than one.`;
 }
 
-/**
- * The `TS8073` error on each written `@inout` and `@out` of a parameter, one for each decorator,
- * at the decorator (change 0142, decision 8): the qualifiers are removed. An object parameter
- * that its function writes is the caller's object with no mark, and a value that a function
- * gave back through a qualifier is returned instead. The refused parameter is lowered as one
- * that carries none. The type form `x: inout<T>` is `TS8028`'s (`refuseQualifierTypes`).
- */
 export function refuseRemovedQualifiers(
   sf: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -278,12 +266,6 @@ export function refuseRemovedQualifiers(
   visit(sf);
 }
 
-/**
- * The `TS8028` error on each written type form of a parameter qualifier, `inout<…>` or
- * `out<…>`, in every type position: a parameter, a local, a result, a type alias, a generic
- * argument and a field (change 0142 removed the qualifiers; change 0137 refused the form). One
- * diagnostic stands at the outermost written `inout<…>`, once (Rule 12.4).
- */
 export function refuseQualifierTypes(sf: ts.SourceFile, diagnostics: TsCompilerDiagnostic[]): void {
   const declared = declaredTypeNames(sf);
   const visit = (node: ts.Node): void => {
@@ -303,8 +285,6 @@ export function refuseQualifierTypes(sf: ts.SourceFile, diagnostics: TsCompilerD
   visit(sf);
 }
 
-/** The sentence for a written type form `ref`: on a parameter, the removal sentence of its
- *  qualifier; anywhere else, the type it means, since a qualifier marked a parameter only. */
 function qualifierTypeSentence(ref: ts.TypeReferenceNode, sf: ts.SourceFile): string {
   const value = ref.typeArguments?.[0];
   const written = ref.getText(sf);

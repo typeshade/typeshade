@@ -74,7 +74,6 @@ describe('module variables and parameters occupy distinct IR slots (#1009)', () 
         const result = adjust(v);
         return result + v;
       }`,
-      // A number is a value: `adjust` writes its own copy, and `v` keeps the 7.
       20,
     );
   });

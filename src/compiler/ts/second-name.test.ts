@@ -1,10 +1,4 @@
 // Verifies: Rule 6.10, Rule 8.8, Rule 12.7 (docs/language-design.md; traced in reqs/).
-//
-// Change 0142, Amendment A3: a second name is the same place, and a store is a move. Each of the
-// five rules is read here by both halves (`compile()` and the language service) on one source,
-// and each program that compiles is run on the CPU oracle, whose number is the number JavaScript
-// gives for the same source. A refusal says "not supported yet" and never compiles to a copy that
-// JavaScript would not make (OD-9).
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
@@ -19,7 +13,6 @@ function pick(p: P, q: P): P { return q.x > p.x ? q : p; }
 function mk(v: f32): P { const p = new P(); p.x = v; return p; }
 `;
 
-/** The errors of each half on `body`, and what `f()` gives on the CPU oracle. */
 function read(body: string): { compiler: string[]; editor: string[]; value: unknown } {
   const source = `"use typeshade";\n${body}\n`;
   const r = compile(source, { fileName: 'm.shade.ts' });
@@ -36,7 +29,6 @@ function read(body: string): { compiler: string[]; editor: string[]; value: unkn
   return { compiler, editor, value };
 }
 
-/** `body` compiles in both halves, and the oracle gives `expected`, which JavaScript gives too. */
 function runs(body: string, expected: number): void {
   const r = read(`${P}${body}`);
   expect(r.compiler).toEqual([]);
@@ -44,7 +36,6 @@ function runs(body: string, expected: number): void {
   expect(r.value).toBe(expected);
 }
 
-/** `body` is refused in both halves, once for each of `starts`, each beginning as given. */
 function refuses(body: string, ...starts: string[]): void {
   const r = read(`${P}${body}`);
   expect(r.compiler).toHaveLength(starts.length);
@@ -370,14 +361,12 @@ describe('the three examples of the amendment', () => {
 });
 
 describe('rule 6: an object of a type that is never written is a copy', () => {
-  /** `body` compiles in both halves and the oracle gives `expected`. */
   const compiles = (body: string, expected: number): void => {
     const r = read(body);
     expect(r.compiler).toEqual([]);
     expect(r.editor).toEqual([]);
     expect(r.value).toBe(expected);
   };
-  /** `body` is refused in both halves, once for each of `starts`. */
   const refused = (body: string, ...starts: string[]): void => {
     const r = read(body);
     expect(r.compiler).toHaveLength(starts.length);
@@ -455,7 +444,6 @@ export function f(): f32 {
   });
 });
 
-// The programs of a seventh review, at 2fc7beee: each gave a result JavaScript does not give.
 describe('what runs where it is not written: accessors, functions declared inside, constructors', () => {
   it('reads a local whose name starts like the built object as another variable', () => {
     refuses(

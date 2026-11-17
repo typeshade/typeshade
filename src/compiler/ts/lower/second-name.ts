@@ -1,17 +1,6 @@
-// ═══ A second name is the same place (Rule 8.8, change 0142, Amendment A3, rule 1) ═══
-//
-// Implements: Rule 6.10, Rule 8.8, Rule 8.28 (docs/language-design.md; traced in reqs/).
-//
-// `const q = ps[i]`, `let q = h.c`, `const q = p` and `let b = f(a)` (where every `return` of `f`
-// names one parameter) make `q` a name of an object that already has a name. In JavaScript the
-// two names are one object. The lowering therefore emits no declaration for `q`: each use of `q`
-// is the place, as each use of a loop's name is the element it names (`lowerForOf`).
-//
-// A declaration of an object that is none of these (the result of a call that may give back an
-// object that has a name, a `?:` over two objects) is a copy, and a copy has JavaScript's result
-// only where nothing writes an object around it (rule 4). Everything else is refused, as not
-// supported yet, and never compiled to a copy JavaScript would not make (OD-9).
+// Why: Implements: Rule 6.10, Rule 8.8, Rule 8.28 (docs/language-design.md; traced in reqs/).
 
+import { copiedObjectsActive } from '../../../core/copied-objects.js';
 import ts from 'typescript';
 import { logicalTypeKey as typeKey, optionalInner } from '../optional.js';
 import type { Expr } from '../../../core/ir/nodes.js';
@@ -35,9 +24,6 @@ function pushDiag(
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }
 
-/** An index in a place that is no literal is read once, into a name of the compiler's own: the
- *  place is then the one the declaration (or the loop) named, whatever the index becomes after.
- *  `undefined` where the statement cannot hold a name for it. */
 export function holdIndexesOnce(e: Expr, scope: LoweringScope): Expr | undefined {
   if (e.op === 'member') {
     const base = holdIndexesOnce(e.base, scope);
@@ -53,7 +39,6 @@ export function holdIndexesOnce(e: Expr, scope: LoweringScope): Expr | undefined
   return e;
 }
 
-/** Whether `e` is a name or a chain of fields and elements of one: a place. */
 function isPlaceChain(e: Expr): boolean {
   for (let at = e; ; at = at.base) {
     if (at.op === 'varref' || at.op === 'param' || at.op === 'externref') return true;
@@ -61,19 +46,12 @@ function isPlaceChain(e: Expr): boolean {
   }
 }
 
-/**
- * A name that takes a copy of an object that may already have a name (rule 4): the result of a
- * call, a `?:` over two objects, a name a pattern reads out of an object. A copy has JavaScript's
- * result only where it is a `const` and the function writes no object around it. Returns whether
- * the copy is allowed, having said why when it is not.
- */
 export function copyOfObject(
   decl: ts.VariableDeclaration,
   name: ts.Node,
   isConst: boolean,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-  /** The lowered type of the object: where no body writes it, the copy stands (rule 6). */
   type: ShaderType,
 ): boolean {
   if (isConst && !objectWrittenAround(decl, sourceFile)) return true;
@@ -90,33 +68,9 @@ export function copyOfObject(
       `names is not supported yet (change 0142, stage 2). Read what you need from the call ` +
       `first, or write through the name that holds the object.`,
   });
-  // The declaration is a copy; the refusal, if rule 6 keeps it, is the diagnostic.
   return true;
 }
 
-let copying = false;
-
-/** Run `f` with every declaration of an object a copy: the one statement of a debugger's watch
- *  reads a value at one moment, where a second name and a copy are the same. */
-export function withCopiedObjects<R>(f: () => R): R {
-  const was = copying;
-  copying = true;
-  try {
-    return f();
-  } finally {
-    copying = was;
-  }
-}
-
-/**
- * `const q = <place>` or `let q = <place>` where the place holds an object: `q` is a name of that
- * place (`'bound'`). A declaration of any other object that is not new is a copy where rule 4
- * allows one (`'none'`), and is refused otherwise (`'refused'`). A new object, and a value, are
- * `'none'` too: the declaration is the ordinary one.
- *
- * A second name that is assigned whole later (`q = r`) names an object the compiler must follow
- * at each write, which is stage 2. So is one that a function inside the body uses.
- */
 export function secondNameOf(
   decl: ts.VariableDeclaration,
   init: Expr,
@@ -127,7 +81,7 @@ export function secondNameOf(
 ): 'bound' | 'refused' | 'none' {
   const type = annotated ?? init.type;
   if (!isObjectType(type) && !isObjectType(init.type)) return 'none';
-  if (copying || !ts.isIdentifier(decl.name) || decl.initializer === undefined) return 'none';
+  if (copiedObjectsActive() || !ts.isIdentifier(decl.name) || decl.initializer === undefined) return 'none';
   if (isNewObject(decl.initializer, sourceFile, init.type)) return 'none';
   const name = decl.name.text;
   const list = decl.parent as ts.VariableDeclarationList;
@@ -139,8 +93,6 @@ export function secondNameOf(
     pushDiag(diagnostics, sourceFile, node, message, TS_CODES.UNSUPPORTED);
     return 'refused';
   };
-  // A name of the same type that the lowering can name again: a local, a parameter or a binding
-  // by its own name, or any place of one (an element, a field, the element a loop names).
   const sameType = typeKey(init.type) === typeKey(type) && optionalInner(init.type) === undefined;
   const plain =
     target !== undefined &&
@@ -149,7 +101,6 @@ export function secondNameOf(
     (target.kind === 'local' || target.kind === 'param' || target.kind === 'binding') &&
     typeKey(target.type) === typeKey(type);
   if (!sameType || !(plain || isPlaceChain(init))) {
-    // A base class's view of the object has its own refusal (change 0110).
     if (
       optionalInner(type) === undefined &&
       optionalInner(init.type) === undefined &&
@@ -172,12 +123,8 @@ export function secondNameOf(
         `supported yet (change 0142, stage 2). Use the first name in that function.`,
     );
   }
-  // A compound assignment or an increment of an object is a type error of its own, which the
-  // declaration as a copy leaves to the statement that writes it.
   if (uses.some((u) => wholeWrite(u) === 'compound')) return 'none';
   const assigned = uses.some((u) => wholeWrite(u) === 'assign');
-  // A name that is assigned again later cannot be the place. It is a copy, which stands where no
-  // body writes the object's type (rule 6), and is refused otherwise.
   if (assigned) {
     deferRefusal(diagnostics, {
       sourceFile,
@@ -213,7 +160,6 @@ export function secondNameOf(
     mutable: plain ? target!.mutable : mutable,
   });
   if (plain) return 'bound';
-  // Each use of the name is the place, read once where the name is declared.
   const fixed = holdIndexesOnce(init, scope);
   if (fixed === undefined) {
     return refuse(
@@ -227,7 +173,6 @@ export function secondNameOf(
   return 'bound';
 }
 
-/** Whether a function lies between `n` and `region`. */
 function functionBetween(n: ts.Node, region: ts.Node): boolean {
   for (let at = n.parent; at !== undefined && at !== region; at = at.parent)
     if (ts.isFunctionLike(at)) return true;

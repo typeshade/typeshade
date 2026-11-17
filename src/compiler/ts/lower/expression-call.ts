@@ -384,9 +384,6 @@ export function lowerCall(
       const seen: { recv?: Expr } = {};
       const viaClass = lowerClassCall(node, callee, sourceFile, scope, diagnostics, seen);
       if (viaClass !== 'not-a-class-call') return viaClass;
-      // `xs.slice()` is a new array of the same elements, as in JavaScript (change 0142, Table 3).
-      // An array is a value in the IR, so what the call gives is the array read where it is
-      // written: a declaration from it holds its own elements.
       if (
         callee.name.text === 'slice' &&
         node.arguments.length === 0 &&
@@ -1398,10 +1395,6 @@ function retargetIntrinsicLiterals(
  *  node `cond ? trueValue : falseValue` already lowers to, so the two spellings are one IR and
  *  the backends spell it as `select(f, t, c)` in WGSL and `(c ? t : f)` in GLSL. It is not a
  *  call: the oracle and both writers handle `select` as an Expr, never as an intrinsic call. */
-/** `structuredClone(v)`: JavaScript's deep copy (change 0142, Table 3). A struct, an array and a
- *  number are values in the IR, so the copy is the value read where the call is written: what is
- *  declared from it holds its own fields. An instance of a class comes back from JavaScript's
- *  `structuredClone` as a plain object with no methods, which has no type here until stage 3. */
 function lowerStructuredClone(
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,

@@ -395,15 +395,12 @@ function unparen(e: ts.Expression): ts.Expression {
   return ts.isParenthesizedExpression(e) ? unparen(e.expression) : e;
 }
 
-/** Whether a write target (`this.x`, `this.xs[i].y`, `(this).z`) is rooted in `this`, or in a
- *  local that names a part of it. */
 function rootedInThis(e: ts.Expression, parts: ReadonlyMap<string, unknown> = NO_PARTS): boolean {
   const n = unparen(e);
   if (n.kind === ts.SyntaxKind.ThisKeyword) return true;
   if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) {
     return rootedInThis(n.expression, parts);
   }
-  // A local that names a part of the object (change 0142, rule 1) is rooted in it.
   return ts.isIdentifier(n) && parts.has(n.text);
 }
 const NO_PARTS: ReadonlyMap<string, unknown> = new Map();
@@ -497,7 +494,6 @@ function writesThis(
       found = true;
       return;
     }
-    // `bump(this.n)`, where `bump` writes its object parameter, hands a place of the object to a
     // function that writes it (Rule 8.25), as `this.n = …` does.
     if (
       ts.isCallExpression(n) &&
@@ -2370,7 +2366,6 @@ export function mutatingReceiver(
     // `const v = new V(); v.setX(1.)`: a `const` that holds a value nothing else does is
     // written through as TypeScript's is, and becomes a `var` (Rule 6.10).
     if (b !== undefined && !b.mutable && b.toVar !== undefined) b.toVar();
-    // A `const` that holds a refusal of rule 4 is said by that refusal, once the module is read.
     if (
       b !== undefined &&
       !b.mutable &&

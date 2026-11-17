@@ -267,7 +267,6 @@ describe('IR equality: use typeshade vs fn()', () => {
     `);
     expect(tsResult.diagnostics).toEqual([]);
     const P = structT('P');
-    // Change 0142: `let o: P = p; o.a = x` makes `o` a second name of `p`, so `o` is built in place.
     const edsl = fn('put', { p: P, x: f32T }, f32T, ({ x }, bld) => {
       const o = bld.var('o', P, construct(P, [f32(0)]));
       member(o, 'a', f32T).assign(x);
