@@ -22,6 +22,7 @@ surface:
   - 63
   - 64
   - 65
+  - 71
   - 76
 exports: []
 exports-removed: []
@@ -41,14 +42,14 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                              |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0114, `status: accepted`, approved by the owner on 2026-11-02 (decisions D1 to D4 as recommended). The front matter is the identity and lifecycle authority. No implementation exists.                                                                                                                     |
-| Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date, not an approval date.                                                                                                                                                                                                            |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean. The owner asked whether `T[]` can replace `array<T>`, whether `array<T, N>` should be replaced by `Array<T, N>` or by a type of TypeShade's own, and how `readonly T[]` fits. The owner approved the direction this draft records ("승인"). |
-| Applicability / effectivity   | `docs/language-design.md` (Rules 4.5, 6.1, 6.2, 9.6), `docs/use-typeshade-surface.md` (§1, §7, §14, §18, §20, §28, §63), `docs/typeshade-plan.md` (area B), the front end, the language service's ambient library, the binding reflection and the runtime's bind-group layout. No release version is assigned.      |
-| Review baseline               | `main` at `9afe73a` (2026-11-02).                                                                                                                                                                                                                                                                                   |
-| Review and revision authority | Pull request [#880](https://github.com/typeshade/typeshade/pull/880) (branch `claude/proposal-0114-arrays`). Git records the revisions of this file; the merge of its pull request with `status: accepted` records the decision.                                                                                    |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0114, `status: accepted`, approved by the owner on 2026-11-02 (decisions D1 to D4 as recommended). The front matter is the identity and lifecycle authority. No implementation exists.                                                                                                                                                                                                                             |
+| Date and attribution          | Authored 2026-11-02, UTC, by a Claude Code agent. The date is the authorship date, not an approval date.                                                                                                                                                                                                                                                                                                                    |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean. The owner asked whether `T[]` can replace `array<T>`, whether `array<T, N>` should be replaced by `Array<T, N>` or by a type of TypeShade's own, and how `readonly T[]` fits. The owner approved the direction this draft records ("승인").                                                                                                         |
+| Applicability / effectivity   | `docs/language-design.md` (Rules 4.5, 6.1, 6.2, 9.6; Amendment A1: 8.18, 8.21, 8.22, 8.23, 11.13), `docs/use-typeshade-surface.md` (§1, §7, §14, §18, §20, §28, §63, §76; Amendment A1: §64, §65, §71), the host call (Amendment A1), `docs/typeshade-plan.md` (area B), the front end, the language service's ambient library, the binding reflection and the runtime's bind-group layout. No release version is assigned. |
+| Review baseline               | `main` at `9afe73a` (2026-11-02).                                                                                                                                                                                                                                                                                                                                                                                           |
+| Review and revision authority | Pull request [#880](https://github.com/typeshade/typeshade/pull/880) (branch `claude/proposal-0114-arrays`). Git records the revisions of this file; the merge of its pull request with `status: accepted` records the decision.                                                                                                                                                                                            |
 
 ## What changes
 
@@ -309,8 +310,8 @@ sits under it.
 - [decision, owner, 2026-11-17] The spelling: the spellings of this proposal (`T[]`,
   `new Float32Array(n)`, `new Array(n).fill(v)`), "좋아요", after the owner asked how
   TypeScript writes it. The owner had first chosen `array<T>(n)`, the same day, among options
-  that did not show this proposal. That choice, its Rule 9.2 exception and `array.of(x)` are
-  withdrawn.
+  that did not show this proposal. The owner's later choice withdraws that choice, its Rule 9.2
+  exception and `array.of(x)`.
 - [decision, owner, 2026-11-17] The result's host value: the value a kernel's array parameter
   takes (Rule 8.21), "네".
 - [decision, owner, 2026-11-17] The form of the change: stage S5 of this proposal, not a
@@ -318,9 +319,9 @@ sits under it.
   binds an array parameter, first. When the arena exists (plan units A1 and A2), the storage
   moves to a region of the arena reserved for the call. The owner: "권도안대로", to these two
   recommendations.
-- [fact] The change rests on OD-1 (TypeScript's way of writing), OD-3 (the compiler allocates;
+- [inference, agent] The change rests on OD-1 (TypeScript's way of writing), OD-3 (the compiler allocates;
   the author states only the length), OD-5 (each constructor keeps its JavaScript meaning; a
-  returned array is the caller's), OD-7 (an integer literal takes the type its use needs) and
+  returned array is the caller's), OD-7 (a length takes the number type its value has) and
   OD-9. It reverses no entry.
 
 **One example, before and after.**
@@ -374,35 +375,47 @@ constant, in one place: a kernel function that returns the array. It adds no spe
    position. Until then they are refused as S2 refuses them.
 
 3. Rule 8.23: the array is a `const` at the top level of the body, before the first candidate
-   loop. In a function with no loop (Rule 8.22, decision D7 of change 0142), it comes before the
+   loop. In a function with no loop (Rule 8.22, change 0094, decision D7), it comes before the
    first store.
-4. Rule 8.23: `n` is a `u32` or an `i32` (OD-7). It reads only these operands, which the host
-   evaluates before the dispatch:
+4. Rule 8.23: `n` has any number type of the program: `u32`, `i32` or `f32` (OD-7). The host
+   evaluates it before the dispatch, with the program's arithmetic. It reads only these
+   operands:
    - a scalar value parameter, a component of a vector parameter, a field of a struct parameter;
    - a module constant;
    - the `.length` of an array parameter;
-   - an integer literal, and `u32(…)` and `i32(…)` of a listed operand;
+   - a number literal, and `u32(…)`, `i32(…)` and `f32(…)` of a listed operand;
    - a top-level `const` of the function whose initializer reads only listed operands;
-   - integer `+`, `-`, `*`, `/`, `%`, `min` and `max`, with the program's arithmetic: `size *
-size` of two `u32`s wraps as a `u32` does, and `/` and `%` by zero follow WGSL's integer
-     rules.
-5. Rule 8.22's body shape: the new array is one of the function's arrays. Its loops read and
-   write it. A store after the last loop stores into it. The function ends with `return out` on
+   - `+`, `-`, `*`, `/`, `%`, `min` and `max`, with the program's arithmetic: `size * size` of
+     two `u32`s wraps as a `u32` does, and `/` and `%` by zero follow WGSL's rules.
+
+   A value of `n` that is negative or not an integer (an `f32` such as `2.5`) throws a
+   `RangeError` that names the function and the length, before anything runs, as JavaScript's
+   `new Float32Array(2.5)` and `new Array(-1)` throw one.
+
+5. Rule 8.22's body shape: the new array is one of the function's arrays. Its constructor is
+   its value at allocation, not a statement that writes it: zeros for `new Float32Array(n)`, `n`
+   copies of `v` for `new Array(n).fill(v)`. So the sentence of Rule 8.22 that sends a function
+   whose statements before a loop write an array to the CPU does not apply to it, and S5 edits
+   that sentence to say so. Its loops read and write it. A store after the last loop stores into it. The function ends with `return out` on
    every path. `out.length` reads `n` on every tier.
-6. Rule 8.21, a call with plain data: the result's host value is the value a kernel's array
-   parameter takes: the scalar's typed array, a vector's components one after another, an array
-   of objects for a struct. A struct element is laid out as proposal 0082 lays out a parameter.
-   The host view gives one type: `Promise<Float32Array>` for `f32[]` and `vec4f[]`,
-   `Promise<T[]>` for a struct `T`. The caller owns the result.
+6. Rule 8.21, a call with plain data: the result's host value is the value Rule 8.21 gives an
+   array parameter of the same element type, in one form, not the parameter's union: the
+   scalar's typed array for a scalar or vector element (a vector's components one after
+   another), and an array of objects for a struct, laid out as change 0082 lays out a parameter.
+   For example, the host view gives `Promise<Float32Array>` for `f32[]` and `vec4f[]`,
+   `Promise<Int32Array>` for `i32[]`, and `Promise<T[]>` for a struct `T`. The implementing pull
+   request lists the form of each element type Rule 8.21 admits. The caller owns the result.
 7. Rule 8.21, a call on a resource: the result is a new `Buffer` on the call's device, of the
    scalar for a scalar or vector element, or a `Buffer<C>` for an element of an exported class
-   `C`. The caller owns it and disposes it (Rule 11.8).
+   `C`, as Rule 8.21 and change 0138 (Amendment A10, Q-C; Amendment A11, Q-I) give for a
+   parameter. The caller owns it and disposes it (Rule 11.8). Rule 11.8 admits no `Buffer` of
+   length 0, so a call on a resource with `n = 0` throws a `RangeError` that says a `Buffer` of
+   length 0 is not supported yet (open item 1).
 8. Every tier treats the new array as an array parameter of `n` elements, with that tier's
-   limit: WebGPU (a storage binding), WebGL2 (the data texture of 2048 columns,
+   limit, and past the limit does what it does for such a parameter: WebGPU (a storage binding), WebGL2 (the data texture of 2048 columns,
    `src/core/host-kernel-gl.ts`, `MAX_W`), the WebAssembly tier (proposal 0042) and the
-   JavaScript CPU tier (a typed array). A negative `n` throws a `RangeError` that names the
-   function and the length before anything runs, as JavaScript's constructors throw one. For
-   `n = 0` the result is empty, and the call binds one element in its place.
+   JavaScript CPU tier (a typed array). For a call with plain data and `n = 0`, the result is
+   empty, and the call binds one element in its place.
 9. Indices past the end: the call makes every check against `n` that it makes for an array
    parameter, reads included (`a*i + c` with its guards, strides `i*k + b`, rows `i*W + x`). A
    failed check throws the `TypeError` that the parameter form throws for an array too short,
@@ -422,9 +435,11 @@ size` of two `u32`s wraps as a `u32` does, and `/` and `%` by zero follow WGSL's
     - a kernel function that has a 2D storage texture and makes an array;
     - the result passed to another call inside one fusion (Rule 11.13), until the fusion facts
       describe it.
-11. Kept: `new Array(n)` with no `fill` stays `TS8035` (surface §7, the `new` row), since
-    JavaScript gives an array of holes, which a shader value cannot hold. A result of an array
-    with no size that is no new array, and a struct whose last field is one, stay `TS8020`.
+11. `new Array(n)` with no `fill` gives an array of holes in JavaScript. The compiler has no
+    representation of a hole yet (change 0093 represents an optional value, not a hole). So it
+    is refused as "not supported yet" with `TS8099`, in place of today's `TS8035`, for a
+    constant length in S2 and for any length in S5. A result of an array with no size that is no
+    new array, and a struct whose last field is one, stay `TS8020` (with its interim text, below).
 
 **What S5 needs of S2.**
 
@@ -447,14 +462,13 @@ size` of two `u32`s wraps as a `u32` does, and `/` and `%` by zero follow WGSL's
 - In a `"use typeshade"` file, `new Float32Array(n)` is the shader array `f32[]`. On the host
   side of a call it is the JavaScript `Float32Array` (item 6). These are two positions of one
   name, as Rule 8.21 already gives a kernel's array parameter.
-- The editor cannot refuse an `f32` length by type alone, since the brands are optional. The
-  compiler checks the length's type and reports `TS8003`, and the editor reports the compiler's
-  code and sentence.
-- `out` is a `T[]`: its index reads a `T`, its `.length` is a `u32`, and its hover shows `f32[]`.
+- An `f32` length is accepted (item 4), so neither half refuses a length for its type.
+- `out` is a `T[]`: its index reads a `T`, and its `.length` is a `u32`. Its hover shows the
+  same type text as the hover on an array parameter `out: f32[]`.
 - Each refusal of item 10 reaches the editor with the compiler's code and sentence.
 - The test asserts both halves on the example above with `bothTake`
   (`src/core/testing/both-halves.ts`): `compile()` gives no diagnostic, the language service
-  gives none, and `getHover` on `out` shows `f32[]`. Each refusal is a `bothRefuse` case.
+  gives none, and `getHover` on `out` equals `getHover` on `out` in the parameter form. Each refusal is a `bothRefuse` case.
 
 **Costs of the owner's decisions.**
 
@@ -463,8 +477,10 @@ size` of two `u32`s wraps as a `u32` does, and `/` and `%` by zero follow WGSL's
 - `Float32Array` spells `f32` only until B2. A vector array is `new Array(n).fill(vec4f())`.
 - A vector array comes back flat (`vec4f[]` is a `Float32Array` of `4n` scalars), as a
   parameter takes it.
-- A write past the end is refused before the run for a parameter and for the result alike
-  (item 9). WGSL's robust access, which may clamp, is not relied on.
+- A write past the end is checked before the run where the range is known, and dropped where
+  the device holds the range or the store follows the loops, for a parameter and for the result
+  alike (item 9). WGSL's robust access, which may clamp, is not relied on.
+- A call on a resource with `n = 0` throws, since no `Buffer` of length 0 exists (item 7).
 - The first implementation allocates a binding for each call's new array. The arena (A1, A2)
   will reserve a region of one buffer instead. The author's program does not change.
 
@@ -477,19 +493,28 @@ size` of two `u32`s wraps as a `u32` does, and `/` and `%` by zero follow WGSL's
 - Change 0042: the WebAssembly tier holds the result as the other tiers do (item 8).
 - Change 0094: a loop whose range the device holds drops a write past the end (item 9).
 - Change 0142: Table 2's `return ps` stays. S5 adds a second kind of returned array.
+- Change 0138: Amendment A10, Q-C (a call on a resource returns a `Buffer`, and another call
+  takes it as an argument) and Amendment A11, Q-I (a `Buffer` of the scalars) are what item 7
+  rests on. Surface §7 refuses `return xs` until 0138's slice 3; Amendment A19 moves that to
+  change 0142 stage 1.
+- Change 0093: an optional value, which is no hole (item 11).
 
 **What S5 touches.**
 
-- Rule 8.18 (the `fill` sentence, through S2), Rules 8.21, 8.22 and 8.23, and Rule 11.13.
-- Surface §20 (a local array with no size), §63 (`fill`'s result), §64 (the host call's result)
-  and §65 (the kernel loop).
+- Rule 8.18 (the `fill` sentence, through S2), Rule 8.21, Rule 8.22 (the kind, the body shape,
+  and the sentence on writes before a loop), Rule 8.23, and Rule 11.13.
+- Surface §7 (the `new Array(n)` row), §20 ("The length of a runtime-sized storage array", which
+  refuses a local that holds one), §63 (`fill`'s result), §64 (the host call's result), §65
+  (the kernel loop) and §71 (the refusal inside `fuse`).
 - `exports`: none declared. A kernel function's `face` (a `KernelFace` of `HostExport`) gains the
   length expression, which the host call evaluates. `src/__api__/surface.md` prints `HostExport`
   with `face: KernelFace` only. If the bake shows the change, the implementing pull request
   amends this entry first.
-- `codes`: none. The refusals use `TS8099`, `TS8003`, `TS8035` and `TS8020`.
+- `codes`: none. The refusals use `TS8099` and `TS8020`.
 - `examples`: none added or removed. `loop-kernel` may gain the result form.
-- `docs/typeshade-plan.md`: unit B8 names this stage and the storage decision.
+- `docs/typeshade-plan.md`: unit B8 names this stage and the storage decision. A new unit,
+  B8b, carries the forms item 10 refuses (a new array in a helper, in an entry, or as a local
+  that is not returned), on the arena (A2).
 
 **Status.**
 
@@ -498,9 +523,33 @@ size` of two `u32`s wraps as a `u32` does, and `/` and `%` by zero follow WGSL's
 - The interim text of `TS8020` ("not supported yet", OD-9) is a bug fix in its own pull request.
   Not started.
 
+**Open, owner must settle.**
+
+1. A `Buffer` of length 0. Item 7 throws for `n = 0` on a resource, since Rule 11.8 admits
+   lengths 1 to 4294967295. If the owner wants an empty `Buffer`, Rule 11.8 changes in its own
+   amendment of change 0138. Until then, the throw is "not supported yet" (OD-9).
+
+**Independent review record.**
+
+- 2026-11-17, an AI agent (Claude Code) that did not write the amendment reviewed `d333fa6`
+  against `docs/owner-decisions.md`, the accepted proposals on arrays and kernel functions, and
+  the code at `main` `7513a9a`. It ran `bun scripts/changes.ts`, `src/changes.test.ts` (39
+  passed) and both halves on the refused form. Twelve findings, none blocking. It found that
+  no entry of OD-1 to OD-9 is reversed.
+- Answers, in the next commit: (1) D7 is change 0094's; (2) the constructor is the value at
+  allocation, and S5 edits Rule 8.22's sentence on writes before a loop (item 5); (3) the costs
+  agree with item 9; (4) `n = 0` on a resource throws, open item 1; (5) the hover equals the
+  parameter form's; (6) `new Array(n)` with no `fill` is "not supported yet", and an `f32`
+  length is accepted with JavaScript's `RangeError` (items 4 and 11); (7) plan unit B8b carries
+  the refused forms, and B8's dependencies name 0142 stage 1; (8) change 0138 and §71 are cited;
+  (9) past a tier's limit, the call does what it does for a parameter (item 8); (10) item 6
+  gives the rule for each element type; (11) the record names S2, §20's heading and the
+  document control; (12) labels, actor, code span, and this record.
+
 - Affects: the front matter (`rules` gains 8.18, 8.21, 8.22, 8.23 and 11.13; `surface` gains 64
-  and 65; `names` lists `Float32Array` and `Array.from`), section 2 (stage S5) and section 3 (unit
-  B8).
+  and 65 and 71; `names` lists `Float32Array` and `Array.from`), the document control's
+  applicability, section 2 (stage S5, and S2's obligation that `fill` gives its array back), and
+  section 3 (units B8 and B8b).
 - Status: `status: accepted` does not change.
 
 ## What it owes downstream
