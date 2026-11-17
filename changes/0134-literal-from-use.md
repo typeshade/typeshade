@@ -1148,6 +1148,102 @@ same bits, -2147483648, or declare a u32.`) as the others are. Each is compiled 
   follow Rule 12.5.
 - Status: `status: accepted` does not change.
 
+### Amendment A7. The owner's decisions on values the compiler cannot prove (2026-11-16 and 2026-11-17)
+
+Issues #1299 and #1319 found that the D2 walk of Amendment A6 changed values silently. Pull
+request #1304 (merged as `97acd619`, 2026-11-16) and pull request #1322 (merged as
+`f149b403`, 2026-11-17) restore D2 as Amendment A6 states it. Their reviews left choices that
+this text did not decide. The owner decided each in the Claude Code session, after the choices,
+their costs and one example each were shown (`OD-4`). This amendment records the decisions and
+the readings the code on `main` at `93c3d247` carries. The decision "name only verified edits"
+and its readings are in Amendment A6 and are not repeated here.
+
+- [decision, owner, 2026-11-16] "거부: 적은 타입만 인정" (pull request #1304). Only a type the
+  author wrote makes a typed peer of a tree. A binding with no written type is no typed peer,
+  whatever value it holds. With `let a = (0xF0000000|0);`, `let b = vi; return f32(a + b);` is
+  refused. `let b: u32 = vi; return f32(a + b);` is accepted, as D2 says.
+- [decision, owner, 2026-11-16] "증명 못 하면 거부 + 메모" (pull request #1304). A value the walk
+  cannot prove is refused, and is never accepted. These cases are unproven:
+  - a bound: more than 32 values for one node, more than 24 rounds of a group of variables that
+    read one another, the work limit, or a stack overflow;
+  - a node kind the walk does not know, where a tree can reach it;
+  - a store the walk cannot read, beside a tree;
+  - a builtin other than `abs`, `min`, `max`, `clamp` and `sign` over a tree.
+
+  The walk is memoized per file. It finds once what a tree can reach, and does not walk a node
+  that no tree reaches. A store that reads its own variable reads its earlier value.
+
+- [decision, owner, 2026-11-16] "수정 후 문구 승인" (pull request #1304). The code stays `TS8003`,
+  and the edit is verified as Amendment A6 says. The sentence of an unproven value is:
+  `The compiler cannot prove that the u32 bits and the TypeScript value of "a + b" agree, so the "f32()" does not say which value it means. Write "i32(a + b)" for the i32 value.`
+- [decision, owner, 2026-11-16] "B1·B2·D는 #1304, C는 #1309와 함께". Pull request #1304 delivers
+  three readings:
+  - B1. A type annotation that the editor's projection writes into an open import is no written
+    type. The linked compile marks those annotations, so the editor refuses what `compile()`
+    refuses (Rule 12.7).
+  - B2. A mask over an unproven value stays unproven. A mask over proven readings is computed:
+    `(a & 0xFF) + 1` compiles to 1.
+  - D. An element of a destructuring pattern that a tree reaches is unproven
+    (`let [a] = [tree]`, `let { v } = s` after `s.v = tree`).
+
+  C, a computed number past `i32` that reaches a bit operator through a variable
+  (`const c = 2e9 + 2e9; let d = c | 0; f32(d + d)`), is open with issue #1309.
+
+- [decision, owner, 2026-11-16] "두 값 유지, 다르면 거부". The result of `+`, `-`, `*`, `&`, `|`,
+  `^`, `<<` and `~` over a tree beside a typed `u32` keeps the tree's two readings. A later
+  `f32()`, comparison or `/` whose result differs between them is to be refused with the D2
+  sentence. `a + vi` alone still compiles, as D2 says. Status: decided, not implemented. On `main`
+  at `93c3d247`, `f32(a + vi)` still reads the `u32` bits (4026531847, TypeScript -268435449).
+  Issue #1307 records the work and the tests owed. Rule 5.1 and surface §13 do not state this
+  decision until that work is merged.
+- [decision, owner, 2026-11-17] "거부: let b = vi와 같게" (pull request #1322). A class field with
+  no written type is no typed peer, as `let b = vi` is not. With `s.v = vi`, `f32(a + s.v)` is
+  refused with the sentence above. A field with a written `u32` is a typed peer
+  (`v: u32 = 0` gives 4026531847).
+- [decision, owner, 2026-11-17] "단순 규칙: 타입 없는 필드는 항상 증명 못 함" (pull request #1322).
+  This replaces the tracking of each value an untyped field can hold:
+  - A field with no written type is unproven where the walk reads it: beside a tree, or in a
+    position D2 reads (`f32()`, a comparison, `/`, `%`, the builtins). This holds through a
+    property access, an element of an object pattern, `this`, a base class and a parameter or
+    variable of a written struct type.
+  - An object literal's property is a store by name into every untyped field of that name.
+  - A type parameter names no class. Its fields are read by name, and an untyped field of that
+    name is unproven.
+  - A read whose member the source does not state (`(vi > 2 ? s : s).v`) is unproven where some
+    untyped field has its name.
+  - An unproven value beside a typed peer stays unproven (`f32(s.v + vi)`).
+  - An untyped numeric field in an expression that no tree reaches is unchanged:
+    `s.v = 5; f32(s.v / 2)` is 2.5.
+  - Cost recorded: four programs that compiled with the right value are refused. An example is
+    `let a = (0xF0000000|0); s.v = 5; f32((a & 0xFF) + s.v)`, which gave 5.
+- [decision, owner, 2026-11-17] "변환식도 적은 타입" (pull request #1322). A field whose
+  initializer is a written conversion or a value-type constructor has a written type, as an
+  annotation gives one: `v = u32(0)` is a `u32` field, and `p = vec2u(0, 0)` is a `vec2u` field. A
+  field initialized by a written number (`v = 0`) has no written type.
+- [reading, 2026-11-17] E1's list of written types (Amendment A6) gains one item: a field
+  initializer that is a written conversion or value-type constructor. A call through a field
+  that holds a function has a written result where the field's written function type or its
+  arrow writes the result (`m = (x: i32): i32 => x`).
+- Example, before and after (pull request #1322, case 1):
+
+  ```ts
+  class Q { v: i32 = 0; }
+  class S2 { v = 0; w = 0; }
+  // in t:
+  let s = new S2(); s.v = (0xF0000000|0); let { v } = s; return f32(v + v);
+  ```
+
+  - Before (`97acd619`): accepted in both halves, 3758096384. TypeScript gives -536870912.
+  - After (`main` at `93c3d247`): refused in both halves with
+    `TS8003: The compiler cannot prove that the u32 bits and the TypeScript value of "v + v" agree, so the "f32()" does not say which value it means. Write "i32(v + v)" for the i32 value.`
+    The edit `f32(i32(v + v))` compiles to -536870912.
+
+- Disposition: made part of the approved text by this amendment, except "두 값 유지, 다르면 거부",
+  which stays open with issue #1307, and C, which stays open with issue #1309.
+- Affects: no front-matter field. Rules 5.1 and 12.7 and surface §13, which the front matter
+  declares, carry these readings. The sentence follows Rule 12.5.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The change is delivered in parts. `status: accepted` stays until every part is delivered and
