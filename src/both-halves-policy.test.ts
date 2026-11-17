@@ -90,14 +90,14 @@ describe('a test of a refusal reads both halves (Rule 12.7)', () => {
   });
 
   it('sees a compiler-only refusal, and spares a file that reads the editor', () => {
-    const only = `import { compile } from './compile.js';
+    const only = `import { compile } from './compiler/ts/compile.js';
 const r = compile('"use typeshade";');
 expect(r.diagnostics[0].code).toBe('TS8003');`;
-    expect(readsOnlyTheCompiler('compiler/ts/x.test.ts', only)).toBe(true);
-    const both = `${only}\nimport { bothRefuse } from '../../core/testing/both-halves.js';`;
-    expect(readsOnlyTheCompiler('compiler/ts/x.test.ts', both)).toBe(false);
-    expect(
-      readsOnlyTheCompiler('compiler/ts/x.test.ts', `// TS8003\n${only.replace('TS8003', 'x')}`),
-    ).toBe(false);
+    expect(readsOnlyTheCompiler('x.test.ts', only)).toBe(true);
+    const both = `${only}\nimport { bothRefuse } from './core/testing/both-halves.js';`;
+    expect(readsOnlyTheCompiler('x.test.ts', both)).toBe(false);
+    expect(readsOnlyTheCompiler('x.test.ts', `// TS8003\n${only.replace('TS8003', 'x')}`)).toBe(
+      false,
+    );
   });
 });
