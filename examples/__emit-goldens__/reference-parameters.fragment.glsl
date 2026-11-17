@@ -12,28 +12,30 @@ Ray Ray_new() {
   return self_;
 }
 
-void swap(inout float a, inout float b) {
-  float t = a;
-  a = b;
-  b = t;
+float[2] swap(float a, float b) {
+  return float[2](b, a);
 }
 
-void order(inout float lo, inout float hi) {
+float[2] order(float lo, float hi) {
+  float[2] _sel0;
   if ((lo > hi)) {
-    swap(lo, hi);
+    _sel0 = swap(lo, hi);
+  } else {
+    _sel0 = float[2](lo, hi);
   }
+  return _sel0;
 }
 
 void advance(inout Ray r, float t) {
   r.origin = (r.origin + (r.dir * t));
 }
 
-void lift(inout float w, float k) {
-  w = mix(w, 1.0, k);
+float lift(float w, float k) {
+  return mix(w, 1.0, k);
 }
 
 void liftAll_liftAt(inout float[3] ws, float k, int i) {
-  lift(ws[i], k);
+  ws[i] = lift(ws[i], k);
 }
 
 void liftAll(inout float[3] ws, float k) {
@@ -42,12 +44,12 @@ void liftAll(inout float[3] ws, float k) {
   liftAll_liftAt(ws, k, 2);
 }
 
-void project(mat2 m, vec2 p, inout vec2 q) {
-  q = (m * p);
+vec2 project(mat2 m, vec2 p) {
+  return (m * p);
 }
 
-void shrink(inout vec2 column, float k) {
-  column = (column * k);
+vec2 shrink(vec2 column, float k) {
+  return (column * k);
 }
 in vec2 uv;
 layout(location = 0) out vec4 color;
@@ -55,7 +57,9 @@ layout(location = 0) out vec4 color;
 void main() {
   float a = uv.x;
   float b = uv.y;
-  order(a, b);
+  float[2] _list = order(a, b);
+  a = _list[0u];
+  b = _list[1u];
   Ray r = Ray_new();
   r.origin = uv;
   r.dir = vec2(0.5, -0.25);
@@ -63,8 +67,7 @@ void main() {
   float[3] w = float[3](a, b, 0.5);
   liftAll(w, 0.25);
   mat2 basis = mat2(vec2(1.0, 0.0), vec2(0.0, 1.0));
-  shrink(basis[1], 0.5);
-  vec2 q = vec2(0.0);
-  project(basis, (uv - vec2(0.5, 0.5)), q);
+  basis[1] = shrink(basis[1], 0.5);
+  vec2 q = project(basis, (uv - vec2(0.5, 0.5)));
   color = vec4(fract((r.origin.x * 3.0)), (w[0] * w[1]), (w[2] * (1.0 - length(q))), 1.0);
 }

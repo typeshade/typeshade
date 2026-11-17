@@ -121,7 +121,7 @@ const REACH = [
   'a getter',
   'a setter',
   'a member a base class declares',
-  'a member that hands a field to an @inout parameter',
+  'a member that hands a field to a parameter its function writes',
   'a constructor with arguments',
   'a class built from its initializers',
   'a vector result',
@@ -817,7 +817,7 @@ function plan(c: ClassCase, reasons: { generic: string; takesFunction: string })
         (g) => !g.startsWith(`${c.name}_`) && funcs.get(g)?.params.some((p) => p.mode === 'inout'),
       )
     )
-      reach.add('a member that hands a field to an @inout parameter');
+      reach.add('a member that hands a field to a parameter its function writes');
     reach.add(
       ctor.length > 0 ? 'a constructor with arguments' : 'a class built from its initializers',
     );

@@ -17,24 +17,26 @@ fn Ray_new_into(_dst: ptr<function, Ray>) {
   (*_dst) = Ray(_cse0, _cse0);
 }
 
-fn swap(a: ptr<function, f32>, b: ptr<function, f32>) {
-  let t = (*a);
-  (*a) = (*b);
-  (*b) = t;
+fn swap_into(_dst: ptr<function, array<f32, 2>>, a: f32, b: f32) {
+  (*_dst) = array<f32, 2>(b, a);
 }
 
-fn order(lo: ptr<function, f32>, hi: ptr<function, f32>) {
-  if (((*lo) > (*hi))) {
-    swap(lo, hi);
+fn order(lo: f32, hi: f32) -> array<f32, 2> {
+  var _sel0: array<f32, 2>;
+  if ((lo > hi)) {
+    swap_into(&_sel0, lo, hi);
+  } else {
+    _sel0 = array<f32, 2>(lo, hi);
   }
+  return _sel0;
 }
 
 fn advance(r: ptr<function, Ray>, t: f32) {
   (*r).origin = ((*r).origin + ((*r).dir * t));
 }
 
-fn lift(w: ptr<function, f32>, k: f32) {
-  (*w) = mix((*w), 1.0, k);
+fn lift(w: f32, k: f32) -> f32 {
+  return mix(w, 1.0, k);
 }
 
 fn liftAll(ws: ptr<function, array<f32, 3>>, k: f32) {
@@ -43,12 +45,12 @@ fn liftAll(ws: ptr<function, array<f32, 3>>, k: f32) {
   liftAll_liftAt(ws, k, 2);
 }
 
-fn project(m: mat2x2<f32>, p: vec2<f32>, q: ptr<function, vec2<f32>>) {
-  (*q) = (m * p);
+fn project(m: mat2x2<f32>, p: vec2<f32>) -> vec2<f32> {
+  return (m * p);
 }
 
-fn shrink(column: ptr<function, vec2<f32>>, k: f32) {
-  (*column) = ((*column) * k);
+fn shrink(column: vec2<f32>, k: f32) -> vec2<f32> {
+  return (column * k);
 }
 
 @vertex
@@ -64,7 +66,9 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs(v: VsOut) -> Color {
   var a: f32 = v.uv.x;
   var b: f32 = v.uv.y;
-  order(&a, &b);
+  var _list: array<f32, 2> = order(a, b);
+  a = _list[0u];
+  b = _list[1u];
   var r: Ray;
   Ray_new_into(&r);
   r.origin = v.uv;
@@ -73,12 +77,11 @@ fn fs(v: VsOut) -> Color {
   var w: array<f32, 3> = array<f32, 3>(a, b, 0.5);
   liftAll(&w, 0.25);
   var basis: mat2x2<f32> = mat2x2<f32>(vec2<f32>(1.0, 0.0), vec2<f32>(0.0, 1.0));
-  shrink(&basis[1], 0.5);
-  var q: vec2<f32>;
-  project(basis, (v.uv - vec2<f32>(0.5, 0.5)), &q);
+  basis[1] = shrink(basis[1], 0.5);
+  let q = project(basis, (v.uv - vec2<f32>(0.5, 0.5)));
   return Color(vec4<f32>(fract((r.origin.x * 3.0)), (w[0] * w[1]), (w[2] * (1.0 - length(q))), 1.0));
 }
 
 fn liftAll_liftAt(ws: ptr<function, array<f32, 3>>, k: f32, i: i32) {
-  lift(&(*ws)[i], k);
+  (*ws)[i] = lift((*ws)[i], k);
 }
