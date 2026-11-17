@@ -352,6 +352,16 @@ f32(v / 2)` after `s.v = ii` is refused, as `f32(s.v / 2)` is. A swizzle of a sw
     owner's decision of 2026-11-17, "변환식도 적은 타입"); a field of a plain number (`v = 0`)
     does not.
 
+- **D2 keeps the two readings of an operation beside a typed u32** (issue #1307; change 0134,
+  Amendment A7, the owner's decision of 2026-11-16, "두 값 유지, 다르면 거부"). With
+  `let a = (0xF0000000|0);`, `f32(a + vi)` gave 4026531847, where TypeScript gives -268435449,
+  and `(a + vi) > vi` and `(a + vi) / vi` read the u32 bits too. The result of `+ - * & | ^`
+  beside a typed u32, and `~` of it, now keeps the tree's two readings: a later `f32()`,
+  comparison, `/`, `%` or builtin is refused in both halves with the approved unproven sentence
+  and a verified edit (`f32(i32(a + vi))`, `u32(a + vi) / vi`). `a + vi` alone still compiles.
+  An exported function with no written result that returns such a value is refused too, as D2
+  refuses every exported result whose readings differ.
+
 - **D2 keeps the two readings of a u32 tree's variable through a store and a typed shift amount**
   (issue #1331; change 0134, Amendments A6 and A7). With `let a: i32 = 31; let c =
 (3000000000|0); c = 9;`, `f32(((c << a) < vi) ? 1 : 0)` gave 0, where TypeScript gives 1. A

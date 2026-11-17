@@ -44,7 +44,9 @@ import type { AbstractConstDecl, AbstractConstRead } from './symbols.js';
 import { loweredTypeOf } from './symbols.js';
 import {
   constantTree,
+  COMPOUND_BASE,
   isBigNumber,
+  returnsOf,
   scalarOfTypeText,
   skipParenNodes,
   writtenBitTree,
@@ -4041,17 +4043,6 @@ function builtinReadings(
   return boundedReadings(out);
 }
 
-/** The expressions every `return` of `body` gives, outside the functions inside it. */
-function returnsOf(body: ts.Block): ts.Expression[] {
-  const returns: ts.Expression[] = [];
-  const walk = (x: ts.Node): void => {
-    if (ts.isReturnStatement(x) && x.expression !== undefined) returns.push(x.expression);
-    else if (!ts.isFunctionLike(x)) ts.forEachChild(x, walk);
-  };
-  ts.forEachChild(body, walk);
-  return returns;
-}
-
 /** The values of `left op right`, the binary expression `node` or a compound assignment's;
  *  `undefined` for an operator the walk does not read. */
 function binaryReadingsOf(
@@ -4141,6 +4132,15 @@ function binaryReadingsOf(
   ) {
     return [UNPROVEN];
   }
+  const typedSide = as.length === 0 ? left : bs.length === 0 ? right : undefined;
+  if (typedSide !== undefined && k !== ts.SyntaxKind.LessThanLessThanToken && !shiftByTypedAmount) {
+    const besideTyped = typedSide === left ? bs : as;
+    const flow = { sourceFile, refused: new Set<ts.Node>(), tainted: new Map(), reached: [] };
+    const peer = peerScalar(typedSide, flow);
+    if (peer !== 'i32' && peer !== 'f32' && besideTyped.some((x) => x.tree && x.u32 !== x.ts)) {
+      return [UNPROVEN];
+    }
+  }
   const pure = readsOnly(node, sourceFile);
   const out: Reading[] = [];
   for (const a of as) {
@@ -4169,17 +4169,6 @@ function binaryReadingsOf(
   }
   return boundedReadings(out);
 }
-
-/** The operator a compound assignment applies (`^=` is `^`). */
-const COMPOUND_BASE = new Map<ts.SyntaxKind, ts.BinaryOperator>([
-  [ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.PlusToken],
-  [ts.SyntaxKind.MinusEqualsToken, ts.SyntaxKind.MinusToken],
-  [ts.SyntaxKind.AsteriskEqualsToken, ts.SyntaxKind.AsteriskToken],
-  [ts.SyntaxKind.BarEqualsToken, ts.SyntaxKind.BarToken],
-  [ts.SyntaxKind.AmpersandEqualsToken, ts.SyntaxKind.AmpersandToken],
-  [ts.SyntaxKind.CaretEqualsToken, ts.SyntaxKind.CaretToken],
-  [ts.SyntaxKind.LessThanLessThanEqualsToken, ts.SyntaxKind.LessThanLessThanToken],
-]);
 
 /** One refusal of an operation whose result differs between a tree's two readings (D2): its
  *  operand, the operation, and the diagnostic as it stands. Its edit is chosen and verified with

@@ -53,3 +53,23 @@ export function writtenBitTree(node: ts.Expression): boolean {
     k === ts.SyntaxKind.GreaterThanGreaterThanToken;
   return bit && leaf(n.left) && leaf(n.right);
 }
+
+export function returnsOf(body: ts.Block): ts.Expression[] {
+  const returns: ts.Expression[] = [];
+  const walk = (x: ts.Node): void => {
+    if (ts.isReturnStatement(x) && x.expression !== undefined) returns.push(x.expression);
+    else if (!ts.isFunctionLike(x)) ts.forEachChild(x, walk);
+  };
+  ts.forEachChild(body, walk);
+  return returns;
+}
+
+export const COMPOUND_BASE = new Map<ts.SyntaxKind, ts.BinaryOperator>([
+  [ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.PlusToken],
+  [ts.SyntaxKind.MinusEqualsToken, ts.SyntaxKind.MinusToken],
+  [ts.SyntaxKind.AsteriskEqualsToken, ts.SyntaxKind.AsteriskToken],
+  [ts.SyntaxKind.BarEqualsToken, ts.SyntaxKind.BarToken],
+  [ts.SyntaxKind.AmpersandEqualsToken, ts.SyntaxKind.AmpersandToken],
+  [ts.SyntaxKind.CaretEqualsToken, ts.SyntaxKind.CaretToken],
+  [ts.SyntaxKind.LessThanLessThanEqualsToken, ts.SyntaxKind.LessThanLessThanToken],
+]);

@@ -55,19 +55,9 @@ import {
   wrap,
   type T,
   type V,
+  unaryValue,
 } from './issue-1261-differential/oracle.js';
-
-/** mulberry32: a small generator with a fixed seed, so the corpus is the same on every run. */
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+import { rng } from './issue-1261-differential/rng.js';
 
 const INPUTS = { ii: -3, vi: 7, f: 2.5 } as const;
 /** The imported file: the same exports in each, and in three of them one more that the file
@@ -202,12 +192,7 @@ class Program {
       value: () => {
         const x = a.value();
         if (x.t === 'bool') throw new Skip('bool');
-        if (op === '~') {
-          if (x.t === 'f32') throw new Skip('f32 bits');
-          return { t: x.t, v: wrap(x.t, ~x.v) };
-        }
-        if (x.t === 'u32') throw new Skip('negated u32');
-        return { t: x.t, v: wrap(x.t, -x.v) };
+        return unaryValue(op, x);
       },
     };
   }
@@ -223,7 +208,7 @@ class Program {
           return { t, v: vs[2]!.v ? vs[1]!.v : vs[0]!.v };
         }
         const t = vs.slice(1).reduce((acc, v) => unify({ t: acc, v: 0 }, v), vs[0]!.t);
-        const xs = vs.map((v) => v.v);
+        const xs = vs.map((v) => v.ts ?? v.v);
         if (t === 'bool') throw new Skip('bool');
         switch (fn) {
           case 'abs':
@@ -254,7 +239,7 @@ class Program {
         if (cv.t !== 'bool') throw new Skip('cond');
         const [x, y] = [a.value(), b.value()];
         const t = unify(x, y);
-        return { t, v: cv.v ? x.v : y.v };
+        return { ...(cv.v ? x : y), t };
       },
     };
   }
@@ -809,6 +794,13 @@ class Program {
       let e = this.bin(op, this.name(l), amount);
       if (this.chance(0.3))
         e = this.bin(this.pick(['+', '-']), e, this.name(this.pick(['a', 'c'])));
+      if (this.chance(0.35)) {
+        const beside = this.pick(['+', '-', '*', '&', '|', '^']);
+        e = this.chance(0.5)
+          ? this.bin(beside, e, this.name('vi'))
+          : this.bin(beside, this.name('vi'), e);
+        if (this.chance(0.2)) e = this.unary('~', e);
+      }
       if (this.chance(0.25)) {
         this.lines.push(`let d = ${e.text};`);
         const held = e;
