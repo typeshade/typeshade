@@ -50,7 +50,7 @@ jobs:
         with:
           repository: typeshade/typenn
           # Update deliberately so a downstream change cannot silently change this gate.
-          ref: 97e67ead6d8afde601dd3bd25e00af56a3aa4485
+          ref: 794aa4679630fa3f1d889ab29e30ef6a03cfbcf3
           path: .downstream/typenn
           persist-credentials: false
       - name: install downstream dependencies
