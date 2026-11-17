@@ -1,12 +1,11 @@
 ---
 id: '0143'
-title: A kernel function makes an array with `array<T>(n)` and returns it, as a TypeScript function returns one
+title: A kernel function makes an array whose length its arguments give, as TypeScript makes one (proposal 0114), and returns it
 status: draft
 rules:
   - '8.21'
   - '8.22'
   - '8.23'
-  - '9.2'
   - '11.13'
 surface:
   - 20
@@ -20,33 +19,34 @@ examples: []
 names: []
 downstream:
   - repo: typeshade.github.io
-    what: The reference pages for Rules 8.21, 8.22, 8.23 and 9.2 and the pages for surface §20, §64 and §65 gain the result form; no page that writes the parameter form changes.
+    what: The reference pages for Rules 8.21, 8.22 and 8.23 and the pages for surface §20, §64 and §65 gain the result form; no page that writes the parameter form changes.
   - repo: vscode-typeshade
     what: The skill's description of a kernel function gains the result form; compiler-changes.md records 0143 when the pin moves.
 ---
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0143, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Date and attribution          | Drafted 2026-11-17 (UTC) by an AI agent (Claude Code) at the owner's request. Revision 2, the same day, records the owner's answer to Q1 and the review of revision 1 (`a5e336c`). Revision 3, the same day, records the owner's answer to Q2 and the review of revision 2 (`12c65a6`). Revision 4, the same day, answers the re-review of revision 3 (`42f63a4`).                                                                                                                            |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-17, in Korean. Asked whether `render(k: vec4, size: u32): array<f32>` can replace an `out` parameter, and, told it cannot: "안되는건 사실 말이 안되죠? typeshade 는 typescript 와 같은 계열의 언어인데".                                                                                                                                                                                                                             |
-| Applicability / effectivity   | Expected: Rules 8.21, 8.22, 8.23 and 9.2 of `docs/language-design.md`; surface §20, §64 and §65; the front end (`src/compiler/ts/lower/runtime-array.ts`, `src/compiler/ts/lower/expression-array.ts` and the kernel-function analysis); the host call on WebGPU, WebGL2 and the CPU tier (`src/core/host-kernel.ts`, `src/core/host-kernel-gl.ts`); the host face (`HostExport`) and the host view; the ambient library (`src/language-service/ambient.ts`). No release version is assigned. |
-| Review baseline               | `main` at `7513a9a` (merge of pull request #1350), read on 2026-11-17.                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Review and revision authority | Pull request #1351 (draft). Git records the revisions of this file. The review and the merge of the proposal's pull request record the decision.                                                                                                                                                                                                                                                                                                                                              |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0143, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                                                                                                                                                                                          |
+| Date and attribution          | Drafted 2026-11-17 (UTC) by an AI agent (Claude Code) at the owner's request. Revisions 2 to 4, the same day, record the owner's answers and three independent reviews. Revision 5, the same day, moves the spelling onto accepted proposal 0114, at the owner's decision.                                                                                                                                                                         |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-17, in Korean. Asked whether `render(k: vec4, size: u32): array<f32>` can replace an `out` parameter, and, told it cannot: "안되는건 사실 말이 안되죠? typeshade 는 typescript 와 같은 계열의 언어인데".                                                                                                                                                                                  |
+| Applicability / effectivity   | Expected: Rules 8.21, 8.22, 8.23 and 11.13 of `docs/language-design.md`; surface §20, §64 and §65; the front end (`src/compiler/ts/lower/runtime-array.ts` and the kernel-function analysis); the host call on WebGPU, WebGL2 and the CPU tier (`src/core/host-kernel.ts`, `src/core/host-kernel-gl.ts`); the host face (`HostExport`) and the host view; the ambient library (`src/language-service/ambient.ts`). No release version is assigned. |
+| Review baseline               | `main` at `7513a9a` (merge of pull request #1350), read on 2026-11-17.                                                                                                                                                                                                                                                                                                                                                                             |
+| Review and revision authority | Pull request #1351 (draft). Git records the revisions of this file. The review and the merge of the proposal's pull request record the decision.                                                                                                                                                                                                                                                                                                   |
 
 ## What changes
 
 A kernel function can make one array whose length its arguments give, write it, and return
-it. The host knows the length before the kernel runs, so the host call allocates the storage
-and gives it back as the result.
+it. It makes the array as TypeScript makes one, in the spellings accepted proposal 0114 gives
+the surface. The host knows the length before the kernel runs, so the host call allocates the
+storage and gives it back as the result.
 
-Before, at proposal 0142 stage 1 (#1324, which removes `@inout`), the author writes the result
-as a parameter:
+Before, at proposal 0142 stage 1 (#1324, which removes `@inout`) and 0114 stage S1 (#934,
+`T[]`), the author writes the result as a parameter:
 
 ```ts
-export function render(k: vec4, size: u32, out: array<f32>) {
+export function render(k: vec4, size: u32, out: f32[]) {
   for (let i: u32 = 0; i < size * size; i++) {
     const p = vec2(f32(i % size), f32(i / size)) / f32(size);
     out[i] = height(p, k);
@@ -58,12 +58,11 @@ const img = new Float32Array(512 * 512);
 await render(k, 512, img);
 ```
 
-After this change, the author may also write it as a result. The spelling `array<T>(n)` is the
-owner's answer to Q1:
+After this change, the author may also write it as a result:
 
 ```ts
-export function render(k: vec4, size: u32): array<f32> {
-  const out = array<f32>(size * size);
+export function render(k: vec4, size: u32): f32[] {
+  const out = new Float32Array(size * size);
   for (let i: u32 = 0; i < size * size; i++) {
     const p = vec2(f32(i % size), f32(i / size)) / f32(size);
     out[i] = height(p, k);
@@ -77,42 +76,53 @@ const img: Float32Array = await render(k, 512);
 
 The parameter form stays.
 
+### How this extends proposal 0114
+
+Proposal 0114 (accepted 2026-11-02, not implemented) decides how an array is written:
+
+- an array whose size is unknown is TypeScript's array, `T[]` (stage S1); `array<T>` leaves the
+  surface (S4);
+- a value is built as TypeScript builds it: `new Array(N).fill(v)`, `new Float32Array(N)`,
+  `Array.from({ length: N }, f)` and an array literal give `array<T, N>` when `N` is a constant
+  (S2); the constructor `array<T, N>(...)` and `fill<T, N>(v)` leave the surface (S4).
+
+This proposal takes the same constructors where `N` is no constant: in a kernel function, with a
+length its arguments give, the result is a `T[]` whose storage the host call allocates. It adds
+no spelling of its own.
+
 ### What refuses the second form today
 
-At `main` `7513a9a`, four refusals stand in the way. This change lifts each one for the shape
-below, and only for it.
+At `main` `7513a9a`, these refusals stand in the way. 0114 lifts the spellings; this change
+lifts the rest, for the shape below only.
 
 1. The result: `TS8020`, "This function returns array<f32>, an array with no size, which lives
    only in a storage binding because its length is known only when the host binds it. Read the
    binding by its name where the value is needed." (`runtime-array.ts`,
    `refuseRuntimeArraySignature`).
-2. The local: a local whose type holds `array<T>` is `TS8099` (surface §20,
+2. The local: a local whose type holds an array with no size is `TS8099` (surface §20,
    `refuseRuntimeArrayLocal`).
-3. The constructor: `array<u32>()` is `TS8099`, "has no zero value: an array with no size lives
-   only in a storage binding" (`expression-array.ts`). `array<f32>(x)`, with one argument, is
-   read today as a list of one element and refused with `TS8099`, "Give the array a size:
-   array<f32, 1>".
+3. The constructors: `Float32Array` is `TS8022` ("Unknown identifier") in both halves, and
+   `Array` has no constructor in the ambient library. 0114 S2 adds them, for a constant length.
 4. The kind: under Rule 8.22, a function is a kernel function only if it takes an array with no
    size or a 2D storage texture, so `render(k, size)` is a helper; and Rule 8.22's body shape
    allows only "an optional `return` of scalars".
 
 ### The rules, in short
 
-1. Rule 8.22: a kernel function is also an exported function whose result is `array<T>`, with
-   `T` a type a kernel's `array<T>` parameter may hold.
-2. Rule 9.2: a third recorded exception. `array<T>(n)`, with an element type and one argument,
-   makes an array of `n` elements, each the zero of `T`, as `array<T, N>()` does for a sized
-   array (change 0047). Its source is ECMA-262's `Array(len)`, where one number argument is a
-   length, as the `Math` arity exception's source is ECMA-262 (§2.1, Rule 13.6). `array` is
-   already a name of WGSL; this is a new signature of it, not a new name, so `names` stays
-   empty and §9.3 does not change. Rule 9.2's rationale and its "Enforced by" line gain the
-   exception, and `surface-names.test.ts` pins every declared signature of `array`, as it pins
-   `f64`'s.
-3. Rule 8.23: the function makes one such array, as a `const` at the top level of its body,
-   before its first candidate loop, or, in a function with no loop (Rule 8.22, decision D7),
-   before its first store.
-4. Rule 8.23: `n` is a `u32` or an `i32` (OD-7: a literal takes the type its use needs). It may
-   read only these operands, which the host can evaluate before the dispatch:
+1. Rule 8.22: a kernel function is also an exported function whose result is an array with no
+   size (`T[]`, or `array<T>` until 0114 S4), with `T` a type a kernel's array parameter may
+   hold.
+2. Rule 8.23: the function makes one array with one of 0114's constructors and a length `n`
+   that rule 4 admits:
+   - `new Float32Array(n)`, `new Int32Array(n)`, `new Uint32Array(n)`, `new Float64Array(n)`:
+     `n` zeros of the scalar, as in JavaScript;
+   - `new Array<T>(n).fill(v)`, for any `T` the array may hold: `n` copies of `v`, as in
+     JavaScript.
+3. Rule 8.23: it makes the array as a `const` at the top level of its body, before its first
+   candidate loop, or, in a function with no loop (Rule 8.22, decision D7), before its first
+   store.
+4. Rule 8.23: `n` is a `u32` or an `i32` (OD-7). It may read only these operands, which the host
+   can evaluate before the dispatch:
    - a scalar value parameter, a component of a vector parameter, a field of a struct
      parameter;
    - a module constant;
@@ -125,14 +135,15 @@ below, and only for it.
 5. Rule 8.22's body shape: the new array is one of the function's arrays. Its loops write and
    read it, the stores after the last loop store into it, and the function ends with
    `return out` on every path. `out.length` reads `n` on every tier.
-6. Rule 8.21: the result's host value is the one a kernel's `array<T>` parameter takes (Q2):
-   the scalar's typed array, a vector's components one after another, an array of objects for a
+6. Rule 8.21: the result's host value is the one a kernel's array parameter takes (Q2): the
+   scalar's typed array, a vector's components one after another, an array of objects for a
    struct. The host view gives one type, not the parameter's union: `Promise<Float32Array>` for
-   `array<f32>` or `array<vec4f>`, `Promise<T[]>` for a struct `T`. The caller owns the result
-   and may write it.
+   `f32[]` or `vec4f[]`, `Promise<T[]>` for a struct `T`. The caller owns the result and may
+   write it.
 7. Rule 8.21, on a resource: the result is a new `Buffer` on the device the call ran on: a
    `Buffer` of the scalar for a scalar or a vector element, a `Buffer<C>` for an element of an
-   exported class `C`, as Rule 8.21 gives for a parameter. The caller owns it and disposes it (Rule 11.8).
+   exported class `C`, as Rule 8.21 gives for a parameter. The caller owns it and disposes it
+   (Rule 11.8).
 8. The host call treats the new array as an array parameter of `n` elements. Whatever each tier
    does with such an array, it does with this one:
    - WebGPU: the storage binding and its size limit;
@@ -140,8 +151,8 @@ below, and only for it.
    - the CPU tier: a typed array, with JavaScript's limit.
 
    A negative `n` (an `i32`) is refused before anything runs, with a `RangeError` that names
-   the function and the length. For `n = 0` the result is empty, and the call binds one element
-   in its place.
+   the function and the length, as JavaScript's constructors throw one. For `n = 0` the result
+   is empty, and the call binds one element in its place.
 
 9. Indices past the end: the call makes every check against `n` that it makes for an array
    parameter, reads included (`a*i + c` with its guards, strides `i*k + b`, rows `i*W + x`), and
@@ -151,8 +162,12 @@ below, and only for it.
    (change 0094).
 10. Refused as "not supported yet" (OD-9), in both halves, with `TS8099`, each with a sentence
     that names the form and says it is not supported yet:
-    - `array<T>(n)` anywhere else: in a helper, in an entry, inside a loop, under a branch;
+    - one of these constructors with a length that is no constant anywhere else: in a helper,
+      in an entry, inside a loop, under a branch;
     - a length that reads any operand rule 4 does not list;
+    - `new Array<T>(n)` with no `fill`: JavaScript gives an array of holes, which a shader value
+      cannot hold;
+    - `Array.from({ length: n }, f)` with a length that is no constant;
     - a second new array, or a new array the function does not return;
     - a path that returns a parameter (`return ps`, 0142 Table 2) and another that returns the
       new array;
@@ -160,91 +175,77 @@ below, and only for it.
     - a kernel function that has a 2D storage texture and makes an array;
     - the result fed to another call inside one fusion (Rule 11.13), until the fuse facts
       describe it.
-11. Kept as today: a result of `array<T>` that is no new array, and a struct whose last field is
-    `array<T>`, stay `TS8020`.
+11. Kept as today: a result of an array with no size that is no new array, and a struct whose
+    last field is one, stay `TS8020`.
 
 ### The editor (Rule 12.7)
 
-- The ambient library declares `array<T>(n: u32 | i32): array<T>` after the element overloads
-  of `array` (`ambient.ts`), so that `array(u32(3))` keeps its type, `array<u32, 1>`. A test pins
-  that form in both halves.
+- 0114 S2 declares the constructors in the ambient library. This proposal needs one thing more
+  of them: a length typed `u32 | i32` that is no literal gives `T[]`, not `array<T, N>`.
 - The editor cannot refuse an `f32` length by type alone (the brands are optional), so the
   compiler checks the length's type and the editor reports the compiler's `TS8003` with its
   sentence.
-- `out` is an `array<T>`: its index reads a `T`, its `.length` is a `u32`, and its hover shows
-  `array<f32>`.
+- `out` is a `T[]`: its index reads a `T`, its `.length` is a `u32`, and its hover shows `f32[]`.
 - Each refusal above is reported by the editor with the compiler's code and sentence.
 
 ## Why
 
 - [fact] TypeScript returns a new array from a function; the language borrows TypeScript's way
-  of writing (OD-1). Writing the result as a parameter is the shape C and WGSL force.
+  of writing (OD-1), and 0114 already applies that to arrays. Writing the result as a parameter
+  is the shape C and WGSL force.
 - [fact] `TS8020` gives a target's reason: WGSL has no array whose length a call chooses. OD-9
   says a target's lack is no reason to refuse a form.
 - [inference, agent; checked by the independent reviews] The rewrite exists. The host call
-  already checks, uploads and reads back a kernel's arrays and returns results
-  (`host-kernel.ts`). With the length known before the dispatch, it allocates the storage, binds
-  it where the parameter form binds `out`, and returns the read-back of that binding.
-  `tailResult` does not carry it: it evaluates a tail over lengths and folded values only.
-
-### Alternatives for Q1, and why the owner chose C
-
-| Option | Spelling                     | Cost                                                                                                                                                                                                        |
-| ------ | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A      | `new Float32Array(n)`        | Adds four names the ambient library does not declare (`Float32Array`, `Int32Array`, `Uint32Array`, `Float64Array`; both halves report `TS8022` today). Spells only scalars: `array<vec4f>` has no spelling. |
-| B      | `new Array<f32>(n)` + `fill` | `Array` has no constructor in the ambient library, and `fill` gives nothing (surface §63, change 0079), so one expression cannot both make and fill it. JavaScript gives a plain `Array`.                   |
-| C      | `array<T>(n)`                | A third exception of Rule 9.2. Spells every element type.                                                                                                                                                   |
-
-The owner chose C on 2026-11-17.
+  already checks, uploads and reads back a kernel's arrays (`host-kernel.ts`). With the length
+  known before the dispatch, it allocates the storage, binds it where the parameter form binds
+  `out`, and returns the read-back of that binding.
 
 ### Costs of the owner's decisions
 
-- Q1, `array<T>(n)`: one argument means a length, two or more mean elements. `array<u32>(5)` is
-  five zeros, while `array(u32(5))` stays a list of one element, `[5]`, as today. ECMAScript has
-  the same trap in `Array(n)` against `Array(a, b)`. A WGSL reader may also take
-  `array<u32>(3)` for an array holding 3; that form is no valid WGSL.
-- Q2, a typed array: a vector array comes back flat (`array<vec4f>` is a `Float32Array` of `4n`
+- Following 0114: this proposal cannot be implemented before 0114 S1 (`T[]`) and S2 (the
+  constructors, and `fill` that gives its array back, which today gives nothing, change 0079).
+- `Float32Array` and its siblings spell scalars only. A vector array is
+  `new Array<vec4f>(n).fill(vec4f())`.
+- Q2, a typed array: a vector array comes back flat (`vec4f[]` is a `Float32Array` of `4n`
   scalars), as a parameter takes it.
-- Two spellings of a zeroed array: the host writes `array(length, 'f32')` (change 0138,
-  Amendment A10, Q-I), the shader `array<f32>(n)`.
 - A write past the end is refused before the run for a parameter and for the result alike
   (rule 9), so the two forms agree; WGSL's robust access, which may clamp, is not relied on.
 
 ## Owner's decisions
 
 This proposal rests on OD-1 (TypeScript's way of writing), OD-3 (the compiler allocates; the
-author states only the length), OD-5 (a returned array is the caller's from then on), OD-7 (a
-literal length takes the type its use needs) and OD-9 (a target's lack of a form is no refusal
-reason; a form the compiler does not implement yet is refused as such). It reverses no entry.
+author states only the length), OD-5 (each constructor has its JavaScript meaning; a returned
+array is the caller's from then on), OD-7 (a literal length takes the type its use needs) and
+OD-9 (a target's lack of a form is no refusal reason; a form the compiler does not implement yet
+is refused as such). It reverses no entry. It follows accepted proposal 0114 and adds no spelling
+of its own.
 
 ### The owner's answers
 
-- Q1, the spelling: **C, `array<T>(n)`**, 2026-11-17 (the owner's selection in the session,
-  after "array 여도 좋고").
-- Q2, the result's host value: **A, the value a kernel's `array<T>` parameter takes**,
-  2026-11-17 (the owner's "네" to the recommendation).
-
-### Q2 as it was asked
-
-| Option | Host value of the result                                                                                                 | Cost                                                                                                                  |
-| ------ | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| A      | As a kernel's `array<T>` parameter: a typed array (`array<vec4f>` a `Float32Array` of `4n` scalars), objects for structs | The result can be passed back to the parameter form unchanged. A vector array is flat.                                |
-| B      | As a sized `array<T, N>` result: an array of `n` host values of `T` (a tuple per vector)                                 | Matches a sized result. Allocates `n` objects for a vector array, and cannot be passed to a parameter without a copy. |
+- Q1, the spelling: **the spellings of proposal 0114** (`new Float32Array(n)`,
+  `new Array<T>(n).fill(v)`, `T[]`), 2026-11-17 (the owner's "좋아요").
+  - History: the owner first chose `array<T>(n)` the same day, among three options the agent
+    offered, and then discussed `array(n)` against `array.of(x)`. The agent had not shown the
+    owner that accepted proposal 0114 already decides how an array is written; neither had the
+    three reviews. Shown it, the owner asked how TypeScript would write it and chose 0114's
+    spellings. The `array<T>(n)` design, its Rule 9.2 exception and `array.of` are withdrawn.
+- Q2, the result's host value: **A, the value a kernel's array parameter takes**, 2026-11-17
+  (the owner's "네" to the recommendation).
 
 ## Why the compiler cannot do it
 
-The author must state the length: the compiler cannot know how many elements the caller
-wants. The binding, the allocation and the read back are the compiler's. The change adds a
-signature of `array` and a rule; it adds no name, binding, qualifier or attribute (OD-3).
+The author must state the length: the compiler cannot know how many elements the caller wants.
+The binding, the allocation and the read back are the compiler's. The change adds a rule; it
+adds no name, binding, qualifier or attribute (OD-3); the constructors' names are 0114's.
 
 ## What it touches
 
 - Rule 8.21: the result's host value, with a plain call and on a resource.
 - Rule 8.22: the kind, and the body shape.
-- Rule 8.23: where `array<T>(n)` may stand, its length, its zero fill, its `.length`.
-- Rule 9.2: the third recorded exception, its source, its rationale and its "Enforced by".
+- Rule 8.23: which constructors make the array, where, its length, its `.length`.
 - Rule 11.13: the refusal of a result fed to another call inside one fusion.
-- Surface §20 (a local of `array<T>`), §64 (the host call's result) and §65 (the kernel loop).
+- Surface §20 (a local array with no size), §64 (the host call's result) and §65 (the kernel
+  loop).
 - `exports`: `HostExport`. A kernel function's entry (its `face`, a `KernelFace`) gains the
   length expression, which the host call evaluates from the arguments. `src/__api__/surface.md`
   prints `HostExport` with `face: KernelFace` only, so the implementing pull request checks
@@ -253,13 +254,12 @@ signature of `array` and a rule; it adds no name, binding, qualifier or attribut
   type); `TS8020` stays for every other function shape.
 - `examples`: none added or removed. `loop-kernel` may gain the result form in the implementing
   pull request.
-- `names`: none. `array` is already an author-facing name (`src/__api__/author-names.md`).
+- `names`: none. The constructors are 0114's.
 
 ### Draft impact estimate
 
-- Prerequisite: proposal 0142 stage 1 (#1324). It removes `@inout`, edits the same text of
-  Rules 8.21 to 8.23, and lets a kernel function return its own array parameter. This proposal
-  is implemented after it.
+- Prerequisites, in order: proposal 0142 stage 1 (#1324); proposal 0114 S1 (#934) and S2. All
+  edit the same rules and the same array code.
 - Expected slices: the front end with the editor; the host face and the host call on three
   tiers; the example and its goldens. Duration unknown.
 - Note: the zero fill gives a written-only array the upload skip that 0142 lost with `@out`
@@ -267,85 +267,32 @@ signature of `array` and a rule; it adds no name, binding, qualifier or attribut
 
 ### Independent review record
 
-**Revision 1** (`a5e336c`) was reviewed on 2026-11-17 by an AI agent (Claude Code) that did not
-write it, against `changes/README.md`. It ran one probe through `bothHalves`. Findings and
-answers:
+Revisions 1 to 4 were reviewed three times on 2026-11-17, each time by an AI agent (Claude Code)
+that did not write the revision. Their findings and the answers are in this file's history
+(revision 4, `09bbd9d`). In short:
 
-1. Option A adds names; `names: []` and "adds no name" were wrong. Fixed: A's cost lists the
-   four names; the owner chose C, which adds a signature, not a name.
-2. Option B was described wrongly: `fill` gives nothing and `Array` has no constructor. Fixed in
-   the alternatives table.
-3. "Today" left out refusals. Fixed in revision 2, and completed in revision 3 (the one-argument
-   reading of `array<f32>(x)`, the storage-texture route).
-4. Rule 8.22's body shape was not addressed. Fixed: rule 5.
-5. The interaction with 0142 was misstated. Fixed: the "before" example is at 0142 stage 1,
-   0142 stage 1 is a stated prerequisite, and a mixed `return ps` / `return out` is refused.
-6. Q2 had one option. Fixed: two options with their costs.
-7. The call on a resource. Fixed: rule 7.
-8. Missing cases. Fixed in revision 2, and completed in revision 3 (rules 4, 8 and 9).
-9. The editor half was not specified. Fixed in revision 2, and completed in revision 3 (the
-   overload's place, the length's type).
-10. The front matter was incomplete. Fixed in revision 2, and completed in revision 3
-    (`exports`, `examples`, `downstream`, `rules`).
-11. The `TS8020` quote was cut short. Fixed: quoted in full.
-12. Q3 (the interim `TS8020` text) is no design choice. Fixed: Q3 is removed; the fix is its own
-    pull request.
-13. Option C's naming was imprecise. Revision 2 answered with a §9.3 row, which was wrong (see
-    revision 2's finding 1). Fixed in revision 3: a third exception of Rule 9.2.
-14. The rewrite claim holds. Kept.
+- Revision 1 (`a5e336c`), 14 findings: the options' names and costs, the refusals of today,
+  Rule 8.22's body shape, 0142 as a prerequisite, the missing cases, the editor half, the front
+  matter. All answered.
+- Revision 2 (`12c65a6`), 12 findings: the §9.3 mechanism (blocking), the one-argument trap, the
+  length's operands, `.length` at zero, the tiers' limits, writes past the end, the host type and
+  its ownership, `downstream`. All answered.
+- Revision 3 (`42f63a4`), 7 findings: the source of the Rule 9.2 exception, literals and casts in
+  the length, every index check, `Buffer<C>`, `tailResult`, the two spellings, Rule 11.13. All
+  answered.
 
-**Revision 2** (`12c65a6`) was reviewed on 2026-11-17 by another AI agent (Claude Code) that
-wrote neither revision. It ran probes through `bothHalves` and `tsc` over `SHADE_DTS`. Findings
-and answers:
+What revision 5 keeps from those answers: rules 3 to 11 and the editor's length check. What it
+drops: the `array<T>(n)` spelling, its Rule 9.2 exception, the overload placement, and the costs
+that belonged to that spelling.
 
-1. Blocking: a §9.3 row is for names of source (c) (Rule 9.6, shrink-only, pinned by
-   `surface-names.test.ts`), and Rule 9.2 requires WGSL's signature. Fixed: rule 2 is a third
-   exception of Rule 9.2; `'9.2'` is in `rules`; §9.3 does not change.
-2. `array<f32>(x)` is read today as a one-element list. Fixed: "Today" item 3, and the cost of Q1
-   records the one-argument / two-argument trap.
-3. The editor overload's place and the length's type check. Fixed: "The editor".
-4. The length's operands were not defined. Fixed: rule 4 lists them.
-5. `.length` at `n = 0` disagreed with the bound buffer. Fixed: rule 5, `out.length` reads `n` on
-   every tier.
-6. The limits did not fit WebGL2 or the CPU tier. Fixed: rule 8 treats the result as an array
-   parameter of `n` elements on each tier.
-7. A write past the end differed between the two forms. Fixed: rule 9 aligns them.
-8. The result's host type and ownership. Fixed: rules 6 and 7.
-9. `downstream: []` was wrong. Fixed: the site and the editor extension are listed.
-10. Front matter: `examples` held an unchanged id; `HostExport` was "may". Fixed.
-11. Rule details (a kernel with no loop, the kept `TS8020` cases, the storage-texture route, the
-    element types, the refusal texts). Fixed: rules 1, 3, 10 and 11. The exact sentence of each
-    refusal is the implementing pull request's, under Rule 12.5.
-12. The record of the first review overstated five fixes. Fixed: this record says which
-    revision completed each.
-
-**Revision 3** (`42f63a4`) was reviewed on 2026-11-17 by the reviewer of revision 2, as the
-short re-review it asked for. It ran `tsc` over `SHADE_DTS` with the new overload. Findings and
-answers:
-
-1. The third exception cited no source; Rule 9.2's rationale calls an overload no WGSL form has
-   "a spelling from nowhere", and `changes/README.md` sends such a conflict to the owner. Fixed:
-   rule 2 names ECMA-262's `Array(len)` as the source and amends Rule 9.2's rationale and
-   "Enforced by"; the conflict is shown to the owner with the request for acceptance.
-2. Rule 4 left out literals, casts and a top-level `const`. Fixed: rule 4.
-3. Rule 9 named one index form of four, and the error text names a parameter. Fixed: rule 9.
-4. Rule 7 covered scalars only. Fixed: rule 7.
-5. The rewrite claim leaned on `tailResult`. Fixed: "Why".
-6. The two spellings of a zeroed array were not a recorded cost. Fixed: "Costs of the owner's
-   decisions".
-7. `exports` may show no diff, and Rule 11.13 was not in `rules`. Fixed: `'11.13'` is in
-   `rules`; the `exports` entry says the implementing pull request checks it.
-
-It confirmed the overload placement (`array(u32(3))` stays `array<u32, 1>`, `array<f32>(size *
-size)` is `array<f32, number>` with a `u32` `.length`), rule 8 against `host-kernel-gl.ts`, and
-the answers to revision 2's findings 5, 8, 9, 10 and 12.
-
-Revision 4 makes the text fixes above and changes no rule's direction.
+None of the three reviews compared the proposal with accepted proposals beyond 0142. Revision 5
+is not reviewed yet; its review checks it against every accepted proposal that touches arrays,
+0114 first.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's decision, after the source of
-Rule 9.2's third exception is shown, and a merge of this file as `accepted`.
+This record does not yet apply. Acceptance will require a review of revision 5 and a merge of
+this file as `accepted`.
 
 ### Configuration and validation record
 
@@ -355,7 +302,7 @@ goldens.
 
 ## What it owes downstream
 
-- `typeshade.github.io`: the reference pages for Rules 8.21, 8.22, 8.23 and 9.2 and the pages for
+- `typeshade.github.io`: the reference pages for Rules 8.21, 8.22 and 8.23 and the pages for
   surface §20, §64 and §65 gain the result form. No page that writes the parameter form changes.
 - `vscode-typeshade`: the skill's description of a kernel function gains the result form;
   `compiler-changes.md` records 0143 when the pin moves.
