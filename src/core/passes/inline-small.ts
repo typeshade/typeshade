@@ -1,14 +1,15 @@
 import type { Expr, ModuleDecl, Stmt } from '../ir/index.js';
 import { mapChildren } from '../ir/visit.js';
+import { eachBlockStmt as eachBodyStmt } from './opt/sroa/blocks.js';
 import { adoptTemp } from './inline-small-rename.js';
 import { exprHasEffect, fnWrites, type FnWrites } from './effects.js';
 import { bodyHasRaw } from './opt/expr-utils.js';
 import {
   chosen,
-  eachBodyStmt,
   isEntry,
   isLeaf,
   planOf,
+  shadows,
   sensitiveFns,
   countSites,
   type Plan,
@@ -250,7 +251,9 @@ function inlineOne(
   counter: { n: number },
 ): ModuleDecl {
   const r: Rewriter = { plan, writes, counter, changed: false };
-  const funcs = m.funcs.map((f) => (f === plan.fn ? f : { ...f, body: rewriteBlock(r, f.body) }));
+  const funcs = m.funcs.map((f) =>
+    f === plan.fn || shadows(plan, f) ? f : { ...f, body: rewriteBlock(r, f.body) },
+  );
   if (!r.changed) return m;
   const stillCalled = countSites(
     funcs.filter((f) => f.name !== plan.fn.name),

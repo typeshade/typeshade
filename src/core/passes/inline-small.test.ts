@@ -158,6 +158,19 @@ function outer(x: f32): f32 { return slope(x) + 1; }`,
     expect(names(out)).toContain('outer');
   });
 
+  it('does not inline a helper into a caller whose local has the name of a builtin the helper calls', () => {
+    for (const name of ['step', 'clamp']) {
+      const call = name === 'step' ? 'step(0.5, fract(x))' : 'clamp(x, 0.0, 1.0)';
+      const m = build(
+        `function ring(x: f32): f32 { return ${call} * 2 + x; }`,
+        `const ${name} = a * 2; return ring(${name}) + b;`,
+      );
+      const out = inlineSmall(m);
+      expect(names(out)).toContain('ring');
+      same(m, out);
+    }
+  });
+
   it('does not inline a helper that writes the caller object', () => {
     const m = build(
       `class P { x: f32; }
@@ -185,7 +198,8 @@ export function fs(v: VsOut): Color {
   let b = v.uv.y;
   [a, b] = order(a, b);
   return { color: vec4(a, b, 0, 1) };
-}
+}`;
+  const PROBE = `
 export function probe(a: f32, b: f32): f32 {
   let x = a;
   let y = b;
@@ -204,7 +218,7 @@ export function probe(a: f32, b: f32): f32 {
   });
 
   it('computes the same values with and without the pass', () => {
-    const { result } = bothTake(SOURCE);
+    const { result } = bothTake(SOURCE + PROBE);
     const m = result.module;
     const run = (x: ModuleDecl) => compileModule(x).fns.probe! as (...a: number[]) => number;
     expect(run(inlineSmall(m))(3, 1)).toEqual(run(m)(3, 1));

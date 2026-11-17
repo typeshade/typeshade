@@ -1,9 +1,9 @@
 import { stageOf } from '../ir/index.js';
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/index.js';
-import { eachExpr, eachStmtExpr } from '../ir/visit.js';
+import { eachBlockStmt as eachBodyStmt, eachBodyExpr } from './opt/sroa/blocks.js';
 import { BARRIER_INTRINSICS, DERIVATIVE_INTRINSICS, SUBGROUP_INTRINSICS } from '../intrinsics.js';
 import { bodyHasEffectfulCall, type FnWrites } from './effects.js';
-import { bodyHasRaw } from './opt/expr-utils.js';
+import { bodyHasRaw, collectLocals } from './opt/expr-utils.js';
 
 export const SMALL_BODY_COST = 8;
 
@@ -19,27 +19,6 @@ export const isLeaf = (e: Expr): boolean =>
 
 const targetRoot = (e: Expr): Expr =>
   e.op === 'index' || e.op === 'member' ? targetRoot(e.base) : e;
-
-export function eachBodyStmt(body: readonly Stmt[], visit: (s: Stmt) => void): void {
-  for (const s of body) {
-    visit(s);
-    eachStmtExpr(
-      s,
-      () => {},
-      (b) => eachBodyStmt([b], visit),
-    );
-  }
-}
-
-export function eachBodyExpr(body: readonly Stmt[], visit: (e: Expr) => void): void {
-  for (const s of body) {
-    eachStmtExpr(
-      s,
-      (e) => eachExpr(e, visit),
-      (b) => eachBodyExpr([b], visit),
-    );
-  }
-}
 
 const SENSITIVE_INTRINSICS: ReadonlySet<string> = new Set([
   ...DERIVATIVE_INTRINSICS,
@@ -93,6 +72,7 @@ export interface Plan {
   readonly ret: Expr | undefined;
   readonly uses: ReadonlyMap<string, number>;
   readonly assigned: ReadonlySet<string>;
+  readonly free: ReadonlySet<string>;
 }
 
 const STRAIGHT_LINE: ReadonlySet<string> = new Set([
@@ -136,9 +116,22 @@ export function planOf(
   });
   const only = f.body.length === 1 ? f.body[0] : undefined;
   const ret = only?.s === 'return' ? only.expr : undefined;
-  return { fn: f, ret, uses, assigned };
+  const own = new Set(names);
+  collectLocals(f.body, own);
+  const free = new Set<string>();
+  eachBodyExpr(f.body, (e) => {
+    if (e.op === 'call') free.add(e.fn);
+    else if ('name' in e && !own.has(e.name)) free.add(e.name);
+  });
+  return { fn: f, ret, uses, assigned, free };
 }
 
 export function chosen(plan: Plan, funcs: readonly FuncDecl[]): boolean {
   return countSites(funcs, plan.fn.name) === 1 || bodyCost(plan.fn.body) <= SMALL_BODY_COST;
+}
+
+export function shadows(plan: Plan, f: FuncDecl): boolean {
+  const declared = new Set(f.params.map((p) => p.name));
+  collectLocals(f.body, declared);
+  return [...plan.free].some((n) => declared.has(n));
 }

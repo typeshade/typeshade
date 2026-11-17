@@ -1,20 +1,7 @@
 import type { Expr, Stmt } from '../ir/index.js';
 import { mapStmtExpr } from '../ir/visit.js';
 import { mapExpr } from './opt/ir-transform.js';
-
-function declaredNames(body: readonly Stmt[], out: Set<string>): Set<string> {
-  for (const s of body) {
-    if (s.s === 'let' || s.s === 'var') out.add(s.name);
-    else if (s.s === 'if') {
-      for (const a of s.arms) declaredNames(a.body, out);
-      declaredNames(s.elseBody ?? [], out);
-    } else if (s.s === 'switch') {
-      for (const c of s.cases) declaredNames(c.body, out);
-      declaredNames(s.defaultBody ?? [], out);
-    }
-  }
-  return out;
-}
+import { declaredNamesDeep } from './inline-linear.js';
 
 export function renameLocals(
   body: readonly Stmt[],
@@ -23,7 +10,7 @@ export function renameLocals(
 ): Stmt[] {
   const ren = new Map<string, string>();
   const taken = new Set<string>();
-  for (const name of declaredNames(body, new Set())) {
+  for (const name of declaredNamesDeep(body)) {
     let fresh = `${prefix}l_${name.replace(/^_/, '')}`;
     while (taken.has(fresh)) fresh = `${fresh}_`;
     taken.add(fresh);
