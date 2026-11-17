@@ -22,38 +22,6 @@ struct TintedBar {
   softness: f32,
 }
 
-fn TintedDisc_lit(self_: ptr<function, TintedDisc>, cover: f32) -> vec3<f32> {
-  return ((*self_).tint * smoothstep(0.0, 1.0, cover));
-}
-
-fn TintedDisc_cover(self_: ptr<function, TintedDisc>, p: vec2<f32>) -> f32 {
-  return (1.0 - smoothstep(((*self_).radius - (*self_).softness), (*self_).radius, length((p - (*self_).center))));
-}
-
-fn TintedDisc_new_into(_dst: ptr<function, TintedDisc>, center: vec2<f32>, radius: f32, softness: f32, tint: vec3<f32>) {
-  (*_dst) = TintedDisc(vec2<f32>(0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0);
-  (*_dst).center = center;
-  (*_dst).radius = radius;
-  (*_dst).softness = softness;
-  (*_dst).tint = tint;
-}
-
-fn TintedBar_lit(self_: ptr<function, TintedBar>, cover: f32) -> vec3<f32> {
-  return ((*self_).tint * smoothstep(0.0, 1.0, cover));
-}
-
-fn TintedBar_cover(self_: ptr<function, TintedBar>, p: vec2<f32>) -> f32 {
-  return (1.0 - smoothstep(((*self_).halfWidth - (*self_).softness), (*self_).halfWidth, abs((p.x - (*self_).center.x))));
-}
-
-fn TintedBar_new_into(_dst: ptr<function, TintedBar>, center: vec2<f32>, halfWidth: f32, softness: f32, tint: vec3<f32>) {
-  (*_dst) = TintedBar(vec2<f32>(0.0, 0.0), 0.0, vec3<f32>(0.0, 0.0, 0.0), 0.0);
-  (*_dst).center = center;
-  (*_dst).halfWidth = halfWidth;
-  (*_dst).softness = softness;
-  (*_dst).tint = tint;
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
   var xs: array<f32, 3> = array<f32, 3>(-1.0, 3.0, -1.0);
@@ -65,10 +33,24 @@ fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
 @fragment
 fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
   let p = (frag.xy * 0.004);
-  var disc: TintedDisc;
-  TintedDisc_new_into(&disc, vec2<f32>(0.6, 0.6), 0.35, 0.08, vec3<f32>(0.95, 0.4, 0.25));
-  var bar: TintedBar;
-  TintedBar_new_into(&bar, vec2<f32>(1.4, 0.0), 0.25, 0.05, vec3<f32>(0.2, 0.55, 0.9));
-  let rgb = (TintedDisc_lit(&disc, TintedDisc_cover(&disc, p)) + TintedBar_lit(&bar, TintedBar_cover(&bar, p)));
+  let _sm0_a0 = vec2<f32>(0.6, 0.6);
+  let _sm0_a3 = vec3<f32>(0.95, 0.4, 0.25);
+  let _cse0 = vec2<f32>(0.0, 0.0);
+  let _cse1 = vec3<f32>(0.0, 0.0, 0.0);
+  var _sm0_l_self_: TintedDisc = TintedDisc(_cse0, 0.0, _cse1, 0.0);
+  _sm0_l_self_.center = _sm0_a0;
+  _sm0_l_self_.radius = 0.35;
+  _sm0_l_self_.softness = 0.08;
+  _sm0_l_self_.tint = _sm0_a3;
+  var disc: TintedDisc = _sm0_l_self_;
+  let _sm1_a0 = vec2<f32>(1.4, 0.0);
+  let _sm1_a3 = vec3<f32>(0.2, 0.55, 0.9);
+  var _sm1_l_self_: TintedBar = TintedBar(_cse0, 0.0, _cse1, 0.0);
+  _sm1_l_self_.center = _sm1_a0;
+  _sm1_l_self_.halfWidth = 0.25;
+  _sm1_l_self_.softness = 0.05;
+  _sm1_l_self_.tint = _sm1_a3;
+  var bar: TintedBar = _sm1_l_self_;
+  let rgb = ((disc.tint * smoothstep(0.0, 1.0, (1.0 - smoothstep((disc.radius - disc.softness), disc.radius, length((p - disc.center)))))) + (bar.tint * smoothstep(0.0, 1.0, (1.0 - smoothstep((bar.halfWidth - bar.softness), bar.halfWidth, abs((p.x - bar.center.x)))))));
   return vec4<f32>(rgb, 1.0);
 }

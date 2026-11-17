@@ -10,11 +10,6 @@ layout(std140) uniform Uniforms {
 int _f2i(float x) {
   return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
 }
-vec2 screenCoords(vec2 uv, vec2 resolution) {
-  float asp = (resolution.x / resolution.y);
-  return vec2((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
-}
-
 uint hash32(uint x) {
   uint a = ((x ^ (x >> 16u)) * 2246822519u);
   uint b = ((a ^ (a >> 13u)) * 3266489917u);
@@ -32,32 +27,30 @@ float noise(vec2 p) {
   vec2 u = ((f * f) * (vec2(3.0) - (f * 2.0)));
   return mix(mix(hash(i), hash((i + vec2(1.0, 0.0))), u.x), mix(hash((i + vec2(0.0, 1.0))), hash((i + vec2(1.0, 1.0))), u.x), u.y);
 }
-
-float fbm(vec2 p) {
-  return ((((noise(p) * 0.5) + (noise((p * 2.02)) * 0.25)) + (noise((p * 4.08)) * 0.125)) + (noise((p * 8.2)) * 0.0625));
-}
-
-vec3 palette(float t) {
-  vec3 ph = vec3(0.0, 0.33, 0.67);
-  return (vec3(0.5) + (cos(((t + ph) * 6.283)) * 0.5));
-}
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
   float t = U.time;
   vec2 res = U.resolution;
-  vec2 p = screenCoords(uv, res);
-  float r = length(p);
-  float a0 = atan(p.y, p.x);
+  vec2 _sm0_a0 = uv;
+  float _sm0_l_asp = (res.x / res.y);
+  float _gv0 = (((_sm0_a0.x * 2.0) - 1.0) * _sm0_l_asp);
+  float _gv1 = ((_sm0_a0.y * 2.0) - 1.0);
+  vec2 _sm0_ret = vec2(_gv0, _gv1);
+  float r = length(_sm0_ret);
+  float a0 = atan(_gv1, _gv0);
   float sector = (6.2831853 / U.segments);
   float am = mod(a0, sector);
   float af = abs((am - (sector * 0.5)));
   vec2 q = (vec2(cos(af), sin(af)) * r);
-  float v = fbm(((q * 3.0) + vec2((t * 0.12), (-(t * 0.09)))));
+  vec2 _sm1_a0 = ((q * 3.0) + vec2((t * 0.12), (-(t * 0.09))));
+  float v = ((((noise(_sm1_a0) * 0.5) + (noise((_sm1_a0 * 2.02)) * 0.25)) + (noise((_sm1_a0 * 4.08)) * 0.125)) + (noise((_sm1_a0 * 8.2)) * 0.0625));
   float rings = ((sin(((r * 9.0) - (t * 0.8))) * 0.5) + 0.5);
-  vec3 col = palette(((((v * 0.7) + (rings * 0.15)) + (r * 0.3)) - (t * 0.03)));
+  float _sm2_a0 = ((((v * 0.7) + (rings * 0.15)) + (r * 0.3)) - (t * 0.03));
+  vec3 _sm2_l_ph = vec3(0.0, 0.33, 0.67);
+  vec3 _sm2_ret = (vec3(0.5) + (cos(((_sm2_a0 + _sm2_l_ph) * 6.283)) * 0.5));
   float relief = ((v * 0.9) + 0.35);
   float vig = (1.0 - smoothstep(0.55, 1.25, r));
-  _ret = vec4(((col * relief) * vig), 1.0);
+  _ret = vec4(((_sm2_ret * relief) * vig), 1.0);
 }

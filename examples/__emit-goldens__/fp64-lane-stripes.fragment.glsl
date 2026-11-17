@@ -21,35 +21,6 @@ vec2 df64_quickTwoSum(float a, float b, float _fp64_g) {
   return vec2(_v0, _v1);
 }
 
-vec2 df64_add(vec2 a, vec2 b, float _fp64_g) {
-  vec2 _v0 = df64_twoSum(a.x, b.x, _fp64_g);
-  vec2 _v1 = df64_twoSum(a.y, b.y, _fp64_g);
-  _v0.y = (_v0.y + _v1.x);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
-  _v0.y = (_v0.y + _v1.y);
-  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
-  return _v0;
-}
-
-vec2 df64_sub(vec2 a, vec2 b, float _fp64_g) {
-  return df64_add(a, (-b), _fp64_g);
-}
-
-vec2 df64_floor(vec2 a, float _fp64_g) {
-  float _v0 = floor(a.x);
-  vec2 _sel1;
-  if ((_v0 == a.x)) {
-    _sel1 = df64_quickTwoSum(_v0, floor(a.y), _fp64_g);
-  } else {
-    _sel1 = vec2(_v0, 0.0);
-  }
-  return _sel1;
-}
-
-vec2 df64_fract(vec2 a, float _fp64_g) {
-  return df64_sub(a, df64_floor(a, _fp64_g), _fp64_g);
-}
-
 vec2 df64_split(float a, float _fp64_g) {
   float _v0 = (a * (_fp64_g * 4097.0));
   float _v1 = ((_v0 * _fp64_g) - (_v0 - a));
@@ -63,6 +34,20 @@ vec2 df64_twoProd(float a, float b, float _fp64_g) {
   vec2 _v2 = df64_split(b, _fp64_g);
   float _v3 = (((((_v1.x * _v2.x) - _v0) + (_v1.x * _v2.y)) + (_v1.y * _v2.x)) + (_v1.y * _v2.y));
   return vec2(_v0, _v3);
+}
+
+vec2 df64_add(vec2 a, vec2 b, float _fp64_g) {
+  vec2 _v0 = df64_twoSum(a.x, b.x, _fp64_g);
+  vec2 _v1 = df64_twoSum(a.y, b.y, _fp64_g);
+  _v0.y = (_v0.y + _v1.x);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
+  _v0.y = (_v0.y + _v1.y);
+  _v0 = df64_quickTwoSum(_v0.x, _v0.y, _fp64_g);
+  return _v0;
+}
+
+vec2 df64_sub(vec2 a, vec2 b, float _fp64_g) {
+  return df64_add(a, (-b), _fp64_g);
 }
 
 vec2 df64_mul(vec2 a, vec2 b, float _fp64_g) {
@@ -81,21 +66,27 @@ vec2 df64_div(vec2 a, vec2 b, float _fp64_g) {
   return df64_add(_v1, _v3, _fp64_g);
 }
 
-vec2 stripeAt(vec2 origin, float offset) {
-  float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;
-  vec2 world = df64_add(origin, vec2(offset, 0.0), _fp64_g);
-  vec2 stripe = vec2(0.125, 0.0);
-  float _cse1 = uintBitsToFloat(floatBitsToUint(0.0));
-  vec2 _cse0 = vec2(_cse1, _cse1);
-  return df64_fract(df64_div(df64_add(world, _cse0, _fp64_g), df64_add(stripe, _cse0, _fp64_g), _fp64_g), _fp64_g);
-}
-
 bool df64_gt(vec2 a, vec2 b) {
   return ((a.x > b.x) || ((a.x == b.x) && (a.y > b.y)));
 }
 
 bool df64_eq(vec2 a, vec2 b) {
   return ((a.x == b.x) && (a.y == b.y));
+}
+
+vec2 df64_floor(vec2 a, float _fp64_g) {
+  float _v0 = floor(a.x);
+  vec2 _sel1;
+  if ((_v0 == a.x)) {
+    _sel1 = df64_quickTwoSum(_v0, floor(a.y), _fp64_g);
+  } else {
+    _sel1 = vec2(_v0, 0.0);
+  }
+  return _sel1;
+}
+
+vec2 df64_fract(vec2 a, float _fp64_g) {
+  return df64_sub(a, df64_floor(a, _fp64_g), _fp64_g);
 }
 
 vec2 df64_round(vec2 a, float _fp64_g) {
@@ -122,12 +113,13 @@ void main() {
   float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;
   vec2 origin = df64_mul(u.origin, vec2(2.5, 0.0), _fp64_g);
   float offset = (u.span * (uv.x - 0.5));
-  vec2 bands = stripeAt(origin, offset);
+  vec2 _gv0 = df64_add(origin, vec2(offset, 0.0), _fp64_g);
+  vec2 _sm0_l_stripe = vec2(0.125, 0.0);
   float _cse1 = uintBitsToFloat(floatBitsToUint(0.0));
   vec2 _cse0 = vec2(_cse1, _cse1);
-  vec2 _gv0 = df64_add(origin, vec2(offset, 0.0), _fp64_g);
+  vec2 _sm0_ret = df64_fract(df64_div(df64_add(_gv0, _cse0, _fp64_g), df64_add(_sm0_l_stripe, _cse0, _fp64_g), _fp64_g), _fp64_g);
   vec2 _lc1 = df64_round(df64_add(origin, _cse0, _fp64_g), _fp64_g);
-  float _gv1 = df64_narrow(vec2(bands.x, bands.y));
+  float _gv1 = df64_narrow(vec2(_sm0_ret.x, _sm0_ret.y));
   vec3 narrowed = vec3(0.0, df64_narrow(vec2(_lc1.x, _lc1.y)), 0.0);
   float flat_ = fract((df64_narrow(_gv0) * 8.0));
   float _sel0;

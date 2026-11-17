@@ -16,22 +16,20 @@ fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
   let uv = fract((frag.xy * 0.008));
   var warm: Palette = Palette(vec3<f32>(0.35, 0.1, 0.05), vec3<f32>(1.0, 0.75, 0.35));
   var cool: Palette = Palette(vec3<f32>(0.04, 0.1, 0.3), vec3<f32>(0.5, 0.85, 1.0));
-  var _sel0: Palette;
+  var shade: Palette;
   if ((uv.x > 0.5)) {
-    _sel0 = warm;
+    shade = warm;
   } else {
-    _sel0 = cool;
+    shade = cool;
   }
-  var shade: Palette = _sel0;
   var rising: array<f32, 3> = array<f32, 3>(0.15, 0.5, 0.9);
   var falling: array<f32, 3> = array<f32, 3>(0.9, 0.5, 0.15);
-  var _sel1: array<f32, 3>;
+  var steps: array<f32, 3>;
   if ((uv.y > 0.5)) {
-    _sel1 = rising;
+    steps = rising;
   } else {
-    _sel1 = falling;
+    steps = falling;
   }
-  var steps: array<f32, 3> = _sel1;
   let band = i32(floor((uv.y * 3.0)));
   let t = smoothstep(0.0, 1.0, steps[band]);
   return vec4<f32>(mix(shade.lo, shade.hi, t), 1.0);

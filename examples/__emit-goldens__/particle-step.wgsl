@@ -24,10 +24,6 @@ fn Particle_tick(self_: ptr<storage, Particle, read_write>, dt: f32) {
   Particle_bounce(self_);
 }
 
-fn Particle_speed(self_: ptr<storage, Particle, read_write>) -> f32 {
-  return length((*self_).vel);
-}
-
 fn Particle_new() -> Particle {
   let _cse0 = vec2<f32>(0.0, 0.0);
   var self_: Particle = Particle(_cse0, _cse0, 0u);
@@ -41,7 +37,7 @@ fn k(@builtin(global_invocation_id) gid: vec3<u32>) {
     return;
   }
   Particle_tick(&ps[gid.x], delta);
-  if ((Particle_speed(&ps[gid.x]) < 0.01)) {
+  if ((length(ps[gid.x].vel) < 0.01)) {
     ps[gid.x].vel = vec2<f32>(0.0, 0.0);
   }
 }

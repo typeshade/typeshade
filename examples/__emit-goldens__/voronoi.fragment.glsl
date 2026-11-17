@@ -7,10 +7,6 @@ layout(std140) uniform Uniforms {
   vec2 resolution;
   float cells;
 } U;
-vec2 hash2(vec2 c) {
-  vec2 _cse0 = vec2(dot(c, vec2(127.1, 311.7)), dot(c, vec2(269.5, 183.3)));
-  return fract((vec2(sin(_cse0.x), sin(_cse0.y)) * 43758.5453));
-}
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
@@ -18,10 +14,14 @@ void main() {
   float _licm0 = U.time;
   float _av0 = 8.0;
   vec2 _cse0 = (uv * U.cells);
+  vec2 _cse1 = vec2(127.1, 311.7);
+  vec2 _cse2 = vec2(269.5, 183.3);
   for (int _v0 = -1; (_v0 <= 1); _v0 = (_v0 + 1)) {
     for (int _v1 = -1; (_v1 <= 1); _v1 = (_v1 + 1)) {
       vec2 _v2 = vec2(float(_v1), float(_v0));
-      vec2 _v3 = hash2((floor(_cse0) + _v2));
+      vec2 _sm0_a0 = (floor(_cse0) + _v2);
+      vec2 _lc0 = vec2(dot(_sm0_a0, _cse1), dot(_sm0_a0, _cse2));
+      vec2 _v3 = fract((vec2(sin(_lc0.x), sin(_lc0.y)) * 43758.5453));
       _av0 = min(_av0, distance(fract(_cse0), ((_v2 + ((_v3 * 0.5) + 0.25)) + (vec2(sin((_licm0 + (_v3.x * 6.283))), cos((_licm0 + (_v3.y * 6.283)))) * 0.18))));
     }
   }

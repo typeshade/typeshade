@@ -7,19 +7,19 @@ layout(std140) uniform Uniforms {
   vec2 resolution;
   float twist;
 } U;
-vec2 screenCoords(vec2 uv, vec2 resolution) {
-  float asp = (resolution.x / resolution.y);
-  return vec2((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
-}
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
   float t = U.time;
   vec2 res = U.resolution;
-  vec2 p = screenCoords(uv, res);
-  float r = length(p);
-  float a = atan(p.y, p.x);
+  vec2 _sm0_a0 = uv;
+  float _sm0_l_asp = (res.x / res.y);
+  float _gv0 = (((_sm0_a0.x * 2.0) - 1.0) * _sm0_l_asp);
+  float _gv1 = ((_sm0_a0.y * 2.0) - 1.0);
+  vec2 _sm0_ret = vec2(_gv0, _gv1);
+  float r = length(_sm0_ret);
+  float a = atan(_gv1, _gv0);
   float depth = ((0.3 / max(r, 0.001)) + (t * 1.4));
   float ang = ((a / 3.14159265) + ((depth * U.twist) * 0.08));
   float cw = (sin((ang * 12.566)) * sin((depth * 9.4248)));

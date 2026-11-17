@@ -28,10 +28,6 @@ fn noise(p: vec2<f32>) -> f32 {
   return mix(mix(hash(i), hash((i + vec2<f32>(1.0, 0.0))), u.x), mix(hash((i + vec2<f32>(0.0, 1.0))), hash((i + vec2<f32>(1.0, 1.0))), u.x), u.y);
 }
 
-fn fbm(p: vec2<f32>) -> f32 {
-  return ((((noise(p) * 0.5) + (noise((p * 2.02)) * 0.25)) + (noise((p * 4.08)) * 0.125)) + (noise((p * 8.2)) * 0.0625));
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -43,7 +39,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let aspect = (U.resolution.x / U.resolution.y);
   let p = ((vec2<f32>((vo.uv.x * aspect), vo.uv.y) * 4.0) + vec2<f32>((U.time * 0.05), 0.0));
-  let cover = smoothstep(0.35, 0.75, fbm(p));
+  let cover = smoothstep(0.35, 0.75, ((((noise(p) * 0.5) + (noise((p * 2.02)) * 0.25)) + (noise((p * 4.08)) * 0.125)) + (noise((p * 8.2)) * 0.0625)));
   let sky = mix(vec3<f32>(0.18, 0.36, 0.7), vec3<f32>(0.55, 0.72, 0.92), vo.uv.y);
   return vec4<f32>(mix(sky, vec3<f32>(1.0), cover), 1.0);
 }

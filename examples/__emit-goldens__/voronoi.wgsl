@@ -11,11 +11,6 @@ struct VsOut {
 
 @group(0) @binding(0) var<uniform> U: Uniforms;
 
-fn hash2(c: vec2<f32>) -> vec2<f32> {
-  let _cse0 = vec2<f32>(dot(c, vec2<f32>(127.1, 311.7)), dot(c, vec2<f32>(269.5, 183.3)));
-  return fract((vec2<f32>(sin(_cse0.x), sin(_cse0.y)) * 43758.5453));
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let _cse0 = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -28,10 +23,14 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _licm0 = U.time;
   var _av0: f32 = 8.0;
   let _cse0 = (vo.uv * U.cells);
+  let _cse1 = vec2<f32>(127.1, 311.7);
+  let _cse2 = vec2<f32>(269.5, 183.3);
   for (var _v0: i32 = -1; (_v0 <= 1); _v0 = (_v0 + 1)) {
     for (var _v1: i32 = -1; (_v1 <= 1); _v1 = (_v1 + 1)) {
       let _v2 = vec2<f32>(f32(_v1), f32(_v0));
-      let _v3 = hash2((floor(_cse0) + _v2));
+      let _sm0_a0 = (floor(_cse0) + _v2);
+      let _lc0 = vec2<f32>(dot(_sm0_a0, _cse1), dot(_sm0_a0, _cse2));
+      let _v3 = fract((vec2<f32>(sin(_lc0.x), sin(_lc0.y)) * 43758.5453));
       _av0 = min(_av0, distance(fract(_cse0), ((_v2 + ((_v3 * 0.5) + 0.25)) + (vec2<f32>(sin((_licm0 + (_v3.x * 6.283))), cos((_licm0 + (_v3.y * 6.283)))) * 0.18))));
     }
   }

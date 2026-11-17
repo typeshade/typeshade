@@ -216,6 +216,9 @@ table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
   a call's name says whether it reaches the declaration or the builtin, Rule 9.5), `validate`,
   `assertCaps`, `assertBuiltins`, then `autoVars`, `lowerModule`, O2's module-level
   `specializeCalls` (shared helpers for constant booleans and demanded return fields),
+  O2's `inlineSmall` (`core/passes/inline-small.ts`: a pure helper called once, or with a body
+  of at most `SMALL_BODY_COST` nodes, is inlined and removed; an entry point, a recursive or
+  `opaque` function, a loop, a derivative, a barrier and an `inout` parameter keep the call),
   O2's `restructureCalls` (producer/consumer fusion, including single-use local chains,
   local aggregate splitting and shared arithmetic helpers), O2's `storageLoadReuse`
   (scalar/vector storage caches within write-free regions and proven fixed loops),

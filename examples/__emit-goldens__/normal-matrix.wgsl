@@ -11,15 +11,12 @@ struct VsOut {
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
-fn normalMatrix(model: mat4x4<f32>) -> mat3x3<f32> {
-  return mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz);
-}
-
 @vertex
 fn vs(@builtin(vertex_index) idx: u32) -> VsOut {
   let x = ((f32((idx & 1u)) * 4.0) - 1.0);
   let y = ((f32((idx >> 1u)) * 4.0) - 1.0);
-  let n = normalMatrix(u.model);
+  let _sm0_a0 = u.model;
+  let n = mat3x3<f32>(_sm0_a0[0].xyz, _sm0_a0[1].xyz, _sm0_a0[2].xyz);
   let handed = select(1.0, -1.0, (determinant(n) < 0.0));
   let normal = (n * vec3<f32>(0.0, 0.0, handed));
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)), normal);

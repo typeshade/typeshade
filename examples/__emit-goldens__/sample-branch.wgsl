@@ -22,18 +22,9 @@ fn sharp(uv: vec2<f32>) -> vec4<f32> {
   return textureSample(albedo, smp, uv);
 }
 
-fn sharp_grad(uv: vec2<f32>, hoist_gx_h0: vec2<f32>, hoist_gy_h1: vec2<f32>) -> vec4<f32> {
-  return textureSampleGrad(albedo, smp, uv, hoist_gx_h0, hoist_gy_h1);
-}
-
 fn wide(uv: vec2<f32>) -> vec4<f32> {
   let inner = (uv * 0.5);
   return textureSample(albedo, smp, inner);
-}
-
-fn wide_grad(uv: vec2<f32>, hoist_gx_h0: vec2<f32>, hoist_gy_h1: vec2<f32>) -> vec4<f32> {
-  let inner = (uv * 0.5);
-  return textureSampleGrad(albedo, smp, inner, hoist_gx_h0, hoist_gy_h1);
 }
 
 @fragment
@@ -47,9 +38,12 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let hoist_gx_h3 = dpdx(inner_h2);
   let hoist_gy_h4 = dpdy(inner_h2);
   if ((v.uv.x > 0.5)) {
-    base = sharp_grad(v.uv, hoist_gx_h1, hoist_gy_h2);
+    base = textureSampleGrad(albedo, smp, v.uv, hoist_gx_h1, hoist_gy_h2);
   } else {
-    base = wide_grad(v.uv, hoist_gx_h3, hoist_gy_h4);
+    let _sm0_a0 = v.uv;
+    let _sm0_l_inner = (_sm0_a0 * 0.5);
+    let _sm0_ret = textureSampleGrad(albedo, smp, _sm0_l_inner, hoist_gx_h3, hoist_gy_h4);
+    base = _sm0_ret;
   }
   if ((tint.rgb.w > 0.5)) {
     let near = (v.uv * 0.75);

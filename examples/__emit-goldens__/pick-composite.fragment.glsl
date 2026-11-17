@@ -16,22 +16,20 @@ void main() {
   vec2 uv = fract((frag.xy * 0.008));
   Palette warm = Palette(vec3(0.35, 0.1, 0.05), vec3(1.0, 0.75, 0.35));
   Palette cool = Palette(vec3(0.04, 0.1, 0.3), vec3(0.5, 0.85, 1.0));
-  Palette _sel0;
+  Palette shade;
   if ((uv.x > 0.5)) {
-    _sel0 = warm;
+    shade = warm;
   } else {
-    _sel0 = cool;
+    shade = cool;
   }
-  Palette shade = _sel0;
   float[3] rising = float[3](0.15, 0.5, 0.9);
   float[3] falling = float[3](0.9, 0.5, 0.15);
-  float[3] _sel1;
+  float[3] steps;
   if ((uv.y > 0.5)) {
-    _sel1 = rising;
+    steps = rising;
   } else {
-    _sel1 = falling;
+    steps = falling;
   }
-  float[3] steps = _sel1;
   int band = _f2i(floor((uv.y * 3.0)));
   float t = smoothstep(0.0, 1.0, steps[band]);
   _ret = vec4(mix(shade.lo, shade.hi, t), 1.0);

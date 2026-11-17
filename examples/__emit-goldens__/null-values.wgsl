@@ -27,40 +27,8 @@ struct _opt_Sample_ {
   present: bool,
 }
 
-fn Sample_get_amount(self_: Sample) -> _opt_f32_ {
-  return self_.value;
-}
-
-fn Sample_new(value: ptr<function, _opt_f32_>) -> Sample {
-  var self_: Sample = Sample(_opt_f32_(0.0, false));
-  self_.value = (*value);
-  return self_;
-}
-
-fn sample_into(_dst: ptr<function, _opt_Sample_>, x: f32) {
-  var _cse0: _opt_f32_ = _opt_f32_(0.0, false);
-  if ((x < 0.333)) {
-    (*_dst) = _opt_Sample_(Sample(_cse0), false);
-    return;
-  }
-  var _sel0: _opt_f32_;
-  if ((x < 0.666)) {
-    _sel0 = _cse0;
-  } else {
-    _sel0 = _opt_f32_(x, true);
-  }
-  (*_dst) = _opt_Sample_(Sample_new(&_sel0), true);
-}
-
-fn tint(value: ptr<function, _opt3_f32_>) -> vec3<f32> {
-  let _cse0 = ((*value).present == false);
-  if ((_cse0 && ((*value).isNull == false))) {
-    return vec3<f32>(0.8, 0.1, 0.1);
-  }
-  if ((_cse0 && (*value).isNull)) {
-    return vec3<f32>(0.1, 0.8, 0.1);
-  }
-  return vec3<f32>(0.1, 0.1, (*value).value);
+fn _opt_widen_struct_opt_f32_2_f32__into(_dst: ptr<function, _opt3_f32_>, v0: ptr<function, _opt_f32_>) {
+  (*_dst) = _opt3_f32_((*v0).value, (*v0).present, true);
 }
 
 @vertex
@@ -74,20 +42,40 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> Color {
-  var _opt: _opt_Sample_;
-  sample_into(&_opt, v.uv.x);
-  var _sel1: _opt3_f32_;
-  if (_opt.present) {
-    _flow3_fused_into(&_sel1, &_opt.value);
+  let _sm1_a0 = v.uv.x;
+  var _sm1_ret: _opt_Sample_;
+  var _cse1: _opt_f32_ = _opt_f32_(0.0, false);
+  var _cse0: Sample = Sample(_cse1);
+  if ((_sm1_a0 < 0.333)) {
+    _sm1_ret = _opt_Sample_(_cse0, false);
   } else {
-    _sel1 = _opt3_f32_(0.0, false, false);
+    var _sm1_l_sm0_a0: _opt_f32_;
+    if ((_sm1_a0 < 0.666)) {
+      _sm1_l_sm0_a0 = _cse1;
+    } else {
+      _sm1_l_sm0_a0 = _opt_f32_(_sm1_a0, true);
+    }
+    var _sm1_l_sm0_l_self_: Sample = _cse0;
+    _sm1_l_sm0_l_self_.value = _sm1_l_sm0_a0;
+    _sm1_ret = _opt_Sample_(_sm1_l_sm0_l_self_, true);
   }
-  var value: _opt3_f32_ = _sel1;
-  return Color(vec4<f32>(tint(&value), 1.0));
-}
-
-fn _flow3_fused_into(_dst: ptr<function, _opt3_f32_>, _flow0_input: ptr<function, Sample>) {
-  let _flow4_part = (*_flow0_input).value.value;
-  let _flow5_part = (*_flow0_input).value.present;
-  (*_dst) = _opt3_f32_(_flow4_part, _flow5_part, true);
+  var _opt: _opt_Sample_ = _sm1_ret;
+  var value: _opt3_f32_;
+  if (_opt.present) {
+    _opt_widen_struct_opt_f32_2_f32__into(&value, &_opt.value.value);
+  } else {
+    value = _opt3_f32_(0.0, false, false);
+  }
+  var _sm2_ret: vec3<f32>;
+  let _gv0 = (value.present == false);
+  if ((_gv0 && (value.isNull == false))) {
+    _sm2_ret = vec3<f32>(0.8, 0.1, 0.1);
+  } else {
+    if ((_gv0 && value.isNull)) {
+      _sm2_ret = vec3<f32>(0.1, 0.8, 0.1);
+    } else {
+      _sm2_ret = vec3<f32>(0.1, 0.1, value.value);
+    }
+  }
+  return Color(vec4<f32>(_sm2_ret, 1.0));
 }

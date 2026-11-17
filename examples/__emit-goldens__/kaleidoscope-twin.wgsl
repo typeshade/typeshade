@@ -11,11 +11,6 @@ struct VsOut {
 
 @group(0) @binding(0) var<uniform> U: Uniforms;
 
-fn screenCoords(uv: vec2<f32>, resolution: vec2<f32>) -> vec2<f32> {
-  let asp = (resolution.x / resolution.y);
-  return vec2<f32>((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -41,30 +36,28 @@ fn noise(p: vec2<f32>) -> f32 {
   return mix(mix(hash(i), hash((i + vec2<f32>(1.0, 0.0))), u.x), mix(hash((i + vec2<f32>(0.0, 1.0))), hash((i + vec2<f32>(1.0, 1.0))), u.x), u.y);
 }
 
-fn fbm(p: vec2<f32>) -> f32 {
-  return ((((noise(p) * 0.5) + (noise((p * 2.02)) * 0.25)) + (noise((p * 4.08)) * 0.125)) + (noise((p * 8.2)) * 0.0625));
-}
-
-fn palette(t: f32) -> vec3<f32> {
-  let ph = vec3<f32>(0.0, 0.33, 0.67);
-  return (vec3<f32>(0.5) + (cos(((t + ph) * 6.283)) * 0.5));
-}
-
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let t = U.time;
   let res = U.resolution;
-  let p = screenCoords(vo.uv, res);
-  let r = length(p);
-  let a0 = atan2(p.y, p.x);
+  let _sm0_a0 = vo.uv;
+  let _sm0_l_asp = (res.x / res.y);
+  let _gv0 = (((_sm0_a0.x * 2.0) - 1.0) * _sm0_l_asp);
+  let _gv1 = ((_sm0_a0.y * 2.0) - 1.0);
+  let _sm0_ret = vec2<f32>(_gv0, _gv1);
+  let r = length(_sm0_ret);
+  let a0 = atan2(_gv1, _gv0);
   let sector = (6.2831853 / U.segments);
   let am = (a0 - sector * floor(a0 / sector));
   let af = abs((am - (sector * 0.5)));
   let q = (vec2<f32>(cos(af), sin(af)) * r);
-  let v = fbm(((q * 3.0) + vec2<f32>((t * 0.12), (-(t * 0.09)))));
+  let _sm1_a0 = ((q * 3.0) + vec2<f32>((t * 0.12), (-(t * 0.09))));
+  let v = ((((noise(_sm1_a0) * 0.5) + (noise((_sm1_a0 * 2.02)) * 0.25)) + (noise((_sm1_a0 * 4.08)) * 0.125)) + (noise((_sm1_a0 * 8.2)) * 0.0625));
   let rings = ((sin(((r * 9.0) - (t * 0.8))) * 0.5) + 0.5);
-  let col = palette(((((v * 0.7) + (rings * 0.15)) + (r * 0.3)) - (t * 0.03)));
+  let _sm2_a0 = ((((v * 0.7) + (rings * 0.15)) + (r * 0.3)) - (t * 0.03));
+  let _sm2_l_ph = vec3<f32>(0.0, 0.33, 0.67);
+  let _sm2_ret = (vec3<f32>(0.5) + (cos(((_sm2_a0 + _sm2_l_ph) * 6.283)) * 0.5));
   let relief = ((v * 0.9) + 0.35);
   let vig = (1.0 - smoothstep(0.55, 1.25, r));
-  return vec4<f32>(((col * relief) * vig), 1.0);
+  return vec4<f32>(((_sm2_ret * relief) * vig), 1.0);
 }

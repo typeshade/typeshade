@@ -18,14 +18,11 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)));
 }
 
-fn hash2(c: vec2<f32>) -> vec2<f32> {
-  let h = vec2<f32>(dot(c, vec2<f32>(127.1, 311.7)), dot(c, vec2<f32>(269.5, 183.3)));
-  return fract((vec2<f32>(sin(h.x), sin(h.y)) * 43758.5453));
-}
-
 @fragment
 fn fs(v: VsOut) -> @location(0) vec4<f32> {
-  let _licm0 = U.time;
+  let _licm0 = vec2<f32>(127.1, 311.7);
+  let _licm1 = vec2<f32>(269.5, 183.3);
+  let _licm2 = U.time;
   let p = (v.uv * U.cells);
   let cell = floor(p);
   let f = fract(p);
@@ -33,9 +30,11 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   for (var j: i32 = -1; (j <= 1); j = (j + 1)) {
     for (var i: i32 = -1; (i <= 1); i = (i + 1)) {
       let g = vec2<f32>(f32(i), f32(j));
-      let seed = hash2((cell + g));
-      let orbit = (vec2<f32>(sin((_licm0 + (seed.x * 6.283))), cos((_licm0 + (seed.y * 6.283)))) * 0.18);
-      let pt = ((g + ((seed * 0.5) + 0.25)) + orbit);
+      let _sm0_a0 = (cell + g);
+      let _sm0_l_h = vec2<f32>(dot(_sm0_a0, _licm0), dot(_sm0_a0, _licm1));
+      let _sm0_ret = fract((vec2<f32>(sin(_sm0_l_h.x), sin(_sm0_l_h.y)) * 43758.5453));
+      let orbit = (vec2<f32>(sin((_licm2 + (_sm0_ret.x * 6.283))), cos((_licm2 + (_sm0_ret.y * 6.283)))) * 0.18);
+      let pt = ((g + ((_sm0_ret * 0.5) + 0.25)) + orbit);
       md = min(md, distance(f, pt));
     }
   }

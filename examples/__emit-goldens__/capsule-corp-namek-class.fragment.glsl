@@ -184,29 +184,26 @@ float Noise_mod(float x, float y) {
   return (x - (y * floor((x / y))));
 }
 
-float Noise_wrapX(vec2 p, float n) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 q = ((f * f) * (3.0 - (2.0 * f)));
-  float i0 = Noise_mod(i.x, n);
-  float i1 = Noise_mod((i.x + 1.0), n);
-  float _lc0 = (i.y + 1.0);
-  return mix(mix(Noise_hash12(vec2(i0, i.y)), Noise_hash12(vec2(i1, i.y)), q.x), mix(Noise_hash12(vec2(i0, _lc0)), Noise_hash12(vec2(i1, _lc0)), q.x), q.y);
-}
-
 float Noise_fbmWrapX(vec2 p, float n) {
   vec2 _licm0 = vec2(0.0, 5.3);
-  float sum_1 = (0.5 * Noise_wrapX(p, n));
-  vec2 q_1 = ((2.0 * p) + _licm0);
-  float period_1 = (n * 2.0);
-  float sum_2 = (sum_1 + (0.25 * Noise_wrapX(q_1, period_1)));
-  vec2 q_2 = ((2.0 * q_1) + _licm0);
-  float period_2 = (period_1 * 2.0);
-  float sum_3 = (sum_2 + (0.125 * Noise_wrapX(q_2, period_2)));
-  vec2 q_3 = ((2.0 * q_2) + _licm0);
-  float period_3 = (period_2 * 2.0);
-  float sum_4 = (sum_3 + (0.0625 * Noise_wrapX(q_3, period_3)));
-  return (sum_4 / 0.9375);
+  vec2 q = p;
+  float period = n;
+  float sum = 0.0;
+  float amplitude = 0.5;
+  for (int i = 0; (i < 4); i = (i + 1)) {
+    vec2 _sm0_l_i = floor(q);
+    vec2 _sm0_l_f = fract(q);
+    vec2 _sm0_l_q = ((_sm0_l_f * _sm0_l_f) * (3.0 - (2.0 * _sm0_l_f)));
+    float _sm0_l_i0 = Noise_mod(_sm0_l_i.x, period);
+    float _sm0_l_i1 = Noise_mod((_sm0_l_i.x + 1.0), period);
+    float _lc0 = (_sm0_l_i.y + 1.0);
+    float _sm0_ret = mix(mix(Noise_hash12(vec2(_sm0_l_i0, _sm0_l_i.y)), Noise_hash12(vec2(_sm0_l_i1, _sm0_l_i.y)), _sm0_l_q.x), mix(Noise_hash12(vec2(_sm0_l_i0, _lc0)), Noise_hash12(vec2(_sm0_l_i1, _lc0)), _sm0_l_q.x), _sm0_l_q.y);
+    sum += (amplitude * _sm0_ret);
+    q = ((2.0 * q) + _licm0);
+    period *= 2.0;
+    amplitude *= 0.5;
+  }
+  return (sum / 0.9375);
 }
 
 vec2 SDF_union(vec2 a, vec2 b) {
@@ -219,65 +216,8 @@ float SDF_segment(vec2 p, vec2 a, vec2 b) {
   return length((pa - (ba * clamp((dot(pa, ba) / dot(ba, ba)), 0.0, 1.0))));
 }
 
-float SDF_box(vec3 p, vec3 b) {
-  vec3 q = (abs(p) - b);
-  return (length(max(q, vec3(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0));
-}
-
-float SDF_box2(vec2 p, vec2 b) {
-  vec2 q = (abs(p) - b);
-  return (length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0));
-}
-
-vec2 _flow28_shared(vec2 _flow25_input, vec2 _flow26_input, vec2 _flow27_input) {
-  return ((_flow25_input - _flow26_input) + (_flow27_input * clamp((dot((_flow26_input - _flow25_input), _flow27_input) / dot(_flow27_input, _flow27_input)), 0.0, 1.0)));
-}
-
-float SDF_trapezoid(vec2 p, float r1, float r2, float height) {
-  vec2 k1 = vec2(r2, height);
-  vec2 k2 = vec2((r2 - r1), (2.0 * height));
-  float qx = abs(p.x);
-  vec2 q = vec2(qx, p.y);
-  vec2 ca = vec2((qx - min(qx, ((p.y < 0.0) ? r1 : r2))), (abs(p.y) - height));
-  vec2 cb = _flow28_shared(q, k1, k2);
-  float sign = (((cb.x < 0.0) && (ca.y < 0.0)) ? -1.0 : 1.0);
-  return (sign * sqrt(min(dot(ca, ca), dot(cb, cb))));
-}
-
 float SDF_cylinderY(vec3 p, float radius, float y0, float y1) {
   vec2 d = vec2((length(p.xz) - radius), (abs((p.y - (0.5 * (y0 + y1)))) - (0.5 * (y1 - y0))));
-  return (min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0))));
-}
-
-float SDF_coneY(vec3 p, float rb, float rt, float y0, float y1) {
-  float halfHeight = (0.5 * (y1 - y0));
-  float _cse0 = (p.y - y0);
-  float _gv0 = (_cse0 - halfHeight);
-  vec2 q = vec2(length(p.xz), _gv0);
-  vec2 k1 = vec2(rt, halfHeight);
-  vec2 k2 = vec2((rt - rb), (2.0 * halfHeight));
-  vec2 ca = vec2((q.x - min(q.x, ((_gv0 < 0.0) ? rb : rt))), (abs(_gv0) - halfHeight));
-  vec2 cb = _flow28_shared(q, k1, k2);
-  float sign = (((cb.x < 0.0) && (ca.y < 0.0)) ? -1.0 : 1.0);
-  return (sign * sqrt(min(dot(ca, ca), dot(cb, cb))));
-}
-
-float SDF_cutSphereBelow(vec3 p, float radius, float height) {
-  float width = sqrt(((radius * radius) - (height * height)));
-  float _cse0 = (-p.y);
-  vec2 q = vec2(length(p.xz), _cse0);
-  float h = (-height);
-  float s = max(((((h - radius) * q.x) * q.x) + ((width * width) * ((h + radius) - (2.0 * _cse0)))), ((h * q.x) - (width * _cse0)));
-  return ((s < 0.0) ? (length(q) - radius) : ((q.x < width) ? (h - _cse0) : length((q - vec2(width, h)))));
-}
-
-float SDF_cylinderSegment(vec3 p, vec3 a, vec3 b, float radius) {
-  vec3 pa = (p - a);
-  vec3 ba = (b - a);
-  float lengthAB = length(ba);
-  float h = (dot(pa, ba) / lengthAB);
-  float _lc0 = (0.5 * lengthAB);
-  vec2 d = vec2((length((pa - (ba * (h / lengthAB)))) - radius), (abs((h - _lc0)) - _lc0));
   return (min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0))));
 }
 
@@ -306,57 +246,32 @@ PolarResult SDF_polarY(float angle, float radius, float y, float count, float of
   return PolarResult_new(vec3((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
 }
 
+vec2 _flow3_shared(vec2 _flow0_input, vec2 _flow1_input, vec2 _flow2_input) {
+  return ((_flow0_input - _flow1_input) + (_flow2_input * clamp((dot((_flow1_input - _flow0_input), _flow2_input) / dot(_flow2_input, _flow2_input)), 0.0, 1.0)));
+}
+
 float Ship_flapOutline(Ship self_, vec3 s) {
   float angle = (asin(FLAP_Y) - atan(s.y, length(s.xz)));
   float _cse0 = (0.5 * FLAP_LEN);
-  return (SDF_trapezoid(vec2(s.x, (angle - _cse0)), (FLAP_HW - 0.06), (FLAP_TIP_HW - 0.06), (_cse0 - 0.06)) - 0.06);
+  float _gv0 = (angle - _cse0);
+  float _sm3_a1 = (FLAP_HW - 0.06);
+  float _sm3_a2 = (FLAP_TIP_HW - 0.06);
+  float _sm3_a3 = (_cse0 - 0.06);
+  vec2 _sm3_l_k1 = vec2(_sm3_a2, _sm3_a3);
+  vec2 _sm3_l_k2 = vec2((_sm3_a2 - _sm3_a1), (2.0 * _sm3_a3));
+  float _sm3_l_qx = abs(s.x);
+  vec2 _sm3_l_q = vec2(_sm3_l_qx, _gv0);
+  vec2 _sm3_l_ca = vec2((_sm3_l_qx - min(_sm3_l_qx, ((_gv0 < 0.0) ? _sm3_a1 : _sm3_a2))), (abs(_gv0) - _sm3_a3));
+  vec2 _sm3_l_cb = _flow3_shared(_sm3_l_q, _sm3_l_k1, _sm3_l_k2);
+  float _sm3_l_sign = (((_sm3_l_cb.x < 0.0) && (_sm3_l_ca.y < 0.0)) ? -1.0 : 1.0);
+  float _sm3_ret = (_sm3_l_sign * sqrt(min(dot(_sm3_l_ca, _sm3_l_ca), dot(_sm3_l_cb, _sm3_l_cb))));
+  return (_sm3_ret - 0.06);
 }
 
 vec3 Ship_flapHome(Ship self_, vec3 l) {
   vec2 hinge = vec2(sqrt((1.0 - (FLAP_Y * FLAP_Y))), FLAP_Y);
   vec2 q = (hinge + SDF_rotate((l.zy - hinge), (-FLAP_OPEN)));
   return vec3(l.x, q.y, q.x);
-}
-
-float Ship_flap(Ship self_, vec3 l) {
-  vec3 home = Ship_flapHome(self_, l);
-  float _cse0 = (0.5 * FLAP_T);
-  return max((abs(((length(home) - 1.0) + _cse0)) - _cse0), Ship_flapOutline(self_, home));
-}
-
-vec2 Ship_mapLeg(Ship self_, vec3 l, float best) {
-  float y = -0.73;
-  vec2 hinge = vec2(sqrt((1.0 - (FLAP_Y * FLAP_Y))), FLAP_Y);
-  float tipLat = (asin(FLAP_Y) - FLAP_LEN);
-  vec2 tip = (hinge + SDF_rotate((vec2(cos(tipLat), sin(tipLat)) - hinge), FLAP_OPEN));
-  float bounds = max(((SDF_segment(l.zy, hinge, tip) - FLAP_T) - FLAP_HW), (abs(l.x) - FLAP_HW));
-  vec3 lo = vec3(-0.1, GROUND, 0.0);
-  vec3 hi = vec3(0.1, ((y + 0.02) + 0.02), (LEG_R + 0.1));
-  bounds = min(bounds, SDF_box((l - (0.5 * (lo + hi))), (0.5 * (hi - lo))));
-  if ((bounds > min(best, 0.1))) {
-    return vec2(bounds, 5.0);
-  }
-  vec3 c = (l - vec3(0.0, 0.0, LEG_R));
-  float leg = (SDF_cylinderY(c, 0.05, (SHOCK_Y + 0.01), -0.72) - 0.01);
-  leg = min(leg, SDF_cylinderY(c, 0.025, (GROUND + 0.05), SHOCK_Y));
-  leg = min(leg, SDF_capsule(l, vec3(0.0, (y + 0.02), 0.6), vec3(0.0, y, LEG_R), 0.018));
-  float joint = (LEG_R - 0.2);
-  float _gv0 = (y - 0.09);
-  leg = min(leg, SDF_capsule(l, vec3(-0.05, y, 0.6), vec3(-0.05, _gv0, joint), 0.018));
-  leg = min(leg, SDF_capsule(l, vec3(0.05, y, 0.6), vec3(0.05, _gv0, joint), 0.018));
-  y -= 0.09;
-  float _lc0 = (y + 0.02);
-  leg = min(leg, SDF_cylinderSegment(l, vec3(-0.07, _lc0, joint), vec3(0.07, _lc0, joint), 0.05));
-  vec3 _gv1 = vec3(0.05, (y + 0.02), joint);
-  leg = min(leg, SDF_capsule(l, _gv1, vec3(0.05, y, LEG_R), 0.012));
-  vec3 _gv2 = vec3(-0.05, (y + 0.02), joint);
-  leg = min(leg, SDF_capsule(l, _gv2, vec3(-0.05, y, LEG_R), 0.012));
-  leg = min(leg, SDF_capsule(l, _gv1, vec3(0.05, y, 0.2), 0.012));
-  leg = min(leg, SDF_capsule(l, _gv2, vec3(-0.05, y, 0.2), 0.012));
-  vec2 result = vec2(leg, 5.0);
-  result = SDF_union(result, vec2((SDF_coneY(c, 0.094, 0.024, (GROUND + 0.006), (GROUND + 0.064)) - 0.006), 6.0));
-  result = SDF_union(result, vec2(Ship_flap(self_, l), 10.0));
-  return result;
 }
 
 _spec1_result _spec0_SDF_polarY(float angle, float radius, float y, float count, float offset) {
@@ -396,17 +311,80 @@ vec2 Ship_map(Ship self_, vec3 p) {
     result = SDF_union(result, vec2((length((windowFrame.point - (center * ((1.0 + WIN_BULGE) - glassRadius)))) - glassRadius), 2.0));
     result = SDF_union(result, vec2((length(vec2((length((w - (h * center))) - 0.114), h)) - 0.017), 3.0));
   }
-  result = SDF_union(result, Ship_mapLeg(self_, l, result.x));
+  float _sm8_a2 = result.x;
+  vec2 _sm8_ret = vec2(0.0);
+  float _sm8_l_y = -0.73;
+  vec2 _sm8_l_hinge = vec2(sqrt((1.0 - (FLAP_Y * FLAP_Y))), FLAP_Y);
+  float _sm8_l_tipLat = (asin(FLAP_Y) - FLAP_LEN);
+  vec2 _sm8_l_tip = (_sm8_l_hinge + SDF_rotate((vec2(cos(_sm8_l_tipLat), sin(_sm8_l_tipLat)) - _sm8_l_hinge), FLAP_OPEN));
+  float _sm8_l_bounds = max(((SDF_segment(l.zy, _sm8_l_hinge, _sm8_l_tip) - FLAP_T) - FLAP_HW), (abs(l.x) - FLAP_HW));
+  vec3 _sm8_l_lo = vec3(-0.1, GROUND, 0.0);
+  float _gv0 = (_sm8_l_y + 0.02);
+  vec3 _sm8_l_hi = vec3(0.1, (_gv0 + 0.02), (LEG_R + 0.1));
+  vec3 _sm8_l_sm1_a0 = (l - (0.5 * (_sm8_l_lo + _sm8_l_hi)));
+  vec3 _sm8_l_sm1_a1 = (0.5 * (_sm8_l_hi - _sm8_l_lo));
+  vec3 _sm8_l_sm1_l_q = (abs(_sm8_l_sm1_a0) - _sm8_l_sm1_a1);
+  float _sm8_l_sm1_ret = (length(max(_sm8_l_sm1_l_q, vec3(0.0))) + min(max(_sm8_l_sm1_l_q.x, max(_sm8_l_sm1_l_q.y, _sm8_l_sm1_l_q.z)), 0.0));
+  _sm8_l_bounds = min(_sm8_l_bounds, _sm8_l_sm1_ret);
+  if ((_sm8_l_bounds > min(_sm8_a2, 0.1))) {
+    _sm8_ret = vec2(_sm8_l_bounds, 5.0);
+  } else {
+    vec3 _sm8_l_c = (l - vec3(0.0, 0.0, LEG_R));
+    float _sm8_l_leg = (SDF_cylinderY(_sm8_l_c, 0.05, (SHOCK_Y + 0.01), -0.72) - 0.01);
+    _sm8_l_leg = min(_sm8_l_leg, SDF_cylinderY(_sm8_l_c, 0.025, (GROUND + 0.05), SHOCK_Y));
+    _sm8_l_leg = min(_sm8_l_leg, SDF_capsule(l, vec3(0.0, _gv0, 0.6), vec3(0.0, _sm8_l_y, LEG_R), 0.018));
+    float _sm8_l_joint = (LEG_R - 0.2);
+    float _gv1 = (_sm8_l_y - 0.09);
+    _sm8_l_leg = min(_sm8_l_leg, SDF_capsule(l, vec3(-0.05, _sm8_l_y, 0.6), vec3(-0.05, _gv1, _sm8_l_joint), 0.018));
+    _sm8_l_leg = min(_sm8_l_leg, SDF_capsule(l, vec3(0.05, _sm8_l_y, 0.6), vec3(0.05, _gv1, _sm8_l_joint), 0.018));
+    _sm8_l_y -= 0.09;
+    float _gv6 = (_sm8_l_y + 0.02);
+    vec3 _sm8_l_sm6_a1 = vec3(-0.07, _gv6, _sm8_l_joint);
+    vec3 _sm8_l_sm6_a2 = vec3(0.07, _gv6, _sm8_l_joint);
+    vec3 _sm8_l_sm6_l_pa = (l - _sm8_l_sm6_a1);
+    vec3 _sm8_l_sm6_l_ba = (_sm8_l_sm6_a2 - _sm8_l_sm6_a1);
+    float _sm8_l_sm6_l_lengthAB = length(_sm8_l_sm6_l_ba);
+    float _sm8_l_sm6_l_h = (dot(_sm8_l_sm6_l_pa, _sm8_l_sm6_l_ba) / _sm8_l_sm6_l_lengthAB);
+    float _lc0 = (0.5 * _sm8_l_sm6_l_lengthAB);
+    vec2 _sm8_l_sm6_l_d = vec2((length((_sm8_l_sm6_l_pa - (_sm8_l_sm6_l_ba * (_sm8_l_sm6_l_h / _sm8_l_sm6_l_lengthAB)))) - 0.05), (abs((_sm8_l_sm6_l_h - _lc0)) - _lc0));
+    float _sm8_l_sm6_ret = (min(max(_sm8_l_sm6_l_d.x, _sm8_l_sm6_l_d.y), 0.0) + length(max(_sm8_l_sm6_l_d, vec2(0.0))));
+    _sm8_l_leg = min(_sm8_l_leg, _sm8_l_sm6_ret);
+    vec3 _gv2 = vec3(0.05, _gv6, _sm8_l_joint);
+    _sm8_l_leg = min(_sm8_l_leg, SDF_capsule(l, _gv2, vec3(0.05, _sm8_l_y, LEG_R), 0.012));
+    vec3 _gv3 = vec3(-0.05, _gv6, _sm8_l_joint);
+    _sm8_l_leg = min(_sm8_l_leg, SDF_capsule(l, _gv3, vec3(-0.05, _sm8_l_y, LEG_R), 0.012));
+    _sm8_l_leg = min(_sm8_l_leg, SDF_capsule(l, _gv2, vec3(0.05, _sm8_l_y, 0.2), 0.012));
+    _sm8_l_leg = min(_sm8_l_leg, SDF_capsule(l, _gv3, vec3(-0.05, _sm8_l_y, 0.2), 0.012));
+    vec2 _sm8_l_result = vec2(_sm8_l_leg, 5.0);
+    float _sm8_l_sm4_a3 = (GROUND + 0.006);
+    float _sm8_l_sm4_a4 = (GROUND + 0.064);
+    float _sm8_l_sm4_l_halfHeight = (0.5 * (_sm8_l_sm4_a4 - _sm8_l_sm4_a3));
+    float _gv4 = ((_sm8_l_c.y - _sm8_l_sm4_a3) - _sm8_l_sm4_l_halfHeight);
+    vec2 _sm8_l_sm4_l_q = vec2(length(_sm8_l_c.xz), _gv4);
+    vec2 _sm8_l_sm4_l_k1 = vec2(0.024, _sm8_l_sm4_l_halfHeight);
+    vec2 _sm8_l_sm4_l_k2 = vec2(-0.07, (2.0 * _sm8_l_sm4_l_halfHeight));
+    vec2 _sm8_l_sm4_l_ca = vec2((_sm8_l_sm4_l_q.x - min(_sm8_l_sm4_l_q.x, ((_gv4 < 0.0) ? 0.094 : 0.024))), (abs(_gv4) - _sm8_l_sm4_l_halfHeight));
+    vec2 _sm8_l_sm4_l_cb = _flow3_shared(_sm8_l_sm4_l_q, _sm8_l_sm4_l_k1, _sm8_l_sm4_l_k2);
+    float _sm8_l_sm4_l_sign = (((_sm8_l_sm4_l_cb.x < 0.0) && (_sm8_l_sm4_l_ca.y < 0.0)) ? -1.0 : 1.0);
+    float _sm8_l_sm4_ret = (_sm8_l_sm4_l_sign * sqrt(min(dot(_sm8_l_sm4_l_ca, _sm8_l_sm4_l_ca), dot(_sm8_l_sm4_l_cb, _sm8_l_sm4_l_cb))));
+    _sm8_l_result = SDF_union(_sm8_l_result, vec2((_sm8_l_sm4_ret - 0.006), 6.0));
+    vec3 _sm8_l_sm7_l_home = Ship_flapHome(self_, l);
+    float _cse1 = (0.5 * FLAP_T);
+    float _sm8_l_sm7_ret = max((abs(((length(_sm8_l_sm7_l_home) - 1.0) + _cse1)) - _cse1), Ship_flapOutline(self_, _sm8_l_sm7_l_home));
+    _sm8_l_result = SDF_union(_sm8_l_result, vec2(_sm8_l_sm7_ret, 10.0));
+    _sm8_ret = _sm8_l_result;
+  }
+  result = SDF_union(result, _sm8_ret);
   vec3 bellyPoint = (p + vec3(0.0, BELLY_EXT, 0.0));
-  result = SDF_union(result, vec2(SDF_cutSphereBelow(bellyPoint, 1.0, BELLY_Y), (((bellyPoint.y - BELLY_Y) > (length(bellyPoint) - 1.0)) ? 12.0 : 0.0)));
+  float _sm5_l_width = sqrt((1.0 - (BELLY_Y * BELLY_Y)));
+  float _gv5 = (-bellyPoint.y);
+  vec2 _sm5_l_q = vec2(length(bellyPoint.xz), _gv5);
+  float _sm5_l_h = (-BELLY_Y);
+  float _sm5_l_s = max(((((_sm5_l_h - 1.0) * _sm5_l_q.x) * _sm5_l_q.x) + ((_sm5_l_width * _sm5_l_width) * ((_sm5_l_h + 1.0) - (2.0 * _gv5)))), ((_sm5_l_h * _sm5_l_q.x) - (_sm5_l_width * _gv5)));
+  float _sm5_ret = ((_sm5_l_s < 0.0) ? (length(_sm5_l_q) - 1.0) : ((_sm5_l_q.x < _sm5_l_width) ? (_sm5_l_h + bellyPoint.y) : length((_sm5_l_q - vec2(_sm5_l_width, _sm5_l_h)))));
+  result = SDF_union(result, vec2(_sm5_ret, (((bellyPoint.y - BELLY_Y) > (length(bellyPoint) - 1.0)) ? 12.0 : 0.0)));
   result = SDF_union(result, vec2(SDF_cylinderY(p, SHAFT_R, ((BELLY_Y - BELLY_EXT) - 0.01), (BELLY_Y + 0.05)), 7.0));
   return result;
-}
-
-Ship Ship_new() {
-  Ship self_ = Ship(0.0);
-  self_.legCount = 4.0;
-  return self_;
 }
 
 vec2 NamekTree_map(NamekTree self_, vec3 p) {
@@ -455,23 +433,9 @@ float NamekTrees_sphereExit(NamekTrees self_, vec3 ro, vec3 rd, vec3 center, flo
   return ((h > 0.0) ? ((-b) + sqrt(h)) : 0.0);
 }
 
-float NamekTrees_casterExit(NamekTrees self_, vec3 ro, vec3 rd, float current) {
-  float firstExit = NamekTrees_sphereExit(self_, ro, rd, NamekTree_shadowCenter(self_.first), NamekTree_shadowRadius(self_.first));
-  float secondExit = NamekTrees_sphereExit(self_, ro, rd, NamekTree_shadowCenter(self_.second), NamekTree_shadowRadius(self_.second));
-  return max(current, max(firstExit, secondExit));
-}
-
-NamekTrees NamekTrees_new() {
-  NamekTree _cse0 = NamekTree(vec2(0.0, 0.0), 0.0, 0.0);
-  NamekTrees self_ = NamekTrees(_cse0, _cse0);
-  self_.first = NamekTree_new(vec2(1.86, 0.83), 0.65, 0.15);
-  self_.second = NamekTree_new(vec2(-5.9, -4.4), 1.9, 0.38);
-  return self_;
-}
-
-vec2 _flow34_shared(vec2 _flow29_input, float _flow30_input, float _flow31_input, float _flow32_input, float _flow33_input) {
-  float _cse0 = ((0.5 * PI) * _flow31_input);
-  return mix(_flow29_input, (_flow30_input * vec2(sin(_cse0), (_flow32_input * (1.0 - cos(_cse0))))), _flow33_input);
+vec2 _flow9_shared(vec2 _flow4_input, float _flow5_input, float _flow6_input, float _flow7_input, float _flow8_input) {
+  float _cse0 = ((0.5 * PI) * _flow6_input);
+  return mix(_flow4_input, (_flow5_input * vec2(sin(_cse0), (_flow7_input * (1.0 - cos(_cse0))))), _flow8_input);
 }
 
 float ShipDetails_tickRow(ShipDetails self_, vec2 q, vec2 seed, int n, float gap, float len, float bend, float curl, float spread, float lw) {
@@ -491,7 +455,7 @@ float ShipDetails_tickRow(ShipDetails self_, vec2 q, vec2 seed, int n, float gap
     float fk = (_gv0 / mid);
     vec4 h = vec4(Noise_hash12(((seed + (_gv1 * 3.1)) + 51.0)), Noise_hash12(((seed + (_gv1 * 5.7)) + 63.0)), Noise_hash12(((seed + (_gv1 * 2.3)) + 77.0)), Noise_hash12(((seed + (_gv1 * 4.9)) + 89.0)));
     vec2 base = vec2((gap * _gv0), (((bend * fk) * fk) + _licm0));
-    base = _flow34_shared(base, radius, fk, bendSign, curl);
+    base = _flow9_shared(base, radius, fk, bendSign, curl);
     base += vec2((_licm1 * (h.x - 0.5)), (_licm2 * h.y));
     float bladeLength = (len * (1.0 - (spread * Noise_hash12(((seed + (_gv1 * 6.1)) + 97.0)))));
     float angle = (0.5 * (h.z - 0.5));
@@ -548,57 +512,12 @@ float ShipDetails_scuffInk(ShipDetails self_, vec3 p, float t, float lineA, floa
   return (1.0 - smoothstep((-aa), aa, distance));
 }
 
-float ShipDetails_hatchedSheen(ShipDetails self_, vec3 normal, vec3 viewRight, vec3 viewUp, float aa) {
-  vec3 sheenCenter = ((0.6 * viewUp) - (0.8 * viewRight));
-  float c0 = cos((SHEEN_R + (0.1 * (Noise_value((7.0 * vec2(dot(normal, viewRight), dot(normal, viewUp)))) - 0.5))));
-  float rho = max(length(normal.xz), 0.0001);
-  float hH = length(sheenCenter.xz);
-  float m = (normal.y * sheenCenter.y);
-  float w = (rho * hH);
-  float angle = acos(clamp((dot(normal.xz, sheenCenter.xz) / w), -1.0, 1.0));
-  float q = ((c0 - m) / w);
-  float e = 0.0;
-  float de = 0.0;
-  if ((abs(q) < 1.0)) {
-    float lit = acos(q);
-    float _gv0 = (lit - angle);
-    e = (rho * _gv0);
-    de = (((-normal.y) * _gv0) - (((c0 * normal.y) - sheenCenter.y) / (w * max(sqrt((1.0 - (q * q))), 0.05))));
-  } else {
-    float _gv1 = sign(q);
-    float hm = (m + (_gv1 * w));
-    float gap = (abs((c0 - hm)) / sqrt(max((1.0 - (hm * hm)), 0.0001)));
-    float arc = ((q > 0.0) ? angle : (PI - angle));
-    e = ((-_gv1) * (gap + (rho * arc)));
-    de = ((_gv1 * normal.y) * arc);
-  }
-  float s = (asin(clamp(normal.y, -1.0, 1.0)) / HATCH_W);
-  float c1 = floor((s + 0.5));
-  float u1 = (s - c1);
-  float c2 = floor(s);
-  float u2 = ((s - c2) - 0.5);
-  float fit = min(1.0, ((1.25 * rho) / max(HATCH_L, HATCH_D)));
-  float lightLength = ((fit * HATCH_L) * (0.15 + (0.85 * Noise_hash12(vec2(c1, 3.1)))));
-  float darkLength = ((fit * HATCH_D) * (0.15 + (0.85 * Noise_hash12(vec2(c2, 7.7)))));
-  float z = ((e + (lightLength * (1.0 - (2.0 * abs(u1))))) - (darkLength * (1.0 - (2.0 * abs(u2)))));
-  float dz = (de + ((2.0 * ((darkLength * sign(u2)) - (lightLength * sign(u1)))) / HATCH_W));
-  return smoothstep((-aa), aa, (z / sqrt((1.0 + (dz * dz)))));
-}
-
-ShipDetails ShipDetails_new(Ship ship, NamekTrees trees) {
-  NamekTree _cse0 = NamekTree(vec2(0.0, 0.0), 0.0, 0.0);
-  ShipDetails self_ = ShipDetails(Ship(0.0), NamekTrees(_cse0, _cse0));
-  self_.ship = ship;
-  self_.trees = trees;
-  return self_;
-}
-
 float Lettering_rect(Lettering self_, vec2 p, float x0, float y0, float x1, float y1) {
-  return SDF_box2((p - (0.5 * vec2((x0 + x1), (y0 + y1)))), (0.5 * vec2((x1 - x0), (y1 - y0))));
-}
-
-float Lettering_stroke(Lettering self_, vec2 p, vec2 a, vec2 b) {
-  return (SDF_segment(p, a, b) - self_.strokeWidth);
+  vec2 _sm2_a0 = (p - (0.5 * vec2((x0 + x1), (y0 + y1))));
+  vec2 _sm2_a1 = (0.5 * vec2((x1 - x0), (y1 - y0)));
+  vec2 _sm2_l_q = (abs(_sm2_a0) - _sm2_a1);
+  float _sm2_ret = (length(max(_sm2_l_q, vec2(0.0))) + min(max(_sm2_l_q.x, _sm2_l_q.y), 0.0));
+  return _sm2_ret;
 }
 
 float Lettering_arc(Lettering self_, vec2 p, vec2 center, float radius, float start, float end) {
@@ -616,14 +535,14 @@ float Lettering_glyph(Lettering self_, vec2 p, int glyphId) {
     d = min(Lettering_arc(self_, p, vec2(0.0, 0.2), 0.215, 0.5, PI), Lettering_arc(self_, p, vec2(0.0, -0.2), 0.215, PI, (TAU - 0.5)));
     d = min(d, Lettering_rect(self_, p, -0.3, -0.2, -0.13, 0.2));
   } else if ((glyphId == 1)) {
-    d = min(Lettering_stroke(self_, p, vec2(-0.245, -0.6), vec2(-0.01, 0.6)), Lettering_stroke(self_, p, vec2(0.245, -0.6), vec2(0.01, 0.6)));
+    d = min((SDF_segment(p, vec2(-0.245, -0.6), vec2(-0.01, 0.6)) - self_.strokeWidth), (SDF_segment(p, vec2(0.245, -0.6), vec2(0.01, 0.6)) - self_.strokeWidth));
     d = min(d, Lettering_rect(self_, p, -0.16, -0.22, 0.16, -0.06));
   } else if (((glyphId == 2) || _cse0)) {
     d = min(Lettering_rect(self_, p, -0.28, -0.5, -0.11, 0.5), Lettering_rect(self_, p, -0.28, 0.33, 0.0, 0.5));
     d = min(d, Lettering_rect(self_, p, -0.28, -0.08, 0.0, 0.09));
     d = min(d, Lettering_arc(self_, p, vec2(0.0, 0.205), 0.21, (-0.5 * PI), (0.5 * PI)));
     if (_cse0) {
-      d = min(d, Lettering_stroke(self_, p, vec2(0.0, 0.0), vec2(0.24, -0.6)));
+      d = min(d, (SDF_segment(p, vec2(0.0, 0.0), vec2(0.24, -0.6)) - self_.strokeWidth));
     }
   } else if ((glyphId == 3)) {
     d = min(Lettering_arc(self_, p, vec2(0.0, 0.2075), 0.2075, 0.4, (1.5 * PI)), Lettering_arc(self_, p, vec2(0.0, -0.2075), 0.2075, (PI + 0.4), (2.5 * PI)));
@@ -643,47 +562,17 @@ float Lettering_glyph(Lettering self_, vec2 p, int glyphId) {
   return max(d, (abs(p.y) - 0.5));
 }
 
-float Lettering_render(Lettering self_, vec3 p, float aa) {
-  float longitude = atan(p.x, p.z);
-  float latitude = asin(clamp((p.y / length(p)), -1.0, 1.0));
-  float ink = 0.0;
-  vec2 caps = (vec2(((longitude - CAPS_LON) * cos(CAPS_LAT)), (latitude - CAPS_LAT)) / CAPS_H);
-  float index = floor(((caps.x / ADV) + 3.5));
-  float _cse0 = (-aa);
-  if ((((abs(caps.y) < 0.6) && (index >= 0.0)) && (index < 7.0))) {
-    ink = (1.0 - smoothstep(_cse0, aa, (CAPS_H * Lettering_glyph(self_, vec2((caps.x - ((index - 3.0) * ADV)), caps.y), _f2i(index)))));
-  }
-  vec2 corp = (vec2(((longitude - CORP_LON) * cos(CORP_LAT)), (latitude - CORP_LAT)) / CORP_H);
-  index = floor(((corp.x / ADV) + 2.5));
-  if ((((abs(corp.y) < 0.6) && (index >= 0.0)) && (index < 5.0))) {
-    int glyphId = ((index < 0.5) ? 0 : ((index < 1.5) ? 7 : ((index < 2.5) ? 8 : ((index < 3.5) ? 2 : 9))));
-    ink = max(ink, (1.0 - smoothstep(_cse0, aa, (CORP_H * Lettering_glyph(self_, vec2((corp.x - ((index - 2.0) * ADV)), corp.y), glyphId)))));
-  }
-  return ink;
-}
-
-Lettering Lettering_new() {
-  Lettering self_ = Lettering(0.0);
-  self_.strokeWidth = SW;
-  return self_;
-}
-
-float ShipMaterial_sphereExit(vec3 ro, vec3 rd, vec3 center, float radius) {
-  vec3 oc = (ro - center);
-  float b = dot(oc, rd);
-  float h = (((b * b) - dot(oc, oc)) + (radius * radius));
-  return ((h > 0.0) ? ((-b) + sqrt(h)) : 0.0);
-}
-
-vec2 ShipMaterial_mapCel(vec3 p, Ship ship, NamekTrees trees) {
-  vec2 result = Ship_map(ship, p);
-  result = SDF_union(result, NamekTrees_map(trees, p));
-  return result;
-}
-
 float ShipMaterial_celShadow(vec3 ro, vec3 rd, Ship ship, NamekTrees trees) {
-  float tmax = ShipMaterial_sphereExit(ro, rd, vec3(0.0, -0.3, 0.0), 2.0);
-  tmax = NamekTrees_casterExit(trees, ro, rd, tmax);
+  vec3 _sm17_a2 = vec3(0.0, -0.3, 0.0);
+  vec3 _sm17_l_oc = (ro - _sm17_a2);
+  float _sm17_l_b = dot(_sm17_l_oc, rd);
+  float _sm17_l_h = (((_sm17_l_b * _sm17_l_b) - dot(_sm17_l_oc, _sm17_l_oc)) + 4.0);
+  float _sm17_ret = ((_sm17_l_h > 0.0) ? ((-_sm17_l_b) + sqrt(_sm17_l_h)) : 0.0);
+  float tmax = _sm17_ret;
+  float _sm10_l_firstExit = NamekTrees_sphereExit(trees, ro, rd, NamekTree_shadowCenter(trees.first), NamekTree_shadowRadius(trees.first));
+  float _sm10_l_secondExit = NamekTrees_sphereExit(trees, ro, rd, NamekTree_shadowCenter(trees.second), NamekTree_shadowRadius(trees.second));
+  float _sm10_ret = max(tmax, max(_sm10_l_firstExit, _sm10_l_secondExit));
+  tmax = _sm10_ret;
   tmax = min(tmax, 9.0);
   if ((tmax < 0.02)) {
     return 1.0;
@@ -691,7 +580,10 @@ float ShipMaterial_celShadow(vec3 ro, vec3 rd, Ship ship, NamekTrees trees) {
   float result = 1.0;
   float t = 0.02;
   for (int i = 0; (i < 64); i = (i + 1)) {
-    float h = ShipMaterial_mapCel((ro + (rd * t)), ship, trees).x;
+    vec3 _sm18_a0 = (ro + (rd * t));
+    vec2 _sm18_l_result = Ship_map(ship, _sm18_a0);
+    _sm18_l_result = SDF_union(_sm18_l_result, NamekTrees_map(trees, _sm18_a0));
+    float h = _sm18_l_result.x;
     result = min(result, ((10.0 * h) / t));
     t += clamp(h, 0.01, 0.3);
     if (((result < 0.0) || (t > tmax))) {
@@ -699,108 +591,6 @@ float ShipMaterial_celShadow(vec3 ro, vec3 rd, Ship ship, NamekTrees trees) {
     }
   }
   return smoothstep(0.25, 0.4, result);
-}
-
-_spec4_result _spec3_NamekTrees_nearest(NamekTrees self_, vec3 p) {
-  float firstDistance = length((p.xz - self_.first.position));
-  float secondDistance = length((p.xz - self_.second.position));
-  NamekTree _sel2;
-  if ((firstDistance < secondDistance)) {
-    _sel2 = self_.first;
-  } else {
-    _sel2 = self_.second;
-  }
-  NamekTree _spec5_returned = _sel2;
-  return _spec4_result(_spec5_returned.position, _spec5_returned.height);
-}
-
-vec3 ShipMaterial_shade(vec3 p, vec3 n, vec3 rd, float id, float t, float pixA, float lineA, Ship ship, NamekTrees trees, ShipDetails details, Lettering lettering) {
-  float aa = (((0.7 * pixA) * t) / max(dot(n, (-rd)), 0.3));
-  float lw = ((0.5 * lineA) * t);
-  bool _cse2 = (id < 0.5);
-  bool _cse3 = (id < 1.5);
-  bool _cse4 = (id < 2.5);
-  bool _cse5 = (id < 3.5);
-  bool _cse6 = (id < 4.5);
-  bool _cse7 = (id < 7.5);
-  bool _cse8 = (id < 8.5);
-  bool _cse9 = (id < 9.5);
-  bool _guard0 = (((((((((_cse2 == false) && (_cse3 == false)) && (_cse4 == false)) && (_cse5 == false)) && (_cse6 == false)) && (_cse7 == false)) && (_cse8 == false)) && _cse9) == false);
-  float lightAmount = 0.0;
-  if (_guard0) {
-    lightAmount = smoothstep(-0.02, 0.02, dot(n, LIG));
-    if ((lightAmount > 0.0)) {
-      lightAmount *= ShipMaterial_celShadow((p + (n * 0.004)), LIG, ship, trees);
-    }
-  }
-  vec3 _cse0 = vec3(1.0);
-  vec3 lit = vec3(0.0);
-  if (_guard0) {
-    lit = mix(SHADE, _cse0, lightAmount);
-  }
-  vec3 _cse1 = vec3(0.0);
-  vec3 col = _cse1;
-  if (_cse2) {
-    float _gv0 = (-aa);
-    float cap = smoothstep(_gv0, aa, (p.y - (RING_Y + RING_H)));
-    float band = (smoothstep(_gv0, aa, (p.y - BAND_BOT)) - smoothstep(_gv0, aa, (p.y - BAND_TOP)));
-    vec3 viewDirection = normalize(((t * rd) - p));
-    vec3 viewRight = normalize(cross(viewDirection, vec3(0.0, 1.0, 0.0)));
-    float sheen = ShipDetails_hatchedSheen(details, n, viewRight, cross(viewRight, viewDirection), aa);
-    vec3 blackPaint = (mix(BLACK, BLACK_HI, sheen) * mix(0.7, 1.0, lightAmount));
-    float dark = max(cap, band);
-    col = mix((HULL * lit), blackPaint, dark);
-    col = mix(col, INK, max(Lettering_render(lettering, p, aa), ((1.0 - dark) * ShipDetails_scuffInk(details, p, t, lineA, aa))));
-  } else if (_cse3) {
-    float dy = abs((p.y - RING_Y));
-    col = (HULL * lit);
-    float _lc1 = (0.6 * lw);
-    float ink = (1.0 - smoothstep((_lc1 - aa), (_lc1 + aa), dy));
-    float _lc2 = (RING_H - (1.3 * lw));
-    ink = max(ink, smoothstep((_lc2 - aa), (_lc2 + aa), dy));
-    col = mix(col, INK, ink);
-  } else if (_cse4) {
-    _spec1_result windowFrame = _spec0_SDF_polarY(atan(p.x, p.z), length(p.xz), p.y, WIN_N, 0.0);
-    vec3 q = windowFrame.point;
-    vec3 center = vec3(0.0, WIN_Y, sqrt((1.0 - (WIN_Y * WIN_Y))));
-    vec2 w = vec2(q.x, dot((q - center), normalize((vec3(0.0, 1.0, 0.0) - (center * WIN_Y)))));
-    float radius = length(w);
-    col = mix(GLASS_HI, GLASS_LO, smoothstep((0.1 - aa), (0.1 + aa), length((w - vec2(-0.035, 0.04)))));
-    float streak = (abs((radius - 0.062)) - 0.011);
-    streak = max(streak, ((abs((atan(w.y, q.x) - 2.25)) * radius) - 0.035));
-    col = mix(col, vec3(0.93, 0.98, 1.0), (1.0 - smoothstep((-aa), aa, streak)));
-    col *= mix(0.8, 1.0, lightAmount);
-  } else if (_cse5) {
-    col = (METAL * lit);
-  } else if (_cse6) {
-    float doorDistance = SDF_arch(vec2((atan(p.x, p.z) * length(p.xz)), p.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
-    float top = ((length(p) - 1.0) - DOOR_T);
-    col = (HULL * lit);
-    float ink_1 = (1.0 - smoothstep((lw - aa), (lw + aa), length(vec2(doorDistance, top))));
-    float _lc3 = (0.7 * lw);
-    ink_1 = max(ink_1, (1.0 - smoothstep((_lc3 - aa), (_lc3 + aa), length(vec2(doorDistance, (top + DOOR_T))))));
-    col = mix(col, INK, ink_1);
-  } else if (_cse7) {
-    col = (METAL * mix(vec3(0.5, 0.6, 0.78), _cse0, lightAmount));
-  } else if (_cse8) {
-    col = (TRUNK * lit);
-  } else if (_cse9) {
-    _spec4_result tree = _spec3_NamekTrees_nearest(trees, p);
-    vec3 normal = normalize((p - vec3(tree.position.x, (GROUND + tree.height), tree.position.y)));
-    float k = (dot(normalize((normal + (0.5 * n))), LIG) + (0.15 * (Noise_value(((normal.xy * 9.0) + (normal.z * 5.0))) - 0.5)));
-    col = mix((LEAF * vec3(0.72, 0.78, 0.9)), LEAF, (smoothstep(0.0, 0.04, k) * ShipMaterial_celShadow((p + (n * 0.01)), LIG, ship, trees)));
-    col = mix(col, LEAF_HI, smoothstep(0.55, 0.59, k));
-  } else if ((id < 10.5)) {
-    PolarResult legFrame = SDF_polarY(atan(p.x, p.z), length(p.xz), p.y, 4.0, LEG_LON);
-    vec3 local = Ship_flapHome(ship, legFrame.point);
-    vec2 rotated = SDF_rotate(local.xz, ((-LEG_LON) - ((0.5 * PI) * legFrame.index)));
-    col = mix((HULL * lit), INK, ShipDetails_scuffInk(details, vec3(rotated.x, local.y, rotated.y), t, lineA, aa));
-  } else if ((id < 11.5)) {
-    col = mix(_cse1, (HULL * lit), smoothstep((-aa), aa, ((length(p) - 1.0) + FLAP_T)));
-  } else {
-    col = mix(_cse1, (HULL * lit), smoothstep((-aa), aa, ((length(p.xz) - BELLY_R) + FLAP_T)));
-  }
-  return col;
 }
 
 float Terrain_coast(vec2 x) {
@@ -895,7 +685,7 @@ float Terrain_tickRow(vec2 q, vec2 seed, int n, float gap, float len, float bend
     float fk = (_gv0 / mid);
     vec4 h = vec4(Noise_hash12(((seed + (_gv1 * 3.1)) + 51.0)), Noise_hash12(((seed + (_gv1 * 5.7)) + 63.0)), Noise_hash12(((seed + (_gv1 * 2.3)) + 77.0)), Noise_hash12(((seed + (_gv1 * 4.9)) + 89.0)));
     vec2 base = vec2((gap * _gv0), (((bend * fk) * fk) + _licm0));
-    base = _flow34_shared(base, radius, fk, signBend, curl);
+    base = _flow9_shared(base, radius, fk, signBend, curl);
     base += vec2((_licm1 * (h.x - 0.5)), (_licm2 * h.y));
     float bladeLength = (len * (1.0 - (spread * Noise_hash12(((seed + (_gv1 * 6.1)) + 97.0)))));
     float angle = (0.5 * (h.z - 0.5));
@@ -1047,97 +837,6 @@ float Terrain_dirtInk(vec2 x, vec2 eye, float t, mat2 jacobian, float lw) {
   return ((1.0 - smoothstep(-0.5, 0.5, distance)) * (1.0 - smoothstep(10.0, 14.0, t)));
 }
 
-float _flow37_shared(float _flow35_input, float _flow36_input) {
-  return (0.03 * ((abs((_flow35_input - 0.5)) + (0.5 * abs((_flow36_input - 0.5)))) - 0.35));
-}
-
-mat2 inverseMat2(float a, float b, float c, float d) {
-  float determinant = ((a * d) - (b * c));
-  return mat2(vec2((d / determinant), ((-b) / determinant)), vec2(((-c) / determinant), (a / determinant)));
-}
-
-float _flow42_shared(float _flow38_input, float _flow39_input, float _flow40_input, float _flow41_input) {
-  return ((0.5 + ((_flow38_input - 0.5) * (0.5 + _flow39_input))) + ((0.7 * (_flow40_input - 0.5)) * smoothstep(0.35, 0.75, _flow41_input)));
-}
-
-float _flow46_shared(float _flow43_input, float _flow44_input, float _flow45_input) {
-  float _cse0 = (0.02 * _flow44_input);
-  return max(_flow43_input, smoothstep((0.61 - _cse0), (0.615 - _cse0), _flow45_input));
-}
-
-vec3 Terrain_shade_grad(vec3 p, vec3 ro, float t, float pixA, float lineA, Ship ship, NamekTrees trees, float hoist_d_h0, float hoist_d_h1, float hoist_d_h2, float hoist_d_h3, vec2 hoist_d_h4, vec2 hoist_d_h5) {
-  vec3 _sel1;
-  if ((length(p.xz) > MESA_R)) {
-    _sel1 = Terrain_normal(p.xz, t);
-  } else {
-    _sel1 = vec3(0.0, 1.0, 0.0);
-  }
-  vec3 normal = _sel1;
-  vec2 x = p.xz;
-  float radius = length(x);
-  float height = (p.y - GROUND);
-  vec2 warped = Terrain_groundWarp(x);
-  vec3 col = mix(GRASS, GRASS_DK, (0.6 * smoothstep(0.55, 0.56, Noise_fbm(((warped * 1.1) + 3.0)))));
-  float dirt = Terrain_dirtField(warped);
-  vec2 dirtGradient = vec2(hoist_d_h0, hoist_d_h1);
-  float recede = smoothstep(0.25, 0.6, (abs(hoist_d_h0) / max(length(dirtGradient), 0.000001)));
-  dirt += _flow37_shared(Noise_value((x * 5.0)), Noise_value(((x * 11.0) + 7.0)));
-  float fieldWidth = max(length(vec2(hoist_d_h2, hoist_d_h3)), 0.00001);
-  mat2 jacobian = mat2(hoist_d_h4, hoist_d_h5);
-  mat2 inverseJacobian = inverseMat2(hoist_d_h4.x, hoist_d_h4.y, hoist_d_h5.x, hoist_d_h5.y);
-  float lw = ((0.5 * lineA) / pixA);
-  vec2 grain = vec2(dot(x, DIRT_GRAIN), dot(x, vec2((-DIRT_GRAIN.y), DIRT_GRAIN.x)));
-  vec2 _gv0 = (x * 0.25);
-  grain.y += ((0.8 * Noise_fbm((_gv0 + 5.0))) + (0.12 * Noise_value(((x * 1.9) + 2.0))));
-  vec2 _gv1 = (x * 0.6);
-  float pattern = _flow42_shared(Noise_fbm((vec2((0.45 * grain.x), (3.0 * grain.y)) + 27.0)), Noise_value((_gv1 + 31.0)), Noise_value((vec2((1.2 * grain.x), (11.0 * grain.y)) + 41.0)), Noise_value((vec2((0.7 * grain.x), (1.5 * grain.y)) + 13.0)));
-  vec3 dirtColor = mix(SAND, DIRT_DK, mix(0.36, 0.6, smoothstep(0.25, 0.75, pattern)));
-  col = mix(col, dirtColor, smoothstep((-fieldWidth), fieldWidth, dirt));
-  if (((dirt > ((3.0 * fieldWidth) * lw)) && (abs(determinant(jacobian)) > 1e-12))) {
-    col = mix(col, INK, (smoothstep(3.0, 5.0, ((dirt / fieldWidth) / lw)) * Terrain_dirtInk(x, ro.xz, t, inverseJacobian, lw)));
-  }
-  float outline = (1.0 - smoothstep((lw - 0.5), (lw + 0.5), (abs(dirt) / fieldWidth)));
-  float dash = smoothstep(0.45, 0.5, Noise_value(((x * 16.0) + 5.0)));
-  col = mix(col, INK, (outline * mix(1.0, dash, recede)));
-  float shoreDistance = Terrain_coast(x);
-  col = mix(col, SAND_RIM, smoothstep(-0.75, -0.7, shoreDistance));
-  col = mix(col, SAND, smoothstep(-0.6, -0.55, shoreDistance));
-  float fade = (1.0 - smoothstep(20.0, 45.0, t));
-  float lap = (0.5 + (0.5 * sin(((1.3 * u.time) - (6.0 * Noise_value((x * 0.4)))))));
-  vec3 sea = mix(SEA_SHOAL, SEA, smoothstep(0.9, 1.0, shoreDistance));
-  float shore = (-0.35 * lap);
-  float foam = (1.0 - smoothstep((shore + 0.15), (shore + 0.2), shoreDistance));
-  float mesa = Terrain_mesaField(x);
-  foam = _flow46_shared(foam, lap, mesa);
-  float wave = (Noise_value(vec2((((3.0 * radius) + (3.0 * Noise_value(_gv0))) + (1.2 * u.time)), 0.5)) * Noise_value((_gv1 + 2.0)));
-  foam = max(foam, (fade * smoothstep(0.5, 0.53, wave)));
-  sea = mix(sea, SEA_HI, foam);
-  col = mix(col, sea, (smoothstep((shore - 0.05), shore, shoreDistance) * (1.0 - step(0.02, height))));
-  col = mix(col, INK, Terrain_grassInk(x, ro, t, pixA, lineA));
-  col = mix(col, MESA_TOP, smoothstep(0.5, 1.2, height));
-  float strataValue = fract(((height * 1.3) + (0.35 * Noise_value((x * 0.5)))));
-  vec3 strata = ((strataValue < 0.45) ? CLIFF_A : ((strataValue < 0.75) ? CLIFF_B : CLIFF_C));
-  strata *= (0.8 + (0.2 * Noise_value(vec2((dot(x, vec2(2.0, 1.3)) * 3.0), (height * 0.5)))));
-  col = mix(col, strata, smoothstep(0.35, 0.55, (1.0 - normal.y)));
-  float lightAmount = smoothstep(-0.05, 0.2, dot(normal, LIG));
-  if ((radius < 12.0)) {
-    lightAmount *= ShipMaterial_celShadow((p + (normal * 0.02)), LIG, ship, trees);
-  }
-  col *= mix((SHADE * 0.95), vec3(1.0), lightAmount);
-  return mix(col, HAZE, (1.0 - exp((-0.012 * t))));
-}
-
-vec3 Sky_color(vec3 rd) {
-  float y = max(rd.y, 0.0);
-  vec3 col = mix(SKY_HZ, SKY_MID, smoothstep(0.0, 0.12, y));
-  col = mix(col, SKY_TOP, smoothstep(0.08, 0.35, y));
-  vec2 uv = vec2(((atan(rd.x, rd.z) * (19.0 / TAU)) + (0.004 * u.time)), (y * 26.0));
-  float clouds = Noise_fbmWrapX(((uv * vec2(1.0, 0.8)) + vec2(0.0, 3.0)), 19.0);
-  float cloudMask = ((smoothstep(0.56, 0.6, clouds) * smoothstep(0.015, 0.05, y)) * (1.0 - smoothstep(0.18, 0.35, y)));
-  col = mix(col, CLOUD, (0.75 * cloudMask));
-  return col;
-}
-
 vec2 NamekScene_mapCel(NamekScene self_, vec3 p) {
   vec2 result = Ship_map(self_.ship, p);
   result = SDF_union(result, NamekTrees_map(self_.trees, p));
@@ -1183,6 +882,24 @@ MarchResult NamekScene_marchCel(NamekScene self_, vec3 ro, vec3 rd, float lineA,
   return MarchResult_new(vec2(t, -1.0), edge, windowEdge, edgeT);
 }
 
+float _flow12_shared(float _flow10_input, float _flow11_input) {
+  return (0.03 * ((abs((_flow10_input - 0.5)) + (0.5 * abs((_flow11_input - 0.5)))) - 0.35));
+}
+
+mat2 inverseMat2(float a, float b, float c, float d) {
+  float determinant = ((a * d) - (b * c));
+  return mat2(vec2((d / determinant), ((-b) / determinant)), vec2(((-c) / determinant), (a / determinant)));
+}
+
+float _flow17_shared(float _flow13_input, float _flow14_input, float _flow15_input, float _flow16_input) {
+  return ((0.5 + ((_flow13_input - 0.5) * (0.5 + _flow14_input))) + ((0.7 * (_flow15_input - 0.5)) * smoothstep(0.35, 0.75, _flow16_input)));
+}
+
+float _flow21_shared(float _flow18_input, float _flow19_input, float _flow20_input) {
+  float _cse0 = (0.02 * _flow19_input);
+  return max(_flow18_input, smoothstep((0.61 - _cse0), (0.615 - _cse0), _flow20_input));
+}
+
 vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lineA) {
   MarchResult march = NamekScene_marchCel(self_, ro, rd, lineA, pixA);
   float edge = march.edge;
@@ -1191,7 +908,8 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
   }
   bool shipHit = (march.hit.y >= 0.0);
   float terrainT = Terrain_march(ro, rd, (shipHit ? march.hit.x : 400.0));
-  vec3 col = vec3(0.0);
+  vec3 _cse0 = vec3(0.0);
+  vec3 col = _cse0;
   float frontT = 10000000000.0;
   vec3 _gv0 = (ro + (rd * terrainT));
   vec2 x_h1 = _gv0.xz;
@@ -1199,20 +917,220 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
   float dirt_h3 = Terrain_dirtField(warped_h2);
   float hoist_d_h4 = dFdx(dirt_h3);
   float hoist_d_h5 = dFdy(dirt_h3);
-  dirt_h3 += _flow37_shared(Noise_value((x_h1 * 5.0)), Noise_value(((x_h1 * 11.0) + 7.0)));
+  dirt_h3 += _flow12_shared(Noise_value((x_h1 * 5.0)), Noise_value(((x_h1 * 11.0) + 7.0)));
   float hoist_d_h6 = dFdx(dirt_h3);
   float hoist_d_h7 = dFdy(dirt_h3);
   vec2 hoist_d_h8 = dFdx(x_h1);
   vec2 hoist_d_h9 = dFdy(x_h1);
   if ((shipHit && (terrainT < 0.0))) {
     vec3 p = (ro + (rd * march.hit.x));
-    col = ShipMaterial_shade(p, NamekScene_calcNormal(self_, p), rd, march.hit.y, march.hit.x, pixA, lineA, self_.ship, self_.trees, self_.details, self_.lettering);
+    vec3 _sm16_a1 = NamekScene_calcNormal(self_, p);
+    float _sm16_a3 = march.hit.y;
+    float _sm16_a4 = march.hit.x;
+    Ship _sm16_a7 = self_.ship;
+    NamekTrees _sm16_a8 = self_.trees;
+    ShipDetails _sm16_a9 = self_.details;
+    Lettering _sm16_a10 = self_.lettering;
+    float _sm16_l_aa = (((0.7 * pixA) * _sm16_a4) / max(dot(_sm16_a1, (-rd)), 0.3));
+    float _sm16_l_lw = ((0.5 * lineA) * _sm16_a4);
+    float _sm16_l_lightAmount = smoothstep(-0.02, 0.02, dot(_sm16_a1, LIG));
+    if ((_sm16_l_lightAmount > 0.0)) {
+      _sm16_l_lightAmount *= ShipMaterial_celShadow((p + (_sm16_a1 * 0.004)), LIG, _sm16_a7, _sm16_a8);
+    }
+    vec3 _cse1 = vec3(1.0);
+    vec3 _sm16_l_lit = mix(SHADE, _cse1, _sm16_l_lightAmount);
+    vec3 _sm16_l_col = _cse0;
+    if ((_sm16_a3 < 0.5)) {
+      float _gv1 = (-_sm16_l_aa);
+      float _sm16_l_cap = smoothstep(_gv1, _sm16_l_aa, (p.y - (RING_Y + RING_H)));
+      float _sm16_l_band = (smoothstep(_gv1, _sm16_l_aa, (p.y - BAND_BOT)) - smoothstep(_gv1, _sm16_l_aa, (p.y - BAND_TOP)));
+      vec3 _sm16_l_viewDirection = normalize(((_sm16_a4 * rd) - p));
+      vec3 _sm16_l_viewRight = normalize(cross(_sm16_l_viewDirection, vec3(0.0, 1.0, 0.0)));
+      vec3 _sm16_l_sm12_a3 = cross(_sm16_l_viewRight, _sm16_l_viewDirection);
+      vec3 _sm16_l_sm12_l_sheenCenter = ((0.6 * _sm16_l_sm12_a3) - (0.8 * _sm16_l_viewRight));
+      float _sm16_l_sm12_l_c0 = cos((SHEEN_R + (0.1 * (Noise_value((7.0 * vec2(dot(_sm16_a1, _sm16_l_viewRight), dot(_sm16_a1, _sm16_l_sm12_a3)))) - 0.5))));
+      float _sm16_l_sm12_l_rho = max(length(_sm16_a1.xz), 0.0001);
+      float _sm16_l_sm12_l_hH = length(_sm16_l_sm12_l_sheenCenter.xz);
+      float _sm16_l_sm12_l_m = (_sm16_a1.y * _sm16_l_sm12_l_sheenCenter.y);
+      float _sm16_l_sm12_l_w = (_sm16_l_sm12_l_rho * _sm16_l_sm12_l_hH);
+      float _sm16_l_sm12_l_angle = acos(clamp((dot(_sm16_a1.xz, _sm16_l_sm12_l_sheenCenter.xz) / _sm16_l_sm12_l_w), -1.0, 1.0));
+      float _sm16_l_sm12_l_q = ((_sm16_l_sm12_l_c0 - _sm16_l_sm12_l_m) / _sm16_l_sm12_l_w);
+      float _sm16_l_sm12_l_e = 0.0;
+      float _sm16_l_sm12_l_de = 0.0;
+      if ((abs(_sm16_l_sm12_l_q) < 1.0)) {
+        float _sm16_l_sm12_l_lit = acos(_sm16_l_sm12_l_q);
+        float _gv2 = (_sm16_l_sm12_l_lit - _sm16_l_sm12_l_angle);
+        _sm16_l_sm12_l_e = (_sm16_l_sm12_l_rho * _gv2);
+        _sm16_l_sm12_l_de = (((-_sm16_a1.y) * _gv2) - (((_sm16_l_sm12_l_c0 * _sm16_a1.y) - _sm16_l_sm12_l_sheenCenter.y) / (_sm16_l_sm12_l_w * max(sqrt((1.0 - (_sm16_l_sm12_l_q * _sm16_l_sm12_l_q))), 0.05))));
+      } else {
+        float _gv3 = sign(_sm16_l_sm12_l_q);
+        float _sm16_l_sm12_l_hm = (_sm16_l_sm12_l_m + (_gv3 * _sm16_l_sm12_l_w));
+        float _sm16_l_sm12_l_gap = (abs((_sm16_l_sm12_l_c0 - _sm16_l_sm12_l_hm)) / sqrt(max((1.0 - (_sm16_l_sm12_l_hm * _sm16_l_sm12_l_hm)), 0.0001)));
+        float _sm16_l_sm12_l_arc = ((_sm16_l_sm12_l_q > 0.0) ? _sm16_l_sm12_l_angle : (PI - _sm16_l_sm12_l_angle));
+        _sm16_l_sm12_l_e = ((-_gv3) * (_sm16_l_sm12_l_gap + (_sm16_l_sm12_l_rho * _sm16_l_sm12_l_arc)));
+        _sm16_l_sm12_l_de = ((_gv3 * _sm16_a1.y) * _sm16_l_sm12_l_arc);
+      }
+      float _sm16_l_sm12_l_s = (asin(clamp(_sm16_a1.y, -1.0, 1.0)) / HATCH_W);
+      float _sm16_l_sm12_l_c1 = floor((_sm16_l_sm12_l_s + 0.5));
+      float _sm16_l_sm12_l_u1 = (_sm16_l_sm12_l_s - _sm16_l_sm12_l_c1);
+      float _sm16_l_sm12_l_c2 = floor(_sm16_l_sm12_l_s);
+      float _sm16_l_sm12_l_u2 = ((_sm16_l_sm12_l_s - _sm16_l_sm12_l_c2) - 0.5);
+      float _sm16_l_sm12_l_fit = min(1.0, ((1.25 * _sm16_l_sm12_l_rho) / max(HATCH_L, HATCH_D)));
+      float _sm16_l_sm12_l_lightLength = ((_sm16_l_sm12_l_fit * HATCH_L) * (0.15 + (0.85 * Noise_hash12(vec2(_sm16_l_sm12_l_c1, 3.1)))));
+      float _sm16_l_sm12_l_darkLength = ((_sm16_l_sm12_l_fit * HATCH_D) * (0.15 + (0.85 * Noise_hash12(vec2(_sm16_l_sm12_l_c2, 7.7)))));
+      float _sm16_l_sm12_l_z = ((_sm16_l_sm12_l_e + (_sm16_l_sm12_l_lightLength * (1.0 - (2.0 * abs(_sm16_l_sm12_l_u1))))) - (_sm16_l_sm12_l_darkLength * (1.0 - (2.0 * abs(_sm16_l_sm12_l_u2)))));
+      float _sm16_l_sm12_l_dz = (_sm16_l_sm12_l_de + ((2.0 * ((_sm16_l_sm12_l_darkLength * sign(_sm16_l_sm12_l_u2)) - (_sm16_l_sm12_l_lightLength * sign(_sm16_l_sm12_l_u1)))) / HATCH_W));
+      float _sm16_l_sm12_ret = smoothstep(_gv1, _sm16_l_aa, (_sm16_l_sm12_l_z / sqrt((1.0 + (_sm16_l_sm12_l_dz * _sm16_l_sm12_l_dz)))));
+      vec3 _sm16_l_blackPaint = (mix(BLACK, BLACK_HI, _sm16_l_sm12_ret) * mix(0.7, 1.0, _sm16_l_lightAmount));
+      float _sm16_l_dark = max(_sm16_l_cap, _sm16_l_band);
+      _sm16_l_col = mix((HULL * _sm16_l_lit), _sm16_l_blackPaint, _sm16_l_dark);
+      float _sm16_l_sm14_l_longitude = atan(p.x, p.z);
+      float _sm16_l_sm14_l_latitude = asin(clamp((p.y / length(p)), -1.0, 1.0));
+      float _sm16_l_sm14_l_ink = 0.0;
+      vec2 _sm16_l_sm14_l_caps = (vec2(((_sm16_l_sm14_l_longitude - CAPS_LON) * cos(CAPS_LAT)), (_sm16_l_sm14_l_latitude - CAPS_LAT)) / CAPS_H);
+      float _sm16_l_sm14_l_index = floor(((_sm16_l_sm14_l_caps.x / ADV) + 3.5));
+      if ((((abs(_sm16_l_sm14_l_caps.y) < 0.6) && (_sm16_l_sm14_l_index >= 0.0)) && (_sm16_l_sm14_l_index < 7.0))) {
+        _sm16_l_sm14_l_ink = (1.0 - smoothstep(_gv1, _sm16_l_aa, (CAPS_H * Lettering_glyph(_sm16_a10, vec2((_sm16_l_sm14_l_caps.x - ((_sm16_l_sm14_l_index - 3.0) * ADV)), _sm16_l_sm14_l_caps.y), _f2i(_sm16_l_sm14_l_index)))));
+      }
+      vec2 _sm16_l_sm14_l_corp = (vec2(((_sm16_l_sm14_l_longitude - CORP_LON) * cos(CORP_LAT)), (_sm16_l_sm14_l_latitude - CORP_LAT)) / CORP_H);
+      _sm16_l_sm14_l_index = floor(((_sm16_l_sm14_l_corp.x / ADV) + 2.5));
+      if ((((abs(_sm16_l_sm14_l_corp.y) < 0.6) && (_sm16_l_sm14_l_index >= 0.0)) && (_sm16_l_sm14_l_index < 5.0))) {
+        int _sm16_l_sm14_l_glyphId = ((_sm16_l_sm14_l_index < 0.5) ? 0 : ((_sm16_l_sm14_l_index < 1.5) ? 7 : ((_sm16_l_sm14_l_index < 2.5) ? 8 : ((_sm16_l_sm14_l_index < 3.5) ? 2 : 9))));
+        _sm16_l_sm14_l_ink = max(_sm16_l_sm14_l_ink, (1.0 - smoothstep(_gv1, _sm16_l_aa, (CORP_H * Lettering_glyph(_sm16_a10, vec2((_sm16_l_sm14_l_corp.x - ((_sm16_l_sm14_l_index - 2.0) * ADV)), _sm16_l_sm14_l_corp.y), _sm16_l_sm14_l_glyphId)))));
+      }
+      _sm16_l_col = mix(_sm16_l_col, INK, max(_sm16_l_sm14_l_ink, ((1.0 - _sm16_l_dark) * ShipDetails_scuffInk(_sm16_a9, p, _sm16_a4, lineA, _sm16_l_aa))));
+    } else if ((_sm16_a3 < 1.5)) {
+      float _sm16_l_dy = abs((p.y - RING_Y));
+      _sm16_l_col = (HULL * _sm16_l_lit);
+      float _lc1 = (0.6 * _sm16_l_lw);
+      float _sm16_l_ink = (1.0 - smoothstep((_lc1 - _sm16_l_aa), (_lc1 + _sm16_l_aa), _sm16_l_dy));
+      float _lc2 = (RING_H - (1.3 * _sm16_l_lw));
+      _sm16_l_ink = max(_sm16_l_ink, smoothstep((_lc2 - _sm16_l_aa), (_lc2 + _sm16_l_aa), _sm16_l_dy));
+      _sm16_l_col = mix(_sm16_l_col, INK, _sm16_l_ink);
+    } else if ((_sm16_a3 < 2.5)) {
+      _spec1_result _sm16_l_windowFrame = _spec0_SDF_polarY(atan(p.x, p.z), length(p.xz), p.y, WIN_N, 0.0);
+      vec3 _sm16_l_q = _sm16_l_windowFrame.point;
+      vec3 _sm16_l_center = vec3(0.0, WIN_Y, sqrt((1.0 - (WIN_Y * WIN_Y))));
+      vec2 _sm16_l_w = vec2(_sm16_l_q.x, dot((_sm16_l_q - _sm16_l_center), normalize((vec3(0.0, 1.0, 0.0) - (_sm16_l_center * WIN_Y)))));
+      float _sm16_l_radius = length(_sm16_l_w);
+      _sm16_l_col = mix(GLASS_HI, GLASS_LO, smoothstep((0.1 - _sm16_l_aa), (0.1 + _sm16_l_aa), length((_sm16_l_w - vec2(-0.035, 0.04)))));
+      float _sm16_l_streak = (abs((_sm16_l_radius - 0.062)) - 0.011);
+      _sm16_l_streak = max(_sm16_l_streak, ((abs((atan(_sm16_l_w.y, _sm16_l_q.x) - 2.25)) * _sm16_l_radius) - 0.035));
+      _sm16_l_col = mix(_sm16_l_col, vec3(0.93, 0.98, 1.0), (1.0 - smoothstep((-_sm16_l_aa), _sm16_l_aa, _sm16_l_streak)));
+      _sm16_l_col *= mix(0.8, 1.0, _sm16_l_lightAmount);
+    } else if ((_sm16_a3 < 3.5)) {
+      _sm16_l_col = (METAL * _sm16_l_lit);
+    } else if ((_sm16_a3 < 4.5)) {
+      float _sm16_l_doorDistance = SDF_arch(vec2((atan(p.x, p.z) * length(p.xz)), p.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
+      float _sm16_l_top = ((length(p) - 1.0) - DOOR_T);
+      _sm16_l_col = (HULL * _sm16_l_lit);
+      float _sm16_l_ink_1 = (1.0 - smoothstep((_sm16_l_lw - _sm16_l_aa), (_sm16_l_lw + _sm16_l_aa), length(vec2(_sm16_l_doorDistance, _sm16_l_top))));
+      float _lc3 = (0.7 * _sm16_l_lw);
+      _sm16_l_ink_1 = max(_sm16_l_ink_1, (1.0 - smoothstep((_lc3 - _sm16_l_aa), (_lc3 + _sm16_l_aa), length(vec2(_sm16_l_doorDistance, (_sm16_l_top + DOOR_T))))));
+      _sm16_l_col = mix(_sm16_l_col, INK, _sm16_l_ink_1);
+    } else if ((_sm16_a3 < 7.5)) {
+      _sm16_l_col = (METAL * mix(vec3(0.5, 0.6, 0.78), _cse1, _sm16_l_lightAmount));
+    } else if ((_sm16_a3 < 8.5)) {
+      _sm16_l_col = (TRUNK * _sm16_l_lit);
+    } else if ((_sm16_a3 < 9.5)) {
+      float _sm22_l_firstDistance = length((p.xz - _sm16_a8.first.position));
+      float _sm22_l_secondDistance = length((p.xz - _sm16_a8.second.position));
+      NamekTree _sm22_l_spec5_returned;
+      if ((_sm22_l_firstDistance < _sm22_l_secondDistance)) {
+        _sm22_l_spec5_returned = _sm16_a8.first;
+      } else {
+        _sm22_l_spec5_returned = _sm16_a8.second;
+      }
+      _spec4_result _sm22_ret = _spec4_result(_sm22_l_spec5_returned.position, _sm22_l_spec5_returned.height);
+      vec3 _sm16_l_normal = normalize((p - vec3(_sm22_ret.position.x, (GROUND + _sm22_ret.height), _sm22_ret.position.y)));
+      float _sm16_l_k = (dot(normalize((_sm16_l_normal + (0.5 * _sm16_a1))), LIG) + (0.15 * (Noise_value(((_sm16_l_normal.xy * 9.0) + (_sm16_l_normal.z * 5.0))) - 0.5)));
+      _sm16_l_col = mix((LEAF * vec3(0.72, 0.78, 0.9)), LEAF, (smoothstep(0.0, 0.04, _sm16_l_k) * ShipMaterial_celShadow((p + (_sm16_a1 * 0.01)), LIG, _sm16_a7, _sm16_a8)));
+      _sm16_l_col = mix(_sm16_l_col, LEAF_HI, smoothstep(0.55, 0.59, _sm16_l_k));
+    } else if ((_sm16_a3 < 10.5)) {
+      PolarResult _sm16_l_legFrame = SDF_polarY(atan(p.x, p.z), length(p.xz), p.y, 4.0, LEG_LON);
+      vec3 _sm16_l_local = Ship_flapHome(_sm16_a7, _sm16_l_legFrame.point);
+      vec2 _sm16_l_rotated = SDF_rotate(_sm16_l_local.xz, ((-LEG_LON) - ((0.5 * PI) * _sm16_l_legFrame.index)));
+      _sm16_l_col = mix((HULL * _sm16_l_lit), INK, ShipDetails_scuffInk(_sm16_a9, vec3(_sm16_l_rotated.x, _sm16_l_local.y, _sm16_l_rotated.y), _sm16_a4, lineA, _sm16_l_aa));
+    } else if ((_sm16_a3 < 11.5)) {
+      _sm16_l_col = mix(_cse0, (HULL * _sm16_l_lit), smoothstep((-_sm16_l_aa), _sm16_l_aa, ((length(p) - 1.0) + FLAP_T)));
+    } else {
+      _sm16_l_col = mix(_cse0, (HULL * _sm16_l_lit), smoothstep((-_sm16_l_aa), _sm16_l_aa, ((length(p.xz) - BELLY_R) + FLAP_T)));
+    }
+    col = _sm16_l_col;
     frontT = march.hit.x;
   } else if ((terrainT > 0.0)) {
-    col = Terrain_shade_grad(_gv0, ro, terrainT, pixA, lineA, self_.ship, self_.trees, hoist_d_h4, hoist_d_h5, hoist_d_h6, hoist_d_h7, hoist_d_h8, hoist_d_h9);
+    Ship _sm19_a5 = self_.ship;
+    NamekTrees _sm19_a6 = self_.trees;
+    vec3 _sel1;
+    if ((length(_gv0.xz) > MESA_R)) {
+      _sel1 = Terrain_normal(_gv0.xz, terrainT);
+    } else {
+      _sel1 = vec3(0.0, 1.0, 0.0);
+    }
+    vec3 _sm19_l_normal = _sel1;
+    vec2 _sm19_l_x = _gv0.xz;
+    float _sm19_l_radius = length(_sm19_l_x);
+    float _sm19_l_height = (_gv0.y - GROUND);
+    vec2 _sm19_l_warped = Terrain_groundWarp(_sm19_l_x);
+    vec3 _sm19_l_col = mix(GRASS, GRASS_DK, (0.6 * smoothstep(0.55, 0.56, Noise_fbm(((_sm19_l_warped * 1.1) + 3.0)))));
+    float _sm19_l_dirt = Terrain_dirtField(_sm19_l_warped);
+    vec2 _sm19_l_dirtGradient = vec2(hoist_d_h4, hoist_d_h5);
+    float _sm19_l_recede = smoothstep(0.25, 0.6, (abs(hoist_d_h4) / max(length(_sm19_l_dirtGradient), 0.000001)));
+    _sm19_l_dirt += _flow12_shared(Noise_value((_sm19_l_x * 5.0)), Noise_value(((_sm19_l_x * 11.0) + 7.0)));
+    float _sm19_l_fieldWidth = max(length(vec2(hoist_d_h6, hoist_d_h7)), 0.00001);
+    mat2 _sm19_l_jacobian = mat2(hoist_d_h8, hoist_d_h9);
+    mat2 _sm19_l_inverseJacobian = inverseMat2(hoist_d_h8.x, hoist_d_h8.y, hoist_d_h9.x, hoist_d_h9.y);
+    float _sm19_l_lw = ((0.5 * lineA) / pixA);
+    vec2 _sm19_l_grain = vec2(dot(_sm19_l_x, DIRT_GRAIN), dot(_sm19_l_x, vec2((-DIRT_GRAIN.y), DIRT_GRAIN.x)));
+    vec2 _gv4 = (_sm19_l_x * 0.25);
+    _sm19_l_grain.y += ((0.8 * Noise_fbm((_gv4 + 5.0))) + (0.12 * Noise_value(((_sm19_l_x * 1.9) + 2.0))));
+    vec2 _gv5 = (_sm19_l_x * 0.6);
+    float _sm19_l_pattern = _flow17_shared(Noise_fbm((vec2((0.45 * _sm19_l_grain.x), (3.0 * _sm19_l_grain.y)) + 27.0)), Noise_value((_gv5 + 31.0)), Noise_value((vec2((1.2 * _sm19_l_grain.x), (11.0 * _sm19_l_grain.y)) + 41.0)), Noise_value((vec2((0.7 * _sm19_l_grain.x), (1.5 * _sm19_l_grain.y)) + 13.0)));
+    vec3 _sm19_l_dirtColor = mix(SAND, DIRT_DK, mix(0.36, 0.6, smoothstep(0.25, 0.75, _sm19_l_pattern)));
+    _sm19_l_col = mix(_sm19_l_col, _sm19_l_dirtColor, smoothstep((-_sm19_l_fieldWidth), _sm19_l_fieldWidth, _sm19_l_dirt));
+    if (((_sm19_l_dirt > ((3.0 * _sm19_l_fieldWidth) * _sm19_l_lw)) && (abs(determinant(_sm19_l_jacobian)) > 1e-12))) {
+      _sm19_l_col = mix(_sm19_l_col, INK, (smoothstep(3.0, 5.0, ((_sm19_l_dirt / _sm19_l_fieldWidth) / _sm19_l_lw)) * Terrain_dirtInk(_sm19_l_x, ro.xz, terrainT, _sm19_l_inverseJacobian, _sm19_l_lw)));
+    }
+    float _sm19_l_outline = (1.0 - smoothstep((_sm19_l_lw - 0.5), (_sm19_l_lw + 0.5), (abs(_sm19_l_dirt) / _sm19_l_fieldWidth)));
+    float _sm19_l_dash = smoothstep(0.45, 0.5, Noise_value(((_sm19_l_x * 16.0) + 5.0)));
+    _sm19_l_col = mix(_sm19_l_col, INK, (_sm19_l_outline * mix(1.0, _sm19_l_dash, _sm19_l_recede)));
+    float _sm19_l_shoreDistance = Terrain_coast(_sm19_l_x);
+    _sm19_l_col = mix(_sm19_l_col, SAND_RIM, smoothstep(-0.75, -0.7, _sm19_l_shoreDistance));
+    _sm19_l_col = mix(_sm19_l_col, SAND, smoothstep(-0.6, -0.55, _sm19_l_shoreDistance));
+    float _sm19_l_fade = (1.0 - smoothstep(20.0, 45.0, terrainT));
+    float _sm19_l_lap = (0.5 + (0.5 * sin(((1.3 * u.time) - (6.0 * Noise_value((_sm19_l_x * 0.4)))))));
+    vec3 _sm19_l_sea = mix(SEA_SHOAL, SEA, smoothstep(0.9, 1.0, _sm19_l_shoreDistance));
+    float _sm19_l_shore = (-0.35 * _sm19_l_lap);
+    float _sm19_l_foam = (1.0 - smoothstep((_sm19_l_shore + 0.15), (_sm19_l_shore + 0.2), _sm19_l_shoreDistance));
+    float _sm19_l_mesa = Terrain_mesaField(_sm19_l_x);
+    _sm19_l_foam = _flow21_shared(_sm19_l_foam, _sm19_l_lap, _sm19_l_mesa);
+    float _sm19_l_wave = (Noise_value(vec2((((3.0 * _sm19_l_radius) + (3.0 * Noise_value(_gv4))) + (1.2 * u.time)), 0.5)) * Noise_value((_gv5 + 2.0)));
+    _sm19_l_foam = max(_sm19_l_foam, (_sm19_l_fade * smoothstep(0.5, 0.53, _sm19_l_wave)));
+    _sm19_l_sea = mix(_sm19_l_sea, SEA_HI, _sm19_l_foam);
+    _sm19_l_col = mix(_sm19_l_col, _sm19_l_sea, (smoothstep((_sm19_l_shore - 0.05), _sm19_l_shore, _sm19_l_shoreDistance) * (1.0 - step(0.02, _sm19_l_height))));
+    _sm19_l_col = mix(_sm19_l_col, INK, Terrain_grassInk(_sm19_l_x, ro, terrainT, pixA, lineA));
+    _sm19_l_col = mix(_sm19_l_col, MESA_TOP, smoothstep(0.5, 1.2, _sm19_l_height));
+    float _sm19_l_strataValue = fract(((_sm19_l_height * 1.3) + (0.35 * Noise_value((_sm19_l_x * 0.5)))));
+    vec3 _sm19_l_strata = ((_sm19_l_strataValue < 0.45) ? CLIFF_A : ((_sm19_l_strataValue < 0.75) ? CLIFF_B : CLIFF_C));
+    _sm19_l_strata *= (0.8 + (0.2 * Noise_value(vec2((dot(_sm19_l_x, vec2(2.0, 1.3)) * 3.0), (_sm19_l_height * 0.5)))));
+    _sm19_l_col = mix(_sm19_l_col, _sm19_l_strata, smoothstep(0.35, 0.55, (1.0 - _sm19_l_normal.y)));
+    float _sm19_l_lightAmount = smoothstep(-0.05, 0.2, dot(_sm19_l_normal, LIG));
+    if ((_sm19_l_radius < 12.0)) {
+      _sm19_l_lightAmount *= ShipMaterial_celShadow((_gv0 + (_sm19_l_normal * 0.02)), LIG, _sm19_a5, _sm19_a6);
+    }
+    _sm19_l_col *= mix((SHADE * 0.95), vec3(1.0), _sm19_l_lightAmount);
+    vec3 _sm19_ret = mix(_sm19_l_col, HAZE, (1.0 - exp((-0.012 * terrainT))));
+    col = _sm19_ret;
     frontT = terrainT;
   } else {
-    col = Sky_color(rd);
+    float _sm20_l_y = max(rd.y, 0.0);
+    vec3 _sm20_l_col = mix(SKY_HZ, SKY_MID, smoothstep(0.0, 0.12, _sm20_l_y));
+    _sm20_l_col = mix(_sm20_l_col, SKY_TOP, smoothstep(0.08, 0.35, _sm20_l_y));
+    vec2 _sm20_l_uv = vec2(((atan(rd.x, rd.z) * (19.0 / TAU)) + (0.004 * u.time)), (_sm20_l_y * 26.0));
+    float _sm20_l_clouds = Noise_fbmWrapX(((_sm20_l_uv * vec2(1.0, 0.8)) + vec2(0.0, 3.0)), 19.0);
+    float _sm20_l_cloudMask = ((smoothstep(0.56, 0.6, _sm20_l_clouds) * smoothstep(0.015, 0.05, _sm20_l_y)) * (1.0 - smoothstep(0.18, 0.35, _sm20_l_y)));
+    _sm20_l_col = mix(_sm20_l_col, CLOUD, (0.75 * _sm20_l_cloudMask));
+    col = _sm20_l_col;
   }
   if ((march.tEdge < frontT)) {
     col = mix(col, INK, edge);
@@ -1220,45 +1138,58 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
   return col;
 }
 
-vec4 _flow24_fused(vec2 _flow1_input) {
-  Ship _cse0 = Ship(0.0);
-  vec2 _cse5 = vec2(0.0, 0.0);
-  NamekTree _cse3 = NamekTree(_cse5, 0.0, 0.0);
-  NamekTrees _cse1 = NamekTrees(_cse3, _cse3);
-  NamekScene _flow0_local = NamekScene(_cse0, _cse1, ShipDetails(_cse0, _cse1), Lettering(0.0));
-  _flow0_local.ship = Ship_new();
-  _flow0_local.trees = NamekTrees_new();
-  _flow0_local.details = ShipDetails_new(_flow0_local.ship, _flow0_local.trees);
-  _flow0_local.lettering = Lettering_new();
-  NamekScene _flow22_arg = _flow0_local;
-  vec2 _flow2_local = u.resolution;
-  vec2 _flow3_local = (_flow1_input * _flow2_local);
-  vec2 _flow4_local = (u.mouse - vec2(0.5));
-  float _flow5_local = ((0.42 + ((TAU * u.time) / 60.0)) + (_flow4_local.x * TAU));
-  float _flow6_local = clamp(((0.18 + (0.03 * sin((0.21 * u.time)))) + (_flow4_local.y * 2.0)), 0.03, 1.1);
-  vec3 _flow8_local = vec3(0.0, -0.25, 0.0);
-  float _lc0 = cos(_flow6_local);
-  vec3 _flow9_local = (_flow8_local + (5.6 * vec3((sin(_flow5_local) * _lc0), sin(_flow6_local), (cos(_flow5_local) * _lc0))));
-  vec3 _flow10_local = normalize((_flow8_local - _flow9_local));
-  vec3 _flow11_local = normalize(cross(_flow10_local, vec3(0.0, 1.0, 0.0)));
-  vec3 _flow12_local = cross(_flow11_local, _flow10_local);
-  float _flow13_local = (2.0 / (_flow2_local.y * 3.4));
-  float _flow14_local = ((0.0055 + (1.2 / _flow2_local.y)) / 3.4);
-  vec3 _cse2 = vec3(0.0);
-  vec2 _u1_u0_flow18_local = (((_cse5 + 0.5) / float(AA)) - 0.5);
-  vec2 _u1_u0_flow19_local = (((2.0 * (_flow3_local + _u1_u0_flow18_local)) - _flow2_local) / _flow2_local.y);
-  vec3 _u1_u0_flow20_local = normalize((((_u1_u0_flow19_local.x * _flow11_local) + (_u1_u0_flow19_local.y * _flow12_local)) + (3.4 * _flow10_local)));
-  vec3 _flow15_local_1 = (_cse2 + NamekScene_render(_flow22_arg, _flow9_local, _u1_u0_flow20_local, _flow13_local, _flow14_local));
-  vec3 _flow15_local_2 = (_flow15_local_1 / float((AA * AA)));
-  vec2 _flow21_local = (_flow3_local / _flow2_local);
-  vec3 _flow15_local_3 = ((_flow15_local_2 * vec3(0.94, 1.0, 0.96)) + vec3(0.025, 0.035, 0.03));
-  vec3 _flow15_local_4 = (_flow15_local_3 + (0.03 * (Noise_hash12((_flow3_local + (61.7 * fract((u.time * 7.13))))) - 0.5)));
-  vec3 _flow15_local_5 = (_flow15_local_4 * (0.55 + (0.45 * pow(((((16.0 * _flow21_local.x) * _flow21_local.y) * (1.0 - _flow21_local.x)) * (1.0 - _flow21_local.y)), 0.12))));
-  return vec4(clamp(_flow15_local_5, _cse2, vec3(1.0)), 1.0);
+vec4 NamekScene_colorAt(NamekScene self_, vec2 uv) {
+  vec2 resolution = u.resolution;
+  vec2 fragCoord = (uv * resolution);
+  vec2 pointer = (u.mouse - vec2(0.5));
+  float azimuth = ((0.42 + ((TAU * u.time) / 60.0)) + (pointer.x * TAU));
+  float elevation = clamp(((0.18 + (0.03 * sin((0.21 * u.time)))) + (pointer.y * 2.0)), 0.03, 1.1);
+  vec3 sceneTarget = vec3(0.0, -0.25, 0.0);
+  float _lc0 = cos(elevation);
+  vec3 rayOrigin = (sceneTarget + (5.6 * vec3((sin(azimuth) * _lc0), sin(elevation), (cos(azimuth) * _lc0))));
+  vec3 cameraForward = normalize((sceneTarget - rayOrigin));
+  vec3 cameraRight = normalize(cross(cameraForward, vec3(0.0, 1.0, 0.0)));
+  vec3 cameraUp = cross(cameraRight, cameraForward);
+  float pixA = (2.0 / (resolution.y * 3.4));
+  float lineA = ((0.0055 + (1.2 / resolution.y)) / 3.4);
+  vec3 _cse0 = vec3(0.0);
+  vec2 _u1_u0_offset = (((vec2(0.0, 0.0) + 0.5) / float(AA)) - 0.5);
+  vec2 _u1_u0_screenUV = (((2.0 * (fragCoord + _u1_u0_offset)) - resolution) / resolution.y);
+  vec3 _u1_u0_rd = normalize((((_u1_u0_screenUV.x * cameraRight) + (_u1_u0_screenUV.y * cameraUp)) + (3.4 * cameraForward)));
+  vec3 col_1 = (_cse0 + NamekScene_render(self_, rayOrigin, _u1_u0_rd, pixA, lineA));
+  vec3 col_2 = (col_1 / float((AA * AA)));
+  vec2 q = (fragCoord / resolution);
+  vec3 col_3 = ((col_2 * vec3(0.94, 1.0, 0.96)) + vec3(0.025, 0.035, 0.03));
+  vec3 col_4 = (col_3 + (0.03 * (Noise_hash12((fragCoord + (61.7 * fract((u.time * 7.13))))) - 0.5)));
+  vec3 col_5 = (col_4 * (0.55 + (0.45 * pow(((((16.0 * q.x) * q.y) * (1.0 - q.x)) * (1.0 - q.y)), 0.12))));
+  return vec4(clamp(col_5, _cse0, vec3(1.0)), 1.0);
 }
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  _ret = _flow24_fused(uv);
+  Ship _cse2 = Ship(0.0);
+  NamekTree _cse4 = NamekTree(vec2(0.0, 0.0), 0.0, 0.0);
+  NamekTrees _cse3 = NamekTrees(_cse4, _cse4);
+  ShipDetails _cse0 = ShipDetails(_cse2, _cse3);
+  Lettering _cse1 = Lettering(0.0);
+  NamekScene _sm21_l_self_ = NamekScene(_cse2, _cse3, _cse0, _cse1);
+  Ship _sm21_l_sm9_l_self_ = _cse2;
+  _sm21_l_sm9_l_self_.legCount = 4.0;
+  _sm21_l_self_.ship = _sm21_l_sm9_l_self_;
+  NamekTrees _sm21_l_sm11_l_self_ = _cse3;
+  _sm21_l_sm11_l_self_.first = NamekTree_new(vec2(1.86, 0.83), 0.65, 0.15);
+  _sm21_l_sm11_l_self_.second = NamekTree_new(vec2(-5.9, -4.4), 1.9, 0.38);
+  _sm21_l_self_.trees = _sm21_l_sm11_l_self_;
+  Ship _sm21_l_sm13_a0 = _sm21_l_self_.ship;
+  NamekTrees _sm21_l_sm13_a1 = _sm21_l_self_.trees;
+  ShipDetails _sm21_l_sm13_l_self_ = _cse0;
+  _sm21_l_sm13_l_self_.ship = _sm21_l_sm13_a0;
+  _sm21_l_sm13_l_self_.trees = _sm21_l_sm13_a1;
+  _sm21_l_self_.details = _sm21_l_sm13_l_self_;
+  Lettering _sm21_l_sm15_l_self_ = _cse1;
+  _sm21_l_sm15_l_self_.strokeWidth = SW;
+  _sm21_l_self_.lettering = _sm21_l_sm15_l_self_;
+  NamekScene scene = _sm21_l_self_;
+  _ret = NamekScene_colorAt(scene, uv);
 }

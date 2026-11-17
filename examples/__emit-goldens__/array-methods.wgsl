@@ -20,26 +20,18 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(x, y));
 }
 
-fn fs_f(p: vec2<f32>, l: ptr<function, Light>) -> f32 {
-  return distance((*l).pos, p);
-}
-
 fn array_map_fs_f(p: vec2<f32>, lights: ptr<function, array<Light, 3>>) -> array<f32, 3> {
   var out: array<f32, 3>;
-  out[0] = fs_f(p, &(*lights)[0]);
-  out[1] = fs_f(p, &(*lights)[1]);
-  out[2] = fs_f(p, &(*lights)[2]);
+  out[0] = distance((*lights)[0].pos, p);
+  out[1] = distance((*lights)[1].pos, p);
+  out[2] = distance((*lights)[2].pos, p);
   return out;
-}
-
-fn fs_f_1(a: f32, b: f32) -> f32 {
-  return min(a, b);
 }
 
 fn array_reduce_fs_f_1(d: ptr<function, array<f32, 3>>) -> f32 {
   let acc = (*d)[0];
-  let acc_1 = fs_f_1(acc, (*d)[1]);
-  let acc_2 = fs_f_1(acc_1, (*d)[2]);
+  let acc_1 = min(acc, (*d)[1]);
+  let acc_2 = min(acc_1, (*d)[2]);
   return acc_2;
 }
 
@@ -53,35 +45,27 @@ fn array_forEach_fs_f_2(col: ptr<function, vec3<f32>>, d: ptr<function, array<f3
   fs_f_2(col, d, &(*lights)[2], 2);
 }
 
-fn fs_p(p: vec2<f32>, l: ptr<function, Light>) -> bool {
-  return (distance((*l).pos, p) < (*l).radius);
-}
-
 fn array_some_fs_p(p: vec2<f32>, lights: ptr<function, array<Light, 3>>) -> bool {
-  if (fs_p(p, &(*lights)[0])) {
+  if ((distance((*lights)[0].pos, p) < (*lights)[0].radius)) {
     return true;
   }
-  if (fs_p(p, &(*lights)[1])) {
+  if ((distance((*lights)[1].pos, p) < (*lights)[1].radius)) {
     return true;
   }
-  if (fs_p(p, &(*lights)[2])) {
+  if ((distance((*lights)[2].pos, p) < (*lights)[2].radius)) {
     return true;
   }
   return false;
 }
 
-fn fs_p_1(x: f32) -> bool {
-  return (x > 0.7);
-}
-
 fn array_every_fs_p_1(d: ptr<function, array<f32, 3>>) -> bool {
-  if ((fs_p_1((*d)[0]) == false)) {
+  if ((((*d)[0] > 0.7) == false)) {
     return false;
   }
-  if ((fs_p_1((*d)[1]) == false)) {
+  if ((((*d)[1] > 0.7) == false)) {
     return false;
   }
-  if ((fs_p_1((*d)[2]) == false)) {
+  if ((((*d)[2] > 0.7) == false)) {
     return false;
   }
   return true;

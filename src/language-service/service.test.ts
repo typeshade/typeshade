@@ -478,7 +478,7 @@ describe('getCompiledOutput', () => {
     service.openDocument('/main.ts', main);
     expect(service.getDiagnostics('/main.ts')).toEqual([]);
     const out = service.getCompiledOutput('/main.ts', 'wgsl')!;
-    expect(out.text).toContain('fn pick');
+    expect(out.text).toContain('fn fs');
     expect(out.diagnostics).toEqual([
       {
         uri: '/lib.ts',

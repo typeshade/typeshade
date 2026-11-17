@@ -12,10 +12,6 @@ layout(std140) uniform Uniforms {
   float zoom;
   vec4 mouse;
 } U;
-vec3 palette(float t) {
-  vec3 ph = vec3(0.0, 0.33, 0.67);
-  return (vec3(0.5) + (cos(((t + ph) * 6.283)) * 0.5));
-}
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
@@ -39,6 +35,8 @@ void main() {
     it = (it + 1.0);
   }
   float _gv0 = (it / 96.0);
-  vec3 col = palette((_gv0 + (U.time * 0.05)));
-  _ret = vec4((col * _gv0), 1.0);
+  float _sm0_a0 = (_gv0 + (U.time * 0.05));
+  vec3 _sm0_l_ph = vec3(0.0, 0.33, 0.67);
+  vec3 _sm0_ret = (vec3(0.5) + (cos(((_sm0_a0 + _sm0_l_ph) * 6.283)) * 0.5));
+  _ret = vec4((_sm0_ret * _gv0), 1.0);
 }

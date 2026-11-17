@@ -20,17 +20,14 @@ float hash(vec2 p) {
   uint h = hash32((uint(_f2i(p.x)) ^ hash32(uint(_f2i(p.y)))));
   return (float((h >> 8u)) * 5.960464477539063e-8);
 }
-
-float noise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 u = ((f * f) * (vec2(3.0) - (f * 2.0)));
-  return mix(mix(hash(i), hash((i + vec2(1.0, 0.0))), u.x), mix(hash((i + vec2(0.0, 1.0))), hash((i + vec2(1.0, 1.0))), u.x), u.y);
-}
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
+  vec2 _licm0 = vec2(3.0);
+  vec2 _licm1 = vec2(1.0, 0.0);
+  vec2 _licm2 = vec2(0.0, 1.0);
+  vec2 _licm3 = vec2(1.0, 1.0);
   float t = U.time;
   vec2 res = U.resolution;
   float asp = (res.x / res.y);
@@ -49,8 +46,14 @@ void main() {
   float h = 0.0;
   float amp = 0.5;
   float freq = 1.0;
+  vec2 _licm4 = vec2((t * 0.12), 0.0);
   for (uint i = 0u; (i < 4u); i = (i + 1u)) {
-    h = (h + (amp * noise(((sp * freq) + vec2((t * 0.12), 0.0)))));
+    vec2 _sm0_a0 = ((sp * freq) + _licm4);
+    vec2 _sm0_l_i = floor(_sm0_a0);
+    vec2 _sm0_l_f = fract(_sm0_a0);
+    vec2 _sm0_l_u = ((_sm0_l_f * _sm0_l_f) * (_licm0 - (_sm0_l_f * 2.0)));
+    float _sm0_ret = mix(mix(hash(_sm0_l_i), hash((_sm0_l_i + _licm1)), _sm0_l_u.x), mix(hash((_sm0_l_i + _licm2)), hash((_sm0_l_i + _licm3)), _sm0_l_u.x), _sm0_l_u.y);
+    h = (h + (amp * _sm0_ret));
     freq = (freq * 2.03);
     amp = (amp * 0.5);
   }

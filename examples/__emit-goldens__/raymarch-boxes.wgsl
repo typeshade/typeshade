@@ -17,10 +17,6 @@ fn scene(p: vec3<f32>) -> f32 {
   return (length(max((abs(_v0) - vec3<f32>(0.62)), vec3<f32>(0.0, 0.0, 0.0))) - 0.14);
 }
 
-fn palette(t: f32) -> vec3<f32> {
-  return (vec3<f32>(0.5) + (cos(((t + vec3<f32>(0.0, 0.33, 0.67)) * 6.283)) * 0.5));
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let _cse0 = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -65,7 +61,7 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
     let _cse2 = vec3<f32>(0.0, 0.0, 0.0015);
     let _v17 = normalize(vec3<f32>((scene((_v16 + _cse0)) - scene((_v16 - _cse0))), (scene((_v16 + _cse1)) - scene((_v16 - _cse1))), (scene((_v16 + _cse2)) - scene((_v16 - _cse2)))));
     let _lc0 = floor((_v16 / 2.6));
-    _av2 = mix(_v15, (palette(fract((sin((((_lc0.x * 12.9898) + (_lc0.y * 78.233)) + (_lc0.z * 37.719))) * 43758.5453))) * ((max(dot(_v17, normalize(vec3<f32>(0.5, 0.8, 0.3))), 0.0) * 0.8) + 0.16)), exp((-(_av1 * 0.09))));
+    _av2 = mix(_v15, ((vec3<f32>(0.5) + (cos(((fract((sin((((_lc0.x * 12.9898) + (_lc0.y * 78.233)) + (_lc0.z * 37.719))) * 43758.5453)) + vec3<f32>(0.0, 0.33, 0.67)) * 6.283)) * 0.5)) * ((max(dot(_v17, normalize(vec3<f32>(0.5, 0.8, 0.3))), 0.0) * 0.8) + 0.16)), exp((-(_av1 * 0.09))));
   }
   return vec4<f32>(_av2, 1.0);
 }
