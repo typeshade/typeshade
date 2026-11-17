@@ -14,7 +14,9 @@
 // function, compound assignment to a swizzle, module constants with a bare `| & ^` root, and
 // libraries whose own refusals name edits in the imported file. Issue 1299 added an operator over
 // two `let` bindings, one of them read twice, a `let` of a written number, and a store that reads
-// its own variable (`a = a - K`, `a -= K`, also inside `if` and a loop). Three properties hold:
+// its own variable (`a = a - K`, `a -= K`, also inside `if` and a loop). Issue 1319 added that
+// value read from a struct field, typed and untyped, beside a field and a getter of the same
+// name in other classes. Three properties hold:
 //
 //   1. Where `compile()` accepts a program with no diagnostic, the CPU oracle's value is the value
 //      the same source has as TypeScript, with `i32()` ToInt32 of the truncation, `u32()`
@@ -855,8 +857,35 @@ class Program {
           () => this.expr('k', 1),
         ])();
       const ea = init();
-      this.lines.push(`let a = ${ea.text};`);
-      this.bind('a', 'k', () => ea.value());
+      // Issue 1319: `a` read from a struct field, one with no written type (`S2.v`) or one
+      // with a written `i32` (`Q.v`), beside a field and a getter of that name in other
+      // classes, through a variable or a parameter with a written struct type or none, a
+      // property access, an object pattern or a function's result.
+      const via = this.chance(0.35) ? this.pick(['untyped', 'typed'] as const) : undefined;
+      if (via === undefined) {
+        this.lines.push(`let a = ${ea.text};`);
+        this.bind('a', 'k', () => ea.value());
+      } else {
+        this.pre.push('class Q {\n  v: i32 = 0;\n}', 'class S2 {\n  v = 0;\n  w = 0;\n}');
+        if (this.chance(0.3)) {
+          this.pre.push(`class C3 {\n  get v() {\n    return ${this.tree().text};\n  }\n}`);
+        }
+        const cls = via === 'typed' ? 'Q' : 'S2';
+        this.lines.push(`let s${this.chance(0.5) ? `: ${cls}` : ''} = new ${cls}();`);
+        this.lines.push(`s.v = ${ea.text};`);
+        const read = this.pick(['access', 'pattern', 'parameter'] as const);
+        if (read === 'parameter') {
+          this.pre.push(`function hv(s: ${cls}) {\n  return s.v;\n}`);
+          this.lines.push('let a = hv(s);');
+        } else {
+          this.lines.push(read === 'pattern' ? 'let { v: a } = s;' : 'let a = s.v;');
+        }
+        this.bind('a', via === 'typed' ? 'i32' : 'k', () =>
+          via === 'typed'
+            ? this.assign('i32', { t: 'i32', v: 0 }, undefined, ea.value())
+            : ea.value(),
+        );
+      }
       const ec = this.chance(0.3)
         ? this.bin(this.pick(['+', '|', '*']), this.name('a'), lit(this.pick([0, 1, 3])))
         : init();
