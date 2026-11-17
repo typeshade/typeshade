@@ -2764,12 +2764,14 @@ second form. An element has no runtime length, and a sized array's `.length` is 
 `const` that names the binding (`const a = src`) is the binding, as it is in
 TypeScript: nothing is copied, and `a[i]` and `a.length` read `src`.
 
-**An unsized array lives in a storage binding alone** (Tint: "runtime-sized arrays can only be
-used in the <storage> address space"). A parameter or a result that holds one, directly or as a
-struct's last field, is refused (TS8020), and so is a local that would hold a copy, a `let`
-(TS8099): read the binding by its name instead. A `uniform<array<f32>>` is refused (TS8051), and
-`.length` on it (TS8032) with the one fix that works: give the type a size,
-`array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
+**An unsized array outside a storage binding is not supported yet.** WGSL lets one live in the
+storage address space alone (Tint: "runtime-sized arrays can only be used in the <storage>
+address space"), and the compiler does not yet rewrite another place to one (OD-9). A parameter
+or a result that holds one, directly or as a struct's last field, is refused as not supported
+yet (TS8020), and so is a local that would hold a copy, a `let` (TS8099): read the binding by
+its name instead. A kernel function that returns a new array is proposal 0114's stage S5. A
+`uniform<array<f32>>` is refused (TS8051), and `.length` on it (TS8032) with the one fix that
+works: give the type a size, `array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
 
 **The editor gives it the same type.** The ambient `array<T, N>` declares `length` as its size
 `N` when it has one and as `u32` when it has none, so the hover over `src.length` reads
@@ -8900,7 +8902,7 @@ compiler and in the editor. A fixed-size array parameter, `array<T, N>`, is a va
 storage, passed by reference, the one exception to Rule 8.8: the body writes `out[i]` and reads
 `xs.length`, and the call writes the caller's array in place. An array written `@out` is the
 caller's storage too, which the call fills with zeros before the body runs (§70). Any other
-function that takes an array with no size is refused (TS8020, §20).
+function that takes an array with no size is refused as not supported yet (TS8020, §20).
 
 ```ts
 export function scale(xs: array<f32>, k: f32) {
