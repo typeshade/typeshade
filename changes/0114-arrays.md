@@ -441,6 +441,20 @@ constant, in one place: a kernel function that returns the array. It adds no spe
     constant length in S2 and for any length in S5. A result of an array with no size that is no
     new array, and a struct whose last field is one, stay `TS8020` (with its interim text, below).
 
+12. The representation is the compiler's (OD-9). The program says what the new array means; the
+    emitted code need not hold it as one WGSL or GLSL object. A binding of its own, a region of
+    the arena, a capacity of at least `n` reused across calls, a kernel specialized for a length
+    the compiler chooses, or any other code with the same result is allowed, as change 0080
+    chooses how a `Map` or a `Set` is held. The first implementation uses a binding of its own
+    (the owner's decision above). No choice changes the program, its result, or what the host
+    view declares.
+
+    [decision, owner, 2026-11-17] Asked whether the storage or the compiled kernel must match
+    the array one to one, the owner said that it is the compiled side that need not: "언어랑
+    매칭이 1:1 로 꼭 TS -> WGSL , TS -> GLSL 이렇게 가는건 맞는데 무조건 1:1로 매칭될 필요는
+    없다는거예요 … map 이라던가, set 같은 구현체라던가 그런거 얘기하는거예요". [inference,
+    agent] This is OD-9 applied to S5, not a new entry.
+
 **What S5 needs of S2.**
 
 - `fill` gives back the array it fills, as ECMAScript's `Array.prototype.fill` does. Today it
