@@ -13,44 +13,17 @@
 // Change 0112.
 
 import { describe, expect, it } from 'vitest';
-import { compile } from './compile.js';
-import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { bothRefuse, bothTake } from '../../core/testing/both-halves.js';
 
-/** The editor's diagnostics of `source`, as `source code: text`. */
-function editorOf(source: string): readonly string[] {
-  const service = createTypeshadeLanguageService();
-  service.openDocument('a.ts', source);
-  return service.getDiagnostics('a.ts').map((d) => `${d.source} ${String(d.code)}: ${d.message}`);
-}
-
-/** The compiler's error diagnostics of `source`, as `source code: text`, in the editor's shape. */
-function compilerOf(source: string): readonly string[] {
-  return compile(source)
-    .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => `typeshade ${d.code}: ${d.message}`);
-}
-
-/** Both halves take `source`: no diagnostic from `compile()` or from the editor. */
-function bothTake(source: string): ReturnType<typeof compile> {
-  const c = compile(source);
-  expect(c.diagnostics, 'compile()').toEqual([]);
-  expect(editorOf(source), 'the editor').toEqual([]);
-  return c;
-}
-
-/** Both halves refuse `source` with the one sentence, under the one code (Rule 12.5). */
-function bothRefuse(source: string, code: string, text: string): void {
-  const want = `typeshade ${code}: ${text}`;
-  expect(compilerOf(source), 'compile()').toEqual([want]);
-  expect(editorOf(source), 'the editor').toEqual([want]);
-}
+/** Both halves take `source`: returns what `compile()` returned. */
+const bothResult = (source: string) => bothTake(source).result;
 
 const program = (expr: string, ret = 'vec3'): string =>
   `"use typeshade";\nexport function f(v: vec3, w: vec3, x: f32): ${ret} {\n  return ${expr};\n}\n`;
 
 describe('a Math member takes a scalar, in both halves', () => {
   it('takes a scalar call of every member family, with the WGSL of the builtin', () => {
-    const r = bothTake(`"use typeshade";
+    const r = bothResult(`"use typeshade";
 export function f(x: f32, y: f32): f32 {
   return Math.sqrt(x) + Math.max(x, y) + Math.min(x, 1.) + Math.pow(x, y) + Math.atan(y, x) + Math.cbrt(x) + Math.hypot(x, y);
 }
@@ -64,12 +37,7 @@ export function f(x: f32, y: f32): f32 {
 
   it('types a member as number->number in the editor', () => {
     const source = program('vec3(Math.max(x, 0.))');
-    bothTake(source);
-    const service = createTypeshadeLanguageService();
-    service.openDocument('a.ts', source);
-    const hover =
-      service.getHover('a.ts', service.positionAt('a.ts', source.indexOf('Math.max') + 6))
-        ?.contents ?? '';
+    const hover = bothTake(source).hover('max(x, 0.)') ?? '';
     expect(hover).toContain('max(a: number, b: number): number');
     expect(hover).not.toContain('vec');
   });
@@ -109,7 +77,7 @@ describe('a vector argument is refused in both halves, with the WGSL name that t
 
 describe('the WGSL name takes the vector, and a component is a scalar', () => {
   it('takes sqrt, max, min, abs and ** on vectors', () => {
-    const r = bothTake(program('sqrt(abs(v)) + max(v, 0.) + min(v, w) + v ** w'));
+    const r = bothResult(program('sqrt(abs(v)) + max(v, 0.) + min(v, w) + v ** w'));
     expect(r.wgsl).toContain('sqrt(');
     expect(r.wgsl).toContain('max(');
   });
@@ -137,7 +105,7 @@ describe('a name bound to a Math member is scalar too, min and max included (cha
   });
 
   it('takes a bound max and min on scalars', () => {
-    const r = bothTake(
+    const r = bothResult(
       `"use typeshade";\nconst { max, min } = Math;\nexport function f(x: f32): f32 { return max(min(x, 1.), 0.); }\n`,
     );
     expect(r.eval('f', [2])).toBe(1);
