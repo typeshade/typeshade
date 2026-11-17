@@ -622,9 +622,14 @@ p.x = 9.; // ps[i].x is 9., as in JavaScript
   where it and every struct and array type inside it are not written. The compiler holds a
   refusal that rule 6 can lift until every function is lowered, and reports it only where the
   type is written.
-- [fact] What rule 6 does not change. Rule 1 (a second name is the same place), rule 5 (the
-  place must stay), a parameter or a loop name assigned whole after a write, and `TS8074` keep
-  their refusals whatever the type.
+- [fact] Two more refusals that rule 6 lifts, found when #1324 was written. A `let` second
+  name that is assigned whole later (rule 1): where its type is never written, a copy and the
+  second name give one result. And `xs.fill(o)` of a new object (rule 2), which makes every
+  element one object: where the type is never written, the copies and the one object give one
+  result.
+- [fact] What rule 6 does not change. Rule 5 (the place must stay), a second name that a function
+  inside the body uses, a parameter or a loop name assigned whole after a write, and `TS8074`
+  keep their refusals whatever the type.
 - [inference, agent] Why this does not bring back what Amendment A3 removed. Amendment A3
   removed a decision made statement by statement, from names: "does anything write this object
   afterwards". Rule 6 asks one question of the whole program, from types: "does anything write
