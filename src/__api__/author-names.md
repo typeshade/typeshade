@@ -294,7 +294,7 @@ workgroup_size
 zip
 ```
 
-## Members of standard objects — 59
+## Members of standard objects — 60
 
 ```
 Array.prototype.every
@@ -308,6 +308,7 @@ Array.prototype.lastIndexOf
 Array.prototype.map
 Array.prototype.push
 Array.prototype.reduce
+Array.prototype.slice
 Array.prototype.some
 Math.E
 Math.LN10

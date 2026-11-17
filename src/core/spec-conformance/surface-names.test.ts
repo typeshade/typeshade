@@ -622,7 +622,7 @@ describe('the author-facing surface has three sources and no fourth', () => {
     expect(members.filter((name) => !arrayProto.has(name))).toEqual([]);
     const picked = /^type ArrayOps = (.+)$/m.exec(SHADE_DTS)?.[1];
     expect(picked).toBe(
-      "'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'push' | 'fill' | 'findIndex' | 'findLastIndex' | 'indexOf' | 'lastIndexOf' | 'includes'",
+      "'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'push' | 'fill' | 'findIndex' | 'findLastIndex' | 'indexOf' | 'lastIndexOf' | 'includes' | 'slice'",
     );
     const methods = picked!.split(' | ').map((m) => m.slice(1, -1));
     expect(methods.filter((m) => !members.includes(m))).toEqual([]);
