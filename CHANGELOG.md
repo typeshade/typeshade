@@ -2600,10 +2600,11 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
     another entry is added.
 
   Measured bundle budgets move (`scripts/bundle-budget.json`, gzip bytes): `typeshade/runtime`
-  171589 to 171620, split total 174063 to 174090; `typeshade/emit` 117466 to 117561;
-  `typeshade/fuse` 115949 to 115977, split total 117013 to 117036; `typeshade/algorithms` 70969
-  to 71012, split 69889 to 69945; `typeshade/random` 52517 to 52566, split 51570 to 51618: each
-  carries the reach walk over the emitted module or the CPU tier's zero values.
+  171589 to 171630, split total 174063 to 174086; `typeshade/emit` 117466 to 117480;
+  `typeshade/fuse` 115949 to 115991, split 17793 to 17794 and total 117013 to 117029;
+  `typeshade/algorithms` 70969 to 71019, split 69889 to 69938; `typeshade/random` 52517 to
+  52567, split 51570 to 51621: each carries the reach walk over the emitted module or the CPU
+  tier's zero values.
 
 - **An integer conversion that starts a `for` counter declares the counter's type** (Rule 7.5).
   A header name with no annotation is an `i32` (or a `u32` beside a `u32` bound) only when its

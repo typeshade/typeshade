@@ -32,7 +32,6 @@ import {
   intDiv,
   intRem,
   cloneValue,
-  absentArray,
   inoutReturn,
   convertComponent,
   convertComponents,
@@ -118,7 +117,7 @@ export interface CodegenRuntime {
   intRem: typeof intRem;
   /** Aggregate copy at a `let` / `var` binding — the SAME helper the interpreter calls. */
   clone: typeof cloneValue;
-  absent: typeof absentArray;
+  absent: (zero: CpuValue) => CpuValue;
   inout: typeof inoutReturn;
   /** Element-converting vector constructor components — the SAME helpers the interpreter's
    *  `construct` case calls, so the two CPU backends convert identically. */
@@ -138,6 +137,15 @@ export interface CodegenRuntimeOptions {
   readonly gpuStubs?: boolean;
   readonly consoleSink?: ConsoleSink;
   readonly overrides?: Readonly<Record<string, CpuValue>>;
+}
+
+function absentArray(zero: CpuValue): CpuValue {
+  return new Proxy([], {
+    get: (target, key, receiver) =>
+      typeof key === 'string' && /^\d+$/.test(key)
+        ? cloneValue(zero)
+        : Reflect.get(target, key, receiver),
+  }) as unknown as CpuValue;
 }
 
 /** A fresh runtime for one generated module: its own binding, variable and function tables. */

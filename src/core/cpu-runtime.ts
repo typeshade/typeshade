@@ -1141,44 +1141,6 @@ export function elemKindOf(t: ShaderType): ElemKind | undefined {
  *  Exported from `typeshade`.
  */
 export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUILTINS));
-
-export function absentArray(zero: CpuValue): CpuValue {
-  return new Proxy([], {
-    get: (target, key, receiver) =>
-      typeof key === 'string' && /^\d+$/.test(key)
-        ? cloneValue(zero)
-        : Reflect.get(target, key, receiver),
-  }) as unknown as CpuValue;
-}
-
-export const VALUE_BINDING_KINDS: ReadonlySet<ShaderType['kind']> = new Set([
-  'scalar',
-  'f64',
-  'vec',
-  'vec64',
-  'mat',
-  'struct',
-  'array',
-  'atomic',
-]);
-
-export function unboundValueOf(t: ShaderType, structs: ReadonlyMap<string, StructDecl>): CpuValue {
-  if (t.kind === 'array') {
-    const n = t.sizeOverride === undefined ? t.size : undefined;
-    const elem = unboundValueOf(t.elem, structs);
-    return n === undefined
-      ? absentArray(elem)
-      : (Array.from({ length: n }, () => cloneValue(elem)) as CpuValue);
-  }
-  if (t.kind === 'struct') {
-    const decl = structs.get(t.name);
-    const obj: Record<string, CpuValue> = {};
-    for (const f of decl?.fields ?? []) obj[f.name] = unboundValueOf(f.type, structs);
-    return obj as CpuValue;
-  }
-  return zeroOf(t, structs);
-}
-
 /** The names of every GPU-only intrinsic the CPU backends cannot genuinely evaluate, as a
  *  read-only set: `textureSample`, `textureSampleLevel`, `textureSampleBias`,
  *  `textureSampleGrad`, `textureLoad`, their 2d-array forms (`textureSampleArray`,

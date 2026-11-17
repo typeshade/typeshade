@@ -59,17 +59,17 @@ import { toPortable } from '../../core/ir/portable.js';
 import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
+import { addsTo, colourOf } from './host-face/entry-shapes.js';
+import { wgslLoweredOf } from './source-file/wgsl-lowered.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
+import { buildManifest, glDrawOf, layoutOf } from '../../core/manifest.js';
 import {
-  buildManifest,
   calleesOf,
   closureOf,
   emittedReachOf,
-  glDrawOf,
-  layoutOf,
   reachOf,
-  type EntryReach,
-} from '../../core/manifest.js';
+  type BindingReach,
+} from '../../core/manifest/reach.js';
 import { callArgAccess } from '../../core/passes/access.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
@@ -133,7 +133,6 @@ import { pushedParams } from './lower/kernel-push.js';
 import { staticConstName } from './module-const.js';
 import {
   compileTsProgram,
-  wgslLoweredOf,
   type TsCompilerDiagnostic,
   type compileTsSource,
 } from './source-file.js';
@@ -360,7 +359,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   };
 
   const lowered = r.wgsl !== undefined ? wgslLoweredOf(r) : undefined;
-  let emittedReach: ((entry: string) => EntryReach) | undefined;
+  let emittedReach: ((entry: string) => BindingReach) | undefined;
   const faces: (FaceExport | BindingRef)[] = [];
   // The author's JSDoc of each export, which the view carries (change 0108).
   const docs = new Map<string, ExportDocs>();
@@ -564,7 +563,7 @@ interface EntryCtx {
   readonly bindings: readonly BindingDecl[];
   readonly reads: ReadonlyMap<string, ReadonlySet<string>>;
   readonly writes: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly reach: (entry: string) => EntryReach;
+  readonly reach: (entry: string) => BindingReach;
   readonly callees: ReadonlyMap<string, ReadonlySet<string>>;
   readonly declared: ReadonlySet<string>;
   readonly workgroupZero: Readonly<Record<string, unknown>>;
@@ -831,46 +830,6 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     },
     bindingsType: objectType(drawTypes),
   };
-}
-
-const isVec4F32 = (t: ShaderType): boolean => t.kind === 'vec' && t.n === 4 && t.elem === 'f32';
-
-/** Where a fragment entry's one `@location(0)` colour is: null for a bare `vec4` result, the
- *  field's name for a struct of that one field; undefined when it writes anything else. */
-function colourOf(
-  f: FuncDecl,
-  structs: ReadonlyMap<string, StructDecl>,
-): string | null | undefined {
-  if (isVec4F32(f.ret)) return f.retAttr === '@location(0)' ? null : undefined;
-  if (f.ret.kind !== 'struct') return undefined;
-  const fields = structs.get(f.ret.name)?.fields ?? [];
-  if (fields.length !== 1) return undefined;
-  const [only] = fields;
-  return only!.location === 0 && only!.builtin === undefined && isVec4F32(only!.type)
-    ? only!.name
-    : undefined;
-}
-
-/** Whether `f` adds to its Map or Set parameter `name` (change 0080). */
-function addsTo(f: FuncDecl, name: string): boolean {
-  let found = false;
-  const visit = (s: Stmt): void =>
-    eachStmtExpr(
-      s,
-      (e) =>
-        eachExpr(e, (x) => {
-          if (
-            x.op === 'call' &&
-            (x.fn === 'collectionAdd' || x.fn === 'collectionSet') &&
-            x.args[0]?.op === 'param' &&
-            x.args[0].name === name
-          )
-            found = true;
-        }),
-      visit,
-    );
-  f.body.forEach(visit);
-  return found;
 }
 
 /** The face of a kernel function (Rule 8.22; host values and parameters follow Rules 8.21 and 8.23): each value parameter's host type, each

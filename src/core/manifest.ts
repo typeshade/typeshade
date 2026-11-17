@@ -23,9 +23,9 @@ import {
   type StructDecl,
 } from './ir/nodes.js';
 import { typeKey, type ShaderType } from './ir/types.js';
-import { eachExpr, eachStmtExpr } from './ir/visit.js';
 import { sourceSpanOf } from './ir/span.js';
-import { fnReads, fnWrites } from './passes/effects.js';
+import { calleesOf, closureOf, reachOf } from './manifest/reach.js';
+export { calleesOf, closureOf };
 import { texturePairs } from './passes/texture-pairs.js';
 import { wgslBackend } from './backends/wgsl.js';
 import { emitGlslEntries } from './backends/glsl.js';
@@ -160,65 +160,6 @@ export function layoutOf(
     default:
       return { none: `a ${spell(t)} has no host value` };
   }
-}
-
-// ─── what a function reaches ─────────────────────────────────────────────────────────────────
-
-/** The functions `f` calls, directly. */
-export function calleesOf(f: FuncDecl, declared: ReadonlySet<string>): Set<string> {
-  const out = new Set<string>();
-  for (const s of f.body)
-    eachStmtExpr(s, (e) =>
-      eachExpr(e, (x) => {
-        if (x.op === 'call' && declared.has(x.fn)) out.add(x.fn);
-      }),
-    );
-  return out;
-}
-
-/** `root` and every function it reaches through calls. */
-export function closureOf(
-  root: string,
-  callees: ReadonlyMap<string, ReadonlySet<string>>,
-): Set<string> {
-  const out = new Set<string>([root]);
-  const todo = [root];
-  while (todo.length > 0) {
-    for (const c of callees.get(todo.pop()!) ?? [])
-      if (!out.has(c)) {
-        out.add(c);
-        todo.push(c);
-      }
-  }
-  return out;
-}
-
-export interface EntryReach {
-  readonly touched: ReadonlySet<string>;
-  readonly written: ReadonlySet<string>;
-}
-
-export function reachOf(m: ModuleDecl): (root: string) => EntryReach {
-  const declared = new Set(m.funcs.map((f) => f.name));
-  const callees = new Map(m.funcs.map((f) => [f.name, calleesOf(f, declared)]));
-  const reads = fnReads(m);
-  const writes = fnWrites(m);
-  return (root) => {
-    const touched = new Set<string>();
-    const written = new Set<string>();
-    for (const g of closureOf(root, callees)) {
-      for (const n of reads.get(g) ?? []) touched.add(n);
-      for (const n of writes.get(g) ?? []) {
-        touched.add(n);
-        written.add(n);
-      }
-    }
-    return { touched, written };
-  };
-}
-
-export function emittedReachOf(m: ModuleDecl): (entry: string) => EntryReach {
-  return reachOf(loweredWithPlugins(m, wgslBackend));
 }
 
 /** What the WebGL2 tier draws a fragment entry with: its GLSL ES 3.00 fragment program, the block

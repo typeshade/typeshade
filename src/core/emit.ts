@@ -24,7 +24,7 @@ import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js';
 import { specializeCalls } from './passes/specialize-calls.js';
 import { restructureCalls } from './passes/restructure-calls.js';
 import { storageLoadReuse } from './passes/storage-load-reuse.js';
-import { mapExpr, mapStmt } from './passes/opt/ir-transform.js';
+import { spellExterns } from './passes/spell-externs.js';
 import { renameFunctions, renameTargetOf } from './passes/rename-predeclared.js';
 import { spellModule } from './passes/spell-names.js';
 import { assertHostOwnedSpellable, inheritSpellings, spellingsOf } from './spelling-plan.js';
@@ -553,27 +553,6 @@ function lowerTimed(
   const settled = step('settleConstExprs', () => settleConstExprs(optimized));
   const guarded = step('hoistGuardFetch', () => hoistGuardFetch(settled));
   return step('postLower', () => (be.postLower === undefined ? guarded : be.postLower(guarded)));
-}
-
-/** Resolve each `externref` to the spelling THIS target's host uses (X-GIS #1713).
- *
- *  Done as a lowering pass rather than in `emitLeaf` because the spelling lives on the
- *  DECLARATION and the emit walk only ever sees the Expr — threading the module through
- *  the walk to look it up would widen the neutral emitter's contract for one node kind.
- *  Identity for every module with no externs, and for every extern whose host spells it
- *  the same on both targets, so nothing else changes bytes. */
-function spellExterns(m: ModuleDecl, be: Backend): ModuleDecl {
-  const map = new Map<string, string>();
-  for (const e of m.externs ?? []) {
-    const to = be.id === 'wgsl' ? e.spelling?.wgsl : e.spelling?.glsl;
-    if (to !== undefined && to !== e.name) map.set(e.name, to);
-  }
-  if (map.size === 0) return m;
-  const rE = (e: Expr): Expr =>
-    mapExpr(e, (x) =>
-      x.op === 'externref' && map.has(x.name) ? { ...x, name: map.get(x.name)! } : x,
-    );
-  return { ...m, funcs: m.funcs.map((f) => ({ ...f, body: f.body.map((s) => mapStmt(s, rE)) })) };
 }
 
 /** Assemble an ALREADY-lowered module into a target string: the declaration assembly

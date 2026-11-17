@@ -57,8 +57,6 @@ import {
   BUILTINS,
   GPU_STUBS,
   zeroOf,
-  unboundValueOf,
-  VALUE_BINDING_KINDS,
   f32ToU32Sat,
   f32ToI32Sat,
   numKindOf,
@@ -862,9 +860,6 @@ export function compileModule(
     trees: treeLoops(unrounded, m),
     f32: opts?.precision === 'f32',
   };
-  for (const b of m.bindings)
-    if (VALUE_BINDING_KINDS.has(b.type.kind))
-      ctx.bindings[b.name] = unboundValueOf(b.type, ctx.structs);
   // Populate consts in declaration order so a later const may reference an
   // earlier one. A `valueExpr` const (vec / array / struct literal) is evaluated
   // through the same tree-walk; a scalar const uses its full-precision cpuValue.

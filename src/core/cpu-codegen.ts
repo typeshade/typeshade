@@ -100,7 +100,6 @@ import {
   isAggregateType,
   elemKindOf,
   zeroOf,
-  VALUE_BINDING_KINDS,
   comparesAsF32,
   TYPED_BIT_BUILTINS,
 } from './cpu-runtime.js';
@@ -109,6 +108,7 @@ import { isAtomicIntrinsic, isBarrierIntrinsic } from './intrinsics.js';
 import { fnWrites } from './passes/effects.js';
 import { dispatchCompute, dispatchEach, needsLockstep } from './debug/dispatch.js';
 import { createCodegenRuntime, type CodegenRuntime } from './cpu-codegen-runtime.js';
+import { unboundBindings, zeroLit } from './cpu-codegen/zero-literal.js';
 
 /** Sentinel: a per-fn body used an IR construct the codegen can't emit
  *  bit-identically. Caught by compileModuleJs → that fn falls back to the
@@ -138,34 +138,6 @@ function isArrayValued(t: ShaderType): boolean {
 const isF32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32';
 /** An `f32` or a vector of them: what the precision pass rounds (`passes/precision.ts`). */
 const isF32ish = (t: ShaderType): boolean => isF32(t) || (t.kind === 'vec' && t.elem === 'f32');
-
-/** The zero value literal for a `var` with no initializer — mirrors
- *  cpu-runtime `zeroOf` (vec/vec64 → N zeros, mat → N² zeros, struct → every field zeroed
- *  recursively, array → N zeros of its element, bool → false, everything else → 0). The two
- *  must agree exactly: the interpreter and this generator are the two CPU backends, and a
- *  `var` that starts as `0` in one and as `[0, 0, 0]` in the other is the bit-identity
- *  contract broken at the declaration. The array, bool and struct arms all arrived with #8
- *  A10, which gave the source language the init-less declaration that reaches them. */
-function zeroLit(t: ShaderType, structs: ReadonlyMap<string, StructDecl>): string {
-  if (t.kind === 'vec' || t.kind === 'vec64') return `new Array(${t.n}).fill(0)`;
-  // A matrix is a flat column-major component list: cols * rows, not n squared.
-  if (t.kind === 'mat') return `new Array(${t.cols * t.rows}).fill(0)`;
-  // Field by field, exactly as the interpreter's `zeroOf` builds it: the old `{}` left every
-  // field absent, so `let s: S;` then `s.a` read `undefined` here and on the interpreter
-  // alike, where WGSL's `var s: S;` reads 0. Recursion covers a nested struct and an array of
-  // structs. An undeclared struct name keeps `{}`, the same fallback `zeroOf` takes.
-  if (t.kind === 'struct') {
-    const decl = structs.get(t.name);
-    if (decl === undefined) return '{}';
-    const fields = decl.fields.map((f) => `${q(f.name)}: ${zeroLit(f.type, structs)}`);
-    return `{${fields.join(', ')}}`;
-  }
-  if (t.kind === 'array') {
-    return `[${Array.from({ length: t.size ?? 0 }, () => zeroLit(t.elem, structs)).join(', ')}]`;
-  }
-  if (t.kind === 'scalar' && t.scalar === 'bool') return 'false';
-  return '0';
-}
 
 /** Module-scope codegen state shared by every fn. */
 interface ModCtx {
@@ -1963,25 +1935,6 @@ export function generateModuleJs(
     fallbacks: fallbackNames,
     factorySource: `${decls.join('\n')}\nreturn {\n${fnSrcs.join(',\n')}\n};`,
   };
-}
-
-function unboundBindings(m: ModuleDecl, structs: ReadonlyMap<string, StructDecl>): string[] {
-  return m.bindings
-    .filter((b) => VALUE_BINDING_KINDS.has(b.type.kind))
-    .map((b) => `$.bindings[${q(b.name)}] = ${unboundValue(b.type, structs)};`);
-}
-
-function unboundValue(t: ShaderType, structs: ReadonlyMap<string, StructDecl>): string {
-  if (t.kind === 'array' && (t.size === undefined || t.sizeOverride !== undefined))
-    return `$.absent(${unboundValue(t.elem, structs)})`;
-  if (t.kind === 'array')
-    return `Array.from({ length: ${t.size} }, () => ${unboundValue(t.elem, structs)})`;
-  if (t.kind === 'struct') {
-    const decl = structs.get(t.name);
-    if (decl === undefined) return '{}';
-    return `({ ${decl.fields.map((f) => `${q(f.name)}: ${unboundValue(f.type, structs)}`).join(', ')} })`;
-  }
-  return JSON.stringify(zeroOf(t, structs));
 }
 
 /** Compile a module for the CPU by generating JavaScript, returning the same
