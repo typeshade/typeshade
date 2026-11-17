@@ -18,7 +18,6 @@ import {
   f64T,
   i32T,
   isF64,
-  storageTexel,
   u32T,
   vec2fT,
   vec2uT,
@@ -98,6 +97,8 @@ import { libraryNameSentence } from '../type-map.js';
 import { stageCallRefusalAt } from '../stage-call.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { isConsoleMethod } from '../../../core/console.js';
+import { lowerGatherCall } from './expression-call/gather.js';
+import { lowerStorageTextureCall, lowerDepthTextureCall } from './expression-call/storage-depth.js';
 
 /** What a `vecN<T>(…)` type argument may name, by the text the author wrote (#150). `f64` is
  *  here because `vec3<f64>` is the long spelling of `vec3f64`, which the surface already has. */
@@ -1821,261 +1822,6 @@ const TEXTURE_CALLS = new Set([
   'textureNumSamples',
 ]);
 
-/** `textureStore(dst, coord, value)`, `textureLoad(src, coord)` and `textureDimensions(t)` on a
- *  storage texture (roadmap 0.4 item 10).
- *
- *  Three things are checked here that Tint also checks, so the author reads this compiler's
- *  words and a span in their own file rather than a driver's message about generated code: the
- *  access mode has to admit the call (`textureLoad` on a `write` texture and `textureStore` on
- *  a `read` one are both "no matching call" on Tint), and the value stored has to be the
- *  texel type the FORMAT decides — `rgba8uint` stores a `vec4u`, `rgba8unorm` a `vec4`.
- *
- *  The coordinate goes through `vecArg` like every other texture's (#145): its width is the
- *  dim's and its element an `i32` or a `u32`, either of which Tint takes, so both `vec2i` and
- *  `vec2u` are written here as they are. */
-function lowerStorageTextureCall(
-  id: string,
-  tex: Extract<ShaderType, { kind: 'storage-texture' }>,
-  args: readonly Expr[],
-  node: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-  diagnostics: TsCompilerDiagnostic[],
-): Expr | undefined {
-  const isArray = tex.dim === '2d-array';
-  const texel: ShaderType = { kind: 'vec', n: 4, elem: storageTexel(tex.format) };
-  const shown = authorTypeText(tex);
-  if (id === 'textureDimensions') {
-    // NO mip level here, unlike every sampled and depth texture. A storage texture has exactly
-    // one level, and WGSL gives its `textureDimensions` no level overload at all — measured on
-    // Tint: `no matching call to 'textureDimensions(texture_storage_2d<r32float, read>, u32)'`,
-    // against 33 candidates. So the extra argument is refused where it is written rather than
-    // emitted for Tint to reject.
-    if (args.length > 1) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `textureDimensions on a ${shown} takes the texture alone: a storage texture has one ` +
-          `mip level, so there is no level to ask for.`,
-        TS_CODES.ARITY_MISMATCH,
-      );
-      return undefined;
-    }
-    return arity(id, args, 1, node, sourceFile, diagnostics)
-      ? { op: 'call', type: vec2uT, fn: id, args: [...args] }
-      : undefined;
-  }
-  if (id === 'textureNumLayers') {
-    // A storage ARRAY has layers, and answering "takes a sampled texture … has no sampler" was
-    // the wrong reason as well as the wrong answer (wgsl.txt:24360; measured accepted on Tint).
-    if (!isArray) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `textureNumLayers needs a texture_storage_2d_array; "${shown}" has no layers.`,
-        TS_CODES.TYPE_MISMATCH,
-      );
-      return undefined;
-    }
-    return arity(id, args, 1, node, sourceFile, diagnostics)
-      ? { op: 'call', type: u32T, fn: 'textureNumLayersStorage', args: [...args] }
-      : undefined;
-  }
-  if (id === 'textureLoad') {
-    if (tex.access === 'write') {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `"${shown}" is write-only, so textureLoad cannot read it. Declare it "read" to read ` +
-          `it, or "read_write" to do both — which only "r32uint", "r32sint" and "r32float" ` +
-          `allow, so a format outside those takes a second binding over the same texture.`,
-        TS_CODES.TYPE_MISMATCH,
-      );
-      return undefined;
-    }
-    if (!arity(id, args, isArray ? 3 : 2, node, sourceFile, diagnostics)) return undefined;
-    if (!vecArg(id, tex, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics))
-      return undefined;
-    const out = [...args];
-    // The layer of an array texture is an integer: a bare `0` would lower to `0.0`, which
-    // Tint refuses ("no matching call"), so it is retyped like every other layer.
-    if (isArray) {
-      const layer = intArg(id, out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics);
-      if (!layer) return undefined;
-      out[2] = layer;
-    }
-    return { op: 'call', type: texel, fn: id, args: out };
-  }
-  if (id === 'textureStore') {
-    if (tex.access === 'read') {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `"${shown}" is read-only, so textureStore cannot write it. Declare it "write" to ` +
-          `write it, or "read_write" to do both — which only "r32uint", "r32sint" and ` +
-          `"r32float" allow.`,
-        TS_CODES.TYPE_MISMATCH,
-      );
-      return undefined;
-    }
-    if (!arity(id, args, isArray ? 4 : 3, node, sourceFile, diagnostics)) return undefined;
-    if (!vecArg(id, tex, args[1]!, node.arguments[1]!, 'coordinate', sourceFile, diagnostics))
-      return undefined;
-    const out = [...args];
-    if (isArray) {
-      const layer = intArg(id, out[2]!, node.arguments[2]!, i32T, 'layer', sourceFile, diagnostics);
-      if (!layer) return undefined;
-      out[2] = layer;
-    }
-    const value = out[isArray ? 3 : 2]!;
-    if (typeKey(value.type) !== typeKey(texel)) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `"${shown}" stores a ${authorTypeText(texel)}; got ${authorTypeText(value.type)}. The texel type is ` +
-          `the format's own: a "…uint" format stores a vec4u, a "…sint" one a vec4i, and ` +
-          `every other one — unorm, snorm and float — a vec4.`,
-        TS_CODES.TYPE_MISMATCH,
-      );
-      return undefined;
-    }
-    return { op: 'call', type: voidT, fn: id, args: out };
-  }
-  pushDiag(
-    diagnostics,
-    sourceFile,
-    node,
-    `${id} takes a sampled texture; "${shown}" is a storage texture, which is read and ` +
-      `written by texel coordinate with textureLoad and textureStore and has no sampler.`,
-    TS_CODES.TYPE_MISMATCH,
-  );
-  return undefined;
-}
-
-/** `textureSampleCompare(tex, smp, uv, ref)` and `textureSampleCompareLevel(…)` on a depth
- *  texture, with the layer between the coordinate and the reference on the array form
- *  (roadmap 0.4 item 11). Both yield an `f32`: how much of the filter footprint passed the
- *  comparison, not a texel. The sampler has to be a `sampler_comparison`; an ordinary one has
- *  no reference to compare against, and Tint refuses the pairing as "no matching call".
- *
- *  `textureSampleCompare` uses the implicit level of detail, so it is fragment-only, which
- *  `FRAGMENT_ONLY_CALLS` in stage-restrictions.ts reports by stage; `…Level` samples level 0 anywhere.
- *
- *  A PLAIN read of a depth texture — `textureSample` with an ordinary sampler, `textureLoad` —
- *  is refused here for now, with the reason: GLSL ES 3.00 fuses a texture and its sampler into
- *  one object whose type is decided by the read (`sampler2D` for a plain one, `sampler2DShadow`
- *  for a comparison), so a depth texture read both ways needs WebGPU's separate samplers, a
- *  capability a later item adds. Until then every depth read is a comparison and the GLSL
- *  combined type is one spelling per dim. */
-function lowerDepthTextureCall(
-  id: string,
-  tex: Extract<ShaderType, { kind: 'depth-texture' }>,
-  args: readonly Expr[],
-  node: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-  diagnostics: TsCompilerDiagnostic[],
-): Expr | undefined {
-  // A multisampled depth texture is loaded, never compared (roadmap 0.4 item 13); WGSL-only by
-  // the msaaTextureLoad capability, so the fused-sampler reason that defers a plain read of the
-  // other depth textures does not arise for it.
-  if (tex.dim === '2d-ms')
-    return lowerMultisampledCall(id, tex, args, node, sourceFile, diagnostics);
-  const suffix = arraySuffix(tex.dim);
-  const isArray = suffix !== '';
-  const shown = authorTypeText(tex);
-  if (id === 'textureDimensions') {
-    // A cube's size is the size of one face, two wide on both targets, so it keeps the 2d id.
-    const out = dimsArgs(id, args, node, sourceFile, diagnostics);
-    return out ? { op: 'call', type: vec2uT, fn: id, args: out } : undefined;
-  }
-  if (id === 'textureNumLayers') {
-    if (!isArray) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        tex.dim === 'cube'
-          ? `textureNumLayers needs a texture_depth_2d_array or a texture_depth_cube_array; a ` +
-              `texture_depth_cube has six faces, not layers.`
-          : `textureNumLayers needs a texture_depth_2d_array; a plain depth texture has no layers.`,
-        TS_CODES.TYPE_MISMATCH,
-      );
-      return undefined;
-    }
-    return arity(id, args, 1, node, sourceFile, diagnostics)
-      ? { op: 'call', type: u32T, fn: id, args: [...args] }
-      : undefined;
-  }
-  if (id === 'textureSampleCompare' || id === 'textureSampleCompareLevel') {
-    const smp = args[1];
-    if (smp === undefined || smp.type.kind !== 'sampler-comparison') {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `${id} compares through a sampler_comparison; got ` +
-          `${smp === undefined ? 'nothing' : authorTypeText(smp.type)}. An ordinary sampler ` +
-          `filters a texel and has no reference to compare against. Declare the sampler ` +
-          `"declare const smp: sampler_comparison".`,
-        TS_CODES.TYPE_MISMATCH,
-      );
-      return undefined;
-    }
-    if (!arity(id, args, isArray ? 5 : 4, node, sourceFile, diagnostics)) return undefined;
-    if (!vecArg(id, tex, args[2]!, node.arguments[2]!, 'coordinate', sourceFile, diagnostics))
-      return undefined;
-    const out = [...args];
-    if (isArray) {
-      // The layer is an integer, as on a sampled array texture.
-      const layer = intArg(id, out[3]!, node.arguments[3]!, i32T, 'layer', sourceFile, diagnostics);
-      if (!layer) return undefined;
-      out[3] = layer;
-    }
-    // …and the reference depth that follows it is an `f32` (wgsl.txt:24734).
-    const refIndex = isArray ? 4 : 3;
-    const ref = floatArg(
-      id,
-      out[refIndex]!,
-      node.arguments[refIndex]!,
-      'depth_ref',
-      sourceFile,
-      diagnostics,
-    );
-    if (!ref) return undefined;
-    out[refIndex] = ref;
-    // The cube form is its own id (roadmap 0.4 item 12): on GLSL the reference folds into a
-    // vec4 after the vec3 direction, where the 2d form folds it into a vec3.
-    const fn = isArray ? `${id}${suffix}` : tex.dim === 'cube' ? `${id}Cube` : id;
-    return { op: 'call', type: f32T, fn, args: out };
-  }
-  if (id === 'textureSample' || id === 'textureSampleLevel' || id === 'textureLoad') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `"${shown}" is read by comparison: textureSampleCompare(tex, smp, uv, ref) with a ` +
-        `sampler_comparison yields how much of the footprint passed. A plain read of a depth ` +
-        `texture — ${id} — is not here yet: on GLSL ES 3.00 the texture and its sampler are one ` +
-        `object whose type the read decides, so a depth texture read both ways needs separate ` +
-        `samplers, which a later item adds.`,
-      TS_CODES.UNSUPPORTED,
-    );
-    return undefined;
-  }
-  pushDiag(
-    diagnostics,
-    sourceFile,
-    node,
-    `${id} does not take a depth texture; "${shown}" is read with textureSampleCompare.`,
-    TS_CODES.TYPE_MISMATCH,
-  );
-  return undefined;
-}
-
 /**
  * Lower `textureSample(tex, smp, uv)` and its siblings.
  *
@@ -2390,7 +2136,7 @@ function lowerTextureCall(
  *  WGSL §6.6.3: a multisampled texture cannot be used with a sampler — so every sampling,
  *  comparison and gather form is refused with the read that does apply. WGSL-only under the
  *  `msaaTextureLoad` capability the binding derives; GLSL ES 3.00 has no `sampler2DMS`. */
-function lowerMultisampledCall(
+export function lowerMultisampledCall(
   id: string,
   tex: Extract<ShaderType, { kind: 'texture' | 'depth-texture' }>,
   args: readonly Expr[],
@@ -2461,14 +2207,14 @@ function lowerMultisampledCall(
  *  the GLSL spellings fold the layer differently (a `vec3(uv, layer)` on a 2d array; nothing at
  *  all on a cube array, which GLSL ES 3.00 has no sampler for), and an id's text must never
  *  depend on the texture it is called on. */
-function arraySuffix(dim: string): '' | 'Array' | 'CubeArray' {
+export function arraySuffix(dim: string): '' | 'Array' | 'CubeArray' {
   return dim === '2d-array' ? 'Array' : dim === 'cube-array' ? 'CubeArray' : '';
 }
 
 /** The gather component folded to a literal: a written number, or a module `const` whose value
  *  is a scalar. WGSL takes any const-expression (wgsl.txt:23916-23925); these two are the ones
  *  this surface can prove. */
-function foldConstComponent(arg: Expr, scope: LoweringScope): Expr {
+export function foldConstComponent(arg: Expr, scope: LoweringScope): Expr {
   if (arg.op === 'constref') {
     const binding = scope.resolve(arg.name);
     if (binding?.kind === 'module' && typeof binding.constValue === 'number') {
@@ -2476,180 +2222,6 @@ function foldConstComponent(arg: Expr, scope: LoweringScope): Expr {
     }
   }
   return foldNumericLit(arg);
-}
-
-/** `textureGather(component, tex, smp, coords[, layer])` on a colour texture,
- *  `textureGather(tex, smp, coords[, layer])` on a depth texture, and
- *  `textureGatherCompare(tex, smp, coords[, layer], ref)` on a depth texture through a comparison
- *  sampler (roadmap 0.4 item 12): the four texels a linear filter would blend at mip level 0, one
- *  channel each, as a `vec4`, in any stage.
- *
- *  WGSL puts the COMPONENT first on a colour texture, because a depth texture has one channel
- *  and takes none; this surface keeps that order, so the texture is found by its kind rather
- *  than its position. The component must be a whole number from 0 to 3 written in the call: WGSL
- *  requires a const-expression there and makes any other value a shader-creation error, so it is
- *  said here, at the argument. Cube textures gather by direction like they sample; a 1d, 3d or
- *  multisampled texture has no gather form. WGSL-only: GLSL ES 3.00 has no gather (ES 3.10), and
- *  the `textureGather` capability fails the module closed on that target. */
-function lowerGatherCall(
-  id: string,
-  args: readonly Expr[],
-  node: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): Expr | undefined {
-  const at = args.findIndex((a) => a.type.kind === 'texture' || a.type.kind === 'depth-texture');
-  const tex = at === 0 || at === 1 ? args[at]! : undefined;
-  if (tex === undefined || (tex.type.kind !== 'texture' && tex.type.kind !== 'depth-texture')) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `${id} takes a texture as its first argument, or as its second after the component on a ` +
-        `colour texture: textureGather(0, tex, smp, uv).`,
-      TS_CODES.TYPE_MISMATCH,
-    );
-    return undefined;
-  }
-  const shown = authorTypeText(tex.type);
-  const compare = id === 'textureGatherCompare';
-  if (tex.type.dim === '1d' || tex.type.dim === '3d' || tex.type.dim === '2d-ms') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `${id} gathers a 2d, 2d-array, cube or cube-array texture; a ${shown} has no gather form ` +
-        `on WGSL.`,
-      TS_CODES.UNSUPPORTED,
-    );
-    return undefined;
-  }
-  if (compare && tex.type.kind !== 'depth-texture') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `textureGatherCompare compares against a depth texture; "${shown}" is a sampled colour ` +
-        `texture with no depth to compare. textureGather reads its channels.`,
-      TS_CODES.TYPE_MISMATCH,
-    );
-    return undefined;
-  }
-  const out = [...args];
-  if (tex.type.kind === 'texture') {
-    if (at !== 1) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `textureGather on a ${shown} takes the component first: textureGather(0, tex, smp, ` +
-          `coords) reads the red channel of the four texels.`,
-        TS_CODES.TYPE_MISMATCH,
-      );
-      return undefined;
-    }
-    // WGSL asks for a const-EXPRESSION here, not a literal (wgsl.txt:23916-23925): a module
-    // `const C = 1` used as the component is a program Tint accepts (measured), and this
-    // refused it for being "not written in the call". A module const's scalar value is on its
-    // binding, so folding one is a lookup.
-    const lit = foldConstComponent(args[0]!, scope);
-    if (
-      lit.op !== 'lit' ||
-      typeof lit.value !== 'number' ||
-      !Number.isInteger(lit.value) ||
-      lit.value < 0 ||
-      lit.value > 3
-    ) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node.arguments[0]!,
-        `textureGather's component must be a whole number from 0 to 3 known at compile time ` +
-          `(0 is red, 3 is alpha): a literal, or a module const. WGSL requires a ` +
-          `const-expression there and refuses any other value.`,
-        TS_CODES.TYPE_MISMATCH,
-      );
-      return undefined;
-    }
-    out[0] =
-      typeKey(lit.type) === 'i32' || typeKey(lit.type) === 'u32'
-        ? lit
-        : { op: 'lit', type: i32T, value: lit.value };
-  } else if (at !== 0) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `${id} on a ${shown} takes no component: a depth texture has one channel. Write ` +
-        `${id}(tex, smp, coords${compare ? ', ref' : ''}).`,
-      TS_CODES.TYPE_MISMATCH,
-    );
-    return undefined;
-  }
-  const smp = args[at + 1];
-  const wantSmp = compare ? 'sampler-comparison' : 'sampler';
-  if (smp === undefined || smp.type.kind !== wantSmp) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      compare
-        ? `textureGatherCompare compares through a sampler_comparison; got ` +
-            `${smp === undefined ? 'nothing' : authorTypeText(smp.type)}.`
-        : `textureGather reads through an ordinary sampler; got ` +
-            `${smp === undefined ? 'nothing' : authorTypeText(smp.type)}. A sampler_comparison ` +
-            `compares instead, with textureGatherCompare.`,
-      TS_CODES.TYPE_MISMATCH,
-    );
-    return undefined;
-  }
-  const suffix = arraySuffix(tex.type.dim);
-  const isArray = suffix !== '';
-  const want = at + 3 + (isArray ? 1 : 0) + (compare ? 1 : 0);
-  if (!arity(id, args, want, node, sourceFile, diagnostics)) return undefined;
-  if (
-    !vecArg(
-      id,
-      tex.type,
-      args[at + 2]!,
-      node.arguments[at + 2]!,
-      'coordinate',
-      sourceFile,
-      diagnostics,
-    )
-  )
-    return undefined;
-  if (isArray) {
-    const k = at + 3;
-    const layer = intArg(id, out[k]!, node.arguments[k]!, i32T, 'layer', sourceFile, diagnostics);
-    if (!layer) return undefined;
-    out[k] = layer;
-  }
-  // The reference depth of a gather-compare is an `f32`, like `textureSampleCompare`'s.
-  if (compare) {
-    const k = want - 1;
-    const ref = floatArg(id, out[k]!, node.arguments[k]!, 'depth_ref', sourceFile, diagnostics);
-    if (!ref) return undefined;
-    out[k] = ref;
-  }
-  // One id per WGSL argument structure; a cube gathers by direction with the 2d id, since the
-  // coordinate's width rides on the type, and the depth forms differ only in taking no component.
-  const fn =
-    tex.type.kind === 'texture'
-      ? isArray
-        ? 'textureGatherArray'
-        : 'textureGather'
-      : compare
-        ? isArray
-          ? 'textureGatherCompareArray'
-          : 'textureGatherCompare'
-        : isArray
-          ? 'textureGatherDepthArray'
-          : 'textureGatherDepth';
-  const type: ShaderType =
-    tex.type.kind === 'texture' ? { kind: 'vec', n: 4, elem: tex.type.elem } : vec4fT;
-  return { op: 'call', type, fn, args: out };
 }
 
 /** The element a texture argument carries, by the one name the messages use: the scalar of a
@@ -2679,7 +2251,7 @@ function elemNameOf(t: ShaderType): string {
  *  fetch — `textureLoad` and `textureStore`, sampled or storage — takes a whole texel, "C is
  *  i32, or u32" (wgsl.txt:24129, 25342). A bare numeric LITERAL is exempt: it lowers to an f32
  *  on this surface and the retarget below (`intArg`) gives it the type the call needs. */
-function vecArg(
+export function vecArg(
   id: string,
   tex: Extract<ShaderType, { kind: 'texture' | 'depth-texture' | 'storage-texture' }>,
   arg: Expr,
@@ -2782,7 +2354,7 @@ function argText(node: ts.Expression, sourceFile: ts.SourceFile): string {
  *  so it used to be accepted here and refused by that pass as a span-less SD0041 at emit, after
  *  the call the author wrote was gone. It is not an `f32`, so it falls to the refusal below and
  *  is named at the argument with the narrow that makes it legal. */
-function floatArg(
+export function floatArg(
   id: string,
   arg: Expr,
   node: ts.Expression,
@@ -2825,7 +2397,7 @@ function floatArg(
  *  emitted `textureSampleLevel(t, s, p.xy, 1.0, 0.0)` and `textureLoad(t, c, si)` with an f32
  *  `si` emitted a float sample index, both refused by Tint ("no matching call") and both
  *  silently rounded by GLSL ES 3.00. */
-function intArg(
+export function intArg(
   id: string,
   arg: Expr,
   node: ts.Expression,
@@ -2896,7 +2468,7 @@ function intArg(
  *  WebGL2 driver (`uvec2(textureSize(t, int(0)))`, and with a non-constant level).
  *
  *  Returns the arguments to emit, or undefined when it has reported. */
-function dimsArgs(
+export function dimsArgs(
   id: string,
   args: readonly Expr[],
   node: ts.CallExpression,
@@ -2930,7 +2502,7 @@ function dimsArgs(
 /** One arity check, with the message naming what the texture's own shape requires — an array
  *  texture takes the extra layer argument, so the expected count is not a property of the
  *  function name alone. */
-function arity(
+export function arity(
   id: string,
   args: readonly Expr[],
   want: number,
@@ -3094,7 +2666,7 @@ function isFunctionArgument(arg: ts.Expression, scope: LoweringScope): boolean {
   );
 }
 
-function pushDiag(
+export function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
   node: ts.Node,

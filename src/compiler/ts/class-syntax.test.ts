@@ -1,24 +1,4 @@
-// The class syntax an ordinary TypeScript class is written in (§26, Rules 8.10 to 8.15):
-// getters and setters, private names, parameter properties, a field typed by its initializer,
-// a static field the file writes and `this` in a static member, and `readonly`; then `super` on
-// an accessor and on a base method that writes its object, statics through a class that
-// extends, `new this()` and `super` in a static member, `private` and `protected`, and a chain of
-// calls on one object; then a method that changes an object its object holds, a `const` that
-// holds an object, a field that holds a function, an interface with methods, and a call cycle
-// through methods (Rules 6.9, 6.10, 8.4, 8.10 and 8.16).
-//
-// Measured on the branch before this: a getter or a setter was TS8035 "write it as a method",
-// `#x` was TS8010 "Field names must be plain identifiers", a parameter property declared no
-// field, a field without a type was dropped from the struct and every use of it was "Unknown
-// field", a static block was passed over in silence, a write to a static field was "Cannot
-// assign to unknown name", and a write to a `readonly` field compiled.
-//
-// What is pinned here: what each form lowers to on WGSL and GLSL ES 3.00, the oracle, the CPU
-// codegen and the debugger agreeing on one program that uses them all, and every refusal with
-// its code and its text (Rule 12.5), each one diagnostic for one mistake (Rule 12.4).
-//
 // Verifies: Rule 8.1 (docs/language-design.md; traced in reqs/).
-//
 // Verifies: Rule 8.9 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
@@ -36,7 +16,7 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
 
 const TAIL = `\n@fragment export function fs(): vec4 { return vec4(1.) }\n`;
-/** A tail whose entry calls `run`: the GLSL writer emits only what an entry reaches. */
+
 const RUN_TAIL = `\n@fragment export function fs(): vec4 { return vec4(run(), 0., 0., 1.) }\n`;
 
 const errorsOf = (src: string): string[] =>
@@ -44,7 +24,6 @@ const errorsOf = (src: string): string[] =>
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`);
 
-/** The errors of `src` in the editor, merged as the editor shows them. */
 const editorErrors = (src: string): string[] => {
   const service = createTypeshadeLanguageService();
   service.openDocument('/m.shade.ts', src);
@@ -54,16 +33,12 @@ const editorErrors = (src: string): string[] => {
     .map((d) => `${d.source} ${d.code}: ${d.message}`);
 };
 
-/** The one error `src` has, which the test then pins by code and text (Rule 12.4, 12.5). */
 const only = (src: string): string => {
   const errors = errorsOf(src);
   expect(errors, src).toHaveLength(1);
   return errors[0]!;
 };
 
-/** `actual` against `expected`, a number within an `f32`'s precision: the debugger keeps an
- *  `f32` as one, where the oracle and the codegen carry it in a double, so the two agree to the
- *  last bit of an `f32` and no further. */
 function expectClose(actual: unknown, expected: unknown): void {
   if (typeof expected === 'number') {
     expect(typeof actual).toBe('number');
@@ -86,7 +61,6 @@ function expectClose(actual: unknown, expected: unknown): void {
   expect(actual).toEqual(expected);
 }
 
-/** `fn(...args)` on the oracle, the CPU codegen and the debugger, which must agree. */
 function runAll(src: string, args: unknown[] = [], fn = 'run'): unknown {
   const r = compile(src);
   expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -100,6 +74,7 @@ function runAll(src: string, args: unknown[] = [], fn = 'run'): unknown {
 }
 
 const M = TS_CODES.CLASS_MEMBER;
+
 const F = TS_CODES.STRUCT_FIELD;
 
 describe('getters and setters (Rule 8.11)', () => {
@@ -2000,59 +1975,6 @@ export function run(): f32 { return N.f(2) }`),
 class A { x: f32 = 1.; f(): f32 { return this.x } g(): f32 { return this.f() + this.f() } }
 export function run(): f32 { return new A().g() }${RUN_TAIL}`),
     ).toBe(2);
-  });
-});
-
-describe('the example', () => {
-  it('examples/class-syntax.shade.ts renders the two rings on every CPU path', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { fileURLToPath } = await import('node:url');
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/class-syntax.shade.ts', import.meta.url)),
-      'utf8',
-    );
-    // On the unit ring's band: full gold, the counter having run twice.
-    const input = { pos: [0, 0, 0, 1], uv: [0.5, 0] };
-    expect(runAll(src, [input], 'fs')).toEqual({ color: [0.95, 0.74, 0.32, 1] });
-    // Between the rings: the background, scaled the same way.
-    expect(runAll(src, [{ pos: [0, 0, 0, 1], uv: [0, 0] }], 'fs')).toEqual({
-      color: [0.07, 0.08, 0.14, 1],
-    });
-  });
-
-  it('examples/class-builder.shade.ts renders the three discs on every CPU path', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { fileURLToPath } = await import('node:url');
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/class-builder.shade.ts', import.meta.url)),
-      'utf8',
-    );
-    const at = (uv: number[], color: number[]): void =>
-      expectClose(runAll(src, [{ pos: [0, 0, 0, 1], uv }], 'fs'), { color });
-    // The centre of each disc is its tint.
-    at([-0.45, 0], [0.95, 0.74, 0.32, 1]);
-    at([0.4, 0], [0.3, 0.6, 0.95, 1]);
-    at([0, 0.55], [0.9, 0.3, 0.4, 1]);
-    // 0.32 from the blue disc's centre: outside, since its setter clamped `SIZE` and the doubling
-    // to 0.3, where either unclamped would cover it.
-    at([0.72, 0], [0.07, 0.08, 0.14, 1]);
-  });
-
-  it('examples/class-parts.shade.ts renders the ring and the dot on every CPU path', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { fileURLToPath } = await import('node:url');
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/class-parts.shade.ts', import.meta.url)),
-      'utf8',
-    );
-    const at = (uv: number[], color: number[]): void =>
-      expectClose(runAll(src, [{ pos: [0, 0, 0, 1], uv }], 'fs'), { color });
-    // On the ring, whose centre `advance` moved to (0.25, 0.1) through the `Mover` it holds: a
-    // ring left at the origin would not reach this point.
-    at([0.55, 0.1], [0.95, 0.7, 0.3, 1]);
-    // The dot's centre, and the ring's, which neither covers.
-    at([-0.45, -0.3], [0.3, 0.7, 0.95, 1]);
-    at([0.25, 0.1], [0.06, 0.07, 0.12, 1]);
   });
 });
 

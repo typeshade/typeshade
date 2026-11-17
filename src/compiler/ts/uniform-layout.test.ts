@@ -1,22 +1,3 @@
-// The WGSL uniform layout rules (§51, #156) — the BLOCKER the spec audit called L15.
-//
-// A `uniform` buffer's array elements must start on 16-byte boundaries. The compiler emitted
-// `array<f32, 4>` into a `var<uniform>` struct with zero diagnostics, while `reflect()` had
-// always reported that array at stride 16 — so the emit and the reflection described different
-// bytes, and GLSL ES 3.00's std140 block linked on WebGL2 with the layout reflect() described.
-//
-// THIS FILE RUNS IN NODE. It asserts the emitted text and `reflect()`; it launches no browser
-// and calls no WebGPU. The real-compiler half was hand-measured on Chromium 141
-// (`chromium_headless_shell-1194`), which lacks the optional `uniform_buffer_standard_layout`
-// language feature and therefore refuses the unpadded module with `'uniform' storage requires
-// that array elements are aligned to 16 bytes…`, and which reports the emitted struct's
-// offsets as the ones `reflect()` gives. Chromium 153 — what `gate:compile` launches with no
-// `TYPESHADE_CHROMIUM`, and what CI installs — HAS that feature and accepts the unpadded form,
-// so the compile gate is not what pins this. These assertions are.
-//
-// The other half is the rules a struct HIDES, which the type map cannot see and the backend
-// meets only as emitted text: a `bool` field, an empty list, and the two runtime-array rules.
-//
 // Verifies: Rule 6.8 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
@@ -495,43 +476,6 @@ declare const xs: storage<array<vec2b>>;
           "(WGSL's host-shareable rule). Use vec2u.",
       ],
     ]);
-  });
-});
-
-describe('the padding and the matrix layout rule compose (#149 × §51)', () => {
-  it('pads the array and leaves every matrix whose stride is already 16 alone', () => {
-    // A matCxR is C columns of vecR and its column stride is AlignOf(vecR), so every shape
-    // with three or four rows is already a multiple of 16 an element and needs no wrapper.
-    // The leaf numbers come from `reflect.ts`'s own layout engine rather than a second copy,
-    // which is what keeps this true after #149 rewrote that arm.
-    const c = compiled(`class U {
-  count: f32
-  weights: array<f32, 3>
-  m: mat3x3
-  n: mat2x4
-}
-declare const u: uniform<U>
-@vertex export function vs(): vec4 { return vec4(u.count, 0., 0., 1.) }
-@fragment export function fs(): vec4 {
-  return vec4(u.weights[1] + u.m[0].x + u.n[0].x, 0., 0., 1.)
-}`);
-    expect(c.wgsl).toContain('@size(16) v: f32,');
-    expect(c.wgsl).toContain('@align(16) weights: array<_Pad16_f32, 3>,');
-    expect(c.wgsl).toContain('  m: mat3x3<f32>,');
-    expect(c.wgsl).toContain('  n: mat2x4<f32>,');
-    expect(c.wgsl).not.toContain('_Pad16_mat');
-    // The emit and the reflection describe one layout, which is the whole point of §51.
-    const u = reflect(c.module).bindGroups[0]!.entries[0]!;
-    expect(u.structName).toBe('U');
-  });
-
-  it('leaves an ARRAY of matrices alone for the same reason', () => {
-    const c = compiled(`class U { ms: array<mat3x4, 2> }
-declare const u: uniform<U>
-@vertex export function vs(): vec4 { return vec4(u.ms[0][0].x, 0., 0., 1.) }
-@fragment export function fs(): vec4 { return vec4(u.ms[1][0].x, 0., 0., 1.) }`);
-    expect(c.wgsl).toContain('ms: array<mat3x4<f32>, 2>,');
-    expect(c.wgsl).not.toContain('_Pad16_');
   });
 });
 

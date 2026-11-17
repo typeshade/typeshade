@@ -24,7 +24,7 @@
 // The object's name in the emitted function is `self_`, not `self`: Tint refuses `self`, which
 // is on WGSL's reserved-word list (as `this` is), and GLSL ES 3.00 takes either.
 
-import { hasNoWrittenResult, peekingReads } from '../abstract-const.js';
+import { hasNoWrittenResult } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, FuncDecl, Stmt } from '../../../core/ir/nodes.js';
@@ -37,11 +37,8 @@ import {
   authorTypeText,
   classOfStruct,
   irNameOf,
-  readOnlyPhrase,
-  writableRemedy,
   type LoweringScope,
   type SuperCtor,
-  writeRules,
 } from '../context.js';
 import { qualifiedParts } from '../namespaces.js';
 import { pushTypeArguments } from '../generics.js';
@@ -65,11 +62,9 @@ import { reportIntLitRange, retargetIntLitCtx } from '../lit-coerce.js';
 import { numericMismatch } from '../numeric.js';
 import { lowerExpression } from './expression.js';
 import { lowerGenericCall, lowerUserCall } from './expression-misc.js';
-import { lowerLValue } from './statement.js';
 import { parseParams, parseReturnType } from './function-signature.js';
 import { recordParamDefaults } from './param-defaults.js';
 import { functionParams } from './function-types.js';
-import { captureArguments } from './local-functions.js';
 import {
   accessorFnName,
   buildsCallerClass,
@@ -84,7 +79,6 @@ import {
 import { mapTsTypeToShaderType, writesUndeclaredType } from '../type-map.js';
 import { writesThroughArgument } from './references.js';
 import { ownParts } from '../object-reference.js';
-import { heldRefusal } from './pending-shares.js';
 import {
   checkFunctionAccess,
   checkInheritedPrivateStatic,
@@ -92,6 +86,7 @@ import {
   memberFunctionOf,
   visibleField,
 } from './class-access.js';
+import { lowerCopyCall, mutatingReceiver } from './class-methods/mutating.js';
 
 /** What `this` is while a member's body is lowered: the struct type; whether it is the
  *  read-only first parameter of a method (`param`), the local a constructor builds from the
@@ -304,7 +299,7 @@ function abstractBuilderSentence(
   return undefined;
 }
 
-function pushDiag(
+export function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
   node: ts.Node,
@@ -391,7 +386,7 @@ function returnsBuiltThis(node: MemberFunction): boolean {
   return returns > 0 && others === 0;
 }
 
-function unparen(e: ts.Expression): ts.Expression {
+export function unparen(e: ts.Expression): ts.Expression {
   return ts.isParenthesizedExpression(e) ? unparen(e.expression) : e;
 }
 
@@ -2269,215 +2264,5 @@ function staticOnValue(name: string, member: string): string {
 
 /** The class a class function's body was written in: the one whose body may name it when its
  *  name is private (Rule 8.12). */
-const declaringClassOf = (cf: ClassFunction): ts.ClassLikeDeclaration | undefined =>
+export const declaringClassOf = (cf: ClassFunction): ts.ClassLikeDeclaration | undefined =>
   cf.node !== undefined && ts.isClassLike(cf.node.parent) ? cf.node.parent : undefined;
-
-/**
- * A call of a class's function that takes a function (Rule 8.18): the copy made for the
- * functions the call hands over, called with what those functions capture, then its object,
- * then the other arguments. `on` is the object the call is on, and `recv` that object lowered as
- * a value when the caller has it already; both are undefined for a static function or `new`.
- * `asStatement` when the call is a whole statement, the one place a copy that writes its object
- * and returns nothing may stand.
- */
-function lowerCopyCall(
-  node: ts.CallExpression | ts.NewExpression,
-  cf: ClassFunction,
-  on: ts.Expression | undefined,
-  recv: Expr | undefined,
-  asStatement: boolean,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-  /** `super.m(...)`: the object is this body's own, `recv`, whichever way the copy takes it,
-   *  as a base's body reached through `super` is (Rule 8.10). */
-  throughSuper = false,
-): Expr | undefined {
-  const made = scope.instantiateMember(cf, node, on, sourceFile, diagnostics);
-  if (made === undefined) return undefined;
-  const { decl, writes } = made;
-  const leading = captureArguments(decl, cf.shown, node, sourceFile, scope, diagnostics);
-  if (leading === undefined) return undefined;
-  if (throughSuper && recv !== undefined) {
-    leading.push(recv);
-  } else if (on !== undefined && cf.kind === 'method') {
-    if (writes) {
-      if (!asStatement) {
-        if (!scope.calleeReady(decl, node, sourceFile, diagnostics)) return undefined;
-        if (typeKey(decl.ret) === 'void') {
-          pushDiag(
-            diagnostics,
-            sourceFile,
-            node,
-            `"${cf.shown}" changes its object and returns nothing; call it on its own line.`,
-          );
-          return undefined;
-        }
-      }
-      const target = mutatingReceiver(node, on, cf.shown, sourceFile, scope, diagnostics);
-      if (!target) return undefined;
-      leading.push(target);
-    } else {
-      const value = recv ?? lowerExpression(on, sourceFile, scope, diagnostics);
-      if (!value) return undefined;
-      leading.push(value);
-    }
-  }
-  const fnAt = cf.takesFunctions ?? new Set<number>();
-  const written = (node.arguments ?? []).filter((_, i) => !fnAt.has(i));
-  return lowerUserCall(node, decl, sourceFile, scope, diagnostics, {
-    shown: cf.shown,
-    leading,
-    written,
-  });
-}
-
-/** The receiver of a method that changes its object, lowered as the place the method writes
- *  through, or `undefined` having said why it is not one: a parameter, a `const`, or a value
- *  nothing holds (a call's result, a `new`), which the method would change and then drop. An
- *  accessor half that changes its object takes its receiver by the same rule (Rule 8.11). */
-export function mutatingReceiver(
-  node: ts.Node,
-  obj: ts.Expression,
-  shown: string,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): Expr | undefined {
-  const bare = unparen(obj);
-  // A call a chain already ran stands for the object the chain runs on (chains.ts).
-  const alias = scope.chainAlias(bare);
-  if (alias !== undefined) return alias();
-  if (ts.isIdentifier(bare)) {
-    // A captured variable's parameter keeps the variable's rules (Rule 8.17); `lowerLValue`
-    // below makes it a reference.
-    const found = scope.resolve(bare.text);
-    const b = found === undefined ? undefined : writeRules(found);
-    if (b !== undefined && b.kind === 'param') {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `"${shown}" changes its object, and "${bare.text}" is a parameter, which a function ` +
-          `cannot write; copy it into a let first.`,
-      );
-      return undefined;
-    }
-    // `const v = new V(); v.setX(1.)`: a `const` that holds a value nothing else does is
-    // written through as TypeScript's is, and becomes a `var` (Rule 6.10).
-    if (b !== undefined && !b.mutable && b.toVar !== undefined) b.toVar();
-    if (
-      b !== undefined &&
-      !b.mutable &&
-      b.kind === 'local' &&
-      b.type.kind === 'struct' &&
-      heldRefusal(diagnostics, bare.text, b.type)
-    )
-      return undefined;
-    if (b !== undefined && !b.mutable) {
-      const copy = b.kind === 'local' && b.type.kind === 'struct';
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        copy
-          ? `"${shown}" changes its object, and "${bare.text}" is a const whose value may be ` +
-              `one something else holds, which TypeScript would change with it and a copy here ` +
-              `would not. Declare it with let to change a copy, or call it on the value itself.`
-          : b.kind === 'binding'
-            ? // A RESOURCE's remedy is its declared type, not the keyword (design rule 6.2): a
-              // binding is `const`, so "declare it with let" would name the refused spelling.
-              `"${shown}" changes its object, and "${bare.text}" is ` +
-              `${readOnlyPhrase(b.kind)}.${writableRemedy(b, sourceFile)}`
-            : `"${shown}" changes its object, and "${bare.text}" is ${readOnlyPhrase(b.kind)}; ` +
-              `declare it with let.`,
-      );
-      return undefined;
-    }
-  }
-  // A chain inside a larger expression: what a method that returns `this` hands back is a copy
-  // there, since a struct is a value, and a change to it would be dropped (chains.ts).
-  if (ts.isCallExpression(bare) && ts.isPropertyAccessExpression(bare.expression)) {
-    const receiver = bare.expression.expression;
-    const inner = peekingReads(() => lowerExpression(receiver, sourceFile, scope, []));
-    const link =
-      inner?.type.kind === 'struct'
-        ? memberFunctionOf(inner.type.name, bare.expression.name.text, 'method', scope)
-        : undefined;
-    if (link?.cf.returnsThis === true) {
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        node,
-        `"${shown}" changes its object, and inside this expression it would change the copy ` +
-          `"${bare.getText(sourceFile)}" hands back. Make the chain a statement of its own, ` +
-          `or call each method on the object itself.`,
-      );
-      return undefined;
-    }
-  }
-  if (ts.isCallExpression(bare) || ts.isNewExpression(bare)) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `"${shown}" changes its object, and this one is a value that is dropped; keep it in a ` +
-        `let and call the method on that.`,
-    );
-    return undefined;
-  }
-  // The method writes into its receiver, which is then the place however it is reached.
-  return lowerLValue(obj, sourceFile, scope, diagnostics, true);
-}
-
-/** A call statement of a method that changes its object, `r.advance(2.)`: the receiver is
- *  lowered as the place the method writes through, `Ray_advance(&r, 2.0)`, and a value the
- *  method returns is dropped. Returns the marker for any other call statement, which takes the
- *  ordinary path. A receiver that is not a place a function may write (a `const`, a parameter,
- *  a value that is dropped) is refused with the fix. */
-export function lowerMutatingCall(
-  node: ts.CallExpression,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): Stmt | undefined | 'not-a-mutating-call' {
-  const callee = node.expression;
-  if (!ts.isPropertyAccessExpression(callee)) return 'not-a-mutating-call';
-  const obj = callee.expression;
-  const member = callee.name.text;
-  // The receiver's type, read without reporting: a receiver that does not lower, or is not a
-  // struct, takes the ordinary path and gets its diagnostics there.
-  const peek = peekingReads(() => lowerExpression(obj, sourceFile, scope, []));
-  if (!peek || peek.type.kind !== 'struct') return 'not-a-mutating-call';
-  const name = peek.type.name;
-  const found = memberFunctionOf(name, member, 'method', scope);
-  // A method that takes a function is this path's whatever its copy turns out to be: one that
-  // writes its object and returns nothing stands here, on its own line (Rule 8.18).
-  if (
-    found === undefined ||
-    found.cf.kind === 'static' ||
-    (!found.cf.mutates && found.cf.takesFunctions === undefined)
-  ) {
-    return 'not-a-mutating-call';
-  }
-  const { decl, cf } = found;
-  if (!checkPrivateAccess(member, declaringClassOf(cf), name, callee.name, sourceFile, diagnostics))
-    return undefined;
-  if (!checkFunctionAccess(cf, name, callee.name, sourceFile, scope, diagnostics)) return undefined;
-  if (cf.takesFunctions !== undefined) {
-    const copied = lowerCopyCall(node, cf, obj, undefined, true, sourceFile, scope, diagnostics);
-    return copied === undefined ? undefined : { s: 'call', expr: copied };
-  }
-  const shown = cf.shown;
-  const target = mutatingReceiver(node, obj, shown, sourceFile, scope, diagnostics);
-  if (!target) return undefined;
-  const call = lowerUserCall(node, decl!, sourceFile, scope, diagnostics, {
-    shown,
-    leading: [target],
-  });
-  if (!call) return undefined;
-  // The call writes through its receiver, so there is nothing to write back: what used to be
-  // here was `r = Ray_advance(r, 2.)`, a read and a store around a function that had already
-  // done the work.
-  return { s: 'call', expr: call };
-}

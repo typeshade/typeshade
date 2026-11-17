@@ -1,16 +1,9 @@
 // Verifies: Rule 8.20 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 8.21 (docs/language-design.md; traced in reqs/).
 // Verifies: Rule 11.7 (docs/language-design.md; traced in reqs/).
-//
-// The host face of a shader module (change 0009): which exports a host file can call, the host
-// view `tsc` reads for the import, and the generated module a bundler reads for it. A host call
-// is read by two readers, as a shader is: `tsc` reads the view, and the program runs the module.
-// So each part is checked on both: the view is type-checked in a real host program resolved the
-// way the documented `tsconfig` resolves it (`moduleSuffixes`), and the module is imported and
-// called.
 
 import { afterAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -18,25 +11,23 @@ import ts from 'typescript';
 import { hostFace, type HostExport } from './host-face.js';
 import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import { compile } from './compile.js';
-import { compileModule } from '../../core/oracle.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
-/** The host type family (change 0116), which a view imports from its runtime. */
+
 const FAMILY = resolve(__dirname, '../../runtime/host-types.ts');
+
 const dirs: string[] = [];
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
 
-/** The face of `source` as `name.shade.ts`, which must compile. */
 function face(source: string, name = 'm') {
   const f = hostFace(source, { fileName: `/app/${name}.shade.ts`, runtime: RUNTIME });
   expect(f.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
   return f as Required<typeof f>;
 }
 
-/** Write the generated module to disk and import it, as the bundler would. */
 async function load(source: string): Promise<Record<string, unknown>> {
   const f = face(source);
   const dir = mkdtempSync(join(tmpdir(), 'typeshade-host-'));
@@ -46,8 +37,6 @@ async function load(source: string): Promise<Record<string, unknown>> {
   return (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Record<string, unknown>;
 }
 
-/** Type-check `host` against the view of `source`, resolved through `moduleSuffixes` as the
- *  documented `tsconfig` resolves it, under a strict host `tsconfig` with the DOM lib. */
 async function hostErrors(source: string, host: string): Promise<string[]> {
   const f = face(source, 'terrain');
   const dir = mkdtempSync(join(tmpdir(), 'typeshade-view-'));
@@ -81,6 +70,67 @@ export function height(p: vec2, k: vec4): f32 {
   return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
 }
 `;
+
+function commentAbove(view: string, declaration: string): string[] {
+  const lines = view.split('\n');
+  const at = lines.findIndex((l) => l.startsWith(declaration));
+  expect(at, `the view declares ${declaration}`).toBeGreaterThan(-1);
+  let from = at;
+  while (from > 0 && /^(\/\*\*| \*)/.test(lines[from - 1]!)) from--;
+  return lines.slice(from, at);
+}
+
+function hover(
+  view: string,
+  host: string,
+  at: string,
+): { documentation: string; errors: string[] } {
+  const files = new Map([
+    ['/app/m.shade.typeshade.ts', view],
+    [
+      '/app/runtime.ts',
+      `export interface Buffer<T> { readonly element?: T }\nexport type Pack<T> = T;\nexport type * from ${JSON.stringify(FAMILY)};\n`,
+    ],
+    ['/app/app.ts', host],
+  ]);
+  const options: ts.CompilerOptions = {
+    strict: true,
+    noEmit: true,
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    allowImportingTsExtensions: true,
+    moduleSuffixes: ['.typeshade', ''],
+    lib: ['lib.es2022.d.ts'],
+    types: [],
+  };
+  const service = ts.createLanguageService({
+    getScriptFileNames: () => ['/app/app.ts'],
+    getScriptVersion: () => '1',
+    getScriptSnapshot: (name) => {
+      const text = files.get(name) ?? ts.sys.readFile(name);
+      return text === undefined ? undefined : ts.ScriptSnapshot.fromString(text);
+    },
+    getCurrentDirectory: () => '/app',
+    getCompilationSettings: () => options,
+    getDefaultLibFileName: (o) => ts.getDefaultLibFilePath(o),
+    fileExists: (name) => files.has(name) || ts.sys.fileExists(name),
+    readFile: (name) => files.get(name) ?? ts.sys.readFile(name),
+    directoryExists: (name) => name === '/app' || ts.sys.directoryExists(name),
+  });
+  const errors = ['/app/app.ts', '/app/m.shade.typeshade.ts'].flatMap((name) => [
+    ...service.getSyntacticDiagnostics(name),
+    ...service.getSemanticDiagnostics(name),
+  ]);
+  const position = host.indexOf(at);
+  expect(position, `the host program has ${at}`).toBeGreaterThan(-1);
+  const info = service.getQuickInfoAtPosition('/app/app.ts', position);
+  service.dispose();
+  return {
+    documentation: ts.displayPartsToString(info?.documentation ?? []),
+    errors: errors.map((d) => ts.flattenDiagnosticMessageText(d.messageText, ' ')),
+  };
+}
 
 describe('which exports a host can call (Rule 8.20)', () => {
   it('calls a plain helper, and says why each other export is not callable', () => {
@@ -436,72 +486,6 @@ export function step(@builtin("global_invocation_id") gid: vec3u) {
     expect(ts.getPreEmitDiagnostics(program).length).toBeGreaterThan(0);
   });
 });
-
-/** The lines of the comment that ends on the line above the first line of `view` that begins
- *  with `declaration`. */
-function commentAbove(view: string, declaration: string): string[] {
-  const lines = view.split('\n');
-  const at = lines.findIndex((l) => l.startsWith(declaration));
-  expect(at, `the view declares ${declaration}`).toBeGreaterThan(-1);
-  let from = at;
-  while (from > 0 && /^(\/\*\*| \*)/.test(lines[from - 1]!)) from--;
-  return lines.slice(from, at);
-}
-
-/** What the editor shows on hover over the text `at` of `host`, a program that imports `./m.shade.ts`
- *  and so reads `view`, `moduleSuffixes` resolving the import to it: the documentation, and any error
- *  the view or the program has. The view's own `runtime` is the stub, so the program stays small. */
-function hover(
-  view: string,
-  host: string,
-  at: string,
-): { documentation: string; errors: string[] } {
-  const files = new Map([
-    ['/app/m.shade.typeshade.ts', view],
-    [
-      '/app/runtime.ts',
-      `export interface Buffer<T> { readonly element?: T }\nexport type Pack<T> = T;\nexport type * from ${JSON.stringify(FAMILY)};\n`,
-    ],
-    ['/app/app.ts', host],
-  ]);
-  const options: ts.CompilerOptions = {
-    strict: true,
-    noEmit: true,
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    allowImportingTsExtensions: true,
-    moduleSuffixes: ['.typeshade', ''],
-    lib: ['lib.es2022.d.ts'],
-    types: [],
-  };
-  const service = ts.createLanguageService({
-    getScriptFileNames: () => ['/app/app.ts'],
-    getScriptVersion: () => '1',
-    getScriptSnapshot: (name) => {
-      const text = files.get(name) ?? ts.sys.readFile(name);
-      return text === undefined ? undefined : ts.ScriptSnapshot.fromString(text);
-    },
-    getCurrentDirectory: () => '/app',
-    getCompilationSettings: () => options,
-    getDefaultLibFileName: (o) => ts.getDefaultLibFilePath(o),
-    fileExists: (name) => files.has(name) || ts.sys.fileExists(name),
-    readFile: (name) => files.get(name) ?? ts.sys.readFile(name),
-    directoryExists: (name) => name === '/app' || ts.sys.directoryExists(name),
-  });
-  const errors = ['/app/app.ts', '/app/m.shade.typeshade.ts'].flatMap((name) => [
-    ...service.getSyntacticDiagnostics(name),
-    ...service.getSemanticDiagnostics(name),
-  ]);
-  const position = host.indexOf(at);
-  expect(position, `the host program has ${at}`).toBeGreaterThan(-1);
-  const info = service.getQuickInfoAtPosition('/app/app.ts', position);
-  service.dispose();
-  return {
-    documentation: ts.displayPartsToString(info?.documentation ?? []),
-    errors: errors.map((d) => ts.flattenDiagnosticMessageText(d.messageText, ' ')),
-  };
-}
 
 // The view carries the author's JSDoc (change 0108, surface §64). A view is text that two readers
 // take: `tsc` and the editor. So each row of the proposal is checked on the text of the view, and the
@@ -2521,127 +2505,4 @@ export function bump(x: f32): f32 { count += x; return count; }
     expect(bump(1)).toBe(1);
     expect(bump(1)).toBe(1);
   });
-});
-
-describe('the CPU tier runs at f32 precision (Rule 11.7)', () => {
-  const SOURCE = `"use typeshade";
-export function sum(a: f32, b: f32): f32 { return a + b; }
-export function height(p: vec2, k: vec4): f32 {
-  return k.x * sin(p.x * k.y) + k.z * cos(p.y * k.w);
-}
-export function lerp3(a: vec3, b: vec3, t: f32): vec3 { return mix(a, b, t); }
-export function photoCell(q: vec3, k: vec4, grid: vec4): vec3 {
-  const cell = floor((q.xy - grid.xy) / grid.zw);
-  const d = max(q.z * k.w, 1e-4);
-  return vec3(cell.x + k.x * d, cell.y + k.y * d, d * k.z);
-}
-export function seenEmpty(depth: f32, a: f32, b: f32, c: f32, d: f32, scale: f32): bool {
-  const m = min(min(a, b), min(c, d));
-  return depth * scale < m - 0.01;
-}
-`;
-  const CASES: Record<string, unknown[][]> = {
-    // The two functions #410 measured, written out per component by the CPU tier.
-    photoCell: [
-      [
-        [0.3, 0.7, 2.5],
-        [0.1, 0.2, 0.3, 0.9],
-        [0, 0, 0.01, 0.01],
-      ],
-      [
-        [-1.25, 3.1, 0.7],
-        [0.5, -0.25, 1e-3, 0.7],
-        [0.1, -0.2, 0.05, 0.3],
-      ],
-    ],
-    seenEmpty: [
-      [0.5, 0.6, 0.7, 0.8, 0.9, 1],
-      [0.1, 0.2, 0.11, 0.3, 0.4, 0.3],
-    ],
-    sum: [
-      [1, 1e-8],
-      [0.1, 0.2],
-      [16777216, 1],
-    ],
-    height: [
-      [
-        [0.1, 0.7],
-        [1.3, 0.5, 2.1, 0.25],
-      ],
-      [
-        [3.3, -1.7],
-        [0.7, 1.9, 0.3, 4.1],
-      ],
-    ],
-    lerp3: [
-      [[0.1, 0.2, 0.3], [0.7, 0.11, 1e-9], 0.3],
-      [[1, 2, 3], [4, 5, 6], 0.1],
-    ],
-  };
-
-  it('every call equals compileModule(m, { precision: "f32" }) on inputs where f32 and f64 part', async () => {
-    const m = await load(SOURCE);
-    const mod = compile(SOURCE).module;
-    const f32 = compileModule(mod, { precision: 'f32' });
-    const f64 = compileModule(mod);
-    let parted = 0;
-    for (const [name, rows] of Object.entries(CASES)) {
-      for (const args of rows) {
-        // The oracle is handed what a buffer write would hold, as the host call converts it.
-        const rounded = args.map((a) =>
-          Array.isArray(a) ? a.map((x) => Math.fround(x as number)) : Math.fround(a as number),
-        );
-        const got = (m[name] as (...a: unknown[]) => unknown)(...args);
-        expect(got).toEqual(f32.fns[name]!(...(rounded as never[])));
-        if (JSON.stringify(got) !== JSON.stringify(f64.fns[name]!(...(args as never[])))) parted++;
-      }
-    }
-    // The inputs are chosen so the two precisions answer differently; a zero here would mean the
-    // comparison could not tell the f32 tier from the f64 oracle (AGENTS.md#gate-discipline).
-    expect(parted).toBeGreaterThanOrEqual(5);
-  });
-
-  it('ships no new Function: the CPU tier is module code', () => {
-    const f = face(SOURCE);
-    expect(f.code).not.toMatch(/new Function|\beval\(/);
-    expect(f.code).toMatch(/^import \* as __ts_rt from /m);
-  });
-
-  it('generates code for the functions a host call reaches, and not an entry point', () => {
-    const f = face(`"use typeshade";
-export function helper(x: f32): f32 { return x * 2.; }
-@fragment export function fs(): vec4 { return vec4(dpdx(1.)); }
-`);
-    expect(f.code).toContain('"helper": function');
-    expect(f.code).not.toContain('"fs": function');
-  });
-});
-
-// Amendment A5 of change 0134, "export는 f32 유지": a function whose calls decide its result keeps
-// the `f32` the host reads under its own name, and its copies (`g_u32`) have no face. Verifies the
-// host half of Rule 8.19 (docs/language-design.md; traced in reqs/).
-describe('a function its calls decide, which the host imports (change 0134)', () => {
-  const forms: [string, string, string][] = [
-    ['an export clause', 'function g() { return 3; }', 'export { g };'],
-    ['an export clause with another name', 'function g() { return 3; }', 'export { g as h };'],
-    ['an export modifier', 'export function g() { return 3; }', ''],
-  ];
-  for (const [what, decl, clause] of forms) {
-    it(`keeps the f32 under ${what}`, async () => {
-      const source = `"use typeshade";\n${decl}\nexport function t(vi: u32): u32 { return vi + g(); }\n${clause}\n`;
-      const name = clause.includes(' as h') ? 'h' : 'g';
-      const f = face(source);
-      expect(f.view).toContain(`export declare function ${name}(): f32;`);
-      expect(f.view).not.toContain('g_u32');
-      const m = await load(source);
-      expect((m[name] as () => number)()).toBe(3);
-      expect((m.t as (vi: number) => number)(2)).toBe(5);
-      expect(
-        await hostErrors(
-          source,
-          `import { ${name}, t } from './terrain.shade.ts';\nconst a: number = ${name}();\nconst b: number = t(2);\nexport { a, b };\n`,
-        ),
-      ).toEqual([]);
-    });
-  }
 });

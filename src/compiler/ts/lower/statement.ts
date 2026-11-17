@@ -70,7 +70,7 @@ import { refuseAtomicDeclaration } from './atomics.js';
 import { refuseRuntimeArrayLocal, runtimeArrayWithin } from './runtime-array.js';
 import { lowerBarrierStatement } from './barriers.js';
 import { refuseOperatorKind } from './operator-kinds.js';
-import { classFunctionOf, lowerMutatingCall } from './class-methods.js';
+import { lowerMutatingCall } from './class-methods/mutating.js';
 import { lowerChainPrelude } from './chains.js';
 import {
   checkFieldAccess,
@@ -82,8 +82,6 @@ import {
   refuseReadonlyWrite,
   refuseWriteThroughGetter,
   inheritedPrivateStaticField,
-  inheritedStaticWrite,
-  staticConstantWrite,
   staticFieldRead,
   staticOwnerOf,
   visibleField,
@@ -145,14 +143,8 @@ import {
   lowerInferredBindingArray,
   refuseListSpread,
 } from './expression-array.js';
-import {
-  lowerFor,
-  lowerForOf,
-  lowerSwitch,
-  lowerUpdate,
-  lowerWhile,
-  mainReadTypes,
-} from './control.js';
+import { lowerFor, lowerForOf, lowerUpdate, lowerWhile, mainReadTypes } from './control.js';
+import { lowerSwitch } from './control/switch.js';
 import { refusedBySemantics } from '../semantic.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
@@ -164,6 +156,13 @@ import { unknownNameAlreadyReported } from '../refused-names.js';
 import { unknownNameSentence } from '../unknown-names.js';
 import { publicFieldNames } from './expression-prop.js';
 import { recordOf } from '../key-types.js';
+import {
+  checkRootWritable,
+  checkRootNamed,
+  checkRootMutable,
+  refuseVec64LaneWrite,
+  refuseParamWrite,
+} from './statement/writable.js';
 
 /** The value an assignment to `left` writes, when its uses have not decided its type yet: a
  *  name, or a field or a static field (`this.n`, `S.n`) whose lowered `target` reads one. */
@@ -1102,7 +1101,7 @@ function lowerDeclarationKind(
 }
 
 /** A value a name can be written through: a struct, an array, a vector or a matrix. */
-const isComposite = (t: ShaderType): boolean =>
+export const isComposite = (t: ShaderType): boolean =>
   t.kind === 'struct' || t.kind === 'array' || t.kind === 'vec' || t.kind === 'mat';
 
 function buildsFreshValue(init: ts.Expression, lowered: Expr): boolean {
@@ -2660,7 +2659,7 @@ export function lowerLValue(
  *  checks the identifier and element-access targets already make, made on the root instead
  *  of on the chain. Returns the root identifier, or undefined for a chain rooted in
  *  something that is not a name (a call result, a constructor). */
-function rootLValueName(node: ts.Expression): ts.Identifier | ts.ThisExpression | undefined {
+export function rootLValueName(node: ts.Expression): ts.Identifier | ts.ThisExpression | undefined {
   if (ts.isIdentifier(node)) return node;
   if (node.kind === ts.SyntaxKind.ThisKeyword) return node as ts.ThisExpression;
   if (ts.isParenthesizedExpression(node)) return rootLValueName(node.expression);
@@ -2672,7 +2671,7 @@ function rootLValueName(node: ts.Expression): ts.Identifier | ts.ThisExpression 
 
 /** The static field at the root of a member or element chain, `C.v` in `C.v.x = 1.` or `this.v`
  *  in a static member, with how a message names it; undefined for a chain rooted in a value. */
-function staticRootOf(
+export function staticRootOf(
   node: ts.Expression,
   scope: LoweringScope,
   sourceFile: ts.SourceFile,
@@ -2763,289 +2762,8 @@ function entryResultStruct(
   return null;
 }
 
-function unwrapParens(node: ts.Expression): ts.Expression {
+export function unwrapParens(node: ts.Expression): ts.Expression {
   return ts.isParenthesizedExpression(node) ? unwrapParens(node.expression) : node;
-}
-
-/** The writability of the binding at the root of a member or element chain, diagnosed. Shared
- *  by both branches of {@link lowerLValue} so a write through a field and a write through an
- *  element answer the same way: a write lands on the root, so the root is what has to accept
- *  it. Returns false having pushed a diagnostic.
- *
- *  It is the two halves below run in order. The member and element branches run them APART,
- *  with the "is this a place at all" check between: see {@link lowerMemberLValue} and the
- *  element arm of {@link lowerLValue}. */
-function checkRootWritable(
-  node: ts.Expression,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-  /** The write lands inside `node`, on a field or an element of it, and not on `node`. */
-  into = false,
-): boolean {
-  return (
-    checkRootNamed(node, sourceFile, scope, diagnostics, into) &&
-    checkRootMutable(node, sourceFile, scope, diagnostics, into)
-  );
-}
-
-/** The first half: the root of the chain names something that could be written — not a
- *  parenthesised expression, not an unknown name, not a parameter, not a `this` outside a
- *  method. Returns false having pushed a diagnostic. */
-function checkRootNamed(
-  node: ts.Expression,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-  /** The write lands inside `node`, on a field or an element of it, and not on `node`. */
-  into = false,
-): boolean {
-  const root = rootLValueName(node);
-  if (!root) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      'Assignment target must be a name, or a field, component or element of one.',
-      TS_CODES.ASSIGN_TARGET,
-    );
-    return false;
-  }
-  const rootName = ts.isIdentifier(root) ? root.text : 'this';
-  // A chain rooted in a static field, `C.v.x` or `this.v.x` in a static member: the static is
-  // the root that has to take the write (Rule 8.13).
-  const statik = staticRootOf(node, scope, sourceFile, into);
-  if (statik !== undefined && 'said' in statik) return false;
-  if (statik !== undefined && 'refused' in statik) {
-    pushDiag(diagnostics, sourceFile, node, statik.refused, TS_CODES.CLASS_MEMBER);
-    return false;
-  }
-  if (statik !== undefined) {
-    // A static a base declares is written through the base's name (Rule 8.13). A write INTO
-    // it, `Derived.origin.y = 5.`, changes the one object both classes read, as in TypeScript.
-    const inherited = statik.whole
-      ? inheritedStaticWrite(statik.owner, statik.written, scope, sourceFile)
-      : undefined;
-    if (inherited !== undefined) {
-      pushDiag(diagnostics, sourceFile, node, inherited, TS_CODES.CONST_ASSIGN);
-      return false;
-    }
-    if (statik.binding.kind === 'modvar') return true;
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      staticConstantWrite(statik.owner, statik.written, sourceFile),
-      TS_CODES.CONST_ASSIGN,
-    );
-    return false;
-  }
-  const binding = scope.resolve(rootName);
-  // A declaration refused where it is written said why there (Rule 12.4).
-  if (!binding && scope.declarationRefused(rootName)) return false;
-  if (!binding) {
-    // A refused declaration already said why the root is unbound (Rule 12.4, #171).
-    if (rootName !== 'this' && unknownNameAlreadyReported(node, rootName, sourceFile, diagnostics))
-      return false;
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      // On the root, the name that names nothing, as a bare target's refusal is.
-      ts.isIdentifier(root) ? root : node,
-      ts.isIdentifier(root)
-        ? unknownIdentifierSentence(root, `Cannot assign to unknown name "${rootName}".`)
-        : '"this" names a method\'s object; a static function and a top-level function have none.',
-      // The same code as the bare-identifier arm above, for the same sentence: the root of a
-      // chain that names nothing is an unresolved identifier, not a target of the wrong shape.
-      TS_CODES.UNKNOWN_NAME,
-    );
-    return false;
-  }
-  if (binding.kind === 'param' && rootName === 'this') {
-    // Every method that writes `this` takes it by reference (§26), whatever it returns, so
-    // the object is a read-only parameter only in a body reached through `super`: the base's
-    // body lowered once more against this class, with no receiver of its own to write
-    // through. The write is inside the BASE's method, so the message names the `super` call
-    // that brought it here. This read "A method that changes its object returns nothing"
-    // until a method that changes its object could return a value.
-    const owner = scope.owner();
-    const shown = owner === undefined ? undefined : classFunctionOf(owner)?.shown;
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      shown?.startsWith('super.')
-        ? `"${shown}" runs the base's body on an object it can only read, so the body cannot ` +
-            `write "this" (§26). Move the write into a method no class overrides and call that ` +
-            `on "this" instead.`
-        : `${shown === undefined ? 'This body' : `"${shown}"`} reads its object only, so it ` +
-            `cannot write "this" (§26).`,
-      TS_CODES.CLASS_MEMBER,
-    );
-    return false;
-  }
-  // A captured variable's parameter keeps the variable's rules (Rule 8.17).
-  const rules = writeRules(binding);
-  // A kernel function's array is the caller's storage, written in place (Rule 8.23).
-  if (rules.kind === 'param' && rules.space !== 'storage') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      rules.type.kind === 'struct' || rules.type.kind === 'array'
-        ? `Cannot write through parameter "${rootName}": this kind of function does not take ` +
-            `the caller's object yet (change 0142, stage 2). A function of the file or of a ` +
-            `namespace does: move the write there, or return the new value.`
-        : `Cannot write through parameter "${rootName}" — parameters are not writable. Use a local or storage.` +
-            (mayTakeReference(node, rootName)
-              ? ` To change the caller's value, return it, and write [a, b] = f(a, b) for more than one.`
-              : ''),
-      TS_CODES.ASSIGN_TARGET,
-    );
-    return false;
-  }
-  return true;
-}
-
-function mayTakeReference(node: ts.Node, name: string): boolean {
-  for (let at: ts.Node = node; ; at = at.parent) {
-    if (ts.isSourceFile(at)) return false;
-    if (!ts.isFunctionLike(at)) continue;
-    const fn: ts.SignatureDeclaration = at;
-    if (!fn.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === name)) continue;
-    // An entry carries its stage as a decorator, which the parser keeps among the modifiers.
-    return (
-      ts.isFunctionDeclaration(fn) &&
-      (ts.isSourceFile(fn.parent) || ts.isModuleBlock(fn.parent)) &&
-      (fn.typeParameters?.length ?? 0) === 0 &&
-      !(fn.modifiers ?? []).some(ts.isDecorator)
-    );
-  }
-}
-
-/** The second half: the binding at the root accepts a write. Returns false having pushed a
- *  diagnostic. Run only after {@link checkRootNamed}, which is what guarantees the root
- *  resolves. */
-function checkRootMutable(
-  node: ts.Expression,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-  /** The write lands inside `node`, on a field or an element of it, and not on `node`. */
-  into = false,
-): boolean {
-  const root = rootLValueName(node);
-  if (!root) return true;
-  // A static root was judged whole by {@link checkRootNamed} (Rule 8.13).
-  if (staticRootOf(node, scope, sourceFile, into) !== undefined) return true;
-  if (
-    ts.isIdentifier(root) &&
-    scope.chainAlias(root) !== undefined &&
-    (into || !ts.isIdentifier(unwrapParens(node)))
-  )
-    return checkPlaceWritable(scope.chainAlias(root)!(), node, sourceFile, scope, diagnostics);
-  const rootName = ts.isIdentifier(root) ? root.text : 'this';
-  const binding = scope.resolve(rootName);
-  if (!binding) return true;
-  // A captured variable's parameter keeps the variable's rules (Rule 8.17).
-  const rules = writeRules(binding);
-  if (!rules.mutable) {
-    // A write INTO a local `const`, not to the name: TypeScript allows it (Rule 6.10).
-    const through = into || !ts.isIdentifier(unwrapParens(node));
-    if (through && rules.toVar !== undefined) {
-      rules.toVar();
-      binding.capture?.byRef();
-      return true;
-    }
-    if (
-      through &&
-      rules.kind === 'local' &&
-      isComposite(rules.type) &&
-      heldRefusal(diagnostics, rootName, rules.type)
-    )
-      return false;
-    // readOnlyPhrase, not a local ternary: #18 gave a binding its own BindingKind, so the
-    // message can say WHICH of the two a name is — and the root of a chain deserves the same
-    // sentence a bare name gets.
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      through && rules.kind === 'local' && isComposite(rules.type)
-        ? constCopyWrite(rootName, rules.type)
-        : `Cannot assign to "${rootName}" — it is ${readOnlyPhrase(rules.kind)}.` +
-            writableRemedy(rules, sourceFile),
-      TS_CODES.CONST_ASSIGN,
-    );
-    return false;
-  }
-  binding.capture?.byRef();
-  return true;
-}
-
-export function checkPlaceWritable(
-  place: Expr,
-  node: ts.Node,
-  sourceFile: ts.SourceFile,
-  scope: LoweringScope,
-  diagnostics: TsCompilerDiagnostic[],
-): boolean {
-  let at = place;
-  while (at.op === 'member' || at.op === 'index') at = at.base;
-  if (at.op !== 'varref' && at.op !== 'param' && at.op !== 'externref') return true;
-  const binding = scope.resolveIr(at.name);
-  if (binding === undefined) return true;
-  const rules = writeRules(binding);
-  if (!rules.mutable) {
-    if (rules.toVar !== undefined) {
-      rules.toVar();
-      binding.capture?.byRef();
-      return true;
-    }
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      node,
-      `Cannot assign to "${rules.name}" — it is ${readOnlyPhrase(rules.kind)}.` +
-        writableRemedy(rules, sourceFile),
-      TS_CODES.CONST_ASSIGN,
-    );
-    return false;
-  }
-  binding.capture?.byRef();
-  return true;
-}
-
-/** True, having reported it, when the assignment target is a LANE of an emulated-double
- *  vector — `v.x = …`, `v.xy = …`, `v[0] = …`, `v[0] += …`, `v[0]++`.
- *
- *  Reading a lane is a swizzle of the hi and lo planes the fp64 pass lowers the vector into
- *  (`laneSwizzle`), which is a CONSTRUCTOR, and a constructor is not assignable: the emit was
- *  `vec2<f32>(v.hi.x, v.lo.x) = …`, which Tint answers with "expected '=' for assignment" and
- *  ANGLE with "'assign' : l-value required". The element-access form was worse — the lowered
- *  lane is a `member` and not an `index`, so the assignment fell out of `lowerLValue` with no
- *  diagnostic at all and the write simply vanished from the program.
- *
- *  So a lane is READ-ONLY, and the remedy is to rebuild the vector, which the pass does lower
- *  (#151, #149 review). */
-function refuseVec64LaneWrite(
-  base: ShaderType,
-  what: string,
-  node: ts.Node,
-  sourceFile: ts.SourceFile,
-  diagnostics: TsCompilerDiagnostic[],
-): boolean {
-  if (!isVec64(base)) return false;
-  pushDiag(
-    diagnostics,
-    sourceFile,
-    node,
-    `Cannot assign to ${what} of a ${authorTypeText(base)}: an emulated-double vector is a pair of ` +
-      `hi/lo planes after lowering, so a lane of it is a read, not a place. Rebuild the ` +
-      `vector instead, e.g. v = vec${(base as { n: number }).n}f64(x, …).`,
-    TS_CODES.ASSIGN_TARGET,
-  );
-  return true;
 }
 
 function lowerMemberLValue(
@@ -3192,7 +2910,7 @@ function isNumericScalar(t: ShaderType): boolean {
   return k === 'f32' || k === 'i32' || k === 'u32';
 }
 
-function pushDiag(
+export function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
   node: ts.Node,
@@ -3205,27 +2923,4 @@ function pushDiag(
 function truncate(s: string, n = 60): string {
   const t = s.replace(/\s+/g, ' ').trim();
   return t.length <= n ? t : t.slice(0, n) + '…';
-}
-
-/** Fallback for a whole input write with no writable value local (Rule 8.8).
- *  Function lowering copies ordinary value parameters before any assignment, compound
- *  assignment or update, so those writes never reach this guard. Inputs such as opaque
- *  texture and sampler parameters may still have no writable local representation.
- *  Assignment and control-step lowering share this diagnostic; writes through a readonly
- *  input keep the separate root-writability diagnostic. */
-export function refuseParamWrite(
-  node: ts.Node,
-  name: string,
-  sourceFile: ts.SourceFile,
-  diagnostics: TsCompilerDiagnostic[],
-): void {
-  pushDiag(
-    diagnostics,
-    sourceFile,
-    node,
-    `Cannot assign to "${name}": a parameter that names another value from here on is not ` +
-      `supported yet in this position (change 0142, stage 2). Declare a local for the other ` +
-      `value: "let ${name}_ = …;", then use that.`,
-    TS_CODES.ASSIGN_TARGET,
-  );
 }

@@ -12,7 +12,7 @@ import { TS_CODES, type TsCode } from '../codes.js';
 import { bare } from '../object-reference.js';
 import { aliasedCall, isNewObject, isObjectType } from '../new-object.js';
 import { deferRefusal } from './pending-shares.js';
-import { objectWrittenAround, usesOfDeclared, wholeWrite } from '../object-share.js';
+import { objectWrittenAround, usesOfDeclared, wholeWrite } from '../object-share/uses.js';
 
 function pushDiag(
   diagnostics: TsCompilerDiagnostic[],
@@ -81,7 +81,8 @@ export function secondNameOf(
 ): 'bound' | 'refused' | 'none' {
   const type = annotated ?? init.type;
   if (!isObjectType(type) && !isObjectType(init.type)) return 'none';
-  if (copiedObjectsActive() || !ts.isIdentifier(decl.name) || decl.initializer === undefined) return 'none';
+  if (copiedObjectsActive() || !ts.isIdentifier(decl.name) || decl.initializer === undefined)
+    return 'none';
   if (isNewObject(decl.initializer, sourceFile, init.type)) return 'none';
   const name = decl.name.text;
   const list = decl.parent as ts.VariableDeclarationList;

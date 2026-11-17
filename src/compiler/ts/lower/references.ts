@@ -27,8 +27,9 @@ import {
 import { diagnosticAtSpan, makeDiagnostic } from '../diagnostic.js';
 import { TS_CODES } from '../codes.js';
 import { lowerExpression } from './expression.js';
-import { checkPlaceWritable, lowerLValue } from './statement.js';
-import { isWrittenObjectParameter } from '../object-reference.js';
+import { lowerLValue } from './statement.js';
+import { checkPlaceWritable } from './statement/writable.js';
+import { isWrittenObjectParameter } from '../object-reference/written.js';
 
 export function referenceOf(
   p: ts.ParameterDeclaration,
