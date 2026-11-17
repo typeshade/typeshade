@@ -513,6 +513,103 @@ export function f(): f32 { let a = new P(); g(a); return a.x; }`,
   }
 });
 
+// The programs of a second review, at 1967abb3: each gave a result JavaScript does not give.
+describe('more programs a review found (change 0142)', () => {
+  const Q = `class P { x: f32 = 0; y: f32 = 0; }
+class B { c: P = new P(); }
+class H { c: P; constructor(p: P) { this.c = p; } }
+`;
+  const runs: readonly (readonly [string, string, number])[] = [
+    [
+      'one object handed twice to a function that only reads',
+      `${Q}function w(p: P, q: P): f32 { return p.x + q.x; }
+export function f(): f32 { const a = new P(); a.x = 2.; return w(a, a); }`,
+      4,
+    ],
+    [
+      'a list of numbers taken apart into names is no object',
+      `function two(): [f32, f32] { return [4., 6.]; }
+export function f(): f32 { let p = vec2(0., 0.); const [a, b] = two(); p.x = a; p.y = b; return p.x + p.y + a; }`,
+      14,
+    ],
+    [
+      'a name of an element, read at a field that a later write to the element leaves alone',
+      `class E { pos: f32 = 1; tag: f32 = 2; }
+export function f(): f32 {
+  let es: array<E, 2> = [new E(), new E()];
+  const p = es[0];
+  es[0].pos = p.pos * 2. + 1.;
+  es[0].tag = p.tag + 3.;
+  return es[0].pos * 10. + es[0].tag;
+}`,
+      35,
+    ],
+  ];
+  for (const [name, body, expected] of runs) {
+    it(`${name}: both halves, and the oracle`, () => {
+      const r = read(body);
+      expect(r.compiler).toEqual([]);
+      expect(r.editor).toEqual([]);
+      expect(r.value).toBe(expected);
+    });
+  }
+
+  const refused: readonly (readonly [string, string, RegExp])[] = [
+    [
+      'one object handed twice to a function that writes one and reads the other',
+      `${Q}function w(p: P, q: P): f32 { p.x = 5.; return q.x; }
+export function f(): f32 { const a = new P(); return w(a, a); }`,
+      /^TS8074 This call hands "a" to "w" twice, and "w" writes one of the two: one object under two names inside "w", which is not supported yet \(change 0142, stage 2\)\./,
+    ],
+    [
+      'a const that holds a name in a field, written through the field',
+      `${Q}export function f(): f32 { const p = new P(); const h = new H(p); h.c.x = 5.; return p.x; }`,
+      /^TS8099 "h" would hold the object "p" names, and "h" is written after that\./,
+    ],
+    [
+      'a name a pattern takes from a field, then written',
+      `${Q}export function f(): f32 { const b = new B(); let { c } = b; c.x = 5.; return b.c.x; }`,
+      /^TS8099 "c" would name the object "b" names, and "c" is written after that\./,
+    ],
+    [
+      'two names a pattern takes from one object',
+      `${Q}export function f(): f32 { const a = new P(); let [p, q] = [a, a]; p.x = 5.; return q.x; }`,
+      /^TS8099 "p" would name the object "a" names, and "p" is written after that\./,
+    ],
+    [
+      'an object whose name another block declares first as a number',
+      `${Q}export function f(): f32 {
+  { const a = 1.; }
+  { const a = new P(); let xs: array<P, 1> = [new P()]; xs[0] = a; a.x = 5.; return xs[0].x; }
+  return 0.;
+}`,
+      /^TS8099 "xs" would hold the object "a" names, and "a" is written after that\./,
+    ],
+    [
+      'a second name of this, read after a write through this',
+      `class S { x: f32 = 0; m(): f32 { const s = this; this.x = 5.; return s.x; } }
+export function f(): f32 { const a = new S(); return a.m(); }`,
+      /^TS8099 "s" would name the object "this" names, and "this" is written after that\./,
+    ],
+    [
+      'a name of an element, read at the field a later write changes',
+      `class E { pos: f32 = 1; tag: f32 = 2; }
+export function f(): f32 {
+  let es: array<E, 2> = [new E(), new E()]; const p = es[0]; es[0].pos = 9.; return p.pos;
+}`,
+      /^TS8099 "p" would name the object "es" names, and "es" is written after that\./,
+    ],
+  ];
+  for (const [name, body, text] of refused) {
+    it(`refuses ${name}, in both halves`, () => {
+      const r = read(body);
+      expect(r.compiler).toHaveLength(1);
+      expect(r.compiler[0]).toMatch(text);
+      expect(r.editor).toEqual(r.compiler);
+    });
+  }
+});
+
 describe('a value stays a value (change 0142, decision 1)', () => {
   it('refuses a write through a vector parameter, in both halves', () => {
     const r = read(`function h(v: vec3f): f32 { v.x = 1.; return v.x; }

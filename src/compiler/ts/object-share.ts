@@ -122,6 +122,14 @@ const MEMBERS = new WeakMap<ts.SourceFile, Map<string, ts.Node[]>>();
 function elementType(type: ts.TypeNode | undefined): ts.TypeNode | undefined {
   let at = type;
   while (at !== undefined && ts.isParenthesizedTypeNode(at)) at = at.type;
+  // A binding is what it holds: `workgroup<array<f32, N>>` has the elements of its array.
+  while (
+    at !== undefined &&
+    ts.isTypeReferenceNode(at) &&
+    ts.isIdentifier(at.typeName) &&
+    ['uniform', 'storage', 'workgroup'].includes(at.typeName.text)
+  )
+    at = at.typeArguments?.[0];
   if (at === undefined) return undefined;
   if (ts.isArrayTypeNode(at)) return at.elementType;
   if (ts.isTupleTypeNode(at)) return at.elements[0];
@@ -140,11 +148,61 @@ class Reader {
     readonly sourceFile: ts.SourceFile,
   ) {}
 
-  /** The declaration of the variable or parameter `name` in the function, or in the file. */
+  /** The declaration of the variable or parameter that the name written at `at` refers to: the
+   *  nearest block, loop or function around `at` that declares it, as TypeScript resolves it.
+   *  Two variables of one name in two blocks are two variables. */
   private declOf(
     name: string,
+    at?: ts.Node,
   ): ts.ParameterDeclaration | ts.VariableDeclaration | ts.BindingElement | undefined {
-    let found: ts.ParameterDeclaration | ts.VariableDeclaration | ts.BindingElement | undefined;
+    type Decl = ts.ParameterDeclaration | ts.VariableDeclaration | ts.BindingElement;
+    const inName = (d: Decl, n: ts.BindingName): Decl | undefined => {
+      if (ts.isIdentifier(n)) return n.text === name ? d : undefined;
+      for (const el of n.elements) {
+        if (ts.isOmittedExpression(el)) continue;
+        const hit = inName(el, el.name);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    };
+    const inList = (list: ts.VariableDeclarationList): Decl | undefined => {
+      for (const d of list.declarations) {
+        const hit = inName(d, d.name);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    };
+    const inStatements = (statements: readonly ts.Statement[]): Decl | undefined => {
+      for (const st of statements) {
+        if (!ts.isVariableStatement(st)) continue;
+        const hit = inList(st.declarationList);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    };
+    for (let scope = at?.parent; scope !== undefined; scope = scope.parent) {
+      let hit: Decl | undefined;
+      if (ts.isBlock(scope) || ts.isSourceFile(scope) || ts.isModuleBlock(scope))
+        hit = inStatements(scope.statements);
+      else if (ts.isCaseClause(scope) || ts.isDefaultClause(scope))
+        hit = inStatements(scope.statements);
+      else if (ts.isForStatement(scope) || ts.isForOfStatement(scope) || ts.isForInStatement(scope))
+        hit =
+          scope.initializer !== undefined && ts.isVariableDeclarationList(scope.initializer)
+            ? inList(scope.initializer)
+            : undefined;
+      else if (ts.isFunctionLike(scope)) {
+        for (const q of scope.parameters) {
+          hit = inName(q, q.name);
+          if (hit !== undefined) break;
+        }
+      }
+      if (hit !== undefined) return hit;
+    }
+    if (at?.parent !== undefined) return undefined;
+    // A name with no place in the tree (a name read off a declaration): the first declaration
+    // of it in the function, or in the file.
+    let found: Decl | undefined;
     const visit = (n: ts.Node): void => {
       if (found !== undefined) return;
       if (
@@ -165,6 +223,33 @@ class Reader {
     return found;
   }
 
+  /** Whether a name a pattern declares, `let { c } = b` or `let [p, q] = ps`, may be an object:
+   *  `false` only where the source shows a value. */
+  private patternNameIsObject(d: ts.BindingElement): boolean {
+    const pattern = d.parent;
+    const holder = pattern.parent;
+    if (ts.isObjectBindingPattern(pattern)) {
+      const key = d.propertyName ?? d.name;
+      if (!ts.isIdentifier(key)) return true;
+      const members = membersNamed(key.text, this.sourceFile);
+      if (members.length === 0) return false;
+      return members.some((m) => {
+        if (ts.isMethodDeclaration(m) || ts.isMethodSignature(m)) return false;
+        const field = m as ts.PropertyDeclaration;
+        if (field.type !== undefined) return writesAnObject(field.type, this.sourceFile);
+        return field.initializer !== undefined && this.isObject(field.initializer);
+      });
+    }
+    if (!ts.isVariableDeclaration(holder) || holder.initializer === undefined) return true;
+    const init = bare(holder.initializer);
+    if (ts.isArrayLiteralExpression(init)) {
+      const at = init.elements[pattern.elements.indexOf(d)];
+      return at === undefined || this.isObject(at);
+    }
+    const elem = elementType(this.typeOf(init));
+    return elem === undefined || writesAnObject(elem, this.sourceFile);
+  }
+
   /** The expressions being read, so that `const a = b; const b = a;` ends. */
   private readonly reading = new Set<ts.Node>();
 
@@ -182,7 +267,7 @@ class Reader {
 
   private typeOfNow(x: ts.Expression): ts.TypeNode | undefined {
     if (ts.isIdentifier(x)) {
-      const d = this.declOf(x.text);
+      const d = this.declOf(x.text, x);
       if (d === undefined || ts.isBindingElement(d)) return undefined;
       if (d.type !== undefined) return d.type;
       const list = ts.isVariableDeclaration(d) ? d.parent : undefined;
@@ -230,10 +315,11 @@ class Reader {
     if (ts.isConditionalExpression(x))
       return this.isObject(x.whenTrue) || this.isObject(x.whenFalse);
     if (ts.isIdentifier(x)) {
-      const d = this.declOf(x.text);
+      const d = this.declOf(x.text, x);
       // A name the function and the file do not declare as a variable is no object variable: a
       // builtin, a namespace, an enum.
-      if (d === undefined || ts.isBindingElement(d)) return false;
+      if (d === undefined) return false;
+      if (ts.isBindingElement(d)) return this.patternNameIsObject(d);
       const t = this.typeOf(x);
       if (t !== undefined) return writesAnObject(t, this.sourceFile);
       if (ts.isParameter(d)) return true;
@@ -281,6 +367,10 @@ class Reader {
   shares(e: ts.Expression): Shares {
     const out: Shares = new Map();
     const x = bare(e);
+    if (x.kind === ts.SyntaxKind.ThisKeyword) {
+      out.set('this', { part: false, place: undefined });
+      return out;
+    }
     if (ts.isIdentifier(x)) {
       if (this.isObject(x)) out.set(x.text, { part: false, place: x });
       return out;
@@ -289,7 +379,7 @@ class Reader {
       if (!this.isObject(x)) return out;
       const root = rootOf(x);
       if (root !== undefined) {
-        if (this.declOf(root.name.text) !== undefined)
+        if (this.declOf(root.name.text, root.name) !== undefined)
           out.set(root.name.text, { part: false, place: x });
       } else {
         let at: ts.Expression = x;
@@ -442,6 +532,28 @@ function storesOf(fn: Fn, reader: Reader): Store[] {
   if (fn.body === undefined) return out;
   const sourceFile = reader.sourceFile;
   eachOwn(fn.body, (n) => {
+    if (ts.isVariableDeclaration(n) && !ts.isIdentifier(n.name) && n.initializer !== undefined) {
+      // `let { c } = b`, `let [p, q] = ps`: each name of the pattern that is an object names an
+      // object the initializer holds.
+      const list = n.parent;
+      const isConst = ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0;
+      const held: Shares = new Map();
+      add(held, reader.shares(n.initializer), false, false);
+      const each = (pattern: ts.BindingPattern): void => {
+        for (const el of pattern.elements) {
+          if (ts.isOmittedExpression(el)) continue;
+          if (!ts.isIdentifier(el.name)) each(el.name);
+          else if (held.size > 0 && reader.isObject(el.name)) {
+            const shares: Shares = new Map(
+              [...held.keys()].map((k) => [k, { part: false, place: undefined }]),
+            );
+            out.push({ node: n, dest: el.name.text, whole: true, shares, isConst });
+          }
+        }
+      };
+      each(n.name);
+      return;
+    }
     if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer !== undefined) {
       const list = n.parent;
       const isConst = ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0;
@@ -680,8 +792,15 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
     anytime: boolean,
     deepAlways = false,
   ): void => {
-    const root = rootOf(place);
-    if (root === undefined) return;
+    // A write to a field of `this` is a write of the method's own object.
+    let rootName = rootOf(place)?.name.text;
+    if (rootName === undefined) {
+      let end = bare(place);
+      while (ts.isPropertyAccessExpression(end) || ts.isElementAccessExpression(end))
+        end = bare(end.expression);
+      if (end.kind === ts.SyntaxKind.ThisKeyword && end !== bare(place)) rootName = 'this';
+    }
+    if (rootName === undefined) return;
     // The object written is the one that holds the last field or element: a part of what the
     // name holds when a field or an element that is an object stands between them.
     let deep = deepAlways;
@@ -690,7 +809,7 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
       at = bare(at.expression);
       if (!ts.isIdentifier(at) && reader.isObject(at)) deep = true;
     }
-    for (const via of through(root.name.text)) {
+    for (const via of through(rootName)) {
       writes.push({
         name: via.name,
         node,
@@ -732,7 +851,7 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
     }
     for (const target of writeTargets(n)) {
       const root = rootOf(target);
-      if (root !== undefined && !root.whole) noteWrite(target, n, true, inner);
+      if (root === undefined || !root.whole) noteWrite(target, n, true, inner);
     }
     if (ts.isCallExpression(n)) {
       if (ts.isPropertyAccessExpression(n.expression)) {
@@ -746,9 +865,7 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
       if (callee !== undefined) {
         n.arguments.forEach((a, i) => {
           const q = callee.parameters[i];
-          if (q !== undefined && takesThePlace(q, sourceFile) && rootOf(a) !== undefined) {
-            noteWrite(a, n, false, inner, true);
-          }
+          if (q !== undefined && takesThePlace(q, sourceFile)) noteWrite(a, n, false, inner, true);
         });
       }
     }
@@ -791,10 +908,46 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
       });
     return loopsAround(at, body).some((loop) => within(node, loop) && lives(loop));
   };
+  /** Whether the second name of the store reads, after the write, the part the write changes.
+   *  `const p = ps[i]; ps[i].pos = v; … p.tag` reads a field the write left as it was, so a copy
+   *  has JavaScript's result. A name used whole, or a write whose place is not known, reads it. */
+  const readsWhatIsWritten = (
+    s: Store,
+    place: ts.Expression | undefined,
+    w: (typeof writes)[number],
+  ): boolean => {
+    if (!s.whole || s.dest === undefined || place === undefined || w.place === undefined)
+      return true;
+    const suffix = stepsOf(w.place).slice(stepsOf(place).length);
+    if (suffix.length === 0) return true;
+    return mentions.some((m) => {
+      if (m.name !== s.dest || m.node === s.node) return false;
+      if (within(m.node, s.node)) return false;
+      // A read inside the writing statement itself runs before the write.
+      if (!after(m.node, m.anytime, w.node, s.dest)) return false;
+      // The place read through the name: `p.tag` for the `p` of `p.tag`.
+      let read: ts.Node = m.node;
+      while (
+        (ts.isPropertyAccessExpression(read.parent) || ts.isElementAccessExpression(read.parent)) &&
+        read.parent.expression === read
+      )
+        read = read.parent;
+      const steps = stepsOf(read as ts.Expression);
+      for (let i = 0; i < Math.min(steps.length, suffix.length); i++) {
+        const a = steps[i];
+        const b = suffix[i];
+        if (typeof a === 'string' || typeof b === 'string') {
+          if (a !== b) return false;
+        } else if (a !== undefined && b !== undefined && a !== b) return false;
+      }
+      return true;
+    });
+  };
   for (const s of stores) {
     // `const q = p`, `let q = p`: the lowering binds `q` as a second name, or refuses it.
-    if (ts.isVariableDeclaration(s.node) && ts.isIdentifier(bare(s.node.initializer!))) continue;
-    if (ts.isVariableDeclaration(s.node) && aliasedCall(s.node, sourceFile) !== undefined) continue;
+    const named = ts.isVariableDeclaration(s.node) && ts.isIdentifier(s.node.name);
+    if (named && ts.isIdentifier(bare((s.node as ts.VariableDeclaration).initializer!))) continue;
+    if (named && aliasedCall(s.node as ts.VariableDeclaration, sourceFile) !== undefined) continue;
     const direct = new Set(s.shares.keys());
     for (const held of heldBy(direct)) {
       if (held === s.dest && !direct.has(held)) continue;
@@ -803,23 +956,34 @@ export function sharedObjects(fn: Fn, sourceFile: ts.SourceFile): SharedObject[]
         (w) =>
           w.name === held &&
           after(w.node, w.anytime, s.node, held, s.dest) &&
-          (w.place === undefined || mayChange(w.place, place, w.replaces)),
+          (w.place === undefined || mayChange(w.place, place, w.replaces)) &&
+          readsWhatIsWritten(s, place, w),
       );
       if (heldWrite !== undefined) {
         out.push({ node: s.node, held, dest: s.dest, written: held, whole: s.whole });
         break;
       }
-      if (s.dest === undefined || s.isConst) continue;
+      // A write through a `const` that names the object itself is Rule 6.10's to refuse; a
+      // `const` that holds the object in a field or an element is written like any holder.
+      if (s.dest === undefined || (s.isConst && s.whole)) continue;
       const dest = s.dest;
       const destWrite = writes.find(
         (w) =>
           w.name === dest && (s.whole || w.deep) && after(w.node, w.anytime, s.node, held, dest),
       );
       if (destWrite === undefined) continue;
+      // Another name that holds the same object sees the write too: `let [p, q] = [a, a]`.
+      const others = stores.flatMap((o) =>
+        o.dest !== undefined && o.dest !== dest && o.shares.has(held) ? [o.dest] : [],
+      );
       const seen =
         params.has(held) ||
         held === 'this' ||
-        mentions.some((m) => m.name === held && after(m.node, m.anytime, s.node, held, dest));
+        mentions.some(
+          (m) =>
+            (m.name === held || others.includes(m.name)) &&
+            after(m.node, m.anytime, s.node, held, dest),
+        );
       if (seen) {
         out.push({ node: s.node, held, dest, written: dest, whole: s.whole });
         break;

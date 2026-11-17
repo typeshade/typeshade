@@ -44,7 +44,7 @@ export function writesAnObject(type: ts.TypeNode | undefined, sourceFile: ts.Sou
     if (name === 'array' || name === 'Array') return true;
     // A binding is what it holds: `uniform<f32>` reads as a number, `storage<array<P>>` as an
     // array.
-    if (name === 'uniform' || name === 'storage' || name === 'override') {
+    if (name === 'uniform' || name === 'storage' || name === 'override' || name === 'workgroup') {
       at = at.typeArguments?.[0];
       continue;
     }

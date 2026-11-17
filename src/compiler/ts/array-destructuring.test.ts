@@ -140,17 +140,18 @@ declare const xs: storage<array<P, 2>>;
     }
   });
 
-  it('copies a readonly uniform struct element and preserves reserved-name and shadow bindings', () => {
+  it('reads a readonly uniform struct element and preserves reserved-name and shadow bindings', () => {
     const r = compile(`"use typeshade";
 class P { x: f32; }
 class Frame { points: array<P, 2>; }
 declare const u: uniform<Frame>;
 @fragment export function fs(): vec4 {
-  let [copy] = u.points;
-  copy.x = 9.;
+  const [first] = u.points;
+  let copy: f32 = first.x;
+  copy = 9.;
   const [_d, texture] = array(1., 2.);
-  { const [texture] = [3.]; copy.x += texture; }
-  return vec4(copy.x, u.points[0].x, _d, texture);
+  { const [texture] = [3.]; copy += texture; }
+  return vec4(copy, u.points[0].x, _d, texture);
 }`);
     expect(r.diagnostics).toEqual([]);
     for (const make of [compileModule, compileModuleJs]) {

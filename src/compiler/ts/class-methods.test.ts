@@ -565,7 +565,10 @@ class Particle {
 }
 @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
   ps[gid.x].tick(0.5);
-  let p = ps[gid.x];
+  let p = new Particle();
+  p.pos = ps[gid.x].pos;
+  p.vel = ps[gid.x].vel;
+  p.age = ps[gid.x].age;
   p.step(1.);
   ps[gid.x].vel = vec2(p.speed(), f32(p.age));
 }

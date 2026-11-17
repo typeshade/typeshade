@@ -320,9 +320,13 @@ export function checkReferenceAliases(
       const touched = new Set([...(reads.get(callee.name) ?? []), ...written]);
       const refs: { root: string; writes: boolean }[] = [];
       callee.params.forEach((p, i) => {
-        if (p.mode !== 'inout') return;
+        // An object the callee only reads is one of the names too: in JavaScript it is the
+        // object the other parameter writes, and a copy of it would not show the write.
+        const object = p.type.kind === 'struct' || p.type.kind === 'array';
+        if (p.mode !== 'inout' && !object) return;
         const root = x.args[i] === undefined ? undefined : rootOf(x.args[i]!);
-        if (root !== undefined) refs.push({ root, writes: written.has(p.name) });
+        if (root !== undefined)
+          refs.push({ root, writes: p.mode === 'inout' && written.has(p.name) });
       });
       const report = (message: string): void => {
         const span = sourceSpanOf(x);
