@@ -64,8 +64,8 @@ export function mergedPicks(
   return out;
 }
 
-export function heldByTreeVariable(xs: readonly Reading[]): readonly Reading[] {
-  if (!xs.some((x) => x.tree)) return xs;
+export function heldByTreeVariable(xs: readonly Reading[], pulled = false): readonly Reading[] {
+  if (!pulled && !xs.some((x) => x.tree)) return xs;
   return xs.map((x) => {
     if (x.tree) return x;
     const holdsBits =

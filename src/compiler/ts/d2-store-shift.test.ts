@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { bothRefuse, bothTake } from '../../core/testing/both-halves.js';
 
-const program = (body: string, ret: string): string =>
-  `"use typeshade";\nexport function t(ii: i32, vi: u32, f: f32): ${ret} {\n  ${body}\n}\n`;
+const program = (body: string, ret: string, pre = ''): string =>
+  `"use typeshade";\n${pre}export function t(ii: i32, vi: u32, f: f32): ${ret} {\n  ${body}\n}\n`;
 const run = (source: string): unknown => bothTake(source).result.eval('t', [-3, 7, 2.5]);
 const unproven = (subject: string, at: string, edit: string): string =>
   `The compiler cannot prove that the u32 bits and the TypeScript value of "${subject}" agree, ` +
@@ -80,5 +80,73 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
       `"use typeshade";\nexport function g(vi: u32) {\n  ${TREE}c = 9;\n  return ${ret};\n}\n`;
     bothRefuse(exported('c << vi'), 'TS8003', unproven('c << vi', 'return', 'i32(c << vi)'));
     expect(bothTake(exported('i32(c << vi)')).result.eval('g', [31])).toBe(-2147483648);
+  });
+
+  const AMOUNT = 'c = 1073741824;\n  let a: i32 = 1;\n  ';
+  const SHIFT = 'c << (vi > 3 ? a : 31)';
+  it.each([
+    [
+      'f32()',
+      `${AMOUNT}return f32(${SHIFT});`,
+      'f32',
+      `f32(${SHIFT})`,
+      `f32(i32(${SHIFT}))`,
+      'i32',
+      -2147483648,
+    ],
+    [
+      '<',
+      `${AMOUNT}return ((${SHIFT}) < vi) ? 1.0 : 0.0;`,
+      'f32',
+      `(${SHIFT}) <`,
+      `u32(${SHIFT}) <`,
+      'u32',
+      0,
+    ],
+    [
+      '/',
+      `${AMOUNT.replace('i32', 'u32')}return (${SHIFT}) / 2;`,
+      'u32',
+      `(${SHIFT}) /`,
+      `u32(${SHIFT}) /`,
+      'u32',
+      1073741824,
+    ],
+  ] as const)(
+    'review of #1354: a shift amount with a typed arm is unproven, at %s',
+    (at, body, ret, from, to, type, value) => {
+      const source = program(TREE + body, ret);
+      bothRefuse(source, 'TS8003', unproven(SHIFT, at, `${type}(${SHIFT})`));
+      expect(run(source.replace(from, to))).toBe(value);
+    },
+  );
+
+  it.each([
+    ['[c, d] = [d, c]', 'let d = 9;\n  [c, d] = [d, c];\n  '],
+    ['[c] = [9]', '[c] = [9];\n  '],
+  ])('review of #1354: a store through a destructuring pattern is unproven: %s', (_, store) => {
+    const source = program(`${TREE}${store}return f32(c << 31);`, 'f32');
+    bothRefuse(source, 'TS8003', unproven('c << 31', 'f32()', 'i32(c << 31)'));
+    expect(run(source.replace('f32(c << 31)', 'f32(i32(c << 31))'))).toBe(-2147483648);
+  });
+
+  const G = 'function g(b: bool) {\n  if (b) {\n    return (3000000000|0);\n  }\n  return 9;\n}\n';
+  it.each([
+    ['select', '', 'select(9, (3000000000|0), vi < 3) << 31', ''],
+    ['a function of mixed returns', G, 'g(vi < 3) << 31', ''],
+    [
+      'a variable a tree peer types',
+      '',
+      'c << 31',
+      'let c = 9;\n  let t = (3000000000|0);\n  let x = c + t;\n  ',
+    ],
+  ])('review of #1354: a number beside a u32 tree takes its bits: %s', (_, pre, subject, body) => {
+    const source = program(`${body}return f32(${subject});`, 'f32', pre);
+    bothRefuse(
+      source,
+      'TS8003',
+      proven(subject, 2147483648, -2147483648, 'f32()', `i32(${subject})`),
+    );
+    expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(-2147483648);
   });
 });
