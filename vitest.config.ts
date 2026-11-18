@@ -61,38 +61,7 @@ const FP64 = ['src/core/fp64/df64-int-property.test.ts'];
 // These files read the emitted text of a helper function: its name, its signature or its place in
 // the emit. The inliner of `src/core/passes/inline-small.ts` removes such a helper, so the files run
 // with it off (`src/core/testing/no-inlining.ts`). A file that tests behaviour does not belong here.
-const NO_INLINING = [
-  'src/compiler/ts/declared-builtin-names.test.ts',
-  'src/compiler/ts/inheritance.test.ts',
-  'src/compiler/ts/inout-params.test.ts',
-  'src/compiler/ts/internal-ops.test.ts',
-  'src/compiler/ts/kernel-loops.test.ts',
-  'src/compiler/ts/kernel-project.test.ts',
-  'src/compiler/ts/link.test.ts',
-  'src/compiler/ts/local-functions.test.ts',
-  'src/compiler/ts/local-places.test.ts',
-  'src/compiler/ts/mixins.test.ts',
-  'src/compiler/ts/module.test.ts',
-  'src/compiler/ts/mutable-parameters.test.ts',
-  'src/compiler/ts/namespace-class.test.ts',
-  'src/compiler/ts/namespace.test.ts',
-  'src/compiler/ts/new-expression.test.ts',
-  'src/compiler/ts/operators-statements.test.ts',
-  'src/compiler/ts/optional-values.test.ts',
-  'src/compiler/ts/overloads.test.ts',
-  'src/compiler/ts/pack.test.ts',
-  'src/compiler/ts/packed-4x8.test.ts',
-  'src/compiler/ts/reference-parameters.test.ts',
-  'src/compiler/ts/reference-reads.test.ts',
-  'src/compiler/ts/reserved-names.test.ts',
-  'src/compiler/ts/return-inference.test.ts',
-  'src/compiler/ts/sequence.test.ts',
-  'src/compiler/ts/spread.test.ts',
-  'src/compiler/ts/swizzle-assign.test.ts',
-  'src/compiler/ts/tint-invalid.test.ts',
-  'src/compiler/ts/type-alias.test.ts',
-  'src/compiler/ts/uniform-layout.test.ts',
-];
+const NO_INLINING = ['src/compiler/ts/declared-builtin-names.test.ts'];
 
 const NO_INLINING_MOCKS = ['src/fuse.test.ts'];
 

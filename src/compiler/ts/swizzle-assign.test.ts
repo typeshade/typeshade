@@ -45,37 +45,39 @@ const fnText = (text: string, head: string): string => {
 };
 
 describe('a multi-component swizzle target (change 0106)', () => {
-  const REGRESSIONS = `export function f(): vec4f {
-  let d = vec2f(2., 3.);
+  const REGRESSIONS = `export function f(s: f32): vec4f {
+  let d = vec2f(2. * s, 3. * s);
   d.xy *= d.yx;
-  let e = vec2f(2., 3.);
+  let e = vec2f(2. * s, 3. * s);
   e.yx *= vec2f(0.5, 2.);
   return vec4f(d, e);
 }
-@fragment export function fs(): vec4f {
-  return f();
+@fragment export function fs(uv: location<0, vec2f>): vec4f {
+  return f(uv.x);
 }`;
 
   it('reads the old components before any write: d.xy *= d.yx is (6, 6), e.yx *= … is (4, 1.5)', () => {
     const { compiled, result } = bothHalves(REGRESSIONS);
     expect(compiled).toEqual([]);
-    expect(run(result, 'f')).toEqual([6, 6, 4, 1.5]);
+    expect(run(result, 'f', 1)).toEqual([6, 6, 4, 1.5]);
   });
 
   it('emits a let and one write per component on WGSL and GLSL ES 3.00, with no extension', () => {
     const { result } = bothHalves(REGRESSIONS);
     const wgsl = result.wgsl ?? '';
     expect(wgsl).not.toContain('swizzle_assignment');
-    const f = fnText(wgsl, 'fn f(');
+    const f = fnText(wgsl, 'fn fs(');
     expect(f).not.toMatch(/\.(xy|yx)\s*[*+\-/]?=/);
-    expect(f).toMatch(/let (_sw\w*) = \(d\.xy \* d\.yx\);\s*d\.x = \1\.x;\s*d\.y = \1\.y;/);
     expect(f).toMatch(
-      /let (_sw\w*) = \(e\.yx \* vec2<f32>\(0\.5, 2\.0\)\);\s*e\.y = \1\.x;\s*e\.x = \1\.y;/,
+      /let (\w*sw\w*) = \((\w+)\.xy \* \2\.yx\);\s*\2\.x = \1\.x;\s*\2\.y = \1\.y;/,
+    );
+    expect(f).toMatch(
+      /let (\w*sw\w*) = \((\w+)\.yx \* vec2<f32>\(0\.5, 2\.0\)\);\s*\2\.y = \1\.x;\s*\2\.x = \1\.y;/,
     );
     const glsl = result.glsl?.fragment ?? '';
-    const g = fnText(glsl, 'vec4 f(');
+    const g = fnText(glsl, 'void main(');
     expect(g).not.toMatch(/\.(xy|yx)\s*[*+\-/]?=/);
-    expect(g).toMatch(/d\.x = \w+\.x;/);
+    expect(g).toMatch(/\w+\.x = \w+\.x;/);
   });
 
   it('takes = and each compound operator, with a vector or a scalar on the right', () => {
