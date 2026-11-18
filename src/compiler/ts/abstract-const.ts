@@ -45,6 +45,9 @@ import { loweredTypeOf } from './symbols.js';
 import {
   constantTree,
   ARITH,
+  COUNTING_BUILTINS,
+  ONE,
+  constantValue,
   isBitwise,
   maskValue,
   wrapList,
@@ -2120,51 +2123,8 @@ const ALL_SCALARS: readonly Scalar[] = ['i32', 'u32', 'f32'];
  *  of 2026-11-13, "그 경우 감싸기 안 제시"): what is true, and no wrap. */
 export const NO_WRAP_REMEDY = "Declare the type of the division's operands to choose it.";
 
-/** The value of `node` where it is written numbers, constants with no written type that hold
- *  them, and operators over those, as TypeScript computes it. */
-function constNumber(node: ts.Expression, depth = 0): number | undefined {
-  const n = skipParenNodes(node);
-  if (depth > 32) return undefined;
-  const v = writtenNumber(n);
-  if (v !== undefined) return v;
-  if (ts.isIdentifier(n)) {
-    const d = untypedConstant(n);
-    return d?.initializer === undefined ? undefined : constNumber(d.initializer, depth + 1);
-  }
-  if (ts.isPrefixUnaryExpression(n)) {
-    const x = constNumber(n.operand, depth + 1);
-    if (x === undefined) return undefined;
-    return n.operator === ts.SyntaxKind.MinusToken
-      ? -x
-      : n.operator === ts.SyntaxKind.TildeToken
-        ? ~x
-        : undefined;
-  }
-  if (!ts.isBinaryExpression(n)) return undefined;
-  const a = constNumber(n.left, depth + 1);
-  const b = constNumber(n.right, depth + 1);
-  if (a === undefined || b === undefined) return undefined;
-  switch (n.operatorToken.kind) {
-    case ts.SyntaxKind.PlusToken:
-      return a + b;
-    case ts.SyntaxKind.MinusToken:
-      return a - b;
-    case ts.SyntaxKind.AsteriskToken:
-      return a * b;
-    case ts.SyntaxKind.BarToken:
-      return a | b;
-    case ts.SyntaxKind.AmpersandToken:
-      return a & b;
-    case ts.SyntaxKind.CaretToken:
-      return a ^ b;
-    case ts.SyntaxKind.LessThanLessThanToken:
-      return a << (b & 31);
-    case ts.SyntaxKind.GreaterThanGreaterThanToken:
-      return a >> (b & 31);
-    default:
-      return undefined;
-  }
-}
+const constNumber = (node: ts.Expression): number | undefined =>
+  constantValue(node, (id) => untypedConstant(id)?.initializer);
 
 /** Whether `node` holds a tree of written integers, or a value that is an integer only by a bit
  *  operator ({@link kindlessSource}). */
@@ -3123,7 +3083,12 @@ function storesOf(d: ts.VariableDeclaration, sourceFile: ts.SourceFile): Store[]
       (ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p)) &&
       (p.operator === ts.SyntaxKind.PlusPlusToken || p.operator === ts.SyntaxKind.MinusMinusToken)
     ) {
-      stores.push({ kind: 'opaque' });
+      const op =
+        p.operator === ts.SyntaxKind.PlusPlusToken
+          ? ts.SyntaxKind.PlusToken
+          : ts.SyntaxKind.MinusToken;
+      const counter = ts.isForStatement(p.parent) && p.parent.incrementor === p;
+      stores.push(counter ? { kind: 'opaque' } : { kind: 'compound', id, op, expr: ONE });
       continue;
     }
     const pattern = destructuringSource(up);
@@ -3699,7 +3664,7 @@ function variableReadings(
     w.pending.set(v, []);
   }
   let settled = false;
-  let executions = 1;
+  let executions = 0;
   for (const v of group) {
     for (const s of storesOf(v, sourceFile)) {
       const at = s.kind === 'compound' ? s.id : (s.expr ?? v);
@@ -3810,7 +3775,15 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
     if (n.operator === ts.SyntaxKind.PlusToken) return of(n.operand);
     const tilde = n.operator === ts.SyntaxKind.TildeToken;
     if (!tilde && n.operator !== ts.SyntaxKind.MinusToken) return unproven();
-    if (!tilde && constantTree(n.operand)) return [];
+    if (!tilde && constantTree(n.operand)) {
+      const v = -(constNumber(n.operand) ?? NaN);
+      if (bitOperands(skipParenNodes(n.operand)).length === 0 || !Number.isInteger(v)) return [];
+      return v === (v | 0)
+        ? [signedReading(v)]
+        : isBigNumber(v)
+          ? [{ ...numberReading(v), tree: true }]
+          : [];
+    }
     return of(n.operand).map((p) => {
       if (p.unknown || p.unproven) return p;
       if (p.agreeing === true) return { ...CONGRUENT, picks: p.picks };
@@ -3866,7 +3839,9 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
       // is unproven, and over a typed value it is typed.
       const args = n.arguments.map(of);
       if (args.some((a) => a.some((x) => x.tree && !exactSigned(x)))) return [UNPROVEN];
-      if (args.some((a) => a.some(exactSigned))) return [];
+      if (args.some((a) => a.some(exactSigned))) {
+        return COUNTING_BUILTINS.has(callee) ? [{ ...AGREEING, bound: 32 }] : [UNPROVEN];
+      }
       return args.some((a) => a.length > 0) ? [UNKNOWN] : [];
     }
     if (f.body === undefined) return unproven();
@@ -4079,9 +4054,7 @@ function binaryReadingsOf(
       }
       const tree = a.tree || b.tree;
       if (a.unknown || b.unknown || plainUnproven(a) || plainUnproven(b)) {
-        const exact = (x: Reading) => !x.tree || exactSigned(x);
-        const besideUnknown = (a.unknown && exact(b)) || (b.unknown && exact(a));
-        out.push({ ...(tree && !besideUnknown ? UNPROVEN : UNKNOWN), picks });
+        out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
       } else if (a.unproven || b.unproven || a.agreeing || b.agreeing) {
         const kept = keepsCongruence ? CONGRUENT : UNPROVEN;
         out.push({ ...(agreeingBound(k, a, b) ?? kept), picks });

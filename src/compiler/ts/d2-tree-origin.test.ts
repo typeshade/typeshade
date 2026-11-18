@@ -111,4 +111,66 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
   ] as const)('a neighbour still compiles with its value: %s', (_, body, value) => {
     expect(run(program(body, 'f32'))).toBe(value);
   });
+
+  const LOOP_H = 'let h = 1 | 0;\n  for (let i = 0; i < 3; i++) {\n    ';
+  it.each([
+    ['-(5 | 0) * 1e9', 'let a = -(5 | 0);\n  ', 'a * 1000000000', -705032704],
+    ['-(1 << 30) three times', 'let a = -(1 << 30);\n  ', 'a + a + a', 1073741824],
+    ['-((1<<30)|0) * 4', 'let a = -((1<<30)|0);\n  ', 'a * 4', 0],
+    ['s++', 'let s = 2147483647 | 0;\n  s++;\n  ', 's', -2147483648],
+    ['s--', 'let s = (-2147483647 - 1) | 0;\n  s--;\n  ', 's', 2147483647],
+    ['h = h + i * 1e9', `${LOOP_H}h = h + i * 1000000000;\n  }\n  `, 'h', -1294967295],
+    ['h += i * 1e9', `${LOOP_H}h += i * 1000000000;\n  }\n  `, 'h', -1294967295],
+    [
+      'a while loop',
+      'let h = 7 | 0;\n  let k = 0;\n  while (k < 3) {\n    k = k + 1;\n    h = h + k * 1000000000;\n  }\n  ',
+      'h',
+      1705032711,
+    ],
+    [
+      'n++ then a sum',
+      'let n = 0;\n  n++;\n  let h = (1|0) + n * 2000000000;\n  ',
+      'h + h',
+      -294967294,
+    ],
+    [
+      'extractBits',
+      'let a = (1<<30)|0;\n  let b = extractBits(a, 0, 31);\n  ',
+      'b + b',
+      -2147483648,
+    ],
+    ['reverseBits', 'let a = (1<<30)|0;\n  ', 'reverseBits(reverseBits(a)) * 2', -2147483648],
+    ['countOneBits', 'let a = (1<<30)|0;\n  ', 'countOneBits(a) + a + a', -2147483647],
+  ] as const)(
+    'review of #1358: %s is refused in both halves, and its edit compiles',
+    (_, body, subject, value) => {
+      const source = program(`${body}return f32(${subject});`, 'f32');
+      bothRefuse(source, 'TS8003', unproven(subject, 'f32()', `i32(${subject})`));
+      expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(value);
+    },
+  );
+
+  it('review of #1358: a comparison of -(1 << 30) * 3 is refused, and its edit compiles', () => {
+    const source = program('let a = -(1 << 30);\n  return a * 3 > 0 ? 1.0 : 0.0;', 'f32');
+    bothRefuse(source, 'TS8003', unproven('a * 3', '>', 'i32(a * 3)'));
+    expect(run(source.replace('a * 3 >', 'i32(a * 3) >'))).toBe(1);
+  });
+
+  it.each([
+    [
+      'twenty-one additions up to 2.1e9',
+      `let s = 0|0;\n  for (let i = 0; i < 21; i++) {\n    s += 100000000;\n  }\n  return f32(s);`,
+      2100000000,
+    ],
+    ['twenty-three additions', `${LOOP(23, '(1|2)')}return f32(s);`, 69],
+    ['a minus over a tree that stays in range', 'let a = -(5 | 0);\n  return f32(a - 1);', -6],
+  ] as const)('review of #1358: a bounded neighbour compiles: %s', (_, body, value) => {
+    expect(run(program(body, 'f32'))).toBe(value);
+  });
+
+  it('review of #1358: -(1 << 31) is a u32 tree, and twice it is refused with its numbers', () => {
+    const source = program('let a = -(1 << 31);\n  return f32(a + a);', 'f32');
+    bothRefuse(source, 'TS8003', proven('a + a', 0, 4294967296, 'f32()', 'i32(a + a)'));
+    expect(run(source.replace('f32(a + a)', 'f32(i32(a + a))'))).toBe(0);
+  });
 });

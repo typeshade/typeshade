@@ -207,3 +207,58 @@ export function maskValue(
   const v = declared ? writtenNumber(n) : call && writtenNumber(call.arguments[0]!);
   return v !== undefined && Number.isInteger(v) && v >= 0 && v <= 0x7fffffff ? v : undefined;
 }
+
+export const ONE = ts.factory.createNumericLiteral(1);
+export const COUNTING_BUILTINS = new Set([
+  'countOneBits',
+  'countLeadingZeros',
+  'countTrailingZeros',
+]);
+
+export function constantValue(
+  node: ts.Expression,
+  initializerOf: (id: ts.Identifier) => ts.Expression | undefined,
+  depth = 0,
+): number | undefined {
+  const n = skipParenNodes(node);
+  if (depth > 32) return undefined;
+  const v = writtenNumber(n);
+  if (v !== undefined) return v;
+  if (ts.isIdentifier(n)) {
+    const init = initializerOf(n);
+    return init === undefined ? undefined : constantValue(init, initializerOf, depth + 1);
+  }
+  if (ts.isPrefixUnaryExpression(n)) {
+    const x = constantValue(n.operand, initializerOf, depth + 1);
+    if (x === undefined) return undefined;
+    return n.operator === ts.SyntaxKind.MinusToken
+      ? -x
+      : n.operator === ts.SyntaxKind.TildeToken
+        ? ~x
+        : undefined;
+  }
+  if (!ts.isBinaryExpression(n)) return undefined;
+  const a = constantValue(n.left, initializerOf, depth + 1);
+  const b = constantValue(n.right, initializerOf, depth + 1);
+  if (a === undefined || b === undefined) return undefined;
+  switch (n.operatorToken.kind) {
+    case ts.SyntaxKind.PlusToken:
+      return a + b;
+    case ts.SyntaxKind.MinusToken:
+      return a - b;
+    case ts.SyntaxKind.AsteriskToken:
+      return a * b;
+    case ts.SyntaxKind.BarToken:
+      return a | b;
+    case ts.SyntaxKind.AmpersandToken:
+      return a & b;
+    case ts.SyntaxKind.CaretToken:
+      return a ^ b;
+    case ts.SyntaxKind.LessThanLessThanToken:
+      return a << (b & 31);
+    case ts.SyntaxKind.GreaterThanGreaterThanToken:
+      return a >> (b & 31);
+    default:
+      return undefined;
+  }
+}
