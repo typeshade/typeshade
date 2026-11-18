@@ -856,6 +856,7 @@ describe('a function handed over that reads a variable whose declaration was ref
   /** The shape of #967, now refused for an actual range error: 0123 permits its original value. */
   const DOUBLE = `const TAU_DOUBLE: f64 = f64(1e38) * 4;\n`;
   const REFUSED = `${TS_CODES.TYPE_MISMATCH} Module const "TAU_DOUBLE" is f64, but its value cannot be represented by two finite f32 words. Use a finite value within the emulated double's f32 range.`;
+  const NO_SIZE_TO_FILL = `${TS_CODES.UNKNOWN_TYPE} A list needs a fixed size to fill: write the size, e.g. array<f32, 2>.`;
   const NOT_YET = (name: string): string =>
     `${TS_CODES.UNKNOWN_NAME} The function written here reads "${name}", which is not declared yet where it runs: a let or a const is not there before its declaration, and TypeScript throws. Declare "${name}" above this call.`;
   /** What each half says of `src`: `compile()`'s errors, and every diagnostic of the editor. */
@@ -921,9 +922,7 @@ export function run(k: f32): f32 {
       function apply(f: (x: f32) => f32, x: f32): f32 { return f(x) + step; }
       return apply((x) => x, k);
     }`);
-    expect(halves(src)).toEqual(
-      once(`${TS_CODES.UNKNOWN_TYPE} T[] is a JS array type. Use array<T, N>.`),
-    );
+    expect(halves(src)).toEqual(once(NO_SIZE_TO_FILL));
   });
 
   it('still reports a local higher-order call before its captured declaration', () => {
@@ -997,7 +996,7 @@ export function run(k: f32): f32 {
   return apply((x) => x * step, k);
 }`),
       ),
-    ).toEqual(once(`${TS_CODES.UNKNOWN_TYPE} T[] is a JS array type. Use array<T, N>.`));
+    ).toEqual(once(NO_SIZE_TO_FILL));
   });
 
   it('still says a variable declared below the call is not declared yet, whatever its declaration says', () => {

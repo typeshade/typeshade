@@ -75,6 +75,8 @@ no `access` field at all.
 | `declare const x: storage<T>` | storage | read | `var<storage, read> x: T;` |
 | `declare const x: storage<T, "read">` | storage | read | the same; the default written out |
 | `declare const x: storage<T, "read_write">` | storage | read_write | `var<storage, read_write> x: T;` |
+| `declare const x: storage<f32[]>`, `storage<Array<f32>>` | storage | read | `var<storage, read> x: array<f32>;`, as `storage<array<f32>>` (§20, change 0114) |
+| `declare const x: storage<readonly f32[]>`, `storage<ReadonlyArray<f32>>` | storage | read | the same; `readonly` promises that nothing writes `x`, and a write is `TS8005` (§20, change 0114) |
 | `declare const x: T` | illegal | space required | `TS8099` |
 | `declare let x: storage<T>` | illegal | the mode is a type argument | `TS8099` |
 | `declare let x: uniform<T>` | illegal | a uniform is read-only | `TS8099` |
@@ -2638,13 +2640,40 @@ It is the same declaration `array<f32, 3>(0., 0.5, 1.)` makes: the same `constru
 same emitted text, so the two spellings are one program, and `src/compiler/ts/ir-equality.test.ts`
 pins both against the EDSL's `construct(arrayT(f32T, 3), …)`.
 
-A list carries no type of its own, which is what decides where it is allowed and what it
-means:
+A list with no annotation takes its element type and its length from its elements (change
+0114, S2), in a function body and at module scope, for a `const` and a `let`:
 
-- It is **only** an initializer, where the declaration states an `array<T, N>`, or as the
-  source of an array binding pattern (§14). That binding context can infer a homogeneous
-  fixed-length array: `const [a, b] = [1., 2.]`.
-  `const xs = [1., 2.]` and `[1., 2.].reduce((a, b) => a + b)` are refused, each naming the spelling that works.
+```ts
+const stops = [0., 0.5, 1.];          // array<f32, 3>
+const corners = [vec2(0.), vec2(1.)]; // array<vec2, 2>
+const LUT = [0.25, 0.5] as const;     // module scope: array<f32, 2>, read-only
+```
+
+It is the declaration the annotated list makes, and the editor's hover shows the sized type,
+`const stops: array<f32, 3>`. `as const` on a module-scope list gives the same sized array; a
+module constant is read-only, so a write to `LUT[0]` is `Cannot assign to "LUT" — it is a module
+const.` in both halves. A function-local `as const` list is not taken yet. The elements must share
+one type, and a list that does not says which types it found, one sentence on the declaration:
+
+- `[1., true]`: `"const a" takes its type from its list, whose elements must share one type:
+  element 0 is f32 and element 1 is bool.`
+- `[1, 2.5]`, an integer-written number beside a float (change 0114, decision D2, until #148
+  settles the integer default): `… element 0 is an integer-written number and element 1 is f32.
+  Declare the type: const a: array<f32, 2> = [...].`
+- `[]`: `"const a" takes its type and its length from its list, and an empty list has neither: a
+  shader array has at least one element. Write its elements.`
+- A list of integer-written numbers alone, `[1, 2, 3]`, is not supported yet: its uses will
+  decide its element type (change 0114, Amendment A3, stage S2c). `"const a" is a list of
+  integer-written numbers, whose element type its uses will decide; that is not supported yet.
+  Declare the type: const a: array<f32, 3> = [...].`
+
+Elsewhere a list carries no type of its own, which is what decides where it is allowed and what
+it means:
+
+- It is an initializer, as above or where the declaration states an `array<T, N>`, the source of
+  an array binding pattern (§14), or a value in a position that declares an array type (§28).
+  That binding context can infer a homogeneous fixed-length array: `const [a, b] = [1., 2.]`.
+  `[1., 2.].reduce((a, b) => a + b)` is refused, naming the spelling that works.
 - The size must be fixed and must match: `array<f32>` has nothing to fill, and
   `array<f32, 3> = [1., 2.]` is an arity error.
 - Every element must be the element type. There is no implicit conversion, so
@@ -2772,6 +2801,30 @@ if ((gid.x >= arrayLength(&src))) {
   return;
 }
 ```
+
+**TypeScript's spelling (change 0114, S1).** `T[]` and `Array<T>` are the same array with no
+size as `array<T>`. They are accepted where `array<T>` is: a storage binding's value type
+(`storage<f32[]>`, `storage<f32[], "read_write">`), the last field of a storage struct, and a
+kernel function's parameter (`export function scale(xs: f32[], k: f32)`). They give the IR, the
+WGSL, the GLSL, the CPU result and the host face of `array<T>`, and `xs.length` is a `u32` in
+both halves. Where `array<T>` is refused, they are refused with the same code and sentence,
+which names `array<T>`. `Array<T>` with another count of type arguments is `TS8002`, naming
+`array<T, N>` for a list with a size. `array<T>` stays accepted until stage S4.
+
+**`readonly T[]` and `ReadonlyArray<T>` (change 0114, S1, Amendment A2).** They are the same
+array as `T[]`, accepted in the same three places, with the same IR, WGSL, GLSL, CPU result and
+host face, and a `u32` `length`. `readonly` is a promise that nothing writes the array. An
+element assignment, a compound assignment, an increment, a write from a local function and a
+mutating method (`push`, `fill`, `sort` and the others) through it are refused in both halves
+with `TS8005`, for example `Cannot write to "xs" — its type "readonly f32[]" promises that
+nothing writes it. Write "f32[]" to write to it.` The remedy names the writable spelling, and for
+a storage binding the whole `read_write` declaration. A promise written through a type alias
+names the alias and gives no remedy. The editor declares `ReadonlyArray<T>` with a read-only index
+and no mutating member, so TypeScript's checker refuses the same writes (TS2542, TS2339); the
+editor shows the compiler's sentence in place of TypeScript's. Where `array<T>` is refused, both
+spellings are refused with the same code and sentence. `ReadonlyArray<T>` with another count of
+type arguments is `TS8002`, as `Array<T>` is. `readonly array<T>` stays `TS8002`: TypeScript puts
+`readonly` on `T[]` and a tuple only.
 
 **What the operand may be** is what WGSL's `arrayLength` accepts: a pointer to a runtime-sized
 array in the storage space, which is the binding itself or a trailing array field of a storage
@@ -4615,8 +4668,9 @@ const depth = mid([0.05, 8.]);           // a list, in a position that declares 
 ```
 
 A list now takes its type from any position that declares one, not from a `const` alone: a
-return, an argument, a struct field. Where nothing declares one, `array<T, N>(...)` still says
-it.
+return, an argument, a struct field. An unannotated `const` or `let` takes it from the list's
+elements (§18, change 0114). A tuple is the short sized spelling for a small length: `[f32, f32,
+f32]` is `array<f32, 3>`, and `array<T, N>` is the spelling for a length such as 256.
 
 **A union whose members all name one type names it too.** `0 | 1 | 2` is an `i32`, for the
 reason an enum member is one; `0.5 | 1.5` is an `f32`; `true | false` is a `bool`; `Meters |
@@ -12004,7 +12058,7 @@ vector, a matrix, an array with a size or a struct.`
 | the result of such a function, written or inferred (§14, Rule 8.19) | allowed |
 | the parameters and the result of a function-typed parameter (§14, Rule 8.18) | allowed |
 | a field of a class, an interface or a type literal, a parameter property included, `f: T \| undefined` or `f?: T`, the struct in function scope | allowed (change 0093) |
-| an array element, `array<f32 \| undefined, 4>`, the array in function scope | allowed (change 0093); `(f32 \| undefined)[]` is a JS array type, refused as every `T[]` is (§28) |
+| an array element, `array<f32 \| undefined, 4>`, the array in function scope | allowed (change 0093); `(f32 \| undefined)[]` is the array with no size `array<f32 \| undefined>` (§20, change 0114), refused for its element as that array is |
 | an optional parameter `x?: T` on a helper, a method, a static function, a constructor, a local function, a function-typed parameter's type and an arrow function written as an argument | allowed (change 0093): `x` is `T \| undefined`, and a call may omit it |
 | `x?: T` on an entry point or on a kernel function, `x?: T = d`, a required parameter after an optional one | refused (`TS8020`) |
 | a struct with an optional field, or an array of optionals, as a uniform or storage binding, a workgroup or private module variable, a module constant or an override | refused (`TS8002`) at the declaration, naming the field (change 0093) |

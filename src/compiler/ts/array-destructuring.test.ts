@@ -74,7 +74,7 @@ describe('fixed-array binding declarations', () => {
     expect(errors('const [a] = [1]; const b: u32 = a; return f32(b);')[0]?.message).toContain(
       'no implicit',
     );
-    expect(errors('const xs = [1., 2.]; return 0.;')[0]?.message).toContain('annotation');
+    expect(errors('const xs = [1, 2]; return 0.;')[0]?.message).toContain('not supported yet');
     expect(errors('const [a, b] = [1., u32(2)]; return a;')[0]?.message).toContain(
       'one element type',
     );

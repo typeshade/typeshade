@@ -553,7 +553,7 @@ describe('what a local function may not do (Rule 8.17)', () => {
   return k;
 }`),
     );
-    expect(errors[0]).toBe(`${TS_CODES.UNKNOWN_TYPE} T[] is a JS array type. Use array<T, N>.`);
+    expect(errors[0]).toContain(`${TS_CODES.UNKNOWN_TYPE} A list needs a fixed size to fill`);
     expect(errors.join('\n')).not.toContain('not declared yet');
   });
 

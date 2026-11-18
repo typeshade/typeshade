@@ -19,12 +19,25 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSource } from './source-file.js';
 import { compileTsSources } from './module.js';
+import { withEditor } from '../../core/testing/both-halves.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
+
+const editorCycles = (files: readonly { fileName: string; source: string }[]): string[] => {
+  const service = createTypeshadeLanguageService();
+  for (const f of files) service.openDocument(`/p/${f.fileName}`, f.source);
+  return files.flatMap((f) =>
+    service
+      .getDiagnostics(`/p/${f.fileName}`)
+      .filter((d) => String(d.code) === 'TS8031')
+      .map((d) => `${f.fileName} ${d.message}`),
+  );
+};
 
 const fs = (body: string): string =>
   `"use typeshade"\n${body}\n@fragment\nexport function main_fs(): vec4 { return vec4(0., 0., 0., 1.) }\n`;
 
 const errorsOf = (src: string): { code?: string; message: string; line: number }[] =>
-  compileTsSource(src)
+  withEditor(compileTsSource)(src)
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => ({ code: d.code, message: d.message, line: d.line }));
 
@@ -198,7 +211,7 @@ describe('#48 — across files, where a cycle can be spelled through an import',
     // `helper as h` is why the resolver goes through each file's callee map rather than
     // matching identifier text against function names: the call reads `h`, the cycle is
     // `top -> helper -> top`, and the message must name the emitted functions.
-    const r = compileTsSources([
+    const files = [
       file(
         'a.ts',
         `"use typeshade";
@@ -213,8 +226,10 @@ import { top } from "./a";
 export function helper(n: i32): i32 { if (n <= 0) { return i32(1); } return top(n - 1); }
 `,
       ),
-    ]);
+    ];
+    const r = compileTsSources(files);
     const errors = r.diagnostics.filter((d) => d.category === 'error');
+    expect(editorCycles(files)).toEqual([`b.ts ${errors[0]?.message}`]);
     expect(errors).toHaveLength(1);
     expect(errors[0]?.code).toBe('TS8031');
     expect(errors[0]?.message).toContain('"top" -> "helper" -> "top"');

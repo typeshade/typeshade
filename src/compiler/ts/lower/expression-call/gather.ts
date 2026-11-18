@@ -7,7 +7,6 @@ import type { TsCompilerDiagnostic } from '../../source-file.js';
 import { authorTypeText, type LoweringScope } from '../../context.js';
 import { TS_CODES } from '../../codes.js';
 import {
-  arraySuffix,
   foldConstComponent,
   vecArg,
   floatArg,
@@ -15,6 +14,7 @@ import {
   arity,
   pushDiag,
 } from '../expression-call.js';
+import { arraySuffix } from './array-suffix.js';
 
 export function lowerGatherCall(
   id: string,

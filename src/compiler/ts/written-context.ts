@@ -234,3 +234,9 @@ export function authorTypeText(t: ShaderType): string {
       return authorTypeName(t) ?? typeKey(t);
   }
 }
+
+export function writtenFile(node: ts.Node): string {
+  const sf = node.getSourceFile();
+  if (LINKED_ORIGIN?.sourceFile !== sf) return sf.fileName;
+  return LINKED_ORIGIN.written(node.getStart(sf), node.getEnd())?.file ?? sf.fileName;
+}
