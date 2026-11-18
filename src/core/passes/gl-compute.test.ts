@@ -18,6 +18,7 @@ import { fp64Lower } from './fp64-lower.js';
 import { compileModule } from '../oracle.js';
 import { splitF64 } from '../fp64/df64-lib.js';
 import { PROGRAMS } from '../testing/compute-programs.js';
+import { keepHelpers } from '../testing/keep-helpers.js';
 import { stageOf } from '../ir/index.js';
 import { dispatchCompute } from '../debug/dispatch.js';
 import { runGlModel, storageFloats, storageWords } from '../testing/gl-model.js';
@@ -439,8 +440,7 @@ describe("a function the module declares under a builtin's name, in the pass pro
   const SRC = `"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 let scratch: workgroup<array<f32, 4>>;
-function fract(x: f32): f32 { return x - floor(x) + 0.5; }
-function clamp(x: f32, lo: f32, hi: f32): f32 { return x + lo + hi; }
+function fract(x: f32): f32 { return x - floor(x) + 0.5; } function clamp(x: f32, lo: f32, hi: f32): f32 { return x + lo + hi; }
 @compute([4]) export function main(i: builtin<"local_invocation_index">) {
   scratch[i] = fract(out[i]) + random(out[i]) * 0.;
   workgroupBarrier();
@@ -451,7 +451,7 @@ function clamp(x: f32, lo: f32, hi: f32): f32 { return x + lo + hi; }
   it('emits each declaration under a name GLSL ES 3.00 does not have, across a barrier', () => {
     const r = compile(SRC);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    const g = buildGlCompute(r.module, 'main');
+    const g = keepHelpers(buildGlCompute)(r.module, 'main');
     expect(g.vertex).toContain('float fract_(float x) {');
     expect(g.vertex).toContain('float clamp_(float x, float lo, float hi) {');
     expect(g.vertex).not.toMatch(/float (fract|clamp)\(/);

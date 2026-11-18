@@ -16,6 +16,7 @@
 //
 // Verifies: Rule 3.5 (docs/language-design.md; traced in reqs/).
 
+import { keepHelpers } from '../testing/keep-helpers.js';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
@@ -67,13 +68,16 @@ describe('the wrapper of an early-return entry (#612)', () => {
     expect(fs).toContain('_ret = fs_impl(uv);');
   });
 
-  it('keeps the wrapper off a helper of the name it would take', () => {
-    const helper = 'function fs_impl(uv: vec2): vec4 { return vec4(uv, 0., 1.) }';
-    const fs = bothHalves(earlyReturn('fs', helper));
-    // One definition of the helper, one of the wrapper, and the wrapper is what main() calls.
-    expect(fs.match(/^vec4 fs_impl\(/gmu)).toHaveLength(1);
-    expect(fs).toContain('vec4 fs_impl0(vec2 uv) {');
-    expect(fs).toContain('_ret = fs_impl0(uv);');
-    expect(fs).toContain('return fs_impl(uv);');
-  });
+  it(
+    'keeps the wrapper off a helper of the name it would take',
+    keepHelpers(() => {
+      const helper = 'function fs_impl(uv: vec2): vec4 { return vec4(uv, 0., 1.) }';
+      const fs = bothHalves(earlyReturn('fs', helper));
+      // One definition of the helper, one of the wrapper, and the wrapper is what main() calls.
+      expect(fs.match(/^vec4 fs_impl\(/gmu)).toHaveLength(1);
+      expect(fs).toContain('vec4 fs_impl0(vec2 uv) {');
+      expect(fs).toContain('_ret = fs_impl0(uv);');
+      expect(fs).toContain('return fs_impl(uv);');
+    }),
+  );
 });

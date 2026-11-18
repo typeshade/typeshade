@@ -13,6 +13,7 @@ import { compileModule } from '../oracle.js';
 import { compileModuleJs, generateModuleJs } from '../cpu-codegen.js';
 import { emitModule } from '../backends/wgsl.js';
 import { emitGlslModule } from '../backends/glsl.js';
+import { keepHelpers } from '../testing/keep-helpers.js';
 import { TypeShadeError } from '../diagnostics/error.js';
 import { grad } from './grad.js';
 import { gradCheck } from './grad-check.js';
@@ -678,9 +679,7 @@ function withFragmentCalling(m: ModuleDecl, fn: string, struct: string): ModuleD
 
 describe('grad reverse: the generated function is ordinary IR on every target', () => {
   it('emits WGSL and GLSL ES 3.00, and leaves the rest of the module as it was', () => {
-    const m = moduleOf(`function g(a: f32): f32 {
-  return a * a;
-}
+    const m = moduleOf(`function g(a: f32): f32 { return a * a; }
 export function f(x: f32, k: f32): f32 {
   if (x > 1.) {
     return x;
@@ -691,14 +690,14 @@ export function f(x: f32, k: f32): f32 {
     expect(d.module.funcs.slice(0, m.funcs.length)).toEqual(m.funcs);
     expect(d.module.structs.slice(0, m.structs.length)).toEqual(m.structs);
     const withEntry = withFragmentCalling(d.module, d.name, 'f_vjp_adjoints');
-    const wgsl = emitModule(withEntry);
+    const wgsl = keepHelpers(emitModule)(withEntry);
     // Change 0105: WGSL builds each adjoints struct through a pointer to the caller's place.
     expect(wgsl).toContain(
       'fn f_vjp_into(_dst: ptr<function, f_vjp_adjoints>, x: f32, k: f32, dy: f32)',
     );
     expect(wgsl).toContain('fn g_vjp_into(_dst: ptr<function, g_vjp_adjoints>, a: f32, dy: f32)');
     expect(wgsl).toContain('g_vjp_into(&a_5, k, a_4);');
-    const glsl = emitGlslModule(withEntry, 'fragment');
+    const glsl = keepHelpers(emitGlslModule)(withEntry, 'fragment');
     expect(glsl).toContain('f_vjp_adjoints f_vjp(float x, float k, float dy)');
     expect(glsl).toContain('g_vjp_adjoints g_vjp(float a, float dy)');
   });

@@ -22,14 +22,13 @@ import {
   UnsupportedFeatureError,
   INTRINSIC_HELPERS,
   spellIntrinsic,
-} from 'typeshade';
-import {
   type ShaderType,
   type Expr,
   type ModuleDecl,
   type StructDecl,
   type FuncDecl,
 } from 'typeshade';
+import { keepHelpers } from '../testing/keep-helpers.js';
 import {
   mat4x4fT,
   vec4fT,
@@ -319,7 +318,7 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
     structs: [ReservedIn, FsOut],
     bindings: [],
     funcs: [
-      keepWhole(),
+      { ...keepWhole(), opaque: true },
       {
         name: 'fs',
         attrs: ['@fragment'],
@@ -404,7 +403,7 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
       structs: [ReservedIn, FsOut],
       bindings: [],
       funcs: [
-        keepWhole(),
+        { ...keepWhole(), opaque: true },
         {
           name: 'fs',
           attrs: ['@fragment'],
@@ -1346,8 +1345,8 @@ describe('glsl-es300 — per-stage emit scope (stage reachability)', () => {
       { stage: 'fragment', retAttr: '@location(0)' },
     );
     const m = dslModule({ funcs: [vs, fs], uses: [SvOut] });
-    const vsG = emitGlslModule(m, 'vertex');
-    const fsG = emitGlslModule(m, 'fragment');
+    const vsG = keepHelpers(emitGlslModule)(m, 'vertex');
+    const fsG = keepHelpers(emitGlslModule)(m, 'fragment');
     expect(vsG).toContain('scope_half');
     expect(vsG).not.toContain('scope_frag_only');
     expect(fsG).toContain('scope_half');

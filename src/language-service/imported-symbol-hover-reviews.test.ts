@@ -2,12 +2,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from '../compiler/ts/compile.js';
+import { keepHelpers } from '../core/testing/keep-helpers.js';
 import { createTypeshadeLanguageService, type TypeshadeLanguageService } from './service.js';
 
 type Files = Readonly<Record<string, string>>;
 
 const compiled = (files: Files, entry: string) =>
-  compile(files[entry]!, { fileName: entry, readDocument: (name) => files[name] });
+  keepHelpers(compile)(files[entry]!, { fileName: entry, readDocument: (name) => files[name] });
 
 const errorsOf = (files: Files, entry: string): string[] =>
   compiled(files, entry)

@@ -296,7 +296,7 @@ function half(x: f64): f64 {
     const mul = /df64_mul\((\w+), (\w+), _fp64_g\)/.exec(wgsl);
     expect(mul).not.toBeNull();
     expect(mul![1]).not.toBe(mul![2]);
-    expect(wgsl).toContain('df64_sqr(half(x), _fp64_g)');
+    expect(wgsl).toContain('df64_sqr((x * 0.5), _fp64_g)');
   });
 
   it('a power-of-two literal scales the pair: 2*x, x*2, x*0.5, x/4, x*-2', () => {
@@ -512,7 +512,7 @@ function purev(x: f32): vec3<f64> {
       // A helper output, a writing call and a pure call are each computed once: df64_v3_mul.
       expect(count('df64_v3_normalize('), 'normalize').toBe(1);
       expect(count('nextv(gid.x)'), 'nextv').toBe(1);
-      expect(count('purev('), 'purev').toBe(1);
+      expect(count('purev(') + count('* 2.0), 3.0)'), 'purev').toBe(1);
       expect(count('df64_v3_add(u, w'), 'u + w').toBe(1);
       // A named vector is read twice and computed never: it scales.
       expect(body).toContain('(u.hi * 2.0)');

@@ -4,6 +4,7 @@
 //
 // Verifies: Rule 11.10.
 
+import { keepHelpers } from '../testing/keep-helpers.js';
 import { describe, expect, it } from 'vitest';
 import { examples } from '../../../examples/index.js';
 import { shadeExamples } from '../../../examples/_shade.js';
@@ -84,10 +85,12 @@ describe('the portable IR emits the same program (Rule 11.10)', () => {
     expect(emitModule(roundTrip(ex.module))).toBe(emitModule(ex.module));
   });
 
-  it("keeps a call's callee where a declared function shadows a builtin", () => {
-    // A call resolves to the module's own `pack4xU8` because it carries `declRef`, which the writers
-    // emit as `pack4xU8_` (change 0029): without it the call is the builtin, which GLSL ES 3.00 lacks.
-    const r = compile(`"use typeshade";
+  it(
+    "keeps a call's callee where a declared function shadows a builtin",
+    keepHelpers(() => {
+      // A call resolves to the module's own `pack4xU8` because it carries `declRef`, which the writers
+      // emit as `pack4xU8_` (change 0029): without it the call is the builtin, which GLSL ES 3.00 lacks.
+      const r = compile(`"use typeshade";
 export function pack4xU8(v: vec4u): u32 {
   return v.x;
 }
@@ -96,27 +99,28 @@ export function pack4xU8(v: vec4u): u32 {
   return vec4(f32(p) * 0., 0., 0., 1.);
 }
 `);
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    const m = r.module!;
-    const back = roundTrip(m);
-    expect(emitModule(back)).toBe(emitModule(m));
-    expect(glslOf(back)).toEqual(glslOf(m));
-    expect(glslOf(back)[1]).toContain('uint pack4xU8_(');
-    expect(emitModule(back)).toContain('fn pack4xU8_(');
-    expect(reflect(back)).toEqual(reflect(m));
-    // Read back without its callee, the call is the builtin.
-    const text = JSON.stringify(toPortable(m, VERSION));
-    const lost = fromPortable(
-      JSON.parse(text, (k, v: unknown) => (k === 'declRef' ? undefined : v)) as ReturnType<
-        typeof toPortable
-      >,
-    );
-    // The builtin needs a capability GLSL ES 3.00 does not have, which the module never asked for
-    // while its call reached its own function.
-    expect(glslOf(lost)[1]).toBe(
-      "refused: backend 'glsl-es300' cannot emit this module — missing capabilities: packed4x8Dot",
-    );
-  });
+      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+      const m = r.module!;
+      const back = roundTrip(m);
+      expect(emitModule(back)).toBe(emitModule(m));
+      expect(glslOf(back)).toEqual(glslOf(m));
+      expect(glslOf(back)[1]).toContain('uint pack4xU8_(');
+      expect(emitModule(back)).toContain('fn pack4xU8_(');
+      expect(reflect(back)).toEqual(reflect(m));
+      // Read back without its callee, the call is the builtin.
+      const text = JSON.stringify(toPortable(m, VERSION));
+      const lost = fromPortable(
+        JSON.parse(text, (k, v: unknown) => (k === 'declRef' ? undefined : v)) as ReturnType<
+          typeof toPortable
+        >,
+      );
+      // The builtin needs a capability GLSL ES 3.00 does not have, which the module never asked for
+      // while its call reached its own function.
+      expect(glslOf(lost)[1]).toBe(
+        "refused: backend 'glsl-es300' cannot emit this module — missing capabilities: packed4x8Dot",
+      );
+    }),
+  );
 
   it('keeps one node one node where it is used twice', () => {
     // `gradient` reads one vector variable in three places; copies of it were three variables.

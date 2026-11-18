@@ -1,3 +1,4 @@
+import { keepHelpers } from '../testing/keep-helpers.js';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { compileModule } from '../oracle.js';
@@ -201,18 +202,21 @@ describe('module-level call specialization', () => {
     expect(compileModule(out).fns.run!(3)).toBe(compileModule(m).fns.run!(3));
   });
 
-  it('runs only on O2 emission and agrees with the instrumented pipeline', () => {
-    const m = fixture(`function choose(x: f32, take: bool): f32 { if (take) return x; return 0.; }
+  it(
+    'runs only on O2 emission and agrees with the instrumented pipeline',
+    keepHelpers(() => {
+      const m = fixture(`function choose(x: f32, take: bool): f32 { if (take) return x; return 0.; }
       function run(x: f32): f32 { return choose(x, true); }`);
-    for (const level of ['O0', 'O1'] as const)
-      expect(lowerWgsl(m, level).funcs.some((f) => f.name.startsWith('_spec'))).toBe(false);
-    expect(lowerWgsl(m, 'O2').funcs.some((f) => f.name.startsWith('_spec'))).toBe(true);
-    expect(() => profileEmit(m)).not.toThrow();
-    const fragment = compile(`"use typeshade";
+      for (const level of ['O0', 'O1'] as const)
+        expect(lowerWgsl(m, level).funcs.some((f) => f.name.startsWith('_spec'))).toBe(false);
+      expect(lowerWgsl(m, 'O2').funcs.some((f) => f.name.startsWith('_spec'))).toBe(true);
+      expect(() => profileEmit(m)).not.toThrow();
+      const fragment = compile(`"use typeshade";
       function choose(x: f32, take: bool): f32 { if (take) return x; return 0.; }
       @fragment export function main(): vec4f { return vec4f(choose(2., true)); }
     `);
-    expect(fragment.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(() => profileEmit(fragment.module, 'glsl-es300')).not.toThrow();
-  });
+      expect(fragment.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+      expect(() => profileEmit(fragment.module, 'glsl-es300')).not.toThrow();
+    }),
+  );
 });
