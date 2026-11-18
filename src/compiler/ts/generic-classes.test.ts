@@ -20,6 +20,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
+import { uninlined } from '../../core/testing/uninlined.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -27,9 +28,8 @@ const errorsOf = (src: string) =>
     .map((d) => `${d.code} ${d.message}`);
 
 const wgslOf = (src: string, level: 'O1' | 'O2' = 'O2'): string => {
-  const r = compile(src);
-  const errors = r.diagnostics.filter((d) => d.category === 'error');
-  expect(errors.map((d) => d.message)).toEqual([]);
+  const r = uninlined(() => compile(src));
+  expect(r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual([]);
   return level === 'O1' ? emitModuleAt(r.module, level) : (r.wgsl ?? '');
 };
 

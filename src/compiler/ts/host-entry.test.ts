@@ -23,6 +23,7 @@ import { wgslLayout } from '../../core/reflect.js';
 import { packed, type EntryBinding } from '../../core/host-entry.js';
 import { createTypeshadeLanguageService } from '../../language-service/index.js';
 import { array } from '../../runtime.js';
+import { uninlined } from '../../core/testing/uninlined.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const ROOT = resolve(__dirname, '../../..');
@@ -849,8 +850,7 @@ function fract(x: f32): f32 { return x - floor(x) + 0.5; }
 `;
 
   it('runs the declaration on the CPU tier, and carries it renamed in the WGSL', async () => {
-    const f = face(SRC);
-    expect(f.code).toContain('fract_(');
+    expect(uninlined(() => face(SRC)).code).toContain('fract_(');
     const m = await load(SRC);
     const out = new Float32Array([0, 1.25, 0]);
     await (m.main as (b: unknown, w: unknown) => Promise<void>)({ out }, 1);

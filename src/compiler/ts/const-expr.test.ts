@@ -377,7 +377,7 @@ describe('an integer vector the optimizer folds to zero (#370)', () => {
   it('is a constructor of zeros both targets spell, and the editor accepts the program', () => {
     const source = `"use typeshade";
 declare const data: storage<array<u32>, "read_write">;
-function sum2(z: vec2u): u32 { return z.x + z.y; }
+function sum2(z: vec2u): u32 { let s: u32 = 0; for (let i: u32 = 0; i < 2; i++) { s += z[i]; } return s; }
 @compute([1, 1, 1]) export function main(): void {
   const v = vec2u(data[0], data[2]);
   data[1] = sum2(v - v) + sum2(v ^ v) + sum2(v * 0);

@@ -5,7 +5,7 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { hostFace } from './host-face.js';
-
+import { uninlined } from '../../core/testing/uninlined.js';
 describe('function lexical shadowing (#429)', () => {
   it('a top-level noise local shadows the module uniform', () => {
     const r = compile(`"use typeshade";
@@ -36,7 +36,7 @@ function local(): f32 { const x = 3.; return x; }
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.module.funcs.find((fn) => fn.name === 'param')!.params[0]!.name).toBe('x');
-    expect(r.wgsl).toContain('fn param(x: f32)');
+    expect(r.wgsl).toContain('vec4<f32>(6.0,');
     expect(r.eval('fs')).toEqual([6, 0, 0, 1]);
   });
 
@@ -287,7 +287,7 @@ function g(Ns_K: f32): f32 {
   ];
 
   it.each(CASES)('$name: legal in both halves, and read as the field on every target', (c) => {
-    const r = compile(c.source, { fileName: 'm.shade.ts' });
+    const r = uninlined(() => compile(c.source, { fileName: 'm.shade.ts' }));
     expect(r.diagnostics).toEqual([]);
     const service = createTypeshadeLanguageService();
     service.openDocument('m.shade.ts', c.source);
@@ -319,7 +319,7 @@ function g(): f32 {
   return vec4(g(), 0., 0., 1.);
 }
 `;
-    const r = compile(source, { fileName: 'm.shade.ts' });
+    const r = uninlined(() => compile(source, { fileName: 'm.shade.ts' }));
     expect(r.diagnostics).toEqual([]);
     const service = createTypeshadeLanguageService();
     service.openDocument('m.shade.ts', source);
@@ -331,7 +331,7 @@ function g(): f32 {
 
   describe('a mutable static and a parameter have distinct IR names (#1009)', () => {
     const messages = (source: string): string[] =>
-      compile(source, { fileName: 'm.shade.ts' })
+      uninlined(() => compile(source, { fileName: 'm.shade.ts' }))
         .diagnostics.filter((d) => d.category === 'error')
         .map((d) => `${d.code} ${d.message}`);
     const edited = (source: string): string[] => {
@@ -360,7 +360,7 @@ function g(Voice_count: u32): f32 {
 `;
       expect(messages(source)).toEqual([]);
       expect(edited(source)).toEqual([]);
-      const r = compile(source);
+      const r = uninlined(() => compile(source));
       expect(r.module.vars![0]!.name).not.toBe('Voice_count');
       expect(r.eval('fs')).toEqual([7, 0, 0, 1]);
     });
@@ -380,7 +380,7 @@ class Voice {
 `;
       expect(messages(source)).toEqual([]);
       expect(edited(source)).toEqual([]);
-      const r = compile(source);
+      const r = uninlined(() => compile(source));
       expect(r.module.vars![0]!.name).not.toBe('Voice_count');
       expect(r.module.funcs.find((f) => f.name === 'fs')!.params[0]!.name).toBe('Voice_count');
       expect(r.eval('fs', [7])).toEqual([8, 0, 0, 1]);
@@ -516,7 +516,7 @@ function g(Voice_OFFSET: f32): f32 {
   ];
 
   it.each(CASES)('$name: legal in both halves, and read as the constant on every target', (c) => {
-    const r = compile(c.source, { fileName: 'm.shade.ts' });
+    const r = uninlined(() => compile(c.source, { fileName: 'm.shade.ts' }));
     expect(r.diagnostics).toEqual([]);
     const service = createTypeshadeLanguageService();
     service.openDocument('m.shade.ts', c.source);
@@ -550,7 +550,7 @@ declare const data: storage<array<u32>, "read_write">;
   data[Voice_OFFSET.x] = 0;
 }
 `;
-    const r = compile(source, { fileName: 'm.shade.ts' });
+    const r = uninlined(() => compile(source, { fileName: 'm.shade.ts' }));
     expect(r.diagnostics).toEqual([]);
     const service = createTypeshadeLanguageService();
     service.openDocument('m.shade.ts', source);
@@ -799,7 +799,7 @@ ${FS('7')}`,
   ];
 
   it.each(CASES)('$name: legal in both halves, and a call of the function on every target', (c) => {
-    const r = compile(c.source, { fileName: 'm.shade.ts' });
+    const r = uninlined(() => compile(c.source, { fileName: 'm.shade.ts' }));
     expect(r.diagnostics).toEqual([]);
     const service = createTypeshadeLanguageService();
     service.openDocument('m.shade.ts', c.source);
@@ -831,7 +831,7 @@ function g(Voice_shift: u32): u32 {
   return vec4(f32(g(7) + Voice.shift(1)), 0., 0., 1.);
 }
 `;
-    const r = compile(source, { fileName: 'm.shade.ts' });
+    const r = uninlined(() => compile(source, { fileName: 'm.shade.ts' }));
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn g(Voice_shift: u32) -> u32 {');
     expect(r.glsl!.fragment).toContain('uint g(uint Voice_shift) {');
@@ -852,7 +852,7 @@ class Voice {
   return vec4(Voice.shift(3.) + Voice_shift, 0., 0., 1.);
 }
 `;
-    const r = compile(source, { fileName: 'm.shade.ts' });
+    const r = uninlined(() => compile(source, { fileName: 'm.shade.ts' }));
     expect(r.diagnostics).toEqual([]);
     const service = createTypeshadeLanguageService();
     service.openDocument('m.shade.ts', source);
@@ -889,7 +889,7 @@ interface VsOut {
   return vec4(Voice.shift(3.) + Voice_shift, 0., 0., 1.);
 }
 `;
-    const r = compile(source, { fileName: 'm.shade.ts' });
+    const r = uninlined(() => compile(source, { fileName: 'm.shade.ts' }));
     expect(r.diagnostics).toEqual([]);
     const service = createTypeshadeLanguageService();
     service.openDocument('m.shade.ts', source);
@@ -920,7 +920,7 @@ export function f(out: array<u32>, Voice_shift: u32) {
     const service = createTypeshadeLanguageService();
     service.openDocument('m.shade.ts', source);
     expect(service.getDiagnostics('m.shade.ts')).toEqual([]);
-    const face = hostFace(source, { fileName: '/app/m.shade.ts' });
+    const face = uninlined(() => hostFace(source, { fileName: '/app/m.shade.ts' }));
     const kernel = face.exports?.find((e) => e.kind === 'kernel');
     const wgsl = kernel?.kind === 'kernel' ? kernel.face.gpu?.wgsl : undefined;
     expect(wgsl).toContain('Voice_shift: u32,');

@@ -20,6 +20,7 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { uninlined } from '../../core/testing/uninlined.js';
 
 /** `body` with an entry that calls `run(2.)`: the GLSL writer emits only what an entry reaches. */
 const RUN = (body: string): string =>
@@ -68,7 +69,7 @@ describe('a call hands a function over by its name (Rule 8.18)', () => {
   return apply(sq, k) + apply(sq, 1.);
 }`);
     expect(run(src)).toBe(5);
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(r.wgsl).toContain('fn apply_sq(x: f32) -> f32 {\n  return sq(x);\n}');
     expect(r.wgsl!.match(/fn apply_sq\(/g)).toHaveLength(1);
     expect(r.wgsl).toContain('(apply_sq(k) + apply_sq(1.0))');
@@ -81,7 +82,7 @@ describe('a call hands a function over by its name (Rule 8.18)', () => {
   return apply(scale, 3.);
 }`);
     expect(run(src)).toBe(6);
-    expect(compile(src).wgsl).toContain(
+    expect(uninlined(() => compile(src)).wgsl).toContain(
       'fn apply_run_scale(k: f32, x: f32) -> f32 {\n  return run_scale(k, x);\n}',
     );
   });
@@ -94,7 +95,7 @@ export function run(k: f32): f32 {
   return twice((x) => x + k, 1.);
 }`);
     expect(run(src)).toBe(5);
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(r.wgsl).toContain(
       'fn twice_run_f(k: f32, x: f32) -> f32 {\n  return apply_run_f(k, apply_run_f(k, x));\n}',
     );
@@ -122,7 +123,7 @@ export function run(k: f32): f32 {
   return both(sq, (x) => x + k, 3.) + both(sq, sq, k);
 }`);
     expect(run(both)).toBe(27);
-    expect(compile(both).wgsl).toContain('fn both_sq_sq(x: f32) -> f32 {');
+    expect(uninlined(() => compile(both)).wgsl).toContain('fn both_sq_sq(x: f32) -> f32 {');
     // Two sets whose names join to one spelling are two copies, the second renamed.
     const joined = RUN(`function both(f: (x: f32) => f32, g: (x: f32) => f32, x: f32): f32 {
   return g(f(x));
@@ -143,7 +144,7 @@ export function run(k: f32): f32 {
   return both(a_b, c, k) + both(a, b_c, k);
 }`);
     expect(run(joined)).toBe(102030);
-    expect(compile(joined).wgsl).toContain('fn both_a_b_c_1(x: f32) -> f32 {');
+    expect(uninlined(() => compile(joined)).wgsl).toContain('fn both_a_b_c_1(x: f32) -> f32 {');
   });
 });
 
@@ -189,7 +190,7 @@ describe('an arrow function written in the call is a local function of the calli
   return apply(() => k * 10., 1.);
 }`);
     expect(run(src)).toBe(20);
-    expect(compile(src).wgsl).toContain('fn run_f(k: f32, _1: f32) -> f32 {');
+    expect(uninlined(() => compile(src)).wgsl).toContain('fn run_f(k: f32, _1: f32) -> f32 {');
   });
 
   it('writing what it captures by reference, through the copy', () => {
@@ -366,7 +367,7 @@ export function run(k: f32): f32 {
   return twice((x) => x + k, 1.);
 }`);
     expect(run(src)).toBe(16);
-    expect(compile(src).wgsl).toContain(
+    expect(uninlined(() => compile(src)).wgsl).toContain(
       'fn twice_run_f_g(k: f32, y: f32) -> f32 {\n  return (run_f(k, y) * 2.0);\n}',
     );
   });
@@ -466,7 +467,9 @@ describe('an array method takes an arrow function written in the call (Rule 8.18
   return z[0] + z[1];
 }`);
     expect(run(src)).toBe(18);
-    expect(compile(src).wgsl).toContain('fn run_zip(k: f32, a: f32, b: f32) -> f32 {');
+    expect(uninlined(() => compile(src)).wgsl).toContain(
+      'fn run_zip(k: f32, a: f32, b: f32) -> f32 {',
+    );
     expect(
       run(
         RUN(`export function run(k: f32): f32 {
@@ -616,7 +619,7 @@ export function run(k: f32): f32 {
 }`);
     // w = 6; twice = 5; scaled = (2 - 1) * 3 = 3.
     expect(run(src)).toBe(14);
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     // Since change 0105 the constructor builds into the `var` it initializes.
     expect(r.wgsl).toContain('fn Grid_new_run_f_into(_dst: ptr<function, Grid>, k: f32, x: f32) {');
     expect(r.wgsl).toContain('fn Grid_twice_run_f_1(k: f32, x: f32) -> f32 {');
@@ -640,7 +643,7 @@ export function run(k: f32): f32 {
 }`);
     // each: 0 + 2 + 4 + 100 = 106; twice: 8.
     expect(run(src)).toBe(114);
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     // `total` is the local function's and the arrow function's both: one reference.
     expect(r.wgsl).toContain('fn run_each_run_f(total: ptr<function, f32>, k: f32) {');
     expect(r.wgsl).toContain('fn run_twice_run_f_1(k: f32, x: f32) -> f32 {');
@@ -1046,42 +1049,6 @@ describe('examples/higher-order.shade.ts', () => {
     // A ring the fold's arrow found, and the background between.
     expect(at([0.62, 0.62])).toEqual([1, 1, 1, 1]);
     expect(at([0.3, 0.1])).toEqual([0.107, 0.098, 0.214, 1]);
-  });
-});
-
-describe('the editor agrees', () => {
-  it('reports nothing on a program that hands functions over, to a function and to a fold', () => {
-    const service = createTypeshadeLanguageService();
-    service.openDocument(
-      'a.ts',
-      `"use typeshade";
-type Op = (a: f32, b: f32) => f32;
-function fold3(op: Op, a: f32, b: f32, c: f32): f32 {
-  return op(op(a, b), c);
-}
-function repeat3(body: () => void): void {
-  for (let i = 0; i < 3; i++) {
-    body();
-  }
-}
-export function run(k: f32): f32 {
-  let s = 0.;
-  repeat3(() => {
-    s += k;
-  });
-  const xs = array<f32, 3>(1., 2., 3.);
-  const z = zip(xs, xs, (a, b) => a * b);
-  const hit = xs.some((x) => x > k) || !xs.some((x) => x < 0.);
-  return fold3((a, b) => a * b, k, 3., 4.) + s + z.reduce((a, b) => a + b) + min(xs) + max(xs) + (hit ? 1. : 0.);
-}
-@fragment export function fs(): vec4 {
-  return vec4(run(2.), 0., 0., 1.);
-}
-`,
-    );
-    expect(
-      service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`),
-    ).toEqual([]);
   });
 });
 

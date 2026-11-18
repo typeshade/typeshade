@@ -99,7 +99,8 @@ export function k(out: array<u32>, x: array<u32>): void {
 }`);
     expect(kernel.noWebgl2).toBeUndefined();
     const loop = kernel.gl!.loops[0]!;
-    expect(loop.glsl).toContain('arrayLength_(');
+    expect(loop.glsl).toContain('((i + 1u) + _length0)');
+    expect(loop.glsl).not.toContain('arrayLength');
     expect(loop.uniforms.filter((uniform) => uniform.lengthOf !== undefined)).toEqual([
       expect.objectContaining({ lengthOf: 'x' }),
     ]);

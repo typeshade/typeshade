@@ -219,7 +219,8 @@ table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
   O2's `inlineSmall` (`core/passes/inline-small.ts`: a pure helper called once, or with a body
   of at most `SMALL_BODY_COST` nodes, is inlined and removed; an entry point, a recursive or
   `opaque` function, a loop, a derivative, a barrier and an `inout` parameter keep the call; a test
-  that reads the emitted text of a helper lists its file in `NO_INLINING` of `vitest.config.ts`),
+  of the emitted text of a helper reads behaviour, runs its compile through `uninlined`
+  (`core/testing/uninlined.ts`), or lists its file in `NO_INLINING` of `vitest.config.ts`),
   O2's `restructureCalls` (producer/consumer fusion, including single-use local chains,
   local aggregate splitting and shared arithmetic helpers), O2's `storageLoadReuse`
   (scalar/vector storage caches within write-free regions and proven fixed loops),

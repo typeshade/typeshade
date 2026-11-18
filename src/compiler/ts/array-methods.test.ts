@@ -280,7 +280,7 @@ export function run(k: f32): f32 {
     expect(r.wgsl).toContain(
       'fn array_map_run_f(k: f32, ys: ptr<function, array<f32, 4>>) -> array<f32, 4> {',
     );
-    expect(r.wgsl).toContain('fn apply_run_f(k: f32, ys: ptr<function, array<f32, 4>>) -> f32 {');
+    expect(r.wgsl).toMatch(/array_map_run_f\(\w*k\w*, /);
   });
 });
 

@@ -40,6 +40,7 @@ import { lowerUniformBlockValues } from '../../core/backends/glsl-block-values.j
 import { reflect } from '../../core/reflect.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { checkDocuments } from '../../language-service/check.js';
+import { uninlined } from '../../core/testing/uninlined.js';
 
 const VS = `interface VsOut {
   pos: builtin<"position">;
@@ -144,8 +145,8 @@ declare const w: uniform<W>;`,
 describe('a uniform block struct used as a value, on GLSL ES 3.00', () => {
   for (const [label, src, lines] of CASES) {
     describe(label, () => {
-      it('compile(): no diagnostic, and the value takes the twin beside the unchanged block', () => {
-        const r = compile(src);
+      it('uninlined(() => compile()): no diagnostic, and the value takes the twin beside the unchanged block', () => {
+        const r = uninlined(() => compile(src));
         expect(r.diagnostics).toEqual([]);
         expect(r.wgsl).toContain('var<uniform> u: U;');
         const glsl = r.glsl!.fragment;
@@ -234,9 +235,10 @@ describe('what does not move', () => {
 describe('the twin and its name', () => {
   it('is numbered past a name the module already has', () => {
     // `value()` on `U` is the module function `U_value`.
-    const r = compile(
-      program(
-        `class U {
+    const r = uninlined(() =>
+      compile(
+        program(
+          `class U {
   a: f32;
   b: vec2;
   value(): f32 {
@@ -245,7 +247,8 @@ describe('the twin and its name', () => {
 }
 
 declare const u: uniform<U>;`,
-        `${COPY}\n  return vec4(c.value(), v.uv.x, 0., 1.);`,
+          `${COPY}\n  return vec4(c.value(), v.uv.x, 0., 1.);`,
+        ),
       ),
     );
     expect(r.diagnostics).toEqual([]);
@@ -291,7 +294,7 @@ ${VS.replace('return {', 'const z: U = { a: 0., b: vec2(0.) };\n  const c: U = x
   return vec4(v.uv, u.a, 1.);
 }
 `;
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(r.diagnostics).toEqual([]);
     expect(r.glsl!.vertex).toContain(TWIN);
     expect(r.glsl!.vertex).toContain('  U_value c = _sel0;');
@@ -310,9 +313,10 @@ ${VS.replace('return {', 'const z: U = { a: 0., b: vec2(0.) };\n  const c: U = x
 
 describe('a call on the block itself reads it by name (Rule 8.28, change 0103)', () => {
   it('a helper and a method called on the block take no twin and rebuild nothing', () => {
-    const r = compile(
-      program(
-        `class U {
+    const r = uninlined(() =>
+      compile(
+        program(
+          `class U {
   a: f32;
   b: vec2;
   sum(): f32 {
@@ -325,7 +329,8 @@ declare const u: uniform<U>;
 function f(x: U): f32 {
   return x.a + x.b.y;
 }`,
-        '  return vec4(f(u), u.sum(), v.uv.x, 1.);',
+          '  return vec4(f(u), u.sum(), v.uv.x, 1.);',
+        ),
       ),
     );
     expect(r.diagnostics).toEqual([]);

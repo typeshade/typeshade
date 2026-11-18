@@ -14,6 +14,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { uninlined } from '../../core/testing/uninlined.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -36,13 +37,15 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 
 describe('a default fills itself in at the call site', () => {
   it('on a plain function, once per omitted argument, written or not', () => {
-    const r = compile(
-      file(
-        `function f(a: f32, b: f32 = 2., c: f32 = 3.): f32 {
+    const r = uninlined(() =>
+      compile(
+        file(
+          `function f(a: f32, b: f32 = 2., c: f32 = 3.): f32 {
   return a + b + c
 }
 `,
-        `  return vec4(f(1.), f(1., 10.), f(1., 10., 100.), 1.)`,
+          `  return vec4(f(1.), f(1., 10.), f(1., 10., 100.), 1.)`,
+        ),
       ),
     );
     expect(r.diagnostics).toEqual([]);
@@ -56,9 +59,10 @@ describe('a default fills itself in at the call site', () => {
   });
 
   it('on a method, a static and a constructor', () => {
-    const r = compile(
-      file(
-        `class Ray {
+    const r = uninlined(() =>
+      compile(
+        file(
+          `class Ray {
   o: f32
   d: f32
   at(t: f32 = 2.): f32 {
@@ -77,7 +81,8 @@ class P {
   }
 }
 `,
-        `  const r = Ray.of(1.)\n  const p = new P(5.)\n  return vec4(r.at(), r.at(10.), p.x, p.y)`,
+          `  const r = Ray.of(1.)\n  const p = new P(5.)\n  return vec4(r.at(), r.at(10.), p.x, p.y)`,
+        ),
       ),
     );
     expect(r.diagnostics).toEqual([]);
@@ -92,9 +97,10 @@ class P {
   });
 
   it('reads the module scope, and an integer default takes the parameter kind', () => {
-    const r = compile(
-      file(
-        `const K: f32 = 0.25
+    const r = uninlined(() =>
+      compile(
+        file(
+          `const K: f32 = 0.25
 namespace N {
   export const H: f32 = 0.5
   export function f(a: f32, b: f32 = H): f32 {
@@ -108,7 +114,8 @@ function n(a: i32, b: i32 = 3): i32 {
   return a + b
 }
 `,
-        `  return vec4(g(1.), N.f(1.), f32(n(1)), 1.)`,
+          `  return vec4(g(1.), N.f(1.), f32(n(1)), 1.)`,
+        ),
       ),
     );
     expect(r.diagnostics).toEqual([]);
@@ -120,28 +127,32 @@ function n(a: i32, b: i32 = 3): i32 {
   });
 
   it('resolves a default that calls a function with a default, in either order', () => {
-    const later = compile(
-      file(
-        `function f(a: f32 = g()): f32 {
+    const later = uninlined(() =>
+      compile(
+        file(
+          `function f(a: f32 = g()): f32 {
   return a * 2.
 }
 function g(b: f32 = 3.): f32 {
   return b + 1.
 }
 `,
-        `  return vec4(f(), 0., 0., 1.)`,
+          `  return vec4(f(), 0., 0., 1.)`,
+        ),
       ),
     );
-    const earlier = compile(
-      file(
-        `function g(b: f32 = 3.): f32 {
+    const earlier = uninlined(() =>
+      compile(
+        file(
+          `function g(b: f32 = 3.): f32 {
   return b + 1.
 }
 function f(a: f32 = g()): f32 {
   return a * 2.
 }
 `,
-        `  return vec4(f(), 0., 0., 1.)`,
+          `  return vec4(f(), 0., 0., 1.)`,
+        ),
       ),
     );
     for (const r of [later, earlier]) {
@@ -314,7 +325,7 @@ describe('the arity message counts the defaults', () => {
       ),
     );
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('f(1.0, 2.0)');
+    expect(r.wgsl).toContain('vec4<f32>(3.0,');
     expect(
       errorsOf(
         file(
