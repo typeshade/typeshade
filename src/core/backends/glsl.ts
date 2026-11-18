@@ -37,7 +37,7 @@
 // glsl.test.ts (string-shape: version pragma, std140 block + engine-matched
 // offsets, in/out varyings, main()) + the headless-WebGL2 gate cover the emit.
 
-import { glslSelect } from './glsl-select.js';
+import { glslSelect, selectAsMix } from './glsl-select.js';
 import type {
   ShaderType,
   ModuleDecl,
@@ -2239,7 +2239,7 @@ function lowerForGlsl(authored: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl 
   const legalized = hoistDiscardingCtorArgs(lowerUniformBlockValues(blocks));
   // Final control-flow legalization only: no expression is hoisted/rebuilt, so the
   // discarding-ctor invariant above survives. ANGLE's HLSL forbids switch continues.
-  return lowerSwitchContinues(legalized);
+  return lowerSwitchContinues(selectAsMix(legalized));
 }
 
 /** The SPELLING half: turn an already-lowered module into one stage's GLSL text.
