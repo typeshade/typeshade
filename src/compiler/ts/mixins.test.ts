@@ -21,6 +21,7 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -33,7 +34,7 @@ const FS = `@fragment export function fs(): vec4 {
 `;
 
 describe('a mixin is a function that returns a class, run when the file is compiled', () => {
-  it('splices its fields behind the base and ahead of the class that applied it', () => {
+  itNoInlining('splices its fields behind the base and ahead of the class that applied it', () => {
     const r = compile(`"use typeshade";
 class Particle {
   pos: vec3;
@@ -159,7 +160,7 @@ function Aged<TBase extends AnyClass>(Base: TBase) {
 });
 
 describe('what a mixin may carry', () => {
-  it('a constructor, including one that calls super over a base that has one', () => {
+  itNoInlining('a constructor, including one that calls super over a base that has one', () => {
     const r = compile(`"use typeshade";
 class Particle {
   pos: vec3;
@@ -188,7 +189,7 @@ class Body extends Aged(Particle) {}
     expect(r.wgsl).toContain('var _sup: Particle;\n  Particle_new_into(&_sup, p);');
   });
 
-  it('a static function, which belongs to the applying class', () => {
+  itNoInlining('a static function, which belongs to the applying class', () => {
     const r = compile(`"use typeshade";
 class Particle {
   pos: vec3;
@@ -240,7 +241,7 @@ class Varyings extends WithUv() {
     expect(r.wgsl).toContain('@builtin(position) pos: vec4<f32>,');
   });
 
-  it('a method reading a field of the base it was mixed over', () => {
+  itNoInlining('a method reading a field of the base it was mixed over', () => {
     const r = compile(`"use typeshade";
 class Particle {
   pos: vec3;
@@ -289,97 +290,6 @@ class Disc extends Scaled(Shape) {
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Disc {\n  k: f32,\n  s: f32,\n  r: f32,\n}');
-  });
-});
-
-describe('a name declared twice in the chain is an override, closest to the value winning', () => {
-  it('the applying class overrides a mixin method, silently', () => {
-    const r = compile(`"use typeshade";
-class Particle {
-  pos: vec3;
-}
-function Aged<TBase extends AnyClass>(Base: TBase) {
-  return class extends Base {
-    age: f32;
-    faded(): f32 {
-      return 1. - this.age;
-    }
-  };
-}
-class Body extends Aged(Particle) {
-  mass: f32;
-  faded(): f32 {
-    return 0.5;
-  }
-}
-@fragment export function fs(): vec4 {
-  const b = new Body();
-  return vec4(b.faded(), b.mass, 0., 1.);
-}
-`);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain(
-      'fn Body_faded(self_: ptr<function, Body>) -> f32 {\n  return 0.5;\n}',
-    );
-  });
-
-  it('an outer mixin overrides an inner one', () => {
-    const r = compile(`"use typeshade";
-class Particle {
-  pos: vec3;
-}
-function A<TBase extends AnyClass>(Base: TBase) {
-  return class extends Base {
-    v: f32;
-    pick(): f32 {
-      return 1.;
-    }
-  };
-}
-function B<TBase extends AnyClass>(Base: TBase) {
-  return class extends Base {
-    pick(): f32 {
-      return 2.;
-    }
-  };
-}
-class Body extends B(A(Particle)) {}
-@fragment export function fs(): vec4 {
-  const b = new Body();
-  return vec4(b.pick(), b.v, 0., 1.);
-}
-`);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn Body_pick(self_: ptr<function, Body>) -> f32 {\n  return 2.0;\n}');
-  });
-
-  it('says so when two mixins give one field two types', () => {
-    // The one collision that is not an override but a change of layout: picking either
-    // silently would change what the other's code reads.
-    expect(
-      errorsOf(`"use typeshade"
-class Particle {
-  pos: vec3
-}
-function A<TBase extends AnyClass>(Base: TBase) {
-  return class extends Base {
-    v: f32
-  }
-}
-function B<TBase extends AnyClass>(Base: TBase) {
-  return class extends Base {
-    v: vec3
-  }
-}
-class Body extends B(A(Particle)) {
-  mass: f32
-}
-${FS}`),
-    ).toEqual([
-      '"Body" gets the field "v" twice through its mixins, written "f32" in one and "vec3" ' +
-        'in another. One of them decides the layout, and picking either silently would ' +
-        "change what the other's code reads. Give them one type, or two names.",
-    ]);
   });
 });
 

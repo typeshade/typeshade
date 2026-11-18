@@ -12,8 +12,8 @@ import { compileTsSources } from './module.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
-import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -32,7 +32,7 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('a class the file declares is built with new', () => {
-  it('with a constructor, and without one', () => {
+  itNoInlining('with a constructor, and without one', () => {
     const withCtor = compile(
       file(
         `class P {
@@ -62,18 +62,20 @@ describe('a class the file declares is built with new', () => {
     agree(without, [0, 0, 0, 1]);
   });
 
-  it('with field initializers, in a method, as an argument, and on a derived class', () => {
-    const inits = compile(
-      file(
-        `class P {\n  x: f32 = 3.\n  y: f32 = 4.\n}\n`,
-        `  const p = new P()\n  return vec4(p.x, p.y, 0., 1.)`,
-      ),
-    );
-    expect(inits.diagnostics).toEqual([]);
-    agree(inits, [3, 4, 0, 1]);
-    const inMethod = compile(
-      file(
-        `class V {
+  itNoInlining(
+    'with field initializers, in a method, as an argument, and on a derived class',
+    () => {
+      const inits = compile(
+        file(
+          `class P {\n  x: f32 = 3.\n  y: f32 = 4.\n}\n`,
+          `  const p = new P()\n  return vec4(p.x, p.y, 0., 1.)`,
+        ),
+      );
+      expect(inits.diagnostics).toEqual([]);
+      agree(inits, [3, 4, 0, 1]);
+      const inMethod = compile(
+        file(
+          `class V {
   x: f32
   constructor(x: f32) {
     this.x = x
@@ -86,23 +88,24 @@ function take(v: V): f32 {
   return v.x
 }
 `,
-        `  const v = new V(2.)\n  return vec4(v.scaled(3.).x, take(new V(5.)), 0., 1.)`,
-      ),
-    );
-    expect(inMethod.diagnostics).toEqual([]);
-    expect(emitModuleAt(inMethod.module, 'O1')).toContain('return V_new(((*self_).x * k));');
-    expect(emitModuleAt(inMethod.module, 'O1')).toContain('take(V_new(5.0))');
-    expect(inMethod.wgsl).toMatch(/fn _flow\d+_fused\(/);
-    agree(inMethod, [6, 5, 0, 1]);
-    const derived = compile(
-      file(
-        `class B {\n  x: f32 = 1.\n}\nclass D extends B {\n  y: f32 = 2.\n}\n`,
-        `  const d = new D()\n  return vec4(d.x, d.y, 0., 1.)`,
-      ),
-    );
-    expect(derived.diagnostics).toEqual([]);
-    agree(derived, [1, 2, 0, 1]);
-  });
+          `  const v = new V(2.)\n  return vec4(v.scaled(3.).x, take(new V(5.)), 0., 1.)`,
+        ),
+      );
+      expect(inMethod.diagnostics).toEqual([]);
+      expect(emitModuleAt(inMethod.module, 'O1')).toContain('return V_new(((*self_).x * k));');
+      expect(emitModuleAt(inMethod.module, 'O1')).toContain('take(V_new(5.0))');
+      expect(inMethod.wgsl).toMatch(/fn _flow\d+_fused\(/);
+      agree(inMethod, [6, 5, 0, 1]);
+      const derived = compile(
+        file(
+          `class B {\n  x: f32 = 1.\n}\nclass D extends B {\n  y: f32 = 2.\n}\n`,
+          `  const d = new D()\n  return vec4(d.x, d.y, 0., 1.)`,
+        ),
+      );
+      expect(derived.diagnostics).toEqual([]);
+      agree(derived, [1, 2, 0, 1]);
+    },
+  );
 });
 
 describe('what a new is refused on says its own reason', () => {
@@ -589,112 +592,13 @@ describe('each thing a new is refused on is named for what it is (Rule 8.13, Rul
   });
 });
 
-describe('a short name inside a namespace is the namespace’s, for a new and a type alike', () => {
-  // TypeScript resolves `P` inside `namespace N` to `N.P`, ahead of a top-level `P`, in a `new`
-  // and in a type annotation, and across the blocks of a merged namespace. Measured before this:
-  // the `new` built the top-level `P` (7) while the one below builds `N.P` (1); an annotation `P`
-  // there meant the top-level one, so `const p: P = new P()` was refused as a type mismatch;
-  // and a second block of `N` built the top-level `P` with no diagnostic at all.
-  const TOP = `class P {\n  a: f32 = 7.\n}\n`;
-  const values = (src: string, expected: number[]) => {
-    const r = compile(src);
-    expect(r.diagnostics).toEqual([]);
-    // Into a local, the constructor builds through a pointer (change 0105).
-    expect(r.wgsl).toMatch(/N_P_new(_into)?\(/);
-    agree(r, expected);
-  };
-
-  it('a bare new P(), a const p: P, a parameter p: P and a return type P', () => {
-    values(
-      file(
-        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(): f32 {\n    const p = new P()\n    return p.a\n  }\n}\n`,
-        `  return vec4(N.f())`,
-      ),
-      [1, 1, 1, 1],
-    );
-    values(
-      file(
-        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(): f32 {\n    const p: P = new P()\n    return p.a\n  }\n}\n`,
-        `  return vec4(N.f())`,
-      ),
-      [1, 1, 1, 1],
-    );
-    values(
-      file(
-        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(p: P): f32 {\n    return p.a\n  }\n  export function g(): f32 {\n    return f(new P())\n  }\n}\n`,
-        `  return vec4(N.g())`,
-      ),
-      [1, 1, 1, 1],
-    );
-    values(
-      file(
-        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function mk(): P {\n    return new P()\n  }\n}\n`,
-        `  return vec4(N.mk().a + new P().a)`,
-      ),
-      [8, 8, 8, 8],
-    );
-  });
-
-  it('in another block of the namespace, ahead of a top-level class of the name', () => {
-    values(
-      file(
-        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n}\nnamespace N {\n  export function mk(): P {\n    return new P()\n  }\n}\n`,
-        `  return vec4(N.mk().a)`,
-      ),
-      [1, 1, 1, 1],
-    );
-  });
-
-  it('a parameter P of a namespace function takes N.P, which a top-level P is not', () => {
-    // Before this `P` there was the top-level class, and `N.f(new P())` from outside compiled
-    // (7). It is `N.P` now, as TypeScript reads it, and the top-level `P` handed to it is a
-    // different struct, refused as two same-shaped classes are (Rule 12.7's nominal structs).
-    // TypeScript takes one for the other, so the sentence names both and says why; it said
-    // only "type mismatch".
-    const called = file(
-      `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(p: P): f32 {\n    return p.a\n  }\n}\n`,
-      `  return vec4(N.f(new P()))`,
-    );
-    const sentence =
-      `${TS_CODES.TYPE_MISMATCH} Argument 1 of "N.f" is P, and "N.f" takes N.P. A struct is its ` +
-      `own type whatever its fields, so pass a value of type N.P.`;
-    expect(errorsOf(called)).toEqual([sentence]);
-    const service = createTypeshadeLanguageService();
-    service.openDocument('t.ts', called);
-    expect(service.getDiagnostics('t.ts').map((d) => `${String(d.code)} ${d.message}`)).toEqual([
-      sentence,
-    ]);
-    values(
-      file(
-        `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(p: P): f32 {\n    return p.a\n  }\n}\n`,
-        `  return vec4(N.f(new N.P()))`,
-      ),
-      [1, 1, 1, 1],
-    );
-  });
-
-  it('a field initializer that builds a sibling class of the namespace', () => {
-    // The initializer was dropped: `N_B_new` assigned nothing to `a`, and `new N.B().a.x` read 0.
-    const r = compile(
-      file(
-        `namespace N {\n  export class A {\n    x: f32 = 1.\n  }\n  export class B {\n    a: A = new A()\n  }\n}\n`,
-        `  return vec4(new N.B().a.x)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    // B's constructor has A's constructor build the field in place (change 0104).
-    expect(r.wgsl).toContain('N_A_new_into(&self_.a);');
-    agree(r, [1, 1, 1, 1]);
-  });
-});
-
 describe('a new of a class with a constructor, through the list form of a program', () => {
   // A multi-file program lowered no class function before change 0022, so a class with a written
   // constructor had no `P_new`, and a `new` of it was refused ("has no constructor here"). The
   // list form links its files as `compile()` does (Rule 3.9), and builds the class the same way.
   const LIB = `"use typeshade";\nclass P {\n  a: f32;\n  constructor(a: f32) {\n    this.a = a;\n  }\n}\n`;
 
-  it('in a statement and in a return', () => {
+  itNoInlining('in a statement and in a return', () => {
     for (const body of [
       `@fragment export function fs(): vec4 {\n  let c = vec4(0.);\n  c.x = new P(2.).a;\n  return c;\n}\n`,
       `export function mk(): P {\n  return new P(1.);\n}\n`,

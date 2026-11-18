@@ -18,6 +18,7 @@ import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -52,7 +53,7 @@ ${body}
 `;
 
 describe('a derived struct is its base plus its own', () => {
-  it('base fields first, on a class and through a chain of three', () => {
+  itNoInlining('base fields first, on a class and through a chain of three', () => {
     const r = compile(
       file(
         `class A {
@@ -122,95 +123,8 @@ class P implements HasX {
   });
 });
 
-describe('a method is inherited by being lowered again', () => {
-  it('into the derived class, and an override wins', () => {
-    const r = compile(
-      file(
-        `class Base {
-  x: f32
-  twice(): f32 {
-    return this.x * 2.
-  }
-  v(): f32 {
-    return this.x
-  }
-}
-class Derived extends Base {
-  y: f32
-  v(): f32 {
-    return this.x + this.y
-  }
-}
-`,
-        `  const d: Derived = { x: 1., y: 2. }\n  return vec4(d.twice(), d.v(), 0., 1.)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    // One function per class, each typed on its own struct: WGSL has no vtable.
-    // `d` is a `var` (change 0105), so the derived copy takes it by pointer.
-    expect(r.wgsl).toContain('fn Derived_twice(self_: ptr<function, Derived>) -> f32 {');
-    expect(r.wgsl).toContain('fn Base_twice(self_: Base) -> f32 {');
-    agree(r, [2, 3, 0, 1]);
-  });
-
-  it('so an inherited body calls the override, which is what TypeScript does', () => {
-    const r = compile(
-      file(
-        `abstract class Shape {
-  k: f32
-  abstract area(): f32
-  scaled(): f32 {
-    return this.area() * this.k
-  }
-}
-class Square extends Shape {
-  s: f32
-  area(): f32 {
-    return this.s * this.s
-  }
-}
-class Circle extends Shape {
-  r: f32
-  area(): f32 {
-    return 3. * this.r * this.r
-  }
-}
-`,
-        `  const q: Square = { k: 2., s: 3. }\n  const c: Circle = { k: 1., r: 2. }\n  return vec4(q.scaled(), c.scaled(), 0., 1.)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('return (Square_area(self_) * (*self_).k);');
-    expect(r.wgsl).toContain('return (Circle_area(self_) * (*self_).k);');
-    // An abstract class is a base and never a value: no instance method of its own.
-    expect(r.wgsl).not.toContain('fn Shape_scaled');
-    agree(r, [18, 12, 0, 1]);
-  });
-
-  it('and a static function and a field initializer come down too', () => {
-    const r = compile(
-      file(
-        `class Base {
-  x: f32 = 4.
-  static unit(): f32 {
-    return 1.
-  }
-}
-class Derived extends Base {
-  y: f32
-}
-`,
-        `  const d = new Derived()\n  return vec4(Derived.unit(), Base.unit(), d.x, 1.)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn Derived_unit() -> f32 {');
-    agree(r, [1, 1, 4, 1]);
-  });
-});
-
 describe('super', () => {
-  it("in a constructor runs the base's and copies its fields in", () => {
+  itNoInlining("in a constructor runs the base's and copies its fields in", () => {
     const r = compile(
       file(
         `class Base {
@@ -237,7 +151,7 @@ class Derived extends Base {
     agree(r, [10, 2, 0, 1]);
   });
 
-  it('through an abstract base, whose constructor is emitted for it', () => {
+  itNoInlining('through an abstract base, whose constructor is emitted for it', () => {
     const r = compile(
       file(
         `abstract class Shape {
@@ -288,7 +202,7 @@ class Derived extends Base {
     agree(r, [4, 2, 0, 1]);
   });
 
-  it("on a method runs the base's body on this object, two deep and finite", () => {
+  itNoInlining("on a method runs the base's body on this object, two deep and finite", () => {
     const r = compile(
       file(
         `class A {

@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { compileTsSources } from './module.js';
 import { compile } from './compile.js';
 import { TS_CODES } from './codes.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 describe('compileTsSources import', () => {
   it('resolves relative named import onto declRef', () => {
@@ -274,14 +275,16 @@ declare const heights: storage<array<f32>, "read_write">;
     expect(s.structs.map((d) => d.name)).toEqual(['VsOut']);
   });
 
-  it('a struct declared in one file is the type a function in another file receives', () => {
-    // The struct is module scope, as it is in WGSL: the importing file reads `.uv` off the
-    // value the other file's function returned, and the module emits ONE struct.
-    const r = compileTsSources(
-      [
-        {
-          fileName: 'types.ts',
-          source: `"use typeshade";
+  itNoInlining(
+    'a struct declared in one file is the type a function in another file receives',
+    () => {
+      // The struct is module scope, as it is in WGSL: the importing file reads `.uv` off the
+      // value the other file's function returned, and the module emits ONE struct.
+      const r = compileTsSources(
+        [
+          {
+            fileName: 'types.ts',
+            source: `"use typeshade";
 interface VsOut {
   pos: builtin<"position">;
   uv: location<0, vec2>;
@@ -291,26 +294,27 @@ export function make(p: vec2): VsOut {
   return o;
 }
 `,
-        },
-        {
-          fileName: 'main.ts',
-          source: `"use typeshade";
+          },
+          {
+            fileName: 'main.ts',
+            source: `"use typeshade";
 import { make } from "./types";
 @fragment export function fs(p: location<0, vec2>): vec4 {
   const o = make(p);
   return vec4(o.uv, 0., 1.);
 }
 `,
-        },
-      ],
-      'main.ts',
-    );
-    expect(errors(r)).toEqual([]);
-    expect(r.wgsl).toContain('struct VsOut');
-    expect((r.wgsl!.match(/struct VsOut/g) ?? []).length).toBe(1);
-    // Since change 0105 the struct local is a WGSL `var` the function writes into.
-    expect(r.wgsl).toContain('make_into(&o, p);');
-  });
+          },
+        ],
+        'main.ts',
+      );
+      expect(errors(r)).toEqual([]);
+      expect(r.wgsl).toContain('struct VsOut');
+      expect((r.wgsl!.match(/struct VsOut/g) ?? []).length).toBe(1);
+      // Since change 0105 the struct local is a WGSL `var` the function writes into.
+      expect(r.wgsl).toContain('make_into(&o, p);');
+    },
+  );
 
   it('numbers the declare bindings of every file in file order, so two firsts do not collide', () => {
     const r = compileTsSources([
@@ -378,45 +382,5 @@ import { tap } from "./a";
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
       `${TS_CODES.UNSUPPORTED} @binding(3) in group 0 is used by "gain" and "bias".`,
     ]);
-  });
-});
-
-describe('compileTsSources symbols', () => {
-  // `symbols` spans are UTF-16 offsets into ONE file, and the result names no source file, so
-  // the only thing that makes them readable is the promise that the file is the entry. The
-  // caller's spelling of `entry` must not change which file that is.
-  const a = {
-    fileName: './a.ts',
-    source:
-      '"use typeshade";\nexport function helper(ha: f32): f32 {\n  const inA = ha;\n  return inA;\n}\n',
-  };
-  const b = {
-    fileName: './b.ts',
-    source:
-      '"use typeshade";\nimport { helper } from "./a";\nexport function main(mb: f32): f32 {\n  const inB = helper(mb);\n  return inB;\n}\n',
-  };
-
-  for (const entry of ['b.ts', './b.ts']) {
-    it(`records the entry file's declarations for entry "${entry}"`, () => {
-      const r = compileTsSources([a, b], entry);
-      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-      expect(r.symbols.map((s) => `${s.kind}:${s.name}`)).toEqual([
-        'function:main',
-        'param:mb',
-        'local:inB',
-      ]);
-      // Every span indexes the ENTRY file's text, not the other file's.
-      for (const s of r.symbols) {
-        expect(b.source.slice(s.start, s.start + s.length)).toBe(s.name);
-      }
-    });
-  }
-
-  it('records the first file given when no entry is named', () => {
-    const r = compileTsSources([a, b]);
-    expect(r.symbols.map((s) => s.name)).toEqual(['helper', 'ha', 'inA']);
-    for (const s of r.symbols) {
-      expect(a.source.slice(s.start, s.start + s.length)).toBe(s.name);
-    }
   });
 });

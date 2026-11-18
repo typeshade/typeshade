@@ -13,6 +13,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -26,7 +27,7 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('a local function is a function of the module', () => {
-  it('named after the body that declares it, in both spellings', () => {
+  itNoInlining('named after the body that declares it, in both spellings', () => {
     const arrow = compile(`"use typeshade";
 @fragment export function fs(): vec4 {
   const f = (x: f32): f32 => x * 2.;
@@ -51,7 +52,7 @@ describe('a local function is a function of the module', () => {
     agree(expr, [9, 0, 0, 1]);
   });
 
-  it('so two bodies may each declare an "f"', () => {
+  itNoInlining('so two bodies may each declare an "f"', () => {
     const r = compile(`"use typeshade";
 function g(): f32 {
   const f = (x: f32): f32 => x * 10.;
@@ -68,7 +69,7 @@ function g(): f32 {
     agree(r, [200, 20, 0, 1]);
   });
 
-  it('with a block body, a nested one, and a module const in reach', () => {
+  itNoInlining('with a block body, a nested one, and a module const in reach', () => {
     const r = compile(`"use typeshade";
 const K: f32 = 4.;
 @fragment export function fs(): vec4 {
@@ -85,17 +86,19 @@ const K: f32 = 4.;
     agree(r, [16, 0, 0, 1]);
   });
 
-  it('at the module top level it is already one, and in a namespace it takes the flattened name', () => {
-    const top = compile(`"use typeshade";
+  itNoInlining(
+    'at the module top level it is already one, and in a namespace it takes the flattened name',
+    () => {
+      const top = compile(`"use typeshade";
 const half = (x: f32): f32 => x * 0.5;
 @fragment export function fs(): vec4 {
   return vec4(half(3.), 0., 0., 1.);
 }
 `);
-    expect(top.diagnostics).toEqual([]);
-    expect(top.wgsl).toContain('fn half(x: f32) -> f32 {');
-    agree(top, [1.5, 0, 0, 1]);
-    const ns = compile(`"use typeshade";
+      expect(top.diagnostics).toEqual([]);
+      expect(top.wgsl).toContain('fn half(x: f32) -> f32 {');
+      agree(top, [1.5, 0, 0, 1]);
+      const ns = compile(`"use typeshade";
 namespace N {
   export const twice = (x: f32): f32 => x * 2.;
   export function use(x: f32): f32 {
@@ -106,14 +109,15 @@ namespace N {
   return vec4(N.use(3.), 0., 0., 1.);
 }
 `);
-    expect(ns.diagnostics).toEqual([]);
-    expect(ns.wgsl).toContain('fn N_twice(x: f32) -> f32 {');
-    agree(ns, [6, 0, 0, 1]);
-  });
+      expect(ns.diagnostics).toEqual([]);
+      expect(ns.wgsl).toContain('fn N_twice(x: f32) -> f32 {');
+      agree(ns, [6, 0, 0, 1]);
+    },
+  );
 });
 
 describe('a local function reads the body around it (Rule 8.17)', () => {
-  it('an entry parameter, which every call passes', () => {
+  itNoInlining('an entry parameter, which every call passes', () => {
     const r = compile(`"use typeshade";
 @fragment export function fs(uv: location<0, vec2>): vec4 {
   const f = (x: f32): f32 => x * uv.x;

@@ -14,6 +14,7 @@ import { emitGlslModule } from '../../core/backends/glsl.js';
 import { froundF32 } from '../../core/passes/precision.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { SHADE_DTS } from '../../language-service/ambient.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 /** A call of each internal operation with arguments of its types. */
 const CALLS: Readonly<Record<string, string>> = {
@@ -173,7 +174,7 @@ export function hi(x: f64): u32 { return __f64Hi(x); }
     expect(() => emitModule(rounded)).toThrow('"__fround" is CPU-only');
   });
 
-  it('a module that declares a function under the name is emitted, and calls it', () => {
+  itNoInlining('a module that declares a function under the name is emitted, and calls it', () => {
     const r = compile(`"use typeshade";
 function __f64Hi(x: f32): f32 { return x + 1.0; }
 @fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(__f64Hi(uv.x), 0., 0., 1.); }

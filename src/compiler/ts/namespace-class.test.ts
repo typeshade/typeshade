@@ -16,6 +16,7 @@ import { stageOf } from '../../core/ir/index.js';
 import { compileTsSource } from './source-file.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -29,7 +30,7 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('a class inside a namespace is the struct Ns_P', () => {
-  it('with its constructor and its methods, built from inside the namespace', () => {
+  itNoInlining('with its constructor and its methods, built from inside the namespace', () => {
     const r = compile(`"use typeshade";
 namespace N {
   export class P {
@@ -67,7 +68,7 @@ namespace N {
     agree(r, [6, 0, 0, 1]);
   });
 
-  it('and from outside it, written N.P', () => {
+  itNoInlining('and from outside it, written N.P', () => {
     const r = compile(`"use typeshade";
 namespace N {
   export class P {

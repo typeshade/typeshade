@@ -7,6 +7,7 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 function check(body: string, expected: number) {
   const r = compile(
@@ -27,21 +28,24 @@ function check(body: string, expected: number) {
 }
 
 describe('value parameter rebinding', () => {
-  it('reads the input before a conditional write, and leaves its caller unchanged', () => {
-    const r = check(
-      `function f(a: f32, change: bool): f32 { const before = a; if (change) { a += 3.; } return before + a; }
+  itNoInlining(
+    'reads the input before a conditional write, and leaves its caller unchanged',
+    () => {
+      const r = check(
+        `function f(a: f32, change: bool): f32 { const before = a; if (change) { a += 3.; } return before + a; }
 export function run(): f32 { let a = 2.; return f(a, true) + f(a, false) + a; }`,
-      13,
-    );
-    expect(r.module.funcs.find((f) => f.name === 'f')!.params.map((p) => p.name)).toEqual([
-      'a',
-      'change',
-    ]);
-    expect(r.wgsl).toContain('var a_1: f32 = a;');
-    expect(r.wgsl).not.toContain('var change');
-  });
+        13,
+      );
+      expect(r.module.funcs.find((f) => f.name === 'f')!.params.map((p) => p.name)).toEqual([
+        'a',
+        'change',
+      ]);
+      expect(r.wgsl).toContain('var a_1: f32 = a;');
+      expect(r.wgsl).not.toContain('var change');
+    },
+  );
 
-  it('reserves input names before copies and handles lexical shadowing', () => {
+  itNoInlining('reserves input names before copies and handles lexical shadowing', () => {
     const r = check(
       `function f(a: f32, a_1: f32): f32 { { let a = 7.; a += 1.; } a += a_1; return a; }
 function untouched(a: f32): f32 { { let a = 5.; a++; } return a; }
@@ -64,15 +68,18 @@ export function run(): f32 { return f32(f(2)); }`,
     );
   });
 
-  it('does not hide module functions or struct constructors behind generated locals', () => {
-    const r = check(
-      `function a_1(): f32 { return 3.; }
+  itNoInlining(
+    'does not hide module functions or struct constructors behind generated locals',
+    () => {
+      const r = check(
+        `function a_1(): f32 { return 3.; }
 function f(a: f32): f32 { a += a_1(); return a; }
 export function run(): f32 { return f(2.); }`,
-      5,
-    );
-    expect(r.wgsl).toContain('var a_2: f32 = a;');
-  });
+        5,
+      );
+      expect(r.wgsl).toContain('var a_2: f32 = a;');
+    },
+  );
 
   it('shares a copied parameter with read and write closures', () => {
     check(

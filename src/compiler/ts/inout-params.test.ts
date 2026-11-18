@@ -31,6 +31,7 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { dispatchCompute } from '../../core/debug/dispatch.js';
 import { fnWrites } from '../../core/passes/effects.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const LOCAL = `"use typeshade";
 class P {
@@ -51,7 +52,7 @@ class P {
 `;
 
 describe('WGSL spells it as a pointer, and reads through it', () => {
-  it('the parameter, the body and the argument', () => {
+  itNoInlining('the parameter, the body and the argument', () => {
     const r = compile(LOCAL);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn P_bump(self_: ptr<function, P>, d: f32) {');
@@ -87,7 +88,7 @@ class P {
 });
 
 describe('GLSL ES 3.00 spells it inout, with no pointer and one function', () => {
-  it('the parameter, the body and the argument', () => {
+  itNoInlining('the parameter, the body and the argument', () => {
     const r = compile(LOCAL);
     expect(r.diagnostics).toEqual([]);
     const g = r.glsl!.fragment;

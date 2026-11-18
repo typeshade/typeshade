@@ -14,6 +14,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -32,7 +33,7 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('a namespace is a group of functions and constants', () => {
-  it('flattens its members to Ns_member, on both targets', () => {
+  itNoInlining('flattens its members to Ns_member, on both targets', () => {
     const r = compile(
       file(
         `namespace Palette {
@@ -81,10 +82,12 @@ namespace A {
     agree(r, [3, 2, 0.5, 1]);
   });
 
-  it('nests, in both spellings, and a member namespace takes its short name inside the parent', () => {
-    const nested = compile(
-      file(
-        `namespace A {
+  itNoInlining(
+    'nests, in both spellings, and a member namespace takes its short name inside the parent',
+    () => {
+      const nested = compile(
+        file(
+          `namespace A {
   export namespace B {
     export function two(): f32 {
       return 2.
@@ -95,21 +98,22 @@ namespace A {
   }
 }
 `,
-        `  return vec4(A.four(), A.B.two(), 0., 1.)`,
-      ),
-    );
-    expect(nested.diagnostics).toEqual([]);
-    expect(nested.wgsl).toContain('fn A_B_two() -> f32 {');
-    agree(nested, [4, 2, 0, 1]);
-    const dotted = compile(
-      file(
-        `namespace A.B {\n  export function two(): f32 {\n    return 2.\n  }\n}\n`,
-        `  return vec4(A.B.two(), 0., 0., 1.)`,
-      ),
-    );
-    expect(dotted.diagnostics).toEqual([]);
-    expect(dotted.wgsl).toContain('fn A_B_two() -> f32 {');
-  });
+          `  return vec4(A.four(), A.B.two(), 0., 1.)`,
+        ),
+      );
+      expect(nested.diagnostics).toEqual([]);
+      expect(nested.wgsl).toContain('fn A_B_two() -> f32 {');
+      agree(nested, [4, 2, 0, 1]);
+      const dotted = compile(
+        file(
+          `namespace A.B {\n  export function two(): f32 {\n    return 2.\n  }\n}\n`,
+          `  return vec4(A.B.two(), 0., 0., 1.)`,
+        ),
+      );
+      expect(dotted.diagnostics).toEqual([]);
+      expect(dotted.wgsl).toContain('fn A_B_two() -> f32 {');
+    },
+  );
 });
 
 describe('a namespace does not hide a cycle', () => {

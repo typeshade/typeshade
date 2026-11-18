@@ -15,6 +15,7 @@ import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const FRAGMENT = `interface VsOut { pos: builtin<"position">; uv: location<0, vec2>; }
 interface Color { color: location<0, vec4>; }
@@ -186,7 +187,7 @@ function run(): f32 {
     expect(glsl).toContain('Hit probe(float k)');
   });
 
-  it("a constructor builds the caller's local itself, through its returned local", () => {
+  itNoInlining("a constructor builds the caller's local itself, through its returned local", () => {
     const { wgsl } = runs(
       `class P { x: f32; y: f32; constructor(a: f32) { this.x = a; this.y = a * 3.; } }
 function run(): f32 {
@@ -200,7 +201,7 @@ function run(): f32 {
     expect(fnText(wgsl, 'run')).toContain('P_new_into(&p, 2.0);');
   });
 
-  it('keeps the copy when an argument reads the destination', () => {
+  itNoInlining('keeps the copy when an argument reads the destination', () => {
     const { wgsl } = runs(
       `${HIT}
 function bump(h: Hit, k: f32): Hit { return { t: h.t + k, n: h.n, ok: h.ok }; }
@@ -224,24 +225,27 @@ class Ship {
   total(): f32 { return this.leg(0) + this.leg(1); }
 }`;
 
-  it('item 1: a struct local built by a value is a place, so its methods take a pointer', () => {
-    const { wgsl: optimized, module } = runs(
-      `${SHIP}
+  itNoInlining(
+    'item 1: a struct local built by a value is a place, so its methods take a pointer',
+    () => {
+      const { wgsl: optimized, module } = runs(
+        `${SHIP}
 function run(): f32 {
   const ship = new Ship(2.);
   return ship.total();
 }`,
-      4 + 8,
-    );
-    // Pin the pointer ABI before O2 connects and fuses the constructor and method.
-    const wgsl = emitModuleAt(module, 'O1');
-    expect(optimized).toMatch(/fn _flow\d+_fused\(/);
-    const run = fnText(wgsl, 'run');
-    expect(run).toContain('var ship: Ship;');
-    expect(run).toMatch(/Ship_total\(&ship\)/);
-    expect(wgsl).not.toContain('_value(');
-    expect(wgsl).toMatch(/fn Ship_leg\(self_: ptr<function, Ship>, i: i32\)/);
-  });
+        4 + 8,
+      );
+      // Pin the pointer ABI before O2 connects and fuses the constructor and method.
+      const wgsl = emitModuleAt(module, 'O1');
+      expect(optimized).toMatch(/fn _flow\d+_fused\(/);
+      const run = fnText(wgsl, 'run');
+      expect(run).toContain('var ship: Ship;');
+      expect(run).toMatch(/Ship_total\(&ship\)/);
+      expect(wgsl).not.toContain('_value(');
+      expect(wgsl).toMatch(/fn Ship_leg\(self_: ptr<function, Ship>, i: i32\)/);
+    },
+  );
 
   it("item 1: a builtin's result struct stays a let, since WGSL cannot name its type", () => {
     const source = `"use typeshade";
@@ -257,7 +261,7 @@ const out = storage<array<u32>, "read_write">();
     expect(fnText(r.wgsl!, 'cs')).toMatch(/let claim = atomicCompareExchangeWeak\(/);
   });
 
-  it('item 2: a struct returned into a storage element is written there', () => {
+  itNoInlining('item 2: a struct returned into a storage element is written there', () => {
     const source = `"use typeshade";
 class Hit { t: f32; n: vec3f; }
 const out = storage<array<Hit>, "read_write">();
@@ -272,9 +276,11 @@ function probe(k: f32): Hit { return { t: k * 2., n: vec3f(k) }; }
     expect(fnText(r.wgsl!, 'main')).toContain('probe_into(&out[g.x], f32(g.x));');
   });
 
-  it('item 2: a struct returned into a module variable is written there, unless the callee reads it', () => {
-    const { wgsl } = runs(
-      `class Hit { t: f32; n: vec3f; }
+  itNoInlining(
+    'item 2: a struct returned into a module variable is written there, unless the callee reads it',
+    () => {
+      const { wgsl } = runs(
+        `class Hit { t: f32; n: vec3f; }
 let last: Hit = { t: 0., n: vec3f(0.) };
 function probe(k: f32): Hit { return { t: k * 2., n: vec3f(k) }; }
 function again(k: f32): Hit { return { t: last.t + k, n: last.n }; }
@@ -284,12 +290,13 @@ function run(): f32 {
   last = again(1.);
   return a + last.t;
 }`,
-      6 + 7,
-    );
-    const run = fnText(wgsl, 'run');
-    expect(run).toContain('probe_into(&last, 3.0);');
-    expect(run).toMatch(/last = again\(1\.0\);/);
-  });
+        6 + 7,
+      );
+      const run = fnText(wgsl, 'run');
+      expect(run).toContain('probe_into(&last, 3.0);');
+      expect(run).toMatch(/last = again\(1\.0\);/);
+    },
+  );
 
   it('item 4: a write to another element or another field keeps the local in place', () => {
     const { module } = runs(
@@ -334,7 +341,7 @@ function run(): f32 {
     );
   });
 
-  it('item 3: an index a call of the module computes is still bound once', () => {
+  itNoInlining('item 3: an index a call of the module computes is still bound once', () => {
     const { wgsl } = runs(
       `${Q}
 function pick(k: i32): i32 { return k & 1; }
