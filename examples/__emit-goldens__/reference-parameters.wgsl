@@ -35,17 +35,10 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs(v: VsOut) -> Color {
   var a: f32 = v.uv.x;
   var b: f32 = v.uv.y;
-  var _list_0: f32;
-  var _list_1: f32;
-  if ((a > b)) {
-    _list_0 = b;
-    _list_1 = a;
-  } else {
-    _list_0 = a;
-    _list_1 = b;
-  }
-  a = _list_0;
-  b = _list_1;
+  let _ifc0 = (a > b);
+  let _ifc1 = select(a, b, _ifc0);
+  b = select(b, a, _ifc0);
+  a = _ifc1;
   var r: Ray = Ray(vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 0.0));
   r.origin = v.uv;
   r.dir = vec2<f32>(0.5, -0.25);

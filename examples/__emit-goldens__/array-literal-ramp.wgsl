@@ -21,9 +21,7 @@ fn fs(v: VsOut) -> Color {
   var stops: array<vec3<f32>, 3> = array<vec3<f32>, 3>(vec3<f32>(0.1, 0.1, 0.35), vec3<f32>(0.9, 0.4, 0.2), vec3<f32>(1.0, 0.95, 0.7));
   var weights: array<i32, 3> = array<i32, 3>(1, 2, 1);
   var band: i32 = i32((v.uv.x * 3.0));
-  if ((band > 2)) {
-    band = 2;
-  }
+  band = select(band, 2, (band > 2));
   let w = (f32(weights[band]) * 0.25);
   let c = (stops[band] * (0.75 + w));
   return Color(vec4<f32>(c, 1.0));

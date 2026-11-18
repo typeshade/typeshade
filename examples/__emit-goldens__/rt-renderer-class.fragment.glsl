@@ -127,25 +127,21 @@ Hit Scene_raymarch(Scene self_, Ray ray, float maxDistance) {
     float _i13_closestDistance = MAX_DISTANCE;
     int _i13_closestObjectIndex = -1;
     float _i13_sphereDistance = SDF_SdfSphere_distanceTo(_licm2, point);
-    if ((_i13_sphereDistance < _i13_closestDistance)) {
-      _i13_closestDistance = _i13_sphereDistance;
-      _i13_closestObjectIndex = 0;
-    }
+    bool _ifc0 = (_i13_sphereDistance < _i13_closestDistance);
+    _i13_closestDistance = (_ifc0 ? _i13_sphereDistance : _i13_closestDistance);
+    _i13_closestObjectIndex = (_ifc0 ? 0 : _i13_closestObjectIndex);
     float _i13_boxDistance = SDF_SdfBox_distanceTo(_licm3, point);
-    if ((_i13_boxDistance < _i13_closestDistance)) {
-      _i13_closestDistance = _i13_boxDistance;
-      _i13_closestObjectIndex = 1;
-    }
+    bool _ifc1 = (_i13_boxDistance < _i13_closestDistance);
+    _i13_closestDistance = (_ifc1 ? _i13_boxDistance : _i13_closestDistance);
+    _i13_closestObjectIndex = (_ifc1 ? 1 : _i13_closestObjectIndex);
     float _i13_torusDistance = SDF_SdfTorus_distanceTo(_licm4, point);
-    if ((_i13_torusDistance < _i13_closestDistance)) {
-      _i13_closestDistance = _i13_torusDistance;
-      _i13_closestObjectIndex = 2;
-    }
+    bool _ifc2 = (_i13_torusDistance < _i13_closestDistance);
+    _i13_closestDistance = (_ifc2 ? _i13_torusDistance : _i13_closestDistance);
+    _i13_closestObjectIndex = (_ifc2 ? 2 : _i13_closestObjectIndex);
     float _i13_groundDistance = (point.y - _licm5);
-    if ((_i13_groundDistance < _i13_closestDistance)) {
-      _i13_closestDistance = _i13_groundDistance;
-      _i13_closestObjectIndex = 3;
-    }
+    bool _ifc3 = (_i13_groundDistance < _i13_closestDistance);
+    _i13_closestDistance = (_ifc3 ? _i13_groundDistance : _i13_closestDistance);
+    _i13_closestObjectIndex = (_ifc3 ? 3 : _i13_closestObjectIndex);
     Hit _i13ret = Hit_new(_i13_closestDistance, _i13_closestObjectIndex);
     if ((_i13ret.distance < SURFACE_EPSILON)) {
       objectIndex = _i13ret.objectIndex;
@@ -178,25 +174,21 @@ Hit _flow22_fused(Scene _flow0_input, vec3 _flow1_input, vec3 _flow2_input, floa
     float _flow11_local = MAX_DISTANCE;
     int _flow12_local = -1;
     float _flow13_local = SDF_SdfSphere_distanceTo(_licm0, _flow10_local);
-    if ((_flow13_local < _flow11_local)) {
-      _flow11_local = _flow13_local;
-      _flow12_local = 0;
-    }
+    bool _ifc0 = (_flow13_local < _flow11_local);
+    _flow11_local = (_ifc0 ? _flow13_local : _flow11_local);
+    _flow12_local = (_ifc0 ? 0 : _flow12_local);
     float _flow14_local = SDF_SdfBox_distanceTo(_licm1, _flow10_local);
-    if ((_flow14_local < _flow11_local)) {
-      _flow11_local = _flow14_local;
-      _flow12_local = 1;
-    }
+    bool _ifc1 = (_flow14_local < _flow11_local);
+    _flow11_local = (_ifc1 ? _flow14_local : _flow11_local);
+    _flow12_local = (_ifc1 ? 1 : _flow12_local);
     float _flow15_local = SDF_SdfTorus_distanceTo(_licm2, _flow10_local);
-    if ((_flow15_local < _flow11_local)) {
-      _flow11_local = _flow15_local;
-      _flow12_local = 2;
-    }
+    bool _ifc2 = (_flow15_local < _flow11_local);
+    _flow11_local = (_ifc2 ? _flow15_local : _flow11_local);
+    _flow12_local = (_ifc2 ? 2 : _flow12_local);
     float _flow16_local = (_flow10_local.y - _licm3);
-    if ((_flow16_local < _flow11_local)) {
-      _flow11_local = _flow16_local;
-      _flow12_local = 3;
-    }
+    bool _ifc3 = (_flow16_local < _flow11_local);
+    _flow11_local = (_ifc3 ? _flow16_local : _flow11_local);
+    _flow12_local = (_ifc3 ? 3 : _flow12_local);
     Hit _flow31_whole = Hit_new(_flow11_local, _flow12_local);
     float _flow27_part = _flow31_whole.distance;
     int _flow28_part = _flow31_whole.objectIndex;
@@ -298,9 +290,7 @@ vec3 Renderer_trace(Renderer self_, Ray primaryRay, float seed0) {
     vec3 _i18_lightDirection_ = normalize(_i18_toLight);
     vec3 _gv0 = (point + (normal * RAY_EPSILON));
     bool _i18_ret = ((_flow22_fused(_licm0, _gv0, _i18_lightDirection_, _i18_distanceToLight).objectIndex >= 0) == false);
-    if (_i18_ret) {
-      _i18_visibility = 1.0;
-    }
+    _i18_visibility = (_i18_ret ? 1.0 : _i18_visibility);
     float _i18_ndl = max(dot(normal, _i18_lightDirection), 0.0);
     vec3 _i18_diffuse = ((material.albedo * (1.0 - material.metallic)) * _i18_ndl);
     vec3 _i18_halfDirection = normalize((_i18_lightDirection + _i18_viewDirection));

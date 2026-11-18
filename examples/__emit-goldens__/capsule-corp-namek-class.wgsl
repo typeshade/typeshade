@@ -313,9 +313,7 @@ fn Ship_map_function(self_: ptr<function, Ship>, p: vec3<f32>) -> vec2<f32> {
   let bay = max(Ship_flapOutline_function(self_, l), (((1.0 - FLAP_T) - BAY_DEPTH) - radius));
   var result: vec2<f32> = select(vec2<f32>((-bay), 11.0), vec2<f32>((radius - 1.0), 0.0), ((radius - 1.0) > (-bay)));
   let _cse0 = (BELLY_Y - p.y);
-  if ((_cse0 > result.x)) {
-    result = vec2<f32>(_cse0, 12.0);
-  }
+  result = select(result, vec2<f32>(_cse0, 12.0), (_cse0 > result.x));
   result = SDF_union(result, vec2<f32>(max((radius - 1.022), (abs((p.y - RING_Y)) - RING_H)), 1.0));
   let door = SDF_arch(vec2<f32>((longitude * horizontalRadius), p.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
   result = SDF_union(result, vec2<f32>(max(((radius - 1.0) - DOOR_T), door), 4.0));
@@ -419,9 +417,7 @@ fn Ship_map_value(self_: Ship, p: vec3<f32>) -> vec2<f32> {
   let bay = max(Ship_flapOutline_value(self_, l), (((1.0 - FLAP_T) - BAY_DEPTH) - radius));
   var result: vec2<f32> = select(vec2<f32>((-bay), 11.0), vec2<f32>((radius - 1.0), 0.0), ((radius - 1.0) > (-bay)));
   let _cse0 = (BELLY_Y - p.y);
-  if ((_cse0 > result.x)) {
-    result = vec2<f32>(_cse0, 12.0);
-  }
+  result = select(result, vec2<f32>(_cse0, 12.0), (_cse0 > result.x));
   result = SDF_union(result, vec2<f32>(max((radius - 1.022), (abs((p.y - RING_Y)) - RING_H)), 1.0));
   let door = SDF_arch(vec2<f32>((longitude * horizontalRadius), p.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
   result = SDF_union(result, vec2<f32>(max(((radius - 1.0) - DOOR_T), door), 4.0));
@@ -829,11 +825,9 @@ fn Terrain_march(ro: vec3<f32>, rd: vec3<f32>, tmax: f32) -> f32 {
       for (var j: i32 = 0; (j < 6); j = (j + 1)) {
         let middle = (0.5 * (previousT + t));
         let q = (ro + (rd * middle));
-        if ((q.y < Terrain_heightAt(q.xz))) {
-          t = middle;
-        } else {
-          previousT = middle;
-        }
+        let _ifc0 = (q.y < Terrain_heightAt(q.xz));
+        t = select(t, middle, _ifc0);
+        previousT = select(middle, previousT, _ifc0);
       }
       return (0.5 * (previousT + t));
     }
@@ -1118,11 +1112,9 @@ fn NamekScene_marchCel_into(_dst: ptr<function, MarchResult>, self_: ptr<functio
     let width = (lineA * t);
     if (((hit.x > previous.x) && (previous.x < width))) {
       let contour = clamp(((width - previous.x) / (pixA * t)), 0.0, 1.0);
-      if ((abs((previous.y - 2.5)) < 1.0)) {
-        windowEdge = max(windowEdge, contour);
-      } else {
-        edge = max(edge, contour);
-      }
+      let _ifc0 = (abs((previous.y - 2.5)) < 1.0);
+      windowEdge = select(windowEdge, max(windowEdge, contour), _ifc0);
+      edge = select(max(edge, contour), edge, _ifc0);
       edgeT = min(edgeT, t);
     }
     previous = hit;
@@ -1138,9 +1130,7 @@ fn NamekScene_render(self_: ptr<function, NamekScene>, ro: vec3<f32>, rd: vec3<f
   var march: MarchResult;
   NamekScene_marchCel_into(&march, self_, ro, rd, lineA, pixA);
   var edge: f32 = march.edge;
-  if ((abs((march.hit.y - 2.5)) > 1.0)) {
-    edge = max(edge, march.winEdge);
-  }
+  edge = select(edge, max(edge, march.winEdge), (abs((march.hit.y - 2.5)) > 1.0));
   let shipHit = (march.hit.y >= 0.0);
   let terrainT = Terrain_march(ro, rd, select(400.0, march.hit.x, shipHit));
   let _cse0 = vec3<f32>(0.0);
@@ -1363,9 +1353,7 @@ fn NamekScene_render(self_: ptr<function, NamekScene>, ro: vec3<f32>, rd: vec3<f
     _i20_col = mix(_i20_col, CLOUD, (0.75 * _i20_cloudMask));
     col = _i20_col;
   }
-  if ((march.tEdge < frontT)) {
-    col = mix(col, INK, edge);
-  }
+  col = select(col, mix(col, INK, edge), (march.tEdge < frontT));
   return col;
 }
 

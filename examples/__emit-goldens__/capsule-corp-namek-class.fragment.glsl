@@ -291,9 +291,7 @@ vec2 Ship_map(Ship self_, vec3 p) {
   float bay = max(Ship_flapOutline(self_, l), (((1.0 - FLAP_T) - BAY_DEPTH) - radius));
   vec2 result = (((radius - 1.0) > (-bay)) ? vec2((radius - 1.0), 0.0) : vec2((-bay), 11.0));
   float _cse0 = (BELLY_Y - p.y);
-  if ((_cse0 > result.x)) {
-    result = vec2(_cse0, 12.0);
-  }
+  result = ((_cse0 > result.x) ? vec2(_cse0, 12.0) : result);
   result = SDF_union(result, vec2(max((radius - 1.022), (abs((p.y - RING_Y)) - RING_H)), 1.0));
   float door = SDF_arch(vec2((longitude * horizontalRadius), p.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
   result = SDF_union(result, vec2(max(((radius - 1.0) - DOOR_T), door), 4.0));
@@ -637,11 +635,9 @@ float Terrain_march(vec3 ro, vec3 rd, float tmax) {
       for (int j = 0; (j < 6); j = (j + 1)) {
         float middle = (0.5 * (previousT + t));
         vec3 q = (ro + (rd * middle));
-        if ((q.y < Terrain_heightAt(q.xz))) {
-          t = middle;
-        } else {
-          previousT = middle;
-        }
+        bool _ifc0 = (q.y < Terrain_heightAt(q.xz));
+        t = (_ifc0 ? middle : t);
+        previousT = (_ifc0 ? previousT : middle);
       }
       return (0.5 * (previousT + t));
     }
@@ -861,11 +857,9 @@ MarchResult NamekScene_marchCel(NamekScene self_, vec3 ro, vec3 rd, float lineA,
     float width = (lineA * t);
     if (((hit.x > previous.x) && (previous.x < width))) {
       float contour = clamp(((width - previous.x) / (pixA * t)), 0.0, 1.0);
-      if ((abs((previous.y - 2.5)) < 1.0)) {
-        windowEdge = max(windowEdge, contour);
-      } else {
-        edge = max(edge, contour);
-      }
+      bool _ifc0 = (abs((previous.y - 2.5)) < 1.0);
+      windowEdge = (_ifc0 ? max(windowEdge, contour) : windowEdge);
+      edge = (_ifc0 ? edge : max(edge, contour));
       edgeT = min(edgeT, t);
     }
     previous = hit;
@@ -898,9 +892,7 @@ float _flow21_shared(float _flow18_input, float _flow19_input, float _flow20_inp
 vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lineA) {
   MarchResult march = NamekScene_marchCel(self_, ro, rd, lineA, pixA);
   float edge = march.edge;
-  if ((abs((march.hit.y - 2.5)) > 1.0)) {
-    edge = max(edge, march.winEdge);
-  }
+  edge = ((abs((march.hit.y - 2.5)) > 1.0) ? max(edge, march.winEdge) : edge);
   bool shipHit = (march.hit.y >= 0.0);
   float terrainT = Terrain_march(ro, rd, (shipHit ? march.hit.x : 400.0));
   vec3 _cse0 = vec3(0.0);
@@ -1127,9 +1119,7 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
     _i20_col = mix(_i20_col, CLOUD, (0.75 * _i20_cloudMask));
     col = _i20_col;
   }
-  if ((march.tEdge < frontT)) {
-    col = mix(col, INK, edge);
-  }
+  col = ((march.tEdge < frontT) ? mix(col, INK, edge) : col);
   return col;
 }
 

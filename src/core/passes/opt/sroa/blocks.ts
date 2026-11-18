@@ -21,18 +21,27 @@ export function eachBlockStmt(body: readonly Stmt[], visit: (s: Stmt) => void): 
   }
 }
 
+export interface Fused {
+  readonly stmts: readonly Stmt[];
+  readonly consumed: number;
+}
+
 export function rewriteBlocks(
   body: readonly Stmt[],
-  expand: (s: Stmt) => readonly Stmt[] | undefined,
+  expand: (s: Stmt, siblings: readonly Stmt[], next: number) => readonly Stmt[] | Fused | undefined,
   exprs?: (e: Expr) => Expr,
 ): Stmt[] {
   const block = (b: readonly Stmt[]): Stmt[] => rewriteBlocks(b, expand, exprs);
   const own = (s: Stmt): Stmt => (exprs === undefined ? s : mapStmtExpr(s, exprs, (n) => n));
   const out: Stmt[] = [];
-  for (const s of body) {
-    const replaced = expand(s);
+  for (let i = 0; i < body.length; i++) {
+    const s = body[i]!;
+    const replaced = expand(s, body, i + 1);
     if (replaced !== undefined) {
-      out.push(...replaced);
+      if ('stmts' in replaced) {
+        out.push(...replaced.stmts);
+        i += replaced.consumed;
+      } else out.push(...replaced);
       continue;
     }
     const head = own(s);

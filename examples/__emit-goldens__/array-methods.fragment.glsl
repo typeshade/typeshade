@@ -70,12 +70,10 @@ void main() {
   float nearest = array_reduce_fs_f_1(d);
   vec3 col = vec3(0.02, 0.02, 0.05);
   array_forEach_fs_f_2(col, d, lights);
-  if (array_some_fs_p(p, lights)) {
-    col = mix(col, vec3(1.0), 0.15);
-  }
-  if (array_every_fs_p_1(d)) {
-    col *= 0.6;
-  }
+  bool _ifc0 = array_some_fs_p(p, lights);
+  col = (_ifc0 ? mix(col, vec3(1.0), 0.15) : col);
+  bool _ifc1 = array_every_fs_p_1(d);
+  col = (_ifc1 ? (col * 0.6) : col);
   col += vec3((1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2)))));
   color = vec4(col, 1.0);
 }

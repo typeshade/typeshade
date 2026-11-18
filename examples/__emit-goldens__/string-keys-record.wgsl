@@ -26,12 +26,8 @@ fn gain(c: u32, x: f32, by: ptr<function, array<f32, 3>>) -> f32 {
 @vertex
 fn vs(@builtin(vertex_index) i: u32) -> Clip {
   var p: vec2<f32> = vec2<f32>(-1.0, -1.0);
-  if ((i == 1u)) {
-    p = vec2<f32>(3.0, -1.0);
-  }
-  if ((i == 2u)) {
-    p = vec2<f32>(-1.0, 3.0);
-  }
+  p = select(p, vec2<f32>(3.0, -1.0), (i == 1u));
+  p = select(p, vec2<f32>(-1.0, 3.0), (i == 2u));
   return Clip(vec4<f32>(p, 0.0, 1.0));
 }
 

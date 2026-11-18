@@ -86,8 +86,7 @@ fn fs(v: VsOut) -> FsOut {
   Ring_each_fs_dot(&dots, p, &ring);
   col = mix(col, vec3<f32>(0.9, 0.3, 0.5), dots);
   var bands: array<f32, 3> = array<f32, 3>(0.8, 0.88, 0.96);
-  if (array_some_fs_p(p, &bands)) {
-    col = vec3<f32>(1.0);
-  }
+  let _ifc0 = array_some_fs_p(p, &bands);
+  col = select(col, vec3<f32>(1.0), _ifc0);
   return FsOut(vec4<f32>(col, 1.0));
 }

@@ -57,12 +57,7 @@ fn fs(v: VsOut) -> FsOut {
     let a = Orbit_at(&orbit, t);
     let b = Orbit_at(&orbit, (t + 0.05));
     let _i3a0 = (distance(p, a) < distance(p, b));
-    var _i3ret: vec2<f32>;
-    if (_i3a0) {
-      _i3ret = a;
-    } else {
-      _i3ret = b;
-    }
+    let _i3ret = select(b, a, _i3a0);
     let _i2a0 = distance(p, _i3ret);
     glow += (0.004 / ((_i2a0 * _i2a0) + 0.002));
   }

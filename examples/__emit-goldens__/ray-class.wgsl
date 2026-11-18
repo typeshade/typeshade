@@ -34,20 +34,14 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   var _i2_self_: Sphere = Sphere(_cse0, 0.0);
   _i2_self_.radius = 1.0;
   var sphere: Sphere = _i2_self_;
-  var _i1ret: f32;
   let _i1_oc = (ray.origin - sphere.center);
   let _i1_b = dot(_i1_oc, ray.dir);
   let _i1_c = (dot(_i1_oc, _i1_oc) - (sphere.radius * sphere.radius));
   let _i1_h = ((_i1_b * _i1_b) - _i1_c);
-  if ((_i1_h < 0.0)) {
-    _i1ret = -1.0;
-  } else {
-    _i1ret = ((-_i1_b) - sqrt(_i1_h));
-  }
-  let t = _i1ret;
-  if ((t < 0.0)) {
+  let _i1ret = select(((-_i1_b) - sqrt(_i1_h)), -1.0, (_i1_h < 0.0));
+  if ((_i1ret < 0.0)) {
     return vec4<f32>(0.05, 0.05, 0.1, 1.0);
   }
-  let n = normalize(((ray.origin + (ray.dir * t)) - sphere.center));
+  let n = normalize(((ray.origin + (ray.dir * _i1ret)) - sphere.center));
   return vec4<f32>(((n * 0.5) + vec3<f32>(0.5)), 1.0);
 }

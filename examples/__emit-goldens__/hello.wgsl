@@ -10,13 +10,10 @@ struct Color {
 fn vs(@builtin(vertex_index) i: u32) -> Clip {
   var x: f32 = -0.8;
   var y: f32 = -0.8;
-  if ((i == 1u)) {
-    x = 0.8;
-  }
-  if ((i == 2u)) {
-    x = 0.0;
-    y = 0.8;
-  }
+  x = select(x, 0.8, (i == 1u));
+  let _ifc0 = (i == 2u);
+  x = select(x, 0.0, _ifc0);
+  y = select(y, 0.8, _ifc0);
   return Clip(vec4<f32>(x, y, 0.0, 1.0));
 }
 

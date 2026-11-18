@@ -145,25 +145,21 @@ fn Scene_raymarch_into(_dst: ptr<function, Hit>, self_: ptr<function, Scene>, ra
     var _i13_closestDistance: f32 = MAX_DISTANCE;
     var _i13_closestObjectIndex: i32 = -1;
     let _i13_sphereDistance = SDF_SdfSphere_distanceTo(&(*self_).redSphere, point);
-    if ((_i13_sphereDistance < _i13_closestDistance)) {
-      _i13_closestDistance = _i13_sphereDistance;
-      _i13_closestObjectIndex = 0;
-    }
+    let _ifc0 = (_i13_sphereDistance < _i13_closestDistance);
+    _i13_closestDistance = select(_i13_closestDistance, _i13_sphereDistance, _ifc0);
+    _i13_closestObjectIndex = select(_i13_closestObjectIndex, 0, _ifc0);
     let _i13_boxDistance = SDF_SdfBox_distanceTo(&(*self_).blueBox, point);
-    if ((_i13_boxDistance < _i13_closestDistance)) {
-      _i13_closestDistance = _i13_boxDistance;
-      _i13_closestObjectIndex = 1;
-    }
+    let _ifc1 = (_i13_boxDistance < _i13_closestDistance);
+    _i13_closestDistance = select(_i13_closestDistance, _i13_boxDistance, _ifc1);
+    _i13_closestObjectIndex = select(_i13_closestObjectIndex, 1, _ifc1);
     let _i13_torusDistance = SDF_SdfTorus_distanceTo(&(*self_).goldTorus, point);
-    if ((_i13_torusDistance < _i13_closestDistance)) {
-      _i13_closestDistance = _i13_torusDistance;
-      _i13_closestObjectIndex = 2;
-    }
+    let _ifc2 = (_i13_torusDistance < _i13_closestDistance);
+    _i13_closestDistance = select(_i13_closestDistance, _i13_torusDistance, _ifc2);
+    _i13_closestObjectIndex = select(_i13_closestObjectIndex, 2, _ifc2);
     let _i13_groundDistance = (point.y - _licm5);
-    if ((_i13_groundDistance < _i13_closestDistance)) {
-      _i13_closestDistance = _i13_groundDistance;
-      _i13_closestObjectIndex = 3;
-    }
+    let _ifc3 = (_i13_groundDistance < _i13_closestDistance);
+    _i13_closestDistance = select(_i13_closestDistance, _i13_groundDistance, _ifc3);
+    _i13_closestObjectIndex = select(_i13_closestObjectIndex, 3, _ifc3);
     var _i13ret: Hit;
     Hit_new_into(&_i13ret, _i13_closestDistance, _i13_closestObjectIndex);
     if ((_i13ret.distance < SURFACE_EPSILON)) {
@@ -260,9 +256,7 @@ fn Renderer_trace(self_: ptr<function, Renderer>, primaryRay: ptr<function, Ray>
     let _i18_lightDirection_ = normalize(_i18_toLight);
     let _gv0 = (point + (normal * RAY_EPSILON));
     let _i18_ret = ((_flow22_fused(&(*self_).scene, _gv0, _i18_lightDirection_, _i18_distanceToLight).objectIndex >= 0) == false);
-    if (_i18_ret) {
-      _i18_visibility = 1.0;
-    }
+    _i18_visibility = select(_i18_visibility, 1.0, _i18_ret);
     let _i18_ndl = max(dot(normal, _i18_lightDirection), 0.0);
     let _i18_diffuse = ((material.albedo * (1.0 - material.metallic)) * _i18_ndl);
     let _i18_halfDirection = normalize((_i18_lightDirection + _i18_viewDirection));
@@ -407,25 +401,21 @@ fn _flow22_fused(_flow0_input: ptr<function, Scene>, _flow1_input: vec3<f32>, _f
     var _flow11_local: f32 = MAX_DISTANCE;
     var _flow12_local: i32 = -1;
     let _flow13_local = SDF_SdfSphere_distanceTo(&(*_flow0_input).redSphere, _flow10_local);
-    if ((_flow13_local < _flow11_local)) {
-      _flow11_local = _flow13_local;
-      _flow12_local = 0;
-    }
+    let _ifc0 = (_flow13_local < _flow11_local);
+    _flow11_local = select(_flow11_local, _flow13_local, _ifc0);
+    _flow12_local = select(_flow12_local, 0, _ifc0);
     let _flow14_local = SDF_SdfBox_distanceTo(&(*_flow0_input).blueBox, _flow10_local);
-    if ((_flow14_local < _flow11_local)) {
-      _flow11_local = _flow14_local;
-      _flow12_local = 1;
-    }
+    let _ifc1 = (_flow14_local < _flow11_local);
+    _flow11_local = select(_flow11_local, _flow14_local, _ifc1);
+    _flow12_local = select(_flow12_local, 1, _ifc1);
     let _flow15_local = SDF_SdfTorus_distanceTo(&(*_flow0_input).goldTorus, _flow10_local);
-    if ((_flow15_local < _flow11_local)) {
-      _flow11_local = _flow15_local;
-      _flow12_local = 2;
-    }
+    let _ifc2 = (_flow15_local < _flow11_local);
+    _flow11_local = select(_flow11_local, _flow15_local, _ifc2);
+    _flow12_local = select(_flow12_local, 2, _ifc2);
     let _flow16_local = (_flow10_local.y - _licm3);
-    if ((_flow16_local < _flow11_local)) {
-      _flow11_local = _flow16_local;
-      _flow12_local = 3;
-    }
+    let _ifc3 = (_flow16_local < _flow11_local);
+    _flow11_local = select(_flow11_local, _flow16_local, _ifc3);
+    _flow12_local = select(_flow12_local, 3, _ifc3);
     var _flow31_whole: Hit;
     Hit_new_into(&_flow31_whole, _flow11_local, _flow12_local);
     let _flow27_part = _flow31_whole.distance;

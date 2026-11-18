@@ -30,21 +30,15 @@ vec4 fs_impl(VsOut v) {
   Sphere _i2_self_ = Sphere(_cse0, 0.0);
   _i2_self_.radius = 1.0;
   Sphere sphere = _i2_self_;
-  float _i1ret = 0.0;
   vec3 _i1_oc = (ray.origin - sphere.center);
   float _i1_b = dot(_i1_oc, ray.dir);
   float _i1_c = (dot(_i1_oc, _i1_oc) - (sphere.radius * sphere.radius));
   float _i1_h = ((_i1_b * _i1_b) - _i1_c);
-  if ((_i1_h < 0.0)) {
-    _i1ret = -1.0;
-  } else {
-    _i1ret = ((-_i1_b) - sqrt(_i1_h));
-  }
-  float t = _i1ret;
-  if ((t < 0.0)) {
+  float _i1ret = ((_i1_h < 0.0) ? -1.0 : ((-_i1_b) - sqrt(_i1_h)));
+  if ((_i1ret < 0.0)) {
     return vec4(0.05, 0.05, 0.1, 1.0);
   }
-  vec3 n = normalize(((ray.origin + (ray.dir * t)) - sphere.center));
+  vec3 n = normalize(((ray.origin + (ray.dir * _i1ret)) - sphere.center));
   return vec4(((n * 0.5) + vec3(0.5)), 1.0);
 }
 
