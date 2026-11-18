@@ -13,189 +13,279 @@ examples: []
 names: []
 downstream:
   - repo: vscode-typeshade
-    what: The tsserver plugin writes lib.typeshade.d.ts to a file it owns (the extension's global storage, or beside the plugin), passes that path to the language service, and records 0143 in compiler-changes.md
+    what: The plugin build writes lib.typeshade.d.ts beside the plugin from the bundled compiler's SHADE_DTS, the plugin passes its uri as ambientLibUri, a tsserver test shows go-to-definition on mix landing on its declaration, and compiler-changes.md records 0143
+  - repo: typeshade.github.io
+    what: The language-service page names the optional host field ambientLibUri beside readDocument, and the editor page's feature list is rechecked for go to definition on a built-in name; compiler-changes.md records 0143
 ---
 
 **Document control**
 
-| Field                         | Value                                                                                                                                                                                                                                                                                                                     |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0143, status `draft`.                                                                                                                                                                                                                                                                                            |
-| Date and attribution          | 2026-11-18, Asia/Seoul. The date is the drafting date. The repository owner made the request in conversation on 2026-11-18. An AI agent session drafted the text. Nobody has approved it.                                                                                                                                 |
-| Applicability / Effectivity   | The `./language-service` subpath: `src/language-service/navigation.ts`, `src/language-service/host.ts`, `src/language-service/service.ts` and their tests. Adapters that create the language service, the tsserver plugin of vscode-typeshade first. No release version is assigned. TypeShade has no release yet (OD-6). |
-| Review baseline               | `origin/main` at `efa97ce938f7fff569a611d8bb2a6d7e8c779dd9`.                                                                                                                                                                                                                                                              |
-| Review and revision authority | [PR #1390](https://github.com/typeshade/typeshade/pull/1390). Git records the revisions of this file. The review and merge records of that PR will record the decisions.                                                                                                                                                  |
+| Field                         | Value                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0143, status `draft`.                                                                                                                                                                                                                                                                                                                                                               |
+| Date and attribution          | 2026-11-18, Asia/Seoul. The date is the drafting date of both revisions. The repository owner made the request in conversation on 2026-11-18. An AI agent session drafted the text. Nobody has approved it.                                                                                                                                                                                  |
+| Applicability / Effectivity   | The `./language-service` subpath: `src/language-service/host.ts`, `src/language-service/service.ts`, `src/language-service/navigation.ts`, `src/language-service/ambient.ts` and their tests; `docs/language-service-api.md`. Adapters that create the language service, the tsserver plugin of vscode-typeshade first. No release version is assigned. TypeShade has no release yet (OD-6). |
+| Review baseline               | `origin/main` at `efa97ce938f7fff569a611d8bb2a6d7e8c779dd9`.                                                                                                                                                                                                                                                                                                                                 |
+| Review and revision authority | [PR #1390](https://github.com/typeshade/typeshade/pull/1390). Revision 1 is `4eb2c1c6551be53e4e0303ef3847a2633915313c`. Revision 2 answers the independent review below and settles the open decisions of revision 1. Git records the revisions of this file. The review and merge records of the PR will record the decisions.                                                              |
 
 ## What changes
 
 **Today.** The language service serves the ambient library (`SHADE_DTS`) as the virtual file
 `AMBIENT_LIB_URI` (`typeshade:shade.d.ts`, `src/language-service/host.ts`). `locationsFrom` in
-`src/language-service/navigation.ts` drops every location in that file. So go-to-definition,
-find-references and go-to-type-definition on an ambient name (`f32`, `u32`, `vec3`, `mix`,
-`textureSample` and the rest) show nothing in the editor.
+`src/language-service/navigation.ts` drops every location in that file. `getDefinition` and
+`getReferences` both go through it. So go-to-definition on an ambient name (`f32`, `u32`,
+`vec3`, `mix`, `textureSample` and the rest) shows nothing in the editor. The service has no
+type-definition operation; the vscode-typeshade plugin answers that request with
+`getDefinition`, so it shows nothing too.
 
-**Proposed.** The adapter can give the language service a file path for the ambient library.
-When it gives one, the service reports each ambient location at that path, with the same text
-span, and stops dropping it. When it gives none, the service behaves as it does today.
+**Proposed.** An adapter can give the language service a uri for the ambient library. When it
+does, the service treats that uri as the ambient library's file:
 
-1. The adapter writes the ambient library text byte-for-byte to a file named
-   `lib.typeshade.d.ts`. The name follows TypeScript's own `lib.es5.d.ts`.
-2. The adapter passes the path of that file in a new optional field of
-   `TypeshadeLanguageServiceHost`. This draft calls the field `ambientLibPath`. Decision 1 settles
-   the name.
-3. The service keeps `AMBIENT_LIB_URI` as the program's internal file name. Only the location it
-   reports changes: the uri becomes `ambientLibPath`, and the range stays the range TypeScript
-   gave in `AMBIENT_LIB_URI`.
+1. The host gains one optional field, `ambientLibUri`, in `TypeshadeLanguageServiceHost`.
+   Every other host field and every location already speaks in uris (`readDocument(uri)`,
+   `TypeshadeLocation.uri`).
+2. `getDefinition` reports a location in the ambient library at `ambientLibUri`, with the same
+   range. Without the field, it drops the location as it does today.
+3. `getReferences` reports only the declaration entry (`isDefinition`) of the ambient library,
+   at `ambientLibUri`. It still drops every other location in the ambient library. The library
+   names `f32` 266 times; those uses are not the author's references. `locationsFrom` gains a
+   parameter for this, because definitions and references share it today.
+4. `positionAt` and `offsetAt` accept `ambientLibUri` and resolve it to the ambient library's
+   source file. Today they return line 0 or offset 0 for a uri that is not a program file
+   (`service.ts`, `positionAt`/`offsetAt`). The vscode-typeshade plugin converts every range to
+   an offset span through `offsetAt`, so without this step every definition would open at the
+   top of the file.
+5. `openDocument` with `ambientLibUri` does nothing. An adapter that forwards every opened file
+   would otherwise put the whole vocabulary in the program a second time.
+6. `SHADE_DTS` gains a JSDoc block before each type declaration that `TYPE_DOCS`
+   (`src/language-service/docs.ts`) describes, rendered as `ambient.ts` already renders
+   `FUNCTION_DOCS` for functions. Today `type u32 = …` and `interface vec3 {` carry no comment,
+   so a definition on a type would land on bare TypeScript. Hover does not change: for a type
+   name it answers from `TYPE_DOCS` before it asks TypeScript (`hover.ts`, the `isTypeName`
+   branch).
 
-The text the adapter writes is the text the service holds: `ambientLib` when the adapter sets
-it, else `SHADE_DTS`. Because the bytes are equal, every text span stays valid in the file. The
-host itself still reads and writes no file system (header comment of
-`src/language-service/host.ts`). The adapter owns the file.
+The adapter writes the file: the exact text the service holds (`ambientLib` when the adapter
+sets it, else `SHADE_DTS`), under the name `lib.typeshade.d.ts`, which follows TypeScript's own
+`lib.es5.d.ts`. The host still reads and writes no file system (its header comment). The
+service does not check the file. An adapter that bundles the compiler generates the file from
+the same build, so the file and the service cannot disagree.
 
 Exclusions:
 
-- Rename still refuses an ambient name. The refusal (`navigation.ts`, the predicate that
-  `prepareRename` and `rename` share) tests the internal file name, which does not change.
-- The ambient library text does not change, and no author-facing name, rule, diagnostic code or
-  surface section changes.
+- Rename still refuses an ambient name. `definesInAmbientLib` and `rename` test the internal
+  file name `AMBIENT_LIB_URI`, which does not change.
+- No author-facing name, rule, diagnostic code, surface section or example changes. The
+  declarations change only by comments.
 - Hover, completion and signature help do not change.
 
-Example, before and after, for go-to-definition on `mix` in a `"use typeshade"` file:
+Example, before and after. A `"use typeshade"` file calls `mix(x, x, 0.5)` and declares
+`a: u32`.
 
-- Before: the editor reports no definition.
-- After, with `ambientLibPath` set: the editor opens `lib.typeshade.d.ts` at the
-  `declare function mix` overloads and their JSDoc blocks.
+- Before (measured on 2026-11-18, tsserver 5.6.3, the plugin built against this tree):
+  go-to-definition on `mix` and on `u32` returns no location.
+- After, with `ambientLibUri` set: go-to-definition on `mix` opens `lib.typeshade.d.ts` at
+
+  ```ts
+  /**
+   * Returns `a * (1 - t) + b * t`. `t` is a scalar or the same shape as `a` and `b`. `f64` vectors accept an `f32` blend factor.
+   */
+  declare function mix<V extends vec2 | vec3 | vec4>(a0: V, a1: V, a2: (f32)): V
+  ```
+
+  and the nine overloads after it. Go-to-definition on `u32` opens it at
+
+  ```ts
+  /** 32-bit unsigned integer value. */
+  type u32 = number & { readonly [u32Tag]?: true }
+  ```
+
+  The comment line is the one item 6 adds.
 
 ## Why
 
 **Problem.** An author cannot find the signature of an ambient function or the members of an
-ambient type from the editor. The owner reported this. The agent session measured it on
-2026-11-18 with tsserver 5.6.3 and the tsserver plugin built against this tree:
+ambient type from the editor. The owner reported this. Measured on 2026-11-18 with tsserver
+5.6.3 and the tsserver plugin built against this tree:
 
 - Go-to-definition on `u32`, `vec3` and `mix` returned `[]`.
-- Hover on a type shows one line of documentation. For `u32` the line is "32-bit unsigned
-  integer value."
+- Hover on a type shows one sentence from `TYPE_DOCS`, for `u32` "32-bit unsigned integer
+  value."
 - Hover on `mix` shows `function mix(a: vec3, b: vec3, t: number): vec3 (+9 overloads)`.
   Signature help lists the 10 overloads one at a time.
 
-The `SHADE_DTS` text has 8706 lines, with 740 `declare function` lines and 823 JSDoc blocks. It
-is readable as a reference, and it is the one authority for the author-facing names
-(`docs/language-design.md`, §2.1: "The set of author-facing names is exactly the set
-of names the ambient library ... declares").
+The `SHADE_DTS` text has 8706 lines, with 740 `declare function` lines and 823 JSDoc blocks.
+It is the one authority for the author-facing names (`docs/language-design.md`, §2.1: "The set
+of author-facing names is exactly the set of names the ambient library ... declares").
 
-**The prior design reason.** The header comment of `navigation.ts` says that a request for the
-definition of `vec4` gets nothing, "not the bundled `.d.ts`". The bundled text encodes each
-scalar type as a TypeScript brand, for example
-`type u32 = number & { readonly [u32Tag]?: true }`, generated by `ambient.ts`. The agent
-session counted 49 such tag lines in the text. A reader can find these lines confusing. They
-are a small part of 8706 lines, and the JSDoc beside them says what each type is. Decision 3
-asks whether to annotate or reshape them.
+**What the file is, and is not.** The file is the editor's type layer. It is not a second
+statement of the language:
+
+- It is deliberately wider than the compiler. The scalar brands are optional, so `f32` and
+  `u32` are mutually assignable there, a false negative the compiler's own checks catch
+  (`ambient.ts`, the comment above the scalar brands). `ambient-parity.test.ts` holds the
+  difference to the cases its header names.
+- It names the types it declares for its own use (`ScalarOf`, `VecFor3`, `Numeric`, `LaneKeys`),
+  and a generated overload names its parameters by position (`a0`, `a1`, `a2`).
+- Four scalar types are brands (`type u32 = number & { readonly [u32Tag]?: true }`): 5 lines of
+  the file hold `Tag]?: true`. 49 lines hold a tag of any kind; most are the vector, matrix and
+  texture tags.
+
+So a definition shows an author how the editor types a name, and the compiler stays the
+authority on what it accepts. The header comment of `navigation.ts` dropped these locations
+for this reason ("not the bundled `.d.ts`"). This proposal keeps the reason in view: item 6
+puts a sentence of TypeShade documentation on every type the author lands on, and the
+owner's question below asks whether the remaining TypeScript encoding is acceptable to show.
 
 **Alternatives.**
 
-| Alternative                                       | Reason not chosen                                                                                                                                 |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| (a) Keep dropping ambient locations (status quo). | Authors cannot find signatures or members. The owner reported this.                                                                               |
-| (b) Commit a hand-kept copy of the `.d.ts`.       | It breaks the "One authority" rule of `AGENTS.md`. A second copy agrees with `SHADE_DTS` only until someone edits one of them.                    |
-| (c) Point locations at `dist/shade.d.ts`.         | `scripts/emit-shade-dts.ts` writes that file only during a build. It is absent in a source checkout and can be stale against the running service. |
-| (d) Show richer hover text only.                  | It helps for a type, but it does not let an author browse overloads or the members of a type.                                                     |
-| (e) The service writes the file itself.           | The host is free of file-system access by design, and a browser adapter has no file system. The adapter knows where it can write.                 |
+| Alternative                                                    | Reason not chosen                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| (a) Keep dropping ambient locations (status quo).              | Authors cannot browse overloads or members from the editor. The owner reported this.                                                                                                                                                                                                       |
+| (b) Commit a hand-kept copy of the `.d.ts`.                    | It breaks the "One authority" rule of `AGENTS.md`. A second copy agrees with `SHADE_DTS` only until someone edits one of them.                                                                                                                                                             |
+| (c) Point locations at the package's `./shade` export.         | The export maps to `dist/shade.d.ts` (`package.json`), the same text, written by `scripts/emit-shade-dts.ts` at build time. A bundled adapter such as vscode-typeshade vendors the compiler as source and ships no `dist/`. This proposal lets such an adapter write the same text itself. |
+| (d) Show richer hover text only.                               | It helps for a type, but it does not let an author browse overloads or the members of a type.                                                                                                                                                                                              |
+| (e) The service writes the file, or reads it back to check it. | The host is free of file-system access by design, and a browser adapter has no file system. The service does own every conversion of the ambient ranges (items 2 to 5), so no adapter has to map them.                                                                                     |
+| (f) Point readers at the site's language reference only.       | typeshade.github.io already renders `SHADE_DTS` as one page per name (`src/lib/language-reference.ts` there <!-- doc-refs: skip — a file in the site repository -->). That needs a browser and a published build; go-to-definition works offline and on the compiler in use.               |
 
-**Context, not part of this proposal.** A separate pull request adds an interim step:
-`bun run editor:plugin` <!-- doc-refs: skip — the script comes from a separate pull request --> writes `.cache/editor-plugin/lib.typeshade.d.ts` for reading. That file
+**Context, not part of this proposal.** A separate pull request,
+[PR #1389](https://github.com/typeshade/typeshade/pull/1389), adds
+`bun run editor:plugin` <!-- doc-refs: skip — the script comes from a separate pull request -->,
+which writes `.cache/editor-plugin/lib.typeshade.d.ts` for reading in this repository. That file
 gives a reader the text but not navigation from the editor.
 
 **Assumptions.**
 
-- An adapter that has a file system can write one file of about 8706 lines at start-up and
-  again when the compiler it bundles changes.
-- An editor that opens the reported path shows it read-only or as an ordinary file. Edits to it
-  have no effect on the service, which holds its own text.
+- An adapter that has a file system can write one file of about 8706 lines when it is built or
+  installed.
+- An editor that opens the reported uri shows it as an ordinary file. Edits to it have no effect
+  on the service, which holds its own text, and item 5 keeps it out of the program.
 
 ## Owner's decisions
 
 This proposal rests on these entries of `docs/owner-decisions.md`:
 
-- OD-3. It adds nothing an author must learn. It changes only what the editor shows.
+- OD-3. It adds nothing an author must learn: no name, construct or rule. It changes what the
+  editor shows. An author who uses go-to-definition does read the TypeScript encoding described
+  under "What the file is, and is not". This is a question for the owner (below).
 - OD-4. Before the owner decides, the agent shows the before and after example above and the
-  open decisions below.
-- OD-6. No release exists, so the new option owes no compatibility release.
+  findings of the independent review.
+- OD-6. No release exists, so the new field owes no compatibility release.
 
 The proposal reverses no entry.
+
+**Question for the owner.** Is it acceptable that go-to-definition shows the editor's type
+layer, which is wider than the compiler and names helper types such as `ScalarOf`, with a
+TypeShade sentence on each type? The drafter recommends yes: the alternative is no definition
+at all, and the compiler's diagnostics stay the authority.
 
 ## Why the compiler cannot do it
 
 Not applicable: the proposal adds no author-facing name, rule, diagnostic code or surface form.
-It adds one optional field to the options of the editor API, `TypeshadeLanguageServiceHost`.
+It adds one optional field to the options of the editor API, `TypeshadeLanguageServiceHost`,
+and comments to the ambient declarations.
 
 ## What it touches
 
-- `exports`, `createTypeshadeLanguageService`: its result reports ambient locations at
-  `ambientLibPath` when the host sets it.
-- `exports`, `TypeshadeLanguageServiceHost`: gains the optional field `ambientLibPath` (name per
-  decision 1).
+- `exports`, `createTypeshadeLanguageService`: its result reports ambient definitions and the
+  ambient declaration entry of references at `ambientLibUri`, resolves `positionAt` and
+  `offsetAt` for that uri, and ignores `openDocument` for it.
+- `exports`, `TypeshadeLanguageServiceHost`: gains the optional field `ambientLibUri`.
 - `rules`, `surface`, `codes`, `examples`, `names`: empty. `docs/language-design.md` and
   `docs/use-typeshade-surface.md` mention the ambient library, but no rule or numbered surface
-  section states that navigation drops ambient locations.
+  section states that navigation drops ambient locations. The JSDoc of item 6 adds no name.
+- `docs/language-service-api.md`, sections [The service](../docs/language-service-api.md#4-the-service)
+  and [Adapter contracts](../docs/language-service-api.md#7-adapter-contracts): the new host
+  field, the ambient uri's behavior and the adapter's duty to write the file.
 - `src/__api__/surface.md` changes by the new field, through `bun run bake:api-surface`.
+- The header comments of `navigation.ts` and `host.ts` state the new behavior.
 
 Required evidence at implementation:
 
-- A test in `src/language-service/navigation.test.ts` or `symbols.test.ts`: with
-  `ambientLibPath` set, go-to-definition on `u32`, `vec3` and `mix` returns locations at that
-  path, and the text at each range equals the declared name.
-- A test: with no `ambientLibPath`, the results equal today's results.
-- A test: rename and `prepareRename` still refuse an ambient name with `ambientLibPath` set.
-- `bun run build`, `bun run test` and `bun run changes:check` pass.
-- `bun run docs:impact` is read, and the header comments of `navigation.ts` and `host.ts` are
-  brought up to date.
+1. A test: with `ambientLibUri` set, `getDefinition` on `u32`, `vec3` and `mix` returns
+   locations at that uri, and the text of `SHADE_DTS` at each range is the name.
+2. A test: `offsetAt(ambientLibUri, range.start)` of such a location is the offset of the
+   declaration in `SHADE_DTS`, not 0, and `positionAt` inverts it.
+3. A test: `getReferences` on `f32` with `ambientLibUri` set returns the document's own
+   references plus exactly one location at that uri.
+4. A test: with no `ambientLibUri`, every result equals today's.
+5. A test: `rename` and `prepareRename` still refuse an ambient name with `ambientLibUri` set,
+   and `openDocument(ambientLibUri, …)` adds no file to the program.
+6. A test: `SHADE_DTS` has a JSDoc block before each declaration that `TYPE_DOCS` names, and
+   hover on a type name is unchanged.
+7. A real tsserver run with the plugin built against the implementation: go-to-definition on
+   `mix` returns a span whose text is `mix` in `lib.typeshade.d.ts`.
+8. `bun run build`, `bun run test` and `bun run changes:check` pass, and `bun run docs:impact`
+   is read.
 
 ### Draft impact estimate
 
 Known impacts:
 
-- Compiler repository: `locationsFrom` and the reference path in `navigation.ts` (the drop at
-  the two `AMBIENT_LIB_URI` tests) map the uri instead of skipping it when the path is set.
-  `host.ts` gains one optional field. `service.ts` passes it through.
-- Compatibility: an adapter that sets nothing sees no change.
+- Compiler repository: `host.ts` gains one optional field. `service.ts` passes it on, resolves
+  it in `positionAt` and `offsetAt`, and ignores it in `openDocument`. `navigation.ts` maps the
+  uri in `locationsFrom`, with a parameter that keeps only the declaration entry for references.
+  `ambient.ts` renders `TYPE_DOCS` before each described type.
+- The site's language reference reads `SHADE_DTS` (`src/lib/language-reference.ts` there <!-- doc-refs: skip — a file in the site repository -->). The
+  new comments may appear on its type pages; that is a recheck, not a known break.
+- Compatibility: an adapter that sets nothing sees no change, except the new comments in the
+  ambient text.
 - Dependencies and tools: none added.
 
 Estimates:
 
-- Compiler work is small: one field, one uri mapping, three tests. Basis: the drop is two
-  `continue` statements in one file. Effort in hours is unestimated.
-- vscode-typeshade work is small to medium: write a file, pass its path, and keep the file
-  current when the bundled compiler changes. Effort is unestimated.
-- Find-references on a common type such as `f32` can return many ambient locations. The effect
-  on the editor's reference list is unestimated (decision 2).
-- typeshade.github.io: no page is known to describe the drop. A search of that repository has
-  not been done, so the entry is not declared. The search is required before acceptance.
+- Compiler work is small to medium: one field, the uri in three service methods and one
+  navigation helper, a JSDoc rendering loop, seven tests and one document. Effort in hours is
+  unestimated.
+- vscode-typeshade work is small: its build writes one file and the plugin passes one uri.
+  Effort is unestimated.
+- typeshade.github.io work is small: one line on the language-service page. Effort is
+  unestimated.
 
-Open decisions to resolve before acceptance:
+### Drafter's resolutions of revision 1's open decisions
 
-1. The name of the field: `ambientLibPath`, or another name such as `ambientLibFile`.
-2. Whether find-references includes ambient locations, or only go-to-definition and
-   go-to-type-definition do.
-3. Whether to annotate the 49 brand tag lines with a JSDoc note, reshape them, or leave them as
-   they are.
-4. Whether the service checks that the file at the path holds the same text, or trusts the
-   adapter. The host reads no file system today, so a check would need the adapter's
-   `readDocument`.
-5. Where vscode-typeshade writes the file: the extension's global storage, or beside the
-   plugin.
+The owner's standing rule for this work lets the drafter settle open decisions. Each is a
+proposal until the owner accepts this document.
+
+1. The field is `ambientLibUri`, not `ambientLibPath`: the host and every location speak in
+   uris. The independent reviewer recommended the same.
+2. References report only the declaration entry in the ambient library (item 3). Go-to-definition
+   reports every ambient definition (item 2).
+3. The tag lines stay as they are. Item 6 adds a TypeShade sentence above each described type,
+   so an author who lands on a brand reads what the type is.
+4. The service does not check the file. An adapter generates the file from the same build as
+   the service it bundles, which removes the drift the check would detect.
+5. vscode-typeshade generates the file beside the plugin when it builds, not in global storage
+   (shared across extension versions) and not in the workspace (a project's tsconfig could pull
+   the declarations into ordinary TypeScript files).
 
 ### Independent review record
 
-No independent review has been performed. Before the owner decides, an agent or a person that
-did not write this proposal reviews it against `changes/README.md#independent-review`. The
-record will name the reviewer, the date, the revision reviewed, each finding and the answer to
-each finding.
+- Reviewer: an AI review agent (`omo-native-code-reviewer`, task `st_01a1ee7b`) that did not
+  write the proposal, on 2026-11-18, against revision 1 (`4eb2c1c6`). It read the proposal, the
+  documents the procedure names and the code, and argued against the proposal.
+- Verdict on revision 1: request changes, with three blocking findings.
+
+| #   | Finding (the reviewer's, condensed)                                                                                                      | Answer in revision 2                                                                                                                      |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | BLOCKING. The plugin converts ranges through `offsetAt`, which returns 0 for a uri that is not a program file, so definitions open at 0. | Fixed: item 4 resolves the uri in `positionAt` and `offsetAt`; evidence 2 and 7 test it. The drafter confirmed the claim in `service.ts`. |
+| 2   | BLOCKING. The claim that JSDoc beside the types explains them is false: `type u32` and `interface vec3` have no comment.                 | Fixed: item 6 adds the comment from `TYPE_DOCS`; the example shows the line it adds. Confirmed in the generated text.                     |
+| 3   | BLOCKING. References have no drop of their own; the second `continue` is in `rename`.                                                    | Fixed: item 3 and the impact estimate add a parameter to `locationsFrom`. Confirmed in `navigation.ts`.                                   |
+| 4   | The 49 tag lines are mostly vector, matrix and texture tags; 4 scalar types are brands.                                                  | Fixed in "What the file is, and is not".                                                                                                  |
+| 5   | Type definition is no service operation; the plugin maps it to definition.                                                               | Fixed: "Today" says so, and the proposal no longer claims a type-definition change.                                                       |
+| 6   | The file is wider than the compiler; presenting it as a reference needs a sentence and an owner question (OD-3, Rule 12.7).              | Fixed: "What the file is, and is not" and the question for the owner.                                                                     |
+| 7   | Alternative (c) misses the `./shade` export and generation at build time.                                                                | Fixed: alternative (c) is restated, and resolution 5 generates the file at build time.                                                    |
+| 8   | An adapter that opens the written file as a document declares the vocabulary twice.                                                      | Fixed: item 5 ignores `openDocument` for the uri; evidence 5 tests it.                                                                    |
+| 9   | `docs/language-service-api.md` defines the host interface and is not listed.                                                             | Fixed: listed under "What it touches".                                                                                                    |
+| 10  | The site's playground drops an unknown uri, so it is unaffected; its editor page lists go to definition and needs a recheck.             | Kept as a downstream recheck in the front matter.                                                                                         |
+| 11  | The rename exclusion is correct as stated.                                                                                               | No change needed.                                                                                                                         |
+
+Open findings for the owner: none blocking. The question under "Owner's decisions" is open.
 
 ### Approval and plan record
 
 This record does not yet apply. Acceptance will require the owner's actual decision, the PR
-review and merge reference, the approved revision of this file, the resolved open decisions,
-the assigned responsibilities and the required validation evidence.
+review and merge reference, the approved revision of this file, the answer to the owner's
+question, the assigned responsibilities and the required validation evidence.
 
 ### Configuration and validation record
 
@@ -206,13 +296,14 @@ will be recorded separately.
 
 ## What it owes downstream
 
-- **vscode-typeshade.** Expected work: the tsserver plugin writes `lib.typeshade.d.ts` from the
-  bundled compiler's `SHADE_DTS` to a file the extension owns, and passes its path as
-  `ambientLibPath`. It rewrites the file when the bundled compiler changes. It records 0143 in
+- **vscode-typeshade.** Its build writes `lib.typeshade.d.ts` beside the plugin from the
+  bundled compiler's `SHADE_DTS`. The plugin passes that file's uri as `ambientLibUri`. A
+  tsserver test shows go-to-definition on `mix` landing on its declaration. It records 0143 in
   `compiler-changes.md` <!-- doc-refs: skip — a file in the downstream repository --> when its
-  pin carries this change. No page or test there is known to describe the old behavior; a
-  search is pending.
-- **typeshade.github.io.** Not declared. A search for pages that say go-to-definition shows
-  nothing on an ambient name is pending (see Draft impact estimate).
+  pin carries this change.
+- **typeshade.github.io.** Its language-service page names `ambientLibUri` beside
+  `readDocument`. Its editor page lists go to definition among the plugin's features; that line
+  is rechecked for built-in names. Its language reference may show the new type comments. It
+  records 0143 in `compiler-changes.md` <!-- doc-refs: skip — a file in the downstream repository -->.
 
 All downstream obligations stay pending until the compiler implementation and the pins exist.
