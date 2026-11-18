@@ -208,4 +208,92 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
       expect(run(program(PULLED(loop, use, read), 'f32'))).toBe(value);
     },
   );
+
+  const H = 'let h = (1 << 30);\n  ';
+  const [h, ii, vi] = [2 ** 30, -3, 7];
+  it.each([
+    ['h + h + ii', H, 'h + h + ii', (h + h + ii) | 0, ''],
+    ['h * 3 + ii', H, 'h * 3 + ii', (h * 3 + ii) | 0, ''],
+    ['(h + h) * ii', H, '(h + h) * ii', ((h + h) * ii) | 0, ''],
+    [
+      'an accumulator',
+      'let s = 0 | 0;\n  for (let i = 0; i < 3; i++) {\n    s += 1000000000;\n  }\n  ',
+      's + ii',
+      (3e9 + ii) | 0,
+      '',
+    ],
+    ['s++', 'let s = 2147483647 | 0;\n  s++;\n  ', 's + ii', (2147483648 + ii) | 0, ''],
+    ['a minus', 'let a = -(5 | 0);\n  ', 'a * 1000000000 + ii', (-5e9 + ii) | 0, ''],
+    ['a typed variable', `${H}let k: i32 = 0;\n  `, 'h + h + k', (h + h) | 0, ''],
+    ['a conversion', H, 'h + h + i32(vi)', (h + h + vi) | 0, ''],
+    [
+      'a helper',
+      '',
+      'g(ii)',
+      (h + h + ii) | 0,
+      'function g(x: i32) {\n  let h = (1 << 30);\n  return h + h + x;\n}\n',
+    ],
+  ] as const)(
+    'review of #1358 (decision a): a differing tree beside a typed i32 is refused: %s',
+    (_, body, subject, value, pre) => {
+      const source = program(`${body}return f32(${subject});`, 'f32', pre);
+      bothRefuse(source, 'TS8003', unproven(subject, 'f32()', `i32(${subject})`));
+      expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(value);
+    },
+  );
+
+  it('review of #1358 (decision a): the comparison of such a sum is refused', () => {
+    const source = program(`${H}let d = h + h;\n  return d + ii > 0 ? 1.0 : 0.0;`, 'f32');
+    bothRefuse(source, 'TS8003', unproven('d + ii', '>', 'i32(d + ii)'));
+    expect(run(source.replace('d + ii >', 'i32(d + ii) >'))).toBe(((h + h + ii) | 0) > 0 ? 1 : 0);
+  });
+
+  it.each([
+    ['max', `return f32(max(h + h, ii));`, 'h + h', 'max', Math.max((h + h) | 0, ii)],
+    ['min', `return f32(min(h + h, ii));`, 'h + h', 'min', Math.min((h + h) | 0, ii)],
+    [
+      'clamp',
+      `return f32(clamp(h + h, ii, 10));`,
+      'h + h',
+      'clamp',
+      Math.min(Math.max((h + h) | 0, ii), 10),
+    ],
+    [
+      'max under a comparison',
+      `return max(h + h, ii) > 0 ? 1.0 : 0.0;`,
+      'h + h',
+      'max',
+      Math.max((h + h) | 0, ii) > 0 ? 1 : 0,
+    ],
+    [
+      'max of a binding',
+      `let d = h + h;\n  let e = max(d, ii);\n  return f32(e);`,
+      'd',
+      'max',
+      Math.max((h + h) | 0, ii),
+    ],
+  ] as const)(
+    'review of #1358: a builtin beside a typed i32 refuses the operand, and its edit gives the value: %s',
+    (_, body, subject, at, value) => {
+      const source = program(H + body, 'f32');
+      bothRefuse(source, 'TS8003', unproven(subject, at, `i32(${subject})`));
+      expect(run(source.replace(`${at}(${subject},`, `${at}(i32(${subject}),`))).toBe(value);
+    },
+  );
+
+  it.each([
+    ['abs(i32(h))', 'return f32(abs(i32(h)));', 5],
+    ['max(i32(h), 2)', 'return f32(max(i32(h), 2));', 5],
+  ] as const)(
+    'review of #1358 (decision b): a conversion inside a builtin compiles: %s',
+    (_, body, value) => {
+      expect(run(program(`let h = 5 | 0;\n  ${body}`, 'f32'))).toBe(value);
+    },
+  );
+
+  it('review of #1358: abs of a differing tree names an edit', () => {
+    const source = program(`${H}return f32(abs(h + h));`, 'f32');
+    bothRefuse(source, 'TS8003', unproven('h + h', 'abs', 'i32(h + h)'));
+    expect(run(source.replace('abs(h + h)', 'abs(i32(h + h))'))).toBe(-2147483648);
+  });
 });

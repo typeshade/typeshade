@@ -262,3 +262,21 @@ export function constantValue(
       return undefined;
   }
 }
+
+export function reachedBy(
+  entries: readonly (readonly [ts.Node, readonly ts.Expression[]])[],
+  reads: (id: ts.Identifier, reached: ReadonlySet<ts.Node>) => boolean,
+): Set<ts.Node> {
+  const reached = new Set<ts.Node>();
+  const holds = (e: ts.Node): boolean =>
+    (ts.isNumericLiteral(e) && isBigNumber(Number(e.text))) ||
+    (ts.isIdentifier(e) && reads(e, reached)) ||
+    ts.forEachChild(e, (c) => (holds(c) ? true : undefined)) === true;
+  for (let more = true; more;) {
+    more = false;
+    for (const [d, exprs] of entries) {
+      if (!reached.has(d) && exprs.some(holds)) more = reached.add(d) !== undefined;
+    }
+  }
+  return reached;
+}

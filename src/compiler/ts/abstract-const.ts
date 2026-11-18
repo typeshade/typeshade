@@ -45,6 +45,7 @@ import { loweredTypeOf } from './symbols.js';
 import {
   constantTree,
   ARITH,
+  reachedBy,
   COUNTING_BUILTINS,
   ONE,
   constantValue,
@@ -94,6 +95,7 @@ import {
   signedPair,
   signedReading,
   plainUnproven,
+  pastInt32,
   provenDiffering,
   beyondExecutions,
   readingKey,
@@ -3383,17 +3385,10 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
       }
     }
   }
-  const big = new Set<ts.Node>();
-  const bigIn = (e: ts.Node): boolean =>
-    (ts.isNumericLiteral(e) && isBigNumber(Number(e.text))) ||
-    (ts.isIdentifier(e) && (big.has(declarationAt(e, sourceFile)!) || taint.names.has(e.text))) ||
-    ts.forEachChild(e, (c) => (bigIn(c) ? true : undefined)) === true;
-  for (let more = true; more;) {
-    more = false;
-    for (const [d, exprs] of [...vars.map((v) => [v.d, v.exprs] as const), ...taint.pulled]) {
-      if (!big.has(d) && exprs.some(bigIn)) more = big.add(d) !== undefined;
-    }
-  }
+  const big = reachedBy(
+    [...vars.map((v) => [v.d, v.exprs] as const), ...taint.pulled],
+    (e, from) => from.has(declarationAt(e, sourceFile)!) || taint.names.has(e.text),
+  );
   for (const d of taint.pulled.keys()) if (big.has(d)) taint.pulledU32.add(d);
   // The groups: Tarjan's components over the tainted variables, functions and members, by what
   // each reads.
@@ -4031,9 +4026,14 @@ function binaryReadingsOf(
   const typedShift = k === ts.SyntaxKind.LessThanLessThanToken || !keepsCongruence;
   if (typedSide !== undefined && !typedShift) {
     const besideTyped = typedSide === left ? bs : as;
-    const flow = { sourceFile, refused: new Set<ts.Node>(), tainted: new Map(), reached: [] };
-    const peer = peerScalar(typedSide, flow);
+    const peer = peerScalar(typedSide, {
+      sourceFile,
+      refused: new Set(),
+      tainted: new Map(),
+      reached: [],
+    });
     const differing = besideTyped.some((x) => x.congruent === true || provenDiffering(x));
+    if (peer === 'i32' && besideTyped.some(pastInt32)) return [UNPROVEN];
     const typedMask =
       k === ts.SyntaxKind.AmpersandToken ? maskValue(typedSide, constantOf) : undefined;
     if (typedMask !== undefined && !besideTyped.some((x) => x.unknown || plainUnproven(x))) {

@@ -30,6 +30,8 @@ export function signedReading(ts: number, picks: Reading['picks'] = []): Reading
 
 export const provenDiffering = (x: Reading): boolean =>
   x.tree && x.unproven !== true && x.agreeing !== true && x.u32 !== x.ts;
+export const pastInt32 = (x: Reading): boolean =>
+  x.congruent === true || (provenDiffering(x) && x.ts !== (x.u32 | 0));
 export const plainUnproven = (x: Reading): boolean => x.unproven === true && x.congruent !== true;
 
 export const READINGS_PER_NODE = 32;

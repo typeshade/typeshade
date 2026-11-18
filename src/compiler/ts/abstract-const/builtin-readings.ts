@@ -16,7 +16,8 @@ export function builtinReadingsOf(
   readsOnlyHere: () => boolean,
   w: { steps: number },
 ): Reading[] {
-  if (args.some((a) => a.length === 0)) return tainted() ? [UNPROVEN] : [];
+  const read = args.some((a) => a.some((x) => x.tree || x.unknown === true));
+  if (args.some((a) => a.length === 0)) return read && tainted() ? [UNPROVEN] : [];
   const apply = (xs: readonly number[], unsigned: boolean): number => {
     const [x, y, z] = [xs[0]!, xs[1]!, xs[2]!];
     switch (callee) {
