@@ -66,6 +66,8 @@ import { lowerSubgroupCall } from './subgroups.js';
 import { lowerClassCall } from './class-methods.js';
 import { MAT_CTOR, VEC_CTOR, isValueConstructor, type VecCtorElem } from './constructors.js';
 import { isArrayMethod, lowerArrayMethod, otherArrayMethod } from './array-methods.js';
+import { refusesReadonlyMutatorCall } from './readonly-promise.js';
+import { arraySuffix } from './expression-call/array-suffix.js';
 import {
   ATOMIC_INTRINSICS,
   BARRIER_INTRINSICS,
@@ -385,6 +387,8 @@ export function lowerCall(
       const seen: { recv?: Expr } = {};
       const viaClass = lowerClassCall(node, callee, sourceFile, scope, diagnostics, seen);
       if (viaClass !== 'not-a-class-call') return viaClass;
+      if (refusesReadonlyMutatorCall(node, callee, sourceFile, scope, diagnostics))
+        return undefined;
       if (
         callee.name.text === 'slice' &&
         node.arguments.length === 0 &&
@@ -2200,15 +2204,6 @@ export function lowerMultisampledCall(
       );
       return undefined;
   }
-}
-
-/** The id suffix the array forms take: `Array` for a 2d array, `CubeArray` for a cube array
- *  (roadmap 0.4 item 12), '' for a texture with no layers. Two suffixes rather than one because
- *  the GLSL spellings fold the layer differently (a `vec3(uv, layer)` on a 2d array; nothing at
- *  all on a cube array, which GLSL ES 3.00 has no sampler for), and an id's text must never
- *  depend on the texture it is called on. */
-export function arraySuffix(dim: string): '' | 'Array' | 'CubeArray' {
-  return dim === '2d-array' ? 'Array' : dim === 'cube-array' ? 'CubeArray' : '';
 }
 
 /** The gather component folded to a literal: a written number, or a module `const` whose value

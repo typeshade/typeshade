@@ -62,6 +62,9 @@ import {
 } from './optional.js';
 import { namespaceClassAround } from './namespaces.js';
 import { collectionKeyT, keyTypeT, keysOf, numericDomainT, recordT } from './key-types.js';
+import { LIBRARY_TYPE_NAMES } from './type-map/library-type-names.js';
+export { LIBRARY_TYPE_NAMES };
+import { isReadonlyArrayOperator } from './type-map/readonly-array.js';
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 
@@ -304,61 +307,6 @@ export function declaredTypeNamesOf(sourceFile: ts.SourceFile): ReadonlySet<stri
 }
 
 const DECLARED_TYPES = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
-
-/** The capitalized types the editor's ambient library declares for its own use: the globals
- *  TypeScript needs when it has no standard library (`Array`, `Number`, `Function`), and the
- *  helper types its signatures are written in (`AnyClass`, surface §29, `Numeric`, `ScalarOf`,
- *  `VecFor3`).
- *  None is a type a shader value has, and none is a name nothing declares either, so none is an
- *  unknown name in a constraint or wherever else a type is not mapped. `ambient-parity.test.ts`
- *  holds this list to the library. */
-export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
-  'AnyClass',
-  'Array',
-  'ArrayOps',
-  'BitcastArg',
-  'BoolVec',
-  'Boolean',
-  'CallableFunction',
-  'Console',
-  'Function',
-  'IArguments',
-  'LaneKeys',
-  // A kernel function's parameter only (change 0080): `mapCollection` takes it there.
-  'Map',
-  'Mat',
-  'MatColumn',
-  'MathObject',
-  'NewableFunction',
-  'Number',
-  'Numeric',
-  'Object',
-  'Pick',
-  'ReadView',
-  // A table over a key type (change 0081): `mapRecord` takes it with its type arguments.
-  'Record',
-  'ReadWriteStorageFormat',
-  'RegExp',
-  'ScalarOf',
-  // A kernel function's parameter only (change 0080), as `Map` is.
-  'Set',
-  'StorageAccess',
-  'StorageBufferAccess',
-  'StorageFormat',
-  'StorageTexel',
-  'String',
-  'SymbolConstructor',
-  'TexelCoord2',
-  'TexelCoord3',
-  'TextureElem',
-  'Vec4OfElem',
-  'Vec64Any',
-  'VecElemOf',
-  'VecFor2',
-  'VecFor3',
-  'VecFor4',
-  'WriteOnlyStorageFormat',
-]);
 
 /** The type an author writes for a library type that stands for one in TypeScript. */
 const LIBRARY_TYPE_REMEDY: Readonly<Record<string, string>> = {
@@ -702,6 +650,15 @@ function mapType(
 
   if (ts.isArrayTypeNode(typeNode)) {
     return unsizedArray(typeNode.elementType, sourceFile, diagnostics, resolving, sizeOverrides);
+  }
+  if (isReadonlyArrayOperator(typeNode)) {
+    return unsizedArray(
+      typeNode.type.elementType,
+      sourceFile,
+      diagnostics,
+      resolving,
+      sizeOverrides,
+    );
   }
 
   if (ts.isTypeReferenceNode(typeNode)) {
@@ -1187,15 +1144,15 @@ function mapGeneric(
   >,
 ): ShaderType | undefined {
   const args = typeNode.typeArguments ?? [];
-  if (name === 'Array' && args.length === 1) {
+  if ((name === 'Array' || name === 'ReadonlyArray') && args.length === 1) {
     return unsizedArray(args[0]!, sourceFile, diagnostics, resolving, sizeOverrides);
   }
-  if (name === 'Array') {
+  if (name === 'Array' || name === 'ReadonlyArray') {
     pushDiag(
       diagnostics,
       sourceFile,
       typeNode,
-      'Array<T> takes one type argument, the element. A list with a size is array<T, N>.',
+      `${name}<T> takes one type argument, the element. A list with a size is array<T, N>.`,
     );
     return undefined;
   }
