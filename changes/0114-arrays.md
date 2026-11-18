@@ -19,6 +19,7 @@ surface:
   - 14
   - 18
   - 20
+  - 26
   - 28
   - 63
   - 64
@@ -629,6 +630,17 @@ yet. Declare the type: const a: array<f32, 3> = [...].` (a bug fix under OD-9, i
 - [fact] A function-local `as const` list stays refused (S2 names module scope only); open item.
 - Affects: the front matter (`rules` gains 5.1), section 2 (stage S2c).
 - Status: `status: accepted` does not change. S2c: not started.
+
+### A4. S2b names surface §26 (2026-11-18)
+
+- [fact] Why. A1 item 11 makes `new Array(n)` with no `fill` "not supported yet" (`TS8099`) in
+  place of `TS8035`. S2b (pull request #1375) implements it. Surface §26's table of `new` targets
+  still lists `new Array(4)` as `TS8035`, and §26 was not in this proposal's `surface`, so
+  `scripts/changes.ts` refused the edit and `SURF-026` stays suspect.
+- [decision, owner, 2026-11-18] "승인", to the agent's recommendation to add §26 to `surface` in
+  its own pull request before #1375 edits it.
+- Affects: the front matter (`surface` gains 26). No rule, code or stage changes.
+- Status: `status: accepted` does not change.
 
 ## What it owes downstream
 
