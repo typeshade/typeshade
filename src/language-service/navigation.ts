@@ -1,10 +1,9 @@
 // === Stage 2 navigation: definitions, references, symbols, rename (design doc §4, §5) ===
 //
 // Every method here delegates to the underlying `ts.LanguageService` and re-labels or filters
-// its answer with TypeShade's own vocabulary: a location inside the ambient lib is surfaced only
-// when the adapter names a file for it (`ambientLibUri`, change 0143), where it wrote the same
-// text, and a reference inside it only as the declaration, never as one of the lib's own uses;
-// without that file a user asking for the definition of `vec4` gets nothing. A document symbol's kind comes from the front end's own collected structs/bindings/consts
+// its answer with TypeShade's own vocabulary: an ambient-lib location only at the file the adapter
+// names for it (`ambientLibUri`, change 0143), else nothing for the definition of `vec4`,
+// a document symbol's kind comes from the front end's own collected structs/bindings/consts
 // rather than TypeScript's generic `class`/`variable`, and a rename refuses to touch the
 // ambient vocabulary, a `@builtin(...)` string or the `"use typeshade"` directive — none is a
 // renamable program symbol, and `prepareRename` and `rename` share one predicate for that.
@@ -121,8 +120,7 @@ function locationsFrom(
   return out;
 }
 
-/** Every location `offset` in `uri` is defined at, an ambient-lib one at `ambientLibUri` or
- * dropped when there is none. Returns
+/** Every location `offset` in `uri` is defined at, an ambient-lib one at `ambientLibUri`. Returns
  * `[]` without calling into `ts` when `offset` is on a stage attribute that is no call,
  * `@vertex`, `@fragment` or a bare `@compute` — TypeScript's own decorator-resolution code cannot
  * handle that target and throws (`Error: Debug Failure.`) rather than returning `undefined`. */
@@ -152,10 +150,6 @@ export function getReferences(
   const symbols = languageService.findReferences(uri, offset);
   if (!symbols) return [];
   const includeDeclaration = options?.includeDeclaration ?? true;
-  // The ambient lib names `f32` hundreds of times; those uses are not the author's references,
-  // so none of them is kept, and the symbol's own declaration there stands for the lib (change
-  // 0143). TypeScript marks no ambient entry `isDefinition`; it carries the declaration as
-  // `definition`.
   const entries = symbols.flatMap((s) => [
     ...s.references.filter(
       (r) => r.fileName !== AMBIENT_LIB_URI && (includeDeclaration || !r.isDefinition),

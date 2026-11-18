@@ -128,7 +128,6 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
    * version derived from it never repeats for a uri whose text differs (design doc §7). */
   private revision = 0;
   private readonly ambientLib: string;
-  /** `TypeshadeLanguageServiceHost.ambientLibUri`, normalized as every stored uri is. */
   readonly ambientLibUri: string | undefined;
   private readonly resolveImport: (fromUri: string, specifier: string) => string | undefined;
   private readonly readDocument: (uri: string) => string | undefined;
@@ -165,8 +164,6 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
    * the program sees for it from here on. */
   private store(uri: string, text: string, version: number | undefined): void {
     uri = normalizeSourcePath(uri);
-    // The adapter's copy of the ambient lib, opened in the editor: the program already holds
-    // that text, and a second copy would declare every global twice (change 0143).
     if (uri === this.ambientLibUri) return;
     const current = this.docs.get(uri);
     const revision =
