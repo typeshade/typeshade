@@ -82,6 +82,7 @@
     "build": "tsc --build --force && bun scripts/emit-shade-dts.ts && tsc -p tsconfig.tests.json && bun scripts/build-info.ts",
     "test": "vitest run",
     "tshc": "bun src/cli/bin.ts",
+    "editor:plugin": "bun scripts/editor-plugin.ts",
     "bench:gl-compute": "bun scripts/gl-compute-bench.ts",
     "bench:stepping": "bun scripts/bench-stepping.ts",
     "bench:scatter": "bun scripts/scatter-scratch.ts",
@@ -122,6 +123,7 @@
   "devDependencies": {
     "@types/node": "^25.6.0",
     "@webgpu/types": "0.1.74",
+    "esbuild": "0.28.2",
     "eslint": "^9",
     "playwright": "^1.59.1",
     "prettier": "^3.5.3",

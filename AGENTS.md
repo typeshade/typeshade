@@ -53,6 +53,14 @@ describes it.
   gated by the emit goldens. A semantic change (the emitted text changes) needs the CPU
   oracle parity gate and a real compile through `bun run gate:compile`.
 - `core/` is private. Do not widen the public barrel to export it.
+- To edit `*.shade.ts` here in VS Code, install the recommended TypeShade extension, run
+  `bun run editor:plugin`, and add `"js/ts.tsserver.pluginPaths": ["./.cache/editor-plugin"]`
+  to your VS Code user settings (the setting is machine-scoped, so `.vscode/settings.json`
+  cannot carry it). The extension's own compiler is pinned and older than `src/`; the script
+  builds its tsserver plugin against this working tree, and that path puts the build ahead of
+  the extension's copy. Rerun it after a compiler change you want the editor to see, then
+  restart the TS server. It also writes `.cache/editor-plugin/lib.typeshade.d.ts`, the ambient
+  declarations a shader sees, for reading: go-to-definition on a built-in name opens nothing.
 - Shader source ends every statement with `;`, as the guide spells `"use typeshade";`. That
   covers the `examples/*.shade.ts` files, the `"use typeshade"` fences in the docs, every fence
   in `docs/use-typeshade-surface.md`, and the inline sources the tests compile. Do not write
