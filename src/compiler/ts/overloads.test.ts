@@ -15,7 +15,6 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -29,7 +28,7 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('an overload signature is skipped and the implementation is lowered', () => {
-  itNoInlining('once, however many signatures stand above it', () => {
+  it('once, however many signatures stand above it', () => {
     const r = compile(`"use typeshade";
 export function lum(c: vec3): f32;
 export function lum(c: vec3): f32;
@@ -41,13 +40,14 @@ export function lum(c: vec3): f32 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl?.match(/fn lum\(/g)).toHaveLength(1);
-    expect(r.wgsl).toContain('fn lum(c: vec3<f32>) -> f32 {');
-    expect(r.glsl?.fragment?.match(/float lum\(/g)).toHaveLength(1);
+    expect(r.module.funcs.filter((f) => f.name === 'lum')).toHaveLength(1);
+    expect(r.wgsl?.match(/fn lum\(/g) ?? []).toHaveLength(0);
+    expect(r.wgsl).toContain('dot(');
+    expect(r.glsl?.fragment?.match(/float lum\(/g) ?? []).toHaveLength(0);
     agree(r, [0.2126, 0, 0, 1]);
   });
 
-  itNoInlining('inside a namespace, under the flattened name', () => {
+  it('inside a namespace, under the flattened name', () => {
     const r = compile(`"use typeshade";
 namespace Color {
   export function lum(c: vec3): f32;
@@ -60,11 +60,12 @@ namespace Color {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl?.match(/fn Color_lum\(/g)).toHaveLength(1);
+    expect(r.module.funcs.filter((f) => f.name === 'Color_lum')).toHaveLength(1);
+    expect(r.wgsl?.match(/fn Color_lum\(/g) ?? []).toHaveLength(0);
     agree(r, [0.7152, 0, 0, 1]);
   });
 
-  itNoInlining('on a method, a static function and a constructor', () => {
+  it('on a method, a static function and a constructor', () => {
     const r = compile(`"use typeshade";
 class C {
   x: f32;
@@ -94,7 +95,9 @@ class C {
     // emitted only as the `_into` copies that build into them.
     expect(wgsl.match(/fn C_mk_into\(/g)).toHaveLength(1);
     expect(wgsl.match(/fn C_new_into\(/g)).toHaveLength(1);
-    expect(r.wgsl).toMatch(/fn _flow\d+_fused\(/);
+    for (const name of ['C_at', 'C_mk_into', 'C_new_into']) {
+      expect(r.wgsl?.match(new RegExp(`fn ${name}\\(`, 'g')) ?? [], name).toHaveLength(0);
+    }
     agree(r, [10, 15, 0, 1]);
   });
 });

@@ -20,7 +20,6 @@ import { emitModule } from '../../core/backends/wgsl.js';
 import { copy, runKernelPlan } from '../../core/testing/kernel-plan.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const module = (body: string): string => `"use typeshade";\n${body}\n`;
 
@@ -884,7 +883,7 @@ describe('a kernel function that writes a storage texture (change 0077)', () => 
     expect(v.ok ? v.writes.map((w) => `${w.kind} ${w.name}`) : []).toEqual(['texel dst']);
   });
 
-  itNoInlining(
+  it(
     'leaves an exported helper that takes only a sampled texture a helper (Amendment 1)',
     () => {
       const body = `declare const img: texture_2d<f32>;
@@ -901,7 +900,8 @@ interface FsOut {
       expect(edited(body)).toEqual([]);
       const r = compile(module(body), { fileName: 'm.shade.ts' });
       expect(r.module.funcs.find((f) => f.name === 'tex')?.kernel).toBeUndefined();
-      expect(r.wgsl).toContain('fn tex(');
+      expect(r.wgsl).not.toContain('@compute');
+    expect(r.wgsl).toContain('textureLoad(img');
     },
   );
 

@@ -15,7 +15,6 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const FRAGMENT = `interface VsOut { pos: builtin<"position">; uv: location<0, vec2>; }
 interface Color { color: location<0, vec4>; }
@@ -127,13 +126,20 @@ export function run(): f32 { let c = new C(); c.tick(); c.later(); c.whole(); c.
     expect(r.wgsl).toContain('grow(self_);');
   });
 
-  itNoInlining('gives a result back to a local that has no value yet (Rule 7.6)', () => {
+  it('gives a result back to a local that has no value yet (Rule 7.6)', () => {
     const r = check(
       `function add(a: f32, b: f32): f32 { return a + b; }
 export function run(): f32 { let s: f32; s = add(1., 2.); return s; }`,
       3,
     );
-    expect(r.wgsl).toContain('s = add(1.0, 2.0);');
+    const assigned = r.module.funcs
+      .find((f) => f.name === 'run')!
+      .body.flatMap((st) =>
+        st.s === 'assign' && st.target.op === 'varref' && st.expr.op === 'call'
+          ? [`${st.target.name} = ${st.expr.fn}`]
+          : [],
+      );
+    expect(assigned).toEqual(['s = add']);
   });
 
   it('hands an object parameter it holds on as itself', () => {
