@@ -1,3 +1,4 @@
+// Verifies: Rule 6.8 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
 import { keepHelpers } from '../../core/testing/keep-helpers.js';
 import { compile } from './compile.js';

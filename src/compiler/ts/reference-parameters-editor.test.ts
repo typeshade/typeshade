@@ -1,3 +1,4 @@
+// Verifies: Rule 12.7 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 

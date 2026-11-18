@@ -1,3 +1,4 @@
+// Verifies: Rule 3.9 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { linkProgram } from './link.js';

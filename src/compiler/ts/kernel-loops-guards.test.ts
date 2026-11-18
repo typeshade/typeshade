@@ -1,3 +1,4 @@
+// Verifies: Rule 8.22 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
