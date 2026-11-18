@@ -5,7 +5,7 @@ level: 4
 links:
 - RULE-0804: b77wiRGwK90RYWjEtfAedxCUcx_TL2CqithFmAw78sE=
 - RULE-0817: syWTis0Wu7RbljtIzVgvi5WCgsW2oD6X0iqHO4mUebw=
-- RULE-0818: WSJEXSLWucW9-ovejXz9e-mLa7u8vqZrdwezeNyrr7M=
+- RULE-0818: b50KmXwjsoSL8kq_x-fUEfya9QJaNEUVSqAtLnsYMOM=
 normative: true
 ref: ''
 reviewed: Uqh2wwmUTAarUb7g26LTtkbEAyjnvsb3A22o7JzKN9Y=
