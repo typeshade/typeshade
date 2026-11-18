@@ -1679,7 +1679,7 @@ declare function workgroup_size(size: readonly [x: number]): (target: Function, 
 // method (#177) is added here and named there, and nowhere else. See the note above
 // \`ArrayOps\` for what a MUTATING member costs.
 interface Array<T> {
-  readonly length: number
+  readonly length: u32
   [n: number]: T
   // A list literal is an \`Array\` here, and it has to stay assignable to an iterable \`array<T, N>\`.
   [Symbol.iterator](): { next(): { done: false; value: T } | { done: true; value: undefined } }
