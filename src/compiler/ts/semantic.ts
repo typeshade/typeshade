@@ -11,8 +11,7 @@ import ts from 'typescript';
 import { STAGE_CALLEES, looseStageCallOf } from './stage-call.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { ATTRIBUTE_NAMES, checkDeclarationDecorators } from './builtin-check.js';
-import { isResourceCall } from './bindings.js';
-import { isOverrideType } from './overrides.js';
+import { strictModeBinding } from './semantic/strict-mode.js';
 import { TS_CODES, type TsCode } from './codes.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { isEnableDirective } from './enables.js';
@@ -40,6 +39,7 @@ import {
 } from './lower/expression.js';
 import { unknownFunctionSentence } from './lower/expression-call.js';
 import { internalOpOf } from './internal-ops.js';
+import { ARRAY_CONSTRUCTORS, arrayReadAsConstructor } from './lower/array-constructor/form.js';
 
 function push(
   diagnostics: TsCompilerDiagnostic[],
@@ -262,64 +262,7 @@ function visit(
   ts.forEachChild(node, (child) => visit(child, sourceFile, diagnostics));
 }
 
-/** The two names ECMAScript's strict mode lets no declaration bind. Every `"use typeshade"` file
- *  is strict code, so TypeScript refuses such a binding (TS1215, TS1210 in a class, TS1100),
- *  and the JavaScript the host import generates from the file would not load. */
-export const STRICT_MODE_NAMES: ReadonlySet<string> = new Set(['eval', 'arguments']);
-
-/**
- * The binding `node` makes of a {@link STRICT_MODE_NAMES} name, where TypeScript refuses it, and
- * the one sentence for it: a parameter, a function's name, and a variable, which is a local in a
- * body and a module constant, a module variable, a binding or an override at the top level or
- * in a namespace. A class, an enum, a namespace or a type of the name is a declaration
- * TypeScript takes, and so does this front end (Rule 2.1).
- */
-function strictModeBinding(node: ts.Node): { name: ts.Identifier; message: string } | undefined {
-  const name =
-    ts.isParameter(node) ||
-    ts.isVariableDeclaration(node) ||
-    ts.isBindingElement(node) ||
-    ts.isFunctionDeclaration(node) ||
-    ts.isFunctionExpression(node)
-      ? node.name
-      : undefined;
-  if (name === undefined || !ts.isIdentifier(name) || !STRICT_MODE_NAMES.has(name.text)) {
-    return undefined;
-  }
-  const noun = bindingNoun(node);
-  return {
-    name,
-    message:
-      `"${name.text}" is reserved in ECMAScript's strict mode, which every "use typeshade" ` +
-      `file is in, so ${/^[aeiou]/.test(noun) ? 'an' : 'a'} ${noun} of that name cannot be ` +
-      `declared. Rename it.`,
-  };
-}
-
-/** What the author calls what `node` declares, in the words the front end's messages use. A name in
- *  a pattern is what the pattern declares. */
-function bindingNoun(node: ts.Node): string {
-  if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) return 'function';
-  let at = node;
-  while (ts.isBindingElement(at) || ts.isObjectBindingPattern(at) || ts.isArrayBindingPattern(at)) {
-    at = at.parent;
-  }
-  if (ts.isParameter(at)) return 'parameter';
-  const statement = at.parent.parent;
-  if (
-    !ts.isVariableDeclaration(at) ||
-    !ts.isVariableStatement(statement) ||
-    !(ts.isSourceFile(statement.parent) || ts.isModuleBlock(statement.parent))
-  ) {
-    return 'local';
-  }
-  if ((at.parent.flags & ts.NodeFlags.Const) === 0) return 'module variable';
-  const declared = statement.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword);
-  if (declared === true || (at.initializer !== undefined && isResourceCall(at.initializer))) {
-    return 'binding';
-  }
-  return isOverrideType(at.type) ? 'override' : 'module constant';
-}
+export { STRICT_MODE_NAMES } from './semantic/strict-mode.js';
 
 /** Whether a variable statement is a `var`. */
 export function isVarStatement(node: ts.VariableStatement): boolean {
@@ -709,6 +652,7 @@ export const LIBRARY_VALUES: ReadonlySet<string> = new Set([
   ...ATTRIBUTE_NAMES,
   // The stage names, which are attribute names (Rule 2.1); `workgroup_size` is one too.
   ...STAGE_CALLEES,
+  ...ARRAY_CONSTRUCTORS,
   'discard',
   'Symbol',
   'uniform',
@@ -876,7 +820,7 @@ export function reportUndeclaredValues(
   };
   const check = (id: ts.Identifier): void => {
     const name = id.text;
-    if (declared.has(name) || NOT_READ.has(name)) return;
+    if (declared.has(name) || NOT_READ.has(name) || arrayReadAsConstructor(id)) return;
     if (isLibraryValueName(name) && !LIBRARY_TYPE_NAMES.has(name)) return;
     // A compiler-internal operation, in the libm's compile alone (change 0042).
     if (internalOpOf(name) !== undefined) return;

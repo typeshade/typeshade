@@ -19,6 +19,17 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **`new Array(N).fill(v)`, `new Float32Array(N)` and `Array.from({ length: N }, f)` build a
+  sized array** (change 0114, S2). With a constant `N` (an integer literal, a module constant or
+  a constant of no fixed type) each is an `array<T, N>`: `N` copies of `v`, `N` zeros of `f32`,
+  or `f(undefined, i)` for each index. A class field takes its size from such an initializer,
+  `weights = new Array(16).fill(0.)`. The editor's hover shows `array<f32, 16>`. `fill` now gives
+  back the array it fills, as ECMAScript does; `xs.fill(v)` as a statement is unchanged, and a use
+  of its value on an array that already exists is `TS8099`, not supported yet. `new Array(N)`
+  with no `fill`, an array of holes, is `TS8099` in place of `TS8035`. A length that is no
+  constant, a length of 0, an integer-written `v` that nothing types, and `Array.from` outside a
+  function's body or with a function that reads `undefined` are `TS8099`, not supported yet
+  (surface §63). `Float32Array` and `Array.from` are author-facing names.
 - **An untyped list takes its element type and its length from its elements** (change 0114,
   S2). `const a = [1., 2., 3.]` is `array<f32, 3>` in a function body and at module scope, for a
   `const` and a `let`; it emits what `const a: array<f32, 3> = [1., 2., 3.]` emits, and the

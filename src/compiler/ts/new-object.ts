@@ -4,6 +4,7 @@ import ts from 'typescript';
 import type { ShaderType } from '../../core/ir/types.js';
 import { bare, fileFunction, rootOf, writeTargets, writesAnObject } from './object-reference.js';
 import { optionalInner } from './optional.js';
+import { isArrayConstructorExpression } from './lower/array-constructor/form.js';
 import { Reader, eachOwn, elementType, isPropertyName, membersNamed } from './source-types.js';
 
 export function isNewObject(
@@ -25,6 +26,7 @@ export function newObject(e: ts.Expression, reader: Reader): boolean {
   const sf = reader.sourceFile;
   if (ts.isNewExpression(x) || ts.isObjectLiteralExpression(x) || ts.isArrayLiteralExpression(x))
     return true;
+  if (isArrayConstructorExpression(x)) return true;
   if (ts.isConditionalExpression(x)) {
     const arm = (a: ts.Expression): boolean => {
       const v = bare(a);

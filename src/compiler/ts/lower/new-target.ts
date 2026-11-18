@@ -39,6 +39,13 @@ import { isCallerClassThis, isStaticMember, staticThisClass } from '../class-nam
 import { namespaceMember, qualifiedParts } from '../namespaces.js';
 import { declarationOf } from './closures.js';
 import { namesInScope, unknownNameSentence } from '../unknown-names.js';
+import { arrayNewVerdict } from './array-constructor/form.js';
+import {
+  firstStatic,
+  isStaticsOnly,
+  namedStatics,
+  namespaceStaticSentence,
+} from './new-target/statics.js';
 
 /** What a `new` names. */
 export type NewTarget =
@@ -316,35 +323,6 @@ export function notAValueSentence(
     : `"${name}" is a class, not a value. Build one with "new ${name}(...)".`;
 }
 
-/** A class's static members a `.` names: fields and methods written with a name. */
-function namedStatics(decl: ts.ClassDeclaration): ts.ClassElement[] {
-  return decl.members.filter(
-    (m) => isStaticMember(m) && m.name !== undefined && ts.isIdentifier(m.name),
-  );
-}
-
-/** Whether a class has statics and no field of each value: a class of static members. */
-function isStaticsOnly(decl: ts.ClassDeclaration): boolean {
-  const instanceField = decl.members.some((m) => ts.isPropertyDeclaration(m) && !isStaticMember(m));
-  return !instanceField && namedStatics(decl).length > 0;
-}
-
-/** The static a sentence names for a class of statics: its first field, else its first method. */
-function firstStatic(decl: ts.ClassDeclaration): ts.ClassElement | undefined {
-  const statics = namedStatics(decl);
-  return statics.find(ts.isPropertyDeclaration) ?? statics[0];
-}
-
-/** A static member of a class inside a namespace, which a shader does not read: the same class
- *  declared at the top level of the file does. */
-function namespaceStaticSentence(shown: string, className: string, member: string): string {
-  return (
-    `"${shown}" is a class inside a namespace, and a shader does not read the static members ` +
-    `of one ("${shown}.${member}"). Declare "${className}" at the top level of the file and ` +
-    `use "${className}.${member}".`
-  );
-}
-
 /** What a declaration the target resolved to is, as a `new` sees it. */
 function classify(
   decl: ts.Node,
@@ -522,6 +500,8 @@ export function newRefusal(
   node: ts.NewExpression,
   sourceFile: ts.SourceFile,
 ): { readonly message: string; readonly code: TsCode } | undefined {
+  const array = arrayNewVerdict(node);
+  if (array !== undefined) return array === 'built-here' ? undefined : array;
   const target = unparen(node.expression);
   if (target.kind === ts.SyntaxKind.ThisKeyword) {
     const cls = staticThisClass(target);

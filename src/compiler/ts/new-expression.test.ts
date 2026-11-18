@@ -119,7 +119,7 @@ describe('what a new is refused on says its own reason', () => {
     for (const [target, name] of [
       ['new Date()', 'Date'],
       ['new Promise()', 'Promise'],
-      ['new Float32Array(4)', 'Float32Array'],
+      ['new Int32Array(4)', 'Int32Array'],
       ['new Intl.NumberFormat()', 'Intl'],
     ]) {
       expect(errorsOf(built('', target!)), target).toEqual([
@@ -469,7 +469,7 @@ describe('each thing a new is refused on is named for what it is (Rule 8.13, Rul
     // TS8012 "is a host/JS API"; TypeScript says TS2693, "only refers to a type".
     const type = (name: string) =>
       `"${name}" is a type, not a value: the library declares it for TypeScript's own use.`;
-    one('', 'new Array(4)', type('Array'));
+    one('', 'new Array()', type('Array'));
     one('', 'new Number(1)', type('Number'));
     one('', 'new Object()', type('Object'));
   });

@@ -58,6 +58,7 @@ import { stageDeclarationOfFunction } from '../compiler/ts/stage-call.js';
 import { clampPosition } from './positions.js';
 import type { TypeshadePosition } from './types.js';
 import { optionalInner } from '../compiler/ts/optional.js';
+import { ambientSpelling, sizedArraySpelling } from './projection/spelling.js';
 import {
   fieldCandidates,
   listCandidates,
@@ -143,22 +144,6 @@ function hasOperator(node: ts.Node): boolean {
   return ts.forEachChild(node, (child) => (hasOperator(child) ? true : undefined)) === true;
 }
 
-/** How the ambient library spells `type`, or undefined when it is not a vector or a matrix:
- *  the `f32`, `i32`, `u32` and `bool` vectors, the emulated-double ones, and the matrices, whose
- *  `f64` form is a square one's type argument. */
-export function ambientSpelling(type: ShaderType): string | undefined {
-  if (type.kind === 'vec') {
-    const suffix = { f32: '', i32: 'i', u32: 'u', bool: 'b' }[type.elem as string];
-    return suffix === undefined ? undefined : `vec${type.n}${suffix}`;
-  }
-  if (type.kind === 'vec64') return `vec${type.n}f64`;
-  if (type.kind === 'mat') {
-    const name = `mat${type.cols}x${type.rows}`;
-    return type.elem === 'f64' ? `${name}<f64>` : name;
-  }
-  return undefined;
-}
-
 /** `ambientSpelling`, and a scalar too: the `f32`, `i32`, `u32` or `f64` a class field or a
  *  function's return is to the front end, which TypeScript infers as `number` from a literal or
  *  arithmetic (0015's class B: `#width = 0.05`, `get period() { return this.r * 2. }`). A local
@@ -229,7 +214,7 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
     // operator (the rule for a local, above).
     const spelled =
       type === undefined || (type.kind !== 'scalar' && type.kind !== 'f64')
-        ? undefined
+        ? sizedArraySpelling(type, name.parent)
         : memberSpelling(type);
     if (spelled !== undefined) out.push({ at: name.getEnd(), text: `: ${spelled}` });
   }
@@ -240,11 +225,8 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
   }
   for (const name of listCandidates(analysis.sourceFile)) {
     const type = byNameStart.get(name.getStart(analysis.sourceFile));
-    if (type?.kind === 'array' && type.size !== undefined)
-      out.push({
-        at: name.getEnd(),
-        text: `: array<${ambientSpelling(type.elem) ?? authorTypeText(type.elem)}, ${String(type.size)}>`,
-      });
+    const spelled = sizedArraySpelling(type, undefined);
+    if (spelled !== undefined) out.push({ at: name.getEnd(), text: `: ${spelled}` });
   }
   const sf = analysis.sourceFile;
   for (const fn of functionCandidates(sf)) {

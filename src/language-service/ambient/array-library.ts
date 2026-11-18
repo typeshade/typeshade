@@ -30,10 +30,10 @@ interface Array<T> {
   // \`length\` is, which the loop must not read (Rule 8.22, R4).
   push(value: T): u32
   // The methods change 0079 adds, as lib.es5.d.ts and lib.es2023.array.d.ts spell them with one
-  // argument: the index to start or stop at is not taken. \`fill\` gives nothing, where
-  // ECMAScript gives the array back: a shader has no reference to hand back. An index is an
-  // \`i32\`, \`-1\` where nothing matches.
-  fill(value: T): void
+  // argument: the index to start or stop at is not taken. \`fill\` gives back the array it
+  // fills, as ECMAScript does (change 0114, S2). An index is an \`i32\`, \`-1\` where nothing
+  // matches.
+  fill<N extends number>(this: array<T, N>, value: T): array<T, N>
   // \`slice()\` with no argument is a new array of the same elements (change 0142, Table 3): the
   // start and the end are not taken, since an array's length is fixed.
   slice<N extends number>(this: array<T, N>): array<T, N>
@@ -62,6 +62,18 @@ interface ReadonlyArray<T> {
   indexOf(searchElement: T): i32
   lastIndexOf(searchElement: T): i32
   includes(searchElement: T): bool
+}
+// ECMAScript's \`Array\` and \`Float32Array\` constructors, with the forms change 0114 (S2) builds
+// an array with: \`new Array(N).fill(v)\`, \`Array.from({ length: N }, f)\` and
+// \`new Float32Array(N)\`. A literal length gives the sized array. \`new Array(N)\` alone is an
+// array of holes, which has \`fill\` and nothing else here; the compiler refuses it unfilled.
+// \`Array.from\` hands its function \`undefined\` and the index, an \`i32\` as \`map\` hands it.
+declare var Array: {
+  new <N extends number>(arrayLength: N): { fill<T>(value: T): array<T, N>; readonly [n: number]: never }
+  from<T, N extends number>(arrayLike: { readonly length: N }, mapfn?: (v: undefined, k: i32, ...rest: undefined[]) => T): array<T, N>
+}
+declare var Float32Array: {
+  new <N extends number>(length?: N): array<f32, N>
 }
 // What \`[Symbol.iterator]\` above resolves through. \`Symbol\` itself is no name of the shader:
 // the compiler refuses it as a value (TS8022), so declaring it gives an author nothing to write.
