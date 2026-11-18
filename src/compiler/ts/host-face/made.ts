@@ -1,3 +1,4 @@
+// Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import type { FuncDecl } from '../../../core/ir/nodes.js';
 import type { KernelFace } from '../../../core/host-kernel.js';
 import { madeOf, type KernelMade } from '../../../core/kernel-made-face.js';

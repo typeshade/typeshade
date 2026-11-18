@@ -1,3 +1,4 @@
+// Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import type ts from 'typescript';
 import type { Expr, FuncDecl, Stmt } from '../../../../core/ir/nodes.js';
 import { voidT } from '../../../../core/ir/types.js';

@@ -1,3 +1,4 @@
+// Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import ts from 'typescript';
 import type { Expr, FuncDecl } from '../../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../../core/ir/types.js';
