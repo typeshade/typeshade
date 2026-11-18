@@ -217,12 +217,14 @@ function lowerSubStmts(s: Stmt, cx: Cx): Stmt {
   }
 }
 
+const isFixedArray = (t: ShaderType): boolean => t.kind === 'array' && t.size !== undefined;
+
 function directSelect(s: Stmt): { slot: Expr; value: Expr } | undefined {
-  if (s.s === 'var' && s.init !== undefined && !hasOperator(s.type))
+  if (s.s === 'var' && s.init !== undefined && isFixedArray(s.type))
     return { slot: { op: 'varref', type: s.type, name: s.name }, value: s.init };
-  if (s.s === 'let' && !hasOperator(s.expr.type))
+  if (s.s === 'let' && isFixedArray(s.expr.type))
     return { slot: { op: 'varref', type: s.expr.type, name: s.name }, value: s.expr };
-  if (s.s === 'assign' && s.target.op === 'varref' && !hasOperator(s.target.type))
+  if (s.s === 'assign' && s.target.op === 'varref' && isFixedArray(s.target.type))
     return { slot: s.target, value: s.expr };
   return undefined;
 }
