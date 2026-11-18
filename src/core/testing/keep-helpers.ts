@@ -19,3 +19,7 @@ export function keepHelpers<A extends unknown[], R>(body: (...args: A) => R): (.
     return result;
   };
 }
+
+export function uninlined<T>(run: () => T): T {
+  return keepHelpers(run)();
+}

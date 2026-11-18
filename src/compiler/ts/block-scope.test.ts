@@ -117,7 +117,7 @@ function g(p: f32): f32 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn g(p: f32) -> f32 {');
+    expect(r.wgsl).toMatch(/acc = \(\w*acc \+ 2\.0\);/);
     const g = r.module.funcs.find((f) => f.name === 'g')!;
     expect(declared(g.body)).toEqual(['acc', 'p_1']);
     expect(r.eval('fs', [])).toEqual([3, 0, 0, 1]);

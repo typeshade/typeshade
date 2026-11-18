@@ -20,6 +20,7 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 import { emitModuleAt } from '../../core/backends/wgsl.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
 import { stageOf } from '../../core/ir/index.js';
+import { uninlined } from '../../core/testing/keep-helpers.js';
 
 const RAY = `"use typeshade";
 class Ray {
@@ -175,9 +176,8 @@ class C {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain(
-      'self_.x = C_twice(&self_, a);\n    return self_;\n  }\n  self_.x = a;\n  return self_;',
-    );
+    expect(r.wgsl).toContain('struct C {');
+    expect(r.wgsl!.match(/_ret = \w*self_;/g)).toHaveLength(2);
     expect(r.eval('fs', [[3, 0]])).toEqual([6, 0, 0, 1]);
     expect(r.eval('fs', [[0.5, 0]])).toEqual([0.5, 0, 0, 1]);
   });
@@ -228,7 +228,7 @@ interface Tile { map: f32; find: f32 }
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn Ray_swizzle(self_: ptr<function, Ray>, k: f32) -> f32 {');
+    expect(r.wgsl).toContain('(r.reverse * 3.0), 9.0)');
     expect(r.eval('fs', [])).toEqual([2, 3, 6, 9]);
   });
 });
@@ -594,7 +594,7 @@ class Particle {
 `;
 
   it('takes its object by reference, and the call is a plain statement', () => {
-    const r = compile(PARTICLES);
+    const r = uninlined(() => compile(PARTICLES));
     expect(r.diagnostics).toEqual([]);
     const w = r.wgsl!;
     // Written once, emitted once per address space its receivers live in: this file calls

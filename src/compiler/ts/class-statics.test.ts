@@ -7,13 +7,14 @@
 // already were, a static field is the module constant `Cls_Field` on both targets and both CPU
 // paths, and the shapes that were refused before are refused still.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
+import { setSmallInlining } from '../../core/passes/specialize-and-inline.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -27,6 +28,9 @@ ${body}
 `;
 
 describe('a class whose members are all static is a namespace of functions', () => {
+  beforeEach(() => setSmallInlining(false));
+  afterEach(() => setSmallInlining(true));
+
   it('compiles, names its functions Cls_fn, and carries no struct', () => {
     const r = compile(
       file(

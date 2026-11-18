@@ -66,8 +66,8 @@ export function t(vi: u32): u32 { return vi * u32(PRIME); }
 }`;
     const result = compile(source);
     expect(result.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(result.wgsl).toContain('return (vi * 2654435761u);');
-    expect(result.glsl?.fragment).toContain('return (vi * 2654435761u);');
+    expect(result.wgsl).toContain('* 2654435761u)');
+    expect(result.glsl?.fragment).toContain('* 2654435761u)');
     // The oracle agrees with the emitted text. Before, the text multiplied by the f32 constant,
     // Math.fround(2654435761) = 2654435840.
     expect(result.eval('t', [1])).toBe(2654435761);

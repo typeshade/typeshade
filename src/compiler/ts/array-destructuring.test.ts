@@ -64,8 +64,8 @@ describe('fixed-array binding declarations', () => {
     `,
       45,
     );
-    expect(r.wgsl).toContain('let first = xs[0u];');
-    expect(r.wgsl).toContain('let last = xs[2u];');
+    expect(r.wgsl).toMatch(/let (?:_sm\d+_l_)?first = (?:_sm\d+_l_)?xs\[0u\];/);
+    expect(r.wgsl).toMatch(/let (?:_sm\d+_l_)?last = (?:_sm\d+_l_)?xs\[2u\];/);
     expect(r.glsl?.fragment).toContain('xs[2u]');
   });
 

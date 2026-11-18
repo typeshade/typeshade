@@ -140,8 +140,8 @@ function arrayLength(x: f32): f32 { return x * 2.; }
 `;
     const r = compileTsSource(src);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(r.wgsl).toContain('fn arrayLength_(x: f32) -> f32 {');
-    expect(r.wgsl).toContain('arrayLength_(1.5)');
+    expect(r.wgsl).toContain('vec4<f32>(3.0,');
+    expect(r.wgsl).not.toContain('arrayLength');
     expect(r.wgsl).not.toContain('&');
     expect(editorOf(src)).toEqual([]);
   });
