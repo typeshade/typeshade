@@ -1045,7 +1045,7 @@ fn Terrain_shade(p: vec3<f32>, ro: vec3<f32>, t: f32, pixA: f32, lineA: f32, shi
   let _gv0 = (x * 0.25);
   grain.y += ((0.8 * Noise_fbm((_gv0 + 5.0))) + (0.12 * Noise_value(((x * 1.9) + 2.0))));
   let _gv1 = (x * 0.6);
-  var pattern: f32 = _flow17_shared(Noise_fbm((vec2<f32>((0.45 * grain.x), (3.0 * grain.y)) + 27.0)), Noise_value((_gv1 + 31.0)), Noise_value((vec2<f32>((1.2 * grain.x), (11.0 * grain.y)) + 41.0)), Noise_value((vec2<f32>((0.7 * grain.x), (1.5 * grain.y)) + 13.0)));
+  let pattern = _flow17_shared(Noise_fbm((vec2<f32>((0.45 * grain.x), (3.0 * grain.y)) + 27.0)), Noise_value((_gv1 + 31.0)), Noise_value((vec2<f32>((1.2 * grain.x), (11.0 * grain.y)) + 41.0)), Noise_value((vec2<f32>((0.7 * grain.x), (1.5 * grain.y)) + 13.0)));
   let dirtColor = mix(SAND, DIRT_DK, mix(0.36, 0.6, smoothstep(0.25, 0.75, pattern)));
   col = mix(col, dirtColor, smoothstep((-fieldWidth), fieldWidth, dirt));
   if (((dirt > ((3.0 * fieldWidth) * lw)) && (abs(determinant(jacobian)) > 1e-12))) {
@@ -1208,12 +1208,12 @@ fn NamekScene_render(self_: ptr<function, NamekScene>, ro: vec3<f32>, rd: vec3<f
       let _i16_longitude = atan2(p.x, p.z);
       let _i16_latitude = asin(clamp((p.y / length(p)), -1.0, 1.0));
       var _i16_ink: f32 = 0.0;
-      var _i16_caps: vec2<f32> = (vec2<f32>(((_i16_longitude - CAPS_LON) * cos(CAPS_LAT)), (_i16_latitude - CAPS_LAT)) / CAPS_H);
+      let _i16_caps = (vec2<f32>(((_i16_longitude - CAPS_LON) * cos(CAPS_LAT)), (_i16_latitude - CAPS_LAT)) / CAPS_H);
       var _i16_index: f32 = floor(((_i16_caps.x / ADV) + 3.5));
       if ((((abs(_i16_caps.y) < 0.6) && (_i16_index >= 0.0)) && (_i16_index < 7.0))) {
         _i16_ink = (1.0 - smoothstep(_gv1, _i16_aa, (CAPS_H * Lettering_glyph(&(*self_).lettering, vec2<f32>((_i16_caps.x - ((_i16_index - 3.0) * ADV)), _i16_caps.y), i32(_i16_index)))));
       }
-      var _i16_corp: vec2<f32> = (vec2<f32>(((_i16_longitude - CORP_LON) * cos(CORP_LAT)), (_i16_latitude - CORP_LAT)) / CORP_H);
+      let _i16_corp = (vec2<f32>(((_i16_longitude - CORP_LON) * cos(CORP_LAT)), (_i16_latitude - CORP_LAT)) / CORP_H);
       _i16_index = floor(((_i16_corp.x / ADV) + 2.5));
       if ((((abs(_i16_corp.y) < 0.6) && (_i16_index >= 0.0)) && (_i16_index < 5.0))) {
         let _i16_glyphId = select(select(select(select(9, 2, (_i16_index < 3.5)), 8, (_i16_index < 2.5)), 7, (_i16_index < 1.5)), 0, (_i16_index < 0.5));
@@ -1306,7 +1306,7 @@ fn NamekScene_render(self_: ptr<function, NamekScene>, ro: vec3<f32>, rd: vec3<f
     let _gv4 = (_i19_x * 0.25);
     _i19_grain.y += ((0.8 * Noise_fbm((_gv4 + 5.0))) + (0.12 * Noise_value(((_i19_x * 1.9) + 2.0))));
     let _gv5 = (_i19_x * 0.6);
-    var _i19_pattern: f32 = _flow17_shared(Noise_fbm((vec2<f32>((0.45 * _i19_grain.x), (3.0 * _i19_grain.y)) + 27.0)), Noise_value((_gv5 + 31.0)), Noise_value((vec2<f32>((1.2 * _i19_grain.x), (11.0 * _i19_grain.y)) + 41.0)), Noise_value((vec2<f32>((0.7 * _i19_grain.x), (1.5 * _i19_grain.y)) + 13.0)));
+    let _i19_pattern = _flow17_shared(Noise_fbm((vec2<f32>((0.45 * _i19_grain.x), (3.0 * _i19_grain.y)) + 27.0)), Noise_value((_gv5 + 31.0)), Noise_value((vec2<f32>((1.2 * _i19_grain.x), (11.0 * _i19_grain.y)) + 41.0)), Noise_value((vec2<f32>((0.7 * _i19_grain.x), (1.5 * _i19_grain.y)) + 13.0)));
     let _i19_dirtColor = mix(SAND, DIRT_DK, mix(0.36, 0.6, smoothstep(0.25, 0.75, _i19_pattern)));
     _i19_col = mix(_i19_col, _i19_dirtColor, smoothstep((-_i19_fieldWidth), _i19_fieldWidth, _i19_dirt));
     if (((_i19_dirt > ((3.0 * _i19_fieldWidth) * _i19_lw)) && (abs(determinant(_i19_jacobian)) > 1e-12))) {

@@ -47,7 +47,7 @@ class P { c: Channel; w: f32; }
 function gain(c: Channel): f32 { return c === "g" ? 2. : 1.; }
 export function pick(c: Channel, x: f32): f32 {
   let d: Channel = "g";
-  d = c;
+  if (x > 0.) { d = c; }
   const p = new P();
   p.c = "r";
   if ("b" !== d) { return x * gain(d) * gain("r"); }

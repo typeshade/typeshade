@@ -15,8 +15,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let origin = vec2<f32>(0.0, 0.0);
-  var bands_1: u32 = 0u;
-  bands_1 = 2u;
+  var bands_1: u32 = 2u;
   let rgba8Bits = pack4x8unorm(vec4<f32>(v.uv, 0.25, 1.0));
   let rgba8 = unpack4x8unorm(rgba8Bits);
   let _cse0 = vec2<f32>(1.0, 1.0);

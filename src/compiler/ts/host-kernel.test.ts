@@ -1755,10 +1755,10 @@ export function repeated(xs: array<u32>, bins: array<u32>): void {
       const v = g.wgslSubgroup!;
       expect(v).toContain('enable subgroups;');
       expect(v).toContain('@compute @workgroup_size(64) @diagnostic(off, subgroup_uniformity)');
-      expect(v).toContain('_sgw0 = _live;');
+      expect(v).toMatch(/var _sgp0: bool = (_live|_sgw0);/);
       expect(v).toContain('if (subgroupAny(_sgp0)) {');
       expect(v).toContain('let _sgkey0 = subgroupMin(select(4294967295u, _sgk0, _sgp0));');
-      expect(v).toContain('let _sgs0 = subgroupAdd(select(0u, _sgv0, _sgm0));');
+      expect(v).toMatch(/let _sgs0 = subgroupAdd\(select\(0u, (_sgv0|1u), _sgm0\)\);/);
       expect(v).toContain('if (subgroupElect()) {');
       expect(v).toContain('_ = atomicAdd(&bins[_sgkey0], _sgs0);');
       expect(v).toContain('_sgp0 = select(_sgp0, false, _sgm0);');

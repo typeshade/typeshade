@@ -390,6 +390,10 @@ joint-focal WGSL. They change neither the public API nor floating-point operatio
   into the else branch when the true branch first overwrites the entire destination.
   It rejects conditions with effects or destination reads, partial overwrites and
   overwrites whose expression reads the destination.
+- `src/core/passes/opt/var-to-let.ts` runs first in the fixpoint. It moves the first whole write
+  of a `var` into the declaration when the initializer is never read and has no effect. It
+  turns a `var` that nothing writes again into a `let`, so copy propagation and loop-invariant
+  code motion see an immutable value. It leaves a `var` with a constant initializer alone.
 
 In `cacheBundleSchurRows`, three `schurCross` values previously read in each of six
 iterations are loaded once: 18 logical storage reads become 3. Two other three-by-three

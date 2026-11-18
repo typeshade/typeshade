@@ -17,6 +17,7 @@
 
 import type { ModuleDecl, FuncDecl } from '../../ir/index.js';
 import { fnReads, fnWrites, inheritEffects } from '../effects.js';
+import { varToLet } from './var-to-let.js';
 import { constProp } from './const-prop.js';
 import { copyProp } from './copy-prop.js';
 import { constFold } from './const-fold.js';
@@ -72,6 +73,7 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl;
  *  reads can be shared across the outer loop, with no external writes or barriers.
  *  `sinkAggregateInit` delays a local copy to the branch that needs it. */
 export const DEFAULT_PASSES: readonly OptPass[] = [
+  varToLet,
   constProp,
   copyProp,
   constFold,
