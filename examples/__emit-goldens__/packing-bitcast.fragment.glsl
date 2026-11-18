@@ -30,7 +30,7 @@ void main() {
   vec3 grade = vec3(half_.x, u16.y, exponent);
   vec3 coarse = vec3(unpackHalf2x16(packHalf2x16(vec2(grade.x, 0.0))).x, unpackHalf2x16(packHalf2x16(vec2(grade.y, 0.0))).x, unpackHalf2x16(packHalf2x16(vec2(grade.z, 0.0))).x);
   bool lit = ((back > 1.5) && (backPair.x > 1.5));
-  float edge = ((lit ? 0.15 : 0.0) + ((uv.x > 0.98) ? 0.1 : 0.0));
+  float edge = (mix(0.0, 0.15, lit) + mix(0.0, 0.1, (uv.x > 0.98)));
   float banded = (float(bands_1) * 0.125);
   vec3 rgb = (((coarse * 0.5) + (vec3(rgba8.x, ((signed8.y * 0.5) + 0.5), ((s16.x * 0.5) + 0.5)) * 0.4)) + vec3((banded * 0.1)));
   _ret = vec4(clamp((rgb + vec3(edge)), vec3(0.0), vec3(1.0)), rgba8.w);

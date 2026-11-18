@@ -99,7 +99,7 @@ describe('bool vectors: what each form lowers to', () => {
     const r = compile(FS('  return vec4(select(a, b, uv.x < 0.5), 1.)'));
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('select(a, b, (uv.x < 0.5))');
-    expect(r.glsl?.fragment).toContain('((uv.x < 0.5) ? b : a)');
+    expect(r.glsl?.fragment).toContain('mix(a, b, bvec3((uv.x < 0.5)))');
   });
 });
 

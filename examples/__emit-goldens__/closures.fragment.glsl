@@ -40,8 +40,8 @@ void main() {
   vec2 spots_0 = vec2(-0.6, 0.6);
   vec2 spots_1 = vec2(0.6, 0.6);
   vec2 spots_2 = vec2(0.0, -0.75);
-  col = ((length((p - spots_0)) < 0.08) ? vec3(1.0) : col);
-  col = ((length((p - spots_1)) < 0.08) ? vec3(1.0) : col);
-  col = ((length((p - spots_2)) < 0.08) ? vec3(1.0) : col);
+  col = mix(col, vec3(1.0), bvec3((length((p - spots_0)) < 0.08)));
+  col = mix(col, vec3(1.0), bvec3((length((p - spots_1)) < 0.08)));
+  col = mix(col, vec3(1.0), bvec3((length((p - spots_2)) < 0.08)));
   color = vec4(col, 1.0);
 }

@@ -38,6 +38,9 @@ import { functionTypeOf } from './function-types.js';
 import { recordParamDefaults } from './param-defaults.js';
 import { referenceOf } from './references.js';
 import { refuseRuntimeArraySignature } from './runtime-array.js';
+import { madeCandidate, refuseResultArray, type MadeResult } from './made-array/candidate.js';
+import { markMadeResult } from './made-array/lower.js';
+import { pushDiag } from './push-diag.js';
 
 /** The declarations a body is lowered from: a top-level function, a class method or a class
  *  constructor (#86). All three carry `parameters`, an optional `type` and a `body`. */
@@ -497,6 +500,7 @@ export function parseReturnType(
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
   stage: FuncDecl['stage'] | undefined,
+  made?: MadeResult['kind'],
 ): ShaderType | undefined {
   if (!typeNode) return voidT;
   let ret: ShaderType = voidT;
@@ -505,13 +509,13 @@ export function parseReturnType(
     if (refuseAtomicDeclaration(mapped, typeNode, sourceFile, diagnostics, 'a return type'))
       return undefined;
     if (
-      refuseRuntimeArraySignature(
+      refuseResultArray(
         mapped,
-        { kind: 'result' },
         typeNode,
         sourceFile,
         diagnostics,
         (n) => structs.find((c) => c.decl.name === n)?.decl,
+        made,
       )
     )
       return undefined;
@@ -592,6 +596,7 @@ export function parseSignature(
   // checks below, for both a direct parameter builtin and a struct-typed parameter's fields,
   // know the entry stage they are validating against.
   const stageInfo = parseStage(node, sourceFile, diagnostics, consts, overrides);
+  const made = madeCandidate(node, stageInfo.stage === undefined && isExported(node));
   const params = parseParams(
     skip === undefined ? node.parameters : node.parameters.filter((_, i) => !skip.has(i)),
     sourceFile,
@@ -618,6 +623,7 @@ export function parseSignature(
     diagnostics,
     structs,
     stageInfo.stage,
+    made?.kind,
   );
   if (!ret) return undefined;
   // A stage output of an emulated double is a varying or a render-target write (#151 F64-09).
@@ -650,6 +656,7 @@ export function parseSignature(
     )
   )
     (decl as { kernel?: boolean }).kernel = true;
+  if (made?.kind === 'kernel' && ret.kind === 'array') markMadeResult(decl, made.decl);
   // A kernel function's parameters come from the host, so none is optional (Rule 7.10, change
   // 0093, decision D5).
   const optionalOnKernel =
@@ -1418,14 +1425,4 @@ function checkStructBuiltinFields(
     if (!field.builtin) continue;
     checkBuiltinStage(diagnostics, sourceFile, node, field.builtin, stage, direction);
   }
-}
-
-function pushDiag(
-  diagnostics: TsCompilerDiagnostic[],
-  sourceFile: ts.SourceFile,
-  node: ts.Node,
-  message: string,
-  code: TsCode,
-): void {
-  diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }

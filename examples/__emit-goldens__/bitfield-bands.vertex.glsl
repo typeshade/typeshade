@@ -11,8 +11,8 @@ out vec2 uv;
 VsOut vs_impl(uint i) {
   float x = -1.0;
   float y = -1.0;
-  x = ((i == 1u) ? 3.0 : x);
-  y = ((i == 2u) ? 3.0 : y);
+  x = mix(x, 3.0, (i == 1u));
+  y = mix(y, 3.0, (i == 2u));
   vec4 pos = vec4(x, y, 0.0, 1.0);
   vec2 uv = ((vec2(x, y) * 0.5) + vec2(0.5, 0.5));
   return VsOut(pos, uv);

@@ -23,6 +23,7 @@ import {
   type FillForm,
 } from './form.js';
 import { lowerFrom, repeatedValue } from './from.js';
+import { lowerMade, madeDeclarationAt } from '../made-array/lower.js';
 
 export interface Lowering {
   readonly sourceFile: ts.SourceFile;
@@ -39,6 +40,9 @@ export function lowerNewOrArray(
   const length = node.arguments?.length === 1 ? node.arguments[0] : undefined;
   if (!isFloat32ArrayNew(node) || length === undefined)
     return lowerNew(node, sourceFile, scope, diagnostics);
+  const made = madeDeclarationAt(node, scope);
+  if (made !== undefined)
+    return lowerMade(made, node, length, undefined, { sourceFile, scope, diagnostics });
   const n = constantLength(node, length, { sourceFile, scope, diagnostics });
   return n === undefined ? undefined : fillArray(f32T, n, { op: 'lit', type: f32T, value: 0 });
 }
@@ -53,7 +57,12 @@ export function lowerCallOrArray(
   const at: Lowering = { sourceFile, scope, diagnostics };
   const fill = fillFormOf(node);
   if (fill !== undefined) return lowerNewFill(fill, at, contextual);
-  if (fromFormOf(node) !== undefined) return lowerFrom(node, at);
+  if (fromFormOf(node) !== undefined) {
+    const made = madeDeclarationAt(node, scope);
+    return made === undefined
+      ? lowerFrom(node, at)
+      : lowerMade(made, node, undefined, undefined, at);
+  }
   if (fillValueUsed(node, sourceFile, diagnostics)) return undefined;
   return lowerCall(node, sourceFile, scope, diagnostics);
 }
@@ -121,6 +130,8 @@ function lowerNewFill(
       TS_CODES.ARITY_MISMATCH,
     );
   }
+  const madeHere = madeDeclarationAt(call, scope);
+  if (madeHere !== undefined) return lowerMade(madeHere, call, length, args[0]!, at);
   const n = constantLength(made, length, at);
   if (n === undefined) return undefined;
   const arg = args[0]!;

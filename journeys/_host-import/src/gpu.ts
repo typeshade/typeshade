@@ -33,6 +33,7 @@ import {
   pushAbove,
   pushPairs,
   render,
+  renderMade,
   scaleNonNegative,
   stamp,
   stats,
@@ -441,6 +442,9 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   await layoutDevice.dispose();
   const img = new Float32Array(64 * 64);
   await render([1, 0.5, 2, 0.25], 64, img);
+  // A kernel function that makes the array it returns (change 0114, S5), on WebGPU.
+  configure({ prefer: ['webgpu'] });
+  const made = await renderMade([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
   const ps = Array.from({ length: 100 }, (_, i) => ({
     pos: [i, 10, 0, 1] as [number, number, number, number],
     vel: [1, 0, -1, 0] as [number, number, number, number],
@@ -579,6 +583,7 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     layoutChecks: [layoutSum, layoutInvalid, layoutRows[0]!.f7],
     glSkip: [...glSkip],
     render: [...img],
+    renderMade: [...made],
     drift: ps.flatMap((p) => [...p.pos, ...p.vel]),
     odds: [...every],
     stats: [...summary],

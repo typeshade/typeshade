@@ -83,7 +83,7 @@ void main() {
   float w = u.half_width;
   float halfUv = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float sx = (halfUv - (_cse0 ? 0.0 : 1.0));
+  float sx = (halfUv - mix(1.0, 0.0, _cse0));
   float _gv0 = (sx - 0.5);
   float d = (_gv0 * (w * 2.0));
   bool isF32 = (_cse0 || (u.fp64 < 0.5));
@@ -109,7 +109,7 @@ void main() {
   float f6 = (f3 * f3);
   float f7 = (f6 * xf);
   float p32 = (((((((f7 - (f6 * 7.0)) + (f5 * 21.0)) - (f4 * 35.0)) + (f3 * 35.0)) - (f2 * 21.0)) + (xf * 7.0)) - 1.0);
-  float pv = (isF32 ? p32 : p64);
+  float pv = mix(p64, p32, isF32);
   float yscale = (pow(w, 7.0) * 1.3);
   float v = (pv / yscale);
   float d2 = (d * d);

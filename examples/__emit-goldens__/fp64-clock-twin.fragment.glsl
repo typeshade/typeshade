@@ -88,9 +88,9 @@ void main() {
   float phase32 = fract(((df64_narrow(U.epoch) + U.time) * U.speed));
   bool _cse0 = (uv.x < 0.5);
   bool isF32 = (_cse0 || (U.fp64 < 0.5));
-  float phase = (isF32 ? phase32 : phase64);
+  float phase = mix(phase64, phase32, isF32);
   float halfUv = (uv.x * 2.0);
-  float sx = (halfUv - (_cse0 ? 0.0 : 1.0));
+  float sx = (halfUv - mix(1.0, 0.0, _cse0));
   float _cse1 = ((U.resolution.x * 0.5) / U.resolution.y);
   float _cse2 = ((uv.y * 2.0) - 1.0);
   float _gv0 = (((sx * 2.0) - 1.0) * _cse1);

@@ -44,26 +44,23 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { checkDocuments } from '../../language-service/check.js';
-
-/** mulberry32: a small generator with a fixed seed, so the corpus is the same on every run. */
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-type T = 'k' | 'i32' | 'u32' | 'f32' | 'bool';
-interface V {
-  readonly t: T;
-  readonly v: number;
-}
-/** The value is not a program TypeScript and the rules agree on: no comparison is made. */
-class Skip extends Error {}
+import {
+  Skip,
+  binary,
+  bitsLit,
+  bitsValue,
+  convert,
+  inRange,
+  popcount,
+  store,
+  unify,
+  wrap,
+  type T,
+  type V,
+  unaryValue,
+} from './issue-1261-differential/oracle.js';
+import { rng } from './issue-1261-differential/rng.js';
+import { editedRanges } from './issue-1261-differential/ranges.js';
 
 const INPUTS = { ii: -3, vi: 7, f: 2.5 } as const;
 /** The imported file: the same exports in each, and in three of them one more that the file
@@ -77,135 +74,6 @@ const LIBS = [
   `${LIB_BASE}export function lh() {\n  return (5|0)/2;\n}\n`,
   `${LIB_BASE}export const LS = 0xF0000000 >> 28;\n`,
 ] as const;
-
-const inRange = (t: 'i32' | 'u32', x: number): boolean =>
-  t === 'u32' ? x >= 0 && x <= 4294967295 : x >= -(2 ** 31) && x <= 2 ** 31 - 1;
-const wrap = (t: T, x: number): number => {
-  if (!Number.isFinite(x)) throw new Skip('not finite');
-  // An f32 past 2^24 that rounds in an operation rounds differently in the oracle's and in
-  // TypeScript's doubles: no comparison is made there.
-  if (t === 'f32' && Math.abs(x) > 2 ** 24 && Math.fround(x) !== x) throw new Skip('f32 precision');
-  return t === 'i32' ? x | 0 : t === 'u32' ? x >>> 0 : t === 'f32' ? Math.fround(x) : x;
-};
-/** A conversion to `to`, as the author's TypeScript computes it. A float outside the integer
- *  type converts as WGSL defines it (it saturates), which the language refuses where it is
- *  constant (Rule 5.4): no comparison is made there. */
-function convert(to: 'i32' | 'u32' | 'f32', x: V): number {
-  if (to === 'f32') return Math.fround(x.v);
-  if ((x.t === 'f32' || !Number.isInteger(x.v)) && !inRange(to, Math.trunc(x.v))) {
-    throw new Skip('float conversion out of range');
-  }
-  // A value of no declared type that no use decides is an `f32` (Rule 5.1): one outside the
-  // integer type converts as a float does. No comparison (an open item of #1272).
-  if (x.t === 'k' && !inRange(to, x.v)) throw new Skip('untyped value out of range');
-  return to === 'i32' ? Math.trunc(x.v) | 0 : Math.trunc(x.v) >>> 0;
-}
-/** A value stored in a position that declares the integer type `to`: a declaration, an
- *  assignment, a parameter, a result. One of no declared type is truncated where it is no
- *  integer (Amendment A4), and is its bits where only the other integer type holds it (C3: the
- *  annotation ends the origin, `let x: u32 = 3000000000 | 0` is 3000000000). */
-function store(to: 'i32' | 'u32', x: V): number {
-  if (x.t !== 'k') return convert(to, x);
-  const v = Math.trunc(x.v);
-  if (inRange(to, v)) return to === 'i32' ? v | 0 : v >>> 0;
-  if (to === 'u32' && v < 0 && v >= -(2 ** 31)) return v >>> 0;
-  if (to === 'i32' && v > 2 ** 31 - 1 && v <= 2 ** 32 - 1) return v | 0;
-  throw new Skip('stored value out of range');
-}
-const popcount = (x: number): number => {
-  let n = x >>> 0;
-  let c = 0;
-  while (n !== 0) {
-    c += n & 1;
-    n >>>= 1;
-  }
-  return c;
-};
-
-/** The type two operands compute in: the declared one, or none where both have none. */
-function unify(a: V, b: V): T {
-  if (a.t === 'bool' || b.t === 'bool') throw new Skip('bool operand');
-  if (a.t === 'k') return b.t;
-  if (b.t === 'k' || a.t === b.t) return a.t;
-  throw new Skip('two declared types');
-}
-
-const COMPARE = new Set(['<', '<=', '>', '>=', '==', '!=']);
-
-function binary(op: string, a: V, b: V): V {
-  if (COMPARE.has(op)) {
-    unify(a, b);
-    const [x, y] = [a.v, b.v];
-    const r =
-      op === '<'
-        ? x < y
-        : op === '<='
-          ? x <= y
-          : op === '>'
-            ? x > y
-            : op === '>='
-              ? x >= y
-              : op === '=='
-                ? x === y
-                : x !== y;
-    return { t: 'bool', v: r ? 1 : 0 };
-  }
-  if (op === '>>>') throw new Skip('>>> is refused');
-  // A shift computes in its left operand's type.
-  const t = op === '<<' || op === '>>' ? a.t : unify(a, b);
-  if (t === 'bool') throw new Skip('bool');
-  const [x, y] = [a.v, b.v];
-  if (t === 'f32' && ['&', '|', '^', '<<', '>>'].includes(op)) throw new Skip('f32 bits');
-  // A value of no declared type that is no integer keeps TypeScript's double, beside a declared
-  // integer too: the author's TypeScript never truncates it.
-  const integer = (t === 'i32' || t === 'u32') && Number.isInteger(x) && Number.isInteger(y);
-  const out: T = (t === 'i32' || t === 'u32') && !integer ? 'k' : t;
-  let r: number;
-  switch (op) {
-    case '+':
-      r = x + y;
-      break;
-    case '-':
-      r = x - y;
-      break;
-    case '*':
-      r = integer ? Math.imul(x | 0, y | 0) : x * y;
-      break;
-    case '/':
-      if (y === 0) throw new Skip('zero');
-      r = integer ? Math.trunc(x / y) : x / y;
-      break;
-    case '%':
-      if (y === 0) throw new Skip('zero');
-      // The oracle computes a float `%` in doubles, and `%` over values that are no integers
-      // carries the f32 rounding of its operands much further than one ulp (seed 123456 #1047).
-      if (t === 'f32' && !(Number.isInteger(x) && Number.isInteger(y))) {
-        throw new Skip('f32 remainder');
-      }
-      r = x % y;
-      break;
-    case '&':
-      r = x & y;
-      break;
-    case '|':
-      r = x | y;
-      break;
-    case '^':
-      r = x ^ y;
-      break;
-    case '<<':
-      r = x << (y & 31);
-      break;
-    default:
-      r = t === 'u32' ? (x >>> 0) >>> (y & 31) : x >> (y & 31);
-  }
-  // An integer of no declared type past both integer types wraps where its uses type it, as
-  // every integer of an inferred type does (Rule 5.1): no comparison there.
-  if (out === 'k' && Number.isInteger(r) && !inRange('i32', r) && !inRange('u32', r)) {
-    throw new Skip('untyped integer past both types');
-  }
-  return { t: out, v: wrap(out, r) };
-}
 
 /** One generated expression: its source text and its reference value. */
 interface Expr {
@@ -245,8 +113,8 @@ class Program {
   /** A bit tree of written integers, a negative one among them. */
   tree(): Expr {
     return this.pick([
-      () => lit(0xf0000000 | 0, '(0xF0000000|0)'),
-      () => lit(3000000000 | 0, '(3000000000|0)'),
+      () => bitsLit(0xf0000000, '(0xF0000000|0)'),
+      () => bitsLit(3000000000, '(3000000000|0)'),
       () => lit(-7 | 0, '(-7|0)'),
       () => lit(5 | 0, '(5|0)'),
       () => lit(1 | 2, '(1|2)'),
@@ -327,12 +195,7 @@ class Program {
       value: () => {
         const x = a.value();
         if (x.t === 'bool') throw new Skip('bool');
-        if (op === '~') {
-          if (x.t === 'f32') throw new Skip('f32 bits');
-          return { t: x.t, v: wrap(x.t, ~x.v) };
-        }
-        if (x.t === 'u32') throw new Skip('negated u32');
-        return { t: x.t, v: wrap(x.t, -x.v) };
+        return unaryValue(op, x);
       },
     };
   }
@@ -348,7 +211,7 @@ class Program {
           return { t, v: vs[2]!.v ? vs[1]!.v : vs[0]!.v };
         }
         const t = vs.slice(1).reduce((acc, v) => unify({ t: acc, v: 0 }, v), vs[0]!.t);
-        const xs = vs.map((v) => v.v);
+        const xs = vs.map((v) => v.ts ?? v.v);
         if (t === 'bool') throw new Skip('bool');
         switch (fn) {
           case 'abs':
@@ -379,7 +242,7 @@ class Program {
         if (cv.t !== 'bool') throw new Skip('cond');
         const [x, y] = [a.value(), b.value()];
         const t = unify(x, y);
-        return { t, v: cv.v ? x.v : y.v };
+        return { ...(cv.v ? x : y), t };
       },
     };
   }
@@ -523,7 +386,7 @@ class Program {
       const extra = this.lib === 1 ? ', LQ' : this.lib === 2 ? ', lh' : '';
       this.pre.unshift(`import { L, LB, LK, lg${extra} } from "./lib.shade";`);
       this.bind('L', 'k', () => ({ t: 'k', v: 3 }));
-      this.bind('LB', 'k', () => ({ t: 'k', v: 0xf0000000 | 0 }));
+      this.bind('LB', 'k', () => bitsValue(0xf0000000));
       this.bind('LK', 'k', () => ({ t: 'k', v: 3 }));
       if (this.lib === 1) this.bind('LQ', 'f32', () => ({ t: 'f32', v: 1.5 }));
       this.fns.push({
@@ -603,7 +466,7 @@ class Program {
     }
     // A module `let` set in another function (E1).
     if (this.chance(0.15)) {
-      const e = this.pick([() => this.tree(), () => lit(3000000000 | 0, '(3000000000|0)')])();
+      const e = this.pick([() => this.tree(), () => bitsLit(3000000000, '(3000000000|0)')])();
       this.pre.push(`let MS = 4;\nfunction setm() {\n  MS = ${e.text};\n}`);
       this.setm = true;
       this.bind('MS', 'k', () => e.value());
@@ -718,7 +581,7 @@ class Program {
     if (this.names.includes('M') && this.chance(0.4)) {
       const rhs = this.pick([
         () => this.tree(),
-        () => lit(3000000000 | 0, '(3000000000|0)'),
+        () => bitsLit(3000000000, '(3000000000|0)'),
         () => this.bin('|', this.name('M'), lit(0)),
         () => this.expr('k', 1),
       ])();
@@ -754,7 +617,7 @@ class Program {
       if (this.chance(0.35)) {
         const rhs = this.pick([
           () => this.treeish(),
-          () => lit(3000000000 | 0, '(3000000000|0)'),
+          () => bitsLit(3000000000, '(3000000000|0)'),
           () => this.expr(this.pick<T>(['k', result]), 1),
           () => this.bin(this.pick(['+', '|']), this.name('a'), this.tree()),
           () => this.call('select', [lit(1), this.tree(), this.compare(0)]),
@@ -892,7 +755,7 @@ class Program {
       this.lines.push(`let c = ${ec.text};`);
       this.bind('c', 'k', () => ec.value());
       if (this.chance(0.2)) {
-        const n = lit(this.pick([1, 5, 9]));
+        const n = this.chance(0.25) ? this.name('vi') : lit(this.pick([1, 5, 9]));
         this.lines.push(`c = ${n.text};`);
         this.steps.push(() => this.env.set('c', n.value()));
       }
@@ -923,9 +786,26 @@ class Program {
         ['c', 'a'],
         ['c', 'c'],
       ] as const);
-      let e = this.bin(this.pick(['+', '-', '*', '&', '|', '^', '<<']), this.name(l), this.name(r));
+      const op = this.pick(['+', '-', '*', '&', '|', '^', '<<', '<<']);
+      let amount = this.name(r);
+      if (op === '<<' && this.chance(0.5)) {
+        const n = this.pick([31, -1, 2, 30]);
+        this.lines.push(`let sa: i32 = ${String(n)};`);
+        this.bind('sa', 'i32', () => ({ t: 'i32', v: n }));
+        amount = this.name(this.pick(['sa', 'sa', 'ii', 'vi']));
+      }
+      let e = this.bin(op, this.name(l), amount);
       if (this.chance(0.3))
         e = this.bin(this.pick(['+', '-']), e, this.name(this.pick(['a', 'c'])));
+      if (this.chance(0.5)) {
+        const beside = this.pick(['+', '-', '*', '&', '|', '^']);
+        const big = () => bitsLit(0xf0000000, '(0xF0000000|0)');
+        const left = this.pick([big, big, () => this.name('a'), () => e])();
+        e = this.chance(0.5)
+          ? this.bin(beside, left, this.name('vi'))
+          : this.bin(beside, this.name('vi'), left);
+        if (this.chance(0.2)) e = this.unary('~', e);
+      }
       if (this.chance(0.25)) {
         this.lines.push(`let d = ${e.text};`);
         const held = e;
@@ -1147,19 +1027,6 @@ function genericEdits(text: string, d: Line): Change[][] | undefined {
       });
   }
   return undefined;
-}
-
-/** Where each change of `changes` stands in its file once they are all made. */
-function editedRanges(changes: readonly Change[]): { file: string; start: number; end: number }[] {
-  const out: { file: string; start: number; end: number }[] = [];
-  for (const file of [FILE, LIB_FILE]) {
-    let delta = 0;
-    for (const c of changes.filter((x) => x.file === file).sort((a, b) => a.start - b.start)) {
-      out.push({ file, start: c.start + delta, end: c.start + delta + c.text.length });
-      delta += c.text.length - (c.end - c.start);
-    }
-  }
-  return out;
 }
 
 /** The two operands of the division a refusal stands on (through parentheses and a minus). */
@@ -1419,7 +1286,7 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
             }
             // A refusal that stands wholly outside the wraps names code the author wrote: a second
             // mistake the first one hid, not one the wrap made.
-            const ranges = editedRanges(set);
+            const ranges = editedRanges([FILE, LIB_FILE], set);
             const outside = (d: Line): boolean =>
               ranges.every(
                 (x) => x.file !== d.file || d.start + d.length <= x.start || d.start >= x.end,

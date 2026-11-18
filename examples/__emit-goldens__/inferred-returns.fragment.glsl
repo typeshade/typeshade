@@ -41,7 +41,7 @@ void main() {
     vec2 a = Orbit_at(orbit, t);
     vec2 b = Orbit_at(orbit, (t + 0.05));
     bool _i3a0 = (distance(p, a) < distance(p, b));
-    vec2 _i3ret = (_i3a0 ? a : b);
+    vec2 _i3ret = mix(b, a, bvec2(_i3a0));
     float _i2a0 = distance(p, _i3ret);
     glow += (0.004 / ((_i2a0 * _i2a0) + 0.002));
   }

@@ -78,7 +78,7 @@ vec2 df64_sqr(vec2 a, float _fp64_g) {
 }
 
 vec2 df64_abs(vec2 a) {
-  return ((a.x < 0.0) ? (-a) : a);
+  return mix(a, (-a), bvec2((a.x < 0.0)));
 }
 
 float df64_narrow(vec2 a) {
@@ -92,7 +92,7 @@ void main() {
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
+  float _v2 = (_v1 - mix(1.0, 0.0, _cse0));
   float _v3 = ((_v2 - 0.5) * _v0);
   float _v4 = (((uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   float _v5 = 0.0;

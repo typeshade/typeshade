@@ -42,6 +42,55 @@ import { TS_CODES } from './codes.js';
 import { programFileOf, writtenRange, writtenText } from './context.js';
 import type { AbstractConstDecl, AbstractConstRead } from './symbols.js';
 import { loweredTypeOf } from './symbols.js';
+import {
+  constantTree,
+  ARITH,
+  isBitwise,
+  maskValue,
+  wrapList,
+  BITWISE,
+  COMPOUND_BASE,
+  integerWrittenLiteral,
+  containsPart,
+  destructuringSource,
+  peerOperands,
+  isBigNumber,
+  returnsOf,
+  scalarOfTypeText,
+  skipParenNodes,
+  writtenBitTree,
+  writtenNumber,
+} from './abstract-const/written-syntax.js';
+import {
+  floatPositionOperands,
+  identifiersNamed,
+  isTypedConstructor,
+  nodeAtOffset,
+  nodeSpanning,
+  regionOf,
+  skipParenUp,
+} from './abstract-const/syntax-lookup.js';
+import { readingsSentenceOf } from './abstract-const/readings-sentence.js';
+import {
+  READING_DEPTH,
+  READING_ROUNDS,
+  READING_STEP_LIMIT,
+  READINGS_PER_NODE,
+  AGREEING,
+  CONGRUENT,
+  UNKNOWN,
+  UNPROVEN,
+  agreeingBound,
+  boundedReadings,
+  heldByTreeVariable,
+  mergedPicks,
+  plainUnproven,
+  provenDiffering,
+  markReassigned,
+  readingValue,
+  sameReadings,
+  type Reading,
+} from './abstract-const/reading.js';
 import { divisionEdits as buildDivisionEdits } from './remedies/candidates.js';
 import { NO_DIVISION } from './remedies/contracts.js';
 import type {
@@ -139,31 +188,6 @@ const byDeclName = new WeakMap<ts.SourceFile, Map<string, AbstractConst>>();
 const divisionsOf = new WeakMap<ts.SourceFile, Map<ts.Node, Division>>();
 const divisionByNode = new WeakMap<ts.Node, Division>();
 
-function stripParens(node: ts.Expression): ts.Expression {
-  return ts.isParenthesizedExpression(node) ? stripParens(node.expression) : node;
-}
-
-const ARITH: ReadonlySet<ts.SyntaxKind> = new Set([
-  ts.SyntaxKind.PlusToken,
-  ts.SyntaxKind.MinusToken,
-  ts.SyntaxKind.AsteriskToken,
-  ts.SyntaxKind.SlashToken,
-  ts.SyntaxKind.PercentToken,
-]);
-
-const BITWISE: ReadonlySet<ts.SyntaxKind> = new Set([
-  ts.SyntaxKind.AmpersandToken,
-  ts.SyntaxKind.BarToken,
-  ts.SyntaxKind.CaretToken,
-  ts.SyntaxKind.LessThanLessThanToken,
-  ts.SyntaxKind.GreaterThanGreaterThanToken,
-]);
-
-function integerWrittenLiteral(node: ts.NumericLiteral): boolean {
-  const written = node.getText();
-  return /^0[xXbBoO]/.test(written) || !/[.eE]/.test(written);
-}
-
 /** What an initializer or an operand is when it is written numbers, reads of constants of no
  *  fixed type, and `+ - * / %` and a unary minus over those: its ECMAScript value, whether all
  *  of it is integer-written, and the constants it reads. `undefined` for anything else. A read
@@ -173,7 +197,7 @@ export function abstractTreeOf(
 ):
   | { readonly value: number; readonly integerWritten: boolean; readonly reads: AbstractConst[] }
   | undefined {
-  const inner = stripParens(node);
+  const inner = skipParenNodes(node);
   if (ts.isNumericLiteral(inner)) {
     return {
       value: Number(inner.text),
@@ -472,7 +496,7 @@ export function noteForcedRead(
 /** The reads of constants of no fixed type that `node` holds as written numbers: the node itself,
  *  or the operands of `+ - * / %` and a unary minus over such reads (`abstractTreeOf`). */
 function readLeaves(node: ts.Expression): ts.Node[] {
-  const inner = stripParens(node);
+  const inner = skipParenNodes(node);
   if (readByNode.has(inner)) return [inner];
   if (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.MinusToken)
     return readLeaves(inner.operand);
@@ -639,14 +663,14 @@ export function carriedByCall(sourceFile: ts.SourceFile, irName: string): Carrie
 /** Whether `node` reads a constant of no fixed type whose written numbers are all
  *  integer-written: the read stands where an integer-written literal could. */
 export function isIntegerWrittenRead(node: ts.Expression): boolean {
-  const info = readByNode.get(stripParens(node));
+  const info = readByNode.get(skipParenNodes(node));
   return info?.integerWritten === true && !readTypes.has(info);
 }
 
 /** Whether `node` reads a constant of no fixed type. A read that `withReadTypes` types is a
  *  typed value, as on `main`. */
 export function isAbstractRead(node: ts.Expression): boolean {
-  const info = readByNode.get(stripParens(node));
+  const info = readByNode.get(skipParenNodes(node));
   return info !== undefined && !readTypes.has(info);
 }
 
@@ -735,15 +759,6 @@ export function noteIntegerContext(
 
 const CASTS: ReadonlySet<string> = new Set(['f32', 'f64', 'i32', 'u32', 'bool']);
 
-/** Whether `call` constructs a vector or a matrix of a written component type: `vec3u(…)`,
- *  `vec2f(…)`, `mat2x2f(…)`, or a type argument `vec2<u32>(…)`. */
-function isTypedConstructor(call: ts.CallExpression): boolean {
-  const callee = call.expression;
-  if (!ts.isIdentifier(callee)) return false;
-  if (/^(vec[234]|mat[234]x[234])[uifh]$/.test(callee.text)) return true;
-  return /^(vec[234]|mat[234]x[234])$/.test(callee.text) && (call.typeArguments?.length ?? 0) > 0;
-}
-
 /** The origin of `node` (Amendment A3, "보수적 추적 규칙"): the constants of no fixed type it
  *  comes from, through every expression and binding with no declared type between. A written
  *  number has an empty origin. A read of such a constant, a variable, a loop counter or a call
@@ -755,7 +770,7 @@ export function originOf(
   node: ts.Expression,
   isBuiltin: (name: string) => boolean,
 ): Origin | undefined {
-  const inner = stripParens(node);
+  const inner = skipParenNodes(node);
   if (ts.isNumericLiteral(inner)) return { reaches: [], float: !integerWrittenLiteral(inner) };
   const read = readByNode.get(inner);
   if (read !== undefined) return { reaches: [read], float: !read.integerWritten };
@@ -849,14 +864,6 @@ export function noteAbstractDivision(
   const division: Division = { node, reads };
   table.set(node, division);
   divisionByNode.set(node, division);
-}
-
-/** Whether `node` is a bitwise or shift operation, whose value is an integer's. */
-function isBitwise(node: ts.Node): boolean {
-  return (
-    (ts.isBinaryExpression(node) && BITWISE.has(node.operatorToken.kind)) ||
-    (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.TildeToken)
-  );
 }
 
 /** The parts of `node` that carry an origin as a whole: a read of a constant of no fixed type,
@@ -991,7 +998,7 @@ function divisionEdits(
 ): DivisionEdit[] {
   const variable =
     division.node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken
-      ? carriedByNode.get(stripParens(division.node.left))?.variable
+      ? carriedByNode.get(skipParenNodes(division.node.left))?.variable
       : undefined;
   return buildDivisionEdits(info, read, division, sourceFile, variable, (type) =>
     convertedEdit(division.node, type, sourceFile),
@@ -1039,7 +1046,7 @@ function divisionSentence(
   if (edit !== null) remedy = `Write "${edit.text}" for the ${edit.kind} division.`;
   else if (node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken) {
     const name =
-      carriedByNode.get(stripParens(node.left))?.variable?.name ?? writtenText(node.left);
+      carriedByNode.get(skipParenNodes(node.left))?.variable?.name ?? writtenText(node.left);
     const types = [...(allowed ?? ['i32', 'u32', 'f32'])];
     const list =
       types.length <= 1 ? (types[0] ?? '') : `${types.slice(0, -1).join(', ')} or ${types.at(-1)!}`;
@@ -1293,7 +1300,7 @@ export function reportAbstractDivisions(
         if (node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken) {
           // `y /= 2` names the variable declared with its type. Where the variable flows to two
           // types (`let j: i32 = y; let z: f32 = y`), no declaration serves both: no edit.
-          const variable = carriedByNode.get(stripParens(node.left))?.variable;
+          const variable = carriedByNode.get(skipParenNodes(node.left))?.variable;
           const change =
             variable === undefined
               ? undefined
@@ -1675,30 +1682,6 @@ const VALUE_EDIT =
 const FLOAT_MISMATCH =
   /(?:cannot \S+ (?:i32|u32) and f32|cannot \S+ f32 and (?:i32|u32)|cannot let\/const \S+ f32 and (?:i32|u32)|return type mismatch: declared f32, got (?:i32|u32)|Vector constructor element type mismatch: expected f32|takes an f32[^;]*; got (?:i32|u32)|the first is (?:i32|u32), this one f32|the first is f32, this one (?:i32|u32)|Argument \d+ of "[^"]+" type mismatch)/;
 
-/** The node of `sourceFile` that spans exactly `start` to `end`, the outermost such. */
-function nodeSpanning(sourceFile: ts.SourceFile, start: number, end: number): ts.Node | undefined {
-  let found: ts.Node | undefined;
-  const visit = (n: ts.Node): void => {
-    if (found !== undefined || n.getStart(sourceFile) > start || n.getEnd() < end) return;
-    if (n.getStart(sourceFile) === start && n.getEnd() === end) found = n;
-    else ts.forEachChild(n, visit);
-  };
-  ts.forEachChild(sourceFile, visit);
-  return found;
-}
-
-/** The operands a type error at `at` between an integer and an `f32` may stand on: a return's
- *  value, a declaration's initializer, an operator's operands, a call's arguments, or, for an
- *  argument the error stands on, the arguments of its call. */
-function floatPositionOperands(at: ts.Node): ts.Expression[] {
-  if (ts.isReturnStatement(at)) return at.expression === undefined ? [] : [at.expression];
-  if (ts.isVariableDeclaration(at)) return at.initializer === undefined ? [] : [at.initializer];
-  if (ts.isBinaryExpression(at)) return [at.left, at.right];
-  if (ts.isCallExpression(at) || ts.isNewExpression(at)) return [...(at.arguments ?? [])];
-  if (ts.isExpression(at) && ts.isCallExpression(at.parent)) return [...at.parent.arguments];
-  return [];
-}
-
 /** Whether `e` is a tree of written integers, or a read of a constant or a binding with no
  *  written type that holds one and that nothing assigns again. */
 function isTreeOperand(e: ts.Expression): boolean {
@@ -1732,29 +1715,6 @@ function constantBitRoot(e: ts.Expression): boolean {
     k === ts.SyntaxKind.LessThanLessThanToken ||
     k === ts.SyntaxKind.GreaterThanGreaterThanToken;
   return bit && constNumber(n) !== undefined;
-}
-
-/** The innermost node of `sourceFile` that starts at `offset`. */
-function nodeAtOffset(sourceFile: ts.SourceFile, offset: number): ts.Node | undefined {
-  let found: ts.Node | undefined;
-  const visit = (n: ts.Node): void => {
-    if (n.getStart(sourceFile) <= offset && offset < n.getEnd()) {
-      if (n.getStart(sourceFile) === offset) found = n;
-      ts.forEachChild(n, visit);
-    }
-  };
-  ts.forEachChild(sourceFile, visit);
-  return found;
-}
-
-/** The scalar a written type names (`u32`, or the component of `vec3u`), if it names one. */
-function scalarOfTypeText(text: string): Scalar | undefined {
-  const t = text.replace(/\s+/g, '');
-  if (t === 'f32' || t === 'i32' || t === 'u32') return t;
-  const m = /^vec[234]([fiu])$|^vec[234]<([fiu])32>$/.exec(t);
-  if (m !== null) return `${(m[1] ?? m[2])!}32` as Scalar;
-  if (/^vec[234]$/.test(t)) return 'f32';
-  return undefined;
 }
 
 /** The type the author wrote on `decl`, not one the editor's projection wrote. */
@@ -1843,27 +1803,6 @@ const SHIFTS = new Set([
   ts.SyntaxKind.GreaterThanGreaterThanToken,
   ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
 ]);
-
-const identifiersOf = new WeakMap<ts.SourceFile, Map<string, ts.Identifier[]>>();
-
-/** The identifiers of `sourceFile` spelled `name`, found in one walk of the file. */
-function identifiersNamed(sourceFile: ts.SourceFile, name: string): readonly ts.Identifier[] {
-  let index = identifiersOf.get(sourceFile);
-  if (index === undefined) {
-    const found = new Map<string, ts.Identifier[]>();
-    const visit = (k: ts.Node): void => {
-      if (ts.isIdentifier(k)) {
-        const list = found.get(k.text);
-        if (list === undefined) found.set(k.text, [k]);
-        else list.push(k);
-      }
-      ts.forEachChild(k, visit);
-    };
-    visit(sourceFile);
-    identifiersOf.set(sourceFile, (index = found));
-  }
-  return index.get(name) ?? [];
-}
 
 /** What a walk of the places quotients flow to shares: the refused quotients, whose own lowered
  *  type is the refusal's and says nothing of a peer, and what the walk has followed. */
@@ -2172,13 +2111,6 @@ function typesFromUse(
 
 const ALL_SCALARS: readonly Scalar[] = ['i32', 'u32', 'f32'];
 
-/** The operands to wrap, as a remedy lists them: `"k"`, or `each of "a" and "b"`. */
-function wrapList(subjects: readonly string[]): string {
-  const quoted = [...new Set(subjects)].map((s) => `"${s}"`);
-  if (quoted.length <= 1) return quoted[0] ?? 'an operand';
-  return `each of ${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]!}`;
-}
-
 /** The sentence of a refusal whose wraps would not choose the division (the owner's decision
  *  of 2026-11-13, "그 경우 감싸기 안 제시"): what is true, and no wrap. */
 export const NO_WRAP_REMEDY = "Declare the type of the division's operands to choose it.";
@@ -2360,20 +2292,6 @@ function declarationChange(name: string, at: ts.Node, type: string): SourceChang
   return { start: d.name.getEnd(), end: d.type?.getEnd() ?? d.name.getEnd(), text: `: ${type}` };
 }
 
-/** The statement, member or declaration that holds `node`. */
-function regionOf(node: ts.Node, sourceFile: ts.SourceFile): readonly [number, number] {
-  let n: ts.Node = node;
-  while (
-    n.parent !== undefined &&
-    !ts.isSourceFile(n.parent) &&
-    !(ts.isStatement(n) && !ts.isBlock(n)) &&
-    !ts.isClassElement(n)
-  ) {
-    n = n.parent;
-  }
-  return [n.getStart(sourceFile), n.getEnd()];
-}
-
 /** The two values of `node` where a tree's `u32` bits and its TypeScript value reach it and
  *  give different values (the owner's decision of 2026-11-12, D2), read from the source: a tree
  *  over a written number only a `u32` holds, and what carries one without a declared type
@@ -2382,12 +2300,10 @@ function regionOf(node: ts.Node, sourceFile: ts.SourceFile): readonly [number, n
  *  typed operand end it. `undefined` where the two agree. */
 export function twoReadingsOf(node: ts.Expression): TwoReadings | undefined {
   const xs = readingsFrom(node);
-  // The first value a tree reaches whose two readings differ (issue 1299: a variable holds
-  // every value stored in it, so each is read); else a value the walk could not prove, which
-  // is refused too (the owner's decision of 2026-11-16, "증명 못 하면 거부").
-  const proven = xs.find((x) => x.tree && !x.unproven && x.u32 !== x.ts);
+  const proven = xs.find((x) => provenDiffering(x) && !x.reassigned);
   if (proven !== undefined) return { u32: proven.u32, ts: proven.ts };
-  return xs.some((x) => x.unproven) ? { u32: NaN, ts: NaN, unproven: true } : undefined;
+  const unproven = xs.some((x) => x.unproven || (provenDiffering(x) && x.reassigned));
+  return unproven ? { u32: NaN, ts: NaN, unproven: true } : undefined;
 }
 
 /** The two values of a tree. `unproven` where the compiler could not follow every value that
@@ -2447,6 +2363,13 @@ export function assignedReadings(
 
 /** The declaration of the constant `node` reads, where it is a `const` with no written type
  *  (`const K = 3000000000 | 0`, in a module, a function or another file). */
+const constantOf = (id: ts.Identifier): readonly [ts.Expression, boolean] | undefined => {
+  const d = declarationOf(id.text, id);
+  if (d === undefined || !ts.isVariableDeclaration(d) || !(d.parent.flags & ts.NodeFlags.Const))
+    return undefined;
+  return d.initializer && [d.initializer, writtenTypeText(d, id.getSourceFile()) !== undefined];
+};
+
 function untypedConstant(node: ts.Expression): ts.VariableDeclaration | undefined {
   const n = skipParenNodes(node);
   if (!ts.isIdentifier(n)) return undefined;
@@ -2471,21 +2394,6 @@ export function declaredWithoutType(id: ts.Identifier): boolean {
   );
 }
 
-function skipParenNodes(node: ts.Expression): ts.Expression {
-  return ts.isParenthesizedExpression(node) ? skipParenNodes(node.expression) : node;
-}
-
-/** The written number `node` is, where it is one. */
-function writtenNumber(node: ts.Expression): number | undefined {
-  const n = skipParenNodes(node);
-  if (ts.isNumericLiteral(n)) return Number(n.text);
-  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.MinusToken) {
-    const v = writtenNumber(n.operand);
-    return v === undefined ? undefined : -v;
-  }
-  return undefined;
-}
-
 /** Whether `node` states a type of its own: a typed name or a conversion. */
 function typedNode(node: ts.Expression): boolean {
   const n = skipParenNodes(node);
@@ -2497,90 +2405,6 @@ function typedNode(node: ts.Expression): boolean {
     return d !== undefined && writtenTypeText(d, n.getSourceFile()) !== undefined;
   }
   return false;
-}
-
-/** One value a node can have, read both ways (`u32`: what the lowering computes from a tree's
- *  bits, `ts`: TypeScript's). `tree` is whether a tree reaches it: a written number alone is no
- *  reading. `unknown` is a value the walk cannot read, with no tree (`let b = vi`: a variable
- *  with no written type is no typed peer, E1). `unproven` is a value with a tree that the walk
- *  could not follow to its end. `picks` names the variable read and which of its values this
- *  one is, so that one variable read twice (`a - a`) is one value at both reads. */
-interface Reading {
-  readonly u32: number;
-  readonly ts: number;
-  readonly tree: boolean;
-  readonly unknown?: boolean;
-  readonly unproven?: boolean;
-  readonly picks: readonly (readonly [ts.Node, string])[];
-}
-
-const UNKNOWN: Reading = { u32: NaN, ts: NaN, tree: false, unknown: true, picks: [] };
-const UNPROVEN: Reading = { u32: NaN, ts: NaN, tree: true, unproven: true, picks: [] };
-
-/** The most values one node keeps. Past it the node keeps a mark that refuses (the owner's
- *  decision of 2026-11-16, "증명 못 하면 거부"): no value is dropped and then accepted. */
-const READINGS_PER_NODE = 32;
-/** The most rounds a variable's values are found in (a store that reads the variable, as in a
- *  loop, adds a value each round). Past it the variable keeps a mark that refuses. */
-const READING_ROUNDS = 24;
-/** The deepest walk, and the most work (nodes read and pairs of values combined) one walk does.
- *  Past the work the value is unproven, and a position that needs it refuses it. */
-const READING_DEPTH = 400;
-const READING_STEP_LIMIT = 100000;
-
-const isBigNumber = (v: number): boolean => v > 2147483647 && v <= 4294967295;
-
-/** The value of a reading, without its picks. */
-function readingValue(x: Reading): string {
-  return x.unknown ? '?' : x.unproven ? '!' : `${String(x.u32)}:${String(x.ts)}:${x.tree ? 1 : 0}`;
-}
-
-function readingKey(x: Reading): string {
-  return `${readingValue(x)}|${x.picks.map(([d, v]) => `${String(d.pos)}.${String(d.end)}=${v}`).join(',')}`;
-}
-
-/** `xs` without repeats, those whose two readings differ first. Past {@link READINGS_PER_NODE}
- *  the rest is replaced by a mark: {@link UNPROVEN} where a tree reaches one of them, else
- *  {@link UNKNOWN}. */
-function boundedReadings(xs: readonly Reading[]): Reading[] {
-  const differs = (x: Reading) => x.tree && !x.unproven && x.u32 !== x.ts;
-  const ordered = [...xs.filter(differs), ...xs.filter((x) => !differs(x))];
-  const keys = new Set<string>();
-  const out: Reading[] = [];
-  let over = false;
-  for (const x of ordered) {
-    const key = readingKey(x);
-    if (keys.has(key)) continue;
-    keys.add(key);
-    if (out.length >= READINGS_PER_NODE) {
-      over = true;
-      continue;
-    }
-    out.push(x);
-  }
-  if (over) out.push(xs.some((x) => x.tree) ? UNPROVEN : UNKNOWN);
-  return out;
-}
-
-function sameReadings(a: readonly Reading[], b: readonly Reading[]): boolean {
-  if (a.length !== b.length) return false;
-  const keys = new Set(a.map(readingKey));
-  return b.every((x) => keys.has(readingKey(x)));
-}
-
-/** The picks of `a` and `b` together, or `undefined` where they choose two values of one
- *  variable. */
-function mergedPicks(
-  a: readonly (readonly [ts.Node, string])[],
-  b: readonly (readonly [ts.Node, string])[],
-): (readonly [ts.Node, string])[] | undefined {
-  const out = [...a];
-  for (const [d, v] of b) {
-    const at = out.find(([e]) => e === d);
-    if (at === undefined) out.push([d, v]);
-    else if (at[1] !== v) return undefined;
-  }
-  return out;
 }
 
 /** The declaration of the variable or parameter `name` read at `at`, in the scopes around it,
@@ -3279,6 +3103,8 @@ function storesOf(d: ts.VariableDeclaration, sourceFile: ts.SourceFile): Store[]
       stores.push({ kind: 'opaque' });
       continue;
     }
+    const pattern = destructuringSource(up);
+    if (pattern !== undefined) stores.push({ kind: 'opaque', expr: pattern });
     if (!ts.isBinaryExpression(p) || p.left !== up) continue;
     const k = p.operatorToken.kind;
     if (k === ts.SyntaxKind.EqualsToken) {
@@ -3320,6 +3146,7 @@ interface FileTaint {
   /** The tainted variables found together: each variable's group of variables that read one
    *  another, through stores, calls and getters (a strongly connected component). */
   readonly groups: Map<ts.Node, readonly ts.VariableDeclaration[]>;
+  readonly pulled: Set<ts.Node>;
 }
 
 /** Whether a tree reaches the property access whose name is `name`: by its member where the
@@ -3347,7 +3174,9 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
     fieldNames: new Set(),
     untypedFieldNames: new Set(),
     groups: new Map(),
+    pulled: new Set(),
   };
+  const peers: (readonly [ts.Identifier, ts.Expression])[] = [];
   /** The field a store into `access` reaches: its declaration, its name where the source does
    *  not state it, or `undefined` for a field that states its type. */
   const storeTarget = (access: ts.PropertyAccessExpression): ts.Node | string | undefined => {
@@ -3375,6 +3204,7 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   /** The fields with no written type, by name: a store by name may reach each. */
   const untypedFields = new Map<string, ts.Node[]>();
   const visit = (n: ts.Node): void => {
+    peers.push(...peerOperands(n));
     if (
       ts.isVariableDeclaration(n) &&
       ts.isIdentifier(n.name) &&
@@ -3525,6 +3355,14 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   const looseTainted = new Set<string>();
   for (let changed = true; changed;) {
     changed = false;
+    for (const [id, other] of peers) {
+      const d = declarationAt(id, sourceFile);
+      if (d === undefined || !ts.isVariableDeclaration(d) || taint.vars.has(d)) continue;
+      if (writtenTypeText(d, sourceFile) !== undefined || !reaches(other)) continue;
+      taint.vars.add(d);
+      taint.pulled.add(d);
+      changed = true;
+    }
     for (const v of vars) {
       if (taint.vars.has(v.d)) continue;
       const byMember =
@@ -3828,12 +3666,15 @@ function variableReadings(
     w.pending.set(v, []);
   }
   let settled = false;
+  const reassigned = group.some((v) => storesOf(v, sourceFile).length > (v.initializer ? 1 : 0));
   for (let round = 0; round < READING_ROUNDS && !settled; round++) {
     settled = true;
     for (const v of group) {
       const next: Reading[] = [];
       for (const s of storesOf(v, sourceFile)) next.push(...storedReadings(v, s, sourceFile, own));
-      const bounded = boundedReadings(next);
+      const bounded = boundedReadings(
+        heldByTreeVariable(next, fileTaint(sourceFile).pulled.has(v)),
+      );
       if (!sameReadings(bounded, values.get(v)!)) settled = false;
       values.set(v, bounded);
       w.pending.set(v, bounded);
@@ -3841,8 +3682,8 @@ function variableReadings(
     if (own.steps > READING_STEP_LIMIT) break;
   }
   for (const v of group) {
-    const found = values.get(v)!;
-    if (!settled) values.set(v, [...found, found.some((x) => x.tree) ? UNPROVEN : UNKNOWN]);
+    const found = markReassigned(values.get(v)!, reassigned);
+    values.set(v, settled ? found : [...found, found.some((x) => x.tree) ? UNPROVEN : UNKNOWN]);
     w.pending.delete(v);
     own.deps.delete(v);
   }
@@ -3892,9 +3733,8 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
   /** The values of the arms of a choice: an arm the walk cannot read is {@link UNKNOWN}. */
   const arms = (xs: readonly ts.Expression[]): Reading[] => {
     const all = xs.map(of);
-    return all.some((a) => a.length > 0)
-      ? boundedReadings(all.flatMap((a) => (a.length === 0 ? [UNKNOWN] : a)))
-      : [];
+    const read = all.flatMap((a) => (a.length === 0 ? [UNKNOWN] : a));
+    return all.some((a) => a.length > 0) ? boundedReadings(heldByTreeVariable(read)) : [];
   };
   if (ts.isNumericLiteral(n)) return [numberReading(Number(n.text))];
   // A type assertion, a non-null assertion and `satisfies` carry the origin (Amendment A3).
@@ -3930,6 +3770,7 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
     if (!tilde && n.operator !== ts.SyntaxKind.MinusToken) return unproven();
     return of(n.operand).map((p) => {
       if (p.unknown || p.unproven) return p;
+      if (p.agreeing === true) return { ...CONGRUENT, picks: p.picks };
       const t = tilde ? ~p.ts : -p.ts;
       if (!p.tree) return { ...p, u32: t, ts: t };
       return { ...p, u32: (tilde ? ~p.u32 : -p.u32) >>> 0, ts: t };
@@ -4102,16 +3943,18 @@ function builtinReadings(
       picks = [];
     }
     const tree = c.some((x) => x.tree);
-    if (c.some((x) => x.unknown || x.unproven)) {
+    const reassigned = c.some((x) => x.reassigned) ? { reassigned: true } : {};
+    if (c.some((x) => x.unknown || x.unproven || x.agreeing)) {
       out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
     } else if (!tree) {
       const t = apply(
         c.map((x) => x.ts),
         false,
       );
-      out.push({ u32: t, ts: t, tree: false, picks });
+      out.push({ u32: t, ts: t, tree: false, picks, ...reassigned });
     } else {
       out.push({
+        ...reassigned,
         u32: apply(
           c.map((x) => x.u32 >>> 0),
           true,
@@ -4126,17 +3969,6 @@ function builtinReadings(
     }
   }
   return boundedReadings(out);
-}
-
-/** The expressions every `return` of `body` gives, outside the functions inside it. */
-function returnsOf(body: ts.Block): ts.Expression[] {
-  const returns: ts.Expression[] = [];
-  const walk = (x: ts.Node): void => {
-    if (ts.isReturnStatement(x) && x.expression !== undefined) returns.push(x.expression);
-    else if (!ts.isFunctionLike(x)) ts.forEachChild(x, walk);
-  };
-  ts.forEachChild(body, walk);
-  return returns;
 }
 
 /** The values of `left op right`, the binary expression `node` or a compound assignment's;
@@ -4218,11 +4050,36 @@ function binaryReadingsOf(
   // (the owner's decisions of 2026-11-16, "증명 못 하면 거부", and of 2026-11-17, "단순 규칙:
   // 타입 없는 필드는 항상 증명 못 함"). A proven tree beside a typed peer keeps its reading, as
   // the owner deferred (`f32(a + vi)`).
+  const typedPart = (e: ts.Expression) =>
+    typedNode(e) || ts.isElementAccessExpression(e) || ts.isPropertyAccessExpression(e);
+  const shiftByTypedAmount =
+    (bs.length === 0 || (rv === undefined && containsPart(right, typedPart))) &&
+    (k === ts.SyntaxKind.LessThanLessThanToken || k === ts.SyntaxKind.GreaterThanGreaterThanToken);
+  const keepsCongruence = k !== ts.SyntaxKind.GreaterThanGreaterThanToken;
+  const withoutNumbers = (x: Reading): boolean =>
+    plainUnproven(x) || (!keepsCongruence && (x.unproven === true || x.agreeing === true));
   if (
-    (as.length === 0 && bs.some((x) => x.unproven)) ||
-    (bs.length === 0 && as.some((x) => x.unproven))
+    (as.length === 0 && bs.some(withoutNumbers)) ||
+    (bs.length === 0 && as.some(withoutNumbers))
   ) {
     return [UNPROVEN];
+  }
+  if (shiftByTypedAmount && as.some((x) => x.tree && !(x.u32 === 0 && x.ts === 0))) {
+    return [keepsCongruence ? CONGRUENT : UNPROVEN];
+  }
+  const typedSide = as.length === 0 ? left : bs.length === 0 ? right : undefined;
+  const typedShift = k === ts.SyntaxKind.LessThanLessThanToken || !keepsCongruence;
+  if (typedSide !== undefined && !typedShift) {
+    const besideTyped = typedSide === left ? bs : as;
+    const flow = { sourceFile, refused: new Set<ts.Node>(), tainted: new Map(), reached: [] };
+    const peer = peerScalar(typedSide, flow);
+    const differing = besideTyped.some((x) => x.congruent === true || provenDiffering(x));
+    const typedMask =
+      k === ts.SyntaxKind.AmpersandToken ? maskValue(typedSide, constantOf) : undefined;
+    if (typedMask !== undefined && !besideTyped.some((x) => x.unknown || plainUnproven(x))) {
+      return [{ ...AGREEING, bound: typedMask }];
+    }
+    if (peer !== 'i32' && peer !== 'f32' && differing) return [CONGRUENT];
   }
   const pure = readsOnly(node, sourceFile);
   const out: Reading[] = [];
@@ -4235,34 +4092,28 @@ function binaryReadingsOf(
         picks = [];
       }
       const tree = a.tree || b.tree;
-      if (a.unknown || b.unknown || a.unproven || b.unproven) {
+      const push = (r: Reading) =>
+        out.push(a.reassigned || b.reassigned ? { ...r, reassigned: true } : r);
+      if (a.unknown || b.unknown || plainUnproven(a) || plainUnproven(b)) {
         out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
+      } else if (a.unproven || b.unproven || a.agreeing || b.agreeing) {
+        const kept = keepsCongruence ? CONGRUENT : UNPROVEN;
+        out.push({ ...(agreeingBound(k, a, b) ?? kept), picks });
       } else if (!tree) {
         if (bit && (isBigNumber(a.ts) || isBigNumber(b.ts))) {
           const u = rootOf(a.ts >>> 0, b.ts >>> 0);
-          out.push({ u32: u, ts: u | 0, tree: true, picks });
+          push({ u32: u, ts: u | 0, tree: true, picks });
         } else {
           const t = op(a.ts, b.ts, false);
-          out.push({ u32: t, ts: t, tree: false, picks });
+          push({ u32: t, ts: t, tree: false, picks });
         }
       } else {
-        out.push({ u32: op(a.u32, b.u32, true), ts: op(a.ts, b.ts, false), tree: true, picks });
+        push({ u32: op(a.u32, b.u32, true), ts: op(a.ts, b.ts, false), tree: true, picks });
       }
     }
   }
   return boundedReadings(out);
 }
-
-/** The operator a compound assignment applies (`^=` is `^`). */
-const COMPOUND_BASE = new Map<ts.SyntaxKind, ts.BinaryOperator>([
-  [ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.PlusToken],
-  [ts.SyntaxKind.MinusEqualsToken, ts.SyntaxKind.MinusToken],
-  [ts.SyntaxKind.AsteriskEqualsToken, ts.SyntaxKind.AsteriskToken],
-  [ts.SyntaxKind.BarEqualsToken, ts.SyntaxKind.BarToken],
-  [ts.SyntaxKind.AmpersandEqualsToken, ts.SyntaxKind.AmpersandToken],
-  [ts.SyntaxKind.CaretEqualsToken, ts.SyntaxKind.CaretToken],
-  [ts.SyntaxKind.LessThanLessThanEqualsToken, ts.SyntaxKind.LessThanLessThanToken],
-]);
 
 /** One refusal of an operation whose result differs between a tree's two readings (D2): its
  *  operand, the operation, and the diagnostic as it stands. Its edit is chosen and verified with
@@ -4291,22 +4142,6 @@ function declaredWith(name: string, at: ts.Node, type: string): string | undefin
   const keyword =
     ts.isVariableDeclarationList(list) && list.flags & ts.NodeFlags.Const ? 'const' : 'let';
   return `${keyword} ${name}: ${type} = ${d.initializer.getText().replace(/\s+/g, ' ')}`;
-}
-
-function readingsSentenceOf(r: ReadingsRefusal, remedy: string): string {
-  const text = skipParenNodes(r.node).getText().replace(/\s+/g, ' ');
-  if (r.readings.unproven === true) {
-    // The owner's decision of 2026-11-16, "증명 못 하면 거부": a value whose two readings the
-    // compiler cannot prove to agree is refused, with no numbers it cannot state.
-    return (
-      `The compiler cannot prove that the u32 bits and the TypeScript value of "${text}" ` +
-      `agree, so the "${r.operator}" does not say which value it means. ${remedy}`
-    );
-  }
-  return (
-    `"${text}" is ${String(r.readings.u32)} on its u32 bits and ${String(r.readings.ts)} in ` +
-    `TypeScript, so the "${r.operator}" does not say which value it means. ${remedy}`
-  );
 }
 
 function readingsRemedy(r: ReadingsRefusal, type: 'u32' | 'i32' | null): string {
@@ -4342,35 +4177,6 @@ export function refuseTwoReadings(
   let list = readingsRefusalsOf.get(sourceFile);
   if (list === undefined) readingsRefusalsOf.set(sourceFile, (list = []));
   list.push(r);
-}
-
-/** Whether `node` is written numbers and operators over them alone. */
-function constantTree(node: ts.Expression): boolean {
-  const n = skipParenNodes(node);
-  if (writtenNumber(n) !== undefined) return true;
-  if (ts.isPrefixUnaryExpression(n)) return constantTree(n.operand);
-  return ts.isBinaryExpression(n) && constantTree(n.left) && constantTree(n.right);
-}
-
-/** Whether `node` is a bit tree of written integers in the source (`(5 | 0)`, `~(1 | 2)`). */
-function writtenBitTree(node: ts.Expression): boolean {
-  const n = skipParenNodes(node);
-  const leaf = (e: ts.Expression): boolean => writtenNumber(e) !== undefined || writtenBitTree(e);
-  if (ts.isPrefixUnaryExpression(n)) {
-    return (
-      (n.operator === ts.SyntaxKind.TildeToken && leaf(n.operand)) ||
-      (n.operator === ts.SyntaxKind.MinusToken && writtenBitTree(n.operand))
-    );
-  }
-  if (!ts.isBinaryExpression(n)) return false;
-  const k = n.operatorToken.kind;
-  const bit =
-    k === ts.SyntaxKind.BarToken ||
-    k === ts.SyntaxKind.AmpersandToken ||
-    k === ts.SyntaxKind.CaretToken ||
-    k === ts.SyntaxKind.LessThanLessThanToken ||
-    k === ts.SyntaxKind.GreaterThanGreaterThanToken;
-  return bit && leaf(n.left) && leaf(n.right);
 }
 
 /** Whether `node` reads a value that is an integer only by its bit operator, by a way the
@@ -4476,12 +4282,6 @@ export function reassignedAnywhere(d: ts.VariableDeclaration): boolean {
           parent.operator === ts.SyntaxKind.MinusMinusToken));
     return target && declarationOf(name, id) === d;
   });
-}
-
-function skipParenUp(n: ts.Node): ts.Node {
-  let u = n;
-  while (ts.isParenthesizedExpression(u.parent)) u = u.parent;
-  return u;
 }
 
 /** The function a call of `name` at `at` reaches: one declared in a block around `at` or at the

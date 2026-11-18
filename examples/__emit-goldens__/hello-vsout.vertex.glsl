@@ -11,13 +11,13 @@ void main() {
   float u = 0.0;
   float v = 0.0;
   bool _ifc0 = (i == 1u);
-  x = (_ifc0 ? 0.8 : x);
-  u = (_ifc0 ? 1.0 : u);
+  x = mix(x, 0.8, _ifc0);
+  u = mix(u, 1.0, _ifc0);
   bool _ifc1 = (i == 2u);
-  x = (_ifc1 ? 0.0 : x);
-  y = (_ifc1 ? 0.8 : y);
-  u = (_ifc1 ? 0.5 : u);
-  v = (_ifc1 ? 1.0 : v);
+  x = mix(x, 0.0, _ifc1);
+  y = mix(y, 0.8, _ifc1);
+  u = mix(u, 0.5, _ifc1);
+  v = mix(v, 1.0, _ifc1);
   gl_Position = vec4(x, y, 0.0, 1.0);
   uv = vec2(u, v);
 }

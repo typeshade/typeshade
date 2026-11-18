@@ -25,6 +25,7 @@ import {
   type MemberCall,
 } from './host-face-contracts.js';
 import { baseClass, header } from './host-face-shared.js';
+import { madeView, TYPED_NAME } from './host-face/made.js';
 import { hostTypeOf } from './host-types.js';
 import { keyTypeText } from './key-types.js';
 import { HANDLE_TYPE_NAMES, SUPPORTED_TYPE_NAMES } from './type-map.js';
@@ -164,13 +165,6 @@ function enumBody(
 
 /** `T` as the element of `T[]`, parenthesized when it would bind wrong. */
 const arrayElem = (s: string): string => (s.startsWith('readonly ') ? `(${s})` : s);
-
-const TYPED_NAME = {
-  f32: 'Float32Array',
-  i32: 'Int32Array',
-  u32: 'Uint32Array',
-  f64: 'Float64Array',
-} as const;
 
 /** What a spelling from a layout reads to write a struct by its name (change 0116, decision D7):
  *  the names the view declares, and the declarations a struct's fields are read from. A layout
@@ -677,7 +671,8 @@ export function viewText(
         break;
       }
       case 'kernel': {
-        const f = e.face;
+        const shown = madeView(e.face);
+        const f = shown.face;
         // The parameters of a call with plain data (`plain`), of a call on a resource that does not
         // block (`resource`), and of one that waits (`waits`, Amendment A11, Q7).
         const params = (mode: 'plain' | 'resource' | 'waits'): string =>
@@ -765,9 +760,9 @@ export function viewText(
               : ' Called on a resource, it returns its result at once as Buffers: one element for a number, a vector, a bool, a key or a matrix, N for an array<T, N>, and for a struct or a Record an object of them by field; another call takes each as an argument, and read() gives its values (Amendment A10, Q-C; Amendment A12, decision 4).';
         out.push(
           ...above(
-            `A kernel function (Rule 8.22). ${where}.${counted}${pushes}${callForms}${returns}`,
+            `A kernel function (Rule 8.22). ${where}.${counted}${pushes}${callForms}${returns}${shown.note}`,
           ),
-          `export declare function ${e.name}(${params('plain')}): Promise<${resultType(f.result, named)}>;`,
+          `export declare function ${e.name}(${params('plain')}): Promise<${shown.result ?? resultType(f.result, named)}>;`,
         );
         // A call on a resource (change 0138, R2): one that does not block, and one that writes a
         // plain array and waits (Amendment A11, Q7).
@@ -776,6 +771,7 @@ export function viewText(
         const noBuffer = f.params.some(
           (p) => p.k === 'array' && p.writes && params('resource').includes(`${p.name}: never`),
         );
+        if (shown.result !== undefined) break;
         if (buffers !== undefined && !noBuffer && params('resource') !== params('plain'))
           out.push(`export declare function ${e.name}(${params('resource')}): ${buffers};`);
         if (

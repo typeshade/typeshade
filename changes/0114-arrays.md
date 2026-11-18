@@ -642,6 +642,87 @@ yet. Declare the type: const a: array<f32, 3> = [...].` (a bug fix under OD-9, i
 - Affects: the front matter (`surface` gains 26). No rule, code or stage changes.
 - Status: `status: accepted` does not change.
 
+### A5. The deviations of S5 slice 1 (2026-11-18)
+
+- [fact] Why. S5 slice 1 (pull request #1379, merged as `fad9fce`) differs from A1 in two
+  places, both recorded on #1379 as open deviations.
+- [decision, owner, 2026-11-18] "승인", to the agent's recommendation to make both part of the
+  approved text. Both are "not supported yet" refusals (OD-9).
+
+**1. A call inside `fuse()`.** A1 item 10 refuses, in both halves, the result passed to another
+call inside one fusion (Rule 11.13). A `fuse()` body is host code, which neither the compiler nor
+the language service reads, so no compile-time refusal can see it. Amended: a call of a kernel
+function that makes its result, made inside `fuse()`, throws a `TypeError` at the call:
+`render(): returns the array it makes, "out", and a call inside fuse() that makes its result is
+not supported yet. Call render() outside fuse().` Its face carries no fusion facts (Rule 11.13;
+surface §71).
+
+**2. Two more refusals.** Beyond the forms item 10 lists, slice 1 refuses as "not supported yet"
+(`TS8099`), in both halves:
+
+- a fill value (`new Array(n).fill(v)`) that reads an operand item 4 does not list;
+- a use of the new array other than an element read or write, `.length` and `return`, array
+  methods included.
+
+Each stays refused until a later slice implements it.
+
+- [fact] The third deviation recorded on #1379, `out.length` reading 1 when `n = 0`, was fixed
+  before the merge (`26e5b90f`): the body reads the length the host computed (A1 item 5).
+- Affects: section 2 (S5 items 10 and 11). No front-matter entry, rule number or code changes.
+- Status: `status: accepted` does not change. S5: slice 1 done (#1379); slice 2 (vector and
+  struct elements, a call on a resource, the WebGL2 and WebAssembly tiers) not started; plan unit
+  B8b not started.
+
+### A6. Stage S5d: a kernel function returns an array it grows with `push` (2026-11-18)
+
+- [fact] Why. The owner asked on 2026-11-18 whether a kernel function can start an empty array,
+  `push` into it in a loop and return it. A1 item 10 refuses `out.push(v)` on the array a kernel
+  function makes. The same day the owner recorded OD-10: TypeShade supports dynamic arrays, and
+  the compiler handles their storage, at compile time where it can and with a heap it manages at
+  run time where it cannot.
+- [fact] Change 0078 already lets a loop push onto a kernel function's array parameter: it starts
+  empty (or at a held length, change 0094), and the pushes append in the order a sequential run
+  makes them, on every tier (Rule 8.23).
+- [decision, owner, 2026-11-18] OD-10 and its "승인"; this amendment applies OD-10 to S5.
+
+**S5d. An array the function grows (plan unit B8).**
+
+```ts
+export function render(k: vec4, size: u32): f32[] {
+  const out: f32[] = [];
+  for (let i: u32 = 0; i < size * size; i++) {
+    out.push(height(p(i, size), k));
+  }
+  return out;
+}
+const img: Float32Array = await render(k, 512);
+```
+
+1. Rule 8.23: an exported kernel function may declare one `const` at the top level of its body,
+   before its first candidate loop, initialized by an empty list and annotated with an array type
+   with no size (`const out: f32[] = []`), push onto it inside its candidate loops, and return it on
+   every path (A1 items 3 and 5 hold as for a made array).
+2. The capacity is the compiler's (OD-3, OD-10). Where every push is inside counted loops whose
+   trip counts read only the operands A1 item 4 lists, the compiler computes the most elements the
+   pushes can append, the sum over the loops of the trip count times the pushes in one iteration,
+   and the host call reserves that many before the dispatch. A conditional push counts as one.
+3. The pushes append as change 0078 gives them, in the order of a sequential run, on every tier.
+   The result is the elements pushed, in that order: its length is the number pushed, which may be
+   less than the capacity, and `out.length` in the body reads the number pushed so far.
+4. The result's host value and its ownership are those of A1 items 6 and 7.
+5. Where the capacity cannot be computed at compile time (a push in a loop whose range the device
+   holds, a `while`, a loop that is not counted, a trip count that reads an unlisted operand), the
+   form waits for the heap OD-10 names (plan units A1 to A3) and is refused until then as "not
+   supported yet" (`TS8099`), naming the loop.
+6. A1's other refusals of item 10 still apply to `out`, except `out.push(v)` inside a candidate
+   loop. A push outside every loop is refused as "not supported yet".
+7. Both halves: the editor's ambient `Array<T>` already declares `push`; the compiler reports each
+   refusal with the editor showing the same code and sentence.
+
+- Affects: section 2 (stage S5d), Rule 8.23 (when implemented). No front-matter entry changes:
+  Rule 8.23 and surface §65 are declared.
+- Status: `status: accepted` does not change. S5d: not started.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`

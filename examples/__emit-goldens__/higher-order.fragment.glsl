@@ -75,6 +75,6 @@ void main() {
   col = mix(col, vec3(0.9, 0.3, 0.5), dots);
   float[3] bands = float[3](0.8, 0.88, 0.96);
   bool _ifc0 = array_some_fs_p(p, bands);
-  col = (_ifc0 ? vec3(1.0) : col);
+  col = mix(col, vec3(1.0), bvec3(_ifc0));
   color = vec4(col, 1.0);
 }

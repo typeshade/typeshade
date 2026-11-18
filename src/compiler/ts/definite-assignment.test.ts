@@ -146,7 +146,7 @@ ${FRAGMENT.replace('run()', 'run(true)')}`),
       funcs: r.module.funcs.filter((f) => stageOf(f) === undefined),
     });
     expect(r.glsl!.fragment).toMatch(/float _spec\d+_run\(\)/);
-    expect(glsl).toContain('float s = (c ? 1.0 : 2.0);');
+    expect(glsl).toContain('float s = mix(2.0, 1.0, c);');
     expect(glsl).not.toContain('float s = 0.0');
     expect(glsl).toContain('float t = 0.0;');
     expect(glsl).not.toMatch(/\bunread\b/);

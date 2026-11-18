@@ -88,7 +88,7 @@ void main() {
   float span = pow(10.0, (-u.zoom_exp));
   float half_ = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float sx = (half_ - (_cse0 ? 0.0 : 1.0));
+  float sx = (half_ - mix(1.0, 0.0, _cse0));
   float dx = ((sx - 0.5) * span);
   float dy = (((uv.y - 0.5) * span) * ((u.resolution.y / u.resolution.x) * 2.0));
   float m2f = 0.0;
@@ -144,7 +144,7 @@ void main() {
   float mz = sqrt(max(m2f, 1.0));
   float de = (((mz * log(mz)) * 0.5) / sqrt(max(dm2, 1e-30)));
   float t = min((de / (span * 0.012)), 40.0);
-  float escaped = ((m2f > 1000000.0) ? 1.0 : 0.0);
+  float escaped = mix(0.0, 1.0, (m2f > 1000000.0));
   float _gv0 = (-t);
   float glow = (exp((_gv0 * 1.2)) * escaped);
   float body = (exp((_gv0 * 0.25)) * escaped);

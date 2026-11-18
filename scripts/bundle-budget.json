@@ -9,12 +9,12 @@
     }
   },
   "typeshade/emit": {
-    "bytes": 123482,
+    "bytes": 123639,
     "floor": 44200,
     "split": {
-      "initial": 123482,
+      "initial": 123639,
       "floor": 47500,
-      "total": 123482
+      "total": 123639
     }
   },
   "typeshade/fuse": {

@@ -19,6 +19,18 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **A kernel function makes and returns an array whose length its arguments give** (change 0114,
+  S5, slice 1). `export function render(k: vec4, size: u32): f32[]` with
+  `const out = new Float32Array(size * size)` at the top of its body and `return out` is a kernel
+  function; `await render(k, 512)` resolves to a new `Float32Array` (`Int32Array` for `i32[]`,
+  `Uint32Array` for `u32[]`, with `new Array(n).fill(v)`). The host evaluates the length before
+  the call, throws a `RangeError` for a negative or fractional one, and checks each loop's writes
+  against it as for an array parameter; a length of 0 gives an empty array. It runs on WebGPU and
+  on the CPU tier, and WebGL2 falls back to the CPU tier. Not supported yet (`TS8099`): an element
+  of a vector or a struct, a helper or an entry that makes its result, an array made under a
+  branch or after a loop, a length that reads another operand, `Array.from` with such a length,
+  another `return`, and a use of the array as a value. A call on a resource or inside `fuse()`
+  throws a `TypeError`.
 - **`new Array(N).fill(v)`, `new Float32Array(N)` and `Array.from({ length: N }, f)` build a
   sized array** (change 0114, S2). With a constant `N` (an integer literal, a module constant or
   a constant of no fixed type) each is an `array<T, N>`: `N` copies of `v`, `N` zeros of `f32`,
@@ -382,6 +394,27 @@ f32(v / 2)` after `s.v = ii` is refused, as `f32(s.v / 2)` is. A swizzle of a sw
     constructor (`v = u32(0)`, `p = vec2u(0, 0)`) states its type, as an annotation does (the
     owner's decision of 2026-11-17, "변환식도 적은 타입"); a field of a plain number (`v = 0`)
     does not.
+
+- **D2 keeps the two readings of an operation beside a typed u32** (issue #1307; change 0134,
+  Amendment A7, the owner's decision of 2026-11-16, "두 값 유지, 다르면 거부"). With
+  `let a = (0xF0000000|0);`, `f32(a + vi)` gave 4026531847, where TypeScript gives -268435449,
+  and `(a + vi) > vi` and `(a + vi) / vi` read the u32 bits too. The result of `+ - * & | ^`
+  beside a typed u32, and `~` of it, now keeps the tree's two readings: a later `f32()`,
+  comparison, `/`, `%` or builtin is refused in both halves with the approved unproven sentence
+  and a verified edit (`f32(i32(a + vi))`, `u32(a + vi) / vi`). `a + vi` alone still compiles.
+  An exported function with no written result that returns such a value is refused too, as D2
+  refuses every exported result whose readings differ.
+
+- **D2 keeps the two readings of a u32 tree's variable through a store and a typed shift amount**
+  (issue #1331; change 0134, Amendments A6 and A7). With `let a: i32 = 31; let c =
+(3000000000|0); c = 9;`, `f32(((c << a) < vi) ? 1 : 0)` gave 0, where TypeScript gives 1. A
+  number stored in a variable that a u32-only tree reaches is now read on its u32 bits, a store
+  the walk cannot read there (`c = vi`) is unproven, and a shift of a tree by an amount of a
+  written type is unproven. Each is refused in both halves with the D2 sentence and a verified
+  edit (`u32(c << a)`). Cost: `f32(((c << a) < vi) ? 1 : 0)` without the store gave the right
+  value 1 and is refused now, since the walk does not know `a`. An exported function with no
+  written result that returns such a shift (`return c << vi`) is refused too, as D2 refuses every
+  exported result whose readings differ.
 
 - **Buffer integration with the compiler refactor** (2026-11-16, change 0138). Host analysis
   keeps the Buffer overload records; the extracted host view and module generators consume them.
