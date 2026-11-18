@@ -1,29 +1,29 @@
 {
   "typeshade/runtime": {
-    "bytes": 176860,
+    "bytes": 177462,
     "floor": 17600,
     "split": {
       "initial": 52223,
       "floor": 18000,
-      "total": 179016
+      "total": 179635
     }
   },
   "typeshade/emit": {
-    "bytes": 122851,
+    "bytes": 123482,
     "floor": 44200,
     "split": {
-      "initial": 122851,
+      "initial": 123482,
       "floor": 47500,
-      "total": 122851
+      "total": 123482
     }
   },
   "typeshade/fuse": {
-    "bytes": 121245,
+    "bytes": 121891,
     "floor": 35700,
     "split": {
       "initial": 17798,
       "floor": 6700,
-      "total": 121864
+      "total": 122476
     }
   },
   "typeshade/algorithms": {

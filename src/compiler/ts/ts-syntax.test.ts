@@ -61,23 +61,21 @@ function compiled(source: string): CompileResult {
 
 describe('a let that declares before it assigns', () => {
   it('lowers to a var with no init, and emits one in both targets', () => {
-    const first = bodyOf(
-      'export function f(): f32 {\n  let x: f32;\n  x = 1.;\n  return x;\n}',
-    )[0]!;
+    const source =
+      'export function f(a: f32): f32 {\n  let x: f32;\n  switch (i32(a)) { case 1: x = 1.; break; default: x = 2.; }\n  return x;\n}';
+    const first = bodyOf(source)[0]!;
     expect(first.s).toBe('var');
     if (first.s !== 'var') return;
     expect(first.name).toBe('x');
     expect(typeKey(first.type)).toBe('f32');
     expect(first.init).toBeUndefined();
-    expect(
-      wgslOf('export function f(): f32 {\n  let x: f32;\n  x = 1.;\n  return x;\n}'),
-    ).toContain('var x: f32;');
+    expect(wgslOf(source)).toContain('var x: f32;');
   });
 
   it('takes an aggregate type as readily as a scalar', () => {
     expect(
       wgslOf(
-        'export function f(): vec3 {\n  let v: vec3;\n  v = vec3(1., 2., 3.);\n  return v;\n}',
+        'export function f(a: f32): vec3 {\n  let v: vec3;\n  switch (i32(a)) { case 1: v = vec3(1., 2., 3.); break; default: v = vec3(a); }\n  return v;\n}',
       ),
     ).toContain('var v: vec3<f32>;');
   });

@@ -166,7 +166,7 @@ describe('integer locals constrained by declared contexts', () => {
   it('infers the original constructor and independently typed field assignment', () => {
     const source = `"use typeshade";
 class Hit { index:i32; constructor(index:i32) {this.index=index;} }
-class Scene { sample():Hit {return new Hit(4);} march():Hit {let objectIndex=-1;const field=this.sample();objectIndex=field.index;return new Hit(objectIndex);} }
+class Scene { sample():Hit {return new Hit(4);} march():Hit {let objectIndex=-1;const field=this.sample();if(field.index>0){objectIndex=field.index;}return new Hit(objectIndex);} }
 export function run():i32 {return new Scene().march().index;}`;
     const result = compile(source, { deprecations: true });
     expect(result.diagnostics).toEqual([]);

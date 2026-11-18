@@ -14,6 +14,7 @@ import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { uninlined } from '../../core/testing/keep-helpers.js';
+import { keepVars } from '../../core/testing/keep-vars.js';
 
 const FRAGMENT = `interface VsOut { pos: builtin<"position">; }
 @vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.) }; }
@@ -112,18 +113,21 @@ export function run(): f32 { let s: f32; return add(1., 2., s); }`;
     expect(service.getDiagnostics('o.ts').filter((d) => d.code === 'TS8075')).toHaveLength(1);
   });
 
-  it('starts a local with no initializer at zero on GLSL ES 3.00, as on WGSL and the CPU', () => {
-    const r = compile(`"use typeshade";
+  it(
+    'starts a local with no initializer at zero on GLSL ES 3.00, as on WGSL and the CPU',
+    keepVars(() => {
+      const r = compile(`"use typeshade";
 class P { a: f32; b: vec2; }
 export function run(): f32 { let s: f32; s = 1.; let q: P; q = new P(); let v: vec3; v = vec3(1.); return s + q.a + v.x; }
 ${FRAGMENT}`);
-    expect(r.diagnostics).toEqual([]);
-    const glsl = r.glsl!.fragment;
-    expect(glsl).toMatch(/float \w*s = 0\.0;/);
-    expect(glsl).toMatch(/P \w*q = P\(0\.0, vec2\(0\.0\)\);/);
-    expect(glsl).toMatch(/vec3 \w*v = vec3\(0\.0\);/);
-    expect(r.wgsl).toMatch(/var \w*s: f32;/);
-  });
+      expect(r.diagnostics).toEqual([]);
+      const glsl = r.glsl!.fragment;
+      expect(glsl).toMatch(/float \w*s = 0\.0;/);
+      expect(glsl).toMatch(/P \w*q = P\(0\.0, vec2\(0\.0\)\);/);
+      expect(glsl).toMatch(/vec3 \w*v = vec3\(0\.0\);/);
+      expect(r.wgsl).toMatch(/var \w*s: f32;/);
+    }),
+  );
 
   it('leaves a local bare on GLSL when the next statement writes it on every path first', () => {
     // The `if`/`else` writes `s` before anything reads it, so its zero would never be read: the

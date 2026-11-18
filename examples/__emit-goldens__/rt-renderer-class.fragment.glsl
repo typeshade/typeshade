@@ -160,17 +160,10 @@ Hit _flow22_fused(Scene _flow0_input, vec3 _flow1_input, vec3 _flow2_input, floa
   SDF_SdfBox _licm1 = _flow0_input.blueBox;
   SDF_SdfTorus _licm2 = _flow0_input.goldTorus;
   float _licm3 = _flow0_input.ground.height;
-  vec3 _cse0 = vec3(0.0, 0.0, 0.0);
-  vec3 _flow23_part = _cse0;
-  vec3 _flow24_part = _cse0;
-  _flow23_part = _flow1_input;
-  _flow24_part = _flow2_input;
-  vec3 _flow25_part = _flow23_part;
-  vec3 _flow26_part = _flow24_part;
   float _flow7_local = 0.0;
   int _flow8_local = -1;
   for (int _flow9_local = 0; (_flow9_local < MAX_STEPS); _flow9_local = (_flow9_local + 1)) {
-    vec3 _flow10_local = (_flow25_part + (_flow26_part * _flow7_local));
+    vec3 _flow10_local = (_flow1_input + (_flow2_input * _flow7_local));
     float _flow11_local = MAX_DISTANCE;
     int _flow12_local = -1;
     float _flow13_local = SDF_SdfSphere_distanceTo(_licm0, _flow10_local);
@@ -325,20 +318,8 @@ vec3 Renderer_trace(Renderer self_, Ray primaryRay, float seed0) {
 
 SdfShape _flow43_fused(vec3 _flow32_input, float _flow33_input, float _flow34_input, vec3 _flow35_input) {
   vec3 _cse0 = vec3(0.0, 0.0, 0.0);
-  vec3 _flow44_part = _cse0;
-  float _flow45_part = 0.0;
-  float _flow46_part = 0.0;
-  vec3 _flow47_part = _cse0;
-  _flow44_part = _flow32_input;
-  _flow45_part = _flow33_input;
-  _flow46_part = _flow34_input;
-  _flow47_part = _flow35_input;
-  vec3 _flow48_part = _flow44_part;
-  float _flow49_part = _flow45_part;
-  float _flow50_part = _flow46_part;
-  vec3 _flow51_part = _flow47_part;
   SdfShape _flow41_local = SdfShape(Material(_cse0, 0.0, 0.0, _cse0));
-  _flow41_local.material = Material(_flow48_part, _flow49_part, _flow50_part, _flow51_part);
+  _flow41_local.material = Material(_flow32_input, _flow33_input, _flow34_input, _flow35_input);
   return _flow41_local;
 }
 in vec2 ndc;

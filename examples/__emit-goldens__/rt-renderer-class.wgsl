@@ -387,17 +387,10 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
 
 fn _flow22_fused(_flow0_input: ptr<function, Scene>, _flow1_input: vec3<f32>, _flow2_input: vec3<f32>, _flow6_input: f32) -> Hit {
   let _licm3 = (*_flow0_input).ground.height;
-  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  var _flow23_part: vec3<f32> = _cse0;
-  var _flow24_part: vec3<f32> = _cse0;
-  _flow23_part = _flow1_input;
-  _flow24_part = _flow2_input;
-  let _flow25_part = _flow23_part;
-  let _flow26_part = _flow24_part;
   var _flow7_local: f32 = 0.0;
   var _flow8_local: i32 = -1;
   for (var _flow9_local: i32 = 0; (_flow9_local < MAX_STEPS); _flow9_local = (_flow9_local + 1)) {
-    let _flow10_local = (_flow25_part + (_flow26_part * _flow7_local));
+    let _flow10_local = (_flow1_input + (_flow2_input * _flow7_local));
     var _flow11_local: f32 = MAX_DISTANCE;
     var _flow12_local: i32 = -1;
     let _flow13_local = SDF_SdfSphere_distanceTo(&(*_flow0_input).redSphere, _flow10_local);
@@ -434,19 +427,7 @@ fn _flow22_fused(_flow0_input: ptr<function, Scene>, _flow1_input: vec3<f32>, _f
 
 fn _flow43_fused(_flow32_input: vec3<f32>, _flow33_input: f32, _flow34_input: f32, _flow35_input: vec3<f32>) -> SdfShape {
   let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  var _flow44_part: vec3<f32> = _cse0;
-  var _flow45_part: f32 = 0.0;
-  var _flow46_part: f32 = 0.0;
-  var _flow47_part: vec3<f32> = _cse0;
-  _flow44_part = _flow32_input;
-  _flow45_part = _flow33_input;
-  _flow46_part = _flow34_input;
-  _flow47_part = _flow35_input;
-  let _flow48_part = _flow44_part;
-  let _flow49_part = _flow45_part;
-  let _flow50_part = _flow46_part;
-  let _flow51_part = _flow47_part;
   var _flow41_local: SdfShape = SdfShape(Material(_cse0, 0.0, 0.0, _cse0));
-  _flow41_local.material = Material(_flow48_part, _flow49_part, _flow50_part, _flow51_part);
+  _flow41_local.material = Material(_flow32_input, _flow33_input, _flow34_input, _flow35_input);
   return _flow41_local;
 }
