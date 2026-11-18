@@ -35,23 +35,25 @@ void main() {
   if ((_sm1_a0 < 0.333)) {
     _sm1_ret = _opt_Sample_(_cse0, false);
   } else {
-    _opt_f32_ _sm1_l_sm0_a0;
+    _opt_f32_ _sel0;
     if ((_sm1_a0 < 0.666)) {
-      _sm1_l_sm0_a0 = _cse1;
+      _sel0 = _cse1;
     } else {
-      _sm1_l_sm0_a0 = _opt_f32_(_sm1_a0, true);
+      _sel0 = _opt_f32_(_sm1_a0, true);
     }
+    _opt_f32_ _sm1_l_sm0_a0 = _sel0;
     Sample _sm1_l_sm0_l_self_ = _cse0;
     _sm1_l_sm0_l_self_.value = _sm1_l_sm0_a0;
     _sm1_ret = _opt_Sample_(_sm1_l_sm0_l_self_, true);
   }
   _opt_Sample_ _opt = _sm1_ret;
-  _opt3_f32_ value;
+  _opt3_f32_ _sel1;
   if (_opt.present) {
-    value = _opt_widen_struct_opt_f32_2_f32_(_opt.value.value);
+    _sel1 = _opt_widen_struct_opt_f32_2_f32_(_opt.value.value);
   } else {
-    value = _opt3_f32_(0.0, false, false);
+    _sel1 = _opt3_f32_(0.0, false, false);
   }
+  _opt3_f32_ value = _sel1;
   vec3 _sm2_ret = vec3(0.0);
   bool _gv0 = (value.present == false);
   if ((_gv0 && (value.isNull == false))) {

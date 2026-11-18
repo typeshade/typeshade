@@ -1267,14 +1267,14 @@ fn NamekScene_render(self_: ptr<function, NamekScene>, ro: vec3<f32>, rd: vec3<f
     } else if ((_sm16_a3 < 9.5)) {
       let _sm22_l_firstDistance = length((p.xz - (*self_).trees.first.position));
       let _sm22_l_secondDistance = length((p.xz - (*self_).trees.second.position));
-      var _sm22_l_spec5_returned: NamekTree;
+      var _sel1: NamekTree;
       if ((_sm22_l_firstDistance < _sm22_l_secondDistance)) {
-        _sm22_l_spec5_returned = (*self_).trees.first;
+        _sel1 = (*self_).trees.first;
       } else {
-        _sm22_l_spec5_returned = (*self_).trees.second;
+        _sel1 = (*self_).trees.second;
       }
-      var _sm22_ret: _spec4_result = _spec4_result(_sm22_l_spec5_returned.position, _sm22_l_spec5_returned.height);
-      let _sm16_l_normal = normalize((p - vec3<f32>(_sm22_ret.position.x, (GROUND + _sm22_ret.height), _sm22_ret.position.y)));
+      var _sm22_l_spec5_returned: NamekTree = _sel1;
+      let _sm16_l_normal = normalize((p - vec3<f32>(_sm22_l_spec5_returned.position.x, (GROUND + _sm22_l_spec5_returned.height), _sm22_l_spec5_returned.position.y)));
       let _sm16_l_k = (dot(normalize((_sm16_l_normal + (0.5 * _sm16_a1))), LIG) + (0.15 * (Noise_value(((_sm16_l_normal.xy * 9.0) + (_sm16_l_normal.z * 5.0))) - 0.5)));
       _sm16_l_col = mix((LEAF * vec3<f32>(0.72, 0.78, 0.9)), LEAF, (smoothstep(0.0, 0.04, _sm16_l_k) * ShipMaterial_celShadow_function_function((p + (_sm16_a1 * 0.01)), LIG, &(*self_).ship, &(*self_).trees)));
       _sm16_l_col = mix(_sm16_l_col, LEAF_HI, smoothstep(0.55, 0.59, _sm16_l_k));
@@ -1292,13 +1292,13 @@ fn NamekScene_render(self_: ptr<function, NamekScene>, ro: vec3<f32>, rd: vec3<f
     col = _sm16_l_col;
     frontT = march.hit.x;
   } else if ((terrainT > 0.0)) {
-    var _sel1: vec3<f32>;
+    var _sel2: vec3<f32>;
     if ((length(_gv0.xz) > MESA_R)) {
-      _sel1 = Terrain_normal(_gv0.xz, terrainT);
+      _sel2 = Terrain_normal(_gv0.xz, terrainT);
     } else {
-      _sel1 = vec3<f32>(0.0, 1.0, 0.0);
+      _sel2 = vec3<f32>(0.0, 1.0, 0.0);
     }
-    let _sm19_l_normal = _sel1;
+    let _sm19_l_normal = _sel2;
     let _sm19_l_x = _gv0.xz;
     let _sm19_l_radius = length(_sm19_l_x);
     let _sm19_l_height = (_gv0.y - GROUND);

@@ -82,12 +82,13 @@ fn fs(v: VsOut) -> Color {
   if ((_gv0.present && _sm1_ret.present)) {
     _sm2_ret = min(_gv0.value, _sm1_ret.value);
   } else {
-    var _sm2_l_opt: _opt_f32_;
+    var _sel0: _opt_f32_;
     if (_gv0.present) {
-      _sm2_l_opt = _gv0;
+      _sel0 = _gv0;
     } else {
-      _sm2_l_opt = _sm1_ret;
+      _sel0 = _sm1_ret;
     }
+    var _sm2_l_opt: _opt_f32_ = _sel0;
     _sm2_ret = select(1000.0, _sm2_l_opt.value, _sm2_l_opt.present);
   }
   let g = (_sm2_ret * select(0.25, shade.value, shade.present));

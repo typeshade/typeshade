@@ -61,12 +61,13 @@ void main() {
   if ((_gv0.present && _sm1_ret.present)) {
     _sm2_ret = min(_gv0.value, _sm1_ret.value);
   } else {
-    _opt_f32_ _sm2_l_opt;
+    _opt_f32_ _sel0;
     if (_gv0.present) {
-      _sm2_l_opt = _gv0;
+      _sel0 = _gv0;
     } else {
-      _sm2_l_opt = _sm1_ret;
+      _sel0 = _sm1_ret;
     }
+    _opt_f32_ _sm2_l_opt = _sel0;
     _sm2_ret = (_sm2_l_opt.present ? _sm2_l_opt.value : 1000.0);
   }
   float g = (_sm2_ret * (shade.present ? shade.value : 0.25));

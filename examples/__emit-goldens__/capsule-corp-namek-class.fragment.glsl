@@ -48,11 +48,6 @@ struct NamekScene {
 struct _spec1_result {
   vec3 point;
 };
-
-struct _spec4_result {
-  vec2 position;
-  float height;
-};
 const int AA = 1;
 const float PI = 3.14159265;
 const float TAU = 6.28318531;
@@ -1035,14 +1030,14 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
     } else if ((_sm16_a3 < 9.5)) {
       float _sm22_l_firstDistance = length((p.xz - _sm16_a8.first.position));
       float _sm22_l_secondDistance = length((p.xz - _sm16_a8.second.position));
-      NamekTree _sm22_l_spec5_returned;
+      NamekTree _sel1;
       if ((_sm22_l_firstDistance < _sm22_l_secondDistance)) {
-        _sm22_l_spec5_returned = _sm16_a8.first;
+        _sel1 = _sm16_a8.first;
       } else {
-        _sm22_l_spec5_returned = _sm16_a8.second;
+        _sel1 = _sm16_a8.second;
       }
-      _spec4_result _sm22_ret = _spec4_result(_sm22_l_spec5_returned.position, _sm22_l_spec5_returned.height);
-      vec3 _sm16_l_normal = normalize((p - vec3(_sm22_ret.position.x, (GROUND + _sm22_ret.height), _sm22_ret.position.y)));
+      NamekTree _sm22_l_spec5_returned = _sel1;
+      vec3 _sm16_l_normal = normalize((p - vec3(_sm22_l_spec5_returned.position.x, (GROUND + _sm22_l_spec5_returned.height), _sm22_l_spec5_returned.position.y)));
       float _sm16_l_k = (dot(normalize((_sm16_l_normal + (0.5 * _sm16_a1))), LIG) + (0.15 * (Noise_value(((_sm16_l_normal.xy * 9.0) + (_sm16_l_normal.z * 5.0))) - 0.5)));
       _sm16_l_col = mix((LEAF * vec3(0.72, 0.78, 0.9)), LEAF, (smoothstep(0.0, 0.04, _sm16_l_k) * ShipMaterial_celShadow((p + (_sm16_a1 * 0.01)), LIG, _sm16_a7, _sm16_a8)));
       _sm16_l_col = mix(_sm16_l_col, LEAF_HI, smoothstep(0.55, 0.59, _sm16_l_k));
@@ -1061,13 +1056,13 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
   } else if ((terrainT > 0.0)) {
     Ship _sm19_a5 = self_.ship;
     NamekTrees _sm19_a6 = self_.trees;
-    vec3 _sel1;
+    vec3 _sel2;
     if ((length(_gv0.xz) > MESA_R)) {
-      _sel1 = Terrain_normal(_gv0.xz, terrainT);
+      _sel2 = Terrain_normal(_gv0.xz, terrainT);
     } else {
-      _sel1 = vec3(0.0, 1.0, 0.0);
+      _sel2 = vec3(0.0, 1.0, 0.0);
     }
-    vec3 _sm19_l_normal = _sel1;
+    vec3 _sm19_l_normal = _sel2;
     vec2 _sm19_l_x = _gv0.xz;
     float _sm19_l_radius = length(_sm19_l_x);
     float _sm19_l_height = (_gv0.y - GROUND);
