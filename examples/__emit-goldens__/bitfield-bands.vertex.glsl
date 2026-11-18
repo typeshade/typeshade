@@ -9,16 +9,10 @@ struct VsOut {
 out vec2 uv;
 
 VsOut vs_impl(uint i) {
-  float x = 0.0;
-  float y = 0.0;
-  x = -1.0;
-  y = -1.0;
-  if ((i == 1u)) {
-    x = 3.0;
-  }
-  if ((i == 2u)) {
-    y = 3.0;
-  }
+  float x = -1.0;
+  float y = -1.0;
+  x = mix(x, 3.0, (i == 1u));
+  y = mix(y, 3.0, (i == 2u));
   vec4 pos = vec4(x, y, 0.0, 1.0);
   vec2 uv = ((vec2(x, y) * 0.5) + vec2(0.5, 0.5));
   return VsOut(pos, uv);

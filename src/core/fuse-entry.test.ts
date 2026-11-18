@@ -1702,17 +1702,17 @@ describe('the entry of a group that ends in a reduction', () => {
     );
     expect(at).toBeGreaterThan(0);
     const helper = wgsl.slice(at, wgsl.indexOf('\n}\n', at));
-    // The local of the scratch array and the local of the edge come first, as the entry's would.
-    expect(helper).toMatch(/^[^\n]*\n\s+var _fs2: f32;\n\s+var _fe0: f32;\n/);
+    // The local of the scratch array comes first, as the entry's would.
+    expect(helper).toMatch(/^[^\n]*\n\s+var _fs2: f32;\n/);
     // The producers: each counts from its own start, from the index the helper is given.
     expect(helper).toMatch(/_fc0_i = \(_fargs\.c0__start \+ _cse0\)/);
     expect(helper).toMatch(/_fr0\[_fc0_i\] = max\(_fr1\[_fc0_i\], 0\.0\);/);
     // The kept edge: t is written to storage, and the next call reads it from the local.
-    expect(helper).toMatch(/_fe0 = _fr0\[_fc0_i\];/);
+    expect(helper).toMatch(/let _fe0 = _fr0\[_fc0_i\];/);
     expect(helper).toMatch(/_fs2 = \(_fe0 \* _fe0\);/);
     // The reduction's own iteration follows: from the identity, then the body, then the sums.
     expect(helper.indexOf('_fs2 = (_fe0 * _fe0)')).toBeLessThan(
-      helper.indexOf('_fc2_s = bitcast<f32>(2147483648u)'),
+      helper.indexOf('var _fc2_s: f32 = bitcast<f32>(2147483648u)'),
     );
     expect(helper).toMatch(/_fc2_s \+= _fs2;/);
     expect(helper).toMatch(/\(\*_dst\) = sum_loop0_Sums\(_fc2_s\);/);

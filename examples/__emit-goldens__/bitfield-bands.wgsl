@@ -9,16 +9,10 @@ struct Color {
 
 @vertex
 fn vs(@builtin(vertex_index) i: u32) -> VsOut {
-  var x: f32;
-  var y: f32;
-  x = -1.0;
-  y = -1.0;
-  if ((i == 1u)) {
-    x = 3.0;
-  }
-  if ((i == 2u)) {
-    y = 3.0;
-  }
+  var x: f32 = -1.0;
+  var y: f32 = -1.0;
+  x = select(x, 3.0, (i == 1u));
+  y = select(y, 3.0, (i == 2u));
   let pos = vec4<f32>(x, y, 0.0, 1.0);
   let uv = ((vec2<f32>(x, y) * 0.5) + vec2<f32>(0.5, 0.5));
   return VsOut(pos, uv);
@@ -37,8 +31,7 @@ fn fs(v: VsOut) -> Color {
   shade <<= 1u;
   shade >>= 1u;
   shade ^= 0;
-  var rgb: vec3<f32>;
-  rgb = vec3<f32>(0.0, 0.0, 0.0);
+  var rgb: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
   switch shade {
     case 0: {
       rgb = vec3<f32>(0.1, 0.1, 0.12);

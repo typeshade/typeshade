@@ -298,12 +298,12 @@ describe('a position that declares a type through something else', () => {
     const w = wgslOf(
       `${TWINS}export function f(): P {\n  let o: P = { a: 1., b: 2. };\n  o = { a: 3., b: 4. };\n  return o;\n}`,
     );
-    expect(w).toContain('o = P(3.0, 4.0);');
+    expect(w).toContain('var o: P = P(3.0, 4.0);');
     // The other twin from the same literal, so it is the target deciding and not an order.
     const wq = wgslOf(
       `${TWINS}export function f(): Q {\n  let o: Q = { a: 1., b: 2. };\n  o = { a: 3., b: 4. };\n  return o;\n}`,
     );
-    expect(wq).toContain('o = Q(3.0, 4.0);');
+    expect(wq).toContain('var o: Q = Q(3.0, 4.0);');
   });
 
   it("both arms of a ternary sit in the ternary's own position", () => {

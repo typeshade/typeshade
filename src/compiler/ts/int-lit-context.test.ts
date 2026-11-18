@@ -58,7 +58,7 @@ describe('the ten positions', () => {
           return x;
         }
       `),
-    ).toContain('x = 2u;');
+    ).toContain('var x: u32 = 2u;');
   });
 
   it('3. an argument takes the parameter’s type', () => {
@@ -247,8 +247,7 @@ describe('a float context is untouched', () => {
         return g(2) + min(y, 2.) + y;
       }
     `);
-    expect(w).toContain('var y: f32 = 1.5;');
-    expect(w).toContain('y = 2.5;');
+    expect(w).toContain('var y: f32 = 2.5;');
     expect(w).toContain('g(2.0)');
     expect(w).toContain('min(y, 2.0)');
   });

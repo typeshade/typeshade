@@ -398,12 +398,12 @@ export function f(k: i32): f32 {
 
 describe('the statements that now say what is wrong', () => {
   it('copies a written parameter into a mutable local (Rule 8.8)', () => {
-    expect(compiled(`export function f(a: f32): f32 { a = 1.; return a }`).wgsl).toContain(
+    expect(compiled(`export function f(a: f32): f32 { a += 1.; return a }`).wgsl).toContain(
       'var a_1: f32 = a;',
     );
     // …and the fix the message names does compile.
     expect(
-      compiled(`export function f(a: f32): f32 { let a_ = a; a_ = 1.; return a_ }`).wgsl,
+      compiled(`export function f(a: f32): f32 { let a_ = a; a_ += 1.; return a_ }`).wgsl,
     ).toContain('var a_: f32 = a;');
   });
 

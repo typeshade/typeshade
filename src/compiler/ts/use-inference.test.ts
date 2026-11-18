@@ -116,7 +116,7 @@ describe('each place a number reaches (item 1)', () => {
     ['a bitwise operand beside a typed one', 'let m = 0xff; return vi & m;', 'u32', 5],
     ['a shift target', 'let k = 1; return u32(k << 2);', 'i32', 4],
     ['a compound assignment', 'let n = 1; n *= vi; return n;', 'u32', 5],
-    ['an assignment from a typed value', 'let n = 0; n = vi; return n;', 'u32', 5],
+    ['an assignment from a typed value', 'let n = 0; n = vi; n += 1; return n;', 'u32', 6],
     ['a return in a function with a declared result', 'let k = 5; k += 1; return k;', 'u32', 6],
     ['an argument of a declared parameter', 'let k = 5; return h(k);', 'u32', 5],
     ['an array constructor element', 'let k = 1; return array<u32, 2>(k, 2)[0];', 'u32', 1],
