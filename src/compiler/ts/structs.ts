@@ -86,7 +86,9 @@ import {
   qualifiedParts,
   refuseNamespaceStatement,
 } from './namespaces.js';
-import { markOmittableField, optionalDeclaredType, optionalInner } from './optional.js';
+import { markOmittableField, optionalInner } from './optional.js';
+import { optionalFieldType } from './structs/optional-field.js';
+import { constructedArrayType, isArrayConstructor } from './lower/array-constructor/field-type.js';
 
 /** Refused IO metadata is not an IR field and never reaches emit or portable payloads.
  *  Inheritance keeps field identity, so the original declaration owns the one refusal. */
@@ -1765,6 +1767,7 @@ function initializerType(init: ts.Expression, sourceFile: ts.SourceFile): Shader
   }
   if (ts.isNumericLiteral(e)) return f32T;
   if (e.kind === ts.SyntaxKind.TrueKeyword || e.kind === ts.SyntaxKind.FalseKeyword) return boolT;
+  if (isArrayConstructor(e)) return constructedArrayType(e, sourceFile, initializerType);
   if (ts.isNewExpression(e) && ts.isIdentifier(e.expression)) {
     return structT(newInstanceName(e, e.expression.text, sourceFile) ?? e.expression.text);
   }
@@ -1805,25 +1808,6 @@ function parameterPropertyField(
   if (type === undefined) return undefined;
   if (p.questionToken !== undefined) markOmittableField(sourceFile, owner, name);
   return { name, type };
-}
-
-/** The type of a field written `f?: T` (Rule 7.10, change 0093, decision D3). */
-function optionalFieldType(
-  mapped: ShaderType | undefined,
-  questionToken: ts.QuestionToken | undefined,
-  field: string,
-  owner: string,
-  sourceFile: ts.SourceFile,
-  diagnostics: TsCompilerDiagnostic[],
-): ShaderType | undefined {
-  return optionalDeclaredType(
-    mapped,
-    questionToken,
-    `"${field}?" on "${owner}"`,
-    sourceFile,
-    diagnostics,
-    authorTypeText,
-  );
 }
 
 /** The interface / object-type-alias declaration a statement is, or undefined. Generic ones

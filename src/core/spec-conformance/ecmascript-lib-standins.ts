@@ -20,4 +20,5 @@ export const ECMASCRIPT_LIB_STANDINS: ReadonlySet<string> = new Set([
   'Map',
   'Set',
   'ReadonlyArray',
+  'Float32Array',
 ]);

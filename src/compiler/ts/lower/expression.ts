@@ -85,9 +85,11 @@ import { libraryNameSentence, mapTsTypeToShaderType, writesRefusedType } from '.
 import { lowerIndex, lowerSelect, matVecMul } from './index-select.js';
 import { lowerArrayLiteral, refuseListSpread } from './expression-array.js';
 import { refuseBareAtomic } from './atomics.js';
-import { builtinCalleeNames, lowerCall } from './expression-call.js';
+import { builtinCalleeNames } from './expression-call.js';
 import { declarationOf } from './closures.js';
-import { lowerNew, lowerThis } from './class-methods.js';
+import { lowerThis } from './class-methods.js';
+import { lowerCallOrArray, lowerNewOrArray } from './array-constructor/lower.js';
+import { bitwiseFloatMessage, isFloatBitOperand } from './expression/bitwise-float.js';
 import { notAValueSentence } from './new-target.js';
 import { lowerObjectLiteral, lowerPropertyAccess } from './expression-prop.js';
 import { makeDiagnostic } from '../diagnostic.js';
@@ -289,7 +291,7 @@ function lowerExpressionNode(
   // class's constructor function.
   if (node.kind === ts.SyntaxKind.ThisKeyword)
     return lowerThis(node, sourceFile, scope, diagnostics);
-  if (ts.isNewExpression(node)) return lowerNew(node, sourceFile, scope, diagnostics);
+  if (ts.isNewExpression(node)) return lowerNewOrArray(node, sourceFile, scope, diagnostics);
   if (ts.isNumericLiteral(node)) {
     const v = Number(node.text);
     // A decimal float literal that overflows f32 is a shader-creation error in WGSL and
@@ -359,7 +361,7 @@ function lowerExpressionNode(
     // `import("./x")` and `require("./x")` are semantic.ts's TS8072, the call's one sentence
     // (Rule 12.4): what it is called with is there only because the call is.
     if (refusedBySemantics(node)) return undefined;
-    const call = lowerCall(node, sourceFile, scope, diagnostics);
+    const call = lowerCallOrArray(node, sourceFile, scope, diagnostics, innerCtx);
     // The one expression kind that carries a span in this increment: stepping into a helper
     // has to tell two calls in one statement apart. A call that lowered to something else —
     // an intrinsic the front end expands, a constructor — keeps no span, since the node it
@@ -2139,13 +2141,6 @@ function isFloatPowOperand(t: ShaderType): boolean {
   return typeKey(t) === 'f32';
 }
 
-/** Whether `t` is a float that `&`, `|` and `^` have no overload for on either target: an f32,
- *  a vector of f32, or an emulated double, scalar or vector. */
-function isFloatBitOperand(t: ShaderType): boolean {
-  if (t.kind === 'vec') return t.elem === 'f32';
-  return typeKey(t) === 'f32' || isF64(t) || isVec64(t);
-}
-
 /** Whether both operands are f32 whole numbers the front end folds (`foldConstNumber`): `1 | 2`,
  *  or two flags declared `const A = 1`. A module constant, an enum member and a `case` label
  *  hold the folded number, so no operator reaches a target there. */
@@ -2155,23 +2150,6 @@ function isWholeF32Pair(a: Expr, b: Expr, scope: LoweringScope): boolean {
     const v = foldConstNumber(e, scope);
     return v !== undefined && Number.isInteger(v);
   });
-}
-
-/** The sentence `&`, `|` and `^` raise for a float operand (Rule 12.1): the kind, then the
- *  conversion to write, which the surface has for each kind. An f32 may be reinterpreted
- *  instead (`bitcast<u32>`, surface §44), and an emulated double narrows to f32 before any
- *  integer conversion, as its casts require. */
-function bitwiseFloatMessage(bit: BinOp, t: ShaderType): string {
-  const fix =
-    t.kind === 'vec'
-      ? `Convert first, e.g. vec${String(t.n)}u(a) ${bit} vec${String(t.n)}u(b).`
-      : t.kind === 'vec64'
-        ? `Narrow and convert first, e.g. vec${String(t.n)}u(vec${String(t.n)}(a)) ${bit} ` +
-          `vec${String(t.n)}u(vec${String(t.n)}(b)).`
-        : isF64(t)
-          ? `Narrow and convert first, e.g. u32(f32(a)) ${bit} u32(f32(b)).`
-          : `Convert first, e.g. u32(a) ${bit} u32(b), or reinterpret the bits with bitcast<u32>(a).`;
-  return `Bitwise "${bit}" needs i32 or u32 operands, got ${authorTypeText(t)}. ${fix}`;
 }
 
 function pushDiag(

@@ -8,7 +8,7 @@ the array methods `ArrayOps` picks. `src/author-names.test.ts` fails when this f
 library disagree. `scripts/changes.ts` reads this file on both sides of a diff: a name it
 gains needs an accepted proposal that lists the name under `names:` (changes/README.md).
 
-## Declared names — 281
+## Declared names — 282
 
 ```
 AnyClass
@@ -19,6 +19,7 @@ BoolVec
 Boolean
 CallableFunction
 Console
+Float32Array
 Function
 IArguments
 LaneKeys
@@ -294,9 +295,10 @@ workgroup_size
 zip
 ```
 
-## Members of standard objects — 60
+## Members of standard objects — 61
 
 ```
+Array.from
 Array.prototype.every
 Array.prototype.fill
 Array.prototype.findIndex

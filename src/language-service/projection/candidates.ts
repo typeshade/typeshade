@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import { untypedListOf } from '../../compiler/ts/lower/expression-array/untyped-list.js';
+import { isArrayConstructorExpression } from '../../compiler/ts/lower/array-constructor/form.js';
 
 const LOGICAL_BITWISE_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.AmpersandToken,
@@ -59,7 +60,8 @@ export function listCandidates(sourceFile: ts.SourceFile): ts.Identifier[] {
     ts.isIdentifier(node.name) &&
     node.type === undefined &&
     node.initializer !== undefined &&
-    untypedListOf(node.initializer, true) !== undefined
+    (untypedListOf(node.initializer, true) !== undefined ||
+      isArrayConstructorExpression(node.initializer))
       ? node.name
       : undefined,
   );

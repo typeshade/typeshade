@@ -2667,6 +2667,9 @@ one type, and a list that does not says which types it found, one sentence on th
   integer-written numbers, whose element type its uses will decide; that is not supported yet.
   Declare the type: const a: array<f32, 3> = [...].`
 
+A constructor with a constant length gives the size too, with no list: `new Array(16).fill(0.)`,
+`new Float32Array(4)` and `Array.from({ length: 8 }, (_, i) => f32(i))` (§63, change 0114, S2).
+
 Elsewhere a list carries no type of its own, which is what decides where it is allowed and what
 it means:
 
@@ -3580,7 +3583,8 @@ TS2511, TS2708 and TS7017), and its report of any name in the target (TS2304, TS
 | `new Date()`, and nothing declares `Date` | `TS8022`: `Date` is an unknown name, as it is in any other position, and the name a misspelled one is spelled like is a class, never a value: `new Pos()` beside a parameter `pos` names none |
 | `new vec3f(1., 2., 3.)`, `new f32(1)` | `TS8035`: a WGSL constructor is called without `new`, `vec3f(1., 2., 3.)` |
 | `new sampler()`, `new texture_2d<f32>()` | `TS8035`: it is a type, not a value, and WGSL gives it no constructor |
-| `new Array(4)`, `new Number(1)` | `TS8035`: it is a type the library declares for TypeScript's own use, not a value |
+| `new Number(1)` | `TS8035`: it is a type the library declares for TypeScript's own use, not a value |
+| `new Array(4)` with no `fill` | `TS8099`: `"new Array(4)" makes an array of holes in JavaScript, and a hole is not supported yet. Fill it: new Array(4).fill(v).` (change 0114, S2; §63) |
 | `new Symbol()` | `TS8035`: it is no class a shader has, which the library declares for TypeScript's own use |
 | `new F()` on a function, `new Math.sin(1.)` | `TS8035`: `F` is a function, which is called without `new`, `F()` |
 | `new E()` on an enum | `TS8035`: an enum's values are its members, `E.A` |
@@ -7964,7 +7968,7 @@ every method of an array was `TS8099 JS Array method ".map" is not a shader op`.
 | `xs.every(p)`         | `bool`             | whether `p` holds for every element, stopping at the first that fails |
 | `xs.reduce(f, init)`  | the type of `init` | `acc = f(acc, value, index, array)` from `init`, left to right        |
 | `xs.reduce(f)`        | `T`                | the same, starting from the first element, on an `array<T, N>`        |
-| `xs.fill(v)`          | nothing            | stores `v` into every element (change 0079)                           |
+| `xs.fill(v)`          | `xs`               | stores `v` into every element (change 0079), and gives the array back |
 | `xs.findIndex(p)`     | `i32`              | the first index where `p` holds, or `-1`                              |
 | `xs.findLastIndex(p)` | `i32`              | the last index where `p` holds, or `-1`                               |
 | `xs.indexOf(v)`       | `i32`              | the first index where the element `=== v`, or `-1`                    |
@@ -8076,6 +8080,57 @@ TypeScript, and an array of objects follows rules 3 and 4 of §70.
 `sum(xs)`, `any(xs, p)`, `all(xs, p)` and `none(xs, p)`, the folds §27 once named, were removed
 (change 0112): write `xs.reduce((a, b) => a + b)`, `xs.some(p)`, `xs.every(p)` and `!xs.some(p)`.
 `zip` stays, unrolled, since no ECMAScript form builds an array from two.
+
+**An array built with a constant length (change 0114, S2).** Three of ECMAScript's
+constructors build an `array<T, N>` when the length `N` is a constant: an integer literal, a
+module constant or a constant of no fixed type (Rule 5.1).
+
+| Written                        | Its value       | What it holds                                                 |
+| ------------------------------ | --------------- | ------------------------------------------------------------- |
+| `new Array(N).fill(v)`         | `array<T, N>`   | `N` copies of `v`; `T` is the type of `v`                     |
+| `new Float32Array(N)`          | `array<f32, N>` | `N` zeros of `f32`                                            |
+| `Array.from({ length: N }, f)` | `array<R, N>`   | `f(undefined, i)` for each index `i`; `R` is what `f` returns |
+
+```ts
+const weights = new Array(16).fill(0.5);                  // array<f32, 16>
+const zeros = new Float32Array(4);                        // array<f32, 4>
+const ramp = Array.from({ length: 8 }, (_, i) => f32(i)); // array<f32, 8>
+
+class Layer {
+  weights = new Array(16).fill(0.); // a class field's size comes from its initializer
+}
+```
+
+The editor's hover shows the sized type, `const weights: array<f32, 16>` and
+`(property) Layer.weights: array<f32, 16>`. `fill` gives back the array it fills, as
+ECMAScript's `Array.prototype.fill` does, so `new Array(N).fill(v)` is that array. A value with a
+call in it is computed once, as ECMAScript computes it, and the copies are stored by a function of
+the module (`array_fill`). `Array.from` hands its function `undefined` and the index, an `i32` as
+`map` hands it, and the call is a function of the module that builds each element in a counted
+loop (`array_from_f`). An integer-written `v` takes the element type of a declared type,
+`const w: array<u32, 3> = new Array(3).fill(1)`.
+
+Refused, each in both halves with `TS8099`, not supported yet, unless it says otherwise:
+
+- `new Array(N)` with no `fill`, which JavaScript fills with holes: `"new Array(4)" makes an
+  array of holes in JavaScript, and a hole is not supported yet. Fill it: new Array(4).fill(v).`
+  `new Array()` and `new Array(a, b)` stay `TS8035`;
+- a length that is no constant: `"new Float32Array(n)" takes its length from "n", which is no
+  constant, and an array whose length is known only when the shader runs is not supported yet
+  here. Write a constant length: an integer literal or a module constant.` A length of 0 is not
+  supported yet either, and a negative or fractional length is `TS8003`, the `RangeError`
+  JavaScript throws;
+- an integer-written `v` that no declared type types, whose uses would decide its type (change
+  0114, Amendment A3): `fill(f32(0))`, `fill(i32(0))` or `fill(u32(0))` says it;
+- a `v` that is an object with a name, which every element would share: one object under two
+  names is not supported yet (change 0142, stage 3), as for `new Array(N).fill(new P())`;
+- a use of what `xs.fill(v)` gives back on an array that already exists, `const z = w.fill(2.)`:
+  call it on its own line, then use `w`;
+- `Array.from` with no function, with a function by its name, with a function that reads its
+  first parameter (`undefined`) or takes a third, with anything but `{ length: N }`, and outside
+  a function's body (at module scope or in a field's initializer);
+- `new Float32Array()` with no length or another argument. `Int32Array`, `Uint32Array` and
+  `Float64Array` stay unknown names (`TS8022`) until plan unit B2.
 
 **A copy (change 0142).** An array is an object with the identity a JavaScript object has, so
 `let ys = xs` names the same array (§70). `xs.slice()` with no argument gives a new array
