@@ -673,6 +673,56 @@ Each stays refused until a later slice implements it.
   struct elements, a call on a resource, the WebGL2 and WebAssembly tiers) not started; plan unit
   B8b not started.
 
+### A6. Stage S5d: a kernel function returns an array it grows with `push` (2026-11-18)
+
+- [fact] Why. The owner asked on 2026-11-18 whether a kernel function can start an empty array,
+  `push` into it in a loop and return it. A1 item 10 refuses `out.push(v)` on the array a kernel
+  function makes. The same day the owner recorded OD-10: TypeShade supports dynamic arrays, and
+  the compiler handles their storage, at compile time where it can and with a heap it manages at
+  run time where it cannot.
+- [fact] Change 0078 already lets a loop push onto a kernel function's array parameter: it starts
+  empty (or at a held length, change 0094), and the pushes append in the order a sequential run
+  makes them, on every tier (Rule 8.23).
+- [decision, owner, 2026-11-18] OD-10 and its "승인"; this amendment applies OD-10 to S5.
+
+**S5d. An array the function grows (plan unit B8).**
+
+```ts
+export function render(k: vec4, size: u32): f32[] {
+  const out: f32[] = [];
+  for (let i: u32 = 0; i < size * size; i++) {
+    out.push(height(p(i, size), k));
+  }
+  return out;
+}
+const img: Float32Array = await render(k, 512);
+```
+
+1. Rule 8.23: an exported kernel function may declare one `const` at the top level of its body,
+   before its first candidate loop, initialized by an empty list and annotated with an array type
+   with no size (`const out: f32[] = []`), push onto it inside its candidate loops, and return it on
+   every path (A1 items 3 and 5 hold as for a made array).
+2. The capacity is the compiler's (OD-3, OD-10). Where every push is inside counted loops whose
+   trip counts read only the operands A1 item 4 lists, the compiler computes the most elements the
+   pushes can append, the sum over the loops of the trip count times the pushes in one iteration,
+   and the host call reserves that many before the dispatch. A conditional push counts as one.
+3. The pushes append as change 0078 gives them, in the order of a sequential run, on every tier.
+   The result is the elements pushed, in that order: its length is the number pushed, which may be
+   less than the capacity, and `out.length` in the body reads the number pushed so far.
+4. The result's host value and its ownership are those of A1 items 6 and 7.
+5. Where the capacity cannot be computed at compile time (a push in a loop whose range the device
+   holds, a `while`, a loop that is not counted, a trip count that reads an unlisted operand), the
+   form waits for the heap OD-10 names (plan units A1 to A3) and is refused until then as "not
+   supported yet" (`TS8099`), naming the loop.
+6. A1's other refusals of item 10 still apply to `out`, except `out.push(v)` inside a candidate
+   loop. A push outside every loop is refused as "not supported yet".
+7. Both halves: the editor's ambient `Array<T>` already declares `push`; the compiler reports each
+   refusal with the editor showing the same code and sentence.
+
+- Affects: section 2 (stage S5d), Rule 8.23 (when implemented). No front-matter entry changes:
+  Rule 8.23 and surface §65 are declared.
+- Status: `status: accepted` does not change. S5d: not started.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`
