@@ -187,3 +187,21 @@ and every person reads this file before any other document of this repository.
     emitted code from using a WGSL pointer. The compiler may use one as an optimization.
   - The only bound is the program's meaning: the same result, the same values the host sees, and
     objects as references (OD-5).
+
+### OD-10. TypeShade supports dynamic arrays; the compiler handles their storage
+
+- Date: 2026-11-18. The owner said this while the agent explained how a kernel function could
+  grow the array it returns with `push` (proposal 0114, stage S5).
+- The owner's words: "typeshade에서 동적 배열을 지원하는 방향이 좋을 것 같아서요. 물론 컴파일러가
+  처리해줘야겠지만"; "그렇게 해석해도 되고 컴파일 단계에서 보는 방법도 있을거고 거의 그럴 수
+  있지만, 그렇지 않은 경우는 동적으로 처리할 힙을 구현하는것도 좋죠". The agent wrote the meaning
+  below and asked whether it was right; the owner answered "승인".
+- What it means:
+  - An author writes an array as JavaScript does: it may start empty, grow with `push`, come from
+    `filter` or `map`, and have a length known only when the program runs.
+  - Where the array lives and how much room it takes is the compiler's work (OD-3). The compiler
+    first decides it at compile time where it can, as it mostly can: a capacity it computes from
+    the program, a second pass, or another form with the same result (OD-9).
+  - Where compile time cannot decide it, the compiler uses a heap it manages at run time.
+  - A form the compiler does not implement yet is refused as "not supported yet", never as
+    impossible.
