@@ -145,7 +145,7 @@ describe('what an untyped list is refused for', () => {
     bothRefuse(
       inFunction('[1, 2, 3]'),
       'TS8002',
-      '"const a" needs an array type annotation to take a list, e.g. const a: array<f32, 3> = [...].',
+      '"const a" is a list of integer-written numbers, whose element type its uses will decide; that is not supported yet. Declare the type: const a: array<f32, 3> = [...].',
     );
   });
 });

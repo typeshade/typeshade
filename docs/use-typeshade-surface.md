@@ -2662,9 +2662,10 @@ one type, and a list that does not says which types it found, one sentence on th
   Declare the type: const a: array<f32, 2> = [...].`
 - `[]`: `"const a" takes its type and its length from its list, and an empty list has neither: a
   shader array has at least one element. Write its elements.`
-- A list of integer-written numbers alone, `[1, 2, 3]`, still asks for its type: `"const a" needs
-  an array type annotation to take a list, e.g. const a: array<f32, 3> = [...].` Rule 5.1 does
-  not yet say how the uses of an array decide its elements' type.
+- A list of integer-written numbers alone, `[1, 2, 3]`, is not supported yet: its uses will
+  decide its element type (change 0114, Amendment A3, stage S2c). `"const a" is a list of
+  integer-written numbers, whose element type its uses will decide; that is not supported yet.
+  Declare the type: const a: array<f32, 3> = [...].`
 
 Elsewhere a list carries no type of its own, which is what decides where it is allowed and what
 it means:

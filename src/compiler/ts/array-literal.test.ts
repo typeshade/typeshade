@@ -190,12 +190,12 @@ interface Out {
 });
 
 describe('what a list is refused for', () => {
-  it('needs an annotation to take its type from integer-written numbers alone', () => {
+  it('says a list of integer-written numbers alone is not supported yet', () => {
     expect(diagnose(src('  const xs = [1, 2, 3];\n  return xs[0];'))).toBe(
-      '"const xs" needs an array type annotation to take a list, e.g. const xs: array<f32, 3> = [...].',
+      '"const xs" is a list of integer-written numbers, whose element type its uses will decide; that is not supported yet. Declare the type: const xs: array<f32, 3> = [...].',
     );
     expect(diagnose(src('  let xs = [1, 2];\n  return xs[0];'))).toBe(
-      '"let xs" needs an array type annotation to take a list, e.g. let xs: array<f32, 2> = [...].',
+      '"let xs" is a list of integer-written numbers, whose element type its uses will decide; that is not supported yet. Declare the type: let xs: array<f32, 2> = [...].',
     );
   });
 
@@ -321,7 +321,7 @@ describe('what a list is refused for', () => {
       }
     `);
     expect(bare.diagnostics.map((d) => d.message)).toContain(
-      'Module const "STOPS" needs an array type annotation to take a list, e.g. const STOPS: array<f32, 3> = [...].',
+      'Module const "STOPS" is a list of integer-written numbers, whose element type its uses will decide; that is not supported yet. Declare the type: const STOPS: array<f32, 3> = [...].',
     );
   });
 });
