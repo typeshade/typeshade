@@ -177,7 +177,7 @@ class C {
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct C {');
-    expect(r.wgsl!.match(/_ret = \w*self_;/g)).toHaveLength(2);
+    expect(r.wgsl!.match(/ret = \w*self_;/g)).toHaveLength(2);
     expect(r.eval('fs', [[3, 0]])).toEqual([6, 0, 0, 1]);
     expect(r.eval('fs', [[0.5, 0]])).toEqual([0.5, 0, 0, 1]);
   });

@@ -38,10 +38,10 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _licm4 = vec3<f32>(1.0, 0.9, 0.75);
   let t = U.time;
   let res = U.resolution;
-  let _sm0_a0 = vo.uv;
-  let _sm0_l_asp = (res.x / res.y);
-  let _gv0 = (((_sm0_a0.x * 2.0) - 1.0) * _sm0_l_asp);
-  let _gv1 = ((_sm0_a0.y * 2.0) - 1.0);
+  let _i0a0 = vo.uv;
+  let _i0_asp = (res.x / res.y);
+  let _gv0 = (((_i0a0.x * 2.0) - 1.0) * _i0_asp);
+  let _gv1 = ((_i0a0.y * 2.0) - 1.0);
   var col: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
   for (var i: u32 = 0u; (i < 3u); i = (i + 1u)) {
     let fi = f32(i);

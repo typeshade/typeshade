@@ -65,31 +65,31 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs(v: VsOut) -> Color {
   let o = ((v.uv * 2.0) - vec2<f32>(1.0, 1.0));
-  let _sm1_a0 = (o - vec2<f32>(0.0, 2.0));
+  let _i1a0 = (o - vec2<f32>(0.0, 2.0));
   let _cse0 = vec2<f32>(0.0, 1.0);
-  var _sm1_ret: Hit;
+  var _i1ret: Hit;
   var _cse1: _opt_vec2_f32_ = _opt_vec2_f32_(vec2<f32>(0.0, 0.0), false);
   var _cse2: _opt_f32_ = _opt_f32_(0.0, false);
-  var _sm1_l_h: Hit = Hit(0.0, _cse1, _cse2);
-  let _sm1_l_b = dot(_sm1_a0, _cse0);
-  let _sm1_l_c = (dot(_sm1_a0, _sm1_a0) - 0.25);
-  let _sm1_l_disc = ((_sm1_l_b * _sm1_l_b) - _sm1_l_c);
-  _sm1_l_h.t = 1000.0;
-  _sm1_l_h.radius = _opt_f32_(0.5, true);
-  if ((_sm1_l_disc < 0.0)) {
-    _sm1_ret = _sm1_l_h;
+  var _i1_h: Hit = Hit(0.0, _cse1, _cse2);
+  let _i1_b = dot(_i1a0, _cse0);
+  let _i1_c = (dot(_i1a0, _i1a0) - 0.25);
+  let _i1_disc = ((_i1_b * _i1_b) - _i1_c);
+  _i1_h.t = 1000.0;
+  _i1_h.radius = _opt_f32_(0.5, true);
+  if ((_i1_disc < 0.0)) {
+    _i1ret = _i1_h;
   } else {
-    let _sm1_l_t = ((-_sm1_l_b) - sqrt(_sm1_l_disc));
-    if ((_sm1_l_t < 0.0)) {
-      _sm1_l_h.t = 0.0;
-      _sm1_ret = _sm1_l_h;
+    let _i1_t = ((-_i1_b) - sqrt(_i1_disc));
+    if ((_i1_t < 0.0)) {
+      _i1_h.t = 0.0;
+      _i1ret = _i1_h;
     } else {
-      _sm1_l_h.t = _sm1_l_t;
-      _sm1_l_h.normal = _opt_vec2_f32_(normalize((_sm1_a0 + (_cse0 * _sm1_l_t))), true);
-      _sm1_ret = _sm1_l_h;
+      _i1_h.t = _i1_t;
+      _i1_h.normal = _opt_vec2_f32_(normalize((_i1a0 + (_cse0 * _i1_t))), true);
+      _i1ret = _i1_h;
     }
   }
-  var hit: Hit = _sm1_ret;
+  var hit: Hit = _i1ret;
   var flat: Hit = Hit(v.uv.x, _cse1, _cse2);
   let r = shadeOf(&hit, normalize(vec2<f32>(0.3, 1.0)));
   let g = shadeOf(&flat, _cse0);

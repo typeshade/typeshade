@@ -48,12 +48,12 @@ void main() {
   float freq = 1.0;
   vec2 _licm4 = vec2((t * 0.12), 0.0);
   for (uint i = 0u; (i < 4u); i = (i + 1u)) {
-    vec2 _sm0_a0 = ((sp * freq) + _licm4);
-    vec2 _sm0_l_i = floor(_sm0_a0);
-    vec2 _sm0_l_f = fract(_sm0_a0);
-    vec2 _sm0_l_u = ((_sm0_l_f * _sm0_l_f) * (_licm0 - (_sm0_l_f * 2.0)));
-    float _sm0_ret = mix(mix(hash(_sm0_l_i), hash((_sm0_l_i + _licm1)), _sm0_l_u.x), mix(hash((_sm0_l_i + _licm2)), hash((_sm0_l_i + _licm3)), _sm0_l_u.x), _sm0_l_u.y);
-    h = (h + (amp * _sm0_ret));
+    vec2 _i0a0 = ((sp * freq) + _licm4);
+    vec2 _i0_i = floor(_i0a0);
+    vec2 _i0_f = fract(_i0a0);
+    vec2 _i0_u = ((_i0_f * _i0_f) * (_licm0 - (_i0_f * 2.0)));
+    float _i0ret = mix(mix(hash(_i0_i), hash((_i0_i + _licm1)), _i0_u.x), mix(hash((_i0_i + _licm2)), hash((_i0_i + _licm3)), _i0_u.x), _i0_u.y);
+    h = (h + (amp * _i0ret));
     freq = (freq * 2.03);
     amp = (amp * 0.5);
   }

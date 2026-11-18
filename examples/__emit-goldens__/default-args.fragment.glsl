@@ -14,7 +14,7 @@ void main() {
   vec3 cool = bands(uv, vec3(0.38, 0.6, 1.0), 10.0);
   vec3 warm = bands(uv, WARM, 6.0);
   vec3 mixed = mix(cool, warm, smoothstep(-1.0, 1.0, uv.x));
-  vec2 _sm0_a0 = uv;
-  vec3 lit = (mixed * (1.0 - (0.8 * smoothstep(0.0, 1.35, dot(_sm0_a0, _sm0_a0)))));
+  vec2 _i0a0 = uv;
+  vec3 lit = (mixed * (1.0 - (0.8 * smoothstep(0.0, 1.35, dot(_i0a0, _i0a0)))));
   _ret = vec4(pow(max(lit, vec3(0.0)), vec3(0.45454545454545453)), 1.0);
 }

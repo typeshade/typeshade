@@ -19,8 +19,8 @@ void main() {
   for (int _v0 = -1; (_v0 <= 1); _v0 = (_v0 + 1)) {
     for (int _v1 = -1; (_v1 <= 1); _v1 = (_v1 + 1)) {
       vec2 _v2 = vec2(float(_v1), float(_v0));
-      vec2 _sm0_a0 = (floor(_cse0) + _v2);
-      vec2 _lc0 = vec2(dot(_sm0_a0, _cse1), dot(_sm0_a0, _cse2));
+      vec2 _i0a0 = (floor(_cse0) + _v2);
+      vec2 _lc0 = vec2(dot(_i0a0, _cse1), dot(_i0a0, _cse2));
       vec2 _v3 = fract((vec2(sin(_lc0.x), sin(_lc0.y)) * 43758.5453));
       _av0 = min(_av0, distance(fract(_cse0), ((_v2 + ((_v3 * 0.5) + 0.25)) + (vec2(sin((_licm0 + (_v3.x * 6.283))), cos((_licm0 + (_v3.y * 6.283)))) * 0.18))));
     }

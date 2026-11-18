@@ -39,7 +39,7 @@ void main() {
   float _v1 = atan(_cse1, _cse0);
   float _v2 = (6.2831853 / U.segments);
   float _v3 = abs((mod(_v1, _v2) - (_v2 * 0.5)));
-  vec2 _sm0_a0 = (((vec2(cos(_v3), sin(_v3)) * _v0) * 3.0) + vec2((U.time * 0.12), (-(U.time * 0.09))));
-  float _v4 = ((((noise(_sm0_a0) * 0.5) + (noise((_sm0_a0 * 2.02)) * 0.25)) + (noise((_sm0_a0 * 4.08)) * 0.125)) + (noise((_sm0_a0 * 8.2)) * 0.0625));
+  vec2 _i0a0 = (((vec2(cos(_v3), sin(_v3)) * _v0) * 3.0) + vec2((U.time * 0.12), (-(U.time * 0.09))));
+  float _v4 = ((((noise(_i0a0) * 0.5) + (noise((_i0a0 * 2.02)) * 0.25)) + (noise((_i0a0 * 4.08)) * 0.125)) + (noise((_i0a0 * 8.2)) * 0.0625));
   _ret = vec4((((vec3(0.5) + (cos(((((((_v4 * 0.7) + (((sin(((_v0 * 9.0) - (U.time * 0.8))) * 0.5) + 0.5) * 0.15)) + (_v0 * 0.3)) - (U.time * 0.03)) + vec3(0.0, 0.33, 0.67)) * 6.283)) * 0.5)) * ((_v4 * 0.9) + 0.35)) * (1.0 - smoothstep(0.55, 1.25, _v0))), 1.0);
 }

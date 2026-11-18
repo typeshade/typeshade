@@ -37,8 +37,8 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
     it = (it + 1.0);
   }
   let _gv0 = (it / 96.0);
-  let _sm0_a0 = (_gv0 + (U.time * 0.05));
-  let _sm0_l_ph = vec3<f32>(0.0, 0.33, 0.67);
-  let _sm0_ret = (vec3<f32>(0.5) + (cos(((_sm0_a0 + _sm0_l_ph) * 6.283)) * 0.5));
-  return vec4<f32>((_sm0_ret * _gv0), 1.0);
+  let _i0a0 = (_gv0 + (U.time * 0.05));
+  let _i0_ph = vec3<f32>(0.0, 0.33, 0.67);
+  let _i0ret = (vec3<f32>(0.5) + (cos(((_i0a0 + _i0_ph) * 6.283)) * 0.5));
+  return vec4<f32>((_i0ret * _gv0), 1.0);
 }

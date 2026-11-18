@@ -21,11 +21,11 @@ void main() {
   for (int j = -1; (j <= 1); j = (j + 1)) {
     for (int i = -1; (i <= 1); i = (i + 1)) {
       vec2 g = vec2(float(i), float(j));
-      vec2 _sm0_a0 = (cell + g);
-      vec2 _sm0_l_h = vec2(dot(_sm0_a0, _licm0), dot(_sm0_a0, _licm1));
-      vec2 _sm0_ret = fract((vec2(sin(_sm0_l_h.x), sin(_sm0_l_h.y)) * 43758.5453));
-      vec2 orbit = (vec2(sin((_licm2 + (_sm0_ret.x * 6.283))), cos((_licm2 + (_sm0_ret.y * 6.283)))) * 0.18);
-      vec2 pt = ((g + ((_sm0_ret * 0.5) + 0.25)) + orbit);
+      vec2 _i0a0 = (cell + g);
+      vec2 _i0_h = vec2(dot(_i0a0, _licm0), dot(_i0a0, _licm1));
+      vec2 _i0ret = fract((vec2(sin(_i0_h.x), sin(_i0_h.y)) * 43758.5453));
+      vec2 orbit = (vec2(sin((_licm2 + (_i0ret.x * 6.283))), cos((_licm2 + (_i0ret.y * 6.283)))) * 0.18);
+      vec2 pt = ((g + ((_i0ret * 0.5) + 0.25)) + orbit);
       md = min(md, distance(f, pt));
     }
   }

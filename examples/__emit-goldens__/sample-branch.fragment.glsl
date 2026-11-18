@@ -26,10 +26,10 @@ vec4 fs_impl(VsOut v) {
   if ((v.uv.x > 0.5)) {
     base = textureGrad(albedo, v.uv, hoist_gx_h1, hoist_gy_h2);
   } else {
-    vec2 _sm0_a0 = v.uv;
-    vec2 _sm0_l_inner = (_sm0_a0 * 0.5);
-    vec4 _sm0_ret = textureGrad(albedo, _sm0_l_inner, hoist_gx_h3, hoist_gy_h4);
-    base = _sm0_ret;
+    vec2 _i0a0 = v.uv;
+    vec2 _i0_inner = (_i0a0 * 0.5);
+    vec4 _i0ret = textureGrad(albedo, _i0_inner, hoist_gx_h3, hoist_gy_h4);
+    base = _i0ret;
   }
   if ((tint.rgb.w > 0.5)) {
     vec2 near = (v.uv * 0.75);

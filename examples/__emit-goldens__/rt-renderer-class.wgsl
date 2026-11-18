@@ -142,36 +142,36 @@ fn Scene_raymarch_into(_dst: ptr<function, Hit>, self_: ptr<function, Scene>, ra
   var objectIndex: i32 = -1;
   for (var step: i32 = 0; (step < MAX_STEPS); step = (step + 1)) {
     let point = (_licm0 + (_licm1 * distance));
-    var _sm13_l_closestDistance: f32 = MAX_DISTANCE;
-    var _sm13_l_closestObjectIndex: i32 = -1;
-    let _sm13_l_sphereDistance = SDF_SdfSphere_distanceTo(&(*self_).redSphere, point);
-    if ((_sm13_l_sphereDistance < _sm13_l_closestDistance)) {
-      _sm13_l_closestDistance = _sm13_l_sphereDistance;
-      _sm13_l_closestObjectIndex = 0;
+    var _i13_closestDistance: f32 = MAX_DISTANCE;
+    var _i13_closestObjectIndex: i32 = -1;
+    let _i13_sphereDistance = SDF_SdfSphere_distanceTo(&(*self_).redSphere, point);
+    if ((_i13_sphereDistance < _i13_closestDistance)) {
+      _i13_closestDistance = _i13_sphereDistance;
+      _i13_closestObjectIndex = 0;
     }
-    let _sm13_l_boxDistance = SDF_SdfBox_distanceTo(&(*self_).blueBox, point);
-    if ((_sm13_l_boxDistance < _sm13_l_closestDistance)) {
-      _sm13_l_closestDistance = _sm13_l_boxDistance;
-      _sm13_l_closestObjectIndex = 1;
+    let _i13_boxDistance = SDF_SdfBox_distanceTo(&(*self_).blueBox, point);
+    if ((_i13_boxDistance < _i13_closestDistance)) {
+      _i13_closestDistance = _i13_boxDistance;
+      _i13_closestObjectIndex = 1;
     }
-    let _sm13_l_torusDistance = SDF_SdfTorus_distanceTo(&(*self_).goldTorus, point);
-    if ((_sm13_l_torusDistance < _sm13_l_closestDistance)) {
-      _sm13_l_closestDistance = _sm13_l_torusDistance;
-      _sm13_l_closestObjectIndex = 2;
+    let _i13_torusDistance = SDF_SdfTorus_distanceTo(&(*self_).goldTorus, point);
+    if ((_i13_torusDistance < _i13_closestDistance)) {
+      _i13_closestDistance = _i13_torusDistance;
+      _i13_closestObjectIndex = 2;
     }
-    let _sm13_l_groundDistance = (point.y - _licm5);
-    if ((_sm13_l_groundDistance < _sm13_l_closestDistance)) {
-      _sm13_l_closestDistance = _sm13_l_groundDistance;
-      _sm13_l_closestObjectIndex = 3;
+    let _i13_groundDistance = (point.y - _licm5);
+    if ((_i13_groundDistance < _i13_closestDistance)) {
+      _i13_closestDistance = _i13_groundDistance;
+      _i13_closestObjectIndex = 3;
     }
-    var _sm13_ret: Hit;
-    Hit_new_into(&_sm13_ret, _sm13_l_closestDistance, _sm13_l_closestObjectIndex);
-    if ((_sm13_ret.distance < SURFACE_EPSILON)) {
-      objectIndex = _sm13_ret.objectIndex;
+    var _i13ret: Hit;
+    Hit_new_into(&_i13ret, _i13_closestDistance, _i13_closestObjectIndex);
+    if ((_i13ret.distance < SURFACE_EPSILON)) {
+      objectIndex = _i13ret.objectIndex;
       Hit_new_into(_dst, distance, objectIndex);
       return;
     }
-    distance = (distance + _sm13_ret.distance);
+    distance = (distance + _i13ret.distance);
     if ((distance > maxDistance)) {
       break;
     }
@@ -198,97 +198,97 @@ fn Renderer_trace(self_: ptr<function, Renderer>, primaryRay: ptr<function, Ray>
     var hit: Hit;
     Scene_raymarch_into(&hit, &(*self_).scene, &ray, MAX_DISTANCE);
     if (((hit.objectIndex >= 0) == false)) {
-      let _sm19_l_skyFactor = max(ray.direction.y, 0.0);
-      let _sm19_ret = mix(_licm1, _licm2, _sm19_l_skyFactor);
-      radiance += (throughput * _sm19_ret);
+      let _i19_skyFactor = max(ray.direction.y, 0.0);
+      let _i19ret = mix(_licm1, _licm2, _i19_skyFactor);
+      radiance += (throughput * _i19ret);
       break;
     }
     let point = (ray.origin + (ray.direction * hit.distance));
-    let _sm14_a1 = hit.objectIndex;
-    var _sm14_ret: vec3<f32>;
-    if ((_sm14_a1 == 0)) {
-      let _sm14_l_sm1_l_dx = (SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point + _cse1)) - SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point - _cse1)));
-      let _sm14_l_sm1_l_dy = (SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point + _cse2)) - SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point - _cse2)));
-      let _sm14_l_sm1_l_dz = (SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point + _cse3)) - SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point - _cse3)));
-      let _sm14_l_sm1_ret = normalize(vec3<f32>(_sm14_l_sm1_l_dx, _sm14_l_sm1_l_dy, _sm14_l_sm1_l_dz));
-      _sm14_ret = _sm14_l_sm1_ret;
+    let _i14a1 = hit.objectIndex;
+    var _i14ret: vec3<f32>;
+    if ((_i14a1 == 0)) {
+      let _i14_dx = (SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point + _cse1)) - SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point - _cse1)));
+      let _i14_dy = (SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point + _cse2)) - SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point - _cse2)));
+      let _i14_dz = (SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point + _cse3)) - SDF_SdfSphere_distanceTo(&(*self_).scene.redSphere, (point - _cse3)));
+      let _i14_ret = normalize(vec3<f32>(_i14_dx, _i14_dy, _i14_dz));
+      _i14ret = _i14_ret;
     } else {
-      if ((_sm14_a1 == 1)) {
-        let _sm14_l_sm3_l_dx = (SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point + _cse1)) - SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point - _cse1)));
-        let _sm14_l_sm3_l_dy = (SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point + _cse2)) - SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point - _cse2)));
-        let _sm14_l_sm3_l_dz = (SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point + _cse3)) - SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point - _cse3)));
-        let _sm14_l_sm3_ret = normalize(vec3<f32>(_sm14_l_sm3_l_dx, _sm14_l_sm3_l_dy, _sm14_l_sm3_l_dz));
-        _sm14_ret = _sm14_l_sm3_ret;
+      if ((_i14a1 == 1)) {
+        let _i14_dx_ = (SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point + _cse1)) - SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point - _cse1)));
+        let _i14_dy_ = (SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point + _cse2)) - SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point - _cse2)));
+        let _i14_dz_ = (SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point + _cse3)) - SDF_SdfBox_distanceTo(&(*self_).scene.blueBox, (point - _cse3)));
+        let _i14_ret_ = normalize(vec3<f32>(_i14_dx_, _i14_dy_, _i14_dz_));
+        _i14ret = _i14_ret_;
       } else {
-        if ((_sm14_a1 == 2)) {
-          let _sm14_l_sm5_l_dx = (SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point + _cse1)) - SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point - _cse1)));
-          let _sm14_l_sm5_l_dy = (SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point + _cse2)) - SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point - _cse2)));
-          let _sm14_l_sm5_l_dz = (SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point + _cse3)) - SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point - _cse3)));
-          let _sm14_l_sm5_ret = normalize(vec3<f32>(_sm14_l_sm5_l_dx, _sm14_l_sm5_l_dy, _sm14_l_sm5_l_dz));
-          _sm14_ret = _sm14_l_sm5_ret;
+        if ((_i14a1 == 2)) {
+          let _i14_dx__ = (SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point + _cse1)) - SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point - _cse1)));
+          let _i14_dy__ = (SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point + _cse2)) - SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point - _cse2)));
+          let _i14_dz__ = (SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point + _cse3)) - SDF_SdfTorus_distanceTo(&(*self_).scene.goldTorus, (point - _cse3)));
+          let _i14_ret__ = normalize(vec3<f32>(_i14_dx__, _i14_dy__, _i14_dz__));
+          _i14ret = _i14_ret__;
         } else {
-          let _sm14_l_sm7_l_dx = (((point + _cse1).y - (*self_).scene.ground.height) - ((point - _cse1).y - (*self_).scene.ground.height));
-          let _sm14_l_sm7_l_dy = (((point + _cse2).y - (*self_).scene.ground.height) - ((point - _cse2).y - (*self_).scene.ground.height));
-          let _sm14_l_sm7_l_dz = (((point + _cse3).y - (*self_).scene.ground.height) - ((point - _cse3).y - (*self_).scene.ground.height));
-          let _sm14_l_sm7_ret = normalize(vec3<f32>(_sm14_l_sm7_l_dx, _sm14_l_sm7_l_dy, _sm14_l_sm7_l_dz));
-          _sm14_ret = _sm14_l_sm7_ret;
+          let _i14_dx___ = (((point + _cse1).y - (*self_).scene.ground.height) - ((point - _cse1).y - (*self_).scene.ground.height));
+          let _i14_dy___ = (((point + _cse2).y - (*self_).scene.ground.height) - ((point - _cse2).y - (*self_).scene.ground.height));
+          let _i14_dz___ = (((point + _cse3).y - (*self_).scene.ground.height) - ((point - _cse3).y - (*self_).scene.ground.height));
+          let _i14_ret___ = normalize(vec3<f32>(_i14_dx___, _i14_dy___, _i14_dz___));
+          _i14ret = _i14_ret___;
         }
       }
     }
-    let normal = _sm14_ret;
-    let _sm16_a1 = hit.objectIndex;
-    var _sm16_ret: Material;
-    if ((_sm16_a1 == 0)) {
-      _sm16_ret = (*self_).scene.redSphere.material;
+    let normal = _i14ret;
+    let _i16a1 = hit.objectIndex;
+    var _i16ret: Material;
+    if ((_i16a1 == 0)) {
+      _i16ret = (*self_).scene.redSphere.material;
     } else {
-      if ((_sm16_a1 == 1)) {
-        _sm16_ret = (*self_).scene.blueBox.material;
+      if ((_i16a1 == 1)) {
+        _i16ret = (*self_).scene.blueBox.material;
       } else {
-        if ((_sm16_a1 == 2)) {
-          _sm16_ret = (*self_).scene.goldTorus.material;
+        if ((_i16a1 == 2)) {
+          _i16ret = (*self_).scene.goldTorus.material;
         } else {
-          _sm16_ret = (*self_).scene.ground.material;
+          _i16ret = (*self_).scene.ground.material;
         }
       }
     }
-    var material: Material = _sm16_ret;
-    let _sm18_l_viewDirection = (-ray.direction);
-    let _sm18_l_lightDirection = normalize((_licm3 - point));
-    var _sm18_l_visibility: f32 = 0.0;
-    let _sm18_l_sm15_l_toLight = ((*self_).scene.light.position - point);
-    let _sm18_l_sm15_l_distanceToLight = length(_sm18_l_sm15_l_toLight);
-    let _sm18_l_sm15_l_lightDirection = normalize(_sm18_l_sm15_l_toLight);
+    var material: Material = _i16ret;
+    let _i18_viewDirection = (-ray.direction);
+    let _i18_lightDirection = normalize((_licm3 - point));
+    var _i18_visibility: f32 = 0.0;
+    let _i18_toLight = ((*self_).scene.light.position - point);
+    let _i18_distanceToLight = length(_i18_toLight);
+    let _i18_lightDirection_ = normalize(_i18_toLight);
     let _gv0 = (point + (normal * RAY_EPSILON));
-    let _sm18_l_sm15_ret = ((_flow22_fused(&(*self_).scene, _gv0, _sm18_l_sm15_l_lightDirection, _sm18_l_sm15_l_distanceToLight).objectIndex >= 0) == false);
-    if (_sm18_l_sm15_ret) {
-      _sm18_l_visibility = 1.0;
+    let _i18_ret = ((_flow22_fused(&(*self_).scene, _gv0, _i18_lightDirection_, _i18_distanceToLight).objectIndex >= 0) == false);
+    if (_i18_ret) {
+      _i18_visibility = 1.0;
     }
-    let _sm18_l_sm0_l_ndl = max(dot(normal, _sm18_l_lightDirection), 0.0);
-    let _sm18_l_sm0_l_diffuse = ((material.albedo * (1.0 - material.metallic)) * _sm18_l_sm0_l_ndl);
-    let _sm18_l_sm0_l_halfDirection = normalize((_sm18_l_lightDirection + _sm18_l_viewDirection));
+    let _i18_ndl = max(dot(normal, _i18_lightDirection), 0.0);
+    let _i18_diffuse = ((material.albedo * (1.0 - material.metallic)) * _i18_ndl);
+    let _i18_halfDirection = normalize((_i18_lightDirection + _i18_viewDirection));
     let _gv1 = (1.0 - material.roughness);
-    let _sm18_l_sm0_l_shininess = mix(16.0, 128.0, _gv1);
-    let _sm18_l_sm0_l_specular = pow(max(dot(normal, _sm18_l_sm0_l_halfDirection), 0.0), _sm18_l_sm0_l_shininess);
-    let _sm18_l_sm0_l_baseReflectance = mix(_licm4, material.albedo, material.metallic);
-    let _sm18_l_sm0_l_fresnel = (_sm18_l_sm0_l_baseReflectance + ((_cse0 - _sm18_l_sm0_l_baseReflectance) * pow((1.0 - max(dot(normal, _sm18_l_viewDirection), 0.0)), 5.0)));
-    let _sm18_l_sm0_ret = (_sm18_l_sm0_l_diffuse + (_sm18_l_sm0_l_fresnel * _sm18_l_sm0_l_specular));
-    let _sm18_l_sm9_l_offset = ((*self_).scene.light.position - point);
-    let _sm18_l_sm9_l_distanceSquared = max(dot(_sm18_l_sm9_l_offset, _sm18_l_sm9_l_offset), 1.0);
-    let _sm18_l_sm9_ret = ((*self_).scene.light.color * ((*self_).scene.light.intensity / _sm18_l_sm9_l_distanceSquared));
-    let _sm18_ret = (material.emission + ((_sm18_l_visibility * _sm18_l_sm9_ret) * _sm18_l_sm0_ret));
-    radiance += (throughput * _sm18_ret);
+    let _i18_shininess = mix(16.0, 128.0, _gv1);
+    let _i18_specular = pow(max(dot(normal, _i18_halfDirection), 0.0), _i18_shininess);
+    let _i18_baseReflectance = mix(_licm4, material.albedo, material.metallic);
+    let _i18_fresnel = (_i18_baseReflectance + ((_cse0 - _i18_baseReflectance) * pow((1.0 - max(dot(normal, _i18_viewDirection), 0.0)), 5.0)));
+    let _i18_ret_ = (_i18_diffuse + (_i18_fresnel * _i18_specular));
+    let _i18_offset = ((*self_).scene.light.position - point);
+    let _i18_distanceSquared = max(dot(_i18_offset, _i18_offset), 1.0);
+    let _i18_ret__ = ((*self_).scene.light.color * ((*self_).scene.light.intensity / _i18_distanceSquared));
+    let _i18ret = (material.emission + ((_i18_visibility * _i18_ret__) * _i18_ret_));
+    radiance += (throughput * _i18ret);
     seed = (seed + 7.13);
-    let _sm21_l_r1 = fract((sin(seed) * 43758.5453123));
-    let _sm21_l_r2 = fract((sin((seed + 17.13)) * 43758.5453123));
-    let _sm21_l_phi = (6.2831853 * _sm21_l_r1);
-    let _sm21_l_radius = sqrt(_sm21_l_r2);
-    let _sm21_l_tangent = normalize(cross(select(_licm7, _licm6, (abs(normal.x) > 0.9)), normal));
-    let _sm21_l_bitangent = cross(normal, _sm21_l_tangent);
-    let _sm21_ret = normalize((((_sm21_l_tangent * (cos(_sm21_l_phi) * _sm21_l_radius)) + (_sm21_l_bitangent * (sin(_sm21_l_phi) * _sm21_l_radius))) + (normal * sqrt((1.0 - _sm21_l_r2)))));
-    let _sm22_a0 = ray.direction;
-    let reflectedDirection = (_sm22_a0 - (normal * (2.0 * dot(_sm22_a0, normal))));
+    let _i21_r1 = fract((sin(seed) * 43758.5453123));
+    let _i21_r2 = fract((sin((seed + 17.13)) * 43758.5453123));
+    let _i21_phi = (6.2831853 * _i21_r1);
+    let _i21_radius = sqrt(_i21_r2);
+    let _i21_tangent = normalize(cross(select(_licm7, _licm6, (abs(normal.x) > 0.9)), normal));
+    let _i21_bitangent = cross(normal, _i21_tangent);
+    let _i21ret = normalize((((_i21_tangent * (cos(_i21_phi) * _i21_radius)) + (_i21_bitangent * (sin(_i21_phi) * _i21_radius))) + (normal * sqrt((1.0 - _i21_r2)))));
+    let _i22a0 = ray.direction;
+    let reflectedDirection = (_i22a0 - (normal * (2.0 * dot(_i22a0, normal))));
     let bounceAmount = (material.metallic + (_gv1 * 0.25));
-    let nextDirection = normalize(mix(_sm21_ret, reflectedDirection, bounceAmount));
+    let nextDirection = normalize(mix(_i21ret, reflectedDirection, bounceAmount));
     throughput = (throughput * (mix(material.albedo, _cse0, material.metallic) * 0.65));
     Ray_new_into(&ray, _gv0, nextDirection);
   }
@@ -312,16 +312,16 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let _licm5 = vec2<f32>(39.346, 11.135);
   let _licm6 = vec3<f32>(0.0, 1.0, 0.0);
   let _licm7 = vec2<f32>(17.17, 73.19);
-  let _sm23_a0 = u.time;
-  let _lc0 = (_sm23_a0 * 0.17);
-  let _sm23_l_sm12_a0 = vec3<f32>((sin(_lc0) * 6.2), (2.0 + (sin((_sm23_a0 * 0.31)) * 0.12)), (cos(_lc0) * 6.2));
-  let _sm23_l_sm12_a1 = vec3<f32>(0.0, 0.6, -1.8);
+  let _i23a0 = u.time;
+  let _lc0 = (_i23a0 * 0.17);
+  let _i23_a0 = vec3<f32>((sin(_lc0) * 6.2), (2.0 + (sin((_i23a0 * 0.31)) * 0.12)), (cos(_lc0) * 6.2));
+  let _i23_a1 = vec3<f32>(0.0, 0.6, -1.8);
   let _cse8 = vec3<f32>(0.0, 0.0, 0.0);
-  var _sm23_l_sm12_l_self_: Camera = Camera(_cse8, _cse8, 0.0);
-  _sm23_l_sm12_l_self_.position = _sm23_l_sm12_a0;
-  _sm23_l_sm12_l_self_.lookAt = _sm23_l_sm12_a1;
-  _sm23_l_sm12_l_self_.fov = 1.0;
-  var camera: Camera = _sm23_l_sm12_l_self_;
+  var _i23_self_: Camera = Camera(_cse8, _cse8, 0.0);
+  _i23_self_.position = _i23_a0;
+  _i23_self_.lookAt = _i23_a1;
+  _i23_self_.fov = 1.0;
+  var camera: Camera = _i23_self_;
   var _cse7: Material = Material(_cse8, 0.0, 0.0, _cse8);
   var _cse2: SDF_SdfSphere = SDF_SdfSphere(_cse7, _cse8, 0.0);
   var _cse3: SDF_SdfBox = SDF_SdfBox(_cse7, _cse8, _cse8);
@@ -329,65 +329,65 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   var _cse5: SDF_SdfPlane = SDF_SdfPlane(_cse7, 0.0);
   var _cse6: PointLight = PointLight(_cse8, _cse8, 0.0);
   var _cse0: Scene = Scene(_cse2, _cse3, _cse4, _cse5, _cse6);
-  var _sm17_l_self_: Scene = _cse0;
-  let _sm17_l_sm2_a0 = vec3<f32>(-1.15, 0.2, -1.7);
-  var _sm17_l_sm2_l_self_: SDF_SdfSphere = _cse2;
+  var _i17_self_: Scene = _cse0;
+  let _i17_a0 = vec3<f32>(-1.15, 0.2, -1.7);
+  var _i17_self__: SDF_SdfSphere = _cse2;
   let _cse1 = vec3<f32>(0.0);
-  _sm17_l_sm2_l_self_.material = _flow43_fused(vec3<f32>(0.78, 0.12, 0.08), 0.0, 0.4, _cse1).material;
-  _sm17_l_sm2_l_self_.center = _sm17_l_sm2_a0;
-  _sm17_l_sm2_l_self_.radius = 1.0;
-  _sm17_l_self_.redSphere = _sm17_l_sm2_l_self_;
-  let _sm17_l_sm4_a0 = vec3<f32>(1.05, 0.25, -2.0);
-  let _sm17_l_sm4_a1 = vec3<f32>(0.75, 0.75, 0.75);
-  var _sm17_l_sm4_l_self_: SDF_SdfBox = _cse3;
-  _sm17_l_sm4_l_self_.material = _flow43_fused(vec3<f32>(0.08, 0.3, 0.84), 0.2, 0.3, _cse1).material;
-  _sm17_l_sm4_l_self_.center = _sm17_l_sm4_a0;
-  _sm17_l_sm4_l_self_.halfSize = _sm17_l_sm4_a1;
-  _sm17_l_self_.blueBox = _sm17_l_sm4_l_self_;
-  let _sm17_l_sm6_a0 = vec3<f32>(0.0, 1.35, -2.9);
-  var _sm17_l_sm6_l_self_: SDF_SdfTorus = _cse4;
-  _sm17_l_sm6_l_self_.material = _flow43_fused(vec3<f32>(0.95, 0.65, 0.1), 0.9, 0.12, _cse1).material;
-  _sm17_l_sm6_l_self_.center = _sm17_l_sm6_a0;
-  _sm17_l_sm6_l_self_.majorRadius = 0.72;
-  _sm17_l_sm6_l_self_.minorRadius = 0.24;
-  _sm17_l_self_.goldTorus = _sm17_l_sm6_l_self_;
-  var _sm17_l_sm8_l_self_: SDF_SdfPlane = _cse5;
-  _sm17_l_sm8_l_self_.material = _flow43_fused(vec3<f32>(0.68, 0.72, 0.8), 0.0, 0.92, _cse1).material;
-  _sm17_l_sm8_l_self_.height = -1.0;
-  _sm17_l_self_.ground = _sm17_l_sm8_l_self_;
-  let _sm17_l_sm10_a0 = vec3<f32>(-2.5, 4.8, 2.0);
-  let _sm17_l_sm10_a1 = vec3<f32>(1.0, 0.88, 0.72);
-  var _sm17_l_sm10_l_self_: PointLight = _cse6;
-  _sm17_l_sm10_l_self_.position = _sm17_l_sm10_a0;
-  _sm17_l_sm10_l_self_.color = _sm17_l_sm10_a1;
-  _sm17_l_sm10_l_self_.intensity = 70.0;
-  _sm17_l_self_.light = _sm17_l_sm10_l_self_;
-  var scene: Scene = _sm17_l_self_;
-  var _sm20_l_self_: Renderer = Renderer(_cse0);
-  _sm20_l_self_.scene = scene;
-  var renderer: Renderer = _sm20_l_self_;
+  _i17_self__.material = _flow43_fused(vec3<f32>(0.78, 0.12, 0.08), 0.0, 0.4, _cse1).material;
+  _i17_self__.center = _i17_a0;
+  _i17_self__.radius = 1.0;
+  _i17_self_.redSphere = _i17_self__;
+  let _i17_a0_ = vec3<f32>(1.05, 0.25, -2.0);
+  let _i17_a1 = vec3<f32>(0.75, 0.75, 0.75);
+  var _i17_self___: SDF_SdfBox = _cse3;
+  _i17_self___.material = _flow43_fused(vec3<f32>(0.08, 0.3, 0.84), 0.2, 0.3, _cse1).material;
+  _i17_self___.center = _i17_a0_;
+  _i17_self___.halfSize = _i17_a1;
+  _i17_self_.blueBox = _i17_self___;
+  let _i17_a0__ = vec3<f32>(0.0, 1.35, -2.9);
+  var _i17_self____: SDF_SdfTorus = _cse4;
+  _i17_self____.material = _flow43_fused(vec3<f32>(0.95, 0.65, 0.1), 0.9, 0.12, _cse1).material;
+  _i17_self____.center = _i17_a0__;
+  _i17_self____.majorRadius = 0.72;
+  _i17_self____.minorRadius = 0.24;
+  _i17_self_.goldTorus = _i17_self____;
+  var _i17_self_____: SDF_SdfPlane = _cse5;
+  _i17_self_____.material = _flow43_fused(vec3<f32>(0.68, 0.72, 0.8), 0.0, 0.92, _cse1).material;
+  _i17_self_____.height = -1.0;
+  _i17_self_.ground = _i17_self_____;
+  let _i17_a0____ = vec3<f32>(-2.5, 4.8, 2.0);
+  let _i17_a1__ = vec3<f32>(1.0, 0.88, 0.72);
+  var _i17_self______: PointLight = _cse6;
+  _i17_self______.position = _i17_a0____;
+  _i17_self______.color = _i17_a1__;
+  _i17_self______.intensity = 70.0;
+  _i17_self_.light = _i17_self______;
+  var scene: Scene = _i17_self_;
+  var _i20_self_: Renderer = Renderer(_cse0);
+  _i20_self_.scene = scene;
+  var renderer: Renderer = _i20_self_;
   var color: vec3<f32> = _cse1;
   for (var sample: i32 = 0; (sample < SAMPLES_PER_PIXEL); sample = (sample + 1)) {
-    let _sm24_l_pixel = (((_licm0 * 0.5) + _licm3) * _licm1);
+    let _i24_pixel = (((_licm0 * 0.5) + _licm3) * _licm1);
     let _gv0 = f32(sample);
-    let _sm24_l_jitter = vec2<f32>((fract((sin(((dot(_sm24_l_pixel, _licm4) + (_licm2 * 0.71)) + (_gv0 * 19.17))) * 43758.5453123)) - 0.5), (fract((sin(((dot(_sm24_l_pixel, _licm5) + (_licm2 * 1.17)) + (_gv0 * 7.91))) * 43758.5453123)) - 0.5));
-    let _sm24_l_sampleNdc = (_licm0 + vec2<f32>(((_sm24_l_jitter.x * 2.0) / _licm1.x), ((_sm24_l_jitter.y * 2.0) / _licm1.y)));
-    let _gv1 = ((_sm24_l_sampleNdc.x * _licm1.x) / _licm1.y);
-    let _sm24_l_sm11_l_forward = normalize((camera.lookAt - camera.position));
-    let _sm24_l_sm11_l_right = normalize(cross(_sm24_l_sm11_l_forward, _licm6));
-    let _sm24_l_sm11_l_up = cross(_sm24_l_sm11_l_right, _sm24_l_sm11_l_forward);
-    let _sm24_l_sm11_l_scale = tan((camera.fov * 0.5));
-    let _sm24_l_sm11_l_direction = normalize(((_sm24_l_sm11_l_forward + ((_sm24_l_sm11_l_right * _gv1) * _sm24_l_sm11_l_scale)) + ((_sm24_l_sm11_l_up * _sm24_l_sampleNdc.y) * _sm24_l_sm11_l_scale)));
-    var _sm24_l_sm11_ret: Ray;
-    Ray_new_into(&_sm24_l_sm11_ret, camera.position, _sm24_l_sm11_l_direction);
-    let _sm24_l_seed = ((dot(_sm24_l_pixel, _licm7) + (_licm2 * 11.3)) + (_gv0 * 3.7));
-    let _sm24_ret = Renderer_trace(&renderer, &_sm24_l_sm11_ret, _sm24_l_seed);
-    color += _sm24_ret;
+    let _i24_jitter = vec2<f32>((fract((sin(((dot(_i24_pixel, _licm4) + (_licm2 * 0.71)) + (_gv0 * 19.17))) * 43758.5453123)) - 0.5), (fract((sin(((dot(_i24_pixel, _licm5) + (_licm2 * 1.17)) + (_gv0 * 7.91))) * 43758.5453123)) - 0.5));
+    let _i24_sampleNdc = (_licm0 + vec2<f32>(((_i24_jitter.x * 2.0) / _licm1.x), ((_i24_jitter.y * 2.0) / _licm1.y)));
+    let _gv1 = ((_i24_sampleNdc.x * _licm1.x) / _licm1.y);
+    let _i24_forward = normalize((camera.lookAt - camera.position));
+    let _i24_right = normalize(cross(_i24_forward, _licm6));
+    let _i24_up = cross(_i24_right, _i24_forward);
+    let _i24_scale = tan((camera.fov * 0.5));
+    let _i24_direction = normalize(((_i24_forward + ((_i24_right * _gv1) * _i24_scale)) + ((_i24_up * _i24_sampleNdc.y) * _i24_scale)));
+    var _i24_ret: Ray;
+    Ray_new_into(&_i24_ret, camera.position, _i24_direction);
+    let _i24_seed = ((dot(_i24_pixel, _licm7) + (_licm2 * 11.3)) + (_gv0 * 3.7));
+    let _i24ret = Renderer_trace(&renderer, &_i24_ret, _i24_seed);
+    color += _i24ret;
   }
-  let _sm25_a0 = (color / f32(SAMPLES_PER_PIXEL));
-  let _sm25_l_mapped = (_sm25_a0 / (_sm25_a0 + vec3<f32>(1.0)));
-  let _sm25_ret = pow(_sm25_l_mapped, vec3<f32>(0.45454545454545453));
-  color = _sm25_ret;
+  let _i25a0 = (color / f32(SAMPLES_PER_PIXEL));
+  let _i25_mapped = (_i25a0 / (_i25a0 + vec3<f32>(1.0)));
+  let _i25ret = pow(_i25_mapped, vec3<f32>(0.45454545454545453));
+  color = _i25ret;
   return vec4<f32>(color, 1.0);
 }
 

@@ -28,8 +28,8 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   for (var _v0: i32 = -1; (_v0 <= 1); _v0 = (_v0 + 1)) {
     for (var _v1: i32 = -1; (_v1 <= 1); _v1 = (_v1 + 1)) {
       let _v2 = vec2<f32>(f32(_v1), f32(_v0));
-      let _sm0_a0 = (floor(_cse0) + _v2);
-      let _lc0 = vec2<f32>(dot(_sm0_a0, _cse1), dot(_sm0_a0, _cse2));
+      let _i0a0 = (floor(_cse0) + _v2);
+      let _lc0 = vec2<f32>(dot(_i0a0, _cse1), dot(_i0a0, _cse2));
       let _v3 = fract((vec2<f32>(sin(_lc0.x), sin(_lc0.y)) * 43758.5453));
       _av0 = min(_av0, distance(fract(_cse0), ((_v2 + ((_v3 * 0.5) + 0.25)) + (vec2<f32>(sin((_licm0 + (_v3.x * 6.283))), cos((_licm0 + (_v3.y * 6.283)))) * 0.18))));
     }

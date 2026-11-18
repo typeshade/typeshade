@@ -34,68 +34,68 @@ void main() {
   } else {
     shade = _cse0;
   }
-  float _sm5_ret = 0.0;
+  float _i5ret = 0.0;
   _opt_f32_ _gv0 = root(x);
   if ((_gv0.present == false)) {
-    _sm5_ret = 0.0;
+    _i5ret = 0.0;
   } else {
-    _sm5_ret = _gv0.value;
+    _i5ret = _gv0.value;
   }
-  float _sm6_a0 = uv.x;
-  float _sm6_ret = 0.0;
-  float _gv1 = (_sm6_a0 * 0.5);
+  float _i6a0 = uv.x;
+  float _i6ret = 0.0;
+  float _gv1 = (_i6a0 * 0.5);
   if ((true == false)) {
-    _sm6_ret = 0.0;
+    _i6ret = 0.0;
   } else {
-    _sm6_ret = _gv1;
+    _i6ret = _gv1;
   }
-  float r = (_sm5_ret + _sm6_ret);
-  float _sm1_a0 = uv.y;
-  _opt_f32_ _sm1_ret;
-  if ((_sm1_a0 <= 0.0)) {
-    _sm1_ret = _cse0;
+  float r = (_i5ret + _i6ret);
+  float _i1a0 = uv.y;
+  _opt_f32_ _i1ret;
+  if ((_i1a0 <= 0.0)) {
+    _i1ret = _cse0;
   } else {
-    _sm1_ret = _opt_f32_((_sm1_a0 * 0.5), true);
+    _i1ret = _opt_f32_((_i1a0 * 0.5), true);
   }
-  float _sm2_ret;
-  if ((_gv0.present && _sm1_ret.present)) {
-    _sm2_ret = min(_gv0.value, _sm1_ret.value);
+  float _i2ret;
+  if ((_gv0.present && _i1ret.present)) {
+    _i2ret = min(_gv0.value, _i1ret.value);
   } else {
     _opt_f32_ _sel0;
     if (_gv0.present) {
       _sel0 = _gv0;
     } else {
-      _sel0 = _sm1_ret;
+      _sel0 = _i1ret;
     }
-    _opt_f32_ _sm2_l_opt = _sel0;
-    _sm2_ret = (_sm2_l_opt.present ? _sm2_l_opt.value : 1000.0);
+    _opt_f32_ _i2_opt = _sel0;
+    _i2ret = (_i2_opt.present ? _i2_opt.value : 1000.0);
   }
-  float g = (_sm2_ret * (shade.present ? shade.value : 0.25));
+  float g = (_i2ret * (shade.present ? shade.value : 0.25));
   vec2 o = ((uv * 2.0) - vec2(1.0, 1.0));
-  vec2 _sm3_a0 = (o - vec2(0.0, 2.0));
-  vec2 _sm3_a1 = vec2(0.0, 1.0);
-  _opt_Hit_ _sm3_ret = _opt_Hit_(Hit(0.0, vec2(0.0)), false);
-  float _sm3_l_b = dot(_sm3_a0, _sm3_a1);
-  float _sm3_l_c = (dot(_sm3_a0, _sm3_a0) - 0.25);
-  float _sm3_l_disc = ((_sm3_l_b * _sm3_l_b) - _sm3_l_c);
+  vec2 _i3a0 = (o - vec2(0.0, 2.0));
+  vec2 _i3a1 = vec2(0.0, 1.0);
+  _opt_Hit_ _i3ret = _opt_Hit_(Hit(0.0, vec2(0.0)), false);
+  float _i3_b = dot(_i3a0, _i3a1);
+  float _i3_c = (dot(_i3a0, _i3a0) - 0.25);
+  float _i3_disc = ((_i3_b * _i3_b) - _i3_c);
   vec2 _cse3 = vec2(0.0, 0.0);
   Hit _cse2 = Hit(0.0, _cse3);
   _opt_Hit_ _cse1 = _opt_Hit_(_cse2, false);
-  if ((_sm3_l_disc < 0.0)) {
-    _sm3_ret = _cse1;
+  if ((_i3_disc < 0.0)) {
+    _i3ret = _cse1;
   } else {
-    float _sm3_l_t = ((-_sm3_l_b) - sqrt(_sm3_l_disc));
-    if ((_sm3_l_t < 0.0)) {
-      _sm3_ret = _cse1;
+    float _i3_t = ((-_i3_b) - sqrt(_i3_disc));
+    if ((_i3_t < 0.0)) {
+      _i3ret = _cse1;
     } else {
-      Hit _sm3_l_h = _cse2;
-      _sm3_l_h.t = _sm3_l_t;
-      _sm3_l_h.normal = normalize((_sm3_a0 + (_sm3_a1 * _sm3_l_t)));
-      _sm3_ret = _opt_Hit_(_sm3_l_h, true);
+      Hit _i3_h = _cse2;
+      _i3_h.t = _i3_t;
+      _i3_h.normal = normalize((_i3a0 + (_i3a1 * _i3_t)));
+      _i3ret = _opt_Hit_(_i3_h, true);
     }
   }
-  _opt_Hit_ hit = _sm3_ret;
-  float _sm4_ret = (hit.present ? hit.value.t : 0.0);
+  _opt_Hit_ hit = _i3ret;
+  float _i4ret = (hit.present ? hit.value.t : 0.0);
   vec2 n = (hit.present ? hit.value.normal : _cse3);
-  color = vec4(r, g, ((_sm4_ret * 0.5) + (n.x * 0.25)), 1.0);
+  color = vec4(r, g, ((_i4ret * 0.5) + (n.x * 0.25)), 1.0);
 }

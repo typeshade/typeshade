@@ -46,13 +46,13 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _cse1 = vec2<f32>(3.0);
   let _licm5 = (vec2<f32>(((_cse0 * _v2) * 0.6), (_v2 + _licm0)) * 3.0);
   for (var _v3: u32 = 0u; (_v3 < 4u); _v3 = (_v3 + 1u)) {
-    let _sm0_a0 = ((_licm5 * _av1) + _licm1);
-    let _sm0_l_v0 = floor(_sm0_a0);
-    let _sm0_l_v1 = fract(_sm0_a0);
-    let _gv0 = ((_sm0_l_v1 * _sm0_l_v1) * (_cse1 - (_sm0_l_v1 * 2.0)));
+    let _i0a0 = ((_licm5 * _av1) + _licm1);
+    let _i0_v0 = floor(_i0a0);
+    let _i0_v1 = fract(_i0a0);
+    let _gv0 = ((_i0_v1 * _i0_v1) * (_cse1 - (_i0_v1 * 2.0)));
     let _lc0 = _gv0.x;
-    let _sm0_ret = mix(mix(hash(_sm0_l_v0), hash((_sm0_l_v0 + _licm2)), _lc0), mix(hash((_sm0_l_v0 + _licm3)), hash((_sm0_l_v0 + _licm4)), _lc0), _gv0.y);
-    _av0 = (_av0 + (_av2 * _sm0_ret));
+    let _i0ret = mix(mix(hash(_i0_v0), hash((_i0_v0 + _licm2)), _lc0), mix(hash((_i0_v0 + _licm3)), hash((_i0_v0 + _licm4)), _lc0), _gv0.y);
+    _av0 = (_av0 + (_av2 * _i0ret));
     _av1 = (_av1 * 2.03);
     _av2 = (_av2 * 0.5);
   }

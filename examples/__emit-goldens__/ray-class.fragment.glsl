@@ -20,27 +20,27 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 vec4 fs_impl(VsOut v) {
-  vec3 _sm0_a0 = vec3(0.0, 0.0, 2.0);
-  vec3 _sm0_a1 = (vec3(v.uv, 0.0) + vec3(0.0, 0.0, -1.0));
+  vec3 _i0a0 = vec3(0.0, 0.0, 2.0);
+  vec3 _i0a1 = (vec3(v.uv, 0.0) + vec3(0.0, 0.0, -1.0));
   vec3 _cse0 = vec3(0.0, 0.0, 0.0);
-  Ray _sm0_l_self_ = Ray(_cse0, _cse0);
-  _sm0_l_self_.origin = _sm0_a0;
-  _sm0_l_self_.dir = normalize(_sm0_a1);
-  Ray ray = _sm0_l_self_;
-  Sphere _sm2_l_self_ = Sphere(_cse0, 0.0);
-  _sm2_l_self_.radius = 1.0;
-  Sphere sphere = _sm2_l_self_;
-  float _sm1_ret = 0.0;
-  vec3 _sm1_l_oc = (ray.origin - sphere.center);
-  float _sm1_l_b = dot(_sm1_l_oc, ray.dir);
-  float _sm1_l_c = (dot(_sm1_l_oc, _sm1_l_oc) - (sphere.radius * sphere.radius));
-  float _sm1_l_h = ((_sm1_l_b * _sm1_l_b) - _sm1_l_c);
-  if ((_sm1_l_h < 0.0)) {
-    _sm1_ret = -1.0;
+  Ray _i0_self_ = Ray(_cse0, _cse0);
+  _i0_self_.origin = _i0a0;
+  _i0_self_.dir = normalize(_i0a1);
+  Ray ray = _i0_self_;
+  Sphere _i2_self_ = Sphere(_cse0, 0.0);
+  _i2_self_.radius = 1.0;
+  Sphere sphere = _i2_self_;
+  float _i1ret = 0.0;
+  vec3 _i1_oc = (ray.origin - sphere.center);
+  float _i1_b = dot(_i1_oc, ray.dir);
+  float _i1_c = (dot(_i1_oc, _i1_oc) - (sphere.radius * sphere.radius));
+  float _i1_h = ((_i1_b * _i1_b) - _i1_c);
+  if ((_i1_h < 0.0)) {
+    _i1ret = -1.0;
   } else {
-    _sm1_ret = ((-_sm1_l_b) - sqrt(_sm1_l_h));
+    _i1ret = ((-_i1_b) - sqrt(_i1_h));
   }
-  float t = _sm1_ret;
+  float t = _i1ret;
   if ((t < 0.0)) {
     return vec4(0.05, 0.05, 0.1, 1.0);
   }

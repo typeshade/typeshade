@@ -31,10 +31,10 @@ void main() {
   float h = terrain(p, t);
   float hx = terrain(vec2((p.x + 0.015), p.y), t);
   float hy = terrain(vec2(p.x, (p.y + 0.015)), t);
-  vec3 _sm0_a0 = vec3(((h - hx) * ex), ((h - hy) * ex), 0.015);
-  vec3 n = (_sm0_a0 * (1.0 / length(_sm0_a0)));
-  vec3 _sm1_a0 = vec3((cos(az) * 0.6), (sin(az) * 0.6), 0.55);
-  vec3 sun = (_sm1_a0 * (1.0 / length(_sm1_a0)));
+  vec3 _i0a0 = vec3(((h - hx) * ex), ((h - hy) * ex), 0.015);
+  vec3 n = (_i0a0 * (1.0 / length(_i0a0)));
+  vec3 _i1a0 = vec3((cos(az) * 0.6), (sin(az) * 0.6), 0.55);
+  vec3 sun = (_i1a0 * (1.0 / length(_i1a0)));
   float shade = clamp(dot(n, sun), 0.0, 1.0);
   vec3 low = vec3(0.16, 0.32, 0.2);
   vec3 mid = vec3(0.55, 0.49, 0.3);

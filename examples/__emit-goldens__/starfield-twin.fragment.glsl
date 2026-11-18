@@ -31,10 +31,10 @@ void main() {
   vec3 _licm4 = vec3(1.0, 0.9, 0.75);
   float t = U.time;
   vec2 res = U.resolution;
-  vec2 _sm0_a0 = uv;
-  float _sm0_l_asp = (res.x / res.y);
-  float _gv0 = (((_sm0_a0.x * 2.0) - 1.0) * _sm0_l_asp);
-  float _gv1 = ((_sm0_a0.y * 2.0) - 1.0);
+  vec2 _i0a0 = uv;
+  float _i0_asp = (res.x / res.y);
+  float _gv0 = (((_i0a0.x * 2.0) - 1.0) * _i0_asp);
+  float _gv1 = ((_i0a0.y * 2.0) - 1.0);
   vec3 col = vec3(0.0, 0.0, 0.0);
   for (uint i = 0u; (i < 3u); i = (i + 1u)) {
     float fi = float(i);

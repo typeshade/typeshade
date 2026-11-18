@@ -40,17 +40,17 @@ void main() {
     float t = ((((6.2831855 / orbit.speed) * float(i)) / 5.0) + ((_seq0 - 0.5) * 0.3));
     vec2 a = Orbit_at(orbit, t);
     vec2 b = Orbit_at(orbit, (t + 0.05));
-    bool _sm3_a0 = (distance(p, a) < distance(p, b));
-    vec2 _sm3_ret;
-    if (_sm3_a0) {
-      _sm3_ret = a;
+    bool _i3a0 = (distance(p, a) < distance(p, b));
+    vec2 _i3ret;
+    if (_i3a0) {
+      _i3ret = a;
     } else {
-      _sm3_ret = b;
+      _i3ret = b;
     }
-    float _sm2_a0 = distance(p, _sm3_ret);
-    glow += (0.004 / ((_sm2_a0 * _sm2_a0) + 0.002));
+    float _i2a0 = distance(p, _i3ret);
+    glow += (0.004 / ((_i2a0 * _i2a0) + 0.002));
   }
-  float _sm4_a1 = (1.0 - smoothstep(0.0, 0.01, abs((length(p) - (orbit.radius * 0.6)))));
-  vec3 col = min(vec3(((0.3 * glow) + _sm4_a1), ((0.6 * glow) + (0.8 * _sm4_a1)), (glow + (0.5 * _sm4_a1))), vec3(1.0));
+  float _i4a1 = (1.0 - smoothstep(0.0, 0.01, abs((length(p) - (orbit.radius * 0.6)))));
+  vec3 col = min(vec3(((0.3 * glow) + _i4a1), ((0.6 * glow) + (0.8 * _i4a1)), (glow + (0.5 * _i4a1))), vec3(1.0));
   color = vec4(col, 1.0);
 }

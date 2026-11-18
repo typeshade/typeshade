@@ -29,12 +29,12 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let origin = df64_mul(u.origin, vec2<f32>(2.5, 0.0), _fp64_g);
   let offset = (u.span * (vo.uv.x - 0.5));
   let _gv0 = df64_add(origin, vec2<f32>(offset, 0.0), _fp64_g);
-  let _sm0_l_stripe = vec2<f32>(0.125, 0.0);
+  let _i0_stripe = vec2<f32>(0.125, 0.0);
   let _cse1 = bitcast<f32>(bitcast<u32>(0.0));
   let _cse0 = vec2<f32>(_cse1, _cse1);
-  let _sm0_ret = df64_fract(df64_div(df64_add(_gv0, _cse0, _fp64_g), df64_add(_sm0_l_stripe, _cse0, _fp64_g), _fp64_g), _fp64_g);
+  let _i0ret = df64_fract(df64_div(df64_add(_gv0, _cse0, _fp64_g), df64_add(_i0_stripe, _cse0, _fp64_g), _fp64_g), _fp64_g);
   let _lc1 = df64_round(df64_add(origin, _cse0, _fp64_g), _fp64_g);
-  let _gv1 = df64_narrow(vec2<f32>(_sm0_ret.x, _sm0_ret.y));
+  let _gv1 = df64_narrow(vec2<f32>(_i0ret.x, _i0ret.y));
   let narrowed = vec3<f32>(0.0, df64_narrow(vec2<f32>(_lc1.x, _lc1.y)), 0.0);
   let flat = fract((df64_narrow(_gv0) * 8.0));
   var _sel0: f32;

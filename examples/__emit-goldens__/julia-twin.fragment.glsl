@@ -35,8 +35,8 @@ void main() {
     it = (it + 1.0);
   }
   float _gv0 = (it / 96.0);
-  float _sm0_a0 = (_gv0 + (U.time * 0.05));
-  vec3 _sm0_l_ph = vec3(0.0, 0.33, 0.67);
-  vec3 _sm0_ret = (vec3(0.5) + (cos(((_sm0_a0 + _sm0_l_ph) * 6.283)) * 0.5));
-  _ret = vec4((_sm0_ret * _gv0), 1.0);
+  float _i0a0 = (_gv0 + (U.time * 0.05));
+  vec3 _i0_ph = vec3(0.0, 0.33, 0.67);
+  vec3 _i0ret = (vec3(0.5) + (cos(((_i0a0 + _i0_ph) * 6.283)) * 0.5));
+  _ret = vec4((_i0ret * _gv0), 1.0);
 }

@@ -34,10 +34,10 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let h = terrain(p, t);
   let hx = terrain(vec2<f32>((p.x + 0.015), p.y), t);
   let hy = terrain(vec2<f32>(p.x, (p.y + 0.015)), t);
-  let _sm0_a0 = vec3<f32>(((h - hx) * ex), ((h - hy) * ex), 0.015);
-  let n = (_sm0_a0 * (1.0 / length(_sm0_a0)));
-  let _sm1_a0 = vec3<f32>((cos(az) * 0.6), (sin(az) * 0.6), 0.55);
-  let sun = (_sm1_a0 * (1.0 / length(_sm1_a0)));
+  let _i0a0 = vec3<f32>(((h - hx) * ex), ((h - hy) * ex), 0.015);
+  let n = (_i0a0 * (1.0 / length(_i0a0)));
+  let _i1a0 = vec3<f32>((cos(az) * 0.6), (sin(az) * 0.6), 0.55);
+  let sun = (_i1a0 * (1.0 / length(_i1a0)));
   let shade = clamp(dot(n, sun), 0.0, 1.0);
   let low = vec3<f32>(0.16, 0.32, 0.2);
   let mid = vec3<f32>(0.55, 0.49, 0.3);

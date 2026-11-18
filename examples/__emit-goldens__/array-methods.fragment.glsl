@@ -33,16 +33,16 @@ void array_forEach_fs_f_2(inout vec3 col, float[3] d, Light[3] lights) {
 }
 
 bool array_some_fs_p(vec2 p, Light[3] lights) {
-  Light _u0_sm0_a1 = lights[0];
-  if ((distance(_u0_sm0_a1.pos, p) < _u0_sm0_a1.radius)) {
+  Light _u0_i0a1 = lights[0];
+  if ((distance(_u0_i0a1.pos, p) < _u0_i0a1.radius)) {
     return true;
   }
-  Light _u1_sm0_a1 = lights[1];
-  if ((distance(_u1_sm0_a1.pos, p) < _u1_sm0_a1.radius)) {
+  Light _u1_i0a1 = lights[1];
+  if ((distance(_u1_i0a1.pos, p) < _u1_i0a1.radius)) {
     return true;
   }
-  Light _u2_sm0_a1 = lights[2];
-  if ((distance(_u2_sm0_a1.pos, p) < _u2_sm0_a1.radius)) {
+  Light _u2_i0a1 = lights[2];
+  if ((distance(_u2_i0a1.pos, p) < _u2_i0a1.radius)) {
     return true;
   }
   return false;

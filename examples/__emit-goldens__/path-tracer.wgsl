@@ -28,18 +28,18 @@ fn trace(ro0: vec3<f32>, rd0: vec3<f32>, seed0: f32) -> vec3<f32> {
     var tMin: f32 = 1e+30;
     var hit: i32 = -1;
     for (var i: i32 = 0; (i < 4); i = (i + 1)) {
-      var _sm0_a0: Sphere = SPHERES[i];
-      var _sm0_ret: f32;
-      let _sm0_l_oc = (ro - _sm0_a0.center);
-      let _sm0_l_b = dot(_sm0_l_oc, rd);
-      let _sm0_l_c = (dot(_sm0_l_oc, _sm0_l_oc) - (_sm0_a0.radius * _sm0_a0.radius));
-      let _sm0_l_h = ((_sm0_l_b * _sm0_l_b) - _sm0_l_c);
-      if ((_sm0_l_h < 0.0)) {
-        _sm0_ret = -1.0;
+      var _i0a0: Sphere = SPHERES[i];
+      var _i0ret: f32;
+      let _i0_oc = (ro - _i0a0.center);
+      let _i0_b = dot(_i0_oc, rd);
+      let _i0_c = (dot(_i0_oc, _i0_oc) - (_i0a0.radius * _i0a0.radius));
+      let _i0_h = ((_i0_b * _i0_b) - _i0_c);
+      if ((_i0_h < 0.0)) {
+        _i0ret = -1.0;
       } else {
-        _sm0_ret = ((-_sm0_l_b) - sqrt(_sm0_l_h));
+        _i0ret = ((-_i0_b) - sqrt(_i0_h));
       }
-      let t = _sm0_ret;
+      let t = _i0ret;
       if (((t > 0.001) && (t < tMin))) {
         tMin = t;
         hit = i;
@@ -56,14 +56,14 @@ fn trace(ro0: vec3<f32>, rd0: vec3<f32>, seed0: f32) -> vec3<f32> {
     throughput = (throughput * s.albedo);
     ro = (p + (n * 0.001));
     seed = (seed + 1.618);
-    let _sm1_l_r1 = fract((sin(seed) * 43758.5453123));
-    let _sm1_l_r2 = fract((sin((seed + 17.13)) * 43758.5453123));
-    let _sm1_l_phi = (6.2831853 * _sm1_l_r1);
-    let _sm1_l_r = sqrt(_sm1_l_r2);
-    let _sm1_l_t = normalize(cross(select(_licm2, _licm1, (abs(n.x) > 0.9)), n));
-    let _sm1_l_b = cross(n, _sm1_l_t);
-    let _sm1_ret = normalize((((_sm1_l_t * (cos(_sm1_l_phi) * _sm1_l_r)) + (_sm1_l_b * (sin(_sm1_l_phi) * _sm1_l_r))) + (n * sqrt((1.0 - _sm1_l_r2)))));
-    rd = _sm1_ret;
+    let _i1_r1 = fract((sin(seed) * 43758.5453123));
+    let _i1_r2 = fract((sin((seed + 17.13)) * 43758.5453123));
+    let _i1_phi = (6.2831853 * _i1_r1);
+    let _i1_r = sqrt(_i1_r2);
+    let _i1_t = normalize(cross(select(_licm2, _licm1, (abs(n.x) > 0.9)), n));
+    let _i1_b = cross(n, _i1_t);
+    let _i1ret = normalize((((_i1_t * (cos(_i1_phi) * _i1_r)) + (_i1_b * (sin(_i1_phi) * _i1_r))) + (n * sqrt((1.0 - _i1_r2)))));
+    rd = _i1ret;
   }
   return radiance;
 }

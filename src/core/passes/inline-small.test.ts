@@ -226,3 +226,28 @@ export function probe(a: f32, b: f32): f32 {
     expect(emitModule(inlineSmall(m))).not.toContain('fn swap');
   });
 });
+
+describe('inlineSmall fresh names', () => {
+  const nested = build(
+    `function inner(x: f32): f32 { const h = x * 0.5; let t = h + x; t = t * t; return t; }
+function outer(x: f32): f32 { const g = inner(x + 1); let u = g * x; u = u + g; return u; }`,
+    'return outer(a) + outer(b) + c;',
+  );
+  const text = emitModule(inlineSmall(nested));
+
+  it('names each fresh local with one short prefix that never stacks', () => {
+    const fresh = text.match(/_i\d+\w*/g) ?? [];
+    expect(fresh.length).toBeGreaterThan(0);
+    for (const name of fresh) expect(name).toMatch(/^_i\d+(?:_[a-z]\w*|[adr]\d*)$/);
+    expect(text).not.toMatch(/_i\d+_i\d+/);
+    expect(text).not.toContain('_sm');
+    expect(text).not.toContain('__');
+  });
+
+  it('keeps every fresh name unique in its function', () => {
+    const declared = [...text.matchAll(/\b(?:let|var) (_i\d+\w*)/g)].map((m) => m[1]);
+    expect(new Set(declared).size).toBe(declared.length);
+  });
+
+  it('computes the same values', () => same(nested, inlineSmall(nested)));
+});

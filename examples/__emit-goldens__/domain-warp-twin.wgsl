@@ -44,10 +44,10 @@ fn fbm(p: vec2<f32>) -> f32 {
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let t = U.time;
   let res = U.resolution;
-  let _sm0_a0 = vo.uv;
-  let _sm0_l_asp = (res.x / res.y);
-  let _sm0_ret = vec2<f32>((((_sm0_a0.x * 2.0) - 1.0) * _sm0_l_asp), ((_sm0_a0.y * 2.0) - 1.0));
-  let p = (_sm0_ret * 1.8);
+  let _i0a0 = vo.uv;
+  let _i0_asp = (res.x / res.y);
+  let _i0ret = vec2<f32>((((_i0a0.x * 2.0) - 1.0) * _i0_asp), ((_i0a0.y * 2.0) - 1.0));
+  let p = (_i0ret * 1.8);
   let w = U.warp;
   let q = vec2<f32>(fbm(p), fbm((p + vec2<f32>(5.2, 1.3))));
   let pq = (p + (q * w));

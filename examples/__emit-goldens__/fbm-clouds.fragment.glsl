@@ -24,13 +24,13 @@ void main() {
   float _av2 = 0.55;
   vec2 _cse0 = vec2(3.0);
   for (uint _v0 = 0u; (float(_v0) < _licm0); _v0 = (_v0 + 1u)) {
-    vec2 _sm0_a0 = (_av1 + _licm1);
-    vec2 _sm0_l_v0 = floor(_sm0_a0);
-    vec2 _sm0_l_v1 = fract(_sm0_a0);
-    vec2 _gv0 = ((_sm0_l_v1 * _sm0_l_v1) * (_cse0 - (_sm0_l_v1 * 2.0)));
+    vec2 _i0a0 = (_av1 + _licm1);
+    vec2 _i0_v0 = floor(_i0a0);
+    vec2 _i0_v1 = fract(_i0a0);
+    vec2 _gv0 = ((_i0_v1 * _i0_v1) * (_cse0 - (_i0_v1 * 2.0)));
     float _lc0 = _gv0.x;
-    float _sm0_ret = mix(mix(hash(_sm0_l_v0), hash((_sm0_l_v0 + _licm2)), _lc0), mix(hash((_sm0_l_v0 + _licm3)), hash((_sm0_l_v0 + _licm4)), _lc0), _gv0.y);
-    _av0 = (_av0 + (_av2 * _sm0_ret));
+    float _i0ret = mix(mix(hash(_i0_v0), hash((_i0_v0 + _licm2)), _lc0), mix(hash((_i0_v0 + _licm3)), hash((_i0_v0 + _licm4)), _lc0), _gv0.y);
+    _av0 = (_av0 + (_av2 * _i0ret));
     _av1 = (_av1 * 2.02);
     _av2 = (_av2 * 0.5);
   }

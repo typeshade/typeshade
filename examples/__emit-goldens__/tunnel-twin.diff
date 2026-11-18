@@ -32,12 +32,12 @@
 -  return vec4<f32>((((mix(vec3<f32>(1.0, 0.62, 0.28), vec3<f32>(0.42, 0.3, 0.55), ((sin((_v1 * 0.9)) * 0.5) + 0.5)) * ((smoothstep(-0.6, 0.6, (sin((((atan2(_cse1, _cse0) / 3.14159265) + ((_v1 * U.twist) * 0.08)) * 12.566)) * sin((_v1 * 9.4248)))) * 0.55) + 0.35)) * smoothstep(0.0, 0.55, _v0)) * clamp((1.15 - (_v0 * 0.35)), 0.0, 1.0)), 1.0);
 +  let t = U.time;
 +  let res = U.resolution;
-+  let _sm0_a0 = vo.uv;
-+  let _sm0_l_asp = (res.x / res.y);
-+  let _gv0 = (((_sm0_a0.x * 2.0) - 1.0) * _sm0_l_asp);
-+  let _gv1 = ((_sm0_a0.y * 2.0) - 1.0);
-+  let _sm0_ret = vec2<f32>(_gv0, _gv1);
-+  let r = length(_sm0_ret);
++  let _i0a0 = vo.uv;
++  let _i0_asp = (res.x / res.y);
++  let _gv0 = (((_i0a0.x * 2.0) - 1.0) * _i0_asp);
++  let _gv1 = ((_i0a0.y * 2.0) - 1.0);
++  let _i0ret = vec2<f32>(_gv0, _gv1);
++  let r = length(_i0ret);
 +  let a = atan2(_gv1, _gv0);
 +  let depth = ((0.3 / max(r, 0.001)) + (t * 1.4));
 +  let ang = ((a / 3.14159265) + ((depth * U.twist) * 0.08));

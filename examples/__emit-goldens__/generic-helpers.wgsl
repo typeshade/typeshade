@@ -11,7 +11,7 @@ fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
   let uv = fract((p.xy * 0.01));
   let gain = select(0.6, 1.2, (uv.x > 0.5));
   let tint = select(vec3<f32>(0.2, 0.6, 0.9), vec3<f32>(0.9, 0.4, 0.3), (uv.y > 0.5));
-  let _sm0_a0 = uv.x;
-  let _sm0_a1 = uv.y;
-  return vec4<f32>(((tint * gain) * ((_sm0_a0 + _sm0_a1) + 0.2)), 1.0);
+  let _i0a0 = uv.x;
+  let _i0a1 = uv.y;
+  return vec4<f32>(((tint * gain) * ((_i0a0 + _i0a1) + 0.2)), 1.0);
 }

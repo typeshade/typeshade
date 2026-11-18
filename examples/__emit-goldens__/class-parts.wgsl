@@ -59,10 +59,10 @@ fn fs(v: VsOut) -> FsOut {
   spot.size = 0.1;
   spot.center.pos = vec2<f32>(-0.45, -0.3);
   var col: vec3<f32> = vec3<f32>(0.06, 0.07, 0.12);
-  let _sm3_a1 = v.uv;
-  let _sm3_l_sm0_l_d = abs((length((_sm3_a1 - ring.center.pos)) - ring.radius));
-  let _sm3_l_sm0_ret = (1.0 - smoothstep((ring.width * 0.5), ring.width, _sm3_l_sm0_l_d));
-  col = mix(col, vec3<f32>(0.95, 0.7, 0.3), _sm3_l_sm0_ret);
+  let _i3a1 = v.uv;
+  let _i3_d = abs((length((_i3a1 - ring.center.pos)) - ring.radius));
+  let _i3_ret = (1.0 - smoothstep((ring.width * 0.5), ring.width, _i3_d));
+  col = mix(col, vec3<f32>(0.95, 0.7, 0.3), _i3_ret);
   col = mix(col, vec3<f32>(0.3, 0.7, 0.95), (1.0 - smoothstep((spot.size * 0.8), spot.size, length((v.uv - spot.center.pos)))));
   return FsOut(vec4<f32>(col, 1.0));
 }

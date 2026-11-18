@@ -37,10 +37,10 @@ layout(location = 0) out vec4 _ret;
 void main() {
   float t = U.time;
   vec2 res = U.resolution;
-  vec2 _sm0_a0 = uv;
-  float _sm0_l_asp = (res.x / res.y);
-  vec2 _sm0_ret = vec2((((_sm0_a0.x * 2.0) - 1.0) * _sm0_l_asp), ((_sm0_a0.y * 2.0) - 1.0));
-  vec2 p = (_sm0_ret * 1.8);
+  vec2 _i0a0 = uv;
+  float _i0_asp = (res.x / res.y);
+  vec2 _i0ret = vec2((((_i0a0.x * 2.0) - 1.0) * _i0_asp), ((_i0a0.y * 2.0) - 1.0));
+  vec2 p = (_i0ret * 1.8);
   float w = U.warp;
   vec2 q = vec2(fbm(p), fbm((p + vec2(5.2, 1.3))));
   vec2 pq = (p + (q * w));

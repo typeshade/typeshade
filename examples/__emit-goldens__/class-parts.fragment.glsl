@@ -48,10 +48,10 @@ void main() {
   spot.size = 0.1;
   spot.center.pos = vec2(-0.45, -0.3);
   vec3 col = vec3(0.06, 0.07, 0.12);
-  vec2 _sm3_a1 = uv;
-  float _sm3_l_sm0_l_d = abs((length((_sm3_a1 - ring.center.pos)) - ring.radius));
-  float _sm3_l_sm0_ret = (1.0 - smoothstep((ring.width * 0.5), ring.width, _sm3_l_sm0_l_d));
-  col = mix(col, vec3(0.95, 0.7, 0.3), _sm3_l_sm0_ret);
+  vec2 _i3a1 = uv;
+  float _i3_d = abs((length((_i3a1 - ring.center.pos)) - ring.radius));
+  float _i3_ret = (1.0 - smoothstep((ring.width * 0.5), ring.width, _i3_d));
+  col = mix(col, vec3(0.95, 0.7, 0.3), _i3_ret);
   col = mix(col, vec3(0.3, 0.7, 0.95), (1.0 - smoothstep((spot.size * 0.8), spot.size, length((uv - spot.center.pos)))));
   color = vec4(col, 1.0);
 }

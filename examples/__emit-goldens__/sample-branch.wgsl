@@ -40,10 +40,10 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   if ((v.uv.x > 0.5)) {
     base = textureSampleGrad(albedo, smp, v.uv, hoist_gx_h1, hoist_gy_h2);
   } else {
-    let _sm0_a0 = v.uv;
-    let _sm0_l_inner = (_sm0_a0 * 0.5);
-    let _sm0_ret = textureSampleGrad(albedo, smp, _sm0_l_inner, hoist_gx_h3, hoist_gy_h4);
-    base = _sm0_ret;
+    let _i0a0 = v.uv;
+    let _i0_inner = (_i0a0 * 0.5);
+    let _i0ret = textureSampleGrad(albedo, smp, _i0_inner, hoist_gx_h3, hoist_gy_h4);
+    base = _i0ret;
   }
   if ((tint.rgb.w > 0.5)) {
     let near = (v.uv * 0.75);

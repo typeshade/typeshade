@@ -187,7 +187,7 @@ function rewriteExpr(r: Rewriter, e: Expr, cond: boolean, lifted: Stmt[] | undef
     return substitute(plan.ret, subst);
   }
   if (cond || lifted === undefined || !liftable(plan)) return out;
-  const res = liftCall(plan, out, `_sm${r.counter.n++}_`);
+  const res = liftCall(plan, out, `_i${r.counter.n++}`);
   if (res.lifted.length === 0 && plan.ret === undefined) return out;
   lifted.push(...res.lifted);
   r.changed = true;
@@ -265,7 +265,7 @@ function inlineOne(
 function nextTempIndex(m: ModuleDecl): number {
   let next = 0;
   const note = (name: string): void => {
-    const hit = /^_sm(\d+)_/.exec(name);
+    const hit = /^_i(\d+)(?:_|[adr])/.exec(name);
     if (hit !== null) next = Math.max(next, Number(hit[1]) + 1);
   };
   for (const f of m.funcs)

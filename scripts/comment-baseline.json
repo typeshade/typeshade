@@ -751,7 +751,7 @@
   "src/core/passes/subgroups-one-lane.ts": 35,
   "src/core/passes/texture-pairs.test.ts": 19,
   "src/core/passes/texture-pairs.ts": 63,
-  "src/core/passes/uniform-layout.ts": 174,
+  "src/core/passes/uniform-layout.ts": 173,
   "src/core/passes/uniformity.test.ts": 313,
   "src/core/passes/uniformity.ts": 576,
   "src/core/passes/validate.test.ts": 24,

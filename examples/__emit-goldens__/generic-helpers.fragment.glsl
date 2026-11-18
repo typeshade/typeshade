@@ -9,7 +9,7 @@ void main() {
   vec2 uv = fract((p.xy * 0.01));
   float gain = ((uv.x > 0.5) ? 1.2 : 0.6);
   vec3 tint = ((uv.y > 0.5) ? vec3(0.9, 0.4, 0.3) : vec3(0.2, 0.6, 0.9));
-  float _sm0_a0 = uv.x;
-  float _sm0_a1 = uv.y;
-  _ret = vec4(((tint * gain) * ((_sm0_a0 + _sm0_a1) + 0.2)), 1.0);
+  float _i0a0 = uv.x;
+  float _i0a1 = uv.y;
+  _ret = vec4(((tint * gain) * ((_i0a0 + _i0a1) + 0.2)), 1.0);
 }

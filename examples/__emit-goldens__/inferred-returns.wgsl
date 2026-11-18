@@ -56,17 +56,17 @@ fn fs(v: VsOut) -> FsOut {
     let t = ((((6.2831855 / orbit.speed) * f32(i)) / 5.0) + ((_seq0 - 0.5) * 0.3));
     let a = Orbit_at(&orbit, t);
     let b = Orbit_at(&orbit, (t + 0.05));
-    let _sm3_a0 = (distance(p, a) < distance(p, b));
-    var _sm3_ret: vec2<f32>;
-    if (_sm3_a0) {
-      _sm3_ret = a;
+    let _i3a0 = (distance(p, a) < distance(p, b));
+    var _i3ret: vec2<f32>;
+    if (_i3a0) {
+      _i3ret = a;
     } else {
-      _sm3_ret = b;
+      _i3ret = b;
     }
-    let _sm2_a0 = distance(p, _sm3_ret);
-    glow += (0.004 / ((_sm2_a0 * _sm2_a0) + 0.002));
+    let _i2a0 = distance(p, _i3ret);
+    glow += (0.004 / ((_i2a0 * _i2a0) + 0.002));
   }
-  let _sm4_a1 = (1.0 - smoothstep(0.0, 0.01, abs((length(p) - (orbit.radius * 0.6)))));
-  let col = min(vec3<f32>(((0.3 * glow) + _sm4_a1), ((0.6 * glow) + (0.8 * _sm4_a1)), (glow + (0.5 * _sm4_a1))), vec3<f32>(1.0));
+  let _i4a1 = (1.0 - smoothstep(0.0, 0.01, abs((length(p) - (orbit.radius * 0.6)))));
+  let col = min(vec3<f32>(((0.3 * glow) + _i4a1), ((0.6 * glow) + (0.8 * _i4a1)), (glow + (0.5 * _i4a1))), vec3<f32>(1.0));
   return FsOut(vec4<f32>(col, 1.0));
 }

@@ -78,10 +78,10 @@ fn fs(v: VsOut) -> FsOut {
   var glow: f32 = 0.0;
   times3_fs_body(&glow, p);
   col += vec3<f32>((glow * 0.3), (glow * 0.2), (glow * 0.6));
-  var _sm0_l_self_: Ring = Ring(0, 0.0);
-  _sm0_l_self_.n = 6;
-  _sm0_l_self_.radius = 0.7;
-  var ring: Ring = _sm0_l_self_;
+  var _i0_self_: Ring = Ring(0, 0.0);
+  _i0_self_.n = 6;
+  _i0_self_.radius = 0.7;
+  var ring: Ring = _i0_self_;
   var dots: f32 = 0.0;
   Ring_each_fs_dot(&dots, p, &ring);
   col = mix(col, vec3<f32>(0.9, 0.3, 0.5), dots);

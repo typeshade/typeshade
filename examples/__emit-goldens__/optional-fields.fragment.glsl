@@ -44,31 +44,31 @@ layout(location = 0) out vec4 color;
 
 void main() {
   vec2 o = ((uv * 2.0) - vec2(1.0, 1.0));
-  vec2 _sm1_a0 = (o - vec2(0.0, 2.0));
+  vec2 _i1a0 = (o - vec2(0.0, 2.0));
   vec2 _cse0 = vec2(0.0, 1.0);
-  Hit _sm1_ret = Hit(0.0, _opt_vec2_f32_(vec2(0.0), false), _opt_f32_(0.0, false));
+  Hit _i1ret = Hit(0.0, _opt_vec2_f32_(vec2(0.0), false), _opt_f32_(0.0, false));
   _opt_vec2_f32_ _cse1 = _opt_vec2_f32_(vec2(0.0, 0.0), false);
   _opt_f32_ _cse2 = _opt_f32_(0.0, false);
-  Hit _sm1_l_h = Hit(0.0, _cse1, _cse2);
-  float _sm1_l_b = dot(_sm1_a0, _cse0);
-  float _sm1_l_c = (dot(_sm1_a0, _sm1_a0) - 0.25);
-  float _sm1_l_disc = ((_sm1_l_b * _sm1_l_b) - _sm1_l_c);
-  _sm1_l_h.t = 1000.0;
-  _sm1_l_h.radius = _opt_f32_(0.5, true);
-  if ((_sm1_l_disc < 0.0)) {
-    _sm1_ret = _sm1_l_h;
+  Hit _i1_h = Hit(0.0, _cse1, _cse2);
+  float _i1_b = dot(_i1a0, _cse0);
+  float _i1_c = (dot(_i1a0, _i1a0) - 0.25);
+  float _i1_disc = ((_i1_b * _i1_b) - _i1_c);
+  _i1_h.t = 1000.0;
+  _i1_h.radius = _opt_f32_(0.5, true);
+  if ((_i1_disc < 0.0)) {
+    _i1ret = _i1_h;
   } else {
-    float _sm1_l_t = ((-_sm1_l_b) - sqrt(_sm1_l_disc));
-    if ((_sm1_l_t < 0.0)) {
-      _sm1_l_h.t = 0.0;
-      _sm1_ret = _sm1_l_h;
+    float _i1_t = ((-_i1_b) - sqrt(_i1_disc));
+    if ((_i1_t < 0.0)) {
+      _i1_h.t = 0.0;
+      _i1ret = _i1_h;
     } else {
-      _sm1_l_h.t = _sm1_l_t;
-      _sm1_l_h.normal = _opt_vec2_f32_(normalize((_sm1_a0 + (_cse0 * _sm1_l_t))), true);
-      _sm1_ret = _sm1_l_h;
+      _i1_h.t = _i1_t;
+      _i1_h.normal = _opt_vec2_f32_(normalize((_i1a0 + (_cse0 * _i1_t))), true);
+      _i1ret = _i1_h;
     }
   }
-  Hit hit = _sm1_ret;
+  Hit hit = _i1ret;
   Hit flat_ = Hit(uv.x, _cse1, _cse2);
   float r = shadeOf(hit, normalize(vec2(0.3, 1.0)));
   float g = shadeOf(flat_, _cse0);

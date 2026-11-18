@@ -114,12 +114,12 @@ void main() {
   vec2 origin = df64_mul(u.origin, vec2(2.5, 0.0), _fp64_g);
   float offset = (u.span * (uv.x - 0.5));
   vec2 _gv0 = df64_add(origin, vec2(offset, 0.0), _fp64_g);
-  vec2 _sm0_l_stripe = vec2(0.125, 0.0);
+  vec2 _i0_stripe = vec2(0.125, 0.0);
   float _cse1 = uintBitsToFloat(floatBitsToUint(0.0));
   vec2 _cse0 = vec2(_cse1, _cse1);
-  vec2 _sm0_ret = df64_fract(df64_div(df64_add(_gv0, _cse0, _fp64_g), df64_add(_sm0_l_stripe, _cse0, _fp64_g), _fp64_g), _fp64_g);
+  vec2 _i0ret = df64_fract(df64_div(df64_add(_gv0, _cse0, _fp64_g), df64_add(_i0_stripe, _cse0, _fp64_g), _fp64_g), _fp64_g);
   vec2 _lc1 = df64_round(df64_add(origin, _cse0, _fp64_g), _fp64_g);
-  float _gv1 = df64_narrow(vec2(_sm0_ret.x, _sm0_ret.y));
+  float _gv1 = df64_narrow(vec2(_i0ret.x, _i0ret.y));
   vec3 narrowed = vec3(0.0, df64_narrow(vec2(_lc1.x, _lc1.y)), 0.0);
   float flat_ = fract((df64_narrow(_gv0) * 8.0));
   float _sel0;

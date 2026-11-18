@@ -24,7 +24,7 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let cool = bands(v.uv, vec3<f32>(0.38, 0.6, 1.0), 10.0);
   let warm = bands(v.uv, WARM, 6.0);
   let mixed = mix(cool, warm, smoothstep(-1.0, 1.0, v.uv.x));
-  let _sm0_a0 = v.uv;
-  let lit = (mixed * (1.0 - (0.8 * smoothstep(0.0, 1.35, dot(_sm0_a0, _sm0_a0)))));
+  let _i0a0 = v.uv;
+  let lit = (mixed * (1.0 - (0.8 * smoothstep(0.0, 1.35, dot(_i0a0, _i0a0)))));
   return vec4<f32>(pow(max(lit, vec3<f32>(0.0)), vec3<f32>(0.45454545454545453)), 1.0);
 }

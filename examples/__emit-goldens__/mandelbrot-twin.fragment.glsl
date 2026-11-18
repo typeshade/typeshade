@@ -35,9 +35,9 @@ void main() {
   float m = dot(z, z);
   float sn = ((it - log2(max(log2(max(m, 1.0001)), 0.0001))) + 1.0);
   float inside = step(119.5, it);
-  float _sm0_a0 = ((sn * 0.035) + (U.time * 0.02));
-  vec3 _sm0_l_ph = vec3(0.0, 0.33, 0.67);
-  vec3 _sm0_ret = (vec3(0.5) + (cos(((_sm0_a0 + _sm0_l_ph) * 6.283)) * 0.5));
-  vec3 col = (_sm0_ret * (1.0 - inside));
+  float _i0a0 = ((sn * 0.035) + (U.time * 0.02));
+  vec3 _i0_ph = vec3(0.0, 0.33, 0.67);
+  vec3 _i0ret = (vec3(0.5) + (cos(((_i0a0 + _i0_ph) * 6.283)) * 0.5));
+  vec3 col = (_i0ret * (1.0 - inside));
   _ret = vec4(col, 1.0);
 }

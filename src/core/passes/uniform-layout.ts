@@ -354,7 +354,6 @@ export function padUniformArrays(m: ModuleDecl): ModuleDecl {
     name: wrapperName(arr.elem),
   });
 
-  /** The member expression retyped to the padded array it now holds. */
   const retypedMember = (e: Expr, arr: Extract<ShaderType, { kind: 'array' }>): Expr => ({
     ...e,
     ...(e.op === 'member' ? { base: rewrite(e.base) } : {}),

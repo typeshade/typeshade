@@ -22,12 +22,12 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let t = U.time;
   let res = U.resolution;
-  let _sm0_a0 = vo.uv;
-  let _sm0_l_asp = (res.x / res.y);
-  let _gv0 = (((_sm0_a0.x * 2.0) - 1.0) * _sm0_l_asp);
-  let _gv1 = ((_sm0_a0.y * 2.0) - 1.0);
-  let _sm0_ret = vec2<f32>(_gv0, _gv1);
-  let r = length(_sm0_ret);
+  let _i0a0 = vo.uv;
+  let _i0_asp = (res.x / res.y);
+  let _gv0 = (((_i0a0.x * 2.0) - 1.0) * _i0_asp);
+  let _gv1 = ((_i0a0.y * 2.0) - 1.0);
+  let _i0ret = vec2<f32>(_gv0, _gv1);
+  let r = length(_i0ret);
   let a = atan2(_gv1, _gv0);
   let depth = ((0.3 / max(r, 0.001)) + (t * 1.4));
   let ang = ((a / 3.14159265) + ((depth * U.twist) * 0.08));
