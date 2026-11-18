@@ -272,13 +272,10 @@ function emitLeaf(
       }
       return `${be.typeName(e.type)}(${e.args.map(r).join(', ')})`;
     }
-    // select(false, true, cond) — the writer owns the spelling (WGSL select() vs
-    // GLSL ternary). Args passed in WGSL's (false, true, cond) order.
     case 'select':
-      // A vector-of-bools condition picks per component; a target whose select is a ternary
-      // (GLSL ES 3.00) spells that through `vectorSelect`.
-      if (e.cond.type.kind === 'vec' && be.vectorSelect !== undefined) {
-        return be.vectorSelect(r(e.ifFalse), r(e.ifTrue), r(e.cond), e.type);
+      if (be.vectorSelect !== undefined) {
+        const perComponent = e.cond.type.kind === 'vec';
+        return be.vectorSelect(r(e.ifFalse), r(e.ifTrue), r(e.cond), e.type, perComponent);
       }
       return be.intrinsic('select', [r(e.ifFalse), r(e.ifTrue), r(e.cond)]);
     case 'index':

@@ -37,6 +37,7 @@
 // glsl.test.ts (string-shape: version pragma, std140 block + engine-matched
 // offsets, in/out varyings, main()) + the headless-WebGL2 gate cover the emit.
 
+import { glslSelect } from './glsl-select.js';
 import type {
   ShaderType,
   ModuleDecl,
@@ -663,8 +664,6 @@ export const glslEs300Backend: Backend = {
   typeName: glslType,
   literal: glslLit,
   intrinsic: (name, args) => spellIntrinsic('glsl', name, args),
-  // A vector comparison is a function in GLSL ES 3.00 (§8.7), and a per-component select is
-  // `mix` with a bvec for floats and a componentwise ternary for the rest (roadmap 0.2 item 7).
   vectorCompare: (cop, a, b) =>
     `${
       (
@@ -678,14 +677,7 @@ export const glslEs300Backend: Backend = {
         } as const
       )[cop]
     }(${a}, ${b})`,
-  vectorSelect: (ifFalse, ifTrue, cond, type) => {
-    if (type.kind === 'vec' && type.elem === 'f32') return `mix(${ifFalse}, ${ifTrue}, ${cond})`;
-    const n = type.kind === 'vec' ? type.n : 1;
-    const comps = ['x', 'y', 'z', 'w']
-      .slice(0, n)
-      .map((k) => `((${cond}).${k} ? (${ifTrue}).${k} : (${ifFalse}).${k})`);
-    return `${glslType(type)}(${comps.join(', ')})`;
-  },
+  vectorSelect: glslSelect(glslType),
   localLet: (name, type, init) => `${glslType(type)} ${name} = ${init}`,
   // A local with no initializer starts at its zero, as on WGSL and the CPU (Rule 7.6): GLSL
   // ES 3.00 leaves it undefined. The front end refuses a read before the assignment (TS8075),

@@ -88,7 +88,7 @@ void main() {
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
+  float _v2 = (_v1 - mix(1.0, 0.0, _cse0));
   float _v3 = ((_v2 - 0.5) * _v0);
   float _v4 = (((uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   float _v5 = 0.0;
@@ -144,7 +144,7 @@ void main() {
   float _v27 = sqrt(max(_v5, 1.0));
   float _v28 = (((_v27 * log(_v27)) * 0.5) / sqrt(max(_v6, 1e-30)));
   float _v29 = min((_v28 / (_v0 * 0.012)), 40.0);
-  float _v30 = ((_v5 > 1000000.0) ? 1.0 : 0.0);
+  float _v30 = mix(0.0, 1.0, (_v5 > 1000000.0));
   float _gv0 = (-_v29);
   float _v31 = (exp((_gv0 * 1.2)) * _v30);
   float _v32 = (exp((_gv0 * 0.25)) * _v30);

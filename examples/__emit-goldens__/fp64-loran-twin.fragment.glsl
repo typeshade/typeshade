@@ -78,7 +78,7 @@ vec2 df64_sqrt(vec2 a, float _fp64_g) {
   float _v3 = df64_sub(a, _v2, _fp64_g).x;
   vec2 _v4 = df64_twoProd((_v0 * 0.5), _v3, _fp64_g);
   vec2 _v5 = df64_add(vec2(_v1, 0.0), _v4, _fp64_g);
-  return ((a.x == 0.0) ? vec2(0.0, 0.0) : _v5);
+  return mix(_v5, vec2(0.0, 0.0), bvec2((a.x == 0.0)));
 }
 
 vec2 df64_floor(vec2 a, float _fp64_g) {
@@ -107,7 +107,7 @@ void main() {
   float span = pow(10.0, (-u.zoom_exp));
   float half_ = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float sx = (half_ - (_cse0 ? 0.0 : 1.0));
+  float sx = (half_ - mix(1.0, 0.0, _cse0));
   float dx = ((sx - 0.5) * span);
   float dy = (((uv.y - 0.5) * span) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool isF32 = (_cse0 || (u.fp64 < 0.5));
@@ -132,8 +132,8 @@ void main() {
   float d2f = length((pos32 - vec2(df64_narrow(_cse6), df64_narrow(_cse7))));
   float th32 = fract(((d1f - d2f) * 0.25));
   float te32 = fract(((d1f + d2f) * 0.0625));
-  float th = (isF32 ? th32 : th64);
-  float te = (isF32 ? te32 : te64);
+  float th = mix(th64, th32, isF32);
+  float te = mix(te64, te32, isF32);
   float dh = min(th, (1.0 - th));
   float de = min(te, (1.0 - te));
   float aaH = ((fwidth(dh) * 1.2) + 0.0001);

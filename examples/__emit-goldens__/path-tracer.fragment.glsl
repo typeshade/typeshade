@@ -32,9 +32,9 @@ vec3 trace(vec3 ro0, vec3 rd0, float seed0) {
       float _i0_b = dot(_i0_oc, rd);
       float _i0_c = (dot(_i0_oc, _i0_oc) - (_i0a0.radius * _i0a0.radius));
       float _i0_h = ((_i0_b * _i0_b) - _i0_c);
-      float _i0ret = ((_i0_h < 0.0) ? -1.0 : ((-_i0_b) - sqrt(_i0_h)));
+      float _i0ret = mix(((-_i0_b) - sqrt(_i0_h)), -1.0, (_i0_h < 0.0));
       bool _ifc0 = ((_i0ret > 0.001) && (_i0ret < tMin));
-      tMin = (_ifc0 ? _i0ret : tMin);
+      tMin = mix(tMin, _i0ret, _ifc0);
       hit = (_ifc0 ? i : hit);
     }
     if ((hit < 0)) {
@@ -52,7 +52,7 @@ vec3 trace(vec3 ro0, vec3 rd0, float seed0) {
     float _i1_r2 = fract((sin((seed + 17.13)) * 43758.5453123));
     float _i1_phi = (6.2831853 * _i1_r1);
     float _i1_r = sqrt(_i1_r2);
-    vec3 _i1_t = normalize(cross(((abs(n.x) > 0.9) ? _licm1 : _licm2), n));
+    vec3 _i1_t = normalize(cross(mix(_licm2, _licm1, bvec3((abs(n.x) > 0.9))), n));
     vec3 _i1_b = cross(n, _i1_t);
     vec3 _i1ret = normalize((((_i1_t * (cos(_i1_phi) * _i1_r)) + (_i1_b * (sin(_i1_phi) * _i1_r))) + (n * sqrt((1.0 - _i1_r2)))));
     rd = _i1ret;

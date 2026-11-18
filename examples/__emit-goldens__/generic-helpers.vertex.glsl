@@ -8,5 +8,5 @@ void main() {
   float[3] xs = float[3](-1.0, 3.0, -1.0);
   float[3] ys = float[3](-1.0, -1.0, 3.0);
   int i = int(vi);
-  gl_Position = vec4(((vi == 0u) ? xs[0] : xs[i]), ys[i], 0.0, 1.0);
+  gl_Position = vec4(mix(xs[i], xs[0], (vi == 0u)), ys[i], 0.0, 1.0);
 }

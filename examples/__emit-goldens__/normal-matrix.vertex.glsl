@@ -19,7 +19,7 @@ VsOut vs_impl(uint idx) {
   float y = ((float((idx >> 1u)) * 4.0) - 1.0);
   mat4 _i0a0 = u.model;
   mat3 n = mat3(_i0a0[0].xyz, _i0a0[1].xyz, _i0a0[2].xyz);
-  float handed = ((determinant(n) < 0.0) ? -1.0 : 1.0);
+  float handed = mix(1.0, -1.0, (determinant(n) < 0.0));
   vec3 normal = (n * vec3(0.0, 0.0, handed));
   return VsOut(vec4(x, y, 0.0, 1.0), vec2(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)), normal);
 }

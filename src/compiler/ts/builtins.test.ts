@@ -183,7 +183,7 @@ describe('select', () => {
     expect(withoutSpans(viaCall.funcs[0]!.body)).toEqual(withoutSpans(viaTernary.funcs[0]!.body));
   });
 
-  it('emits select in WGSL and the ternary in GLSL, and evaluates both arms', () => {
+  it('emits select in WGSL and mix in GLSL, and evaluates both arms', () => {
     const c = compile(`
       "use typeshade";
       export function f(a: f32, b: f32, c: bool): f32 {
@@ -192,7 +192,7 @@ describe('select', () => {
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.wgsl).toContain('select(a, b, c)');
-    expect(c.glsl?.fragment).toContain('(c ? b : a)');
+    expect(c.glsl?.fragment).toContain('mix(a, b, c)');
     expect(c.eval('f', [1, 2, true])).toBe(2);
     expect(c.eval('f', [1, 2, false])).toBe(1);
   });

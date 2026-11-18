@@ -55,6 +55,6 @@ void main() {
   }
   _opt3_f32_ value = _sel1;
   bool _gv0 = (value.present == false);
-  vec3 _i2ret = ((_gv0 && (value.isNull == false)) ? vec3(0.8, 0.1, 0.1) : ((_gv0 && value.isNull) ? vec3(0.1, 0.8, 0.1) : vec3(0.1, 0.1, value.value)));
+  vec3 _i2ret = mix(mix(vec3(0.1, 0.1, value.value), vec3(0.1, 0.8, 0.1), bvec3((_gv0 && value.isNull))), vec3(0.8, 0.1, 0.1), bvec3((_gv0 && (value.isNull == false))));
   color = vec4(_i2ret, 1.0);
 }

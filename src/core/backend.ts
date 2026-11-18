@@ -247,15 +247,15 @@ export interface Backend {
    *  (roadmap 0.2 item 7). WGSL has the operator form and omits this; GLSL ES 3.00 has only
    *  the functions `lessThan`, `equal` and their siblings, so the GLSL backend provides it. */
   readonly vectorCompare?: (cop: CmpOp, a: string, b: string) => string;
-  /** Optional. Spelling for `select(f, t, c)` when `c` is a vector of bools and the pick is
-   *  per component. WGSL's `select` takes it and omits this; GLSL ES 3.00's ternary does not,
-   *  so the GLSL backend spells `mix(f, t, c)` for a float vector and a componentwise ternary
-   *  otherwise. `type` is the type of the result. */
+  /** Optional. Spelling for `select(f, t, c)`, which evaluates both values; `perComponent` when
+   *  `c` is a vector of bools. WGSL's `select` omits this. GLSL ES 3.00 spells `mix(f, t, c)`
+   *  for a float result and a ternary otherwise. `type` is the type of the result. */
   readonly vectorSelect?: (
     ifFalse: string,
     ifTrue: string,
     cond: string,
     type: ShaderType,
+    perComponent: boolean,
   ) => string;
   /** Optional. A terminator written at the end of every `switch` case. WGSL cases do not
    *  fall through, so the WGSL backend omits this. GLSL follows C and does fall through, so

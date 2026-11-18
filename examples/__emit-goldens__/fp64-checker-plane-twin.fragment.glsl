@@ -67,7 +67,7 @@ void main() {
   float span = pow(10.0, (-u.zoom_exp));
   float half_ = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float sx = (half_ - (_cse0 ? 0.0 : 1.0));
+  float sx = (half_ - mix(1.0, 0.0, _cse0));
   float dx = ((sx - 0.5) * span);
   float dy = (((uv.y - 0.5) * span) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool isF32 = (_cse0 || (u.fp64 < 0.5));
@@ -85,9 +85,9 @@ void main() {
   float par32 = fract(((floor(px32) + floor(py32)) * 0.5));
   float fx32 = fract(px32);
   float fy32 = fract(py32);
-  float par = (isF32 ? par32 : par64);
-  float fx = (isF32 ? fx32 : fx64);
-  float fy = (isF32 ? fy32 : fy64);
+  float par = mix(par64, par32, isF32);
+  float fx = mix(fx64, fx32, isF32);
+  float fy = mix(fy64, fy32, isF32);
   float chk = step(0.25, par);
   float edge = min(min(fx, (1.0 - fx)), min(fy, (1.0 - fy)));
   float pixw = (span / (u.resolution.x * 0.5));

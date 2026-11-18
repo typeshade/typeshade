@@ -26,8 +26,8 @@ void main() {
   float a = uv.x;
   float b = uv.y;
   bool _ifc0 = (a > b);
-  float _ifc1 = (_ifc0 ? b : a);
-  b = (_ifc0 ? a : b);
+  float _ifc1 = mix(a, b, _ifc0);
+  b = mix(b, a, _ifc0);
   a = _ifc1;
   Ray r = Ray(vec2(0.0, 0.0), vec2(0.0, 0.0));
   r.origin = uv;

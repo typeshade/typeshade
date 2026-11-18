@@ -57,7 +57,7 @@ describe('a scalar conditional with a costly arm is an if, and a cheap one keeps
       'cheap(w)',
     );
     expect(r.wgsl).toMatch(/select\(\((\w+) \* 3\.0\), \(\1 \* 2\.0\), \(\1 > 0\.5\)\)/);
-    expect(r.glsl?.fragment).toMatch(/\((\w+) > 0\.5\) \? \(\1 \* 2\.0\) : \(\1 \* 3\.0\)/);
+    expect(r.glsl?.fragment).toMatch(/mix\(\((\w+) \* 3\.0\), \(\1 \* 2\.0\), \(\1 > 0\.5\)\)/);
   });
 
   it('eight operations in an arm reach the threshold; seven do not', () => {

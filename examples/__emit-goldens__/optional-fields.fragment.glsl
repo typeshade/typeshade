@@ -18,7 +18,7 @@ struct Hit {
   _opt_f32_ radius;
 };
 float shadeOf(Hit h, vec2 light) {
-  float _cse0 = (h.radius.present ? h.radius.value : 0.0);
+  float _cse0 = mix(0.0, h.radius.value, h.radius.present);
   if (h.normal.present) {
     return (max(dot(h.normal.value, light), 0.0) + (_cse0 * 0.1));
   }
@@ -33,10 +33,10 @@ float clampTo(float x, _opt_f32_ limit) {
 }
 
 float sampleAll(_opt_f32_[4] samples) {
-  float s_1 = (samples[0].present ? samples[0].value : 0.0);
-  float s_2 = (s_1 + (samples[1].present ? samples[1].value : 0.0));
-  float s_3 = (s_2 + (samples[2].present ? samples[2].value : 0.0));
-  float s_4 = (s_3 + (samples[3].present ? samples[3].value : 0.0));
+  float s_1 = mix(0.0, samples[0].value, samples[0].present);
+  float s_2 = (s_1 + mix(0.0, samples[1].value, samples[1].present));
+  float s_3 = (s_2 + mix(0.0, samples[2].value, samples[2].present));
+  float s_4 = (s_3 + mix(0.0, samples[3].value, samples[3].present));
   return s_4;
 }
 in vec2 uv;
