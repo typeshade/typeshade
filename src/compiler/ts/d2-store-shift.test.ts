@@ -36,14 +36,10 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
     ['(c << 31) / 2', 'c = 9;\n  return (c << 31) / 2;', 'u32', '/', 'u32', 1073741824],
     ['(c << 31) < vi', 'c = 9;\n  return ((c << 31) < vi) ? 1.0 : 0.0;', 'f32', '<', 'u32', 0],
   ] as const)(
-    'a written number stored in the variable is read on its u32 bits: %s',
+    'a written number stored in the variable is read on its u32 bits, and states no numbers: %s',
     (_, body, ret, at, type, value) => {
       const source = program(TREE + body, ret);
-      bothRefuse(
-        source,
-        'TS8003',
-        proven('c << 31', 2147483648, -2147483648, at, `${type}(c << 31)`),
-      );
+      bothRefuse(source, 'TS8003', unproven('c << 31', at, `${type}(c << 31)`));
       const wrapped = at === 'f32()' ? 'f32(i32(c << 31))' : `${type}(c << 31)`;
       const from = at === 'f32()' ? 'f32(c << 31)' : '(c << 31)';
       expect(run(source.replace(from, wrapped))).toBe(value);
@@ -226,5 +222,51 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
     );
     bothRefuse(source, 'TS8003', unproven(subject, 'f32()', `i32(${subject})`));
     expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(-536870912);
+  });
+
+  it.each([
+    [
+      'a *= K outside a loop',
+      'let a = (0xFFFFFFFF & 5);\n  a *= 0x40000000;\n  return f32(a);',
+      'a',
+      1073741824,
+      '',
+    ],
+    [
+      'a = a + K',
+      'let a = (0xF0000000|0);\n  a = a + 0x7FFFFFFF;\n  return f32(a + a);',
+      'a + a',
+      (((0xf0000000 | 0) + 0x7fffffff) * 2) | 0,
+      '',
+    ],
+    [
+      'two stores',
+      'let a = (0xF0000000|0);\n  a = a * 0x10000;\n  a = a + 1;\n  return f32(a);',
+      'a',
+      ((0xf0000000 | 0) * 0x10000 + 1) | 0,
+      '',
+    ],
+    [
+      'a store in a function a loop calls',
+      'for (let k = 0; k < 3; k++) {\n    bump();\n  }\n  return f32(g + g);',
+      'g + g',
+      0,
+      'let g = (0xF0000000|0);\nfunction bump() {\n  g = g * 0x10000;\n}\n',
+    ],
+  ] as const)(
+    'owner decision of 2026-11-18: a reassigned variable states no numbers: %s',
+    (_, body, subject, value, pre) => {
+      const source = program(body, 'f32', pre);
+      bothRefuse(source, 'TS8003', unproven(subject, 'f32()', `i32(${subject})`));
+      expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(value);
+    },
+  );
+
+  it('owner decision of 2026-11-18: a store in a for header states no numbers', () => {
+    const body =
+      'let t = (3000000000|0);\n  let s = 0.0;\n  for (let c = 1; i32(c) < 5; c = c * 3) {\n    let x = c ^ t;\n    s = s + f32(c << 31);\n  }\n  return s;';
+    const source = program(body, 'f32');
+    bothRefuse(source, 'TS8003', unproven('c << 31', 'f32()', 'i32(c << 31)'));
+    expect(run(source.replace('f32(c << 31)', 'f32(i32(c << 31))'))).toBe(-4294967296);
   });
 });

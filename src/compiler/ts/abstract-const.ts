@@ -70,7 +70,6 @@ import {
   regionOf,
   skipParenUp,
 } from './abstract-const/syntax-lookup.js';
-import { storedInLoop } from './abstract-const/trip-count.js';
 import { readingsSentenceOf } from './abstract-const/readings-sentence.js';
 import {
   READING_DEPTH,
@@ -87,7 +86,7 @@ import {
   mergedPicks,
   plainUnproven,
   provenDiffering,
-  markLooped,
+  markReassigned,
   readingValue,
   sameReadings,
   type Reading,
@@ -2301,9 +2300,9 @@ function declarationChange(name: string, at: ts.Node, type: string): SourceChang
  *  typed operand end it. `undefined` where the two agree. */
 export function twoReadingsOf(node: ts.Expression): TwoReadings | undefined {
   const xs = readingsFrom(node);
-  const proven = xs.find((x) => provenDiffering(x) && !x.looped);
+  const proven = xs.find((x) => provenDiffering(x) && !x.reassigned);
   if (proven !== undefined) return { u32: proven.u32, ts: proven.ts };
-  const unproven = xs.some((x) => x.unproven || (provenDiffering(x) && x.looped));
+  const unproven = xs.some((x) => x.unproven || (provenDiffering(x) && x.reassigned));
   return unproven ? { u32: NaN, ts: NaN, unproven: true } : undefined;
 }
 
@@ -3667,7 +3666,7 @@ function variableReadings(
     w.pending.set(v, []);
   }
   let settled = false;
-  const looped = storedInLoop(group, (v) => storesOf(v, sourceFile));
+  const reassigned = group.some((v) => storesOf(v, sourceFile).length > (v.initializer ? 1 : 0));
   for (let round = 0; round < READING_ROUNDS && !settled; round++) {
     settled = true;
     for (const v of group) {
@@ -3683,7 +3682,7 @@ function variableReadings(
     if (own.steps > READING_STEP_LIMIT) break;
   }
   for (const v of group) {
-    const found = markLooped(values.get(v)!, looped);
+    const found = markReassigned(values.get(v)!, reassigned);
     values.set(v, settled ? found : [...found, found.some((x) => x.tree) ? UNPROVEN : UNKNOWN]);
     w.pending.delete(v);
     own.deps.delete(v);
@@ -3944,7 +3943,7 @@ function builtinReadings(
       picks = [];
     }
     const tree = c.some((x) => x.tree);
-    const looped = c.some((x) => x.looped) ? { looped: true } : {};
+    const reassigned = c.some((x) => x.reassigned) ? { reassigned: true } : {};
     if (c.some((x) => x.unknown || x.unproven || x.agreeing)) {
       out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
     } else if (!tree) {
@@ -3952,10 +3951,10 @@ function builtinReadings(
         c.map((x) => x.ts),
         false,
       );
-      out.push({ u32: t, ts: t, tree: false, picks, ...looped });
+      out.push({ u32: t, ts: t, tree: false, picks, ...reassigned });
     } else {
       out.push({
-        ...looped,
+        ...reassigned,
         u32: apply(
           c.map((x) => x.u32 >>> 0),
           true,
@@ -4093,7 +4092,8 @@ function binaryReadingsOf(
         picks = [];
       }
       const tree = a.tree || b.tree;
-      const push = (r: Reading) => out.push(a.looped || b.looped ? { ...r, looped: true } : r);
+      const push = (r: Reading) =>
+        out.push(a.reassigned || b.reassigned ? { ...r, reassigned: true } : r);
       if (a.unknown || b.unknown || plainUnproven(a) || plainUnproven(b)) {
         out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
       } else if (a.unproven || b.unproven || a.agreeing || b.agreeing) {
