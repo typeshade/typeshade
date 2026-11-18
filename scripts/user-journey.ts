@@ -572,7 +572,7 @@ async function hostImport(
     // An emulated double is held to a double's reference: 1e-12 of the largest value. The filter
     // bank (change 0109) recurs through 16 samples, and a driver may fuse its multiply and add.
     const bound =
-      key === 'render' || key === 'residentRender'
+      key === 'render' || key === 'residentRender' || key === 'renderMade'
         ? 3 * 2 ** -11
         : key === 'glRender'
           ? 3 * 2 ** -10

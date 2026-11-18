@@ -21,6 +21,7 @@ export {
 } from './host-entry.js';
 export { callDraw, type FragmentEntry } from './host-draw.js';
 export { callKernel, type KernelFace, type KernelParam, type KernelLoop } from './host-kernel.js';
+export { callMadeKernel } from './host-kernel-made.js';
 export { configure } from './resident.js';
 // The type of a module's default export, its manifest (Rule 11.10), which the host view names.
 export type { Pack } from './manifest-types.js';

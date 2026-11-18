@@ -2,6 +2,7 @@
 import type { ConsoleLog } from '../../core/console.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
 import type { HostType } from '../../core/host-values.js';
+import { madeOf } from '../../core/kernel-made-face.js';
 import { type Pack } from '../../core/manifest.js';
 import { hostContentReads } from './host-content-access.js';
 import { type ClassExport, type FaceExport, type MemberCall } from './host-face-contracts.js';
@@ -160,7 +161,8 @@ export function moduleText(
       case 'kernel': {
         const id = `__ts_e${t++}`;
         const reads = `__ts_reads${t}`;
-        const ps = e.face.params.map((_, i) => `__ts_p${i}`);
+        const made = madeOf(e.face);
+        const ps = e.face.params.filter((p) => p.name !== made?.param).map((_, i) => `__ts_p${i}`);
         // A result `Buffer<S>` reads instances of `S`'s exported class (change 0138, Amendment
         // A12, Q6): the face is handed the classes' prototypes.
         const face =
@@ -171,7 +173,7 @@ export function moduleText(
           `const ${id} = ${face};`,
           `const ${reads} = ${JSON.stringify([...contentReads.get(e.face.fn)!.params])};`,
           ...callable(e.name, ps, [
-            `return ${RT}.callKernel(${MOD}, ${id}, arguments.length, [${ps.join(', ')}], ${reads});`,
+            `return ${RT}.${made === undefined ? 'callKernel' : 'callMadeKernel'}(${MOD}, ${id}, arguments.length, [${ps.join(', ')}], ${reads});`,
           ]),
         );
         break;

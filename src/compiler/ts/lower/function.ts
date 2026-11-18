@@ -167,6 +167,9 @@ import {
   skipParens,
 } from './function/return-checks.js';
 import { arrayLengthParameters, typeArgumentsFor } from './function/type-arguments.js';
+import { settleMadeArray } from './made-array/settle.js';
+import { pushDiag } from './push-diag.js';
+export { pushDiag };
 export { FRAGMENT_ONLY_CALLS, FRAGMENT_OR_COMPUTE_CALLS } from '../stage-restrictions.js';
 export {
   type F64IoPlace,
@@ -2544,9 +2547,10 @@ export function fillFunctionBody(
   // A function whose calls fixed its result lowers its body under a key of that result
   // (`setHomeTag`, change 0134).
   const home = homeTagOf(args[1]);
-  return home === undefined
-    ? unpeekedReads(() => fillFunctionBodyNow(...args))
-    : inCopy(home, () => unpeekedReads(() => fillFunctionBodyNow(...args)));
+  const fill = (): void => unpeekedReads(() => fillFunctionBodyNow(...args));
+  if (home === undefined) fill();
+  else inCopy(home, fill);
+  settleMadeArray(args[1], args[2], args[3]);
 }
 
 /** The statements of a body that would make two names of one object, each refused once (change
@@ -3062,14 +3066,4 @@ function resourceStructsOf(
   for (const b of bindings) see(b.type);
   for (const v of vars) see(v.type);
   return out;
-}
-
-export function pushDiag(
-  diagnostics: TsCompilerDiagnostic[],
-  sourceFile: ts.SourceFile,
-  node: ts.Node,
-  message: string,
-  code: TsCode,
-): void {
-  diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }
