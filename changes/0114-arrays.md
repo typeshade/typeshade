@@ -642,6 +642,37 @@ yet. Declare the type: const a: array<f32, 3> = [...].` (a bug fix under OD-9, i
 - Affects: the front matter (`surface` gains 26). No rule, code or stage changes.
 - Status: `status: accepted` does not change.
 
+### A5. The deviations of S5 slice 1 (2026-11-18)
+
+- [fact] Why. S5 slice 1 (pull request #1379, merged as `fad9fce`) differs from A1 in two
+  places, both recorded on #1379 as open deviations.
+- [decision, owner, 2026-11-18] "승인", to the agent's recommendation to make both part of the
+  approved text. Both are "not supported yet" refusals (OD-9).
+
+**1. A call inside `fuse()`.** A1 item 10 refuses, in both halves, the result passed to another
+call inside one fusion (Rule 11.13). A `fuse()` body is host code, which neither the compiler nor
+the language service reads, so no compile-time refusal can see it. Amended: a call of a kernel
+function that makes its result, made inside `fuse()`, throws a `TypeError` at the call:
+`render(): returns the array it makes, "out", and a call inside fuse() that makes its result is
+not supported yet. Call render() outside fuse().` Its face carries no fusion facts (Rule 11.13;
+surface §71).
+
+**2. Two more refusals.** Beyond the forms item 10 lists, slice 1 refuses as "not supported yet"
+(`TS8099`), in both halves:
+
+- a fill value (`new Array(n).fill(v)`) that reads an operand item 4 does not list;
+- a use of the new array other than an element read or write, `.length` and `return`, array
+  methods included.
+
+Each stays refused until a later slice implements it.
+
+- [fact] The third deviation recorded on #1379, `out.length` reading 1 when `n = 0`, was fixed
+  before the merge (`26e5b90f`): the body reads the length the host computed (A1 item 5).
+- Affects: section 2 (S5 items 10 and 11). No front-matter entry, rule number or code changes.
+- Status: `status: accepted` does not change. S5: slice 1 done (#1379); slice 2 (vector and
+  struct elements, a call on a resource, the WebGL2 and WebAssembly tiers) not started; plan unit
+  B8b not started.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`
