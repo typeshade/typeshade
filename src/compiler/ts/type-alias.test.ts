@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -26,7 +27,7 @@ ${body}
 const file = (head: string, body: string) => `"use typeshade"\n${head}${FS(body)}`;
 
 describe('a type alias is another name for its target', () => {
-  it('names a scalar, a vector and a bool vector, in a parameter and a return', () => {
+  itNoInlining('names a scalar, a vector and a bool vector, in a parameter and a return', () => {
     const r = compile(
       file(
         `type Meters = f32
@@ -55,18 +56,20 @@ function lit(m: Mask): bool {
     expect(r.wgsl).not.toContain('struct Color');
   });
 
-  it('names an array, a struct, and a lowercase name; and a chain of aliases resolves', () => {
-    const arr = compile(
-      file(
-        `type Grid = array<f32, 3>\n`,
-        `  const g: Grid = [1., 2., 3.]\n  return vec4(g[1], g[u32(uv.x)], 0., 1.)`,
-      ),
-    );
-    expect(arr.diagnostics).toEqual([]);
-    expect(arr.wgsl).toContain('array<f32, 3>');
-    const st = compile(
-      file(
-        `class P {
+  itNoInlining(
+    'names an array, a struct, and a lowercase name; and a chain of aliases resolves',
+    () => {
+      const arr = compile(
+        file(
+          `type Grid = array<f32, 3>\n`,
+          `  const g: Grid = [1., 2., 3.]\n  return vec4(g[1], g[u32(uv.x)], 0., 1.)`,
+        ),
+      );
+      expect(arr.diagnostics).toEqual([]);
+      expect(arr.wgsl).toContain('array<f32, 3>');
+      const st = compile(
+        file(
+          `class P {
   x: f32
   y: f32
 }
@@ -75,20 +78,21 @@ function first(p: Point): f32 {
   return p.x
 }
 `,
-        `  return vec4(first({ x: 1., y: 2. }), 0., 0., 1.)`,
-      ),
-    );
-    expect(st.diagnostics).toEqual([]);
-    expect(st.wgsl).toContain('fn first(p: P) -> f32 {');
-    const lower = compile(
-      file(
-        `type meters = f32\ntype far = meters\nfunction half(m: far): far {\n  return m * 0.5\n}\n`,
-        `  return vec4(half(2.), 0., 0., 1.)`,
-      ),
-    );
-    expect(lower.diagnostics).toEqual([]);
-    expect(lower.wgsl).toContain('fn half(m: f32) -> f32 {');
-  });
+          `  return vec4(first({ x: 1., y: 2. }), 0., 0., 1.)`,
+        ),
+      );
+      expect(st.diagnostics).toEqual([]);
+      expect(st.wgsl).toContain('fn first(p: P) -> f32 {');
+      const lower = compile(
+        file(
+          `type meters = f32\ntype far = meters\nfunction half(m: far): far {\n  return m * 0.5\n}\n`,
+          `  return vec4(half(2.), 0., 0., 1.)`,
+        ),
+      );
+      expect(lower.diagnostics).toEqual([]);
+      expect(lower.wgsl).toContain('fn half(m: f32) -> f32 {');
+    },
+  );
 
   it('stands wherever a type stands: a binding, a class field, a module const', () => {
     const r = compile(
@@ -110,7 +114,7 @@ const UNIT: Meters = 1.
     expect(r.wgsl).toContain('const UNIT: f32 = 1.0;');
   });
 
-  it('an object-type alias is still a struct, and a builtin name still wins', () => {
+  itNoInlining('an object-type alias is still a struct, and a builtin name still wins', () => {
     const r = compile(
       file(
         `type P = {

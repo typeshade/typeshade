@@ -2,9 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { compileTsSources } from './module.js';
 
 describe('compileTsSources symbols', () => {
-  // `symbols` spans are UTF-16 offsets into ONE file, and the result names no source file, so
-  // the only thing that makes them readable is the promise that the file is the entry. The
-  // caller's spelling of `entry` must not change which file that is.
   const a = {
     fileName: './a.ts',
     source:
@@ -25,7 +22,6 @@ describe('compileTsSources symbols', () => {
         'param:mb',
         'local:inB',
       ]);
-      // Every span indexes the ENTRY file's text, not the other file's.
       for (const s of r.symbols) {
         expect(b.source.slice(s.start, s.start + s.length)).toBe(s.name);
       }

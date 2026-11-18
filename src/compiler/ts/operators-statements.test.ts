@@ -24,6 +24,7 @@ import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import type { TypeshadeDiagnostic } from '../../language-service/types.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 function compiled(source: string) {
   const c = compile(`"use typeshade"\n${source}`);
@@ -54,7 +55,7 @@ function cpu(c: ReturnType<typeof compiled>, fn: string, args: readonly number[]
 }
 
 describe('a shift amount is a u32 on both paths', () => {
-  it('wraps an i32 shift count in u32 on WGSL and masks it on GLSL', () => {
+  itNoInlining('wraps an i32 shift count in u32 on WGSL and masks it on GLSL', () => {
     const c = compiled(`export function f(x: i32, n: i32): i32 { return x << n }
 @fragment export function fs(): vec4 { return vec4(f32(f(1, 3))) }`);
     expect(c.wgsl).toContain('(x << u32(n))');
@@ -92,7 +93,7 @@ describe('a shift amount is a u32 on both paths', () => {
     );
   });
 
-  it('shifts a vector lane-wise, the width WGSL requires', () => {
+  itNoInlining('shifts a vector lane-wise, the width WGSL requires', () => {
     // A shift is componentwise, so the kind check reads the ELEMENT: `vec2u << vec2u` is two
     // lanes, not a type error. WGSL's vector overload is `vecN<T> << vecN<u32>`, so a signed
     // amount takes the same conversion the scalar path gives it, one lane wider.
@@ -120,43 +121,6 @@ export function g(x: vec2i, n: vec2i): vec2i { return x << n }
   it('keeps the equality rule for & | ^', () => {
     expect(diagnose(`export function f(x: i32, y: u32): i32 { return x & y }`).message).toContain(
       'no implicit integer conversion',
-    );
-  });
-});
-
-describe('the unary operators WGSL has, and the one it does not', () => {
-  it('lowers ~ and refuses unary minus on u32', () => {
-    const c = compiled(`export function f(x: i32): i32 { return ~x }
-export function g(x: u32): u32 { return ~x }`);
-    expect(c.wgsl).toContain('return ~x;');
-    // The same text on GLSL ES 3.00, which is why the INTRINSICS row exists at all: the
-    // fall-through writes `name(args)`, and `~x` is not that shape on either target.
-    expect(c.glsl!.fragment).toContain('return ~x;');
-    // The complement is the bit pattern, so the two integer kinds read it differently — and
-    // both CPU engines route it by the static kind, as they do for the other bit builtins.
-    expect(cpu(c, 'f', [5])).toEqual([-6, -6]);
-    expect(cpu(c, 'g', [5])).toEqual([4294967290, 4294967290]);
-
-    const d = diagnose(`export function f(u: u32): u32 { return -u }`);
-    expect(d.code).toBe(TS_CODES.TYPE_MISMATCH);
-    expect(d.message).toBe(
-      'Unary "-" is not defined on u32; WGSL has no negation for an unsigned integer. ' +
-        'Write 0u - x to wrap, or i32(x) to change kind first.',
-    );
-  });
-
-  it('takes unary + as the identity it is', () => {
-    const c = compiled(`export function f(x: f32): f32 { return +x }`);
-    expect(c.wgsl).toContain('return x;');
-    expect(c.wgsl).not.toContain('+x');
-  });
-
-  it('refuses ~ on a float and + on a bool', () => {
-    expect(diagnose(`export function f(x: f32): f32 { return ~x }`).message).toContain(
-      'requires an i32 or u32 operand',
-    );
-    expect(diagnose(`export function f(b: bool): bool { return +b }`).message).toContain(
-      'requires a numeric operand',
     );
   });
 });

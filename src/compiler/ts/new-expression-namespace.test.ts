@@ -24,16 +24,10 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('a short name inside a namespace is the namespace’s, for a new and a type alike', () => {
-  // TypeScript resolves `P` inside `namespace N` to `N.P`, ahead of a top-level `P`, in a `new`
-  // and in a type annotation, and across the blocks of a merged namespace. Measured before this:
-  // the `new` built the top-level `P` (7) while the one below builds `N.P` (1); an annotation `P`
-  // there meant the top-level one, so `const p: P = new P()` was refused as a type mismatch;
-  // and a second block of `N` built the top-level `P` with no diagnostic at all.
   const TOP = `class P {\n  a: f32 = 7.\n}\n`;
   const values = (src: string, expected: number[]) => {
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
-    // Into a local, the constructor builds through a pointer (change 0105).
     expect(r.wgsl).toMatch(/N_P_new(_into)?\(/);
     agree(r, expected);
   };
@@ -82,11 +76,6 @@ describe('a short name inside a namespace is the namespace’s, for a new and a 
   itNoInlining(
     'a parameter P of a namespace function takes N.P, which a top-level P is not',
     () => {
-      // Before this `P` there was the top-level class, and `N.f(new P())` from outside compiled
-      // (7). It is `N.P` now, as TypeScript reads it, and the top-level `P` handed to it is a
-      // different struct, refused as two same-shaped classes are (Rule 12.7's nominal structs).
-      // TypeScript takes one for the other, so the sentence names both and says why; it said
-      // only "type mismatch".
       const called = file(
         `${TOP}namespace N {\n  export class P {\n    a: f32 = 1.\n  }\n  export function f(p: P): f32 {\n    return p.a\n  }\n}\n`,
         `  return vec4(N.f(new P()))`,
@@ -111,7 +100,6 @@ describe('a short name inside a namespace is the namespace’s, for a new and a 
   );
 
   itNoInlining('a field initializer that builds a sibling class of the namespace', () => {
-    // The initializer was dropped: `N_B_new` assigned nothing to `a`, and `new N.B().a.x` read 0.
     const r = compile(
       file(
         `namespace N {\n  export class A {\n    x: f32 = 1.\n  }\n  export class B {\n    a: A = new A()\n  }\n}\n`,
@@ -119,7 +107,6 @@ describe('a short name inside a namespace is the namespace’s, for a new and a 
       ),
     );
     expect(r.diagnostics).toEqual([]);
-    // B's constructor has A's constructor build the field in place (change 0104).
     expect(r.wgsl).toContain('N_A_new_into(&self_.a);');
     agree(r, [1, 1, 1, 1]);
   });

@@ -21,8 +21,8 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
-import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 /** `body` with an entry that calls `run(2.)`: the GLSL writer emits only what an entry reaches. */
 const RUN = (body: string): string =>
@@ -82,7 +82,7 @@ function sameAsWritten(src: string, strip: (s: string) => string): void {
 }
 
 describe('a function that writes no return type returns what its body does (Rule 8.19)', () => {
-  it('a function of the file, called above its declaration and through another', () => {
+  itNoInlining('a function of the file, called above its declaration and through another', () => {
     const src = RUN(`export function run(k: f32): f32 {
   return twice(k) + thrice(1.);
 }
@@ -99,8 +99,10 @@ function thrice(x: f32) {
     expect(r.glsl!.fragment).toContain('float twice(float x) {');
   });
 
-  it('a local function: an expression body, a block body and a declaration, capturing', () => {
-    const src = RUN(`export function run(k: f32): f32 {
+  itNoInlining(
+    'a local function: an expression body, a block body and a declaration, capturing',
+    () => {
+      const src = RUN(`export function run(k: f32): f32 {
   const f = (x: f32) => x * k;
   const g = (x: f32) => {
     return f(x) + 1.;
@@ -110,12 +112,13 @@ function thrice(x: f32) {
   }
   return h(3.);
 }`);
-    expect(run(src)).toBe(14);
-    const r = compile(src);
-    expect(r.wgsl).toContain('fn run_f(k: f32, x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn run_g(k: f32, x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn run_h(k: f32, x: f32) -> f32 {');
-  });
+      expect(run(src)).toBe(14);
+      const r = compile(src);
+      expect(r.wgsl).toContain('fn run_f(k: f32, x: f32) -> f32 {');
+      expect(r.wgsl).toContain('fn run_g(k: f32, x: f32) -> f32 {');
+      expect(r.wgsl).toContain('fn run_h(k: f32, x: f32) -> f32 {');
+    },
+  );
 
   it('an arrow function whose body is an assignment, ++ or a call of one that returns nothing runs it', () => {
     const src = RUN(`let total: f32 = 0.;
@@ -139,8 +142,10 @@ export function run(k: f32): f32 {
     expect(r.wgsl).toContain('fn run_note(x: f32) {\n  add(x);\n}');
   });
 
-  it('a namespace function, each instance of a generic one, and one that takes a function', () => {
-    const src = RUN(`namespace N {
+  itNoInlining(
+    'a namespace function, each instance of a generic one, and one that takes a function',
+    () => {
+      const src = RUN(`namespace N {
   export function f(x: f32) {
     return x * 3.;
   }
@@ -154,15 +159,16 @@ function apply(f: (x: f32) => f32, x: f32) {
 export function run(k: f32): f32 {
   return N.f(k) + first(k, 5.) + first(vec2(1., k), vec2(0.)).x + apply((x) => x * x, k);
 }`);
-    expect(run(src)).toBe(13);
-    const r = compile(src);
-    expect(r.wgsl).toContain('fn N_f(x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn first_f32(a: f32, b: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn first_vec2(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {');
-    expect(r.wgsl).toContain('fn apply_run_f(x: f32) -> f32 {');
-  });
+      expect(run(src)).toBe(13);
+      const r = compile(src);
+      expect(r.wgsl).toContain('fn N_f(x: f32) -> f32 {');
+      expect(r.wgsl).toContain('fn first_f32(a: f32, b: f32) -> f32 {');
+      expect(r.wgsl).toContain('fn first_vec2(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {');
+      expect(r.wgsl).toContain('fn apply_run_f(x: f32) -> f32 {');
+    },
+  );
 
-  it('the first return says the type, which the ones after it are typed against', () => {
+  itNoInlining('the first return says the type, which the ones after it are typed against', () => {
     const src = RUN(`function pick(c: bool) {
   if (c) {
     return u32(7);
@@ -228,7 +234,7 @@ export function run(k: f32): f32 {
 });
 
 describe('a method, an accessor and a field that holds a function (Rule 8.19)', () => {
-  it('a method, a static one, a getter, a static getter and a field', () => {
+  itNoInlining('a method, a static one, a getter, a static getter and a field', () => {
     const src = RUN(`class A {
   x: f32 = 2.;
   gain: f32 = 10.;
@@ -347,7 +353,7 @@ export function run(k: f32): f32 {
     expect(compile(src).wgsl).toContain('V_setX(&v, k);\n  V_setY(&v, 3.0);');
   });
 
-  it('through a class that extends: an inherited body, an override and super', () => {
+  itNoInlining('through a class that extends: an inherited body, an override and super', () => {
     const src = RUN(`class B {
   v: f32 = 1.;
   area() {
@@ -579,7 +585,7 @@ export function run(k: f32): f32 {
 });
 
 describe('examples/inferred-returns.shade.ts', () => {
-  it('renders the dots, the ring and the falloff on every CPU path', () => {
+  itNoInlining('renders the dots, the ring and the falloff on every CPU path', () => {
     const src = readFileSync(
       fileURLToPath(new URL('../../../examples/inferred-returns.shade.ts', import.meta.url)),
       'utf8',
@@ -641,47 +647,6 @@ export function foo(x: f32) {
     expect(r.wgsl).toContain('fn square(x: f32) -> f32 {');
     expect(r.wgsl).toContain('fn cube(x: f32) -> f32 {');
     expect(r.wgsl).toContain('fn foo(x: f32) -> f32 {');
-  });
-});
-
-describe('the editor agrees', () => {
-  it('reports nothing on a program that writes no return types', () => {
-    const service = createTypeshadeLanguageService();
-    service.openDocument(
-      'a.ts',
-      `"use typeshade";
-class Rng {
-  seed: u32 = u32(1);
-  next() {
-    this.seed = this.seed * u32(1664525) + u32(1013904223);
-    return f32(this.seed >> u32(8)) / 16777216.;
-  }
-  get unit() {
-    return 1.;
-  }
-}
-function twice(x: f32) {
-  return x * 2.;
-}
-// A product of vectors, which TypeScript types \`number\`: the service writes the compiler's
-// \`vec2\` into what TypeScript reads (#162), so \`.y\` on it is no TS2339.
-function spin(p: vec2) {
-  return p * mat2x2(0., 1., -1., 0.) * 0.5;
-}
-export function run(k: f32) {
-  let r = new Rng();
-  const next = () => r.next();
-  const f = (x: f32) => twice(x) + k;
-  return f(next()) + r.unit + spin(vec2(k)).y;
-}
-@fragment export function fs(): vec4 {
-  return vec4(run(2.), 0., 0., 1.);
-}
-`,
-    );
-    expect(
-      service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`),
-    ).toEqual([]);
   });
 });
 

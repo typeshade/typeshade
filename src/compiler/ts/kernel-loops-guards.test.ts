@@ -20,10 +20,6 @@ const edited = (body: string): string[] => {
 };
 
 describe('a read under a guard on the counter is checked over the iterations the guard keeps (#997)', () => {
-  // Rule 11.8, Rule 8.22: the call checks a read at `a*i + c` against the array's length before
-  // it dispatches (#655). It took the counter's whole range for the range of the read, so a loop
-  // that reads `xs` only under `if (i < 4)` was refused for the indices the guard keeps out, with
-  // a `TypeError` at the call and nothing in the compiler or the editor.
   const padTo = (
     guard: string,
     extra = '',
@@ -42,7 +38,6 @@ describe('a read under a guard on the counter is checked over the iterations the
   }
 }`;
 
-  /** The plan of the GPU loops, as the plugin writes it into the generated module. */
   const gpu = (body: string) => {
     const face = hostFace(module(body), { fileName: '/app/m.shade.ts' });
     const kernel = face.exports?.find((e) => e.kind === 'kernel');
@@ -82,7 +77,6 @@ describe('a read under a guard on the counter is checked over the iterations the
   });
 
   it('leaves out a bound the host cannot compute, which reads an element of an array', () => {
-    // The call knows an array by its length, so `ys[0]` is a number only the device holds.
     const body = padTo('i < ys[0]', ', ys: array<u32>');
     expect(compiled(body)).toEqual([]);
     expect(edited(body)).toEqual([]);

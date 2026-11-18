@@ -11,6 +11,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -37,7 +38,7 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('a spread in an object literal is the reads it stands for', () => {
-  it('with a field written over it, and alone', () => {
+  itNoInlining('with a field written over it, and alone', () => {
     const over = compile(
       file(PIO, `  const p: P = mk()\n  const q: P = { ...p, y: 9. }\n  return rgba(q)`),
     );
@@ -53,7 +54,7 @@ describe('a spread in an object literal is the reads it stands for', () => {
     agree(alone, [1, 2, 0, 1]);
   });
 
-  it('later wins, over a written field and over an earlier spread', () => {
+  itNoInlining('later wins, over a written field and over an earlier spread', () => {
     const after = compile(
       file(PIO, `  const p: P = mk()\n  const q: P = { y: 9., ...p }\n  return rgba(q)`),
     );
@@ -71,17 +72,19 @@ describe('a spread in an object literal is the reads it stands for', () => {
     agree(two, [7, 6, 0, 1]);
   });
 
-  it('takes the struct from the annotation, from the field names, and from a nested read', () => {
-    // No annotation: the names the spread brings in are what matches the struct.
-    const inferred = compile(
-      file(PIO, `  const p: P = mk()\n  const q = { ...p, y: 9. }\n  return rgba(q)`),
-    );
-    expect(inferred.diagnostics).toEqual([]);
-    expect(inferred.wgsl).toContain('var q: P = P(p.x, 9.0);');
-    agree(inferred, [1, 9, 0, 1]);
-    const nested = compile(
-      file(
-        `class Inner {
+  itNoInlining(
+    'takes the struct from the annotation, from the field names, and from a nested read',
+    () => {
+      // No annotation: the names the spread brings in are what matches the struct.
+      const inferred = compile(
+        file(PIO, `  const p: P = mk()\n  const q = { ...p, y: 9. }\n  return rgba(q)`),
+      );
+      expect(inferred.diagnostics).toEqual([]);
+      expect(inferred.wgsl).toContain('var q: P = P(p.x, 9.0);');
+      agree(inferred, [1, 9, 0, 1]);
+      const nested = compile(
+        file(
+          `class Inner {
   a: f32
   b: f32
 }
@@ -96,15 +99,16 @@ function rgba(q: Inner, k: f32): vec4 {
   return vec4(q.a, q.b, k, 1.)
 }
 `,
-        `  const o: Outer = mk()\n  const q: Inner = { ...o.i, b: 9. }\n  return rgba(q, o.k)`,
-      ),
-    );
-    expect(nested.diagnostics).toEqual([]);
-    expect(nested.wgsl).toContain('var q: Inner = Inner(o.i.a, 9.0);');
-    agree(nested, [1, 9, 3, 1]);
-  });
+          `  const o: Outer = mk()\n  const q: Inner = { ...o.i, b: 9. }\n  return rgba(q, o.k)`,
+        ),
+      );
+      expect(nested.diagnostics).toEqual([]);
+      expect(nested.wgsl).toContain('var q: Inner = Inner(o.i.a, 9.0);');
+      agree(nested, [1, 9, 3, 1]);
+    },
+  );
 
-  it('fills part of a bigger struct, the rest written', () => {
+  itNoInlining('fills part of a bigger struct, the rest written', () => {
     const r = compile(
       file(
         `class Small {

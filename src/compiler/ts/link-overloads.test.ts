@@ -4,20 +4,17 @@ import { linkProgram } from './link.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import type { TypeshadeDiagnostic } from '../../language-service/types.js';
 
-/** A program: file path to text, the entry first. */
 type Files = Readonly<Record<string, string>>;
 
 const D = '"use typeshade";\n';
 
 const entryOf = (files: Files): string => Object.keys(files)[0]!;
 
-/** `compile()` of the entry, reading the rest of the program from `files`. */
 const compiled = (files: Files) => {
   const entry = entryOf(files);
   return compile(files[entry]!, { fileName: entry, readDocument: (f) => files[f] });
 };
 
-/** The editor's merged list for the entry, the other files read through the host. */
 const edited = (files: Files, uri = entryOf(files)) => {
   const service = createTypeshadeLanguageService({ readDocument: (u) => files[u] });
   service.openDocument(uri, files[uri]!);
@@ -30,10 +27,6 @@ const errorsOf = (files: Files): string[] =>
     .map((d) => `${d.fileName}:${d.line}:${d.character} ${d.code} ${d.message}`);
 
 describe('an overloaded function is imported whole (Rule 3.9, Rule 12.7, #1195)', () => {
-  // A function's overload signatures are statements of their own above the one with the body.
-  // The linker kept the first statement that declares the name, a signature, and left out the
-  // implementation, so the front end read a function with no body (TS8020). Each program here
-  // is the one-file program split in two, read by both halves on the same files.
   const LUM =
     'export function lum(c: vec3): f32;\n' +
     'export function lum(c: vec3): f32;\n' +
@@ -102,8 +95,6 @@ describe('an overloaded function is imported whole (Rule 3.9, Rule 12.7, #1195)'
       expect(r.wgsl).toBe(one.wgsl);
       expect(r.glsl).toEqual(one.glsl);
       expect(r.module.funcs.map((f) => f.name)).toEqual(['lum', 'fs']);
-      // Every statement of the function is in the linked source, and each keeps `export` only
-      // where the entry exports the function again, as TypeScript requires of overloads.
       const kept = name === 'the entry exporting it again' ? 'export ' : '';
       expect(linkedSource(files)).toContain(
         `${kept}function lum(c: vec3): f32;\n${kept}function lum(c: vec3): f32;\n` +
@@ -138,7 +129,6 @@ describe('an overloaded function is imported whole (Rule 3.9, Rule 12.7, #1195)'
   });
 
   it('two implementations of one name in an imported file are TS8023, as they are in one file', () => {
-    // Before the fix the module held the first one alone, and the program compiled.
     const twice =
       'export function lum(c: vec3): f32 {\n  return c.x;\n}\n' +
       'export function lum(c: vec3): f32 {\n  return c.y;\n}\n';
@@ -186,8 +176,6 @@ describe('an overloaded function is imported whole (Rule 3.9, Rule 12.7, #1195)'
   });
 
   it("drops `export` from every signature of an entry's function the module renames", () => {
-    // `lib` calls the builtin `fract`, so the entry's own `fract` is emitted under another name
-    // and exported by the name the host reads.
     const files: Files = {
       '/p/main.shade.ts': `${D}import { g } from "./lib.shade.ts";\nexport function fract(x: f32): f32;\nexport function fract(x: f32): f32 {\n  return x + g();\n}\n`,
       '/p/lib.shade.ts': `${D}export function g(): f32 {\n  return fract(1.5);\n}\n`,
@@ -210,8 +198,6 @@ describe('an overloaded function is imported whole (Rule 3.9, Rule 12.7, #1195)'
     expect(compiled(files).eval('main_fract', [2])).toBe(2.5);
   });
 
-  // The neighbours stay refused, with the code and the sentence of the one-file program
-  // (Rule 12.5), in `compile()` and in the editor on the file that declares the function.
   const SENTENCE = 'Function "lum" needs a body (no ambient declarations).';
   const typeshadeOf = (list: readonly TypeshadeDiagnostic[]): string[] =>
     list.filter((d) => d.source === 'typeshade').map((d) => `${d.code} ${d.message}`);

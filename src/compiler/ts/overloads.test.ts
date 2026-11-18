@@ -15,6 +15,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -28,7 +29,7 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('an overload signature is skipped and the implementation is lowered', () => {
-  it('once, however many signatures stand above it', () => {
+  itNoInlining('once, however many signatures stand above it', () => {
     const r = compile(`"use typeshade";
 export function lum(c: vec3): f32;
 export function lum(c: vec3): f32;
@@ -46,7 +47,7 @@ export function lum(c: vec3): f32 {
     agree(r, [0.2126, 0, 0, 1]);
   });
 
-  it('inside a namespace, under the flattened name', () => {
+  itNoInlining('inside a namespace, under the flattened name', () => {
     const r = compile(`"use typeshade";
 namespace Color {
   export function lum(c: vec3): f32;
@@ -63,7 +64,7 @@ namespace Color {
     agree(r, [0.7152, 0, 0, 1]);
   });
 
-  it('on a method, a static function and a constructor', () => {
+  itNoInlining('on a method, a static function and a constructor', () => {
     const r = compile(`"use typeshade";
 class C {
   x: f32;

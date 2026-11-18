@@ -40,8 +40,6 @@ class Derived extends Base {
       ),
     );
     expect(r.diagnostics).toEqual([]);
-    // One function per class, each typed on its own struct: WGSL has no vtable.
-    // `d` is a `var` (change 0105), so the derived copy takes it by pointer.
     expect(r.wgsl).toContain('fn Derived_twice(self_: ptr<function, Derived>) -> f32 {');
     expect(r.wgsl).toContain('fn Base_twice(self_: Base) -> f32 {');
     agree(r, [2, 3, 0, 1]);
@@ -76,7 +74,6 @@ class Circle extends Shape {
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('return (Square_area(self_) * (*self_).k);');
     expect(r.wgsl).toContain('return (Circle_area(self_) * (*self_).k);');
-    // An abstract class is a base and never a value: no instance method of its own.
     expect(r.wgsl).not.toContain('fn Shape_scaled');
     agree(r, [18, 12, 0, 1]);
   });

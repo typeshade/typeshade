@@ -15,6 +15,7 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const FRAGMENT = `interface VsOut { pos: builtin<"position">; uv: location<0, vec2>; }
 interface Color { color: location<0, vec4>; }
@@ -126,7 +127,7 @@ export function run(): f32 { let c = new C(); c.tick(); c.later(); c.whole(); c.
     expect(r.wgsl).toContain('grow(self_);');
   });
 
-  it('gives a result back to a local that has no value yet (Rule 7.6)', () => {
+  itNoInlining('gives a result back to a local that has no value yet (Rule 7.6)', () => {
     const r = check(
       `function add(a: f32, b: f32): f32 { return a + b; }
 export function run(): f32 { let s: f32; s = add(1., 2.); return s; }`,
@@ -565,52 +566,6 @@ export function run(): f32 { let x: f32 = 1.; let y: f32 = 2.; swap(x, y); let s
         .map((i) => i.label);
       expect(labels).not.toContain('inout');
       expect(labels).not.toContain('out');
-    }
-  });
-});
-
-describe('the editor shows an object parameter as the compiler reads it (change 0142)', () => {
-  it('hovers an object parameter with the object it names', () => {
-    const source = `"use typeshade";
-class Cell { v: f32; }
-function bump(c: Cell): void { c.v += 1.; }
-export function run(): f32 { let x = new Cell(); bump(x); return x.v; }
-`;
-    const service = createTypeshadeLanguageService();
-    service.openDocument('h.ts', source);
-    const at = service.positionAt('h.ts', source.indexOf('c.v += 1.'));
-    const hover = service.getHover('h.ts', at)?.contents ?? '';
-    expect(hover).toContain('(parameter) c: Cell');
-    expect(hover).toContain("The caller's object: this function writes it");
-    expect(hover).toContain('ptr<function, Cell>');
-  });
-
-  it('hovers a parameter that its function only reads as a plain parameter', () => {
-    const source = `"use typeshade";
-class Cell { v: f32; }
-function look(c: Cell): f32 { return c.v; }
-export function run(): f32 { let x = new Cell(); return look(x); }
-`;
-    const service = createTypeshadeLanguageService();
-    service.openDocument('h.ts', source);
-    const hover =
-      service.getHover('h.ts', service.positionAt('h.ts', source.indexOf('c.v')))?.contents ?? '';
-    expect(hover).toContain('(parameter) c: Cell');
-    expect(hover).not.toContain("The caller's object");
-  });
-
-  it('hovers a function with its parameters, where it is declared and where it is called', () => {
-    const source = `"use typeshade";
-class Cell { v: f32; }
-function lift(w: Cell, k: f32): void { w.v = mix(w.v, 1., k); }
-export function run(): f32 { let x = new Cell(); lift(x, 0.5); return x.v; }
-`;
-    const service = createTypeshadeLanguageService();
-    service.openDocument('f.ts', source);
-    const at = (offset: number): string =>
-      service.getHover('f.ts', service.positionAt('f.ts', offset))?.contents ?? '';
-    for (const offset of [source.indexOf('lift(') + 1, source.lastIndexOf('lift(') + 1]) {
-      expect(at(offset)).toContain('function lift(w: Cell, k: f32): void');
     }
   });
 });

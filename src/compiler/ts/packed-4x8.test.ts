@@ -22,6 +22,7 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { reflect } from '../../core/reflect.js';
 import { BUILTINS } from '../../core/cpu-runtime.js';
 import { bothHalves } from '../../core/testing/both-halves.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 function editorAgrees(source: string): ReturnType<typeof compileTsSource> {
   const r = compileTsSource(source);
@@ -186,7 +187,7 @@ declare const out: storage<array<u32>, "read_write">;
     );
   });
 
-  it('keeps the call for a file that declares its own function of the name', () => {
+  itNoInlining('keeps the call for a file that declares its own function of the name', () => {
     // The additivity rule: each of the eight was an ordinary unknown name before this item, so
     // a program that already defined one must still call its own.
     const r = compile(`"use typeshade";

@@ -14,6 +14,7 @@ import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const source = (body: string): string => `"use typeshade";\n${body}\n`;
 
@@ -62,21 +63,24 @@ describe('a multi-component swizzle target (change 0106)', () => {
     expect(run(result, 'f')).toEqual([6, 6, 4, 1.5]);
   });
 
-  it('emits a let and one write per component on WGSL and GLSL ES 3.00, with no extension', () => {
-    const { result } = bothHalves(REGRESSIONS);
-    const wgsl = result.wgsl ?? '';
-    expect(wgsl).not.toContain('swizzle_assignment');
-    const f = fnText(wgsl, 'fn f(');
-    expect(f).not.toMatch(/\.(xy|yx)\s*[*+\-/]?=/);
-    expect(f).toMatch(/let (_sw\w*) = \(d\.xy \* d\.yx\);\s*d\.x = \1\.x;\s*d\.y = \1\.y;/);
-    expect(f).toMatch(
-      /let (_sw\w*) = \(e\.yx \* vec2<f32>\(0\.5, 2\.0\)\);\s*e\.y = \1\.x;\s*e\.x = \1\.y;/,
-    );
-    const glsl = result.glsl?.fragment ?? '';
-    const g = fnText(glsl, 'vec4 f(');
-    expect(g).not.toMatch(/\.(xy|yx)\s*[*+\-/]?=/);
-    expect(g).toMatch(/d\.x = \w+\.x;/);
-  });
+  itNoInlining(
+    'emits a let and one write per component on WGSL and GLSL ES 3.00, with no extension',
+    () => {
+      const { result } = bothHalves(REGRESSIONS);
+      const wgsl = result.wgsl ?? '';
+      expect(wgsl).not.toContain('swizzle_assignment');
+      const f = fnText(wgsl, 'fn f(');
+      expect(f).not.toMatch(/\.(xy|yx)\s*[*+\-/]?=/);
+      expect(f).toMatch(/let (_sw\w*) = \(d\.xy \* d\.yx\);\s*d\.x = \1\.x;\s*d\.y = \1\.y;/);
+      expect(f).toMatch(
+        /let (_sw\w*) = \(e\.yx \* vec2<f32>\(0\.5, 2\.0\)\);\s*e\.y = \1\.x;\s*e\.x = \1\.y;/,
+      );
+      const glsl = result.glsl?.fragment ?? '';
+      const g = fnText(glsl, 'vec4 f(');
+      expect(g).not.toMatch(/\.(xy|yx)\s*[*+\-/]?=/);
+      expect(g).toMatch(/d\.x = \w+\.x;/);
+    },
+  );
 
   it('takes = and each compound operator, with a vector or a scalar on the right', () => {
     const { compiled, result } = bothHalves(`export function f(): vec4f {

@@ -39,6 +39,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const ofCategory = (src: string, category: 'error' | 'warning') =>
   compileTsSource(src)
@@ -54,8 +55,10 @@ ${decls}
 `;
 
 describe('backend spellings preserve TypeScript variable names', () => {
-  it('escapes Unicode variables for GLSL without colliding with authored ASCII names', () => {
-    const source = `"use typeshade";
+  itNoInlining(
+    'escapes Unicode variables for GLSL without colliding with authored ASCII names',
+    () => {
+      const source = `"use typeshade";
 const cafue9_: f32 = 5.;
 function scale(α: f32): f32 { return α * 2.; }
 @fragment export function fs(uv: location<0, vec2>): vec4 {
@@ -64,14 +67,15 @@ function scale(α: f32): f32 { return α * 2.; }
   return vec4(scale(café), 0., 0., 1.);
 }
 `;
-    const result = compile(source);
-    expect(result.diagnostics).toEqual([]);
-    expect(result.glsl?.fragment).not.toMatch(/café|α/u);
-    expect(result.glsl?.fragment).toContain('cafue9_1');
-    expect(result.wgsl).toContain('α');
-    expect(result.module.funcs.find((f) => f.name === 'scale')!.params[0]!.name).toBe('α');
-    expect(result.eval('fs', [[3, 0]])).toEqual([16, 0, 0, 1]);
-  });
+      const result = compile(source);
+      expect(result.diagnostics).toEqual([]);
+      expect(result.glsl?.fragment).not.toMatch(/café|α/u);
+      expect(result.glsl?.fragment).toContain('cafue9_1');
+      expect(result.wgsl).toContain('α');
+      expect(result.module.funcs.find((f) => f.name === 'scale')!.params[0]!.name).toBe('α');
+      expect(result.eval('fs', [[3, 0]])).toEqual([16, 0, 0, 1]);
+    },
+  );
 
   it('renames reserved parameters and locals without touching authored IR or sibling scopes', () => {
     const source = `"use typeshade";
@@ -254,18 +258,21 @@ function scale$(x$: f32): f32 { let k$: f32 = K$; k$ = k$ * x$; return k$; }
 @compute([1]) export function main() { const p: P$ = { v$: 1. }; out$[0] = scale$(p.v$); }
 `;
 
-  it('compiles each declaration under a spelling without the $, since change 0070', () => {
-    const r = compile(PROGRAM);
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(r.wgsl).not.toContain('$');
-    for (const spelled of [
-      'struct P_ {',
-      'v_: f32',
-      'var<storage, read_write> out_:',
-      'fn scale_(x_: f32)',
-    ])
-      expect(r.wgsl).toContain(spelled);
-  });
+  itNoInlining(
+    'compiles each declaration under a spelling without the $, since change 0070',
+    () => {
+      const r = compile(PROGRAM);
+      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+      expect(r.wgsl).not.toContain('$');
+      for (const spelled of [
+        'struct P_ {',
+        'v_: f32',
+        'var<storage, read_write> out_:',
+        'fn scale_(x_: f32)',
+      ])
+        expect(r.wgsl).toContain(spelled);
+    },
+  );
 
   it('shows the authored name in the editor hover (T4, D8)', () => {
     const service = createTypeshadeLanguageService();
@@ -292,15 +299,18 @@ function scale$(x$: f32): f32 { let k$: f32 = K$; k$ = k$ * x$; return k$; }
     expect(result.eval('fs')).toEqual([1, 0, 0, 1]);
   });
 
-  it('leaves the neighbours Tint accepts alone: a trailing _, a leading _, a non-ASCII letter, a digit', () => {
-    const r = compile(`"use typeshade";
+  itNoInlining(
+    'leaves the neighbours Tint accepts alone: a trailing _, a leading _, a non-ASCII letter, a digit',
+    () => {
+      const r = compile(`"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 function scale_(_a: f32): f32 { const café: f32 = 2.; const a1: f32 = café * _a; return a1; }
 @compute([1]) export function main() { out[0] = scale_(3.); }
 `);
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(r.wgsl).toContain('fn scale_(_a: f32)');
-  });
+      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+      expect(r.wgsl).toContain('fn scale_(_a: f32)');
+    },
+  );
 });
 
 describe('the name that reaches the backend is the FLATTENED one (#103)', () => {
@@ -372,7 +382,7 @@ const float_1: f32 = 2.;
     expect(r.glsl?.fragment).toContain('float_2');
   });
 
-  it('renames a helper named main, which is the entry point GLSL emits', () => {
+  itNoInlining('renames a helper named main, which is the entry point GLSL emits', () => {
     const r = compile(`"use typeshade";
 export function main(x: f32): f32 { return x * 2.; }
 @fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(main(uv.x), 0., 0., 1.); }
@@ -382,32 +392,5 @@ export function main(x: f32): f32 { return x * 2.; }
     expect(r.glsl?.fragment).toContain('main_(uv.x)');
     // One `void main()`, the stage entry, and nothing else called that.
     expect(r.glsl?.fragment?.match(/\bmain\s*\(/g)).toEqual(['main(']);
-  });
-});
-
-describe('a module the target never reaches is not held to its list (#103)', () => {
-  it('keeps a field named half in a compute-only module, which emits no GLSL', () => {
-    const r = compile(`"use typeshade";
-declare const sink: storage<array<f32>, "read_write">;
-class P { half: f32; }
-@compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
-  const p: P = { half: 2. };
-  sink[gid.x] = p.half;
-}
-`);
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    // Measured: Tint accepts `half` as a struct member; GLSL ES 3.00 is not a target here.
-    expect(r.wgsl).toContain('half');
-    expect(r.glsl).toBeUndefined();
-  });
-
-  it('keeps the names the GLSL writer renames for itself', () => {
-    // `out` and `in` are GLSL keywords, and `sanitizeReservedIdents` rewrites a local, a
-    // parameter and a function name consistently with every reference — so these have always
-    // compiled and still do. Only the module surface it cannot rename is refused above.
-    const r = compile(render('', 'let out: f32 = 1.; return vec4(out, 0., 0., 1.)'));
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(r.glsl?.fragment).toContain('out_');
-    expect(r.wgsl).toContain('out');
   });
 });

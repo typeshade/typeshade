@@ -16,6 +16,7 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const BIG = `class Big {
   a: vec4f; b: vec4f; xs: array<vec4f, 4>;
@@ -66,7 +67,7 @@ function runs(body: string, expected: number) {
 }
 
 describe('WGSL reads a place in place', () => {
-  it('a let local is handed by pointer, and a pointer is handed on', () => {
+  itNoInlining('a let local is handed by pointer, and a pointer is handed on', () => {
     const { wgsl, glsl } = runs(
       `${BIG}
 function run(): f32 {
@@ -85,7 +86,7 @@ function run(): f32 {
     expect(glsl).toContain('float Big_twice(Big self_, int i)');
   });
 
-  it('a module variable is handed by pointer, and GLSL reads it by name', () => {
+  itNoInlining('a module variable is handed by pointer, and GLSL reads it by name', () => {
     const { wgsl, glsl } = runs(
       `${BIG}
 let G: Big;
@@ -106,7 +107,7 @@ function run(): f32 {
     expect(glsl).not.toContain('inout');
   });
 
-  it('a uniform and a storage element are handed by pointer in their own space', () => {
+  itNoInlining('a uniform and a storage element are handed by pointer in their own space', () => {
     const { wgsl, glsl } = emit(`${BIG}
 class P { a: vec4f; sum(): f32 { return this.a.x; } }
 const U = uniform<Big>();
@@ -124,7 +125,7 @@ const R = storage<array<P>>();
     expect(glsl).not.toMatch(/Big_value\(U\./);
   });
 
-  it('a method on an emulated storage element compiles for WebGL2', () => {
+  itNoInlining('a method on an emulated storage element compiles for WebGL2', () => {
     const { wgsl, glsl } = emit(`class P { a: vec4f; b: vec4f;
   sum(): f32 { return this.a.x + this.b.y; }
   twice(): f32 { return this.sum() * 2.; } }
@@ -139,7 +140,7 @@ const R = storage<array<P>>();
     expect(glsl).toContain('P_sum_R_at((i + 1u))');
   });
 
-  it('a struct argument of a plain function is handed by pointer', () => {
+  itNoInlining('a struct argument of a plain function is handed by pointer', () => {
     const { wgsl } = runs(
       `class Rect { w: f32; h: f32; }
 function area(r: Rect): f32 { return r.w * r.h; }
@@ -208,7 +209,7 @@ export function run(): f32 {
     );
   });
 
-  it('shared memory read across a barrier is copied', () => {
+  itNoInlining('shared memory read across a barrier is copied', () => {
     const r = compile(`"use typeshade";
 class Cell { a: f32; }
 let tile: workgroup<Cell>;

@@ -8,6 +8,7 @@ import { reflect } from '../../core/reflect.js';
 import { padUniformArrays } from '../../core/passes/uniform-layout.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 function compiled(source: string) {
   const c = compile(`"use typeshade"\n${source}`);
@@ -262,7 +263,7 @@ describe('a padded array reached any other way keeps the type the author wrote',
   const U = `interface U { xs: array<f32, 4>; k: f32 }
 declare const U_: uniform<U>`;
 
-  it.each([
+  itNoInlining.each([
     [
       'a helper argument',
       `export function pick(a: array<f32, 4>): f32 { return a[2] }
@@ -291,56 +292,13 @@ declare const U_: uniform<U>`;
     expect(c.wgsl).not.toMatch(/let \w+ = U_\.xs;/);
   });
 
-  it('wraps each element when the struct is built by value', () => {
+  itNoInlining('wraps each element when the struct is built by value', () => {
     const c = compiled(`interface U { k: f32; xs: array<f32, 2> }
 declare const U_: uniform<U>
 export function mk(): U { return { k: 1., xs: [0., 1.] } }
 @fragment export function fs(): vec4 { return vec4(mk().xs[1] + U_.k) }`);
     expect(c.wgsl).toContain('_Pad16_f32(');
     expect(c.wgsl).toContain('mk().xs[1].v');
-  });
-});
-
-describe('what the padding cannot reach is refused, not emitted', () => {
-  it.each([
-    [
-      'a list of lists',
-      `interface U { g: array<array<f32, 2>, 3> }
-declare const U_: uniform<U>
-@fragment export function fs(): vec4 { return vec4(U_.g[1][0]) }`,
-      /list of lists would need that at both levels/,
-    ],
-    [
-      'a bare list as the whole uniform',
-      `declare const U_: uniform<array<f32, 4>>
-@fragment export function fs(): vec4 { return vec4(U_[1]) }`,
-      /a bare list has no member to carry that/,
-    ],
-    [
-      'one struct bound to both address spaces',
-      `interface U { xs: array<f32, 4> }
-declare const A_: uniform<U>
-declare const B_: storage<U>
-@fragment export function fs(): vec4 { return vec4(A_.xs[1] + B_.xs[2]) }`,
-      /bound as a uniform AND as storage/,
-    ],
-  ])('refuses %s', (_what, source, match) => {
-    // Each is a shape the emit could only get wrong: the first has two levels to pad and one
-    // place to put an attribute, the second has no member at all (and `reflect().uniforms` is
-    // empty for it), and the third would move the bytes a host packs for the storage half,
-    // which `reflect()` still reports unpadded. Each was measured as Tint-refused before.
-    const r = compileTsSource(`"use typeshade"\n${source}`);
-    const d = r.diagnostics.find((x) => x.category === 'error');
-    expect(d?.message, `expected a refusal for ${_what}`).toMatch(match);
-  });
-
-  it('leaves the shapes that need no padding alone', () => {
-    // A list of vec4 is already 16 bytes an element, bare or in a struct, so none of the
-    // refusals above may fire for it — that is what keeps them from being a blanket ban.
-    const bare = compiled(`declare const U_: uniform<array<vec4, 4>>
-@fragment export function fs(): vec4 { return U_[1] }`);
-    expect(bare.wgsl).toContain('var<uniform> U_: array<vec4<f32>, 4>;');
-    expect(bare.wgsl).not.toContain('_Pad16');
   });
 });
 

@@ -75,8 +75,6 @@ class Body extends B(A(Particle)) {}
   });
 
   it('says so when two mixins give one field two types', () => {
-    // The one collision that is not an override but a change of layout: picking either
-    // silently would change what the other's code reads.
     expect(
       errorsOf(`"use typeshade"
 class Particle {

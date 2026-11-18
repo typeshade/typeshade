@@ -37,6 +37,7 @@
 // `src/core/spec-conformance/fixtures/` holds the checked-in texture and stage slices.
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
+import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string): string[] =>
   compile(src)
@@ -174,14 +175,14 @@ interface V {
 `;
 
   // #431 keeps the immutable input and writes a fresh value local instead (Rule 8.8).
-  it('copies a written parameter into a local with a distinct WGSL name', () => {
+  itNoInlining('copies a written parameter into a local with a distinct WGSL name', () => {
     const errors = compile(src).diagnostics.filter((d) => d.category === 'error');
     expect(errors).toHaveLength(0);
     expect(compile(src).wgsl).toContain('var a_1: f32 = a;');
   });
 
   // The remedy the message spells has to compile, or the refusal sends the author in a circle.
-  it('takes the copy the message asks for, and emits it as a var', () => {
+  itNoInlining('takes the copy the message asks for, and emits it as a var', () => {
     const fixed = `"use typeshade";
 export function h(a: f32): f32 {
   let a_ = a;
