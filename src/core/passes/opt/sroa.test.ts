@@ -120,7 +120,10 @@ describe('splitLocalArrays', () => {
       'a whole copy',
       'let xs = array<f32, 3>(a, b, c); let ys = structuredClone(xs); ys[0] = 1.; return ys[0] + xs[1];',
     ],
-    ['a whole assignment', 'let xs = array<f32, 3>(a, b, c); xs = [c, b, a]; return xs[0];'],
+    [
+      'a whole assignment that reads the array',
+      'let xs = array<f32, 3>(a, b, c); xs = [xs[1], xs[0], c]; return xs[0];',
+    ],
     ['a call argument', 'let xs = array<f32, 3>(a, b, c); return sum3(xs);'],
     ['an initializer that is not a construct', 'let xs = make(a); return xs[0] + xs[1];'],
     ['an index out of range', 'let xs = array<f32, 3>(a, b, c); return xs[0] + xs[3];'],
@@ -129,6 +132,13 @@ describe('splitLocalArrays', () => {
       export function f(a: f32, b: f32, c: f32, vi: u32): f32 { ${body} }`);
     if (r.diagnostics.length > 0) return;
     expect(splitLocalArrays(r.module)).toEqual(r.module);
+  });
+
+  it('splits an array a whole assignment of a list writes', () => {
+    const m = build('let xs = array<f32, 3>(a, b, c); xs = [c, b, a]; return xs[0] + xs[2];');
+    const out = splitLocalArrays(m);
+    expect(hasArrayDecl(out)).toBe(false);
+    sameValues(m, out);
   });
 
   it('survives the whole pipeline with the same values', () => {
