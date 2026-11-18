@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
+import { uninlined } from '../../core/testing/keep-helpers.js';
 
 const TAIL = `\n@fragment export function fs(): vec4 { return vec4(1.) }\n`;
 
@@ -74,7 +75,6 @@ function runAll(src: string, args: unknown[] = [], fn = 'run'): unknown {
 }
 
 const M = TS_CODES.CLASS_MEMBER;
-
 const F = TS_CODES.STRUCT_FIELD;
 
 describe('getters and setters (Rule 8.11)', () => {
@@ -97,7 +97,7 @@ export function run(f: f32): f32 {
 `;
 
   it('each half is a function: the getter reads its object, the setter writes through it', () => {
-    const r = compile(TEMP);
+    const r = uninlined(() => compile(TEMP));
     expect(r.diagnostics).toEqual([]);
     const w = r.wgsl!;
     expect(w).toContain('fn Temperature_get_celsius(self_: ptr<function, Temperature>) -> f32 {');
@@ -139,7 +139,7 @@ export function run(): f32 {
   Cfg.gain -= 1.
   return Cfg.gain
 }${TAIL}`;
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('var<private> Cfg_gain: f32 = 1.0;');
     expect(r.wgsl).toContain('fn Cfg_set_gain(v: f32) {\n  Cfg_gain = clamp(v, 0.0, 4.0);\n}');
@@ -327,7 +327,7 @@ export function run(): f32 {
 }${TAIL}`;
 
   it('a private member is emitted without its "#", beside a public accessor of the same name', () => {
-    const r = compile(COUNTER);
+    const r = uninlined(() => compile(COUNTER));
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Counter {\n  count: u32,\n}');
     expect(r.wgsl).toContain('const Counter_limit: f32 = 3.0;');
@@ -604,7 +604,7 @@ export function run(): f32 {
 }${RUN_TAIL}`;
 
   it("super.x runs the base's half lowered for this class, on this body's object", () => {
-    const r = compile(COUNTER);
+    const r = uninlined(() => compile(COUNTER));
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain(
       'fn Clamped_set_value(self_: ptr<function, Clamped>, v: f32) {\n  Clamped_super_Counter_set_value(self_, min(v, 10.0));',
@@ -674,7 +674,7 @@ class Plain extends Base { y: f32 = 0. }
 export function run(): f32 {
   return Base.a() + Mid.a() * 10. + Leaf.a() + Plain.K * 1000. + Leaf.k * 10000.
 }${TAIL}`;
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(r.diagnostics).toEqual([]);
     // `Base.b`'s body lowered for `Mid`, with `this` as `Mid`: it reads `Mid`'s own `K`.
     expect(r.wgsl).toContain('fn Mid_b() -> f32 {\n  return Mid_K;');
@@ -691,7 +691,7 @@ class V extends U { static K = 4.; static b(): f32 { return U.a() + 1. } }
 class B { x: f32 = 1. }
 class D extends B { static k(): f32 { return 2. } }
 export function run(): f32 { return V.a() + U.a() * 10. + V.b() * 100. + D.k() * 1000. + new D().x }${TAIL}`;
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(r.diagnostics).toEqual([]);
     // `V` extends a namespace and is one, so no struct; `D` has `B`'s field and is a struct.
     expect(r.wgsl).not.toContain('struct V');
@@ -808,7 +808,7 @@ export function run(): f32 { return Derived.make().x }${TAIL}`;
     // Called on the generic class itself, the copy returns `Base<f32>` too.
     const own = fixed.replace('Derived.make().x', 'Base.make().x');
     expect(compile(own).diagnostics).toEqual([]);
-    expect(compile(own).wgsl).toContain('fn Base_make() -> Base_f32 {');
+    expect(uninlined(() => compile(own)).wgsl).toContain('fn Base_make() -> Base_f32 {');
   });
 
   // #944: a static builder written on an `abstract` base. `new this()` there builds the class the
@@ -857,7 +857,7 @@ class Square extends Oscillator {
   let b = Square.at(0.125, 1.);
   return a.tick() * 10. + b.tick();
 }${RUN_TAIL}`;
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(r.diagnostics).toEqual([]);
     // The body is lowered for `Saw` and for `Square`, `this` being each; the abstract class has no
     // function of that name, since there is no instance of it to build.
@@ -1124,7 +1124,7 @@ class B extends A {
 }
 class C extends B { }
 export function run(): f32 { return C.k() + B.both() * 1000. }${TAIL}`;
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(r.diagnostics).toEqual([]);
     // `super.k()` in `B.k`, run for `C`, is `A.k` with `this` as `C`, whose `K` is `B`'s.
     expect(r.wgsl).toContain('fn C_super_A_k() -> f32 {\n  return B_K;');
@@ -1239,7 +1239,7 @@ class C {
   f(d: D): f32 { return this.p + this.pg + d.p + C.qs + D.qs }
 }
 export function run(): f32 { const c = new C(); const d = new D(); return c.sum() + c.y + c.mixed + d.f(d) }${TAIL}`;
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct C {\n  x: f32,\n  p: f32,\n  y: f32,\n}');
     expect(r.wgsl).toContain('fn C_pm(self_: ptr<function, C>) -> f32');
@@ -1634,7 +1634,7 @@ export function run(): f32 { let u = new User(); return u.read() * 10. + u.c.hit
 class Inner { v: f32 = 1.; get(): f32 { return this.v } }
 class Outer { inner: Inner = new Inner(); peek(): f32 { return this.inner.get() } }
 export function run(): f32 { const o = new Outer(); return o.peek() }${RUN_TAIL}`;
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     // Pin the unfused ABI at O1 and the consumed constructor at O2.
     expect(emitModuleAt(r.module, 'O1')).toContain(
       'fn Outer_peek(self_: ptr<function, Outer>) -> f32 {\n  return Inner_get(&(*self_).inner);',
@@ -1651,7 +1651,7 @@ class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this; }
 
   it('a write through a const that built its value changes it, and the const is a var from then', () => {
     const src = `${V}export function run(): f32 { const v = new V(); v.bump(); v.bump(); return v.x }${RUN_TAIL}`;
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(r.wgsl).toContain('var v: V;\n  V_new_into(&v);\n  V_bump(&v);\n  V_bump(&v);');
     expect(runAll(src)).toBe(2);
     const cases: [string, number][] = [
@@ -1681,7 +1681,7 @@ class V { x: f32 = 0.; y: f32 = 0.; setX(v: f32): V { this.x = v; return this; }
 
   it('a const nothing writes through is a var its constructor builds into (change 0105)', () => {
     const src = `${V}export function run(): f32 { const v = new V(); return v.x + 1. }${RUN_TAIL}`;
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(emitModuleAt(r.module, 'O1')).toContain(
       'var v: V;\n  V_new_into(&v);\n  return (v.x + 1.0);',
     );
@@ -1875,7 +1875,7 @@ class Ci implements HasArea { r: f32 = 1.; area(): f32 { return 3. * this.r * th
   it('implements and a type parameter it constrains compile, one function per class', () => {
     expect(runAll(`${I}export function run(): f32 { return new Sq().area() }${RUN_TAIL}`)).toBe(4);
     const src = `${I}function total<T extends HasArea>(a: T): f32 { return a.area() }\nexport function run(): f32 { return total(new Sq()) + total(new Ci()) }${RUN_TAIL}`;
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     const w = emitModuleAt(r.module, 'O1');
     expect(w).toContain('fn total_Sq(a: Sq) -> f32 {\n  return Sq_area(a);\n}');
     expect(w).toContain('fn total_Ci(a: Ci) -> f32 {');

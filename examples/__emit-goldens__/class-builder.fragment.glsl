@@ -60,14 +60,6 @@ void Capped_set_size(inout Capped self_, float r) {
   Capped_super_Disc_set_size(self_, min(r, 0.3));
 }
 
-float Capped_super_Disc_get_size(Capped self_) {
-  return self_.radius;
-}
-
-float Capped_get_size(Capped self_) {
-  return Capped_super_Disc_get_size(self_);
-}
-
 Capped Capped_at(inout Capped self_, vec2 c) {
   self_.center = c;
   return self_;
@@ -78,20 +70,11 @@ Capped Capped_tinted(inout Capped self_, vec3 c) {
   return self_;
 }
 
-float Capped_coverage(Capped self_, vec2 p) {
-  return (1.0 - smoothstep((self_.radius - 0.01), self_.radius, length((p - self_.center))));
-}
-
-Capped Capped_new() {
-  Capped self_ = Capped(0.0, vec2(0.0, 0.0), vec3(0.0, 0.0, 0.0));
-  self_.radius = 0.2;
-  self_.center = vec2(0.0);
-  self_.tint = vec3(1.0);
-  return self_;
-}
-
 Capped Capped_unit() {
-  Capped d = Capped_new();
+  Capped d = Capped(0.0, vec2(0.0, 0.0), vec3(0.0, 0.0, 0.0));
+  d.radius = 0.2;
+  d.center = vec2(0.0);
+  d.tint = vec3(1.0);
   Capped_set_size(d, Capped_SIZE);
   return d;
 }
@@ -105,13 +88,13 @@ void main() {
   Capped b = Capped_unit();
   Capped_at(b, vec2(0.4, 0.0));
   Capped_tinted(b, vec3(0.3, 0.6, 0.95));
-  Capped_set_size(b, (Capped_get_size(b) * 2.0));
+  Capped_set_size(b, (b.radius * 2.0));
   Disc _chain = Disc_new();
   Disc_at(_chain, vec2(0.0, 0.55));
   Disc_sized(_chain, 0.1);
   Disc c = Disc_tinted(_chain, vec3(0.9, 0.3, 0.4));
   vec3 col = mix(vec3(0.07, 0.08, 0.14), a.tint, Disc_coverage(a, uv));
-  col = mix(col, b.tint, Capped_coverage(b, uv));
+  col = mix(col, b.tint, (1.0 - smoothstep((b.radius - 0.01), b.radius, length((uv - b.center)))));
   col = mix(col, c.tint, Disc_coverage(c, uv));
   color = vec4(col, 1.0);
 }

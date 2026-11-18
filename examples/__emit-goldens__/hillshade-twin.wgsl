@@ -19,10 +19,6 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)));
 }
 
-fn normalize3(v: vec3<f32>) -> vec3<f32> {
-  return (v * (1.0 / length(v)));
-}
-
 fn terrain(p: vec2<f32>, t: f32) -> f32 {
   let h = (((sin(((p.x * 3.0) + t)) * cos((p.y * 3.0))) + ((sin(((p.x * 6.1) - (t * 0.7))) * cos((p.y * 5.3))) * 0.5)) + ((sin((p.x * 12.7)) * cos((p.y * 11.1))) * 0.25));
   return ((h * 0.28) + 0.5);
@@ -38,8 +34,10 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let h = terrain(p, t);
   let hx = terrain(vec2<f32>((p.x + 0.015), p.y), t);
   let hy = terrain(vec2<f32>(p.x, (p.y + 0.015)), t);
-  let n = normalize3(vec3<f32>(((h - hx) * ex), ((h - hy) * ex), 0.015));
-  let sun = normalize3(vec3<f32>((cos(az) * 0.6), (sin(az) * 0.6), 0.55));
+  let _i0a0 = vec3<f32>(((h - hx) * ex), ((h - hy) * ex), 0.015);
+  let n = (_i0a0 * (1.0 / length(_i0a0)));
+  let _i1a0 = vec3<f32>((cos(az) * 0.6), (sin(az) * 0.6), 0.55);
+  let sun = (_i1a0 * (1.0 / length(_i1a0)));
   let shade = clamp(dot(n, sun), 0.0, 1.0);
   let low = vec3<f32>(0.16, 0.32, 0.2);
   let mid = vec3<f32>(0.55, 0.49, 0.3);

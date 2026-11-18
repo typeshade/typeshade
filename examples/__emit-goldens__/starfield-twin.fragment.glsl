@@ -10,11 +10,6 @@ layout(std140) uniform Uniforms {
 int _f2i(float x) {
   return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
 }
-vec2 screenCoords(vec2 uv, vec2 resolution) {
-  float asp = (resolution.x / resolution.y);
-  return vec2((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
-}
-
 uint hash32(uint x) {
   uint a = ((x ^ (x >> 16u)) * 2246822519u);
   uint b = ((a ^ (a >> 13u)) * 3266489917u);
@@ -36,13 +31,16 @@ void main() {
   vec3 _licm4 = vec3(1.0, 0.9, 0.75);
   float t = U.time;
   vec2 res = U.resolution;
-  vec2 p = screenCoords(uv, res);
+  vec2 _i0a0 = uv;
+  float _i0_asp = (res.x / res.y);
+  float _gv0 = (((_i0a0.x * 2.0) - 1.0) * _i0_asp);
+  float _gv1 = ((_i0a0.y * 2.0) - 1.0);
   vec3 col = vec3(0.0, 0.0, 0.0);
   for (uint i = 0u; (i < 3u); i = (i + 1u)) {
     float fi = float(i);
     float scale = ((fi * 14.0) + 18.0);
     float drift = ((fi * 0.014) + 0.01);
-    vec2 q = ((vec2((p.x + (t * drift)), p.y) * scale) + (fi * 37.7));
+    vec2 q = ((vec2((_gv0 + (t * drift)), _gv1) * scale) + (fi * 37.7));
     vec2 cell = floor(q);
     vec2 f = fract(q);
     float h = hash(cell);
@@ -56,7 +54,7 @@ void main() {
     vec3 tint = mix(_licm3, _licm4, h);
     col = (col + (tint * b));
   }
-  float s = (p.y + (p.x * 0.35));
+  float s = (_gv1 + (_gv0 * 0.35));
   float band = exp((-((s * s) * 6.0)));
   _ret = vec4((col + (vec3(0.09, 0.11, 0.16) * band)), 1.0);
 }

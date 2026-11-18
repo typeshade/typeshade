@@ -128,7 +128,7 @@ describe('private kernel input projection', () => {
       'function inner(p:Item):f32{return f32(p.c);} function read(p:Item):f32{return inner(p);}',
     );
     expect(fields(face)).toEqual(['a', 'c']);
-    expect(face.gpu!.projected!.wgsl).toContain('Item(');
+    expect(face.gpu!.projected!.wgsl).toContain('f32(xs[j].c)');
     expect(face.gpu!.loops).toHaveLength(2);
   });
 

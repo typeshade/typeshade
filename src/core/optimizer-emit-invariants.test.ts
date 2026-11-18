@@ -1,3 +1,4 @@
+import { keepHelpers } from './testing/keep-helpers.js';
 import { describe, it, expect } from 'vitest';
 import {
   fn,
@@ -145,49 +146,55 @@ describe('X-GIS #763 P — optimizer/emit invariants', () => {
     expect(glsl.indexOf('struct P5Inner')).toBeLessThan(glsl.indexOf('struct P5Outer')); // fail-before: module order
   });
 
-  it('P6: a reserved-word fn name is renamed at decl + call site; a reserved binding name takes a GLSL spelling', () => {
-    const texture = fn('texture', { x: f32T }, ({ x }) => x.mul(2));
-    const entry = fn(
-      'p6',
-      { vi: builtin('vertex_index', u32T) },
-      ({ vi }) => {
-        const VsOut = ioStruct('P6Out', { pos: builtin('position', vec4fT) });
-        return VsOut.construct({ pos: vec4(texture({ x: toF32(vi) }), 0, 0, 1) });
-      },
-      { stage: 'vertex' },
-    );
-    const m = module({ structs: [structT('P6Out') as never].slice(0, 0), funcs: [entry, texture] });
-    const glsl = emitGlslModule(
-      {
-        ...m,
-        structs: [
-          {
-            name: 'P6Out',
-            fields: [
-              { name: 'pos', type: vec4fT, attr: '@builtin(position)', builtin: 'position' },
-            ],
-          },
-        ],
-      },
-      'vertex',
-    );
-    expect(glsl).not.toMatch(/float texture\(/); // fail-before: reserved decl emitted verbatim
-    expect(glsl).toMatch(/texture_\(/); // renamed decl + call
-    const U = uniformStruct('sampler', { group: 0, binding: 0, as: 'sampler' }, { t: f32T });
-    const p6Out = {
-      name: 'P6Out',
-      fields: [{ name: 'pos', type: vec4fT, attr: '@builtin(position)', builtin: 'position' }],
-    };
-    const bad = module({
-      structs: [U.struct, p6Out],
-      bindings: [U.binding],
-      funcs: [entry, texture],
-    });
-    // Proposal 0070, C6: the module emits, and the text declares no reserved word. The binding is
-    // unused, so the text carries no declaration of it.
-    const spelled = emitGlslModule(bad, 'vertex');
-    expect(spelled).not.toMatch(/\bsampler\b/);
-  });
+  it(
+    'P6: a reserved-word fn name is renamed at decl + call site; a reserved binding name takes a GLSL spelling',
+    keepHelpers(() => {
+      const texture = fn('texture', { x: f32T }, ({ x }) => x.mul(2));
+      const entry = fn(
+        'p6',
+        { vi: builtin('vertex_index', u32T) },
+        ({ vi }) => {
+          const VsOut = ioStruct('P6Out', { pos: builtin('position', vec4fT) });
+          return VsOut.construct({ pos: vec4(texture({ x: toF32(vi) }), 0, 0, 1) });
+        },
+        { stage: 'vertex' },
+      );
+      const m = module({
+        structs: [structT('P6Out') as never].slice(0, 0),
+        funcs: [entry, texture],
+      });
+      const glsl = emitGlslModule(
+        {
+          ...m,
+          structs: [
+            {
+              name: 'P6Out',
+              fields: [
+                { name: 'pos', type: vec4fT, attr: '@builtin(position)', builtin: 'position' },
+              ],
+            },
+          ],
+        },
+        'vertex',
+      );
+      expect(glsl).not.toMatch(/float texture\(/); // fail-before: reserved decl emitted verbatim
+      expect(glsl).toMatch(/texture_\(/); // renamed decl + call
+      const U = uniformStruct('sampler', { group: 0, binding: 0, as: 'sampler' }, { t: f32T });
+      const p6Out = {
+        name: 'P6Out',
+        fields: [{ name: 'pos', type: vec4fT, attr: '@builtin(position)', builtin: 'position' }],
+      };
+      const bad = module({
+        structs: [U.struct, p6Out],
+        bindings: [U.binding],
+        funcs: [entry, texture],
+      });
+      // Proposal 0070, C6: the module emits, and the text declares no reserved word. The binding is
+      // unused, so the text carries no declaration of it.
+      const spelled = emitGlslModule(bad, 'vertex');
+      expect(spelled).not.toMatch(/\bsampler\b/);
+    }),
+  );
 
   it('P7: a TWO-ROW matrix in a std140 layout is rejected, and only a two-row one', () => {
     const layoutOf = (t: ShaderType, layout: 'std140' | 'std430') => () =>

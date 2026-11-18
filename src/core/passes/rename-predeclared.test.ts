@@ -3,6 +3,7 @@
 //
 // Verifies: Rule 3.2, Rule 9.5 (docs/language-design.md; traced in reqs/).
 
+import { keepHelpers } from '../testing/keep-helpers.js';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { isValueConstructor } from '../../compiler/ts/lower/constructors.js';
@@ -250,8 +251,10 @@ describe('which target renames what', () => {
 });
 
 describe('what a writer emits', () => {
-  it('spells the declaration and the calls through it alike on both targets', () => {
-    const m = moduleOf(`"use typeshade";
+  it(
+    'spells the declaration and the calls through it alike on both targets',
+    keepHelpers(() => {
+      const m = moduleOf(`"use typeshade";
 function fract(x: f32): f32 { return x - floor(x) + 0.5; }
 export function g(x: f32): f32 { return fract(x) + random(x); }
 interface Color {
@@ -262,13 +265,14 @@ interface Color {
   return { color: vec4(v, v, v, 1.) };
 }
 `);
-    const wgsl = emitModule(m);
-    const glsl = emitGlslModule(m, 'fragment');
-    for (const text of [wgsl, glsl]) {
-      expect(text).toMatch(/(fn|float) fract_\(/);
-      expect(text).toContain('fract_(x) + fract((sin(x) * 43758.5453123))');
-    }
-  });
+      const wgsl = emitModule(m);
+      const glsl = emitGlslModule(m, 'fragment');
+      for (const text of [wgsl, glsl]) {
+        expect(text).toMatch(/(fn|float) fract_\(/);
+        expect(text).toContain('fract_(x) + fract((sin(x) * 43758.5453123))');
+      }
+    }),
+  );
 
   it('renames in a list of functions as it does in a module, so the text matches', () => {
     const m = moduleOf(`"use typeshade";

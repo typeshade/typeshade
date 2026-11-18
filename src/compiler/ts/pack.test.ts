@@ -4,6 +4,7 @@ import { compile } from './compile.js';
 import { repack } from '../../emit.js';
 import { vec4fT, vec3fT, vec2fT, f32T, structT } from '../../core/ir/types.js';
 import type { ModuleDecl } from '../../core/ir/nodes.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const hello: ModuleDecl = {
   consts: [],
@@ -131,21 +132,24 @@ interface Color { color: location<0, vec4>; }
 @fragment export function fs(p: builtin<"position">): Color { return { color: vec4(fract(p.x), 0., 0., 1.) }; }
 `;
 
-  it('spells the declaration fract_ in every program, and keeps the builtin random calls', () => {
-    const c = compile(SRC);
-    expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    const p = packModule(c.module, { ir: true });
-    const programs = [
-      p.wgsl,
-      JSON.stringify(p.gl?.draws?.fs ?? null),
-      JSON.stringify(p.gl?.computes?.main ?? null),
-    ];
-    for (const text of programs) {
-      expect(text).toMatch(/(fn|float) fract_\(/);
-      expect(text).not.toMatch(/(fn|float) fract\(/);
-    }
-    expect(p.wgsl).toContain('fract((sin(');
-    expect(programs[2]).toContain('fract((sin(');
-    expect(JSON.stringify(repack(p))).toBe(JSON.stringify(p));
-  });
+  it(
+    'spells the declaration fract_ in every program, and keeps the builtin random calls',
+    keepHelpers(() => {
+      const c = compile(SRC);
+      expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+      const p = packModule(c.module, { ir: true });
+      const programs = [
+        p.wgsl,
+        JSON.stringify(p.gl?.draws?.fs ?? null),
+        JSON.stringify(p.gl?.computes?.main ?? null),
+      ];
+      for (const text of programs) {
+        expect(text).toMatch(/(fn|float) fract_\(/);
+        expect(text).not.toMatch(/(fn|float) fract\(/);
+      }
+      expect(p.wgsl).toContain('fract((sin(');
+      expect(programs[2]).toContain('fract((sin(');
+      expect(JSON.stringify(repack(p))).toBe(JSON.stringify(p));
+    }),
+  );
 });

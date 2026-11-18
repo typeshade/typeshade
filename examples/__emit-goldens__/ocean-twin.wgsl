@@ -29,15 +29,12 @@ fn hash(p: vec2<f32>) -> f32 {
   return (f32((h >> 8u)) * 5.960464477539063e-8);
 }
 
-fn noise(p: vec2<f32>) -> f32 {
-  let i = floor(p);
-  let f = fract(p);
-  let u = ((f * f) * (vec2<f32>(3.0) - (f * 2.0)));
-  return mix(mix(hash(i), hash((i + vec2<f32>(1.0, 0.0))), u.x), mix(hash((i + vec2<f32>(0.0, 1.0))), hash((i + vec2<f32>(1.0, 1.0))), u.x), u.y);
-}
-
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
+  let _licm0 = vec2<f32>(3.0);
+  let _licm1 = vec2<f32>(1.0, 0.0);
+  let _licm2 = vec2<f32>(0.0, 1.0);
+  let _licm3 = vec2<f32>(1.0, 1.0);
   let t = U.time;
   let res = U.resolution;
   let asp = (res.x / res.y);
@@ -56,8 +53,14 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   var h: f32 = 0.0;
   var amp: f32 = 0.5;
   var freq: f32 = 1.0;
+  let _licm4 = vec2<f32>((t * 0.12), 0.0);
   for (var i: u32 = 0u; (i < 4u); i = (i + 1u)) {
-    h = (h + (amp * noise(((sp * freq) + vec2<f32>((t * 0.12), 0.0)))));
+    let _i0a0 = ((sp * freq) + _licm4);
+    let _i0_i = floor(_i0a0);
+    let _i0_f = fract(_i0a0);
+    let _i0_u = ((_i0_f * _i0_f) * (_licm0 - (_i0_f * 2.0)));
+    let _i0ret = mix(mix(hash(_i0_i), hash((_i0_i + _licm1)), _i0_u.x), mix(hash((_i0_i + _licm2)), hash((_i0_i + _licm3)), _i0_u.x), _i0_u.y);
+    h = (h + (amp * _i0ret));
     freq = (freq * 2.03);
     amp = (amp * 0.5);
   }

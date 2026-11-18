@@ -12,11 +12,6 @@ vec2 screenCoords(vec2 uv, vec2 resolution) {
   float asp = (resolution.x / resolution.y);
   return vec2((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
 }
-
-vec3 palette(float t) {
-  vec3 ph = vec3(0.0, 0.33, 0.67);
-  return (vec3(0.5) + (cos(((t + ph) * 6.283)) * 0.5));
-}
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
@@ -40,6 +35,9 @@ void main() {
   float m = dot(z, z);
   float sn = ((it - log2(max(log2(max(m, 1.0001)), 0.0001))) + 1.0);
   float inside = step(119.5, it);
-  vec3 col = (palette(((sn * 0.035) + (U.time * 0.02))) * (1.0 - inside));
+  float _i0a0 = ((sn * 0.035) + (U.time * 0.02));
+  vec3 _i0_ph = vec3(0.0, 0.33, 0.67);
+  vec3 _i0ret = (vec3(0.5) + (cos(((_i0a0 + _i0_ph) * 6.283)) * 0.5));
+  vec3 col = (_i0ret * (1.0 - inside));
   _ret = vec4(col, 1.0);
 }

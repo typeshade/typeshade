@@ -25,11 +25,17 @@ ${body}
 `;
 const file = (head: string, body: string) => `"use typeshade"\n${head}${FS(body)}`;
 
+const signature = (source: string | ReturnType<typeof compile>, name: string): string => {
+  const r = typeof source === 'string' ? compile(source) : source;
+  const f = r.module.funcs.find((x) => x.name === name);
+  expect(f, name).toBeDefined();
+  return JSON.stringify([f!.params.map((p) => p.type), f!.ret]);
+};
+
 describe('a type alias is another name for its target', () => {
   it('names a scalar, a vector and a bool vector, in a parameter and a return', () => {
-    const r = compile(
-      file(
-        `type Meters = f32
+    const source = file(
+      `type Meters = f32
 type Color = vec3
 type Mask = vec3b
 function half(m: Meters): Meters {
@@ -42,14 +48,19 @@ function lit(m: Mask): bool {
   return any(m)
 }
 `,
-        `  const c = dim(vec3(1., 1., 1.))
+      `  const c = dim(vec3(1., 1., 1.))
   return vec4(c * half(2.), select(0., 1., lit(vec3b(true, false, false))))`,
-      ),
     );
+    const r = compile(source);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn half(m: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn dim(c: vec3<f32>) -> vec3<f32> {');
-    expect(r.wgsl).toContain('fn lit(m: vec3<bool>) -> bool {');
+    for (const [name, written] of [
+      ['half', 'function half(m: f32): f32 {\n  return m * 0.5\n}\n'],
+      ['dim', 'function dim(c: vec3): vec3 {\n  return c * 0.5\n}\n'],
+      ['lit', 'function lit(m: vec3b): bool {\n  return any(m)\n}\n'],
+    ] as const) {
+      const target = file(written, `  return vec4(1.)`);
+      expect(signature(source, name), name).toBe(signature(target, name));
+    }
     // No struct was invented for any of the three.
     expect(r.wgsl).not.toContain('struct Meters');
     expect(r.wgsl).not.toContain('struct Color');
@@ -79,7 +90,15 @@ function first(p: Point): f32 {
       ),
     );
     expect(st.diagnostics).toEqual([]);
-    expect(st.wgsl).toContain('fn first(p: P) -> f32 {');
+    expect(signature(st, 'first')).toBe(
+      signature(
+        file(
+          'class P {\n  x: f32\n  y: f32\n}\nfunction first(p: P): f32 {\n  return p.x\n}\n',
+          '  return vec4(1.)',
+        ),
+        'first',
+      ),
+    );
     const lower = compile(
       file(
         `type meters = f32\ntype far = meters\nfunction half(m: far): far {\n  return m * 0.5\n}\n`,
@@ -87,7 +106,12 @@ function first(p: Point): f32 {
       ),
     );
     expect(lower.diagnostics).toEqual([]);
-    expect(lower.wgsl).toContain('fn half(m: f32) -> f32 {');
+    expect(signature(lower, 'half')).toBe(
+      signature(
+        file('function half(m: f32): f32 {\n  return m * 0.5\n}\n', '  return vec4(1.)'),
+        'half',
+      ),
+    );
   });
 
   it('stands wherever a type stands: a binding, a class field, a module const', () => {
@@ -134,7 +158,9 @@ function mid(p: P): f32 {
       ),
     );
     expect(shadow.diagnostics).toEqual([]);
-    expect(shadow.wgsl).toContain('fn f(v: vec3<f32>) -> f32 {');
+    expect(signature(shadow, 'f')).toBe(
+      signature(file('function f(v: vec3): f32 {\n  return v.x\n}\n', '  return vec4(1.)'), 'f'),
+    );
   });
 
   it('an unused host-shaped alias stays invisible', () => {

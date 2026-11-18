@@ -5,6 +5,7 @@
 // texture read, or 8 or more operations. A cheap arm keeps `select` and the ternary, and so does
 // an arm that holds a derivative, a barrier or a call that reaches one, since the uniformity
 // analysis ran on the `select`. The CPU oracle reads the IR and gives the same value either way.
+import { keepHelpers } from '../testing/keep-helpers.js';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { compileModule } from '../oracle.js';
@@ -27,33 +28,36 @@ const compiled = (body: string, call?: string) => {
 };
 
 describe('a scalar conditional with a costly arm is an if, and a cheap one keeps select (change 0097)', () => {
-  it('a call of a function of the module in an arm is hoisted into a slot and an if, on both targets', () => {
-    const r = compiled(
-      `export function pick(x: f32): f32 { return x > 0.5 ? heavy(x) : 0.; }`,
-      'pick(w)',
-    );
-    expect(r.wgsl).toContain(
-      'var _sel0: f32;\n  if ((x > 0.5)) {\n    _sel0 = heavy(x);\n  } else {\n    _sel0 = 0.0;\n  }\n  return _sel0;',
-    );
-    expect(r.wgsl).not.toContain('select(0.0, heavy(x)');
-    expect(r.glsl?.fragment).toContain(
-      'float _sel0;\n  if ((x > 0.5)) {\n    _sel0 = heavy(x);\n  } else {\n    _sel0 = 0.0;\n  }',
-    );
-    const run = compileModule(r.module).fns;
-    expect(run['pick']!(0.25)).toBe(0);
-    expect(run['pick']!(0.75)).toBeCloseTo(
-      Math.sin(0.75) * Math.cos(2.25) + Math.sqrt(0.75) * Math.exp(-0.5625),
-      5,
-    );
-  });
+  it(
+    'a call of a function of the module in an arm is hoisted into a slot and an if, on both targets',
+    keepHelpers(() => {
+      const r = compiled(
+        `export function pick(x: f32): f32 { return x > 0.5 ? heavy(x) : 0.; }`,
+        'pick(w)',
+      );
+      expect(r.wgsl).toContain(
+        'var _sel0: f32;\n  if ((x > 0.5)) {\n    _sel0 = heavy(x);\n  } else {\n    _sel0 = 0.0;\n  }\n  return _sel0;',
+      );
+      expect(r.wgsl).not.toContain('select(0.0, heavy(x)');
+      expect(r.glsl?.fragment).toContain(
+        'float _sel0;\n  if ((x > 0.5)) {\n    _sel0 = heavy(x);\n  } else {\n    _sel0 = 0.0;\n  }',
+      );
+      const run = compileModule(r.module).fns;
+      expect(run['pick']!(0.25)).toBe(0);
+      expect(run['pick']!(0.75)).toBeCloseTo(
+        Math.sin(0.75) * Math.cos(2.25) + Math.sqrt(0.75) * Math.exp(-0.5625),
+        5,
+      );
+    }),
+  );
 
   it('cheap arms keep select and the ternary', () => {
     const r = compiled(
       `export function cheap(x: f32): f32 { return x > 0.5 ? x * 2. : x * 3.; }`,
       'cheap(w)',
     );
-    expect(r.wgsl).toContain('return select((x * 3.0), (x * 2.0), (x > 0.5));');
-    expect(r.glsl?.fragment).toContain('return ((x > 0.5) ? (x * 2.0) : (x * 3.0));');
+    expect(r.wgsl).toMatch(/select\(\((\w+) \* 3\.0\), \(\1 \* 2\.0\), \(\1 > 0\.5\)\)/);
+    expect(r.glsl?.fragment).toMatch(/\((\w+) > 0\.5\) \? \(\1 \* 2\.0\) : \(\1 \* 3\.0\)/);
   });
 
   it('eight operations in an arm reach the threshold; seven do not', () => {

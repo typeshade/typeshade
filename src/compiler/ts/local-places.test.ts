@@ -187,7 +187,7 @@ function run(): f32 {
   });
 
   it("a constructor builds the caller's local itself, through its returned local", () => {
-    const { wgsl } = runs(
+    const { module } = runs(
       `class P { x: f32; y: f32; constructor(a: f32) { this.x = a; this.y = a * 3.; } }
 function run(): f32 {
   let p = new P(2.);
@@ -195,13 +195,14 @@ function run(): f32 {
 }`,
       8,
     );
+    const wgsl = emitModuleAt(module, 'O1');
     expect(wgsl).toContain('fn P_new_into(_dst: ptr<function, P>, a: f32) {');
     expect(fnText(wgsl, 'P_new_into')).not.toMatch(/var self_/);
     expect(fnText(wgsl, 'run')).toContain('P_new_into(&p, 2.0);');
   });
 
   it('keeps the copy when an argument reads the destination', () => {
-    const { wgsl } = runs(
+    const { module } = runs(
       `${HIT}
 function bump(h: Hit, k: f32): Hit { return { t: h.t + k, n: h.n, ok: h.ok }; }
 function run(): f32 {
@@ -211,7 +212,7 @@ function run(): f32 {
 }`,
       7,
     );
-    expect(fnText(wgsl, 'run')).toMatch(/h = bump\(/);
+    expect(fnText(emitModuleAt(module, 'O1'), 'run')).toMatch(/h = bump\(/);
   });
 });
 
@@ -235,7 +236,7 @@ function run(): f32 {
     );
     // Pin the pointer ABI before O2 connects and fuses the constructor and method.
     const wgsl = emitModuleAt(module, 'O1');
-    expect(optimized).toMatch(/fn _flow\d+_fused\(/);
+    expect(optimized).not.toContain('Ship_total(');
     const run = fnText(wgsl, 'run');
     expect(run).toContain('var ship: Ship;');
     expect(run).toMatch(/Ship_total\(&ship\)/);
@@ -268,12 +269,13 @@ function probe(k: f32): Hit { return { t: k * 2., n: vec3f(k) }; }
     const r = compile(source);
     expect(editor(source)).toEqual([]);
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([]);
-    expect(r.wgsl).toContain('fn probe_into(_dst: ptr<storage, Hit, read_write>, k: f32) {');
-    expect(fnText(r.wgsl!, 'main')).toContain('probe_into(&out[g.x], f32(g.x));');
+    const o1 = emitModuleAt(r.module, 'O1');
+    expect(o1).toContain('fn probe_into(_dst: ptr<storage, Hit, read_write>, k: f32) {');
+    expect(fnText(o1, 'main')).toContain('probe_into(&out[g.x], f32(g.x));');
   });
 
   it('item 2: a struct returned into a module variable is written there, unless the callee reads it', () => {
-    const { wgsl } = runs(
+    const { module } = runs(
       `class Hit { t: f32; n: vec3f; }
 let last: Hit = { t: 0., n: vec3f(0.) };
 function probe(k: f32): Hit { return { t: k * 2., n: vec3f(k) }; }
@@ -286,7 +288,7 @@ function run(): f32 {
 }`,
       6 + 7,
     );
-    const run = fnText(wgsl, 'run');
+    const run = fnText(emitModuleAt(module, 'O1'), 'run');
     expect(run).toContain('probe_into(&last, 3.0);');
     expect(run).toMatch(/last = again\(1\.0\);/);
   });
@@ -335,7 +337,7 @@ function run(): f32 {
   });
 
   it('item 3: an index a call of the module computes is still bound once', () => {
-    const { wgsl } = runs(
+    const { module } = runs(
       `${Q}
 function pick(k: i32): i32 { return k & 1; }
 function run(): f32 {
@@ -345,6 +347,6 @@ function run(): f32 {
 }`,
       7,
     );
-    expect(fnText(wgsl, 'run')).toMatch(/let _at = pick\(3\);/);
+    expect(fnText(emitModuleAt(module, 'O1'), 'run')).toMatch(/let _at = pick\(3\);/);
   });
 });

@@ -13,11 +13,6 @@
  
  @group(0) @binding(0) var<uniform> U: Uniforms;
  
-+fn screenCoords(uv: vec2<f32>, resolution: vec2<f32>) -> vec2<f32> {
-+  let asp = (resolution.x / resolution.y);
-+  return vec2<f32>((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
-+}
-+
  @vertex
  fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 -  let _cse0 = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -37,9 +32,13 @@
 -  return vec4<f32>((((mix(vec3<f32>(1.0, 0.62, 0.28), vec3<f32>(0.42, 0.3, 0.55), ((sin((_v1 * 0.9)) * 0.5) + 0.5)) * ((smoothstep(-0.6, 0.6, (sin((((atan2(_cse1, _cse0) / 3.14159265) + ((_v1 * U.twist) * 0.08)) * 12.566)) * sin((_v1 * 9.4248)))) * 0.55) + 0.35)) * smoothstep(0.0, 0.55, _v0)) * clamp((1.15 - (_v0 * 0.35)), 0.0, 1.0)), 1.0);
 +  let t = U.time;
 +  let res = U.resolution;
-+  let p = screenCoords(vo.uv, res);
-+  let r = length(p);
-+  let a = atan2(p.y, p.x);
++  let _i0a0 = vo.uv;
++  let _i0_asp = (res.x / res.y);
++  let _gv0 = (((_i0a0.x * 2.0) - 1.0) * _i0_asp);
++  let _gv1 = ((_i0a0.y * 2.0) - 1.0);
++  let _i0ret = vec2<f32>(_gv0, _gv1);
++  let r = length(_i0ret);
++  let a = atan2(_gv1, _gv0);
 +  let depth = ((0.3 / max(r, 0.001)) + (t * 1.4));
 +  let ang = ((a / 3.14159265) + ((depth * U.twist) * 0.08));
 +  let cw = (sin((ang * 12.566)) * sin((depth * 9.4248)));

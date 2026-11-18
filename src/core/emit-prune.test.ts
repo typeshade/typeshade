@@ -1,5 +1,6 @@
 // ═══ pruneRedundantPrototypes / emit-prod prune() — what it drops, and what it must not ═══
 
+import { keepHelpers } from './testing/keep-helpers.js';
 import { describe, it, expect } from 'vitest';
 import { pruneRedundantPrototypes, obfuscate } from '../emit-prod.js';
 import { fn, module, vec2, vec4, f32, f32T, vec2fT, vec4fT } from './ir/index.js';
@@ -73,20 +74,23 @@ const fs = fn('fs_prune', { vo: VsOut }, (p) => vec4(helper({ x: p.vo.uv.x }), 0
 const m = module({ funcs: [helper, vs, fs], uses: [VsOut] });
 
 describe('prune() in the obfuscate() preset', () => {
-  it('GLSL shrinks and the helper is declared exactly once', () => {
-    const plain = emitGlslModule(m, 'fragment');
-    const out = emitGlslModule(m, 'fragment', { plugins: obfuscate() });
-    // TWO occurrences, not three: since X-GIS #1858 the backend orders its fn section, so the
-    // authored helper is spelled as a DEFINITION and at its call site and nowhere else —
-    // the prototype this pass was written to remove is no longer emitted at all. The pass
-    // stays in the preset for the text it did NOT write (hand-authored `rawGlsl`, a
-    // host-composed fragment), which the suite above is what actually gates.
-    expect(plain.match(/prune_helper/g)!.length).toBe(2);
-    expect(out.length).toBeLessThan(plain.length);
-    // …and the pruned+mangled output declares its replacement once, as a body.
-    const name = out.match(/\b(\w+)\(float \w+\)\{/)?.[1];
-    if (name !== undefined) expect(out.split(`${name}(`).length - 1).toBeLessThan(3);
-  });
+  it(
+    'GLSL shrinks and the helper is declared exactly once',
+    keepHelpers(() => {
+      const plain = emitGlslModule(m, 'fragment');
+      const out = emitGlslModule(m, 'fragment', { plugins: obfuscate() });
+      // TWO occurrences, not three: since X-GIS #1858 the backend orders its fn section, so the
+      // authored helper is spelled as a DEFINITION and at its call site and nowhere else —
+      // the prototype this pass was written to remove is no longer emitted at all. The pass
+      // stays in the preset for the text it did NOT write (hand-authored `rawGlsl`, a
+      // host-composed fragment), which the suite above is what actually gates.
+      expect(plain.match(/prune_helper/g)!.length).toBe(2);
+      expect(out.length).toBeLessThan(plain.length);
+      // …and the pruned+mangled output declares its replacement once, as a body.
+      const name = out.match(/\b(\w+)\(float \w+\)\{/)?.[1];
+      if (name !== undefined) expect(out.split(`${name}(`).length - 1).toBeLessThan(3);
+    }),
+  );
 
   it('leaves WGSL byte-identical to the preset without it', () => {
     // WGSL carries no prototypes, so adding the pass must change nothing there.

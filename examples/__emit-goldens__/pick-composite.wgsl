@@ -25,13 +25,12 @@ fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
   var shade: Palette = _sel0;
   var rising: array<f32, 3> = array<f32, 3>(0.15, 0.5, 0.9);
   var falling: array<f32, 3> = array<f32, 3>(0.9, 0.5, 0.15);
-  var _sel1: array<f32, 3>;
+  var steps: array<f32, 3>;
   if ((uv.y > 0.5)) {
-    _sel1 = rising;
+    steps = rising;
   } else {
-    _sel1 = falling;
+    steps = falling;
   }
-  var steps: array<f32, 3> = _sel1;
   let band = i32(floor((uv.y * 3.0)));
   let t = smoothstep(0.0, 1.0, steps[band]);
   return vec4<f32>(mix(shade.lo, shade.hi, t), 1.0);

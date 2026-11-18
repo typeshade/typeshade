@@ -1,6 +1,7 @@
 import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt } from '../../ir/index.js';
 import { typeKey } from '../../ir/types.js';
 import { fnWrites } from '../effects.js';
+import { eachExpr } from '../../ir/visit.js';
 import { mapExpr } from './ir-transform.js';
 import { bodyHasRaw, collectLocals, collectMutatedRoots } from './expr-utils.js';
 import { eachBlockStmt, eachBodyExpr, rewriteBlocks } from './sroa/blocks.js';
@@ -44,10 +45,32 @@ function candidates(body: readonly Stmt[]): Map<string, Split> {
 const literalIndex = (e: Expr): number | undefined =>
   e.op === 'lit' && typeof e.value === 'number' && Number.isInteger(e.value) ? e.value : undefined;
 
+const mentions = (e: Expr, name: string): boolean => {
+  let found = false;
+  eachExpr(e, (x) => {
+    if (x.op === 'varref' && x.name === name) found = true;
+  });
+  return found;
+};
+
+function wholeAssign(s: Stmt, split: Split | undefined): readonly Expr[] | undefined {
+  if (s.s !== 'assign' || s.target.op !== 'varref' || split === undefined) return undefined;
+  const e = s.expr;
+  if (e.op !== 'construct' || e.args.length !== split.size) return undefined;
+  const key = typeKey(split.elem);
+  const name = s.target.name;
+  if (e.args.some((a) => typeKey(a.type) !== key || mentions(a, name))) return undefined;
+  return e.args;
+}
+
 function onlyLiteralIndexed(body: readonly Stmt[], found: Map<string, Split>): void {
   const refs = new Map<string, number>();
   const indexed = new Map<string, number>();
   const bad = new Set<string>();
+  eachBlockStmt(body, (s) => {
+    if (s.s === 'assign' && s.target.op === 'varref' && wholeAssign(s, found.get(s.target.name)))
+      indexed.set(s.target.name, (indexed.get(s.target.name) ?? 0) + 1);
+  });
   eachBodyExpr(body, (e) => {
     if (e.op === 'varref' && found.has(e.name)) refs.set(e.name, (refs.get(e.name) ?? 0) + 1);
     if (e.op !== 'index' || e.base.op !== 'varref') return;
@@ -89,6 +112,18 @@ function splitFunction(f: FuncDecl, writes: ReturnType<typeof fnWrites>): FuncDe
   };
   const created = new Set<string>();
   const declare = (s: Stmt): readonly Stmt[] | undefined => {
+    if (s.s === 'assign' && s.target.op === 'varref') {
+      const target = s.target.name;
+      const parts = names.get(target);
+      const args = wholeAssign(s, found.get(target));
+      if (parts === undefined || args === undefined) return undefined;
+      return parts.map((name, k): Stmt => ({
+        s: 'assign',
+        target: { op: 'varref', type: found.get(target)!.elem, name },
+        expr: mapExpr(args[k]!, read),
+        span: s.span,
+      }));
+    }
     if (s.s !== 'var' && s.s !== 'let') return undefined;
     const split = found.get(s.name);
     if (split === undefined) return undefined;

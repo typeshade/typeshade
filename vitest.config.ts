@@ -58,6 +58,13 @@ const MOCKS = ['src/fuse.test.ts', 'src/core/fuse-loading.test.ts'];
 // Give this file a fresh worker; retain module reuse for the rest of the suite.
 const FP64 = ['src/core/fp64/df64-int-property.test.ts'];
 
+// These files read the emitted text of a helper function: its name, its signature or its place in
+// the emit. The inliner of `src/core/passes/inline-small.ts` removes such a helper, so the files run
+// with it off (`src/core/testing/no-inlining.ts`). A file that tests behaviour does not belong here.
+const NO_INLINING = ['src/compiler/ts/declared-builtin-names.test.ts'];
+
+const NO_INLINING_MOCKS = ['src/fuse.test.ts'];
+
 export default defineConfig({
   plugins: [typeshade(), shaderModulesUncached],
   test: {
@@ -74,13 +81,41 @@ export default defineConfig({
         test: {
           name: 'shared',
           include: ['src/**/*.test.ts', 'examples/**/*.test.ts'],
-          exclude: ['**/node_modules/**', ...MOCKS, ...FP64],
+          exclude: ['**/node_modules/**', ...MOCKS, ...FP64, ...NO_INLINING],
           isolate: false,
         },
       },
       {
         extends: true,
-        test: { name: 'mocks', include: MOCKS, isolate: true },
+        test: {
+          name: 'no-inlining',
+          include: NO_INLINING,
+          isolate: false,
+          setupFiles: [
+            './src/core/testing/yield-between-tests.ts',
+            './src/core/testing/no-inlining.ts',
+          ],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'no-inlining-mocks',
+          include: NO_INLINING_MOCKS,
+          isolate: true,
+          setupFiles: [
+            './src/core/testing/yield-between-tests.ts',
+            './src/core/testing/no-inlining.ts',
+          ],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'mocks',
+          include: MOCKS.filter((f) => !NO_INLINING_MOCKS.includes(f)),
+          isolate: true,
+        },
       },
       {
         extends: true,

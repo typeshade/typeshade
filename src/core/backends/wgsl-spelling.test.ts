@@ -3,6 +3,7 @@
 // references follow it. Functional check of the writer; the record reads are in emitted-record.test.ts.
 //
 // Verifies: Rule 3.2, Rule 3.3, Rule 9.5 (docs/language-design.md; traced in reqs/).
+import { keepHelpers } from '../testing/keep-helpers.js';
 import { describe, expect, it } from 'vitest';
 import { emitModule } from './wgsl.js';
 import { emitGlslModule } from './glsl.js';
@@ -49,7 +50,7 @@ describe('WGSL writer spells the names of the plan (Proposal 0070, C3)', () => {
     },
     'compute',
   );
-  const wgsl = emitModule(m);
+  const wgsl = keepHelpers(emitModule)(m);
 
   it('emits without a throw, and no declaration keeps a reserved name', () => {
     expect(wgsl).not.toMatch(/\bfn step\(/);
@@ -131,16 +132,19 @@ describe('a helper parameter named like a constant its function reads is respell
     funcs: [reads, ignores, fragment],
   };
 
-  it('respells the parameter where its function reads the constant, and only there', () => {
-    const wgsl = emitModule(m);
-    expect(wgsl).toContain('const K: f32 = 2.0;');
-    expect(wgsl).toContain('fn reads(K_: f32) -> f32 {\n  return (K_ + K);\n}');
-    expect(wgsl).toContain('fn ignores(K: f32) -> f32 {\n  return K;\n}');
-    const glsl = emitGlslModule(m, 'fragment');
-    expect(glsl).toContain('const float K = 2.0;');
-    expect(glsl).toContain('float reads(float K_) {\n  return (K_ + K);\n}');
-    expect(glsl).toContain('float ignores(float K) {\n  return K;\n}');
-  });
+  it(
+    'respells the parameter where its function reads the constant, and only there',
+    keepHelpers(() => {
+      const wgsl = emitModule(m);
+      expect(wgsl).toContain('const K: f32 = 2.0;');
+      expect(wgsl).toContain('fn reads(K_: f32) -> f32 {\n  return (K_ + K);\n}');
+      expect(wgsl).toContain('fn ignores(K: f32) -> f32 {\n  return K;\n}');
+      const glsl = emitGlslModule(m, 'fragment');
+      expect(glsl).toContain('const float K = 2.0;');
+      expect(glsl).toContain('float reads(float K_) {\n  return (K_ + K);\n}');
+      expect(glsl).toContain('float ignores(float K) {\n  return K;\n}');
+    }),
+  );
 
   it('leaves the authored module as it was', () => {
     emitModule(m);
@@ -214,16 +218,19 @@ describe('a helper parameter named like a function its function calls is respell
     funcs: [shift, calls, ignores, fragment],
   };
 
-  it('respells the parameter where its function calls the function, and only there', () => {
-    const wgsl = emitModule(m);
-    expect(wgsl).toContain('fn shift(k: f32) -> f32 {');
-    expect(wgsl).toContain('fn calls(shift_: f32) -> f32 {\n  return (shift(1.0) + shift_);\n}');
-    expect(wgsl).toContain('fn ignores(shift: f32) -> f32 {\n  return shift;\n}');
-    const glsl = emitGlslModule(m, 'fragment');
-    expect(glsl).toContain('float shift(float k) {');
-    expect(glsl).toContain('float calls(float shift_) {\n  return (shift(1.0) + shift_);\n}');
-    expect(glsl).toContain('float ignores(float shift) {\n  return shift;\n}');
-  });
+  it(
+    'respells the parameter where its function calls the function, and only there',
+    keepHelpers(() => {
+      const wgsl = emitModule(m);
+      expect(wgsl).toContain('fn shift(k: f32) -> f32 {');
+      expect(wgsl).toContain('fn calls(shift_: f32) -> f32 {\n  return (shift(1.0) + shift_);\n}');
+      expect(wgsl).toContain('fn ignores(shift: f32) -> f32 {\n  return shift;\n}');
+      const glsl = emitGlslModule(m, 'fragment');
+      expect(glsl).toContain('float shift(float k) {');
+      expect(glsl).toContain('float calls(float shift_) {\n  return (shift(1.0) + shift_);\n}');
+      expect(glsl).toContain('float ignores(float shift) {\n  return shift;\n}');
+    }),
+  );
 
   it('leaves the authored module as it was', () => {
     emitModule(m);

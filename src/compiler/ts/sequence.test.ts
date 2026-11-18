@@ -280,7 +280,7 @@ function pair(seed: u32): Pair {
 `;
     // Change 0105: the returned struct is built through a pointer to the caller's place.
     expect(compile(src).wgsl).toContain(
-      '  Pair_new_into(_dst);\n  (*_dst).b = Rng_next(&rng);\n  (*_dst).a = Rng_next(&rng);\n}',
+      '  (*_dst) = Pair(0.0, 0.0);\n  (*_dst).b = Rng_next(&rng);\n  (*_dst).a = Rng_next(&rng);\n}',
     );
     const [first, second] = draws(500, 2);
     expect(agree(src, [[0.5, 0]])).toEqual([second, first, 0, 1]);

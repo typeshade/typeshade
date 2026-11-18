@@ -11,11 +11,6 @@ struct VsOut {
 
 @group(0) @binding(0) var<uniform> U: Uniforms;
 
-fn screenCoords(uv: vec2<f32>, resolution: vec2<f32>) -> vec2<f32> {
-  let asp = (resolution.x / resolution.y);
-  return vec2<f32>((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -43,13 +38,16 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _licm4 = vec3<f32>(1.0, 0.9, 0.75);
   let t = U.time;
   let res = U.resolution;
-  let p = screenCoords(vo.uv, res);
+  let _i0a0 = vo.uv;
+  let _i0_asp = (res.x / res.y);
+  let _gv0 = (((_i0a0.x * 2.0) - 1.0) * _i0_asp);
+  let _gv1 = ((_i0a0.y * 2.0) - 1.0);
   var col: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
   for (var i: u32 = 0u; (i < 3u); i = (i + 1u)) {
     let fi = f32(i);
     let scale = ((fi * 14.0) + 18.0);
     let drift = ((fi * 0.014) + 0.01);
-    let q = ((vec2<f32>((p.x + (t * drift)), p.y) * scale) + (fi * 37.7));
+    let q = ((vec2<f32>((_gv0 + (t * drift)), _gv1) * scale) + (fi * 37.7));
     let cell = floor(q);
     let f = fract(q);
     let h = hash(cell);
@@ -63,7 +61,7 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
     let tint = mix(_licm3, _licm4, h);
     col = (col + (tint * b));
   }
-  let s = (p.y + (p.x * 0.35));
+  let s = (_gv1 + (_gv0 * 0.35));
   let band = exp((-((s * s) * 6.0)));
   return vec4<f32>((col + (vec3<f32>(0.09, 0.11, 0.16) * band)), 1.0);
 }

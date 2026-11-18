@@ -388,7 +388,7 @@ export function inlineLinearFn(m: ModuleDecl, name: string, counter: { n: number
 
 /** Every name a block DECLARES, nested bodies and `for` init included. Names are
  *  unique per function (the builder auto-names), so a flat set is exact. */
-function declaredNamesDeep(stmts: readonly Stmt[]): Set<string> {
+export function declaredNamesDeep(stmts: readonly Stmt[]): Set<string> {
   const out = new Set<string>();
   const walk = (body: readonly Stmt[]): void => {
     for (const s of body) {

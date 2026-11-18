@@ -779,7 +779,11 @@ declare const acc: texture_storage_2d<"r32float", "read_write">;
 let tile: workgroup<array<f32, 64>>;
 let calls: u32;
 function ${SUBJECT_FN}(x: f32): f32 {
-  return x + 0.5;
+  let s = x;
+  for (let k = 0; k < 2; k++) {
+    s = s + 0.25;
+  }
+  return s + 0.5;
 }
 @compute([64, 1, 1]) export function main(
   gid: builtin<"global_invocation_id">,
@@ -816,7 +820,11 @@ const GRAPHICS_SUBJECT = `"use typeshade";
 declare const image: texture_2d<f32>;
 declare const smp: sampler;
 function ${SUBJECT_FN}(x: f32): f32 {
-  return x + 0.5;
+  let s = x;
+  for (let k = 0; k < 2; k++) {
+    s = s + 0.25;
+  }
+  return s + 0.5;
 }
 interface VsOut {
   pos: builtin<"position">;
