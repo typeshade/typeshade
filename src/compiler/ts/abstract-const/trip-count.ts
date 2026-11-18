@@ -102,6 +102,26 @@ interface StoreAt {
   readonly expr?: ts.Expression;
 }
 
+function insideLoop(store: ts.Node, declaration: ts.Node): boolean {
+  for (let n: ts.Node | undefined = store.parent; n !== undefined; n = n.parent) {
+    if (n.pos <= declaration.pos && declaration.end <= n.end) return false;
+    if (ts.isIterationStatement(n, false)) return true;
+  }
+  return false;
+}
+
+export function storedInLoop(
+  group: readonly ts.VariableDeclaration[],
+  storesOf: (v: ts.VariableDeclaration) => readonly StoreAt[],
+): boolean {
+  return group.some((v) =>
+    storesOf(v).some((s) => {
+      const at = s.kind === 'compound' ? s.id : s.expr;
+      return at !== undefined && insideLoop(at, v);
+    }),
+  );
+}
+
 export function groupExecutions(
   group: readonly ts.VariableDeclaration[],
   storesOf: (v: ts.VariableDeclaration) => readonly StoreAt[],

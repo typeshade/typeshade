@@ -10,7 +10,7 @@ export interface Reading {
   readonly signed?: boolean;
   readonly agreeing?: boolean;
   readonly bound?: number;
-  readonly beyond?: boolean;
+  readonly looped?: boolean;
   readonly picks: readonly (readonly [ts.Node, string])[];
 }
 
@@ -143,12 +143,6 @@ export function agreeingBound(k: ts.SyntaxKind, a: Reading, b: Reading): Reading
   return bound !== undefined && bound <= MOST ? { ...AGREEING, bound } : undefined;
 }
 
-export function beyondExecutions(
-  xs: readonly Reading[],
-  firstRound: ReadonlyMap<string, number>,
-  executions: number,
-): Reading[] {
-  return xs.map((x) =>
-    (firstRound.get(readingKey(x)) ?? 0) >= executions ? { ...x, beyond: true } : x,
-  );
+export function markLooped(xs: readonly Reading[], looped: boolean): Reading[] {
+  return looped ? xs.map((x) => ({ ...x, looped: true })) : [...xs];
 }

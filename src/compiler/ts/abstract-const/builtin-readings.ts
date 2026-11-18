@@ -50,7 +50,7 @@ export function builtinReadingsOf(
       picks = [];
     }
     const tree = c.some((x) => x.tree);
-    const beyond = c.some((x) => x.beyond) ? { beyond: true } : {};
+    const looped = c.some((x) => x.looped) ? { looped: true } : {};
     if (c.some((x) => x.unknown || x.unproven || x.agreeing)) {
       out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
     } else if (!tree) {
@@ -58,11 +58,11 @@ export function builtinReadingsOf(
         c.map((x) => x.ts),
         false,
       );
-      out.push({ u32: t, ts: t, tree: false, picks, ...beyond });
+      out.push({ u32: t, ts: t, tree: false, picks, ...looped });
     } else {
       const signed = c.every((x) => x.signed === true || !x.tree);
       out.push({
-        ...beyond,
+        ...looped,
         ...(signed ? { signed: true } : {}),
         u32: signed
           ? apply(
