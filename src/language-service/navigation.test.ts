@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createTypeshadeLanguageService } from './service.js';
+import { SHADE_DTS } from './ambient.js';
+import { TYPE_DOCS } from './docs.js';
 
 const SOURCE =
   '"use typeshade";\n' +
@@ -213,5 +215,87 @@ describe('prepareRename / rename', () => {
     // here is specifically that this offset is NOT caught by the new function-decorator guard —
     // it is a call-expression decorator on a parameter, a different shape entirely.
     expect(() => service.getDefinition('a.ts', position)).not.toThrow();
+  });
+});
+
+describe('ambientLibUri (change 0143)', () => {
+  const LIB = 'file:///ext/lib.typeshade.d.ts';
+  const CALLS =
+    '"use typeshade";\n' +
+    'function f(a: u32, x: vec3, b: f32): f32 {\n' +
+    '  const m = mix(x, x, 0.5)\n' +
+    '  return b\n' +
+    '}\n';
+  const at = (service: ReturnType<typeof createTypeshadeLanguageService>, needle: string) =>
+    service.positionAt('a.ts', CALLS.indexOf(needle));
+
+  it('reports an ambient definition at the uri, at a range that reads the name in SHADE_DTS', () => {
+    const service = createTypeshadeLanguageService({ ambientLibUri: LIB });
+    service.openDocument('a.ts', CALLS);
+    for (const name of ['u32', 'vec3', 'mix']) {
+      const defs = service.getDefinition('a.ts', at(service, name));
+      expect(defs.length, name).toBeGreaterThan(0);
+      for (const def of defs) {
+        expect(def.uri).toBe(LIB);
+        const start = service.offsetAt(LIB, def.range.start);
+        expect(start, name).toBeGreaterThan(0);
+        expect(SHADE_DTS.slice(start, service.offsetAt(LIB, def.range.end))).toBe(name);
+        expect(service.positionAt(LIB, start)).toEqual(def.range.start);
+      }
+    }
+  });
+
+  it('keeps only the ambient declaration among the references of a type', () => {
+    const service = createTypeshadeLanguageService({ ambientLibUri: LIB });
+    service.openDocument('a.ts', CALLS);
+    const refs = service.getReferences('a.ts', at(service, 'f32'));
+    expect(refs.filter((r) => r.uri === 'a.ts')).toHaveLength(2);
+    const inLib = refs.filter((r) => r.uri === LIB);
+    expect(inLib).toHaveLength(1);
+    const start = service.offsetAt(LIB, inLib[0]!.range.start);
+    expect(SHADE_DTS.slice(start, service.offsetAt(LIB, inLib[0]!.range.end))).toBe('f32');
+  });
+
+  it('answers as before when the adapter names no file', () => {
+    const service = createTypeshadeLanguageService();
+    service.openDocument('a.ts', CALLS);
+    expect(service.getDefinition('a.ts', at(service, 'mix'))).toEqual([]);
+    expect(service.getReferences('a.ts', at(service, 'f32')).map((r) => r.uri)).toEqual([
+      'a.ts',
+      'a.ts',
+    ]);
+  });
+
+  it('still refuses to rename an ambient name, and never stores the file as a document', () => {
+    const service = createTypeshadeLanguageService({ ambientLibUri: LIB });
+    service.openDocument('a.ts', CALLS);
+    expect(service.prepareRename('a.ts', at(service, 'u32'))).toBeUndefined();
+    const before = service.getDefinition('a.ts', at(service, 'mix'));
+    service.openDocument(LIB, SHADE_DTS);
+    service.updateDocument(LIB, SHADE_DTS);
+    expect(service.getDefinition('a.ts', at(service, 'mix'))).toEqual(before);
+    expect(service.getDiagnostics(LIB)).toEqual([]);
+  });
+});
+
+describe('the ambient type declarations carry their TYPE_DOCS sentence (change 0143)', () => {
+  it('has a JSDoc block right above the first declaration of every described type', () => {
+    const lines = SHADE_DTS.split('\n');
+    const missing = Object.keys(TYPE_DOCS).filter((name) => {
+      const i = lines.findIndex((line) =>
+        new RegExp(`^(?:type|interface)\\s+${name}\\b`).test(line),
+      );
+      return i < 1 || !lines[i - 1]!.trimEnd().endsWith('*/');
+    });
+    expect(Object.keys(TYPE_DOCS).length).toBeGreaterThan(60);
+    expect(missing).toEqual([]);
+  });
+
+  it('leaves the hover of a type name as TYPE_DOCS states it', () => {
+    const service = createTypeshadeLanguageService();
+    const text = '"use typeshade";\nfunction g(a: u32): u32 {\n  return a\n}\n';
+    service.openDocument('a.ts', text);
+    const hover = service.getHover('a.ts', service.positionAt('a.ts', text.indexOf('u32')));
+    expect(hover?.contents).toBe(`\`u32\` — ${TYPE_DOCS.u32}`);
   });
 });

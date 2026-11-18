@@ -47,6 +47,7 @@ import {
   MATH_MEMBER_DOCS,
   ATTRIBUTE_TYPE_DOCS,
 } from './docs.js';
+import { renderJSDoc, withTypeDocs } from './ambient/type-docs.js';
 import { generatedOverloads, scalarOfDeclaration } from './builtin-signatures.js';
 import { ARRAY_LIBRARY_DTS } from './ambient/array-library.js';
 
@@ -54,18 +55,6 @@ import { ARRAY_LIBRARY_DTS } from './ambient/array-library.js';
  *  `arrayLength` and `pow` are rows of the table, and no author-facing declaration (`xs.length`
  *  and `**` carry them). */
 const GENERATED = new Map([...generatedOverloads()].filter(([name]) => !isRemovedCall(name)));
-
-// Renders a documentation string as a JSDoc block. Single line (single-line JSDoc) when
-// it fits in 100 columns, otherwise a multi-line block with ` * ` prefixes. Throws if the
-// text contains the string `*/`.
-function renderJSDoc(text: string): string {
-  if (text.includes('*/'))
-    throw new Error(`JSDoc text contains '*/' which is not allowed: ${text}`);
-  const singleLine = `/** ${text} */`;
-  if (singleLine.length <= 100) return singleLine;
-  const lines = text.split('\n');
-  return `/**\n${lines.map((line) => ` * ${line}`).join('\n')}\n */`;
-}
 
 type VecElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool';
 
@@ -1693,7 +1682,7 @@ interface String {}
  * vector-with-scalar-factor forms on the emulated doubles, and the generic fallbacks whose
  * diagnostics the tests pin.
  */
-export const SHADE_DTS = withGeneratedBuiltins(HAND_WRITTEN_DTS);
+export const SHADE_DTS = withTypeDocs(withGeneratedBuiltins(HAND_WRITTEN_DTS));
 
 function withGeneratedBuiltins(dts: string): string {
   const pending = new Map(GENERATED);

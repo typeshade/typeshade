@@ -1,8 +1,8 @@
 // === Stage 2 navigation: definitions, references, symbols, rename (design doc §4, §5) ===
 //
 // Every method here delegates to the underlying `ts.LanguageService` and re-labels or filters
-// its answer with TypeShade's own vocabulary: a location inside the ambient lib is never
-// surfaced (a user asking for the definition of `vec4` gets nothing, not the bundled `.d.ts`),
+// its answer with TypeShade's own vocabulary: an ambient-lib location only at the file the adapter
+// names for it (`ambientLibUri`, change 0143), else nothing for the definition of `vec4`,
 // a document symbol's kind comes from the front end's own collected structs/bindings/consts
 // rather than TypeScript's generic `class`/`variable`, and a rename refuses to touch the
 // ambient vocabulary, a `@builtin(...)` string or the `"use typeshade"` directive — none is a
@@ -97,25 +97,30 @@ export function stageOf(
   return undefined;
 }
 
-/** Drops any entry whose `fileName` is the ambient lib's virtual uri — it is never a real
- * document (§4's own note on `AMBIENT_LIB_URI`), so a definition, reference or rename result
- * that lands there is simply not shown, rather than pointing an adapter at a uri it never
- * opened. */
+/** The entries as locations. An entry in the ambient lib's virtual uri, never a real document
+ * (§4's own note on `AMBIENT_LIB_URI`), is reported at `ambientLibUri`, the file the adapter
+ * wrote the same text to (change 0143), with the same range; without one it is not shown, rather
+ * than pointing an adapter at a uri it never opened. */
 function locationsFrom(
   program: ts.Program,
   entries: readonly { fileName: string; textSpan: ts.TextSpan }[],
+  ambientLibUri: string | undefined,
 ): TypeshadeLocation[] {
   const out: TypeshadeLocation[] = [];
   for (const entry of entries) {
-    if (entry.fileName === AMBIENT_LIB_URI) continue;
+    const inAmbientLib = entry.fileName === AMBIENT_LIB_URI;
+    if (inAmbientLib && ambientLibUri === undefined) continue;
     const sf = program.getSourceFile(entry.fileName);
     if (!sf) continue;
-    out.push({ uri: entry.fileName, range: rangeForSpan(sf, entry.textSpan) });
+    out.push({
+      uri: inAmbientLib ? ambientLibUri! : entry.fileName,
+      range: rangeForSpan(sf, entry.textSpan),
+    });
   }
   return out;
 }
 
-/** Every location `offset` in `uri` is defined at, with any ambient-lib result dropped. Returns
+/** Every location `offset` in `uri` is defined at, an ambient-lib one at `ambientLibUri`. Returns
  * `[]` without calling into `ts` when `offset` is on a stage attribute that is no call,
  * `@vertex`, `@fragment` or a bare `@compute` — TypeScript's own decorator-resolution code cannot
  * handle that target and throws (`Error: Debug Failure.`) rather than returning `undefined`. */
@@ -124,12 +129,13 @@ export function getDefinition(
   program: ts.Program,
   uri: string,
   offset: number,
+  ambientLibUri?: string,
 ): TypeshadeLocation[] {
   const sourceFile = program.getSourceFile(uri);
   if (sourceFile && isDecoratorOnFunctionDeclarationAt(sourceFile, offset)) return [];
   const defs = languageService.getDefinitionAtPosition(uri, offset);
   if (!defs) return [];
-  return locationsFrom(program, defs);
+  return locationsFrom(program, defs, ambientLibUri);
 }
 
 /** Every reference to the symbol at `offset` in `uri`, with any ambient-lib result dropped. */
@@ -139,14 +145,18 @@ export function getReferences(
   uri: string,
   offset: number,
   options?: { includeDeclaration?: boolean },
+  ambientLibUri?: string,
 ): TypeshadeLocation[] {
   const symbols = languageService.findReferences(uri, offset);
   if (!symbols) return [];
   const includeDeclaration = options?.includeDeclaration ?? true;
-  const entries = symbols.flatMap((s) =>
-    s.references.filter((r) => includeDeclaration || !r.isDefinition),
-  );
-  return locationsFrom(program, entries);
+  const entries = symbols.flatMap((s) => [
+    ...s.references.filter(
+      (r) => r.fileName !== AMBIENT_LIB_URI && (includeDeclaration || !r.isDefinition),
+    ),
+    ...(includeDeclaration && s.definition.fileName === AMBIENT_LIB_URI ? [s.definition] : []),
+  ]);
+  return locationsFrom(program, entries, ambientLibUri);
 }
 
 /** The name and members of an `interface X { … }` or a `type X = { … }`, or undefined for any
