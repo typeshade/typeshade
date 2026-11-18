@@ -70,7 +70,7 @@ import {
   regionOf,
   skipParenUp,
 } from './abstract-const/syntax-lookup.js';
-import { groupExecutions } from './abstract-const/trip-count.js';
+import { storedInLoop } from './abstract-const/trip-count.js';
 import { readingsSentenceOf } from './abstract-const/readings-sentence.js';
 import {
   READING_DEPTH,
@@ -87,8 +87,7 @@ import {
   mergedPicks,
   plainUnproven,
   provenDiffering,
-  beyondExecutions,
-  readingKey,
+  markLooped,
   readingValue,
   sameReadings,
   type Reading,
@@ -2302,9 +2301,9 @@ function declarationChange(name: string, at: ts.Node, type: string): SourceChang
  *  typed operand end it. `undefined` where the two agree. */
 export function twoReadingsOf(node: ts.Expression): TwoReadings | undefined {
   const xs = readingsFrom(node);
-  const proven = xs.find((x) => provenDiffering(x) && !x.beyond);
+  const proven = xs.find((x) => provenDiffering(x) && !x.looped);
   if (proven !== undefined) return { u32: proven.u32, ts: proven.ts };
-  const unproven = xs.some((x) => x.unproven || (provenDiffering(x) && x.beyond));
+  const unproven = xs.some((x) => x.unproven || (provenDiffering(x) && x.looped));
   return unproven ? { u32: NaN, ts: NaN, unproven: true } : undefined;
 }
 
@@ -3668,8 +3667,7 @@ function variableReadings(
     w.pending.set(v, []);
   }
   let settled = false;
-  const firstRound = new Map<string, number>();
-  const executions = groupExecutions(group, (v) => storesOf(v, sourceFile));
+  const looped = storedInLoop(group, (v) => storesOf(v, sourceFile));
   for (let round = 0; round < READING_ROUNDS && !settled; round++) {
     settled = true;
     for (const v of group) {
@@ -3678,8 +3676,6 @@ function variableReadings(
       const bounded = boundedReadings(
         heldByTreeVariable(next, fileTaint(sourceFile).pulled.has(v)),
       );
-      for (const x of bounded)
-        if (!firstRound.has(readingKey(x))) firstRound.set(readingKey(x), round);
       if (!sameReadings(bounded, values.get(v)!)) settled = false;
       values.set(v, bounded);
       w.pending.set(v, bounded);
@@ -3687,7 +3683,7 @@ function variableReadings(
     if (own.steps > READING_STEP_LIMIT) break;
   }
   for (const v of group) {
-    const found = beyondExecutions(values.get(v)!, firstRound, executions);
+    const found = markLooped(values.get(v)!, looped);
     values.set(v, settled ? found : [...found, found.some((x) => x.tree) ? UNPROVEN : UNKNOWN]);
     w.pending.delete(v);
     own.deps.delete(v);
@@ -3948,7 +3944,7 @@ function builtinReadings(
       picks = [];
     }
     const tree = c.some((x) => x.tree);
-    const beyond = c.some((x) => x.beyond) ? { beyond: true } : {};
+    const looped = c.some((x) => x.looped) ? { looped: true } : {};
     if (c.some((x) => x.unknown || x.unproven || x.agreeing)) {
       out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
     } else if (!tree) {
@@ -3956,10 +3952,10 @@ function builtinReadings(
         c.map((x) => x.ts),
         false,
       );
-      out.push({ u32: t, ts: t, tree: false, picks, ...beyond });
+      out.push({ u32: t, ts: t, tree: false, picks, ...looped });
     } else {
       out.push({
-        ...beyond,
+        ...looped,
         u32: apply(
           c.map((x) => x.u32 >>> 0),
           true,
@@ -4097,7 +4093,7 @@ function binaryReadingsOf(
         picks = [];
       }
       const tree = a.tree || b.tree;
-      const push = (r: Reading) => out.push(a.beyond || b.beyond ? { ...r, beyond: true } : r);
+      const push = (r: Reading) => out.push(a.looped || b.looped ? { ...r, looped: true } : r);
       if (a.unknown || b.unknown || plainUnproven(a) || plainUnproven(b)) {
         out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
       } else if (a.unproven || b.unproven || a.agreeing || b.agreeing) {

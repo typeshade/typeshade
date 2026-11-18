@@ -102,16 +102,22 @@ interface StoreAt {
   readonly expr?: ts.Expression;
 }
 
-export function groupExecutions(
+function insideLoop(store: ts.Node, declaration: ts.Node): boolean {
+  for (let n: ts.Node | undefined = store.parent; n !== undefined; n = n.parent) {
+    if (n.pos <= declaration.pos && declaration.end <= n.end) return false;
+    if (ts.isIterationStatement(n, false)) return true;
+  }
+  return false;
+}
+
+export function storedInLoop(
   group: readonly ts.VariableDeclaration[],
   storesOf: (v: ts.VariableDeclaration) => readonly StoreAt[],
-): number {
-  let executions = 0;
-  for (const v of group) {
-    for (const s of storesOf(v)) {
+): boolean {
+  return group.some((v) =>
+    storesOf(v).some((s) => {
       const at = s.kind === 'compound' ? s.id : s.expr;
-      executions += s.kind === 'opaque' || at === undefined ? 1 : storeExecutions(at, v);
-    }
-  }
-  return executions;
+      return at !== undefined && insideLoop(at, v);
+    }),
+  );
 }

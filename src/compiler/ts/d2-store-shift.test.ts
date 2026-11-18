@@ -157,4 +157,74 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
     bothRefuse(source, 'TS8003', unproven('acc', 'f32()', 'i32(acc)'));
     expect(run(source.replace('f32(acc)', 'f32(i32(acc))'))).toBe(243);
   });
+
+  const T = 'let t = (3000000000|0);\n  ';
+  const LOOP = (n: number, body: string) =>
+    `let acc = 1;\n  for (let k = 0; k < ${String(n)}; k++) {\n    ${body}\n  }\n  `;
+  const READ = 'let x = acc ^ t;\n  return f32(acc);';
+  it.each([
+    ['twenty rounds', LOOP(20, 'acc = acc * 3;') + READ, 3 ** 20],
+    ['twenty-one rounds', LOOP(21, 'acc = acc * 3;') + READ, 3 ** 21],
+    ['two stores in the body', LOOP(5, 'acc = acc * 3;\n    acc = acc + 0;') + READ, 243],
+    [
+      'an if and an else',
+      LOOP(5, 'if (vi > 3) {\n      acc = acc * 3;\n    } else {\n      acc = acc * 2;\n    }') +
+        READ,
+      243,
+    ],
+    [
+      'two variables that store each other',
+      'let acc = 1;\n  let b = 1;\n  for (let k = 0; k < 5; k++) {\n    acc = b * 3;\n    b = acc;\n  }\n  ' +
+        READ,
+      243,
+    ],
+    [
+      'a while loop',
+      'let acc = 1;\n  let k = 0;\n  while (k < 5) {\n    k = k + 1;\n    acc = acc * 3;\n  }\n  ' +
+        READ,
+      243,
+    ],
+  ] as const)(
+    'owner decision of 2026-11-18: a variable stored in a loop states no numbers: %s',
+    (_, body, ts) => {
+      const source = program(T + body, 'f32');
+      bothRefuse(source, 'TS8003', unproven('acc', 'f32()', 'i32(acc)'));
+      expect(run(source.replace('f32(acc)', 'f32(i32(acc))'))).toBe(ts | 0);
+    },
+  );
+
+  it('owner decision of 2026-11-18: a declaration inside an outer loop states no numbers', () => {
+    const body = `let s = 0.0;\n  for (let j = 0; j < 3; j++) {\n    let acc = 1;\n    for (let k = 0; k < 5; k++) {\n      acc = acc * 3;\n    }\n    let x = acc ^ t;\n    s = s + f32(acc);\n  }\n  return s;`;
+    const source = program(T + body, 'f32');
+    bothRefuse(source, 'TS8003', unproven('acc', 'f32()', 'i32(acc)'));
+    expect(run(source.replace('f32(acc)', 'f32(i32(acc))'))).toBe(729);
+  });
+
+  it('owner decision of 2026-11-18: a loop with a break states no numbers at either reader', () => {
+    const body = `let acc = 1;\n  for (let k = 0; k < 20; k++) {\n    if (acc > 200) {\n      break;\n    }\n    acc = acc * 3;\n  }\n  ${READ}`;
+    const source = program(T + body, 'f32');
+    bothRefuse(source, 'TS8003', [
+      unproven('acc', '>', 'i32(acc)'),
+      unproven('acc', 'f32()', 'i32(acc)'),
+    ]);
+    const fixed = source
+      .replace('acc > 200', 'i32(acc) > 200')
+      .replace('f32(acc)', 'f32(i32(acc))');
+    expect(run(fixed)).toBe(243);
+  });
+
+  it('owner decision of 2026-11-18: a value outside loops keeps its numbers', () => {
+    const source = program('let a = (0xF0000000|0);\n  return f32(a + a);', 'f32');
+    bothRefuse(source, 'TS8003', proven('a + a', 3758096384, -536870912, 'f32()', 'i32(a + a)'));
+  });
+
+  it('owner decision of 2026-11-18: a = a - K in a loop run twice states no numbers', () => {
+    const subject = 'a + 0x10000000';
+    const source = program(
+      `let a = (0xF0000000|0);\n  for (let i = 0; i < 2; i++) {\n    a = a - 0x10000000;\n  }\n  return f32(${subject});`,
+      'f32',
+    );
+    bothRefuse(source, 'TS8003', unproven(subject, 'f32()', `i32(${subject})`));
+    expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(-536870912);
+  });
 });
