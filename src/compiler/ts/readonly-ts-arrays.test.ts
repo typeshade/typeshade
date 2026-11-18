@@ -1,3 +1,5 @@
+// Verifies: Rule 6.1 (docs/language-design.md; traced in reqs/).
+
 import { describe, expect, it } from 'vitest';
 import { bothHalves, bothRefuse, bothTake } from '../../core/testing/both-halves.js';
 import { compileModule } from '../../core/oracle.js';
