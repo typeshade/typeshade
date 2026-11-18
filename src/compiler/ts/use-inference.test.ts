@@ -2322,10 +2322,10 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     const fixed = source.replace('f32(a + b)', 'f32(i32(a + b))');
     expect(both(fixed)).toEqual([]);
     expect(compile(fixed).eval('t', [-3, 7, 2.5])).toBe(-268435449);
-    // A written type is a typed peer: `+` beside a typed u32 reads the bits (D2).
-    const typed = T12(A1299 + 'let b: u32 = vi;\n  return f32(a + b);', 'f32');
+    // A written type is a typed peer: `+` beside a typed u32 reads the bits, and a mask agrees.
+    const typed = T12(A1299 + 'let b: u32 = vi;\n  return f32((a + b) & 0xFF);', 'f32');
     expect(both(typed)).toEqual([]);
-    expect(compile(typed).eval('t', [-3, 7, 2.5])).toBe(4026531847);
+    expect(compile(typed).eval('t', [-3, 7, 2.5])).toBe(7);
   });
 
   it('review of #1304 (D2): a long chain of bindings is read to its end, not cut', () => {
@@ -2985,9 +2985,9 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
   );
 
   it('review of #1322, B1: a field with a written u32 is a typed peer', () => {
-    const source = `"use typeshade";\nclass Q { v: u32 = 0; }\n${FN2}  let a = (0xF0000000|0); let s = new Q(); s.v = vi; return f32(a + s.v);\n}\n`;
+    const source = `"use typeshade";\nclass Q { v: u32 = 0; }\n${FN2}  let a = (0xF0000000|0); let s = new Q(); s.v = vi; return f32((a + s.v) & 0xFF);\n}\n`;
     expect(both(source)).toEqual([]);
-    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(4026531847);
+    expect(compile(source).eval('t', [-3, 7, 2.5])).toBe(7);
   });
 
   // The second review of #1322 and the owner's decision of 2026-11-17, "단순 규칙: 타입 없는
@@ -3277,7 +3277,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
       'u32(0) beside a tree',
       'class S { v = u32(0); }\n',
       'class S { v: u32 = 0; }\n',
-      'let a = (0xF0000000|0); let s = new S(); s.v = vi; return f32(s.v + a);',
+      'let a = (0xF0000000|0); let s = new S(); s.v = vi; return f32((s.v + a) & 0xFF);',
     ],
     [
       'vec2u(0, 0) under a swizzle',

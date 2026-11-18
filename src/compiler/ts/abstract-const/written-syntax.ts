@@ -54,6 +54,47 @@ export function writtenBitTree(node: ts.Expression): boolean {
   return bit && leaf(n.left) && leaf(n.right);
 }
 
+export function returnsOf(body: ts.Block): ts.Expression[] {
+  const returns: ts.Expression[] = [];
+  const walk = (x: ts.Node): void => {
+    if (ts.isReturnStatement(x) && x.expression !== undefined) returns.push(x.expression);
+    else if (!ts.isFunctionLike(x)) ts.forEachChild(x, walk);
+  };
+  ts.forEachChild(body, walk);
+  return returns;
+}
+
+export const COMPOUND_BASE = new Map<ts.SyntaxKind, ts.BinaryOperator>([
+  [ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.PlusToken],
+  [ts.SyntaxKind.MinusEqualsToken, ts.SyntaxKind.MinusToken],
+  [ts.SyntaxKind.AsteriskEqualsToken, ts.SyntaxKind.AsteriskToken],
+  [ts.SyntaxKind.BarEqualsToken, ts.SyntaxKind.BarToken],
+  [ts.SyntaxKind.AmpersandEqualsToken, ts.SyntaxKind.AmpersandToken],
+  [ts.SyntaxKind.CaretEqualsToken, ts.SyntaxKind.CaretToken],
+  [ts.SyntaxKind.LessThanLessThanEqualsToken, ts.SyntaxKind.LessThanLessThanToken],
+]);
+
+export const ARITH: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.PlusToken,
+  ts.SyntaxKind.MinusToken,
+  ts.SyntaxKind.AsteriskToken,
+  ts.SyntaxKind.SlashToken,
+  ts.SyntaxKind.PercentToken,
+]);
+
+export const BITWISE: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.AmpersandToken,
+  ts.SyntaxKind.BarToken,
+  ts.SyntaxKind.CaretToken,
+  ts.SyntaxKind.LessThanLessThanToken,
+  ts.SyntaxKind.GreaterThanGreaterThanToken,
+]);
+
+export function integerWrittenLiteral(node: ts.NumericLiteral): boolean {
+  const written = node.getText();
+  return /^0[xXbBoO]/.test(written) || !/[.eE]/.test(written);
+}
+
 const PATTERN_PARTS = (n: ts.Node): boolean =>
   ts.isArrayLiteralExpression(n) ||
   ts.isObjectLiteralExpression(n) ||
@@ -95,4 +136,30 @@ export function peerOperands(n: ts.Node): (readonly [ts.Identifier, ts.Expressio
     ...(ts.isIdentifier(l) && !ts.isNumericLiteral(r) ? [[l, r] as const] : []),
     ...(ts.isIdentifier(r) && !ts.isNumericLiteral(l) ? [[r, l] as const] : []),
   ];
+}
+
+export function isBitwise(node: ts.Node): boolean {
+  return (
+    (ts.isBinaryExpression(node) && BITWISE.has(node.operatorToken.kind)) ||
+    (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.TildeToken)
+  );
+}
+
+export function wrapList(subjects: readonly string[]): string {
+  const quoted = [...new Set(subjects)].map((s) => `"${s}"`);
+  if (quoted.length <= 1) return quoted[0] ?? 'an operand';
+  return `each of ${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]!}`;
+}
+
+export function maskValue(
+  node: ts.Expression,
+  constantOf: (id: ts.Identifier) => readonly [ts.Expression, boolean] | undefined,
+  declared = false,
+): number | undefined {
+  const n = skipParenNodes(node);
+  const constant = ts.isIdentifier(n) ? constantOf(n) : undefined;
+  if (constant !== undefined) return maskValue(constant[0], constantOf, constant[1]);
+  const call = ts.isCallExpression(n) && /^[iu]32$/.test(n.expression.getText()) ? n : undefined;
+  const v = declared ? writtenNumber(n) : call && writtenNumber(call.arguments[0]!);
+  return v !== undefined && Number.isInteger(v) && v >= 0 && v <= 0x7fffffff ? v : undefined;
 }

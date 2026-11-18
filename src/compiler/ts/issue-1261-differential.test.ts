@@ -47,6 +47,8 @@ import { checkDocuments } from '../../language-service/check.js';
 import {
   Skip,
   binary,
+  bitsLit,
+  bitsValue,
   convert,
   inRange,
   popcount,
@@ -55,19 +57,10 @@ import {
   wrap,
   type T,
   type V,
+  unaryValue,
 } from './issue-1261-differential/oracle.js';
-
-/** mulberry32: a small generator with a fixed seed, so the corpus is the same on every run. */
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+import { rng } from './issue-1261-differential/rng.js';
+import { editedRanges } from './issue-1261-differential/ranges.js';
 
 const INPUTS = { ii: -3, vi: 7, f: 2.5 } as const;
 /** The imported file: the same exports in each, and in three of them one more that the file
@@ -120,8 +113,8 @@ class Program {
   /** A bit tree of written integers, a negative one among them. */
   tree(): Expr {
     return this.pick([
-      () => lit(0xf0000000 | 0, '(0xF0000000|0)'),
-      () => lit(3000000000 | 0, '(3000000000|0)'),
+      () => bitsLit(0xf0000000, '(0xF0000000|0)'),
+      () => bitsLit(3000000000, '(3000000000|0)'),
       () => lit(-7 | 0, '(-7|0)'),
       () => lit(5 | 0, '(5|0)'),
       () => lit(1 | 2, '(1|2)'),
@@ -202,12 +195,7 @@ class Program {
       value: () => {
         const x = a.value();
         if (x.t === 'bool') throw new Skip('bool');
-        if (op === '~') {
-          if (x.t === 'f32') throw new Skip('f32 bits');
-          return { t: x.t, v: wrap(x.t, ~x.v) };
-        }
-        if (x.t === 'u32') throw new Skip('negated u32');
-        return { t: x.t, v: wrap(x.t, -x.v) };
+        return unaryValue(op, x);
       },
     };
   }
@@ -223,7 +211,7 @@ class Program {
           return { t, v: vs[2]!.v ? vs[1]!.v : vs[0]!.v };
         }
         const t = vs.slice(1).reduce((acc, v) => unify({ t: acc, v: 0 }, v), vs[0]!.t);
-        const xs = vs.map((v) => v.v);
+        const xs = vs.map((v) => v.ts ?? v.v);
         if (t === 'bool') throw new Skip('bool');
         switch (fn) {
           case 'abs':
@@ -254,7 +242,7 @@ class Program {
         if (cv.t !== 'bool') throw new Skip('cond');
         const [x, y] = [a.value(), b.value()];
         const t = unify(x, y);
-        return { t, v: cv.v ? x.v : y.v };
+        return { ...(cv.v ? x : y), t };
       },
     };
   }
@@ -398,7 +386,7 @@ class Program {
       const extra = this.lib === 1 ? ', LQ' : this.lib === 2 ? ', lh' : '';
       this.pre.unshift(`import { L, LB, LK, lg${extra} } from "./lib.shade";`);
       this.bind('L', 'k', () => ({ t: 'k', v: 3 }));
-      this.bind('LB', 'k', () => ({ t: 'k', v: 0xf0000000 | 0 }));
+      this.bind('LB', 'k', () => bitsValue(0xf0000000));
       this.bind('LK', 'k', () => ({ t: 'k', v: 3 }));
       if (this.lib === 1) this.bind('LQ', 'f32', () => ({ t: 'f32', v: 1.5 }));
       this.fns.push({
@@ -478,7 +466,7 @@ class Program {
     }
     // A module `let` set in another function (E1).
     if (this.chance(0.15)) {
-      const e = this.pick([() => this.tree(), () => lit(3000000000 | 0, '(3000000000|0)')])();
+      const e = this.pick([() => this.tree(), () => bitsLit(3000000000, '(3000000000|0)')])();
       this.pre.push(`let MS = 4;\nfunction setm() {\n  MS = ${e.text};\n}`);
       this.setm = true;
       this.bind('MS', 'k', () => e.value());
@@ -593,7 +581,7 @@ class Program {
     if (this.names.includes('M') && this.chance(0.4)) {
       const rhs = this.pick([
         () => this.tree(),
-        () => lit(3000000000 | 0, '(3000000000|0)'),
+        () => bitsLit(3000000000, '(3000000000|0)'),
         () => this.bin('|', this.name('M'), lit(0)),
         () => this.expr('k', 1),
       ])();
@@ -629,7 +617,7 @@ class Program {
       if (this.chance(0.35)) {
         const rhs = this.pick([
           () => this.treeish(),
-          () => lit(3000000000 | 0, '(3000000000|0)'),
+          () => bitsLit(3000000000, '(3000000000|0)'),
           () => this.expr(this.pick<T>(['k', result]), 1),
           () => this.bin(this.pick(['+', '|']), this.name('a'), this.tree()),
           () => this.call('select', [lit(1), this.tree(), this.compare(0)]),
@@ -809,6 +797,15 @@ class Program {
       let e = this.bin(op, this.name(l), amount);
       if (this.chance(0.3))
         e = this.bin(this.pick(['+', '-']), e, this.name(this.pick(['a', 'c'])));
+      if (this.chance(0.5)) {
+        const beside = this.pick(['+', '-', '*', '&', '|', '^']);
+        const big = () => bitsLit(0xf0000000, '(0xF0000000|0)');
+        const left = this.pick([big, big, () => this.name('a'), () => e])();
+        e = this.chance(0.5)
+          ? this.bin(beside, left, this.name('vi'))
+          : this.bin(beside, this.name('vi'), left);
+        if (this.chance(0.2)) e = this.unary('~', e);
+      }
       if (this.chance(0.25)) {
         this.lines.push(`let d = ${e.text};`);
         const held = e;
@@ -1030,19 +1027,6 @@ function genericEdits(text: string, d: Line): Change[][] | undefined {
       });
   }
   return undefined;
-}
-
-/** Where each change of `changes` stands in its file once they are all made. */
-function editedRanges(changes: readonly Change[]): { file: string; start: number; end: number }[] {
-  const out: { file: string; start: number; end: number }[] = [];
-  for (const file of [FILE, LIB_FILE]) {
-    let delta = 0;
-    for (const c of changes.filter((x) => x.file === file).sort((a, b) => a.start - b.start)) {
-      out.push({ file, start: c.start + delta, end: c.start + delta + c.text.length });
-      delta += c.text.length - (c.end - c.start);
-    }
-  }
-  return out;
 }
 
 /** The two operands of the division a refusal stands on (through parentheses and a minus). */
@@ -1302,7 +1286,7 @@ describe('the written-integer rules hold over a generated corpus (issue 1261, D1
             }
             // A refusal that stands wholly outside the wraps names code the author wrote: a second
             // mistake the first one hid, not one the wrap made.
-            const ranges = editedRanges(set);
+            const ranges = editedRanges([FILE, LIB_FILE], set);
             const outside = (d: Line): boolean =>
               ranges.every(
                 (x) => x.file !== d.file || d.start + d.length <= x.start || d.start >= x.end,
