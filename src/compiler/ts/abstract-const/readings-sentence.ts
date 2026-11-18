@@ -22,8 +22,12 @@ export function readingsSentenceOf(
   );
 }
 
-export const absOfI32Minimum = (r: {
-  readonly operator: string;
-  readonly readings: { readonly ts: number; readonly unproven?: boolean };
-}): boolean =>
-  r.operator === 'abs' && (r.readings.unproven === true || (r.readings.ts | 0) === -2147483648);
+export const absOfI32Minimum = (
+  r: {
+    readonly operator: string;
+    readonly readings: { readonly ts: number; readonly unproven?: boolean };
+  },
+  all: readonly { readonly ts: number; readonly unproven?: boolean }[],
+): boolean =>
+  r.operator === 'abs' &&
+  [r.readings, ...all].some((x) => x.unproven === true || (x.ts | 0) === -2147483648);

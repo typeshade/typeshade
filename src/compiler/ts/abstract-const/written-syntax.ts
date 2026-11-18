@@ -280,3 +280,8 @@ export function reachedBy(
   }
   return reached;
 }
+
+export function i32Argument(arg: ts.Expression): ts.Expression | undefined {
+  const n = skipParenNodes(arg);
+  return ts.isCallExpression(n) && n.expression.getText() === 'i32' ? n.arguments[0] : undefined;
+}

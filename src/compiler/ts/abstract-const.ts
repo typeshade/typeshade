@@ -45,6 +45,7 @@ import { loweredTypeOf } from './symbols.js';
 import {
   constantTree,
   ARITH,
+  i32Argument,
   reachedBy,
   COUNTING_BUILTINS,
   ONE,
@@ -71,6 +72,7 @@ import {
 import {
   floatPositionOperands,
   identifiersNamed,
+  inIntegerSlot,
   isTypedConstructor,
   nodeAtOffset,
   nodeSpanning,
@@ -98,6 +100,7 @@ import {
   pastInt32,
   provenDiffering,
   markReassigned,
+  provenI32Minimum,
   readingValue,
   sameReadings,
   type Reading,
@@ -890,24 +893,6 @@ function originLeaves(node: ts.Node): ts.Node[] {
   return out;
 }
 
-/** Whether `leaf`, inside `within`, is read as an index or a shift amount. */
-function inIntegerSlot(leaf: ts.Node, within: ts.Node): boolean {
-  for (let n: ts.Node = leaf; n !== within && n.parent !== undefined; n = n.parent) {
-    const up = n.parent;
-    if (ts.isElementAccessExpression(up) && up.argumentExpression === n) return true;
-    if (
-      ts.isBinaryExpression(up) &&
-      up.right === n &&
-      (up.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken ||
-        up.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanToken ||
-        up.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken)
-    )
-      return true;
-    if (up === within) break;
-  }
-  return false;
-}
-
 /** `node` as written, with each part that carries an origin converted to `type`: `f32(k) / 2`,
  *  `xs[i32(k) / 2]`. A float conversion of a value under a bitwise or shift operator converts
  *  the outermost such operation instead, which has an integer's value: `f32(k | 1) / 2`. */
@@ -1551,8 +1536,9 @@ export function reportAbstractDivisions(
         const elsewhere =
           constant !== undefined && programFileOf(constant) !== programFileOf(r.node);
         const shown: ReadingsRefusal = declared ? { ...r, target: true } : r;
+        const wgslAbs = absOfI32Minimum(r, readingsFrom(r.node));
         const change = (t: 'u32' | 'i32'): SourceChange | undefined =>
-          elsewhere || (t === 'i32' && absOfI32Minimum(r))
+          elsewhere || r.readings.noEdit === true || (t === 'i32' && wgslAbs)
             ? undefined
             : declared
               ? declarationChange(text, r.node, t)
@@ -1578,7 +1564,8 @@ export function reportAbstractDivisions(
             const t = set === 0 ? first : second;
             if (t !== 'u32' || declared) say(t);
           },
-          generic: () => say(first === 'i32' && absOfI32Minimum(r) ? 'none' : null),
+          generic: () =>
+            say(r.readings.noEdit === true || (first === 'i32' && wgslAbs) ? 'none' : null),
           bare: () => say('none'),
         };
       },
@@ -2282,6 +2269,17 @@ export interface TwoReadings {
   readonly u32: number;
   readonly ts: number;
   readonly unproven?: boolean;
+  readonly noEdit?: boolean;
+}
+
+export function besideI32Readings(arg: ts.Expression, callee: string): TwoReadings | undefined {
+  const own = twoReadingsOf(arg);
+  if (own?.unproven === true || callee !== 'abs') return own?.unproven === true ? own : undefined;
+  const inner = i32Argument(arg);
+  const xs = inner === undefined ? [] : readingsFrom(inner);
+  return xs.length > 0 && xs.every(provenI32Minimum)
+    ? { u32: NaN, ts: NaN, unproven: true, noEdit: true }
+    : undefined;
 }
 
 /** The two readings a plain assignment `a = rhs` gives its target: those of `rhs`, or of a

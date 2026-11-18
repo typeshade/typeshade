@@ -146,3 +146,6 @@ export function agreeingBound(k: ts.SyntaxKind, a: Reading, b: Reading): Reading
 export function markReassigned(xs: readonly Reading[], reassigned: boolean): Reading[] {
   return reassigned ? xs.map((x) => ({ ...x, reassigned: true })) : [...xs];
 }
+
+export const provenI32Minimum = (x: Reading): boolean =>
+  !x.unknown && !x.unproven && !x.agreeing && (x.u32 | 0) === -2147483648;

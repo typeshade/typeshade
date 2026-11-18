@@ -6,6 +6,7 @@ import {
   peekingReads,
   refuseTwoReadings,
   twoReadingsOf,
+  besideI32Readings,
 } from '../abstract-const.js';
 import ts from 'typescript';
 import { statesType } from '../lit-coerce.js';
@@ -740,9 +741,7 @@ export function lowerCall(
     // refused, and its edit takes TypeScript's value, `i32(a)` (C1; F9 of the fourteenth review).
     const held = (a: Expr, i: number) =>
       (a.op === 'varref' ? readingsOf(a, (n) => scope.resolveIr(n)) : undefined) ??
-      (twoReadingsOf(node.arguments[i]!)?.unproven === true
-        ? twoReadingsOf(node.arguments[i]!)
-        : undefined);
+      besideI32Readings(node.arguments[i]!, callee.text);
     const i =
       peers.includes('i32') && !peers.includes('f32') ? args.findIndex((a, j) => held(a, j)) : -1;
     if (i >= 0) {

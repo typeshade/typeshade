@@ -309,4 +309,40 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
     bothRefuse(source, 'TS8003', proven('a', 4026531840, -268435456, 'abs', 'i32(a)'));
     expect(run(source.replace('abs(a)', 'abs(i32(a))'))).toBe(268435456);
   });
+
+  const NO_EDIT = (subject: string, numbers?: readonly [number, number]): string =>
+    numbers === undefined
+      ? `The compiler cannot prove that the u32 bits and the TypeScript value of "${subject}" agree, so the "abs" does not say which value it means.`
+      : `"${subject}" is ${String(numbers[0])} on its u32 bits and ${String(numbers[1])} in TypeScript, so the "abs" does not say which value it means.`;
+  const TREE_A = 'let a = (0xF0000000|0);\n  ';
+  it.each([
+    [
+      'a reassigned in an if',
+      `${TREE_A}if (vi > 3) {\n    a = a + 0x90000000;\n  }\n  return f32(abs(a));`,
+      NO_EDIT('a'),
+    ],
+    [
+      'a ?: with the i32 minimum in an arm',
+      `${TREE_A}return f32(abs(vi > 3 ? a + 0x90000000 : a));`,
+      NO_EDIT('vi > 3 ? a + 0x90000000 : a', [4026531840, -268435456]),
+    ],
+    [
+      'a select with the i32 minimum in an arm',
+      `${TREE_A}return f32(abs(select(a, (0x80000000|0), vi > 3)));`,
+      NO_EDIT('select(a, (0x80000000|0), vi > 3)', [4026531840, -268435456]),
+    ],
+  ] as const)(
+    'review of #1358 (B1): abs names no edit where any value may be the i32 minimum: %s',
+    (_, body, said) => {
+      bothRefuse(program(body, 'f32'), 'TS8003', said);
+    },
+  );
+
+  it('owner decision of 2026-11-18: abs of an i32 the compiler proves is the minimum is refused, with no edit', () => {
+    bothRefuse(program(`${H}return f32(abs(i32(h + h)));`, 'f32'), 'TS8003', NO_EDIT('i32(h + h)'));
+  });
+
+  it("abs of an i32 known only at run time keeps WGSL's rule", () => {
+    expect(run(program('return f32(abs(ii));', 'f32'))).toBe(3);
+  });
 });
