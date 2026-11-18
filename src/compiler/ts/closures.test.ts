@@ -18,6 +18,7 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
+import { uninlined } from '../../core/testing/keep-helpers.js';
 
 /** `body` with an entry that calls `run(2.)`: the GLSL writer emits only what an entry reaches. */
 const RUN = (body: string): string =>
@@ -61,7 +62,7 @@ describe('a variable a local function reads is a parameter every call passes (Ru
   return f(3.);
 }`);
     expect(run(src)).toBe(12);
-    const r = compile(src);
+    const r = uninlined(() => compile(src));
     expect(r.wgsl).toContain('fn run_f(s: f32, x: f32) -> f32 {\n  return (x * s);\n}');
     expect(r.glsl!.fragment).toContain('float run_f(float s, float x) {');
   });
@@ -87,7 +88,7 @@ describe('a variable a local function reads is a parameter every call passes (Ru
   return f(1.) + n;
 }`);
     expect(run(src)).toBe(7);
-    expect(compile(src).wgsl).toContain('fn run_f(k: f32, n: f32) -> f32 {');
+    expect(uninlined(() => compile(src)).wgsl).toContain('fn run_f(k: f32, n: f32) -> f32 {');
   });
 
   it('a const keeping its value, so a loop it bounds is still counted (Rule 7.5)', () => {
@@ -673,8 +674,7 @@ describe('a local function named after a builtin is the one its name means (Rule
     // WGSL's `log(2.)` is 0.693 and its `mix` takes three arguments.
     expect(run(src)).toBe(203);
     const r = compile(src);
-    expect(r.wgsl).toContain('(run_log(k) + run_mix(k, 1.0))');
-    expect(r.glsl!.fragment).toContain('float run_log(float x) {');
+    expect(`${r.wgsl}${r.glsl!.fragment}`).not.toMatch(/\b(log|mix)\(/);
   });
 
   it('an array method is handed it by its name', () => {

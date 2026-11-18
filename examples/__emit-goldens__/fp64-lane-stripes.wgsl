@@ -23,37 +23,23 @@ fn vs(@builtin(vertex_index) idx: u32) -> VsOut {
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)));
 }
 
-fn stripeAt(origin: vec2<f32>, offset: f32) -> vec2<f32> {
-  let _fp64_g = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
-  let world = df64_add(origin, vec2<f32>(offset, 0.0), _fp64_g);
-  let stripe = vec2<f32>(0.125, 0.0);
-  let _cse1 = bitcast<f32>(bitcast<u32>(0.0));
-  let _cse0 = vec2<f32>(_cse1, _cse1);
-  return df64_fract(df64_div(df64_add(world, _cse0, _fp64_g), df64_add(stripe, _cse0, _fp64_g), _fp64_g), _fp64_g);
-}
-
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _fp64_g = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
   let origin = df64_mul(u.origin, vec2<f32>(2.5, 0.0), _fp64_g);
   let offset = (u.span * (vo.uv.x - 0.5));
-  let bands = stripeAt(origin, offset);
+  let _gv0 = df64_add(origin, vec2<f32>(offset, 0.0), _fp64_g);
+  let _i0_stripe = vec2<f32>(0.125, 0.0);
   let _cse1 = bitcast<f32>(bitcast<u32>(0.0));
   let _cse0 = vec2<f32>(_cse1, _cse1);
-  let _gv0 = df64_add(origin, vec2<f32>(offset, 0.0), _fp64_g);
+  let _i0ret = df64_fract(df64_div(df64_add(_gv0, _cse0, _fp64_g), df64_add(_i0_stripe, _cse0, _fp64_g), _fp64_g), _fp64_g);
   let _lc1 = df64_round(df64_add(origin, _cse0, _fp64_g), _fp64_g);
-  let _gv1 = df64_narrow(vec2<f32>(bands.x, bands.y));
+  let _gv1 = df64_narrow(vec2<f32>(_i0ret.x, _i0ret.y));
   let narrowed = vec3<f32>(0.0, df64_narrow(vec2<f32>(_lc1.x, _lc1.y)), 0.0);
   let flat = fract((df64_narrow(_gv0) * 8.0));
-  var _sel0: f32;
-  if ((vo.uv.x < 0.5)) {
-    _sel0 = flat;
-  } else {
-    _sel0 = _gv1;
-  }
-  let shade = _sel0;
+  let _sel0 = select(_gv1, flat, (vo.uv.x < 0.5));
   let drift = abs((_gv1 - flat));
-  return vec4<f32>(shade, drift, fract((narrowed.y * 0.5)), 1.0);
+  return vec4<f32>(_sel0, drift, fract((narrowed.y * 0.5)), 1.0);
 }
 
 fn df64_twoSum(a: f32, b: f32, _fp64_g: f32) -> vec2<f32> {

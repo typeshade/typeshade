@@ -2640,13 +2640,43 @@ It is the same declaration `array<f32, 3>(0., 0.5, 1.)` makes: the same `constru
 same emitted text, so the two spellings are one program, and `src/compiler/ts/ir-equality.test.ts`
 pins both against the EDSL's `construct(arrayT(f32T, 3), …)`.
 
-A list carries no type of its own, which is what decides where it is allowed and what it
-means:
+A list with no annotation takes its element type and its length from its elements (change
+0114, S2), in a function body and at module scope, for a `const` and a `let`:
 
-- It is **only** an initializer, where the declaration states an `array<T, N>`, or as the
-  source of an array binding pattern (§14). That binding context can infer a homogeneous
-  fixed-length array: `const [a, b] = [1., 2.]`.
-  `const xs = [1., 2.]` and `[1., 2.].reduce((a, b) => a + b)` are refused, each naming the spelling that works.
+```ts
+const stops = [0., 0.5, 1.];          // array<f32, 3>
+const corners = [vec2(0.), vec2(1.)]; // array<vec2, 2>
+const LUT = [0.25, 0.5] as const;     // module scope: array<f32, 2>, read-only
+```
+
+It is the declaration the annotated list makes, and the editor's hover shows the sized type,
+`const stops: array<f32, 3>`. `as const` on a module-scope list gives the same sized array; a
+module constant is read-only, so a write to `LUT[0]` is `Cannot assign to "LUT" — it is a module
+const.` in both halves. A function-local `as const` list is not taken yet. The elements must share
+one type, and a list that does not says which types it found, one sentence on the declaration:
+
+- `[1., true]`: `"const a" takes its type from its list, whose elements must share one type:
+  element 0 is f32 and element 1 is bool.`
+- `[1, 2.5]`, an integer-written number beside a float (change 0114, decision D2, until #148
+  settles the integer default): `… element 0 is an integer-written number and element 1 is f32.
+  Declare the type: const a: array<f32, 2> = [...].`
+- `[]`: `"const a" takes its type and its length from its list, and an empty list has neither: a
+  shader array has at least one element. Write its elements.`
+- A list of integer-written numbers alone, `[1, 2, 3]`, is not supported yet: its uses will
+  decide its element type (change 0114, Amendment A3, stage S2c). `"const a" is a list of
+  integer-written numbers, whose element type its uses will decide; that is not supported yet.
+  Declare the type: const a: array<f32, 3> = [...].`
+
+A constructor with a constant length gives the size too, with no list: `new Array(16).fill(0.)`,
+`new Float32Array(4)` and `Array.from({ length: 8 }, (_, i) => f32(i))` (§63, change 0114, S2).
+
+Elsewhere a list carries no type of its own, which is what decides where it is allowed and what
+it means:
+
+- It is an initializer, as above or where the declaration states an `array<T, N>`, the source of
+  an array binding pattern (§14), or a value in a position that declares an array type (§28).
+  That binding context can infer a homogeneous fixed-length array: `const [a, b] = [1., 2.]`.
+  `[1., 2.].reduce((a, b) => a + b)` is refused, naming the spelling that works.
 - The size must be fixed and must match: `array<f32>` has nothing to fill, and
   `array<f32, 3> = [1., 2.]` is an arity error.
 - Every element must be the element type. There is no implicit conversion, so
@@ -2812,7 +2842,11 @@ storage address space alone (Tint: "runtime-sized arrays can only be used in the
 address space"), and the compiler does not yet rewrite another place to one (OD-9). A parameter
 or a result that holds one, directly or as a struct's last field, is refused as not supported
 yet (TS8020), and so is a local that would hold a copy, a `let` (TS8099): read the binding by
-its name instead. A kernel function that returns a new array is proposal 0114's stage S5. A
+its name instead. An exported kernel function may make the array it returns, `const out = new
+Float32Array(n)` or `new Array(n).fill(v)` with `n` known when the call runs, and return `out`
+(proposal 0114, S5, slice 1; §64 and §65): `out` is an `array<f32>`, `array<i32>` or
+`array<u32>` that the call binds as an array parameter of its own, and its hover reads as an array
+parameter's does. A
 `uniform<array<f32>>` is refused (TS8051), and `.length` on it (TS8032) with the one fix that
 works: give the type a size, `array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
 
@@ -3553,7 +3587,8 @@ TS2511, TS2708 and TS7017), and its report of any name in the target (TS2304, TS
 | `new Date()`, and nothing declares `Date` | `TS8022`: `Date` is an unknown name, as it is in any other position, and the name a misspelled one is spelled like is a class, never a value: `new Pos()` beside a parameter `pos` names none |
 | `new vec3f(1., 2., 3.)`, `new f32(1)` | `TS8035`: a WGSL constructor is called without `new`, `vec3f(1., 2., 3.)` |
 | `new sampler()`, `new texture_2d<f32>()` | `TS8035`: it is a type, not a value, and WGSL gives it no constructor |
-| `new Array(4)`, `new Number(1)` | `TS8035`: it is a type the library declares for TypeScript's own use, not a value |
+| `new Number(1)` | `TS8035`: it is a type the library declares for TypeScript's own use, not a value |
+| `new Array(4)` with no `fill` | `TS8099`: `"new Array(4)" makes an array of holes in JavaScript, and a hole is not supported yet. Fill it: new Array(4).fill(v).` (change 0114, S2; §63) |
 | `new Symbol()` | `TS8035`: it is no class a shader has, which the library declares for TypeScript's own use |
 | `new F()` on a function, `new Math.sin(1.)` | `TS8035`: `F` is a function, which is called without `new`, `F()` |
 | `new E()` on an enum | `TS8035`: an enum's values are its members, `E.A` |
@@ -4641,8 +4676,9 @@ const depth = mid([0.05, 8.]);           // a list, in a position that declares 
 ```
 
 A list now takes its type from any position that declares one, not from a `const` alone: a
-return, an argument, a struct field. Where nothing declares one, `array<T, N>(...)` still says
-it.
+return, an argument, a struct field. An unannotated `const` or `let` takes it from the list's
+elements (§18, change 0114). A tuple is the short sized spelling for a small length: `[f32, f32,
+f32]` is `array<f32, 3>`, and `array<T, N>` is the spelling for a length such as 256.
 
 **A union whose members all name one type names it too.** `0 | 1 | 2` is an `i32`, for the
 reason an enum member is one; `0.5 | 1.5` is an `f32`; `true | false` is a `bool`; `Meters |
@@ -4952,10 +4988,10 @@ what the CPU oracle already does. It also retires a documented under-fix: the AN
 that hoists a struct constructor out of a position that target dislikes used to skip a
 conditional's arms for exactly that reason, and now hoists inside the branch instead.
 
-A scalar or a vector conditional keeps the operator each target has, `select` on WGSL and the
-ternary on GLSL, while its arms are cheap. One whose arm is costly is hoisted the same way
-(change 0097, Rule 7.2), so the arm not taken does not run: `select` and the ternary evaluate
-both arms, and `hit ? shade(hit) : background` ran `shade` for every pixel. The cost of an arm
+A scalar or a vector conditional keeps the operator each target has, `select` on WGSL, and on
+GLSL `mix` with a bool for a float result and the ternary for any other, while its arms are cheap.
+One whose arm is costly is hoisted the same way (change 0097, Rule 7.2), so the arm not taken does
+not run: `select` and `mix` evaluate both arms, and `hit ? shade(hit) : background` ran `shade` for every pixel. The cost of an arm
 is the sum over its nodes, a call of a function of the module 16, a texture builtin 8, any
 other builtin call 2, an operation or a constructor 1, a literal, a name, a member or an index
 0, and an arm at 8 or more is costly. `x > 0.5 ? heavy(x) : 0.` becomes
@@ -7936,7 +7972,7 @@ every method of an array was `TS8099 JS Array method ".map" is not a shader op`.
 | `xs.every(p)`         | `bool`             | whether `p` holds for every element, stopping at the first that fails |
 | `xs.reduce(f, init)`  | the type of `init` | `acc = f(acc, value, index, array)` from `init`, left to right        |
 | `xs.reduce(f)`        | `T`                | the same, starting from the first element, on an `array<T, N>`        |
-| `xs.fill(v)`          | nothing            | stores `v` into every element (change 0079)                           |
+| `xs.fill(v)`          | `xs`               | stores `v` into every element (change 0079), and gives the array back |
 | `xs.findIndex(p)`     | `i32`              | the first index where `p` holds, or `-1`                              |
 | `xs.findLastIndex(p)` | `i32`              | the last index where `p` holds, or `-1`                               |
 | `xs.indexOf(v)`       | `i32`              | the first index where the element `=== v`, or `-1`                    |
@@ -8048,6 +8084,57 @@ TypeScript, and an array of objects follows rules 3 and 4 of §70.
 `sum(xs)`, `any(xs, p)`, `all(xs, p)` and `none(xs, p)`, the folds §27 once named, were removed
 (change 0112): write `xs.reduce((a, b) => a + b)`, `xs.some(p)`, `xs.every(p)` and `!xs.some(p)`.
 `zip` stays, unrolled, since no ECMAScript form builds an array from two.
+
+**An array built with a constant length (change 0114, S2).** Three of ECMAScript's
+constructors build an `array<T, N>` when the length `N` is a constant: an integer literal, a
+module constant or a constant of no fixed type (Rule 5.1).
+
+| Written                        | Its value       | What it holds                                                 |
+| ------------------------------ | --------------- | ------------------------------------------------------------- |
+| `new Array(N).fill(v)`         | `array<T, N>`   | `N` copies of `v`; `T` is the type of `v`                     |
+| `new Float32Array(N)`          | `array<f32, N>` | `N` zeros of `f32`                                            |
+| `Array.from({ length: N }, f)` | `array<R, N>`   | `f(undefined, i)` for each index `i`; `R` is what `f` returns |
+
+```ts
+const weights = new Array(16).fill(0.5);                  // array<f32, 16>
+const zeros = new Float32Array(4);                        // array<f32, 4>
+const ramp = Array.from({ length: 8 }, (_, i) => f32(i)); // array<f32, 8>
+
+class Layer {
+  weights = new Array(16).fill(0.); // a class field's size comes from its initializer
+}
+```
+
+The editor's hover shows the sized type, `const weights: array<f32, 16>` and
+`(property) Layer.weights: array<f32, 16>`. `fill` gives back the array it fills, as
+ECMAScript's `Array.prototype.fill` does, so `new Array(N).fill(v)` is that array. A value with a
+call in it is computed once, as ECMAScript computes it, and the copies are stored by a function of
+the module (`array_fill`). `Array.from` hands its function `undefined` and the index, an `i32` as
+`map` hands it, and the call is a function of the module that builds each element in a counted
+loop (`array_from_f`). An integer-written `v` takes the element type of a declared type,
+`const w: array<u32, 3> = new Array(3).fill(1)`.
+
+Refused, each in both halves with `TS8099`, not supported yet, unless it says otherwise:
+
+- `new Array(N)` with no `fill`, which JavaScript fills with holes: `"new Array(4)" makes an
+  array of holes in JavaScript, and a hole is not supported yet. Fill it: new Array(4).fill(v).`
+  `new Array()` and `new Array(a, b)` stay `TS8035`;
+- a length that is no constant: `"new Float32Array(n)" takes its length from "n", which is no
+  constant, and an array whose length is known only when the shader runs is not supported yet
+  here. Write a constant length: an integer literal or a module constant.` A length of 0 is not
+  supported yet either, and a negative or fractional length is `TS8003`, the `RangeError`
+  JavaScript throws;
+- an integer-written `v` that no declared type types, whose uses would decide its type (change
+  0114, Amendment A3): `fill(f32(0))`, `fill(i32(0))` or `fill(u32(0))` says it;
+- a `v` that is an object with a name, which every element would share: one object under two
+  names is not supported yet (change 0142, stage 3), as for `new Array(N).fill(new P())`;
+- a use of what `xs.fill(v)` gives back on an array that already exists, `const z = w.fill(2.)`:
+  call it on its own line, then use `w`;
+- `Array.from` with no function, with a function by its name, with a function that reads its
+  first parameter (`undefined`) or takes a third, with anything but `{ length: N }`, and outside
+  a function's body (at module scope or in a field's initializer);
+- `new Float32Array()` with no length or another argument. `Int32Array`, `Uint32Array` and
+  `Float64Array` stay unknown names (`TS8022`) until plan unit B2.
 
 **A copy (change 0142).** An array is an object with the identity a JavaScript object has, so
 `let ys = xs` names the same array (§70). `xs.slice()` with no argument gives a new array
@@ -8455,6 +8542,7 @@ is a type error at the host's own line.
 | a compute entry                              | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
 | a full-screen fragment entry                 | `export declare function e(target, bindings?): Promise<void>` when no host binding is reached; otherwise `bindings` is required (Rule 8.24; §67) |
 | a kernel function (§65)                      | `export declare function k(…): Promise<R>`                   |
+| a kernel function that makes its result (§65) | `export declare function k(…): Promise<Float32Array>` for `f32[]`, `Promise<Int32Array>` for `i32[]`, `Promise<Uint32Array>` for `u32[]`; no argument for the array it makes |
 | a vertex entry, a generic function, a binding, anything else | `never`, with the reason and the work that adds it |
 
 **Host values** (Rule 8.21) are the representation the CPU tier already runs on:
@@ -8968,6 +9056,36 @@ export function scale(xs: array<f32>, k: f32) {
   }
 }
 ```
+
+**An array the function makes and returns** (Rule 8.23, proposal 0114, S5, slice 1). A kernel
+function may make the array it returns instead of taking it: one `const` at the top of its body,
+before its first loop and its first store, `new Float32Array(n)` (zeros) or
+`new Array(n).fill(v)` (`n` copies of `v`), of `f32`, `i32` or `u32`, returned on every path. It
+takes no array parameter to be a kernel function. `n` reads the value parameters, their
+components and fields, module constants, the `.length` of an array parameter, literals and
+top-level `const`s of these, with `+ - * / % min max`; the host evaluates it before the call and
+throws a `RangeError` for a length that is negative or not an integer. The call binds the array
+as an array parameter of its own, checks each index a loop writes against `n` (the `TypeError`
+names "the array it returns"), and resolves to a new typed array the caller owns:
+
+```ts
+export function render(k: vec4, size: u32): f32[] {
+  const out = new Float32Array(size * size);
+  for (let i: u32 = 0; i < size * size; i++) {
+    const p = vec2(f32(i % size), f32(i / size)) / f32(size);
+    out[i] = height(p, k);
+  }
+  return out;
+}
+// host: const img: Float32Array = await render(k, 512);
+```
+
+Not supported yet in this slice, each refused with `TS8099` and a sentence that names the form:
+an element of a vector or a struct, such an array in a helper or an entry, one made under a
+branch, inside a loop or after a loop or a store, a length that reads another operand,
+`Array.from({ length: n }, f)` with such a length, another `return`, `out.push(v)`, a second name
+or an argument of a call, and a 2D storage texture beside it. A call on a resource and a call
+inside `fuse()` throw a `TypeError` that says so, and WebGL2 runs it on the CPU tier.
 
 A texture, a storage texture, a `Map` and a `Set` are the caller's too, with no qualifier. A
 push to an array parameter, `out.push(v)`, writes the caller's array as an element write does.
@@ -11392,6 +11510,7 @@ A call that cannot be recorded throws a `TypeError` that names it, since it woul
 | an `async` body                           | `fuse(): the body is synchronous, and this one is not. A call made after an await runs outside the scope. Remove async, and await the promise that fuse() returns.`          |
 | a kernel call that writes a host array    | `add(): parameter "out" is a Float32Array, and a call inside fuse() writes only a Buffer. fuse() reads nothing back. Pass array(...), or call add() outside fuse().`          |
 | a call with the wrong number of arguments | `add() takes 3 arguments; got 2.`                                                                                                                                            |
+| a kernel function that makes its result (§65; change 0114, S5) | `render(): returns the array it makes, "out", and a call inside fuse() that makes its result is not supported yet. Call render() outside fuse().` |
 | an entry call that takes a host array (§67) | `blur(): binding "t" is a Float32Array, and a call inside fuse() takes a storage array with no size only as a Buffer. Pass array(...), or call blur() outside fuse().`      |
 | an entry call that writes a host value (§67) | `blur(): binding "sink" is a Float32Array, and a call inside fuse() writes only a Buffer. fuse() reads nothing back. Pass array(...), or call blur() outside fuse().`      |
 | a draw (§67)                              | `fs(): a draw cannot run inside fuse(), which records kernel calls only. Call it outside fuse().`                                                                            |

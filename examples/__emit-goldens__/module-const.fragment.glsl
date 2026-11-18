@@ -19,6 +19,6 @@ void main() {
   uint parity = (((cx + cy) + uint((PHASE + 8))) & 1u);
   float ramp = pow(uv.y, GAMMA);
   float dark = (ramp * 0.25);
-  float v = ((parity == 0u) ? (INVERT ? dark : ramp) : (INVERT ? ramp : dark));
+  float v = mix(mix(dark, ramp, INVERT), mix(ramp, dark, INVERT), (parity == 0u));
   _ret = vec4(v, v, v, 1.0);
 }

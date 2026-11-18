@@ -32,6 +32,7 @@ import { dslError } from '../../diagnostics/error.js';
 import { structCtor } from './struct-ctor.js';
 import { sinkAggregateInit } from './sink-aggregate-init.js';
 import { splitLocalArrays } from './sroa.js';
+import { ifConvert } from './if-convert.js';
 import { loopLoadReuse } from './loop-load-reuse.js';
 import { memberFold } from './member-fold.js';
 import { unrollLoops } from './unroll.js';
@@ -80,6 +81,7 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   unrollLoops,
   sinkAggregateInit,
   splitLocalArrays,
+  ifConvert,
   // …then collapse a write-once struct local into the constructor it is assembling
   // (X-GIS #1867), so CSE below sees one value rather than N field writes and BOTH writers
   // emit the shorter shape.
@@ -206,7 +208,7 @@ export function irEqual(a: unknown, b: unknown): boolean {
  *  consts / structs / bindings ride along via `{ ...m }`.
  *
  *  ⚠ INVARIANT: this is correct ONLY while every pass is per-function-pure. A
- *  CROSS-function pass (inline, deadFnElim — both deliberately UNWIRED, see
+ *  CROSS-function pass (deadFnElim — deliberately UNWIRED, see
  *  DEFAULT_PASSES) run on a one-function module would see a different module than
  *  the whole and silently diverge. `fixpoint-ireq.test.ts` pins per-function ≡
  *  whole-module on the real projection module so wiring such a pass fails loudly.

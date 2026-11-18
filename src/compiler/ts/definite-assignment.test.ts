@@ -13,6 +13,7 @@ import { stageOf } from '../../core/ir/index.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { uninlined } from '../../core/testing/keep-helpers.js';
 
 const FRAGMENT = `interface VsOut { pos: builtin<"position">; }
 @vertex export function vs(): VsOut { return { pos: vec4(0., 0., 0., 1.) }; }
@@ -118,10 +119,10 @@ export function run(): f32 { let s: f32; s = 1.; let q: P; q = new P(); let v: v
 ${FRAGMENT}`);
     expect(r.diagnostics).toEqual([]);
     const glsl = r.glsl!.fragment;
-    expect(glsl).toContain('float s = 0.0;');
-    expect(glsl).toContain('P q = P(0.0, vec2(0.0));');
-    expect(glsl).toContain('vec3 v = vec3(0.0);');
-    expect(r.wgsl).toContain('var s: f32;');
+    expect(glsl).toMatch(/float \w*s = 0\.0;/);
+    expect(glsl).toMatch(/P \w*q = P\(0\.0, vec2\(0\.0\)\);/);
+    expect(glsl).toMatch(/vec3 \w*v = vec3\(0\.0\);/);
+    expect(r.wgsl).toMatch(/var \w*s: f32;/);
   });
 
   it('leaves a local bare on GLSL when the next statement writes it on every path first', () => {
@@ -129,9 +130,11 @@ ${FRAGMENT}`);
     // shape of the slots the compiler hoists (`_sel`, `_seq`), where the zero was a store in a
     // ray march's inner loop. The observable `t` needs its explicit zero on the false path;
     // the unread local can disappear with its stores.
-    const r = compile(`"use typeshade";
+    const r = uninlined(() =>
+      compile(`"use typeshade";
 export function run(c: bool): f32 { let s: f32; if (c) { s = 1.; } else { s = 2.; } let t: f32 = 0.; if (c) { t = 3.; } let unread: f32; if (c) { unread = 7.; } return s + t; }
-${FRAGMENT.replace('run()', 'run(true)')}`);
+${FRAGMENT.replace('run()', 'run(true)')}`),
+    );
     expect(r.diagnostics).toEqual([]);
     // Keep both paths in the helper ABI; the entry specializes run(true) at O2.
     const glsl = emitGlslModule({
@@ -139,7 +142,8 @@ ${FRAGMENT.replace('run()', 'run(true)')}`);
       funcs: r.module.funcs.filter((f) => stageOf(f) === undefined),
     });
     expect(r.glsl!.fragment).toMatch(/float _spec\d+_run\(\)/);
-    expect(glsl).toContain('  float s;\n  if (c) {');
+    expect(glsl).toContain('float s = mix(2.0, 1.0, c);');
+    expect(glsl).not.toContain('float s = 0.0');
     expect(glsl).toContain('float t = 0.0;');
     expect(glsl).not.toMatch(/\bunread\b/);
     const oracle = compileModule(r.module).fns.run!;

@@ -16,6 +16,7 @@ import {
 } from '../../ir/index.js';
 import { emitModule } from '../../backends/wgsl.js';
 import { compileModule } from '../../oracle.js';
+import { keepBranches } from '../../testing/keep-branches.js';
 
 // P2 — common-subexpression elimination (as a PASS over the IR, not an authoring
 // change). Safe subset: hoist a compound subexpression that (a) occurs >= 2x and
@@ -157,21 +158,24 @@ describe('optimize — CSE placement', () => {
     expect(cseLine).toBeGreaterThan(ifLine);
   });
 
-  it('binds at the fn body when uses straddle two arms (common dominator)', () => {
-    const wgsl = emitOf([
-      { s: 'var', name: 'r', type: f32T, init: lit(0) },
-      {
-        s: 'if',
-        arms: [{ cond: XGT0, body: [{ s: 'assign', target: varref('r'), expr: sinX }] }],
-        elseBody: [{ s: 'assign', target: varref('r'), expr: sinX }],
-      },
-      { s: 'return', expr: varref('r') },
-    ]);
-    const cseLine = lineOf(wgsl, /let _cse\d+ =/);
-    const ifLine = lineOf(wgsl, /^\s*if \(/);
-    expect(cseLine).toBeGreaterThanOrEqual(0);
-    expect(cseLine).toBeLessThan(ifLine); // hoisted ABOVE the branch, as it must be
-  });
+  it(
+    'binds at the fn body when uses straddle two arms (common dominator)',
+    keepBranches(() => {
+      const wgsl = emitOf([
+        { s: 'var', name: 'r', type: f32T, init: lit(0) },
+        {
+          s: 'if',
+          arms: [{ cond: XGT0, body: [{ s: 'assign', target: varref('r'), expr: sinX }] }],
+          elseBody: [{ s: 'assign', target: varref('r'), expr: sinX }],
+        },
+        { s: 'return', expr: varref('r') },
+      ]);
+      const cseLine = lineOf(wgsl, /let _cse\d+ =/);
+      const ifLine = lineOf(wgsl, /^\s*if \(/);
+      expect(cseLine).toBeGreaterThanOrEqual(0);
+      expect(cseLine).toBeLessThan(ifLine); // hoisted ABOVE the branch, as it must be
+    }),
+  );
 
   // #841, N1: uses in mutually exclusive arms that some branch does not use are not hoisted
   // above the statement, since that adds an evaluation to every path through the unused one.

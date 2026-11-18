@@ -83,7 +83,7 @@ void main() {
   float _v0 = u.half_width;
   float _v1 = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
+  float _v2 = (_v1 - mix(1.0, 0.0, _cse0));
   float _gv0 = (_v2 - 0.5);
   float _v3 = (_gv0 * (_v0 * 2.0));
   bool _v4 = (_cse0 || (u.fp64 < 0.5));
@@ -109,7 +109,7 @@ void main() {
   float _v18 = (_v15 * _v15);
   float _v19 = (_v18 * _v13);
   float _v20 = (((((((_v19 - (_v18 * 7.0)) + (_v17 * 21.0)) - (_v16 * 35.0)) + (_v15 * 35.0)) - (_v14 * 21.0)) + (_v13 * 7.0)) - 1.0);
-  float _v21 = (_v4 ? _v20 : _v12);
+  float _v21 = mix(_v12, _v20, _v4);
   float _v22 = (pow(_v0, 7.0) * 1.3);
   float _v23 = (_v21 / _v22);
   float _v24 = (_v3 * _v3);

@@ -22,9 +22,9 @@
 //   1. every top-level declaration (function, interface, type alias, class, enum, variable,
 //      namespace and a namespace's members), as `surface-names.test.ts` reads them; overloads
 //      collapse to one name;
-//   2. every member of a standard object the library restates (`Math`, `console`), written
-//      `Math.fround`: §2.1 names "a member of a standard object such as `Math`" an author-facing
-//      name, and a member is where `random` once arrived unseen (#181);
+//   2. every member of a standard object the library restates (`Math`, `console`, `Array`),
+//      written `Math.fround`: §2.1 names "a member of a standard object such as `Math`" an
+//      author-facing name, and a member is where `random` once arrived unseen (#181);
 //   3. every array method `ArrayOps` picks from `Array`, written `Array.prototype.map`.
 //
 // It does not list the members of the vector, matrix and texture interfaces (`xy`, `xxyz`, ...):
@@ -49,7 +49,7 @@ const UPDATE = process.env.UPDATE_AUTHOR_NAMES === '1';
 
 /** The standard objects whose members are author-facing names, by the variable that declares
  *  each one in the library. */
-const STANDARD_OBJECTS: readonly string[] = ['Math', 'console'];
+const STANDARD_OBJECTS: readonly string[] = ['Math', 'console', 'Array'];
 
 interface Names {
   readonly declared: readonly string[];
@@ -62,6 +62,7 @@ function readNames(dts: string): Names {
   const declared = new Set<string>();
   const interfaces = new Map<string, ts.InterfaceDeclaration>();
   const objectTypes = new Map<string, string>();
+  const objectShapes = new Map<string, ts.TypeLiteralNode>();
   let arrayOps: ts.TypeNode | undefined;
   const walk = (parent: ts.Node): void => {
     ts.forEachChild(parent, (node) => {
@@ -80,6 +81,7 @@ function readNames(dts: string): Names {
           declared.add(d.name.text);
           if (d.type && ts.isTypeReferenceNode(d.type) && ts.isIdentifier(d.type.typeName))
             objectTypes.set(d.name.text, d.type.typeName.text);
+          if (d.type && ts.isTypeLiteralNode(d.type)) objectShapes.set(d.name.text, d.type);
         }
       } else if (ts.isModuleDeclaration(node)) {
         declared.add(node.name.getText(source));
@@ -91,7 +93,7 @@ function readNames(dts: string): Names {
 
   const members = new Set<string>();
   for (const object of STANDARD_OBJECTS) {
-    const shape = interfaces.get(objectTypes.get(object) ?? '');
+    const shape = interfaces.get(objectTypes.get(object) ?? '') ?? objectShapes.get(object);
     for (const member of shape?.members ?? []) {
       if (member.name && ts.isIdentifier(member.name)) members.add(`${object}.${member.name.text}`);
     }

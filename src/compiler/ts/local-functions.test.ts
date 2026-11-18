@@ -13,6 +13,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -26,19 +27,21 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('a local function is a function of the module', () => {
-  it('named after the body that declares it, in both spellings', () => {
-    const arrow = compile(`"use typeshade";
+  it(
+    'named after the body that declares it, in both spellings',
+    keepHelpers(() => {
+      const arrow = compile(`"use typeshade";
 @fragment export function fs(): vec4 {
   const f = (x: f32): f32 => x * 2.;
   return vec4(f(3.), 0., 0., 1.);
 }
 `);
-    expect(arrow.diagnostics).toEqual([]);
-    expect(arrow.wgsl).toContain('fn fs_f(x: f32) -> f32 {');
-    expect(arrow.wgsl).toContain('return vec4<f32>(fs_f(3.0), 0.0, 0.0, 1.0);');
-    expect(arrow.glsl?.fragment).toContain('float fs_f(float x) {');
-    agree(arrow, [6, 0, 0, 1]);
-    const expr = compile(`"use typeshade";
+      expect(arrow.diagnostics).toEqual([]);
+      expect(arrow.wgsl).toContain('fn fs_f(x: f32) -> f32 {');
+      expect(arrow.wgsl).toContain('return vec4<f32>(fs_f(3.0), 0.0, 0.0, 1.0);');
+      expect(arrow.glsl?.fragment).toContain('float fs_f(float x) {');
+      agree(arrow, [6, 0, 0, 1]);
+      const expr = compile(`"use typeshade";
 @fragment export function fs(): vec4 {
   const f = function (x: f32): f32 {
     return x * 3.;
@@ -46,13 +49,16 @@ describe('a local function is a function of the module', () => {
   return vec4(f(3.), 0., 0., 1.);
 }
 `);
-    expect(expr.diagnostics).toEqual([]);
-    expect(expr.wgsl).toContain('fn fs_f(x: f32) -> f32 {');
-    agree(expr, [9, 0, 0, 1]);
-  });
+      expect(expr.diagnostics).toEqual([]);
+      expect(expr.wgsl).toContain('fn fs_f(x: f32) -> f32 {');
+      agree(expr, [9, 0, 0, 1]);
+    }),
+  );
 
-  it('so two bodies may each declare an "f"', () => {
-    const r = compile(`"use typeshade";
+  it(
+    'so two bodies may each declare an "f"',
+    keepHelpers(() => {
+      const r = compile(`"use typeshade";
 function g(): f32 {
   const f = (x: f32): f32 => x * 10.;
   return f(2.);
@@ -62,14 +68,17 @@ function g(): f32 {
   return vec4(f(2.), g(), 0., 1.);
 }
 `);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn g_f(x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn fs_f(x: f32) -> f32 {');
-    agree(r, [200, 20, 0, 1]);
-  });
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('fn g_f(x: f32) -> f32 {');
+      expect(r.wgsl).toContain('fn fs_f(x: f32) -> f32 {');
+      agree(r, [200, 20, 0, 1]);
+    }),
+  );
 
-  it('with a block body, a nested one, and a module const in reach', () => {
-    const r = compile(`"use typeshade";
+  it(
+    'with a block body, a nested one, and a module const in reach',
+    keepHelpers(() => {
+      const r = compile(`"use typeshade";
 const K: f32 = 4.;
 @fragment export function fs(): vec4 {
   const outer = (x: f32): f32 => {
@@ -79,23 +88,26 @@ const K: f32 = 4.;
   return vec4(outer(3.), 0., 0., 1.);
 }
 `);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn fs_outer_inner(y: f32) -> f32 {');
-    expect(r.wgsl).toContain('return (fs_outer_inner(x) * K);');
-    agree(r, [16, 0, 0, 1]);
-  });
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('fn fs_outer_inner(y: f32) -> f32 {');
+      expect(r.wgsl).toContain('return (fs_outer_inner(x) * K);');
+      agree(r, [16, 0, 0, 1]);
+    }),
+  );
 
-  it('at the module top level it is already one, and in a namespace it takes the flattened name', () => {
-    const top = compile(`"use typeshade";
+  it(
+    'at the module top level it is already one, and in a namespace it takes the flattened name',
+    keepHelpers(() => {
+      const top = compile(`"use typeshade";
 const half = (x: f32): f32 => x * 0.5;
 @fragment export function fs(): vec4 {
   return vec4(half(3.), 0., 0., 1.);
 }
 `);
-    expect(top.diagnostics).toEqual([]);
-    expect(top.wgsl).toContain('fn half(x: f32) -> f32 {');
-    agree(top, [1.5, 0, 0, 1]);
-    const ns = compile(`"use typeshade";
+      expect(top.diagnostics).toEqual([]);
+      expect(top.wgsl).toContain('fn half(x: f32) -> f32 {');
+      agree(top, [1.5, 0, 0, 1]);
+      const ns = compile(`"use typeshade";
 namespace N {
   export const twice = (x: f32): f32 => x * 2.;
   export function use(x: f32): f32 {
@@ -106,27 +118,31 @@ namespace N {
   return vec4(N.use(3.), 0., 0., 1.);
 }
 `);
-    expect(ns.diagnostics).toEqual([]);
-    expect(ns.wgsl).toContain('fn N_twice(x: f32) -> f32 {');
-    agree(ns, [6, 0, 0, 1]);
-  });
+      expect(ns.diagnostics).toEqual([]);
+      expect(ns.wgsl).toContain('fn N_twice(x: f32) -> f32 {');
+      agree(ns, [6, 0, 0, 1]);
+    }),
+  );
 });
 
 describe('a local function reads the body around it (Rule 8.17)', () => {
-  it('an entry parameter, which every call passes', () => {
-    const r = compile(`"use typeshade";
+  it(
+    'an entry parameter, which every call passes',
+    keepHelpers(() => {
+      const r = compile(`"use typeshade";
 @fragment export function fs(uv: location<0, vec2>): vec4 {
   const f = (x: f32): f32 => x * uv.x;
   return vec4(f(2.), 0., 0., 1.);
 }
 `);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn fs_f(uv: vec2<f32>, x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fs_f(uv, 2.0)');
-    for (const make of [compileModule, compileModuleJs]) {
-      expect(make(r.module).fns['fs']!([0.25, 0]), make.name).toEqual([0.5, 0, 0, 1]);
-    }
-  });
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('fn fs_f(uv: vec2<f32>, x: f32) -> f32 {');
+      expect(r.wgsl).toContain('fs_f(uv, 2.0)');
+      for (const make of [compileModule, compileModuleJs]) {
+        expect(make(r.module).fns['fs']!([0.25, 0]), make.name).toEqual([0.5, 0, 0, 1]);
+      }
+    }),
+  );
 });
 
 describe('what a local function may not do', () => {

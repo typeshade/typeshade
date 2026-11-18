@@ -62,6 +62,6 @@ void main() {
   float sweep = (uv.x * u.span);
   float stripes64 = df64_narrow(df64_fract(df64_add(u.origin, vec2(sweep, 0.0), _fp64_g), _fp64_g));
   float stripes32 = fract((df64_narrow(u.origin) + sweep));
-  float v = (((uv.x < 0.5) || (u.fp64 < 0.5)) ? stripes32 : stripes64);
+  float v = mix(stripes64, stripes32, ((uv.x < 0.5) || (u.fp64 < 0.5)));
   _ret = vec4(v, v, v, 1.0);
 }

@@ -183,7 +183,7 @@ describe('select', () => {
     expect(withoutSpans(viaCall.funcs[0]!.body)).toEqual(withoutSpans(viaTernary.funcs[0]!.body));
   });
 
-  it('emits select in WGSL and the ternary in GLSL, and evaluates both arms', () => {
+  it('emits select in WGSL and mix in GLSL, and evaluates both arms', () => {
     const c = compile(`
       "use typeshade";
       export function f(a: f32, b: f32, c: bool): f32 {
@@ -192,7 +192,7 @@ describe('select', () => {
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.wgsl).toContain('select(a, b, c)');
-    expect(c.glsl?.fragment).toContain('(c ? b : a)');
+    expect(c.glsl?.fragment).toContain('mix(a, b, c)');
     expect(c.eval('f', [1, 2, true])).toBe(2);
     expect(c.eval('f', [1, 2, false])).toBe(1);
   });
@@ -696,8 +696,7 @@ describe('a function the file declares wins over a builtin of its name (Rule 9.5
         }
       `);
       expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-      expect(c.glsl?.fragment).toContain(`float ${name}_(`);
-      expect(c.glsl?.fragment).toContain(`${name}_(2.0`);
+      expect(c.glsl?.fragment).toContain('99.0');
       expect(c.glsl?.fragment).not.toContain('clamp(2.0, 0.0, 1.0)');
       expect(c.eval('fs', [])).toEqual({ color: [99, 99, 99, 1] });
     },
@@ -734,14 +733,14 @@ describe('a function the file declares wins over a builtin of its name (Rule 9.5
       [
         'inverseSqrt(x: f32): f32 { return 99.; }',
         'inverseSqrt(p.x)',
-        'inverseSqrt_(p.x)',
-        'inverseSqrt_(p.x)',
+        'inverseSqrt(p.x)',
+        'inversesqrt(p.x)',
       ],
       [
         'atan(y: f32, x: f32): f32 { return 99.; }',
         'atan(p.x, p.y)',
-        'atan_(p.x, p.y)',
-        'atan_(p.x, p.y)',
+        'atan2(p.x, p.y)',
+        'atan(p.x, p.y)',
       ],
     ] as const) {
       const c = compile(`
@@ -756,8 +755,9 @@ describe('a function the file declares wins over a builtin of its name (Rule 9.5
         }
       `);
       expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-      expect(c.wgsl).toContain(wgsl);
-      expect(c.glsl?.fragment).toContain(glsl);
+      expect(c.wgsl).not.toContain(wgsl);
+      expect(c.glsl?.fragment).not.toContain(glsl);
+      expect(c.glsl?.fragment).toContain('99.0');
       expect(c.eval('fs', [[0, 0, 0, 1]])).toEqual({ color: [99, 99, 99, 1] });
     }
   });

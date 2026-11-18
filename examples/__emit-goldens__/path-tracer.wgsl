@@ -15,29 +15,10 @@ struct Frame {
 
 @group(0) @binding(0) var<uniform> u: Frame;
 
-fn hitSphere(s: Sphere, ro: vec3<f32>, rd: vec3<f32>) -> f32 {
-  let oc = (ro - s.center);
-  let b = dot(oc, rd);
-  let c = (dot(oc, oc) - (s.radius * s.radius));
-  let h = ((b * b) - c);
-  if ((h < 0.0)) {
-    return -1.0;
-  }
-  return ((-b) - sqrt(h));
-}
-
-fn cosineDir(n: vec3<f32>, seed: f32) -> vec3<f32> {
-  let r1 = fract((sin(seed) * 43758.5453123));
-  let r2 = fract((sin((seed + 17.13)) * 43758.5453123));
-  let phi = (6.2831853 * r1);
-  let r = sqrt(r2);
-  let t = normalize(cross(select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), (abs(n.x) > 0.9)), n));
-  let b = cross(n, t);
-  return normalize((((t * (cos(phi) * r)) + (b * (sin(phi) * r))) + (n * sqrt((1.0 - r2)))));
-}
-
 fn trace(ro0: vec3<f32>, rd0: vec3<f32>, seed0: f32) -> vec3<f32> {
   let _licm0 = vec3<f32>(0.05, 0.07, 0.1);
+  let _licm1 = vec3<f32>(0.0, 1.0, 0.0);
+  let _licm2 = vec3<f32>(1.0, 0.0, 0.0);
   var ro: vec3<f32> = ro0;
   var rd: vec3<f32> = rd0;
   var seed: f32 = seed0;
@@ -47,11 +28,15 @@ fn trace(ro0: vec3<f32>, rd0: vec3<f32>, seed0: f32) -> vec3<f32> {
     var tMin: f32 = 1e+30;
     var hit: i32 = -1;
     for (var i: i32 = 0; (i < 4); i = (i + 1)) {
-      let t = hitSphere(SPHERES[i], ro, rd);
-      if (((t > 0.001) && (t < tMin))) {
-        tMin = t;
-        hit = i;
-      }
+      var _i0a0: Sphere = SPHERES[i];
+      let _i0_oc = (ro - _i0a0.center);
+      let _i0_b = dot(_i0_oc, rd);
+      let _i0_c = (dot(_i0_oc, _i0_oc) - (_i0a0.radius * _i0a0.radius));
+      let _i0_h = ((_i0_b * _i0_b) - _i0_c);
+      let _i0ret = select(((-_i0_b) - sqrt(_i0_h)), -1.0, (_i0_h < 0.0));
+      let _ifc0 = ((_i0ret > 0.001) && (_i0ret < tMin));
+      tMin = select(tMin, _i0ret, _ifc0);
+      hit = select(hit, i, _ifc0);
     }
     if ((hit < 0)) {
       radiance += (throughput * _licm0);
@@ -64,7 +49,14 @@ fn trace(ro0: vec3<f32>, rd0: vec3<f32>, seed0: f32) -> vec3<f32> {
     throughput = (throughput * s.albedo);
     ro = (p + (n * 0.001));
     seed = (seed + 1.618);
-    rd = cosineDir(n, seed);
+    let _i1_r1 = fract((sin(seed) * 43758.5453123));
+    let _i1_r2 = fract((sin((seed + 17.13)) * 43758.5453123));
+    let _i1_phi = (6.2831853 * _i1_r1);
+    let _i1_r = sqrt(_i1_r2);
+    let _i1_t = normalize(cross(select(_licm2, _licm1, (abs(n.x) > 0.9)), n));
+    let _i1_b = cross(n, _i1_t);
+    let _i1ret = normalize((((_i1_t * (cos(_i1_phi) * _i1_r)) + (_i1_b * (sin(_i1_phi) * _i1_r))) + (n * sqrt((1.0 - _i1_r2)))));
+    rd = _i1ret;
   }
   return radiance;
 }

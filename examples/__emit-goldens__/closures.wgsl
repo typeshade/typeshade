@@ -18,13 +18,6 @@ fn Brush_strokes(self_: ptr<function, Brush>, p: vec2<f32>) -> vec3<f32> {
   return (*self_).paint;
 }
 
-fn Brush_new_into(_dst: ptr<function, Brush>) {
-  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  (*_dst) = Brush(_cse0, _cse0);
-  (*_dst).paint = vec3<f32>(0.0);
-  (*_dst).tint = vec3<f32>(0.3, 0.6, 0.95);
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -37,20 +30,17 @@ fn fs(v: VsOut) -> FsOut {
   let p = v.uv;
   var glow: f32 = 0.0;
   fs_rings(&glow, 0.03, p, 0.3, 0.25);
-  var col: vec3<f32> = fs_tone(glow, vec3<f32>(0.95, 0.75, 0.35));
-  var brush: Brush;
-  Brush_new_into(&brush);
+  var col: vec3<f32> = mix(vec3<f32>(0.05, 0.06, 0.1), vec3<f32>(0.95, 0.75, 0.35), clamp(glow, 0.0, 1.0));
+  var brush: Brush = Brush(vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
+  brush.paint = vec3<f32>(0.0);
+  brush.tint = vec3<f32>(0.3, 0.6, 0.95);
   col += Brush_strokes(&brush, p);
-  var spots: array<vec2<f32>, 3> = array<vec2<f32>, 3>(vec2<f32>(-0.6, 0.6), vec2<f32>(0.6, 0.6), vec2<f32>(0.0, -0.75));
-  if (fs_near(p, &spots, 0)) {
-    col = vec3<f32>(1.0);
-  }
-  if (fs_near(p, &spots, 1)) {
-    col = vec3<f32>(1.0);
-  }
-  if (fs_near(p, &spots, 2)) {
-    col = vec3<f32>(1.0);
-  }
+  let spots_0 = vec2<f32>(-0.6, 0.6);
+  let spots_1 = vec2<f32>(0.6, 0.6);
+  let spots_2 = vec2<f32>(0.0, -0.75);
+  col = select(col, vec3<f32>(1.0), (length((p - spots_0)) < 0.08));
+  col = select(col, vec3<f32>(1.0), (length((p - spots_1)) < 0.08));
+  col = select(col, vec3<f32>(1.0), (length((p - spots_2)) < 0.08));
   return FsOut(vec4<f32>(col, 1.0));
 }
 
@@ -62,14 +52,6 @@ fn fs_rings(glow: ptr<function, f32>, width: f32, p: vec2<f32>, first: f32, gap:
   fs_ring(glow, width, p, first);
   fs_ring(glow, width, p, (first + gap));
   fs_ring(glow, width, p, (first + (gap * 2.0)));
-}
-
-fn fs_tone(glow: f32, c: vec3<f32>) -> vec3<f32> {
-  return mix(vec3<f32>(0.05, 0.06, 0.1), c, clamp(glow, 0.0, 1.0));
-}
-
-fn fs_near(p: vec2<f32>, spots: ptr<function, array<vec2<f32>, 3>>, i: i32) -> bool {
-  return (length((p - (*spots)[i])) < 0.08);
 }
 
 fn Brush_strokes_dab(self_: ptr<function, Brush>, p: vec2<f32>, c: vec2<f32>, r: f32) {

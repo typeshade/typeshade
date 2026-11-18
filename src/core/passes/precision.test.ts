@@ -258,9 +258,10 @@ export function lanes(v: vec2): vec2 { return vec2(${id}(v.x), ${id}(v.y)); }
       const r = compile(source);
       expect(r.diagnostics).toEqual([]);
       expect(editorDiagnostics(source)).toEqual([]);
-      // Both writers emit the author's function and call it.
-      expect(r.wgsl).toMatch(/fn \w+\(x: f32\) -> f32 \{\n {2}return \(\(x \* 2\.0\) \+ 0\.1\);/);
+      // Both writers run the author's function, not the CPU-only id: its body is in the text.
+      expect(r.wgsl).toContain('* 2.0) + 0.1)');
       expect(r.glsl?.fragment).toContain('* 2.0) + 0.1)');
+      expect(r.wgsl).not.toContain(id);
     });
 
     it(`${id}: the interpreter, the generated JavaScript and the stepper call the author's function`, () => {

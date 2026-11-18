@@ -12,12 +12,6 @@ struct Ring {
   radius: f32,
 }
 
-fn Ring_new_into(_dst: ptr<function, Ring>, n: i32, radius: f32) {
-  (*_dst) = Ring(0, 0.0);
-  (*_dst).n = n;
-  (*_dst).radius = radius;
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -25,34 +19,19 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(x, y));
 }
 
-fn circle(p: vec2<f32>) -> f32 {
-  return (length(p) - 0.2);
-}
-
-fn cover_circle(p: vec2<f32>) -> f32 {
-  return (1.0 - smoothstep(0.0, 0.01, circle(p)));
-}
-
 fn around4_fs_petal(r: f32, p: vec2<f32>) -> f32 {
   let _licm0 = p.x;
   let _licm1 = p.y;
+  let _licm2 = vec2<f32>(0.5, 0.0);
   var best: f32 = 1000.0;
   for (var i: i32 = 0; (i < 4); i = (i + 1)) {
     let a = (f32(i) * 1.5707964);
     let _lc0 = cos(a);
     let _lc1 = sin(a);
     let q = vec2<f32>(((_licm0 * _lc0) + (_licm1 * _lc1)), ((_licm1 * _lc0) - (_licm0 * _lc1)));
-    best = min(best, fs_petal(r, q));
+    best = min(best, (length((q - _licm2)) - r));
   }
   return best;
-}
-
-fn fs_f(r: f32, q: vec2<f32>) -> f32 {
-  return around4_fs_petal(r, q);
-}
-
-fn cover_fs_f(r: f32, p: vec2<f32>) -> f32 {
-  return (1.0 - smoothstep(0.0, 0.01, fs_f(r, p)));
 }
 
 fn fs_body(glow: ptr<function, f32>, p: vec2<f32>, i: i32) {
@@ -76,18 +55,15 @@ fn Ring_each_fs_dot(dots: ptr<function, f32>, p: vec2<f32>, self_: ptr<function,
   }
 }
 
-fn fs_p(p: vec2<f32>, b: f32) -> bool {
-  return (abs((length(p) - b)) < 0.012);
-}
-
 fn array_some_fs_p(p: vec2<f32>, bands: ptr<function, array<f32, 3>>) -> bool {
-  if (fs_p(p, (*bands)[0])) {
+  let _cse0 = length(p);
+  if ((abs((_cse0 - (*bands)[0])) < 0.012)) {
     return true;
   }
-  if (fs_p(p, (*bands)[1])) {
+  if ((abs((_cse0 - (*bands)[1])) < 0.012)) {
     return true;
   }
-  if (fs_p(p, (*bands)[2])) {
+  if ((abs((_cse0 - (*bands)[2])) < 0.012)) {
     return true;
   }
   return false;
@@ -97,23 +73,20 @@ fn array_some_fs_p(p: vec2<f32>, bands: ptr<function, array<f32, 3>>) -> bool {
 fn fs(v: VsOut) -> FsOut {
   let p = v.uv;
   var col: vec3<f32> = vec3<f32>(0.05, 0.06, 0.1);
-  col = mix(col, vec3<f32>(0.95, 0.7, 0.3), cover_circle(p));
-  col = mix(col, vec3<f32>(0.3, 0.7, 0.95), cover_fs_f(0.1, p));
+  col = mix(col, vec3<f32>(0.95, 0.7, 0.3), (1.0 - smoothstep(0.0, 0.01, (length(p) - 0.2))));
+  col = mix(col, vec3<f32>(0.3, 0.7, 0.95), (1.0 - smoothstep(0.0, 0.01, around4_fs_petal(0.1, p))));
   var glow: f32 = 0.0;
   times3_fs_body(&glow, p);
   col += vec3<f32>((glow * 0.3), (glow * 0.2), (glow * 0.6));
-  var ring: Ring;
-  Ring_new_into(&ring, 6, 0.7);
+  var _i0_self_: Ring = Ring(0, 0.0);
+  _i0_self_.n = 6;
+  _i0_self_.radius = 0.7;
+  var ring: Ring = _i0_self_;
   var dots: f32 = 0.0;
   Ring_each_fs_dot(&dots, p, &ring);
   col = mix(col, vec3<f32>(0.9, 0.3, 0.5), dots);
   var bands: array<f32, 3> = array<f32, 3>(0.8, 0.88, 0.96);
-  if (array_some_fs_p(p, &bands)) {
-    col = vec3<f32>(1.0);
-  }
+  let _ifc0 = array_some_fs_p(p, &bands);
+  col = select(col, vec3<f32>(1.0), _ifc0);
   return FsOut(vec4<f32>(col, 1.0));
-}
-
-fn fs_petal(r: f32, q: vec2<f32>) -> f32 {
-  return (length((q - vec2<f32>(0.5, 0.0))) - r);
 }

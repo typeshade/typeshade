@@ -13,16 +13,14 @@ fn vs(@builtin(vertex_index) i: u32) -> VsOut {
   var y: f32 = -0.8;
   var u: f32 = 0.0;
   var v: f32 = 0.0;
-  if ((i == 1u)) {
-    x = 0.8;
-    u = 1.0;
-  }
-  if ((i == 2u)) {
-    x = 0.0;
-    y = 0.8;
-    u = 0.5;
-    v = 1.0;
-  }
+  let _ifc0 = (i == 1u);
+  x = select(x, 0.8, _ifc0);
+  u = select(u, 1.0, _ifc0);
+  let _ifc1 = (i == 2u);
+  x = select(x, 0.0, _ifc1);
+  y = select(y, 0.8, _ifc1);
+  u = select(u, 0.5, _ifc1);
+  v = select(v, 1.0, _ifc1);
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(u, v));
 }
 

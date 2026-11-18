@@ -154,7 +154,7 @@ describe('GLSL ES 3.00 and the CPU oracle: a subgroup of one invocation (Rule 11
     expect(glsl).toContain('float d = ((_gv0 + x) + x);');
     expect(glsl).not.toContain('vec2 e');
     // A vote is the lane's own bool and the lane is elected.
-    expect(glsl).toContain('((x > 0.0) ? 1.0 : 0.0)');
+    expect(glsl).toContain('mix(0.0, 1.0, (x > 0.0))');
     expect(glsl).toContain('+ 1.0);');
   });
 
@@ -172,7 +172,7 @@ describe('GLSL ES 3.00 and the CPU oracle: a subgroup of one invocation (Rule 11
 }
 `);
     const glsl = emitGlslModule(c.module, 'fragment');
-    expect(glsl).toContain('acc = vec2(3.0, -1.0);');
+    expect(glsl).toContain('acc = mix(acc, vec2(3.0, -1.0), bvec2((uv.x > 0.5)));');
     expect(glsl).toContain('float sum = acc.x;');
     expect(glsl).toContain('_ret = vec4(acc, sum, 1.0);');
   });

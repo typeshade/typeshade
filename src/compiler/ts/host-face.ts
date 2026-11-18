@@ -59,6 +59,8 @@ import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { addsTo, colourOf } from './host-face/entry-shapes.js';
+import { madeFace } from './host-face/made.js';
+import { exportsOf, type ExportRef } from './host-face/exports.js';
 import { wgslLoweredOf } from './source-file/wgsl-lowered.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
 import { buildManifest, glDrawOf, layoutOf } from '../../core/manifest.js';
@@ -102,7 +104,7 @@ import {
 import { authorTypeText } from './context.js';
 import { hostContentReads } from './host-content-access.js';
 import { exportDocs, type ExportDocs } from './host-docs.js';
-import { hostExportsOf, topLevelDeclarations, type HostDeclared } from './host-exports.js';
+import { topLevelDeclarations } from './host-exports.js';
 import {
   type ClassExport,
   type ClassField,
@@ -212,19 +214,6 @@ function reported(e: FaceExport): HostExport {
 const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean =>
   (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some((m) => m.kind === kind) ??
   false;
-
-function exportsOf(sf: ts.SourceFile): ExportRef[] {
-  return hostExportsOf(sf).map((r) =>
-    r.missing === undefined ? r : { name: r.name, missing: REASON[r.missing] },
-  );
-}
-
-/** A name a host imports, with the reason it has no face when it has none. */
-interface ExportRef {
-  readonly name: string;
-  readonly decl?: HostDeclared;
-  readonly missing?: string;
-}
 
 // ─── what a function reaches ─────────────────────────────────────────────────────────────────
 
@@ -1579,7 +1568,7 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
     if (f.stage === 'vertex') return never(name, REASON.vertex);
     if (f.stage === 'fragment') return fragmentFace(name, f, c);
     if (f.stage === 'compute') return computeFace(name, f, c);
-    if (f.kernel === true) return kernelFace(name, f, c);
+    if (f.kernel === true) return madeFace(kernelFace(name, f, c), f);
     const params: { name: string; type: HostType }[] = [];
     for (const p of f.params) {
       const t = hostTypeOf(p.type, c.structs);

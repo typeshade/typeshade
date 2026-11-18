@@ -3,14 +3,6 @@ precision highp float;
 precision highp int;
 
 const vec3 WARM = vec3(1.0, 0.72, 0.42);
-vec3 grade(vec3 c, float gamma) {
-  return pow(max(c, vec3(0.0)), vec3((1.0 / gamma)));
-}
-
-float vignette(vec2 uv, float strength, float softness) {
-  return (1.0 - (strength * smoothstep(0.0, softness, dot(uv, uv))));
-}
-
 vec3 bands(vec2 uv, vec3 tint, float count) {
   float t = ((fract((uv.y * count)) * 0.35) + 0.65);
   return (tint * t);
@@ -22,6 +14,7 @@ void main() {
   vec3 cool = bands(uv, vec3(0.38, 0.6, 1.0), 10.0);
   vec3 warm = bands(uv, WARM, 6.0);
   vec3 mixed = mix(cool, warm, smoothstep(-1.0, 1.0, uv.x));
-  vec3 lit = (mixed * vignette(uv, 0.8, 1.35));
-  _ret = vec4(grade(lit, 2.2), 1.0);
+  vec2 _i0a0 = uv;
+  vec3 lit = (mixed * (1.0 - (0.8 * smoothstep(0.0, 1.35, dot(_i0a0, _i0a0)))));
+  _ret = vec4(pow(max(lit, vec3(0.0)), vec3(0.45454545454545453)), 1.0);
 }

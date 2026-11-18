@@ -14,6 +14,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -32,25 +33,28 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('a namespace is a group of functions and constants', () => {
-  it('flattens its members to Ns_member, on both targets', () => {
-    const r = compile(
-      file(
-        `namespace Palette {
+  it(
+    'flattens its members to Ns_member, on both targets',
+    keepHelpers(() => {
+      const r = compile(
+        file(
+          `namespace Palette {
   export const WARM: vec3 = vec3(0.9, 0.5, 0.1)
   export function tint(c: vec3): vec3 {
     return c * WARM
   }
 }
 `,
-        `  return vec4(Palette.tint(vec3(1., 1., 1.)), 1.)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('const Palette_WARM: vec3<f32> = vec3<f32>(0.9, 0.5, 0.1);');
-    expect(r.wgsl).toContain('fn Palette_tint(c: vec3<f32>) -> vec3<f32> {');
-    expect(r.glsl?.fragment).toContain('vec3 Palette_tint(vec3 c) {');
-    agree(r, [0.9, 0.5, 0.1, 1]);
-  });
+          `  return vec4(Palette.tint(vec3(1., 1., 1.)), 1.)`,
+        ),
+      );
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('const Palette_WARM: vec3<f32> = vec3<f32>(0.9, 0.5, 0.1);');
+      expect(r.wgsl).toContain('fn Palette_tint(c: vec3<f32>) -> vec3<f32> {');
+      expect(r.glsl?.fragment).toContain('vec3 Palette_tint(vec3 c) {');
+      agree(r, [0.9, 0.5, 0.1, 1]);
+    }),
+  );
 
   it('looks a name up as TypeScript does: the body first, then the namespace, then the file', () => {
     const r = compile(
@@ -81,10 +85,12 @@ namespace A {
     agree(r, [3, 2, 0.5, 1]);
   });
 
-  it('nests, in both spellings, and a member namespace takes its short name inside the parent', () => {
-    const nested = compile(
-      file(
-        `namespace A {
+  it(
+    'nests, in both spellings, and a member namespace takes its short name inside the parent',
+    keepHelpers(() => {
+      const nested = compile(
+        file(
+          `namespace A {
   export namespace B {
     export function two(): f32 {
       return 2.
@@ -95,21 +101,22 @@ namespace A {
   }
 }
 `,
-        `  return vec4(A.four(), A.B.two(), 0., 1.)`,
-      ),
-    );
-    expect(nested.diagnostics).toEqual([]);
-    expect(nested.wgsl).toContain('fn A_B_two() -> f32 {');
-    agree(nested, [4, 2, 0, 1]);
-    const dotted = compile(
-      file(
-        `namespace A.B {\n  export function two(): f32 {\n    return 2.\n  }\n}\n`,
-        `  return vec4(A.B.two(), 0., 0., 1.)`,
-      ),
-    );
-    expect(dotted.diagnostics).toEqual([]);
-    expect(dotted.wgsl).toContain('fn A_B_two() -> f32 {');
-  });
+          `  return vec4(A.four(), A.B.two(), 0., 1.)`,
+        ),
+      );
+      expect(nested.diagnostics).toEqual([]);
+      expect(nested.wgsl).toContain('fn A_B_two() -> f32 {');
+      agree(nested, [4, 2, 0, 1]);
+      const dotted = compile(
+        file(
+          `namespace A.B {\n  export function two(): f32 {\n    return 2.\n  }\n}\n`,
+          `  return vec4(A.B.two(), 0., 0., 1.)`,
+        ),
+      );
+      expect(dotted.diagnostics).toEqual([]);
+      expect(dotted.wgsl).toContain('fn A_B_two() -> f32 {');
+    }),
+  );
 });
 
 describe('a namespace does not hide a cycle', () => {

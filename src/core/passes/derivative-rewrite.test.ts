@@ -12,6 +12,7 @@ import { compile } from '../../compiler/ts/compile.js';
 import { TS_CODES } from '../../compiler/ts/codes.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { compileModule } from '../oracle.js';
+import { keepHelpers } from '../testing/keep-helpers.js';
 
 const HEAD = `declare const t: texture_2d<f32>;
 declare const s: sampler;
@@ -142,15 +143,12 @@ describe('the shapes the rewrite reaches', () => {
   });
 
   it('a helper: specialized with the gradients as extra parameters, the original kept', () => {
-    const { wgsl } = reached(
+    const { wgsl } = keepHelpers(reached)(
       frag(
         `  let base: vec4 = vec4(0.);
   if (v.uv.x > 0.5) { base = wide(v.uv); }
   return base + near(v.uv);`,
-        `function wide(uv: vec2): vec4 {
-  const inner: vec2 = uv * 0.5;
-  return textureSample(t, s, inner);
-}
+        `function wide(uv: vec2): vec4 { const inner: vec2 = uv * 0.5; return textureSample(t, s, inner); }
 function near(uv: vec2): vec4 { return textureSample(t, s, uv); }
 `,
       ),
@@ -169,7 +167,7 @@ function near(uv: vec2): vec4 { return textureSample(t, s, uv); }
   });
 
   it('a helper called under a uniform and a non-uniform call site: one copy, for the latter', () => {
-    const { wgsl } = reached(
+    const { wgsl } = keepHelpers(reached)(
       frag(
         `  let base: vec4 = sharp(v.uv);
   if (v.uv.x > 0.5) { base = sharp(v.uv * 2.); }
@@ -409,7 +407,7 @@ describe("the two examples that wrote the filter (change 0132's evidence)", () =
   };
 
   it('sample-branch: both samples of the branch reached, the uniform one left', () => {
-    const { wgsl, glsl } = reached(without('sample-branch'));
+    const { wgsl, glsl } = keepHelpers(reached)(without('sample-branch'));
     expect(wgsl).not.toContain('diagnostic(');
     expect(wgsl).toMatch(/fn sharp_grad\(/);
     expect(wgsl).toMatch(/fn wide_grad\(/);

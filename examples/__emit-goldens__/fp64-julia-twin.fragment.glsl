@@ -90,7 +90,7 @@ void main() {
   float span = pow(10.0, (-u.zoom_exp));
   float half_ = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float sx = (half_ - (_cse0 ? 0.0 : 1.0));
+  float sx = (half_ - mix(1.0, 0.0, _cse0));
   float dx = ((sx - 0.5) * span);
   float dy = (((uv.y - 0.5) * span) * ((u.resolution.y / u.resolution.x) * 2.0));
   float it = 0.0;

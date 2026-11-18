@@ -26,29 +26,12 @@ fn vs_full(@builtin(vertex_index) idx: u32) -> VsOut {
 @fragment
 fn fs_stripes(vo: VsOut) -> @location(0) vec4<f32> {
   let _fp64_g = textureLoad(_fp64, vec2<i32>(0, 0), 0).x;
-  var _sel0: f32;
   let _cse0 = ((vo.uv.x < 0.5) || (u.fp64 < 0.5));
   let _cse3 = (vo.uv.x * u.span);
   let _cse1 = fract((df64_narrow(u.origin) + _cse3));
   let _cse2 = df64_narrow(df64_fract(df64_add(u.origin, vec2<f32>(_cse3, 0.0), _fp64_g), _fp64_g));
-  if (_cse0) {
-    _sel0 = _cse1;
-  } else {
-    _sel0 = _cse2;
-  }
-  var _sel1: f32;
-  if (_cse0) {
-    _sel1 = _cse1;
-  } else {
-    _sel1 = _cse2;
-  }
-  var _sel2: f32;
-  if (_cse0) {
-    _sel2 = _cse1;
-  } else {
-    _sel2 = _cse2;
-  }
-  return vec4<f32>(_sel0, _sel1, _sel2, 1.0);
+  let _gv0 = select(_cse2, _cse1, _cse0);
+  return vec4<f32>(_gv0, _gv0, _gv0, 1.0);
 }
 
 fn df64_twoSum(a: f32, b: f32, _fp64_g: f32) -> vec2<f32> {

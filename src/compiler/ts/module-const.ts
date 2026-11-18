@@ -38,10 +38,10 @@ import {
   pendingKindlessRefusal,
   retargetIntLitCtx,
 } from './lit-coerce.js';
-import { refuseListSpread } from './lower/expression-array.js';
+import { lowerUntypedList, untypedListOf } from './lower/expression-array/untyped-list.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
 import { lowerExpression } from './lower/expression.js';
-import { lowerArrayLiteral } from './lower/expression-array.js';
+import { lowerArrayLiteral, refuseListSpread } from './lower/expression-array.js';
 import { eachNamespaceStatement, namespaceMemberName, qualifiedParts } from './namespaces.js';
 import { isResourceCall } from './bindings.js';
 import { isOverrideType } from './overrides.js';
@@ -746,29 +746,22 @@ function lowerOne(
     // (a generic interface, a contract), which said why; the constant builds nothing either way.
     return undefined;
   }
-  // A list is lowered AGAINST the annotation, at module scope for the same reason as in a
-  // function body (#8 A16): it carries no type of its own. The node it produces is the array
+  // A list is lowered AGAINST the annotation, at module scope as in a function body (#8 A16),
+  // or takes its type from its elements (change 0114, S2). The node it produces is the array
   // `construct` that `array<f32, 3>(...)` already produced here, which `valueExprConst` has
   // carried since #8 A9, so this reaches no new path. Without it the list fell through to the
   // generic "a list is only an initializer" refusal and then a second `Unknown identifier` for
   // a name that never got defined, neither of which says what to write.
   let init: Expr | undefined;
-  if (ts.isArrayLiteralExpression(decl.initializer)) {
+  const list = untypedListOf(decl.initializer, annotated === undefined);
+  if (list !== undefined) {
     // A spread is the list's one sentence, said before the annotation it would otherwise be
     // asked for; the name's uses then say nothing more (refused-names.ts, Rule 12.4).
-    if (refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)) return undefined;
-    if (!annotated) {
-      diagnostics.push(
-        makeDiagnostic(
-          sourceFile,
-          decl,
-          `Module const "${name}" needs an array type annotation to take a list, e.g. const ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
-          TS_CODES.UNKNOWN_TYPE,
-        ),
-      );
-      return undefined;
-    }
-    init = lowerArrayLiteral(decl.initializer, annotated, sourceFile, scope, diagnostics);
+    if (refuseListSpread(list, sourceFile, scope, diagnostics)) return undefined;
+    const declared = { said: `Module const "${name}"`, head: `const ${name}`, at: decl };
+    init = annotated
+      ? lowerArrayLiteral(list, annotated, sourceFile, scope, diagnostics)
+      : lowerUntypedList(list, declared, { sourceFile, scope, diagnostics });
   } else {
     // The annotation is the contextual type, which is how a body's `const p: P = { ... }`
     // already knows which struct the object literal builds (§16). Before this a module const

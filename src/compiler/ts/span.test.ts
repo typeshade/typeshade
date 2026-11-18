@@ -574,9 +574,9 @@ describe('source spans — survival through the passes that rebuild nodes', () =
         .map((sp) => textAt(text, sp).split('\n')[0]!);
     const authored = new Set(surviving(module));
     expect(authored.size).toBeGreaterThan(8);
-    const ifSpans = (m: ModuleDecl): number =>
+    const ifSpans = (m: ModuleDecl, spanned = true): number =>
       allStatements(byName(m, 'shapes').body).filter(
-        (st) => st.s === 'if' && sourceSpanOf(st) !== undefined,
+        (st) => st.s === 'if' && (!spanned || sourceSpanOf(st) !== undefined),
       ).length;
     const ifCount = ifSpans(module);
     expect(ifCount).toBeGreaterThan(0);
@@ -584,10 +584,10 @@ describe('source spans — survival through the passes that rebuild nodes', () =
       // No span is INVENTED: an optimized statement either keeps the text it was written as,
       // or carries none. A pass that rebuilt a node with some other node's span fails here.
       for (const t of surviving(m)) expect(authored.has(t), t).toBe(true);
-      // …and every `if` still has one. This is the arm that `dead-branch`'s rebuild broke:
-      // it dropped the span of every `if` at exactly the tiers a debugger attaches to.
-      expect(ifSpans(m)).toBe(ifCount);
+      // …and every `if` that remains has one, as `dead-branch`'s rebuild once dropped them.
+      expect(ifSpans(m)).toBe(ifSpans(m, false));
     }
+    expect(ifSpans(optimizeAt(module, 'O1'))).toBe(ifCount);
   });
 
   it('irEqual ignores a span, so the fixpoint does not iterate over provenance', () => {

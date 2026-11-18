@@ -30,54 +30,28 @@ Mover Mover_new() {
   return self_;
 }
 
-float Ring_cover(Ring self_, vec2 p) {
-  float d = abs((length((p - self_.center.pos)) - self_.radius));
-  return (1.0 - smoothstep((self_.width * 0.5), self_.width, d));
-}
-
 void Ring_advance(inout Ring self_, float dt) {
   Mover_step(self_.center, dt);
-}
-
-Ring Ring_new() {
-  vec2 _cse0 = vec2(0.0, 0.0);
-  Ring self_ = Ring(Mover(_cse0, _cse0), 0.0, 0.0);
-  self_.center = Mover_new();
-  self_.radius = 0.3;
-  self_.width = 0.04;
-  return self_;
-}
-
-float Dot_cover(Dot self_, vec2 p) {
-  return (1.0 - smoothstep((self_.size * 0.8), self_.size, length((p - self_.center.pos))));
-}
-
-Dot Dot_new() {
-  vec2 _cse0 = vec2(0.0, 0.0);
-  Dot self_ = Dot(Mover(_cse0, _cse0), 0.0);
-  self_.center = Mover_new();
-  self_.size = 0.1;
-  return self_;
-}
-
-float coverOf_Ring(Ring m, vec2 p) {
-  return Ring_cover(m, p);
-}
-
-float coverOf_Dot(Dot m, vec2 p) {
-  return Dot_cover(m, p);
 }
 in vec2 uv;
 layout(location = 0) out vec4 color;
 
 void main() {
-  Ring ring = Ring_new();
+  Ring ring = Ring(Mover(vec2(0.0, 0.0), vec2(0.0, 0.0)), 0.0, 0.0);
+  ring.center = Mover_new();
+  ring.radius = 0.3;
+  ring.width = 0.04;
   ring.center.vel = vec2(0.5, 0.2);
   Ring_advance(ring, 0.5);
-  Dot spot = Dot_new();
+  Dot spot = Dot(Mover(vec2(0.0, 0.0), vec2(0.0, 0.0)), 0.0);
+  spot.center = Mover_new();
+  spot.size = 0.1;
   spot.center.pos = vec2(-0.45, -0.3);
   vec3 col = vec3(0.06, 0.07, 0.12);
-  col = mix(col, vec3(0.95, 0.7, 0.3), coverOf_Ring(ring, uv));
-  col = mix(col, vec3(0.3, 0.7, 0.95), coverOf_Dot(spot, uv));
+  vec2 _i3a1 = uv;
+  float _i3_d = abs((length((_i3a1 - ring.center.pos)) - ring.radius));
+  float _i3_ret = (1.0 - smoothstep((ring.width * 0.5), ring.width, _i3_d));
+  col = mix(col, vec3(0.95, 0.7, 0.3), _i3_ret);
+  col = mix(col, vec3(0.3, 0.7, 0.95), (1.0 - smoothstep((spot.size * 0.8), spot.size, length((uv - spot.center.pos)))));
   color = vec4(col, 1.0);
 }

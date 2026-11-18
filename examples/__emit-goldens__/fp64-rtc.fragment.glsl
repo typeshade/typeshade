@@ -53,7 +53,7 @@ void main() {
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
+  float _v2 = (_v1 - mix(1.0, 0.0, _cse0));
   float _v3 = ((_v2 - 0.5) * _v0);
   float _v4 = (((uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool _v5 = (_cse0 || (u.fp64 < 0.5));
@@ -67,8 +67,8 @@ void main() {
   float _v7 = df64_narrow(df64_sub(df64_add(_cse4, vec2(_v4, 0.0), _fp64_g), df64_add(_cse5, _cse3, _fp64_g), _fp64_g));
   float _v8 = ((df64_narrow(_cse1) + _v3) - df64_narrow(_cse2));
   float _v9 = ((df64_narrow(_cse4) + _v4) - df64_narrow(_cse5));
-  float _v10 = (_v5 ? _v8 : _v6);
-  float _v11 = (_v5 ? _v9 : _v7);
+  float _v10 = mix(_v6, _v8, _v5);
+  float _v11 = mix(_v7, _v9, _v5);
   float _v12 = (_v0 * 0.125);
   float _v13 = length(vec2(_v10, _v11));
   float _v14 = (_v0 / (u.resolution.x * 0.5));

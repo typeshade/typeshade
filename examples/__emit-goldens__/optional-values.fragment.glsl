@@ -16,94 +16,75 @@ struct _opt_Hit_ {
   Hit value;
   bool present;
 };
-Hit Hit_new() {
-  Hit self_ = Hit(0.0, vec2(0.0, 0.0));
-  return self_;
-}
-
 _opt_f32_ root(float x) {
   if ((x < 0.0)) {
     return _opt_f32_(0.0, false);
   }
   return _opt_f32_(sqrt(x), true);
 }
-
-float ramp(float x) {
-  return (x * 0.5);
-}
-
-_opt_f32_ halfOf(float x) {
-  if ((x <= 0.0)) {
-    return _opt_f32_(0.0, false);
-  }
-  return _opt_f32_((x * 0.5), true);
-}
-
-float nearest(_opt_f32_ a, _opt_f32_ b) {
-  if ((a.present && b.present)) {
-    return min(a.value, b.value);
-  }
-  _opt_f32_ _sel0;
-  if (a.present) {
-    _sel0 = a;
-  } else {
-    _sel0 = b;
-  }
-  _opt_f32_ _opt = _sel0;
-  return (_opt.present ? _opt.value : 1000.0);
-}
-
-_opt_Hit_ intersect(vec2 o, vec2 d, float r) {
-  float b = dot(o, d);
-  float c = (dot(o, o) - (r * r));
-  float disc = ((b * b) - c);
-  _opt_Hit_ _cse0 = _opt_Hit_(Hit(0.0, vec2(0.0, 0.0)), false);
-  if ((disc < 0.0)) {
-    return _cse0;
-  }
-  float t = ((-b) - sqrt(disc));
-  if ((t < 0.0)) {
-    return _cse0;
-  }
-  Hit h = Hit_new();
-  h.t = t;
-  h.normal = normalize((o + (d * t)));
-  return _opt_Hit_(h, true);
-}
-
-float offsetOf(_opt_Hit_ h, float far) {
-  return (h.present ? h.value.t : far);
-}
-
-float sampleOr_root(float x, float fallback) {
-  _opt_f32_ v = root(x);
-  if ((v.present == false)) {
-    return fallback;
-  }
-  return v.value;
-}
-
-float sampleOr_ramp(float x, float fallback) {
-  _opt_f32_ v = _opt_f32_(ramp(x), true);
-  if ((true == false)) {
-    return fallback;
-  }
-  return v.value;
-}
 in vec2 uv;
 layout(location = 0) out vec4 color;
 
 void main() {
   float x = ((uv.x * 2.0) - 1.0);
-  _opt_f32_ shade = _opt_f32_(0.0, false);
+  _opt_f32_ _cse0 = _opt_f32_(0.0, false);
+  _opt_f32_ shade;
   if ((uv.y > 0.5)) {
     shade = _opt_f32_(uv.y, true);
+  } else {
+    shade = _cse0;
   }
-  float r = (sampleOr_root(x, 0.0) + sampleOr_ramp(uv.x, 0.0));
-  float g = (nearest(root(x), halfOf(uv.y)) * (shade.present ? shade.value : 0.25));
+  _opt_f32_ _gv0 = root(x);
+  float _i5ret = mix(_gv0.value, 0.0, (_gv0.present == false));
+  float _i6a0 = uv.x;
+  float _i6ret = mix((_i6a0 * 0.5), 0.0, (true == false));
+  float r = (_i5ret + _i6ret);
+  float _i1a0 = uv.y;
+  _opt_f32_ _i1ret;
+  if ((_i1a0 <= 0.0)) {
+    _i1ret = _cse0;
+  } else {
+    _i1ret = _opt_f32_((_i1a0 * 0.5), true);
+  }
+  float _i2ret;
+  if ((_gv0.present && _i1ret.present)) {
+    _i2ret = min(_gv0.value, _i1ret.value);
+  } else {
+    _opt_f32_ _sel0;
+    if (_gv0.present) {
+      _sel0 = _gv0;
+    } else {
+      _sel0 = _i1ret;
+    }
+    _opt_f32_ _i2_opt = _sel0;
+    _i2ret = mix(1000.0, _i2_opt.value, _i2_opt.present);
+  }
+  float g = (_i2ret * mix(0.25, shade.value, shade.present));
   vec2 o = ((uv * 2.0) - vec2(1.0, 1.0));
-  _opt_Hit_ hit = intersect((o - vec2(0.0, 2.0)), vec2(0.0, 1.0), 0.5);
-  float b = offsetOf(hit, 0.0);
-  vec2 n = (hit.present ? hit.value.normal : vec2(0.0, 0.0));
-  color = vec4(r, g, ((b * 0.5) + (n.x * 0.25)), 1.0);
+  vec2 _i3a0 = (o - vec2(0.0, 2.0));
+  vec2 _i3a1 = vec2(0.0, 1.0);
+  _opt_Hit_ _i3ret = _opt_Hit_(Hit(0.0, vec2(0.0)), false);
+  float _i3_b = dot(_i3a0, _i3a1);
+  float _i3_c = (dot(_i3a0, _i3a0) - 0.25);
+  float _i3_disc = ((_i3_b * _i3_b) - _i3_c);
+  vec2 _cse3 = vec2(0.0, 0.0);
+  Hit _cse2 = Hit(0.0, _cse3);
+  _opt_Hit_ _cse1 = _opt_Hit_(_cse2, false);
+  if ((_i3_disc < 0.0)) {
+    _i3ret = _cse1;
+  } else {
+    float _i3_t = ((-_i3_b) - sqrt(_i3_disc));
+    if ((_i3_t < 0.0)) {
+      _i3ret = _cse1;
+    } else {
+      Hit _i3_h = _cse2;
+      _i3_h.t = _i3_t;
+      _i3_h.normal = normalize((_i3a0 + (_i3a1 * _i3_t)));
+      _i3ret = _opt_Hit_(_i3_h, true);
+    }
+  }
+  _opt_Hit_ hit = _i3ret;
+  float _i4ret = mix(0.0, hit.value.t, hit.present);
+  vec2 n = mix(_cse3, hit.value.normal, bvec2(hit.present));
+  color = vec4(r, g, ((_i4ret * 0.5) + (n.x * 0.25)), 1.0);
 }

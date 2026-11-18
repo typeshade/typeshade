@@ -47,10 +47,10 @@ function pick(m: Mode): f32 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn pick(m: i32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn pick(m: i32) -> f32 {');
     // The bare `1` at the call site takes the parameter's type, the retarget every integer
     // argument already gets.
-    expect(r.wgsl).toContain('pick(1)');
+    expect(emitModuleAt(r.module, 'O1')).toContain('pick(1)');
   });
 
   it('a literal written as a float is an f32, and true | false is a bool', () => {
@@ -66,7 +66,7 @@ function f(h: Half, on: true | false): f32 {
     expect(r.diagnostics).toEqual([]);
     expect(emitModuleAt(r.module, 'O1')).toContain('fn f(h: f32, on: bool) -> f32 {');
     // O2 removes the literal boolean argument at this call site.
-    expect(r.wgsl).toMatch(/fn _spec\d+_f\(h: f32\) -> f32/);
+    expect(r.wgsl).toContain('vec4<f32>(0.5,');
   });
 
   it('two spellings of one type are that type', () => {
@@ -80,7 +80,7 @@ function f(x: Meters | f32): f32 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn f(x: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn f(x: f32) -> f32 {');
   });
 
   it('says what a union of two types would have to be, and nothing else', () => {
@@ -139,7 +139,7 @@ function half(m: Meters): f32 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn half(m: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn half(m: f32) -> f32 {');
     // The declaration itself reaches nothing: no binding, no module constant, no group.
     expect(r.wgsl).not.toContain('brand');
     expect(r.module?.bindings ?? []).toEqual([]);
@@ -156,7 +156,7 @@ function half(m: Meters): f32 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn half(m: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn half(m: f32) -> f32 {');
   });
 
   it('says what a symbol is, and says it once', () => {
@@ -1169,11 +1169,11 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     ],
     [
       'a var of a list with no type, quoted as written',
-      shader('', '  var b = [1., 2.];\n  return b[0] + a;'),
+      shader('', '  var b = [1, 2];\n  return b[0] + a;'),
       [
         VAR,
-        'TS8002 "var b" needs an array type annotation to take a list, e.g. let b: ' +
-          'array<f32, 2> = [...].',
+        'TS8002 "var b" is a list of integer-written numbers, whose element type its uses will ' +
+          'decide; that is not supported yet. Declare the type: let b: array<f32, 2> = [...].',
       ],
     ],
     // A generic interface in every position that can name it.

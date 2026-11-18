@@ -53,7 +53,7 @@ void main() {
   float span = pow(10.0, (-u.zoom_exp));
   float half_ = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float sx = (half_ - (_cse0 ? 0.0 : 1.0));
+  float sx = (half_ - mix(1.0, 0.0, _cse0));
   float dx = ((sx - 0.5) * span);
   float dy = (((uv.y - 0.5) * span) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool isF32 = (_cse0 || (u.fp64 < 0.5));
@@ -67,8 +67,8 @@ void main() {
   float ey64 = df64_narrow(df64_sub(df64_add(_cse4, vec2(dy, 0.0), _fp64_g), df64_add(_cse5, _cse3, _fp64_g), _fp64_g));
   float ex32 = ((df64_narrow(_cse1) + dx) - df64_narrow(_cse2));
   float ey32 = ((df64_narrow(_cse4) + dy) - df64_narrow(_cse5));
-  float ex = (isF32 ? ex32 : ex64);
-  float ey = (isF32 ? ey32 : ey64);
+  float ex = mix(ex64, ex32, isF32);
+  float ey = mix(ey64, ey32, isF32);
   float rw = (span * 0.125);
   float r = length(vec2(ex, ey));
   float pixw = (span / (u.resolution.x * 0.5));

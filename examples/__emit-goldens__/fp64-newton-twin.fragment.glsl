@@ -98,7 +98,7 @@ void main() {
   float span = pow(10.0, (-u.zoom_exp));
   float half_ = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float sx = (half_ - (_cse0 ? 0.0 : 1.0));
+  float sx = (half_ - mix(1.0, 0.0, _cse0));
   float dx = ((sx - 0.5) * span);
   float dy = (((uv.y - 0.5) * span) * ((u.resolution.y / u.resolution.x) * 2.0));
   float fx = 0.0;
@@ -121,9 +121,7 @@ void main() {
       float qy = (((ny * gx) - (nx * gy)) * inv);
       zx = (zx - qx);
       zy = (zy - qy);
-      if ((((qx * qx) + (qy * qy)) > 1e-14)) {
-        it = (it + 1.0);
-      }
+      it = mix(it, (it + 1.0), (((qx * qx) + (qy * qy)) > 1e-14));
     }
     fx = zx;
     fy = zy;
@@ -144,9 +142,8 @@ void main() {
       vec2 qy_1 = df64_mul(df64_sub(df64_mul(ny_1, gx_1, _fp64_g), df64_mul(nx_1, gy_1, _fp64_g), _fp64_g), inv_1, _fp64_g);
       zx_1 = df64_sub(df64_add(zx_1, _licm0, _fp64_g), df64_add(qx_1, _licm0, _fp64_g), _fp64_g);
       zy_1 = df64_sub(df64_add(zy_1, _licm0, _fp64_g), df64_add(qy_1, _licm0, _fp64_g), _fp64_g);
-      if ((df64_narrow(df64_add(df64_sqr(qx_1, _fp64_g), df64_sqr(qy_1, _fp64_g), _fp64_g)) > 1e-14)) {
-        it = (it + 1.0);
-      }
+      bool _ifc0 = (df64_narrow(df64_add(df64_sqr(qx_1, _fp64_g), df64_sqr(qy_1, _fp64_g), _fp64_g)) > 1e-14);
+      it = mix(it, (it + 1.0), _ifc0);
     }
     fx = df64_narrow(zx_1);
     fy = df64_narrow(zy_1);
@@ -162,7 +159,7 @@ void main() {
   vec3 c0 = vec3(0.91, 0.34, 0.22);
   vec3 c1 = vec3(0.2, 0.66, 0.88);
   vec3 c2 = vec3(0.98, 0.78, 0.22);
-  vec3 base = (((d0 <= d1) && (d0 <= d2)) ? c0 : ((d1 <= d2) ? c1 : c2));
+  vec3 base = mix(mix(c2, c1, bvec3((d1 <= d2))), c0, bvec3(((d0 <= d1) && (d0 <= d2))));
   float speed = (1.0 - (it / 48.0));
   vec3 rgb = (base * mix(0.25, 1.0, speed));
   _ret = vec4(rgb, 1.0);

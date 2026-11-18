@@ -98,7 +98,7 @@ void main() {
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
+  float _v2 = (_v1 - mix(1.0, 0.0, _cse0));
   float _v3 = ((_v2 - 0.5) * _v0);
   float _v4 = (((uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   float _v5 = 0.0;
@@ -121,9 +121,7 @@ void main() {
       float _v19 = (((_v14 * _v15) - (_v13 * _v16)) * _v17);
       _v8 = (_v8 - _v18);
       _v9 = (_v9 - _v19);
-      if ((((_v18 * _v18) + (_v19 * _v19)) > 1e-14)) {
-        _v7 = (_v7 + 1.0);
-      }
+      _v7 = mix(_v7, (_v7 + 1.0), (((_v18 * _v18) + (_v19 * _v19)) > 1e-14));
     }
     _v5 = _v8;
     _v6 = _v9;
@@ -144,9 +142,8 @@ void main() {
       vec2 _v31 = df64_mul(df64_sub(df64_mul(_v26, _v27, _fp64_g), df64_mul(_v25, _v28, _fp64_g), _fp64_g), _v29, _fp64_g);
       _v20 = df64_sub(df64_add(_v20, _licm0, _fp64_g), df64_add(_v30, _licm0, _fp64_g), _fp64_g);
       _v21 = df64_sub(df64_add(_v21, _licm0, _fp64_g), df64_add(_v31, _licm0, _fp64_g), _fp64_g);
-      if ((df64_narrow(df64_add(df64_sqr(_v30, _fp64_g), df64_sqr(_v31, _fp64_g), _fp64_g)) > 1e-14)) {
-        _v7 = (_v7 + 1.0);
-      }
+      bool _ifc0 = (df64_narrow(df64_add(df64_sqr(_v30, _fp64_g), df64_sqr(_v31, _fp64_g), _fp64_g)) > 1e-14);
+      _v7 = mix(_v7, (_v7 + 1.0), _ifc0);
     }
     _v5 = df64_narrow(_v20);
     _v6 = df64_narrow(_v21);
@@ -159,7 +156,7 @@ void main() {
   float _v33 = (_gv1 + (_lc2 * _lc2));
   float _lc4 = (_v6 + 0.8660254037844386);
   float _v34 = (_gv1 + (_lc4 * _lc4));
-  vec3 _v35 = (((_v32 <= _v33) && (_v32 <= _v34)) ? vec3(0.91, 0.34, 0.22) : ((_v33 <= _v34) ? vec3(0.2, 0.66, 0.88) : vec3(0.98, 0.78, 0.22)));
+  vec3 _v35 = mix(mix(vec3(0.98, 0.78, 0.22), vec3(0.2, 0.66, 0.88), bvec3((_v33 <= _v34))), vec3(0.91, 0.34, 0.22), bvec3(((_v32 <= _v33) && (_v32 <= _v34))));
   float _v36 = (1.0 - (_v7 / 48.0));
   _ret = vec4((_v35 * mix(0.25, 1.0, _v36)), 1.0);
 }

@@ -14,13 +14,11 @@
  
  @group(0) @binding(0) var<uniform> U: Uniforms;
  
--fn palette(t: f32) -> vec3<f32> {
--  return (vec3<f32>(0.5) + (cos(((t + vec3<f32>(0.0, 0.33, 0.67)) * 6.283)) * 0.5));
 +fn screenCoords(uv: vec2<f32>, resolution: vec2<f32>) -> vec2<f32> {
 +  let asp = (resolution.x / resolution.y);
 +  return vec2<f32>((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
- }
- 
++}
++
  @vertex
  fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 -  let _cse0 = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -31,11 +29,6 @@
 +  return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)));
  }
  
-+fn palette(t: f32) -> vec3<f32> {
-+  let ph = vec3<f32>(0.0, 0.33, 0.67);
-+  return (vec3<f32>(0.5) + (cos(((t + ph) * 6.283)) * 0.5));
-+}
-+
  @fragment
  fn fs(vo: VsOut) -> @location(0) vec4<f32> {
 -  let _licm0 = ((vo.uv.x * 2.0) - 1.0);
@@ -66,10 +59,13 @@
 +    it = (it + 1.0);
    }
 -  let _v5 = dot(_v2, _v2);
--  return vec4<f32>((palette(((((_v3 - log2(max(log2(max(_v5, 1.0001)), 0.0001))) + 1.0) * 0.035) + (U.time * 0.02))) * (1.0 - step(119.5, _v3))), 1.0);
+-  return vec4<f32>(((vec3<f32>(0.5) + (cos(((((((_v3 - log2(max(log2(max(_v5, 1.0001)), 0.0001))) + 1.0) * 0.035) + (U.time * 0.02)) + vec3<f32>(0.0, 0.33, 0.67)) * 6.283)) * 0.5)) * (1.0 - step(119.5, _v3))), 1.0);
 +  let m = dot(z, z);
 +  let sn = ((it - log2(max(log2(max(m, 1.0001)), 0.0001))) + 1.0);
 +  let inside = step(119.5, it);
-+  let col = (palette(((sn * 0.035) + (U.time * 0.02))) * (1.0 - inside));
++  let _i0a0 = ((sn * 0.035) + (U.time * 0.02));
++  let _i0_ph = vec3<f32>(0.0, 0.33, 0.67);
++  let _i0ret = (vec3<f32>(0.5) + (cos(((_i0a0 + _i0_ph) * 6.283)) * 0.5));
++  let col = (_i0ret * (1.0 - inside));
 +  return vec4<f32>(col, 1.0);
  }

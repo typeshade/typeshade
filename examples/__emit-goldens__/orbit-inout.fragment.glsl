@@ -23,22 +23,12 @@ void Body_advance(inout Body self_, float dt) {
   Body_turn(self_, dt);
   Body_step(self_, dt);
 }
-
-float Body_reach(Body self_) {
-  return length(self_.at);
-}
-
-Body Body_new() {
-  vec2 _cse0 = vec2(0.0, 0.0);
-  Body self_ = Body(_cse0, _cse0, 0.0);
-  return self_;
-}
 layout(location = 0) out vec4 _ret;
 
 void main() {
   vec4 frag = gl_FragCoord;
   vec2 uv = (fract((frag.xy * 0.01)) - vec2(0.5));
-  Body b = Body_new();
+  Body b = Body(vec2(0.0, 0.0), vec2(0.0, 0.0), 0.0);
   b.at = uv;
   b.vel = (vec2((-uv.y), uv.x) * 0.4);
   b.spin = 2.2;
@@ -50,6 +40,6 @@ void main() {
   Body_advance(b, 0.05);
   Body_advance(b, 0.05);
   Body_advance(b, 0.05);
-  float glow = (1.0 - smoothstep(0.0, 0.6, Body_reach(b)));
+  float glow = (1.0 - smoothstep(0.0, 0.6, length(b.at)));
   _ret = vec4(glow, ((glow * 0.4) + (b.spin * 0.1)), (0.6 - (glow * 0.3)), 1.0);
 }

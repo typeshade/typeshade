@@ -16,6 +16,7 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const BIG = `class Big {
   a: vec4f; b: vec4f; xs: array<vec4f, 4>;
@@ -66,48 +67,56 @@ function runs(body: string, expected: number) {
 }
 
 describe('WGSL reads a place in place', () => {
-  it('a let local is handed by pointer, and a pointer is handed on', () => {
-    const { wgsl, glsl } = runs(
-      `${BIG}
+  it(
+    'a let local is handed by pointer, and a pointer is handed on',
+    keepHelpers(() => {
+      const { wgsl, glsl } = runs(
+        `${BIG}
 function run(): f32 {
   let b = new Big();
   b.a = vec4f(1.);
   b.xs[2] = vec4f(5.);
   return b.twice(2);
 }`,
-      12,
-    );
-    expect(wgsl).toContain('fn Big_pick(self_: ptr<function, Big>, i: i32) -> f32');
-    expect(wgsl).toContain('fn Big_twice(self_: ptr<function, Big>, i: i32) -> f32');
-    expect(wgsl).toContain('Big_pick(self_, i)');
-    expect(wgsl).toContain('Big_twice(&b, 2)');
-    // GLSL ES 3.00 has no reference that only reads: a local stays an `in` copy.
-    expect(glsl).toContain('float Big_twice(Big self_, int i)');
-  });
+        12,
+      );
+      expect(wgsl).toContain('fn Big_pick(self_: ptr<function, Big>, i: i32) -> f32');
+      expect(wgsl).toContain('fn Big_twice(self_: ptr<function, Big>, i: i32) -> f32');
+      expect(wgsl).toContain('Big_pick(self_, i)');
+      expect(wgsl).toContain('Big_twice(&b, 2)');
+      // GLSL ES 3.00 has no reference that only reads: a local stays an `in` copy.
+      expect(glsl).toContain('float Big_twice(Big self_, int i)');
+    }),
+  );
 
-  it('a module variable is handed by pointer, and GLSL reads it by name', () => {
-    const { wgsl, glsl } = runs(
-      `${BIG}
+  it(
+    'a module variable is handed by pointer, and GLSL reads it by name',
+    keepHelpers(() => {
+      const { wgsl, glsl } = runs(
+        `${BIG}
 let G: Big;
 function run(): f32 {
   G.bump(2.);
   return G.pick(1);
 }`,
-      2,
-    );
-    expect(wgsl).toContain('fn Big_pick_private(self_: ptr<private, Big>, i: i32) -> f32');
-    expect(wgsl).toContain('Big_pick_private(&G, 1)');
-    // `twice`, which nothing calls, is still emitted, by value, and calls the by-value copy.
-    expect(wgsl).toContain('fn Big_twice(self_: Big, i: i32) -> f32');
-    expect(wgsl).toContain('Big_pick_value(self_, i)');
-    expect(glsl).toContain('float Big_pick_G(int i)');
-    expect(glsl).toContain('void Big_bump_G(float k)');
-    expect(glsl).toContain('G.a = ');
-    expect(glsl).not.toContain('inout');
-  });
+        2,
+      );
+      expect(wgsl).toContain('fn Big_pick_private(self_: ptr<private, Big>, i: i32) -> f32');
+      expect(wgsl).toContain('Big_pick_private(&G, 1)');
+      // `twice`, which nothing calls, is still emitted, by value, and calls the by-value copy.
+      expect(wgsl).toContain('fn Big_twice(self_: Big, i: i32) -> f32');
+      expect(wgsl).toContain('Big_pick_value(self_, i)');
+      expect(glsl).toContain('float Big_pick_G(int i)');
+      expect(glsl).toContain('void Big_bump_G(float k)');
+      expect(glsl).toContain('G.a = ');
+      expect(glsl).not.toContain('inout');
+    }),
+  );
 
-  it('a uniform and a storage element are handed by pointer in their own space', () => {
-    const { wgsl, glsl } = emit(`${BIG}
+  it(
+    'a uniform and a storage element are handed by pointer in their own space',
+    keepHelpers(() => {
+      const { wgsl, glsl } = emit(`${BIG}
 class P { a: vec4f; sum(): f32 { return this.a.x; } }
 const U = uniform<Big>();
 const R = storage<array<P>>();
@@ -115,17 +124,20 @@ const R = storage<array<P>>();
   const i = i32(v.uv.x);
   return { color: vec4(U.twice(i) + R[u32(i)].sum(), 0., 0., 1.) };
 }`);
-    expect(wgsl).toContain('fn Big_pick(self_: ptr<uniform, Big>, i: i32) -> f32');
-    expect(wgsl).toContain('fn P_sum(self_: ptr<storage, P, read>) -> f32');
-    expect(wgsl).toContain('Big_twice(&U, i)');
-    expect(wgsl).toContain('P_sum(&R[u32(i)])');
-    // GLSL reads the block by name, and no longer rebuilds it whole at the call.
-    expect(glsl).toContain('Big_twice_U(i)');
-    expect(glsl).not.toMatch(/Big_value\(U\./);
-  });
+      expect(wgsl).toContain('fn Big_pick(self_: ptr<uniform, Big>, i: i32) -> f32');
+      expect(wgsl).toContain('fn P_sum(self_: ptr<storage, P, read>) -> f32');
+      expect(wgsl).toContain('Big_twice(&U, i)');
+      expect(wgsl).toContain('P_sum(&R[u32(i)])');
+      // GLSL reads the block by name, and no longer rebuilds it whole at the call.
+      expect(glsl).toContain('Big_twice_U(i)');
+      expect(glsl).not.toMatch(/Big_value\(U\./);
+    }),
+  );
 
-  it('a method on an emulated storage element compiles for WebGL2', () => {
-    const { wgsl, glsl } = emit(`class P { a: vec4f; b: vec4f;
+  it(
+    'a method on an emulated storage element compiles for WebGL2',
+    keepHelpers(() => {
+      const { wgsl, glsl } = emit(`class P { a: vec4f; b: vec4f;
   sum(): f32 { return this.a.x + this.b.y; }
   twice(): f32 { return this.sum() * 2.; } }
 const R = storage<array<P>>();
@@ -133,25 +145,29 @@ const R = storage<array<P>>();
   const i = u32(v.uv.x);
   return { color: vec4(R[i].twice() + R[i + u32(1)].sum(), 0., 0., 1.) };
 }`);
-    expect(wgsl).toContain('fn P_sum(self_: ptr<storage, P, read>) -> f32');
-    expect(glsl).toContain('float P_sum_R_at(uint at0)');
-    expect(glsl).toContain('P_twice_R_at(i)');
-    expect(glsl).toContain('P_sum_R_at((i + 1u))');
-  });
+      expect(wgsl).toContain('fn P_sum(self_: ptr<storage, P, read>) -> f32');
+      expect(glsl).toContain('float P_sum_R_at(uint at0)');
+      expect(glsl).toContain('P_twice_R_at(i)');
+      expect(glsl).toContain('P_sum_R_at((i + 1u))');
+    }),
+  );
 
-  it('a struct argument of a plain function is handed by pointer', () => {
-    const { wgsl } = runs(
-      `class Rect { w: f32; h: f32; }
+  it(
+    'a struct argument of a plain function is handed by pointer',
+    keepHelpers(() => {
+      const { wgsl } = runs(
+        `class Rect { w: f32; h: f32; }
 function area(r: Rect): f32 { return r.w * r.h; }
 function run(): f32 {
   let r: Rect = { w: 3., h: 4. };
   return area(r);
 }`,
-      12,
-    );
-    expect(wgsl).toContain('fn area(r: ptr<function, Rect>) -> f32');
-    expect(wgsl).toContain('area(&r)');
-  });
+        12,
+      );
+      expect(wgsl).toContain('fn area(r: ptr<function, Rect>) -> f32');
+      expect(wgsl).toContain('area(&r)');
+    }),
+  );
 });
 
 describe('a copy remains where the place is no place, or can change', () => {
@@ -208,8 +224,10 @@ export function run(): f32 {
     );
   });
 
-  it('shared memory read across a barrier is copied', () => {
-    const r = compile(`"use typeshade";
+  it(
+    'shared memory read across a barrier is copied',
+    keepHelpers(() => {
+      const r = compile(`"use typeshade";
 class Cell { a: f32; }
 let tile: workgroup<Cell>;
 const out = storage<array<f32>, "read_write">();
@@ -219,10 +237,11 @@ function early(c: Cell): f32 { return c.a; }
   if (i == u32(0)) { tile.a = 1.; }
   out[i] = late(tile) + early(tile);
 }`);
-    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([]);
-    expect(r.wgsl).toContain('fn late(c: Cell) -> f32');
-    expect(r.wgsl).toContain('fn early(c: ptr<workgroup, Cell>) -> f32');
-    expect(r.wgsl).toContain('late(tile)');
-    expect(r.wgsl).toContain('early(&tile)');
-  });
+      expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([]);
+      expect(r.wgsl).toContain('fn late(c: Cell) -> f32');
+      expect(r.wgsl).toContain('fn early(c: ptr<workgroup, Cell>) -> f32');
+      expect(r.wgsl).toContain('late(tile)');
+      expect(r.wgsl).toContain('early(&tile)');
+    }),
+  );
 });

@@ -135,9 +135,9 @@ describe('a call that writes, inside a larger expression, in source order', () =
     c = 3.
   }
   return vec4(c, rng.next(), 0., 1.)`);
-    expect(compile(src).wgsl).toContain(
-      '  } else {\n    let _seq0 = Rng_next(&rng);\n    if ((_seq0 > 0.5)) {\n      c = 2.0;\n    } else {\n      c = 3.0;\n    }\n  }',
-    );
+    const wgsl = compile(src).wgsl!;
+    expect(wgsl).toContain('  } else {\n    let _seq0 = Rng_next(&rng);\n');
+    expect(wgsl).toContain('c = select(3.0, 2.0, (_seq0 > 0.5));\n  }');
     const [a, b] = draws(500, 2);
     expect(agree(src, [[0.5, 0.75]])).toEqual([1, a, 0, 1]);
     expect(agree(src, [[0.5, 0.25]])).toEqual([a! > 0.5 ? 2 : 3, b, 0, 1]);
@@ -280,7 +280,7 @@ function pair(seed: u32): Pair {
 `;
     // Change 0105: the returned struct is built through a pointer to the caller's place.
     expect(compile(src).wgsl).toContain(
-      '  Pair_new_into(_dst);\n  (*_dst).b = Rng_next(&rng);\n  (*_dst).a = Rng_next(&rng);\n}',
+      '  (*_dst) = Pair(0.0, 0.0);\n  (*_dst).b = Rng_next(&rng);\n  (*_dst).a = Rng_next(&rng);\n}',
     );
     const [first, second] = draws(500, 2);
     expect(agree(src, [[0.5, 0]])).toEqual([second, first, 0, 1]);

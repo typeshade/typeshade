@@ -19,6 +19,37 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **A kernel function makes and returns an array whose length its arguments give** (change 0114,
+  S5, slice 1). `export function render(k: vec4, size: u32): f32[]` with
+  `const out = new Float32Array(size * size)` at the top of its body and `return out` is a kernel
+  function; `await render(k, 512)` resolves to a new `Float32Array` (`Int32Array` for `i32[]`,
+  `Uint32Array` for `u32[]`, with `new Array(n).fill(v)`). The host evaluates the length before
+  the call, throws a `RangeError` for a negative or fractional one, and checks each loop's writes
+  against it as for an array parameter; a length of 0 gives an empty array. It runs on WebGPU and
+  on the CPU tier, and WebGL2 falls back to the CPU tier. Not supported yet (`TS8099`): an element
+  of a vector or a struct, a helper or an entry that makes its result, an array made under a
+  branch or after a loop, a length that reads another operand, `Array.from` with such a length,
+  another `return`, and a use of the array as a value. A call on a resource or inside `fuse()`
+  throws a `TypeError`.
+- **`new Array(N).fill(v)`, `new Float32Array(N)` and `Array.from({ length: N }, f)` build a
+  sized array** (change 0114, S2). With a constant `N` (an integer literal, a module constant or
+  a constant of no fixed type) each is an `array<T, N>`: `N` copies of `v`, `N` zeros of `f32`,
+  or `f(undefined, i)` for each index. A class field takes its size from such an initializer,
+  `weights = new Array(16).fill(0.)`. The editor's hover shows `array<f32, 16>`. `fill` now gives
+  back the array it fills, as ECMAScript does; `xs.fill(v)` as a statement is unchanged, and a use
+  of its value on an array that already exists is `TS8099`, not supported yet. `new Array(N)`
+  with no `fill`, an array of holes, is `TS8099` in place of `TS8035`. A length that is no
+  constant, a length of 0, an integer-written `v` that nothing types, and `Array.from` outside a
+  function's body or with a function that reads `undefined` are `TS8099`, not supported yet
+  (surface §63). `Float32Array` and `Array.from` are author-facing names.
+- **An untyped list takes its element type and its length from its elements** (change 0114,
+  S2). `const a = [1., 2., 3.]` is `array<f32, 3>` in a function body and at module scope, for a
+  `const` and a `let`; it emits what `const a: array<f32, 3> = [1., 2., 3.]` emits, and the
+  editor's hover shows `const a: array<f32, 3>`. `const T = [1., 2.] as const` at module scope is
+  the same sized array, read-only. Elements that do not share one type are refused with the
+  types found (`element 0 is f32 and element 1 is bool`), and so is an integer-written number
+  beside a float (`[1, 2.5]`, decision D2). An empty list is refused, and a list of
+  integer-written numbers alone still asks for its type (surface §18).
 - **`f32[]` and `Array<f32>` are the array with no size** (change 0114, S1). They are accepted
   where `array<f32>` is: a storage binding's value type (`storage<f32[]>`), the last field of a
   storage struct, and a kernel function's parameter (`scale(xs: f32[], k: f32)`). They give the
