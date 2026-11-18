@@ -16,6 +16,8 @@ import { nameListSpread } from '../semantic.js';
 import type { FunctionShape } from './function-types.js';
 import { liftWritten } from './function-args.js';
 import { typeArrayElement, zeroOfArrayElement } from './expression-array/element.js';
+import { madeDeclarationAt } from './made-array/lower.js';
+import { lowerGrown } from './made-array/grown.js';
 
 export function lowerArrayCtor(
   node: ts.CallExpression,
@@ -216,6 +218,9 @@ export function lowerArrayLiteral(
     return undefined;
   }
   if (target.size === undefined) {
+    const grown = node.elements.length === 0 ? madeDeclarationAt(node, scope) : undefined;
+    if (grown !== undefined)
+      return lowerGrown(grown, node, target, { sourceFile, scope, diagnostics });
     pushDiag(
       diagnostics,
       sourceFile,
@@ -337,11 +342,6 @@ function spreadElements(
   const alone = ts.isArrayLiteralExpression(spread.parent) && spread.parent.elements.length === 1;
   const values = type.elem.kind !== 'struct' && type.elem.kind !== 'array';
   return alone && values ? `${each}, or ${shown}.slice() for a copy of the whole array` : each;
-}
-
-export function isNumericScalar(t: ShaderType): boolean {
-  const k = typeKey(t);
-  return k === 'f32' || k === 'i32' || k === 'u32';
 }
 
 export function lowerFill(

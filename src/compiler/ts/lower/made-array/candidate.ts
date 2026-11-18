@@ -22,6 +22,16 @@ export function isMadeForm(e: ts.Expression): boolean {
   return ts.isCallExpression(x) && (fillFormOf(x) !== undefined || fromFormOf(x) !== undefined);
 }
 
+export function isGrownForm(decl: ts.VariableDeclaration): boolean {
+  const init = decl.initializer;
+  return (
+    decl.type !== undefined &&
+    init !== undefined &&
+    ts.isArrayLiteralExpression(init) &&
+    init.elements.length === 0
+  );
+}
+
 function returnsName(body: ts.Node, name: string): boolean {
   let found = false;
   const visit = (n: ts.Node): void => {
@@ -55,7 +65,7 @@ export function madeCandidate(
       n.initializer !== undefined &&
       ts.isVariableDeclarationList(n.parent) &&
       (n.parent.flags & ts.NodeFlags.Const) !== 0 &&
-      isMadeForm(n.initializer) &&
+      (isMadeForm(n.initializer) || isGrownForm(n)) &&
       returnsName(body, n.name.text)
     )
       found = n;

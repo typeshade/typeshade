@@ -280,6 +280,8 @@ export function loopReference() {
     residentStamp: [7, 7, 7, 7, 7, 7, 7],
     residentRender: render,
     renderMade: render,
+    renderPushed: render,
+    renderKept: render.filter((_, i) => Math.floor(i / 64) % 3 !== 1),
     residentStats: stats,
     residentScaled: scaled,
     ...doubleLoops(),

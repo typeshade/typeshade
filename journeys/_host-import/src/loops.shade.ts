@@ -24,6 +24,26 @@ export function renderMade(k: vec4, size: u32): f32[] {
   return out;
 }
 
+export function renderPushed(k: vec4, size: u32): f32[] {
+  const out: f32[] = [];
+  for (let i: u32 = 0; i < size * size; i++) {
+    const p = vec2(f32(i % size), f32(i / size)) / f32(size);
+    out.push(height(p, k));
+  }
+  return out;
+}
+
+export function renderKept(k: vec4, size: u32): f32[] {
+  const out: f32[] = [];
+  for (let i: u32 = 0; i < size * size; i++) {
+    const p = vec2(f32(i % size), f32(i / size)) / f32(size);
+    if ((i / size) % 3 != 1) {
+      out.push(height(p, k));
+    }
+  }
+  return out;
+}
+
 class Particle {
   pos: vec4;
   vel: vec4;

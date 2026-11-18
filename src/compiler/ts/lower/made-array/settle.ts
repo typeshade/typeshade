@@ -1,78 +1,40 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import type ts from 'typescript';
 import type { Expr, FuncDecl, Stmt } from '../../../../core/ir/nodes.js';
-import { voidT } from '../../../../core/ir/types.js';
+import { u32T, voidT } from '../../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../../source-file.js';
 import { TS_CODES } from '../../codes.js';
 import { makeDiagnostic } from '../../diagnostic.js';
 import { lengthFromHost } from './length.js';
-import { madeLoweringOf, setMadeArray, type MadeLowering } from './registry.js';
+import { madeLoweringOf, nodesSaidOnce, setMadeArray, type MadeLowering } from './registry.js';
+import { hostReadable, notKnown, readersOf, type Readable } from './readable.js';
+import { grownCapacity } from './capacity.js';
 
-const ARITHMETIC: ReadonlySet<string> = new Set(['+', '-', '*', '/', '%']);
-const CASTS: ReadonlySet<string> = new Set(['u32', 'i32', 'f32']);
-
-interface Readable {
-  readonly values: ReadonlySet<string>;
-  readonly arrays: ReadonlySet<string>;
-  readonly lets: ReadonlyMap<string, Expr>;
-  readonly needed: Set<string>;
-}
-
-function hostReadable(e: Expr, r: Readable): boolean {
-  switch (e.op) {
-    case 'lit':
-    case 'constref':
-      return true;
-    case 'param':
-      return r.values.has(e.name);
-    case 'member':
-      return hostReadable(e.base, r);
-    case 'varref': {
-      const init = r.lets.get(e.name);
-      if (init === undefined) return false;
-      r.needed.add(e.name);
-      return hostReadable(init, r);
-    }
-    case 'unop':
-      return hostReadable(e.a, r);
-    case 'binop':
-      return ARITHMETIC.has(e.bop) && hostReadable(e.a, r) && hostReadable(e.b, r);
-    case 'construct':
-      return e.type.kind === 'scalar' && e.args.length === 1 && hostReadable(e.args[0]!, r);
-    case 'call': {
-      if (e.fn === 'arrayLength')
-        return e.args.length === 1 && e.args[0]!.op === 'param' && r.arrays.has(e.args[0]!.name);
-      if (CASTS.has(e.fn)) return e.args.length === 1 && hostReadable(e.args[0]!, r);
-      if (e.fn === 'min' || e.fn === 'max') return e.args.every((a) => hostReadable(a, r));
-      return false;
-    }
-    default:
-      return false;
-  }
-}
-
-function withoutResult(body: readonly Stmt[], param: string): Stmt[] {
+function withoutResult(body: readonly Stmt[], param: string, result?: Expr): Stmt[] {
+  const inner = (b: readonly Stmt[]): Stmt[] => withoutResult(b, param, result);
   return body.map((st): Stmt => {
     switch (st.s) {
       case 'return':
         return st.expr?.op === 'param' && st.expr.name === param
-          ? { s: 'return', ...(st.span !== undefined ? { span: st.span } : {}) }
+          ? {
+              s: 'return',
+              ...(result !== undefined ? { expr: result } : {}),
+              ...(st.span !== undefined ? { span: st.span } : {}),
+            }
           : st;
       case 'if':
         return {
           ...st,
-          arms: st.arms.map((a) => ({ ...a, body: withoutResult(a.body, param) })),
-          ...(st.elseBody !== undefined ? { elseBody: withoutResult(st.elseBody, param) } : {}),
+          arms: st.arms.map((a) => ({ ...a, body: inner(a.body) })),
+          ...(st.elseBody !== undefined ? { elseBody: inner(st.elseBody) } : {}),
         };
       case 'for':
-        return { ...st, body: withoutResult(st.body, param) };
+        return { ...st, body: inner(st.body) };
       case 'switch':
         return {
           ...st,
-          cases: st.cases.map((c) => ({ ...c, body: withoutResult(c.body, param) })),
-          ...(st.defaultBody !== undefined
-            ? { defaultBody: withoutResult(st.defaultBody, param) }
-            : {}),
+          cases: st.cases.map((c) => ({ ...c, body: inner(c.body) })),
+          ...(st.defaultBody !== undefined ? { defaultBody: inner(st.defaultBody) } : {}),
         };
       default:
         return st;
@@ -80,28 +42,17 @@ function withoutResult(body: readonly Stmt[], param: string): Stmt[] {
   });
 }
 
-const notKnown = (what: string): string =>
-  `${what} reads a value the call does not know before it runs. It reads the value parameters, ` +
-  `their components and fields, module constants, the length of an array parameter, number ` +
-  `literals, u32, i32 and f32 of these, and top-level consts of these, with +, -, *, /, %, min ` +
-  `and max; any other operand is not supported yet.`;
-
 function readable(
   stub: FuncDecl,
   made: MadeLowering,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): Readable | undefined {
-  const values = new Set<string>();
-  const arrays = new Set<string>();
-  for (const p of stub.params) {
-    if (p.name === made.param) continue;
-    if (p.type.kind === 'array' && p.type.size === undefined) arrays.add(p.name);
-    else if (p.type.kind !== 'texture' && p.type.kind !== 'collection') values.add(p.name);
+): { readonly r: Readable; readonly length: Expr } | undefined {
+  const r = readersOf(stub, made.param);
+  if (made.grown === true) {
+    const length = grownCapacity(stub, made, r, sourceFile, diagnostics);
+    return length === undefined ? undefined : { r, length };
   }
-  const lets = new Map<string, Expr>();
-  for (const st of stub.body) if (st.s === 'let') lets.set(st.name, st.expr);
-  const r: Readable = { values, arrays, lets, needed: new Set() };
   if (!hostReadable(made.length, r)) {
     diagnostics.push(
       makeDiagnostic(
@@ -124,7 +75,19 @@ function readable(
     );
     return undefined;
   }
-  return r;
+  return { r, length: made.length };
+}
+
+function quietRepeats(
+  stub: FuncDecl,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[],
+): void {
+  for (const node of nodesSaidOnce(stub)) {
+    const start = node.getStart(sourceFile);
+    const at = diagnostics.flatMap((d, i) => (d.start === start ? [i] : []));
+    for (const i of at.slice(1).reverse()) diagnostics.splice(i, 1);
+  }
 }
 
 export function settleMadeArray(
@@ -132,21 +95,33 @@ export function settleMadeArray(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
+  quietRepeats(stub, sourceFile, diagnostics);
   const made = madeLoweringOf(stub);
   if (made === undefined || stub.ret.kind !== 'array') return;
-  const r = readable(stub, made, sourceFile, diagnostics);
-  if (r === undefined) return;
-  const prelude = stub.body.filter((st) => st.s === 'let' && r.needed.has(st.name));
-  (stub as { body: readonly Stmt[] }).body = withoutResult(stub.body, made.param);
-  (stub as { ret: FuncDecl['ret'] }).ret = voidT;
+  const read = readable(stub, made, sourceFile, diagnostics);
+  if (read === undefined) return;
+  const prelude = stub.body.filter((st) => st.s === 'let' && read.r.needed.has(st.name));
+  const param = stub.params.find((p) => p.name === made.param)!;
+  const pushed: Expr | undefined =
+    made.grown === true
+      ? {
+          op: 'call',
+          type: u32T,
+          fn: 'pushCount',
+          args: [{ op: 'param', type: param.type, name: param.name }],
+        }
+      : undefined;
+  (stub as { body: readonly Stmt[] }).body = withoutResult(stub.body, made.param, pushed);
+  (stub as { ret: FuncDecl['ret'] }).ret = pushed === undefined ? voidT : u32T;
   const count = lengthFromHost(stub, made.param);
   setMadeArray(stub, {
     param: made.param,
     count,
     shown: (made.decl.name as ts.Identifier).text,
     element: made.element,
-    length: made.length,
+    length: read.length,
     ...(made.fill !== undefined ? { fill: made.fill } : {}),
+    ...(made.grown === true ? { grown: true as const } : {}),
     prelude,
     form: made.form,
     lengthText: made.lengthText,

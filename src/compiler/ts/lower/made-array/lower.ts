@@ -39,7 +39,7 @@ export function madeDeclarationAt(
   return unparenthesized(decl.initializer) === form ? decl : undefined;
 }
 
-const say = (at: MadeAt, node: ts.Node, message: string): undefined => {
+export const say = (at: MadeAt, node: ts.Node, message: string): undefined => {
   at.diagnostics.push(makeDiagnostic(at.sourceFile, node, message, TS_CODES.UNSUPPORTED));
   return undefined;
 };
@@ -62,17 +62,31 @@ function storesOrLoops(st: ts.Statement): boolean {
   return found;
 }
 
-function refuseUses(decl: ts.VariableDeclaration, body: ts.Block, fn: string, at: MadeAt): boolean {
+export type GrownUse = (use: ts.Expression, body: ts.Block) => 'fine' | 'refused' | 'other';
+
+function refuseUses(
+  decl: ts.VariableDeclaration,
+  body: ts.Block,
+  fn: string,
+  at: MadeAt,
+  grown?: GrownUse,
+): boolean {
   const name = (decl.name as ts.Identifier).text;
   let refused = false;
   const visit = (n: ts.Node): void => {
     if (refused) return;
     if (ts.isIdentifier(n) && n !== decl.name && n.text === name && declarationOf(n) === decl) {
-      let use: ts.Node = n;
+      let use: ts.Expression = n;
       while (ts.isParenthesizedExpression(use.parent)) use = use.parent;
       const p = use.parent;
+      const own = grown?.(use, body);
+      if (own === 'refused') {
+        refused = true;
+        return;
+      }
       const fine =
-        (ts.isElementAccessExpression(p) && p.expression === use) ||
+        own === 'fine' ||
+        (own === undefined && ts.isElementAccessExpression(p) && p.expression === use) ||
         (ts.isPropertyAccessExpression(p) && p.expression === use && p.name.text === 'length') ||
         ts.isReturnStatement(p);
       if (!fine) {
@@ -81,9 +95,11 @@ function refuseUses(decl: ts.VariableDeclaration, body: ts.Block, fn: string, at
         say(
           at,
           shown,
-          `"${shortText(shown)}" uses "${name}", the array "${fn}" makes and returns, as a ` +
-            `value, and that is not supported yet. Read and write its elements, read its ` +
-            `length, and return it.`,
+          `"${shortText(shown)}" uses "${name}", the array "${fn}" ${grown ? 'grows' : 'makes'} ` +
+            `and returns, as a value, and that is not supported yet. ` +
+            (grown
+              ? `Push onto it in a loop, read its length, and return it.`
+              : `Read and write its elements, read its length, and return it.`),
         );
         refused = true;
         return;
@@ -110,11 +126,12 @@ function refuseUses(decl: ts.VariableDeclaration, body: ts.Block, fn: string, at
   return refused;
 }
 
-function refusedPlace(
+export function refusedPlace(
   decl: ts.VariableDeclaration,
   stub: FuncDecl,
   fn: string,
   at: MadeAt,
+  grown?: GrownUse,
 ): boolean {
   const statement = decl.parent.parent;
   const owner = at.scope.ownerNode();
@@ -148,7 +165,7 @@ function refusedPlace(
     );
     return true;
   }
-  return refuseUses(decl, body, fn, at);
+  return refuseUses(decl, body, fn, at, grown);
 }
 
 function fillValue(arg: ts.Expression, want: ShaderType | undefined, at: MadeAt): Expr | undefined {
@@ -159,7 +176,7 @@ function fillValue(arg: ts.Expression, want: ShaderType | undefined, at: MadeAt)
     : retargetDeclaredIntLit(lowered, arg, want);
 }
 
-function bindMade(
+export function bindMade(
   decl: ts.VariableDeclaration,
   stub: FuncDecl,
   type: ShaderType,
@@ -168,14 +185,16 @@ function bindMade(
   const name = (decl.name as ts.Identifier).text;
   const earlier = madeLoweringOf(stub)?.param;
   const param = earlier ?? (at.scope.resolveIr(name) === undefined ? name : `${name}_made`);
+  at.scope.push();
   const entry = at.scope.define({
     kind: 'param',
-    name: `#made_${name}`,
+    name,
     irName: param,
     type,
     mutable: true,
     space: 'storage',
   });
+  at.scope.pop();
   if (!stub.params.some((p) => p.name === param))
     (stub.params as FuncDecl['params'][number][]).push({ name: param, type, mode: 'inout' });
   return { param, ref: { op: 'varref', name: entry.irName ?? entry.name, type } };

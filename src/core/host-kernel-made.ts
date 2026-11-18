@@ -87,13 +87,14 @@ export function callMadeKernel(
           `resource is not supported yet. Pass plain data and await the call.`,
       );
     const array = madeArray(cpu, k, made, args);
+    const n = array.length;
     const bound = array.length > 0 ? array : new ARRAYS[made.array](1);
     let next = 0;
     const all = k.params.map((p) =>
       p.name === made.param ? bound : p.name === made.count ? array.length : args[next++],
     );
     return callKernel(cpu, k, all.length, all, reads).then(
-      () => array,
+      (pushed) => (made.grown === true ? array.slice(0, Math.min(Number(pushed), n)) : array),
       (e: unknown) => Promise.reject(renamed(e, made)),
     );
   } catch (e) {

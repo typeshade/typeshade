@@ -7,6 +7,7 @@ export interface KernelMade {
   readonly array: 'f32' | 'i32' | 'u32';
   readonly length: string;
   readonly fill?: string;
+  readonly grown?: true;
 }
 
 export function madeOf(k: KernelFace): KernelMade | undefined {

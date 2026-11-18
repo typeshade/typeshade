@@ -10,6 +10,7 @@ export interface MadeArray {
   readonly element: MadeElement;
   readonly length: Expr;
   readonly fill?: Expr;
+  readonly grown?: true;
   readonly prelude: readonly Stmt[];
   readonly form: string;
   readonly lengthText: string;
@@ -23,8 +24,19 @@ export interface MadeLowering {
   readonly fill?: Expr;
   readonly lengthNode: ts.Node;
   readonly fillNode?: ts.Node;
+  readonly grown?: true;
   readonly form: string;
   readonly lengthText: string;
+}
+
+const saidOnce = new WeakMap<FuncDecl, ts.Node[]>();
+
+export function sayOnceAt(fn: FuncDecl, node: ts.Node): void {
+  saidOnce.set(fn, [...(saidOnce.get(fn) ?? []), node]);
+}
+
+export function nodesSaidOnce(fn: FuncDecl): readonly ts.Node[] {
+  return saidOnce.get(fn) ?? [];
 }
 
 const candidates = new WeakMap<FuncDecl, ts.VariableDeclaration>();
