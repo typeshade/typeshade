@@ -6,16 +6,14 @@ import { STAGE_CALLEES } from '../compiler/ts/stage-call.js';
 import { fileDeclaresType } from '../compiler/ts/type-map.js';
 import { isRemovedCall } from '../compiler/ts/removed-names.js';
 import { QUALIFIER_DECORATORS, usesDecoratedForm } from '../compiler/ts/decorated-form.js';
-import {
-  foreignNameReport,
-  refusedVars,
-  refusedWhole,
-  STRICT_MODE_NAMES,
-} from '../compiler/ts/semantic.js';
+import { refusedVars, refusedWhole, STRICT_MODE_NAMES } from '../compiler/ts/semantic.js';
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
 import { ERASING_OPERATORS, ERASING_UNARY_OPERATORS } from './projection.js';
 import type { TypeshadeDiagnostic, TypeshadeSeverity, TypeshadeTextSpan } from './types.js';
+import { foreignNameInRefusal } from './diagnostics/foreign-name.js';
+import { spanEnd, spanOfNode, within } from './diagnostics/spans.js';
+import { repeatsReadonlyWrite } from './diagnostics/readonly-write.js';
 
 /**
  * One TypeScript diagnostic code the ambient lib cannot silence, and the rule that decides
@@ -1855,17 +1853,6 @@ const STRICT_MODE_CODES: ReadonlySet<number> = new Set([1100, 1210, 1215]);
  *  the whole call (`import(...)`). */
 const CALL_CODES: ReadonlySet<number> = new Set([2345, 2554, 2769, 2711]);
 
-const spanEnd = (span: TypeshadeTextSpan): number => span.start + span.length;
-
-/** Whether `inner` lies inside `outer`, ends included. */
-const within = (inner: TypeshadeTextSpan, outer: TypeshadeTextSpan): boolean =>
-  inner.start >= outer.start && spanEnd(inner) <= spanEnd(outer);
-
-const spanOfNode = (node: ts.Node, sourceFile: ts.SourceFile): TypeshadeTextSpan => {
-  const start = node.getStart(sourceFile);
-  return { start, length: node.getEnd() - start };
-};
-
 /** The TypeScript codes about how one class member is declared, reported on its name or on a
  *  modifier of it (`abstract`), where the compiler reports the name. */
 const MEMBER_CODES: ReadonlySet<number> = new Set([1244, 1245, 1253, 1267, 1318, 2512, 2676]);
@@ -3079,6 +3066,7 @@ export function mergeDiagnostics(
       return false;
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
+    if (repeatsReadonlyWrite(diagnostic, compilerErrors)) return false;
     if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;
     if (
       isResultOfRefusedCycle(
@@ -3111,79 +3099,6 @@ export function mergeDiagnostics(
     ),
     ...typeshade,
   ];
-}
-
-/**
- * The compiler's sentence for a GLSL or HLSL name (`FOREIGN_NAMES`, #218) in place of
- * TypeScript's "Cannot find name" (TS2304, TS2552) for it, when a refusal of the compiler's covers
- * the name without having read it: `fmod` in a `try`, in a `for…of` over a list, in an object
- * spread, or in a list with no type annotation (`const w = [fmod(a, 2.), fmod(b, 2.)]`). The
- * compiler reads a name where it lowers the construct that holds it, and it does not lower these,
- * so nothing paired TypeScript's report and it stood: with no remedy for `lerp`, and for `fmod`
- * with "Did you mean 'mod'?", which floors where `fmod` truncates. Now the editor shows the
- * one remedy the compiler gives for the name (Rule 12.7), the sentence and the code `compile()`
- * gives it once the construct is fixed, on the name.
- *
- * Only where a refusal covers the name: with none, `compile()` accepts the program, and a
- * `typeshade` error would say what it does not, so TypeScript's own report stands. A refusal
- * covers what its span holds, and the arguments of a generic it refused at its name
- * ({@link inRefusedGenericArguments}). Any other name keeps TypeScript's too, whose sentence is
- * the compiler's less its remedy.
- */
-function foreignNameInRefusal(
-  compilerFile: ts.SourceFile,
-  diagnostic: TypeshadeDiagnostic,
-  compilerErrors: readonly TypeshadeDiagnostic[],
-): TypeshadeDiagnostic | undefined {
-  if (diagnostic.severity !== 'error' || (diagnostic.code !== 2304 && diagnostic.code !== 2552)) {
-    return undefined;
-  }
-  const id = nodeAtPosition(compilerFile, diagnostic.span.start);
-  if (
-    !ts.isIdentifier(id) ||
-    id.getStart(compilerFile) !== diagnostic.span.start ||
-    id.getEnd() !== spanEnd(diagnostic.span) ||
-    !(
-      compilerErrors.some((error) => within(diagnostic.span, error.span)) ||
-      inRefusedGenericArguments(id, compilerFile, compilerErrors)
-    )
-  ) {
-    return undefined;
-  }
-  const said = foreignNameReport(id);
-  return said === undefined
-    ? undefined
-    : { ...diagnostic, message: said.message, code: said.code, source: 'typeshade' };
-}
-
-/**
- * Whether `id` is written in the type arguments of a generic the compiler refused at its name:
- * `shared` in `groupshared<shared<f32>>`, `groupshared` in `foo<groupshared<f32>>`. The refusal
- * of a generic whose name nothing declares is on the name (Rule 12.1), so its span does not
- * reach what the generic holds, and the compiler reads none of it.
- */
-function inRefusedGenericArguments(
-  id: ts.Identifier,
-  compilerFile: ts.SourceFile,
-  compilerErrors: readonly TypeshadeDiagnostic[],
-): boolean {
-  for (let at: ts.Node = id; ts.isTypeNode(at.parent); at = at.parent) {
-    const generic = at.parent;
-    if (
-      ts.isTypeReferenceNode(generic) &&
-      generic.typeArguments?.some((argument) => argument === at) === true
-    ) {
-      const name = spanOfNode(generic.typeName, compilerFile);
-      if (
-        compilerErrors.some(
-          (error) => error.span.start === name.start && error.span.length === name.length,
-        )
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 /** Whether `span` lies inside an `import(...)` call. */

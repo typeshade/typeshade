@@ -8,7 +8,6 @@ import { authorTypeText } from '../../context.js';
 import { TS_CODES } from '../../codes.js';
 import {
   lowerMultisampledCall,
-  arraySuffix,
   vecArg,
   floatArg,
   intArg,
@@ -16,6 +15,7 @@ import {
   arity,
   pushDiag,
 } from '../expression-call.js';
+import { arraySuffix } from './array-suffix.js';
 
 export function lowerStorageTextureCall(
   id: string,

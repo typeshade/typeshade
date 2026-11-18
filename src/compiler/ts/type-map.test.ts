@@ -151,8 +151,10 @@ describe('Phase 2 - type mapping', () => {
     expect(type).toBe(vec3uT);
   });
 
-  it('rejects array postfix and union types', () => {
-    expect(map('f32[]').type).toBeUndefined();
+  it('maps f32[] and Array<f32> to the array with no size, and rejects a union', () => {
+    expect(map('f32[]')).toEqual(map('array<f32>'));
+    expect(map('Array<f32>')).toEqual(map('array<f32>'));
+    expect(map('f32[]').type).toEqual({ kind: 'array', elem: f32T, size: undefined });
     expect(map('f32 | i32').type).toBeUndefined();
   });
 

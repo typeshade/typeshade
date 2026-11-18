@@ -8,7 +8,7 @@ the array methods `ArrayOps` picks. `src/author-names.test.ts` fails when this f
 library disagree. `scripts/changes.ts` reads this file on both sides of a diff: a name it
 gains needs an accepted proposal that lists the name under `names:` (changes/README.md).
 
-## Declared names — 280
+## Declared names — 281
 
 ```
 AnyClass
@@ -34,6 +34,7 @@ Object
 Pick
 ReadView
 ReadWriteStorageFormat
+ReadonlyArray
 Record
 RegExp
 ScalarOf
