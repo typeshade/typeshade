@@ -19,7 +19,7 @@ const edited = (body: string): string[] => {
     .map((d) => `${d.severity} ${String(d.code)} ${d.message}`);
 };
 
-describe('a read under a guard on the counter is checked over the iterations the guard keeps (#997)', () => {
+describe('a read under a guard on the counter is checked over the iterations the guard keeps, not over the whole counter range (#997)', () => {
   const padTo = (
     guard: string,
     extra = '',

@@ -16,7 +16,7 @@ import { stageOf } from '../../core/ir/index.js';
 import { compileTsSource } from './source-file.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -30,8 +30,10 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('a class inside a namespace is the struct Ns_P', () => {
-  itNoInlining('with its constructor and its methods, built from inside the namespace', () => {
-    const r = compile(`"use typeshade";
+  it(
+    'with its constructor and its methods, built from inside the namespace',
+    keepHelpers(() => {
+      const r = compile(`"use typeshade";
 namespace N {
   export class P {
     x: f32;
@@ -51,25 +53,28 @@ namespace N {
   return vec4(p.twice(), 0., 0., 1.);
 }
 `);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('struct N_P {');
-    // Every call builds its N_P in the caller's local (change 0105).
-    const wgsl = emitModuleAt(r.module, 'O1');
-    expect(wgsl).toContain('fn N_P_new_into(_dst: ptr<function, N_P>, x: f32) {');
-    expect(wgsl).not.toContain('fn N_P_new(');
-    expect(wgsl).toContain('fn N_P_twice(self_: ptr<function, N_P>) -> f32 {');
-    expect(
-      emitGlslModule({
-        ...r.module,
-        funcs: r.module.funcs.filter((f) => stageOf(f) === undefined),
-      }),
-    ).toContain('struct N_P {');
-    expect(r.wgsl).toMatch(/fn _flow\d+_fused\(/);
-    agree(r, [6, 0, 0, 1]);
-  });
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('struct N_P {');
+      // Every call builds its N_P in the caller's local (change 0105).
+      const wgsl = emitModuleAt(r.module, 'O1');
+      expect(wgsl).toContain('fn N_P_new_into(_dst: ptr<function, N_P>, x: f32) {');
+      expect(wgsl).not.toContain('fn N_P_new(');
+      expect(wgsl).toContain('fn N_P_twice(self_: ptr<function, N_P>) -> f32 {');
+      expect(
+        emitGlslModule({
+          ...r.module,
+          funcs: r.module.funcs.filter((f) => stageOf(f) === undefined),
+        }),
+      ).toContain('struct N_P {');
+      expect(r.wgsl).toMatch(/fn _flow\d+_fused\(/);
+      agree(r, [6, 0, 0, 1]);
+    }),
+  );
 
-  itNoInlining('and from outside it, written N.P', () => {
-    const r = compile(`"use typeshade";
+  it(
+    'and from outside it, written N.P',
+    keepHelpers(() => {
+      const r = compile(`"use typeshade";
 namespace N {
   export class P {
     x: f32;
@@ -86,12 +91,13 @@ function take(p: N.P): f32 {
   return vec4(take(p), p.x, 0., 1.);
 }
 `);
-    expect(r.diagnostics).toEqual([]);
-    // `p` is a `var` built through a pointer, and passed by one (change 0105).
-    expect(r.wgsl).toContain('var p: N_P;\n  N_P_new_into(&p, 4.0);');
-    expect(r.wgsl).toContain('fn take(p: ptr<function, N_P>) -> f32 {');
-    agree(r, [4, 4, 0, 1]);
-  });
+      expect(r.diagnostics).toEqual([]);
+      // `p` is a `var` built through a pointer, and passed by one (change 0105).
+      expect(r.wgsl).toContain('var p: N_P;\n  N_P_new_into(&p, 4.0);');
+      expect(r.wgsl).toContain('fn take(p: ptr<function, N_P>) -> f32 {');
+      agree(r, [4, 4, 0, 1]);
+    }),
+  );
 
   it('nested, and as a field of another struct', () => {
     const r = compile(`"use typeshade";

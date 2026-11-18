@@ -37,7 +37,8 @@
 // `src/core/spec-conformance/fixtures/` holds the checked-in texture and stage slices.
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+import type { ModuleDecl } from '../../core/ir/index.js';
+import { autoVars } from '../../core/passes/opt/index.js';
 
 const errorsOf = (src: string): string[] =>
   compile(src)
@@ -157,6 +158,15 @@ interface VsOut {
   });
 });
 
+const copiesOf = (m: ModuleDecl): string[] =>
+  m.funcs
+    .find((f) => f.name === 'h')!
+    .body.flatMap((st) =>
+      st.s === 'var' && (st.init?.op === 'varref' || st.init?.op === 'param')
+        ? [`${st.name} = ${st.init.name}`]
+        : [],
+    );
+
 describe('a helper that assigns to its whole parameter (L25)', () => {
   // Tint: "cannot assign to parameter 'a'" (wgsl.txt:7469, 10896-10899). The source form
   // now writes a distinct local initialized from that immutable parameter (Rule 8.8).
@@ -175,14 +185,14 @@ interface V {
 `;
 
   // #431 keeps the immutable input and writes a fresh value local instead (Rule 8.8).
-  itNoInlining('copies a written parameter into a local with a distinct WGSL name', () => {
+  it('copies a written parameter into a local with a distinct WGSL name', () => {
     const errors = compile(src).diagnostics.filter((d) => d.category === 'error');
     expect(errors).toHaveLength(0);
-    expect(compile(src).wgsl).toContain('var a_1: f32 = a;');
+    expect(copiesOf(compile(src).module)).toEqual(['a_1 = a']);
   });
 
   // The remedy the message spells has to compile, or the refusal sends the author in a circle.
-  itNoInlining('takes the copy the message asks for, and emits it as a var', () => {
+  it('takes the copy the message asks for, and emits it as a var', () => {
     const fixed = `"use typeshade";
 export function h(a: f32): f32 {
   let a_ = a;
@@ -197,7 +207,8 @@ interface V {
   return vec4(h(v.uv.x), 0., 0., 1.);
 }
 `;
-    expect(compilesClean(fixed)).toContain('var a_: f32 = a;');
+    compilesClean(fixed);
+    expect(copiesOf(autoVars(compile(fixed).module))).toEqual(['a_ = a']);
   });
 });
 

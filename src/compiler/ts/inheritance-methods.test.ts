@@ -1,8 +1,8 @@
-import { describe, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
   for (const make of [compileModule, compileModuleJs]) {
@@ -17,10 +17,12 @@ ${body}
 `;
 
 describe('a method is inherited by being lowered again', () => {
-  itNoInlining('into the derived class, and an override wins', () => {
-    const r = compile(
-      file(
-        `class Base {
+  it(
+    'into the derived class, and an override wins',
+    keepHelpers(() => {
+      const r = compile(
+        file(
+          `class Base {
   x: f32
   twice(): f32 {
     return this.x * 2.
@@ -36,19 +38,22 @@ class Derived extends Base {
   }
 }
 `,
-        `  const d: Derived = { x: 1., y: 2. }\n  return vec4(d.twice(), d.v(), 0., 1.)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn Derived_twice(self_: ptr<function, Derived>) -> f32 {');
-    expect(r.wgsl).toContain('fn Base_twice(self_: Base) -> f32 {');
-    agree(r, [2, 3, 0, 1]);
-  });
+          `  const d: Derived = { x: 1., y: 2. }\n  return vec4(d.twice(), d.v(), 0., 1.)`,
+        ),
+      );
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('fn Derived_twice(self_: ptr<function, Derived>) -> f32 {');
+      expect(r.wgsl).toContain('fn Base_twice(self_: Base) -> f32 {');
+      agree(r, [2, 3, 0, 1]);
+    }),
+  );
 
-  itNoInlining('so an inherited body calls the override, which is what TypeScript does', () => {
-    const r = compile(
-      file(
-        `abstract class Shape {
+  it(
+    'so an inherited body calls the override, which is what TypeScript does',
+    keepHelpers(() => {
+      const r = compile(
+        file(
+          `abstract class Shape {
   k: f32
   abstract area(): f32
   scaled(): f32 {
@@ -68,20 +73,23 @@ class Circle extends Shape {
   }
 }
 `,
-        `  const q: Square = { k: 2., s: 3. }\n  const c: Circle = { k: 1., r: 2. }\n  return vec4(q.scaled(), c.scaled(), 0., 1.)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('return (Square_area(self_) * (*self_).k);');
-    expect(r.wgsl).toContain('return (Circle_area(self_) * (*self_).k);');
-    expect(r.wgsl).not.toContain('fn Shape_scaled');
-    agree(r, [18, 12, 0, 1]);
-  });
+          `  const q: Square = { k: 2., s: 3. }\n  const c: Circle = { k: 1., r: 2. }\n  return vec4(q.scaled(), c.scaled(), 0., 1.)`,
+        ),
+      );
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('return (Square_area(self_) * (*self_).k);');
+      expect(r.wgsl).toContain('return (Circle_area(self_) * (*self_).k);');
+      expect(r.wgsl).not.toContain('fn Shape_scaled');
+      agree(r, [18, 12, 0, 1]);
+    }),
+  );
 
-  itNoInlining('and a static function and a field initializer come down too', () => {
-    const r = compile(
-      file(
-        `class Base {
+  it(
+    'and a static function and a field initializer come down too',
+    keepHelpers(() => {
+      const r = compile(
+        file(
+          `class Base {
   x: f32 = 4.
   static unit(): f32 {
     return 1.
@@ -91,11 +99,12 @@ class Derived extends Base {
   y: f32
 }
 `,
-        `  const d = new Derived()\n  return vec4(Derived.unit(), Base.unit(), d.x, 1.)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn Derived_unit() -> f32 {');
-    agree(r, [1, 1, 4, 1]);
-  });
+          `  const d = new Derived()\n  return vec4(Derived.unit(), Base.unit(), d.x, 1.)`,
+        ),
+      );
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('fn Derived_unit() -> f32 {');
+      agree(r, [1, 1, 4, 1]);
+    }),
+  );
 });

@@ -23,7 +23,7 @@ import { TS_CODES } from './codes.js';
 import { validate } from '../../core/passes/validate.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import type { TypeshadeDiagnostic } from '../../language-service/types.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 /** A program: file path to text, the entry first. */
 type Files = Readonly<Record<string, string>>;
@@ -747,9 +747,9 @@ import { warp, warpOctaves } from "shade-warp";
 }
 `;
 
-  itNoInlining(
+  it(
     'reads one version reached by two paths once: one binding, one of each function',
-    () => {
+    keepHelpers(() => {
       const files = program(
         `${imports}${calls}@fragment export function fs(): vec4 {
   return vec4(octaves() + warpOctaves());
@@ -766,7 +766,7 @@ import { warp, warpOctaves } from "shade-warp";
       expect(r.wgsl!.match(/var<uniform> params\b/g)).toHaveLength(1);
       expect(r.wgsl).not.toContain('shade_noise');
       expect(r.eval('f', [1])).toBe(2 + 20);
-    },
+    }),
   );
 
   it('reads two versions as two copies, the second named for its package and file (Rule 3.2)', () => {

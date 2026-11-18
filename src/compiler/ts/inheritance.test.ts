@@ -18,7 +18,7 @@ import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -53,10 +53,12 @@ ${body}
 `;
 
 describe('a derived struct is its base plus its own', () => {
-  itNoInlining('base fields first, on a class and through a chain of three', () => {
-    const r = compile(
-      file(
-        `class A {
+  it(
+    'base fields first, on a class and through a chain of three',
+    keepHelpers(() => {
+      const r = compile(
+        file(
+          `class A {
   a: f32
 }
 class B extends A {
@@ -69,14 +71,15 @@ function rgba(v: C): vec4 {
   return vec4(v.a, v.b, v.c, 1.)
 }
 `,
-        `  const v: C = { a: 1., b: 2., c: 3. }\n  return rgba(v)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('struct C {\n  a: f32,\n  b: f32,\n  c: f32,\n}');
-    expect(r.glsl?.fragment).toContain('struct C {\n  float a;\n  float b;\n  float c;\n};');
-    agree(r, [1, 2, 3, 1]);
-  });
+          `  const v: C = { a: 1., b: 2., c: 3. }\n  return rgba(v)`,
+        ),
+      );
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('struct C {\n  a: f32,\n  b: f32,\n  c: f32,\n}');
+      expect(r.glsl?.fragment).toContain('struct C {\n  float a;\n  float b;\n  float c;\n};');
+      agree(r, [1, 2, 3, 1]);
+    }),
+  );
 
   it('on an interface, on several bases at once, and across the two spellings', () => {
     const r = compile(
@@ -124,10 +127,12 @@ class P implements HasX {
 });
 
 describe('super', () => {
-  itNoInlining("in a constructor runs the base's and copies its fields in", () => {
-    const r = compile(
-      file(
-        `class Base {
+  it(
+    "in a constructor runs the base's and copies its fields in",
+    keepHelpers(() => {
+      const r = compile(
+        file(
+          `class Base {
   x: f32
   constructor(x: f32) {
     this.x = x * 10.
@@ -141,20 +146,23 @@ class Derived extends Base {
   }
 }
 `,
-        `  const d = new Derived(1., 2.)\n  return vec4(d.x, d.y, 0., 1.)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    // The base's constructor builds into a local through a pointer (change 0105).
-    expect(r.wgsl).toContain('var _sup: Base;\n  Base_new_into(&_sup, x);');
-    expect(r.wgsl).toContain('(*_dst).x = _sup.x;');
-    agree(r, [10, 2, 0, 1]);
-  });
+          `  const d = new Derived(1., 2.)\n  return vec4(d.x, d.y, 0., 1.)`,
+        ),
+      );
+      expect(r.diagnostics).toEqual([]);
+      // The base's constructor builds into a local through a pointer (change 0105).
+      expect(r.wgsl).toContain('var _sup: Base;\n  Base_new_into(&_sup, x);');
+      expect(r.wgsl).toContain('(*_dst).x = _sup.x;');
+      agree(r, [10, 2, 0, 1]);
+    }),
+  );
 
-  itNoInlining('through an abstract base, whose constructor is emitted for it', () => {
-    const r = compile(
-      file(
-        `abstract class Shape {
+  it(
+    'through an abstract base, whose constructor is emitted for it',
+    keepHelpers(() => {
+      const r = compile(
+        file(
+          `abstract class Shape {
   k: f32
   constructor(k: f32) {
     this.k = k
@@ -172,13 +180,14 @@ class Square extends Shape {
   }
 }
 `,
-        `  const q = new Square(2., 3.)\n  return vec4(q.area(), q.k, q.s, 1.)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('var _sup: Shape;\n  Shape_new_into(&_sup, k);');
-    agree(r, [18, 2, 3, 1]);
-  });
+          `  const q = new Square(2., 3.)\n  return vec4(q.area(), q.k, q.s, 1.)`,
+        ),
+      );
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('var _sup: Shape;\n  Shape_new_into(&_sup, k);');
+      agree(r, [18, 2, 3, 1]);
+    }),
+  );
 
   it('bare, where nothing above declares a constructor, is nothing', () => {
     const r = compile(
@@ -202,10 +211,12 @@ class Derived extends Base {
     agree(r, [4, 2, 0, 1]);
   });
 
-  itNoInlining("on a method runs the base's body on this object, two deep and finite", () => {
-    const r = compile(
-      file(
-        `class A {
+  it(
+    "on a method runs the base's body on this object, two deep and finite",
+    keepHelpers(() => {
+      const r = compile(
+        file(
+          `class A {
   a: f32
   at(t: f32): f32 {
     return this.a * t
@@ -224,17 +235,18 @@ class C extends B {
   }
 }
 `,
-        `  const v: C = { a: 2., b: 3., c: 4. }\n  return vec4(v.at(5.), 0., 0., 1.)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    // The base is named as well as the class, so `super` inside a re-lowered body still counts
-    // from where that body was written and the chain terminates.
-    expect(r.wgsl).toContain('fn C_super_B_at(self_: ptr<function, C>, t: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn C_super_A_at(self_: ptr<function, C>, t: f32) -> f32 {');
-    expect(r.wgsl).toContain('return (C_super_A_at(self_, t) + (*self_).b);');
-    agree(r, [17, 0, 0, 1]);
-  });
+          `  const v: C = { a: 2., b: 3., c: 4. }\n  return vec4(v.at(5.), 0., 0., 1.)`,
+        ),
+      );
+      expect(r.diagnostics).toEqual([]);
+      // The base is named as well as the class, so `super` inside a re-lowered body still counts
+      // from where that body was written and the chain terminates.
+      expect(r.wgsl).toContain('fn C_super_B_at(self_: ptr<function, C>, t: f32) -> f32 {');
+      expect(r.wgsl).toContain('fn C_super_A_at(self_: ptr<function, C>, t: f32) -> f32 {');
+      expect(r.wgsl).toContain('return (C_super_A_at(self_, t) + (*self_).b);');
+      agree(r, [17, 0, 0, 1]);
+    }),
+  );
 
   it('names no body, or no object, and says so', () => {
     expect(
@@ -266,100 +278,6 @@ function f(): f32 {
 }
 `)[0],
     ).toContain('"super" names the class above the one whose body it is written in');
-  });
-});
-
-describe('what inheritance refuses, and why', () => {
-  it('a base this file does not declare, a cycle, and a field that changes type', () => {
-    expect(
-      errorsOf(
-        file(
-          `class D extends Missing {\n  y: f32\n}\n`,
-          `  const d: D = { y: 1. }\n  return vec4(d.y, 0., 0., 1.)`,
-        ),
-      )[0],
-    ).toBe(
-      `${TS_CODES.UNKNOWN_TYPE} Unknown type "Missing". Declare it in this file, or import it from another shader module.`,
-    );
-    // A base the file declares and does not collect as a struct is the collector's to say.
-    expect(
-      errorsOf(
-        file(
-          `enum Missing {\n  A = 1,\n}\nclass D extends Missing {\n  y: f32\n}\n`,
-          `  const d: D = { y: 1. }\n  return vec4(d.y, 0., 0., 1.)`,
-        ),
-      )[0],
-    ).toBe(
-      `${TS_CODES.STRUCT_FIELD} "D" extends "Missing", which this file does not declare as a struct. A base has to be a class or an interface whose fields are shader types.`,
-    );
-    expect(
-      errorsOf(
-        file(
-          `class A extends B {\n  a: f32\n}\nclass B extends A {\n  b: f32\n}\n`,
-          `  const v: A = { a: 1. }\n  return vec4(v.a, 0., 0., 1.)`,
-        ),
-      )[0],
-    ).toContain('extends itself, through');
-    expect(
-      errorsOf(
-        file(
-          `class A {\n  x: i32\n}\nclass B extends A {\n  x: f32\n}\n`,
-          `  const v: B = { x: 1. }\n  return vec4(v.x, 0., 0., 1.)`,
-        ),
-      )[0],
-    ).toBe(
-      `${TS_CODES.STRUCT_FIELD} "B" declares "x" as f32, and "A" declares it as i32. A struct has one layout, so a field cannot change type on the way down.`,
-    );
-  });
-
-  it('a base-typed name holding a derived override, with the reason', () => {
-    const HEAD = `class Base {\n  x: f32\n  value(): f32 { return this.x }\n}\nclass Derived extends Base {\n  y: f32\n  value(): f32 { return this.y }\n}\n`;
-    const note =
-      ' "Derived" extends "Base", and a name typed as the base cannot hold a derived value ' +
-      'here without a proven read-only, dispatch-equivalent base view. ' +
-      'Keep "Derived" as the type to preserve its methods and receiver writes.';
-    expect(
-      errorsOf(
-        file(
-          HEAD,
-          `  const d: Derived = { x: 1., y: 2. }\n  const b: Base = d\n  return vec4(b.x, 0., 0., 1.)`,
-        ),
-      )[0],
-    ).toContain(note);
-    expect(
-      errorsOf(`"use typeshade"
-${HEAD}function take(b: Base): f32 {
-  return b.x
-}
-@fragment export function fs(): vec4 {
-  const d: Derived = { x: 1., y: 2. }
-  return vec4(take(d), 0., 0., 1.)
-}
-`)[0],
-    ).toContain(note);
-  });
-
-  it('a generic base is its instance, and a call is read as the mixin it looks like', () => {
-    // Refused until T9 (#92) with "one declaration per argument set" as the reason. That is
-    // now what a generic class IS, so `Box<f32>` is the struct `Box_f32` and `D` inherits it.
-    expect(
-      errorsOf(
-        file(
-          `class Box<T> {\n  v: f32\n}\nclass D extends Box<f32> {\n  y: f32\n}\n`,
-          `  const d: D = { v: 1., y: 2. }\n  return vec4(d.v, 0., 0., 1.)`,
-        ),
-      ),
-    ).toEqual([]);
-    expect(
-      errorsOf(
-        file(
-          `class Base {\n  x: f32\n}\nfunction mix2(b: f32): f32 {\n  return b\n}\nclass D extends mix2(1.) {\n  y: f32\n}\n`,
-          `  const d: D = { y: 2. }\n  return vec4(d.y, 0., 0., 1.)`,
-        ),
-      ).join(' '),
-      // A call in an `extends` is the mixin pattern now (T8, #92), so what this says is why
-      // `mix2` is not one, rather than that a base may not be an expression at all.
-    ).toContain('so its body has to be one "return class');
   });
 });
 

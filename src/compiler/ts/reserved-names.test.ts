@@ -39,7 +39,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const ofCategory = (src: string, category: 'error' | 'warning') =>
   compileTsSource(src)
@@ -55,9 +55,9 @@ ${decls}
 `;
 
 describe('backend spellings preserve TypeScript variable names', () => {
-  itNoInlining(
+  it(
     'escapes Unicode variables for GLSL without colliding with authored ASCII names',
-    () => {
+    keepHelpers(() => {
       const source = `"use typeshade";
 const cafue9_: f32 = 5.;
 function scale(α: f32): f32 { return α * 2.; }
@@ -74,7 +74,7 @@ function scale(α: f32): f32 { return α * 2.; }
       expect(result.wgsl).toContain('α');
       expect(result.module.funcs.find((f) => f.name === 'scale')!.params[0]!.name).toBe('α');
       expect(result.eval('fs', [[3, 0]])).toEqual([16, 0, 0, 1]);
-    },
+    }),
   );
 
   it('renames reserved parameters and locals without touching authored IR or sibling scopes', () => {
@@ -258,9 +258,9 @@ function scale$(x$: f32): f32 { let k$: f32 = K$; k$ = k$ * x$; return k$; }
 @compute([1]) export function main() { const p: P$ = { v$: 1. }; out$[0] = scale$(p.v$); }
 `;
 
-  itNoInlining(
+  it(
     'compiles each declaration under a spelling without the $, since change 0070',
-    () => {
+    keepHelpers(() => {
       const r = compile(PROGRAM);
       expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
       expect(r.wgsl).not.toContain('$');
@@ -271,7 +271,7 @@ function scale$(x$: f32): f32 { let k$: f32 = K$; k$ = k$ * x$; return k$; }
         'fn scale_(x_: f32)',
       ])
         expect(r.wgsl).toContain(spelled);
-    },
+    }),
   );
 
   it('shows the authored name in the editor hover (T4, D8)', () => {
@@ -299,9 +299,9 @@ function scale$(x$: f32): f32 { let k$: f32 = K$; k$ = k$ * x$; return k$; }
     expect(result.eval('fs')).toEqual([1, 0, 0, 1]);
   });
 
-  itNoInlining(
+  it(
     'leaves the neighbours Tint accepts alone: a trailing _, a leading _, a non-ASCII letter, a digit',
-    () => {
+    keepHelpers(() => {
       const r = compile(`"use typeshade";
 declare const out: storage<array<f32>, "read_write">;
 function scale_(_a: f32): f32 { const café: f32 = 2.; const a1: f32 = café * _a; return a1; }
@@ -309,7 +309,7 @@ function scale_(_a: f32): f32 { const café: f32 = 2.; const a1: f32 = café * _
 `);
       expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
       expect(r.wgsl).toContain('fn scale_(_a: f32)');
-    },
+    }),
   );
 });
 
@@ -382,15 +382,18 @@ const float_1: f32 = 2.;
     expect(r.glsl?.fragment).toContain('float_2');
   });
 
-  itNoInlining('renames a helper named main, which is the entry point GLSL emits', () => {
-    const r = compile(`"use typeshade";
+  it(
+    'renames a helper named main, which is the entry point GLSL emits',
+    keepHelpers(() => {
+      const r = compile(`"use typeshade";
 export function main(x: f32): f32 { return x * 2.; }
 @fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(main(uv.x), 0., 0., 1.); }
 `);
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(r.glsl?.fragment).toContain('float main_(float x)');
-    expect(r.glsl?.fragment).toContain('main_(uv.x)');
-    // One `void main()`, the stage entry, and nothing else called that.
-    expect(r.glsl?.fragment?.match(/\bmain\s*\(/g)).toEqual(['main(']);
-  });
+      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+      expect(r.glsl?.fragment).toContain('float main_(float x)');
+      expect(r.glsl?.fragment).toContain('main_(uv.x)');
+      // One `void main()`, the stage entry, and nothing else called that.
+      expect(r.glsl?.fragment?.match(/\bmain\s*\(/g)).toEqual(['main(']);
+    }),
+  );
 });

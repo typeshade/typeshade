@@ -22,7 +22,7 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { reflect } from '../../core/reflect.js';
 import { BUILTINS } from '../../core/cpu-runtime.js';
 import { bothHalves } from '../../core/testing/both-halves.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 function editorAgrees(source: string): ReturnType<typeof compileTsSource> {
   const r = compileTsSource(source);
@@ -187,10 +187,12 @@ declare const out: storage<array<u32>, "read_write">;
     );
   });
 
-  itNoInlining('keeps the call for a file that declares its own function of the name', () => {
-    // The additivity rule: each of the eight was an ordinary unknown name before this item, so
-    // a program that already defined one must still call its own.
-    const r = compile(`"use typeshade";
+  it(
+    'keeps the call for a file that declares its own function of the name',
+    keepHelpers(() => {
+      // The additivity rule: each of the eight was an ordinary unknown name before this item, so
+      // a program that already defined one must still call its own.
+      const r = compile(`"use typeshade";
 export function pack4xU8(v: vec4u): u32 {
   return v.x;
 }
@@ -199,15 +201,16 @@ export function pack4xU8(v: vec4u): u32 {
   return vec4(f32(p) * 0., 0., 0., 1.);
 }
 `);
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    // Under a name WGSL does not predeclare (change 0029): `pack4xU8` is WGSL's own builtin.
-    expect(r.wgsl).toContain('fn pack4xU8_(');
-    // The author's function, so the module needs no capability and no language feature.
-    expect(reflect(r.module!).requiredFeatures).not.toContain('packed4x8Dot');
-    expect(reflect(r.module!).requiredLanguageFeatures).toEqual([]);
-    // And it still emits on GLSL, because nothing WGSL-only is reached.
-    expect(r.glsl?.fragment).toContain('uint pack4xU8_(');
-  });
+      expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+      // Under a name WGSL does not predeclare (change 0029): `pack4xU8` is WGSL's own builtin.
+      expect(r.wgsl).toContain('fn pack4xU8_(');
+      // The author's function, so the module needs no capability and no language feature.
+      expect(reflect(r.module!).requiredFeatures).not.toContain('packed4x8Dot');
+      expect(reflect(r.module!).requiredLanguageFeatures).toEqual([]);
+      // And it still emits on GLSL, because nothing WGSL-only is reached.
+      expect(r.glsl?.fragment).toContain('uint pack4xU8_(');
+    }),
+  );
 
   it('agrees between the tree-walk oracle and the generated one', () => {
     const r = compile(`"use typeshade";

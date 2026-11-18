@@ -883,10 +883,8 @@ describe('a kernel function that writes a storage texture (change 0077)', () => 
     expect(v.ok ? v.writes.map((w) => `${w.kind} ${w.name}`) : []).toEqual(['texel dst']);
   });
 
-  it(
-    'leaves an exported helper that takes only a sampled texture a helper (Amendment 1)',
-    () => {
-      const body = `declare const img: texture_2d<f32>;
+  it('leaves an exported helper that takes only a sampled texture a helper (Amendment 1)', () => {
+    const body = `declare const img: texture_2d<f32>;
 export function tex(t: texture_2d<f32>, uv: vec2i): vec4 {
   return textureLoad(t, uv, 0);
 }
@@ -896,14 +894,13 @@ interface FsOut {
 @fragment export function fs(p: builtin<"position">): FsOut {
   return { color: tex(img, vec2i(p.xy)) };
 }`;
-      expect(compiled(body)).toEqual([]);
-      expect(edited(body)).toEqual([]);
-      const r = compile(module(body), { fileName: 'm.shade.ts' });
-      expect(r.module.funcs.find((f) => f.name === 'tex')?.kernel).toBeUndefined();
-      expect(r.wgsl).not.toContain('@compute');
+    expect(compiled(body)).toEqual([]);
+    expect(edited(body)).toEqual([]);
+    const r = compile(module(body), { fileName: 'm.shade.ts' });
+    expect(r.module.funcs.find((f) => f.name === 'tex')?.kernel).toBeUndefined();
+    expect(r.wgsl).not.toContain('@compute');
     expect(r.wgsl).toContain('textureLoad(img');
-    },
-  );
+  });
 
   it.each([
     [

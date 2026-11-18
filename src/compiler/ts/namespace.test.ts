@@ -14,7 +14,7 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -33,25 +33,28 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('a namespace is a group of functions and constants', () => {
-  itNoInlining('flattens its members to Ns_member, on both targets', () => {
-    const r = compile(
-      file(
-        `namespace Palette {
+  it(
+    'flattens its members to Ns_member, on both targets',
+    keepHelpers(() => {
+      const r = compile(
+        file(
+          `namespace Palette {
   export const WARM: vec3 = vec3(0.9, 0.5, 0.1)
   export function tint(c: vec3): vec3 {
     return c * WARM
   }
 }
 `,
-        `  return vec4(Palette.tint(vec3(1., 1., 1.)), 1.)`,
-      ),
-    );
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('const Palette_WARM: vec3<f32> = vec3<f32>(0.9, 0.5, 0.1);');
-    expect(r.wgsl).toContain('fn Palette_tint(c: vec3<f32>) -> vec3<f32> {');
-    expect(r.glsl?.fragment).toContain('vec3 Palette_tint(vec3 c) {');
-    agree(r, [0.9, 0.5, 0.1, 1]);
-  });
+          `  return vec4(Palette.tint(vec3(1., 1., 1.)), 1.)`,
+        ),
+      );
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('const Palette_WARM: vec3<f32> = vec3<f32>(0.9, 0.5, 0.1);');
+      expect(r.wgsl).toContain('fn Palette_tint(c: vec3<f32>) -> vec3<f32> {');
+      expect(r.glsl?.fragment).toContain('vec3 Palette_tint(vec3 c) {');
+      agree(r, [0.9, 0.5, 0.1, 1]);
+    }),
+  );
 
   it('looks a name up as TypeScript does: the body first, then the namespace, then the file', () => {
     const r = compile(
@@ -82,9 +85,9 @@ namespace A {
     agree(r, [3, 2, 0.5, 1]);
   });
 
-  itNoInlining(
+  it(
     'nests, in both spellings, and a member namespace takes its short name inside the parent',
-    () => {
+    keepHelpers(() => {
       const nested = compile(
         file(
           `namespace A {
@@ -112,7 +115,7 @@ namespace A {
       );
       expect(dotted.diagnostics).toEqual([]);
       expect(dotted.wgsl).toContain('fn A_B_two() -> f32 {');
-    },
+    }),
   );
 });
 

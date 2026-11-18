@@ -26,7 +26,7 @@ const errorsOf = (files: Files): string[] =>
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.fileName}:${d.line}:${d.character} ${d.code} ${d.message}`);
 
-describe('an overloaded function is imported whole (Rule 3.9, Rule 12.7, #1195)', () => {
+describe('an overloaded function is imported whole: the implementation is linked, not only the first signature (Rule 3.9, Rule 12.7, #1195)', () => {
   const LUM =
     'export function lum(c: vec3): f32;\n' +
     'export function lum(c: vec3): f32;\n' +

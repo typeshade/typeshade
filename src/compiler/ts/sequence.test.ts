@@ -261,10 +261,8 @@ class P {
     expect(agree(src, [])).toEqual([1, 1, 0, 1]);
   });
 
-  it(
-    'field assignments that draw are not folded into a constructor, which would reorder them',
-    () => {
-      const src = `${RNG}class Pair {
+  it('field assignments that draw are not folded into a constructor, which would reorder them', () => {
+    const src = `${RNG}class Pair {
   a: f32
   b: f32
 }
@@ -280,14 +278,13 @@ function pair(seed: u32): Pair {
   return vec4(p.a, p.b, 0., 1.)
 }
 `;
-      // Change 0105: the returned struct is built through a pointer to the caller's place.
-      expect(compile(src).wgsl).toContain(
-        '  (*_dst) = Pair(0.0, 0.0);\n  (*_dst).b = Rng_next(&rng);\n  (*_dst).a = Rng_next(&rng);\n}',
-      );
-      const [first, second] = draws(500, 2);
-      expect(agree(src, [[0.5, 0]])).toEqual([second, first, 0, 1]);
-    },
-  );
+    // Change 0105: the returned struct is built through a pointer to the caller's place.
+    expect(compile(src).wgsl).toContain(
+      '  (*_dst) = Pair(0.0, 0.0);\n  (*_dst).b = Rng_next(&rng);\n  (*_dst).a = Rng_next(&rng);\n}',
+    );
+    const [first, second] = draws(500, 2);
+    expect(agree(src, [[0.5, 0]])).toEqual([second, first, 0, 1]);
+  });
 });
 
 describe('a splat evaluates its argument once', () => {

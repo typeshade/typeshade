@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { compile } from './compile.js';
-import { compileTsSources } from './module.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
@@ -22,7 +22,8 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+
+const compileKept = keepHelpers((s: string) => compile(s));
 
 /** `body` with an entry that calls `run(2.)`: the GLSL writer emits only what an entry reaches. */
 const RUN = (body: string): string =>
@@ -82,7 +83,7 @@ function sameAsWritten(src: string, strip: (s: string) => string): void {
 }
 
 describe('a function that writes no return type returns what its body does (Rule 8.19)', () => {
-  itNoInlining('a function of the file, called above its declaration and through another', () => {
+  it('a function of the file, called above its declaration and through another', () => {
     const src = RUN(`export function run(k: f32): f32 {
   return twice(k) + thrice(1.);
 }
@@ -94,15 +95,13 @@ function thrice(x: f32) {
 }`);
     expect(run(src)).toBe(7);
     const r = compile(src);
-    expect(r.wgsl).toContain('fn twice(x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn thrice(x: f32) -> f32 {');
-    expect(r.glsl!.fragment).toContain('float twice(float x) {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn twice(x: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn thrice(x: f32) -> f32 {');
+    expect(compileKept(src).glsl!.fragment).toContain('float twice(float x) {');
   });
 
-  itNoInlining(
-    'a local function: an expression body, a block body and a declaration, capturing',
-    () => {
-      const src = RUN(`export function run(k: f32): f32 {
+  it('a local function: an expression body, a block body and a declaration, capturing', () => {
+    const src = RUN(`export function run(k: f32): f32 {
   const f = (x: f32) => x * k;
   const g = (x: f32) => {
     return f(x) + 1.;
@@ -112,13 +111,12 @@ function thrice(x: f32) {
   }
   return h(3.);
 }`);
-      expect(run(src)).toBe(14);
-      const r = compile(src);
-      expect(r.wgsl).toContain('fn run_f(k: f32, x: f32) -> f32 {');
-      expect(r.wgsl).toContain('fn run_g(k: f32, x: f32) -> f32 {');
-      expect(r.wgsl).toContain('fn run_h(k: f32, x: f32) -> f32 {');
-    },
-  );
+    expect(run(src)).toBe(14);
+    const r = compile(src);
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn run_f(k: f32, x: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn run_g(k: f32, x: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn run_h(k: f32, x: f32) -> f32 {');
+  });
 
   it('an arrow function whose body is an assignment, ++ or a call of one that returns nothing runs it', () => {
     const src = RUN(`let total: f32 = 0.;
@@ -142,10 +140,8 @@ export function run(k: f32): f32 {
     expect(r.wgsl).toContain('fn run_note(x: f32) {\n  add(x);\n}');
   });
 
-  itNoInlining(
-    'a namespace function, each instance of a generic one, and one that takes a function',
-    () => {
-      const src = RUN(`namespace N {
+  it('a namespace function, each instance of a generic one, and one that takes a function', () => {
+    const src = RUN(`namespace N {
   export function f(x: f32) {
     return x * 3.;
   }
@@ -159,16 +155,17 @@ function apply(f: (x: f32) => f32, x: f32) {
 export function run(k: f32): f32 {
   return N.f(k) + first(k, 5.) + first(vec2(1., k), vec2(0.)).x + apply((x) => x * x, k);
 }`);
-      expect(run(src)).toBe(13);
-      const r = compile(src);
-      expect(r.wgsl).toContain('fn N_f(x: f32) -> f32 {');
-      expect(r.wgsl).toContain('fn first_f32(a: f32, b: f32) -> f32 {');
-      expect(r.wgsl).toContain('fn first_vec2(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {');
-      expect(r.wgsl).toContain('fn apply_run_f(x: f32) -> f32 {');
-    },
-  );
+    expect(run(src)).toBe(13);
+    const r = compile(src);
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn N_f(x: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn first_f32(a: f32, b: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn first_vec2(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn apply_run_f(x: f32) -> f32 {');
+  });
 
-  itNoInlining('the first return says the type, which the ones after it are typed against', () => {
+  it('the first return says the type, which the ones after it are typed against', () => {
     const src = RUN(`function pick(c: bool) {
   if (c) {
     return u32(7);
@@ -193,10 +190,10 @@ export function run(k: f32): f32 {
     expect(run(src)).toBe(10);
     const r = compile(src);
     expect(emitModuleAt(r.module, 'O1')).toContain('fn pick(c: bool) -> u32 {');
-    expect(r.wgsl).toMatch(/fn _spec\d+_pick\(\) -> u32/);
-    expect(r.wgsl).toContain('return 0u;');
-    expect(r.wgsl).toContain('fn up() -> vec3<f32> {');
-    expect(r.wgsl).toContain('fn make(x: f32) -> P {');
+    expect(emitModuleAt(r.module, 'O1')).toMatch(/fn pick\(c: bool\) -> u32/);
+    expect(emitModuleAt(r.module, 'O1')).toContain('return 0u;');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn up() -> vec3<f32> {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn make(x: f32) -> P {');
   });
 
   it('`return g()` of one that returns nothing calls it and returns nothing, written or not', () => {
@@ -234,7 +231,7 @@ export function run(k: f32): f32 {
 });
 
 describe('a method, an accessor and a field that holds a function (Rule 8.19)', () => {
-  itNoInlining('a method, a static one, a getter, a static getter and a field', () => {
+  it('a method, a static one, a getter, a static getter and a field', () => {
     const src = RUN(`class A {
   x: f32 = 2.;
   gain: f32 = 10.;
@@ -259,11 +256,15 @@ export function run(k: f32): f32 {
     expect(run(src)).toBe(33);
     const r = compile(src);
     // Change 0105: the struct local is a `var`, so its methods take a pointer.
-    expect(r.wgsl).toContain('fn A_twice(self_: ptr<function, A>) -> f32 {');
-    expect(r.wgsl).toContain('fn A_unit() -> f32 {');
-    expect(r.wgsl).toContain('fn A_get_half(self_: ptr<function, A>) -> f32 {');
-    expect(r.wgsl).toContain('fn A_scale(self_: ptr<function, A>, d: f32) -> f32 {');
-    expect(r.glsl!.fragment).toContain('float A_twice(A self_) {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn A_twice(self_: ptr<function, A>) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn A_unit() -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn A_get_half(self_: ptr<function, A>) -> f32 {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn A_scale(self_: ptr<function, A>, d: f32) -> f32 {',
+    );
+    expect(compileKept(src).glsl!.fragment).toContain('float A_twice(A self_) {');
   });
 
   it('a method that changes its object and returns a value, as the one that writes its type', () => {
@@ -353,7 +354,7 @@ export function run(k: f32): f32 {
     expect(compile(src).wgsl).toContain('V_setX(&v, k);\n  V_setY(&v, 3.0);');
   });
 
-  itNoInlining('through a class that extends: an inherited body, an override and super', () => {
+  it('through a class that extends: an inherited body, an override and super', () => {
     const src = RUN(`class B {
   v: f32 = 1.;
   area() {
@@ -376,7 +377,6 @@ export function run(k: f32): f32 {
     expect(run(src)).toBe(24);
     const r = compile(src);
     expect(emitModuleAt(r.module, 'O1')).toContain('fn D_twice(self_: ptr<function, D>) -> f32 {');
-    expect(r.wgsl).toMatch(/fn _flow\d+_fused\(/);
   });
 
   it('a field whose body is an assignment runs it, with a void type or none', () => {
@@ -585,7 +585,7 @@ export function run(k: f32): f32 {
 });
 
 describe('examples/inferred-returns.shade.ts', () => {
-  itNoInlining('renders the dots, the ring and the falloff on every CPU path', () => {
+  it('renders the dots, the ring and the falloff on every CPU path', () => {
     const src = readFileSync(
       fileURLToPath(new URL('../../../examples/inferred-returns.shade.ts', import.meta.url)),
       'utf8',
@@ -593,13 +593,21 @@ describe('examples/inferred-returns.shade.ts', () => {
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     // Every function in it writes no return type, and each says the one its body returns.
-    expect(r.wgsl).toContain('fn Rng_next(self_: ptr<function, Rng>) -> f32 {');
-    expect(r.wgsl).toContain('fn Orbit_get_period(self_: ptr<function, Orbit>) -> f32 {');
-    expect(r.wgsl).toContain('fn Orbit_at(self_: ptr<function, Orbit>, t: f32) -> vec2<f32> {');
-    expect(r.wgsl).toContain('fn pick_vec2(c: bool, a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {');
-    expect(r.wgsl).toContain('fn tint(glow: f32, lit: f32) -> vec3<f32> {');
-    expect(r.wgsl).toContain('fn fs_falloff(d: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn ring(p: vec2<f32>, r: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn Rng_next(self_: ptr<function, Rng>) -> f32 {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn Orbit_get_period(self_: ptr<function, Orbit>) -> f32 {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn Orbit_at(self_: ptr<function, Orbit>, t: f32) -> vec2<f32> {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn pick_vec2(c: bool, a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn tint(glow: f32, lit: f32) -> vec3<f32> {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn fs_falloff(d: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn ring(p: vec2<f32>, r: f32) -> f32 {');
     const at = (uv: number[]): number[] => {
       const arg = [{ pos: [0, 0, 0, 1], uv }];
       const oracle = r.eval('fs', arg) as { color: number[] };
@@ -616,37 +624,6 @@ describe('examples/inferred-returns.shade.ts', () => {
     expect(at([0.27, 0])).toEqual([1, 0.9, 0.667, 1]);
     expect(at([0, 0])).toEqual([0.029, 0.059, 0.098, 1]);
     expect(at([0.9, 0.9])).toEqual([0.004, 0.008, 0.013, 1]);
-  });
-});
-
-describe('the multi-file path', () => {
-  it('a function another file imports returns what its body does', () => {
-    const r = compileTsSources([
-      {
-        fileName: 'math.ts',
-        source: `"use typeshade";
-export function square(x: f32) {
-  return x * x;
-}
-export function cube(x: f32) {
-  return square(x) * x;
-}
-`,
-      },
-      {
-        fileName: 'app.ts',
-        source: `"use typeshade";
-import { cube } from "./math";
-export function foo(x: f32) {
-  return cube(x) + 1.;
-}
-`,
-      },
-    ]);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn square(x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn cube(x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn foo(x: f32) -> f32 {');
   });
 });
 

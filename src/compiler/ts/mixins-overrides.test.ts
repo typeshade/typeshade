@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -14,8 +14,10 @@ const FS = `@fragment export function fs(): vec4 {
 `;
 
 describe('a name declared twice in the chain is an override, closest to the value winning', () => {
-  itNoInlining('the applying class overrides a mixin method, silently', () => {
-    const r = compile(`"use typeshade";
+  it(
+    'the applying class overrides a mixin method, silently',
+    keepHelpers(() => {
+      const r = compile(`"use typeshade";
 class Particle {
   pos: vec3;
 }
@@ -38,14 +40,17 @@ class Body extends Aged(Particle) {
   return vec4(b.faded(), b.mass, 0., 1.);
 }
 `);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain(
-      'fn Body_faded(self_: ptr<function, Body>) -> f32 {\n  return 0.5;\n}',
-    );
-  });
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain(
+        'fn Body_faded(self_: ptr<function, Body>) -> f32 {\n  return 0.5;\n}',
+      );
+    }),
+  );
 
-  itNoInlining('an outer mixin overrides an inner one', () => {
-    const r = compile(`"use typeshade";
+  it(
+    'an outer mixin overrides an inner one',
+    keepHelpers(() => {
+      const r = compile(`"use typeshade";
 class Particle {
   pos: vec3;
 }
@@ -70,9 +75,12 @@ class Body extends B(A(Particle)) {}
   return vec4(b.pick(), b.v, 0., 1.);
 }
 `);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn Body_pick(self_: ptr<function, Body>) -> f32 {\n  return 2.0;\n}');
-  });
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain(
+        'fn Body_pick(self_: ptr<function, Body>) -> f32 {\n  return 2.0;\n}',
+      );
+    }),
+  );
 
   it('says so when two mixins give one field two types', () => {
     expect(

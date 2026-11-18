@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { compileTsSources } from './module.js';
 import { compile } from './compile.js';
 import { TS_CODES } from './codes.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 describe('compileTsSources import', () => {
   it('resolves relative named import onto declRef', () => {
@@ -275,9 +275,9 @@ declare const heights: storage<array<f32>, "read_write">;
     expect(s.structs.map((d) => d.name)).toEqual(['VsOut']);
   });
 
-  itNoInlining(
+  it(
     'a struct declared in one file is the type a function in another file receives',
-    () => {
+    keepHelpers(() => {
       // The struct is module scope, as it is in WGSL: the importing file reads `.uv` off the
       // value the other file's function returned, and the module emits ONE struct.
       const r = compileTsSources(
@@ -313,7 +313,7 @@ import { make } from "./types";
       expect((r.wgsl!.match(/struct VsOut/g) ?? []).length).toBe(1);
       // Since change 0105 the struct local is a WGSL `var` the function writes into.
       expect(r.wgsl).toContain('make_into(&o, p);');
-    },
+    }),
   );
 
   it('numbers the declare bindings of every file in file order, so two firsts do not collide', () => {

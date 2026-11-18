@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compileTsSources } from './module.js';
 
-describe('compileTsSources symbols', () => {
+describe('compileTsSources symbols are offsets into the entry file, whatever spelling the caller gives it', () => {
   const a = {
     fileName: './a.ts',
     source:

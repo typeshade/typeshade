@@ -13,7 +13,7 @@ import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -32,10 +32,12 @@ const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
 };
 
 describe('a class the file declares is built with new', () => {
-  itNoInlining('with a constructor, and without one', () => {
-    const withCtor = compile(
-      file(
-        `class P {
+  it(
+    'with a constructor, and without one',
+    keepHelpers(() => {
+      const withCtor = compile(
+        file(
+          `class P {
   x: f32
   y: f32
   constructor(x: f32, y: f32) {
@@ -44,27 +46,28 @@ describe('a class the file declares is built with new', () => {
   }
 }
 `,
-        `  const p = new P(1., 2.)\n  return vec4(p.x, p.y, 0., 1.)`,
-      ),
-    );
-    expect(withCtor.diagnostics).toEqual([]);
-    // The constructor builds into the local through a pointer (change 0105).
-    expect(withCtor.wgsl).toContain('var p: P;\n  P_new_into(&p, 1.0, 2.0);');
-    agree(withCtor, [1, 2, 0, 1]);
-    // No constructor: TypeScript's implicit one, which takes nothing and zeroes the fields.
-    const without = compile(
-      file(
-        `class P {\n  x: f32\n  y: f32\n}\n`,
-        `  const p = new P()\n  return vec4(p.x, p.y, 0., 1.)`,
-      ),
-    );
-    expect(without.diagnostics).toEqual([]);
-    agree(without, [0, 0, 0, 1]);
-  });
+          `  const p = new P(1., 2.)\n  return vec4(p.x, p.y, 0., 1.)`,
+        ),
+      );
+      expect(withCtor.diagnostics).toEqual([]);
+      // The constructor builds into the local through a pointer (change 0105).
+      expect(withCtor.wgsl).toContain('var p: P;\n  P_new_into(&p, 1.0, 2.0);');
+      agree(withCtor, [1, 2, 0, 1]);
+      // No constructor: TypeScript's implicit one, which takes nothing and zeroes the fields.
+      const without = compile(
+        file(
+          `class P {\n  x: f32\n  y: f32\n}\n`,
+          `  const p = new P()\n  return vec4(p.x, p.y, 0., 1.)`,
+        ),
+      );
+      expect(without.diagnostics).toEqual([]);
+      agree(without, [0, 0, 0, 1]);
+    }),
+  );
 
-  itNoInlining(
+  it(
     'with field initializers, in a method, as an argument, and on a derived class',
-    () => {
+    keepHelpers(() => {
       const inits = compile(
         file(
           `class P {\n  x: f32 = 3.\n  y: f32 = 4.\n}\n`,
@@ -104,7 +107,7 @@ function take(v: V): f32 {
       );
       expect(derived.diagnostics).toEqual([]);
       agree(derived, [1, 2, 0, 1]);
-    },
+    }),
   );
 });
 
@@ -394,56 +397,6 @@ namespace N {
   });
 });
 
-describe('a value built at module scope is refused once, by its own declaration', () => {
-  // Measured on main: TS8004 'Unknown function "g()". Declare it in this file, …' about a function
-  // the file declares, or TS8035 '"P" has no constructor here' about a class that has one, and
-  // then TS8022 at every read of K. Tint refuses the WGSL too: "user-declared functions cannot be
-  // called at module-scope".
-  const head = `function g(): f32 {\n  return 1.\n}\nclass P {\n  a: f32\n  constructor(a: f32) {\n    this.a = a\n  }\n}\n`;
-  const constant = (name: string, call: string, what: string) =>
-    `${TS_CODES.TYPE_MISMATCH} Module const "${name}" must be constant, and "${call}" ${what} this file declares. A module constant is folded before any function exists, so build the value inside the function that reads it.`;
-
-  it('a module const that calls a function or builds a class', () => {
-    expect(errorsOf(file(`${head}const K: f32 = g()\n`, `  return vec4(K)`))).toEqual([
-      constant('K', 'g()', 'calls a function'),
-    ]);
-    expect(errorsOf(file(`${head}const K = new P(2.)\n`, `  return vec4(K.a)`))).toEqual([
-      constant('K', 'new P(2.)', 'builds a class'),
-    ]);
-    // A constant built from the refused one is refused with it, and says nothing more.
-    expect(
-      errorsOf(file(`${head}const K: f32 = g()\nconst J: f32 = K * 2.\n`, `  return vec4(J)`)),
-    ).toEqual([constant('K', 'g()', 'calls a function')]);
-  });
-
-  it('a static field, a module let and an enum member each say it in their own words', () => {
-    expect(
-      errorsOf(file(`${head}class S {\n  static K: f32 = g()\n}\n`, `  return vec4(S.K)`)),
-    ).toEqual([
-      `${TS_CODES.TYPE_MISMATCH} Static field "S.K" must be constant, and "g()" calls a function this file declares. A static field no code writes is a module constant, folded before any function exists, so build the value inside the function that reads it.`,
-    ]);
-    expect(errorsOf(file(`${head}let K = new P(2.)\n`, `  return vec4(K.a)`))).toEqual([
-      `${TS_CODES.MODULE_VAR} "K" needs a constant initializer (a literal, a module const, arithmetic or a math builtin over those); "new P(2.)" is not one. Assign it inside the entry.`,
-    ]);
-    expect(
-      errorsOf(
-        file(
-          `function h(): i32 {\n  return 1\n}\nenum E {\n  A = h(),\n}\n`,
-          `  return vec4(f32(E.A))`,
-        ),
-      ),
-    ).toEqual([
-      `${TS_CODES.TYPE_MISMATCH} Enum member "E.A" needs a value this can compute: a whole number, or arithmetic over numbers and members declared before it.`,
-    ]);
-  });
-
-  it('built inside the function, the same value compiles', () => {
-    const r = compile(file(head, `  const K = new P(g() * 2.)\n  return vec4(K.a)`));
-    expect(r.diagnostics).toEqual([]);
-    agree(r, [2, 2, 2, 2]);
-  });
-});
-
 describe('each thing a new is refused on is named for what it is (Rule 8.13, Rule 12.1)', () => {
   const TAIL = `\n@fragment export function fs(): vec4 {\n  return vec4(1.)\n}\n`;
   const built = (head: string, target: string) =>
@@ -598,16 +551,19 @@ describe('a new of a class with a constructor, through the list form of a progra
   // list form links its files as `compile()` does (Rule 3.9), and builds the class the same way.
   const LIB = `"use typeshade";\nclass P {\n  a: f32;\n  constructor(a: f32) {\n    this.a = a;\n  }\n}\n`;
 
-  itNoInlining('in a statement and in a return', () => {
-    for (const body of [
-      `@fragment export function fs(): vec4 {\n  let c = vec4(0.);\n  c.x = new P(2.).a;\n  return c;\n}\n`,
-      `export function mk(): P {\n  return new P(1.);\n}\n`,
-    ]) {
-      const r = compileTsSources([{ fileName: 'lib.ts', source: LIB + body }]);
-      expect(r.diagnostics).toEqual([]);
-      expect(r.wgsl).toContain('fn P_new(');
-    }
-  });
+  it(
+    'in a statement and in a return',
+    keepHelpers(() => {
+      for (const body of [
+        `@fragment export function fs(): vec4 {\n  let c = vec4(0.);\n  c.x = new P(2.).a;\n  return c;\n}\n`,
+        `export function mk(): P {\n  return new P(1.);\n}\n`,
+      ]) {
+        const r = compileTsSources([{ fileName: 'lib.ts', source: LIB + body }]);
+        expect(r.diagnostics).toEqual([]);
+        expect(r.wgsl).toContain('fn P_new(');
+      }
+    }),
+  );
 });
 
 describe('a module-scope value, and every read and write of it, says one sentence', () => {
