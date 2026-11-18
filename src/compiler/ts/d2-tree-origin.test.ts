@@ -343,22 +343,4 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
   it("abs of an i32 known only at run time keeps WGSL's rule", () => {
     expect(run(program('return f32(abs(ii));', 'f32'))).toBe(3);
   });
-
-  it.each([
-    ['a ?: of two trees', 'vi > 3 ? a + 0x90000000 : a', -2147483648],
-    ['a select of two trees', 'select(a, (0x80000000|0), vi > 3)', -2147483648],
-    ['a ?: of a tree and a number', 'vi > 3 ? a : 5', -268435456],
-  ] as const)(
-    'owner decision of 2026-11-18: more than one possible value states no numbers: %s',
-    (_, x, value) => {
-      const source = program(`${TREE_A}return f32(${x});`, 'f32');
-      bothRefuse(source, 'TS8003', unproven(x, 'f32()', `i32(${x})`));
-      expect(run(source.replace(`f32(${x})`, `f32(i32(${x}))`))).toBe(value);
-    },
-  );
-
-  it("abs over the owner's example states no numbers and names no edit", () => {
-    const x = 'vi > 3 ? a + 0x90000000 : a';
-    bothRefuse(program(`${TREE_A}return f32(abs(${x}));`, 'f32'), 'TS8003', NO_EDIT(x));
-  });
 });

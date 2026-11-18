@@ -101,6 +101,7 @@ import {
   provenDiffering,
   markReassigned,
   numberedReading,
+  carried,
   provenI32Minimum,
   readingValue,
   sameReadings,
@@ -3808,7 +3809,7 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
       const other = typedNode(n.whenTrue) ? n.whenFalse : n.whenTrue;
       const typed = typedNode(n.whenTrue) ? n.whenTrue : n.whenFalse;
       if (/^i32\(|^ii$/.test(skipParenNodes(typed).getText(sourceFile))) return [];
-      return of(other).flatMap((x, i) => (i === 0 ? [x, UNKNOWN] : [x]));
+      return of(other).map((x) => ({ ...x, several: true }));
     }
     return arms([n.whenTrue, n.whenFalse]);
   }
@@ -4048,8 +4049,7 @@ function binaryReadingsOf(
         picks = [];
       }
       const tree = a.tree || b.tree;
-      const push = (r: Reading) =>
-        out.push(a.reassigned || b.reassigned ? { ...r, reassigned: true } : r);
+      const push = (r: Reading) => out.push(carried(r, a, b));
       if (a.unknown || b.unknown || plainUnproven(a) || plainUnproven(b)) {
         out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
       } else if (a.unproven || b.unproven || a.agreeing || b.agreeing) {
