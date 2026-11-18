@@ -25,6 +25,8 @@
 //   - a class field with an initializer and no annotation, static or not, private or not,
 //     whose front-end type is a scalar: `: f32` after its name. `#width = 0.05` is `number` to
 //     TypeScript and `static readonly MIN_WIDTH = 0.01` the literal `0.01`;
+//   - a `const` or `let` with no annotation whose initializer is a list, `[1., 2.] as const`
+//     included: the sized array the front end gave it, `: array<f32, 2>` (change 0114, S2);
 //   - an array's `reduce` from a value that names no type argument: the front end's type of the
 //     call, and the array's size, as its type arguments, `xs.reduce<f32, 3>((a, x) => a + x, 0.)`.
 //     TypeScript takes the running value's type from `0.`, a `number`, before it reads the
@@ -56,6 +58,12 @@ import { stageDeclarationOfFunction } from '../compiler/ts/stage-call.js';
 import { clampPosition } from './positions.js';
 import type { TypeshadePosition } from './types.js';
 import { optionalInner } from '../compiler/ts/optional.js';
+import {
+  fieldCandidates,
+  listCandidates,
+  logicalBitwiseOperations,
+  reduceCandidates,
+} from './projection/candidates.js';
 
 /** Text inserted into the document at `at`, an offset into the document as written. */
 export interface Insertion {
@@ -122,27 +130,6 @@ export const ERASING_UNARY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.MinusMinusToken,
 ]);
 
-/** `&` and `|`, which on two `bool`s the front end takes as WGSL's non-short-circuiting logical
- *  operators and TypeScript types as a `number`. */
-const LOGICAL_BITWISE_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
-  ts.SyntaxKind.AmpersandToken,
-  ts.SyntaxKind.BarToken,
-]);
-
-/** Every `a & b` and `a | b` in `sourceFile`, the operations TypeScript may type as a `number`
- *  where the front end reads a `bool`. */
-function logicalBitwiseOperations(sourceFile: ts.SourceFile): ts.BinaryExpression[] {
-  const out: ts.BinaryExpression[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isBinaryExpression(node) && LOGICAL_BITWISE_OPERATORS.has(node.operatorToken.kind)) {
-      out.push(node);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return out;
-}
-
 /** Whether `node` applies such an operator anywhere inside it: the only way TypeScript turns a
  *  vector into a `number` or a `boolean`. A call, a swizzle or a constructor keeps its type. */
 function hasOperator(node: ts.Node): boolean {
@@ -207,7 +194,8 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
     functionCandidates(syntax).length === 0 &&
     fieldCandidates(syntax).length === 0 &&
     reduceCandidates(syntax).length === 0 &&
-    logicalBitwiseOperations(syntax).length === 0
+    logicalBitwiseOperations(syntax).length === 0 &&
+    listCandidates(syntax).length === 0
   ) {
     return [];
   }
@@ -249,6 +237,14 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
     const type = byNameStart.get(name.getStart(analysis.sourceFile));
     const spelled = type === undefined ? undefined : ambientSpelling(type);
     if (spelled !== undefined) out.push({ at: name.getEnd(), text: `: ${spelled}` });
+  }
+  for (const name of listCandidates(analysis.sourceFile)) {
+    const type = byNameStart.get(name.getStart(analysis.sourceFile));
+    if (type?.kind === 'array' && type.size !== undefined)
+      out.push({
+        at: name.getEnd(),
+        text: `: array<${ambientSpelling(type.elem) ?? authorTypeText(type.elem)}, ${String(type.size)}>`,
+      });
   }
   const sf = analysis.sourceFile;
   for (const fn of functionCandidates(sf)) {
@@ -305,25 +301,6 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
     out.push({ at: op.getEnd(), text: ') as unknown as bool)' });
   }
   return out.sort((a, b) => a.at - b.at);
-}
-
-/** Every `xs.reduce(f, init)` that names no type argument: what TypeScript types from `init`. */
-function reduceCandidates(sourceFile: ts.SourceFile): ts.CallExpression[] {
-  const out: ts.CallExpression[] = [];
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === 'reduce' &&
-      node.typeArguments === undefined &&
-      node.arguments.length === 2
-    ) {
-      out.push(node);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return out;
 }
 
 /** A function that writes no return type: what TypeScript infers a return type for. */
@@ -390,26 +367,6 @@ function functionCandidates(sourceFile: ts.SourceFile): FunctionCandidate[] {
         (isEntryFunction(node) && returnedValues(node).length > 0))
     ) {
       out.push(node);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return out;
-}
-
-/** The name of every class field TypeScript may type wrongly: one with an initializer and no
- *  annotation, static or not, private (`#width`) or not. What the front end typed it decides
- *  whether anything is written (a scalar is; see `planInsertions`). */
-function fieldCandidates(sourceFile: ts.SourceFile): (ts.Identifier | ts.PrivateIdentifier)[] {
-  const out: (ts.Identifier | ts.PrivateIdentifier)[] = [];
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isPropertyDeclaration(node) &&
-      (ts.isIdentifier(node.name) || ts.isPrivateIdentifier(node.name)) &&
-      node.type === undefined &&
-      node.initializer !== undefined
-    ) {
-      out.push(node.name);
     }
     ts.forEachChild(node, visit);
   };

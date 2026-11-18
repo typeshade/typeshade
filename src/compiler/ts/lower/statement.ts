@@ -143,6 +143,7 @@ import {
   lowerInferredBindingArray,
   refuseListSpread,
 } from './expression-array.js';
+import { lowerUntypedList } from './expression-array/untyped-list.js';
 import { lowerFor, lowerForOf, lowerUpdate, lowerWhile, mainReadTypes } from './control.js';
 import { lowerSwitch } from './control/switch.js';
 import { refusedBySemantics } from '../semantic.js';
@@ -874,9 +875,8 @@ function lowerDeclarationKind(
       spanNode,
     );
   }
-  // `const xs: array<f32, 3> = [1., 2., 3.]` (#8 A16). A list carries no type of its own, so it
-  // is lowered AGAINST the annotation instead of on its own, and refused where there is none.
-  // From here it is the ordinary `construct` the `array<f32, 3>(...)` call builds, so the rest
+  // `const xs: array<f32, 3> = [1., 2., 3.]` (#8 A16) is lowered AGAINST the annotation, and a
+  // list with none takes its type from its elements (change 0114, S2). From here it is the ordinary `construct` the `array<f32, 3>(...)` call builds, so the rest
   // of this function — the type check, the binding, the span — does not know the difference.
   // Every other initializer takes the annotation as its CONTEXT (#8 A11), which is the weaker
   // form of the same idea: an object literal reads it to pick its struct, a bare integer
@@ -886,18 +886,18 @@ function lowerDeclarationKind(
     // A spread is the list's one mistake, said before the annotation it would otherwise be
     // asked for; the name's uses then say nothing more (refused-names.ts, Rule 12.4).
     if (refuseListSpread(decl.initializer, sourceFile, scope, diagnostics)) return undefined;
-    if (!annotated) {
-      const kw = isConst ? 'const' : 'let';
-      pushDiag(
-        diagnostics,
-        sourceFile,
-        decl,
-        `"${written} ${name}" needs an array type annotation to take a list, e.g. ${kw} ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
-        TS_CODES.UNKNOWN_TYPE,
-      );
-      return undefined;
-    }
-    init = lowerArrayLiteral(decl.initializer, annotated, sourceFile, scope, diagnostics);
+    const head = `${isConst ? 'const' : 'let'} ${name}`;
+    init = annotated
+      ? lowerArrayLiteral(decl.initializer, annotated, sourceFile, scope, diagnostics)
+      : lowerUntypedList(
+          decl.initializer,
+          { said: `"${written} ${name}"`, head, at: decl },
+          {
+            sourceFile,
+            scope,
+            diagnostics,
+          },
+        );
   } else {
     // `const w = v` on an optional `v` makes `w` what the flow says `v` is (Rule 7.10).
     init =

@@ -1169,7 +1169,7 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
     ],
     [
       'a var of a list with no type, quoted as written',
-      shader('', '  var b = [1., 2.];\n  return b[0] + a;'),
+      shader('', '  var b = [1, 2];\n  return b[0] + a;'),
       [
         VAR,
         'TS8002 "var b" needs an array type annotation to take a list, e.g. let b: ' +

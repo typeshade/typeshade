@@ -190,11 +190,11 @@ interface Out {
 });
 
 describe('what a list is refused for', () => {
-  it('needs an annotation to take its type from', () => {
-    expect(diagnose(src('  const xs = [1., 2., 3.];\n  return xs[0];'))).toBe(
+  it('needs an annotation to take its type from integer-written numbers alone', () => {
+    expect(diagnose(src('  const xs = [1, 2, 3];\n  return xs[0];'))).toBe(
       '"const xs" needs an array type annotation to take a list, e.g. const xs: array<f32, 3> = [...].',
     );
-    expect(diagnose(src('  let xs = [1., 2.];\n  return xs[0];'))).toBe(
+    expect(diagnose(src('  let xs = [1, 2];\n  return xs[0];'))).toBe(
       '"let xs" needs an array type annotation to take a list, e.g. let xs: array<f32, 2> = [...].',
     );
   });
@@ -312,10 +312,10 @@ describe('what a list is refused for', () => {
     `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('array<f32, 3>(0.0, 0.5, 1.0)');
-    // Without the annotation there is no type to fill, and the message says so for a module
-    // const in its own words rather than pointing at a local.
+    // Without the annotation, integer-written numbers alone give no type, and the message says
+    // so for a module const in its own words rather than pointing at a local.
     const bare = compileTsSource(`"use typeshade";
-      const STOPS = [0., 0.5, 1.];
+      const STOPS = [0, 5, 1];
       export function f(): f32 {
         return STOPS[1];
       }
