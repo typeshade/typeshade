@@ -373,7 +373,7 @@
   "src/core/backends/glsl-switch-continue.test.ts": 2,
   "src/core/backends/glsl-switch-continue.ts": 10,
   "src/core/backends/glsl.test.ts": 324,
-  "src/core/backends/glsl.ts": 967,
+  "src/core/backends/glsl.ts": 965,
   "src/core/backends/literal-spelling.test.ts": 30,
   "src/core/backends/raw-stmt-pairing.test.ts": 136,
   "src/core/backends/wgsl-absent-builtins.test.ts": 40,

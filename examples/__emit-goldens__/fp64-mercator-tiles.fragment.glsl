@@ -95,7 +95,7 @@ void main() {
   float _v2 = (3.0 / _v0);
   float _v3 = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float _v4 = (_v3 - (_cse0 ? 0.0 : 1.0));
+  float _v4 = (_v3 - mix(1.0, 0.0, _cse0));
   float _v5 = ((_v4 - 0.5) * _v2);
   float _v6 = (((uv.y - 0.5) * _v2) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool _v7 = (_cse0 || (u.fp64 < 0.5));
@@ -120,11 +120,11 @@ void main() {
   float _v19 = fract(_v15);
   float _v20 = fract(_v16);
   float _v21 = (fract(((_v17 + _v18) * 0.5)) * 2.0);
-  float _v22 = (_v7 ? _v17 : _v10);
-  float _v23 = (_v7 ? _v18 : _v11);
-  float _v24 = (_v7 ? _v19 : _v12);
-  float _v25 = (_v7 ? _v20 : _v13);
-  float _v26 = (_v7 ? _v21 : _v14);
+  float _v22 = mix(_v10, _v17, _v7);
+  float _v23 = mix(_v11, _v18, _v7);
+  float _v24 = mix(_v12, _v19, _v7);
+  float _v25 = mix(_v13, _v20, _v7);
+  float _v26 = mix(_v14, _v21, _v7);
   float _v27 = fract((sin(dot(vec2(_v22, _v23), vec2(127.1, 311.7))) * 43758.5453));
   vec3 _v28 = (mix(vec3(0.78, 0.84, 0.88), vec3(0.9, 0.87, 0.78), _v27) * mix(0.88, 1.0, _v26));
   float _v29 = mix(0.92, 1.05, ((_v24 * 0.6) + (_v25 * 0.4)));

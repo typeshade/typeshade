@@ -88,9 +88,9 @@ void main() {
   float _v1 = fract(((df64_narrow(U.epoch) + U.time) * U.speed));
   bool _cse0 = (uv.x < 0.5);
   bool _v2 = (_cse0 || (U.fp64 < 0.5));
-  float _v3 = (_v2 ? _v1 : _v0);
+  float _v3 = mix(_v0, _v1, _v2);
   float _v4 = (uv.x * 2.0);
-  float _v5 = (_v4 - (_cse0 ? 0.0 : 1.0));
+  float _v5 = (_v4 - mix(1.0, 0.0, _cse0));
   float _cse2 = ((U.resolution.x * 0.5) / U.resolution.y);
   float _cse3 = ((uv.y * 2.0) - 1.0);
   float _gv0 = (((_v5 * 2.0) - 1.0) * _cse2);

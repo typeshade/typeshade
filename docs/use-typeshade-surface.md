@@ -4988,10 +4988,10 @@ what the CPU oracle already does. It also retires a documented under-fix: the AN
 that hoists a struct constructor out of a position that target dislikes used to skip a
 conditional's arms for exactly that reason, and now hoists inside the branch instead.
 
-A scalar or a vector conditional keeps the operator each target has, `select` on WGSL and the
-ternary on GLSL, while its arms are cheap. One whose arm is costly is hoisted the same way
-(change 0097, Rule 7.2), so the arm not taken does not run: `select` and the ternary evaluate
-both arms, and `hit ? shade(hit) : background` ran `shade` for every pixel. The cost of an arm
+A scalar or a vector conditional keeps the operator each target has, `select` on WGSL, and on
+GLSL `mix` with a bool for a float result and the ternary for any other, while its arms are cheap.
+One whose arm is costly is hoisted the same way (change 0097, Rule 7.2), so the arm not taken does
+not run: `select` and `mix` evaluate both arms, and `hit ? shade(hit) : background` ran `shade` for every pixel. The cost of an arm
 is the sum over its nodes, a call of a function of the module 16, a texture builtin 8, any
 other builtin call 2, an operation or a constructor 1, a literal, a name, a member or an index
 0, and an arm at 8 or more is costly. `x > 0.5 ? heavy(x) : 0.` becomes

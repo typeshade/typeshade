@@ -35,9 +35,9 @@ void main() {
     shade = _cse0;
   }
   _opt_f32_ _gv0 = root(x);
-  float _i5ret = ((_gv0.present == false) ? 0.0 : _gv0.value);
+  float _i5ret = mix(_gv0.value, 0.0, (_gv0.present == false));
   float _i6a0 = uv.x;
-  float _i6ret = ((true == false) ? 0.0 : (_i6a0 * 0.5));
+  float _i6ret = mix((_i6a0 * 0.5), 0.0, (true == false));
   float r = (_i5ret + _i6ret);
   float _i1a0 = uv.y;
   _opt_f32_ _i1ret;
@@ -57,9 +57,9 @@ void main() {
       _sel0 = _i1ret;
     }
     _opt_f32_ _i2_opt = _sel0;
-    _i2ret = (_i2_opt.present ? _i2_opt.value : 1000.0);
+    _i2ret = mix(1000.0, _i2_opt.value, _i2_opt.present);
   }
-  float g = (_i2ret * (shade.present ? shade.value : 0.25));
+  float g = (_i2ret * mix(0.25, shade.value, shade.present));
   vec2 o = ((uv * 2.0) - vec2(1.0, 1.0));
   vec2 _i3a0 = (o - vec2(0.0, 2.0));
   vec2 _i3a1 = vec2(0.0, 1.0);
@@ -84,7 +84,7 @@ void main() {
     }
   }
   _opt_Hit_ hit = _i3ret;
-  float _i4ret = (hit.present ? hit.value.t : 0.0);
-  vec2 n = (hit.present ? hit.value.normal : _cse3);
+  float _i4ret = mix(0.0, hit.value.t, hit.present);
+  vec2 n = mix(_cse3, hit.value.normal, bvec2(hit.present));
   color = vec4(r, g, ((_i4ret * 0.5) + (n.x * 0.25)), 1.0);
 }

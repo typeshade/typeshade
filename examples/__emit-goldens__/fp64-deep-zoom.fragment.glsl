@@ -63,6 +63,6 @@ void main() {
   float _cse3 = (uv.x * u.span);
   float _cse1 = fract((df64_narrow(u.origin) + _cse3));
   float _cse2 = df64_narrow(df64_fract(df64_add(u.origin, vec2(_cse3, 0.0), _fp64_g), _fp64_g));
-  float _gv0 = (_cse0 ? _cse1 : _cse2);
+  float _gv0 = mix(_cse2, _cse1, _cse0);
   _ret = vec4(_gv0, _gv0, _gv0, 1.0);
 }

@@ -73,7 +73,7 @@ float df64_narrow(vec2 a) {
 
 vec2 df64_nint(vec2 a, float _fp64_g) {
   float _v0 = floor((a.x + 0.5));
-  float _v1 = (((abs((_v0 - a.x)) == 0.5) && (a.y < 0.0)) ? (_v0 - 1.0) : _v0);
+  float _v1 = mix(_v0, (_v0 - 1.0), ((abs((_v0 - a.x)) == 0.5) && (a.y < 0.0)));
   vec2 _sel0;
   if ((_v0 == a.x)) {
     _sel0 = df64_quickTwoSum(_v0, floor((a.y + 0.5)), _fp64_g);
@@ -117,20 +117,20 @@ vec2 df64_sin(vec2 a, float _fp64_g) {
   if (_gv0) {
     _sel1 = vec2(0.9807852506637573, 2.9739473106360492e-8);
   } else {
-    _sel1 = ((_v8 == 2.0) ? vec2(0.9238795042037964, 2.830748968563057e-8) : ((_v8 == 3.0) ? vec2(0.8314695954322815, 1.687026340846387e-8) : ((_v8 == 4.0) ? _cse1 : vec2(1.0, 0.0))));
+    _sel1 = mix(mix(mix(vec2(1.0, 0.0), _cse1, bvec2((_v8 == 4.0))), vec2(0.8314695954322815, 1.687026340846387e-8), bvec2((_v8 == 3.0))), vec2(0.9238795042037964, 2.830748968563057e-8), bvec2((_v8 == 2.0)));
   }
   vec2 _v9 = _sel1;
   vec2 _sel2;
   if (_gv0) {
     _sel2 = vec2(0.19509032368659973, -1.6704715388726754e-9);
   } else {
-    _sel2 = ((_v8 == 2.0) ? vec2(0.3826834261417389, 6.2233507236442165e-9) : ((_v8 == 3.0) ? vec2(0.5555702447891235, -1.1769521357507529e-8) : ((_v8 == 4.0) ? _cse1 : vec2(0.0, 0.0))));
+    _sel2 = mix(mix(mix(vec2(0.0, 0.0), _cse1, bvec2((_v8 == 4.0))), vec2(0.5555702447891235, -1.1769521357507529e-8), bvec2((_v8 == 3.0))), vec2(0.3826834261417389, 6.2233507236442165e-9), bvec2((_v8 == 2.0)));
   }
   vec2 _v10 = _sel2;
-  vec2 _v11 = ((_v4 >= 0.0) ? _v10 : (-_v10));
+  vec2 _v11 = mix((-_v10), _v10, bvec2((_v4 >= 0.0)));
   vec2 _v12 = df64_add(df64_mul(_v9, _v6, _fp64_g), df64_mul(_v11, _v7, _fp64_g), _fp64_g);
   vec2 _v13 = df64_sub(df64_mul(_v9, _v7, _fp64_g), df64_mul(_v11, _v6, _fp64_g), _fp64_g);
-  return ((_v2 == 0.0) ? _v12 : ((_v2 == 1.0) ? _v13 : ((_v2 == -1.0) ? (-_v13) : (-_v12))));
+  return mix(mix(mix((-_v12), (-_v13), bvec2((_v2 == -1.0))), _v13, bvec2((_v2 == 1.0))), _v12, bvec2((_v2 == 0.0)));
 }
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
@@ -139,14 +139,14 @@ void main() {
   float _fp64_g = texelFetch(_fp64, ivec2(0, 0), 0).x;
   float _v0 = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float _v1 = (_v0 - (_cse0 ? 0.0 : 1.0));
+  float _v1 = (_v0 - mix(1.0, 0.0, _cse0));
   bool _v2 = (_cse0 || (u.fp64 < 0.5));
   float _gv0 = (_v1 * 25.132741228718345);
   vec2 _v3 = df64_add(u.base, vec2(_gv0, 0.0), _fp64_g);
   float _cse1 = uintBitsToFloat(floatBitsToUint(0.0));
   float _v4 = df64_narrow(df64_sin(df64_add(_v3, vec2(_cse1, _cse1), _fp64_g), _fp64_g));
   float _v5 = sin((df64_narrow(u.base) + _gv0));
-  float _v6 = (_v2 ? _v5 : _v4);
+  float _v6 = mix(_v4, _v5, _v2);
   float _v7 = ((uv.y - 0.5) * 2.0);
   float _v8 = (2.0 / u.resolution.y);
   float _v9 = fract((_v1 * 10.0));

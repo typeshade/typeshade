@@ -873,7 +873,7 @@ export function mka(x: f32): array<f32, 3> | undefined { if (x < 0.) { return un
     expect(r.wgsl).toMatch(/select\(-1\.0, (\w+)\.value\.y, \1\.present\)/);
     expect(r.wgsl).toMatch(/select\(vec2<f32>\(-1\.0\), (\w+)\.value\.yx, \1\.present\)/);
     expect(r.wgsl).toMatch(/select\(-1\.0, (\w+)\.value\[\w+\], \1\.present\)/);
-    expect(r.glsl?.fragment).toMatch(/\((\w+)\.present \? \1\.value\[\w+\] : -1\.0\)/);
+    expect(r.glsl?.fragment).toMatch(/mix\(-1\.0, (\w+)\.value\[\w+\], \1\.present\)/);
   });
 
   it('agrees on the CPU, present and absent', () => {

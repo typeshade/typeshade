@@ -34,7 +34,7 @@ vec4 fs_impl(VsOut v) {
   float _i1_b = dot(_i1_oc, ray.dir);
   float _i1_c = (dot(_i1_oc, _i1_oc) - (sphere.radius * sphere.radius));
   float _i1_h = ((_i1_b * _i1_b) - _i1_c);
-  float _i1ret = ((_i1_h < 0.0) ? -1.0 : ((-_i1_b) - sqrt(_i1_h)));
+  float _i1ret = mix(((-_i1_b) - sqrt(_i1_h)), -1.0, (_i1_h < 0.0));
   if ((_i1ret < 0.0)) {
     return vec4(0.05, 0.05, 0.1, 1.0);
   }

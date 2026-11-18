@@ -62,6 +62,6 @@ void main() {
   _i3_self_.b = _i3_sup.b;
   _i3_self_.tag = 0.5;
   Marked marked = _i3_self_;
-  float k = (((((uv.x > 0.5) ? gain.a : gain.b) * step) * marked.a) * marked.tag);
-  _ret = vec4(((((uv.y > 0.5) ? tint.a : tint.b) * k) * edge), 1.0);
+  float k = (((mix(gain.b, gain.a, (uv.x > 0.5)) * step) * marked.a) * marked.tag);
+  _ret = vec4(((mix(tint.b, tint.a, bvec3((uv.y > 0.5))) * k) * edge), 1.0);
 }

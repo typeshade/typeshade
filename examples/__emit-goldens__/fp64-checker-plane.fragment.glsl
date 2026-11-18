@@ -67,7 +67,7 @@ void main() {
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);
-  float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
+  float _v2 = (_v1 - mix(1.0, 0.0, _cse0));
   float _v3 = ((_v2 - 0.5) * _v0);
   float _v4 = (((uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool _v5 = (_cse0 || (u.fp64 < 0.5));
@@ -85,9 +85,9 @@ void main() {
   float _v13 = fract(((floor(_v11) + floor(_v12)) * 0.5));
   float _v14 = fract(_v11);
   float _v15 = fract(_v12);
-  float _v16 = (_v5 ? _v13 : _v8);
-  float _v17 = (_v5 ? _v14 : _v9);
-  float _v18 = (_v5 ? _v15 : _v10);
+  float _v16 = mix(_v8, _v13, _v5);
+  float _v17 = mix(_v9, _v14, _v5);
+  float _v18 = mix(_v10, _v15, _v5);
   float _v19 = step(0.25, _v16);
   float _v20 = min(min(_v17, (1.0 - _v17)), min(_v18, (1.0 - _v18)));
   float _v21 = (_v0 / (u.resolution.x * 0.5));

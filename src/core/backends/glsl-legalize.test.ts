@@ -710,7 +710,7 @@ describe('glsl-legalize — select condition', () => {
     const g = emitKept(dslModule({ uses: [GateC], funcs: [helperSc, pickSc, fsSc] }), 'fragment');
     expect(g).toContain('vec4 _dh0 = helper_sc(v);');
     expect(g).toContain(
-      'return ((GateC(_dh0).c.x > 0.0) ? vec4(1.0, 0.0, 0.0, 1.0) : vec4(0.0, 1.0, 0.0, 1.0));',
+      'return mix(vec4(0.0, 1.0, 0.0, 1.0), vec4(1.0, 0.0, 0.0, 1.0), bvec4((GateC(_dh0).c.x > 0.0)));',
     );
     expect(ctorSpans(g, ['GateC']).filter((s) => s.includes('helper_sc('))).toEqual([]);
   });

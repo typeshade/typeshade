@@ -202,7 +202,7 @@ float Noise_fbmWrapX(vec2 p, float n) {
 }
 
 vec2 SDF_union(vec2 a, vec2 b) {
-  return ((a.x < b.x) ? a : b);
+  return mix(b, a, bvec2((a.x < b.x)));
 }
 
 float SDF_segment(vec2 p, vec2 a, vec2 b) {
@@ -256,9 +256,9 @@ float Ship_flapOutline(Ship self_, vec3 s) {
   vec2 _i3_k2 = vec2((_i3a2 - _i3a1), (2.0 * _i3a3));
   float _i3_qx = abs(s.x);
   vec2 _i3_q = vec2(_i3_qx, _gv0);
-  vec2 _i3_ca = vec2((_i3_qx - min(_i3_qx, ((_gv0 < 0.0) ? _i3a1 : _i3a2))), (abs(_gv0) - _i3a3));
+  vec2 _i3_ca = vec2((_i3_qx - min(_i3_qx, mix(_i3a2, _i3a1, (_gv0 < 0.0)))), (abs(_gv0) - _i3a3));
   vec2 _i3_cb = _flow3_shared(_i3_q, _i3_k1, _i3_k2);
-  float _i3_sign = (((_i3_cb.x < 0.0) && (_i3_ca.y < 0.0)) ? -1.0 : 1.0);
+  float _i3_sign = mix(1.0, -1.0, ((_i3_cb.x < 0.0) && (_i3_ca.y < 0.0)));
   float _i3ret = (_i3_sign * sqrt(min(dot(_i3_ca, _i3_ca), dot(_i3_cb, _i3_cb))));
   return (_i3ret - 0.06);
 }
@@ -289,9 +289,9 @@ vec2 Ship_map(Ship self_, vec3 p) {
   _spec1_result legFrame = _spec0_SDF_polarY(longitude, horizontalRadius, p.y, self_.legCount, LEG_LON);
   vec3 l = legFrame.point;
   float bay = max(Ship_flapOutline(self_, l), (((1.0 - FLAP_T) - BAY_DEPTH) - radius));
-  vec2 result = (((radius - 1.0) > (-bay)) ? vec2((radius - 1.0), 0.0) : vec2((-bay), 11.0));
+  vec2 result = mix(vec2((-bay), 11.0), vec2((radius - 1.0), 0.0), bvec2(((radius - 1.0) > (-bay))));
   float _cse0 = (BELLY_Y - p.y);
-  result = ((_cse0 > result.x) ? vec2(_cse0, 12.0) : result);
+  result = mix(result, vec2(_cse0, 12.0), bvec2((_cse0 > result.x)));
   result = SDF_union(result, vec2(max((radius - 1.022), (abs((p.y - RING_Y)) - RING_H)), 1.0));
   float door = SDF_arch(vec2((longitude * horizontalRadius), p.y), DOOR_HW, DOOR_Y0, DOOR_Y1);
   result = SDF_union(result, vec2(max(((radius - 1.0) - DOOR_T), door), 4.0));
@@ -356,9 +356,9 @@ vec2 Ship_map(Ship self_, vec3 p) {
     vec2 _i8_q_ = vec2(length(_i8_c.xz), _gv4);
     vec2 _i8_k1 = vec2(0.024, _i8_halfHeight);
     vec2 _i8_k2 = vec2(-0.07, (2.0 * _i8_halfHeight));
-    vec2 _i8_ca = vec2((_i8_q_.x - min(_i8_q_.x, ((_gv4 < 0.0) ? 0.094 : 0.024))), (abs(_gv4) - _i8_halfHeight));
+    vec2 _i8_ca = vec2((_i8_q_.x - min(_i8_q_.x, mix(0.024, 0.094, (_gv4 < 0.0)))), (abs(_gv4) - _i8_halfHeight));
     vec2 _i8_cb = _flow3_shared(_i8_q_, _i8_k1, _i8_k2);
-    float _i8_sign = (((_i8_cb.x < 0.0) && (_i8_ca.y < 0.0)) ? -1.0 : 1.0);
+    float _i8_sign = mix(1.0, -1.0, ((_i8_cb.x < 0.0) && (_i8_ca.y < 0.0)));
     float _i8_ret_1 = (_i8_sign * sqrt(min(dot(_i8_ca, _i8_ca), dot(_i8_cb, _i8_cb))));
     _i8_result = SDF_union(_i8_result, vec2((_i8_ret_1 - 0.006), 6.0));
     vec3 _i8_home = Ship_flapHome(self_, l);
@@ -374,8 +374,8 @@ vec2 Ship_map(Ship self_, vec3 p) {
   vec2 _i5_q = vec2(length(bellyPoint.xz), _gv5);
   float _i5_h = (-BELLY_Y);
   float _i5_s = max(((((_i5_h - 1.0) * _i5_q.x) * _i5_q.x) + ((_i5_width * _i5_width) * ((_i5_h + 1.0) - (2.0 * _gv5)))), ((_i5_h * _i5_q.x) - (_i5_width * _gv5)));
-  float _i5ret = ((_i5_s < 0.0) ? (length(_i5_q) - 1.0) : ((_i5_q.x < _i5_width) ? (_i5_h + bellyPoint.y) : length((_i5_q - vec2(_i5_width, _i5_h)))));
-  result = SDF_union(result, vec2(_i5ret, (((bellyPoint.y - BELLY_Y) > (length(bellyPoint) - 1.0)) ? 12.0 : 0.0)));
+  float _i5ret = mix(mix(length((_i5_q - vec2(_i5_width, _i5_h))), (_i5_h + bellyPoint.y), (_i5_q.x < _i5_width)), (length(_i5_q) - 1.0), (_i5_s < 0.0));
+  result = SDF_union(result, vec2(_i5ret, mix(0.0, 12.0, ((bellyPoint.y - BELLY_Y) > (length(bellyPoint) - 1.0)))));
   result = SDF_union(result, vec2(SDF_cylinderY(p, SHAFT_R, ((BELLY_Y - BELLY_EXT) - 0.01), (BELLY_Y + 0.05)), 7.0));
   return result;
 }
@@ -423,7 +423,7 @@ float NamekTrees_sphereExit(NamekTrees self_, vec3 ro, vec3 rd, vec3 center, flo
   vec3 oc = (ro - center);
   float b = dot(oc, rd);
   float h = (((b * b) - dot(oc, oc)) + (radius * radius));
-  return ((h > 0.0) ? ((-b) + sqrt(h)) : 0.0);
+  return mix(0.0, ((-b) + sqrt(h)), (h > 0.0));
 }
 
 vec2 _flow9_shared(vec2 _flow4_input, float _flow5_input, float _flow6_input, float _flow7_input, float _flow8_input) {
@@ -437,7 +437,7 @@ float ShipDetails_tickRow(ShipDetails self_, vec2 q, vec2 seed, int n, float gap
   float _licm2 = (0.35 * len);
   float mid = (0.5 * float((n - 1)));
   float radius = (((2.0 * mid) * gap) / PI);
-  float bendSign = ((bend < 0.0) ? -1.0 : 1.0);
+  float bendSign = mix(1.0, -1.0, (bend < 0.0));
   float distance = 1000000000.0;
   for (int k = 0; (k < 9); k = (k + 1)) {
     if ((k >= n)) {
@@ -560,7 +560,7 @@ float ShipMaterial_celShadow(vec3 ro, vec3 rd, Ship ship, NamekTrees trees) {
   vec3 _i17_oc = (ro - _i17a2);
   float _i17_b = dot(_i17_oc, rd);
   float _i17_h = (((_i17_b * _i17_b) - dot(_i17_oc, _i17_oc)) + 4.0);
-  float _i17ret = ((_i17_h > 0.0) ? ((-_i17_b) + sqrt(_i17_h)) : 0.0);
+  float _i17ret = mix(0.0, ((-_i17_b) + sqrt(_i17_h)), (_i17_h > 0.0));
   float tmax = _i17ret;
   float _i10_firstExit = NamekTrees_sphereExit(trees, ro, rd, NamekTree_shadowCenter(trees.first), NamekTree_shadowRadius(trees.first));
   float _i10_secondExit = NamekTrees_sphereExit(trees, ro, rd, NamekTree_shadowCenter(trees.second), NamekTree_shadowRadius(trees.second));
@@ -615,7 +615,7 @@ vec3 Terrain_normal(vec2 x, float t) {
 float Terrain_march(vec3 ro, vec3 rd, float tmax) {
   bool _licm0 = (rd.y > 0.0);
   float ceil = (GROUND + 1.9);
-  float planeT = ((rd.y < 0.0) ? ((GROUND - ro.y) / rd.y) : 10000000000.0);
+  float planeT = mix(10000000000.0, ((GROUND - ro.y) / rd.y), (rd.y < 0.0));
   float a = max(dot(rd.xz, rd.xz), 0.000001);
   float b = dot(ro.xz, rd.xz);
   float c = (dot(ro.xz, ro.xz) - (MESA_R * MESA_R));
@@ -636,15 +636,15 @@ float Terrain_march(vec3 ro, vec3 rd, float tmax) {
         float middle = (0.5 * (previousT + t));
         vec3 q = (ro + (rd * middle));
         bool _ifc0 = (q.y < Terrain_heightAt(q.xz));
-        t = (_ifc0 ? middle : t);
-        previousT = (_ifc0 ? previousT : middle);
+        t = mix(t, middle, _ifc0);
+        previousT = mix(middle, previousT, _ifc0);
       }
       return (0.5 * (previousT + t));
     }
     previousT = t;
     t += max((0.3 * clearance), (0.02 + (0.015 * t)));
   }
-  return ((planeT < tmax) ? planeT : -1.0);
+  return mix(-1.0, planeT, (planeT < tmax));
 }
 
 vec2 Terrain_groundWarp(vec2 x) {
@@ -665,7 +665,7 @@ float Terrain_tickRow(vec2 q, vec2 seed, int n, float gap, float len, float bend
   float _licm2 = (0.35 * len);
   float mid = (0.5 * float((n - 1)));
   float radius = (((2.0 * mid) * gap) / PI);
-  float signBend = ((bend < 0.0) ? -1.0 : 1.0);
+  float signBend = mix(1.0, -1.0, (bend < 0.0));
   float distance = 1000000000.0;
   for (int k = 0; (k < 9); k = (k + 1)) {
     if ((k >= n)) {
@@ -737,7 +737,7 @@ float Terrain_brush(vec2 a, vec2 m, vec2 b, float width, float taper) {
   float h2 = clamp(((-dot(m, bm)) / max(dot(bm, bm), 0.000001)), 0.0, 1.0);
   float d1 = length((a + (ma * h1)));
   float d2 = length((m + (bm * h2)));
-  float along = ((d1 < d2) ? (0.5 * h1) : (0.5 + (0.5 * h2)));
+  float along = mix((0.5 + (0.5 * h2)), (0.5 * h1), (d1 < d2));
   return (min(d1, d2) - (width * mix(1.0, (0.3 + (0.7 * sqrt(sin((PI * along))))), taper)));
 }
 
@@ -858,8 +858,8 @@ MarchResult NamekScene_marchCel(NamekScene self_, vec3 ro, vec3 rd, float lineA,
     if (((hit.x > previous.x) && (previous.x < width))) {
       float contour = clamp(((width - previous.x) / (pixA * t)), 0.0, 1.0);
       bool _ifc0 = (abs((previous.y - 2.5)) < 1.0);
-      windowEdge = (_ifc0 ? max(windowEdge, contour) : windowEdge);
-      edge = (_ifc0 ? edge : max(edge, contour));
+      windowEdge = mix(windowEdge, max(windowEdge, contour), _ifc0);
+      edge = mix(max(edge, contour), edge, _ifc0);
       edgeT = min(edgeT, t);
     }
     previous = hit;
@@ -892,9 +892,9 @@ float _flow21_shared(float _flow18_input, float _flow19_input, float _flow20_inp
 vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lineA) {
   MarchResult march = NamekScene_marchCel(self_, ro, rd, lineA, pixA);
   float edge = march.edge;
-  edge = ((abs((march.hit.y - 2.5)) > 1.0) ? max(edge, march.winEdge) : edge);
+  edge = mix(edge, max(edge, march.winEdge), (abs((march.hit.y - 2.5)) > 1.0));
   bool shipHit = (march.hit.y >= 0.0);
-  float terrainT = Terrain_march(ro, rd, (shipHit ? march.hit.x : 400.0));
+  float terrainT = Terrain_march(ro, rd, mix(400.0, march.hit.x, shipHit));
   vec3 _cse0 = vec3(0.0);
   vec3 col = _cse0;
   float frontT = 10000000000.0;
@@ -953,7 +953,7 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
         float _gv3 = sign(_i16_q);
         float _i16_hm = (_i16_m + (_gv3 * _i16_w));
         float _i16_gap = (abs((_i16_c0 - _i16_hm)) / sqrt(max((1.0 - (_i16_hm * _i16_hm)), 0.0001)));
-        float _i16_arc = ((_i16_q > 0.0) ? _i16_angle : (PI - _i16_angle));
+        float _i16_arc = mix((PI - _i16_angle), _i16_angle, (_i16_q > 0.0));
         _i16_e = ((-_gv3) * (_i16_gap + (_i16_rho * _i16_arc)));
         _i16_de = ((_gv3 * _i16a1.y) * _i16_arc);
       }
@@ -1098,7 +1098,7 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
     _i19_col = mix(_i19_col, INK, Terrain_grassInk(_i19_x, ro, terrainT, pixA, lineA));
     _i19_col = mix(_i19_col, MESA_TOP, smoothstep(0.5, 1.2, _i19_height));
     float _i19_strataValue = fract(((_i19_height * 1.3) + (0.35 * Noise_value((_i19_x * 0.5)))));
-    vec3 _i19_strata = ((_i19_strataValue < 0.45) ? CLIFF_A : ((_i19_strataValue < 0.75) ? CLIFF_B : CLIFF_C));
+    vec3 _i19_strata = mix(mix(CLIFF_C, CLIFF_B, bvec3((_i19_strataValue < 0.75))), CLIFF_A, bvec3((_i19_strataValue < 0.45)));
     _i19_strata *= (0.8 + (0.2 * Noise_value(vec2((dot(_i19_x, vec2(2.0, 1.3)) * 3.0), (_i19_height * 0.5)))));
     _i19_col = mix(_i19_col, _i19_strata, smoothstep(0.35, 0.55, (1.0 - _i19_normal.y)));
     float _i19_lightAmount = smoothstep(-0.05, 0.2, dot(_i19_normal, LIG));
@@ -1119,7 +1119,7 @@ vec3 NamekScene_render(NamekScene self_, vec3 ro, vec3 rd, float pixA, float lin
     _i20_col = mix(_i20_col, CLOUD, (0.75 * _i20_cloudMask));
     col = _i20_col;
   }
-  col = ((march.tEdge < frontT) ? mix(col, INK, edge) : col);
+  col = mix(col, mix(col, INK, edge), bvec3((march.tEdge < frontT)));
   return col;
 }
 
