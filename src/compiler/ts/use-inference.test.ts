@@ -2027,10 +2027,10 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     ['a module let', 'return M / vi;', 'let M = 3000000000|0;\n'],
     ['arithmetic', 'let a = (3000000000|0);\n  let c = a + 0;\n  return c / vi;', ''],
     ['a compound assignment', 'let s = 1;\n  s += (3000000000|0);\n  return s / vi;', ''],
-  ])('B2: two readings reach the operation through %s', (_, body, pre) => {
+  ])('B2: two readings reach the operation through %s', (how, body, pre) => {
     const got = both(T12(body, 'u32', pre));
     expect(got).toHaveLength(1);
-    expect(got[0]).toContain('on its u32 bits');
+    expect(got[0]).toContain(['?:', 'select'].includes(how) ? 'cannot prove' : 'on its u32 bits');
   });
 
   it.each([

@@ -310,10 +310,8 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
     expect(run(source.replace('abs(a)', 'abs(i32(a))'))).toBe(268435456);
   });
 
-  const NO_EDIT = (subject: string, numbers?: readonly [number, number]): string =>
-    numbers === undefined
-      ? `The compiler cannot prove that the u32 bits and the TypeScript value of "${subject}" agree, so the "abs" does not say which value it means.`
-      : `"${subject}" is ${String(numbers[0])} on its u32 bits and ${String(numbers[1])} in TypeScript, so the "abs" does not say which value it means.`;
+  const NO_EDIT = (subject: string): string =>
+    `The compiler cannot prove that the u32 bits and the TypeScript value of "${subject}" agree, so the "abs" does not say which value it means.`;
   const TREE_A = 'let a = (0xF0000000|0);\n  ';
   it.each([
     [
@@ -324,12 +322,12 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
     [
       'a ?: with the i32 minimum in an arm',
       `${TREE_A}return f32(abs(vi > 3 ? a + 0x90000000 : a));`,
-      NO_EDIT('vi > 3 ? a + 0x90000000 : a', [4026531840, -268435456]),
+      NO_EDIT('vi > 3 ? a + 0x90000000 : a'),
     ],
     [
       'a select with the i32 minimum in an arm',
       `${TREE_A}return f32(abs(select(a, (0x80000000|0), vi > 3)));`,
-      NO_EDIT('select(a, (0x80000000|0), vi > 3)', [4026531840, -268435456]),
+      NO_EDIT('select(a, (0x80000000|0), vi > 3)'),
     ],
   ] as const)(
     'review of #1358 (B1): abs names no edit where any value may be the i32 minimum: %s',
@@ -344,5 +342,23 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
 
   it("abs of an i32 known only at run time keeps WGSL's rule", () => {
     expect(run(program('return f32(abs(ii));', 'f32'))).toBe(3);
+  });
+
+  it.each([
+    ['a ?: of two trees', 'vi > 3 ? a + 0x90000000 : a', -2147483648],
+    ['a select of two trees', 'select(a, (0x80000000|0), vi > 3)', -2147483648],
+    ['a ?: of a tree and a number', 'vi > 3 ? a : 5', -268435456],
+  ] as const)(
+    'owner decision of 2026-11-18: more than one possible value states no numbers: %s',
+    (_, x, value) => {
+      const source = program(`${TREE_A}return f32(${x});`, 'f32');
+      bothRefuse(source, 'TS8003', unproven(x, 'f32()', `i32(${x})`));
+      expect(run(source.replace(`f32(${x})`, `f32(i32(${x}))`))).toBe(value);
+    },
+  );
+
+  it("abs over the owner's example states no numbers and names no edit", () => {
+    const x = 'vi > 3 ? a + 0x90000000 : a';
+    bothRefuse(program(`${TREE_A}return f32(abs(${x}));`, 'f32'), 'TS8003', NO_EDIT(x));
   });
 });

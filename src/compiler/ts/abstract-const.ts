@@ -100,6 +100,7 @@ import {
   pastInt32,
   provenDiffering,
   markReassigned,
+  numberedReading,
   provenI32Minimum,
   readingValue,
   sameReadings,
@@ -2249,14 +2250,13 @@ function declarationChange(name: string, at: ts.Node, type: string): SourceChang
 }
 
 /** The two values of `node` where a tree's `u32` bits and its TypeScript value reach it and
- *  give different values (the owner's decision of 2026-11-12, D2), read from the source: a tree
- *  over a written number only a `u32` holds, and what carries one without a declared type
- *  through a `let`, a module `let` or `const`, a function's result, `?:`, `select`, and
- *  arithmetic over it and written numbers (`let c = a + 0`). An annotation, a conversion and a
- *  typed operand end it. `undefined` where the two agree. */
+ *  differ (D2, 2026-11-12): a tree over a written number only a `u32` holds, carried untyped
+ *  through a `let`, a `const`, a function's result, `?:`, `select` and arithmetic over written
+ *  numbers. An annotation, a conversion and a typed operand end it. No numbers where more than
+ *  one value reaches it (2026-11-18). `undefined` where the two agree. */
 export function twoReadingsOf(node: ts.Expression): TwoReadings | undefined {
   const xs = readingsFrom(node);
-  const proven = xs.find((x) => provenDiffering(x) && x.signed !== true && !x.reassigned);
+  const proven = numberedReading(xs);
   if (proven !== undefined) return { u32: proven.u32, ts: proven.ts };
   const unproven = xs.some((x) => x.unproven || provenDiffering(x));
   return unproven ? { u32: NaN, ts: NaN, unproven: true } : undefined;
@@ -3803,12 +3803,12 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
     return variableReadings(d, sourceFile, w);
   }
   if (ts.isConditionalExpression(n)) {
-    // An arm beside a typed `i32` takes TypeScript's value.
+    // An arm beside a typed `i32` takes TypeScript's value. A typed arm is one more value.
     if (typedNode(n.whenTrue) || typedNode(n.whenFalse)) {
       const other = typedNode(n.whenTrue) ? n.whenFalse : n.whenTrue;
       const typed = typedNode(n.whenTrue) ? n.whenTrue : n.whenFalse;
       if (/^i32\(|^ii$/.test(skipParenNodes(typed).getText(sourceFile))) return [];
-      return of(other);
+      return of(other).flatMap((x, i) => (i === 0 ? [x, UNKNOWN] : [x]));
     }
     return arms([n.whenTrue, n.whenFalse]);
   }

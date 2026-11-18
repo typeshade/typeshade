@@ -25,7 +25,7 @@
   "src/commit-policy.test.ts": 8,
   "src/common-modules.test.ts": 17,
   "src/compiler/ts/abstract-const.test.ts": 109,
-  "src/compiler/ts/abstract-const.ts": 689,
+  "src/compiler/ts/abstract-const.ts": 688,
   "src/compiler/ts/abstract-member-call.test.ts": 1,
   "src/compiler/ts/abstract-super.test.ts": 1,
   "src/compiler/ts/advance.test.ts": 1,

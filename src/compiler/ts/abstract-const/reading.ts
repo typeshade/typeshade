@@ -149,3 +149,9 @@ export function markReassigned(xs: readonly Reading[], reassigned: boolean): Rea
 
 export const provenI32Minimum = (x: Reading): boolean =>
   !x.unknown && !x.unproven && !x.agreeing && (x.u32 | 0) === -2147483648;
+
+export function numberedReading(xs: readonly Reading[]): Reading | undefined {
+  const values = new Set(xs.map((x) => `${String(x.u32)}:${String(x.ts)}`));
+  if (values.size !== 1) return undefined;
+  return xs.find((x) => provenDiffering(x) && x.signed !== true && !x.reassigned);
+}

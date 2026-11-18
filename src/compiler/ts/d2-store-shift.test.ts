@@ -136,15 +136,18 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
       'c << 31',
       'let c = 9;\n  let t = (3000000000|0);\n  let x = c + t;\n  ',
     ],
-  ])('review of #1354: a number beside a u32 tree takes its bits: %s', (_, pre, subject, body) => {
-    const source = program(`${body}return f32(${subject});`, 'f32', pre);
-    bothRefuse(
-      source,
-      'TS8003',
-      proven(subject, 2147483648, -2147483648, 'f32()', `i32(${subject})`),
-    );
-    expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(-2147483648);
-  });
+  ])(
+    'review of #1354: a number beside a u32 tree takes its bits: %s',
+    (how, pre, subject, body) => {
+      const source = program(`${body}return f32(${subject});`, 'f32', pre);
+      const many = how !== 'a variable a tree peer types';
+      const said = many
+        ? unproven
+        : (s: string, at: string, e: string) => proven(s, 2 ** 31, -(2 ** 31), at, e);
+      bothRefuse(source, 'TS8003', said(subject, 'f32()', `i32(${subject})`));
+      expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(-2147483648);
+    },
+  );
 
   it('re-review of #1354: a constant trip count bounds the values, so the loop compiles to 243', () => {
     const body =
@@ -264,5 +267,13 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
     const source = program(body, 'f32');
     bothRefuse(source, 'TS8003', unproven('c << 31', 'f32()', 'i32(c << 31)'));
     expect(run(source.replace('f32(c << 31)', 'f32(i32(c << 31))'))).toBe(-4294967296);
+  });
+
+  it('a store in a for header refuses the plain test at "<", with no edit', () => {
+    const body =
+      'let t = (3000000000|0);\n  let s = 0.0;\n  for (let c = 1; c < 5; c = c * 3) {\n    let x = c ^ t;\n    s = s + f32(c << 31);\n  }\n  return s;';
+    const said =
+      'The compiler cannot prove that the u32 bits and the TypeScript value of "c" agree, so the "<" does not say which value it means.';
+    bothRefuse(program(body, 'f32'), 'TS8003', said);
   });
 });
