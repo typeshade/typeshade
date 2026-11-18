@@ -21,3 +21,9 @@ export function readingsSentenceOf(
     `TypeScript, so the "${r.operator}" does not say which value it means. ${remedy}`
   );
 }
+
+export const absOfI32Minimum = (r: {
+  readonly operator: string;
+  readonly readings: { readonly ts: number; readonly unproven?: boolean };
+}): boolean =>
+  r.operator === 'abs' && (r.readings.unproven === true || (r.readings.ts | 0) === -2147483648);

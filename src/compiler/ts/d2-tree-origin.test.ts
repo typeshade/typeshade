@@ -291,9 +291,18 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
     },
   );
 
-  it('review of #1358: abs of a differing tree names an edit', () => {
+  it("owner decision of 2026-11-18: abs of a differing tree names no edit, since abs(i32(…)) is WGSL's", () => {
     const source = program(`${H}return f32(abs(h + h));`, 'f32');
-    bothRefuse(source, 'TS8003', unproven('h + h', 'abs', 'i32(h + h)'));
-    expect(run(source.replace('abs(h + h)', 'abs(i32(h + h))'))).toBe(-2147483648);
+    bothRefuse(
+      source,
+      'TS8003',
+      'The compiler cannot prove that the u32 bits and the TypeScript value of "h + h" agree, so the "abs" does not say which value it means.',
+    );
+  });
+
+  it('abs of a u32 tree whose i32 value is no i32 minimum names the verified edit', () => {
+    const source = program('let a = (0xF0000000|0);\n  return f32(abs(a));', 'f32');
+    bothRefuse(source, 'TS8003', proven('a', 4026531840, -268435456, 'abs', 'i32(a)'));
+    expect(run(source.replace('abs(a)', 'abs(i32(a))'))).toBe(268435456);
   });
 });

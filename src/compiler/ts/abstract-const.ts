@@ -78,7 +78,7 @@ import {
   skipParenUp,
 } from './abstract-const/syntax-lookup.js';
 import { groupExecutions } from './abstract-const/trip-count.js';
-import { readingsSentenceOf } from './abstract-const/readings-sentence.js';
+import { absOfI32Minimum, readingsSentenceOf } from './abstract-const/readings-sentence.js';
 import {
   READING_DEPTH,
   READING_ROUNDS,
@@ -1553,7 +1553,7 @@ export function reportAbstractDivisions(
           constant !== undefined && programFileOf(constant) !== programFileOf(r.node);
         const shown: ReadingsRefusal = declared ? { ...r, target: true } : r;
         const change = (t: 'u32' | 'i32'): SourceChange | undefined =>
-          elsewhere
+          elsewhere || (t === 'i32' && absOfI32Minimum(r))
             ? undefined
             : declared
               ? declarationChange(text, r.node, t)
@@ -1579,7 +1579,7 @@ export function reportAbstractDivisions(
             const t = set === 0 ? first : second;
             if (t !== 'u32' || declared) say(t);
           },
-          generic: () => say(null),
+          generic: () => say(first === 'i32' && absOfI32Minimum(r) ? 'none' : null),
           bare: () => say('none'),
         };
       },
