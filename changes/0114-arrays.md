@@ -4,6 +4,7 @@ title: An array is written as TypeScript writes it, T[] when the size is unknown
 status: accepted
 rules:
   - '4.5'
+  - '5.1'
   - '6.1'
   - '6.2'
   - '8.18'
@@ -585,6 +586,49 @@ constant, in one place: a kernel function that returns the array. It adds no spe
   stage changes.
 - Status: `status: accepted` does not change. S1 is in progress: `T[]` and `Array<T>` are done
   (#1367); `readonly T[]`, `ReadonlyArray<T>` and the write refusal are not started.
+
+### A3. An untyped list of integer-written numbers takes its element type from its uses (2026-11-18)
+
+- [fact] Why. S2a (pull request #1372, merged as `d8cf58e`) gives an untyped list its element
+  type from its elements. A list of integer-written numbers alone (`const a = [1, 2, 3]`) has no
+  element that decides a type, and Rule 5.1 does not name a list among the values its uses
+  decide. So #1372 kept the old refusal: `"const a" needs an array type annotation to take a
+list, e.g. const a: array<f32, 3> = [...].` Fixing the element type to `f32` would choose a
+  default type, which OD-7 rules out.
+- [fact] Rule 5.1 already gives an unannotated function-local `let`, module variable, static
+  field and class field initialized by integer-written literals the type of every place it
+  reaches, and `f32` where no use decides, as the compiler's choice (OD-7).
+- [decision, owner, 2026-11-18] "승인", to the agent's recommendation: amend this proposal to
+  extend Rule 5.1 to such a list, and, until it is implemented, say "not supported yet" in the
+  refusal (OD-9).
+
+**S2c. A list of integer-written numbers (plan unit B5).**
+
+1. Rule 5.1: an unannotated `const` or `let`, in a function or at module scope, whose initializer
+   is a list of integer-written literals (and `+`, `-`, `*` and `/` over them) is a value whose
+   uses decide its element type. Each element read (`a[i]`) and each whole use of the array (an
+   argument of a declared `array<T, N>` parameter, an assignment to a typed array, a `return` in a
+   function whose result type is declared, `for (const x of a)`) is a place the element type
+   reaches, as Rule 5.1 lists for a `let`. Where no use decides, the element type is `f32`, the
+   compiler's choice. The length is the number of elements, as in S2.
+2. A use that asks `i32` and one that asks `u32`, and an integer use beside a float use, are
+   refused as Rule 5.1 refuses them for a `let`, with the annotation remedy
+   (`const a: array<u32, 3> = [...]`).
+3. A `/` over an element whose uses make it an integer is refused as Rule 5.1 refuses the `/`
+   over a `let` that its uses make an integer.
+4. Both halves: the editor's projection writes the decided type into the declaration, so the hover
+   shows `const a: array<u32, 3>` where an index use decides `u32`.
+5. Until S2c is implemented, the refusal says the form is not supported yet: `"const a" is a list
+of integer-written numbers, whose element type its uses will decide; that is not supported
+yet. Declare the type: const a: array<f32, 3> = [...].` (a bug fix under OD-9, in its own
+   pull request).
+
+- [fact] D2 (`[1, 2.5]`, refused until #148 settles the integer default) is not changed by this
+  amendment. #148's question was superseded by change 0134 and OD-7; whether D2's refusal stays
+  is the owner's to decide, as an open item.
+- [fact] A function-local `as const` list stays refused (S2 names module scope only); open item.
+- Affects: the front matter (`rules` gains 5.1), section 2 (stage S2c).
+- Status: `status: accepted` does not change. S2c: not started.
 
 ## What it owes downstream
 
