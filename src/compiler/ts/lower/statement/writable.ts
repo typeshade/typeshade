@@ -15,6 +15,7 @@ import { classFunctionOf } from '../class-methods.js';
 import { inheritedStaticWrite, staticConstantWrite } from '../class-access.js';
 import { unknownIdentifierSentence } from '../expression.js';
 import { TS_CODES } from '../../codes.js';
+import { readonlyWriteThrough } from '../readonly-promise.js';
 import { unknownNameAlreadyReported } from '../../refused-names.js';
 import {
   isComposite,
@@ -170,6 +171,11 @@ export function checkRootMutable(
   const binding = scope.resolve(rootName);
   if (!binding) return true;
   const rules = writeRules(binding);
+  const promised = readonlyWriteThrough(node, binding, sourceFile);
+  if (promised !== undefined) {
+    pushDiag(diagnostics, sourceFile, node, promised, TS_CODES.CONST_ASSIGN);
+    return false;
+  }
   if (!rules.mutable) {
     const through = into || !ts.isIdentifier(unwrapParens(node));
     if (through && rules.toVar !== undefined) {

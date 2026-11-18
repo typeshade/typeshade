@@ -60,6 +60,7 @@ import { SHADE_DTS } from '../../language-service/ambient.js';
 import { compile } from '../../compiler/ts/compile.js';
 import { isCanonicalMathFn, resolveMathFn } from '../../compiler/ts/math-alias.js';
 import { PRE_EMIT_INTRINSICS, isKnownIntrinsic } from '../intrinsics.js';
+import { ECMASCRIPT_LIB_STANDINS } from './ecmascript-lib-standins.js';
 
 // ── The WGSL vocabulary, as baked ──
 
@@ -131,41 +132,6 @@ function wgslSource(name: string): string | undefined {
 
 const MATH_MEMBERS = new Set(Object.getOwnPropertyNames(Math));
 const CONSOLE_MEMBERS = new Set(Object.getOwnPropertyNames(console));
-
-/** The standard-library declarations the ambient file restates because the service compiles the
- *  program with `lib: []` (docs/language-design.md Rule 2.1(b)). Each is spelled exactly as
- *  TypeScript's own lib spells it, which is what makes it an ECMAScript name here and not a
- *  TypeShade invention. `MathObject`, the shape behind the `Math` stand-in, is spelled
- *  `Math` by `lib.es5.d.ts` and is therefore a TypeShade row instead. */
-const ECMASCRIPT_LIB_STANDINS = new Set([
-  'Array',
-  'Boolean',
-  'CallableFunction',
-  'Console',
-  'Function',
-  'IArguments',
-  'Math',
-  'NewableFunction',
-  'Number',
-  'Object',
-  'Pick',
-  'Record',
-  'RegExp',
-  'String',
-  // lib.es2015.iterable.d.ts and lib.es2015.symbol.d.ts: what `[Symbol.iterator]` resolves
-  // through, so `for (const x of xs)` type-checks (Rule 7.5). The compiler refuses `Symbol` as a
-  // value (an unknown name, TS8022), so an author still cannot write it.
-  'Symbol',
-  'SymbolConstructor',
-  // lib.dom.d.ts: the web platform's deep copy, which is how an author writes a copy of a struct
-  // or an array (change 0142, Table 3 and Amendment A1).
-  'structuredClone',
-  'console',
-  // lib.es2015.collection.d.ts: a kernel function's Map and Set parameter (change 0080), with
-  // the members it has there.
-  'Map',
-  'Set',
-]);
 
 /** The two sites that are not a top-level declaration: a member read out of one of the two
  *  stand-in interfaces. `interfaceMembers` names the site, since a member has no declaration

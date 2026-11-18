@@ -75,6 +75,8 @@ no `access` field at all.
 | `declare const x: storage<T>` | storage | read | `var<storage, read> x: T;` |
 | `declare const x: storage<T, "read">` | storage | read | the same; the default written out |
 | `declare const x: storage<T, "read_write">` | storage | read_write | `var<storage, read_write> x: T;` |
+| `declare const x: storage<f32[]>`, `storage<Array<f32>>` | storage | read | `var<storage, read> x: array<f32>;`, as `storage<array<f32>>` (§20, change 0114) |
+| `declare const x: storage<readonly f32[]>`, `storage<ReadonlyArray<f32>>` | storage | read | the same; `readonly` promises that nothing writes `x`, and a write is `TS8005` (§20, change 0114) |
 | `declare const x: T` | illegal | space required | `TS8099` |
 | `declare let x: storage<T>` | illegal | the mode is a type argument | `TS8099` |
 | `declare let x: uniform<T>` | illegal | a uniform is read-only | `TS8099` |
@@ -2772,6 +2774,30 @@ if ((gid.x >= arrayLength(&src))) {
   return;
 }
 ```
+
+**TypeScript's spelling (change 0114, S1).** `T[]` and `Array<T>` are the same array with no
+size as `array<T>`. They are accepted where `array<T>` is: a storage binding's value type
+(`storage<f32[]>`, `storage<f32[], "read_write">`), the last field of a storage struct, and a
+kernel function's parameter (`export function scale(xs: f32[], k: f32)`). They give the IR, the
+WGSL, the GLSL, the CPU result and the host face of `array<T>`, and `xs.length` is a `u32` in
+both halves. Where `array<T>` is refused, they are refused with the same code and sentence,
+which names `array<T>`. `Array<T>` with another count of type arguments is `TS8002`, naming
+`array<T, N>` for a list with a size. `array<T>` stays accepted until stage S4.
+
+**`readonly T[]` and `ReadonlyArray<T>` (change 0114, S1, Amendment A2).** They are the same
+array as `T[]`, accepted in the same three places, with the same IR, WGSL, GLSL, CPU result and
+host face, and a `u32` `length`. `readonly` is a promise that nothing writes the array. An
+element assignment, a compound assignment, an increment, a write from a local function and a
+mutating method (`push`, `fill`, `sort` and the others) through it are refused in both halves
+with `TS8005`, for example `Cannot write to "xs" — its type "readonly f32[]" promises that
+nothing writes it. Write "f32[]" to write to it.` The remedy names the writable spelling, and for
+a storage binding the whole `read_write` declaration. A promise written through a type alias
+names the alias and gives no remedy. The editor declares `ReadonlyArray<T>` with a read-only index
+and no mutating member, so TypeScript's checker refuses the same writes (TS2542, TS2339); the
+editor shows the compiler's sentence in place of TypeScript's. Where `array<T>` is refused, both
+spellings are refused with the same code and sentence. `ReadonlyArray<T>` with another count of
+type arguments is `TS8002`, as `Array<T>` is. `readonly array<T>` stays `TS8002`: TypeScript puts
+`readonly` on `T[]` and a tuple only.
 
 **What the operand may be** is what WGSL's `arrayLength` accepts: a pointer to a runtime-sized
 array in the storage space, which is the binding itself or a trailing array field of a storage
@@ -12004,7 +12030,7 @@ vector, a matrix, an array with a size or a struct.`
 | the result of such a function, written or inferred (§14, Rule 8.19) | allowed |
 | the parameters and the result of a function-typed parameter (§14, Rule 8.18) | allowed |
 | a field of a class, an interface or a type literal, a parameter property included, `f: T \| undefined` or `f?: T`, the struct in function scope | allowed (change 0093) |
-| an array element, `array<f32 \| undefined, 4>`, the array in function scope | allowed (change 0093); `(f32 \| undefined)[]` is a JS array type, refused as every `T[]` is (§28) |
+| an array element, `array<f32 \| undefined, 4>`, the array in function scope | allowed (change 0093); `(f32 \| undefined)[]` is the array with no size `array<f32 \| undefined>` (§20, change 0114), refused for its element as that array is |
 | an optional parameter `x?: T` on a helper, a method, a static function, a constructor, a local function, a function-typed parameter's type and an arrow function written as an argument | allowed (change 0093): `x` is `T \| undefined`, and a call may omit it |
 | `x?: T` on an entry point or on a kernel function, `x?: T = d`, a required parameter after an optional one | refused (`TS8020`) |
 | a struct with an optional field, or an array of optionals, as a uniform or storage binding, a workgroup or private module variable, a module constant or an override | refused (`TS8002`) at the declaration, naming the field (change 0093) |

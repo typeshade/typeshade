@@ -3,6 +3,7 @@
 import ts from 'typescript';
 import { aliasedCall } from './new-object.js';
 import { Reader } from './source-types.js';
+import { isReadonlyArrayOperator } from './type-map/readonly-array.js';
 import { takesThePlace, accessorMayWrite } from './object-reference/written.js';
 
 const VALUE_TYPE =
@@ -13,6 +14,7 @@ export function writesAnObject(type: ts.TypeNode | undefined, sourceFile: ts.Sou
   let at = type;
   while (at !== undefined) {
     while (ts.isParenthesizedTypeNode(at)) at = at.type;
+    if (isReadonlyArrayOperator(at)) return true;
     if (ts.isUnionTypeNode(at)) {
       return at.types.some(
         (t) =>
@@ -24,7 +26,7 @@ export function writesAnObject(type: ts.TypeNode | undefined, sourceFile: ts.Sou
     if (ts.isArrayTypeNode(at) || ts.isTypeLiteralNode(at) || ts.isTupleTypeNode(at)) return true;
     if (!ts.isTypeReferenceNode(at) || !ts.isIdentifier(at.typeName)) return false;
     const name = at.typeName.text;
-    if (name === 'array' || name === 'Array') return true;
+    if (name === 'array' || name === 'Array' || name === 'ReadonlyArray') return true;
     if (name === 'uniform' || name === 'storage' || name === 'override' || name === 'workgroup') {
       at = at.typeArguments?.[0];
       continue;
