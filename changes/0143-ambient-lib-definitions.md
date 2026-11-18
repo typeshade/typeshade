@@ -1,7 +1,7 @@
 ---
 id: '0143'
 title: An editor can go to the definition of an ambient name such as `u32`, `vec3` or `mix` and read its declaration in a file on disk
-status: draft
+status: accepted
 rules: []
 surface: []
 exports:
@@ -22,7 +22,7 @@ downstream:
 
 | Field                         | Value                                                                                                                                                                                                                                                                                                                                                                                        |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0143, status `draft`.                                                                                                                                                                                                                                                                                                                                                               |
+| Identity and status           | Proposal 0143, status `accepted`.                                                                                                                                                                                                                                                                                                                                                            |
 | Date and attribution          | 2026-11-18, Asia/Seoul. The date is the drafting date of both revisions. The repository owner made the request in conversation on 2026-11-18. An AI agent session drafted the text. Nobody has approved it.                                                                                                                                                                                  |
 | Applicability / Effectivity   | The `./language-service` subpath: `src/language-service/host.ts`, `src/language-service/service.ts`, `src/language-service/navigation.ts`, `src/language-service/ambient.ts` and their tests; `docs/language-service-api.md`. Adapters that create the language service, the tsserver plugin of vscode-typeshade first. No release version is assigned. TypeShade has no release yet (OD-6). |
 | Review baseline               | `origin/main` at `efa97ce938f7fff569a611d8bb2a6d7e8c779dd9`.                                                                                                                                                                                                                                                                                                                                 |
@@ -176,7 +176,8 @@ The proposal reverses no entry.
 **Question for the owner.** Is it acceptable that go-to-definition shows the editor's type
 layer, which is wider than the compiler and names helper types such as `ScalarOf`, with a
 TypeShade sentence on each type? The drafter recommends yes: the alternative is no definition
-at all, and the compiler's diagnostics stay the authority.
+at all, and the compiler's diagnostics stay the authority. The owner answered yes on 2026-11-18
+(Approval and plan record).
 
 ## Why the compiler cannot do it
 
@@ -279,13 +280,31 @@ proposal until the owner accepts this document.
 | 10  | The site's playground drops an unknown uri, so it is unaffected; its editor page lists go to definition and needs a recheck.             | Kept as a downstream recheck in the front matter.                                                                                         |
 | 11  | The rename exclusion is correct as stated.                                                                                               | No change needed.                                                                                                                         |
 
-Open findings for the owner: none blocking. The question under "Owner's decisions" is open.
+Open findings for the owner: none blocking. The owner answered the question under "Owner's
+decisions" on 2026-11-18.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's actual decision, the PR
-review and merge reference, the approved revision of this file, the answer to the owner's
-question, the assigned responsibilities and the required validation evidence.
+- Decision: on 2026-11-18, Asia/Seoul, the agent asked the owner three questions in the
+  conversation: whether to merge PR #1389, whether to accept this proposal, merge it and
+  implement it, and whether go-to-definition may show the editor's type layer. Each question
+  named a recommended option. The owner answered "승인" (approved). By the owner's standing
+  convention, a bare "승인" approves the recommended option of each question. So the owner
+  accepted this proposal, approved its implementation, and answered the question under
+  "Owner's decisions" with yes. PR #1389 merged the same day as `9d165449`.
+- Approved revision: revision 2 (`624d2b70`) with this record and the `accepted` status. The
+  merge of [PR #1390](https://github.com/typeshade/typeshade/pull/1390) records the exact commit.
+- Scope: items 1 to 6 under "What changes", the exclusions, and the five resolutions above. The
+  front matter is final for the compiler: `exports` names `createTypeshadeLanguageService` and
+  `TypeshadeLanguageServiceHost`, and nothing else.
+- Responsibilities: an AI agent session implements the compiler change in one pull request whose
+  commits say `Change: 0143`. vscode-typeshade and typeshade.github.io owe the work in "What it
+  owes downstream" when their pins carry the change. The owner merges or delegates the merge
+  under `CLAUDE.md`.
+- Milestones: (1) the compiler pull request, merged when its required checks are green; (2) the
+  downstream pin updates, in each repository's own pull request. No date is set.
+- Required validation: the eight items under "Required evidence at implementation".
+- Resources: not established.
 
 ### Configuration and validation record
 
