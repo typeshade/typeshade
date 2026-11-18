@@ -395,6 +395,17 @@ f32(v / 2)` after `s.v = ii` is refused, as `f32(s.v / 2)` is. A swizzle of a sw
     owner's decision of 2026-11-17, "변환식도 적은 타입"); a field of a plain number (`v = 0`)
     does not.
 
+- **D2 keeps the two readings of a u32 tree's variable through a store and a typed shift amount**
+  (issue #1331; change 0134, Amendments A6 and A7). With `let a: i32 = 31; let c =
+(3000000000|0); c = 9;`, `f32(((c << a) < vi) ? 1 : 0)` gave 0, where TypeScript gives 1. A
+  number stored in a variable that a u32-only tree reaches is now read on its u32 bits, a store
+  the walk cannot read there (`c = vi`) is unproven, and a shift of a tree by an amount of a
+  written type is unproven. Each is refused in both halves with the D2 sentence and a verified
+  edit (`u32(c << a)`). Cost: `f32(((c << a) < vi) ? 1 : 0)` without the store gave the right
+  value 1 and is refused now, since the walk does not know `a`. An exported function with no
+  written result that returns such a shift (`return c << vi`) is refused too, as D2 refuses every
+  exported result whose readings differ.
+
 - **Buffer integration with the compiler refactor** (2026-11-16, change 0138). Host analysis
   keeps the Buffer overload records; the extracted host view and module generators consume them.
   TypeNN #27 migrates scalar storage and stale parameter assignment; the downstream gate pins its

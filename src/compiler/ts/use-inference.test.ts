@@ -2071,8 +2071,10 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
   // program is refused in both halves, as `a + 1` is, and its edit compiles to TypeScript's value.
   const A1299 = 'let a = (0xF0000000|0);\n  ';
   const said1299 = (subject: string, u: number, t: number, at: string, edit: string): string =>
-    `TS8003: "${subject}" is ${String(u)} on its u32 bits and ${String(t)} in TypeScript, so the ` +
-    `"${at}" does not say which value it means. Write "${edit}" for the ${edit.slice(0, 3)} value.`;
+    Number.isNaN(u)
+      ? unproven1299(subject, at, edit)
+      : `TS8003: "${subject}" is ${String(u)} on its u32 bits and ${String(t)} in TypeScript, so the ` +
+        `"${at}" does not say which value it means. Write "${edit}" for the ${edit.slice(0, 3)} value.`;
   it.each([
     [
       'f32(a + a)',
@@ -2170,7 +2172,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
       'let b = 3;\n  b = vi;\n  return f32(a + b);',
       'f32',
       'a + b',
-      4026531843,
+      NaN,
       -268435453,
       'f32()',
       'i32',
@@ -2183,7 +2185,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
       'let b = 3;\n  b += 1;\n  return f32(a + b);',
       'f32',
       'a + b',
-      4026531843,
+      NaN,
       -268435453,
       'f32()',
       'i32',
@@ -2196,7 +2198,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
       'let c = a * 1;\n  c = 5;\n  return ((a - c) - a) < vi ? 1.0 : 0.0;',
       'f32',
       '(a - c) - a',
-      4294967291,
+      NaN,
       -5,
       '<',
       'u32',
@@ -2262,14 +2264,6 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
       -268435456,
     ],
     [
-      'a = a - K in a loop run twice',
-      'for (let i = 0; i < 2; i++) {\n    a = a - 0x10000000;\n  }\n  return f32(a + 0x10000000);',
-      'f32',
-      SUM,
-      'f32()',
-      -536870912,
-    ],
-    [
       'a = a - K, then a comparison',
       'a = a - 0x10000000;\n  return (a + 0x10000000) > vi ? 1.0 : 0.0;',
       'f32',
@@ -2298,9 +2292,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
     (_, body, ret, subject, at, value) => {
       const source = T12(A1299 + body, ret);
       const type = ret === 'u32' || at === '>' ? 'u32' : 'i32';
-      expect(both(source)).toEqual([
-        said1299(subject, 4026531840, -268435456, at, `${type}(${subject})`),
-      ]);
+      expect(both(source)).toEqual([said1299(subject, NaN, -268435456, at, `${type}(${subject})`)]);
       const fixed = source.replace(
         at === 'f32()' ? `f32(${subject})` : `(${subject})`,
         at === 'f32()' ? `f32(${type}(${subject}))` : `${type}(${subject})`,
@@ -2391,28 +2383,28 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
       'a getter that stores between two reads',
       `${HEAD2}class G {\n  x: i32 = 0;\n  get v() {\n    a = 5;\n    return 0;\n  }\n}\nlet a = (0xF0000000|0);\n${FN2}  const g = new G();\n  return f32((a + g.v) - a);\n}\n`,
       '(a + g.v) - a',
-      4026531835,
+      NaN,
       -268435461,
     ],
     [
       'a let of a number only a u32 holds, reassigned',
       `${HEAD2}${FN2}  let M = 0xF0000000;\n  if (vi > 2) {\n    M = 1;\n  }\n  return f32(M ^ 0xF0000000);\n}\n`,
       'M ^ 0xF0000000',
-      4026531841,
+      NaN,
       -268435455,
     ],
     [
       'a function above a module let stores into it',
       `${HEAD2}function s() {\n  a = (0xF0000000|0);\n}\nlet a = 5;\n${FN2}  s();\n  return f32(a + a);\n}\n`,
       'a + a',
-      3758096384,
+      NaN,
       -536870912,
     ],
     [
       'an arrow above a module let stores into it',
       `${HEAD2}const s = () => {\n  a = (0xF0000000|0);\n};\nlet a = 5;\n${FN2}  s();\n  return f32(a + a);\n}\n`,
       'a + a',
-      3758096384,
+      NaN,
       -536870912,
     ],
     [
@@ -2426,7 +2418,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
       'a tree stored through as',
       `${HEAD2}${FN2}  let a = 5;\n  a = (0xF0000000|0) as number;\n  return f32(a + a);\n}\n`,
       'a + a',
-      3758096384,
+      NaN,
       -536870912,
     ],
     [

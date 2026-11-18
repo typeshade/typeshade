@@ -44,6 +44,18 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { checkDocuments } from '../../language-service/check.js';
+import {
+  Skip,
+  binary,
+  convert,
+  inRange,
+  popcount,
+  store,
+  unify,
+  wrap,
+  type T,
+  type V,
+} from './issue-1261-differential/oracle.js';
 
 /** mulberry32: a small generator with a fixed seed, so the corpus is the same on every run. */
 function rng(seed: number): () => number {
@@ -57,14 +69,6 @@ function rng(seed: number): () => number {
   };
 }
 
-type T = 'k' | 'i32' | 'u32' | 'f32' | 'bool';
-interface V {
-  readonly t: T;
-  readonly v: number;
-}
-/** The value is not a program TypeScript and the rules agree on: no comparison is made. */
-class Skip extends Error {}
-
 const INPUTS = { ii: -3, vi: 7, f: 2.5 } as const;
 /** The imported file: the same exports in each, and in three of them one more that the file
  *  itself refuses, so that an edit lands in the imported file. */
@@ -77,135 +81,6 @@ const LIBS = [
   `${LIB_BASE}export function lh() {\n  return (5|0)/2;\n}\n`,
   `${LIB_BASE}export const LS = 0xF0000000 >> 28;\n`,
 ] as const;
-
-const inRange = (t: 'i32' | 'u32', x: number): boolean =>
-  t === 'u32' ? x >= 0 && x <= 4294967295 : x >= -(2 ** 31) && x <= 2 ** 31 - 1;
-const wrap = (t: T, x: number): number => {
-  if (!Number.isFinite(x)) throw new Skip('not finite');
-  // An f32 past 2^24 that rounds in an operation rounds differently in the oracle's and in
-  // TypeScript's doubles: no comparison is made there.
-  if (t === 'f32' && Math.abs(x) > 2 ** 24 && Math.fround(x) !== x) throw new Skip('f32 precision');
-  return t === 'i32' ? x | 0 : t === 'u32' ? x >>> 0 : t === 'f32' ? Math.fround(x) : x;
-};
-/** A conversion to `to`, as the author's TypeScript computes it. A float outside the integer
- *  type converts as WGSL defines it (it saturates), which the language refuses where it is
- *  constant (Rule 5.4): no comparison is made there. */
-function convert(to: 'i32' | 'u32' | 'f32', x: V): number {
-  if (to === 'f32') return Math.fround(x.v);
-  if ((x.t === 'f32' || !Number.isInteger(x.v)) && !inRange(to, Math.trunc(x.v))) {
-    throw new Skip('float conversion out of range');
-  }
-  // A value of no declared type that no use decides is an `f32` (Rule 5.1): one outside the
-  // integer type converts as a float does. No comparison (an open item of #1272).
-  if (x.t === 'k' && !inRange(to, x.v)) throw new Skip('untyped value out of range');
-  return to === 'i32' ? Math.trunc(x.v) | 0 : Math.trunc(x.v) >>> 0;
-}
-/** A value stored in a position that declares the integer type `to`: a declaration, an
- *  assignment, a parameter, a result. One of no declared type is truncated where it is no
- *  integer (Amendment A4), and is its bits where only the other integer type holds it (C3: the
- *  annotation ends the origin, `let x: u32 = 3000000000 | 0` is 3000000000). */
-function store(to: 'i32' | 'u32', x: V): number {
-  if (x.t !== 'k') return convert(to, x);
-  const v = Math.trunc(x.v);
-  if (inRange(to, v)) return to === 'i32' ? v | 0 : v >>> 0;
-  if (to === 'u32' && v < 0 && v >= -(2 ** 31)) return v >>> 0;
-  if (to === 'i32' && v > 2 ** 31 - 1 && v <= 2 ** 32 - 1) return v | 0;
-  throw new Skip('stored value out of range');
-}
-const popcount = (x: number): number => {
-  let n = x >>> 0;
-  let c = 0;
-  while (n !== 0) {
-    c += n & 1;
-    n >>>= 1;
-  }
-  return c;
-};
-
-/** The type two operands compute in: the declared one, or none where both have none. */
-function unify(a: V, b: V): T {
-  if (a.t === 'bool' || b.t === 'bool') throw new Skip('bool operand');
-  if (a.t === 'k') return b.t;
-  if (b.t === 'k' || a.t === b.t) return a.t;
-  throw new Skip('two declared types');
-}
-
-const COMPARE = new Set(['<', '<=', '>', '>=', '==', '!=']);
-
-function binary(op: string, a: V, b: V): V {
-  if (COMPARE.has(op)) {
-    unify(a, b);
-    const [x, y] = [a.v, b.v];
-    const r =
-      op === '<'
-        ? x < y
-        : op === '<='
-          ? x <= y
-          : op === '>'
-            ? x > y
-            : op === '>='
-              ? x >= y
-              : op === '=='
-                ? x === y
-                : x !== y;
-    return { t: 'bool', v: r ? 1 : 0 };
-  }
-  if (op === '>>>') throw new Skip('>>> is refused');
-  // A shift computes in its left operand's type.
-  const t = op === '<<' || op === '>>' ? a.t : unify(a, b);
-  if (t === 'bool') throw new Skip('bool');
-  const [x, y] = [a.v, b.v];
-  if (t === 'f32' && ['&', '|', '^', '<<', '>>'].includes(op)) throw new Skip('f32 bits');
-  // A value of no declared type that is no integer keeps TypeScript's double, beside a declared
-  // integer too: the author's TypeScript never truncates it.
-  const integer = (t === 'i32' || t === 'u32') && Number.isInteger(x) && Number.isInteger(y);
-  const out: T = (t === 'i32' || t === 'u32') && !integer ? 'k' : t;
-  let r: number;
-  switch (op) {
-    case '+':
-      r = x + y;
-      break;
-    case '-':
-      r = x - y;
-      break;
-    case '*':
-      r = integer ? Math.imul(x | 0, y | 0) : x * y;
-      break;
-    case '/':
-      if (y === 0) throw new Skip('zero');
-      r = integer ? Math.trunc(x / y) : x / y;
-      break;
-    case '%':
-      if (y === 0) throw new Skip('zero');
-      // The oracle computes a float `%` in doubles, and `%` over values that are no integers
-      // carries the f32 rounding of its operands much further than one ulp (seed 123456 #1047).
-      if (t === 'f32' && !(Number.isInteger(x) && Number.isInteger(y))) {
-        throw new Skip('f32 remainder');
-      }
-      r = x % y;
-      break;
-    case '&':
-      r = x & y;
-      break;
-    case '|':
-      r = x | y;
-      break;
-    case '^':
-      r = x ^ y;
-      break;
-    case '<<':
-      r = x << (y & 31);
-      break;
-    default:
-      r = t === 'u32' ? (x >>> 0) >>> (y & 31) : x >> (y & 31);
-  }
-  // An integer of no declared type past both integer types wraps where its uses type it, as
-  // every integer of an inferred type does (Rule 5.1): no comparison there.
-  if (out === 'k' && Number.isInteger(r) && !inRange('i32', r) && !inRange('u32', r)) {
-    throw new Skip('untyped integer past both types');
-  }
-  return { t: out, v: wrap(out, r) };
-}
 
 /** One generated expression: its source text and its reference value. */
 interface Expr {
@@ -892,7 +767,7 @@ class Program {
       this.lines.push(`let c = ${ec.text};`);
       this.bind('c', 'k', () => ec.value());
       if (this.chance(0.2)) {
-        const n = lit(this.pick([1, 5, 9]));
+        const n = this.chance(0.25) ? this.name('vi') : lit(this.pick([1, 5, 9]));
         this.lines.push(`c = ${n.text};`);
         this.steps.push(() => this.env.set('c', n.value()));
       }
@@ -923,7 +798,15 @@ class Program {
         ['c', 'a'],
         ['c', 'c'],
       ] as const);
-      let e = this.bin(this.pick(['+', '-', '*', '&', '|', '^', '<<']), this.name(l), this.name(r));
+      const op = this.pick(['+', '-', '*', '&', '|', '^', '<<', '<<']);
+      let amount = this.name(r);
+      if (op === '<<' && this.chance(0.5)) {
+        const n = this.pick([31, -1, 2, 30]);
+        this.lines.push(`let sa: i32 = ${String(n)};`);
+        this.bind('sa', 'i32', () => ({ t: 'i32', v: n }));
+        amount = this.name(this.pick(['sa', 'sa', 'ii', 'vi']));
+      }
+      let e = this.bin(op, this.name(l), amount);
       if (this.chance(0.3))
         e = this.bin(this.pick(['+', '-']), e, this.name(this.pick(['a', 'c'])));
       if (this.chance(0.25)) {
