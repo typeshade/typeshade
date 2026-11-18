@@ -221,7 +221,7 @@
   "src/language-service/ambient.test.ts": 1640,
   "src/language-service/ambient.ts": 1729,
   "src/language-service/completions.ts": 433,
-  "src/language-service/diagnostics.test.ts": 1514,
+  "src/language-service/diagnostics.test.ts": 1512,
   "src/language-service/diagnostics.ts": 3241,
   "src/language-service/docs.ts": 577,
   "src/language-service/entry-location-hover-imports.test.ts": 852,
