@@ -16,7 +16,6 @@ import { hostFace } from './host-face.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
 import { emitGlslModule } from '../../core/backends/glsl.js';
 import { stageOf } from '../../core/ir/index.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 /** A program with a fragment entry that reads `call`, so the GLSL ES 3.00 fragment, which
  *  carries only what its entry reaches, holds the functions under test. */
@@ -174,15 +173,16 @@ export function viaCb(x: f32, d: ${type}): ${type} { return cb(opt, x, d); }`,
     });
   }
 
-  itNoInlining('an integer literal on the right of ?? takes the i32 of the left', () => {
+  it('an integer literal on the right of ?? takes the i32 of the left', () => {
     const r = bothAccept(
       program(
-        `export function pick(v: i32 | undefined): i32 { return v ?? 1; }`,
-        'f32(pick(undefined))',
+        `export function mk(x: f32): i32 | undefined { if (x > 0.5) { return 4; } return undefined; }
+export function pick(v: i32 | undefined): i32 { return v ?? 1; }`,
+        'f32(pick(mk(uv.x)))',
       ),
     );
-    expect(r.wgsl).toContain('return select(1, v.value, v.present);');
-    expect(r.glsl?.fragment).toContain('return (v.present ? v.value : 1);');
+    expect(r.wgsl).toMatch(/select\(1, (\w+)\.value, \1\.present\)/);
+    expect(r.glsl?.fragment).toMatch(/\((\w+)\.present \? \1\.value : 1\)/);
     const run = cpu(r);
     expect(run('pick', present(4))).toBe(4);
     expect(run('pick', absent(0))).toBe(1);
@@ -752,32 +752,27 @@ export function plainIf(a: f32): f32 | undefined {
       '(root(uv.x) ?? 0.) + (firstPositive(uv.x, uv.y) ?? 0.) + (half(uv.x) ?? 0.) + (lastPositive(uv.x, uv.y) ?? 0.)',
     );
 
-  itNoInlining(
-    'compiles the bare return and the fall-through to what return undefined; compiles to, in both halves',
-    () => {
-      const r = bothAccept(spelled(true, true));
-      const written = compile(spelled(false, false));
-      expect(written.diagnostics).toEqual([]);
-      expect(r.wgsl).toBe(written.wgsl);
-      expect(r.glsl?.fragment).toBe(written.glsl?.fragment);
-      // Since change 0105 each call writes into a `var`, so WGSL emits the `_into` copies.
-      expect(r.wgsl).toContain('fn half_into(_dst: ptr<function, _opt_f32_>, x: f32) {');
-      expect(r.wgsl).toContain(
-        'fn lastPositive_into(_dst: ptr<function, _opt_f32_>, a: f32, b: f32) {',
-      );
-      // A body whose returns are all bare returns nothing, as before.
-      expect(r.wgsl).toContain('fn nothing(x: f32) {');
-      const run = cpu(r);
-      expect(run('root', 4)).toEqual(present(2));
-      expect(run('root', -4)).toEqual(absent(0));
-      expect(run('firstPositive', 0, 2)).toEqual(present(2));
-      expect(run('firstPositive', 0, 0)).toEqual(absent(0));
-      expect(run('half', 3)).toEqual(present(1.5));
-      expect(run('half', -3)).toEqual(absent(0));
-      expect(run('lastPositive', 1, 0)).toEqual(present(1));
-      expect(run('lastPositive', 0, 0)).toEqual(absent(0));
-    },
-  );
+  it('compiles the bare return and the fall-through to what return undefined; compiles to, in both halves', () => {
+    const r = bothAccept(spelled(true, true));
+    const written = compile(spelled(false, false));
+    expect(written.diagnostics).toEqual([]);
+    expect(r.wgsl).toBe(written.wgsl);
+    expect(r.glsl?.fragment).toBe(written.glsl?.fragment);
+    expect(r.wgsl).toMatch(/var _opt\w*: _opt_f32_ = \w+;/);
+    expect(r.wgsl).toContain('_opt_f32_(0.0, false)');
+    expect(r.wgsl).toContain('_opt_f32_(sqrt(');
+    // A body whose returns are all bare returns nothing, as before.
+    expect(r.wgsl).toContain('fn nothing(x: f32) {');
+    const run = cpu(r);
+    expect(run('root', 4)).toEqual(present(2));
+    expect(run('root', -4)).toEqual(absent(0));
+    expect(run('firstPositive', 0, 2)).toEqual(present(2));
+    expect(run('firstPositive', 0, 0)).toEqual(absent(0));
+    expect(run('half', 3)).toEqual(present(1.5));
+    expect(run('half', -3)).toEqual(absent(0));
+    expect(run('lastPositive', 1, 0)).toEqual(present(1));
+    expect(run('lastPositive', 0, 0)).toEqual(absent(0));
+  });
 
   it('the editor hovers the inferred result as f32 | undefined, and a void body as void', () => {
     const source = spelled(true, true);
@@ -866,18 +861,19 @@ export function field(k: f32): f32 { return point(k)?.y ?? -1.; }
 export function viaLocal(k: f32): f32 { const p = point(k); const y = p?.y; return y ?? -1.; }
 export function swz(q: vec2 | undefined): vec2 { return q?.yx ?? vec2(-1.); }
 export function elem(xs: array<f32, 3> | undefined, i: i32): f32 { return xs?.[i] ?? -1.; }
-export function chain(a: f32 | undefined, b: f32 | undefined): f32 { return a ?? b ?? -1.; }`,
-    'elem(undefined, 0) + swz(undefined).x',
+export function chain(a: f32 | undefined, b: f32 | undefined): f32 { return a ?? b ?? -1.; }
+export function mkq(x: f32): vec2 | undefined { if (x < 0.) { return undefined; } return vec2(x, 2. * x); }
+export function mka(x: f32): array<f32, 3> | undefined { if (x < 0.) { return undefined; } return [x, 1., 2.]; }`,
+    'elem(mka(uv.x), i32(uv.y)) + swz(mkq(uv.x)).x + field(uv.x) + viaLocal(uv.y)',
   );
 
-  itNoInlining('binds the object once and wraps the member with its flag', () => {
+  it('binds the object once and wraps the member with its flag', () => {
     const r = bothAccept(source);
-    // Since change 0105 the bound object is a `var` that `point` writes into.
-    expect(r.wgsl).toContain('var _opt: _opt_P_;\n  point_into(&_opt, k);');
-    expect(r.wgsl).toContain('select(-1.0, _opt.value.y, _opt.present)');
-    expect(r.wgsl).toContain('select(vec2<f32>(-1.0), q.value.yx, q.present)');
-    expect(r.wgsl).toContain('select(-1.0, xs.value[i], xs.present)');
-    expect(r.glsl?.fragment).toContain('(xs.present ? xs.value[i] : -1.0)');
+    expect(r.wgsl).toMatch(/var (\w+): _opt_P_;\n\s+point_into\(&\1, \w+\);/);
+    expect(r.wgsl).toMatch(/select\(-1\.0, (\w+)\.value\.y, \1\.present\)/);
+    expect(r.wgsl).toMatch(/select\(vec2<f32>\(-1\.0\), (\w+)\.value\.yx, \1\.present\)/);
+    expect(r.wgsl).toMatch(/select\(-1\.0, (\w+)\.value\[\w+\], \1\.present\)/);
+    expect(r.glsl?.fragment).toMatch(/\((\w+)\.present \? \1\.value\[\w+\] : -1\.0\)/);
   });
 
   it('agrees on the CPU, present and absent', () => {
@@ -916,13 +912,26 @@ export function viaArrowUntyped(x: f32): f32 { return cb((x) => x * 3., x); }
 export function viaArrowOpt(x: f32): f32 { return cb((x) => (x > 0. ? x : undefined), x); }
 export function viaMethod(): f32 { const sw = new Swarm(); return sw.each((i: f32) => (i > 1. ? undefined : i)) + sw.each(plainF); }`);
 
-  itNoInlining('wraps the result of the copy as present', () => {
+  it('wraps the result of the copy as present', () => {
     const r = bothAccept(source);
-    // Since change 0105 the optional local is a WGSL `var`, and a copy whose result is the
-    // optional writes it through its `_into` copy.
-    expect(r.wgsl).toContain('var _opt: _opt_f32_ = _opt_f32_(plainF(x), true);');
-    expect(r.wgsl).toContain('var _opt: _opt_f32_ = _opt_f32_(viaArrowTyped_f(x), true);');
-    expect(r.wgsl).toContain('(*_dst) = _opt_f32_((x * 3.0), true);');
+    const body = (name: string): string => {
+      const w = r.wgsl!;
+      const at = w.indexOf(`fn ${name}(`);
+      expect(at, name).toBeGreaterThanOrEqual(0);
+      return w.slice(at, w.indexOf('\n}\n', at));
+    };
+    for (const [name, wrapped] of [
+      ['viaNamed', '(x + 1.0)'],
+      ['viaArrowTyped', '(x * 2.0)'],
+      ['viaArrowUntyped', '(x * 3.0)'],
+    ] as const) {
+      expect(body(name), name).toContain(wrapped);
+      expect(
+        body(name),
+        `${name} wraps the result as present, so ?? never falls back`,
+      ).not.toContain('-1.0');
+    }
+    expect(body('viaArrowOpt')).toContain('-1.0');
     // The method's copy loops three trips, which O2 unrolls; the front end's wrap is the O1 text.
     expect(emitModuleAt(r.module, 'O1')).toContain(
       'var _opt: _opt_f32_ = _opt_f32_(plainF(f32(i)), true);',
@@ -1036,29 +1045,28 @@ export function set(x: f32): C { const c = new C(); c.a = x; c.b = undefined; re
     expect(run('set', 5)).toEqual({ a: present(5), b: absent(0) });
   });
 
-  itNoInlining(
-    'an array of optionals: a literal with undefined, an element read and a for…of variable',
-    () => {
-      const r = bothAccept(
-        program(
-          `export function fill(x: f32): array<f32 | undefined, 3> { return [x, undefined, x * 2.]; }
+  it('an array of optionals: a literal with undefined, an element read and a for…of variable', () => {
+    const r = bothAccept(
+      program(
+        `export function fill(x: f32): array<f32 | undefined, 3> { return [x, undefined, x * 2.]; }
 export function sum(xs: array<f32 | undefined, 3>): f32 { let s = 0.; for (let i = 0; i < 3; i++) { s += xs[i] ?? 0.; } return s; }
 export function count(xs: array<f32 | undefined, 3>): i32 { let n: i32 = 0; for (const x of xs) { if (x !== undefined) { n += 1; } } return n; }`,
-          'sum(fill(uv.x))',
-        ),
-      );
-      expect(r.wgsl).toContain('fn fill(x: f32) -> array<_opt_f32_, 3> {');
-      expect(emitModuleAt(r.module, 'O1')).toContain('select(0.0, xs[i].value, xs[i].present)');
-      // O2 unrolls the three trips and splits the array they read, so no element is read by index.
-      expect(r.wgsl).not.toMatch(/_flow\d+_arg\[/);
-      const run = cpu(r);
-      expect(run('fill', 1)).toEqual([present(1), absent(0), present(2)]);
-      // An array of structs is a CPU value the oracle runs; the type names a scalar array only.
-      const xs = [present(1), absent(0), present(2)] as unknown as CpuValue;
-      expect(run('sum', xs)).toBe(3);
-      expect(run('count', xs)).toBe(2);
-    },
-  );
+        'sum(fill(uv.x))',
+      ),
+    );
+    expect(r.wgsl).toMatch(
+      /array<_opt_f32_, 3>\(_opt_f32_\(\w+, true\), _opt_f32_\(0\.0, false\), _opt_f32_\(\(\w+ \* 2\.0\), true\)\)/,
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain('select(0.0, xs[i].value, xs[i].present)');
+    // O2 unrolls the three trips and splits the array they read, so no element is read by index.
+    expect(r.wgsl).not.toMatch(/_flow\d+_arg\[/);
+    const run = cpu(r);
+    expect(run('fill', 1)).toEqual([present(1), absent(0), present(2)]);
+    // An array of structs is a CPU value the oracle runs; the type names a scalar array only.
+    const xs = [present(1), absent(0), present(2)] as unknown as CpuValue;
+    expect(run('sum', xs)).toBe(3);
+    expect(run('count', xs)).toBe(2);
+  });
 
   it('a struct of a struct with an optional field, and an optional of such a struct', () => {
     const r = bothAccept(
@@ -1243,12 +1251,10 @@ function setK(h: Hit, v: f32): void { h.k = v; }`;
     `TS8003 "${path}" is "${inner} | undefined" here, and ${takes} ${inner}. Test it first, ` +
     `"if (${path} !== undefined)", or give the absent case a value, "${path} ?? ${zero}".`;
 
-  itNoInlining(
-    'follows a test, an assignment, ??= and an early return on a path, on every target',
-    () => {
-      const r = bothAccept(
-        program(
-          `${HIT}
+  it('follows a test, an assignment, ??= and an early return on a path, on every target', () => {
+    const r = bothAccept(
+      program(
+        `${HIT}
 export function tested(h: Hit): f32 { if (h.k !== undefined) { return h.k * 2.; } return -1.; }
 export function nested(h: Hit): f32 { if (h.a.d === undefined) { return -1.; } return h.a.d; }
 export function logical(h: Hit): f32 { return h.k !== undefined && h.k > 1. ? h.k : -1.; }
@@ -1257,40 +1263,33 @@ export function coalesced(x: f32): f32 { let h = new Hit(); h.k ??= x; return h.
 export function vectors(h: Hit): f32 { if (h.n === undefined) { return -1.; } return h.n.x + length(h.n); }
 export function copied(h: Hit): f32 { if (h.k !== undefined) { const w = h.k; return w; } return -1.; }
 export function kept(x: f32): f32 { let h = new Hit(); h.k = x; h.peek(); h.a = new Inner(); return h.k; }`,
-          'tested(new Hit())',
-        ),
-      );
-      expect(emitModuleAt(r.module, 'O1')).toContain(
-        'if (h.k.present) {\n    return (h.k.value * 2.0);',
-      );
-      expect(r.wgsl).toMatch(
-        /if \((_flow\d+_local)\.k\.present\) \{\n    return \(\1\.k\.value \* 2\.0\);/,
-      );
-      expect(r.wgsl).toContain('return h.a.d.value;');
-      expect(r.wgsl).toContain('return (h.n.value.x + length(h.n.value));');
-      const run = cpu(r);
-      const hit = (
-        k: CpuValue,
-        n: CpuValue = absent([0, 0]),
-        d: CpuValue = absent(0),
-      ): CpuValue => ({
-        t: 1,
-        n,
-        k,
-        a: { d },
-      });
-      expect(run('tested', hit(present(3)))).toBe(6);
-      expect(run('tested', hit(absent(0)))).toBe(-1);
-      expect(run('nested', hit(absent(0), absent([0, 0]), present(4)))).toBe(4);
-      expect(run('logical', hit(present(3)))).toBe(3);
-      expect(run('logical', hit(present(0.5)))).toBe(-1);
-      expect(run('assigned', 2)).toBe(2);
-      expect(run('coalesced', 2)).toBe(2);
-      expect(run('vectors', hit(absent(0), present([3, 4])))).toBe(8);
-      expect(run('copied', hit(present(3)))).toBe(3);
-      expect(run('kept', 2)).toBe(2);
-    },
-  );
+        'tested(new Hit())',
+      ),
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'if (h.k.present) {\n    return (h.k.value * 2.0);',
+    );
+    expect(r.wgsl).toMatch(/if \((\w+)\.k\.present\) \{\n    \w+ = \(\1\.k\.value \* 2\.0\);/);
+    expect(r.wgsl).toContain('return h.a.d.value;');
+    expect(r.wgsl).toContain('return (h.n.value.x + length(h.n.value));');
+    const run = cpu(r);
+    const hit = (k: CpuValue, n: CpuValue = absent([0, 0]), d: CpuValue = absent(0)): CpuValue => ({
+      t: 1,
+      n,
+      k,
+      a: { d },
+    });
+    expect(run('tested', hit(present(3)))).toBe(6);
+    expect(run('tested', hit(absent(0)))).toBe(-1);
+    expect(run('nested', hit(absent(0), absent([0, 0]), present(4)))).toBe(4);
+    expect(run('logical', hit(present(3)))).toBe(3);
+    expect(run('logical', hit(present(0.5)))).toBe(-1);
+    expect(run('assigned', 2)).toBe(2);
+    expect(run('coalesced', 2)).toBe(2);
+    expect(run('vectors', hit(absent(0), present([3, 4])))).toBe(8);
+    expect(run('copied', hit(present(3)))).toBe(3);
+    expect(run('kept', 2)).toBe(2);
+  });
 
   it('clears a path on an assignment to the root or a prefix, a by-reference call and a writing method', () => {
     for (const [name, body] of [
@@ -1362,12 +1361,10 @@ export function kept(x: f32): f32 { let h = new Hit(); h.k = x; h.peek(); h.a = 
 });
 
 describe('an optional parameter x?: T is T | undefined, filled with the absent value (Rule 7.10, Rule 8.18, change 0093)', () => {
-  itNoInlining(
-    'on a helper, a method, a constructor, a local function and a function-typed parameter, on every target',
-    () => {
-      const r = bothAccept(
-        program(
-          `export function clampTo(x: f32, limit?: f32): f32 { if (limit === undefined) { return x; } return min(x, limit); }
+  it('on a helper, a method, a constructor, a local function and a function-typed parameter, on every target', () => {
+    const r = bothAccept(
+      program(
+        `export function clampTo(x: f32, limit?: f32): f32 { if (limit === undefined) { return x; } return min(x, limit); }
 export function scaled(x: f32, k?: f32, add?: f32): f32 { return x * (k ?? 1.) + (add ?? 0.); }
 class Box { w: f32; constructor(w: f32, pad?: f32) { this.w = w + (pad ?? 0.); } grow(by?: f32): f32 { return this.w + (by ?? 1.); } }
 export function boxes(x: f32): f32 { return new Box(x).grow() + new Box(x, 1.).grow(2.); }
@@ -1377,31 +1374,30 @@ function twice(x: f32, k?: f32): f32 { return x * (k ?? 2.); }
 function whole(x: f32, k: f32 | undefined): f32 { return x * (k ?? 3.); }
 export function handed(x: f32): f32 { return apply(twice, x) + apply(whole, x) + apply((x, k) => x + (k ?? 0.), x) + apply((x: f32, k?: f32): f32 => x * (k ?? 4.), x); }
 export function written(x: f32): f32 { return clampTo(x, undefined) + scaled(1, 2, 3); }`,
-          'clampTo(uv.x) + scaled(uv.y)',
-        ),
-      );
-      // Since change 0105 the shared absent value `_cse0` is a WGSL `var`, so the call on it
-      // takes a pointer, through a `_function` copy.
-      expect(r.wgsl).toContain(
-        'fn clampTo_function(x: f32, limit: ptr<function, _opt_f32_>) -> f32 {',
-      );
-      // The omitted argument is the absent value, filled where the call is, as a default is.
-      expect(r.wgsl).toMatch(/clampTo_function\(uv\.x, (_opt_f32_\(0\.0, false\)|&_cse\d+)\)/);
-      expect(r.wgsl).toContain('twice(x, _opt_f32_(0.0, false))');
-      expect(r.wgsl).toContain('whole(x, _opt_f32_(0.0, false))');
-      expect(r.glsl?.fragment).toContain('float clampTo(float x, _opt_f32_ limit) {');
-      const run = cpu(r);
-      expect(run('clampTo', 2, absent(0))).toBe(2);
-      expect(run('clampTo', 2, present(1))).toBe(1);
-      expect(run('scaled', 2, absent(0), absent(0))).toBe(2);
-      expect(run('scaled', 2, present(2), present(1))).toBe(5);
-      expect(run('boxes', 1)).toBe(2 + 4);
-      expect(run('local', 1)).toBe(1.5 + 2);
-      // twice: 2 + 2; whole: 3 + 2; arrow: 1 + 3; typed arrow: 4 + 2.
-      expect(run('handed', 1)).toBe(4 + 5 + 4 + 6);
-      expect(run('written', 1)).toBe(1 + 5);
-    },
-  );
+        'clampTo(uv.x) + scaled(uv.y)',
+      ),
+    );
+    // Since change 0105 the shared absent value `_cse0` is a WGSL `var`, so the call on it
+    // takes a pointer, through a `_function` copy.
+    expect(r.wgsl).toContain(
+      'fn clampTo_function(x: f32, limit: ptr<function, _opt_f32_>) -> f32 {',
+    );
+    // The omitted argument is the absent value, filled where the call is, as a default is.
+    expect(r.wgsl).toMatch(/clampTo_function\(uv\.x, (_opt_f32_\(0\.0, false\)|&_cse\d+)\)/);
+    expect(r.wgsl).toMatch(/twice\(x, (_opt_f32_\(0\.0, false\)|&_cse\d+)\)/);
+    expect(r.wgsl).toMatch(/whole\(x, (_opt_f32_\(0\.0, false\)|&_cse\d+)\)/);
+    expect(r.glsl?.fragment).toContain('float clampTo(float x, _opt_f32_ limit) {');
+    const run = cpu(r);
+    expect(run('clampTo', 2, absent(0))).toBe(2);
+    expect(run('clampTo', 2, present(1))).toBe(1);
+    expect(run('scaled', 2, absent(0), absent(0))).toBe(2);
+    expect(run('scaled', 2, present(2), present(1))).toBe(5);
+    expect(run('boxes', 1)).toBe(2 + 4);
+    expect(run('local', 1)).toBe(1.5 + 2);
+    // twice: 2 + 2; whole: 3 + 2; arrow: 1 + 3; typed arrow: 4 + 2.
+    expect(run('handed', 1)).toBe(4 + 5 + 4 + 6);
+    expect(run('written', 1)).toBe(1 + 5);
+  });
 
   it('the arity sentence counts an optional parameter as a default, and an integer literal takes the i32', () => {
     const source = program(

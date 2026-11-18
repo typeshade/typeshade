@@ -24,7 +24,6 @@ import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import type { TypeshadeDiagnostic } from '../../language-service/types.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 function compiled(source: string) {
   const c = compile(`"use typeshade"\n${source}`);
@@ -55,16 +54,16 @@ function cpu(c: ReturnType<typeof compiled>, fn: string, args: readonly number[]
 }
 
 describe('a shift amount is a u32 on both paths', () => {
-  itNoInlining('wraps an i32 shift count in u32 on WGSL and masks it on GLSL', () => {
+  it('wraps an i32 shift count in u32 on WGSL and masks it on GLSL', () => {
     const c = compiled(`export function f(x: i32, n: i32): i32 { return x << n }
-@fragment export function fs(): vec4 { return vec4(f32(f(1, 3))) }`);
-    expect(c.wgsl).toContain('(x << u32(n))');
+@fragment export function fs(uv: location<0, vec2>): vec4 { return vec4(f32(f(i32(uv.x), i32(uv.y)))) }`);
+    expect(c.wgsl).toContain('(i32(uv.x) << u32(i32(uv.y)))');
     // The cast is in the IR, so GLSL carries it too, as `uint(n)` — which that spec accepts
     // (§5.9 lets the two operands of a shift have different kinds), and which is exactly what
     // the compound path has always emitted on both targets. The gate compiles it on ANGLE.
     // GLSL leaves an amount of 32 or more undefined, so a run-time one is masked as WGSL
     // masks it (Rule 11.12).
-    expect(c.glsl!.fragment).toContain('(x << (uint(n) & 31u))');
+    expect(c.glsl!.fragment).toContain('(_f2i(uv.x) << (uint(_f2i(uv.y)) & 31u))');
   });
 
   it('accepts a u32 amount, which the equal-types rule used to refuse', () => {
@@ -93,20 +92,20 @@ describe('a shift amount is a u32 on both paths', () => {
     );
   });
 
-  itNoInlining('shifts a vector lane-wise, the width WGSL requires', () => {
+  it('shifts a vector lane-wise, the width WGSL requires', () => {
     // A shift is componentwise, so the kind check reads the ELEMENT: `vec2u << vec2u` is two
     // lanes, not a type error. WGSL's vector overload is `vecN<T> << vecN<u32>`, so a signed
     // amount takes the same conversion the scalar path gives it, one lane wider.
     const c = compiled(`export function f(x: vec2u, n: vec2u): vec2u { return x << n }
 export function g(x: vec2i, n: vec2i): vec2i { return x << n }
-@fragment export function fs(): vec4 {
-  return vec4(f32(f(vec2u(1, 1), vec2u(1, 1)).x) + f32(g(vec2i(1, 1), vec2i(1, 1)).x))
+@fragment export function fs(uv: location<0, vec2>): vec4 {
+  return vec4(f32(f(vec2u(uv), vec2u(uv.yx)).x) + f32(g(vec2i(uv), vec2i(uv.yx)).x))
 }`);
-    expect(c.wgsl).toContain('(x << n)');
-    expect(c.wgsl).toContain('(x << vec2<u32>(n))');
+    expect(c.wgsl).toContain('(vec2<u32>(uv) << vec2<u32>(uv.yx))');
+    expect(c.wgsl).toContain('(vec2<i32>(uv) << vec2<u32>(vec2<i32>(uv.yx)))');
     // A run-time amount is masked on GLSL, a scalar mask applied to each lane (Rule 11.12).
-    expect(c.glsl!.fragment).toContain('(x << (n & 31u))');
-    expect(c.glsl!.fragment).toContain('(x << (uvec2(n) & 31u))');
+    expect(c.glsl!.fragment).toContain('(_f2u(uv) << (_f2u(uv.yx) & 31u))');
+    expect(c.glsl!.fragment).toContain('(_f2i(uv) << (uvec2(_f2i(uv.yx)) & 31u))');
   });
 
   it('refuses a scalar amount on a vector target, which only GLSL takes', () => {
