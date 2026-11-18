@@ -1,7 +1,7 @@
 ---
 id: '0143'
 title: An editor can go to the definition of an ambient name such as `u32`, `vec3` or `mix` and read its declaration in a file on disk
-status: accepted
+status: implemented
 rules: []
 surface: []
 exports:
@@ -22,7 +22,7 @@ downstream:
 
 | Field                         | Value                                                                                                                                                                                                                                                                                                                                                                                        |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0143, status `accepted`.                                                                                                                                                                                                                                                                                                                                                            |
+| Identity and status           | Proposal 0143, status `implemented`.                                                                                                                                                                                                                                                                                                                                                         |
 | Date and attribution          | 2026-11-18, Asia/Seoul. The date is the drafting date of both revisions. The repository owner made the request in conversation on 2026-11-18. An AI agent session drafted the text. Nobody has approved it.                                                                                                                                                                                  |
 | Applicability / Effectivity   | The `./language-service` subpath: `src/language-service/host.ts`, `src/language-service/service.ts`, `src/language-service/navigation.ts`, `src/language-service/ambient.ts` and their tests; `docs/language-service-api.md`. Adapters that create the language service, the tsserver plugin of vscode-typeshade first. No release version is assigned. TypeShade has no release yet (OD-6). |
 | Review baseline               | `origin/main` at `efa97ce938f7fff569a611d8bb2a6d7e8c779dd9`.                                                                                                                                                                                                                                                                                                                                 |
@@ -308,10 +308,59 @@ decisions" on 2026-11-18.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the accepted revision, the implementing
-commits and PRs with `Change: 0143`, the delivered configuration, and the observed results of
-the tests and checks listed under What it touches. Functional validation and the document audit
-will be recorded separately.
+The front-matter `status` is `implemented`. Pull request
+[#1391](https://github.com/typeshade/typeshade/pull/1391) delivers the change; it was squash-merged
+into `main` as `f23e1c2e` on 2026-11-18. The AI agent session that drafted this proposal
+implemented it after the owner's acceptance and wrote this record on 2026-11-18, Asia/Seoul.
+
+**Delivered configuration.** Branch `feat/0143-ambient-lib-definitions`, rebased onto `main` at
+`ad2ff216` (the acceptance of this proposal), with two commits: `b8abddb5` (the change) and
+`bad59e76` (the moves the comment and file-size policies required). Local tools: Windows, Bun
+1.4.2, TypeScript 5.6.3, Vitest 5.0.5. CI ran Linux with the repository's pinned tools.
+
+**Delivered, by item of "What changes".**
+
+- Items 1 to 5: `src/language-service/host.ts` (the field `ambientLibUri`; `store()` ignores that
+  uri), `src/language-service/service.ts` (`positionAt`/`offsetAt` resolve the uri; the field is
+  passed to navigation), `src/language-service/navigation.ts` (`locationsFrom` maps the uri;
+  `getReferences` keeps one ambient declaration).
+- Item 6: `src/language-service/ambient/type-docs.ts` (`withTypeDocs`, with `renderJSDoc` moved
+  from `ambient.ts`), applied to `SHADE_DTS` in `src/language-service/ambient.ts`.
+- `docs/language-service-api.md` (the host field and the adapter's duty), `src/__api__/surface.md`
+  (baked), `src/language-service/service/import-specifiers.ts` (moved out of `service.ts`),
+  `scripts/comment-baseline.json` and `scripts/file-size-baseline.json` (re-baked; every number
+  went down).
+
+**Functional validation (observed).**
+
+| Required evidence                                          | Result                                                                                                                                      |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 to 6: tests in `src/language-service/navigation.test.ts` | Pass. The language-service suite with the policy, API-surface, author-names and publish-manifest tests: 44 files, 1510 passed, 1 skipped.   |
+| 7: a real tsserver with the vscode-typeshade plugin        | Definition on `mix` returned `lib.typeshade.d.ts` line 7749, text `mix`; on `u32`, line 11, text `u32`, with the `TYPE_DOCS` comment above. |
+| 8: build, test, `changes:check`                            | `bun run build` exit 0; `tsc -p tsconfig.tests.json` exit 0; `bun scripts/changes.ts --base origin/main` exit 0 on an LF checkout.          |
+| CI on `bad59e76`                                           | Run 44304258152 succeeded; the four required checks passed.                                                                                 |
+
+For evidence 7, the vscode-typeshade plugin did not yet pass the field, so a scratch build added it
+through an alias. That repository's own adoption is pending (below).
+
+**Deviations, with disposition.**
+
+- Item 3 names `isDefinition`. TypeScript 5.6's `findReferences` leaves it undefined on ambient
+  entries (measured), so the code uses each `ReferencedSymbol.definition`. The behavior is the one
+  item 3 states. Closed.
+- Item 5 names `openDocument`. The guard sits in the host's `store()`, so `updateDocument` is
+  covered too, as the item's purpose needs. Closed.
+- `scripts/changes.ts` lists `createTypeshadeLanguageService` as still owed: its type signature is
+  unchanged and its behavior changes through the host field, so the baked surface shows only
+  `TypeshadeLanguageServiceHost`. Closed.
+
+**Document audit.** `docs/language-service-api.md`, the header comments of `navigation.ts` and the
+doc comments of `host.ts` state the new behavior. `bun scripts/doc-refs.ts` reported 0 dead
+references.
+
+**Open items.** vscode-typeshade adopts the field in
+[typeshade/vscode-typeshade#67](https://github.com/typeshade/vscode-typeshade/pull/67), in progress.
+typeshade.github.io owes its line when its pin carries this change.
 
 ## What it owes downstream
 
