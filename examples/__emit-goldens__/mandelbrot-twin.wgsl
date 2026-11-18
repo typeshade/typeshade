@@ -24,11 +24,6 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)));
 }
 
-fn palette(t: f32) -> vec3<f32> {
-  let ph = vec3<f32>(0.0, 0.33, 0.67);
-  return (vec3<f32>(0.5) + (cos(((t + ph) * 6.283)) * 0.5));
-}
-
 @fragment
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let res = U.resolution;
@@ -50,6 +45,9 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let m = dot(z, z);
   let sn = ((it - log2(max(log2(max(m, 1.0001)), 0.0001))) + 1.0);
   let inside = step(119.5, it);
-  let col = (palette(((sn * 0.035) + (U.time * 0.02))) * (1.0 - inside));
+  let _i0a0 = ((sn * 0.035) + (U.time * 0.02));
+  let _i0_ph = vec3<f32>(0.0, 0.33, 0.67);
+  let _i0ret = (vec3<f32>(0.5) + (cos(((_i0a0 + _i0_ph) * 6.283)) * 0.5));
+  let col = (_i0ret * (1.0 - inside));
   return vec4<f32>(col, 1.0);
 }

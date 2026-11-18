@@ -11,14 +11,6 @@ uniform sampler2D albedo;
 layout(std140) uniform Tint {
   vec4 rgb;
 } tint;
-vec4 sharp_grad(vec2 uv, vec2 hoist_gx_h0, vec2 hoist_gy_h1) {
-  return textureGrad(albedo, uv, hoist_gx_h0, hoist_gy_h1);
-}
-
-vec4 wide_grad(vec2 uv, vec2 hoist_gx_h0, vec2 hoist_gy_h1) {
-  vec2 inner = (uv * 0.5);
-  return textureGrad(albedo, inner, hoist_gx_h0, hoist_gy_h1);
-}
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
@@ -32,9 +24,12 @@ vec4 fs_impl(VsOut v) {
   vec2 hoist_gx_h3 = dFdx(inner_h2);
   vec2 hoist_gy_h4 = dFdy(inner_h2);
   if ((v.uv.x > 0.5)) {
-    base = sharp_grad(v.uv, hoist_gx_h1, hoist_gy_h2);
+    base = textureGrad(albedo, v.uv, hoist_gx_h1, hoist_gy_h2);
   } else {
-    base = wide_grad(v.uv, hoist_gx_h3, hoist_gy_h4);
+    vec2 _i0a0 = v.uv;
+    vec2 _i0_inner = (_i0a0 * 0.5);
+    vec4 _i0ret = textureGrad(albedo, _i0_inner, hoist_gx_h3, hoist_gy_h4);
+    base = _i0ret;
   }
   if ((tint.rgb.w > 0.5)) {
     vec2 near = (v.uv * 0.75);

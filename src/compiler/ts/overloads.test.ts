@@ -40,9 +40,10 @@ export function lum(c: vec3): f32 {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl?.match(/fn lum\(/g)).toHaveLength(1);
-    expect(r.wgsl).toContain('fn lum(c: vec3<f32>) -> f32 {');
-    expect(r.glsl?.fragment?.match(/float lum\(/g)).toHaveLength(1);
+    expect(r.module.funcs.filter((f) => f.name === 'lum')).toHaveLength(1);
+    expect(r.wgsl?.match(/fn lum\(/g) ?? []).toHaveLength(0);
+    expect(r.wgsl).toContain('dot(');
+    expect(r.glsl?.fragment?.match(/float lum\(/g) ?? []).toHaveLength(0);
     agree(r, [0.2126, 0, 0, 1]);
   });
 
@@ -59,7 +60,8 @@ namespace Color {
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl?.match(/fn Color_lum\(/g)).toHaveLength(1);
+    expect(r.module.funcs.filter((f) => f.name === 'Color_lum')).toHaveLength(1);
+    expect(r.wgsl?.match(/fn Color_lum\(/g) ?? []).toHaveLength(0);
     agree(r, [0.7152, 0, 0, 1]);
   });
 
@@ -93,7 +95,9 @@ class C {
     // emitted only as the `_into` copies that build into them.
     expect(wgsl.match(/fn C_mk_into\(/g)).toHaveLength(1);
     expect(wgsl.match(/fn C_new_into\(/g)).toHaveLength(1);
-    expect(r.wgsl).toMatch(/fn _flow\d+_fused\(/);
+    for (const name of ['C_at', 'C_mk_into', 'C_new_into']) {
+      expect(r.wgsl?.match(new RegExp(`fn ${name}\\(`, 'g')) ?? [], name).toHaveLength(0);
+    }
     agree(r, [10, 15, 0, 1]);
   });
 });

@@ -11,11 +11,6 @@ struct VsOut {
 
 @group(0) @binding(0) var<uniform> U: Uniforms;
 
-fn screenCoords(uv: vec2<f32>, resolution: vec2<f32>) -> vec2<f32> {
-  let asp = (resolution.x / resolution.y);
-  return vec2<f32>((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -27,9 +22,13 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let t = U.time;
   let res = U.resolution;
-  let p = screenCoords(vo.uv, res);
-  let r = length(p);
-  let a = atan2(p.y, p.x);
+  let _i0a0 = vo.uv;
+  let _i0_asp = (res.x / res.y);
+  let _gv0 = (((_i0a0.x * 2.0) - 1.0) * _i0_asp);
+  let _gv1 = ((_i0a0.y * 2.0) - 1.0);
+  let _i0ret = vec2<f32>(_gv0, _gv1);
+  let r = length(_i0ret);
+  let a = atan2(_gv1, _gv0);
   let depth = ((0.3 / max(r, 0.001)) + (t * 1.4));
   let ang = ((a / 3.14159265) + ((depth * U.twist) * 0.08));
   let cw = (sin((ang * 12.566)) * sin((depth * 9.4248)));

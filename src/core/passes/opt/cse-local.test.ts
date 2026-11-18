@@ -1,3 +1,4 @@
+import { keepHelpers } from '../../testing/keep-helpers.js';
 import { describe, expect, it } from 'vitest';
 import {
   module,
@@ -325,16 +326,19 @@ function run(k: f32): vec4f {
   return { color: run(p.x) };
 }`;
 
-  it('binds the repeat of the statement that writes nothing, on both targets', () => {
-    const r = compile(SRC);
-    expect(r.diagnostics).toEqual([]);
-    const run = (text: string, from: string): string => text.slice(text.indexOf(from));
-    expect(run(r.wgsl!, 'fn run(').match(/Big_sum\(/g)).toHaveLength(1);
-    expect(run(r.glsl!.fragment, 'vec4 run(').match(/Big_sum\(/g)).toHaveLength(1);
-    expect(r.wgsl).toContain('return vec4<f32>(_lc0, _lc0, 0.0, 1.0);');
-    // The statement that writes is left as it was.
-    expect(r.wgsl).toContain('Big_bump(&b, k);');
-  });
+  it(
+    'binds the repeat of the statement that writes nothing, on both targets',
+    keepHelpers(() => {
+      const r = compile(SRC);
+      expect(r.diagnostics).toEqual([]);
+      const run = (text: string, from: string): string => text.slice(text.indexOf(from));
+      expect(run(r.wgsl!, 'fn run(').match(/Big_sum\(/g)).toHaveLength(1);
+      expect(run(r.glsl!.fragment, 'vec4 run(').match(/Big_sum\(/g)).toHaveLength(1);
+      expect(r.wgsl).toContain('return vec4<f32>(_lc0, _lc0, 0.0, 1.0);');
+      // The statement that writes is left as it was.
+      expect(r.wgsl).toContain('Big_bump(&b, k);');
+    }),
+  );
 
   it('preserves oracle values', () => {
     const m = compile(SRC).module;

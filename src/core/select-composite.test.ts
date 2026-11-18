@@ -79,9 +79,11 @@ describe('an array conditional, which the same driver refuses the same way', () 
   it('hoists into a slot of its own type on both targets', () => {
     const r = compile(ARRAYS);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('  var _sel0: array<f32, 2>;');
-    expect(r.wgsl).toContain('    _sel0 = xs;');
-    expect(r.glsl!.fragment).toContain('  float[2] _sel0;');
+    expect(r.wgsl).toContain('  var zs: array<f32, 2>;');
+    expect(r.wgsl).toContain('    zs = xs;');
+    expect(r.wgsl).not.toContain('_sel0');
+    expect(r.glsl!.fragment).toContain('  float[2] zs;');
+    expect(r.glsl!.fragment).toContain('    zs = xs;');
     expect(r.glsl!.fragment).not.toContain('? xs :');
   });
 });

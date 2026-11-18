@@ -23,6 +23,7 @@
 // these same strings on ANGLE — a prototype wrongly dropped is a link error there, and an
 // entry wrongly merged is a compile error.
 
+import { keepHelpers } from '../testing/keep-helpers.js';
 import { describe, it, expect } from 'vitest';
 import { emitGlslModule } from 'typeshade';
 import { f32T, vec2fT, vec4fT } from 'typeshade/core/ir';
@@ -79,15 +80,18 @@ const orderedModule = (): ModuleDecl =>
   dslModule({ uses: [IoOut], funcs: [outer, inner, vsEntry] });
 
 describe('glsl-es300 — the fn section is emitted in dependency order (X-GIS #1858)', () => {
-  it('defines a callee BEFORE its caller even when the module declares them the other way', () => {
-    const vs = emitGlslModule(orderedModule(), 'vertex');
-    const at = { inner: defAt(vs, 'inner'), outer: defAt(vs, 'outer') };
-    expect(at.inner, 'inner must be defined').toBeGreaterThan(-1);
-    expect(at.outer, 'outer must be defined').toBeGreaterThan(-1);
-    // The ASSERTION that distinguishes the fix from the bug: offsets, not a substring —
-    // the pre-fix emitter produced both definitions too, just in the other order.
-    expect(at.inner).toBeLessThan(at.outer);
-  });
+  it(
+    'defines a callee BEFORE its caller even when the module declares them the other way',
+    keepHelpers(() => {
+      const vs = emitGlslModule(orderedModule(), 'vertex');
+      const at = { inner: defAt(vs, 'inner'), outer: defAt(vs, 'outer') };
+      expect(at.inner, 'inner must be defined').toBeGreaterThan(-1);
+      expect(at.outer, 'outer must be defined').toBeGreaterThan(-1);
+      // The ASSERTION that distinguishes the fix from the bug: offsets, not a substring —
+      // the pre-fix emitter produced both definitions too, just in the other order.
+      expect(at.inner).toBeLessThan(at.outer);
+    }),
+  );
 
   it('emits NO prototype once the order carries define-before-use', () => {
     expect(protosIn(emitGlslModule(orderedModule(), 'vertex'))).toEqual([]);
@@ -272,19 +276,22 @@ describe('glsl-es300 — the entry IO struct is never built (X-GIS #1867)', () =
     expect(emitGlslModule(orderedModule(), 'vertex')).not.toContain('struct IoOut');
   });
 
-  it('KEEPS the aggregate for a param handed WHOLE to a helper', () => {
-    // The `compute_line_color(LineOut)` shape, which is why the check counts uses rather
-    // than assuming. The gather, the local AND the decl must all survive here.
-    const take = fn('take_whole', { v: IoOut }, f32T, ({ v }) => v.uv.x);
-    const fsPass = fn('fs_pass', { inp: IoOut }, ({ inp }) => vec4(take({ v: inp }), 0, 0, 1), {
-      stage: 'fragment',
-      retAttr: location(0, vec4fT),
-    });
-    const fs = emitGlslModule(dslModule({ uses: [IoOut], funcs: [take, fsPass] }), 'fragment');
-    expect(fs).toContain('struct IoOut');
-    expect(fs).toMatch(/^ {2}IoOut inp;$/m);
-    expect(fs).toContain('take_whole(inp)');
-  });
+  it(
+    'KEEPS the aggregate for a param handed WHOLE to a helper',
+    keepHelpers(() => {
+      // The `compute_line_color(LineOut)` shape, which is why the check counts uses rather
+      // than assuming. The gather, the local AND the decl must all survive here.
+      const take = fn('take_whole', { v: IoOut }, f32T, ({ v }) => v.uv.x);
+      const fsPass = fn('fs_pass', { inp: IoOut }, ({ inp }) => vec4(take({ v: inp }), 0, 0, 1), {
+        stage: 'fragment',
+        retAttr: location(0, vec4fT),
+      });
+      const fs = emitGlslModule(dslModule({ uses: [IoOut], funcs: [take, fsPass] }), 'fragment');
+      expect(fs).toContain('struct IoOut');
+      expect(fs).toMatch(/^ {2}IoOut inp;$/m);
+      expect(fs).toContain('take_whole(inp)');
+    }),
+  );
 
   it('KEEPS the gather when a body local would CAPTURE the substituted read', () => {
     // The X-GIS #1858 `seg_id` hazard in its second form, and just as silent: substituting

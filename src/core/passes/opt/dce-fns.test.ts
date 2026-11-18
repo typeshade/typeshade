@@ -106,7 +106,7 @@ describe('optimize — dead-function elimination (tree-shaking)', () => {
       ],
     });
     const wgsl = emitModule(deadFnElim(m));
-    expect(wgsl).toContain('fn used(');
+    expect(wgsl).toContain('(x * 2.0)');
     expect(wgsl).toContain('fn main(');
     expect(wgsl).not.toContain('fn unused(');
     expect(wgsl).not.toContain('99');

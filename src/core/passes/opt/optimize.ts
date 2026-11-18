@@ -206,7 +206,7 @@ export function irEqual(a: unknown, b: unknown): boolean {
  *  consts / structs / bindings ride along via `{ ...m }`.
  *
  *  ⚠ INVARIANT: this is correct ONLY while every pass is per-function-pure. A
- *  CROSS-function pass (inline, deadFnElim — both deliberately UNWIRED, see
+ *  CROSS-function pass (deadFnElim — deliberately UNWIRED, see
  *  DEFAULT_PASSES) run on a one-function module would see a different module than
  *  the whole and silently diverge. `fixpoint-ireq.test.ts` pins per-function ≡
  *  whole-module on the real projection module so wiring such a pass fails loudly.

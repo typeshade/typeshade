@@ -17,31 +17,6 @@ struct Hit {
   _opt_vec2_f32_ normal;
   _opt_f32_ radius;
 };
-Hit Hit_new() {
-  Hit self_ = Hit(0.0, _opt_vec2_f32_(vec2(0.0, 0.0), false), _opt_f32_(0.0, false));
-  return self_;
-}
-
-Hit intersect(vec2 o, vec2 d, float r) {
-  Hit h = Hit_new();
-  float b = dot(o, d);
-  float c = (dot(o, o) - (r * r));
-  float disc = ((b * b) - c);
-  h.t = 1000.0;
-  h.radius = _opt_f32_(r, true);
-  if ((disc < 0.0)) {
-    return h;
-  }
-  float t = ((-b) - sqrt(disc));
-  if ((t < 0.0)) {
-    h.t = 0.0;
-    return h;
-  }
-  h.t = t;
-  h.normal = _opt_vec2_f32_(normalize((o + (d * t))), true);
-  return h;
-}
-
 float shadeOf(Hit h, vec2 light) {
   float _cse0 = (h.radius.present ? h.radius.value : 0.0);
   if (h.normal.present) {
@@ -64,20 +39,40 @@ float sampleAll(_opt_f32_[4] samples) {
   float s_4 = (s_3 + (samples[3].present ? samples[3].value : 0.0));
   return s_4;
 }
-
-float _flow7_fused(float _flow2_input, vec2 _flow4_input) {
-  return (_flow2_input * 0.5);
-}
 in vec2 uv;
 layout(location = 0) out vec4 color;
 
 void main() {
   vec2 o = ((uv * 2.0) - vec2(1.0, 1.0));
+  vec2 _i1a0 = (o - vec2(0.0, 2.0));
   vec2 _cse0 = vec2(0.0, 1.0);
-  Hit hit = intersect((o - vec2(0.0, 2.0)), _cse0, 0.5);
+  Hit _i1ret = Hit(0.0, _opt_vec2_f32_(vec2(0.0), false), _opt_f32_(0.0, false));
+  _opt_vec2_f32_ _cse1 = _opt_vec2_f32_(vec2(0.0, 0.0), false);
+  _opt_f32_ _cse2 = _opt_f32_(0.0, false);
+  Hit _i1_h = Hit(0.0, _cse1, _cse2);
+  float _i1_b = dot(_i1a0, _cse0);
+  float _i1_c = (dot(_i1a0, _i1a0) - 0.25);
+  float _i1_disc = ((_i1_b * _i1_b) - _i1_c);
+  _i1_h.t = 1000.0;
+  _i1_h.radius = _opt_f32_(0.5, true);
+  if ((_i1_disc < 0.0)) {
+    _i1ret = _i1_h;
+  } else {
+    float _i1_t = ((-_i1_b) - sqrt(_i1_disc));
+    if ((_i1_t < 0.0)) {
+      _i1_h.t = 0.0;
+      _i1ret = _i1_h;
+    } else {
+      _i1_h.t = _i1_t;
+      _i1_h.normal = _opt_vec2_f32_(normalize((_i1a0 + (_cse0 * _i1_t))), true);
+      _i1ret = _i1_h;
+    }
+  }
+  Hit hit = _i1ret;
+  Hit flat_ = Hit(uv.x, _cse1, _cse2);
   float r = shadeOf(hit, normalize(vec2(0.3, 1.0)));
-  _opt_f32_ _cse1 = _opt_f32_(0.0, false);
-  _opt_f32_[4] samples = _opt_f32_[4](_opt_f32_(uv.x, true), _cse1, _opt_f32_(uv.y, true), _cse1);
-  float b = (clampTo(sampleAll(samples), _opt_f32_(0.75, true)) + clampTo((uv.x * 0.1), _cse1));
-  color = vec4(r, _flow7_fused(uv.x, _cse0), b, 1.0);
+  float g = shadeOf(flat_, _cse0);
+  _opt_f32_[4] samples = _opt_f32_[4](_opt_f32_(uv.x, true), _cse2, _opt_f32_(uv.y, true), _cse2);
+  float b = (clampTo(sampleAll(samples), _opt_f32_(0.75, true)) + clampTo((uv.x * 0.1), _cse2));
+  color = vec4(r, g, b, 1.0);
 }

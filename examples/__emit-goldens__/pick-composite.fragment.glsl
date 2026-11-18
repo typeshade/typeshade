@@ -25,13 +25,12 @@ void main() {
   Palette shade = _sel0;
   float[3] rising = float[3](0.15, 0.5, 0.9);
   float[3] falling = float[3](0.9, 0.5, 0.15);
-  float[3] _sel1;
+  float[3] steps;
   if ((uv.y > 0.5)) {
-    _sel1 = rising;
+    steps = rising;
   } else {
-    _sel1 = falling;
+    steps = falling;
   }
-  float[3] steps = _sel1;
   int band = _f2i(floor((uv.y * 3.0)));
   float t = smoothstep(0.0, 1.0, steps[band]);
   _ret = vec4(mix(shade.lo, shade.hi, t), 1.0);

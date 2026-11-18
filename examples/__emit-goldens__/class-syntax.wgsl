@@ -17,10 +17,6 @@ struct Ring {
 
 var<private> Ring_drawn: f32 = 0.0;
 
-fn Ring_get_width(self_: ptr<function, Ring>) -> f32 {
-  return (*self_).width;
-}
-
 fn Ring_set_width(self_: ptr<function, Ring>, w: f32) {
   (*self_).width = max(w, Ring_MIN_WIDTH);
 }
@@ -29,16 +25,8 @@ fn Ring_set_relativeWidth(self_: ptr<function, Ring>, f: f32) {
   Ring_set_width(self_, ((*self_).radius * f));
 }
 
-fn Ring_distance(self_: ptr<function, Ring>, p: vec2<f32>) -> f32 {
-  return (abs((length((p - (*self_).center)) - (*self_).radius)) - ((*self_).width * 0.5));
-}
-
 fn Ring_coverage(self_: ptr<function, Ring>, p: vec2<f32>) -> f32 {
-  return (1.0 - smoothstep(0.0, 0.012, Ring_distance(self_, p)));
-}
-
-fn Ring_get_unit_into(_dst: ptr<function, Ring>) {
-  Ring_new_into(_dst, vec2<f32>(0.0), 0.5);
+  return (1.0 - smoothstep(0.0, 0.012, (abs((length((p - (*self_).center)) - (*self_).radius)) - ((*self_).width * 0.5))));
 }
 
 fn Ring_count() {
@@ -62,11 +50,11 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs(v: VsOut) -> FsOut {
   var a: Ring;
-  Ring_get_unit_into(&a);
+  Ring_new_into(&a, vec2<f32>(0.0), 0.5);
   Ring_set_relativeWidth(&a, 0.16);
   var b: Ring;
   Ring_new_into(&b, vec2<f32>(0.35, 0.2), 0.3);
-  Ring_set_width(&b, (Ring_get_width(&b) - 0.1));
+  Ring_set_width(&b, (b.width - 0.1));
   Ring_count();
   Ring_count();
   let ink = max(Ring_coverage(&a, v.uv), Ring_coverage(&b, v.uv));

@@ -31,6 +31,7 @@ import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { dispatchCompute } from '../../core/debug/dispatch.js';
 import { fnWrites } from '../../core/passes/effects.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 const LOCAL = `"use typeshade";
 class P {
@@ -51,16 +52,19 @@ class P {
 `;
 
 describe('WGSL spells it as a pointer, and reads through it', () => {
-  it('the parameter, the body and the argument', () => {
-    const r = compile(LOCAL);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn P_bump(self_: ptr<function, P>, d: f32) {');
-    expect(r.wgsl).toContain('  (*self_).v = ((*self_).v + d);');
-    expect(r.wgsl).toContain('  P_bump(&p, 0.25);');
-    // A method that only reads keeps its object by value, as every method did before.
-    expect(r.wgsl).toContain('fn P_doubled(self_: ptr<function, P>) -> f32 {');
-    expect(r.wgsl).toContain('P_doubled(&p)');
-  });
+  it(
+    'the parameter, the body and the argument',
+    keepHelpers(() => {
+      const r = compile(LOCAL);
+      expect(r.diagnostics).toEqual([]);
+      expect(r.wgsl).toContain('fn P_bump(self_: ptr<function, P>, d: f32) {');
+      expect(r.wgsl).toContain('  (*self_).v = ((*self_).v + d);');
+      expect(r.wgsl).toContain('  P_bump(&p, 0.25);');
+      // A method that only reads keeps its object by value, as every method did before.
+      expect(r.wgsl).toContain('fn P_doubled(self_: ptr<function, P>) -> f32 {');
+      expect(r.wgsl).toContain('P_doubled(&p)');
+    }),
+  );
 
   it('a pointer the function already holds is passed on, not addressed again', () => {
     const r = compile(`"use typeshade";
@@ -87,17 +91,20 @@ class P {
 });
 
 describe('GLSL ES 3.00 spells it inout, with no pointer and one function', () => {
-  it('the parameter, the body and the argument', () => {
-    const r = compile(LOCAL);
-    expect(r.diagnostics).toEqual([]);
-    const g = r.glsl!.fragment;
-    expect(g).toContain('void P_bump(inout P self_, float d) {');
-    expect(g).toContain('  self_.v = (self_.v + d);');
-    expect(g).toContain('  P_bump(p, 0.25);');
-    expect(g).toContain('float P_doubled(P self_) {');
-    // No address-of anywhere: GLSL's inout takes the l-value as written.
-    expect(g).not.toContain('&');
-  });
+  it(
+    'the parameter, the body and the argument',
+    keepHelpers(() => {
+      const r = compile(LOCAL);
+      expect(r.diagnostics).toEqual([]);
+      const g = r.glsl!.fragment;
+      expect(g).toContain('void P_bump(inout P self_, float d) {');
+      expect(g).toContain('  self_.v = (self_.v + d);');
+      expect(g).toContain('  P_bump(p, 0.25);');
+      expect(g).toContain('float P_doubled(P self_) {');
+      // No address-of anywhere: GLSL's inout takes the l-value as written.
+      expect(g).not.toContain('&');
+    }),
+  );
 });
 
 describe('one WGSL function per address space its calls use', () => {

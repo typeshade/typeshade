@@ -10,11 +10,6 @@ layout(std140) uniform Uniforms {
 int _f2i(float x) {
   return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
 }
-vec2 screenCoords(vec2 uv, vec2 resolution) {
-  float asp = (resolution.x / resolution.y);
-  return vec2((((uv.x * 2.0) - 1.0) * asp), ((uv.y * 2.0) - 1.0));
-}
-
 uint hash32(uint x) {
   uint a = ((x ^ (x >> 16u)) * 2246822519u);
   uint b = ((a ^ (a >> 13u)) * 3266489917u);
@@ -42,7 +37,10 @@ layout(location = 0) out vec4 _ret;
 void main() {
   float t = U.time;
   vec2 res = U.resolution;
-  vec2 p = (screenCoords(uv, res) * 1.8);
+  vec2 _i0a0 = uv;
+  float _i0_asp = (res.x / res.y);
+  vec2 _i0ret = vec2((((_i0a0.x * 2.0) - 1.0) * _i0_asp), ((_i0a0.y * 2.0) - 1.0));
+  vec2 p = (_i0ret * 1.8);
   float w = U.warp;
   vec2 q = vec2(fbm(p), fbm((p + vec2(5.2, 1.3))));
   vec2 pq = (p + (q * w));

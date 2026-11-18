@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type ts from 'typescript';
 import { compile } from '../compiler/ts/compile.js';
+import { keepHelpers } from '../core/testing/keep-helpers.js';
 import {
   analyzeSourceFile,
   createTypeshadeLanguageService,
@@ -24,7 +25,7 @@ import {
 type Files = Readonly<Record<string, string>>;
 
 const compiled = (files: Files, entry: string) =>
-  compile(files[entry]!, { fileName: entry, readDocument: (name) => files[name] });
+  keepHelpers(compile)(files[entry]!, { fileName: entry, readDocument: (name) => files[name] });
 
 const errorsOf = (files: Files, entry: string): string[] =>
   compiled(files, entry)
@@ -71,7 +72,6 @@ const lines = (signature: string, ...each: string[]): string =>
   [bare(signature), ...each].join('\n\n');
 
 const LIB = '/p/lib.shade.ts';
-
 const MAIN = '/p/main.shade.ts';
 
 const DECLARATIONS = `

@@ -217,6 +217,18 @@ function lowerSubStmts(s: Stmt, cx: Cx): Stmt {
   }
 }
 
+const isFixedArray = (t: ShaderType): boolean => t.kind === 'array' && t.size !== undefined;
+
+function directSelect(s: Stmt): { slot: Expr; value: Expr } | undefined {
+  if (s.s === 'var' && s.init !== undefined && isFixedArray(s.type))
+    return { slot: { op: 'varref', type: s.type, name: s.name }, value: s.init };
+  if (s.s === 'let' && isFixedArray(s.expr.type))
+    return { slot: { op: 'varref', type: s.expr.type, name: s.name }, value: s.expr };
+  if (s.s === 'assign' && s.target.op === 'varref' && isFixedArray(s.target.type))
+    return { slot: s.target, value: s.expr };
+  return undefined;
+}
+
 function hoistComposites(s: Stmt, cx: Cx): { hoisted: Stmt[]; rewritten: Stmt } {
   const hoisted: Stmt[] = [];
   const counter = cx.counter;
@@ -236,6 +248,22 @@ function hoistComposites(s: Stmt, cx: Cx): { hoisted: Stmt[]; rewritten: Stmt } 
     );
     return slot;
   };
+  const sel = directSelect(s);
+  if (sel !== undefined && isHoisted(sel.value, cx) && sel.value.op === 'select') {
+    const cond = mapExpr(sel.value.cond, visit);
+    const ifTrue = mapExpr(sel.value.ifTrue, visit);
+    const ifFalse = mapExpr(sel.value.ifFalse, visit);
+    if (s.s === 'var' || s.s === 'let')
+      hoisted.push({ s: 'var', name: s.name, type: sel.value.type, span: s.span });
+    return {
+      hoisted,
+      rewritten: {
+        s: 'if',
+        arms: [{ cond, body: [{ s: 'assign', target: sel.slot, expr: ifTrue }] }],
+        elseBody: [{ s: 'assign', target: sel.slot, expr: ifFalse }],
+      },
+    };
+  }
   // Only this statement's OWN expressions: its nested blocks were lowered by `lowerSubStmts`
   // above, and hoisting out of one would move the arms to where the block does not run.
   const rewritten = mapStmtExpr(

@@ -1,5 +1,6 @@
 // ═══ mangleModule / emit-prod mangle() plugin — rename scope, ABI boundary, determinism ═══
 
+import { keepHelpers } from '../testing/keep-helpers.js';
 import { describe, it, expect } from 'vitest';
 import {
   fn,
@@ -64,15 +65,18 @@ const fsEntry = fn(
 const m = module({ funcs: [vsEntry, fsEntry], uses: [U, VsOut] });
 
 describe('emit-prod mangle() plugin through the { plugins } seam — authored vocabulary disappears', () => {
-  it('WGSL: helper + plain-struct names are renamed; the renames map records them', () => {
-    const renames = new Map<string, string>();
-    const wgsl = emitModule(m, { plugins: [mangle({ renames })] });
-    expect(wgsl).not.toContain('terrain_shade');
-    expect(wgsl).not.toContain('MangleVsOut');
-    expect(wgsl).not.toMatch(/\bdf64_/); // the injected df64 library is vocabulary too
-    expect(renames.get('terrain_shade')).toMatch(SHORT);
-    expect(renames.get('MangleVsOut')).toMatch(SHORT);
-  });
+  it(
+    'WGSL: helper + plain-struct names are renamed; the renames map records them',
+    keepHelpers(() => {
+      const renames = new Map<string, string>();
+      const wgsl = emitModule(m, { plugins: [mangle({ renames })] });
+      expect(wgsl).not.toContain('terrain_shade');
+      expect(wgsl).not.toContain('MangleVsOut');
+      expect(wgsl).not.toMatch(/\bdf64_/); // the injected df64 library is vocabulary too
+      expect(renames.get('terrain_shade')).toMatch(SHORT);
+      expect(renames.get('MangleVsOut')).toMatch(SHORT);
+    }),
+  );
 
   it('WGSL: the ABI boundary survives — entries, binding names, UBO struct, fields, guard', () => {
     const wgsl = emitModule(m, { plugins: [mangle()] });
@@ -85,11 +89,14 @@ describe('emit-prod mangle() plugin through the { plugins } seam — authored vo
     expect(wgsl).toContain('sin('); // builtins are not module fns — never renamed
   });
 
-  it('is deterministic (same bytes twice) and default-off (no-plugins emit unchanged)', () => {
-    expect(emitModule(m, { plugins: [mangle()] })).toBe(emitModule(m, { plugins: [mangle()] }));
-    expect(emitModule(m)).toBe(emitModule(m, { plugins: [] }));
-    expect(emitModule(m)).toContain('terrain_shade');
-  });
+  it(
+    'is deterministic (same bytes twice) and default-off (no-plugins emit unchanged)',
+    keepHelpers(() => {
+      expect(emitModule(m, { plugins: [mangle()] })).toBe(emitModule(m, { plugins: [mangle()] }));
+      expect(emitModule(m)).toBe(emitModule(m, { plugins: [] }));
+      expect(emitModule(m)).toContain('terrain_shade');
+    }),
+  );
 
   it('X-GIS #923: a specialization-constant module still emits its `override` through mangle', () => {
     // mangle rebuilds the module; before the `...m` spread it whitelisted only
@@ -114,22 +121,25 @@ describe('emit-prod mangle() plugin through the { plugins } seam — authored vo
     expect(wgsl).not.toContain('override_shade'); // the helper name IS still mangled
   });
 
-  it('GLSL: the two stage emits agree on every shared mangled name (link contract)', () => {
-    const rv = new Map<string, string>();
-    const rf = new Map<string, string>();
-    const vs = emitGlslModule(m, 'vertex', { plugins: [mangle({ renames: rv })] });
-    const fs = emitGlslModule(m, 'fragment', { plugins: [mangle({ renames: rf })] });
-    expect(rv.get('terrain_shade')).toBe(rf.get('terrain_shade'));
-    const shared = rv.get('terrain_shade')!;
-    expect(vs).toContain(`${shared}(`);
-    expect(fs).toContain(`${shared}(`);
-    // varyings still link by their authored field name; the UBO block tag survives.
-    expect(vs).toMatch(/^out vec2 uv;$/m);
-    expect(fs).toMatch(/^in vec2 uv;$/m);
-    expect(fs).toMatch(/layout\(std140\) uniform TerrainParams \{[\s\S]*\} params;/);
-    expect(fs).toContain('texelFetch(_fp64, ivec2(0, 0), 0).x');
-    expect(fs).not.toMatch(/\bdf64_/);
-  });
+  it(
+    'GLSL: the two stage emits agree on every shared mangled name (link contract)',
+    keepHelpers(() => {
+      const rv = new Map<string, string>();
+      const rf = new Map<string, string>();
+      const vs = emitGlslModule(m, 'vertex', { plugins: [mangle({ renames: rv })] });
+      const fs = emitGlslModule(m, 'fragment', { plugins: [mangle({ renames: rf })] });
+      expect(rv.get('terrain_shade')).toBe(rf.get('terrain_shade'));
+      const shared = rv.get('terrain_shade')!;
+      expect(vs).toContain(`${shared}(`);
+      expect(fs).toContain(`${shared}(`);
+      // varyings still link by their authored field name; the UBO block tag survives.
+      expect(vs).toMatch(/^out vec2 uv;$/m);
+      expect(fs).toMatch(/^in vec2 uv;$/m);
+      expect(fs).toMatch(/layout\(std140\) uniform TerrainParams \{[\s\S]*\} params;/);
+      expect(fs).toContain('texelFetch(_fp64, ivec2(0, 0), 0).x');
+      expect(fs).not.toMatch(/\bdf64_/);
+    }),
+  );
 });
 
 describe('mangleModule — direct pass contracts', () => {

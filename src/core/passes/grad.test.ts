@@ -10,6 +10,7 @@ import { compileModule } from '../oracle.js';
 import { compileModuleJs } from '../cpu-codegen.js';
 import { emitModule } from '../backends/wgsl.js';
 import { emitGlslModule } from '../backends/glsl.js';
+import { keepHelpers } from '../testing/keep-helpers.js';
 import { TypeShadeError } from '../diagnostics/error.js';
 import { grad } from './grad.js';
 import type { Expr, FuncDecl, ModuleDecl } from '../ir/nodes.js';
@@ -483,19 +484,17 @@ function withFragmentCalling(m: ModuleDecl, fn: string): ModuleDecl {
 
 describe('grad: the generated function is ordinary IR on every target', () => {
   it('emits WGSL and GLSL ES 3.00, and leaves the rest of the module as it was', () => {
-    const m = moduleOf(`function g(a: f32): f32 {
-  return a * a
-}
+    const m = moduleOf(`function g(a: f32): f32 { return a * a }
 export function f(x: f32, k: f32): f32 {
   return sin(g(k) * x) + smoothstep(0., 1., k) * length(vec2(x, k))
 }`);
     const d = grad(m, 'f', 'k');
     expect(d.module.funcs.slice(0, m.funcs.length)).toEqual(m.funcs);
     const withEntry = withFragmentCalling(d.module, d.name);
-    const wgsl = emitModule(withEntry);
+    const wgsl = keepHelpers(emitModule)(withEntry);
     expect(wgsl).toContain('fn f_d_k(x: f32, k: f32) -> f32');
     expect(wgsl).toContain('fn g_jvp(a: f32, d_a: f32) -> f32');
-    const glsl = emitGlslModule(withEntry, 'fragment');
+    const glsl = keepHelpers(emitGlslModule)(withEntry, 'fragment');
     expect(glsl).toContain('float f_d_k(float x, float k)');
     expect(glsl).toContain('float g_jvp(float a, float d_a)');
   });

@@ -13,6 +13,7 @@
 // what the old strip would have produced, so a future change that makes the header
 // regex-shaped again fails here rather than in someone's pixel suite.
 
+import { keepHelpers } from './testing/keep-helpers.js';
 import { describe, it, expect } from 'vitest';
 import {
   fn,
@@ -82,16 +83,19 @@ describe('emitGlslFragment — the preamble is data, not a prefix to strip', () 
     }
   });
 
-  it('entry points are excluded by default but still reported', () => {
-    const f = emitGlslFragment(plain, 'fragment');
-    expect(f.source).not.toContain('void main()');
-    expect(f.declares.entryPoints).toEqual(['fs_main']);
-    expect(f.declares.functions).toContain('shade');
-    // …and opting in brings them back.
-    expect(emitGlslFragment(plain, 'fragment', { entryPoints: true }).source).toContain(
-      'void main()',
-    );
-  });
+  it(
+    'entry points are excluded by default but still reported',
+    keepHelpers(() => {
+      const f = emitGlslFragment(plain, 'fragment');
+      expect(f.source).not.toContain('void main()');
+      expect(f.declares.entryPoints).toEqual(['fs_main']);
+      expect(f.declares.functions).toContain('shade');
+      // …and opting in brings them back.
+      expect(emitGlslFragment(plain, 'fragment', { entryPoints: true }).source).toContain(
+        'void main()',
+      );
+    }),
+  );
 
   it('declares names the bindings the fragment brings', () => {
     expect(emitGlslFragment(withIntTexture, 'fragment').declares.bindings).toEqual(['u_data']);

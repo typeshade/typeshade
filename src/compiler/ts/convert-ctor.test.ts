@@ -199,7 +199,7 @@ describe('vecN<T>(...) names the element, and vecN() is the zero', () => {
 
   it('emits the element the type argument named, on both targets', () => {
     const r = compile(`"use typeshade";
-function pick(u: vec3<u32>, z: vec3f): f32 { return f32(u.x) + z.x; }
+function pick(u: vec3<u32>, z: vec3f): f32 { let s = 0.; for (let i: u32 = 0; i < 2; i++) { s += f32(u[i]) + z[i]; } return s; }
 @fragment export function fs(): vec4 {
   const u = vec3<u32>(1, 2, 3);
   const z = vec3();

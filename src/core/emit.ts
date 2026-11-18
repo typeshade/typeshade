@@ -21,7 +21,7 @@ import { lowerEmptyStructs } from './passes/empty-struct.js';
 import { settleConstExprs } from './passes/const-expr.js';
 import { fp64Lower, hoistGuardFetch, type Fp64Flavor } from './passes/fp64-lower.js';
 import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js';
-import { specializeCalls } from './passes/specialize-calls.js';
+import { specializeAndInline } from './passes/specialize-and-inline.js';
 import { restructureCalls } from './passes/restructure-calls.js';
 import { storageLoadReuse } from './passes/storage-load-reuse.js';
 import { spellExterns } from './passes/spell-externs.js';
@@ -467,7 +467,7 @@ function lowerFrom(
         selectComposite(
           fp64Lower(
             level === undefined || level === 'O2'
-              ? storageLoadReuse(restructureCalls(specializeCalls(lowerModule(autoVars(m)))))
+              ? storageLoadReuse(restructureCalls(specializeAndInline(lowerModule(autoVars(m)))))
               : lowerModule(autoVars(m)),
             fp64Flavor ? { flavor: fp64Flavor } : undefined,
           ),
@@ -527,7 +527,7 @@ function lowerTimed(
   const av = step('autoVars', () => autoVars(m));
   const lm = step('lowerModule', () => lowerModule(av));
   const specialized = step('specializeCalls', () =>
-    level === undefined || level === 'O2' ? specializeCalls(lm) : lm,
+    level === undefined || level === 'O2' ? specializeAndInline(lm) : lm,
   );
   const restructured = step('restructureCalls', () =>
     level === undefined || level === 'O2' ? restructureCalls(specialized) : specialized,

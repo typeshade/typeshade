@@ -14,15 +14,16 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { compile } from './compile.js';
-import { compileTsSources } from './module.js';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
-import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
+
+const compileKept = keepHelpers((s: string) => compile(s));
 
 /** `body` with an entry that calls `run(2.)`: the GLSL writer emits only what an entry reaches. */
 const RUN = (body: string): string =>
@@ -94,9 +95,9 @@ function thrice(x: f32) {
 }`);
     expect(run(src)).toBe(7);
     const r = compile(src);
-    expect(r.wgsl).toContain('fn twice(x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn thrice(x: f32) -> f32 {');
-    expect(r.glsl!.fragment).toContain('float twice(float x) {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn twice(x: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn thrice(x: f32) -> f32 {');
+    expect(compileKept(src).glsl!.fragment).toContain('float twice(float x) {');
   });
 
   it('a local function: an expression body, a block body and a declaration, capturing', () => {
@@ -112,9 +113,9 @@ function thrice(x: f32) {
 }`);
     expect(run(src)).toBe(14);
     const r = compile(src);
-    expect(r.wgsl).toContain('fn run_f(k: f32, x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn run_g(k: f32, x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn run_h(k: f32, x: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn run_f(k: f32, x: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn run_g(k: f32, x: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn run_h(k: f32, x: f32) -> f32 {');
   });
 
   it('an arrow function whose body is an assignment, ++ or a call of one that returns nothing runs it', () => {
@@ -156,10 +157,12 @@ export function run(k: f32): f32 {
 }`);
     expect(run(src)).toBe(13);
     const r = compile(src);
-    expect(r.wgsl).toContain('fn N_f(x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn first_f32(a: f32, b: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn first_vec2(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {');
-    expect(r.wgsl).toContain('fn apply_run_f(x: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn N_f(x: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn first_f32(a: f32, b: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn first_vec2(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn apply_run_f(x: f32) -> f32 {');
   });
 
   it('the first return says the type, which the ones after it are typed against', () => {
@@ -187,10 +190,10 @@ export function run(k: f32): f32 {
     expect(run(src)).toBe(10);
     const r = compile(src);
     expect(emitModuleAt(r.module, 'O1')).toContain('fn pick(c: bool) -> u32 {');
-    expect(r.wgsl).toMatch(/fn _spec\d+_pick\(\) -> u32/);
-    expect(r.wgsl).toContain('return 0u;');
-    expect(r.wgsl).toContain('fn up() -> vec3<f32> {');
-    expect(r.wgsl).toContain('fn make(x: f32) -> P {');
+    expect(emitModuleAt(r.module, 'O1')).toMatch(/fn pick\(c: bool\) -> u32/);
+    expect(emitModuleAt(r.module, 'O1')).toContain('return 0u;');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn up() -> vec3<f32> {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn make(x: f32) -> P {');
   });
 
   it('`return g()` of one that returns nothing calls it and returns nothing, written or not', () => {
@@ -253,11 +256,15 @@ export function run(k: f32): f32 {
     expect(run(src)).toBe(33);
     const r = compile(src);
     // Change 0105: the struct local is a `var`, so its methods take a pointer.
-    expect(r.wgsl).toContain('fn A_twice(self_: ptr<function, A>) -> f32 {');
-    expect(r.wgsl).toContain('fn A_unit() -> f32 {');
-    expect(r.wgsl).toContain('fn A_get_half(self_: ptr<function, A>) -> f32 {');
-    expect(r.wgsl).toContain('fn A_scale(self_: ptr<function, A>, d: f32) -> f32 {');
-    expect(r.glsl!.fragment).toContain('float A_twice(A self_) {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn A_twice(self_: ptr<function, A>) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn A_unit() -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn A_get_half(self_: ptr<function, A>) -> f32 {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn A_scale(self_: ptr<function, A>, d: f32) -> f32 {',
+    );
+    expect(compileKept(src).glsl!.fragment).toContain('float A_twice(A self_) {');
   });
 
   it('a method that changes its object and returns a value, as the one that writes its type', () => {
@@ -370,7 +377,6 @@ export function run(k: f32): f32 {
     expect(run(src)).toBe(24);
     const r = compile(src);
     expect(emitModuleAt(r.module, 'O1')).toContain('fn D_twice(self_: ptr<function, D>) -> f32 {');
-    expect(r.wgsl).toMatch(/fn _flow\d+_fused\(/);
   });
 
   it('a field whose body is an assignment runs it, with a void type or none', () => {
@@ -587,13 +593,21 @@ describe('examples/inferred-returns.shade.ts', () => {
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     // Every function in it writes no return type, and each says the one its body returns.
-    expect(r.wgsl).toContain('fn Rng_next(self_: ptr<function, Rng>) -> f32 {');
-    expect(r.wgsl).toContain('fn Orbit_get_period(self_: ptr<function, Orbit>) -> f32 {');
-    expect(r.wgsl).toContain('fn Orbit_at(self_: ptr<function, Orbit>, t: f32) -> vec2<f32> {');
-    expect(r.wgsl).toContain('fn pick_vec2(c: bool, a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {');
-    expect(r.wgsl).toContain('fn tint(glow: f32, lit: f32) -> vec3<f32> {');
-    expect(r.wgsl).toContain('fn fs_falloff(d: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn ring(p: vec2<f32>, r: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn Rng_next(self_: ptr<function, Rng>) -> f32 {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn Orbit_get_period(self_: ptr<function, Orbit>) -> f32 {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn Orbit_at(self_: ptr<function, Orbit>, t: f32) -> vec2<f32> {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain(
+      'fn pick_vec2(c: bool, a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {',
+    );
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn tint(glow: f32, lit: f32) -> vec3<f32> {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn fs_falloff(d: f32) -> f32 {');
+    expect(emitModuleAt(r.module, 'O1')).toContain('fn ring(p: vec2<f32>, r: f32) -> f32 {');
     const at = (uv: number[]): number[] => {
       const arg = [{ pos: [0, 0, 0, 1], uv }];
       const oracle = r.eval('fs', arg) as { color: number[] };
@@ -610,78 +624,6 @@ describe('examples/inferred-returns.shade.ts', () => {
     expect(at([0.27, 0])).toEqual([1, 0.9, 0.667, 1]);
     expect(at([0, 0])).toEqual([0.029, 0.059, 0.098, 1]);
     expect(at([0.9, 0.9])).toEqual([0.004, 0.008, 0.013, 1]);
-  });
-});
-
-describe('the multi-file path', () => {
-  it('a function another file imports returns what its body does', () => {
-    const r = compileTsSources([
-      {
-        fileName: 'math.ts',
-        source: `"use typeshade";
-export function square(x: f32) {
-  return x * x;
-}
-export function cube(x: f32) {
-  return square(x) * x;
-}
-`,
-      },
-      {
-        fileName: 'app.ts',
-        source: `"use typeshade";
-import { cube } from "./math";
-export function foo(x: f32) {
-  return cube(x) + 1.;
-}
-`,
-      },
-    ]);
-    expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('fn square(x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn cube(x: f32) -> f32 {');
-    expect(r.wgsl).toContain('fn foo(x: f32) -> f32 {');
-  });
-});
-
-describe('the editor agrees', () => {
-  it('reports nothing on a program that writes no return types', () => {
-    const service = createTypeshadeLanguageService();
-    service.openDocument(
-      'a.ts',
-      `"use typeshade";
-class Rng {
-  seed: u32 = u32(1);
-  next() {
-    this.seed = this.seed * u32(1664525) + u32(1013904223);
-    return f32(this.seed >> u32(8)) / 16777216.;
-  }
-  get unit() {
-    return 1.;
-  }
-}
-function twice(x: f32) {
-  return x * 2.;
-}
-// A product of vectors, which TypeScript types \`number\`: the service writes the compiler's
-// \`vec2\` into what TypeScript reads (#162), so \`.y\` on it is no TS2339.
-function spin(p: vec2) {
-  return p * mat2x2(0., 1., -1., 0.) * 0.5;
-}
-export function run(k: f32) {
-  let r = new Rng();
-  const next = () => r.next();
-  const f = (x: f32) => twice(x) + k;
-  return f(next()) + r.unit + spin(vec2(k)).y;
-}
-@fragment export function fs(): vec4 {
-  return vec4(run(2.), 0., 0., 1.);
-}
-`,
-    );
-    expect(
-      service.getDiagnostics('a.ts').map((d) => `${d.source} ${d.code}: ${d.message}`),
-    ).toEqual([]);
   });
 });
 

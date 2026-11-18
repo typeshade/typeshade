@@ -14,9 +14,13 @@
 // TypeScript's limit and not this compiler's: a generic here composes calls, selects, indexes
 // and field reads.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
+import { setSmallInlining } from '../../core/passes/specialize-and-inline.js';
+
+beforeEach(() => setSmallInlining(false));
+afterEach(() => setSmallInlining(true));
 
 const errorsOf = (src: string) =>
   compileTsSource(src)

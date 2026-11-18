@@ -4,12 +4,9 @@ struct View {
 
 @group(0) @binding(0) var<uniform> view: View;
 
-fn height(p: vec2<f32>) -> f32 {
-  return (0.5 + ((0.25 * sin((6.2831853 * p.x))) * cos((6.2831853 * p.y))));
-}
-
 @fragment
 fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
-  let h = height((p.xy / view.size));
+  let _i0a0 = (p.xy / view.size);
+  let h = (0.5 + ((0.25 * sin((6.2831853 * _i0a0.x))) * cos((6.2831853 * _i0a0.y))));
   return vec4<f32>(h, h, h, 1.0);
 }

@@ -52,6 +52,7 @@ import {
 } from 'typeshade/core/ir';
 import { inline, obfuscate } from 'typeshade/emit-prod';
 import { hoistDiscardingCtorArgs, transitivelyDiscardingFns } from './glsl-legalize.js';
+import { keepHelpers } from '../testing/keep-helpers.js';
 
 // Every balanced `Name(...)` span in `text` for each ctor name — the exact spans ANGLE
 // miscompiles when one of them contains a discarding call. A `toContain` on one hand-picked
@@ -74,6 +75,8 @@ function ctorSpans(text: string, names: readonly string[]): string[] {
   }
   return spans;
 }
+
+const emitKept = keepHelpers(emitGlslModule);
 
 // The one fixture shape used by several suites: a helper that discards below zero.
 const discardingHelper = (name: string) =>
@@ -130,7 +133,7 @@ describe('glsl-legalize — transitively discarding callee', () => {
   });
 
   it('hoists the wrapper call out of the ctor', () => {
-    const g = emitGlslModule(modB, 'fragment');
+    const g = emitKept(modB, 'fragment');
     expect(g).toContain('vec4 _dh0 = g_wrap(pos.x);');
     expect(g).toContain('color = _dh0;');
   });
@@ -185,7 +188,7 @@ describe('glsl-legalize — nested struct constructors', () => {
   const modD = dslModule({ uses: [OutD, InnerD], funcs: [helperD, mkD, fsD] });
 
   it('binds the inner argument and leaves the inner ctor holding a local', () => {
-    const g = emitGlslModule(modD, 'fragment');
+    const g = emitKept(modD, 'fragment');
     expect(g).toContain('vec4 _dh0 = helper_d(v);');
     expect(g).toContain('return InnerD(_dh0);');
   });
@@ -244,7 +247,7 @@ describe('glsl-legalize — leaves the shapes that do not trip ANGLE alone', () 
       },
       { stage: 'fragment' },
     );
-    const g = emitGlslModule(dslModule({ uses: [OutN], funcs: [plain, kill, fsN] }), 'fragment');
+    const g = emitKept(dslModule({ uses: [OutN], funcs: [plain, kill, fsN] }), 'fragment');
     expect(g).toContain('helper_nd(pos.y)'); // the pass ran over a discarding module …
     expect(g).toContain('color = helper_n('); // … and left this call exactly as emitted
     expect(g).not.toContain('_dh');
@@ -295,7 +298,7 @@ describe('glsl-legalize — leaves the shapes that do not trip ANGLE alone', () 
       },
       { stage: 'fragment' },
     );
-    const g = emitGlslModule(
+    const g = emitKept(
       dslModule({ uses: [OutS, GuardedS], funcs: [helperS, pickS, fsS] }),
       'fragment',
     );
@@ -327,7 +330,7 @@ describe('glsl-legalize — a hoisted local of struct type keeps its declaration
   const modT = dslModule({ uses: [InnerT, OuterT], funcs: [mkInner, mkOuter, fsT] });
 
   it('declares the inner struct the hoisted local is typed by', () => {
-    const g = emitGlslModule(modT, 'fragment');
+    const g = emitKept(modT, 'fragment');
     expect(g).toContain('InnerT _dh0 = make_inner(v);');
     expect(g).toContain('return OuterT(_dh0);');
     expect(g).toContain('struct InnerT {');
@@ -377,10 +380,7 @@ describe('glsl-legalize — the ctor is reached through a nested expression posi
       ({ pos }) => OutK.construct({ color: takeK(BoxK.construct({ c: helperK(pos.x) })) }),
       { stage: 'fragment' },
     );
-    const g = emitGlslModule(
-      dslModule({ uses: [OutK, BoxK], funcs: [helperK, takeK, fsK] }),
-      'fragment',
-    );
+    const g = emitKept(dslModule({ uses: [OutK, BoxK], funcs: [helperK, takeK, fsK] }), 'fragment');
     expect(g).toContain('vec4 _dh0 = helper_k(pos.x);');
     expect(g).toContain('color = take_k(BoxK(_dh0));');
     expect(ctorSpans(g, ['OutK', 'BoxK']).filter((s) => s.includes('helper_k('))).toEqual([]);
@@ -675,7 +675,7 @@ describe('glsl-legalize — logical (&&) operands', () => {
     });
 
   it('hoists out of the LHS of && (unconditionally evaluated)', () => {
-    const g = emitGlslModule(mkMod(lhsL), 'fragment');
+    const g = emitKept(mkMod(lhsL), 'fragment');
     expect(g).toContain('vec4 _dh0 = helper_l(v);');
     expect(g).toContain('return ((GateL(_dh0).c.x > 0.0) && (v > 0.0));');
     expect(ctorSpans(g, ['GateL']).filter((s) => s.includes('helper_l('))).toEqual([]);
@@ -685,7 +685,7 @@ describe('glsl-legalize — logical (&&) operands', () => {
   // the RHS runs only when the LHS did not short-circuit, so hoisting it would make a
   // conditional discard unconditional.
   it('leaves the RHS of && inline (short-circuit guarded)', () => {
-    const g = emitGlslModule(mkMod(rhsL), 'fragment');
+    const g = emitKept(mkMod(rhsL), 'fragment');
     expect(g).toContain('return ((v > 0.0) && (GateL(helper_l(v)).c.x > 0.0));');
     expect(g).not.toContain('_dh');
   });
@@ -707,10 +707,7 @@ describe('glsl-legalize — select condition', () => {
   // The ARM twin — a ctor inside a select arm stays inline — is the guarded-position suite
   // above ('a struct ctor inside a select ARM is left inline').
   it('hoists out of a select CONDITION (unconditionally evaluated)', () => {
-    const g = emitGlslModule(
-      dslModule({ uses: [GateC], funcs: [helperSc, pickSc, fsSc] }),
-      'fragment',
-    );
+    const g = emitKept(dslModule({ uses: [GateC], funcs: [helperSc, pickSc, fsSc] }), 'fragment');
     expect(g).toContain('vec4 _dh0 = helper_sc(v);');
     expect(g).toContain(
       'return ((GateC(_dh0).c.x > 0.0) ? vec4(1.0, 0.0, 0.0, 1.0) : vec4(0.0, 1.0, 0.0, 1.0));',
@@ -773,7 +770,7 @@ describe('glsl-legalize — assignment target index expressions', () => {
         retAttr: location(0, vec4fT),
       },
     );
-    const g = emitGlslModule(dslModule({ uses: [BoxN], funcs: [helperN, mkN, fsN] }), 'fragment');
+    const g = emitKept(dslModule({ uses: [BoxN], funcs: [helperN, mkN, fsN] }), 'fragment');
     expect(g).toContain('o.c = helper_mt(v);');
     expect(g).not.toContain('_dh');
   });

@@ -1709,9 +1709,9 @@ describe('the entry of a group that ends in a reduction', () => {
     expect(helper).toMatch(/_fr0\[_fc0_i\] = max\(_fr1\[_fc0_i\], 0\.0\);/);
     // The kept edge: t is written to storage, and the next call reads it from the local.
     expect(helper).toMatch(/_fe0 = _fr0\[_fc0_i\];/);
-    expect(helper).toMatch(/_fs2 = act\(_fe0\);/);
+    expect(helper).toMatch(/_fs2 = \(_fe0 \* _fe0\);/);
     // The reduction's own iteration follows: from the identity, then the body, then the sums.
-    expect(helper.indexOf('_fs2 = act')).toBeLessThan(
+    expect(helper.indexOf('_fs2 = (_fe0 * _fe0)')).toBeLessThan(
       helper.indexOf('_fc2_s = bitcast<f32>(2147483648u)'),
     );
     expect(helper).toMatch(/_fc2_s \+= _fs2;/);

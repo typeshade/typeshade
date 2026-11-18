@@ -1,7 +1,4 @@
-// Verifies: Rule 8.21 (docs/language-design.md; traced in reqs/).
-// Verifies: Rule 8.22 (docs/language-design.md; traced in reqs/).
-// Verifies: Rule 8.23 (docs/language-design.md; traced in reqs/).
-// Verifies: Rule 11.8 (docs/language-design.md; traced in reqs/).
+// Verifies: Rule 8.21, Rule 8.22, Rule 8.23, Rule 11.8 (docs/language-design.md; traced in reqs/).
 //
 // `out.push(v)` in a kernel function's loop (change 0078): the face of the function, its WGSL,
 // and its call on the CPU tier, which is the oracle. A push after a held length (change 0094,
@@ -28,6 +25,7 @@ import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 // A device's fuse() runs through the planner `typeshade/fuse` loads (change 0071).
 import '../../fuse.js';
 import { array } from '../../runtime.js';
+import { uninlined } from '../../core/testing/keep-helpers.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const dirs: string[] = [];
@@ -80,7 +78,7 @@ export function twice(xs: array<u32>, out: array<u32>): u32 {
 
 describe('the face of a kernel function that pushes (change 0078)', () => {
   it('writes the pushed array, and runs on WebGPU in three steps: count, scan, store', () => {
-    const k = kernelOf(face(STRONG), 'strong');
+    const k = uninlined(() => kernelOf(face(STRONG), 'strong'));
     expect(k.params.find((p) => p.name === 'out')).toMatchObject({ k: 'array', writes: true });
     expect(k.noGpu).toBeUndefined();
     const loop = k.gpu!.loops[0]!;

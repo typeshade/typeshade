@@ -28,50 +28,12 @@ fn Shape_new_into(_dst: ptr<function, Shape>, center: vec2<f32>) {
   (*_dst).center = center;
 }
 
-fn Circle_sdf(self_: Circle, p: vec2<f32>) -> f32 {
-  let d = (p - self_.center);
-  return (length(d) - self_.radius);
-}
-
 fn Circle_new_into(_dst: ptr<function, Circle>, center: vec2<f32>, radius: f32) {
   (*_dst) = Circle(vec2<f32>(0.0, 0.0), 0.0);
   var _sup: Shape;
   Shape_new_into(&_sup, center);
   (*_dst).center = _sup.center;
   (*_dst).radius = radius;
-}
-
-fn Square_sdf(self_: Square, p: vec2<f32>) -> f32 {
-  let d = (abs((p - self_.center)) - vec2<f32>(self_.extent));
-  return (length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0));
-}
-
-fn Square_new(center: vec2<f32>, extent: f32) -> Square {
-  var self_: Square = Square(vec2<f32>(0.0, 0.0), 0.0);
-  var _sup: Shape;
-  Shape_new_into(&_sup, center);
-  self_.center = _sup.center;
-  self_.extent = extent;
-  return self_;
-}
-
-fn Ring_sdf(self_: Ring, p: vec2<f32>) -> f32 {
-  return (abs(Ring_super_Circle_sdf(self_, p)) - self_.thickness);
-}
-
-fn Ring_super_Circle_sdf(self_: Ring, p: vec2<f32>) -> f32 {
-  let d = (p - self_.center);
-  return (length(d) - self_.radius);
-}
-
-fn Ring_new(center: vec2<f32>, radius: f32, thickness: f32) -> Ring {
-  var self_: Ring = Ring(vec2<f32>(0.0, 0.0), 0.0, 0.0);
-  var _sup: Circle;
-  Circle_new_into(&_sup, center, radius);
-  self_.center = _sup.center;
-  self_.radius = _sup.radius;
-  self_.thickness = thickness;
-  return self_;
 }
 
 @vertex
@@ -85,49 +47,35 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> @location(0) vec4<f32> {
-  let lit = (((vec3<f32>(0.95, 0.42, 0.3) * _flow9_fused(vec2<f32>(-0.45, 0.0), 0.3, v.uv)) + (vec3<f32>(0.36, 0.7, 0.98) * _flow25_fused(vec2<f32>(0.45, 0.0), 0.26, v.uv))) + (vec3<f32>(0.98, 0.86, 0.4) * _flow43_fused(vec2<f32>(0.0, 0.55), 0.22, 0.05, v.uv)));
+  var circle: Circle;
+  Circle_new_into(&circle, vec2<f32>(-0.45, 0.0), 0.3);
+  let _i4a0 = vec2<f32>(0.45, 0.0);
+  let _cse0 = vec2<f32>(0.0, 0.0);
+  var _i4_self_: Square = Square(_cse0, 0.0);
+  var _i4_sup: Shape;
+  Shape_new_into(&_i4_sup, _i4a0);
+  _i4_self_.center = _i4_sup.center;
+  _i4_self_.extent = 0.26;
+  var square: Square = _i4_self_;
+  let _i6a0 = vec2<f32>(0.0, 0.55);
+  var _i6_self_: Ring = Ring(_cse0, 0.0, 0.0);
+  var _i6_sup: Circle;
+  Circle_new_into(&_i6_sup, _i6a0, 0.22);
+  _i6_self_.center = _i6_sup.center;
+  _i6_self_.radius = _i6_sup.radius;
+  _i6_self_.thickness = 0.05;
+  var ring: Ring = _i6_self_;
+  let _i1a1 = v.uv;
+  let _i1_d = (_i1a1 - circle.center);
+  let _i1_ret = (length(_i1_d) - circle.radius);
+  let _i1ret = (1.0 - smoothstep(0.0, 0.02, _i1_ret));
+  let _i3a1 = v.uv;
+  let _i3_d = (abs((_i3a1 - square.center)) - vec2<f32>(square.extent));
+  let _i3_ret = (length(max(_i3_d, vec2<f32>(0.0))) + min(max(_i3_d.x, _i3_d.y), 0.0));
+  let _i3ret = (1.0 - smoothstep(0.0, 0.02, _i3_ret));
+  let _i5a1 = v.uv;
+  let _i5_d = (_i5a1 - ring.center);
+  let _i5ret = (length(_i5_d) - ring.radius);
+  let lit = (((vec3<f32>(0.95, 0.42, 0.3) * _i1ret) + (vec3<f32>(0.36, 0.7, 0.98) * _i3ret)) + (vec3<f32>(0.98, 0.86, 0.4) * (1.0 - smoothstep(0.0, 0.02, (abs(_i5ret) - ring.thickness)))));
   return vec4<f32>((lit + vec3<f32>(0.05, 0.05, 0.08)), 1.0);
-}
-
-fn _flow9_fused(_flow0_input: vec2<f32>, _flow1_input: f32, _flow6_input: vec2<f32>) -> f32 {
-  var _flow10_part: vec2<f32> = vec2<f32>(0.0, 0.0);
-  var _flow11_part: f32 = 0.0;
-  var _flow15_whole: Shape;
-  Shape_new_into(&_flow15_whole, _flow0_input);
-  let _flow12_part = _flow15_whole.center;
-  _flow10_part = _flow12_part;
-  _flow11_part = _flow1_input;
-  let _flow13_part = _flow10_part;
-  let _flow14_part = _flow11_part;
-  return (1.0 - smoothstep(0.0, 0.02, Circle_sdf(Circle(_flow13_part, _flow14_part), _flow6_input)));
-}
-
-fn _flow25_fused(_flow16_input: vec2<f32>, _flow17_input: f32, _flow22_input: vec2<f32>) -> f32 {
-  var _flow26_part: vec2<f32> = vec2<f32>(0.0, 0.0);
-  var _flow27_part: f32 = 0.0;
-  var _flow31_whole: Shape;
-  Shape_new_into(&_flow31_whole, _flow16_input);
-  let _flow28_part = _flow31_whole.center;
-  _flow26_part = _flow28_part;
-  _flow27_part = _flow17_input;
-  let _flow29_part = _flow26_part;
-  let _flow30_part = _flow27_part;
-  return (1.0 - smoothstep(0.0, 0.02, Square_sdf(Square(_flow29_part, _flow30_part), _flow22_input)));
-}
-
-fn _flow43_fused(_flow32_input: vec2<f32>, _flow33_input: f32, _flow34_input: f32, _flow40_input: vec2<f32>) -> f32 {
-  var _flow44_part: vec2<f32> = vec2<f32>(0.0, 0.0);
-  var _flow45_part: f32 = 0.0;
-  var _flow46_part: f32 = 0.0;
-  var _flow52_whole: Circle;
-  Circle_new_into(&_flow52_whole, _flow32_input, _flow33_input);
-  let _flow47_part = _flow52_whole.center;
-  let _flow48_part = _flow52_whole.radius;
-  _flow44_part = _flow47_part;
-  _flow45_part = _flow48_part;
-  _flow46_part = _flow34_input;
-  let _flow49_part = _flow44_part;
-  let _flow50_part = _flow45_part;
-  let _flow51_part = _flow46_part;
-  return (1.0 - smoothstep(0.0, 0.02, Ring_sdf(Ring(_flow49_part, _flow50_part, _flow51_part), _flow40_input)));
 }

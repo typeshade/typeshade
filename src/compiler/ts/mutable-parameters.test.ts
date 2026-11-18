@@ -26,6 +26,13 @@ function check(body: string, expected: number) {
   return r;
 }
 
+const copies = (r: ReturnType<typeof compile>, name: string): string[] =>
+  r.module.funcs
+    .find((f) => f.name === name)!
+    .body.flatMap((s) =>
+      s.s === 'var' && s.init?.op === 'varref' ? [`${s.name} = ${s.init.name}`] : [],
+    );
+
 describe('value parameter rebinding', () => {
   it('reads the input before a conditional write, and leaves its caller unchanged', () => {
     const r = check(
@@ -37,7 +44,7 @@ export function run(): f32 { let a = 2.; return f(a, true) + f(a, false) + a; }`
       'a',
       'change',
     ]);
-    expect(r.wgsl).toContain('var a_1: f32 = a;');
+    expect(copies(r, 'f')).toEqual(['a_1 = a']);
     expect(r.wgsl).not.toContain('var change');
   });
 
@@ -48,7 +55,7 @@ function untouched(a: f32): f32 { { let a = 5.; a++; } return a; }
 export function run(): f32 { return f(2., 3.) + untouched(4.); }`,
       9,
     );
-    expect(r.wgsl).toContain('var a_2: f32 = a;');
+    expect(copies(r, 'f')).toEqual(['a_2 = a']);
     expect(
       r.module.funcs
         .find((f) => f.name === 'untouched')!
@@ -71,7 +78,7 @@ function f(a: f32): f32 { a += a_1(); return a; }
 export function run(): f32 { return f(2.); }`,
       5,
     );
-    expect(r.wgsl).toContain('var a_2: f32 = a;');
+    expect(copies(r, 'f')).toEqual(['a_2 = a']);
   });
 
   it('shares a copied parameter with read and write closures', () => {

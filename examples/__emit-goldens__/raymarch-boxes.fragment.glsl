@@ -12,10 +12,6 @@ float scene(vec3 p) {
   vec3 _v0 = (mod(p, 2.6) - vec3(1.3));
   return (length(max((abs(_v0) - vec3(0.62)), vec3(0.0, 0.0, 0.0))) - 0.14);
 }
-
-vec3 palette(float t) {
-  return (vec3(0.5) + (cos(((t + vec3(0.0, 0.33, 0.67)) * 6.283)) * 0.5));
-}
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
@@ -55,7 +51,7 @@ void main() {
     vec3 _cse2 = vec3(0.0, 0.0, 0.0015);
     vec3 _v17 = normalize(vec3((scene((_v16 + _cse0)) - scene((_v16 - _cse0))), (scene((_v16 + _cse1)) - scene((_v16 - _cse1))), (scene((_v16 + _cse2)) - scene((_v16 - _cse2)))));
     vec3 _lc0 = floor((_v16 / 2.6));
-    _av2 = mix(_v15, (palette(fract((sin((((_lc0.x * 12.9898) + (_lc0.y * 78.233)) + (_lc0.z * 37.719))) * 43758.5453))) * ((max(dot(_v17, normalize(vec3(0.5, 0.8, 0.3))), 0.0) * 0.8) + 0.16)), exp((-(_av1 * 0.09))));
+    _av2 = mix(_v15, ((vec3(0.5) + (cos(((fract((sin((((_lc0.x * 12.9898) + (_lc0.y * 78.233)) + (_lc0.z * 37.719))) * 43758.5453)) + vec3(0.0, 0.33, 0.67)) * 6.283)) * 0.5)) * ((max(dot(_v17, normalize(vec3(0.5, 0.8, 0.3))), 0.0) * 0.8) + 0.16)), exp((-(_av1 * 0.09))));
   }
   _ret = vec4(_av2, 1.0);
 }

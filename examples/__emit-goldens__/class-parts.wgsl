@@ -35,32 +35,8 @@ fn Mover_new_into(_dst: ptr<function, Mover>) {
   (*_dst).vel = _cse1;
 }
 
-fn Ring_cover(self_: ptr<function, Ring>, p: vec2<f32>) -> f32 {
-  let d = abs((length((p - (*self_).center.pos)) - (*self_).radius));
-  return (1.0 - smoothstep(((*self_).width * 0.5), (*self_).width, d));
-}
-
 fn Ring_advance(self_: ptr<function, Ring>, dt: f32) {
   Mover_step(&(*self_).center, dt);
-}
-
-fn Ring_new_into(_dst: ptr<function, Ring>) {
-  let _cse0 = vec2<f32>(0.0, 0.0);
-  (*_dst) = Ring(Mover(_cse0, _cse0), 0.0, 0.0);
-  Mover_new_into(&(*_dst).center);
-  (*_dst).radius = 0.3;
-  (*_dst).width = 0.04;
-}
-
-fn Dot_cover(self_: ptr<function, Dot>, p: vec2<f32>) -> f32 {
-  return (1.0 - smoothstep(((*self_).size * 0.8), (*self_).size, length((p - (*self_).center.pos))));
-}
-
-fn Dot_new_into(_dst: ptr<function, Dot>) {
-  let _cse0 = vec2<f32>(0.0, 0.0);
-  (*_dst) = Dot(Mover(_cse0, _cse0), 0.0);
-  Mover_new_into(&(*_dst).center);
-  (*_dst).size = 0.1;
 }
 
 @vertex
@@ -70,25 +46,23 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   return VsOut(vec4<f32>(x, y, 0.0, 1.0), vec2<f32>(x, y));
 }
 
-fn coverOf_Ring(m: ptr<function, Ring>, p: vec2<f32>) -> f32 {
-  return Ring_cover(m, p);
-}
-
-fn coverOf_Dot(m: ptr<function, Dot>, p: vec2<f32>) -> f32 {
-  return Dot_cover(m, p);
-}
-
 @fragment
 fn fs(v: VsOut) -> FsOut {
-  var ring: Ring;
-  Ring_new_into(&ring);
+  var ring: Ring = Ring(Mover(vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 0.0)), 0.0, 0.0);
+  Mover_new_into(&ring.center);
+  ring.radius = 0.3;
+  ring.width = 0.04;
   ring.center.vel = vec2<f32>(0.5, 0.2);
   Ring_advance(&ring, 0.5);
-  var spot: Dot;
-  Dot_new_into(&spot);
+  var spot: Dot = Dot(Mover(vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 0.0)), 0.0);
+  Mover_new_into(&spot.center);
+  spot.size = 0.1;
   spot.center.pos = vec2<f32>(-0.45, -0.3);
   var col: vec3<f32> = vec3<f32>(0.06, 0.07, 0.12);
-  col = mix(col, vec3<f32>(0.95, 0.7, 0.3), coverOf_Ring(&ring, v.uv));
-  col = mix(col, vec3<f32>(0.3, 0.7, 0.95), coverOf_Dot(&spot, v.uv));
+  let _i3a1 = v.uv;
+  let _i3_d = abs((length((_i3a1 - ring.center.pos)) - ring.radius));
+  let _i3_ret = (1.0 - smoothstep((ring.width * 0.5), ring.width, _i3_d));
+  col = mix(col, vec3<f32>(0.95, 0.7, 0.3), _i3_ret);
+  col = mix(col, vec3<f32>(0.3, 0.7, 0.95), (1.0 - smoothstep((spot.size * 0.8), spot.size, length((v.uv - spot.center.pos)))));
   return FsOut(vec4<f32>(col, 1.0));
 }

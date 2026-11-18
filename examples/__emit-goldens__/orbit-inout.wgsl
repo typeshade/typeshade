@@ -21,15 +21,6 @@ fn Body_advance(self_: ptr<function, Body>, dt: f32) {
   Body_step(self_, dt);
 }
 
-fn Body_reach(self_: ptr<function, Body>) -> f32 {
-  return length((*self_).at);
-}
-
-fn Body_new_into(_dst: ptr<function, Body>) {
-  let _cse0 = vec2<f32>(0.0, 0.0);
-  (*_dst) = Body(_cse0, _cse0, 0.0);
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
   var xs: array<f32, 3> = array<f32, 3>(-1.0, 3.0, -1.0);
@@ -41,8 +32,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
 @fragment
 fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
   let uv = (fract((frag.xy * 0.01)) - vec2<f32>(0.5));
-  var b: Body;
-  Body_new_into(&b);
+  var b: Body = Body(vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 0.0), 0.0);
   b.at = uv;
   b.vel = (vec2<f32>((-uv.y), uv.x) * 0.4);
   b.spin = 2.2;
@@ -54,6 +44,6 @@ fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
   Body_advance(&b, 0.05);
   Body_advance(&b, 0.05);
   Body_advance(&b, 0.05);
-  let glow = (1.0 - smoothstep(0.0, 0.6, Body_reach(&b)));
+  let glow = (1.0 - smoothstep(0.0, 0.6, length(b.at)));
   return vec4<f32>(glow, ((glow * 0.4) + (b.spin * 0.1)), (0.6 - (glow * 0.3)), 1.0);
 }

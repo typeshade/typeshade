@@ -3583,7 +3583,8 @@ TS2511, TS2708 and TS7017), and its report of any name in the target (TS2304, TS
 | `new Date()`, and nothing declares `Date` | `TS8022`: `Date` is an unknown name, as it is in any other position, and the name a misspelled one is spelled like is a class, never a value: `new Pos()` beside a parameter `pos` names none |
 | `new vec3f(1., 2., 3.)`, `new f32(1)` | `TS8035`: a WGSL constructor is called without `new`, `vec3f(1., 2., 3.)` |
 | `new sampler()`, `new texture_2d<f32>()` | `TS8035`: it is a type, not a value, and WGSL gives it no constructor |
-| `new Array(4)`, `new Number(1)` | `TS8035`: it is a type the library declares for TypeScript's own use, not a value |
+| `new Number(1)` | `TS8035`: it is a type the library declares for TypeScript's own use, not a value |
+| `new Array(4)` with no `fill` | `TS8099`: `"new Array(4)" makes an array of holes in JavaScript, and a hole is not supported yet. Fill it: new Array(4).fill(v).` (change 0114, S2; §63) |
 | `new Symbol()` | `TS8035`: it is no class a shader has, which the library declares for TypeScript's own use |
 | `new F()` on a function, `new Math.sin(1.)` | `TS8035`: `F` is a function, which is called without `new`, `F()` |
 | `new E()` on an enum | `TS8035`: an enum's values are its members, `E.A` |

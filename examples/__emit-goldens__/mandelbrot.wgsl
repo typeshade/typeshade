@@ -12,10 +12,6 @@ struct VsOut {
 
 @group(0) @binding(0) var<uniform> U: Uniforms;
 
-fn palette(t: f32) -> vec3<f32> {
-  return (vec3<f32>(0.5) + (cos(((t + vec3<f32>(0.0, 0.33, 0.67)) * 6.283)) * 0.5));
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let _cse0 = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -40,5 +36,5 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
     _v3 = (_v3 + 1.0);
   }
   let _v5 = dot(_v2, _v2);
-  return vec4<f32>((palette(((((_v3 - log2(max(log2(max(_v5, 1.0001)), 0.0001))) + 1.0) * 0.035) + (U.time * 0.02))) * (1.0 - step(119.5, _v3))), 1.0);
+  return vec4<f32>(((vec3<f32>(0.5) + (cos(((((((_v3 - log2(max(log2(max(_v5, 1.0001)), 0.0001))) + 1.0) * 0.035) + (U.time * 0.02)) + vec3<f32>(0.0, 0.33, 0.67)) * 6.283)) * 0.5)) * (1.0 - step(119.5, _v3))), 1.0);
 }
