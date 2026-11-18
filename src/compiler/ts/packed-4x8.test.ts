@@ -21,9 +21,19 @@ import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { reflect } from '../../core/reflect.js';
 import { BUILTINS } from '../../core/cpu-runtime.js';
+import { bothHalves } from '../../core/testing/both-halves.js';
+
+function editorAgrees(source: string): ReturnType<typeof compileTsSource> {
+  const r = compileTsSource(source);
+  const editor = bothHalves(source).editor;
+  for (const d of r.diagnostics.filter((e) => e.category === 'error')) {
+    expect(editor).toContain(`typeshade ${d.code}: ${d.message}`);
+  }
+  return r;
+}
 
 const errorsOf = (src: string) =>
-  compileTsSource(src)
+  editorAgrees(src)
     .diagnostics.filter((d) => d.category === 'error')
     .map((d) => `${d.code} ${d.message}`);
 

@@ -45,11 +45,17 @@ import { loweredTypeOf } from './symbols.js';
 import {
   constantTree,
   ARITH,
+  isBitwise,
+  maskValue,
+  wrapList,
   BITWISE,
   bitOperands,
   isTreeSource,
   COMPOUND_BASE,
   integerWrittenLiteral,
+  containsPart,
+  destructuringSource,
+  peerOperands,
   isBigNumber,
   returnsOf,
   scalarOfTypeText,
@@ -59,6 +65,15 @@ import {
   writtenNumber,
 } from './abstract-const/written-syntax.js';
 import {
+  floatPositionOperands,
+  identifiersNamed,
+  isTypedConstructor,
+  nodeAtOffset,
+  nodeSpanning,
+  regionOf,
+  skipParenUp,
+} from './abstract-const/syntax-lookup.js';
+import {
   READING_DEPTH,
   READING_ROUNDS,
   READING_STEP_LIMIT,
@@ -66,6 +81,7 @@ import {
   CONGRUENT,
   UNKNOWN,
   UNPROVEN,
+  agreeingBound,
   boundedReadings,
   heldByTreeVariable,
   mergedPicks,
@@ -748,15 +764,6 @@ export function noteIntegerContext(
 
 const CASTS: ReadonlySet<string> = new Set(['f32', 'f64', 'i32', 'u32', 'bool']);
 
-/** Whether `call` constructs a vector or a matrix of a written component type: `vec3u(…)`,
- *  `vec2f(…)`, `mat2x2f(…)`, or a type argument `vec2<u32>(…)`. */
-function isTypedConstructor(call: ts.CallExpression): boolean {
-  const callee = call.expression;
-  if (!ts.isIdentifier(callee)) return false;
-  if (/^(vec[234]|mat[234]x[234])[uifh]$/.test(callee.text)) return true;
-  return /^(vec[234]|mat[234]x[234])$/.test(callee.text) && (call.typeArguments?.length ?? 0) > 0;
-}
-
 /** The origin of `node` (Amendment A3, "보수적 추적 규칙"): the constants of no fixed type it
  *  comes from, through every expression and binding with no declared type between. A written
  *  number has an empty origin. A read of such a constant, a variable, a loop counter or a call
@@ -862,14 +869,6 @@ export function noteAbstractDivision(
   const division: Division = { node, reads };
   table.set(node, division);
   divisionByNode.set(node, division);
-}
-
-/** Whether `node` is a bitwise or shift operation, whose value is an integer's. */
-function isBitwise(node: ts.Node): boolean {
-  return (
-    (ts.isBinaryExpression(node) && BITWISE.has(node.operatorToken.kind)) ||
-    (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.TildeToken)
-  );
 }
 
 /** The parts of `node` that carry an origin as a whole: a read of a constant of no fixed type,
@@ -1688,30 +1687,6 @@ const VALUE_EDIT =
 const FLOAT_MISMATCH =
   /(?:cannot \S+ (?:i32|u32) and f32|cannot \S+ f32 and (?:i32|u32)|cannot let\/const \S+ f32 and (?:i32|u32)|return type mismatch: declared f32, got (?:i32|u32)|Vector constructor element type mismatch: expected f32|takes an f32[^;]*; got (?:i32|u32)|the first is (?:i32|u32), this one f32|the first is f32, this one (?:i32|u32)|Argument \d+ of "[^"]+" type mismatch)/;
 
-/** The node of `sourceFile` that spans exactly `start` to `end`, the outermost such. */
-function nodeSpanning(sourceFile: ts.SourceFile, start: number, end: number): ts.Node | undefined {
-  let found: ts.Node | undefined;
-  const visit = (n: ts.Node): void => {
-    if (found !== undefined || n.getStart(sourceFile) > start || n.getEnd() < end) return;
-    if (n.getStart(sourceFile) === start && n.getEnd() === end) found = n;
-    else ts.forEachChild(n, visit);
-  };
-  ts.forEachChild(sourceFile, visit);
-  return found;
-}
-
-/** The operands a type error at `at` between an integer and an `f32` may stand on: a return's
- *  value, a declaration's initializer, an operator's operands, a call's arguments, or, for an
- *  argument the error stands on, the arguments of its call. */
-function floatPositionOperands(at: ts.Node): ts.Expression[] {
-  if (ts.isReturnStatement(at)) return at.expression === undefined ? [] : [at.expression];
-  if (ts.isVariableDeclaration(at)) return at.initializer === undefined ? [] : [at.initializer];
-  if (ts.isBinaryExpression(at)) return [at.left, at.right];
-  if (ts.isCallExpression(at) || ts.isNewExpression(at)) return [...(at.arguments ?? [])];
-  if (ts.isExpression(at) && ts.isCallExpression(at.parent)) return [...at.parent.arguments];
-  return [];
-}
-
 /** Whether `e` is a tree of written integers, or a read of a constant or a binding with no
  *  written type that holds one and that nothing assigns again. */
 function isTreeOperand(e: ts.Expression): boolean {
@@ -1745,19 +1720,6 @@ function constantBitRoot(e: ts.Expression): boolean {
     k === ts.SyntaxKind.LessThanLessThanToken ||
     k === ts.SyntaxKind.GreaterThanGreaterThanToken;
   return bit && constNumber(n) !== undefined;
-}
-
-/** The innermost node of `sourceFile` that starts at `offset`. */
-function nodeAtOffset(sourceFile: ts.SourceFile, offset: number): ts.Node | undefined {
-  let found: ts.Node | undefined;
-  const visit = (n: ts.Node): void => {
-    if (n.getStart(sourceFile) <= offset && offset < n.getEnd()) {
-      if (n.getStart(sourceFile) === offset) found = n;
-      ts.forEachChild(n, visit);
-    }
-  };
-  ts.forEachChild(sourceFile, visit);
-  return found;
 }
 
 /** The type the author wrote on `decl`, not one the editor's projection wrote. */
@@ -1846,27 +1808,6 @@ const SHIFTS = new Set([
   ts.SyntaxKind.GreaterThanGreaterThanToken,
   ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
 ]);
-
-const identifiersOf = new WeakMap<ts.SourceFile, Map<string, ts.Identifier[]>>();
-
-/** The identifiers of `sourceFile` spelled `name`, found in one walk of the file. */
-function identifiersNamed(sourceFile: ts.SourceFile, name: string): readonly ts.Identifier[] {
-  let index = identifiersOf.get(sourceFile);
-  if (index === undefined) {
-    const found = new Map<string, ts.Identifier[]>();
-    const visit = (k: ts.Node): void => {
-      if (ts.isIdentifier(k)) {
-        const list = found.get(k.text);
-        if (list === undefined) found.set(k.text, [k]);
-        else list.push(k);
-      }
-      ts.forEachChild(k, visit);
-    };
-    visit(sourceFile);
-    identifiersOf.set(sourceFile, (index = found));
-  }
-  return index.get(name) ?? [];
-}
 
 /** What a walk of the places quotients flow to shares: the refused quotients, whose own lowered
  *  type is the refusal's and says nothing of a peer, and what the walk has followed. */
@@ -2175,13 +2116,6 @@ function typesFromUse(
 
 const ALL_SCALARS: readonly Scalar[] = ['i32', 'u32', 'f32'];
 
-/** The operands to wrap, as a remedy lists them: `"k"`, or `each of "a" and "b"`. */
-function wrapList(subjects: readonly string[]): string {
-  const quoted = [...new Set(subjects)].map((s) => `"${s}"`);
-  if (quoted.length <= 1) return quoted[0] ?? 'an operand';
-  return `each of ${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]!}`;
-}
-
 /** The sentence of a refusal whose wraps would not choose the division (the owner's decision
  *  of 2026-11-13, "그 경우 감싸기 안 제시"): what is true, and no wrap. */
 export const NO_WRAP_REMEDY = "Declare the type of the division's operands to choose it.";
@@ -2363,20 +2297,6 @@ function declarationChange(name: string, at: ts.Node, type: string): SourceChang
   return { start: d.name.getEnd(), end: d.type?.getEnd() ?? d.name.getEnd(), text: `: ${type}` };
 }
 
-/** The statement, member or declaration that holds `node`. */
-function regionOf(node: ts.Node, sourceFile: ts.SourceFile): readonly [number, number] {
-  let n: ts.Node = node;
-  while (
-    n.parent !== undefined &&
-    !ts.isSourceFile(n.parent) &&
-    !(ts.isStatement(n) && !ts.isBlock(n)) &&
-    !ts.isClassElement(n)
-  ) {
-    n = n.parent;
-  }
-  return [n.getStart(sourceFile), n.getEnd()];
-}
-
 /** The two values of `node` where a tree's `u32` bits and its TypeScript value reach it and
  *  give different values (the owner's decision of 2026-11-12, D2), read from the source: a tree
  *  over a written number only a `u32` holds, and what carries one without a declared type
@@ -2451,6 +2371,13 @@ export function assignedReadings(
 
 /** The declaration of the constant `node` reads, where it is a `const` with no written type
  *  (`const K = 3000000000 | 0`, in a module, a function or another file). */
+const constantOf = (id: ts.Identifier): readonly [ts.Expression, boolean] | undefined => {
+  const d = declarationOf(id.text, id);
+  if (d === undefined || !ts.isVariableDeclaration(d) || !(d.parent.flags & ts.NodeFlags.Const))
+    return undefined;
+  return d.initializer && [d.initializer, writtenTypeText(d, id.getSourceFile()) !== undefined];
+};
+
 function untypedConstant(node: ts.Expression): ts.VariableDeclaration | undefined {
   const n = skipParenNodes(node);
   if (!ts.isIdentifier(n)) return undefined;
@@ -3163,6 +3090,21 @@ function declarationAt(id: ts.Identifier, sourceFile: ts.SourceFile): WalkDeclar
 }
 
 /** Every store of the variable `d` declares, found once per declaration, in the whole file. */
+const pulledTypes = new WeakMap<ts.SourceFile, Map<ts.Node, 'u32' | 'i32' | false>>();
+
+function pulledType(v: ts.Node, sourceFile: ts.SourceFile): 'u32' | 'i32' | false {
+  let memo = pulledTypes.get(sourceFile);
+  if (memo === undefined) pulledTypes.set(sourceFile, (memo = new Map()));
+  const known = memo.get(v);
+  if (known !== undefined) return known;
+  memo.set(v, false);
+  const peers = (fileTaint(sourceFile).pulled.get(v) ?? []).flatMap(readingsFrom);
+  const u32 = peers.some((x) => x.tree && x.signed !== true && !x.unproven && !x.agreeing);
+  const type = u32 ? 'u32' : peers.some((x) => x.signed === true) ? 'i32' : false;
+  memo.set(v, type);
+  return type;
+}
+
 function storesOf(d: ts.VariableDeclaration, sourceFile: ts.SourceFile): Store[] {
   const memo = readingMemo(sourceFile).stores;
   const known = memo.get(d);
@@ -3184,6 +3126,8 @@ function storesOf(d: ts.VariableDeclaration, sourceFile: ts.SourceFile): Store[]
       stores.push({ kind: 'opaque' });
       continue;
     }
+    const pattern = destructuringSource(up);
+    if (pattern !== undefined) stores.push({ kind: 'opaque', expr: pattern });
     if (!ts.isBinaryExpression(p) || p.left !== up) continue;
     const k = p.operatorToken.kind;
     if (k === ts.SyntaxKind.EqualsToken) {
@@ -3225,6 +3169,7 @@ interface FileTaint {
   /** The tainted variables found together: each variable's group of variables that read one
    *  another, through stores, calls and getters (a strongly connected component). */
   readonly groups: Map<ts.Node, readonly ts.VariableDeclaration[]>;
+  readonly pulled: Map<ts.Node, ts.Expression[]>;
 }
 
 /** Whether a tree reaches the property access whose name is `name`: by its member where the
@@ -3252,7 +3197,9 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
     fieldNames: new Set(),
     untypedFieldNames: new Set(),
     groups: new Map(),
+    pulled: new Map(),
   };
+  const peers: (readonly [ts.Identifier, ts.Expression])[] = [];
   /** The field a store into `access` reaches: its declaration, its name where the source does
    *  not state it, or `undefined` for a field that states its type. */
   const storeTarget = (access: ts.PropertyAccessExpression): ts.Node | string | undefined => {
@@ -3285,6 +3232,7 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
       const d = ts.isIdentifier(operand) ? declarationAt(operand, sourceFile) : undefined;
       if (d !== undefined) readByBitOperator.add(d);
     }
+    peers.push(...peerOperands(n));
     if (
       ts.isVariableDeclaration(n) &&
       ts.isIdentifier(n.name) &&
@@ -3435,6 +3383,15 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
   const looseTainted = new Set<string>();
   for (let changed = true; changed;) {
     changed = false;
+    for (const [id, other] of peers) {
+      const d = declarationAt(id, sourceFile);
+      if (d === undefined || !ts.isVariableDeclaration(d) || taint.pulled.get(d)?.includes(other))
+        continue;
+      if (writtenTypeText(d, sourceFile) !== undefined || !reaches(other)) continue;
+      taint.pulled.set(d, [...(taint.pulled.get(d) ?? []), other]);
+      changed = !taint.vars.has(d) || changed;
+      taint.vars.add(d);
+    }
     for (const v of vars) {
       if (taint.vars.has(v.d)) continue;
       const byMember =
@@ -3756,7 +3713,7 @@ function variableReadings(
     for (const v of group) {
       const next: Reading[] = [];
       for (const s of storesOf(v, sourceFile)) next.push(...storedReadings(v, s, sourceFile, own));
-      const bounded = boundedReadings(heldByTreeVariable(next));
+      const bounded = boundedReadings(heldByTreeVariable(next, pulledType(v, sourceFile)));
       if (!sameReadings(bounded, values.get(v)!)) settled = false;
       values.set(v, bounded);
       w.pending.set(v, bounded);
@@ -3816,9 +3773,8 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
   /** The values of the arms of a choice: an arm the walk cannot read is {@link UNKNOWN}. */
   const arms = (xs: readonly ts.Expression[]): Reading[] => {
     const all = xs.map(of);
-    return all.some((a) => a.length > 0)
-      ? boundedReadings(all.flatMap((a) => (a.length === 0 ? [UNKNOWN] : a)))
-      : [];
+    const read = all.flatMap((a) => (a.length === 0 ? [UNKNOWN] : a));
+    return all.some((a) => a.length > 0) ? boundedReadings(heldByTreeVariable(read)) : [];
   };
   if (ts.isNumericLiteral(n)) return [numberReading(Number(n.text))];
   if (ts.isElementAccessExpression(n) && !taintedNode(n.expression, sourceFile)) return [];
@@ -4077,8 +4033,10 @@ function binaryReadingsOf(
   // (the owner's decisions of 2026-11-16, "증명 못 하면 거부", and of 2026-11-17, "단순 규칙:
   // 타입 없는 필드는 항상 증명 못 함"). A proven tree beside a typed peer keeps its reading, as
   // the owner deferred (`f32(a + vi)`).
+  const typedPart = (e: ts.Expression) =>
+    typedNode(e) || ts.isElementAccessExpression(e) || ts.isPropertyAccessExpression(e);
   const shiftByTypedAmount =
-    bs.length === 0 &&
+    (bs.length === 0 || (rv === undefined && containsPart(right, typedPart))) &&
     (k === ts.SyntaxKind.LessThanLessThanToken || k === ts.SyntaxKind.GreaterThanGreaterThanToken);
   const keepsCongruence = k !== ts.SyntaxKind.GreaterThanGreaterThanToken;
   const withoutNumbers = (x: Reading): boolean =>
@@ -4100,12 +4058,15 @@ function binaryReadingsOf(
     const flow = { sourceFile, refused: new Set<ts.Node>(), tainted: new Map(), reached: [] };
     const peer = peerScalar(typedSide, flow);
     const differing = besideTyped.some((x) => x.congruent === true || provenDiffering(x));
+    const typedMask =
+      k === ts.SyntaxKind.AmpersandToken ? maskValue(typedSide, constantOf) : undefined;
+    if (typedMask !== undefined && !besideTyped.some((x) => x.unknown || plainUnproven(x))) {
+      return [{ ...AGREEING, bound: typedMask }];
+    }
     if (peer !== 'i32' && peer !== 'f32' && differing) return [CONGRUENT];
   }
   const wrapped = (x: number, y: number): number =>
     k === ts.SyntaxKind.AsteriskToken ? Math.imul(x, y) : op(x, y, false) | 0;
-  const mask = (x: Reading): boolean =>
-    !x.tree && !x.unknown && Number.isInteger(x.u32) && x.u32 >= 0 && x.u32 <= 0x7fffffff;
   const pure = readsOnly(node, sourceFile);
   const out: Reading[] = [];
   for (const a of as) {
@@ -4122,8 +4083,8 @@ function binaryReadingsOf(
         const besideUnknown = (a.unknown && exact(b)) || (b.unknown && exact(a));
         out.push({ ...(tree && !besideUnknown ? UNPROVEN : UNKNOWN), picks });
       } else if (a.unproven || b.unproven || a.agreeing || b.agreeing) {
-        const masked = k === ts.SyntaxKind.AmpersandToken && (mask(a) || mask(b));
-        out.push({ ...(!keepsCongruence ? UNPROVEN : masked ? AGREEING : CONGRUENT), picks });
+        const kept = keepsCongruence ? CONGRUENT : UNPROVEN;
+        out.push({ ...(agreeingBound(k, a, b) ?? kept), picks });
       } else if (!tree) {
         if (bit && (isBigNumber(a.ts) || isBigNumber(b.ts))) {
           const u = rootOf(a.ts >>> 0, b.ts >>> 0);
@@ -4327,12 +4288,6 @@ export function reassignedAnywhere(d: ts.VariableDeclaration): boolean {
           parent.operator === ts.SyntaxKind.MinusMinusToken));
     return target && declarationOf(name, id) === d;
   });
-}
-
-function skipParenUp(n: ts.Node): ts.Node {
-  let u = n;
-  while (ts.isParenthesizedExpression(u.parent)) u = u.parent;
-  return u;
 }
 
 /** The function a call of `name` at `at` reaches: one declared in a block around `at` or at the

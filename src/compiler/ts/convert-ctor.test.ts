@@ -10,14 +10,17 @@ import { typeKey } from '../../core/ir/types.js';
 import type { Expr } from '../../core/ir/nodes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { withEditor } from '../../core/testing/both-halves.js';
 
-function lowerReturn(body: string, params: string, ret: string): Expr {
-  const r = compileTsSource(`
+const returning = (body: string, params: string, ret: string): string => `
     "use typeshade";
     export function f(${params}): ${ret} {
       return ${body};
     }
-  `);
+  `;
+
+function lowerReturn(body: string, params: string, ret: string): Expr {
+  const r = compileTsSource(returning(body, params, ret));
   expect(r.diagnostics).toEqual([]);
   const stmt = r.funcs[0]!.body[0]!;
   if (stmt.s !== 'return' || !stmt.expr) throw new Error(`expected a return, got ${stmt.s}`);
@@ -25,12 +28,7 @@ function lowerReturn(body: string, params: string, ret: string): Expr {
 }
 
 function diagnose(body: string, params: string, ret: string): string {
-  const r = compileTsSource(`
-    "use typeshade";
-    export function f(${params}): ${ret} {
-      return ${body};
-    }
-  `);
+  const r = withEditor(compileTsSource)(returning(body, params, ret));
   expect(r.diagnostics.length).toBeGreaterThan(0);
   return r.diagnostics[0]!.message;
 }
@@ -229,7 +227,7 @@ class P {
   const vs = array<vec3, 4>();
   const ms = array<mat2x2, 2>();
   const ps = array<P, 2>();
-  return vec4(f32(stack[3] + stack[31]) + vs[3].z, ms[1][1].y, f32(ps[1].k) + ps[0].v.x, 1.);
+  return vec4(f32(stack[3] + stack[31]) + vs[3].z + vs[u32(stack[3])].x, ms[1][1].y + ms[u32(stack[3])][0].x, f32(ps[1].k) + ps[0].v.x + ps[u32(stack[3])].v.y, f32(stack[u32(vs[3].z)]));
 }
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -245,17 +243,19 @@ class P {
     for (const make of [compileModule, compileModuleJs]) {
       const out = make(r.module).fns['fs']!() as number[];
       // stack[3] is 0 + 1, every other element read is 0
-      expect(out).toEqual([1, 0, 0, 1]);
+      expect(out).toEqual([1, 0, 0, 0]);
     }
   });
 
   it('keeps a wrong count TS8019, and refuses an array with no size or no zero literal', () => {
     const err = (body: string): string[] =>
-      compile(`"use typeshade";
+      withEditor(compile)(
+        `"use typeshade";
 export function f(n: u32): u32 {
 ${body}
 }
-`)
+`,
+      )
         .diagnostics.filter((d) => d.category === 'error')
         .map((d) => `${d.code} ${d.message}`);
     expect(err('  const a = array<u32, 32>(1, 2);\n  return n;')).toEqual([
@@ -430,7 +430,7 @@ describe('array(...) infers its element type and its count', () => {
     const r = compile(`"use typeshade";
 @fragment export function fs(): vec4 {
   const a = array(1., 2., 3.);
-  return vec4(a[0], a[1], a[2], 1.);
+  return vec4(a[0], a[1], a[u32(a[2])], 1.);
 }
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
@@ -443,7 +443,7 @@ describe('array(...) infers its element type and its count', () => {
 @fragment export function fs(uv: location<0, vec2>): vec4 {
   const a = array(uv, uv);
   const b = array<f32, 2>(1., 2.);
-  return vec4(a[0], b[0], b[1]);
+  return vec4(a[u32(uv.x)], b[0], b[u32(uv.y)]);
 }
 `);
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);

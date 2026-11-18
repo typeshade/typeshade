@@ -14,11 +14,14 @@ import { compileTsSource } from './source-file.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
+import { bothHalves } from '../../core/testing/both-halves.js';
 
-const errorsOf = (src: string): { code?: string; message: string }[] =>
-  compileTsSource(src)
-    .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => ({ code: d.code, message: d.message }));
+const errorsOf = (src: string): { code?: string; message: string }[] => {
+  const errors = compileTsSource(src).diagnostics.filter((d) => d.category === 'error');
+  const editor = bothHalves(src).editor;
+  for (const d of errors) expect(editor).toContain(`typeshade ${d.code}: ${d.message}`);
+  return errors.map((d) => ({ code: d.code, message: d.message }));
+};
 
 /** One `for` in a function of `n: i32` that counts its trips. */
 function header(head: string): string {

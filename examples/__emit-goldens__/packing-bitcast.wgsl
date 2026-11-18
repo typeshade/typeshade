@@ -15,8 +15,8 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let origin = vec2<f32>(0.0, 0.0);
-  var bands: array<u32, 4> = array<u32, 4>(0u, 0u, 0u, 0u);
-  bands[1] = 2u;
+  var bands_1: u32 = 0u;
+  bands_1 = 2u;
   let rgba8Bits = pack4x8unorm(vec4<f32>(v.uv, 0.25, 1.0));
   let rgba8 = unpack4x8unorm(rgba8Bits);
   let _cse0 = vec2<f32>(1.0, 1.0);
@@ -34,7 +34,7 @@ fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let coarse = quantizeToF16(grade);
   let lit = ((back > 1.5) && (backPair.x > 1.5));
   let edge = (select(0.0, 0.15, lit) + select(0.0, 0.1, (v.uv.x > 0.98)));
-  let banded = (f32((bands[1] + bands[3])) * 0.125);
+  let banded = (f32(bands_1) * 0.125);
   let rgb = (((coarse * 0.5) + (vec3<f32>(rgba8.x, ((signed8.y * 0.5) + 0.5), ((s16.x * 0.5) + 0.5)) * 0.4)) + vec3<f32>((banded * 0.1)));
   return vec4<f32>(clamp((rgb + vec3<f32>(edge)), vec3<f32>(0.0), vec3<f32>(1.0)), rgba8.w);
 }

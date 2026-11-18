@@ -7,6 +7,7 @@ import { createTypeshadeLanguageService } from '../../language-service/service.j
 import type { ModuleDecl } from '../../core/ir/nodes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
+import { withEditor } from '../../core/testing/both-halves.js';
 
 const STRUCTS = `
   class P {
@@ -15,17 +16,14 @@ const STRUCTS = `
   }
 `;
 
-function diagnose(source: string): string {
-  const r = compileTsSource(`"use typeshade";\n${source}`);
+function first(source: string): { code?: string; message: string } {
+  const r = withEditor(compileTsSource)(`"use typeshade";\n${source}`);
   expect(r.diagnostics.length).toBeGreaterThan(0);
-  return r.diagnostics[0]!.message;
+  return r.diagnostics[0]!;
 }
 
-function code(source: string): string | undefined {
-  const r = compileTsSource(`"use typeshade";\n${source}`);
-  expect(r.diagnostics.length).toBeGreaterThan(0);
-  return r.diagnostics[0]!.code;
-}
+const diagnose = (source: string): string => first(source).message;
+const code = (source: string): string | undefined => first(source).code;
 
 function buildModule(body: string): ModuleDecl {
   const r = compileTsSource(`"use typeshade";\n${body}`);
