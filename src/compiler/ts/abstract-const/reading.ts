@@ -10,7 +10,7 @@ export interface Reading {
   readonly signed?: boolean;
   readonly agreeing?: boolean;
   readonly bound?: number;
-  readonly looped?: boolean;
+  readonly reassigned?: boolean;
   readonly picks: readonly (readonly [ts.Node, string])[];
 }
 
@@ -143,6 +143,6 @@ export function agreeingBound(k: ts.SyntaxKind, a: Reading, b: Reading): Reading
   return bound !== undefined && bound <= MOST ? { ...AGREEING, bound } : undefined;
 }
 
-export function markLooped(xs: readonly Reading[], looped: boolean): Reading[] {
-  return looped ? xs.map((x) => ({ ...x, looped: true })) : [...xs];
+export function markReassigned(xs: readonly Reading[], reassigned: boolean): Reading[] {
+  return reassigned ? xs.map((x) => ({ ...x, reassigned: true })) : [...xs];
 }

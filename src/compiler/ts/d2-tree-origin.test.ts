@@ -63,7 +63,7 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
       'b = b * 2',
       'let b = 1500000000;\n  b = b * 2;\n  let c = b | 0;\n  ',
       'c + c',
-      1705032704,
+      NaN,
       -2589934592,
       '',
     ],
@@ -89,7 +89,11 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
     'a computed number past i32 starts a tree through a variable: %s',
     (_, body, subject, u, t, pre) => {
       const source = program(`${body}return f32(${subject});`, 'f32', pre);
-      bothRefuse(source, 'TS8003', proven(subject, u, t, 'f32()', `i32(${subject})`));
+      const edit = `i32(${subject})`;
+      const said = Number.isNaN(u)
+        ? unproven(subject, 'f32()', edit)
+        : proven(subject, u, t, 'f32()', edit);
+      bothRefuse(source, 'TS8003', said);
       expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(t | 0);
     },
   );
