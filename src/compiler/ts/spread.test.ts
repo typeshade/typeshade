@@ -11,7 +11,6 @@ import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -25,66 +24,66 @@ const P = `class P {
 `;
 // A value the optimizer cannot see into, and a use of the whole of a struct: what the spread
 // builds then stays in the module to be read.
-const PIO = `${P}function mk(): P {\n  return { x: 1., y: 2. }\n}\nfunction rgba(q: P): vec4 {\n  return vec4(q.x, q.y, 0., 1.)\n}\n`;
+const PIO = `${P}function mk(k: f32): P {\n  return { x: k, y: 2. }\n}\nfunction rgba(q: P): vec4 {\n  return vec4(q.x, q.y, 0., 1.)\n}\n`;
 const file = (head: string, body: string) => `"use typeshade"
-${head}@fragment export function fs(): vec4 {
+${head}@fragment export function fs(uv: location<0, vec2>): vec4 {
 ${body}
 }
 `;
 const agree = (r: ReturnType<typeof compile>, expected: number[]): void => {
   for (const make of [compileModule, compileModuleJs]) {
-    expect(make(r.module).fns['fs']!(), make.name).toEqual(expected);
+    expect(make(r.module).fns['fs']!([1, 0]), make.name).toEqual(expected);
   }
 };
 
 describe('a spread in an object literal is the reads it stands for', () => {
-  itNoInlining('with a field written over it, and alone', () => {
+  it('with a field written over it, and alone', () => {
     const over = compile(
-      file(PIO, `  const p: P = mk()\n  const q: P = { ...p, y: 9. }\n  return rgba(q)`),
+      file(PIO, `  const p: P = mk(uv.x)\n  const q: P = { ...p, y: 9. }\n  return rgba(q)`),
     );
     expect(over.diagnostics).toEqual([]);
-    expect(over.wgsl).toContain('var q: P = P(p.x, 9.0);');
-    expect(over.glsl?.fragment).toContain('P q = P(p.x, 9.0);');
+    expect(over.wgsl).toMatch(/vec4<f32>\(\w+(\.x)?, 9\.0, 0\.0, 1\.0\)/);
+    expect(over.glsl?.fragment).toMatch(/vec4\(\w+(\.x)?, 9\.0, 0\.0, 1\.0\)/);
     agree(over, [1, 9, 0, 1]);
     const alone = compile(
-      file(PIO, `  const p: P = mk()\n  const q: P = { ...p }\n  return rgba(q)`),
+      file(PIO, `  const p: P = mk(uv.x)\n  const q: P = { ...p }\n  return rgba(q)`),
     );
     expect(alone.diagnostics).toEqual([]);
-    expect(alone.wgsl).toContain('var q: P = P(p.x, p.y);');
+    expect(alone.wgsl).toContain('vec4<f32>(uv.x, 2.0, 0.0, 1.0)');
     agree(alone, [1, 2, 0, 1]);
   });
 
-  itNoInlining('later wins, over a written field and over an earlier spread', () => {
+  it('later wins, over a written field and over an earlier spread', () => {
     const after = compile(
-      file(PIO, `  const p: P = mk()\n  const q: P = { y: 9., ...p }\n  return rgba(q)`),
+      file(PIO, `  const p: P = mk(uv.x)\n  const q: P = { y: 9., ...p }\n  return rgba(q)`),
     );
     expect(after.diagnostics).toEqual([]);
-    expect(after.wgsl).toContain('var q: P = P(p.x, p.y);');
+    expect(after.wgsl).toContain('vec4<f32>(uv.x, 2.0, 0.0, 1.0)');
     agree(after, [1, 2, 0, 1]);
     const two = compile(
       file(
-        `${PIO}function mk2(): P {\n  return { x: 5., y: 6. }\n}\n`,
-        `  const p: P = mk()\n  const r: P = mk2()\n  const q: P = { ...p, ...r, x: 7. }\n  return rgba(q)`,
+        `${PIO}function mk2(k: f32): P {\n  return { x: 5., y: 6. * k }\n}\n`,
+        `  const p: P = mk(uv.x)\n  const r: P = mk2(uv.x)\n  const q: P = { ...p, ...r, x: 7. }\n  return rgba(q)`,
       ),
     );
     expect(two.diagnostics).toEqual([]);
-    expect(two.wgsl).toContain('var q: P = P(7.0, r.y);');
+    expect(two.wgsl).toMatch(
+      /let (\w+) = \(6\.0 \* \w+\);[\s\S]*vec4<f32>\(7\.0, \1, 0\.0, 1\.0\)/,
+    );
     agree(two, [7, 6, 0, 1]);
   });
 
-  itNoInlining(
-    'takes the struct from the annotation, from the field names, and from a nested read',
-    () => {
-      // No annotation: the names the spread brings in are what matches the struct.
-      const inferred = compile(
-        file(PIO, `  const p: P = mk()\n  const q = { ...p, y: 9. }\n  return rgba(q)`),
-      );
-      expect(inferred.diagnostics).toEqual([]);
-      expect(inferred.wgsl).toContain('var q: P = P(p.x, 9.0);');
-      agree(inferred, [1, 9, 0, 1]);
-      const nested = compile(
-        file(
-          `class Inner {
+  it('takes the struct from the annotation, from the field names, and from a nested read', () => {
+    // No annotation: the names the spread brings in are what matches the struct.
+    const inferred = compile(
+      file(PIO, `  const p: P = mk(uv.x)\n  const q = { ...p, y: 9. }\n  return rgba(q)`),
+    );
+    expect(inferred.diagnostics).toEqual([]);
+    expect(inferred.wgsl).toMatch(/vec4<f32>\(\w+(\.x)?, 9\.0, 0\.0, 1\.0\)/);
+    agree(inferred, [1, 9, 0, 1]);
+    const nested = compile(
+      file(
+        `class Inner {
   a: f32
   b: f32
 }
@@ -92,23 +91,22 @@ class Outer {
   i: Inner
   k: f32
 }
-function mk(): Outer {
-  return { i: { a: 1., b: 2. }, k: 3. }
+function mk(k: f32): Outer {
+  return { i: { a: k, b: 2. }, k: 3. }
 }
 function rgba(q: Inner, k: f32): vec4 {
   return vec4(q.a, q.b, k, 1.)
 }
 `,
-          `  const o: Outer = mk()\n  const q: Inner = { ...o.i, b: 9. }\n  return rgba(q, o.k)`,
-        ),
-      );
-      expect(nested.diagnostics).toEqual([]);
-      expect(nested.wgsl).toContain('var q: Inner = Inner(o.i.a, 9.0);');
-      agree(nested, [1, 9, 3, 1]);
-    },
-  );
+        `  const o: Outer = mk(uv.x)\n  const q: Inner = { ...o.i, b: 9. }\n  return rgba(q, o.k)`,
+      ),
+    );
+    expect(nested.diagnostics).toEqual([]);
+    expect(nested.wgsl).toMatch(/vec4<f32>\(\w+(\.x)?, 9\.0, 3\.0, 1\.0\)/);
+    agree(nested, [1, 9, 3, 1]);
+  });
 
-  itNoInlining('fills part of a bigger struct, the rest written', () => {
+  it('fills part of a bigger struct, the rest written', () => {
     const r = compile(
       file(
         `class Small {
@@ -118,18 +116,18 @@ class Big {
   x: f32
   y: f32
 }
-function mk(): Small {
-  return { x: 1. }
+function mk(k: f32): Small {
+  return { x: k }
 }
 function rgba(b: Big): vec4 {
   return vec4(b.x, b.y, 0., 1.)
 }
 `,
-        `  const s: Small = mk()\n  const b: Big = { ...s, y: 2. }\n  return rgba(b)`,
+        `  const s: Small = mk(uv.x)\n  const b: Big = { ...s, y: 2. }\n  return rgba(b)`,
       ),
     );
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('var b: Big = Big(s.x, 2.0);');
+    expect(r.wgsl).toMatch(/vec4<f32>\(\w+(\.x)?, 2\.0, 0\.0, 1\.0\)/);
     agree(r, [1, 2, 0, 1]);
   });
 });

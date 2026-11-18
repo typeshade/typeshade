@@ -1,6 +1,7 @@
 // Verifies: Rule 6.8 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
+import { keepHelpers } from '../../core/testing/keep-helpers.js';
 import { compile } from './compile.js';
 import { compileTsSource } from './source-file.js';
 import { TS_CODES } from './codes.js';
@@ -8,7 +9,6 @@ import { reflect } from '../../core/reflect.js';
 import { padUniformArrays } from '../../core/passes/uniform-layout.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
-import { itNoInlining } from '../../core/testing/no-inlining-test.js';
 
 function compiled(source: string) {
   const c = compile(`"use typeshade"\n${source}`);
@@ -263,16 +263,16 @@ describe('a padded array reached any other way keeps the type the author wrote',
   const U = `interface U { xs: array<f32, 4>; k: f32 }
 declare const U_: uniform<U>`;
 
-  itNoInlining.each([
+  it.each([
     [
       'a helper argument',
-      `export function pick(a: array<f32, 4>): f32 { return a[2] }
-@fragment export function fs(): vec4 { return vec4(pick(U_.xs) * U_.k) }`,
+      `export function pick(a: array<f32, 4>): f32 { return a[0] + a[1] + a[2] + a[3] }
+@fragment export function fs(): vec4 { return vec4(pick(U_.xs) * U_.k + pick(U_.xs)) }`,
     ],
     [
       'a helper return',
-      `export function grab(): array<f32, 4> { return U_.xs }
-@fragment export function fs(): vec4 { return vec4(grab()[1] * U_.k) }`,
+      `export function grab(k: f32): array<f32, 4> { if (k > 0.) { return U_.xs } return U_.xs }
+@fragment export function fs(): vec4 { return vec4(grab(U_.k)[1] + grab(U_.k)[2]) }`,
     ],
   ])('materialises the array where it is used as a value: %s', (_what, body) => {
     // The member's ELEMENT type changed, so the padded array must not leak into a local, an
@@ -292,14 +292,17 @@ declare const U_: uniform<U>`;
     expect(c.wgsl).not.toMatch(/let \w+ = U_\.xs;/);
   });
 
-  itNoInlining('wraps each element when the struct is built by value', () => {
-    const c = compiled(`interface U { k: f32; xs: array<f32, 2> }
+  it(
+    'wraps each element when the struct is built by value',
+    keepHelpers(() => {
+      const c = compiled(`interface U { k: f32; xs: array<f32, 2> }
 declare const U_: uniform<U>
 export function mk(): U { return { k: 1., xs: [0., 1.] } }
 @fragment export function fs(): vec4 { return vec4(mk().xs[1] + U_.k) }`);
-    expect(c.wgsl).toContain('_Pad16_f32(');
-    expect(c.wgsl).toContain('mk().xs[1].v');
-  });
+      expect(c.wgsl).toContain('_Pad16_f32(');
+      expect(c.wgsl).toContain('mk().xs[1].v');
+    }),
+  );
 });
 
 describe('the rules a struct hides from the type map', () => {
