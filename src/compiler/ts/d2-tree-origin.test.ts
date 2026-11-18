@@ -173,4 +173,39 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
     bothRefuse(source, 'TS8003', proven('a + a', 0, 4294967296, 'f32()', 'i32(a + a)'));
     expect(run(source.replace('f32(a + a)', 'f32(i32(a + a))'))).toBe(0);
   });
+
+  const PULLED = (loop: string, use: string, read: string): string =>
+    `let t = (3000000000|0);\n  ${loop}\n  let x = ${use};\n  return f32(${read});`;
+  it('a loop variable a u32 tree pulls, past the rounds the walk follows, is refused', () => {
+    const body = PULLED(
+      'let acc = 0;\n  for (let k = 0; k < 30; k++) {\n    acc = acc + 3;\n  }',
+      'acc + t',
+      'acc',
+    );
+    const source = program(body, 'f32');
+    bothRefuse(source, 'TS8003', unproven('acc', 'f32()', 'i32(acc)'));
+    expect(run(source.replace('f32(acc)', 'f32(i32(acc))'))).toBe(90);
+  });
+
+  it.each([
+    [
+      'the hash of the re-review',
+      'let h = 5;\n  for (let k = 0; k < 4; k++) {\n    h = (h ^ (h << 3)) + 1;\n  }',
+      'h ^ t',
+      'h & 255',
+      233,
+    ],
+    [
+      'a product masked to its low bits',
+      'let c = 1;\n  for (let k = 0; k < 3; k++) {\n    c = c * 100000;\n  }',
+      'c + t',
+      'c & 7',
+      0,
+    ],
+  ] as const)(
+    'a loop variable a u32 tree pulls, followed to its end, compiles: %s',
+    (_, loop, use, read, value) => {
+      expect(run(program(PULLED(loop, use, read), 'f32'))).toBe(value);
+    },
+  );
 });

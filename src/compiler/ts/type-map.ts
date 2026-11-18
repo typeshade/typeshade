@@ -37,12 +37,8 @@ import {
   textureDepthCubeT,
   textureDepthCubeArrayT,
   textureDepthMultisampled2dT,
-  ALL_STORAGE_TEXTURE_FORMATS,
-  READ_WRITE_STORAGE_FORMATS,
-  WRITE_ONLY_STORAGE_FORMATS,
-  storageFormatFeature,
-  type StorageTextureFormat,
 } from '../../core/ir/types.js';
+import { mapStorageTexture } from './type-map/storage-texture.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { writtenName } from './context.js';
@@ -66,6 +62,9 @@ import {
 } from './optional.js';
 import { namespaceClassAround } from './namespaces.js';
 import { collectionKeyT, keyTypeT, keysOf, numericDomainT, recordT } from './key-types.js';
+import { LIBRARY_TYPE_NAMES } from './type-map/library-type-names.js';
+export { LIBRARY_TYPE_NAMES };
+import { isReadonlyArrayOperator } from './type-map/readonly-array.js';
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 
@@ -308,61 +307,6 @@ export function declaredTypeNamesOf(sourceFile: ts.SourceFile): ReadonlySet<stri
 }
 
 const DECLARED_TYPES = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
-
-/** The capitalized types the editor's ambient library declares for its own use: the globals
- *  TypeScript needs when it has no standard library (`Array`, `Number`, `Function`), and the
- *  helper types its signatures are written in (`AnyClass`, surface §29, `Numeric`, `ScalarOf`,
- *  `VecFor3`).
- *  None is a type a shader value has, and none is a name nothing declares either, so none is an
- *  unknown name in a constraint or wherever else a type is not mapped. `ambient-parity.test.ts`
- *  holds this list to the library. */
-export const LIBRARY_TYPE_NAMES: ReadonlySet<string> = new Set([
-  'AnyClass',
-  'Array',
-  'ArrayOps',
-  'BitcastArg',
-  'BoolVec',
-  'Boolean',
-  'CallableFunction',
-  'Console',
-  'Function',
-  'IArguments',
-  'LaneKeys',
-  // A kernel function's parameter only (change 0080): `mapCollection` takes it there.
-  'Map',
-  'Mat',
-  'MatColumn',
-  'MathObject',
-  'NewableFunction',
-  'Number',
-  'Numeric',
-  'Object',
-  'Pick',
-  'ReadView',
-  // A table over a key type (change 0081): `mapRecord` takes it with its type arguments.
-  'Record',
-  'ReadWriteStorageFormat',
-  'RegExp',
-  'ScalarOf',
-  // A kernel function's parameter only (change 0080), as `Map` is.
-  'Set',
-  'StorageAccess',
-  'StorageBufferAccess',
-  'StorageFormat',
-  'StorageTexel',
-  'String',
-  'SymbolConstructor',
-  'TexelCoord2',
-  'TexelCoord3',
-  'TextureElem',
-  'Vec4OfElem',
-  'Vec64Any',
-  'VecElemOf',
-  'VecFor2',
-  'VecFor3',
-  'VecFor4',
-  'WriteOnlyStorageFormat',
-]);
 
 /** The type an author writes for a library type that stands for one in TypeScript. */
 const LIBRARY_TYPE_REMEDY: Readonly<Record<string, string>> = {
@@ -705,8 +649,16 @@ function mapType(
   }
 
   if (ts.isArrayTypeNode(typeNode)) {
-    pushDiag(diagnostics, sourceFile, typeNode, `T[] is a JS array type. Use array<T, N>.`);
-    return undefined;
+    return unsizedArray(typeNode.elementType, sourceFile, diagnostics, resolving, sizeOverrides);
+  }
+  if (isReadonlyArrayOperator(typeNode)) {
+    return unsizedArray(
+      typeNode.type.elementType,
+      sourceFile,
+      diagnostics,
+      resolving,
+      sizeOverrides,
+    );
   }
 
   if (ts.isTypeReferenceNode(typeNode)) {
@@ -1165,6 +1117,21 @@ function mapIntersection(
   return undefined;
 }
 
+function unsizedArray(
+  written: ts.TypeNode,
+  sourceFile: ts.SourceFile,
+  diagnostics: TsCompilerDiagnostic[] | undefined,
+  resolving: ReadonlySet<string> | undefined,
+  sizeOverrides: Parameters<typeof mapType>[4],
+): ShaderType | undefined {
+  let elemNode = written;
+  while (ts.isParenthesizedTypeNode(elemNode)) elemNode = elemNode.type;
+  const elem = withoutCollections(() =>
+    mapType(elemNode, sourceFile, diagnostics, resolving, sizeOverrides),
+  );
+  return elem === undefined ? undefined : arrayT(elem, undefined);
+}
+
 function mapGeneric(
   name: string | undefined,
   typeNode: ts.TypeReferenceNode,
@@ -1177,12 +1144,15 @@ function mapGeneric(
   >,
 ): ShaderType | undefined {
   const args = typeNode.typeArguments ?? [];
-  if (name === 'Array') {
+  if ((name === 'Array' || name === 'ReadonlyArray') && args.length === 1) {
+    return unsizedArray(args[0]!, sourceFile, diagnostics, resolving, sizeOverrides);
+  }
+  if (name === 'Array' || name === 'ReadonlyArray') {
     pushDiag(
       diagnostics,
       sourceFile,
       typeNode,
-      'JS Array<T> is not a shader type. Use array<T, N>.',
+      `${name}<T> takes one type argument, the element. A list with a size is array<T, N>.`,
     );
     return undefined;
   }
@@ -1401,97 +1371,6 @@ function mapGeneric(
     }<...>").`,
   );
   return undefined;
-}
-
-/** `texture_storage_2d<"rgba8unorm", "write">` (roadmap 0.4 item 10). Both arguments are
- *  string LITERAL types, which is what lets `tsc` check a mistyped format before this compiler
- *  sees the file and what keeps the spelling ordinary TypeScript.
- *
- *  Two things are refused here that Tint would not refuse. Tint compiles every format at every
- *  access mode; a real device does not, so a `read_write` on anything but the three
- *  single-channel 32-bit formats, and any format outside the sixteen core ones, is reported
- *  with the reason. Both were measured against a device rather than read off a spec: the
- *  spelling Tint takes and the device refuses passes the compile gate and then fails at
- *  `createBindGroupLayout`, which is a wrong program emitted without a diagnostic. */
-function mapStorageTexture(
-  name: string,
-  dim: '2d' | '2d-array',
-  args: readonly ts.TypeNode[],
-  typeNode: ts.TypeReferenceNode,
-  sourceFile: ts.SourceFile,
-  diagnostics: TsCompilerDiagnostic[] | undefined,
-): ShaderType | undefined {
-  const written = (node: ts.TypeNode | undefined): string | undefined =>
-    node !== undefined && ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal)
-      ? node.literal.text
-      : undefined;
-  const format = written(args[0]);
-  if (
-    format === undefined ||
-    !(ALL_STORAGE_TEXTURE_FORMATS as readonly string[]).includes(format)
-  ) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      typeNode,
-      `${name}<Format, Access> needs a texel format written as a string, one of ` +
-        `${ALL_STORAGE_TEXTURE_FORMATS.map((f) => `"${f}"`).join(', ')}. ` +
-        `All but the last are the formats every WebGPU device stores to with no feature ` +
-        `requested, and "bgra8unorm" is the one that needs "bgra8unorm-storage"; a format ` +
-        `outside them compiles and then fails when the host builds the bind group.`,
-      TS_CODES.UNKNOWN_TYPE,
-    );
-    return undefined;
-  }
-  const access = written(args[1]) ?? 'write';
-  if (access !== 'write' && access !== 'read' && access !== 'read_write') {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      typeNode,
-      `${name}<Format, Access> Access is "write", "read" or "read_write"; got "${access}".`,
-      TS_CODES.UNKNOWN_TYPE,
-    );
-    return undefined;
-  }
-  // A format that stores and nothing more (#147). Measured on two Chromium builds with every
-  // adapter feature requested: `bgra8unorm` at `read-only` and at `read-write` is "Texture
-  // format TextureFormat::BGRA8Unorm does not support storage texture access", while
-  // `write-only` builds. Checked BEFORE the read_write list, so `<bgra8unorm, read_write>`
-  // reads the reason that is about this format rather than the one about read_write in general.
-  if (access !== 'write' && (WRITE_ONLY_STORAGE_FORMATS as readonly string[]).includes(format)) {
-    const feature = storageFormatFeature(format as StorageTextureFormat);
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      typeNode,
-      `"${format}" is "write" only. A device that requested ` +
-        `"${feature ?? "the format's feature"}" stores to it and does not load from it, so ` +
-        `"${access}" is refused at the bind group whatever Tint says about the module. ` +
-        `Write to it and read the same texture through a sampled binding.`,
-      TS_CODES.UNKNOWN_TYPE,
-    );
-  } else if (
-    access === 'read_write' &&
-    !(READ_WRITE_STORAGE_FORMATS as readonly string[]).includes(format)
-  ) {
-    pushDiag(
-      diagnostics,
-      sourceFile,
-      typeNode,
-      `"${format}" cannot be read_write. A device stores AND loads through the same binding ` +
-        `only at ${READ_WRITE_STORAGE_FORMATS.map((f) => `"${f}"`).join(', ')}; every other ` +
-        `format is "write" or "read", one at a time. Take two bindings over the same texture ` +
-        `if this one has to be both.`,
-      TS_CODES.UNKNOWN_TYPE,
-    );
-    // Reported, and the type is still returned below: it is a well-formed storage texture that
-    // no device will bind, not a name that means nothing. Keeping it keeps the binding alive,
-    // so this reads as the one sentence it is instead of trailing an "Unknown identifier" at
-    // every use (T10, #111). A module carrying an error emits nothing, so the spelling never
-    // reaches a device anyway.
-  }
-  return { kind: 'storage-texture', dim, format: format as StorageTextureFormat, access };
 }
 
 function typeNameOf(node: ts.TypeReferenceNode): string | undefined {

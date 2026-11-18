@@ -76,6 +76,8 @@ import {
   regionOf,
   skipParenUp,
 } from './abstract-const/syntax-lookup.js';
+import { groupExecutions } from './abstract-const/trip-count.js';
+import { readingsSentenceOf } from './abstract-const/readings-sentence.js';
 import {
   READING_DEPTH,
   READING_ROUNDS,
@@ -93,11 +95,12 @@ import {
   signedReading,
   plainUnproven,
   provenDiffering,
+  beyondExecutions,
+  readingKey,
   readingValue,
   sameReadings,
   type Reading,
 } from './abstract-const/reading.js';
-import { storeExecutions } from './abstract-const/trip-count.js';
 import { builtinReadingsOf } from './abstract-const/builtin-readings.js';
 import { divisionEdits as buildDivisionEdits } from './remedies/candidates.js';
 import { NO_DIVISION } from './remedies/contracts.js';
@@ -2265,13 +2268,10 @@ function declarationChange(name: string, at: ts.Node, type: string): SourceChang
  *  typed operand end it. `undefined` where the two agree. */
 export function twoReadingsOf(node: ts.Expression): TwoReadings | undefined {
   const xs = readingsFrom(node);
-  // The first value a tree reaches whose two readings differ (issue 1299: a variable holds
-  // every value stored in it, so each is read); else a value the walk could not prove, which
-  // is refused too (the owner's decision of 2026-11-16, "증명 못 하면 거부").
-  const proven = xs.find((x) => provenDiffering(x) && x.signed !== true);
+  const proven = xs.find((x) => provenDiffering(x) && x.signed !== true && !x.beyond);
   if (proven !== undefined) return { u32: proven.u32, ts: proven.ts };
-  if (xs.some(provenDiffering)) return { u32: NaN, ts: NaN, unproven: true };
-  return xs.some((x) => x.unproven) ? { u32: NaN, ts: NaN, unproven: true } : undefined;
+  const unproven = xs.some((x) => x.unproven || provenDiffering(x));
+  return unproven ? { u32: NaN, ts: NaN, unproven: true } : undefined;
 }
 
 /** The two values of a tree. `unproven` where the compiler could not follow every value that
@@ -3050,19 +3050,9 @@ function declarationAt(id: ts.Identifier, sourceFile: ts.SourceFile): WalkDeclar
 }
 
 /** Every store of the variable `d` declares, found once per declaration, in the whole file. */
-const pulledTypes = new WeakMap<ts.SourceFile, Map<ts.Node, 'u32' | 'i32' | false>>();
-
 function pulledType(v: ts.Node, sourceFile: ts.SourceFile): 'u32' | 'i32' | false {
-  let memo = pulledTypes.get(sourceFile);
-  if (memo === undefined) pulledTypes.set(sourceFile, (memo = new Map()));
-  const known = memo.get(v);
-  if (known !== undefined) return known;
-  memo.set(v, false);
-  const peers = (fileTaint(sourceFile).pulled.get(v) ?? []).flatMap(readingsFrom);
-  const u32 = peers.some((x) => x.tree && x.signed !== true && !x.unproven && !x.agreeing);
-  const type = u32 ? 'u32' : peers.some((x) => x.signed === true) ? 'i32' : false;
-  memo.set(v, type);
-  return type;
+  const taint = fileTaint(sourceFile);
+  return !taint.pulled.has(v) ? false : taint.pulledU32.has(v) ? 'u32' : 'i32';
 }
 
 function storesOf(d: ts.VariableDeclaration, sourceFile: ts.SourceFile): Store[] {
@@ -3135,6 +3125,7 @@ interface FileTaint {
    *  another, through stores, calls and getters (a strongly connected component). */
   readonly groups: Map<ts.Node, readonly ts.VariableDeclaration[]>;
   readonly pulled: Map<ts.Node, ts.Expression[]>;
+  readonly pulledU32: Set<ts.Node>;
 }
 
 /** Whether a tree reaches the property access whose name is `name`: by its member where the
@@ -3163,6 +3154,7 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
     untypedFieldNames: new Set(),
     groups: new Map(),
     pulled: new Map(),
+    pulledU32: new Set(),
   };
   const peers: (readonly [ts.Identifier, ts.Expression])[] = [];
   /** The field a store into `access` reaches: its declaration, its name where the source does
@@ -3391,6 +3383,18 @@ function fileTaint(sourceFile: ts.SourceFile): FileTaint {
       }
     }
   }
+  const big = new Set<ts.Node>();
+  const bigIn = (e: ts.Node): boolean =>
+    (ts.isNumericLiteral(e) && isBigNumber(Number(e.text))) ||
+    (ts.isIdentifier(e) && (big.has(declarationAt(e, sourceFile)!) || taint.names.has(e.text))) ||
+    ts.forEachChild(e, (c) => (bigIn(c) ? true : undefined)) === true;
+  for (let more = true; more;) {
+    more = false;
+    for (const [d, exprs] of [...vars.map((v) => [v.d, v.exprs] as const), ...taint.pulled]) {
+      if (!big.has(d) && exprs.some(bigIn)) more = big.add(d) !== undefined;
+    }
+  }
+  for (const d of taint.pulled.keys()) if (big.has(d)) taint.pulledU32.add(d);
   // The groups: Tarjan's components over the tainted variables, functions and members, by what
   // each reads.
   const keyOfName = (name: string): string => `name:${name}`;
@@ -3664,13 +3668,8 @@ function variableReadings(
     w.pending.set(v, []);
   }
   let settled = false;
-  let executions = 0;
-  for (const v of group) {
-    for (const s of storesOf(v, sourceFile)) {
-      const at = s.kind === 'compound' ? s.id : (s.expr ?? v);
-      executions += s.kind === 'opaque' ? 1 : storeExecutions(at, v);
-    }
-  }
+  const firstRound = new Map<string, number>();
+  const executions = groupExecutions(group, (v) => storesOf(v, sourceFile));
   const rounds = Math.min(READING_ROUNDS, executions);
   let round = 0;
   for (; round < rounds && !settled; round++) {
@@ -3679,6 +3678,8 @@ function variableReadings(
       const next: Reading[] = [];
       for (const s of storesOf(v, sourceFile)) next.push(...storedReadings(v, s, sourceFile, own));
       const bounded = boundedReadings(heldByTreeVariable(next, pulledType(v, sourceFile)));
+      for (const x of bounded)
+        if (!firstRound.has(readingKey(x))) firstRound.set(readingKey(x), round);
       if (!sameReadings(bounded, values.get(v)!)) settled = false;
       values.set(v, bounded);
       w.pending.set(v, bounded);
@@ -3687,8 +3688,8 @@ function variableReadings(
   }
   if (round === executions && own.steps <= READING_STEP_LIMIT) settled = true;
   for (const v of group) {
-    const found = values.get(v)!;
-    if (!settled) values.set(v, [...found, found.some((x) => x.tree) ? UNPROVEN : UNKNOWN]);
+    const found = beyondExecutions(values.get(v)!, firstRound, executions);
+    values.set(v, settled ? found : [...found, found.some((x) => x.tree) ? UNPROVEN : UNKNOWN]);
     w.pending.delete(v);
     own.deps.delete(v);
   }
@@ -4053,6 +4054,7 @@ function binaryReadingsOf(
         picks = [];
       }
       const tree = a.tree || b.tree;
+      const push = (r: Reading) => out.push(a.beyond || b.beyond ? { ...r, beyond: true } : r);
       if (a.unknown || b.unknown || plainUnproven(a) || plainUnproven(b)) {
         out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
       } else if (a.unproven || b.unproven || a.agreeing || b.agreeing) {
@@ -4061,17 +4063,17 @@ function binaryReadingsOf(
       } else if (!tree) {
         if (bit && (isBigNumber(a.ts) || isBigNumber(b.ts))) {
           const u = rootOf(a.ts >>> 0, b.ts >>> 0);
-          out.push({ u32: u, ts: u | 0, tree: true, picks });
+          push({ u32: u, ts: u | 0, tree: true, picks });
         } else if (bit) {
-          out.push(signedReading(op(a.ts, b.ts, false), picks));
+          push(signedReading(op(a.ts, b.ts, false), picks));
         } else {
           const t = op(a.ts, b.ts, false);
-          out.push({ u32: t, ts: t, tree: false, picks });
+          push({ u32: t, ts: t, tree: false, picks });
         }
       } else if (signedPair(a, b)) {
-        out.push({ ...signedReading(op(a.ts, b.ts, false), picks), u32: wrapped(a.u32, b.u32) });
+        push({ ...signedReading(op(a.ts, b.ts, false), picks), u32: wrapped(a.u32, b.u32) });
       } else {
-        out.push({ u32: op(a.u32, b.u32, true), ts: op(a.ts, b.ts, false), tree: true, picks });
+        push({ u32: op(a.u32, b.u32, true), ts: op(a.ts, b.ts, false), tree: true, picks });
       }
     }
   }
@@ -4105,22 +4107,6 @@ function declaredWith(name: string, at: ts.Node, type: string): string | undefin
   const keyword =
     ts.isVariableDeclarationList(list) && list.flags & ts.NodeFlags.Const ? 'const' : 'let';
   return `${keyword} ${name}: ${type} = ${d.initializer.getText().replace(/\s+/g, ' ')}`;
-}
-
-function readingsSentenceOf(r: ReadingsRefusal, remedy: string): string {
-  const text = skipParenNodes(r.node).getText().replace(/\s+/g, ' ');
-  if (r.readings.unproven === true) {
-    // The owner's decision of 2026-11-16, "증명 못 하면 거부": a value whose two readings the
-    // compiler cannot prove to agree is refused, with no numbers it cannot state.
-    return (
-      `The compiler cannot prove that the u32 bits and the TypeScript value of "${text}" ` +
-      `agree, so the "${r.operator}" does not say which value it means. ${remedy}`
-    );
-  }
-  return (
-    `"${text}" is ${String(r.readings.u32)} on its u32 bits and ${String(r.readings.ts)} in ` +
-    `TypeScript, so the "${r.operator}" does not say which value it means. ${remedy}`
-  );
 }
 
 function readingsRemedy(r: ReadingsRefusal, type: 'u32' | 'i32' | null): string {

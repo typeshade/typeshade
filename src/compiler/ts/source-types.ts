@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import type { ShaderType } from '../../core/ir/types.js';
 import { bare, fileFunction, writesAnObject } from './object-reference.js';
+import { isReadonlyArrayOperator } from './type-map/readonly-array.js';
 
 export function membersNamed(name: string, sourceFile: ts.SourceFile): readonly ts.Node[] {
   let byName = MEMBERS.get(sourceFile);
@@ -76,12 +77,13 @@ export function elementType(type: ts.TypeNode | undefined): ts.TypeNode | undefi
   )
     at = at.typeArguments?.[0];
   if (at === undefined) return undefined;
+  if (isReadonlyArrayOperator(at)) return at.type.elementType;
   if (ts.isArrayTypeNode(at)) return at.elementType;
   if (ts.isTupleTypeNode(at)) return at.elements[0];
   if (
     ts.isTypeReferenceNode(at) &&
     ts.isIdentifier(at.typeName) &&
-    (at.typeName.text === 'array' || at.typeName.text === 'Array')
+    ['array', 'Array', 'ReadonlyArray'].includes(at.typeName.text)
   )
     return at.typeArguments?.[0];
   return undefined;

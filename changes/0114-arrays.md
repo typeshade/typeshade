@@ -31,6 +31,7 @@ examples: []
 names:
   - Float32Array
   - Array.from
+  - ReadonlyArray
 downstream:
   - repo: typeshade.github.io
     what: The guide pages and rule pages that spell `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)` and `storage<T, "read_write">` are written again in the new spellings at each stage that changes them; the Korean translations of Rules 6.1 and 6.2 follow.
@@ -565,6 +566,25 @@ constant, in one place: a kernel function that returns the array. It adds no spe
   applicability, section 2 (stage S5, and S2's obligation that `fill` gives its array back), and
   section 3 (units B8 and B8b).
 - Status: `status: accepted` does not change.
+
+### A2. S1 names `ReadonlyArray` (2026-11-18)
+
+- [fact] Why. S1 accepts `readonly T[]` and `ReadonlyArray<T>` (section 2). Pull request #1367
+  (merged as `74e7f05`) delivered `T[]` and `Array<T>` and left both `readonly` spellings out.
+  For the editor to refuse a write through them, the ambient library must declare
+  `ReadonlyArray<T>`; without it, TypeScript reads `readonly T[]` as a plain `Array<T>`.
+  `ReadonlyArray` is not in `src/__api__/author-names.md`, and this proposal's `names` did not
+  list it, so `scripts/changes.ts` refuses the implementation (`changes/README.md`, The front
+  matter).
+- [fact] `readonly T[]` adds no name: `readonly` is TypeScript's type operator, and the array
+  type it applies to is `ReadonlyArray<T>`.
+- [fact] Rule 2.1: `ReadonlyArray` is ECMAScript's library type as TypeScript spells it.
+- [decision, owner, 2026-11-18] "추천대로", to the agent's recommendation to list `ReadonlyArray`
+  in `names` before S1's second pull request.
+- Affects: the front matter (`names` gains `ReadonlyArray`). No rule, surface section, code or
+  stage changes.
+- Status: `status: accepted` does not change. S1 is in progress: `T[]` and `Array<T>` are done
+  (#1367); `readonly T[]`, `ReadonlyArray<T>` and the write refusal are not started.
 
 ## What it owes downstream
 

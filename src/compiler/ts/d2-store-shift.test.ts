@@ -149,4 +149,12 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
     );
     expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(-2147483648);
   });
+
+  it('re-review of #1354: a constant trip count bounds the values, so the loop compiles to 243', () => {
+    const body =
+      'let t = (3000000000|0);\n  let acc = 1;\n  for (let k = 0; k < 5; k++) {\n    acc = acc * 3;\n  }\n  let x = acc ^ t;\n  return f32(acc);';
+    const source = program(body, 'f32');
+    expect(run(source)).toBe(243);
+    expect(run(source.replace('f32(acc)', 'f32(i32(acc))'))).toBe(243);
+  });
 });
