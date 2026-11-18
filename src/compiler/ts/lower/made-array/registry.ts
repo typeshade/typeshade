@@ -5,6 +5,7 @@ export type MadeElement = 'f32' | 'i32' | 'u32';
 
 export interface MadeArray {
   readonly param: string;
+  readonly count: string;
   readonly shown: string;
   readonly element: MadeElement;
   readonly length: Expr;

@@ -1,7 +1,7 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import type { FuncDecl } from '../../../core/ir/nodes.js';
 import type { KernelFace } from '../../../core/host-kernel.js';
-import { madeOf, type KernelMade } from '../../../core/kernel-made-face.js';
+import { isMadeParam, madeOf, type KernelMade } from '../../../core/kernel-made-face.js';
 import type { HostExport } from '../host-face-contracts.js';
 import { madeArrayOf } from '../lower/made-array/registry.js';
 
@@ -19,6 +19,7 @@ export function madeFace(e: HostExport, f: FuncDecl): HostExport {
   const fill = made.fill === undefined ? undefined : cpuFn('fill', made.fill);
   const record: KernelMade = {
     param: made.param,
+    count: made.count,
     shown: made.shown,
     array: made.element,
     length: length.name,
@@ -55,7 +56,7 @@ export function madeView(face: KernelFace): MadeView {
   const made = madeOf(face);
   if (made === undefined) return { face, note: '' };
   return {
-    face: { ...face, params: face.params.filter((p) => p.name !== made.param) },
+    face: { ...face, params: face.params.filter((p) => !isMadeParam(made, p.name)) },
     result: TYPED_NAME[made.array],
     note: ` It makes the array it returns, "${made.shown}", a new ${TYPED_NAME[made.array]} whose length its arguments give, and the caller owns it; a call on a resource, or inside fuse(), is not supported yet (Rules 8.21 and 8.23).`,
   };

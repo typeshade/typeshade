@@ -96,6 +96,13 @@ export function short(size: u32): f32[] {
   }
   return out;
 }
+export function counted(n: u32, xs: u32[]): f32[] {
+  const out = new Float32Array(n);
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = out.length + i;
+  }
+  return out;
+}
 export function held(xs: u32[]): f32[] {
   const out = new Float32Array(xs.length);
   for (let i: u32 = 0; i < xs[0]; i++) {
@@ -134,6 +141,7 @@ describe('a kernel function that makes the array it returns (change 0114, S5)', 
     expect(render.face.gpu?.loops.length).toBe(1);
     expect((render.face as unknown as { made: unknown }).made).toEqual({
       param: 'out',
+      count: 'out_length',
       shown: 'out',
       array: 'f32',
       length: 'render__length',
@@ -173,6 +181,19 @@ describe('a kernel function that makes the array it returns (change 0114, S5)', 
     const empty = await m['scaled']!(0);
     expect(empty).toBeInstanceOf(Float32Array);
     expect((empty as Float32Array).length).toBe(0);
+  });
+
+  it('reads n as out.length in the body, 0 included', async () => {
+    const m = await load(FORMS);
+    const seen = new Uint32Array(2);
+    expect((await m['counted']!(0, seen)) as Float32Array).toHaveLength(0);
+    expect([...seen]).toEqual([0, 1]);
+    expect((await m['counted']!(5, seen)) as Float32Array).toHaveLength(5);
+    expect([...seen]).toEqual([5, 6]);
+    const counted = face(FORMS).exports.find((e) => e.name === 'counted') as {
+      face: KernelFace;
+    };
+    expect(counted.face.gpu?.wgsl).not.toContain('arrayLength(&out)');
   });
 
   it('throws a RangeError for a negative or fractional length, before anything runs', async () => {

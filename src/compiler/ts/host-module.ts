@@ -2,7 +2,7 @@
 import type { ConsoleLog } from '../../core/console.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
 import type { HostType } from '../../core/host-values.js';
-import { madeOf } from '../../core/kernel-made-face.js';
+import { isMadeParam, madeOf } from '../../core/kernel-made-face.js';
 import { type Pack } from '../../core/manifest.js';
 import { hostContentReads } from './host-content-access.js';
 import { type ClassExport, type FaceExport, type MemberCall } from './host-face-contracts.js';
@@ -162,7 +162,9 @@ export function moduleText(
         const id = `__ts_e${t++}`;
         const reads = `__ts_reads${t}`;
         const made = madeOf(e.face);
-        const ps = e.face.params.filter((p) => p.name !== made?.param).map((_, i) => `__ts_p${i}`);
+        const ps = e.face.params
+          .filter((p) => !isMadeParam(made, p.name))
+          .map((_, i) => `__ts_p${i}`);
         // A result `Buffer<S>` reads instances of `S`'s exported class (change 0138, Amendment
         // A12, Q6): the face is handed the classes' prototypes.
         const face =

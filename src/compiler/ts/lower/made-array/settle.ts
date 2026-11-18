@@ -5,6 +5,7 @@ import { voidT } from '../../../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from '../../source-file.js';
 import { TS_CODES } from '../../codes.js';
 import { makeDiagnostic } from '../../diagnostic.js';
+import { lengthFromHost } from './length.js';
 import { madeLoweringOf, setMadeArray, type MadeLowering } from './registry.js';
 
 const ARITHMETIC: ReadonlySet<string> = new Set(['+', '-', '*', '/', '%']);
@@ -138,8 +139,10 @@ export function settleMadeArray(
   const prelude = stub.body.filter((st) => st.s === 'let' && r.needed.has(st.name));
   (stub as { body: readonly Stmt[] }).body = withoutResult(stub.body, made.param);
   (stub as { ret: FuncDecl['ret'] }).ret = voidT;
+  const count = lengthFromHost(stub, made.param);
   setMadeArray(stub, {
     param: made.param,
+    count,
     shown: (made.decl.name as ts.Identifier).text,
     element: made.element,
     length: made.length,

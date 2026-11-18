@@ -6,7 +6,7 @@ import { callKernel, type KernelFace } from './host-kernel.js';
 import { isResource } from './host-record.js';
 import { runtimeCount, type GeneratedCpu } from './host-entry.js';
 import { toShader } from './host-values.js';
-import { madeOf, type KernelMade } from './kernel-made-face.js';
+import { isMadeParam, madeOf, type KernelMade } from './kernel-made-face.js';
 
 const ARRAYS = { f32: Float32Array, i32: Int32Array, u32: Uint32Array } as const;
 
@@ -14,6 +14,7 @@ function lengthsBefore(k: KernelFace, made: KernelMade, args: readonly unknown[]
   let at = 0;
   return k.params.map((p) => {
     if (p.name === made.param) return { length: 0 } as unknown as CpuValue;
+    if (p.name === made.count) return 0 as CpuValue;
     const v = args[at++];
     if (p.k === 'value') return toShader(k.name, p.name, p.type, v) as CpuValue;
     if (p.k === 'array') {
@@ -68,8 +69,7 @@ export function callMadeKernel(
   reads?: IncomingReads,
 ): Promise<unknown> {
   const made = madeOf(k)!;
-  const at = k.params.findIndex((p) => p.name === made.param);
-  const taken = k.params.length - 1;
+  const taken = k.params.filter((p) => !isMadeParam(made, p.name)).length;
   if (fuseSlot.active !== undefined)
     throw new TypeError(
       `${k.name}(): returns the array it makes, "${made.shown}", and a call inside fuse() ` +
@@ -88,8 +88,11 @@ export function callMadeKernel(
       );
     const array = madeArray(cpu, k, made, args);
     const bound = array.length > 0 ? array : new ARRAYS[made.array](1);
-    const all = [...args.slice(0, at), bound, ...args.slice(at)];
-    return callKernel(cpu, k, argc + 1, all, reads).then(
+    let next = 0;
+    const all = k.params.map((p) =>
+      p.name === made.param ? bound : p.name === made.count ? array.length : args[next++],
+    );
+    return callKernel(cpu, k, all.length, all, reads).then(
       () => array,
       (e: unknown) => Promise.reject(renamed(e, made)),
     );
