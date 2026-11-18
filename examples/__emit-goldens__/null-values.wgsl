@@ -68,16 +68,7 @@ fn fs(v: VsOut) -> Color {
     _sel1 = _opt3_f32_(0.0, false, false);
   }
   var value: _opt3_f32_ = _sel1;
-  var _i2ret: vec3<f32>;
   let _gv0 = (value.present == false);
-  if ((_gv0 && (value.isNull == false))) {
-    _i2ret = vec3<f32>(0.8, 0.1, 0.1);
-  } else {
-    if ((_gv0 && value.isNull)) {
-      _i2ret = vec3<f32>(0.1, 0.8, 0.1);
-    } else {
-      _i2ret = vec3<f32>(0.1, 0.1, value.value);
-    }
-  }
+  let _i2ret = select(select(vec3<f32>(0.1, 0.1, value.value), vec3<f32>(0.1, 0.8, 0.1), (_gv0 && value.isNull)), vec3<f32>(0.8, 0.1, 0.1), (_gv0 && (value.isNull == false)));
   return Color(vec4<f32>(_i2ret, 1.0));
 }

@@ -37,15 +37,9 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   let _gv1 = df64_narrow(vec2<f32>(_i0ret.x, _i0ret.y));
   let narrowed = vec3<f32>(0.0, df64_narrow(vec2<f32>(_lc1.x, _lc1.y)), 0.0);
   let flat = fract((df64_narrow(_gv0) * 8.0));
-  var _sel0: f32;
-  if ((vo.uv.x < 0.5)) {
-    _sel0 = flat;
-  } else {
-    _sel0 = _gv1;
-  }
-  let shade = _sel0;
+  let _sel0 = select(_gv1, flat, (vo.uv.x < 0.5));
   let drift = abs((_gv1 - flat));
-  return vec4<f32>(shade, drift, fract((narrowed.y * 0.5)), 1.0);
+  return vec4<f32>(_sel0, drift, fract((narrowed.y * 0.5)), 1.0);
 }
 
 fn df64_twoSum(a: f32, b: f32, _fp64_g: f32) -> vec2<f32> {

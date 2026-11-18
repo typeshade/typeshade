@@ -172,7 +172,7 @@ describe('GLSL ES 3.00 and the CPU oracle: a subgroup of one invocation (Rule 11
 }
 `);
     const glsl = emitGlslModule(c.module, 'fragment');
-    expect(glsl).toContain('acc = vec2(3.0, -1.0);');
+    expect(glsl).toContain('acc = ((uv.x > 0.5) ? vec2(3.0, -1.0) : acc);');
     expect(glsl).toContain('float sum = acc.x;');
     expect(glsl).toContain('_ret = vec4(acc, sum, 1.0);');
   });

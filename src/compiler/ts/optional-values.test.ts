@@ -1269,7 +1269,7 @@ export function kept(x: f32): f32 { let h = new Hit(); h.k = x; h.peek(); h.a = 
     expect(emitModuleAt(r.module, 'O1')).toContain(
       'if (h.k.present) {\n    return (h.k.value * 2.0);',
     );
-    expect(r.wgsl).toMatch(/if \((\w+)\.k\.present\) \{\n    \w+ = \(\1\.k\.value \* 2\.0\);/);
+    expect(r.wgsl).toMatch(/select\(-1\.0, \((\w+)\.k\.value \* 2\.0\), \1\.k\.present\)/);
     expect(r.wgsl).toContain('return h.a.d.value;');
     expect(r.wgsl).toContain('return (h.n.value.x + length(h.n.value));');
     const run = cpu(r);

@@ -54,22 +54,11 @@ fn fs(v: VsOut) -> Color {
   } else {
     shade = _cse0;
   }
-  var _i5ret: f32;
   var _gv0: _opt_f32_;
   root_into(&_gv0, x);
-  if ((_gv0.present == false)) {
-    _i5ret = 0.0;
-  } else {
-    _i5ret = _gv0.value;
-  }
+  let _i5ret = select(_gv0.value, 0.0, (_gv0.present == false));
   let _i6a0 = v.uv.x;
-  var _i6ret: f32;
-  let _gv1 = (_i6a0 * 0.5);
-  if ((true == false)) {
-    _i6ret = 0.0;
-  } else {
-    _i6ret = _gv1;
-  }
+  let _i6ret = select((_i6a0 * 0.5), 0.0, (true == false));
   let r = (_i5ret + _i6ret);
   let _i1a0 = v.uv.y;
   var _i1ret: _opt_f32_;

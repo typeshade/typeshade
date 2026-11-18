@@ -56,9 +56,7 @@ fn fs_newton(vo: VsOut) -> @location(0) vec4<f32> {
       let qy = (((ny * gx) - (nx * gy)) * inv);
       zx = (zx - qx);
       zy = (zy - qy);
-      if ((((qx * qx) + (qy * qy)) > 1e-14)) {
-        it = (it + 1.0);
-      }
+      it = select(it, (it + 1.0), (((qx * qx) + (qy * qy)) > 1e-14));
     }
     fx = zx;
     fy = zy;
@@ -79,9 +77,8 @@ fn fs_newton(vo: VsOut) -> @location(0) vec4<f32> {
       let qy_1 = df64_mul(df64_sub(df64_mul(ny_1, gx_1, _fp64_g), df64_mul(nx_1, gy_1, _fp64_g), _fp64_g), inv_1, _fp64_g);
       zx_1 = df64_sub(df64_add(zx_1, _licm0, _fp64_g), df64_add(qx_1, _licm0, _fp64_g), _fp64_g);
       zy_1 = df64_sub(df64_add(zy_1, _licm0, _fp64_g), df64_add(qy_1, _licm0, _fp64_g), _fp64_g);
-      if ((df64_narrow(df64_add(df64_sqr(qx_1, _fp64_g), df64_sqr(qy_1, _fp64_g), _fp64_g)) > 1e-14)) {
-        it = (it + 1.0);
-      }
+      let _ifc0 = (df64_narrow(df64_add(df64_sqr(qx_1, _fp64_g), df64_sqr(qy_1, _fp64_g), _fp64_g)) > 1e-14);
+      it = select(it, (it + 1.0), _ifc0);
     }
     fx = df64_narrow(zx_1);
     fy = df64_narrow(zy_1);

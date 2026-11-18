@@ -1,39 +1,77 @@
 import { describe, it, expect } from 'vitest';
-import { fn, module, f32, f32T, vec2, vec2fT, when, ifExpr, condExpr } from './index.js';
+import { fn, module, f32, f32T, vec2, vec2fT, when, ifExpr, condExpr, sin } from './index.js';
 import { emitModule } from '../backends/wgsl.js';
+import { compileModule } from '../oracle.js';
+import { keepBranches } from '../testing/keep-branches.js';
 
 describe('when — unified condition dispatch', () => {
-  it('2-arm: emits an if/else chain (not select) and is byte-identical to the deprecated ifExpr', () => {
-    const w = emitModule(
-      module({
-        funcs: [
-          fn('f', { x: f32T }, vec2fT, ({ x }) =>
-            when(
-              x.lt(1),
-              () => vec2(1, 0),
-              () => vec2(0, 1),
+  it(
+    '2-arm: emits an if/else chain (not select) and is byte-identical to the deprecated ifExpr',
+    keepBranches(() => {
+      const w = emitModule(
+        module({
+          funcs: [
+            fn('f', { x: f32T }, vec2fT, ({ x }) =>
+              when(
+                x.lt(1),
+                () => vec2(1, 0),
+                () => vec2(0, 1),
+              ),
             ),
-          ),
-        ],
-      }),
-    );
-    expect(w).toContain('if');
-    expect(w).not.toContain('select(');
-    const old = emitModule(
-      module({
-        funcs: [
-          fn('f', { x: f32T }, vec2fT, ({ x }) =>
-            // eslint-disable-next-line @typescript-eslint/no-deprecated -- this test's purpose is to prove `when` is byte-identical to the deprecated `ifExpr`; it must call `ifExpr` directly
-            ifExpr(
-              x.lt(1),
-              () => vec2(1, 0),
-              () => vec2(0, 1),
+          ],
+        }),
+      );
+      expect(w).toContain('if');
+      expect(w).not.toContain('select(');
+      const old = emitModule(
+        module({
+          funcs: [
+            fn('f', { x: f32T }, vec2fT, ({ x }) =>
+              // eslint-disable-next-line @typescript-eslint/no-deprecated -- this test's purpose is to prove `when` is byte-identical to the deprecated `ifExpr`; it must call `ifExpr` directly
+              ifExpr(
+                x.lt(1),
+                () => vec2(1, 0),
+                () => vec2(0, 1),
+              ),
             ),
+          ],
+        }),
+      );
+      expect(w).toBe(old);
+    }),
+  );
+
+  it('2-arm: a cheap pure arm is a select with the same values, a costly arm stays a branch', () => {
+    const cheap = module({
+      funcs: [
+        fn('f', { x: f32T }, vec2fT, ({ x }) =>
+          when(
+            x.lt(1),
+            () => vec2(1, 0),
+            () => vec2(0, 1),
           ),
-        ],
-      }),
-    );
-    expect(w).toBe(old);
+        ),
+      ],
+    });
+    expect(emitModule(cheap)).toContain('select(');
+    const run = compileModule(cheap).fns.f!;
+    expect(run(0)).toEqual([1, 0]);
+    expect(run(2)).toEqual([0, 1]);
+
+    const costly = module({
+      funcs: [
+        fn('g', { x: f32T }, f32T, ({ x }) =>
+          when(
+            x.lt(1),
+            () => sin(sin(sin(sin(x)))),
+            () => f32(0),
+          ),
+        ),
+      ],
+    });
+    expect(emitModule(costly)).toContain('if (');
+    expect(emitModule(costly)).not.toContain('select(');
+    expect(compileModule(costly).fns.g!(2)).toBe(0);
   });
 
   it('N-arm: byte-identical to the deprecated condExpr', () => {

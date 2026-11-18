@@ -79,12 +79,10 @@ fn fs(v: VsOut) -> FsOut {
   let nearest = array_reduce_fs_f_1(&d);
   var col: vec3<f32> = vec3<f32>(0.02, 0.02, 0.05);
   array_forEach_fs_f_2(&col, &d, &lights);
-  if (array_some_fs_p(p, &lights)) {
-    col = mix(col, vec3<f32>(1.0), 0.15);
-  }
-  if (array_every_fs_p_1(&d)) {
-    col *= 0.6;
-  }
+  let _ifc0 = array_some_fs_p(p, &lights);
+  col = select(col, mix(col, vec3<f32>(1.0), 0.15), _ifc0);
+  let _ifc1 = array_every_fs_p_1(&d);
+  col = select(col, (col * 0.6), _ifc1);
   col += vec3<f32>((1.0 - smoothstep(0.0, 0.012, abs((nearest - 0.2)))));
   return FsOut(vec4<f32>(col, 1.0));
 }

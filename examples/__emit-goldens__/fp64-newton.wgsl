@@ -56,9 +56,7 @@ fn fs_newton(vo: VsOut) -> @location(0) vec4<f32> {
       let _v19 = (((_v14 * _v15) - (_v13 * _v16)) * _v17);
       _v8 = (_v8 - _v18);
       _v9 = (_v9 - _v19);
-      if ((((_v18 * _v18) + (_v19 * _v19)) > 1e-14)) {
-        _v7 = (_v7 + 1.0);
-      }
+      _v7 = select(_v7, (_v7 + 1.0), (((_v18 * _v18) + (_v19 * _v19)) > 1e-14));
     }
     _v5 = _v8;
     _v6 = _v9;
@@ -79,9 +77,8 @@ fn fs_newton(vo: VsOut) -> @location(0) vec4<f32> {
       let _v31 = df64_mul(df64_sub(df64_mul(_v26, _v27, _fp64_g), df64_mul(_v25, _v28, _fp64_g), _fp64_g), _v29, _fp64_g);
       _v20 = df64_sub(df64_add(_v20, _licm0, _fp64_g), df64_add(_v30, _licm0, _fp64_g), _fp64_g);
       _v21 = df64_sub(df64_add(_v21, _licm0, _fp64_g), df64_add(_v31, _licm0, _fp64_g), _fp64_g);
-      if ((df64_narrow(df64_add(df64_sqr(_v30, _fp64_g), df64_sqr(_v31, _fp64_g), _fp64_g)) > 1e-14)) {
-        _v7 = (_v7 + 1.0);
-      }
+      let _ifc0 = (df64_narrow(df64_add(df64_sqr(_v30, _fp64_g), df64_sqr(_v31, _fp64_g), _fp64_g)) > 1e-14);
+      _v7 = select(_v7, (_v7 + 1.0), _ifc0);
     }
     _v5 = df64_narrow(_v20);
     _v6 = df64_narrow(_v21);

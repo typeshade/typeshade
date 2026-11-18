@@ -54,16 +54,7 @@ void main() {
     _sel1 = _opt3_f32_(0.0, false, false);
   }
   _opt3_f32_ value = _sel1;
-  vec3 _i2ret = vec3(0.0);
   bool _gv0 = (value.present == false);
-  if ((_gv0 && (value.isNull == false))) {
-    _i2ret = vec3(0.8, 0.1, 0.1);
-  } else {
-    if ((_gv0 && value.isNull)) {
-      _i2ret = vec3(0.1, 0.8, 0.1);
-    } else {
-      _i2ret = vec3(0.1, 0.1, value.value);
-    }
-  }
+  vec3 _i2ret = ((_gv0 && (value.isNull == false)) ? vec3(0.8, 0.1, 0.1) : ((_gv0 && value.isNull) ? vec3(0.1, 0.8, 0.1) : vec3(0.1, 0.1, value.value)));
   color = vec4(_i2ret, 1.0);
 }

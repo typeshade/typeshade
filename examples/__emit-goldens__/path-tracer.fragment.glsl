@@ -28,21 +28,14 @@ vec3 trace(vec3 ro0, vec3 rd0, float seed0) {
     int hit = -1;
     for (int i = 0; (i < 4); i = (i + 1)) {
       Sphere _i0a0 = SPHERES[i];
-      float _i0ret = 0.0;
       vec3 _i0_oc = (ro - _i0a0.center);
       float _i0_b = dot(_i0_oc, rd);
       float _i0_c = (dot(_i0_oc, _i0_oc) - (_i0a0.radius * _i0a0.radius));
       float _i0_h = ((_i0_b * _i0_b) - _i0_c);
-      if ((_i0_h < 0.0)) {
-        _i0ret = -1.0;
-      } else {
-        _i0ret = ((-_i0_b) - sqrt(_i0_h));
-      }
-      float t = _i0ret;
-      if (((t > 0.001) && (t < tMin))) {
-        tMin = t;
-        hit = i;
-      }
+      float _i0ret = ((_i0_h < 0.0) ? -1.0 : ((-_i0_b) - sqrt(_i0_h)));
+      bool _ifc0 = ((_i0ret > 0.001) && (_i0ret < tMin));
+      tMin = (_ifc0 ? _i0ret : tMin);
+      hit = (_ifc0 ? i : hit);
     }
     if ((hit < 0)) {
       radiance += (throughput * _licm0);

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { fn, module, If, Return, Var, when, f32, f32T, vec2, vec2fT } from './index.js';
 import { emitModule } from '../backends/wgsl.js';
+import { compileModule } from '../oracle.js';
 
 // ═══ #8 B4 — the branch body that returns a value ═══
 //
@@ -72,7 +73,10 @@ describe('#8 B4 — a branch is a statement block', () => {
       If(x.gt(0), () => v.assign(v.add(x)));
       return v;
     });
-    expect(emitModule(module({ funcs: [mutate] }))).toContain('v = (v + x);');
+    expect(emitModule(module({ funcs: [mutate] }))).toContain('v = select(v, (v + x), (x > 0.0));');
+    const run = compileModule(module({ funcs: [mutate] })).fns.mutate!;
+    expect(run(2)).toBe(2);
+    expect(run(-1)).toBe(0);
   });
 
   it('points at the surface that does carry a value out', () => {
@@ -83,6 +87,9 @@ describe('#8 B4 — a branch is a statement block', () => {
         () => f32(0),
       ),
     );
-    expect(emitModule(module({ funcs: [w] }))).toContain('if ((x > 0.0))');
+    expect(emitModule(module({ funcs: [w] }))).toContain('select(0.0, 1.0, (x > 0.0))');
+    const run = compileModule(module({ funcs: [w] })).fns.w!;
+    expect(run(1)).toBe(1);
+    expect(run(-1)).toBe(0);
   });
 });

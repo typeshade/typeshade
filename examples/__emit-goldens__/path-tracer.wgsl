@@ -29,21 +29,14 @@ fn trace(ro0: vec3<f32>, rd0: vec3<f32>, seed0: f32) -> vec3<f32> {
     var hit: i32 = -1;
     for (var i: i32 = 0; (i < 4); i = (i + 1)) {
       var _i0a0: Sphere = SPHERES[i];
-      var _i0ret: f32;
       let _i0_oc = (ro - _i0a0.center);
       let _i0_b = dot(_i0_oc, rd);
       let _i0_c = (dot(_i0_oc, _i0_oc) - (_i0a0.radius * _i0a0.radius));
       let _i0_h = ((_i0_b * _i0_b) - _i0_c);
-      if ((_i0_h < 0.0)) {
-        _i0ret = -1.0;
-      } else {
-        _i0ret = ((-_i0_b) - sqrt(_i0_h));
-      }
-      let t = _i0ret;
-      if (((t > 0.001) && (t < tMin))) {
-        tMin = t;
-        hit = i;
-      }
+      let _i0ret = select(((-_i0_b) - sqrt(_i0_h)), -1.0, (_i0_h < 0.0));
+      let _ifc0 = ((_i0ret > 0.001) && (_i0ret < tMin));
+      tMin = select(tMin, _i0ret, _ifc0);
+      hit = select(hit, i, _ifc0);
     }
     if ((hit < 0)) {
       radiance += (throughput * _licm0);

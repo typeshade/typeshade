@@ -34,21 +34,10 @@ void main() {
   } else {
     shade = _cse0;
   }
-  float _i5ret = 0.0;
   _opt_f32_ _gv0 = root(x);
-  if ((_gv0.present == false)) {
-    _i5ret = 0.0;
-  } else {
-    _i5ret = _gv0.value;
-  }
+  float _i5ret = ((_gv0.present == false) ? 0.0 : _gv0.value);
   float _i6a0 = uv.x;
-  float _i6ret = 0.0;
-  float _gv1 = (_i6a0 * 0.5);
-  if ((true == false)) {
-    _i6ret = 0.0;
-  } else {
-    _i6ret = _gv1;
-  }
+  float _i6ret = ((true == false) ? 0.0 : (_i6a0 * 0.5));
   float r = (_i5ret + _i6ret);
   float _i1a0 = uv.y;
   _opt_f32_ _i1ret;

@@ -25,17 +25,10 @@ layout(location = 0) out vec4 color;
 void main() {
   float a = uv.x;
   float b = uv.y;
-  float _list_0 = 0.0;
-  float _list_1;
-  if ((a > b)) {
-    _list_0 = b;
-    _list_1 = a;
-  } else {
-    _list_0 = a;
-    _list_1 = b;
-  }
-  a = _list_0;
-  b = _list_1;
+  bool _ifc0 = (a > b);
+  float _ifc1 = (_ifc0 ? b : a);
+  b = (_ifc0 ? a : b);
+  a = _ifc1;
   Ray r = Ray(vec2(0.0, 0.0), vec2(0.0, 0.0));
   r.origin = uv;
   r.dir = vec2(0.5, -0.25);

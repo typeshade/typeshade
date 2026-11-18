@@ -461,7 +461,7 @@ describe('glsl-legalize — if conditions', () => {
   it('hoists the ctor argument to a local declared BEFORE the if', () => {
     const g = emitGlslModule(modI, 'fragment');
     expect(g).toContain('vec4 _dh0 = helper_i(pos.x);');
-    expect(g).toContain('if ((GateI(_dh0).c.x > 0.0)) {');
+    expect(g).toMatch(/vec4 _dh0 = [^\n]+\n\s+bool _ifc0 = \(GateI\(_dh0\)\.c\.x > 0\.0\);/);
     expect(ctorSpans(g, ['GateI']).filter((s) => s.includes('helper_i('))).toEqual([]);
   });
 

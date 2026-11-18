@@ -38,15 +38,9 @@ fn fs(v: VsOut) -> FsOut {
   let spots_0 = vec2<f32>(-0.6, 0.6);
   let spots_1 = vec2<f32>(0.6, 0.6);
   let spots_2 = vec2<f32>(0.0, -0.75);
-  if ((length((p - spots_0)) < 0.08)) {
-    col = vec3<f32>(1.0);
-  }
-  if ((length((p - spots_1)) < 0.08)) {
-    col = vec3<f32>(1.0);
-  }
-  if ((length((p - spots_2)) < 0.08)) {
-    col = vec3<f32>(1.0);
-  }
+  col = select(col, vec3<f32>(1.0), (length((p - spots_0)) < 0.08));
+  col = select(col, vec3<f32>(1.0), (length((p - spots_1)) < 0.08));
+  col = select(col, vec3<f32>(1.0), (length((p - spots_2)) < 0.08));
   return FsOut(vec4<f32>(col, 1.0));
 }
 

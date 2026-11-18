@@ -122,13 +122,7 @@ void main() {
   float _gv1 = df64_narrow(vec2(_i0ret.x, _i0ret.y));
   vec3 narrowed = vec3(0.0, df64_narrow(vec2(_lc1.x, _lc1.y)), 0.0);
   float flat_ = fract((df64_narrow(_gv0) * 8.0));
-  float _sel0;
-  if ((uv.x < 0.5)) {
-    _sel0 = flat_;
-  } else {
-    _sel0 = _gv1;
-  }
-  float shade = _sel0;
+  float _sel0 = ((uv.x < 0.5) ? flat_ : _gv1);
   float drift = abs((_gv1 - flat_));
-  _ret = vec4(shade, drift, fract((narrowed.y * 0.5)), 1.0);
+  _ret = vec4(_sel0, drift, fract((narrowed.y * 0.5)), 1.0);
 }
