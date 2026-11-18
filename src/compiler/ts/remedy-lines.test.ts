@@ -43,30 +43,7 @@ import { fileURLToPath } from 'node:url';
 import { compileTsSource } from './source-file.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { frontEndSources, remedySitesIn } from './remedy-lines/sites.js';
-
-/** The quoted declarations in one message. The closing quote is the one followed by the end of
- *  the sentence, because the line itself contains quotes: `storage<array<f32>, "read_write">`.
- *  Only a COMPLETE declaration is a line to write, which is what the three alternatives of the
- *  opening group say; `Write "${got.name}" as the type.` names a type and no line. */
-const remedyLines = (message: string): string[] =>
-  [...message.matchAll(/[Ww]rite "((?:declare )?(?:const|let) .+?)"(?=\.| to write to it\.)/g)]
-    .map((m) => m[1])
-    .filter((line) => !line.includes('...') && !line.includes('…'));
-
-/** The name a quoted line declares, which is the declaration it replaces. */
-const declaredNameOf = (line: string): string | undefined =>
-  /^(?:declare\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)/.exec(line)?.[1];
-
-/** The program with `line` written over the declaration of the name it declares. */
-function applyRemedy(program: string, line: string): string {
-  const name = declaredNameOf(line);
-  expect(name, `the remedy "${line}" declares no name`).toBeDefined();
-  const at = new RegExp(`^([ \\t]*)(?:declare\\s+)?(?:const|let)\\s+${name!}\\b.*$`, 'm');
-  expect(at.test(program), `no declaration of "${name!}" in the program to replace`).toBe(true);
-  return program.replace(at, (whole, indent: string) =>
-    whole.trimEnd().endsWith(';') ? `${indent}${line};` : `${indent}${line}`,
-  );
-}
+import { applyRemedy, declaredNameOf, remedyLines } from './remedy-lines/apply.js';
 
 const errorsOf = (source: string): string[] =>
   compileTsSource(source)
@@ -760,6 +737,12 @@ describe('every refusal that names a line is pinned above', () => {
       note: "names one edit for a `/` that reaches a constant of no fixed type, built from the source of the `/`: the constant declared with the type the position asks, or the `/` with each value converted; the author chooses which division is meant, so no case pastes it mechanically here; `abstract-const.test.ts` applies each edit and holds the result to compile clean in both halves (change 0134). The second names the edit for a `/` over a bitwise expression of written integers, `f32(1 | 2) / 2` or the declaration with its type for a `/=`; `use-inference.test.ts` applies each and holds it to compile clean in both halves (issue 1261, D-b) The third and fourth name the edit of a value whose u32 bits and TypeScript value differ (the owner's decision of 2026-11-12, D2): `u32(x)` or `i32(x)`, an expression, or the declaration of an assignment's target with its type, `let a: u32 = (3000000000|0)`; the module's check verifies each with the other edits (Amendment A6), and `use-inference.test.ts` and the differential test apply each and hold the result to compile clean in both halves. The fifth is no sentence: the pattern that reads back the edit of a refused `>>` over a written `u32`, `u32(0xF0000000) >> 28`, so that the module's check verifies it with the other edits (F6 of the fourteenth review of #1272); the differential test applies it. The sixth names `f32(…)` around a tree of written integers in a position that takes an `f32` (`Write \"f32(K)\" for the float value.`, E3 of 2026-11-13); the module's check verifies it, and `ts-syntax.test.ts` and `use-inference.test.ts` apply it in both halves",
     },
     {
+      file: 'lower/readonly-promise.ts',
+      sites: 1,
+      lines: 1,
+      note: 'a write through a readonly storage binding names its read_write declaration; for a parameter or a field it names the writable type, which is no declaration; readonly-ts-arrays.test.ts pastes the line back and compiles both halves (change 0114, S1)',
+    },
+    {
       file: 'stage-call.ts',
       sites: 2,
       lines: 0,
@@ -814,6 +797,6 @@ export function f(): u32 {
     // The two halves have to add up: the cases above cover the `lines` column, and the rest are
     // accounted for by name. A row that claimed a line was unpasteable while the extractor
     // would have taken it is the drift this arm catches.
-    expect(expected.reduce((n, row) => n + row.lines, 0)).toBe(8);
+    expect(expected.reduce((n, row) => n + row.lines, 0)).toBe(9);
   });
 });
