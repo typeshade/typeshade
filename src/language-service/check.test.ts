@@ -98,11 +98,9 @@ export function f(x: f32): f32 {
   });
 
   it("prints TypeShade's spelling of a GLSL or HLSL name the compiler did not read (#218)", () => {
-    // A list with no type annotation is refused whole, and the names in it are read by no one but
-    // TypeScript, whose report of them was raw: "Did you mean 'mod'?" for `fmod`, which floors where
-    // `fmod` truncates, and no remedy for `lerp`. The command shows the sentence the build prints for
-    // each once the list is typed, on the name, the same way the editor does (Rule 12.7); an agent
-    // that reads the command fixes the annotation and the two names in one round.
+    // TypeScript's own report of these names was raw: "Did you mean 'mod'?" for `fmod`, which
+    // floors where `fmod` truncates, and no remedy for `lerp`. The command shows the sentence the
+    // build prints for each, on the name, the same way the editor does (Rule 12.7).
     const text = `"use typeshade";
 export function f(a: f32, b: f32): f32 {
   const w = [fmod(a, 2.), lerp(a, b, 0.5)];
@@ -113,18 +111,17 @@ export function f(a: f32, b: f32): f32 {
     expect(
       report.diagnostics.map((d) => `${d.line}:${d.column} ${d.source} ${d.code} ${d.message}`),
     ).toEqual([
-      '3:9 typeshade TS8002 "const w" needs an array type annotation to take a list, e.g. const w: array<f32, 2> = [...].',
       '3:14 typeshade TS8004 Unknown function "fmod". HLSL\'s fmod is the % operator, which truncates like fmod; mod() floors.',
       '3:27 typeshade TS8004 Unknown function "lerp". HLSL\'s lerp is mix here.',
     ]);
-    expect(report.errors).toBe(3);
+    expect(report.errors).toBe(2);
     // The same two names in a typed list are the build's own sentences, word for word.
     const typed = text.replace('const w =', 'const w: array<f32, 2> =');
     expect(
       checkDocuments([doc('typed.shade.ts', typed)]).diagnostics.map(
         (d) => `${d.code} ${d.message}`,
       ),
-    ).toEqual(report.diagnostics.slice(1).map((d) => `${d.code} ${d.message}`));
+    ).toEqual(report.diagnostics.map((d) => `${d.code} ${d.message}`));
   });
 
   it("carries the backends' verdict, which the language service never computes (Rule 12.3)", () => {

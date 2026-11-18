@@ -1066,7 +1066,7 @@ describe("the editor shows the compiler's one diagnostic, at its span (both halv
 // A GLSL or HLSL name is refused with TypeShade's spelling as the remedy (#218), and the editor
 // shows the sentence the build prints (Rule 12.7). The compiler reads a name where it lowers the
 // construct that holds it, and it does not lower every construct it refuses: an `fmod` in a `try`,
-// in a `for…of` over a list, in an object spread, in a list with no type annotation, is read by no
+// in a `for…of` over a list, in an object spread, in a function body's `as const` list, is read by no
 // one but TypeScript. Its report stood beside the compiler's own refusal of the construct, and it
 // was raw: no remedy for `lerp` or `gl_FragCoord`, and for `fmod` "Did you mean 'mod'?", the one
 // spelling that compiles and answers otherwise for a negative operand. Now the merge puts the
@@ -1116,10 +1116,8 @@ describe("a GLSL or HLSL name in a construct the compiler refused is the compile
   /** A construct the compiler refuses without reading what it holds, around an expression or a
    * statement. */
   const expressionIn: Readonly<Record<string, (x: string) => string>> = {
-    'a list with no type annotation': (x) =>
-      `export function f(): f32 {\n  const w = [${x}, 1.];\n  return 1.;\n}\n`,
-    'a module const list with no type annotation': (x) =>
-      `const W = [${x}, 1.];\nexport function f(): f32 {\n  return 1.;\n}\n`,
+    'a list as const in a function body': (x) =>
+      `export function f(): f32 {\n  const w = [${x}, 1.] as const;\n  return 1.;\n}\n`,
     'a for…of over a list': (x) =>
       `export function f(): f32 {\n  let s = 0.;\n  for (const v of [${x}]) {\n    s += v;\n  }\n  return s;\n}\n`,
     'an object spread': (x) =>

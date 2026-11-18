@@ -2640,13 +2640,39 @@ It is the same declaration `array<f32, 3>(0., 0.5, 1.)` makes: the same `constru
 same emitted text, so the two spellings are one program, and `src/compiler/ts/ir-equality.test.ts`
 pins both against the EDSL's `construct(arrayT(f32T, 3), …)`.
 
-A list carries no type of its own, which is what decides where it is allowed and what it
-means:
+A list with no annotation takes its element type and its length from its elements (change
+0114, S2), in a function body and at module scope, for a `const` and a `let`:
 
-- It is **only** an initializer, where the declaration states an `array<T, N>`, or as the
-  source of an array binding pattern (§14). That binding context can infer a homogeneous
-  fixed-length array: `const [a, b] = [1., 2.]`.
-  `const xs = [1., 2.]` and `[1., 2.].reduce((a, b) => a + b)` are refused, each naming the spelling that works.
+```ts
+const stops = [0., 0.5, 1.];          // array<f32, 3>
+const corners = [vec2(0.), vec2(1.)]; // array<vec2, 2>
+const LUT = [0.25, 0.5] as const;     // module scope: array<f32, 2>, read-only
+```
+
+It is the declaration the annotated list makes, and the editor's hover shows the sized type,
+`const stops: array<f32, 3>`. `as const` on a module-scope list gives the same sized array; a
+module constant is read-only, so a write to `LUT[0]` is `Cannot assign to "LUT" — it is a module
+const.` in both halves. A function-local `as const` list is not taken yet. The elements must share
+one type, and a list that does not says which types it found, one sentence on the declaration:
+
+- `[1., true]`: `"const a" takes its type from its list, whose elements must share one type:
+  element 0 is f32 and element 1 is bool.`
+- `[1, 2.5]`, an integer-written number beside a float (change 0114, decision D2, until #148
+  settles the integer default): `… element 0 is an integer-written number and element 1 is f32.
+  Declare the type: const a: array<f32, 2> = [...].`
+- `[]`: `"const a" takes its type and its length from its list, and an empty list has neither: a
+  shader array has at least one element. Write its elements.`
+- A list of integer-written numbers alone, `[1, 2, 3]`, still asks for its type: `"const a" needs
+  an array type annotation to take a list, e.g. const a: array<f32, 3> = [...].` Rule 5.1 does
+  not yet say how the uses of an array decide its elements' type.
+
+Elsewhere a list carries no type of its own, which is what decides where it is allowed and what
+it means:
+
+- It is an initializer, as above or where the declaration states an `array<T, N>`, the source of
+  an array binding pattern (§14), or a value in a position that declares an array type (§28).
+  That binding context can infer a homogeneous fixed-length array: `const [a, b] = [1., 2.]`.
+  `[1., 2.].reduce((a, b) => a + b)` is refused, naming the spelling that works.
 - The size must be fixed and must match: `array<f32>` has nothing to fill, and
   `array<f32, 3> = [1., 2.]` is an arity error.
 - Every element must be the element type. There is no implicit conversion, so
@@ -4641,8 +4667,9 @@ const depth = mid([0.05, 8.]);           // a list, in a position that declares 
 ```
 
 A list now takes its type from any position that declares one, not from a `const` alone: a
-return, an argument, a struct field. Where nothing declares one, `array<T, N>(...)` still says
-it.
+return, an argument, a struct field. An unannotated `const` or `let` takes it from the list's
+elements (§18, change 0114). A tuple is the short sized spelling for a small length: `[f32, f32,
+f32]` is `array<f32, 3>`, and `array<T, N>` is the spelling for a length such as 256.
 
 **A union whose members all name one type names it too.** `0 | 1 | 2` is an `i32`, for the
 reason an enum member is one; `0.5 | 1.5` is an `f32`; `true | false` is a `bool`; `Meters |
