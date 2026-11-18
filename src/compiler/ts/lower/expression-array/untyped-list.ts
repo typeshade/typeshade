@@ -75,7 +75,8 @@ export function lowerUntypedList(
     if (integerAt < 0)
       return lowerArrayLiteral(list, arrayOf(f32T, count), sourceFile, scope, diagnostics);
     return refuse(
-      `${declared.said} needs an array type annotation to take a list, e.g. ` +
+      `${declared.said} is a list of integer-written numbers, whose element type its uses will ` +
+        `decide; that is not supported yet. Declare the type: ` +
         `${declared.head}: array<f32, ${String(count)}> = [...].`,
     );
   }

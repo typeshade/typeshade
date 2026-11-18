@@ -1172,8 +1172,8 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       shader('', '  var b = [1, 2];\n  return b[0] + a;'),
       [
         VAR,
-        'TS8002 "var b" needs an array type annotation to take a list, e.g. let b: ' +
-          'array<f32, 2> = [...].',
+        'TS8002 "var b" is a list of integer-written numbers, whose element type its uses will ' +
+          'decide; that is not supported yet. Declare the type: let b: array<f32, 2> = [...].',
       ],
     ],
     // A generic interface in every position that can name it.
