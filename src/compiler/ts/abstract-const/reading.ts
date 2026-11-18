@@ -6,6 +6,7 @@ export interface Reading {
   readonly tree: boolean;
   readonly unknown?: boolean;
   readonly unproven?: boolean;
+  readonly beyond?: boolean;
   readonly picks: readonly (readonly [ts.Node, string])[];
 }
 
@@ -72,4 +73,14 @@ export function heldByTreeVariable(xs: readonly Reading[], pulled = false): read
       !x.unknown && Number.isInteger(x.u32) && x.u32 >= -2147483648 && x.u32 <= 4294967295;
     return holdsBits ? { ...x, u32: x.u32 >>> 0, tree: true } : { ...UNPROVEN, picks: x.picks };
   });
+}
+
+export function beyondExecutions(
+  xs: readonly Reading[],
+  firstRound: ReadonlyMap<string, number>,
+  executions: number,
+): Reading[] {
+  return xs.map((x) =>
+    (firstRound.get(readingKey(x)) ?? 0) >= executions ? { ...x, beyond: true } : x,
+  );
 }

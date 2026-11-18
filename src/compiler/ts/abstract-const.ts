@@ -62,6 +62,8 @@ import {
   regionOf,
   skipParenUp,
 } from './abstract-const/syntax-lookup.js';
+import { groupExecutions } from './abstract-const/trip-count.js';
+import { readingsSentenceOf } from './abstract-const/readings-sentence.js';
 import {
   READING_DEPTH,
   READING_ROUNDS,
@@ -72,6 +74,8 @@ import {
   boundedReadings,
   heldByTreeVariable,
   mergedPicks,
+  beyondExecutions,
+  readingKey,
   readingValue,
   sameReadings,
   type Reading,
@@ -2325,12 +2329,10 @@ function declarationChange(name: string, at: ts.Node, type: string): SourceChang
  *  typed operand end it. `undefined` where the two agree. */
 export function twoReadingsOf(node: ts.Expression): TwoReadings | undefined {
   const xs = readingsFrom(node);
-  // The first value a tree reaches whose two readings differ (issue 1299: a variable holds
-  // every value stored in it, so each is read); else a value the walk could not prove, which
-  // is refused too (the owner's decision of 2026-11-16, "증명 못 하면 거부").
-  const proven = xs.find((x) => x.tree && !x.unproven && x.u32 !== x.ts);
+  const proven = xs.find((x) => x.tree && !x.unproven && !x.beyond && x.u32 !== x.ts);
   if (proven !== undefined) return { u32: proven.u32, ts: proven.ts };
-  return xs.some((x) => x.unproven) ? { u32: NaN, ts: NaN, unproven: true } : undefined;
+  const unproven = xs.some((x) => x.unproven || (x.tree && x.beyond && x.u32 !== x.ts));
+  return unproven ? { u32: NaN, ts: NaN, unproven: true } : undefined;
 }
 
 /** The two values of a tree. `unproven` where the compiler could not follow every value that
@@ -3686,6 +3688,8 @@ function variableReadings(
     w.pending.set(v, []);
   }
   let settled = false;
+  const firstRound = new Map<string, number>();
+  const executions = groupExecutions(group, (v) => storesOf(v, sourceFile));
   for (let round = 0; round < READING_ROUNDS && !settled; round++) {
     settled = true;
     for (const v of group) {
@@ -3694,6 +3698,8 @@ function variableReadings(
       const bounded = boundedReadings(
         heldByTreeVariable(next, fileTaint(sourceFile).pulled.has(v)),
       );
+      for (const x of bounded)
+        if (!firstRound.has(readingKey(x))) firstRound.set(readingKey(x), round);
       if (!sameReadings(bounded, values.get(v)!)) settled = false;
       values.set(v, bounded);
       w.pending.set(v, bounded);
@@ -3701,8 +3707,8 @@ function variableReadings(
     if (own.steps > READING_STEP_LIMIT) break;
   }
   for (const v of group) {
-    const found = values.get(v)!;
-    if (!settled) values.set(v, [...found, found.some((x) => x.tree) ? UNPROVEN : UNKNOWN]);
+    const found = beyondExecutions(values.get(v)!, firstRound, executions);
+    values.set(v, settled ? found : [...found, found.some((x) => x.tree) ? UNPROVEN : UNKNOWN]);
     w.pending.delete(v);
     own.deps.delete(v);
   }
@@ -3961,6 +3967,7 @@ function builtinReadings(
       picks = [];
     }
     const tree = c.some((x) => x.tree);
+    const beyond = c.some((x) => x.beyond) ? { beyond: true } : {};
     if (c.some((x) => x.unknown || x.unproven)) {
       out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
     } else if (!tree) {
@@ -3968,9 +3975,10 @@ function builtinReadings(
         c.map((x) => x.ts),
         false,
       );
-      out.push({ u32: t, ts: t, tree: false, picks });
+      out.push({ u32: t, ts: t, tree: false, picks, ...beyond });
     } else {
       out.push({
+        ...beyond,
         u32: apply(
           c.map((x) => x.u32 >>> 0),
           true,
@@ -4100,18 +4108,19 @@ function binaryReadingsOf(
         picks = [];
       }
       const tree = a.tree || b.tree;
+      const push = (r: Reading) => out.push(a.beyond || b.beyond ? { ...r, beyond: true } : r);
       if (a.unknown || b.unknown || a.unproven || b.unproven) {
         out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
       } else if (!tree) {
         if (bit && (isBigNumber(a.ts) || isBigNumber(b.ts))) {
           const u = rootOf(a.ts >>> 0, b.ts >>> 0);
-          out.push({ u32: u, ts: u | 0, tree: true, picks });
+          push({ u32: u, ts: u | 0, tree: true, picks });
         } else {
           const t = op(a.ts, b.ts, false);
-          out.push({ u32: t, ts: t, tree: false, picks });
+          push({ u32: t, ts: t, tree: false, picks });
         }
       } else {
-        out.push({ u32: op(a.u32, b.u32, true), ts: op(a.ts, b.ts, false), tree: true, picks });
+        push({ u32: op(a.u32, b.u32, true), ts: op(a.ts, b.ts, false), tree: true, picks });
       }
     }
   }
@@ -4156,22 +4165,6 @@ function declaredWith(name: string, at: ts.Node, type: string): string | undefin
   const keyword =
     ts.isVariableDeclarationList(list) && list.flags & ts.NodeFlags.Const ? 'const' : 'let';
   return `${keyword} ${name}: ${type} = ${d.initializer.getText().replace(/\s+/g, ' ')}`;
-}
-
-function readingsSentenceOf(r: ReadingsRefusal, remedy: string): string {
-  const text = skipParenNodes(r.node).getText().replace(/\s+/g, ' ');
-  if (r.readings.unproven === true) {
-    // The owner's decision of 2026-11-16, "증명 못 하면 거부": a value whose two readings the
-    // compiler cannot prove to agree is refused, with no numbers it cannot state.
-    return (
-      `The compiler cannot prove that the u32 bits and the TypeScript value of "${text}" ` +
-      `agree, so the "${r.operator}" does not say which value it means. ${remedy}`
-    );
-  }
-  return (
-    `"${text}" is ${String(r.readings.u32)} on its u32 bits and ${String(r.readings.ts)} in ` +
-    `TypeScript, so the "${r.operator}" does not say which value it means. ${remedy}`
-  );
 }
 
 function readingsRemedy(r: ReadingsRefusal, type: 'u32' | 'i32' | null): string {
