@@ -95,29 +95,3 @@ export function storeExecutions(store: ts.Node, declaration: ts.Node): number {
   }
   return Infinity;
 }
-
-interface StoreAt {
-  readonly kind: 'value' | 'compound' | 'opaque';
-  readonly id?: ts.Identifier;
-  readonly expr?: ts.Expression;
-}
-
-function insideLoop(store: ts.Node, declaration: ts.Node): boolean {
-  for (let n: ts.Node | undefined = store.parent; n !== undefined; n = n.parent) {
-    if (n.pos <= declaration.pos && declaration.end <= n.end) return false;
-    if (ts.isIterationStatement(n, false)) return true;
-  }
-  return false;
-}
-
-export function storedInLoop(
-  group: readonly ts.VariableDeclaration[],
-  storesOf: (v: ts.VariableDeclaration) => readonly StoreAt[],
-): boolean {
-  return group.some((v) =>
-    storesOf(v).some((s) => {
-      const at = s.kind === 'compound' ? s.id : s.expr;
-      return at !== undefined && insideLoop(at, v);
-    }),
-  );
-}

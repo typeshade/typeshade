@@ -6,7 +6,7 @@ export interface Reading {
   readonly tree: boolean;
   readonly unknown?: boolean;
   readonly unproven?: boolean;
-  readonly looped?: boolean;
+  readonly reassigned?: boolean;
   readonly picks: readonly (readonly [ts.Node, string])[];
 }
 
@@ -75,6 +75,6 @@ export function heldByTreeVariable(xs: readonly Reading[], pulled = false): read
   });
 }
 
-export function markLooped(xs: readonly Reading[], looped: boolean): Reading[] {
-  return looped ? xs.map((x) => ({ ...x, looped: true })) : [...xs];
+export function markReassigned(xs: readonly Reading[], reassigned: boolean): Reading[] {
+  return reassigned ? xs.map((x) => ({ ...x, reassigned: true })) : [...xs];
 }
