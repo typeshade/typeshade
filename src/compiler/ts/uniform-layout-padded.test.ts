@@ -37,13 +37,21 @@ declare const U_: uniform<U>`;
     expect(c.wgsl).not.toMatch(/let \w+ = U_\.xs;/);
   });
 
-  it(
-    'wraps each element when the struct is built by value',
-    keepHelpers(() => {
-      const c = compiled(`interface U { k: f32; xs: array<f32, 2> }
+  const built = `interface U { k: f32; xs: array<f32, 2> }
 declare const U_: uniform<U>
 export function mk(): U { return { k: 1., xs: [0., 1.] } }
-@fragment export function fs(): vec4 { return vec4(mk().xs[1] + U_.k) }`);
+@fragment export function fs(): vec4 { return vec4(mk().xs[1] + U_.k) }`;
+
+  it('wraps each element when the struct is built by value', () => {
+    const c = compiled(built);
+    expect(c.wgsl).toContain('array<_Pad16_f32, 2>(_Pad16_f32(');
+    expect(c.wgsl).not.toContain('array<f32, 2>(0.0');
+  });
+
+  it(
+    'wraps each element in a helper that is kept',
+    keepHelpers(() => {
+      const c = compiled(built);
       expect(c.wgsl).toContain('_Pad16_f32(');
       expect(c.wgsl).toContain('mk().xs[1].v');
     }),
