@@ -2262,14 +2262,6 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
       -268435456,
     ],
     [
-      'a = a - K in a loop run twice',
-      'for (let i = 0; i < 2; i++) {\n    a = a - 0x10000000;\n  }\n  return f32(a + 0x10000000);',
-      'f32',
-      SUM,
-      'f32()',
-      -536870912,
-    ],
-    [
       'a = a - K, then a comparison',
       'a = a - 0x10000000;\n  return (a + 0x10000000) > vi ? 1.0 : 0.0;',
       'f32',

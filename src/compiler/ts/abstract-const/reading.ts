@@ -6,7 +6,7 @@ export interface Reading {
   readonly tree: boolean;
   readonly unknown?: boolean;
   readonly unproven?: boolean;
-  readonly beyond?: boolean;
+  readonly looped?: boolean;
   readonly picks: readonly (readonly [ts.Node, string])[];
 }
 
@@ -75,12 +75,6 @@ export function heldByTreeVariable(xs: readonly Reading[], pulled = false): read
   });
 }
 
-export function beyondExecutions(
-  xs: readonly Reading[],
-  firstRound: ReadonlyMap<string, number>,
-  executions: number,
-): Reading[] {
-  return xs.map((x) =>
-    (firstRound.get(readingKey(x)) ?? 0) >= executions ? { ...x, beyond: true } : x,
-  );
+export function markLooped(xs: readonly Reading[], looped: boolean): Reading[] {
+  return looped ? xs.map((x) => ({ ...x, looped: true })) : [...xs];
 }
