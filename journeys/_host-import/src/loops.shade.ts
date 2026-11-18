@@ -15,6 +15,15 @@ export function render(k: vec4, size: u32, out: array<f32>) {
   }
 }
 
+export function renderMade(k: vec4, size: u32): f32[] {
+  const out = new Float32Array(size * size);
+  for (let i: u32 = 0; i < size * size; i++) {
+    const p = vec2(f32(i % size), f32(i / size)) / f32(size);
+    out[i] = height(p, k);
+  }
+  return out;
+}
+
 class Particle {
   pos: vec4;
   vel: vec4;

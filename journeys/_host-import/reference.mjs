@@ -279,6 +279,7 @@ export function loopReference() {
     countMod: [3, 3, 2, 2, 2],
     residentStamp: [7, 7, 7, 7, 7, 7, 7],
     residentRender: render,
+    renderMade: render,
     residentStats: stats,
     residentScaled: scaled,
     ...doubleLoops(),

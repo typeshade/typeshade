@@ -137,7 +137,7 @@
   "src/compiler/ts/host-face-contracts.ts": 28,
   "src/compiler/ts/host-face-shared.ts": 11,
   "src/compiler/ts/host-face.test.ts": 124,
-  "src/compiler/ts/host-face.ts": 225,
+  "src/compiler/ts/host-face.ts": 224,
   "src/compiler/ts/host-failed-input.test.ts": 22,
   "src/compiler/ts/host-kernel-collections.test.ts": 23,
   "src/compiler/ts/host-kernel-finish.test.ts": 18,

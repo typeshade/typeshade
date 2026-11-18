@@ -19,6 +19,18 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **A kernel function makes and returns an array whose length its arguments give** (change 0114,
+  S5, slice 1). `export function render(k: vec4, size: u32): f32[]` with
+  `const out = new Float32Array(size * size)` at the top of its body and `return out` is a kernel
+  function; `await render(k, 512)` resolves to a new `Float32Array` (`Int32Array` for `i32[]`,
+  `Uint32Array` for `u32[]`, with `new Array(n).fill(v)`). The host evaluates the length before
+  the call, throws a `RangeError` for a negative or fractional one, and checks each loop's writes
+  against it as for an array parameter; a length of 0 gives an empty array. It runs on WebGPU and
+  on the CPU tier, and WebGL2 falls back to the CPU tier. Not supported yet (`TS8099`): an element
+  of a vector or a struct, a helper or an entry that makes its result, an array made under a
+  branch or after a loop, a length that reads another operand, `Array.from` with such a length,
+  another `return`, and a use of the array as a value. A call on a resource or inside `fuse()`
+  throws a `TypeError`.
 - **`new Array(N).fill(v)`, `new Float32Array(N)` and `Array.from({ length: N }, f)` build a
   sized array** (change 0114, S2). With a constant `N` (an integer literal, a module constant or
   a constant of no fixed type) each is an `array<T, N>`: `N` copies of `v`, `N` zeros of `f32`,
