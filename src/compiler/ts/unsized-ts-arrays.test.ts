@@ -7,6 +7,7 @@ import { proveKernels } from '../../core/passes/parallel-loop.js';
 import { copy } from '../../core/testing/kernel-plan.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
 import type { compile } from './compile.js';
+import { hostFace } from './host-face.js';
 
 const SPELLINGS = ['f32[]', 'Array<f32>'] as const;
 
@@ -75,6 +76,9 @@ describe("TypeScript's spelling of an array with no size (change 0114, S1)", () 
         };
         expect(run(written.result)).toEqual(run(base.result));
         expect(run(written.result)[0]).toEqual([2.5, 5, 7.5, 10]);
+        const face = (u: string): string =>
+          withoutSpans(hostFace(kernel(u), { fileName: 'a.shade.ts' }).exports);
+        expect(face(t)).toBe(face('array<f32>'));
       });
 
       it("is a storage binding's value type, read and read_write, with the emit of array<f32>", () => {

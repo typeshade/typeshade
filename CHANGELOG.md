@@ -19,6 +19,12 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **`f32[]` and `Array<f32>` are the array with no size** (change 0114, S1). They are accepted
+  where `array<f32>` is: a storage binding's value type (`storage<f32[]>`), the last field of a
+  storage struct, and a kernel function's parameter (`scale(xs: f32[], k: f32)`). They give the
+  emit, the CPU result and the host face of `array<f32>`. Where `array<f32>` is refused, they get
+  the same code and sentence in the compiler and the editor. `xs.length` on one is a `u32` in both
+  halves. `readonly T[]` and `ReadonlyArray<T>` are not accepted yet.
 - **Data decides the device of a call** (change 0138, milestone 3, R3; Amendment A5, default 6).
   `zeros()`, `array()` and `uniform()` make what they make on the device in use
   (`using _ = (await createDevice(…)).use()`), or on the default owner when none is in use, and
