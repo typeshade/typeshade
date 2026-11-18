@@ -24,6 +24,13 @@ export interface TypeshadeLanguageServiceHost {
   /** Ambient declarations for the TypeShade globals (`f32`, `vec4`, `uniform<T>`, `@vertex`, and
    * the rest of the authoring vocabulary). Defaults to the bundled `SHADE_DTS`. */
   readonly ambientLib?: string;
+  /** The uri of a file the adapter wrote the ambient declarations to, byte for byte the text the
+   * host serves (`ambientLib`, else `SHADE_DTS`), conventionally named `lib.typeshade.d.ts`
+   * (change 0143). A definition in the ambient lib, and the declaration a reference finds there,
+   * are reported at this uri; `positionAt` and `offsetAt` read it as the ambient lib; and it is
+   * never stored as a document, so the vocabulary cannot enter the program twice. Unset, ambient
+   * locations are not reported. The host itself reads and writes no file. */
+  readonly ambientLibUri?: string;
   /** Resolves an import from a document to another document's uri, for multi-file units.
    * Default: `resolveSpecifier` (`src/compiler/ts/specifier.ts`), the rule the compiler follows
    * an import by too: a relative path against the importing document's directory, `.js` and
@@ -44,7 +51,8 @@ const isPackageJson = (uri: string): boolean =>
 /** The uri the ambient TypeShade declarations are served under. Never a real document: it
  * never appears in `openDocument`/`updateDocument`/`closeDocument`, and no diagnostic is ever
  * requested for it directly (a broken ambient lib fails `ambient.test.ts`'s zero-diagnostics
- * assertion instead, at the callsite that owns the text). */
+ * assertion instead, at the callsite that owns the text). An adapter that wrote the same text to
+ * a file names that file in `ambientLibUri`, and locations here are reported there (change 0143). */
 export const AMBIENT_LIB_URI = 'typeshade:shade.d.ts';
 
 /** `getDefaultLibFileName` must return *something* — TypeScript's language service calls it
@@ -120,11 +128,17 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
    * version derived from it never repeats for a uri whose text differs (design doc §7). */
   private revision = 0;
   private readonly ambientLib: string;
+  /** `TypeshadeLanguageServiceHost.ambientLibUri`, normalized as every stored uri is. */
+  readonly ambientLibUri: string | undefined;
   private readonly resolveImport: (fromUri: string, specifier: string) => string | undefined;
   private readonly readDocument: (uri: string) => string | undefined;
 
   constructor(hostOptions: TypeshadeLanguageServiceHost = {}) {
     this.ambientLib = hostOptions.ambientLib ?? SHADE_DTS;
+    this.ambientLibUri =
+      hostOptions.ambientLibUri === undefined
+        ? undefined
+        : normalizeSourcePath(hostOptions.ambientLibUri);
     this.resolveImport =
       hostOptions.resolveImport ??
       ((fromUri, specifier) => resolveSpecifierFile(fromUri, specifier, this.readPackageJson));
@@ -151,6 +165,9 @@ export class TypeshadeHost implements ts.LanguageServiceHost {
    * the program sees for it from here on. */
   private store(uri: string, text: string, version: number | undefined): void {
     uri = normalizeSourcePath(uri);
+    // The adapter's copy of the ambient lib, opened in the editor: the program already holds
+    // that text, and a second copy would declare every global twice (change 0143).
+    if (uri === this.ambientLibUri) return;
     const current = this.docs.get(uri);
     const revision =
       current !== undefined && current.text === text ? current.revision : ++this.revision;

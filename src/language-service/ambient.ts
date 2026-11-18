@@ -46,6 +46,7 @@ import {
   ATTRIBUTE_DOCS,
   MATH_MEMBER_DOCS,
   ATTRIBUTE_TYPE_DOCS,
+  TYPE_DOCS,
 } from './docs.js';
 import { generatedOverloads, scalarOfDeclaration } from './builtin-signatures.js';
 import { ARRAY_LIBRARY_DTS } from './ambient/array-library.js';
@@ -1693,7 +1694,27 @@ interface String {}
  * vector-with-scalar-factor forms on the emulated doubles, and the generic fallbacks whose
  * diagnostics the tests pin.
  */
-export const SHADE_DTS = withGeneratedBuiltins(HAND_WRITTEN_DTS);
+export const SHADE_DTS = withTypeDocs(withGeneratedBuiltins(HAND_WRITTEN_DTS));
+
+/**
+ * `dts` with the `TYPE_DOCS` sentence above the first `type` or `interface` declaration of each
+ * GPU type that has no JSDoc there yet (change 0143), so a definition on `u32` or `vec3` lands on
+ * what the type is rather than on its TypeScript encoding. Hover still answers a type name from
+ * `TYPE_DOCS` itself (`hover.ts`); these comments are for the reader of the file.
+ */
+function withTypeDocs(dts: string): string {
+  const documented = new Set<string>();
+  const out: string[] = [];
+  for (const line of dts.split('\n')) {
+    const name = /^(?:type|interface)\s+([A-Za-z_]\w*)\b/.exec(line)?.[1];
+    if (name !== undefined && !documented.has(name) && Object.hasOwn(TYPE_DOCS, name)) {
+      documented.add(name);
+      if (!out.at(-1)?.trimEnd().endsWith('*/')) out.push(renderJSDoc(TYPE_DOCS[name]!));
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}
 
 function withGeneratedBuiltins(dts: string): string {
   const pending = new Map(GENERATED);

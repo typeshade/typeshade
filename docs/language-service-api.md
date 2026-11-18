@@ -250,6 +250,11 @@ export interface TypeshadeCompiledOutput {
 export interface TypeshadeLanguageServiceHost {
   /** Ambient declarations for the TypeShade globals (`f32`, `vec4`, `uniform<T>`, `@vertex`, ...). Defaults to the bundled `SHADE_DTS` string (§9: not yet a shipped `shade.d.ts` file). */
   readonly ambientLib?: string
+  /** The uri of a file the adapter wrote the ambient declarations to, byte for byte the text the
+   * service holds, conventionally `lib.typeshade.d.ts` (change 0143). Ambient definitions, and the
+   * one declaration a reference finds there, are reported at it; `positionAt`/`offsetAt` read it
+   * as the ambient lib; it is never stored as a document. Unset, ambient locations are dropped. */
+  readonly ambientLibUri?: string
   /** Resolves an import from a document to another document uri, for multi-file units.
    * Default: `resolveSpecifier` (`src/compiler/ts/specifier.ts`), the rule `compile()` follows.
    * A relative specifier's `./` and `../` segments resolve against the containing uri's own
@@ -1150,6 +1155,15 @@ LSP (VS Code):
   first, incremental later without an API change (the service receives the whole text either
   way).
 - The server holds no TypeShade knowledge. Its size is a measure of drift.
+
+The ambient file, for either adapter (change 0143):
+
+- To let go-to-definition open an ambient name, write the text the service holds (`ambientLib`,
+  else `SHADE_DTS`) to a file and pass its uri as `ambientLibUri`. Write it from the same build
+  as the service, so the ranges the service reports read the same text; the service does not
+  check the file. Write it beside the adapter, not into a workspace a project's `tsconfig` could
+  include.
+- Convert those ranges with the service's own `positionAt`/`offsetAt`, which accept that uri.
 
 Document versions, for either adapter:
 

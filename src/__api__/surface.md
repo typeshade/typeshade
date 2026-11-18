@@ -1560,7 +1560,7 @@ src/language-service/docs.ts#FUNCTION_DOCS  const  Readonly<Record<string, strin
 src/language-service/docs.ts#MATH_MEMBER_DOCS  const  Readonly<Record<string, string>>
 src/language-service/docs.ts#TYPE_DOCS  const  Readonly<Record<string, string>>
 src/language-service/host.ts#AMBIENT_LIB_URI  const  "typeshade:shade.d.ts"
-src/language-service/host.ts#TypeshadeLanguageServiceHost  interface  { ambientLib?: string; readDocument?: (uri: string) => string; resolveImport?: (fromUri: string, specifier: string) => string }
+src/language-service/host.ts#TypeshadeLanguageServiceHost  interface  { ambientLib?: string; ambientLibUri?: string; readDocument?: (uri: string) => string; resolveImport?: (fromUri: string, specifier: string) => string }
 src/language-service/positions.ts#offsetAt  function  (sourceFile: SourceFile, position: TypeshadePosition) => number
 src/language-service/positions.ts#positionAt  function  (sourceFile: SourceFile, offset: number) => TypeshadePosition
 src/language-service/positions.ts#rangeForSpan  function  (sourceFile: SourceFile, span: TypeshadeTextSpan) => TypeshadeRange

@@ -12,7 +12,8 @@ import { emitModule } from '../core/backends/wgsl.js';
 import { emitGlslModule } from '../core/backends/glsl.js';
 import { compileTsSource, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import type { ImportHooks } from '../compiler/ts/link.js';
-import { TypeshadeHost, type TypeshadeLanguageServiceHost } from './host.js';
+import { AMBIENT_LIB_URI, TypeshadeHost, type TypeshadeLanguageServiceHost } from './host.js';
+import { normalizeSourcePath } from '../compiler/ts/specifier.js';
 import { backendDiagnostic } from '../compiler/ts/diagnostic.js';
 import { renderPart } from '../compiler/ts/render-part.js';
 import { emittedStructDecls } from '../compiler/ts/structs.js';
@@ -243,6 +244,14 @@ export function createTypeshadeLanguageServiceWith(
     return program().getSourceFile(uri);
   }
 
+  /** The program's own name for the adapter's copy of the ambient lib (change 0143), so a range
+   *  reported at `ambientLibUri` converts against the text it was measured in. */
+  function ambientOrSelf(uri: string): string {
+    return tsHost.ambientLibUri !== undefined && normalizeSourcePath(uri) === tsHost.ambientLibUri
+      ? AMBIENT_LIB_URI
+      : uri;
+  }
+
   /** How the front end reads what a document imports: the text the TypeScript program holds for
    *  it (an open document's, or one `readDocument` pulled in), resolved by the host's one rule,
    *  so the two halves analyse the same program. What TypeScript does not hold, a package's
@@ -438,14 +447,14 @@ export function createTypeshadeLanguageServiceWith(
       const sourceFile = sourceFileOf(uri);
       if (!sourceFile) return [];
       const offset = offsetAt(sourceFile, position);
-      return getDefinition(languageService, program(), uri, offset);
+      return getDefinition(languageService, program(), uri, offset, tsHost.ambientLibUri);
     },
 
     getReferences(uri, position, options) {
       const sourceFile = sourceFileOf(uri);
       if (!sourceFile) return [];
       const offset = offsetAt(sourceFile, position);
-      return getReferences(languageService, program(), uri, offset, options);
+      return getReferences(languageService, program(), uri, offset, options, tsHost.ambientLibUri);
     },
 
     getDocumentSymbols(uri) {
@@ -558,13 +567,13 @@ export function createTypeshadeLanguageServiceWith(
     },
 
     positionAt(uri, offset) {
-      const sourceFile = sourceFileOf(uri);
+      const sourceFile = sourceFileOf(ambientOrSelf(uri));
       if (!sourceFile) return { line: 0, character: 0 };
       return positionAt(sourceFile, offset);
     },
 
     offsetAt(uri, position) {
-      const sourceFile = sourceFileOf(uri);
+      const sourceFile = sourceFileOf(ambientOrSelf(uri));
       if (!sourceFile) return 0;
       return offsetAt(sourceFile, position);
     },
