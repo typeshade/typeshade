@@ -147,6 +147,14 @@ const glslDepthSampler = (t: Extract<ShaderType, { kind: 'depth-texture' }>): st
  *  declares `highp`, so its read never depends on the value it holds fitting in `lowp`. */
 const qualified = (b: BindingDecl): string => (b.precision ? `${b.precision} ` : '');
 
+function glslArraySize(size: number | undefined): number {
+  if (size === undefined)
+    throw new UnsupportedFeatureError(
+      'glsl-es300: runtime-sized array (storage buffer) — needs a data-texture (later step)',
+    );
+  return size;
+}
+
 function glslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
@@ -169,13 +177,8 @@ function glslType(t: ShaderType): string {
       return t.cols === t.rows ? `mat${t.cols}` : `mat${t.cols}x${t.rows}`;
     case 'struct':
       return t.name;
-    case 'array': {
-      if (t.size === undefined)
-        throw new UnsupportedFeatureError(
-          'glsl-es300: runtime-sized array (storage buffer) — needs a data-texture (later step)',
-        );
-      return `${glslType(t.elem)}[${t.size}]`;
-    }
+    case 'array':
+      return `${glslType(t.elem)}[${glslArraySize(t.size)}]`;
     // GLSL ES 3.00 has no storage buffers and no atomic memory functions (those are ES 3.10);
     // a module carrying one is refused by the storageBuffer capability first, and this arm
     // fails closed for a hand-built module that reaches it another way.
@@ -263,14 +266,7 @@ function glslType(t: ShaderType): string {
  *  `float[3] values`. Recursing through the element type preserves the
  *  declarator order for nested fixed-size arrays. */
 function glslDecl(t: ShaderType, name: string): string {
-  if (t.kind === 'array') {
-    if (t.size === undefined) {
-      // Keep the same fail-closed diagnostic as the type/constructor path.
-      glslType(t);
-      throw new UnsupportedFeatureError('glsl-es300: runtime-sized array');
-    }
-    return glslDecl(t.elem, `${name}[${t.size}]`);
-  }
+  if (t.kind === 'array') return glslDecl(t.elem, `${name}[${glslArraySize(t.size)}]`);
   return `${glslType(t)} ${name}`;
 }
 
@@ -695,7 +691,7 @@ export const glslEs300Backend: Backend = {
       )[cop]
     }(${a}, ${b})`,
   vectorSelect: glslSelect(glslType),
-  localLet: (name, type, init) => `${glslDecl(type, name)} = ${init}`, 
+  localLet: (name, type, init) => `${glslDecl(type, name)} = ${init}`,
   // A local with no initializer starts at its zero, as on WGSL and the CPU (Rule 7.6): GLSL
   // ES 3.00 leaves it undefined. The front end refuses a read before the assignment (TS8075),
   // so the zero is never read by a program it accepts; it keeps the targets equal for a
