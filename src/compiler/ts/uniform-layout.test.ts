@@ -252,7 +252,7 @@ declare const U_: uniform<U>
     // GLSL ES 3.00 gives `float[4]` a 16-byte stride natively, which is why the program Tint
     // refuses links on WebGL2. The wrapper is a WGSL-only lowering and must not reach here.
     const c = compiled(SCALAR_ARRAY);
-    expect(c.glsl!.fragment).toContain('float[4] xs;');
+    expect(c.glsl!.fragment).toContain('float xs[4];');
     expect(c.glsl!.fragment).not.toContain('_Pad16');
     expect(c.glsl!.fragment).toContain('U_.xs[1]');
   });
