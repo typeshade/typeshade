@@ -253,7 +253,6 @@ function glslType(t: ShaderType): string {
   }
 }
 
-
 // An integer scalar/vector — GLSL ES requires `flat` interpolation on such inter-stage
 // varyings, and so does WGSL. ONE predicate for both writers and for the interstage rule
 // (§53): the spelling differs per target, the question does not.
