@@ -257,6 +257,23 @@ function glslType(t: ShaderType): string {
   }
 }
 
+ 
+/** A GLSL ES 3.00 declaration declarator. Unlike a type/constructor spelling,
+ *  an array's dimensions follow the identifier: `float values[3]`, not
+ *  `float[3] values`. Recursing through the element type preserves the
+ *  declarator order for nested fixed-size arrays. */
+function glslDecl(t: ShaderType, name: string): string {
+  if (t.kind === 'array') {
+    if (t.size === undefined) {
+      // Keep the same fail-closed diagnostic as the type/constructor path.
+      glslType(t);
+      throw new UnsupportedFeatureError('glsl-es300: runtime-sized array');
+    }
+    return glslDecl(t.elem, `${name}[${t.size}]`);
+  }
+  return `${glslType(t)} ${name}`;
+}
+
 // An integer scalar/vector — GLSL ES requires `flat` interpolation on such inter-stage
 // varyings, and so does WGSL. ONE predicate for both writers and for the interstage rule
 // (§53): the spelling differs per target, the question does not.
@@ -298,9 +315,9 @@ function glslModuleVar(v: ModuleVarDecl, structs?: ReadonlyMap<string, StructDec
     throw new UnsupportedFeatureError(
       `glsl-es300: var<workgroup> ${v.name} has no GLSL ES 3.00 form (WebGL2 has no workgroup memory); the module is WebGPU-only`,
     );
-  const type = glslType(v.type);
+  const decl = glslDecl(v.type, v.name);
   const init = v.init ? emitExprNeutral(v.init, glslEs300Backend) : glslZero(v.type, structs);
-  return `${type} ${v.name} = ${init};`;
+  return `${decl} = ${init};`;
 }
 
 /** The structs of the module being assembled, for the zero of a local with no initializer
@@ -678,7 +695,7 @@ export const glslEs300Backend: Backend = {
       )[cop]
     }(${a}, ${b})`,
   vectorSelect: glslSelect(glslType),
-  localLet: (name, type, init) => `${glslType(type)} ${name} = ${init}`,
+  localLet: (name, type, init) => `${glslDecl(type, name)} = ${init}`, 
   // A local with no initializer starts at its zero, as on WGSL and the CPU (Rule 7.6): GLSL
   // ES 3.00 leaves it undefined. The front end refuses a read before the assignment (TS8075),
   // so the zero is never read by a program it accepts; it keeps the targets equal for a
@@ -686,11 +703,11 @@ export const glslEs300Backend: Backend = {
   // knows; outside one, the local stays bare. A local the next statement writes on every path
   // before any read stays bare too ({@link localsWrittenFirst}): its zero is never read.
   localVar: (name, type, init) =>
-    `${glslType(type)} ${name} = ${init ?? (localsWrittenFirst.has(name) ? '' : localZero(type))}`.replace(
+    `${glslDecl(type, name)} = ${init ?? (localsWrittenFirst.has(name) ? '' : localZero(type))}`.replace(
       / = $/,
       '',
     ),
-  constDecl: (name, type, value) => `const ${glslType(type)} ${name} = ${value};`,
+  constDecl: (name, type, value) => `const ${glslDecl(type, name)} = ${value};`,
   // GLSL ES requires the case label type to MATCH the switch scrutinee: a u32 scrutinee
   // needs `${value}u` labels (an int label is a compile error), an i32/int one stays bare.
   caseLabel: (value, scrutType) =>
@@ -746,7 +763,7 @@ export const glslEs300Backend: Backend = {
   // plain GLSL struct; the `@location`/`@builtin` field attrs are stripped here — they
   // become `in`/`out` varyings at entry-IO lowering, not struct members.
   emitStruct: (s) => {
-    const fields = s.fields.map((f) => `  ${glslType(f.type)} ${f.name};`).join('\n');
+    const fields = s.fields.map((f) => `  ${glslDecl(f.type, f.name)};`).join('\n');
     return `struct ${s.name} {\n${fields}\n};`;
   },
   // A binding line that needs only the binding itself (texture/sampler → a combined
@@ -761,7 +778,7 @@ export const glslEs300Backend: Backend = {
   emitModuleVar: (v) => glslModuleVar(v),
   emitBinding: (b) => {
     if (b.type.kind === 'texture' || b.type.kind === 'sampler')
-      return `uniform ${qualified(b)}${glslType(b.type)} ${b.name};`;
+      return `uniform ${qualified(b)}${glslDecl(b.type, b.name)};`;
     if (b.space === 'storage')
       throw new UnsupportedFeatureError(
         'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',
@@ -774,7 +791,7 @@ export const glslEs300Backend: Backend = {
   // it takes any l-value argument — an array element included, measured on ANGLE. No pointer,
   // so this backend declares no `reference` and no `dereference`: the argument and every use
   // inside the body are written plainly, and the shared walk leaves both alone.
-  paramDecl: (p) => `${p.mode === 'inout' ? 'inout ' : ''}${glslType(p.type)} ${p.name}`,
+  paramDecl: (p) => `${p.mode === 'inout' ? 'inout ' : ''}${glslDecl(p.type, p.name)}`,
   emitFunc: (f, parens) => {
     // Entry funcs are lowered to varyings + main() by emitGlslModule; a stray entry
     // reaching emitFunc means the assembly bypassed that path — fail loudly.
@@ -882,7 +899,7 @@ function emitGlslUbo(
   // LineLayer's array<PatternSlot, 3>) — their GLSL decls are emitted by the
   // topo-sorted plain-struct pass above the UBO block.
   wgslLayout(struct, 'std140', structs);
-  const fields = struct.fields.map((f) => `  ${glslType(f.type)} ${f.name};`).join('\n');
+  const fields = struct.fields.map((f) => `  ${glslDecl(f.type, f.name)};`).join('\n');
   return `layout(std140) uniform ${struct.name} {\n${fields}\n} ${b.name};`;
 }
 
@@ -1112,7 +1129,7 @@ function emitGlslEntry(
       // an int/uint can't be interpolated). @interpolate(flat) float varyings match it (X-GIS #763 P4).
       // Vertex attributes (vertex-IN) are not varyings → no flat.
       const flat = stage === 'fragment' ? glslInterpolation(s.interpolate, isIntType(s.type)) : '';
-      lines.push(`${qual}${flat}in ${glslType(s.type)} ${inName(s.name)};`);
+      lines.push(`${qual}${flat}in ${glslDecl(s.type, inName(s.name))};`);
       inNames.add(inName(s.name));
     }
   }
@@ -1170,7 +1187,7 @@ function emitGlslEntry(
     // structured field, so the qualifier stays link-matched. A fragment draw buffer
     // (fragment-OUT) is not interpolated → no flat.
     const flat = stage === 'vertex' ? glslInterpolation(s.interpolate, isIntType(s.type)) : '';
-    lines.push(`${qual}${flat}out ${glslType(s.type)} ${s.name};`);
+    lines.push(`${qual}${flat}out ${glslDecl(s.type, s.name)};`);
   }
 
   // ── The body: straight into main() where it fits, else the `_impl` wrapper ──
@@ -1255,7 +1272,7 @@ function emitGlslEntry(
     ...bodyLocals,
   ]);
   if (direct === undefined) {
-    const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ');
+    const params = f.params.map((p) => glslDecl(p.type, p.name)).join(', ');
     const retTy = f.ret.kind === 'void' ? 'void' : glslType(f.ret);
     lines.push('');
     lines.push(
@@ -1273,7 +1290,7 @@ function emitGlslEntry(
     if (inlinedFields.has(p.name)) continue; // X-GIS #1867 — its fields were substituted in place
     if (p.type.kind === 'struct') {
       const s = structByName(structs, p.type.name);
-      body.push(`  ${glslType(p.type)} ${local};`);
+      body.push(`  ${glslDecl(p.type, local)};`);
       for (const sf of s.fields) {
         const { builtin } = ioAttrOf(sf);
         body.push(
@@ -1290,7 +1307,7 @@ function emitGlslEntry(
       // uv;` is not a copy: a GLSL declarator is in scope inside its own initializer,
       // so the local would bind to itself.
       if (direct !== undefined && src !== p.name)
-        body.push(`  ${glslType(p.type)} ${local} = ${src};`);
+        body.push(`  ${glslDecl(p.type, local)} = ${src};`);
     }
   }
   if (direct !== undefined && direct.prelude.length)
@@ -2460,7 +2477,7 @@ function assembleGlslParts(
     // across the program, so hosts bind unchanged).
     if (scope !== null && !scope.bindings.has(b.name)) continue;
     if (b.type.kind === 'texture')
-      bindingLines.push(`uniform ${qualified(b)}${glslType(b.type)} ${b.name};`);
+      bindingLines.push(`uniform ${qualified(b)}${glslDecl(b.type, b.name)};`);
     // A depth texture is the shadow sampler its comparison sampler fuses into (item 11).
     else if (b.type.kind === 'depth-texture')
       bindingLines.push(`uniform ${qualified(b)}${glslDepthSampler(b.type)} ${b.name};`);
@@ -2497,7 +2514,7 @@ function assembleGlslParts(
       (b.owner === 'host' || opts?.emulateCompute) &&
       (b.type.kind === 'scalar' || b.type.kind === 'vec' || b.type.kind === 'mat')
     )
-      bindingLines.push(`uniform ${qualified(b)}${glslType(b.type)} ${b.name};`);
+      bindingLines.push(`uniform ${qualified(b)}${glslDecl(b.type, b.name)};`);
     else
       throw new UnsupportedFeatureError(
         `glsl-es300: uniform binding '${b.name}' must be a struct (a std140 UBO block)`,
@@ -2572,7 +2589,7 @@ function assembleGlslParts(
       protos
         .map(
           (f) =>
-            `${glslType(f.ret)} ${f.name}(${f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')});`,
+            `${glslType(f.ret)} ${f.name}(${f.params.map((p) => glslDecl(p.type, p.name)).join(', ')});`,
         )
         .join('\n'),
     );
