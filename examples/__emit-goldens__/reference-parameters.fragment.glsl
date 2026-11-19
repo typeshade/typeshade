@@ -10,11 +10,11 @@ void advance(inout Ray r, float t) {
   r.origin = (r.origin + (r.dir * t));
 }
 
-void liftAll_liftAt(inout float[3] ws, float k, int i) {
+void liftAll_liftAt(inout float ws[3], float k, int i) {
   ws[i] = mix(ws[i], 1.0, k);
 }
 
-void liftAll(inout float[3] ws, float k) {
+void liftAll(inout float ws[3], float k) {
   liftAll_liftAt(ws, k, 0);
   liftAll_liftAt(ws, k, 1);
   liftAll_liftAt(ws, k, 2);
@@ -33,7 +33,7 @@ void main() {
   r.origin = uv;
   r.dir = vec2(0.5, -0.25);
   advance(r, (b - a));
-  float[3] w = float[3](a, b, 0.5);
+  float w[3] = float[3](a, b, 0.5);
   liftAll(w, 0.25);
   mat2 basis = mat2(vec2(1.0, 0.0), vec2(0.0, 1.0));
   basis[1] = (basis[1] * 0.5);
