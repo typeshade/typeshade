@@ -146,7 +146,7 @@ describe('an array module constant', () => {
     `);
     expect(c.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(c.wgsl).toContain('const XS: array<f32, 3> = array<f32, 3>(1.0, 2.0, 3.0);');
-    expect(c.glsl?.fragment).toContain('const float[3] XS = float[3](1.0, 2.0, 3.0);');
+    expect(c.glsl?.fragment).toContain('const float XS[3] = float[3](1.0, 2.0, 3.0);');
     expect(c.eval('f', [1])).toBe(2);
   });
 
