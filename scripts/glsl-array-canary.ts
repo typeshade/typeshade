@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   const browser = await chromium.launch(settings.launch);
   try {
     const page = await browser.newPage();
-    await page.setContent('<!doctype html><title>GLSL ES 3.00 array declarator canary</title>');
+    await page.setContent('<!doctype html><title>GLSL ES 3.00 array syntax canary</title>');
     const result = await page.evaluate(
       (input: {
         typeVertex: string;
@@ -110,7 +110,9 @@ async function main(): Promise<void> {
     );
 
     console.log(`GLSL ES 3.00 array syntax canary · ${result.renderer}`);
-    console.log(`type-style declarations compile: ${result.typeVertexAccepted && result.typeFragmentAccepted}`);
+    console.log(
+      `type-style declarations compile: ${result.typeVertexAccepted && result.typeFragmentAccepted}`,
+    );
     console.log(
       `identifier-style declarations compile: ${result.declaratorVertexAccepted && result.declaratorFragmentAccepted}`,
     );
@@ -122,18 +124,23 @@ async function main(): Promise<void> {
     );
 
     const failures = [
-      !result.typeVertexAccepted && 'compiler rejected valid vertex type-style array declaration',
-      !result.typeFragmentAccepted && 'compiler rejected valid fragment type-style array declaration',
-      !result.declaratorVertexAccepted && 'compiler rejected valid vertex identifier-style array declaration',
+      !result.typeVertexAccepted &&
+        'compiler rejected valid vertex type-style array declaration',
+      !result.typeFragmentAccepted &&
+        'compiler rejected valid fragment type-style array declaration',
+      !result.declaratorVertexAccepted &&
+        'compiler rejected valid vertex identifier-style array declaration',
       !result.declaratorFragmentAccepted &&
         'compiler rejected valid fragment identifier-style array declaration',
-      !result.nestedVertexRejected && 'compiler accepted illegal vertex array-of-arrays declaration',
+      !result.nestedVertexRejected &&
+        'compiler accepted illegal vertex array-of-arrays declaration',
       !result.nestedFragmentRejected &&
         'compiler accepted illegal fragment array-of-arrays declaration',
       !result.typePairLinked && 'compiler failed to link the type-style vertex/fragment pair',
       !result.declaratorPairLinked &&
         'compiler failed to link the identifier-style vertex/fragment pair',
-      !result.mixedPairLinked && 'compiler failed to link the mixed-syntax vertex/fragment pair',
+      !result.mixedPairLinked &&
+        'compiler failed to link the mixed-syntax vertex/fragment pair',
     ].filter((failure): failure is string => Boolean(failure));
     if (failures.length > 0) throw new Error(failures.join('\n'));
   } finally {
