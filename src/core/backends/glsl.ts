@@ -265,8 +265,9 @@ function glslType(t: ShaderType): string {
  *  `float[3] values`. Recursing through the element type preserves the
  *  declarator order for nested fixed-size arrays. */
 function glslDecl(t: ShaderType, name: string): string {
-  if (t.kind === 'array') return glslDecl(t.elem, `${name}[${glslArraySize(t.size)}]`);
-  return `${glslType(t)} ${name}`;
+  return t.kind === 'array'
+    ? glslDecl(t.elem, name + '[' + glslArraySize(t.size) + ']')
+    : glslType(t) + ' ' + name;
 }
 
 // An integer scalar/vector — GLSL ES requires `flat` interpolation on such inter-stage
