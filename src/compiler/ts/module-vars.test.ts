@@ -459,7 +459,7 @@ let m: mat3x2;
       'uint hits = 0u;',
       'vec3 tint = vec3(0.0);',
       'bvec2 flags = bvec2(false);',
-      'float[3] ring = float[3](0.0, 0.0, 0.0);',
+      'float ring[3] = float[3](0.0, 0.0, 0.0);',
       'Acc acc = Acc(0.0, 0u, vec2[2](vec2(0.0), vec2(0.0)));',
       'mat3x2 m = mat3x2(0.0);',
     ])
@@ -520,7 +520,7 @@ let a: array<f64, 2>;
     for (const line of [
       'vec2 big = vec2(0.10000000149011612, -1.4901161415892261e-9);',
       'vec2 sum = vec2(0.0);',
-      'vec2[2] a = vec2[2](vec2(0.0), vec2(0.0));',
+      'vec2 a[2] = vec2[2](vec2(0.0), vec2(0.0));',
     ])
       expect(glsl).toContain(line);
     expect(glsl).toContain('DF64Vec3 w = DF64Vec3(');
