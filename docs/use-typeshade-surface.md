@@ -2846,7 +2846,8 @@ its name instead. An exported kernel function may make the array it returns, `co
 Float32Array(n)` or `new Array(n).fill(v)` with `n` known when the call runs, and return `out`
 (proposal 0114, S5, slice 1; §64 and §65): `out` is an `array<f32>`, `array<i32>` or
 `array<u32>` that the call binds as an array parameter of its own, and its hover reads as an array
-parameter's does. A
+parameter's does. It may also start empty, `const out: f32[] = []`, and grow with `push` in the
+function's loops (S5d, §65). A
 `uniform<array<f32>>` is refused (TS8051), and `.length` on it (TS8032) with the one fix that
 works: give the type a size, `array<f32, 3>`. A sized array's `.length` stays the compile-time `i32` it always was.
 
@@ -8542,7 +8543,7 @@ is a type error at the host's own line.
 | a compute entry                              | `export declare function e(bindings, workgroups): Promise<void>` (§67) |
 | a full-screen fragment entry                 | `export declare function e(target, bindings?): Promise<void>` when no host binding is reached; otherwise `bindings` is required (Rule 8.24; §67) |
 | a kernel function (§65)                      | `export declare function k(…): Promise<R>`                   |
-| a kernel function that makes its result (§65) | `export declare function k(…): Promise<Float32Array>` for `f32[]`, `Promise<Int32Array>` for `i32[]`, `Promise<Uint32Array>` for `u32[]`; no argument for the array it makes |
+| a kernel function that makes its result (§65) | `export declare function k(…): Promise<Float32Array>` for `f32[]`, `Promise<Int32Array>` for `i32[]`, `Promise<Uint32Array>` for `u32[]`; no argument for the array it makes; for one it grows with `push`, the elements pushed (S5d) |
 | a vertex entry, a generic function, a binding, anything else | `never`, with the reason and the work that adds it |
 
 **Host values** (Rule 8.21) are the representation the CPU tier already runs on:
@@ -9083,9 +9084,42 @@ export function render(k: vec4, size: u32): f32[] {
 Not supported yet in this slice, each refused with `TS8099` and a sentence that names the form:
 an element of a vector or a struct, such an array in a helper or an entry, one made under a
 branch, inside a loop or after a loop or a store, a length that reads another operand,
-`Array.from({ length: n }, f)` with such a length, another `return`, `out.push(v)`, a second name
-or an argument of a call, and a 2D storage texture beside it. A call on a resource and a call
-inside `fuse()` throw a `TypeError` that says so, and WebGL2 runs it on the CPU tier.
+`Array.from({ length: n }, f)` with such a length, another `return`, `out.push(v)` on such an
+array, a second name or an argument of a call, and a 2D storage texture beside it. A call on a
+resource and a call inside `fuse()` throw a `TypeError` that says so, and WebGL2 runs it on the
+CPU tier.
+
+**An array the function grows with `push`** (Rule 8.23, proposal 0114, S5d). The `const` may
+also start empty, annotated with an array of `f32`, `i32` or `u32` with no size,
+`const out: f32[] = []`, and the function's `for` and `for…of` loops at the top level of its body
+push onto it. The compiler computes the capacity: for each loop, its trip count times the pushes
+one iteration can make (a push under an `if` counts as one), summed over the loops. A trip count
+reads only the operands a length reads (above). The host reserves that many elements, the pushes
+append in the order a sequential run makes them (below), and the call resolves to a new typed
+array of exactly the elements pushed. `out.length` in the body reads the number pushed so far,
+and a loop that reads it runs on the CPU (`TS8070`), as for any array a loop pushes onto:
+
+```ts
+export function render(k: vec4, size: u32): f32[] {
+  const out: f32[] = [];
+  for (let i: u32 = 0; i < size * size; i++) {
+    const p = vec2(f32(i % size), f32(i / size)) / f32(size);
+    if (height(p, k) > 0.) {
+      out.push(height(p, k));
+    }
+  }
+  return out;
+}
+// host: const kept: Float32Array = await render(k, 512);
+```
+
+Not supported yet, each refused with `TS8099` and a sentence that names the loop or the form: a
+push outside every loop; a push in a loop that is no `for` at the top level of the body (a
+`while`, a loop inside a loop, a loop under a branch); a loop whose trip count is no count from a
+start to a bound by a constant whole step, or whose start or bound reads another operand (a loop
+whose range the device holds included); an element of a vector or a struct; and a read or a write
+of an element of the array. These wait for the heap OD-10 names. The host value, the tiers and
+the other refusals are those of the made array above.
 
 A texture, a storage texture, a `Map` and a `Set` are the caller's too, with no qualifier. A
 push to an array parameter, `out.push(v)`, writes the caller's array as an element write does.

@@ -19,6 +19,16 @@ repository is an official release yet: the `typeshade` package on npm holds only
 
 ### Added
 
+- **A kernel function grows the array it returns with `push`** (change 0114, S5d).
+  `const out: f32[] = []` at the top of an exported kernel function's body, `out.push(v)` in its
+  top-level `for` and `for…of` loops, and `return out` resolve the call to a new `Float32Array`
+  (`Int32Array` for `i32[]`, `Uint32Array` for `u32[]`) of exactly the elements pushed, in the
+  order of a sequential run. The compiler computes the capacity from the loops' trip counts and
+  the pushes in one iteration; the host reserves it before the call. `out.length` in the body
+  reads the number pushed so far. It runs on WebGPU and on the CPU tier, and WebGL2 falls back to
+  the CPU tier. Not supported yet (`TS8099`): a push outside every loop, a push in a loop that is
+  no `for` at the top level, a loop whose trip count the call cannot compute before it runs, an
+  element of a vector or a struct, and a read or a write of an element of the array.
 - **A kernel function makes and returns an array whose length its arguments give** (change 0114,
   S5, slice 1). `export function render(k: vec4, size: u32): f32[]` with
   `const out = new Float32Array(size * size)` at the top of its body and `return out` is a kernel

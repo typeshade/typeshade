@@ -7,7 +7,7 @@ import type { TsCompilerDiagnostic } from '../../source-file.js';
 import { authorTypeText, type LoweringScope } from '../../context.js';
 import { foldNumericLit, isIntScalar, retargetDeclaredIntLit } from '../../lit-coerce.js';
 import { TS_CODES } from '../../codes.js';
-import { isNumericScalar, pushDiag } from '../expression-array.js';
+import { pushDiag } from '../expression-array.js';
 
 export function typeArrayElement(
   node: ts.Expression,
@@ -103,4 +103,9 @@ export function zeroOfArrayElement(type: ShaderType, scope: LoweringScope): Expr
     default:
       return undefined;
   }
+}
+
+export function isNumericScalar(t: ShaderType): boolean {
+  const k = typeKey(t);
+  return k === 'f32' || k === 'i32' || k === 'u32';
 }
