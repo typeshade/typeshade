@@ -260,7 +260,6 @@ function glslType(t: ShaderType): string {
   }
 }
 
- 
 /** A GLSL ES 3.00 declaration declarator. Unlike a type/constructor spelling,
  *  an array's dimensions follow the identifier: `float values[3]`, not
  *  `float[3] values`. Recursing through the element type preserves the
