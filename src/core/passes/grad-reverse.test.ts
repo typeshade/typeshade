@@ -916,7 +916,7 @@ describe('grad reverse: loops under the checkpoint schedule (change 0056, items 
     };
     const withEntry = { ...d.module, funcs: [...d.module.funcs, fs] };
     expect(emitModule(withEntry)).toContain('array<f32, 8>');
-    expect(emitGlslModule(withEntry, 'fragment')).toMatch(/float\[8\] \w+/);
+    expect(emitGlslModule(withEntry, 'fragment')).toMatch(/float \w+\[8\]/);
   });
 });
 
