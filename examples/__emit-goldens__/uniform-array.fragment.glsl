@@ -4,8 +4,8 @@ precision highp int;
 
 layout(std140) uniform Palette {
   float count;
-  float[4] weights;
-  vec4[2] stops;
+  float weights[4];
+  vec4 stops[2];
 } U;
 in vec2 uv;
 layout(location = 0) out vec4 _ret;

@@ -2,7 +2,7 @@
 precision highp float;
 precision highp int;
 
-const float[3] WEIGHTS = float[3](0.25, 0.5, 0.25);
+const float WEIGHTS[3] = float[3](0.25, 0.5, 0.25);
 layout(std140) uniform Frame {
   int steps;
   int depth;
@@ -20,7 +20,7 @@ float march(vec2 uv, int steps) {
 }
 
 int leaves(int depth) {
-  int[16] stack = int[16](0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+  int stack[16] = int[16](0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
   int sp = 1;
   stack[0] = depth;
   int count = 0;

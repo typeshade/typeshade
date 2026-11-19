@@ -23,9 +23,9 @@ void main() {
     _sel0 = cool;
   }
   Palette shade = _sel0;
-  float[3] rising = float[3](0.15, 0.5, 0.9);
-  float[3] falling = float[3](0.9, 0.5, 0.15);
-  float[3] steps;
+  float rising[3] = float[3](0.15, 0.5, 0.9);
+  float falling[3] = float[3](0.9, 0.5, 0.15);
+  float steps[3];
   if ((uv.y > 0.5)) {
     steps = rising;
   } else {

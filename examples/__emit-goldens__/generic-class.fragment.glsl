@@ -13,7 +13,7 @@ struct Slot_vec3 {
 };
 
 struct Bag_f32 {
-  float[3] xs;
+  float xs[3];
 };
 
 struct Level_f32 {
@@ -47,7 +47,7 @@ void main() {
   _i0_self_.a = _i0a0;
   _i0_self_.b = _i0a1;
   Slot_vec3 tint = _i0_self_;
-  float[3] _i1a0 = float[3](0.2, 0.55, 0.9);
+  float _i1a0[3] = float[3](0.2, 0.55, 0.9);
   Bag_f32 _i1_self_ = Bag_f32(float[3](0.0, 0.0, 0.0));
   _i1_self_.xs = _i1a0;
   Bag_f32 band = _i1_self_;

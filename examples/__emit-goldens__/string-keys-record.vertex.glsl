@@ -2,7 +2,7 @@
 precision highp float;
 precision highp int;
 
-const float[3] GAIN = float[3](0.5, 1.0, 1.5);
+const float GAIN[3] = float[3](0.5, 1.0, 1.5);
 
 void main() {
   uint i = uint(gl_VertexID);

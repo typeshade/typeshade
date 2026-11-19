@@ -32,7 +32,7 @@ float clampTo(float x, _opt_f32_ limit) {
   return min(x, limit.value);
 }
 
-float sampleAll(_opt_f32_[4] samples) {
+float sampleAll(_opt_f32_ samples[4]) {
   float s_1 = mix(0.0, samples[0].value, samples[0].present);
   float s_2 = (s_1 + mix(0.0, samples[1].value, samples[1].present));
   float s_3 = (s_2 + mix(0.0, samples[2].value, samples[2].present));
@@ -72,7 +72,7 @@ void main() {
   Hit flat_ = Hit(uv.x, _cse1, _cse2);
   float r = shadeOf(hit, normalize(vec2(0.3, 1.0)));
   float g = shadeOf(flat_, _cse0);
-  _opt_f32_[4] samples = _opt_f32_[4](_opt_f32_(uv.x, true), _cse2, _opt_f32_(uv.y, true), _cse2);
+  _opt_f32_ samples[4] = _opt_f32_[4](_opt_f32_(uv.x, true), _cse2, _opt_f32_(uv.y, true), _cse2);
   float b = (clampTo(sampleAll(samples), _opt_f32_(0.75, true)) + clampTo((uv.x * 0.1), _cse2));
   color = vec4(r, g, b, 1.0);
 }
