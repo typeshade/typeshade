@@ -112,6 +112,7 @@ describes it.
   all pinned shards to succeed. Each TypeScript-version check requires only its own workers.
   A failed, cancelled or unexpectedly skipped dependency fails its aggregate check.
   Shard matrices retain `fail-fast: false`; dependency caches are separated by version and shard.
+- `.github/workflows/bake-goldens.yml` runs `bun run bake:goldens` on pull requests and manual dispatches. For a same-repository pull request, it commits changed files under `examples/__emit-goldens__/` to the head branch, then dispatches `ci.yml` so required checks run against that commit. Fork pull requests do not receive write permission.
 - `.github/workflows/downstream.yml` installs the compiler candidate's source archive in a
   pinned TypeNN checkout and runs its build and CPU tests. It verifies the installed compiler
   source before running. Source changes, manual dispatches and a weekly schedule run this gate;
