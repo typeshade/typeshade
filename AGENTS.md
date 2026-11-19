@@ -141,7 +141,9 @@ describes it.
   the writer emitted as `3.5` or refused as a `u32` literal `3.5` until the fold kept the
   cast's type, and the
   conformance suite of the render hardware interface on its WebGPU and WebGL2 backends (change
-  0120). Needs Chromium once: `./node_modules/.bin/playwright install --only-shell chromium`.
+  0120). The following `scripts/glsl-array-canary.ts` step proves ANGLE rejects the invalid
+  `float[3] values` declarator and accepts/links `float values[3]` on WebGL2. Needs Chromium once:
+  `./node_modules/.bin/playwright install --only-shell chromium`.
 - MNIST WebGL2 validation CI (`.github/workflows/mnist-webgl2-validation.yml`):
   after building and installing Playwright Chromium, run
   `node --experimental-strip-types journeys/mnist/test-webgl2.mjs --stagesOnly`;
