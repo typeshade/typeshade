@@ -1,0 +1,59 @@
+name: bake emit goldens
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bake-emit-goldens-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bake:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: Regenerate every emit golden
+        run: bun run bake:goldens
+      - name: Commit refreshed goldens
+        id: commit
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: |
+          git add examples/__emit-goldens__
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "All emit goldens already match the current compiler output."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "test: rebake emit goldens" -m "Change: none, refresh generated snapshots for the GLSL declarator fix." -m "Docs-Impact: reviewed, AGENTS.md#tests documents this workflow."
+          git push origin "HEAD:refs/heads/$HEAD_REF"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - name: Dispatch CI for the regenerated commit
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: gh api --method POST "repos/${{ github.repository }}/actions/workflows/ci.yml/dispatches" -f ref="$HEAD_REF"
