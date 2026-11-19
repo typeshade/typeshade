@@ -47,6 +47,10 @@ name: ci
 #                 read none. A skipped job reports success, so a required check is not left
 #                 waiting. A push to main, a dispatch and a release run every job.
 #
+# The separate bake-goldens workflow re-bakes all three emit-golden suites on a pull request.
+# It commits refreshed snapshots to the same-repository head branch, then dispatches this
+# workflow so the required checks cover the regenerated commit.
+
 # The browser is installed with the PROJECT-LOCAL playwright bin, never `bunx playwright`:
 # bunx fetches the standalone package at whatever version is newest, installs THAT
 # revision's browser, and the script (resolving through node_modules) then cannot find its
