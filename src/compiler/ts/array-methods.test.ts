@@ -157,9 +157,9 @@ describe("each of an array's five methods is a loop the call runs (Rule 8.18, su
   var acc: f32 = (*xs)[0];
   for (var i: i32 = 1; (i < 4); i = (i + 1)) {`);
     expect(wgsl).toContain('var scaled: array<f32, 4> = array_map_run_f(&xs);');
-    expect(r.glsl!.fragment).toContain('float[4] array_map_run_f(float[4] xs) {');
+    expect(r.glsl!.fragment).toContain('float[4] array_map_run_f(float xs[4]) {');
     expect(r.glsl!.fragment).toContain(
-      'void array_forEach_run_f_1(inout float glow, float k, float[4] xs) {',
+      'void array_forEach_run_f_1(inout float glow, float k, float xs[4]) {',
     );
   });
 
@@ -257,7 +257,7 @@ describe('what the function handed over captures (Rules 8.17, 8.18)', () => {
       'fn array_forEach_run_f(xs: ptr<function, array<f32, 4>>, total: ptr<function, f32>, k: f32) {',
     );
     expect(r.glsl!.fragment).toContain(
-      'void array_forEach_run_f(float[4] xs, inout float total, float k) {',
+      'void array_forEach_run_f(float xs[4], inout float total, float k) {',
     );
   });
 
@@ -321,7 +321,7 @@ export function run(k: f32): f32 {
   }
 }`);
     expect(wgsl).toContain('Bag_bump_f(self_, (*self_).items[i], i);');
-    expect(r.glsl!.fragment).toContain('void array_forEach_run_f(inout float[4] xs) {');
+    expect(r.glsl!.fragment).toContain('void array_forEach_run_f(inout float xs[4]) {');
   });
 
   it('a module constant is read in place', () => {
