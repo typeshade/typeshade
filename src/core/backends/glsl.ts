@@ -38,6 +38,7 @@
 // offsets, in/out varyings, main()) + the headless-WebGL2 gate cover the emit.
 
 import { glslSelect, selectAsMix } from './glsl-select.js';
+import { glslArraySize, makeGlslDecl } from './glsl-decl.js';
 import type {
   ShaderType,
   ModuleDecl,
@@ -147,14 +148,6 @@ const glslDepthSampler = (t: Extract<ShaderType, { kind: 'depth-texture' }>): st
  *  declares `highp`, so its read never depends on the value it holds fitting in `lowp`. */
 const qualified = (b: BindingDecl): string => (b.precision ? `${b.precision} ` : '');
 
-function glslArraySize(size: number | undefined): number {
-  if (size === undefined)
-    throw new UnsupportedFeatureError(
-      'glsl-es300: runtime-sized array (storage buffer) — needs a data-texture (later step)',
-    );
-  return size;
-}
-
 function glslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar':
@@ -260,20 +253,13 @@ function glslType(t: ShaderType): string {
   }
 }
 
-/** A GLSL ES 3.00 declaration declarator. Unlike a type/constructor spelling,
- *  an array's dimensions follow the identifier: `float values[3]`, not
- *  `float[3] values`. Recursing through the element type preserves the
- *  declarator order for nested fixed-size arrays. */
-function glslDecl(t: ShaderType, name: string): string {
-  return t.kind === 'array'
-    ? glslDecl(t.elem, name + '[' + glslArraySize(t.size) + ']')
-    : glslType(t) + ' ' + name;
-}
 
 // An integer scalar/vector — GLSL ES requires `flat` interpolation on such inter-stage
 // varyings, and so does WGSL. ONE predicate for both writers and for the interstage rule
 // (§53): the spelling differs per target, the question does not.
 const isIntType = isIntegerVarying;
+
+const glslDecl = makeGlslDecl(glslType);
 
 function glslLit(value: number | boolean, t: ShaderType): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false';
