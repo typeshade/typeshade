@@ -82,7 +82,7 @@ describe('an array conditional, which the same driver refuses the same way', () 
     expect(r.wgsl).toContain('  var zs: array<f32, 2>;');
     expect(r.wgsl).toContain('    zs = xs;');
     expect(r.wgsl).not.toContain('_sel0');
-    expect(r.glsl!.fragment).toContain('  float[2] zs;');
+    expect(r.glsl!.fragment).toContain('  float zs[2];');
     expect(r.glsl!.fragment).toContain('    zs = xs;');
     expect(r.glsl!.fragment).not.toContain('? xs :');
   });
