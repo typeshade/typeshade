@@ -24,7 +24,8 @@ async function main(): Promise<void> {
   try {
     const page = await browser.newPage();
     await page.setContent('<!doctype html><title>GLSL ES 3.00 array declarator canary</title>');
-    const result = await page.evaluate(({ badVertex, badFragment, goodVertex, goodFragment }) => {
+    const result = await page.evaluate((input: { badVertex: string; badFragment: string; goodVertex: string; goodFragment: string }) => {
+      const { badVertex, badFragment, goodVertex, goodFragment } = input;
       const gl = document.createElement('canvas').getContext('webgl2');
       if (gl === null) throw new Error('WebGL2 context is unavailable');
 
