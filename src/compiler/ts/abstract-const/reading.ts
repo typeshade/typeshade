@@ -7,9 +7,11 @@ export interface Reading {
   readonly unknown?: boolean;
   readonly unproven?: boolean;
   readonly congruent?: boolean;
+  readonly signed?: boolean;
   readonly agreeing?: boolean;
   readonly bound?: number;
   readonly reassigned?: boolean;
+  readonly several?: boolean;
   readonly picks: readonly (readonly [ts.Node, string])[];
 }
 
@@ -18,8 +20,19 @@ export const UNPROVEN: Reading = { u32: NaN, ts: NaN, tree: true, unproven: true
 export const CONGRUENT: Reading = { ...UNPROVEN, congruent: true };
 export const AGREEING: Reading = { u32: NaN, ts: NaN, tree: true, agreeing: true, picks: [] };
 
+export const exactSigned = (x: Reading): boolean => x.signed === true && x.u32 === x.ts;
+
+export const signedPair = (a: Reading, b: Reading): boolean =>
+  (a.signed === true || !a.tree) && (b.signed === true || !b.tree) && (a.tree || b.tree);
+
+export function signedReading(ts: number, picks: Reading['picks'] = []): Reading {
+  return { u32: ts | 0, ts, tree: true, signed: true, picks };
+}
+
 export const provenDiffering = (x: Reading): boolean =>
   x.tree && x.unproven !== true && x.agreeing !== true && x.u32 !== x.ts;
+export const pastInt32 = (x: Reading): boolean =>
+  x.congruent === true || (provenDiffering(x) && x.ts !== (x.u32 | 0));
 export const plainUnproven = (x: Reading): boolean => x.unproven === true && x.congruent !== true;
 
 export const READINGS_PER_NODE = 32;
@@ -30,7 +43,8 @@ export const READING_STEP_LIMIT = 100000;
 export function readingValue(x: Reading): string {
   if (x.congruent === true) return 'c';
   if (x.agreeing === true) return `a${String(x.bound ?? '')}`;
-  return x.unknown ? '?' : x.unproven ? '!' : `${String(x.u32)}:${String(x.ts)}:${x.tree ? 1 : 0}`;
+  const kind = x.signed === true ? 's' : x.tree ? 1 : 0;
+  return x.unknown ? '?' : x.unproven ? '!' : `${String(x.u32)}:${String(x.ts)}:${kind}`;
 }
 
 export function readingKey(x: Reading): string {
@@ -75,12 +89,24 @@ export function mergedPicks(
   return out;
 }
 
-export function heldByTreeVariable(xs: readonly Reading[], pulled = false): readonly Reading[] {
+export function heldByTreeVariable(
+  xs: readonly Reading[],
+  pulled: 'u32' | 'i32' | false = false,
+): readonly Reading[] {
   if (!pulled && !xs.some((x) => x.tree)) return xs;
+  const signed =
+    pulled === 'i32' ||
+    (pulled !== 'u32' &&
+      xs.some((x) => x.signed === true) &&
+      xs.every((x) => !x.tree || x.signed === true || x.unproven || x.agreeing));
   return xs.map((x) => {
     if (x.tree || (x.unknown && !xs.some((y) => y.tree))) return x;
+    if (signed && !x.unknown && Number.isInteger(x.u32) && Math.abs(x.u32) <= 2147483648) {
+      return { ...x, u32: x.u32 | 0, tree: true, signed: true };
+    }
     const holdsBits =
       !x.unknown && Number.isInteger(x.u32) && x.u32 >= -2147483648 && x.u32 <= 4294967295;
+    if (signed && x.unknown) return x;
     return holdsBits ? { ...x, u32: x.u32 >>> 0, tree: true } : { ...UNPROVEN, picks: x.picks };
   });
 }
@@ -120,4 +146,20 @@ export function agreeingBound(k: ts.SyntaxKind, a: Reading, b: Reading): Reading
 
 export function markReassigned(xs: readonly Reading[], reassigned: boolean): Reading[] {
   return reassigned ? xs.map((x) => ({ ...x, reassigned: true })) : [...xs];
+}
+
+export const provenI32Minimum = (x: Reading): boolean =>
+  !x.unknown && !x.unproven && !x.agreeing && (x.u32 | 0) === -2147483648;
+
+export function numberedReading(xs: readonly Reading[]): Reading | undefined {
+  const values = new Set(xs.map((x) => `${String(x.u32)}:${String(x.ts)}`));
+  if (values.size !== 1 || xs.some((x) => x.several === true)) return undefined;
+  return xs.find((x) => provenDiffering(x) && x.signed !== true && !x.reassigned);
+}
+
+export function carried(r: Reading, a: Reading, b: Reading): Reading {
+  const reassigned = a.reassigned === true || b.reassigned === true;
+  const several = a.several === true || b.several === true;
+  if (!reassigned && !several) return r;
+  return { ...r, ...(reassigned ? { reassigned } : {}), ...(several ? { several } : {}) };
 }
