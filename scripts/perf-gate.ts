@@ -62,6 +62,7 @@ import { parseArgs } from 'node:util';
 import { execSync } from 'node:child_process';
 import { typeshade } from '../src/vite.js';
 import { inPage, median } from '../journeys/_bench.mjs';
+import { exampleFile } from '../examples/_example-file.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -97,7 +98,7 @@ const work = mkdtempSync(join(tmpdir(), 'typeshade-perf-'));
 const SOURCES: readonly (readonly [string, string])[] = [
   ['/ops.shade.ts', join(ROOT, 'journeys/loop-fuse/ops.shade.ts')],
   ['/batch.shade.ts', join(ROOT, 'journeys/mnist/batch.shade.ts')],
-  ['/host-kernel.shade.ts', join(ROOT, 'examples/hosts/host-kernel/host-kernel.shade.ts')],
+  ['/host-kernel.shade.ts', exampleFile('host-kernel')],
   ['/branch.shade.ts', join(ROOT, 'journeys/loop-fuse/branch.shade.ts')],
 ];
 const modules: Record<string, string> = {};

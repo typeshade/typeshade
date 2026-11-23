@@ -11,9 +11,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hostFace } from './index.js';
 import { typeshade } from '../vite.js';
+import { exampleSource } from '../../examples/_example-file.js';
 
-const EXAMPLE = new URL('../../examples/hosts/host-compute/host-compute.shade.ts', import.meta.url);
-const SOURCE = readFileSync(EXAMPLE, 'utf8');
+const SOURCE = exampleSource('host-compute');
 
 const dir = mkdtempSync(join(tmpdir(), 'typeshade-host-face-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

@@ -29,7 +29,7 @@
 // examples this suite compiles: an author-facing example carries no tag of its own.
 
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -47,6 +47,7 @@ import {
 import { examples } from './index.js';
 import { checkGolden } from './_goldens.js';
 import { compile, emitModule, emitGlslModule, reflect } from '../src/index.js';
+import { exampleSource } from './_example-file.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -101,10 +102,7 @@ describe('"use typeshade" examples — the directory and the registry agree', ()
     // go unregistered — exactly the failure the one hand-ordered array used to allow through a
     // mis-resolved merge — or register half-described.
     const bodyOf = (id: string): string =>
-      readFileSync(join(HERE, `${id}${SHADE_EXT}`), 'utf8').replace(
-        /\/\*\s*@example[\s\S]*?\*\//,
-        '',
-      );
+      exampleSource(id).replace(/\/\*\s*@example[\s\S]*?\*\//, '');
     const hello = bodyOf('hello');
     const withBlock = (json: string): string =>
       `"use typeshade"\n\n/* @example\n${json}\n*/\n${hello}`;
@@ -345,10 +343,7 @@ interface Color { color: location<0, vec4>; }
   });
 
   it('refuses a passes list of the wrong shape, and passes on an example that is not renderable', () => {
-    const hello = readFileSync(join(HERE, `hello${SHADE_EXT}`), 'utf8').replace(
-      /\/\*\s*@example[\s\S]*?\*\//,
-      '',
-    );
+    const hello = exampleSource('hello').replace(/\/\*\s*@example[\s\S]*?\*\//, '');
     const withBlock = (json: string): string =>
       `"use typeshade"\n\n/* @example\n${json}\n*/\n${hello}`;
     for (const [why, json] of [
