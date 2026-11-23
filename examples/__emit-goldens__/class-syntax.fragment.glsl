@@ -24,17 +24,13 @@ float Ring_coverage(Ring self_, vec2 p) {
 void Ring_count() {
   Ring_drawn += 1.0;
 }
-
-Ring Ring_new(vec2 center, float radius) {
-  return Ring(0.05, center, radius);
-}
 in vec2 uv;
 layout(location = 0) out vec4 color;
 
 void main() {
-  Ring a = Ring_new(vec2(0.0), 0.5);
+  Ring a = Ring(0.05, vec2(0.0), 0.5);
   Ring_set_relativeWidth(a, 0.16);
-  Ring b = Ring_new(vec2(0.35, 0.2), 0.3);
+  Ring b = Ring(0.05, vec2(0.35, 0.2), 0.3);
   Ring_set_width(b, (b.width - 0.1));
   Ring_count();
   Ring_count();

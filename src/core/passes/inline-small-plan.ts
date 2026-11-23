@@ -1,9 +1,10 @@
 import { stageOf } from '../ir/index.js';
-import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/index.js';
+import type { Expr, FuncDecl, ModuleDecl } from '../ir/index.js';
 import { eachBlockStmt as eachBodyStmt, eachBodyExpr } from './opt/sroa/blocks.js';
 import { BARRIER_INTRINSICS, DERIVATIVE_INTRINSICS, SUBGROUP_INTRINSICS } from '../intrinsics.js';
 import { bodyHasEffectfulCall, type FnWrites } from './effects.js';
 import { bodyHasRaw, collectLocals } from './opt/expr-utils.js';
+import { bodyCost, settledFn } from './inline-small-cost.js';
 
 export const SMALL_BODY_COST = 8;
 
@@ -49,13 +50,6 @@ export function sensitiveFns(m: ModuleDecl): ReadonlySet<string> {
       }
   }
   return direct;
-}
-
-function bodyCost(body: readonly Stmt[]): number {
-  let n = 0;
-  eachBodyStmt(body, () => n++);
-  eachBodyExpr(body, () => n++);
-  return n;
 }
 
 export function countSites(funcs: readonly FuncDecl[], name: string): number {
@@ -126,8 +120,18 @@ export function planOf(
   return { fn: f, ret, uses, assigned, free };
 }
 
-export function chosen(plan: Plan, funcs: readonly FuncDecl[]): boolean {
-  return countSites(funcs, plan.fn.name) === 1 || bodyCost(plan.fn.body) <= SMALL_BODY_COST;
+export function settledPlan(
+  plan: Plan,
+  m: ModuleDecl,
+  writes: FnWrites,
+  sensitive: ReadonlySet<string>,
+): Plan | undefined {
+  if (countSites(m.funcs, plan.fn.name) === 1 || bodyCost(plan.fn.body) <= SMALL_BODY_COST)
+    return plan;
+  const fn = settledFn(plan.fn, m);
+  const out =
+    bodyCost(fn.body) <= SMALL_BODY_COST ? planOf(fn, m.funcs, writes, sensitive) : undefined;
+  return out;
 }
 
 export function shadows(plan: Plan, f: FuncDecl): boolean {

@@ -33,10 +33,6 @@ fn Ring_count() {
   Ring_drawn += 1.0;
 }
 
-fn Ring_new_into(_dst: ptr<function, Ring>, center: vec2<f32>, radius: f32) {
-  (*_dst) = Ring(0.05, center, radius);
-}
-
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
@@ -46,11 +42,9 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> FsOut {
-  var a: Ring;
-  Ring_new_into(&a, vec2<f32>(0.0), 0.5);
+  var a: Ring = Ring(0.05, vec2<f32>(0.0), 0.5);
   Ring_set_relativeWidth(&a, 0.16);
-  var b: Ring;
-  Ring_new_into(&b, vec2<f32>(0.35, 0.2), 0.3);
+  var b: Ring = Ring(0.05, vec2<f32>(0.35, 0.2), 0.3);
   Ring_set_width(&b, (b.width - 0.1));
   Ring_count();
   Ring_count();

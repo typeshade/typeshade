@@ -27,11 +27,6 @@ fn Mover_step(self_: ptr<function, Mover>, dt: f32) {
   (*self_).pos += ((*self_).vel * dt);
 }
 
-fn Mover_new() -> Mover {
-  let _cse0 = vec2<f32>(0.0);
-  return Mover(_cse0, _cse0);
-}
-
 fn Ring_advance(self_: ptr<function, Ring>, dt: f32) {
   Mover_step(&(*self_).center, dt);
 }
@@ -45,10 +40,10 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(v: VsOut) -> FsOut {
-  var ring: Ring = Ring(Mover_new(), 0.3, 0.04);
+  var ring: Ring = Ring(Mover(vec2<f32>(0.0), vec2<f32>(0.0)), 0.3, 0.04);
   ring.center.vel = vec2<f32>(0.5, 0.2);
   Ring_advance(&ring, 0.5);
-  var spot: Dot = Dot(Mover_new(), 0.1);
+  var spot: Dot = Dot(Mover(vec2<f32>(0.0), vec2<f32>(0.0)), 0.1);
   spot.center.pos = vec2<f32>(-0.45, -0.3);
   var col: vec3<f32> = vec3<f32>(0.06, 0.07, 0.12);
   let _i3a1 = v.uv;
