@@ -4,10 +4,16 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { zeroOf } from '../../../core/cpu-runtime.js';
 import type { KernelFace } from '../../../core/host-kernel.js';
 import type { HostType } from '../../../core/host-values.js';
-import { isMadeParam, madeOf, type KernelMade } from '../../../core/kernel-made-face.js';
+import {
+  isMadeParam,
+  madeOf,
+  type KernelCapacityLoop,
+  type KernelCapacityTerm,
+  type KernelMade,
+} from '../../../core/kernel-made-face.js';
 import type { HostExport } from '../host-face-contracts.js';
 import { hostTypeOf } from '../host-types.js';
-import { madeArrayOf } from '../lower/made-array/registry.js';
+import { madeArrayOf, type GrownLoop } from '../lower/made-array/registry.js';
 import { grownChecks, type GrownSite } from '../lower/made-array/bounds.js';
 
 type MadeShape = Pick<KernelMade, 'array' | 'width' | 'struct' | 'zero'>;
@@ -63,18 +69,37 @@ export function madeFace(
     kernel: true,
   });
   const length = made.length === undefined ? undefined : cpuFn('length', made.length);
-  const bounds = (made.capacity ?? []).map((t, i) => ({
-    term: t,
-    low: cpuFn(`low${i}`, t.low),
-    high: cpuFn(`high${i}`, t.high),
-  }));
-  const capacity = bounds.map(({ term, low, high }) => ({
-    low: low.name,
-    high: high.name,
-    inclusive: term.inclusive,
-    step: term.step,
-    pushes: term.pushes,
-  }));
+  const loopFns = (
+    loop: GrownLoop,
+    tag: string,
+  ): { readonly record: KernelCapacityLoop; readonly funcs: FuncDecl[] } => {
+    const low = cpuFn(`low${tag}`, loop.low);
+    const high = cpuFn(`high${tag}`, loop.high);
+    return {
+      record: { low: low.name, high: high.name, inclusive: loop.inclusive, step: loop.step },
+      funcs: [low, high],
+    };
+  };
+  const bounds = (made.capacity ?? []).map((t, i) => {
+    const head = loopFns(t, String(i));
+    const inner = (t.inner ?? []).map((l, k) => loopFns(l, `${i}_${k}`));
+    const when = t.when === undefined ? undefined : cpuFn(`when${i}`, t.when);
+    const record: KernelCapacityTerm = {
+      ...head.record,
+      pushes: t.pushes,
+      ...(inner.length > 0 ? { inner: inner.map((l) => l.record) } : {}),
+      ...(when !== undefined ? { when: when.name } : {}),
+    };
+    return {
+      record,
+      funcs: [
+        ...head.funcs,
+        ...inner.flatMap((l) => l.funcs),
+        ...(when !== undefined ? [when] : []),
+      ],
+    };
+  });
+  const capacity = bounds.map(({ record }) => record);
   const fill = made.fill === undefined ? undefined : cpuFn('fill', made.fill);
   const reads = paramsRead(f, [made.prelude, made.length, made.capacity, made.fill]);
   const sites = made.grown === true ? grownChecks(f, made.param).sites : [];
@@ -102,7 +127,7 @@ export function madeFace(
     ranges: [
       ...e.ranges,
       ...(length !== undefined ? [length] : []),
-      ...bounds.flatMap(({ low, high }) => [low, high]),
+      ...bounds.flatMap(({ funcs }) => funcs),
       ...(fill !== undefined ? [fill] : []),
     ],
   };
