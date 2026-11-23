@@ -16,14 +16,12 @@ import {
   abstractLiteralOf,
   noteCastRead,
   noteIntegerRead,
-  noteWrittenDivisionRead,
   refuseTwoReadings,
   twoReadingsOf,
 } from '../abstract-const.js';
 import { foldConstNumber } from '../loop-bound.js';
 import { foldF64ModuleConst } from '../module-const-f64.js';
 import {
-  isIntegerQuotient,
   readKindlessExactly,
   reportIntLitRange,
   retargetIntLitCtx,
@@ -32,7 +30,7 @@ import {
 } from '../lit-coerce.js';
 import { readonlyClassUpcast } from '../class-upcasts.js';
 import { lowerExpression } from './expression.js';
-import { integerConversionArg } from './integer-quotient.js';
+import { convertedQuotientArg } from './integer-quotient.js';
 import { captureArguments } from './local-functions.js';
 import { lowerReferenceArgument } from './references.js';
 import { makeDiagnostic } from '../diagnostic.js';
@@ -105,19 +103,7 @@ export function lowerScalarCastCall(
     }
   }
   if (name === 'i32' || name === 'u32') {
-    const quotient = isIntegerQuotient(lowered);
-    const converted = integerConversionArg(lowered, name === 'u32' ? u32T : i32T);
-    if (quotient) {
-      let inner: ts.Expression = node.arguments[0]!;
-      while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
-      const resolved = !isIntegerQuotient(converted);
-      // A quotient no integer type divides (an `i32` operand beside a `u32` one) stays refused
-      // (issue 1403). Its `u32()` read names the `i32` edit: the float edit gives 0 for a
-      // negative quotient, where TypeScript's ToUint32 wraps it.
-      if (resolved) noteWrittenDivisionRead(inner, sourceFile, 'read');
-      else if (name === 'u32') noteWrittenDivisionRead(inner, sourceFile, 'i32');
-    }
-    lowered = converted;
+    lowered = convertedQuotientArg(lowered, node.arguments[0]!, sourceFile, name);
     readKindlessExactly(lowered);
   }
   // A cast is a read of a constant of no fixed type: `u32(K)` converts the written number, as
