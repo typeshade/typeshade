@@ -1370,8 +1370,11 @@ the owner chose, as the pull request or the issue records it. Each program below
       (decision (c)). `return u32(d / 7 / 1);` named `f32(i32(d)) / 7` on `0dc0e7a7`, and the
       edited program gave 0. `xs[d / 1000000000]` named `i32(d) / 1000000000`, a negative index.
     - Not changed, and not open deviations: `d / d` and `d / e` name no edit (decision (c)).
-      Observed, with no issue yet: `let a = (-7|0); return u32(a / 2 / 1);` names `f32(a) / 2`.
+    - Observed, with no issue yet: `let a = (-7|0); return u32(a / 2 / 1);` names `f32(a) / 2`.
       The edited program gives 0. TypeScript gives 4294967293.
+    - Observed, with no issue yet: with `let a = 1 << 30; let b = a + a;` and result `u32`,
+      `return b / 7 + vi;` names `u32(b) / 7`. The edit gives TypeScript's value only for a `b`
+      that fits a `u32`.
   - Open deviation, issue #1380: after `let a = 1 << 30; let b = a + a;`, a typed `i32` position reads the
     wrapped value. `b /= 7; return b;` is refused with the edit `let b: i32 = a + a`, and the
     edited program gives -306783378, where TypeScript gives 306783378. With
