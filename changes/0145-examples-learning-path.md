@@ -541,12 +541,12 @@ with its disposition; and the pending work.
 - Not run: a WebGPU page that runs the four `host.ts` files, since `gate:journeys` reads only
   `HOST_ORDER`; the `animate` of `moving-wave`. Open: M4 brings the path into the journeys.
 
-| Deviation                                                                                                                                                                                                  | Disposition                                                        |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| D-1. The four modules carry `"renderable": false, "reason": "no entry point"`, as `host-draw` does. A module with only a fragment entry has no vertex stage, and the `shade-examples` GLSL test needs one. | Open. M5 decides what the site reads for a step that draws.        |
-| D-2. The uniform is `interface Frame`, where `host-draw` uses `class Frame`. Step 8 stays the first step with a class.                                                                                     | Closed. The path rule "a step uses only earlier concepts" asks it. |
-| D-3. `examples/index.ts` names the generator scripts/gen-example-registry.ts, which does not exist, so `pathExamples` was added by hand.                                                                   | Open. A later pull request restores the generator or the text.     |
-| D-4. Steps 1 to 4 also use `abs`, `max`, `sin`, `const` locals and swizzles, which the path table does not list.                                                                                           | Open. The path table is amended to list them.                      |
+| Deviation                                                                                                                                                                                                  | Disposition                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| D-1. The four modules carry `"renderable": false, "reason": "no entry point"`, as `host-draw` does. A module with only a fragment entry has no vertex stage, and the `shade-examples` GLSL test needs one. | Open. M5 decides what the site reads for a step that draws.         |
+| D-2. The uniform is `interface Frame`, where `host-draw` uses `class Frame`. Step 8 stays the first step with a class.                                                                                     | Closed. The path rule "a step uses only earlier concepts" asks it.  |
+| D-3. `examples/index.ts` names the generator scripts/gen-example-registry.ts, which does not exist, so `pathExamples` was added by hand.                                                                   | Closed by M4.1: the generator is written and a drift test holds it. |
+| D-4. Steps 1 to 4 also use `abs`, `max`, `sin`, `const` locals and swizzles, which the path table does not list.                                                                                           | Open. The path table is amended to list them.                       |
 
 **M2, delivered.** Pull request #1429, merged on 2026-11-23 as `7cc11705`, under the owner's
 go-ahead of that day for every pull request until 24:00 KST ("12시까지 모두 자동 진행 승인").
