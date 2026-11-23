@@ -728,9 +728,9 @@ Notes on the table.
   now). So all eight target WebGL2. A kernel function runs on WebGL2 only when each loop writes
   one array of 4-byte elements at exactly `i` (Rule 11.8); M7 checks `fluid-2d` against that.
 - [fact] None of the eight uses workgroup memory, a barrier or an atomic. None is GPU-only for
-  that reason. [inference] If M7 finds that a rewrite needs one, that example lists WebGPU and
-  CPU where the CPU tier runs it, and the CPU tier runs a workgroup barrier only as the call
-  layer serializes it (`host-kernel` and `host-resident` are the shape). M7 checks it.
+  that reason. [fact] If M7 finds that a rewrite needs a barrier, that example lists WebGPU and
+  WebGL2: the CPU tier refuses an entry that reaches a barrier, and WebGL2 runs it in its pass
+  program (Rule 8.24, Rule 11.8). An atomic alone keeps all three tiers. M7 checks it.
 - The tiers above are targets, not results. An example lists a tier exactly when its whole
   `run()` gives the reference on that tier alone (as `HOST_ORDER` and `PATH_ORDER` do). M7 fixes
   the list from what runs.
