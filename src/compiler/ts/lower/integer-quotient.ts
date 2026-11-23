@@ -2,7 +2,13 @@
 // and WGSL's integer `x / 0` is `x` (issue 1320, Amendment A4 of change 0134). A call of the
 // helper evaluates each operand once, in order, where a select's arms would be sequenced lazily.
 import type ts from 'typescript';
-import { noteWrittenDivisionRead, refuseTwoReadings, twoReadingsOf } from '../abstract-const.js';
+import {
+  noteWrittenDivisionRead,
+  readingsFrom,
+  refuseTwoReadings,
+  twoReadingsOf,
+} from '../abstract-const.js';
+import { pastInt32 } from '../abstract-const/reading.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -41,6 +47,7 @@ export interface QuotientSite {
   readonly sourceFile: ts.SourceFile;
   readonly diagnostics: TsCompilerDiagnostic[];
   held?: ReadingsRefusal;
+  heldPastI32?: boolean;
 }
 
 export function holdReadings(
@@ -48,13 +55,15 @@ export function holdReadings(
   operand: ts.Expression,
   readings: ReadingsRefusal['readings'],
 ): void {
-  site.held ??= {
+  if (site.held !== undefined) return;
+  site.held = {
     node: operand,
     operation: site.node,
     operator: '/',
     readings: twoReadingsOf(operand, true) ?? readings,
     target: false,
   };
+  site.heldPastI32 = readingsFrom(operand).some((x) => pastInt32(x) || x.unproven === true);
 }
 
 export function integerQuotientIn(
@@ -66,7 +75,7 @@ export function integerQuotientIn(
   const [a, b] = at(target);
   if (typeKey(a.type) !== typeKey(target) || typeKey(b.type) !== typeKey(target)) return undefined;
   const u32 = typeKey(target) === 'u32';
-  if (declared && u32 && site.held !== undefined) {
+  if (declared && (u32 || site.heldPastI32 === true) && site.held !== undefined) {
     refuseTwoReadings(site.sourceFile, site.diagnostics, site.held);
     site.held = undefined;
   }
