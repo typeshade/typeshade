@@ -69,6 +69,7 @@ describe('abs of a proven i32 minimum is refused with no edit (issue 1388, decis
       ['a nested conversion', `${small}return f32(abs(i32(u32(h + h))));`, 2097152],
       ['an f32 conversion', `${small}return f32(abs(i32(f32(h + h))));`, 2097152],
       ['a fold', 'return f32(abs(i32(-2147483647)));', 2147483648],
+      ['a typed const', 'const m: i32 = -2147483648;\n  return f32(abs(m));', -2147483648],
       ['a reassigned binding', `${H}let k = i32(h + h);\n  k = ii;\n  return f32(abs(k));`, 9],
     ];
     for (const [, body, value] of cases) expect(valuesAt(program(body))).toEqual(same(value));

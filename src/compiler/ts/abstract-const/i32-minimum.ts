@@ -24,12 +24,17 @@ function initializerOf(id: ts.Identifier, reads: MinimumReads): ts.Expression | 
 const MINIMUM = -2147483648;
 const DEPTH = 16;
 
-function bitsOf(e: ts.Expression, reads: MinimumReads, depth: number): number | undefined {
+function bitsOf(
+  e: ts.Expression,
+  reads: MinimumReads,
+  depth: number,
+  converted: boolean,
+): number | undefined {
   const n = skipParenNodes(e);
   if (depth > DEPTH) return undefined;
   if (ts.isIdentifier(n)) {
     const init = initializerOf(n, reads);
-    return init === undefined ? undefined : bitsOf(init, reads, depth + 1);
+    return init === undefined ? undefined : bitsOf(init, reads, depth + 1, converted);
   }
   if (
     ts.isCallExpression(n) &&
@@ -37,8 +42,9 @@ function bitsOf(e: ts.Expression, reads: MinimumReads, depth: number): number | 
     (n.expression.text === 'i32' || n.expression.text === 'u32') &&
     n.arguments.length === 1
   ) {
-    return bitsOf(n.arguments[0]!, reads, depth + 1);
+    return bitsOf(n.arguments[0]!, reads, depth + 1, true);
   }
+  if (!converted) return undefined;
   const xs = reads.readingsFrom(n);
   if (xs.length > 0) {
     const first = xs[0]!;
@@ -55,7 +61,7 @@ export const provesI32Minimum = (arg: ts.Expression, reads: MinimumReads): boole
   const inner =
     ts.isIdentifier(n) ||
     (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'i32')
-      ? bitsOf(n, reads, 0)
+      ? bitsOf(n, reads, 0, false)
       : undefined;
   return inner === MINIMUM;
 };
