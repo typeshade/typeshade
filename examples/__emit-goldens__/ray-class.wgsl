@@ -26,22 +26,16 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs(v: VsOut) -> @location(0) vec4<f32> {
   let _i0a0 = vec3<f32>(0.0, 0.0, 2.0);
   let _i0a1 = (vec3<f32>(v.uv, 0.0) + vec3<f32>(0.0, 0.0, -1.0));
-  let _cse0 = vec3<f32>(0.0, 0.0, 0.0);
-  var _i0_self_: Ray = Ray(_cse0, _cse0);
-  _i0_self_.origin = _i0a0;
-  _i0_self_.dir = normalize(_i0a1);
-  var ray: Ray = _i0_self_;
-  var _i2_self_: Sphere = Sphere(_cse0, 0.0);
-  _i2_self_.radius = 1.0;
-  var sphere: Sphere = _i2_self_;
-  let _i1_oc = (ray.origin - sphere.center);
-  let _i1_b = dot(_i1_oc, ray.dir);
-  let _i1_c = (dot(_i1_oc, _i1_oc) - (sphere.radius * sphere.radius));
+  var _i0_self_: Ray = Ray(_i0a0, normalize(_i0a1));
+  var _i2_self_: Sphere = Sphere(vec3<f32>(0.0, 0.0, 0.0), 1.0);
+  let _i1_oc = (_i0a0 - _i2_self_.center);
+  let _i1_b = dot(_i1_oc, _i0_self_.dir);
+  let _i1_c = (dot(_i1_oc, _i1_oc) - (_i2_self_.radius * _i2_self_.radius));
   let _i1_h = ((_i1_b * _i1_b) - _i1_c);
   let _i1ret = select(((-_i1_b) - sqrt(_i1_h)), -1.0, (_i1_h < 0.0));
   if ((_i1ret < 0.0)) {
     return vec4<f32>(0.05, 0.05, 0.1, 1.0);
   }
-  let n = normalize(((ray.origin + (ray.dir * _i1ret)) - sphere.center));
+  let n = normalize(((_i0a0 + (_i0_self_.dir * _i1ret)) - _i2_self_.center));
   return vec4<f32>(((n * 0.5) + vec3<f32>(0.5)), 1.0);
 }

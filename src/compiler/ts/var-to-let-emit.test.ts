@@ -61,10 +61,12 @@ describe('a struct local that is never rewritten', () => {
     expect(loop).not.toContain('normalize(');
     expect(wgsl).toMatch(/let _licm\d+ = normalize\(/);
     expect(wgsl).not.toMatch(/^\s*camera = /m);
-    expect(wgsl).toMatch(/camera: Camera = /);
+    expect(wgsl).not.toMatch(/var camera: Camera;/);
+    expect(wgsl).toMatch(/let _i0a1 = vec3<f32>\(0\.0, v\.uv\.y, 5\.0\);/);
     const glsl = result.glsl!.fragment;
     expect(glsl.slice(glsl.indexOf('for ('))).not.toContain('normalize(');
     expect(glsl).not.toMatch(/^\s*camera = /m);
+    expect(glsl).not.toMatch(/Camera camera;/);
   });
 
   it('keeps the value of a loop that reads it', () => {

@@ -32,10 +32,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
 @fragment
 fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
   let uv = (fract((frag.xy * 0.01)) - vec2<f32>(0.5));
-  var b: Body = Body(vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 0.0), 0.0);
-  b.at = uv;
-  b.vel = (vec2<f32>((-uv.y), uv.x) * 0.4);
-  b.spin = 2.2;
+  var b: Body = Body(uv, (vec2<f32>((-uv.y), uv.x) * 0.4), 2.2);
   Body_advance(&b, 0.05);
   Body_advance(&b, 0.05);
   Body_advance(&b, 0.05);

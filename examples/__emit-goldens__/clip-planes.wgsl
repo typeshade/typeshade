@@ -25,9 +25,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   let x = ((f32((vi & 1u)) * 4.0) - 1.0);
   let y = ((f32((vi >> 1u)) * 4.0) - 1.0);
   let p = vec4<f32>(x, y, 0.0, 1.0);
-  var o: VsOut = VsOut(vec4<f32>(0.0, 0.0, 0.0, 0.0), array<f32, 4>(0.0, 0.0, 0.0, 0.0), vec2<f32>(0.0, 0.0));
-  o.pos = p;
-  o.uv = vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5));
+  var o: VsOut = VsOut(p, array<f32, 4>(0.0, 0.0, 0.0, 0.0), vec2<f32>(((x * 0.5) + 0.5), ((y * 0.5) + 0.5)));
   o.clip[0] = dot(planes.a, p);
   o.clip[1] = dot(planes.b, p);
   o.clip[2] = dot(planes.c, p);

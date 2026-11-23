@@ -29,9 +29,7 @@ void main() {
   float _ifc1 = mix(a, b, _ifc0);
   b = mix(b, a, _ifc0);
   a = _ifc1;
-  Ray r = Ray(vec2(0.0, 0.0), vec2(0.0, 0.0));
-  r.origin = uv;
-  r.dir = vec2(0.5, -0.25);
+  Ray r = Ray(uv, vec2(0.5, -0.25));
   advance(r, (b - a));
   float[3] w = float[3](a, b, 0.5);
   liftAll(w, 0.25);

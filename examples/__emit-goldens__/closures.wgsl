@@ -31,9 +31,7 @@ fn fs(v: VsOut) -> FsOut {
   var glow: f32 = 0.0;
   fs_rings(&glow, 0.03, p, 0.3, 0.25);
   var col: vec3<f32> = mix(vec3<f32>(0.05, 0.06, 0.1), vec3<f32>(0.95, 0.75, 0.35), clamp(glow, 0.0, 1.0));
-  var brush: Brush = Brush(vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
-  brush.paint = vec3<f32>(0.0);
-  brush.tint = vec3<f32>(0.3, 0.6, 0.95);
+  var brush: Brush = Brush(vec3<f32>(0.0), vec3<f32>(0.3, 0.6, 0.95));
   col += Brush_strokes(&brush, p);
   let spots_0 = vec2<f32>(-0.6, 0.6);
   let spots_1 = vec2<f32>(0.6, 0.6);

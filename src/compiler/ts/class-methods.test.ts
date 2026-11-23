@@ -111,9 +111,9 @@ describe('class members: what each one lowers to', () => {
     });
     expect(g).toContain('vec3 Ray_at(Ray self_, float t) {');
     expect(g).toContain(
-      'Ray Ray_new(vec3 origin, vec3 dir) {\n  vec3 _cse0 = vec3(0.0, 0.0, 0.0);\n  Ray self_ = Ray(_cse0, _cse0, 0u);\n  self_.hits = 0u;\n  self_.origin = origin;\n  self_.dir = normalize(dir);\n  return self_;\n}',
+      'Ray Ray_new(vec3 origin, vec3 dir) {\n  return Ray(origin, normalize(dir), 0u);\n}',
     );
-    expect(g).toContain('P self_ = P(0.0, vec2(0.0, 0.0));');
+    expect(g).toContain('P P_new() {\n  return P(0.0, vec2(0.0, 0.0));\n}');
     expect(r.glsl!.fragment).toContain('Ray r = Ray_new(vec3(uv, 0.0), vec3(0.0, 0.0, 2.0));');
   });
 
@@ -154,7 +154,7 @@ class M { m: mat4; }
         ...r.module,
         funcs: r.module.funcs.filter((f) => stageOf(f) === undefined),
       }),
-    ).toContain('Q self_ = Q(0.0, uvec2(0u, 0u), false, int[2](0, 0));');
+    ).toContain('Q Q_new() {\n  return Q(0.0, uvec2(0u, 0u), false, int[2](0, 0));\n}');
     expect(r.eval('fs', [])).toEqual([3, 0, 0, 1]);
   });
 
@@ -228,7 +228,7 @@ interface Tile { map: f32; find: f32 }
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(r.wgsl).toContain('(r.reverse * 3.0), 9.0)');
+    expect(r.wgsl).toContain('(_i0_self_.reverse * 3.0), 9.0)');
     expect(r.eval('fs', [])).toEqual([2, 3, 6, 9]);
   });
 });

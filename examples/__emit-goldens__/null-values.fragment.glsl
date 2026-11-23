@@ -30,20 +30,18 @@ layout(location = 0) out vec4 color;
 void main() {
   float _i1a0 = uv.x;
   _opt_Sample_ _i1ret = _opt_Sample_(Sample(_opt_f32_(0.0, false)), false);
-  _opt_f32_ _cse1 = _opt_f32_(0.0, false);
-  Sample _cse0 = Sample(_cse1);
+  _opt_f32_ _cse0 = _opt_f32_(0.0, false);
   if ((_i1a0 < 0.333)) {
-    _i1ret = _opt_Sample_(_cse0, false);
+    _i1ret = _opt_Sample_(Sample(_cse0), false);
   } else {
     _opt_f32_ _sel0;
     if ((_i1a0 < 0.666)) {
-      _sel0 = _cse1;
+      _sel0 = _cse0;
     } else {
       _sel0 = _opt_f32_(_i1a0, true);
     }
     _opt_f32_ _i1_a0 = _sel0;
-    Sample _i1_self_ = _cse0;
-    _i1_self_.value = _i1_a0;
+    Sample _i1_self_ = Sample(_i1_a0);
     _i1ret = _opt_Sample_(_i1_self_, true);
   }
   _opt_Sample_ _opt = _i1ret;

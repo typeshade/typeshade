@@ -135,19 +135,11 @@ int _f2i(float x) {
   return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
 }
 PolarResult PolarResult_new(vec3 point, float index) {
-  PolarResult self_ = PolarResult(vec3(0.0, 0.0, 0.0), 0.0);
-  self_.point = point;
-  self_.index = index;
-  return self_;
+  return PolarResult(point, index);
 }
 
 MarchResult MarchResult_new(vec2 hit, float edge, float winEdge, float tEdge) {
-  MarchResult self_ = MarchResult(vec2(0.0, 0.0), 0.0, 0.0, 0.0);
-  self_.hit = hit;
-  self_.edge = edge;
-  self_.winEdge = winEdge;
-  self_.tEdge = tEdge;
-  return self_;
+  return MarchResult(hit, edge, winEdge, tEdge);
 }
 
 float Noise_hash12(vec2 p) {
@@ -406,11 +398,7 @@ vec3 NamekTree_shadowCenter(NamekTree self_) {
 }
 
 NamekTree NamekTree_new(vec2 position, float height, float radius) {
-  NamekTree self_ = NamekTree(vec2(0.0, 0.0), 0.0, 0.0);
-  self_.position = position;
-  self_.height = height;
-  self_.radius = radius;
-  return self_;
+  return NamekTree(position, height, radius);
 }
 
 vec2 NamekTrees_map(NamekTrees self_, vec3 p) {
@@ -1153,27 +1141,15 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  Ship _cse2 = Ship(0.0);
-  NamekTree _cse4 = NamekTree(vec2(0.0, 0.0), 0.0, 0.0);
-  NamekTrees _cse3 = NamekTrees(_cse4, _cse4);
-  ShipDetails _cse0 = ShipDetails(_cse2, _cse3);
-  Lettering _cse1 = Lettering(0.0);
-  NamekScene _i21_self_ = NamekScene(_cse2, _cse3, _cse0, _cse1);
-  Ship _i21_self_1 = _cse2;
-  _i21_self_1.legCount = 4.0;
-  _i21_self_.ship = _i21_self_1;
-  NamekTrees _i21_self_2 = _cse3;
-  _i21_self_2.first = NamekTree_new(vec2(1.86, 0.83), 0.65, 0.15);
-  _i21_self_2.second = NamekTree_new(vec2(-5.9, -4.4), 1.9, 0.38);
-  _i21_self_.trees = _i21_self_2;
+  Ship _i21_self_1 = Ship(4.0);
+  NamekTrees _i21_self_2 = NamekTrees(NamekTree_new(vec2(1.86, 0.83), 0.65, 0.15), NamekTree_new(vec2(-5.9, -4.4), 1.9, 0.38));
+  NamekTree _cse0 = NamekTree(vec2(0.0, 0.0), 0.0, 0.0);
+  NamekScene _i21_self_ = NamekScene(_i21_self_1, _i21_self_2, ShipDetails(Ship(0.0), NamekTrees(_cse0, _cse0)), Lettering(0.0));
   Ship _i21_a0 = _i21_self_.ship;
   NamekTrees _i21_a1 = _i21_self_.trees;
-  ShipDetails _i21_self_3 = _cse0;
-  _i21_self_3.ship = _i21_a0;
-  _i21_self_3.trees = _i21_a1;
+  ShipDetails _i21_self_3 = ShipDetails(_i21_a0, _i21_a1);
   _i21_self_.details = _i21_self_3;
-  Lettering _i21_self_4 = _cse1;
-  _i21_self_4.strokeWidth = SW;
+  Lettering _i21_self_4 = Lettering(SW);
   _i21_self_.lettering = _i21_self_4;
   NamekScene scene = _i21_self_;
   _ret = NamekScene_colorAt(scene, uv);

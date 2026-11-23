@@ -53,12 +53,6 @@ struct PointLight {
   float intensity;
 };
 
-struct Camera {
-  vec3 position;
-  vec3 lookAt;
-  float fov;
-};
-
 struct Scene {
   SDF_SdfSphere redSphere;
   SDF_SdfBox blueBox;
@@ -82,11 +76,7 @@ layout(std140) uniform Frame {
   float frame;
 } u;
 Ray Ray_new(vec3 origin, vec3 direction) {
-  vec3 _cse0 = vec3(0.0, 0.0, 0.0);
-  Ray self_ = Ray(_cse0, _cse0);
-  self_.origin = origin;
-  self_.direction = direction;
-  return self_;
+  return Ray(origin, direction);
 }
 
 float SDF_SdfSphere_distanceTo(SDF_SdfSphere self_, vec3 point) {
@@ -107,10 +97,7 @@ float SDF_SdfTorus_distanceTo(SDF_SdfTorus self_, vec3 point) {
 }
 
 Hit Hit_new(float distance, int objectIndex) {
-  Hit self_ = Hit(0.0, 0);
-  self_.distance = distance;
-  self_.objectIndex = objectIndex;
-  return self_;
+  return Hit(distance, objectIndex);
 }
 
 Hit Scene_raymarch(Scene self_, Ray ray, float maxDistance) {
@@ -317,10 +304,7 @@ vec3 Renderer_trace(Renderer self_, Ray primaryRay, float seed0) {
 }
 
 SdfShape _flow43_fused(vec3 _flow32_input, float _flow33_input, float _flow34_input, vec3 _flow35_input) {
-  vec3 _cse0 = vec3(0.0, 0.0, 0.0);
-  SdfShape _flow41_local = SdfShape(Material(_cse0, 0.0, 0.0, _cse0));
-  _flow41_local.material = Material(_flow32_input, _flow33_input, _flow34_input, _flow35_input);
-  return _flow41_local;
+  return SdfShape(Material(_flow32_input, _flow33_input, _flow34_input, _flow35_input));
 }
 in vec2 ndc;
 layout(location = 0) out vec4 _ret;
@@ -338,59 +322,23 @@ void main() {
   float _lc0 = (_i23a0 * 0.17);
   vec3 _i23_a0 = vec3((sin(_lc0) * 6.2), (2.0 + (sin((_i23a0 * 0.31)) * 0.12)), (cos(_lc0) * 6.2));
   vec3 _i23_a1 = vec3(0.0, 0.6, -1.8);
-  vec3 _cse8 = vec3(0.0, 0.0, 0.0);
-  Camera _i23_self_ = Camera(_cse8, _cse8, 0.0);
-  _i23_self_.position = _i23_a0;
-  _i23_self_.lookAt = _i23_a1;
-  _i23_self_.fov = 1.0;
-  Camera camera = _i23_self_;
-  Material _cse7 = Material(_cse8, 0.0, 0.0, _cse8);
-  SDF_SdfSphere _cse2 = SDF_SdfSphere(_cse7, _cse8, 0.0);
-  SDF_SdfBox _cse3 = SDF_SdfBox(_cse7, _cse8, _cse8);
-  SDF_SdfTorus _cse4 = SDF_SdfTorus(_cse7, _cse8, 0.0, 0.0);
-  SDF_SdfPlane _cse5 = SDF_SdfPlane(_cse7, 0.0);
-  PointLight _cse6 = PointLight(_cse8, _cse8, 0.0);
-  Scene _cse0 = Scene(_cse2, _cse3, _cse4, _cse5, _cse6);
-  Scene _i17_self_ = _cse0;
   vec3 _i17_a0 = vec3(-1.15, 0.2, -1.7);
-  SDF_SdfSphere _i17_self_1 = _cse2;
-  vec3 _cse1 = vec3(0.0);
-  _i17_self_1.material = _flow43_fused(vec3(0.78, 0.12, 0.08), 0.0, 0.4, _cse1).material;
-  _i17_self_1.center = _i17_a0;
-  _i17_self_1.radius = 1.0;
-  _i17_self_.redSphere = _i17_self_1;
+  vec3 _cse0 = vec3(0.0);
+  SDF_SdfSphere _i17_self_1 = SDF_SdfSphere(_flow43_fused(vec3(0.78, 0.12, 0.08), 0.0, 0.4, _cse0).material, _i17_a0, 1.0);
   vec3 _i17_a0_ = vec3(1.05, 0.25, -2.0);
   vec3 _i17_a1 = vec3(0.75, 0.75, 0.75);
-  SDF_SdfBox _i17_self_2 = _cse3;
-  _i17_self_2.material = _flow43_fused(vec3(0.08, 0.3, 0.84), 0.2, 0.3, _cse1).material;
-  _i17_self_2.center = _i17_a0_;
-  _i17_self_2.halfSize = _i17_a1;
-  _i17_self_.blueBox = _i17_self_2;
+  SDF_SdfBox _i17_self_2 = SDF_SdfBox(_flow43_fused(vec3(0.08, 0.3, 0.84), 0.2, 0.3, _cse0).material, _i17_a0_, _i17_a1);
   vec3 _i17_a0_1 = vec3(0.0, 1.35, -2.9);
-  SDF_SdfTorus _i17_self_3 = _cse4;
-  _i17_self_3.material = _flow43_fused(vec3(0.95, 0.65, 0.1), 0.9, 0.12, _cse1).material;
-  _i17_self_3.center = _i17_a0_1;
-  _i17_self_3.majorRadius = 0.72;
-  _i17_self_3.minorRadius = 0.24;
-  _i17_self_.goldTorus = _i17_self_3;
-  SDF_SdfPlane _i17_self_4 = _cse5;
-  _i17_self_4.material = _flow43_fused(vec3(0.68, 0.72, 0.8), 0.0, 0.92, _cse1).material;
-  _i17_self_4.height = -1.0;
-  _i17_self_.ground = _i17_self_4;
+  SDF_SdfTorus _i17_self_3 = SDF_SdfTorus(_flow43_fused(vec3(0.95, 0.65, 0.1), 0.9, 0.12, _cse0).material, _i17_a0_1, 0.72, 0.24);
+  SDF_SdfPlane _i17_self_4 = SDF_SdfPlane(_flow43_fused(vec3(0.68, 0.72, 0.8), 0.0, 0.92, _cse0).material, -1.0);
   vec3 _i17_a0_2 = vec3(-2.5, 4.8, 2.0);
   vec3 _i17_a1_ = vec3(1.0, 0.88, 0.72);
-  PointLight _i17_self_5 = _cse6;
-  _i17_self_5.position = _i17_a0_2;
-  _i17_self_5.color = _i17_a1_;
-  _i17_self_5.intensity = 70.0;
-  _i17_self_.light = _i17_self_5;
-  Scene scene = _i17_self_;
-  Renderer _i20_self_ = Renderer(_cse0);
-  _i20_self_.scene = scene;
-  Renderer renderer = _i20_self_;
-  vec3 color = _cse1;
-  vec3 _licm8 = normalize((camera.lookAt - camera.position));
-  float _licm9 = tan((camera.fov * 0.5));
+  PointLight _i17_self_5 = PointLight(_i17_a0_2, _i17_a1_, 70.0);
+  Scene _i17_self_ = Scene(_i17_self_1, _i17_self_2, _i17_self_3, _i17_self_4, _i17_self_5);
+  Renderer _i20_self_ = Renderer(_i17_self_);
+  vec3 color = _cse0;
+  vec3 _licm8 = normalize((_i23_a1 - _i23_a0));
+  float _licm9 = tan(0.5);
   vec2 _licm10 = (((_licm0 * 0.5) + _licm3) * _licm1);
   float _licm11 = (_licm2 * 0.71);
   float _licm12 = (_licm2 * 1.17);
@@ -406,9 +354,9 @@ void main() {
     vec2 _i24_sampleNdc = (_licm0 + vec2(((_i24_jitter.x * 2.0) / _licm1.x), ((_i24_jitter.y * 2.0) / _licm1.y)));
     float _gv1 = ((_i24_sampleNdc.x * _licm1.x) / _licm1.y);
     vec3 _i24_direction = normalize(((_licm8 + ((_licm13 * _gv1) * _licm9)) + ((_licm17 * _i24_sampleNdc.y) * _licm9)));
-    Ray _i24_ret = Ray_new(camera.position, _i24_direction);
+    Ray _i24_ret = Ray_new(_i23_a0, _i24_direction);
     float _i24_seed = (_licm18 + (_gv0 * 3.7));
-    vec3 _i24ret = Renderer_trace(renderer, _i24_ret, _i24_seed);
+    vec3 _i24ret = Renderer_trace(_i20_self_, _i24_ret, _i24_seed);
     color += _i24ret;
   }
   vec3 _i25a0 = (color / float(SAMPLES_PER_PIXEL));

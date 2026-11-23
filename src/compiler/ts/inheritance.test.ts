@@ -152,7 +152,7 @@ class Derived extends Base {
       expect(r.diagnostics).toEqual([]);
       // The base's constructor builds into a local through a pointer (change 0105).
       expect(r.wgsl).toContain('var _sup: Base;\n  Base_new_into(&_sup, x);');
-      expect(r.wgsl).toContain('(*_dst).x = _sup.x;');
+      expect(r.wgsl).toContain('(*_dst) = Derived(_sup.x, y);');
       agree(r, [10, 2, 0, 1]);
     }),
   );

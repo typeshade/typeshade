@@ -771,8 +771,8 @@ describe('glsl-legalize — assignment target index expressions', () => {
       },
     );
     const g = emitKept(dslModule({ uses: [BoxN], funcs: [helperN, mkN, fsN] }), 'fragment');
-    expect(g).toContain('o.c = helper_mt(v);');
-    expect(g).not.toContain('_dh');
+    expect(g).toMatch(/BoxN o = BoxN\(_dh0\);\n\s+o\.c\.w = \(o\.c\.w \* 2\.0\);/);
+    expect(g).not.toContain('_dh1');
   });
 });
 

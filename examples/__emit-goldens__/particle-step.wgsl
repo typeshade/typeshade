@@ -26,9 +26,7 @@ fn Particle_tick(self_: ptr<storage, Particle, read_write>, dt: f32) {
 
 fn Particle_new() -> Particle {
   let _cse0 = vec2<f32>(0.0, 0.0);
-  var self_: Particle = Particle(_cse0, _cse0, 0u);
-  self_.age = 0u;
-  return self_;
+  return Particle(_cse0, _cse0, 0u);
 }
 
 @compute @workgroup_size(64)

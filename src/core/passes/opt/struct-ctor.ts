@@ -34,7 +34,8 @@
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl, StructDecl } from '../../ir/index.js';
 import { exprHasEffect, fnWrites, type FnWrites } from '../effects.js';
-import { bodyHasRaw } from './expr-utils.js';
+import { bodyHasRaw, collectMutatedRoots } from './expr-utils.js';
+import { inoutRoots } from './var-to-let.js';
 import { mapExpr } from './ir-transform.js';
 
 /** Does any expression in `s` (nested blocks included) mention `name`? */
@@ -122,6 +123,15 @@ function collapseFn(
   // assignments separates a field's expression from the constructor that will hold it,
   // and none of them writes anything an expression here reads (the aggregate is proven
   // read-free below).
+  const prev = body[body.length - 2];
+  const prevInit = prev?.s === 'let' ? prev.expr : prev?.s === 'var' ? prev.init : undefined;
+  if (
+    (prev?.s === 'let' || prev?.s === 'var') &&
+    prev.name === name &&
+    prevInit?.op === 'construct' &&
+    !mentions(body.slice(0, -2), name)
+  )
+    return { ...f, body: [...body.slice(0, -2), { s: 'return', expr: prevInit, span: last.span }] };
   const byField = new Map<string, Expr>();
   let i = body.length - 2;
   for (; i >= 0; i--) {
@@ -157,10 +167,169 @@ function collapseFn(
   };
 }
 
+function exprMentions(e: Expr, name: string): boolean {
+  let found = false;
+  mapExpr(e, (x) => {
+    if ((x.op === 'varref' || x.op === 'param') && x.name === name) found = true;
+    return x;
+  });
+  return found;
+}
+
+const stableOps: ReadonlySet<string> = new Set([
+  'lit',
+  'varref',
+  'param',
+  'constref',
+  'construct',
+  'member',
+]);
+
+function isStable(e: Expr, mutated: ReadonlySet<string>): boolean {
+  let ok = true;
+  mapExpr(e, (x) => {
+    if (!stableOps.has(x.op)) ok = false;
+    if ((x.op === 'varref' || x.op === 'param') && mutated.has(x.name)) ok = false;
+    return x;
+  });
+  return ok;
+}
+
+type KnownCtors = ReadonlyMap<string, readonly Expr[]>;
+
+function knownCtors(f: FuncDecl, m: ModuleDecl, writes: FnWrites): KnownCtors {
+  const mutated = new Set<string>();
+  collectMutatedRoots(f.body, mutated, writes);
+  inoutRoots(f.body, m, mutated);
+  const found = new Map<string, readonly Expr[]>();
+  const seen = new Set<string>();
+  const walk = (list: readonly Stmt[]): void => {
+    for (const s of list) {
+      if (s.s === 'let' || s.s === 'var') {
+        const init = s.s === 'let' ? s.expr : s.init;
+        if (seen.has(s.name)) found.delete(s.name);
+        else if (
+          init?.op === 'construct' &&
+          init.type.kind === 'struct' &&
+          !mutated.has(s.name) &&
+          init.args.every((a) => isStable(a, mutated))
+        )
+          found.set(s.name, init.args);
+        seen.add(s.name);
+      } else if (s.s === 'if') {
+        for (const a of s.arms) walk(a.body);
+        if (s.elseBody) walk(s.elseBody);
+      } else if (s.s === 'for') walk(s.body);
+      else if (s.s === 'switch') {
+        for (const c of s.cases) walk(c.body);
+        if (s.defaultBody) walk(s.defaultBody);
+      }
+    }
+  };
+  walk(f.body);
+  return found;
+}
+
+function foldRun(
+  items: readonly Stmt[],
+  at: number,
+  structs: ReadonlyMap<string, StructDecl>,
+  known: KnownCtors,
+  writes: FnWrites,
+): { end: number; stmts: readonly Stmt[] } | undefined {
+  const d = items[at]!;
+  if (d.s !== 'var' || d.type.kind !== 'struct') return undefined;
+  const decl = structs.get(d.type.name);
+  if (decl === undefined || decl.fields.length === 0) return undefined;
+  const name = d.name;
+  const byField = new Map<string, Expr>();
+  const between: Stmt[] = [];
+  let pending: Stmt[] = [];
+  let end = -1;
+  for (let j = at + 1; j < items.length; j++) {
+    const t = items[j]!;
+    if (t.s === 'assign') {
+      const fld = directField(t.target, name);
+      if (fld === undefined || byField.has(fld) || !decl.fields.some((sf) => sf.name === fld))
+        break;
+      if (exprMentions(t.expr, name) || exprHasEffect(t.expr, writes)) break;
+      byField.set(fld, t.expr);
+      between.push(...pending);
+      pending = [];
+      end = j;
+    } else if (t.s === 'let' || t.s === 'var') {
+      const init = t.s === 'let' ? t.expr : t.init;
+      if (init !== undefined && (exprMentions(init, name) || exprHasEffect(init, writes))) break;
+      pending.push(t);
+    } else break;
+  }
+  if (byField.size === 0) return undefined;
+  let base: readonly Expr[] | undefined;
+  if (d.init === undefined) base = undefined;
+  else if (d.init.op === 'construct') {
+    if (d.init.args.some((a) => exprHasEffect(a, writes))) return undefined;
+    base = d.init.args;
+  } else if (d.init.op === 'varref') base = known.get(d.init.name);
+  if (d.init !== undefined && (base === undefined || base.length !== decl.fields.length))
+    return undefined;
+  const args: Expr[] = [];
+  for (const [k, sf] of decl.fields.entries()) {
+    const arg = byField.get(sf.name) ?? base?.[k];
+    if (arg === undefined) return undefined;
+    args.push(arg);
+  }
+  const init: Expr = { op: 'construct', type: d.type, args };
+  return { end, stmts: [...between, { ...d, init }] };
+}
+
+function foldBody(
+  body: readonly Stmt[],
+  structs: ReadonlyMap<string, StructDecl>,
+  known: KnownCtors,
+  writes: FnWrites,
+): readonly Stmt[] {
+  const nest = (b: readonly Stmt[]): readonly Stmt[] => foldBody(b, structs, known, writes);
+  let items = body.map((s): Stmt => {
+    if (s.s === 'if')
+      return {
+        ...s,
+        arms: s.arms.map((a) => ({ ...a, body: nest(a.body) })),
+        elseBody: s.elseBody && nest(s.elseBody),
+      };
+    if (s.s === 'for') return { ...s, body: nest(s.body) };
+    if (s.s === 'switch')
+      return {
+        ...s,
+        cases: s.cases.map((c) => ({ ...c, body: nest(c.body) })),
+        defaultBody: s.defaultBody && nest(s.defaultBody),
+      };
+    return s;
+  });
+  for (let i = items.length - 1; i >= 0; i--) {
+    const run = foldRun(items, i, structs, known, writes);
+    if (run !== undefined)
+      items = [...items.slice(0, i), ...run.stmts, ...items.slice(run.end + 1)];
+  }
+  return items;
+}
+
+function foldFn(
+  f: FuncDecl,
+  m: ModuleDecl,
+  structs: ReadonlyMap<string, StructDecl>,
+  writes: FnWrites,
+): FuncDecl {
+  if (bodyHasRaw(f.body)) return f;
+  return { ...f, body: foldBody(f.body, structs, knownCtors(f, m, writes), writes) };
+}
+
 /** Collapse every write-once struct local that is only ever assembled and returned. */
 export function structCtor(m: ModuleDecl): ModuleDecl {
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   if (structs.size === 0) return m;
   const writes = fnWrites(m);
-  return { ...m, funcs: m.funcs.map((f) => collapseFn(f, structs, writes)) };
+  return {
+    ...m,
+    funcs: m.funcs.map((f) => foldFn(collapseFn(f, structs, writes), m, structs, writes)),
+  };
 }

@@ -18,8 +18,7 @@ fn Rng_next(self_: ptr<function, Rng>) -> f32 {
 }
 
 fn Rng_new_into(_dst: ptr<function, Rng>, seed: u32) {
-  (*_dst) = Rng(0u);
-  (*_dst).state = seed;
+  (*_dst) = Rng(seed);
   Rng_next(_dst);
 }
 

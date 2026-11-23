@@ -55,10 +55,7 @@ fn Disc_unit_into(_dst: ptr<function, Disc>) {
 }
 
 fn Disc_new_into(_dst: ptr<function, Disc>) {
-  (*_dst) = Disc(0.0, vec2<f32>(0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
-  (*_dst).radius = 0.2;
-  (*_dst).center = vec2<f32>(0.0);
-  (*_dst).tint = vec3<f32>(1.0);
+  (*_dst) = Disc(0.2, vec2<f32>(0.0), vec3<f32>(1.0));
 }
 
 fn Capped_set_size(self_: ptr<function, Capped>, r: f32) {
@@ -81,10 +78,7 @@ fn Capped_tinted(self_: ptr<function, Capped>, c: vec3<f32>) -> Capped {
 }
 
 fn Capped_unit_into(_dst: ptr<function, Capped>) {
-  (*_dst) = Capped(0.0, vec2<f32>(0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0));
-  (*_dst).radius = 0.2;
-  (*_dst).center = vec2<f32>(0.0);
-  (*_dst).tint = vec3<f32>(1.0);
+  (*_dst) = Capped(0.2, vec2<f32>(0.0), vec3<f32>(1.0));
   Capped_set_size(_dst, Capped_SIZE);
 }
 

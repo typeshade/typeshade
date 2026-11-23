@@ -88,9 +88,8 @@ fn fs(v: VsOut) -> Color {
   let _i3_b = dot(_i3a0, _i3a1);
   let _i3_c = (dot(_i3a0, _i3a0) - 0.25);
   let _i3_disc = ((_i3_b * _i3_b) - _i3_c);
-  let _cse3 = vec2<f32>(0.0, 0.0);
-  var _cse2: Hit = Hit(0.0, _cse3);
-  var _cse1: _opt_Hit_ = _opt_Hit_(_cse2, false);
+  let _cse2 = vec2<f32>(0.0, 0.0);
+  var _cse1: _opt_Hit_ = _opt_Hit_(Hit(0.0, _cse2), false);
   if ((_i3_disc < 0.0)) {
     _i3ret = _cse1;
   } else {
@@ -98,14 +97,12 @@ fn fs(v: VsOut) -> Color {
     if ((_i3_t < 0.0)) {
       _i3ret = _cse1;
     } else {
-      var _i3_h: Hit = _cse2;
-      _i3_h.t = _i3_t;
-      _i3_h.normal = normalize((_i3a0 + (_i3a1 * _i3_t)));
+      var _i3_h: Hit = Hit(_i3_t, normalize((_i3a0 + (_i3a1 * _i3_t))));
       _i3ret = _opt_Hit_(_i3_h, true);
     }
   }
   var hit: _opt_Hit_ = _i3ret;
   let _i4ret = select(0.0, hit.value.t, hit.present);
-  let n = select(_cse3, hit.value.normal, hit.present);
+  let n = select(_cse2, hit.value.normal, hit.present);
   return Color(vec4<f32>(r, g, ((_i4ret * 0.5) + (n.x * 0.25)), 1.0));
 }

@@ -67,7 +67,7 @@ function dropDeadInits(body: readonly Stmt[], writes: FnWrites, reads: FnReads):
   return items.filter((_, i) => !dropped.has(i));
 }
 
-function inoutRoots(body: readonly Stmt[], m: ModuleDecl, out: Set<string>): void {
+export function inoutRoots(body: readonly Stmt[], m: ModuleDecl, out: Set<string>): void {
   const params = new Map(m.funcs.map((f) => [f.name, f.params]));
   const walk = (s: Stmt): void =>
     eachStmtExpr(

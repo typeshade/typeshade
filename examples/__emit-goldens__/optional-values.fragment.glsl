@@ -67,9 +67,8 @@ void main() {
   float _i3_b = dot(_i3a0, _i3a1);
   float _i3_c = (dot(_i3a0, _i3a0) - 0.25);
   float _i3_disc = ((_i3_b * _i3_b) - _i3_c);
-  vec2 _cse3 = vec2(0.0, 0.0);
-  Hit _cse2 = Hit(0.0, _cse3);
-  _opt_Hit_ _cse1 = _opt_Hit_(_cse2, false);
+  vec2 _cse2 = vec2(0.0, 0.0);
+  _opt_Hit_ _cse1 = _opt_Hit_(Hit(0.0, _cse2), false);
   if ((_i3_disc < 0.0)) {
     _i3ret = _cse1;
   } else {
@@ -77,14 +76,12 @@ void main() {
     if ((_i3_t < 0.0)) {
       _i3ret = _cse1;
     } else {
-      Hit _i3_h = _cse2;
-      _i3_h.t = _i3_t;
-      _i3_h.normal = normalize((_i3a0 + (_i3a1 * _i3_t)));
+      Hit _i3_h = Hit(_i3_t, normalize((_i3a0 + (_i3a1 * _i3_t))));
       _i3ret = _opt_Hit_(_i3_h, true);
     }
   }
   _opt_Hit_ hit = _i3ret;
   float _i4ret = mix(0.0, hit.value.t, hit.present);
-  vec2 n = mix(_cse3, hit.value.normal, bvec2(hit.present));
+  vec2 n = mix(_cse2, hit.value.normal, bvec2(hit.present));
   color = vec4(r, g, ((_i4ret * 0.5) + (n.x * 0.25)), 1.0);
 }

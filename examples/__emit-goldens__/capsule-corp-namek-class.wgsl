@@ -147,17 +147,11 @@ fn _mod_f32(x: f32, y: f32) -> f32 {
 }
 
 fn PolarResult_new_into(_dst: ptr<function, PolarResult>, point: vec3<f32>, index: f32) {
-  (*_dst) = PolarResult(vec3<f32>(0.0, 0.0, 0.0), 0.0);
-  (*_dst).point = point;
-  (*_dst).index = index;
+  (*_dst) = PolarResult(point, index);
 }
 
 fn MarchResult_new_into(_dst: ptr<function, MarchResult>, hit: vec2<f32>, edge: f32, winEdge: f32, tEdge: f32) {
-  (*_dst) = MarchResult(vec2<f32>(0.0, 0.0), 0.0, 0.0, 0.0);
-  (*_dst).hit = hit;
-  (*_dst).edge = edge;
-  (*_dst).winEdge = winEdge;
-  (*_dst).tEdge = tEdge;
+  (*_dst) = MarchResult(hit, edge, winEdge, tEdge);
 }
 
 fn Noise_hash12(p: vec2<f32>) -> f32 {
@@ -557,11 +551,8 @@ fn NamekTree_shadowCenter_value(self_: NamekTree) -> vec3<f32> {
   return vec3<f32>(self_.position.x, (GROUND + (0.5 * self_.height)), self_.position.y);
 }
 
-fn NamekTree_new_into(_dst: ptr<function, NamekTree>, position: vec2<f32>, height: f32, radius: f32) {
-  (*_dst) = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
-  (*_dst).position = position;
-  (*_dst).height = height;
-  (*_dst).radius = radius;
+fn NamekTree_new(position: vec2<f32>, height: f32, radius: f32) -> NamekTree {
+  return NamekTree(position, height, radius);
 }
 
 fn NamekTrees_map_function(self_: ptr<function, NamekTrees>, p: vec3<f32>) -> vec2<f32> {
@@ -1399,25 +1390,13 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-  var _cse2: Ship = Ship(0.0);
-  var _cse4: NamekTree = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
-  var _cse3: NamekTrees = NamekTrees(_cse4, _cse4);
-  var _cse0: ShipDetails = ShipDetails(_cse2, _cse3);
-  var _cse1: Lettering = Lettering(0.0);
-  var _i21_self_: NamekScene = NamekScene(_cse2, _cse3, _cse0, _cse1);
-  var _i21_self__: Ship = _cse2;
-  _i21_self__.legCount = 4.0;
-  _i21_self_.ship = _i21_self__;
-  var _i21_self___: NamekTrees = _cse3;
-  NamekTree_new_into(&_i21_self___.first, vec2<f32>(1.86, 0.83), 0.65, 0.15);
-  NamekTree_new_into(&_i21_self___.second, vec2<f32>(-5.9, -4.4), 1.9, 0.38);
-  _i21_self_.trees = _i21_self___;
-  var _i21_self____: ShipDetails = _cse0;
-  _i21_self____.ship = _i21_self_.ship;
-  _i21_self____.trees = _i21_self_.trees;
+  var _i21_self__: Ship = Ship(4.0);
+  var _i21_self___: NamekTrees = NamekTrees(NamekTree_new(vec2<f32>(1.86, 0.83), 0.65, 0.15), NamekTree_new(vec2<f32>(-5.9, -4.4), 1.9, 0.38));
+  var _cse0: NamekTree = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
+  var _i21_self_: NamekScene = NamekScene(_i21_self__, _i21_self___, ShipDetails(Ship(0.0), NamekTrees(_cse0, _cse0)), Lettering(0.0));
+  var _i21_self____: ShipDetails = ShipDetails(_i21_self_.ship, _i21_self_.trees);
   _i21_self_.details = _i21_self____;
-  var _i21_self_____: Lettering = _cse1;
-  _i21_self_____.strokeWidth = SW;
+  var _i21_self_____: Lettering = Lettering(SW);
   _i21_self_.lettering = _i21_self_____;
   var scene: NamekScene = _i21_self_;
   return NamekScene_colorAt(&scene, uv);

@@ -35,22 +35,7 @@ fn fs(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
   let p = (frag.xy * 0.004);
   let _i0a0 = vec2<f32>(0.6, 0.6);
   let _i0a3 = vec3<f32>(0.95, 0.4, 0.25);
-  let _cse0 = vec2<f32>(0.0, 0.0);
-  let _cse1 = vec3<f32>(0.0, 0.0, 0.0);
-  var _i0_self_: TintedDisc = TintedDisc(_cse0, 0.0, _cse1, 0.0);
-  _i0_self_.center = _i0a0;
-  _i0_self_.radius = 0.35;
-  _i0_self_.softness = 0.08;
-  _i0_self_.tint = _i0a3;
-  var disc: TintedDisc = _i0_self_;
-  let _i1a0 = vec2<f32>(1.4, 0.0);
   let _i1a3 = vec3<f32>(0.2, 0.55, 0.9);
-  var _i1_self_: TintedBar = TintedBar(_cse0, 0.0, _cse1, 0.0);
-  _i1_self_.center = _i1a0;
-  _i1_self_.halfWidth = 0.25;
-  _i1_self_.softness = 0.05;
-  _i1_self_.tint = _i1a3;
-  var bar: TintedBar = _i1_self_;
-  let rgb = ((disc.tint * smoothstep(0.0, 1.0, (1.0 - smoothstep((disc.radius - disc.softness), disc.radius, length((p - disc.center)))))) + (bar.tint * smoothstep(0.0, 1.0, (1.0 - smoothstep((bar.halfWidth - bar.softness), bar.halfWidth, abs((p.x - bar.center.x)))))));
+  let rgb = ((_i0a3 * smoothstep(0.0, 1.0, (1.0 - smoothstep(0.26999999999999996, 0.35, length((p - _i0a0)))))) + (_i1a3 * smoothstep(0.0, 1.0, (1.0 - smoothstep(0.2, 0.25, abs((p.x - 1.4)))))));
   return vec4<f32>(rgb, 1.0);
 }
