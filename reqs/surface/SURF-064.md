@@ -6,10 +6,10 @@ links:
 - RULE-0308: _TfNe6TlCZMeZ7gPKt8lmIA0qtsrfbJqTK1dBYTiVIQ=
 - RULE-0601: VgpaCDSPQqzOBVdGSzqoaIRuhs_LVkEUPiA57O7iocI=
 - RULE-0820: fB823WxYzqqwE5-UOoLJ8XF7IGK7aeNgqlykJrr9Fk4=
-- RULE-0821: Mh-p9TXuK7hsFvuRFiv9gNQL_tPj_Dnf79VaH0xwGw4=
+- RULE-0821: NOC_wW_ZToXUmtN1Lp-0d-cy6KWulrZjnByexiVBRJs=
 - RULE-0824: i42574syYYjw_7AAph4Dk-BK4-vaavKwl3Mnz6vgxnw=
 - RULE-1107: _2FwXDABvUBRRIUbKZq27pmQM0g06SaaH_oaLfgkHZs=
-- RULE-1108: Bl-QHxOHc9eGhQiwtxy-qDcW0P3PUCjVK5HFdtsgU_E=
+- RULE-1108: 9m7l3IV5enwF5eJpg4nDoJahvEEOKWS2_qTs6gMD2Ng=
 normative: true
 ref: ''
 reviewed: h-NKvrZy54dvamazReN1qJ9vo_DaWlmItb6VVQYtTeY=
