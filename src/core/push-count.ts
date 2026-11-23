@@ -23,6 +23,16 @@ export function startPushesAt(xs: object, n: number): void {
   counts.set(xs, n >>> 0);
 }
 
+const growingLimits = new WeakMap<object, number>();
+
+export function markGrowing(xs: object, limit: number = MOST_PUSHED): void {
+  growingLimits.set(xs, limit);
+}
+
+export function growingLimit(xs: object): number | undefined {
+  return growingLimits.get(xs);
+}
+
 let saturating = false;
 
 export function withSaturatingPushes<T>(run: () => T): T {

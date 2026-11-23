@@ -39,7 +39,7 @@ export function exactCapacity(
 
 export class PastLimit extends RangeError {}
 
-function pastLimit(
+export function pastLimit(
   k: KernelFace,
   made: KernelMade,
   capacity: number | bigint | string,
