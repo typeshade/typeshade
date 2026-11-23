@@ -2355,6 +2355,7 @@ function lowerAssignOpTo(
     if (
       declared !== undefined &&
       !statesType(right) &&
+      !(value.op === 'lit' && !Number.isInteger(value.value) && isIntScalar(target.type)) &&
       (kindlessOrigin(value, (n) => scope.resolveIr(n), sourceFile) !== 'typed' ||
         !provenTyped(right))
     ) {
@@ -2399,8 +2400,7 @@ function lowerAssignOpTo(
   ) {
     value = { op: 'lit', type: target.type, value: value.value };
   } else if (isVec(target.type) || isVec64(target.type) || isF64(target.type)) {
-    // `v *= 2` with an integer vector target types the literal as the element kind; a fraction
-    // stays f32 and is diagnosed below. A vec64 or f64 target makes it an f64 (fp64 pass).
+    // `v *= 2` types the literal as the element kind, a fraction stays f32 (diagnosed below).
     value = retargetLit(value, right, target.type);
   }
   // `n += vi` gives a value its uses decide the type of what it adds (change 0134 item 1).

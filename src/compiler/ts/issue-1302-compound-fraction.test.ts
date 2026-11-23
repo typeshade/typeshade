@@ -2,7 +2,7 @@ import { describe, it } from 'vitest';
 import { bothRefuse, bothTake } from '../../core/testing/both-halves.js';
 
 const program = (body: string): string =>
-  `"use typeshade";\nexport function t(ii: i32, vi: u32): i32 {\n  ${body}\n}\n`;
+  `"use typeshade";\nexport function t(ii: i32, vi: u32, arr: i32[]): i32 {\n  ${body}\n}\n`;
 
 const mismatch = (op: string, kind: string): string =>
   `Type mismatch: cannot ${op} ${kind} and f32 — no implicit int/float conversion. ` +
@@ -17,6 +17,10 @@ describe('a compound assignment of a fraction over an integer variable (issue 13
       ['let a = vi;\n  a *= 0.5;\n  return i32(a);', '*=', 'u32'],
       ['let a = 0;\n  a += 0.5;\n  return a;', '+=', 'i32'],
       ['let a = 0;\n  for (let i = 0; i < 3; i++) {\n    a += 0.5;\n  }\n  return a;', '+=', 'i32'],
+      ['let a = ii;\n  a /= 0.5;\n  return a;', '/=', 'i32'],
+      ['let a: i32 = ii;\n  a /= 0.5;\n  return a;', '/=', 'i32'],
+      ['let a = vi;\n  a /= 0.5;\n  return i32(a);', '/=', 'u32'],
+      ['arr[0] /= 0.5;\n  return arr[0];', '/=', 'i32'],
     ];
     for (const [body, op, kind] of cases) {
       bothRefuse(program(body), 'TS8003', mismatch(op, kind));
