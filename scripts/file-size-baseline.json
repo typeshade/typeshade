@@ -83,7 +83,7 @@
   "src/compiler/ts/return-inference.test.ts": 644,
   "src/compiler/ts/semantic.ts": 857,
   "src/compiler/ts/sequence.ts": 679,
-  "src/compiler/ts/source-file.ts": 1074,
+  "src/compiler/ts/source-file.ts": 1070,
   "src/compiler/ts/span.test.ts": 696,
   "src/compiler/ts/specifier.test.ts": 434,
   "src/compiler/ts/stage-call.test.ts": 596,
