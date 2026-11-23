@@ -1429,7 +1429,7 @@ A quotient of written integers that is no integer (`(5 | 0) / 2`) is read trunca
 where a position states an integer type (`let j: i32 = (5 | 0) / 2` is 2), and exactly by a
 comparison beside a peer that states no type or an `f32` (`(5 | 0) / 2 > 2` is true). A
 comparison beside a typed `i32` or `u32` (`(5 | 0) / 2 > ii`) is refused with a verified edit,
-as is any other position. In an integer position the quotient over operands of one integer type is the integer division of that type, and `i32()` and `u32()` convert it as TypeScript does: `u32((-7|0) / 2)` is 4294967293. Operands of two integer types are still divided through an `f32` (an open deviation, #1403). Only those two convert it across integer types, so `let j: u32 = a / 2` over `i32` operands stays refused with its edit. A divisor that is zero at run time gives TypeScript's 0 there, not WGSL's `x / 0 = x` (the owner's decisions of 2026-11-17, Amendment A8). A tree over a written number only a `u32` holds is that
+as is any other position. In an integer position the quotient over operands of one integer type is the integer division of that type, and `i32()` and `u32()` convert it as TypeScript does: `u32((-7|0) / 2)` is 4294967293. A quotient of an inferred `i32` and an inferred `u32` operand is refused where `u32()` or `i32()` reads it (Amendment A8 of change 0134). A read through a binding or arithmetic names an edit that gives a wrong value (an open deviation, #1467). Only those two convert it across integer types, so `let j: u32 = a / 2` over `i32` operands stays refused with its edit. A divisor that is zero at run time gives TypeScript's 0 there, not WGSL's `x / 0 = x` (the owner's decisions of 2026-11-17, Amendment A8). A tree over a written number only a `u32` holds is that
 `u32`'s bits (`3000000000 | 0` is 3000000000). Beside a typed `u32`, `+ - * & | ^ << ~` read the
 bits, which agree with TypeScript's -1294967296 modulo 2^32. Every operation where the two
 differ (`/`, `%`, a comparison, `max`, `min`, `clamp`, `abs`, `sign`, `f32()`, `>>` by a
@@ -2949,8 +2949,9 @@ quotient (§13), a divisor that is zero at run time gives TypeScript's value ins
 owner's decision of 2026-11-17, Amendment A8 of change 0134). `x % 0` is 0 in both cases. With
 `function gg() { return 5 | 0; }`, `let a = (-7|0); let z = gg() - 5; let j: i32 = a / z;`
 makes `j` 0. The zero test is a generated helper, `_opt_div0_i32_i32_` or `_opt_div0_u32_u32_`.
-It evaluates each operand once and in order, so a divisor that is a call runs once. Operands of
-two integer types are still divided through an `f32` (an open deviation, #1403).
+It evaluates each operand once and in order, so a divisor that is a call runs once. A quotient of
+an inferred `i32` and an inferred `u32` operand is refused where `u32()` or `i32()` reads it, and the
+edit named for a read through a binding or arithmetic is an open deviation (#1467).
 
 **A `clamp` whose constant bounds cross is refused.** WGSL makes `clamp(e, low, high)` with
 `low` above `high` a shader-creation error when both bounds are constant, and GLSL ES 3.00 leaves
