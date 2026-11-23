@@ -38,7 +38,7 @@ describe('shader-dsl examples', () => {
     }
   });
 
-  it('the compute example stays WGSL-only (no GLSL ES compute/SSBO)', () => {
+  it('the compute example has no GLSL text from the fragment emitter', () => {
     const compute = examples.find((e) => e.category === 'compute');
     expect(compute).toBeTruthy();
     expect(compute!.renderable).toBe(false);

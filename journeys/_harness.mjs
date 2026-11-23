@@ -933,7 +933,7 @@ for (const job of jobs) {
   // WebGL2 (change 0054): the run again on a runtime of the WebGL2 tier, held to the same
   // reference. A compute run runs the pass program its manifest carries, and a render run links
   // its vertex and fragment programs. A run that records the console is WebGPU's alone, since
-  // the WebGL2 tier does not record. A scissor and a viewport are the pass's own calls on both
+  // recording it is not supported yet on the WebGL2 tier (Rule 11.9). A scissor and a viewport are the pass's own calls on both
   // tiers (proposal 0064, PR-1), so a scissor run runs here too. A program with none says why.
   let gl = '';
   if (run.console === undefined) {
