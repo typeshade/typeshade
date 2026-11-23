@@ -9125,7 +9125,10 @@ constructor, such an array in a helper or an entry, one made under a
 branch, inside a loop or after a loop or a store, a length that reads another operand,
 `Array.from({ length: n }, f)` with such a length, another `return`, `out.push(v)` on such an
 array, a second name or an argument of a call, and a 2D storage texture beside it. A call inside
-`fuse()` throws a `TypeError` that says so, and WebGL2 runs it on the CPU tier.
+`fuse()` throws a `TypeError` that says so. Each tier runs the call as it runs the function with
+an array parameter of `n` elements in place of `out` (Rule 11.8; proposal 0114, Amendment A1,
+item 8): WebGL2 draws a loop that writes an `f32`, `i32` or `u32` element at `i` into the data
+texture of 2048 columns, and a vector or a struct element runs on the CPU tier there.
 
 Called on a resource (§64), the function returns at once a new `Buffer` on the call's device,
 which the caller owns and disposes (Rule 11.8; proposal 0114, Amendment A1, item 7): a `Buffer`

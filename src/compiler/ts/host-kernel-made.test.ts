@@ -132,12 +132,12 @@ describe('a kernel function that makes the array it returns (change 0114, S5)', 
     bothTake(FORMS);
   });
 
-  it('writes no WebGL2 program and no fusion facts, and names the array in the face', () => {
+  it('writes a WebGL2 program and no fusion facts, and names the array in the face', () => {
     const f = face(MADE);
     const render = f.exports.find((e) => e.name === 'render') as { face: KernelFace };
-    expect(render.face.gl).toBeUndefined();
+    expect(render.face.gl?.loops.length).toBe(1);
     expect(render.face.fuse).toBeUndefined();
-    expect(render.face.noWebgl2).toContain('which the WebGL2 tier does not support yet');
+    expect(render.face.noWebgl2).toBeUndefined();
     expect(render.face.gpu?.loops.length).toBe(1);
     expect((render.face as unknown as { made: unknown }).made).toEqual({
       param: 'out',
