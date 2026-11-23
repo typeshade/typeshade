@@ -2662,10 +2662,18 @@ one type, and a list that does not says which types it found, one sentence on th
   Declare the type: const a: array<f32, 2> = [...].`
 - `[]`: `"const a" takes its type and its length from its list, and an empty list has neither: a
   shader array has at least one element. Write its elements.`
-- A list of integer-written numbers alone, `[1, 2, 3]`, is not supported yet: its uses will
-  decide its element type (change 0114, Amendment A3, stage S2c). `"const a" is a list of
-  integer-written numbers, whose element type its uses will decide; that is not supported yet.
-  Declare the type: const a: array<f32, 3> = [...].`
+- A list of integer-written numbers alone, `[1, 2, 3]`, takes its element type from its uses
+  (change 0114, Amendment A3, stage S2c; Rule 5.1), as a `let` of an integer-written number does
+  (§13), for a `const` and a `let`, in a function body and at module scope. An element read
+  (`a[i] + vi`, `xs[a[i]]`), an argument of a declared `array<T, N>` parameter, an assignment to
+  a typed array, a `return` in a function whose result type is declared and the variable of
+  `for (const x of a)` decide it. Where no use decides, it is `array<f32, 3>`. The hover shows the
+  decided type, `const a: array<u32, 3>` where an index and a `u32` use meet. Uses that need
+  `i32` and `u32` are refused as for a `let`: `Cannot infer "a": its uses require i32 and u32.
+  Write an explicit type annotation on "a" and cast the uses that need another type.` A `/` over
+  an element that its uses make an integer is refused as the `/` over a `let` is: `"a" is a u32
+  where another line reads it, and no operand of "a[0] / 2" has a declared type, so the "/" does
+  not say which division it is. Write "u32(a[0]) / 2" for the integer division.`
 
 A constructor with a constant length gives the size too, with no list: `new Array(16).fill(0.)`,
 `new Float32Array(4)` and `Array.from({ length: 8 }, (_, i) => f32(i))` (§63, change 0114, S2).
@@ -4798,7 +4806,7 @@ neither does a call of it, `h(a)`, `N.h(a)`, `c.m()` or `C.s()`, or a local decl
 holds fields. A `var` is refused once, `TS8013` in a body and `TS8014` at the top level or in a
 namespace. One in a body is lowered as the `let` it would have been: a `var` that declares a
 parameter or an earlier `var` again is that variable, as in JavaScript, and a sentence about the
-declaration quotes it as written, `"var b" needs an array type annotation`, with `let` in its
+declaration quotes it as written, `"var b" without an initializer needs a type annotation`, with `let` in its
 remedy. Wherever it is written, a use of the name says nothing more, as for any refused
 declaration: a read after the block the `var` is written in, and `N.x` for one in a namespace,
 included. An interface or a type alias inside a namespace is refused once, and a type that names
@@ -9162,7 +9170,7 @@ only the operands a length reads (proposal 0114, Amendment A12, form 2). The com
 capacity: for each push, the product of the trip counts of every loop around it, summed over the
 pushes (a push under an `if` inside a loop counts as one). A loop under a top-level `if` counts only
 when the host finds the branch taken. A trip count reads only the operands a length reads (above),
-which an outer counter is not. The host counts the capacity exactly, with no
+which an outer counter is not, except for a loop nested in a top-level loop of a function the call may run twice (below). The host counts the capacity exactly, with no
 wrap, and reserves that many elements. A capacity past 4294967295, or past what one host array of
 the element holds, throws a `RangeError` that names the function, the array and the capacity
 before anything runs, since a length past that limit is not supported yet. The pushes
@@ -9191,13 +9199,21 @@ Not supported yet, each refused with `TS8099` and a sentence that names the loop
 push outside every loop; a push in a `while` or `do … while`, under a `switch`, in a loop under a
 branch inside a loop, or in a loop under a top-level `if` whose condition reads another operand; a
 loop whose trip count is no count from a start to a bound by a constant whole step, or whose start
-or bound reads another operand (the counter of a loop around it, or a range the device holds,
-included); an element a made array may not hold (above); pushes of
+or bound reads another operand (a range the device holds included, and the counter of a loop around it, unless the function qualifies for a count pass, below); an element a made array may not hold (above); pushes of
 a struct that the compiler cannot tell are one object or new ones (one object mixed with new
 ones, or one the body changes); a read or a write of an element before the first loop; and a
 write the compiler cannot prove below the length in a loop that is no `for` at the top level of
-the body, or in a loop whose trip count the call cannot compute. These wait for the heap OD-10
-names. The host value, the tiers and the other refusals are those of the made array above.
+the body, or in a loop whose trip count the call cannot compute. A loop nested in a top-level loop may start or end at the counter of a loop around it, or at an
+element of an array parameter, when the function qualifies for a count pass (proposal 0114,
+Amendment A12, form 2, Route 2): the proof of Rule 8.22 accepts every loop, the only write of the
+function is the push onto this array, every push is a statement, the body reads no element of the
+array, an element of an array parameter is read only at the counter of a loop up to that array's
+length, and only the return follows the loops. The call runs the function once to count the pushes
+(a `u32` that stops at 4294967295), reserves exactly that many elements and runs it again. A count
+of 4294967295 or more throws a `RangeError` before the second run, and a second run that pushes
+another count throws an `Error`. On WebGPU the first run dispatches only the count and scan steps and
+reads the total; on every other tier it is the function's run on the CPU tier. Other forms wait for the
+heap OD-10 names. The host value, the tiers and the other refusals are those of the made array above.
 
 An element of the array reads and writes as in JavaScript (proposal 0114, Amendment A12): a read
 needs an index below the length, a write an index at most the length, and a write at the length

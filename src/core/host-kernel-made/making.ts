@@ -84,21 +84,27 @@ export function madeArray(
   k: KernelFace,
   made: KernelMade,
   args: readonly unknown[],
+  counted?: number,
 ): { readonly array: Made; readonly n: number; readonly v?: CpuValue } {
   const values = lengthsBefore(k, made, args);
   const init = cpu.F['$initPrivates'];
   init?.();
   const n =
-    made.capacity !== undefined
-      ? checkedCapacity(k, made, exactCapacity(cpu, made, values))
-      : Number(cpu.F[made.length!]!(...values));
+    counted !== undefined
+      ? counted
+      : made.capacity !== undefined
+        ? checkedCapacity(k, made, exactCapacity(cpu, made, values))
+        : Number(cpu.F[made.length!]!(...values));
   if (!Number.isInteger(n) || n < 0)
     throw new RangeError(
       `${k.name}(): the array it returns, "${made.shown}", would have length ${String(n)}, ` +
         `and JavaScript throws a RangeError for it: a length is a whole number of 0 or more.`,
     );
   if (made.fill === undefined)
-    return { array: allocatedFor(k, made, n, () => filled(k, made, n, undefined)), n };
+    return {
+      array: allocatedFor(k, made, n, () => filled(k, made, n, undefined), counted !== undefined),
+      n,
+    };
   init?.();
   const v = cpu.F[made.fill]!(...values);
   return { array: filled(k, made, n, v), n, v };

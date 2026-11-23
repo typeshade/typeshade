@@ -7,7 +7,7 @@ import { rangeOf, type ForStmt } from '../../../../core/passes/kernel-lower-ir.j
 import type { TsCompilerDiagnostic } from '../../source-file.js';
 import { TS_CODES } from '../../codes.js';
 import { diagnosticAtSpan, makeDiagnostic } from '../../diagnostic.js';
-import type { GrownLoop, GrownTerm, MadeLowering } from './registry.js';
+import type { DeferredRefusal, GrownLoop, GrownTerm, MadeLowering } from './registry.js';
 import { hostCondition, hostReadable, notKnown, type Readable } from './readable.js';
 
 export function loopText(loop: ts.IterationStatement, sourceFile: ts.SourceFile): string {
@@ -93,6 +93,7 @@ export interface NestEnv {
   readonly sourceFile: ts.SourceFile;
   readonly diagnostics: TsCompilerDiagnostic[];
   readonly writesIn: (loop: ForStmt) => number;
+  readonly defer: (refusal: DeferredRefusal) => void;
 }
 
 export function nestTerms(env: NestEnv, body: readonly Stmt[]): readonly GrownTerm[] | undefined {
@@ -132,8 +133,12 @@ export function nestTerms(env: NestEnv, body: readonly Stmt[]): readonly GrownTe
     }
     const range = rangeOf(st)!;
     if (!hostReadable(range.start, r) || !hostReadable(range.bound, r)) {
-      refuse(notKnown(`${adds}, and its start or bound`), node ?? made.decl);
-      return undefined;
+      const message = notKnown(`${adds}, and its start or bound`);
+      if (loops.length === 0) {
+        refuse(message, node ?? made.decl);
+        return undefined;
+      }
+      env.defer({ message, node: node ?? made.decl });
     }
     const own = place([...loops, factor], at.when);
     own.pushes += loops.length === 0 ? env.writesIn(st) : 0;
