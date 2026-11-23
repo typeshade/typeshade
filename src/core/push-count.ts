@@ -20,3 +20,19 @@ export function pushedLength(xs: object): number {
 export function startPushesAt(xs: object, n: number): void {
   counts.set(xs, n >>> 0);
 }
+
+let saturating = false;
+
+export function withSaturatingPushes<T>(run: () => T): T {
+  const before = saturating;
+  saturating = true;
+  try {
+    return run();
+  } finally {
+    saturating = before;
+  }
+}
+
+export function nextPushCount(n: number): number {
+  return saturating && n === 0xffffffff ? n : (n + 1) >>> 0;
+}

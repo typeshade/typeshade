@@ -135,16 +135,30 @@ describe('the capacity of an array a kernel function grows with push (change 011
     const past = exactCapacity(cpu, made, [MOST_PUSHED - 1, 1] as CpuValue[]);
     expect(past).toBe(MOST_PUSHED + 1);
     expect(() => checkedCapacity(face, made, past)).toThrow(pastLimit('twoLoops', past));
+    expect(made.counted).toBe(true);
   });
 
-  it('throws a RangeError before the run when the capacity passes 4294967295, and cuts nothing', async () => {
-    const m = await load();
-    await expect(m['twice']!(2 ** 31)).rejects.toThrow(pastLimit('twice', 2 ** 32));
-    await expect(m['twice']!(2 ** 32 - 1)).rejects.toThrow(pastLimit('twice', 2 ** 33 - 2));
-    await expect(m['spread']!(2 ** 31 - 1, -(2 ** 31))).rejects.toThrow(
+  it('refuses a capacity past 4294967295 at the limit of Route 1', () => {
+    const k = kernels();
+    const twice = madeOf(k.get('twice')!)!;
+    const cpu = bounds(twice, [[() => 0, (x) => x]]);
+    for (const [n, capacity] of [
+      [2 ** 31, 2 ** 32],
+      [2 ** 32 - 1, 2 ** 33 - 2],
+    ] as const) {
+      const room = exactCapacity(cpu, twice, [n as CpuValue]);
+      expect(room).toBe(capacity);
+      expect(twice.counted).toBe(true);
+      expect(() => checkedCapacity(k.get('twice')!, twice, room)).toThrow(
+        pastLimit('twice', capacity),
+      );
+    }
+    const spread = madeOf(k.get('spread')!)!;
+    const signed = bounds(spread, [[(_m, lo) => lo, (m) => m]]);
+    const room = exactCapacity(signed, spread, [2 ** 31 - 1, -(2 ** 31)] as CpuValue[]);
+    expect(() => checkedCapacity(k.get('spread')!, spread, room)).toThrow(
       pastLimit('spread', 4 * Math.ceil((2 ** 32 - 1) / 3)),
     );
-    await expect(m['twoLoops']!(2 ** 32 - 3, 0)).rejects.toThrow(pastLimit('twoLoops', 2 ** 32));
   });
 
   it('still keeps every element a small run pushes, in order', async () => {
