@@ -747,6 +747,56 @@ which is no for loop at the top level of "f", and that is not supported yet. …
 - Affects: section 2 (S5d items 1 and 5). No front-matter entry, rule number or code changes.
 - Status: `status: accepted` does not change. S5d: done (#1385), with these three forms open.
 
+### A8. The deviations of S5 slice 2, first part, and a struct fill that shares one object (2026-11-23)
+
+- [fact] Why. The first part of S5 slice 2 (pull request #1404) makes a kernel function return an
+  array of vectors or structs. It differs from A1 and A5 in three places, each recorded on #1404
+  as an open deviation. Its review also found that A1 item 2's "`n` copies of `v`" differs from
+  JavaScript when `v` is a struct.
+- [decision, owner, 2026-11-23] The agent recommended an amendment that makes the three
+  deviations part of the approved text, and the owner chose it ("0114 A8 수정안으로 기록").
+- [decision, owner, 2026-11-23] For a struct fill, the agent recommended a "not supported yet"
+  refusal. The owner chose instead "JS처럼 공유 구현": the result shares one object as
+  JavaScript's `fill` does (OD-5).
+
+**1. More fill values.** A5 item 2 refuses a fill value that reads an operand A1 item 4 does not
+list. Amended: the fill value may also be a vector or a struct built of listed operands
+(`vec4f()`, `vec4f(s, 0, 0, 1)`, `{ a: s, c: 3 }`), or a whole vector or struct value parameter.
+A class constructor call stays refused as an unlisted operand ("not supported yet", `TS8099`,
+OD-9).
+
+**2. Elements that stay refused.** A1 item 1 admits any element a kernel's array parameter may
+hold. Amended: a matrix, a `bool`, a key and an `f64` element, and a struct that holds one, stay
+refused with `TS8099` ("not supported yet", OD-9) until a later slice. A field write into an
+element of a struct array made by `fill` stays refused by change 0142, stage 3.
+
+**3. Two messages.** The `TS8099` text for a refused element and for a refused fill operand
+change their wording to name the new forms. No code changes (Rule 12.5).
+
+**4. A struct fill shares one object (OD-5).** A1 item 2 is amended for a struct element:
+`new Array(n).fill(v)` gives `n` references to one object, as JavaScript's `fill` does.
+
+- [proposal] An element that the run writes as a whole (`out[i] = w`) refers to its own object
+  after the write. Every element that the run does not write refers to the one object of `v`.
+- [proposal] So in the host's `Promise<T[]>` the elements that the run did not write are one
+  object: `r[0] === r[1]` when the run wrote neither, and a write to `r[0].a` on the host shows
+  in `r[1]`. The elements that the run wrote are each their own object.
+- [proposal] The compiler finds which elements the run writes. Where it cannot prove that every
+  element is written, the kernel records a written mark for each element, and the host builds the
+  shared object once. A vector element is a value (OD-5), so a vector fill has no sharing.
+- [proposal] A push of a struct (S5d) follows the same rule: two pushes of one object, such as a
+  `const` struct declared before the loop, give two references to one object on the host. Where
+  the compiler cannot decide whether two pushes push one object, the push is refused as "not
+  supported yet" (`TS8099`, OD-9) until it can.
+- Cost: one mark for each element where the compiler cannot prove every element written, and a
+  pass on the host over the marks.
+
+- Affects: section 2 (S5 items 1, 2 and 10; S5d item 1). No front-matter entry, rule number or
+  code changes. The text of Rules 8.21 and 8.23 follows in the implementing pull request.
+- Status: `status: accepted` does not change. S5 slice 2: the first part is in progress (#1404),
+  with item 4 of this amendment to be implemented there before it merges; a call on a resource,
+  the WebGL2 tier and the WebAssembly tier are not started.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`
