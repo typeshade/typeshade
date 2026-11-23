@@ -53,22 +53,23 @@ After this change, each passage does one of two things.
 
 The passages, by section:
 
-| Section | Passage                                                                     | Disposition                                                                                                                                                                                                  |
-| ------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| §14     | A whole struct element of a storage array is not copied                     | A gap: "does not copy ... yet".                                                                                                                                                                              |
-| §23     | "GLSL ES 3.00 has no storage buffers and no atomics"                        | Reworded: the GLSL writer has no form of an atomic. A `@compute` entry runs on the tier as its pass program in the phased order (change 0054, Rule 11.8).                                                    |
-| §48     | "all three WebGPU-only"                                                     | Reworded: the GLSL writer fails closed; the tier runs the entry as a pass program, where compare-exchange is a phased atomic and `workgroupUniformLoad` a phase boundary. `textureBarrier` is left unstated. |
-| §65     | "WebGL2 has no compute stage"; a reduction, a scatter or a write not at `i` | Reworded: Rule 11.8 states what the tier takes. The rest "is not supported yet on the WebGL2 tier" and goes on to the CPU tier.                                                                              |
-| §67     | "WebGL2 has no compute stage"; "WebGL2 has no storage buffer" in a draw     | The first is dropped. The second is a gap: "does not support a storage binding in a draw yet (OD-11)".                                                                                                       |
-| §71     | The reduction reason: "which WebGL2 has no workgroup memory for"            | Reworded to the text of pull request #1437 (below).                                                                                                                                                          |
-| §72     | Histogram: "WebGL2 has no atomics"                                          | A gap: the tier does not support a kernel function's atomic add yet (Rule 11.8).                                                                                                                             |
-| §74     | "WebGL2 has no atomics, and runs no such function"                          | A gap: the tier does not support such a function yet (change 0080, Rule 11.8).                                                                                                                               |
+| Section | Passage                                                                     | Disposition                                                                                                                                                                                                                              |
+| ------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §14     | A whole struct element of a storage array is not copied                     | Reworded neutrally: "this version does not copy ..." on the WebGL2 tier. No rule states it (open question 1).                                                                                                                            |
+| §23     | "GLSL ES 3.00 has no storage buffers and no atomics"                        | Reworded: the GLSL writer has no form of an atomic. A `@compute` entry that reaches no texture runs on the tier as its pass program in the phased order (change 0054, Rule 11.8).                                                        |
+| §48     | "all three WebGPU-only"                                                     | Reworded: the GLSL writer fails closed; the tier runs a `@compute` entry that reaches no texture as the pass program of change 0054 (Rule 11.8). The rules do not say which of the three builtins gets a form, so the text does not say. |
+| §65     | "WebGL2 has no compute stage"; a reduction, a scatter or a write not at `i` | Reworded: Rule 11.8 states what the tier takes. The rest "is not supported yet on the WebGL2 tier" and goes on to the CPU tier.                                                                                                          |
+| §67     | "WebGL2 has no compute stage"; "WebGL2 has no storage buffer" in a draw     | The first is dropped. The second is a gap: "does not support a storage binding in a draw yet (OD-11)".                                                                                                                                   |
+| §71     | The reduction reason: "which WebGL2 has no workgroup memory for"            | Reworded to the text of pull request #1437 (below).                                                                                                                                                                                      |
+| §72     | Histogram: "WebGL2 has no atomics"                                          | A gap: the tier does not support a kernel function's atomic add yet (Rule 11.8).                                                                                                                                                         |
+| §74     | "WebGL2 has no atomics, and runs no such function"                          | A gap: the tier does not support such a function yet (change 0080, Rule 11.8).                                                                                                                                                           |
 
 **Dependency on pull request #1437.** Pull request #1437 (open, not merged) changes two runtime
 texts in `src/`. The kernel reduction reason becomes `which the WebGL2 tier does not support yet
 (Rule 11.8)`. The draw refusal becomes `the WebGL2 tier does not support a storage binding in a
 draw yet`. §71 quotes the first text, and §67 states the second in prose. The implementing pull
 request for this proposal merges after #1437, or it quotes the text that `main` then holds.
+This is a dependency, not a question: merge #1437 first.
 
 Before (§74):
 
@@ -90,9 +91,10 @@ The alternative is to leave the text and rely on OD-11 alone. That keeps a false
 normative-adjacent document. This proposal rejects it.
 
 Assumption: where a passage keeps a gap, Rule 11.8 or the cited change states it. A gap that no
-rule states is worded as "not supported yet", with no claim that the tier cannot do it. §14 and
-the `textureBarrier` form in §48 are not stated by a rule that this author found. Both are open
-questions (below).
+rule states is worded as "not supported yet", with no claim that the tier cannot do it. §14 is
+not stated by a rule that this author found, so it says only what this version does. The forms
+of the three builtins in §48 are not stated either, so §48 does not say. Both are the open
+question (below).
 
 ## Owner's decisions
 
@@ -114,6 +116,10 @@ It corrects the text of existing sections.
 - Surface §14, §23, §48, §65, §67, §71, §72, §74: the passages in the table above. The
   declaration is exactly the set that `scripts/changes.ts` finds in the diff.
 - Rules, exports, codes, examples and names: none. The cited rules are read, not changed.
+- Requirement items. The surface patch edits `reqs/surface/SURF-023.md` and
+  `reqs/surface/SURF-074.md`, and adds the new item SURF-048 in the same directory. Each carries a link to
+  RULE-1108 (Rule 11.8). The implementing pull request needs `doorstop review SURF-048` by a
+  person who read the item.
 - Evidence the implementing pull request needs: `bun scripts/changes.ts`, `bun run docs:refs`,
   `bun run docs:impact`, `bun run reqs:sync`, and the review of the SURF items it flags.
 
@@ -121,20 +127,32 @@ It corrects the text of existing sections.
 
 Known: one file changes, with about 40 lines. No code changes. Unknown: the number of site and
 editor passages that repeat the old claims; the downstream search sets it. A person must review
-each changed SURF item in `reqs/` (`reqs/README.md`). Decision needed before acceptance: the two
-open questions below.
+each changed SURF item in `reqs/` (`reqs/README.md`). Decision needed before acceptance: the
+open question below.
 
-**Open questions for the owner.**
+**Open question for the owner.**
 
-1. §14 and §48 `textureBarrier`. Does the tier copy a whole struct element from a storage array,
-   and does the pass program run `textureBarrier`? Recommendation: keep the text as written
-   until a test answers, and record the answer as a rule.
-2. §71 quotes the new reduction reason of #1437. Recommendation: merge #1437 first.
+1. §14 and §48. Does the tier copy a whole struct element from a storage array, and which of
+   `atomicCompareExchangeWeak`, `workgroupUniformLoad` and `textureBarrier` does the pass
+   program give a form? Recommendation: keep the text as written until a test answers, and
+   record the answer as a rule.
 
 ### Independent review record
 
-Not yet reviewed. This record does not yet apply. A reviewer other than the author records the
-reviewer, date, revision and findings here before the owner decides.
+- Reviewer: an AI agent that did not write the proposal.
+- Date: 2026-11-23.
+- Revision reviewed: `a20bb040`.
+- Findings: 0 blocking, 2 should-fix, 3 nits.
+- Verdict: approve after fixes. The fixes are in the revision after `a20bb040`.
+
+| Finding | Class      | Answer                                                                                                                                                                     |
+| ------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1       | should fix | §48 text and table row no longer call compare-exchange an atomic or `workgroupUniformLoad` a phase boundary. They say that the rules do not say which builtin gets a form. |
+| 2       | should fix | §23 and §48 now say a `@compute` entry "that reaches no texture" (Rule 11.8).                                                                                              |
+| 3       | nit        | §23 wording smoothed. The §14 and §67 replacement lines are broken.                                                                                                        |
+| 4       | nit        | The §14 hedge now reads "this version does not copy ..." and is an open question.                                                                                          |
+| 5       | nit        | The surface patch edits and adds SURF items. "What it touches" names them and the `doorstop review` of SURF-048.                                                           |
+| 6       | note       | Open question 2 is a dependency on #1437. It moved to the dependency paragraph.                                                                                            |
 
 ### Approval and plan record
 
