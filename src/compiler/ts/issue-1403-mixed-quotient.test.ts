@@ -24,23 +24,29 @@ const refusal = (quotient: string, subject: string, edit: string, kind: string):
   `"${subject}" is an integer by its bit operator, and no operand of "${quotient}" has a ` +
   `declared type, so the "/" does not say which division it is. Write "${edit}" for the ${kind} division.`;
 
+const noEdit = (quotient: string, subject: string): string =>
+  `"${subject}" is an integer by its bit operator, and no operand of "${quotient}" has a ` +
+  `declared type, so the "/" does not say which division it is. ` +
+  `Declare the type of the division's operands to choose it.`;
+
 describe('a quotient of an inferred i32 and an inferred u32 operand is refused (issue 1403)', () => {
-  it("refuses the issue's program in both halves, and its edit gives TypeScript's value", () => {
-    const sentence = refusal('a / b', 'a', 'i32(a) / i32(b)', 'integer');
+  it("refuses the issue's program in both halves, and names no edit for u32()", () => {
+    const sentence = noEdit('a / b', 'a');
     bothRefuse(program('f32', 'return f32(u32(a / b));'), 'TS8003', sentence);
     bothRefuse(program('u32', 'return u32(a / b);'), 'TS8003', sentence);
-    const edited = program('u32', 'return u32(i32(a) / i32(b));');
-    expect(valuesAt(edited, [-9, 3, 1.5])).toEqual(at(toUint32(-7 / 3)));
-    expect(valuesAt(edited, [-9, 7, 1.5])).toEqual(at(toUint32(-7 / 7)));
   });
 
-  it('refuses the operands swapped, with the edit that gives TypeScript value', () => {
-    const sentence = refusal('b / a', 'b', 'i32(b) / i32(a)', 'integer');
+  it('refuses the operands swapped, and names no edit for u32()', () => {
+    const sentence = noEdit('b / a', 'b');
     bothRefuse(program('f32', 'return f32(u32(b / a));'), 'TS8003', sentence);
     bothRefuse(program('u32', 'return u32(b / a);'), 'TS8003', sentence);
-    const edited = program('u32', 'return u32(i32(b) / i32(a));');
-    expect(valuesAt(edited, [-9, 30, 1.5])).toEqual(at(toUint32(30 / -7)));
-    expect(valuesAt(edited, [-9, 3, 1.5])).toEqual(at(toUint32(3 / -7)));
+  });
+
+  it('does not name the i32 edit, which is wrong for a u32 operand past 2^31', () => {
+    const edited = program('u32', 'return u32(i32(a) / i32(b));');
+    expect(valuesAt(edited, [-9, 3, 1.5])).toEqual(at(toUint32(-7 / 3)));
+    expect(valuesAt(edited, [-9, 4294967295, 1.5])).not.toEqual(at(toUint32(-7 / 4294967295)));
+    expect(noEdit('a / b', 'a')).not.toContain('i32(a) / i32(b)');
   });
 
   it('refuses i32() of the quotient with the float edit, which gives TypeScript value', () => {
@@ -55,6 +61,11 @@ describe('a quotient of an inferred i32 and an inferred u32 operand is refused (
     expect(valuesAt(program('i32', 'return i32(f32(b) / f32(a));'), [-9, 30, 1.5])).toEqual(
       at(Math.trunc(30 / -7)),
     );
+    for (const vi of [3, 2147483648, 4294967295]) {
+      expect(valuesAt(program('i32', 'return i32(f32(a) / f32(b));'), [-9, vi, 1.5])).toEqual(
+        at(Math.trunc(-7 / vi)),
+      );
+    }
   });
 
   it('still takes a quotient whose operands share one integer type', () => {

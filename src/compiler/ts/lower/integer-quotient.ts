@@ -166,6 +166,6 @@ export function convertedQuotientArg(
   let inner = node;
   while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
   if (!isIntegerQuotient(converted)) noteWrittenDivisionRead(inner, sourceFile, 'read');
-  else if (name === 'u32') noteWrittenDivisionRead(inner, sourceFile, 'i32');
+  else if (name === 'u32') noteWrittenDivisionRead(inner, sourceFile, 'none');
   return converted;
 }
