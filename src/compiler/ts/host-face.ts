@@ -1079,11 +1079,11 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     ? { noWebgl2: 'it takes a texture, which the WebGL2 tier does not bind yet (change 0077)' }
     : collected !== undefined
       ? {
-          noWebgl2: `it takes the Map or Set "${collected.name}", which the WebGL2 tier does not run (change 0080)`,
+          noWebgl2: `it takes the Map or Set "${collected.name}", which is not supported yet on the WebGL2 tier (Rule 11.8, change 0080)`,
         }
       : pushing >= 0
         ? {
-            noWebgl2: `loop ${pushing + 1} pushes onto an array, which the WebGL2 tier does not run (change 0078)`,
+            noWebgl2: `loop ${pushing + 1} pushes onto an array, which is not supported yet on the WebGL2 tier (Rule 11.8, change 0078)`,
           }
         : kernelGl(f, m, proof!, params);
   // Facts retain the full layout. Only an ordinary non-resident call selects this private face.

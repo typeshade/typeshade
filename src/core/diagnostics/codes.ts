@@ -196,7 +196,7 @@ export const CODES = {
   SD0111: {
     code: 'SD0111',
     summary: 'portable kernel outside the gather-only tier',
-    hint: 'the portable tier is out[gid.x] = f(reads): a 1-D gid and workgroup, one u32 storage output written once at the invocation index, a vec4<u32> dispatch uniform, no raw statements — restructure or drop `portable` to keep the kernel WebGPU-only',
+    hint: 'the portable tier is out[gid.x] = f(reads): a 1-D gid and workgroup, one u32 storage output written once at the invocation index, a vec4<u32> dispatch uniform, no raw statements — restructure the kernel, or drop `portable` so that it runs on WebGL2 as the pass program (Rule 8.24)',
   },
 
   // The optimizer's per-function maps are keyed on a binding's NAME alone, so a duplicate

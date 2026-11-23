@@ -1775,7 +1775,7 @@ function lowerBitBuiltinCall(
         // written for and FALSE of the packed 4x8 family (#152), which GLSL ES 3.00 has no
         // form of at all — so the sentence names the target that actually has the overload.
         (PACKED_4X8_IDS.has(id)
-          ? `overload, and GLSL ES 3.00 has no form of it at all.`
+          ? `overload, and TypeShade emits no GLSL ES 3.00 form of it yet.`
           : `overload, and GLSL ES 3.00 the same.`),
       TS_CODES.TYPE_MISMATCH,
     );

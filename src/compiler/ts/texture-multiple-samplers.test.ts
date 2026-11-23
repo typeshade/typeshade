@@ -30,7 +30,7 @@ const fragment = (body: string, declarations = '') => `${PREFIX}${declarations}
 @fragment export function fs(): vec4 { ${body} }
 `;
 const WHY =
-  'glsl-es300: it samples "photo" with "nearest" and "linear", and GLSL ES 3.00 fuses a texture with one sampler. ' +
+  'glsl-es300: it samples "photo" with "nearest" and "linear", and a texture with more than one sampler is not supported yet on the WebGL2 tier. ' +
   'Declare the texture twice, one binding per sampler.';
 
 function checked(source: string) {

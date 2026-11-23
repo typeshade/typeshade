@@ -4,7 +4,7 @@ derived: false
 level: 75
 links:
 - RULE-0401: nBREyZ8OMiZOapVAwVoV3KZvTGWXeAjHPhZPgZ0B9H8=
-- RULE-0821: NOC_wW_ZToXUmtN1Lp-0d-cy6KWulrZjnByexiVBRJs=
+- RULE-0821: C7lJ8bozXx3MHqMI_thAthocHzFaF-0wemYSRoqHFTI=
 normative: true
 ref: ''
 reviewed: LSGaG6nWaoEney_88LOePuJ4yywFr8wzO8IHcIOC-u8=

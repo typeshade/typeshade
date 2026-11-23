@@ -376,7 +376,7 @@ true is a set of steps with tools, each an industry practice, not a memory:
 - **The repositories that vendor the compiler are held too.** The site, the editor
   extension, Radiance, TypeNN, TypeCV and TypeAudio (`DOWNSTREAM_REPOS` in `scripts/changes.ts`) run
   `scripts/downstream-impact.ts` from the pinned compiler on every compiler-pin
-  pull request. It fails while a downstream file still names an export or file the pin removes,
+  pull request. It fails while a downstream file still uses an export as code, or names a file the pin removes,
   and while a proposal the pin implements names that repository in `downstream` and the
   repository's `compiler-changes.md` does not record its id. <!-- doc-refs: skip — a file in each downstream repository -->
   It also fails when a compiler `LINT.ThenChange(//typeshade.github.io/…)` or

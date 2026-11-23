@@ -194,7 +194,30 @@ describe('a kernel function that makes the array it returns (change 0114, S5)', 
     const counted = face(FORMS).exports.find((e) => e.name === 'counted') as {
       face: KernelFace;
     };
-    expect(counted.face.gpu?.wgsl).not.toContain('arrayLength(&out)');
+    const wgsl = String(counted.face.gpu?.wgsl);
+    expect(wgsl).toContain('xs[i] = (counted_args.out_length + i);');
+    expect(wgsl).not.toContain('arrayLength(&out)');
+  });
+
+  it('keeps arrayLength(&out) only in the store guard when the body stores after the loop', () => {
+    const source = `"use typeshade";
+export function counted(n: u32, xs: u32[]): f32[] {
+  const out = new Float32Array(n);
+  for (let i: u32 = 0; i < xs.length; i++) {
+    xs[i] = out.length + i;
+  }
+  out[0] = 2.;
+  return out;
+}
+`;
+    bothTake(source);
+    const counted = face(source).exports.find((e) => e.name === 'counted') as {
+      face: KernelFace;
+    };
+    const wgsl = String(counted.face.gpu?.wgsl);
+    expect(wgsl.split('arrayLength(&out)')).toHaveLength(2);
+    expect(wgsl).toMatch(/if \(\(0u < arrayLength\(&out\)\)\) \{\n\s*out\[0\] = 2\.0;\n\s*\}/);
+    expect(wgsl).toContain('xs[i] = (counted_args.out_length + i);');
   });
 
   it('throws a RangeError for a negative or fractional length, before anything runs', async () => {

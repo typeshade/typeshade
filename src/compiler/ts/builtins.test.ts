@@ -6,8 +6,8 @@
 // Verifies: Rule 7.7, Rule 9.5 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
-import { compileTsSource } from './source-file.js';
-import { compile } from './compile.js';
+import { bothTake } from '../../core/testing/both-halves.js';
+import { compile, compileTsSource } from './builtins-halves.js';
 import { typeKey } from '../../core/ir/types.js';
 import type { Expr } from '../../core/ir/nodes.js';
 
@@ -452,7 +452,7 @@ describe('discard', () => {
   });
 
   it('is allowed in a helper, whose callers are not known here', () => {
-    const r = compileTsSource(`
+    bothTake(`
       "use typeshade";
       export function cut(a: f32): f32 {
         if (a < 0.) {
@@ -461,7 +461,6 @@ describe('discard', () => {
         return a;
       }
     `);
-    expect(r.diagnostics).toEqual([]);
   });
 
   it('is rejected in a vertex or compute entry', () => {

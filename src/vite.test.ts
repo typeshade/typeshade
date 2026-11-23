@@ -15,6 +15,7 @@ import { hostFace } from './compiler/ts/host-face.js';
 import { compile } from './compiler/ts/compile.js';
 import { compileModule } from './core/oracle.js';
 import { runCli, type CliHost } from './cli/run.js';
+import { bothRefuse } from './core/testing/both-halves.js';
 
 const dirs: string[] = [];
 afterAll(() => {
@@ -52,7 +53,10 @@ export function scale(out: array<f32>, xs: array<f32>): void {
   for (let i: u32 = 0; i < out.length; i++) { out[i] = act(xs[i]); }
 }
 `;
-
+const bundleCode = (out: unknown): string =>
+  ((Array.isArray(out) ? out[0] : out) as { output: readonly { code?: string }[] }).output
+    .map((chunk) => chunk.code ?? '')
+    .join('\n');
 const fusionOrigins = (code: string): string[] =>
   [...code.matchAll(/"fuse":\{"origin":("(?:\\.|[^"\\])*")/g)].map(
     (match) => JSON.parse(match[1]!) as string,
@@ -162,10 +166,7 @@ describe('opt-in portable fusion origins (0122)', () => {
         },
       });
       expect(origins).toEqual(['["@acme/effects","src/ops.shade.ts"]']);
-      const chunks = (Array.isArray(out) ? out[0]! : out) as unknown as {
-        output: readonly { code?: string }[];
-      };
-      const code = chunks.output.map((chunk) => chunk.code ?? '').join('\n');
+      const code = bundleCode(out);
       expect(code).toContain('@acme/effects');
       expect(code).not.toContain(root.replace(/\\/g, '/'));
       expect(existsSync(join(root, 'src/ops.shade.typeshade.ts'))).toBe(true);
@@ -227,10 +228,7 @@ describe('a host file imports a .shade.ts through the plugin', () => {
         lib: { entry: join(dir, 'main.ts'), formats: ['es'], fileName: 'main' },
       },
     });
-    const chunks = (Array.isArray(out) ? out[0]! : out) as unknown as {
-      output: readonly { code?: string }[];
-    };
-    const code = chunks.output.map((o) => o.code ?? '').join('\n');
+    const code = bundleCode(out);
     expect(code).toContain('@fragment');
     expect(code).not.toContain('createCodegenRuntime');
     expect(code).not.toContain('callDraw');
@@ -300,7 +298,9 @@ describe('a .shade.ts that imports another, through the plugin (Rule 3.9)', () =
     async (originNamespace) => {
       const dir = tempDir();
       const lib = join(dir, 'lib.shade.ts');
-      writeFileSync(lib, LIB.replace('x * t.gain', 'x * t.gian'));
+      const badLib = LIB.replace('x * t.gain', 'x * t.gian');
+      bothRefuse(badLib, 'TS8022', 'Unknown field "gian" on Tint. Did you mean "gain"?');
+      writeFileSync(lib, badLib);
       const plugin = typeshade(originNamespace === undefined ? {} : { originNamespace });
       plugin.configResolved({ command: 'build', root: dir });
       await expect(plugin.transform(APP, join(dir, 'app.shade.ts'))).rejects.toThrow(
@@ -543,7 +543,7 @@ declare const smp: sampler;
     const dir = tempDir();
     const file = join(dir, 'bad.shade.ts');
     const bad = `"use typeshade";\nexport function f(x: f32): f32 {\n  return y;\n}\n`;
-    const expected = compile(bad, { fileName: file }).diagnostics.find(
+    const expected = bothRefuse(bad, 'TS8022', 'Unknown identifier "y".').result.diagnostics.find(
       (d) => d.category === 'error',
     )!;
     await expect(typeshade().transform(bad, file)).rejects.toThrow(

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "works",
+    "title": "Works",
+    "order": 1,
+    "rule": "A renderable example that is not fp64 and not one-feature: a visual piece."
+  },
+  {
+    "id": "precision",
+    "title": "High precision",
+    "order": 2,
+    "rule": "The id starts with fp64-."
+  },
+  {
+    "id": "feature",
+    "title": "Feature examples",
+    "order": 3,
+    "rule": "An example that shows one construct and is not a finished picture."
+  },
+  {
+    "id": "inspired",
+    "title": "Inspired",
+    "order": 4,
+    "rule": "The example names its source as inspiration (change 0145, amendment A1, The writing rule)."
+  },
+  {
+    "id": "path",
+    "title": "Learning path",
+    "order": 5,
+    "rule": "A step of the learning path in examples/path/. The reading order is path/_order.ts."
+  }
+]

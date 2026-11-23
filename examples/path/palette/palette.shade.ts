@@ -1,14 +1,5 @@
 "use typeshade";
 
-/* @example
-{
-  "title": "Palette",
-  "blurb": "Step 7 of the learning path. A module constant holds four colours in an array. The coordinate picks two neighbours of the array by index, and `mix` blends them, so the picture is one smooth ramp through the palette.",
-  "renderable": false,
-  "reason": "no entry point"
-}
-*/
-
 // Step 7. A module constant holds an array of colours, and an index picks an element of it.
 interface Frame {
   size: vec2;

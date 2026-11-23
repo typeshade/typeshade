@@ -300,8 +300,8 @@ export interface Backend {
   /** Optional. A module-scope variable that is not a resource ({@link ModuleVarDecl}). The
    *  WGSL writer spells `var<workgroup> x: T;` and `var<private> y: T = init;`; the GLSL
    *  writer spells a private variable as a plain global, which GLSL ES 3.00 gives every
-   *  invocation its own copy of, and fails closed on a workgroup one, since WebGL2 has no
-   *  workgroup memory. A GLSL global with no initializer is undefined, so that writer spells
+   *  invocation its own copy of, and fails closed on a workgroup one, which the GLSL text has
+   *  no spelling for yet (the pass program holds it, Rule 10.5). A GLSL global with no initializer is undefined, so that writer spells
    *  the zero of one the IR gives none; the zero of a struct lists its fields, which
    *  `emitGlslModule` has and this method alone does not, so here it fails closed. A backend
    *  that omits this cannot emit a module that declares one. */

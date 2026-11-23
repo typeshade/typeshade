@@ -91,7 +91,7 @@ export async function entryOverrides(): Promise<number[]> {
     try {
       await overrideCopy({ src, dst }, 3, { constants: { WIDTH: 64 } });
     } catch (err) {
-      refused = String(err).includes('WebGL2 supports only the declared default');
+      refused = String(err).includes('is not supported yet on the WebGL2 tier');
     }
     if (!refused) throw new Error('WebGL2 did not refuse a non-default entry-call shape');
   } finally {

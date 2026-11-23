@@ -9,7 +9,7 @@ import type { GeneratedCpu } from './host-entry.js';
 import { fromShaderIn } from './host-values.js';
 import { isMadeParam, madeOf, type KernelMade } from './kernel-made-face.js';
 import { filled, madeArray, NO_CLASSES, renamed, type Made } from './host-kernel-made/making.js';
-import { callMadeOnResource } from './host-kernel-made/on-resource.js';
+import { callMadeOnResource, writesPlainArray } from './host-kernel-made/on-resource.js';
 import { countedCapacity, saturating } from './host-kernel-made/counted.js';
 import { PastLimit } from './host-kernel-made/capacity.js';
 
@@ -126,7 +126,7 @@ export function callMadeKernel(
       `${k.name}(): returns the array it makes, "${made.shown}", and a call inside fuse() ` +
         `that makes its result is not supported yet. Call ${k.name}() outside fuse().`,
     );
-  if (argc === taken.length && onResource(taken, args))
+  if (argc === taken.length && onResource(taken, args) && !writesPlainArray(taken, args))
     return callMadeOnResource(cpu, k, made, args, reads);
   try {
     if (argc !== taken.length)
