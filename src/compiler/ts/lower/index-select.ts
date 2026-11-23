@@ -1,4 +1,5 @@
-import { softDemands } from '../use-inference.js';
+import { carriedOf, inferredOfExpr, markInferredRead, softDemands } from '../use-inference.js';
+import { markCarriedRead } from '../abstract-const.js';
 import { noteIntegerContext } from '../abstract-const.js';
 import {
   logicalTypeKey as typeKey,
@@ -185,7 +186,10 @@ function lowerIndexOf(
       return undefined;
     }
   }
-  return { op: 'index', type: elem, base, idx };
+  const list = inferredOfExpr(base);
+  const read: Expr = { op: 'index', type: elem, base, idx };
+  if (list?.list === undefined) return read;
+  return markInferredRead(markCarriedRead(read, node, carriedOf(undefined, list)), node, list);
 }
 
 export function lowerSelect(

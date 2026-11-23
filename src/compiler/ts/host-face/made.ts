@@ -48,13 +48,29 @@ export function grownChecked(f: FuncDecl): FuncDecl {
   return checked.sites.length === 0 ? f : { ...f, body: checked.body };
 }
 
-function onCpuOnly(face: Record<string, unknown>, shown: string, first: GrownSite): void {
-  const why =
+function growingReason(shown: string): string {
+  return (
+    `it grows "${shown}" with push in a loop whose number of pushes the call cannot know ` +
+    `before it runs, and only the CPU tier grows an array while it runs; a run that grows an ` +
+    `array on WebGPU or WebGL2 is not supported yet`
+  );
+}
+
+function checkReason(shown: string, first: GrownSite): string {
+  return (
     `it ${first.write ? 'writes' : 'reads'} "${first.text}", an element of "${shown}" at an ` +
     `index the compiler cannot prove is below its length, and only the CPU tier checks such an ` +
-    `index at the call`;
+    `index at the call`
+  );
+}
+
+export function cpuOnly(
+  face: Record<string, unknown>,
+  reasons: readonly (string | undefined)[],
+): void {
+  const why = reasons.find((r) => r !== undefined);
   for (const key of ['gpu', 'gl', 'noWebgl2']) delete face[key];
-  face.noGpu = why;
+  if (why !== undefined) face.noGpu = why;
 }
 
 export function lowerKernelFor(
@@ -128,6 +144,7 @@ export function madeFace(
     ...(fill !== undefined ? { fill: fill.name } : {}),
     ...(made.grown === true ? { grown: true as const } : {}),
     ...(made.counted === true ? { counted: true as const } : {}),
+    ...(made.growing === true ? { growing: true as const } : {}),
     ...(made.share !== undefined ? { share: made.share } : {}),
     ...(made.written !== undefined ? { written: made.written } : {}),
     ...(made.fillFrom !== undefined ? { fillFrom: made.fillFrom } : {}),
@@ -136,7 +153,12 @@ export function madeFace(
   };
   const face: Record<string, unknown> = { ...e.face };
   delete face.fuse;
-  if (sites.length > 0) onCpuOnly(face, made.shown, sites[0]!);
+  if (made.growing === true || sites.length > 0)
+    cpuOnly(face, [
+      typeof face.noGpu === 'string' ? face.noGpu : undefined,
+      made.growing === true ? growingReason(made.shown) : undefined,
+      sites.length > 0 ? checkReason(made.shown, sites[0]!) : undefined,
+    ]);
   return {
     ...e,
     face: { ...(face as unknown as typeof e.face), made: record } as typeof e.face,

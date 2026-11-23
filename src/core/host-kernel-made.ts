@@ -12,6 +12,7 @@ import { filled, madeArray, NO_CLASSES, renamed, type Made } from './host-kernel
 import { callMadeOnResource, writesPlainArray } from './host-kernel-made/on-resource.js';
 import { countedCapacity, saturating } from './host-kernel-made/counted.js';
 import { PastLimit } from './host-kernel-made/capacity.js';
+import { callGrowing } from './host-kernel-made/growing.js';
 
 function sharedObject(
   k: KernelFace,
@@ -131,6 +132,10 @@ export function callMadeKernel(
     if (argc !== taken.length)
       throw new TypeError(
         `${k.name}() takes ${taken.length} argument${taken.length === 1 ? '' : 's'}; got ${argc}.`,
+      );
+    if (made.growing === true)
+      return callGrowing(cpu, k, made, args, reads).catch((e: unknown) =>
+        Promise.reject(explained(e, k, made)),
       );
     return makingOf(cpu, k, made, args, reads)
       .then(({ making, exact }) => {

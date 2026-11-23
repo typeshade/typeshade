@@ -13,6 +13,7 @@ import type { Readable } from './readable.js';
 export interface GrownCapacity {
   readonly terms: readonly GrownTerm[];
   readonly deferred?: DeferredRefusal;
+  readonly open?: true;
 }
 
 export function grownCapacity(
@@ -51,6 +52,7 @@ export function grownCapacity(
       ? []
       : [{ low: once(0), high: once(1), inclusive: false, step: 1, pushes: outside }];
   let deferred: DeferredRefusal | undefined;
+  let open = false;
   const nest = nestTerms(
     {
       name,
@@ -62,9 +64,16 @@ export function grownCapacity(
       defer: (refusal) => {
         deferred ??= refusal;
       },
+      open: () => {
+        open = true;
+      },
     },
     stub.body,
   );
   if (nest === undefined) return undefined;
-  return { terms: [...terms, ...nest], ...(deferred !== undefined ? { deferred } : {}) };
+  return {
+    terms: open ? [] : [...terms, ...nest],
+    ...(deferred !== undefined ? { deferred } : {}),
+    ...(open ? { open: true as const } : {}),
+  };
 }
