@@ -3,16 +3,15 @@
 /* @example
 {
   "title": "Compare-exchange, uniform load, texture barrier",
-  "blurb": "The three synchronisation builtins WGSL has and this surface lacked (§48): `atomicCompareExchangeWeak`, whose result struct WGSL gives no writable name so it is bound by inference and read field by field; `workgroupUniformLoad`, a read of workgroup memory between two barriers that every invocation must reach; and `textureBarrier`. WebGPU-only — GLSL ES 3.00 has no compute stage — so this one is `renderable: false` and the gate runs its Tint half alone.",
+  "blurb": "The three synchronisation builtins WGSL has and this surface lacked (§48): `atomicCompareExchangeWeak`, whose result struct WGSL gives no writable name so it is bound by inference and read field by field; `workgroupUniformLoad`, a read of workgroup memory between two barriers that every invocation must reach; and `textureBarrier`. `compile()` emits WGSL and no GLSL text for it, so this one is `renderable: false` and the gate runs its Tint half alone.",
   "renderable": false,
   "reason": "storageBuffer, compute"
 }
 */
 // The three WGSL synchronisation and compare-exchange builtins (§48): `atomicCompareExchangeWeak`,
-// `workgroupUniformLoad` and `textureBarrier`. All three were unknown names, and all three are
-// WebGPU-only — GLSL ES 3.00 has no compute stage, so it has no workgroup memory, no atomic
-// compare-exchange and no barrier of any kind. This example is `renderable: false` and the gate
-// runs its Tint half alone.
+// `workgroupUniformLoad` and `textureBarrier`. All three were unknown names. GLSL ES 3.00 has no
+// compute stage, so `compile()` emits no GLSL text for them. This example is `renderable: false`
+// and the gate runs its Tint half alone.
 //
 // Each rule the surface states was measured on Tint, with a broken shader fed to the same
 // instrument first:

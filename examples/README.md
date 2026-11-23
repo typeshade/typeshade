@@ -84,7 +84,7 @@ rendered as an ellipse. Every gate passed; only visual review caught it.
 | `gradient-pass.ts`       | generic      | A two-colour gradient with a biasable blend + the `If`/`elif` control-flow combinator.                                                                               |
 | `override-quality.ts`    | generic      | A pipeline-overridable `quality` constant: WGSL `override` + GLSL `#define` guard a branch the driver removes per variant. WGSL + reflection.                        |
 | `texture-array-lod.ts`   | generic      | A tile atlas as ONE `texture_2d_array<f32>` binding — per-sample layer, all three array reads. WGSL + reflection (the live runner binds no atlas).                   |
-| `compute-reduction.ts`   | compute      | A `@workgroup_size` compute kernel folding a window of a storage buffer with `reduce()`. WebGPU-only (GLSL ES 3.00 has no compute), so it emits WGSL + reflection.   |
+| `compute-reduction.ts`   | compute      | A `@workgroup_size` compute kernel folding a window of a storage buffer with `reduce()`. GLSL ES 3.00 has no compute stage, so it emits WGSL + reflection.           |
 
 > Licensing note: the generic set covers the classic ShaderToy-era effects (plasma, tunnel,
 > Mandelbrot/Julia, metaballs, seascape, starfield, domain warping, truchet, raymarching,
@@ -162,15 +162,15 @@ the texture comes back upside down on WebGPU.
 The table lists the first seven, the hello programs and the first twin; every other file's
 title and blurb are in its own `@example` block.
 
-| File                              | Renderable | What it shows                                                                                                                                 |
-| --------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello.shade.ts`                  | yes        | The smallest complete program — a vertex stage positioning three corners from `vertex_index`, a flat-red fragment stage.                      |
-| `hello-vsout.shade.ts`            | yes        | The same triangle carrying a `uv` varying through a shared `VsOut` interface: the `builtin<"position">` field beside a plain `uv: vec2`.      |
-| `hello-vsin.shade.ts`             | yes        | Vertex input from a buffer — a `VsIn` class of `@location` attributes becomes GLSL `in` declarations and a WGSL struct.                       |
-| `hello-uniform.shade.ts`          | yes        | A bare `declare const scale: uniform<f32>` keeps its numeric host value; GLSL places it in a private std140 block.                            |
-| `hello-camera.shade.ts`           | no         | A `mat4` + `vec3` `Camera` behind `uniform<Camera>`, read by a plain helper — a module with no entry point is a module.                       |
-| `hello-uniform-struct.shade.ts`   | yes        | A `Uniforms` class behind `uniform<T>` groups several values in one std140 block on both targets, read from both stages.                      |
-| `compute-reduction-twin.shade.ts` | no         | The source-language twin of `compute-reduction.ts` — a storage `array` reduced by a `for` loop. WGSL-only: GLSL ES 3.00 has no compute stage. |
+| File                              | Renderable | What it shows                                                                                                                                      |
+| --------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello.shade.ts`                  | yes        | The smallest complete program — a vertex stage positioning three corners from `vertex_index`, a flat-red fragment stage.                           |
+| `hello-vsout.shade.ts`            | yes        | The same triangle carrying a `uv` varying through a shared `VsOut` interface: the `builtin<"position">` field beside a plain `uv: vec2`.           |
+| `hello-vsin.shade.ts`             | yes        | Vertex input from a buffer — a `VsIn` class of `@location` attributes becomes GLSL `in` declarations and a WGSL struct.                            |
+| `hello-uniform.shade.ts`          | yes        | A bare `declare const scale: uniform<f32>` keeps its numeric host value; GLSL places it in a private std140 block.                                 |
+| `hello-camera.shade.ts`           | no         | A `mat4` + `vec3` `Camera` behind `uniform<Camera>`, read by a plain helper — a module with no entry point is a module.                            |
+| `hello-uniform-struct.shade.ts`   | yes        | A `Uniforms` class behind `uniform<T>` groups several values in one std140 block on both targets, read from both stages.                           |
+| `compute-reduction-twin.shade.ts` | no         | The source-language twin of `compute-reduction.ts` — a storage `array` reduced by a `for` loop. WGSL text only: GLSL ES 3.00 has no compute stage. |
 
 ## Run
 
@@ -187,7 +187,7 @@ entry-point signatures).
 
 - **Emit gate** — `examples.test.ts` (run with `bunx vitest`) asserts every renderable example
   emits WebGL2-valid GLSL ES 3.00 (no `f32()` cast leak, no `in` reserved-word identifier, the
-  `uint(gl_VertexID)` cast) and that the compute example stays WGSL-only.
+  `uint(gl_VertexID)` cast) and that the compute example has WGSL text and no GLSL text.
 - **Source-corpus gate** — `shade-examples.test.ts` compiles every `*.shade.ts` file, pins its
   WGSL (and both GLSL stages, where it has them) in `__emit-goldens__/`, and checks the directory
   against the registry in both directions so an unregistered file cannot go quiet.

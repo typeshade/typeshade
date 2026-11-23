@@ -17,6 +17,13 @@ writer, and a CPU f64 oracle that evaluates the same IR on the host in double pr
 `Switch`) builds the same IR in code; it is `typeshade/core/ir`, and `docs/ir-builder.md`
 describes it.
 
+**A tier is never dropped for what the WebGL2 API lacks.** "WebGL2 has no X" is a fact about the
+API, and it is no reason that a program does not run on the WebGL2 tier (OD-11,
+`docs/owner-decisions.md`). TypeShade provides X: a `@compute` entry runs on WebGL2 as a pass
+program, with read-write storage, barriers and atomic operations in the phased order of change
+0054 (Rule 11.8). Before you write that a tier cannot run a form, read what Rule 11.8 says that
+tier runs. Where no fallback exists, write "not supported yet" and cite the rule.
+
 ## Key files
 
 | File                                | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -178,8 +185,8 @@ describes it.
   kernel chains, nested plans, compute entries, indirect counts, held bounds and rejected draws
   on their supported WebGPU, WebGL2 and CPU tiers. Healthy controls require actual API work; failed dependencies must
   issue no command and preserve error identity. A disabled-admission build must expose every
-  negative control. Pushed held lengths and `Buffer` draws run on WebGPU and CPU: WebGL2 lacks
-  atomics and fragment storage buffers. The arm verifies the WebGL2 storage-draw refusal too, and
+  negative control. Pushed held lengths and `Buffer` draws run on WebGPU and CPU: WebGL2 does not
+  run them yet (Rule 11.8). The arm verifies the WebGL2 storage-draw refusal too, and
   that `set(data)` and `resize()` recover a `Buffer` of scalars whose failed call left the device
   copy the newer (change 0138, Amendment A7, decision b).
 - The differential gate also runs `scripts/resource-call-arm.ts` (change 0138, milestone 3):

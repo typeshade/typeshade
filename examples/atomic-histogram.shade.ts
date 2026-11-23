@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Atomic histogram",
-  "blurb": "Many invocations count into one bin at once with `atomicAdd(bins[bin], 1)`, one indivisible step each; a storage struct field and a bare `storage<atomic<u32>>` binding show the other two shapes of location, and the value an atomic returns is what it held before. WGSL-only: GLSL ES 3.00 has no storage buffers and no atomics.",
+  "blurb": "Many invocations count into one bin at once with `atomicAdd(bins[bin], 1)`, one indivisible step each; a storage struct field and a bare `storage<atomic<u32>>` binding show the other two shapes of location, and the value an atomic returns is what it held before. `compile()` emits WGSL and no GLSL text for it; on WebGL2 the entry runs as a pass program, with its atomic operations in the phased order (Rule 11.8).",
   "renderable": false,
   "reason": "missing capabilities: storageBuffer, compute"
 }
@@ -17,8 +17,10 @@
 // or assignment of `bins[bin]` is refused with the builtin to use instead.
 //
 // Three shapes of location, so the compile gate sees each on Tint: an array element, a field
-// of a storage struct, and a bare atomic binding. GLSL ES 3.00 has no storage buffers and no
-// atomics, so like `array-length` this module is WGSL-only. The CPU oracle runs invocations
+// of a storage struct, and a bare atomic binding. GLSL ES 3.00 has no storage buffers, no
+// atomics and no compute stage, so `compile()` emits WGSL and no GLSL text for this module. The
+// WebGL2 tier still runs the entry, as a pass program with its atomic operations in the phased
+// order (Rule 11.8, change 0054). The CPU oracle runs invocations
 // one after another, so its atomics are plain reads and writes in that order.
 
 class Summary {
