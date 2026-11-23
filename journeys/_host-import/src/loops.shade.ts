@@ -79,6 +79,20 @@ export function pairTwice(xs: f32[], r: f32): u32[] {
   return out;
 }
 
+// A counted for, a branch in it and a counted for under the branch that pushes: Route 2 counts it
+// (made.counted) and WebGPU keeps its plan (change 0114, A12, Route 3 stage S2).
+export function inside(n: u32): u32[] {
+  const out: u32[] = [];
+  for (let i: u32 = 0; i < n; i++) {
+    if (i > 2) {
+      for (let j: u32 = 0; j < i; j++) {
+        out.push(j);
+      }
+    }
+  }
+  return out;
+}
+
 export function renderKept(k: vec4, size: u32): f32[] {
   const out: f32[] = [];
   for (let i: u32 = 0; i < size * size; i++) {

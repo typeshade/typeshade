@@ -19,6 +19,7 @@ import {
   countMod,
   drift,
   histogram,
+  inside,
   LayoutItem,
   layoutRead,
   layoutMap,
@@ -47,6 +48,7 @@ import {
   stats,
   tally,
 } from './loops.shade.ts';
+import { evens } from './growing.shade.ts';
 import { OnePole, run as runFilters } from './filters.shade.ts';
 // Copied in by the journey from journeys/particles and journeys/plasma.
 import { step } from './particles.shade.ts';
@@ -490,6 +492,30 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   };
   const twiceGpu = await twiceOn('webgpu');
   const twiceCpu = await twiceOn('cpu');
+  const insideNs = [0, 1, 3, 4, 64];
+  const insideOn = async (tier: 'webgpu' | 'cpu'): Promise<number[]> => {
+    const all: number[] = [];
+    for (const n of insideNs) {
+      configure({ prefer: [tier] });
+      all.push(...(await inside(n).finally(() => configure({}))));
+    }
+    return all;
+  };
+  const insideGpu = await insideOn('webgpu');
+  const insideCpu = await insideOn('cpu');
+  // Route 3: a while that pushes runs on the CPU tier although WebGPU comes first, and a runtime
+  // that lists WebGPU alone refuses it with the face's reason.
+  const evensOn: number[] = [];
+  for (const limit of [0, 1, 9, 64]) {
+    configure({ prefer: ['webgpu', 'cpu'] });
+    evensOn.push(...(await evens(limit).finally(() => configure({}))));
+  }
+  configure({ prefer: ['webgpu'] });
+  const evensReason = await evens(9).then(
+    () => 'no error',
+    (e: unknown) => String(e),
+  );
+  configure({});
   configure({ prefer: ['webgpu'] });
   const kept = await renderKept([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
   // A kernel function that makes an array of vectors and one of structs (change 0114, S5,
@@ -654,6 +680,10 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     pairSearchCpu: [...pairsCpu],
     pairTwice: twiceGpu,
     pairTwiceCpu: twiceCpu,
+    inside: insideGpu,
+    insideCpu,
+    evens: evensOn,
+    evensReason,
     shadeMade: [...shade],
     driftMade: drifted.flatMap((p) => [...p.pos, ...p.vel]),
     shareMade: [

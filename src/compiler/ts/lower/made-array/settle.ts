@@ -63,15 +63,21 @@ function readable(
       readonly length?: Expr;
       readonly capacity?: readonly GrownTerm[];
       readonly deferred?: DeferredRefusal;
+      readonly open?: true;
     }
   | undefined {
   const r = readersOf(stub, made.param);
   if (made.grown === true) {
     const capacity = grownCapacity(stub, made, r, sourceFile, diagnostics);
     if (capacity === undefined) return undefined;
-    return capacity.deferred === undefined
-      ? { r, capacity: capacity.terms }
-      : { r, deferred: capacity.deferred };
+    return {
+      r,
+      ...(capacity.open === true || capacity.deferred !== undefined
+        ? {}
+        : { capacity: capacity.terms }),
+      ...(capacity.open === true ? { open: true as const } : {}),
+      ...(capacity.deferred !== undefined ? { deferred: capacity.deferred } : {}),
+    };
   }
   if (!hostReadable(made.length, r)) {
     diagnostics.push(
@@ -161,6 +167,7 @@ export function settleMadeArray(
     ...(read.length !== undefined ? { length: read.length } : {}),
     ...(read.capacity !== undefined ? { capacity: read.capacity } : {}),
     ...(read.deferred !== undefined ? { deferred: read.deferred } : {}),
+    ...(read.open === true ? { open: true as const } : {}),
     ...(made.fill !== undefined ? { fill: made.fill } : {}),
     ...(made.grown === true ? { grown: true as const } : {}),
     prelude,

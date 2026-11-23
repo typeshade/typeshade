@@ -184,12 +184,8 @@ export function main(gid: builtin<"global_invocation_id">) {
 }
 `;
     const refused = bothRefuse(source, 'TS8005', [
-      writeSentence('xs', 'readonly f32[]', 'declare const xs: storage<f32[], "read_write">'),
-      writeSentence(
-        'ys',
-        'ReadonlyArray<f32>',
-        'const ys = storage<Array<f32>, "read_write">(0, 3)',
-      ),
+      writeSentence('xs', 'readonly f32[]', 'declare const xs: storage<f32[]>'),
+      writeSentence('ys', 'ReadonlyArray<f32>', 'const ys = storage<Array<f32>>(0, 3)'),
     ]);
     const lines = refused.compiler.flatMap(remedyLines);
     expect(lines).toHaveLength(2);
@@ -217,7 +213,7 @@ export function main(gid: builtin<"global_invocation_id">) {
 
   it('keeps a read binding of f32[] refused as it was, with no TypeScript report beside it', () => {
     const halves = bothHalves(`"use typeshade";
-declare const xs: storage<f32[]>;
+declare const xs: storage<f32[], "read">;
 @compute([64])
 export function main(gid: builtin<"global_invocation_id">) {
   xs[gid.x] = 1.;

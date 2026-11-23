@@ -8,7 +8,6 @@ import {
   beginUseInferencePass,
   callersSwitchedOff,
   endUseInferencePass,
-  settleUseInference,
   switchCallersOff,
   switchedOffCalls,
 } from './use-inference.js';
@@ -45,6 +44,7 @@ import { emitWgslKept } from './source-file/wgsl-lowered.js';
 import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
 import { lowerSourceFunctions } from './lower/function.js';
+import { settleInference } from './storage-access.js';
 import { sequenceEffects } from './sequence.js';
 import { analyzeSemantics, carryRefusals, reportUndeclaredValues } from './semantic.js';
 import { collectModuleConsts } from './module-const.js';
@@ -285,7 +285,7 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
     } finally {
       endUseInferencePass(outer);
     }
-    if (!settleUseInference(sourceFile) || callersSwitchedOff(sourceFile)) {
+    if (!settleInference(sourceFile, compiled.result) || callersSwitchedOff(sourceFile)) {
       return callersSwitchedOff(sourceFile) ? withCapNotes(compiled, sourceFile) : compiled;
     }
     // The passes ran out with results that callers decide still moving: one more pass with

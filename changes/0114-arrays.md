@@ -1520,6 +1520,23 @@ not supported yet.` Open until the owner decides which sentence holds.
   on Route 1 done (#1444); form 2 on Route 2 not started. S5d
   slice 3 (Route 3, form 3) not started.
 
+### A15. Status: A10 item 2.4 implemented (2026-11-24)
+
+- [fact] Pull request #1456 (merged as `a6934b3`) implements the owner's answer recorded in A13
+  ("0138 Q7: 일반 데이터"). A call on a resource of a kernel function that makes and returns an
+  array, and that also writes a plain array, waits. Its promise gives the made array as plain
+  data, the typed array or the array of objects of A1 item 6. The refusal of A10 item 2.4 is gone.
+  A call on a resource that writes no plain array still returns a new `Buffer` at once (A1 item 7).
+- [fact] The waiting call takes the path of a call with plain data. So the forms A10 refuses on a
+  resource (items 2.1 to 2.3: a grown array, a struct fill that shares one object, a struct of no
+  exported class) work there when the call also writes a plain array, as they work for a call
+  with plain data. A10 items 2.1 to 2.3 keep their refusal for a call that does not wait.
+- [fact] A length or a fill value that reads a resource argument (A10 item 2.5) stays refused on
+  the waiting call too; the promise rejects with the `TypeError` that names it.
+- [fact] This amendment records status only. It decides nothing.
+- Status: `status: accepted` does not change. A10's open items: 2.4 done (#1456); 2.1 to 2.3 and
+  2.5 stay refused for a call that does not wait.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`

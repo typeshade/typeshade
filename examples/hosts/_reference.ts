@@ -7,25 +7,12 @@
 // WebGPU (`scripts/user-journey.ts`). One reference for both, so the two tiers are held to the
 // same numbers (AGENTS.md#gate-discipline, one authority).
 //
-// No imports and no environment: the gate reads this file under Bun, and the test under Vitest.
+// The only import is `../_compare.ts`, which has none: the gate reads this file under Bun, and the
+// test under Vitest.
 
-/** A canvas the driver draws into, and how to read it back. */
-export interface Surface {
-  /** A fresh canvas of this size, into which nothing has drawn. */
-  canvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas;
-  /** The canvas's pixels: RGBA, one byte to a channel, the top row first. */
-  pixels(canvas: HTMLCanvasElement | OffscreenCanvas): number[] | Promise<number[]>;
-}
+import { compareParts, type Outputs } from '../_compare.js';
 
-/** What one host example's run gave back: each part as numbers. */
-export type Outputs = Readonly<Record<string, readonly number[]>>;
-
-/** `_drive.ts`'s export, typed here so a caller can import the driver by a computed path and
- *  still type what it gets (`tsconfig.tests.json` cannot read the host files it imports). */
-export type Drive = (
-  surface: Surface,
-  ids: readonly string[],
-) => Promise<Readonly<Record<string, Outputs | string>>>;
+export type { Drive, Outputs, Surface } from '../_compare.js';
 
 /** One part of a reference: the values, and the largest absolute difference allowed. */
 export interface Expected {
@@ -194,31 +181,15 @@ export function reference(): Readonly<Record<string, Readonly<Record<string, Exp
  */
 export function compare(id: string, got: Outputs | string | undefined): string[] {
   const want = reference()[id];
-  if (want === undefined) return [`${id}: no reference`];
-  if (got === undefined) return [`${id}: did not run`];
-  if (typeof got === 'string') return [`${id}: ${got}`];
-  const wrong: string[] = [];
-  for (const [part, { values, tolerance }] of Object.entries(want)) {
-    const ran = got[part];
-    if (ran === undefined || ran.length !== values.length) {
-      wrong.push(
-        `${id}.${part}: ${ran === undefined ? 'missing' : `${ran.length} values`}, expected ${values.length}`,
-      );
-      continue;
-    }
-    let worst = 0;
-    let at = -1;
-    values.forEach((v, i) => {
-      const d = Math.abs(ran[i]! - v);
-      if (!(d <= worst)) {
-        worst = d;
-        at = i;
-      }
-    });
-    if (!(worst <= tolerance))
-      wrong.push(
-        `${id}.${part}: element ${at} is ${ran[at]}, expected ${values[at]} (allowed ${tolerance})`,
-      );
-  }
-  return wrong;
+  return compareParts(
+    id,
+    got,
+    want &&
+      Object.fromEntries(
+        Object.entries(want).map(([part, { values, tolerance }]) => [
+          part,
+          { values, tolerance: { absolute: tolerance } },
+        ]),
+      ),
+  );
 }
