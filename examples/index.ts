@@ -1,7 +1,7 @@
 // ═══ typeshade examples — registry ═══
 //
 // GENERATED — DO NOT EDIT.
-// Regenerate with: bun scripts/gen-example-registry.ts > shader-dsl/examples/index.ts
+// Regenerate with: bun scripts/gen-example-registry.ts
 //
 // The single import surface for the examples: the CLI printer (print.ts) and the site's
 // interactive /shader-dsl page both consume `examples` from here. Each entry carries its

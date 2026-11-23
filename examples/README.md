@@ -9,6 +9,7 @@ with **no dependency on any host runtime**. They import only from the package's 
 Every example is also exported (`module` + metadata) from [`index.ts`](./index.ts), so the same
 sources power the interactive **/shader-dsl** site page (which renders the renderable ones live
 on a WebGL2 canvas) and the CLI printer.
+`index.ts` is generated: after a change to `_order.ts` or to an example file, run `bun scripts/gen-example-registry.ts`, which rewrites the indexes itself, and `example-index-drift.test.ts` fails when an index is stale.
 
 The fullscreen boilerplate — the `{time, resolution, …}` uniform head, the `VsOut` ioStruct,
 and the fullscreen-triangle vertex stage — is shared from [`_fullscreen.ts`](./_fullscreen.ts)
