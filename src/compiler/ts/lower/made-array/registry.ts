@@ -37,6 +37,8 @@ export interface MadeArray {
   readonly fill?: Expr;
   readonly grown?: true;
   readonly counted?: true;
+  readonly growing?: true;
+  readonly open?: true;
   readonly deferred?: DeferredRefusal;
   readonly share?: MadeShare;
   readonly written?: string;

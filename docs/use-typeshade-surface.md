@@ -8083,7 +8083,8 @@ TypeScript, and an array of objects follows rules 3 and 4 of §70.
   array's length is fixed, so a change of length is a loop, `for (const x of xs)` (§17); only
   `xs.slice()` with no argument copies the whole array. `find` gives `undefined` where nothing matches, which no shader value is:
   `findIndex` is the fix. One exception: `out.push(v)` on a kernel function's array
-  parameter, inside its loop, appends in the order of the iterations (§65, change 0078);
+  parameter, inside its loop, appends in the order of the iterations (§65, change 0078), and, for
+  the array a function makes and returns, in a `for`, `for…of` or `while` loop of it, and not in a `do … while`, which stays refused (§65, change 0114);
 - `map` on a runtime-sized array, whose value would be an array with no size, which exists only
   in storage: `forEach` storing into a storage binding, or into a kernel function's array, is
   the fix;
@@ -9196,14 +9197,12 @@ export function render(k: vec4, size: u32): f32[] {
 ```
 
 Not supported yet, each refused with `TS8099` and a sentence that names the loop or the form: a
-push outside every loop; a push in a `while` or `do … while`, under a `switch`, in a loop under a
-branch inside a loop, or in a loop under a top-level `if` whose condition reads another operand; a
-loop whose trip count is no count from a start to a bound by a constant whole step, or whose start
-or bound reads another operand (a range the device holds included, and the counter of a loop around it, unless the function qualifies for a count pass, below); an element a made array may not hold (above); pushes of
+push outside every loop; a push in a loop under a top-level `if` whose condition reads another
+operand; a loop whose start or bound reads another operand (a range the device holds included, and the counter of a loop around it, unless the function qualifies for a count pass, below); an element a made array may not hold (above); pushes of
 a struct that the compiler cannot tell are one object or new ones (one object mixed with new
 ones, or one the body changes); a read or a write of an element before the first loop; and a
-write the compiler cannot prove below the length in a loop that is no `for` at the top level of
-the body, or in a loop whose trip count the call cannot compute. A loop nested in a top-level loop may start or end at the counter of a loop around it, or at an
+write the compiler cannot prove below the length in a loop inside another loop or under a branch.
+A loop nested in a top-level loop may start or end at the counter of a loop around it, or at an
 element of an array parameter, when the function qualifies for a count pass (proposal 0114,
 Amendment A12, form 2, Route 2): the proof of Rule 8.22 accepts every loop, the only write of the
 function is the push onto this array, every push is a statement, the body reads no element of the
@@ -9212,8 +9211,18 @@ length, and only the return follows the loops. The call runs the function once t
 (a `u32` that stops at 4294967295), reserves exactly that many elements and runs it again. A count
 of 4294967295 or more throws a `RangeError` before the second run, and a second run that pushes
 another count throws an `Error`. On WebGPU the first run dispatches only the count and scan steps and
-reads the total; on every other tier it is the function's run on the CPU tier. Other forms wait for the
-heap OD-10 names. The host value, the tiers and the other refusals are those of the made array above.
+reads the total; on every other tier it is the function's run on the CPU tier. Any other loop that
+pushes onto the array or writes an element of it that can append takes Route 3 (proposal 0114,
+Amendment A12, section 1): a `while`, a `for` that is no count from a start to a bound by a
+constant whole step or whose body writes its counter, a loop inside such a loop, and a loop under a
+`switch` or under a branch inside a loop. A `do … while` stays refused by the front end
+(TS8099). The call reserves no capacity, runs the function once on
+the CPU tier, which appends in the order of a sequential run, and resolves to a new array of
+exactly the elements pushed. A length of 4294967295 or more throws the `RangeError` of the count
+pass, and a host that cannot hold the elements pushed throws a `RangeError` that names the
+function, the array and the length it reached. No GPU tier runs it: the reason names the loop or
+the array, and growing an array during a run on WebGPU or WebGL2 is not supported yet (the heap
+OD-10 names). The host value, the tiers and the other refusals are those of the made array above.
 
 An element of the array reads and writes as in JavaScript (proposal 0114, Amendment A12): a read
 needs an index below the length, a write an index at most the length, and a write at the length
