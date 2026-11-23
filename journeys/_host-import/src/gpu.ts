@@ -35,6 +35,7 @@ import {
   render,
   renderKept,
   renderMade,
+  scaleMade,
   shadeMade,
   driftMade,
   shareMade,
@@ -450,6 +451,14 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   // A kernel function that makes the array it returns (change 0114, S5), on WebGPU.
   configure({ prefer: ['webgpu'] });
   const made = await renderMade([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
+  // The same function called on a resource (change 0114, A1 item 7), on WebGPU: each call returns
+  // a new Buffer at once, the second call takes the first's, and read() brings the values back.
+  configure({ prefer: ['webgpu'] });
+  const madeIn = array(Float32Array.from(made));
+  const doubled = scaleMade(madeIn, 2);
+  const halved = scaleMade(doubled, 0.5);
+  const madeOnResource = await halved.read().finally(() => configure({}));
+  for (const b of [madeIn, doubled, halved]) b.dispose();
   // A kernel function that grows the array it returns with push (change 0114, S5d), on WebGPU:
   // every iteration pushes, and then two rows of three push.
   configure({ prefer: ['webgpu'] });
@@ -607,6 +616,7 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     glSkip: [...glSkip],
     render: [...img],
     renderMade: [...made],
+    scaleMade: [...madeOnResource],
     renderPushed: [...pushed],
     renderKept: [...kept],
     shadeMade: [...shade],

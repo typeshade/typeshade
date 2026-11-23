@@ -19,6 +19,18 @@ function madeShape(elem: ShaderType, structs: ReadonlyMap<string, StructDecl>): 
   return { struct, zero: zeroOf(elem, structs) };
 }
 
+function paramsRead(f: FuncDecl, nodes: readonly unknown[]): string[] {
+  const read = new Set<string>();
+  const walk = (x: unknown): void => {
+    if (typeof x !== 'object' || x === null) return;
+    const node = x as { readonly op?: unknown; readonly name?: unknown };
+    if (node.op === 'param' && typeof node.name === 'string') read.add(node.name);
+    Object.values(x).forEach(walk);
+  };
+  walk(nodes);
+  return f.params.map((p) => p.name).filter((name) => read.has(name));
+}
+
 export function madeFace(
   e: HostExport,
   f: FuncDecl,
@@ -35,6 +47,7 @@ export function madeFace(
   });
   const length = cpuFn('length', made.length);
   const fill = made.fill === undefined ? undefined : cpuFn('fill', made.fill);
+  const reads = paramsRead(f, [made.prelude, made.length, made.fill]);
   const record: KernelMade = {
     param: made.param,
     count: made.count,
@@ -46,6 +59,7 @@ export function madeFace(
     ...(made.share !== undefined ? { share: made.share } : {}),
     ...(made.written !== undefined ? { written: made.written } : {}),
     ...(made.fillFrom !== undefined ? { fillFrom: made.fillFrom } : {}),
+    ...(reads.length > 0 ? { reads } : {}),
   };
   const face: Record<string, unknown> = { ...e.face };
   delete face.gl;
@@ -71,6 +85,8 @@ export const TYPED_NAME = {
 export interface MadeView {
   readonly face: KernelFace;
   readonly result?: string;
+  readonly onResource?: string;
+  readonly plain: ReadonlySet<string>;
   readonly note: string;
 }
 
@@ -87,11 +103,33 @@ function madeResult(made: KernelMade, print: (t: HostType) => string): readonly 
   ];
 }
 
-export function madeView(face: KernelFace, print: (t: HostType) => string): MadeView {
+function madeBuffer(
+  made: KernelMade,
+  print: (t: HostType) => string,
+  isClass: (name: string) => boolean,
+): string | undefined {
+  if (made.grown === true || made.share !== undefined) return undefined;
+  if (made.struct === undefined) return `Buffer<${made.array!}>`;
+  const name = print(made.struct);
+  return isClass(name) ? `Buffer<${name}>` : undefined;
+}
+
+function onResourceNote(onResource: string | undefined): string {
+  if (onResource === undefined)
+    return 'a call on a resource, or inside fuse(), is not supported yet (Rules 8.21 and 8.23).';
+  return `called on a resource, it returns a new ${onResource} at once, of the scalars for a vector, which the caller disposes, and a length of 0 throws a RangeError, since a Buffer of length 0 is not supported yet; a call inside fuse() is not supported yet (Rules 8.21 and 8.23).`;
+}
+
+export function madeView(
+  face: KernelFace,
+  print: (t: HostType) => string,
+  isClass: (name: string) => boolean = () => false,
+): MadeView {
   const made = madeOf(face);
-  if (made === undefined) return { face, note: '' };
+  if (made === undefined) return { face, plain: new Set(), note: '' };
   const length = made.grown === true ? 'is the number of elements it pushes' : 'its arguments give';
   const [result, what] = madeResult(made, print);
+  const onResource = madeBuffer(made, print, isClass);
   return {
     face: {
       ...face,
@@ -99,6 +137,8 @@ export function madeView(face: KernelFace, print: (t: HostType) => string): Made
       ...(made.grown === true ? { result: { k: 'void' as const, s: 'void' } } : {}),
     },
     result,
-    note: ` It makes the array it returns, "${made.shown}", ${what} whose ${made.width === undefined ? 'length' : 'element count'} ${length}, and the caller owns it; a call on a resource, or inside fuse(), is not supported yet (Rules 8.21 and 8.23).`,
+    ...(onResource !== undefined ? { onResource } : {}),
+    plain: new Set(made.reads),
+    note: ` It makes the array it returns, "${made.shown}", ${what} whose ${made.width === undefined ? 'length' : 'element count'} ${length}, and the caller owns it; ${onResourceNote(onResource)}`,
   };
 }

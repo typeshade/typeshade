@@ -157,6 +157,7 @@ describe('a kernel function that grows the array it returns with push (change 01
       shown: 'out',
       array: 'f32',
       length: 'render__length',
+      reads: ['size'],
       grown: true,
     });
   });

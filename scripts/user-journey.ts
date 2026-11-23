@@ -568,6 +568,8 @@ async function hostImport(
         : NaN;
     // f32 on both sides. WGSL gives sin and cos an absolute error of 2^-11 in [-pi, pi], and
     // render sums k.x * sin + k.z * cos with |k.x| + |k.z| = 3; the other kernels are exact.
+    // scaleMade scales renderMade's output by 2 and then 0.5, so it carries that error, and the
+    // check after this loop holds it to renderMade's output bit for bit.
     // WebGL2's sin and cos carry no bound in GLSL ES 3.00; the driver's are within 2^-10 here.
     // An emulated double is held to a double's reference: 1e-12 of the largest value. The filter
     // bank (change 0109) recurs through 16 samples, and a driver may fuse its multiply and add.
@@ -575,6 +577,7 @@ async function hostImport(
       key === 'render' ||
       key === 'residentRender' ||
       key === 'renderMade' ||
+      key === 'scaleMade' ||
       key === 'renderPushed' ||
       key === 'renderKept' ||
       key === 'shadeMade'
@@ -591,6 +594,15 @@ async function hostImport(
       `the kernel function ${key}, called through the import, writes the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,
     );
   }
+  const scaledOnResource = web.loops?.['scaleMade'];
+  const madeOnDevice = web.loops?.['renderMade'];
+  check(
+    typeof scaledOnResource === 'object' &&
+      typeof madeOnDevice === 'object' &&
+      scaledOnResource.length === madeOnDevice.length &&
+      scaledOnResource.every((v, i) => Object.is(v, madeOnDevice[i])),
+    "scaleMade, chained twice on a resource, returns renderMade's output bit for bit",
+  );
   check(
     /TypeError: render\(\): parameter "out" holds 10 elements, and loop 1 writes it at indices 0 to 4095\./.test(
       String(web.loops?.['short']),
