@@ -25,6 +25,16 @@ function sharedObject(
   return from.path.reduce((o, name) => (o as Record<string, unknown>)[name], args[at]);
 }
 
+function pushedWithin(k: KernelFace, made: KernelMade, pushed: unknown, capacity: number): number {
+  const count = Number(pushed);
+  if (!Number.isInteger(count) || count < 0 || count > capacity)
+    throw new Error(
+      `${k.name}(): the array it grows with push, "${made.shown}", reports ${String(pushed)} ` +
+        `elements pushed and has room for ${String(capacity)}; the compiler reserved too few.`,
+    );
+  return count;
+}
+
 function result(
   k: KernelFace,
   made: KernelMade,
@@ -36,7 +46,9 @@ function result(
   const width = made.width ?? 1;
   const all = making.array;
   const kept =
-    made.grown === true ? all.slice(0, Math.min(Number(pushed), all.length / width) * width) : all;
+    made.grown === true
+      ? all.slice(0, pushedWithin(k, made, pushed, all.length / width) * width)
+      : all;
   if (made.share === undefined) return kept;
   const elements = kept as unknown[];
   const one = made.grown === true ? elements[0] : sharedObject(k, made, args, making.v);

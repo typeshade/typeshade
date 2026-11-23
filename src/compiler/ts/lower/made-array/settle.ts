@@ -10,6 +10,7 @@ import {
   madeLoweringOf,
   nodesSaidOnce,
   setMadeArray,
+  type GrownTerm,
   type MadeLowering,
   type MadeShare,
   type MadeSource,
@@ -55,11 +56,13 @@ function readable(
   made: MadeLowering,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): { readonly r: Readable; readonly length: Expr } | undefined {
+):
+  | { readonly r: Readable; readonly length?: Expr; readonly capacity?: readonly GrownTerm[] }
+  | undefined {
   const r = readersOf(stub, made.param);
   if (made.grown === true) {
-    const length = grownCapacity(stub, made, r, sourceFile, diagnostics);
-    return length === undefined ? undefined : { r, length };
+    const capacity = grownCapacity(stub, made, r, sourceFile, diagnostics);
+    return capacity === undefined ? undefined : { r, capacity };
   }
   if (!hostReadable(made.length, r)) {
     diagnostics.push(
@@ -146,7 +149,8 @@ export function settleMadeArray(
     count,
     shown: (made.decl.name as ts.Identifier).text,
     element: made.element,
-    length: read.length,
+    ...(read.length !== undefined ? { length: read.length } : {}),
+    ...(read.capacity !== undefined ? { capacity: read.capacity } : {}),
     ...(made.fill !== undefined ? { fill: made.fill } : {}),
     ...(made.grown === true ? { grown: true as const } : {}),
     prelude,
