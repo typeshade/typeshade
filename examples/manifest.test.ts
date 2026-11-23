@@ -92,14 +92,19 @@ describe('the example.json schema', () => {
 });
 
 describe('each example.json in the tree', () => {
-  const dirs = ['path'].flatMap((place) =>
+  const dirs = ['path', 'gallery'].flatMap((place) =>
     readdirSync(join(HERE, place), { withFileTypes: true })
       .filter((d) => d.isDirectory() && existsSync(join(HERE, place, d.name, 'example.json')))
       .map((d) => [place, d.name] as const),
   );
 
   it('is found in the 13 path steps', () => {
-    expect(dirs.map(([, id]) => id).sort()).toEqual([...PATH_ORDER].sort());
+    expect(
+      dirs
+        .filter(([place]) => place === 'path')
+        .map(([, id]) => id)
+        .sort(),
+    ).toEqual([...PATH_ORDER].sort());
   });
 
   it.each(dirs)('%s/%s passes the schema and sits beside its module', (place, id) => {
@@ -112,6 +117,15 @@ describe('each example.json in the tree', () => {
     expect(registered.title).toBe(m.title);
     expect(registered.blurb).toBe(m.blurb);
     expect(registered.renderable).toBe(m.renderable);
+  });
+
+  it('is found in the gallery directories, and an fp64- id is in the precision group', () => {
+    const gallery = dirs.filter(([place]) => place === 'gallery');
+    expect(gallery.length).toBeGreaterThan(25);
+    for (const [, id] of gallery) {
+      const m = readManifest(join(HERE, 'gallery', id), id);
+      expect(m.group === 'precision', id).toBe(id.startsWith('fp64-'));
+    }
   });
 
   it('gives the path steps a rising step number along _order.ts', () => {
@@ -127,9 +141,8 @@ describe('each example.json in the tree', () => {
 
 describe('the scan reads a header where a directory has no example.json', () => {
   it('registers a top-level module from its @example block', () => {
-    const hello = shadeExamples.find((e) => e.id === 'hello')!;
-    expect(hello.title.length).toBeGreaterThan(0);
-    expect(exampleSource('hello')).toContain('@example');
-    expect(dirname(hello.file)).toBe('.');
+    const top = shadeExamples.find((e) => dirname(e.file) === '.')!;
+    expect(top.title.length).toBeGreaterThan(0);
+    expect(exampleSource(top.id)).toContain('@example');
   });
 });

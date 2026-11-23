@@ -110,7 +110,9 @@ export function lowerKernelGl(
       };
     const w = v.writes[0];
     if (v.writes.length !== 1 || w === undefined)
-      return { noWebgl2: `loop ${loopNo} writes more than one array, and WebGL2 draws one` };
+      return {
+        noWebgl2: `loop ${loopNo} writes more than one array, which the WebGL2 tier does not support yet (Rule 11.8)`,
+      };
     if (w.kind !== 'affine' || w.a !== 1 || w.c.length !== 1 || w.c[0] !== 0)
       return { noWebgl2: `loop ${loopNo} writes "${w.name}" other than at i` };
     const outParam = arrays.find((p) => p.name === w.name);

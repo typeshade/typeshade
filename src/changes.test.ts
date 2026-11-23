@@ -7,10 +7,11 @@
 // SANITY FIRST (AGENTS.md#gate-discipline): the reader must find the proposal the tree is known
 // to carry, so an empty directory listing cannot pass the shape checks vacuously.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as impact from '../scripts/doc-impact.js';
+import { SHADE_FILES } from '../examples/_example-file.js';
 import { hostExamples } from '../examples/hosts/index.js';
 import { ROOT } from '../scripts/doc-refs.js';
 import { definedRules } from '../scripts/doc-refs.js';
@@ -41,12 +42,11 @@ import {
 const surfaceDoc = readFileSync(join(ROOT, 'docs/use-typeshade-surface.md'), 'utf8');
 const sections = new Set([...surfaceDoc.matchAll(/^## (\d+)\. /gm)].map((m) => Number(m[1])));
 
-/** Whether an example id a proposal declares names an example that exists: a module,
- *  `examples/<id>.shade.ts`, or a host example (change 0061), which the registry of
+/** Whether an example id a proposal declares names an example that exists: a module the scan of
+ *  `examples/_example-file.ts` finds, or a host example (change 0061), which the registry of
  *  `examples/hosts/` lists. */
 const hostIds = new Set(hostExamples.map((h) => h.id));
-const exampleExists = (id: string): boolean =>
-  existsSync(join(ROOT, 'examples', `${id}.shade.ts`)) || hostIds.has(id);
+const exampleExists = (id: string): boolean => SHADE_FILES.has(id) || hostIds.has(id);
 
 describe('the proposals on disk', () => {
   const all = proposals();
