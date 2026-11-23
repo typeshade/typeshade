@@ -122,6 +122,37 @@ describe('abs of a proven i32 minimum is refused with no edit (issue 1388, decis
       'const m = u32(2147483648);\n  let n = i32(m);\n  return f32(abs(n));',
       'n',
     ],
+    [
+      'a shadowed name in an inner block',
+      `${H}let k = i32(h + h);\n  {\n    let k = 3;\n  }\n  return f32(abs(k));`,
+      'k',
+    ],
+    [
+      'a copy of the binding that is assigned',
+      `${H}let k = i32(h + h);\n  let k2 = k;\n  k2 = 4;\n  return f32(abs(k));`,
+      'k',
+    ],
+    [
+      'a binding read in an array',
+      `${H}let k = i32(h + h);\n  let z = [k];\n  return f32(abs(k));`,
+      'k',
+    ],
+    [
+      'a const of a written minimum conversion',
+      'const M = i32(-2147483647 - 1);\n  return f32(abs(M));',
+      'M',
+    ],
+    ['an f32 product of the abs', `${H}let k = i32(h + h);\n  return f32(abs(k)) * 2.0;`, 'k'],
+    [
+      'an f32 binding of the abs',
+      `${H}let k = i32(h + h);\n  let z = f32(abs(k));\n  return z;`,
+      'k',
+    ],
+    [
+      'a const binding beside an abs of a run-time i32',
+      `${H}const k = i32(h + h);\n  return f32(abs(k) + abs(ii));`,
+      'k',
+    ],
   ] as const)('refuses %s in both halves, where main accepted it', (_, body, subject) => {
     bothRefuse(program(body), 'TS8003', NO_EDIT(subject));
   });
@@ -135,6 +166,14 @@ describe('abs of a proven i32 minimum is refused with no edit (issue 1388, decis
       NO_EDIT('k'),
       NO_EDIT('k'),
     ]);
+  });
+
+  it('refuses the abs of the minimum and the abs of a conversion of it, one sentence for each', () => {
+    bothRefuse(
+      program(`${H}let k = i32(h + h);\n  return f32(abs(i32(h + h)) + abs(k));`),
+      'TS8003',
+      [NO_EDIT('i32(h + h)'), NO_EDIT('k')],
+    );
   });
 
   it('reports the refusal of abs where main reported a mixed-type sum', () => {
@@ -166,6 +205,33 @@ describe('abs of a proven i32 minimum is refused with no edit (issue 1388, decis
   });
 
   it.each([
+    [
+      'an abs beside an abs of a run-time i32',
+      `${H}return f32(abs(i32(f32(h + h))) + abs(ii));`,
+      'h + h',
+    ],
+    [
+      'a binding of the f32 conversion',
+      `${H}let g = f32(h + h);\n  return f32(abs(i32(g)));`,
+      'h + h',
+    ],
+    [
+      'an i32 binding of the f32 conversion',
+      `${H}let q = i32(f32(h + h));\n  return f32(abs(q));`,
+      'h + h',
+    ],
+    ['a second i32 binding', `${H}let a = i32(f32(h + h));\n  return f32(abs(a));`, 'h + h'],
+  ] as const)('names no edit for the f32 conversion with %s', (_, body, subject) => {
+    bothRefuse(program(body), 'TS8003', NO_EDIT(subject, 'f32()'));
+  });
+
+  it('keeps the edit of an f32 conversion that no abs of an i32 reads', () => {
+    bothRefuse(program(`${H}let g = f32(h + h);\n  return g;`), 'TS8003', [
+      `${NO_EDIT('h + h', 'f32()')} Write "i32(h + h)" for the i32 value.`,
+    ]);
+  });
+
+  it.each([
     ['an added zero', `${H}return f32(abs(i32(f32(h + h + 0))));`, 'h + h + 0'],
     ['a product by two', `${H}return f32(abs(i32(f32(h * 2))));`, 'h * 2'],
   ] as const)(
@@ -184,6 +250,11 @@ describe('abs of a proven i32 minimum is refused with no edit (issue 1388, decis
       ['a fold', 'return f32(abs(i32(-2147483647)));', 2147483648],
       ['a typed const', 'const m: i32 = -2147483648;\n  return f32(abs(m));', -2147483648],
       ['a reassigned binding', `${H}let k = i32(h + h);\n  k = ii;\n  return f32(abs(k));`, 9],
+      [
+        'a binding set by an array assignment',
+        `${H}let k = i32(h + h);\n  [k] = [ii];\n  return f32(abs(k));`,
+        9,
+      ],
     ];
     for (const [, body, value] of cases) expect(valuesAt(program(body))).toEqual(same(value));
   });

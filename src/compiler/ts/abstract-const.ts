@@ -1478,7 +1478,7 @@ export function reportAbstractDivisions(
         const declared = r.target || constant !== undefined;
         const elsewhere =
           constant !== undefined && programFileOf(constant) !== programFileOf(r.node);
-        const wgslAbs = absOfI32Minimum(r, readingsFrom(r.node));
+        const wgslAbs = absOfI32Minimum(r, readingsFrom(r.node), READS);
         const change = (t: 'u32' | 'i32'): SourceChange | undefined =>
           elsewhere ||
           r.readings.noEdit === true ||
