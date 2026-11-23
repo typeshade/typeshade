@@ -702,11 +702,11 @@ No example has a vertex entry, a render pass or a texture. Those wait for 0138 m
 | `three-body`              | Three bodies under gravity. Each pixel replays the system for a fixed number of steps and draws the bodies and their trails.                               | Steps 4 to 8: functions, loops with an early exit, arrays, a class with references. | WebGPU, WebGL2, CPU (fragment only). |
 | `bloom`                   | A glow around bright points. A procedural image function is sampled at the taps of a Gaussian kernel inside one fragment entry.                            | Steps 4, 5 and 7: functions, loops, a constant array of weights.                    | WebGPU, WebGL2, CPU (fragment only). |
 | `tone-mapping`            | One HDR ramp, split into three bands: clamped, Reinhard and an ACES fit. No input image.                                                                   | Steps 2 and 4: `position`, vectors, functions.                                      | WebGPU, WebGL2, CPU (fragment only). |
-| `game-of-life`            | Conway's rule on a grid. A compute entry reads one buffer and writes the other. A fragment entry draws the cells.                                          | Step 7 (arrays), step 12 (the first compute kernel).                                | WebGPU, CPU. Not WebGL2.             |
-| `boids`                   | Flocking from three rules. A compute entry reads every boid and writes the next state. A fragment entry draws each boid as a disc.                         | Steps 5 and 8 (loops, a class), step 12.                                            | WebGPU, CPU. Not WebGL2.             |
-| `reaction-diffusion`      | Gray-Scott pattern growth on a grid, in a compute entry with two buffers. A fragment entry maps the two chemicals to colour.                               | Steps 7 and 12, and the `palette` ramp of step 7.                                   | WebGPU, CPU. Not WebGL2.             |
-| `path-tracer-progressive` | A path tracer that keeps the sum of its samples in a buffer. A compute entry adds one sample for each pixel in each call. A fragment entry shows the mean. | Steps 4 to 8 and step 12. It continues `examples/path-tracer.shade.ts`.             | WebGPU, CPU. Not WebGL2.             |
-| `fluid-2d`                | Stable fluids on a grid: advection, divergence, a fixed count of Jacobi pressure iterations and projection, each a kernel function.                        | Steps 5, 7 and 12, and the kernel call of step 12 (`await kernel(args)`).           | WebGPU, CPU. Not WebGL2.             |
+| `game-of-life`            | Conway's rule on a grid. A compute entry reads one buffer and writes the other. A fragment entry draws the cells.                                          | Step 7 (arrays), step 12 (the first compute kernel).                                | WebGPU, WebGL2, CPU.                 |
+| `boids`                   | Flocking from three rules. A compute entry reads every boid and writes the next state. A fragment entry draws each boid as a disc.                         | Steps 5 and 8 (loops, a class), step 12.                                            | WebGPU, WebGL2, CPU.                 |
+| `reaction-diffusion`      | Gray-Scott pattern growth on a grid, in a compute entry with two buffers. A fragment entry maps the two chemicals to colour.                               | Steps 7 and 12, and the `palette` ramp of step 7.                                   | WebGPU, WebGL2, CPU.                 |
+| `path-tracer-progressive` | A path tracer that keeps the sum of its samples in a buffer. A compute entry adds one sample for each pixel in each call. A fragment entry shows the mean. | Steps 4 to 8 and step 12. It continues `examples/path-tracer.shade.ts`.             | WebGPU, WebGL2, CPU.                 |
+| `fluid-2d`                | Stable fluids on a grid: advection, divergence, a fixed count of Jacobi pressure iterations and projection, each a kernel function.                        | Steps 5, 7 and 12, and the kernel call of step 12 (`await kernel(args)`).           | WebGPU, WebGL2, CPU.                 |
 
 Notes on the table.
 
@@ -719,9 +719,14 @@ Notes on the table.
   only through the program runtime, which is 0138 milestone 5 territory for the path. The two
   examples therefore make their HDR image inside the fragment entry. A bloom that blurs the image
   of an earlier pass waits for 0138 milestone 5 and is in the deferred list.
-- [fact] Tiers. WebGL2 has no storage buffer (`docs/use-typeshade-surface.md`, the statement about
-  an entry that reads one). The five examples that hold state in a buffer therefore list no
-  WebGL2. The three fragment-only examples can list all three tiers.
+- [fact] Tiers. WebGL2 has no storage buffer of its own, but TypeShade runs a `@compute` entry
+  there as its pass program over textures of 32-bit words, with read-write storage, barriers and
+  atomic operations in the phased order of change 0054 (`docs/language-design.md`, Rule 11.8 and
+  the compute entry's tiers). The owner pointed this out on 2026-11-23: "WebGL2 에 스토리지 버퍼가
+  없어도 typeshade에서는 구현되잖아요. 지금 그것도 typeshade가 폴백 구현해주는데" (English: even
+  if WebGL2 has no storage buffer, TypeShade implements it; TypeShade provides that fallback
+  now). So all eight target WebGL2. A kernel function runs on WebGL2 only when each loop writes
+  one array of 4-byte elements at exactly `i` (Rule 11.8); M7 checks `fluid-2d` against that.
 - [fact] None of the eight uses workgroup memory, a barrier or an atomic. None is GPU-only for
   that reason. [inference] If M7 finds that a rewrite needs one, that example lists WebGPU and
   CPU where the CPU tier runs it, and the CPU tier runs a workgroup barrier only as the call
