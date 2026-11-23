@@ -2395,15 +2395,12 @@ function lowerAssignOpTo(
     isNumericScalar(target.type) &&
     // `a /= f32(2)`: a written conversion keeps its type (decision Q11 of change 0134).
     !statesType(right) &&
-    // `a *= 0.5` over an integer target: the fraction keeps its `f32` type and the mismatch
-    // below refuses it, as it refuses `a = a * 0.5` (issue 1302).
-    !(isIntScalar(target.type) && !Number.isInteger(value.value))
+    (Number.isInteger(value.value) || !isIntScalar(target.type))
   ) {
     value = { op: 'lit', type: target.type, value: value.value };
   } else if (isVec(target.type) || isVec64(target.type) || isF64(target.type)) {
-    // `v *= 2` with an integer vector target types the literal as the element kind; a
-    // non-integer literal stays f32 and is diagnosed below instead of being truncated. A
-    // vec64 or f64 target makes the literal an f64 so the full double reaches the fp64 pass.
+    // `v *= 2` with an integer vector target types the literal as the element kind; a fraction
+    // stays f32 and is diagnosed below. A vec64 or f64 target makes it an f64 (fp64 pass).
     value = retargetLit(value, right, target.type);
   }
   // `n += vi` gives a value its uses decide the type of what it adds (change 0134 item 1).
