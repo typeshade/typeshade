@@ -173,7 +173,7 @@ come from `find examples -name '*.shade.ts'` and `examples/_order.ts`, run on 20
   site reads them at build time from `examples/index.ts`. 23 of the 102 `.shade.ts` files are
   twins of these (`twinOf`). The other 13 builder examples have no `.shade.ts` form.
 - 3 support modules, which are not examples: `examples/lib/noise.shade.ts` and
-  `examples/passes/blur-x.shade.ts` and `examples/passes/trail.shade.ts`. An example imports
+  `examples/passes/blur-x.shade.ts` and `trail.shade.ts` (it moved to `examples/gallery/feedback-trail/` in M4.3a). An example imports
   each of them (`imported-noise`, `separable-blur`, `feedback-trail`).
 
 Total: 114 `.shade.ts` files (102 + 9 + 3) and 36 builder files. They hold 147 examples
@@ -280,7 +280,7 @@ refuses a form it does not implement, and the diagnostic says so).
 CLAUDE.md asks for one example before and after for a change to how an author writes an
 example. The example is the smallest program that draws.
 
-**Before.** `examples/hello.shade.ts` is a triangle. It has no host. A reader who wants to see
+**Before.** `hello.shade.ts`, a top-level file of `examples/`, is a triangle. It has no host. A reader who wants to see
 it run copies `examples/hosts/host-draw/host.ts`, which is the closest host:
 
 ```ts
@@ -995,7 +995,7 @@ examples/
    A test fails when the two disagree. The directory holds one `example.json` beside the module. The nine hosts, the 93 other `.shade.ts` examples and the 3
    support modules move under `examples/gallery/`. A support module moves into the directory of the
    example that imports it (`lib/noise.shade.ts` to `imported-noise`, `passes/blur-x.shade.ts` and
-   `passes/trail.shade.ts` to `separable-blur` and `feedback-trail`, as 0145 says each is imported by one example).
+   `trail.shade.ts` to `feedback-trail` and `passes/blur-x.shade.ts` to `separable-blur`, as 0145 says each is imported by one example).
 2. **The manifest is a separate `example.json` in each example directory.** [decision, owner, O2]
    [fact] Today the `@example` block of a module holds its hand-written metadata
    (`examples/_shade.ts`, decision #65: two branches that add two examples touch two new files and no
@@ -1164,9 +1164,13 @@ path adds a plain-JavaScript reference for each step (`examples/path/_reference.
 
 Notes.
 
-- [fact] C5 is open: this text has not verified that the oracle can be called through a host `run()`.
-  M4.6 checks it first. If it cannot, C5 is dropped and C6 stays the check that holds a result to
-  an independent evaluation. The text of M4.6 then says so.
+- [fact] C5 is possible, checked by M4.6. The oracle is not called through a host `run()`: the
+  check computes the expected pixels or values from the `f64` oracle with the bindings the host
+  passes, and holds the CPU `run()` to them. It covers the path steps that list `cpu` and
+  `host-draw`. The CPU tier runs the generated JavaScript twin of the oracle in `f32`, so C5 finds a
+  wrong call layer and `f32` drift, and does not find an error that both share. The tolerance is exact
+  where the determinism report of the module lists no operation, and the `PIXEL` and `RELATIVE`
+  allowances of `examples/path/_reference.ts` otherwise: the report states its bounds in words, not numbers.
 - [inference] C6 compares a GPU tier to the CPU tier. A bug that all three tiers share is not found
   by C6. The path keeps its plain-JavaScript references for this reason, and the gallery has none
   (owner's answer O5). A shared bug is the work of C5 and of the gate's differential legs (`bun run gate:differential`).
@@ -1183,7 +1187,7 @@ The gallery has no lit cube. The deferred list of A1 names meshes as waiting for
 The example is `hello-vsout`, which has the shape that 81 modules share: a fragment entry that reads
 a vertex output.
 
-**Before.** One file, `examples/hello-vsout.shade.ts` (37 lines). It has no group, no host and no
+**Before.** One file, `hello-vsout.shade.ts` in `examples/` (37 lines). It has no group, no host and no
 tier list. Its header holds `title`, `blurb` and `"renderable": true`. A reader cannot run it.
 
 ```ts

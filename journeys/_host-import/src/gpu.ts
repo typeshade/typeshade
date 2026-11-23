@@ -19,6 +19,7 @@ import {
   countMod,
   drift,
   histogram,
+  inside,
   LayoutItem,
   layoutRead,
   layoutMap,
@@ -30,6 +31,8 @@ import {
   fuseMark,
   fuseScale,
   odds,
+  pairSearch,
+  pairTwice,
   pushAbove,
   pushPairs,
   render,
@@ -45,6 +48,7 @@ import {
   stats,
   tally,
 } from './loops.shade.ts';
+import { evens } from './growing.shade.ts';
 import { OnePole, run as runFilters } from './filters.shade.ts';
 // Copied in by the journey from journeys/particles and journeys/plasma.
 import { step } from './particles.shade.ts';
@@ -463,6 +467,55 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   // every iteration pushes, and then two rows of three push.
   configure({ prefer: ['webgpu'] });
   const pushed = await renderPushed([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
+  // The pair search (change 0114, A12 Example 2) on WebGPU, required: a count-only first run,
+  // then the store run, with the CPU tier's answer beside it.
+  const pairXs = Float32Array.from({ length: 400 }, (_, i) => (i * 37) % 101);
+  configure({ prefer: ['webgpu'] });
+  const pairs = await pairSearch(pairXs, 1.5).finally(() => configure({}));
+  configure({ prefer: ['cpu'] });
+  const pairsCpu = await pairSearch(pairXs, 1.5).finally(() => configure({}));
+  // Two pushing nests, a call that pushes nothing, a call of one element, and a mixed call: the
+  // count-only run carries the first nest's total into the second nest's scan.
+  const twiceCases: [number[], number][] = [
+    [[5], 0],
+    [[5], 100],
+    [Array.from({ length: 40 }, (_, i) => (i * 37) % 101), 60],
+  ];
+  const twiceOn = async (tier: 'webgpu' | 'cpu'): Promise<number[]> => {
+    const all: number[] = [];
+    for (const [xs, r] of twiceCases) {
+      configure({ prefer: [tier] });
+      const got = await pairTwice(Float32Array.from(xs), r).finally(() => configure({}));
+      all.push(...got);
+    }
+    return all;
+  };
+  const twiceGpu = await twiceOn('webgpu');
+  const twiceCpu = await twiceOn('cpu');
+  const insideNs = [0, 1, 3, 4, 64];
+  const insideOn = async (tier: 'webgpu' | 'cpu'): Promise<number[]> => {
+    const all: number[] = [];
+    for (const n of insideNs) {
+      configure({ prefer: [tier] });
+      all.push(...(await inside(n).finally(() => configure({}))));
+    }
+    return all;
+  };
+  const insideGpu = await insideOn('webgpu');
+  const insideCpu = await insideOn('cpu');
+  // Route 3: a while that pushes runs on the CPU tier although WebGPU comes first, and a runtime
+  // that lists WebGPU alone refuses it with the face's reason.
+  const evensOn: number[] = [];
+  for (const limit of [0, 1, 9, 64]) {
+    configure({ prefer: ['webgpu', 'cpu'] });
+    evensOn.push(...(await evens(limit).finally(() => configure({}))));
+  }
+  configure({ prefer: ['webgpu'] });
+  const evensReason = await evens(9).then(
+    () => 'no error',
+    (e: unknown) => String(e),
+  );
+  configure({});
   configure({ prefer: ['webgpu'] });
   const kept = await renderKept([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
   // A kernel function that makes an array of vectors and one of structs (change 0114, S5,
@@ -623,6 +676,14 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     scaleMade: [...madeOnResource],
     renderPushed: [...pushed],
     renderKept: [...kept],
+    pairSearch: [...pairs],
+    pairSearchCpu: [...pairsCpu],
+    pairTwice: twiceGpu,
+    pairTwiceCpu: twiceCpu,
+    inside: insideGpu,
+    insideCpu,
+    evens: evensOn,
+    evensReason,
     shadeMade: [...shade],
     driftMade: drifted.flatMap((p) => [...p.pos, ...p.vel]),
     shareMade: [

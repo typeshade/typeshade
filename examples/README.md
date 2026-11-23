@@ -148,6 +148,14 @@ the two files and `example.json`, add its id to `path/_order.ts`, add its refere
 to `path/_drive.ts`, run the registry script, and bake the goldens. Steps 1 to 8, 12 to 15 and 17
 exist (steps 9 to 11 and 16 wait for change 0138 milestone 5, as change 0145 says); the gallery in `hosts/` and the top level keeps its own form until a later milestone of change 0145.
 
+One driver reads the registry (change 0145 A2, M4.6). `_driver.ts` lists every example whose
+`example.json` says `"host": "run"` (and the host examples of `hosts/`, which have no manifest yet),
+and runs the ones that list `cpu`. `registry-driver.test.ts` holds C4 (two runs equal, all numbers
+finite, `check.ts` where it exists) and C5 (the CPU `run()` against the `f64` oracle of the same IR,
+`_oracle.ts`, with the bindings of `path/_oracle-cases.ts` and `hosts/_oracle-cases.ts`). C5 does not
+cover an example with no oracle case; the test names each one with its reason. `_compare.ts` is the
+one compare helper that both `_reference.ts` files and these checks use.
+
 An example can be drawn in several passes (change 0026). Its block names them in draw order,
 `"passes": [{ "name": "trail", "file": "passes/trail.shade.ts" }]`, and the example's own file
 is drawn last, into the canvas. A pass is a complete program under `passes/`, which the scan
@@ -167,7 +175,8 @@ computed from the clip-space position runs up the screen on both backends, and r
 the texture comes back upside down on WebGPU.
 
 The table lists the first seven, the hello programs and the first twin; every other file's
-title and blurb are in its own `@example` block.
+title and blurb are in its own `@example` block, or, for a module that moved into
+`examples/gallery/<id>/` (change 0145, M4.3), in the `example.json` beside it.
 
 | File                              | Renderable | What it shows                                                                                                                                      |
 | --------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |

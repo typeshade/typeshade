@@ -594,6 +594,42 @@ async function hostImport(
       `the kernel function ${key}, called through the import, writes the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,
     );
   }
+  const pairsGpu = web.loops?.['pairSearch'];
+  const pairsCpu = web.loops?.['pairSearchCpu'];
+  check(
+    typeof pairsGpu === 'object' &&
+      typeof pairsCpu === 'object' &&
+      pairsGpu.length > 0 &&
+      pairsGpu.length === pairsCpu.length &&
+      pairsGpu.every((v, i) => Object.is(v, pairsCpu[i])),
+    'pairSearch, a push in a nest that Route 2 counts first, returns on WebGPU the CPU tier bit for bit (change 0114, A12)',
+  );
+  const twiceGpu = web.loops?.['pairTwice'];
+  const twiceCpu = web.loops?.['pairTwiceCpu'];
+  check(
+    typeof twiceGpu === 'object' &&
+      typeof twiceCpu === 'object' &&
+      twiceGpu.length > 0 &&
+      twiceGpu.length === twiceCpu.length &&
+      twiceGpu.every((v, i) => Object.is(v, twiceCpu[i])),
+    'pairTwice, two pushing nests with a call that pushes nothing, returns on WebGPU the CPU tier bit for bit (change 0114, A12)',
+  );
+  const insideGpu = web.loops?.['inside'];
+  const insideCpu = web.loops?.['insideCpu'];
+  check(
+    typeof insideGpu === 'object' &&
+      typeof insideCpu === 'object' &&
+      insideGpu.length > 0 &&
+      insideGpu.length === insideCpu.length &&
+      insideGpu.every((v, i) => Object.is(v, insideCpu[i])),
+    'inside, a counted for with a branch and a counted for under it that pushes, returns on WebGPU the CPU tier bit for bit (change 0114, A12, Route 3 S2)',
+  );
+  check(
+    /a loop of it runs on the CPU \(TS8070\)|only the CPU tier grows an array while it runs/.test(
+      String(web.loops?.['evensReason']),
+    ),
+    `evens, a while that pushes (Route 3), names the proof's reason (TS8070) or the growing reason on a WebGPU-only runtime (${String(web.loops?.['evensReason'])})`,
+  );
   const scaledOnResource = web.loops?.['scaleMade'];
   const madeOnDevice = web.loops?.['renderMade'];
   check(
@@ -665,6 +701,8 @@ async function hostExamples(
     recursive: true,
     filter: (from) => !from.endsWith('tsconfig.json') && !from.endsWith('.shade.typeshade.ts'),
   });
+  // `hosts/_reference.ts` imports `../_compare.ts` (change 0145), which sits beside `hosts/`.
+  cpSync(join(REPO, 'examples', '_compare.ts'), join(app, '_compare.ts'));
   writeFileSync(
     join(app, 'vite.hosts.config.ts'),
     [

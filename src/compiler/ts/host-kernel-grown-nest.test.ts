@@ -253,15 +253,43 @@ describe('a push in a nested loop or under a top-level branch (change 0114, A12 
     expect(exactCapacity(cpu, made, [0, 5] as CpuValue[])).toBe(2);
   });
 
-  it('throws a RangeError before the run when the capacity of a nest passes 4294967295', async () => {
+  it('refuses a capacity of a nest past 4294967295 at the limit of Route 1', () => {
+    const k = kernels();
+    const refused = (name: string, highs: number[][], capacity: number, counted?: true): void => {
+      const face = k.get(name)!;
+      const made = madeOf(face)!;
+      const F: Record<string, (...a: CpuValue[]) => CpuValue> = {};
+      made.capacity!.forEach((term, t) => {
+        F[term.low] = () => 0 as CpuValue;
+        F[term.high] = () => highs[t]![0]! as CpuValue;
+        (term.inner ?? []).forEach((l, n) => {
+          F[l.low] = () => 0 as CpuValue;
+          F[l.high] = () => highs[t]![n + 1]! as CpuValue;
+        });
+        if (term.when !== undefined) F[term.when] = () => true as CpuValue;
+      });
+      const cpu: GeneratedCpu = { F, $: { bindings: {}, vars: {} } };
+      const room = exactCapacity(cpu, made, []);
+      expect(room).toBe(capacity);
+      expect(() => checkedCapacity(face, made, room)).toThrow(pastLimit(name, capacity));
+      expect(made.counted).toBe(counted);
+    };
+    refused('inner', [[65536, 65536]], 2 ** 32, true);
+    refused(
+      'deep',
+      [
+        [2048, 2048],
+        [2048, 2048, 2048],
+      ],
+      2048 * 2048 * 2048 + 2048 * 2048,
+      true,
+    );
+    refused('square', [[65536], [65536, 65535]], 65536 + 65536 * 65535, true);
+    refused('guarded', [[3, 2 ** 31]], 3 * 2 ** 31);
+  });
+
+  it('throws the RangeError of Route 1 at the call for a nest that is not counted', async () => {
     const m = await load();
-    await expect(m['inner']!(65536, 65536)).rejects.toThrow(pastLimit('inner', 2 ** 32));
-    await expect(m['deep']!(2048, 2048, 2048)).rejects.toThrow(
-      pastLimit('deep', 2048 * 2048 * 2048 + 2048 * 2048),
-    );
-    await expect(m['square']!(65536, 65535)).rejects.toThrow(
-      pastLimit('square', 65536 + 65536 * 65535),
-    );
     await expect(m['guarded']!(3, 2 ** 31)).rejects.toThrow(pastLimit('guarded', 3 * 2 ** 31));
   });
 

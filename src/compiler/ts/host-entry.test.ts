@@ -415,7 +415,7 @@ declare const out: storage<array<vec3>, "read_write">;
       ]),
     );
     await expect(call(bindings, 1)).rejects.toThrow(
-      /^cs\(\) needs WebGPU: it reaches workgroupBarrier\(\) at m\.shade\.ts:\d+, and a barrier has no CPU tier\.$/,
+      /^cs\(\) needs WebGPU: it reaches workgroupBarrier\(\) at m\.shade\.ts:\d+, not supported yet on the CPU tier \(Rule 8\.24\)\.$/,
     );
   });
 });

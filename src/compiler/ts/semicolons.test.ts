@@ -10,7 +10,7 @@
 // format:semicolons skip — the inputs below are the ASI sources the pass is tested on.
 
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -18,6 +18,7 @@ import { insertSemicolons } from './semicolons.js';
 import { compile } from './compile.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import { scanShaderSources } from '../../../scripts/semicolons.js';
+import { CORPUS_FILES } from '../../../examples/_example-file.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -151,7 +152,7 @@ function stripSemicolons(src: string): string {
 
 describe('a source that leaves its `;` to ASI compiles to the same shader', () => {
   const dir = join(ROOT, 'examples');
-  const files = readdirSync(dir).filter((f) => f.endsWith('.shade.ts'));
+  const files = CORPUS_FILES;
 
   it.each(files)('%s', (file) => {
     const src = readFileSync(join(dir, file), 'utf8');

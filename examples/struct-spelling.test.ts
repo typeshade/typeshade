@@ -17,16 +17,17 @@
 // examples meets more than one way to declare a struct.
 
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const DIR = dirname(fileURLToPath(import.meta.url));
+import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
+import { SHADE_FILES, exampleFile } from './_example-file.js';
 
 function sources(): { name: string; text: string }[] {
-  return readdirSync(DIR)
-    .filter((f) => f.endsWith('.shade.ts'))
-    .map((name) => ({ name, text: readFileSync(join(DIR, name), 'utf8') }));
+  return [...SHADE_FILES.keys()]
+    .filter((id) => !/^(?:hosts|path)\//.test(SHADE_FILES.get(id)!))
+    .map((id) => ({
+      name: basename(exampleFile(id)),
+      text: readFileSync(exampleFile(id), 'utf8'),
+    }));
 }
 
 describe('the example corpus shows each way to declare a struct', () => {

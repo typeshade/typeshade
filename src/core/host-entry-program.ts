@@ -440,7 +440,7 @@ async function onGlProgram(
       const img = checked.images.get(b.name)!;
       if (img.view !== undefined)
         throw new TypeError(
-          `${e.name}(): binding "${b.name}" is a Texture on the WebGPU device, which the WebGL2 tier cannot read; pass an image source for a call that may fall back.`,
+          `${e.name}(): binding "${b.name}" is a Texture on the WebGPU device, which the WebGL2 tier does not read yet (Rule 8.24); pass an image source for a call that may fall back.`,
         );
       const texture = glImageTexture(rt.rhi, img);
       textures.push(texture);

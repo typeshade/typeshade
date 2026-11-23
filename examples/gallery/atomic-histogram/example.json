@@ -1,0 +1,9 @@
+{
+  "title": "Atomic histogram",
+  "blurb": "Many invocations count into one bin at once with `atomicAdd(bins[bin], 1)`, one indivisible step each; a storage struct field and a bare `storage<atomic<u32>>` binding show the other two shapes of location, and the value an atomic returns is what it held before. `compile()` emits WGSL and no GLSL text for it; on WebGL2 the entry runs as a pass program, with its atomic operations in the phased order (Rule 11.8).",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}
