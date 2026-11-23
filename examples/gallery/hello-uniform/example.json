@@ -1,0 +1,8 @@
+{
+  "title": "Hello uniform",
+  "blurb": "A bare `declare const scale: uniform<f32>` keeps the same numeric host value on both targets. GLSL ES 3.00 places the scalar in a private std140 block; the caller needs no wrapper class.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

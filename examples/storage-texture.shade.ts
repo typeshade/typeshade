@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "A storage texture",
-  "blurb": "An image a compute entry writes by texel coordinate, with no sampler and no filtering (§33). The format and the access mode are part of the type, as they are in WGSL, and are written as string literal types so `tsc` checks a mistyped format in the editor. Three bindings: one `\"write\"`, one `\"read_write\"` at `\"r32float\"` (the only formats a device reads and writes through one binding), and one integer format whose texel is a `vec4u`. WGSL-only: GLSL ES 3.00 has no image load/store, which is ES 3.10. Two things it refuses that Tint does not, because Tint compiles a shader and a device binds one.",
+  "blurb": "An image a compute entry writes by texel coordinate, with no sampler and no filtering (§33). The format and the access mode are part of the type, as they are in WGSL, and are written as string literal types so `tsc` checks a mistyped format in the editor. Three bindings: one `\"write\"`, one `\"read_write\"` at `\"r32float\"` (the only formats a device reads and writes through one binding), and one integer format whose texel is a `vec4u`. WGSL-only for now in a draw: a storage texture is not supported yet in a GLSL draw (Rule 10.5), and a `@compute` entry that reaches one runs on WebGL2 through the pass program. Two things it refuses that Tint does not, because Tint compiles a shader and a device binds one.",
   "renderable": false,
   "reason": "missing capabilities: storageTexture, compute"
 }
@@ -17,11 +17,12 @@
 // `"read"`. Written as string literal types, so `tsc` checks a mistyped format in the editor
 // before this compiler sees the file.
 //
-// WGSL-only. GLSL ES 3.00 has no image load/store at all — that is ES 3.10 — so a module
-// carrying one emits WGSL alone, the same way a storage buffer or an atomic does. Measured on
-// a WebGL2 driver rather than read off the spec: `layout(rgba8) uniform writeonly image2D` is
-// "invalid layout qualifier: not supported", and asking for the extension that would bring it
-// is "extension is not supported".
+// WGSL-only for now in a draw. A storage texture in a GLSL draw is not supported yet (Rule
+// 10.5), so there the module emits WGSL alone. A `@compute` entry that reaches one runs on
+// WebGL2 through the pass program (Rule 10.5). GLSL ES 3.00 has no image load/store at all.
+// Measured on a WebGL2 driver rather than read off the spec: `layout(rgba8) uniform writeonly
+// image2D` is "invalid layout qualifier: not supported", and asking for the extension that
+// would bring it is "extension is not supported".
 //
 // Two things this refuses that Tint does NOT, because Tint compiles a shader and a device
 // binds one. Tint accepts every format at every access mode; a real device accepts

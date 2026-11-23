@@ -278,7 +278,7 @@ describe('what a list is refused for', () => {
     ).toContain('array<i32, 2>(1, 2)');
   });
 
-  it('refuses an array of arrays, because GLSL ES 3.00 has none', () => {
+  it('refuses an array of arrays, which the compiler does not flatten yet', () => {
     // Measured through the compile gate on both spellings of the same program: the list and
     // `array<array<f32, 2>, 2>(...)` each pass Tint and each fail the WebGL2 context with
     // "arrays of arrays supported in GLSL ES 3.10 and above only". Accepting the list would
@@ -289,7 +289,7 @@ describe('what a list is refused for', () => {
         src('  const xs: array<array<f32, 2>, 2> = [[1., 2.], [3., 4.]];\n  return xs[0][0];'),
       ),
     ).toBe(
-      'array<array<f32, 2>, 2> is an array of arrays, which GLSL ES 3.00 does not have. ' +
+      'array<array<f32, 2>, 2> is an array of arrays, which the compiler does not flatten yet. ' +
         'Flatten it: one array<f32, N> indexed by row * width + column.',
     );
     // A list where the element type does not take one says which type is wanted, rather than

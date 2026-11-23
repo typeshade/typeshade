@@ -2114,7 +2114,7 @@ export function lowerSourceFunctions(
       path.map((f) => nodeByName.get(f.name)),
     );
   }
-  checkEntryStageUses(funcs, vars, nodeByName, sourceFile, diagnostics);
+  checkEntryStageUses(funcs, vars, bindings, nodeByName, sourceFile, diagnostics);
   // A read before an assignment, on the source (Rule 7.6).
   checkDefiniteAssignment(sourceFile, diagnostics);
   // Two references to one place in one call, read off the lowered calls once every callee says

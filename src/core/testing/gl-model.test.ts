@@ -4,7 +4,7 @@
 // the atomics. On `f32` precision the oracle and the model must leave the same memory, bit for
 // bit, on every program the proposal lists and on every runnable compute example.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -17,6 +17,7 @@ import { splitPhases } from '../passes/phase-split.js';
 import { autoVars } from '../passes/opt/index.js';
 import { stageOf, type ModuleDecl, type ShaderType } from '../ir/index.js';
 import type { CpuValue } from '../cpu-runtime.js';
+import { CORPUS_FILES } from '../../../examples/_example-file.js';
 
 type Bindings = Record<string, CpuValue>;
 
@@ -83,7 +84,7 @@ describe('every compute example, on the GL model and the oracle (change 0054)', 
   // A runtime-sized array gets 512 elements, so no example reads past its end with these
   // inputs: WGSL gives such a read no one value, and the oracle and a texel fetch differ there.
   const dir = fileURLToPath(new URL('../../../examples/', import.meta.url));
-  const files = readdirSync(dir).filter((f) => f.endsWith('.shade.ts'));
+  const files = CORPUS_FILES;
 
   function valueOf(t: ShaderType, m: ModuleDecl, seed: { n: number }, length: number): CpuValue {
     const next = (): number => (seed.n = (seed.n * 7 + 3) % 61);

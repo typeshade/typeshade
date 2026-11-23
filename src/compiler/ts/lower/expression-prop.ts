@@ -118,8 +118,8 @@ export function rootedIn(e: Expr, scope: LoweringScope, spaces: readonly string[
  *  array in the storage space, which is the binding itself or a trailing struct member; measured on
  *  Tint, `arrayLength(&src[0])` is refused and `arrayLength(&b.xs)` accepted. The caller has
  *  already taken the sized array, whose `.length` is a compile-time constant. The result is `u32`,
- *  as it is in WGSL. The CPU oracle reads the bound buffer's length. GLSL ES 3.00 has no form: a
- *  module with a runtime-sized storage array emits WGSL alone, as it did before this. The free
+ *  as it is in WGSL. The CPU oracle reads the bound buffer's length. The GLSL lowering is not
+ *  supported yet (Rule 10.3): a module with a runtime-sized storage array emits WGSL alone. The free
  *  call `arrayLength(x)` is not authorable (change 0112); `.length` is the one spelling. */
 export function arrayLengthOf(
   base: Expr,

@@ -15,8 +15,9 @@
 
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { GALLERY_DIR } from '../examples/_example-file.js';
 import { hostFace, type HostExport } from '../src/compiler/ts/host-face.js';
 import { compile, packModule } from '../src/index.js';
 import { createTypeshadeLanguageService } from '../src/language-service/index.js';
@@ -251,14 +252,18 @@ export async function entryBundle(): Promise<EntryBundle> {
     const cases: string[] = [];
     let compute = 0;
     let fragment = 0;
-    const files = readdirSync(examples)
-      .filter((f) => f.endsWith('.shade.ts'))
-      .sort();
+    const gallery = readdirSync(join(examples, GALLERY_DIR), { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => `${GALLERY_DIR}/${d.name}/${d.name}.shade.ts`);
+    const files = [
+      ...readdirSync(examples).filter((f) => f.endsWith('.shade.ts')),
+      ...gallery,
+    ].sort((a, b) => basename(a).localeCompare(basename(b)));
     const service = createTypeshadeLanguageService();
     const sources: { path: string; id: string; source: string }[] = [
       ...files.map((file) => ({
         path: join(examples, file),
-        id: file.replace(/\.shade\.ts$/, ''),
+        id: basename(file).replace(/\.shade\.ts$/, ''),
         source: readFileSync(join(examples, file), 'utf8'),
       })),
       // The compute cases (`scripts/compute-case.ts`) are programs an author writes, so both
@@ -325,7 +330,7 @@ export async function entryBundle(): Promise<EntryBundle> {
         else fragment++;
         const noCpu =
           e.kind === 'compute' && e.entry.barrier !== undefined
-            ? `it reaches ${e.entry.barrier}, and a barrier has no CPU tier`
+            ? `it reaches ${e.entry.barrier}, not supported yet on the CPU tier (Rule 8.24)`
             : e.entry.noCpu;
         const noGl = e.entry.noGl;
         cases.push(
