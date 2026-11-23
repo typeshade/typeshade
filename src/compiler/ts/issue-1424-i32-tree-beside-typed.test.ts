@@ -31,8 +31,6 @@ const unproven = (name: string, operator = '/'): string =>
 
 describe('a signed tree past i32 beside a typed i32 operand is refused (issue 1424, D2)', () => {
   it("refuses the issue's program and its neighbours in both halves, with each edit's value", () => {
-    // TypeScript gives ToInt32(trunc(2147483648 / -9)) = -238609294; the wrapped quotient was
-    // 238609294. Each edit's value is TypeScript's value of the edited program.
     expect(toInt32(TS_B / -9)).toBe(-238609294);
     const cases: readonly (readonly [string, string, number])[] = [
       [`${A}return i32(b / ii);`, `${A}return i32(i32(b) / ii);`, toInt32(I32_B / -9)],
@@ -51,7 +49,6 @@ describe('a signed tree past i32 beside a typed i32 operand is refused (issue 14
   });
 
   it('refuses the tree beside an agreeing tree that becomes a typed i32', () => {
-    // TypeScript gives 2147483648 / 2097152 = 1024; the wrapped quotient was -1024.
     expect(toInt32(TS_B / Q_VALUE)).toBe(1024);
     for (const [body, edited] of [
       [`${A}${Q}return i32(b / q);`, `${A}${Q}return i32(i32(b) / q);`],
@@ -64,7 +61,7 @@ describe('a signed tree past i32 beside a typed i32 operand is refused (issue 14
 
   it("names no D-b edit that leads into the refusal, and D2's edit gives TypeScript's value", () => {
     const C = 'let c = 1 << 4;\n  let d = c + c;\n  ';
-    // The D-b edit `i32(d) / 4` gave -268435456, where TypeScript gives 268435456: it is not named.
+    expect(toInt32(TS_B / 8)).toBe(268435456);
     bothRefuse(
       program('i32', `${A}${C}return i32(b / (d / 4));`),
       'TS8003',
@@ -75,7 +72,6 @@ describe('a signed tree past i32 beside a typed i32 operand is refused (issue 14
     expect(valuesAt(program('i32', `${A}${C}return i32(i32(b) / (i32(d) / 4));`))).toEqual(
       at(toInt32(I32_B / 8)),
     );
-    // Over an agreeing tree D-b names its edit, as before.
     bothRefuse(
       program('i32', `let a = 1 << 20;\n  let b = a + a;\n  ${C}return i32(b / (d / 4));`),
       'TS8003',
@@ -85,8 +81,7 @@ describe('a signed tree past i32 beside a typed i32 operand is refused (issue 14
   });
 
   it("refuses the tree's % and comparisons beside a typed i32, with each edit's value", () => {
-    // TypeScript: 2147483648 % -9 is 2, and 2147483648 < -9 is false. The wrapped tree gave -2
-    // and true.
+    expect([TS_B % -9, TS_B < -9, TS_B === -9]).toEqual([2, false, false]);
     const cases: readonly (readonly [string, string, string, number])[] = [
       ['%', `${A}return i32(b % ii);`, `${A}return i32(i32(b) % ii);`, I32_B % -9],
       ['<', `${A}return b < ii ? 1 : 0;`, `${A}return i32(b) < ii ? 1 : 0;`, 1],
@@ -105,7 +100,6 @@ describe('a signed tree past i32 beside a typed i32 operand is refused (issue 14
     expect(valuesAt(program('i32', `${loop('ii')}return i32(i32(b) / ii);`), [3, 7, 1.5])).toEqual(
       at(toInt32((4 * 2 ** 20) / 3)),
     );
-    // A constant trip count proves the range: accepted, as before.
     expect(valuesAt(program('i32', `${loop('3')}return i32(b / ii);`), [3, 7, 1.5])).toEqual(
       at(toInt32((4 * 2 ** 20) / 3)),
     );
@@ -123,10 +117,8 @@ describe('a signed tree past i32 beside a typed i32 operand is refused (issue 14
     );
     expect(valuesAt(program('i32', 'return i32(ii / 7);'))).toEqual(at(-1));
     expect(valuesAt(program('i32', 'let x: i32 = ii;\n  return ii / x;'))).toEqual(at(1));
-    // `+ - *` agree modulo 2^32: ToInt32(2147483648 * -9) is -2147483648.
     expect(valuesAt(program('i32', `${A}return i32(b * ii);`))).toEqual(at(toInt32(TS_B * -9)));
     bothRefuse(program('f32', `${A}return f32(b) / f;`), 'TS8003', unproven('b', 'f32()'));
-    // A `u32` tree beside a typed `i32` is refused as a type mismatch, as before.
     bothRefuse(
       program('i32', 'let c = (3000000000|0);\n  let d = c;\n  return i32(d / ii);'),
       'TS8003',
