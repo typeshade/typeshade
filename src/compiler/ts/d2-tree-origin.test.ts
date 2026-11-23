@@ -310,8 +310,10 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
     expect(run(source.replace('abs(a)', 'abs(i32(a))'))).toBe(268435456);
   });
 
-  const NO_EDIT = (subject: string): string =>
-    `The compiler cannot prove that the u32 bits and the TypeScript value of "${subject}" agree, so the "abs" does not say which value it means.`;
+  const NO_EDIT = (subject: string, numbers?: readonly [number, number]): string =>
+    numbers === undefined
+      ? `The compiler cannot prove that the u32 bits and the TypeScript value of "${subject}" agree, so the "abs" does not say which value it means.`
+      : `"${subject}" is ${String(numbers[0])} on its u32 bits and ${String(numbers[1])} in TypeScript, so the "abs" does not say which value it means.`;
   const TREE_A = 'let a = (0xF0000000|0);\n  ';
   it.each([
     [
@@ -322,12 +324,12 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
     [
       'a ?: with the i32 minimum in an arm',
       `${TREE_A}return f32(abs(vi > 3 ? a + 0x90000000 : a));`,
-      NO_EDIT('vi > 3 ? a + 0x90000000 : a'),
+      NO_EDIT('vi > 3 ? a + 0x90000000 : a', [4026531840, -268435456]),
     ],
     [
       'a select with the i32 minimum in an arm',
       `${TREE_A}return f32(abs(select(a, (0x80000000|0), vi > 3)));`,
-      NO_EDIT('select(a, (0x80000000|0), vi > 3)'),
+      NO_EDIT('select(a, (0x80000000|0), vi > 3)', [4026531840, -268435456]),
     ],
   ] as const)(
     'review of #1358 (B1): abs names no edit where any value may be the i32 minimum: %s',

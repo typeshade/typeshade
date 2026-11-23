@@ -136,18 +136,15 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
       'c << 31',
       'let c = 9;\n  let t = (3000000000|0);\n  let x = c + t;\n  ',
     ],
-  ])(
-    'review of #1354: a number beside a u32 tree takes its bits: %s',
-    (how, pre, subject, body) => {
-      const source = program(`${body}return f32(${subject});`, 'f32', pre);
-      const many = how !== 'a variable a tree peer types';
-      const said = many
-        ? unproven
-        : (s: string, at: string, e: string) => proven(s, 2 ** 31, -(2 ** 31), at, e);
-      bothRefuse(source, 'TS8003', said(subject, 'f32()', `i32(${subject})`));
-      expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(-2147483648);
-    },
-  );
+  ])('review of #1354: a number beside a u32 tree takes its bits: %s', (_, pre, subject, body) => {
+    const source = program(`${body}return f32(${subject});`, 'f32', pre);
+    bothRefuse(
+      source,
+      'TS8003',
+      proven(subject, 2147483648, -2147483648, 'f32()', `i32(${subject})`),
+    );
+    expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(-2147483648);
+  });
 
   it('re-review of #1354: a constant trip count bounds the values, so the loop compiles to 243', () => {
     const body =

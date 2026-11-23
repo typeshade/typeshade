@@ -100,8 +100,6 @@ import {
   pastInt32,
   provenDiffering,
   markReassigned,
-  numberedReading,
-  carried,
   provenI32Minimum,
   readingValue,
   sameReadings,
@@ -2253,11 +2251,11 @@ function declarationChange(name: string, at: ts.Node, type: string): SourceChang
 /** The two values of `node` where a tree's `u32` bits and its TypeScript value reach it and
  *  differ (D2, 2026-11-12): a tree over a written number only a `u32` holds, carried untyped
  *  through a `let`, a `const`, a function's result, `?:`, `select` and arithmetic over written
- *  numbers. An annotation, a conversion and a typed operand end it. No numbers where more than
- *  one value reaches it (2026-11-18). `undefined` where the two agree. */
+ *  numbers (`let c = a + 0`). An annotation, a conversion and a typed operand end it.
+ *  `undefined` where the two agree. */
 export function twoReadingsOf(node: ts.Expression): TwoReadings | undefined {
   const xs = readingsFrom(node);
-  const proven = numberedReading(xs);
+  const proven = xs.find((x) => provenDiffering(x) && x.signed !== true && !x.reassigned);
   if (proven !== undefined) return { u32: proven.u32, ts: proven.ts };
   const unproven = xs.some((x) => x.unproven || provenDiffering(x));
   return unproven ? { u32: NaN, ts: NaN, unproven: true } : undefined;
@@ -3804,12 +3802,12 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
     return variableReadings(d, sourceFile, w);
   }
   if (ts.isConditionalExpression(n)) {
-    // An arm beside a typed `i32` takes TypeScript's value. A typed arm is one more value.
+    // An arm beside a typed `i32` takes TypeScript's value.
     if (typedNode(n.whenTrue) || typedNode(n.whenFalse)) {
       const other = typedNode(n.whenTrue) ? n.whenFalse : n.whenTrue;
       const typed = typedNode(n.whenTrue) ? n.whenTrue : n.whenFalse;
       if (/^i32\(|^ii$/.test(skipParenNodes(typed).getText(sourceFile))) return [];
-      return of(other).map((x) => ({ ...x, several: true }));
+      return of(other);
     }
     return arms([n.whenTrue, n.whenFalse]);
   }
@@ -4049,7 +4047,8 @@ function binaryReadingsOf(
         picks = [];
       }
       const tree = a.tree || b.tree;
-      const push = (r: Reading) => out.push(carried(r, a, b));
+      const push = (r: Reading) =>
+        out.push(a.reassigned || b.reassigned ? { ...r, reassigned: true } : r);
       if (a.unknown || b.unknown || plainUnproven(a) || plainUnproven(b)) {
         out.push({ ...(tree ? UNPROVEN : UNKNOWN), picks });
       } else if (a.unproven || b.unproven || a.agreeing || b.agreeing) {

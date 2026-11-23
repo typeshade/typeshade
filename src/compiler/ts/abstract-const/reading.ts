@@ -11,7 +11,6 @@ export interface Reading {
   readonly agreeing?: boolean;
   readonly bound?: number;
   readonly reassigned?: boolean;
-  readonly several?: boolean;
   readonly picks: readonly (readonly [ts.Node, string])[];
 }
 
@@ -150,16 +149,3 @@ export function markReassigned(xs: readonly Reading[], reassigned: boolean): Rea
 
 export const provenI32Minimum = (x: Reading): boolean =>
   !x.unknown && !x.unproven && !x.agreeing && (x.u32 | 0) === -2147483648;
-
-export function numberedReading(xs: readonly Reading[]): Reading | undefined {
-  const values = new Set(xs.map((x) => `${String(x.u32)}:${String(x.ts)}`));
-  if (values.size !== 1 || xs.some((x) => x.several === true)) return undefined;
-  return xs.find((x) => provenDiffering(x) && x.signed !== true && !x.reassigned);
-}
-
-export function carried(r: Reading, a: Reading, b: Reading): Reading {
-  const reassigned = a.reassigned === true || b.reassigned === true;
-  const several = a.several === true || b.several === true;
-  if (!reassigned && !several) return r;
-  return { ...r, ...(reassigned ? { reassigned } : {}), ...(several ? { several } : {}) };
-}
