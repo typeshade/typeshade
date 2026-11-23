@@ -67,7 +67,6 @@ export function lowerKernelGl(
   proof: KernelProof,
 ): { readonly loops: readonly KernelGlLoopPlan[] } | { readonly noWebgl2: string } {
   if (proof.shape !== undefined) return { noWebgl2: "its body is not the kernel call's shape" };
-  // WebGL2 has no atomics to build a Map or a Set with (change 0080).
   const collection = f.params.find((p) => p.type.kind === 'collection');
   if (collection !== undefined)
     return {
@@ -106,7 +105,9 @@ export function lowerKernelGl(
     const loopNo = ++j;
     if (v === undefined || !v.ok) return { noWebgl2: `loop ${loopNo} runs on the CPU` };
     if (v.reductions.length > 0)
-      return { noWebgl2: `loop ${loopNo} reduces, which WebGL2 has no workgroup memory for` };
+      return {
+        noWebgl2: `loop ${loopNo} reduces, which the WebGL2 tier does not support yet (Rule 11.8)`,
+      };
     const w = v.writes[0];
     if (v.writes.length !== 1 || w === undefined)
       return { noWebgl2: `loop ${loopNo} writes more than one array, and WebGL2 draws one` };
