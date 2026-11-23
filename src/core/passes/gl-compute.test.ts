@@ -22,6 +22,7 @@ import { keepHelpers } from '../testing/keep-helpers.js';
 import { stageOf } from '../ir/index.js';
 import { dispatchCompute } from '../debug/dispatch.js';
 import { runGlModel, storageFloats, storageWords } from '../testing/gl-model.js';
+import { exampleSource } from '../../../examples/_example-file.js';
 
 describe('buildGlCompute (change 0054)', () => {
   it('stores double low words in their scalar slots and vector planes across log cuts (#1021)', () => {
@@ -160,20 +161,14 @@ function put(i: u32) { b[i] = kb + scratch[63 - i]; }
   it("keeps an author local apart from the pass program's own names", () => {
     // `const w` in this example was hoisted to the name of the pass loop's counter, and the
     // pass program assigned a struct to an int.
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/array-length.shade.ts', import.meta.url)),
-      'utf8',
-    );
+    const src = exampleSource('array-length');
     const g = buildGlCompute(compile(src).module, 'scale_all');
     expect(g.vertex).toMatch(/_phv\d+_w = Weights\(/);
     expect(g.vertex).not.toMatch(/__/);
   });
 
   it('wraps a uniform that is not a struct in a block, and names it', () => {
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/particle-step.shade.ts', import.meta.url)),
-      'utf8',
-    );
+    const src = exampleSource('particle-step');
     const g = buildGlCompute(compile(src).module, 'k');
     expect(g.uniforms.map((u) => [u.name, u.block])).toEqual([['delta', '_PhU_delta']]);
     expect(g.vertex).toContain('uniform _PhU_delta');

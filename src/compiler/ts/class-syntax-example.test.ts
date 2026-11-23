@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
+import { exampleSource } from '../../../examples/_example-file.js';
 
 function expectClose(actual: unknown, expected: unknown): void {
   if (typeof expected === 'number') {
@@ -42,12 +43,7 @@ function runAll(src: string, args: unknown[] = [], fn = 'run'): unknown {
 
 describe('the example', () => {
   it('examples/class-syntax.shade.ts renders the two rings on every CPU path', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { fileURLToPath } = await import('node:url');
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/class-syntax.shade.ts', import.meta.url)),
-      'utf8',
-    );
+    const src = exampleSource('class-syntax');
     const input = { pos: [0, 0, 0, 1], uv: [0.5, 0] };
     expect(runAll(src, [input], 'fs')).toEqual({ color: [0.95, 0.74, 0.32, 1] });
     expect(runAll(src, [{ pos: [0, 0, 0, 1], uv: [0, 0] }], 'fs')).toEqual({
@@ -56,12 +52,7 @@ describe('the example', () => {
   });
 
   it('examples/class-builder.shade.ts renders the three discs on every CPU path', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { fileURLToPath } = await import('node:url');
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/class-builder.shade.ts', import.meta.url)),
-      'utf8',
-    );
+    const src = exampleSource('class-builder');
     const at = (uv: number[], color: number[]): void =>
       expectClose(runAll(src, [{ pos: [0, 0, 0, 1], uv }], 'fs'), { color });
     at([-0.45, 0], [0.95, 0.74, 0.32, 1]);
@@ -71,12 +62,7 @@ describe('the example', () => {
   });
 
   it('examples/class-parts.shade.ts renders the ring and the dot on every CPU path', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { fileURLToPath } = await import('node:url');
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/class-parts.shade.ts', import.meta.url)),
-      'utf8',
-    );
+    const src = exampleSource('class-parts');
     const at = (uv: number[], color: number[]): void =>
       expectClose(runAll(src, [{ pos: [0, 0, 0, 1], uv }], 'fs'), { color });
     at([0.55, 0.1], [0.95, 0.7, 0.3, 1]);

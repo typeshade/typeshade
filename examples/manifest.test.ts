@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseGroups, parseManifest, readGroups, readManifest } from './_manifest.js';
-import { shadeExamples } from './_shade.js';
+import { exampleSource, shadeExamples } from './_shade.js';
 import { PATH_ORDER } from './path/_order.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -129,7 +129,7 @@ describe('the scan reads a header where a directory has no example.json', () => 
   it('registers a top-level module from its @example block', () => {
     const hello = shadeExamples.find((e) => e.id === 'hello')!;
     expect(hello.title.length).toBeGreaterThan(0);
-    expect(readFileSync(join(HERE, 'hello.shade.ts'), 'utf8')).toContain('@example');
+    expect(exampleSource('hello')).toContain('@example');
     expect(dirname(hello.file)).toBe('.');
   });
 });

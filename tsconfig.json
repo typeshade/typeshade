@@ -50,15 +50,15 @@
   // `examples/**/*.shade.ts` is "use typeshade" SOURCE, not TypeScript — the same exclusion
   // tsconfig.tests.json and examples/tsconfig.json carry, for the same reason.
   //
-  // The ten named examples files are everything in that directory NOT reachable from
+  // The eleven named examples files are everything in that directory NOT reachable from
   // `examples/index.ts`, which is what the `./examples` subpath resolves to: repository-local
-  // gates (`_goldens`, `_order`, `_scan`, `_twin-diff`, `_mrt-gate`, `_shade`), CLIs
+  // gates (`_example-file`, `_goldens`, `_order`, `_scan`, `_twin-diff`, `_mrt-gate`, `_shade`), CLIs
   // (`print`, `measure`) and two host-integration snippets nothing imports. The list is not
   // hand-curated — `src/publish-manifest.test.ts` D4 recomputes the closure with the
   // TypeScript API and fails if this list and "unreachable from index.ts" disagree, so an
   // example added to the registry is emitted automatically and a helper added beside it is
   // reported. Three reasons to draw the line there rather than emit the whole directory:
-  //   1. `_shade`, `_scan` and `_goldens` read the filesystem RELATIVE TO THEIR OWN FILE
+  //   1. `_example-file`, `_shade`, `_scan` and `_goldens` read the filesystem RELATIVE TO THEIR OWN FILE
   //      (`dirname(fileURLToPath(import.meta.url))`), so their dist copies would look for
   //      `.shade.ts` sources and `__emit-goldens__/` inside dist/examples/ and find neither.
   //      Emitting them ships modules that cannot work.
@@ -66,7 +66,7 @@
   //      them on purpose — it is what proves the published .d.ts carry no ambient dependency
   //      a consumer has to install. (`host-webgl2.ts` compiles fine; WebGL2 is in the DOM
   //      lib. It is excluded as unreachable, not as a type failure.)
-  //   3. `exports` has no wildcard subpath, so none of the ten is importable from the
+  //   3. `exports` has no wildcard subpath, so none of the eleven is importable from the
   //      published package anyway. Emitting them adds only weight.
   // Every one of them is still TYPE-CHECKED, by `tsc -p tsconfig.tests.json`, which covers
   // all of examples/ and scripts/ and does load those types.
@@ -97,6 +97,7 @@
     // in the same way.
     "examples/path/*/*.ts",
     "examples/path/_*.ts",
+    "examples/_example-file.ts",
     "examples/_goldens.ts",
     "examples/_manifest.ts",
     "examples/_mrt-gate.ts",
