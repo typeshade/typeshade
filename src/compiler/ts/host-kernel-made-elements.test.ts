@@ -128,6 +128,7 @@ describe('a kernel function that makes an array of vectors (change 0114, S5, sli
       array: 'f32',
       width: 4,
       length: 'ramp__length',
+      reads: ['n'],
       fill: 'ramp__fill',
     });
   });

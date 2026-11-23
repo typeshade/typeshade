@@ -145,6 +145,7 @@ describe('a kernel function that makes the array it returns (change 0114, S5)', 
       shown: 'out',
       array: 'f32',
       length: 'render__length',
+      reads: ['size'],
     });
   });
 
@@ -224,11 +225,13 @@ describe('a kernel function that makes the array it returns (change 0114, S5)', 
     );
   });
 
-  it('refuses a call on a resource and a call inside fuse(), as not supported yet', async () => {
+  it('returns a Buffer on a resource, and refuses a call inside fuse() as not supported yet', async () => {
     const m = await load(FORMS);
-    await expect(m['measured']!(array(new Float32Array(4)), [1, 1])).rejects.toThrow(
-      'measured(): returns the array it makes, "out", and a call of it on a resource is not supported yet. Pass plain data and await the call.',
-    );
+    const xs = array(new Float32Array(4));
+    const made = m['measured']!(xs, [1, 1]) as unknown as ReturnType<typeof array>;
+    expect([...((await made.read()) as Float32Array)]).toEqual([0, 0.5, 1, 1.5]);
+    made.dispose();
+    xs.dispose();
     let inside: unknown;
     await fuse(() => {
       try {
@@ -246,19 +249,22 @@ describe('a kernel function that makes the array it returns (change 0114, S5)', 
 });
 
 describe('the host view of a kernel function that makes its result, under tsc', () => {
-  it('returns Promise<Float32Array> and takes no array for it', async () => {
+  it('returns Promise<Float32Array>, or a Buffer<f32> on a resource, and takes no array for it', async () => {
     const f = face(MADE);
     expect(f.view).toContain(
       'export declare function render(k: vec4, size: u32): Promise<Float32Array>;',
     );
-    expect(f.view.match(/export declare function render\(/g)?.length).toBe(1);
+    expect(f.view).toContain(
+      'export declare function render(k: vec4 | Buffer<vec4>, size: u32): Buffer<f32>;',
+    );
+    expect(f.view.match(/export declare function render\(/g)?.length).toBe(2);
     const dir = tempDir();
     writeFileSync(join(dir, 'm.shade.ts'), MADE);
     writeFileSync(join(dir, 'm.shade.typeshade.ts'), f.view);
     const app = join(dir, 'app.ts');
     writeFileSync(
       app,
-      `import { render } from './m.shade.ts';\nconst k = [1, 0.5, 2, 0.25] as const;\nconst img: Float32Array = await render(k, 512);\nawait render(k, 512, img);\nexport {};\n`,
+      `import { render } from './m.shade.ts';\nimport type { Buffer, f32, vec4 } from '${RUNTIME}';\nconst k = [1, 0.5, 2, 0.25] as const;\nconst img: Float32Array = await render(k, 512);\nawait render(k, 512, img);\ndeclare const kb: Buffer<vec4>;\nconst made: Buffer<f32> = render(kb, 512);\nexport { made };\n`,
     );
     const tsc = await tscDiagnostics([app], {
       strict: true,
@@ -271,6 +277,6 @@ describe('the host view of a kernel function that makes its result, under tsc', 
       lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
       types: [],
     });
-    expect(tsc.map((d) => `${d.line}: TS${d.code}`)).toEqual(['4: TS2554']);
+    expect(tsc.map((d) => `${d.line}: TS${d.code}`)).toEqual(['5: TS2554']);
   });
 });
