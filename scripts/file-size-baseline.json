@@ -244,7 +244,7 @@
   "src/runtime/device.ts": 1083,
   "src/runtime/exported-binding.test.ts": 407,
   "src/runtime/gl-draw.test.ts": 1924,
-  "src/runtime/gl-draw.ts": 1208,
+  "src/runtime/gl-draw.ts": 1207,
   "src/runtime/gl-names.test.ts": 456,
   "src/runtime/gl.ts": 524,
   "src/runtime/program.ts": 2242,
