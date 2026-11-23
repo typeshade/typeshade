@@ -1329,9 +1329,10 @@ pull request or the issue records it. Each program below is the body of
     `b9497706` the example compiled to 428571428. TypeScript gives -184995328, which a `u32`
     stores as 4109971968. On `main` at `e7a11cef` both halves refuse it with
     `"d" is 3000000000 on its u32 bits and -1294967296 in TypeScript, so the "/" does not say which value it means. Write "u32(d)" for the u32 value.`
-    The edit `u32(d) / 7` compiles to 428571428. A `u32` result or annotation, `u32()` and
-    `i32()` read the quotient this way. An `i32` result or annotation, `f32()` and an operand of
-    another operator keep the D-b refusal: `f32(d / 7)` names the edit `f32(i32(d)) / 7`.
+    The edit `u32(d) / 7` compiles to 428571428. The D2 refusal holds where a `u32` result or
+    annotation, `u32()` or `i32()` reads the quotient. An `i32` result or annotation, `f32()` and
+    an operand of another operator keep the D-b refusal: `f32(d / 7)` names the edit
+    `f32(i32(d)) / 7`.
     Rule 5.1 and surface §13 state this decision.
   - Open deviation, issue #1412: a `/` over a signed `i32` tree in an `i32` position gives the
     wrapped value. With result `i32`, `let a = 1 << 30; let b = a + a; return i32(b / 7);`
@@ -1339,7 +1340,9 @@ pull request or the issue records it. Each program below is the body of
   - Open deviation, issue #1416: other D-b quotients of a `u32` tree value are not refused or
     name a wrong edit. After `let c = (3000000000|0); let d = c;`, `return d / 7 > 5 ? 1 : 0;`
     compiles to 1, where TypeScript gives 0. `return u32(d / 7 / 1);` (result `u32`) is refused
-    with the edit `f32(i32(d)) / 7`, and the edited program gives 0, where TypeScript gives 4109971968.
+    with the edit `f32(i32(d)) / 7`, and the edited program gives 0, where TypeScript gives the
+    value 4109971968. `return d / 7 + vi;` (result `u32`) is refused with the edit `u32(d) / 7`,
+    and the edited program gives 428571435, where TypeScript gives 4109971975 as a `u32`.
 - [decision, owner, 2026-11-18] (a) Rule 1.3 against D2 (pull request #1358), recorded as "D2
   holds". A tree whose two readings already differ is refused, also beside a typed `i32`
   operand. Rule 1.3 still governs an integer typed only by its peer (`let s = 0; s += ii`): it
@@ -1411,10 +1414,10 @@ pull request or the issue records it. Each program below is the body of
   masked-value rule can accept a wrong value.
 - [decision, owner, 2026-11-18] Fix the typed `i32` positions, issue #1380, after #1354, #1356
   and #1358 merge.
-- Disposition: made part of the approved text by this amendment, except eight items that stay
+- Disposition: made part of the approved text by this amendment, except seven items that stay
   open:
   - one decision that is not implemented: decision (e) (issue #1399);
-  - seven open deviations: decision (a) (issue #1380), decision (c) (issue #1388), decision (d)
+  - six open deviations: decision (a) (issue #1380), decision (c) (issue #1388), decision (d)
     (issue #1388), the numbers of a refusal sentence (issue #1386), the decisions on #1320
     (issue #1403), and the decision on #1363 (issues #1412 and #1416).
 - Affects: the front matter gains Rule 7.4 and surface §22. The decision "TypeScript 값으로"
