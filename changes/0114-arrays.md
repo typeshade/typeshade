@@ -797,6 +797,31 @@ change their wording to name the new forms. No code changes (Rule 12.5).
   with item 4 of this amendment to be implemented there before it merges; a call on a resource,
   the WebGL2 tier and the WebAssembly tier are not started.
 
+### A9. Two open deviations of A8 item 4 (2026-11-23)
+
+- [fact] Why. The implementation of A8 item 4 (pull request #1404, merged as `68a4ca0`) refuses
+  two groups of forms that A8's text does not list. Both are "not supported yet" refusals
+  (`TS8099`, both halves; OD-9). Each keeps A8 item 4 and OD-5 true: no accepted form gives an
+  object JavaScript would not give.
+- [fact] This amendment records them. It decides nothing. Their disposition is open until the
+  owner decides it.
+
+1. **A whole write whose object may be in two elements.** A8 item 4 says an element written as a
+   whole is its own object. When the written value may also be in another element, its own object
+   would differ from JavaScript. So `out[i] = w`, where `w` is a parameter, another element or a
+   `const` declared before the loop, is refused. `main` never accepted these forms.
+2. **Pushes the compiler could decide.** A8 refuses a push only where the compiler cannot decide
+   whether two pushes push one object. The implementation decides two cases: every push pushes a
+   new object, or every push pushes one top-level `const` that only the pushes use. Every other
+   case is refused, a mix of one object and new ones included. A written mark for each pushed
+   element needs a change to the push lowering.
+
+- Disposition: open. The owner's options: make both part of the approved text, as A5 and A7 did;
+  or implement them in a later slice.
+- Affects: section 2 (S5 item 2, S5d item 1). No front-matter entry, rule number or code changes.
+- Status: `status: accepted` does not change. S5 slice 2: the first part is done (#1404); a call
+  on a resource, the WebGL2 tier and the WebAssembly tier are not started.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`
