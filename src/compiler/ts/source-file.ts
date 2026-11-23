@@ -63,12 +63,8 @@ import {
   mapResultCopies,
   resetResultCopies,
 } from './symbols.js';
-import {
-  orderedStructDecls,
-  typesOfFunctions,
-  usedOptionalDecls,
-  optionalHelpersOf,
-} from './optional.js';
+import { orderedStructDecls, typesOfFunctions, usedOptionalDecls } from './optional.js';
+import { optionalHelpersOf } from './optional/helpers.js';
 import { TS_CODES } from './codes.js';
 import {
   backendDiagnostic,

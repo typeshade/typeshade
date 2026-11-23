@@ -582,7 +582,7 @@ async function hostImport(
       key === 'renderKept' ||
       key === 'shadeMade'
         ? 3 * 2 ** -11
-        : key === 'glRender'
+        : key === 'glRender' || key === 'glMade'
           ? 3 * 2 ** -10
           : key.startsWith('double')
             ? 1e-12 * Math.max(...want.map(Math.abs))
@@ -602,6 +602,15 @@ async function hostImport(
       scaledOnResource.length === madeOnDevice.length &&
       scaledOnResource.every((v, i) => Object.is(v, madeOnDevice[i])),
     "scaleMade, chained twice on a resource, returns renderMade's output bit for bit",
+  );
+  const glMade = web.loops?.['glMade'];
+  const glRender = web.loops?.['glRender'];
+  check(
+    typeof glMade === 'object' &&
+      typeof glRender === 'object' &&
+      glMade.length === glRender.length &&
+      glMade.every((v, i) => Object.is(v, glRender[i])),
+    "renderMade on WebGL2 returns render's WebGL2 output bit for bit (change 0114, A1 item 8)",
   );
   check(
     /TypeError: render\(\): parameter "out" holds 10 elements, and loop 1 writes it at indices 0 to 4095\./.test(

@@ -62,15 +62,10 @@ export function madeFace(
     ...(reads.length > 0 ? { reads } : {}),
   };
   const face: Record<string, unknown> = { ...e.face };
-  delete face.gl;
   delete face.fuse;
   return {
     ...e,
-    face: {
-      ...(face as unknown as typeof e.face),
-      noWebgl2: `it makes the array it returns, "${made.shown}", which the WebGL2 tier does not support yet`,
-      made: record,
-    } as typeof e.face,
+    face: { ...(face as unknown as typeof e.face), made: record } as typeof e.face,
     ranges: [...e.ranges, length, ...(fill !== undefined ? [fill] : [])],
   };
 }

@@ -39,7 +39,6 @@ import {
   notOf,
   optionalInner,
   optionalAbsence,
-  optionalHelper,
   type Absence,
   optionalTestOperand,
   optionalT,
@@ -47,6 +46,7 @@ import {
   presenceTest,
   valueOf,
 } from '../optional.js';
+import { optionalHelper } from '../optional/helpers.js';
 import { narrowingAt } from '../narrowing.js';
 import { retargetIntLitCtx } from '../lit-coerce.js';
 import { lowerExpression, placeOf } from './expression.js';
