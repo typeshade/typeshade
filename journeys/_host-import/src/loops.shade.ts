@@ -41,6 +41,58 @@ export function renderPushed(k: vec4, size: u32): f32[] {
   return out;
 }
 
+// A push in a loop whose start reads the outer counter (change 0114, A12 Example 2): the call
+// counts the pushes in a first run, then stores them in a second.
+export function pairSearch(xs: f32[], r: f32): u32[] {
+  const out: u32[] = [];
+  for (let i: u32 = 0; i < xs.length; i++) {
+    for (let j: u32 = i + 1; j < xs.length; j++) {
+      if (abs(xs[i] - xs[j]) < r) {
+        out.push(i);
+        out.push(j);
+      }
+    }
+  }
+  return out;
+}
+
+// Two nests that push, the second after the first: the count-only run carries the first nest's
+// total into the second nest's scan, and a call may push nothing at all (change 0114, A12).
+export function pairTwice(xs: f32[], r: f32): u32[] {
+  const out: u32[] = [];
+  for (let i: u32 = 0; i < xs.length; i++) {
+    for (let j: u32 = i + 1; j < xs.length; j++) {
+      if (xs[i] + xs[j] < r) {
+        out.push(i);
+      }
+    }
+  }
+  for (let i: u32 = 0; i < xs.length; i++) {
+    for (let j: u32 = i; j < xs.length; j++) {
+      for (let q: u32 = j; q < xs.length; q++) {
+        if (xs[i] + xs[q] < r) {
+          out.push(q);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// A counted for, a branch in it and a counted for under the branch that pushes: Route 2 counts it
+// (made.counted) and WebGPU keeps its plan (change 0114, A12, Route 3 stage S2).
+export function inside(n: u32): u32[] {
+  const out: u32[] = [];
+  for (let i: u32 = 0; i < n; i++) {
+    if (i > 2) {
+      for (let j: u32 = 0; j < i; j++) {
+        out.push(j);
+      }
+    }
+  }
+  return out;
+}
+
 export function renderKept(k: vec4, size: u32): f32[] {
   const out: f32[] = [];
   for (let i: u32 = 0; i < size * size; i++) {

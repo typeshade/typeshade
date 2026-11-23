@@ -6,24 +6,12 @@
 // The pixels follow `hosts/_reference.ts`: RGBA, one byte to a channel, the top row first, each
 // colour taken at the pixel's centre.
 //
-// No imports and no environment, so a gate can read this file under Bun and the test under Vitest.
+// The only import is `../_compare.ts`, which has none, so a gate can read this file under Bun and
+// the test under Vitest.
 
-/** A canvas the driver draws into, and how to read it back. */
-export interface Surface {
-  /** A fresh canvas of this size, into which nothing has drawn. */
-  canvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas;
-  /** The canvas's pixels: RGBA, one byte to a channel, the top row first. */
-  pixels(canvas: HTMLCanvasElement | OffscreenCanvas): number[] | Promise<number[]>;
-}
+import { compareValues, type Outputs, type Tolerance } from '../_compare.js';
 
-/** What one step's run gave back: each part as numbers. */
-export type Outputs = Readonly<Record<string, readonly number[]>>;
-
-/** `_drive.ts`'s export, typed here so a caller can import the driver by a computed path. */
-export type Drive = (
-  surface: Surface,
-  ids: readonly string[],
-) => Promise<Readonly<Record<string, Outputs | string>>>;
+export type { Drive, Outputs, Surface } from '../_compare.js';
 
 /** The inputs each run is called with. */
 export const INPUTS = {
@@ -36,11 +24,11 @@ export const INPUTS = {
 } as const;
 
 /** Two steps of an 8-bit channel: `f32` arithmetic against this `f64` reference, rounded. */
-const PIXEL = 2;
+export const PIXEL: Tolerance = { absolute: 2 };
 
 /** Compute results are `f32` sums of at most a thousand small numbers: this relative error covers
  *  the order in which the GPU adds them. */
-const RELATIVE = 1e-5;
+export const RELATIVE: Tolerance = { absolute: 0, relative: 1e-5 };
 
 type Vec3 = readonly [number, number, number];
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -237,7 +225,8 @@ export function reference(): Readonly<Record<string, readonly number[]>> {
 }
 
 /** What differs between what a step's run gave back and its reference, one line each: empty when
- *  they agree. A drawing step gives `pixels`, a compute step `values`. A run that threw gives its error as a string, which is one line. */
+ *  they agree. A drawing step gives `pixels`, a compute step `values`. A run that threw gives its
+ *  error as a string, which is one line. */
 export function compare(id: string, got: Outputs | string | undefined): string[] {
   if (typeof got === 'string') return [`${id}: ${got}`];
   const want = reference()[id];
@@ -245,13 +234,5 @@ export function compare(id: string, got: Outputs | string | undefined): string[]
   const drawn = got?.['pixels'];
   const values = drawn ?? got?.['values'];
   if (values === undefined) return [`${id}: the run gave no pixels and no values`];
-  if (values.length !== want.length)
-    return [`${id}: ${values.length} values, the reference has ${want.length}`];
-  const off = values.map((v, i) => Math.abs(v - want[i]!));
-  if (drawn !== undefined) {
-    const worst = Math.max(...off);
-    return worst <= PIXEL ? [] : [`${id}: a pixel is off by ${worst}, the allowance is ${PIXEL}`];
-  }
-  const bad = off.findIndex((d, i) => d > RELATIVE * Math.max(1, Math.abs(want[i]!)));
-  return bad < 0 ? [] : [`${id}: value ${bad} is ${values[bad]}, the reference has ${want[bad]}`];
+  return compareValues(id, values, want, drawn !== undefined ? PIXEL : RELATIVE);
 }

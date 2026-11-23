@@ -1116,9 +1116,13 @@ path adds a plain-JavaScript reference for each step (`examples/path/_reference.
 
 Notes.
 
-- [fact] C5 is open: this text has not verified that the oracle can be called through a host `run()`.
-  M4.6 checks it first. If it cannot, C5 is dropped and C6 stays the check that holds a result to
-  an independent evaluation. The text of M4.6 then says so.
+- [fact] C5 is possible, checked by M4.6. The oracle is not called through a host `run()`: the
+  check computes the expected pixels or values from the `f64` oracle with the bindings the host
+  passes, and holds the CPU `run()` to them. It covers the path steps that list `cpu` and
+  `host-draw`. The CPU tier runs the generated JavaScript twin of the oracle in `f32`, so C5 finds a
+  wrong call layer and `f32` drift, and does not find an error that both share. The tolerance is exact
+  where the determinism report of the module lists no operation, and the `PIXEL` and `RELATIVE`
+  allowances of `examples/path/_reference.ts` otherwise: the report states its bounds in words, not numbers.
 - [inference] C6 compares a GPU tier to the CPU tier. A bug that all three tiers share is not found
   by C6. The path keeps its plain-JavaScript references for this reason, and the gallery has none
   (owner's answer O5). A shared bug is the work of C5 and of the gate's differential legs (`bun run gate:differential`).

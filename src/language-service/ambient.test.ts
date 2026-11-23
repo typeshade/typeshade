@@ -167,7 +167,7 @@ ${head}
       .map((d) => `${d.code}: ${d.message}`);
   };
 
-  const READ = 'declare const src: storage<array<f32>>';
+  const READ = 'declare const src: storage<array<f32>, "read">';
   const WRITE = 'declare const dst: storage<array<f32>, "read_write">';
 
   it('src[0] = 1. on a read binding reports TS2542', () => {
@@ -227,12 +227,12 @@ ${WRITE}`,
   // struct's array field and an array's struct element are each a place in the same buffer.
   // Measured, a one-level view left both of these green while the compiler refused them.
   it('keeps the view deep: b.w[0] = 1. and xs[0].q = 1. on a read binding both report', () => {
-    const bundle = typescriptDiagnostics('declare const b: storage<Bundle>', 'b.w[0] = 1.');
+    const bundle = typescriptDiagnostics('declare const b: storage<Bundle, "read">', 'b.w[0] = 1.');
     expect(
       bundle.some((d) => d.startsWith('2542: ')),
       bundle.join('; '),
     ).toBe(true);
-    const items = typescriptDiagnostics('declare const xs: storage<array<Item>>', 'xs[0].q = 1.');
+    const items = typescriptDiagnostics('declare const x: storage<Item[], "read">', 'x[0].q = 1.');
     expect(
       items.some((d) => d.startsWith('2540: ')),
       items.join('; '),
@@ -296,7 +296,7 @@ ${WRITE}`,
   fov: f32 = 1.
   scaled(k: f32): f32 { return this.fov * k }
 }
-declare const cam: storage<Camera>
+declare const cam: storage<Camera, "read">
 ${WRITE}`;
     expect(typescriptDiagnostics(head, 'dst[gid.x] = cam.scaled(2.)')).toEqual([]);
     const write = typescriptDiagnostics(head, 'cam.fov = 1.');

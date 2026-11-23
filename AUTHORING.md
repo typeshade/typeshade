@@ -2095,7 +2095,7 @@ For a module whose varying is `location<n, T, { interpolate: "linear" }>`, which
 the call throws an `UnsupportedFeatureError` with the code `SD0030` and this message:
 
 ```
-glsl-es300: @interpolate("linear") has no GLSL ES 3.00 form — that spec has smooth, flat and centroid, and linear (desktop `noperspective`) is none of them. Use "perspective", or keep the shader WGSL-only.
+glsl-es300: @interpolate("linear") is not supported yet by the GLSL backend (Rule 10.3) — GLSL ES 3.00 has smooth, flat and centroid, and linear (desktop `noperspective`) is none of them. Use "perspective", or keep the shader WGSL-only.
 ```
 
 `compile()` reports the same failure as a `TS8015` warning and keeps the WGSL.

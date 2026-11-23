@@ -1630,7 +1630,7 @@ const BIT_BUILTINS: Readonly<
  *  one argument: `dot4U8Packed` sums four unsigned byte products into a `u32`, `dot4I8Packed`
  *  four signed ones into an `i32`. Measured on a real device by dispatching both:
  *  `dot4U8Packed(0x01010101, 0x01010101)` is 4 and `dot4I8Packed(0x80808080, 0x01010101)` is
- *  -512. WGSL-only; the `packed4x8Dot` capability fails a module closed on GLSL ES 3.00. */
+ *  -512. WGSL-only for now; the `packed4x8Dot` capability fails a module closed on the GLSL backend (Rule 10.3). */
 const PACKED_DOTS: Readonly<Record<string, ShaderType>> = {
   dot4U8Packed: u32T,
   dot4I8Packed: i32T,
@@ -2138,7 +2138,7 @@ function lowerTextureCall(
  *  `textureNumSamples(t)` the count and `textureDimensions(t)` the size. Nothing else applies —
  *  WGSL §6.6.3: a multisampled texture cannot be used with a sampler — so every sampling,
  *  comparison and gather form is refused with the read that does apply. WGSL-only under the
- *  `msaaTextureLoad` capability the binding derives; GLSL ES 3.00 has no `sampler2DMS`. */
+ *  `msaaTextureLoad` capability the binding derives; its GLSL lowering is not supported yet (Rule 10.5). */
 export function lowerMultisampledCall(
   id: string,
   tex: Extract<ShaderType, { kind: 'texture' | 'depth-texture' }>,

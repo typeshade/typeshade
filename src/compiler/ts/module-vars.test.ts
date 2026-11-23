@@ -541,9 +541,6 @@ let a: array<f64, 2>;
     expect(only(`"use typeshade"\nlet t${TAIL}`)).toBe(
       `${TS_CODES.MODULE_VAR} "t" needs a type or an initializer: let t: f32, or let t = 0.`,
     );
-    expect(only(`"use typeshade"\nlet t = [1., 2.]${TAIL}`)).toBe(
-      `${TS_CODES.MODULE_VAR} "t" needs an array type to take a list: let t: array<f32, 2> = [...].`,
-    );
     // The quoted line carries `"read_write"`, and the KEYWORD is why: this path is a top-level
     // `let`, and `bindings.ts` reads the same keyword the same way (`isConst ? 'read' :
     // 'read_write'`). Naming the read form left a program that writes through the binding

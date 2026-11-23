@@ -1239,7 +1239,7 @@ function refusalOf(t: Twin, tag: string, kind: 'entry' | 'kernel', tier: Tier): 
     if (tier === 'webgl2') return e.entry.noGl;
     if (tier === 'cpu')
       return e.entry.barrier !== undefined
-        ? `it reaches ${e.entry.barrier}, and a barrier has no CPU tier`
+        ? `it reaches ${e.entry.barrier}, not supported yet on the CPU tier (Rule 8.24)`
         : e.entry.noCpu;
     return undefined;
   }

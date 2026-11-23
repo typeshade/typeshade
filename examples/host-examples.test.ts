@@ -28,7 +28,8 @@ import { runCli, type CliHost } from '../src/cli/run.js';
 import { hostExamples } from './index.js';
 import { HOST_ORDER } from './hosts/_order.js';
 import { REGISTRY, renderHostRegistry } from './hosts/_registry.js';
-import { compare, INPUTS, reference, type Drive, type Surface } from './hosts/_reference.js';
+import { cpuSurface, driveOf, withCpuCanvas } from './_driver.js';
+import { compare, INPUTS, reference, type Drive } from './hosts/_reference.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOSTS = join(HERE, 'hosts');
@@ -61,55 +62,15 @@ describe('hostExamples: the directories, in order, with their text', () => {
   });
 });
 
-/** A canvas with one context, `2d`, that keeps what the CPU tier puts on it: `OffscreenCanvas`
- *  as far as a draw reads one. Node has no canvas of its own. */
-class PixelCanvas {
-  data: Uint8ClampedArray = new Uint8ClampedArray(0);
-  constructor(
-    public width: number,
-    public height: number,
-  ) {}
-  getContext(kind: string): object | null {
-    if (kind !== '2d') return null;
-    return {
-      createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(4 * w * h) }),
-      putImageData: (img: { data: Uint8ClampedArray }) => {
-        this.data = img.data.slice();
-      },
-    };
-  }
-}
-
-/** The driver, imported by a computed path: `tsconfig.tests.json` does not read the host files,
- *  which resolve their module to its host view only under `hosts/tsconfig.json`. */
-async function driver(): Promise<Drive> {
-  const file = join(HOSTS, '_drive.ts');
-  return ((await import(/* @vite-ignore */ file)) as { drive: Drive }).drive;
-}
-
 describe('the CPU tier: each host gives the reference exactly where _order.ts lists cpu', () => {
-  const surface: Surface = {
-    canvas: (w, h) => new PixelCanvas(w, h) as unknown as OffscreenCanvas,
-    pixels: (c) => [...(c as unknown as PixelCanvas).data],
-  };
-  const g = globalThis as { OffscreenCanvas?: unknown };
-
   // Every host, whatever it lists: `tiers` names `cpu` exactly when the CPU-tier run gives the
   // reference, so a listed tier that fails and an unlisted one that passes both fail here.
   for (const { id, tiers } of HOST_ORDER) {
     const listed = tiers.includes('cpu');
     it(`${id}: run() on the CPU tier ${listed ? 'gives' : 'does not give'} the reference, as _order.ts says`, async () => {
-      const before = g.OffscreenCanvas;
-      g.OffscreenCanvas = PixelCanvas;
-      try {
-        const drive = await driver();
-        const ran = await drive(surface, [id]);
-        if (listed) expect(compare(id, ran[id])).toEqual([]);
-        else expect(compare(id, ran[id]).length, JSON.stringify(ran[id])).toBeGreaterThan(0);
-      } finally {
-        if (before === undefined) delete g.OffscreenCanvas;
-        else g.OffscreenCanvas = before;
-      }
+      const ran = await withCpuCanvas(async () => (await driveOf('hosts'))(cpuSurface, [id]));
+      if (listed) expect(compare(id, ran[id])).toEqual([]);
+      else expect(compare(id, ran[id]).length, JSON.stringify(ran[id])).toBeGreaterThan(0);
     });
   }
 
@@ -121,7 +82,7 @@ describe('the CPU tier: each host gives the reference exactly where _order.ts li
       drive: Drive;
       reports: Record<string, { tier: string; dispatches: number; groups: { fused: boolean }[] }>;
     };
-    const ran = await m.drive(surface, ['loop-fuse']);
+    const ran = await withCpuCanvas(async () => m.drive(cpuSurface, ['loop-fuse']));
     expect(compare('loop-fuse', ran['loop-fuse'])).toEqual([]);
     for (const scope of ['chain', 'split', 'reduce']) {
       const r = m.reports[scope];
