@@ -87,6 +87,41 @@ describe('abs of a proven i32 minimum is refused with no edit (issue 1388, decis
       'k',
     ],
     ['a const operand', 'const h = 1 << 30;\n  let k = i32(h + h);\n  return f32(abs(k));', 'k'],
+    [
+      'a doubled i32 conversion',
+      `${H}let k = i32(h + h);\n  return f32(abs(i32(i32(k))));`,
+      'i32(i32(k))',
+    ],
+    [
+      'an i32 of a u32 of a binding',
+      `${H}let k = i32(h + h);\n  return f32(abs(i32(u32(k))));`,
+      'i32(u32(k))',
+    ],
+    [
+      'an abs beside an abs of k + 1',
+      `${H}let k = i32(h + h);\n  return f32(abs(k) - abs(k + 1));`,
+      'k',
+    ],
+    [
+      'a chain of four bindings',
+      `${H}let a = i32(h + h);\n  let b = a;\n  let c = b;\n  let d = c;\n  return f32(abs(d));`,
+      'd',
+    ],
+    [
+      'an i32 conversion of a typed const minimum',
+      'const m: i32 = -2147483648;\n  return f32(abs(i32(m)));',
+      'i32(m)',
+    ],
+    [
+      'an i32 conversion of a u32 const',
+      'const m = u32(2147483648);\n  return f32(abs(i32(m)));',
+      'i32(m)',
+    ],
+    [
+      'a binding of an i32 conversion of a u32 const',
+      'const m = u32(2147483648);\n  let n = i32(m);\n  return f32(abs(n));',
+      'n',
+    ],
   ] as const)('refuses %s in both halves, where main accepted it', (_, body, subject) => {
     bothRefuse(program(body), 'TS8003', NO_EDIT(subject));
   });
@@ -129,6 +164,16 @@ describe('abs of a proven i32 minimum is refused with no edit (issue 1388, decis
   ] as const)('names no edit for %s under abs(i32(...))', (_, body, result) => {
     bothRefuse(program(body, result), 'TS8003', NO_EDIT('h + h', 'f32()'));
   });
+
+  it.each([
+    ['an added zero', `${H}return f32(abs(i32(f32(h + h + 0))));`, 'h + h + 0'],
+    ['a product by two', `${H}return f32(abs(i32(f32(h * 2))));`, 'h * 2'],
+  ] as const)(
+    'names no edit for the f32 conversion of %s under abs(i32(...))',
+    (_, body, subject) => {
+      bothRefuse(program(body), 'TS8003', NO_EDIT(subject, 'f32()'));
+    },
+  );
 
   it('keeps the value of a program that is no i32 minimum, at every level', () => {
     const small = 'let h = (1 << 20);\n  ';
