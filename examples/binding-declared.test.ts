@@ -104,24 +104,23 @@ for (const ex of corpus) {
  *  emit) both fail here rather than shrinking the sweep unnoticed. */
 const EXPECTED_REFUSALS: readonly { id: string; stage: string; match: RegExp }[] = [
   // The WGSL-only textures (roadmap 0.4 item 12, §36): a 1d texture, a cube array and a gather
-  // each derive a capability GLSL ES 3.00 has no row for, so BOTH stages are refused by the
-  // capability gate before any emit. The other WGSL-only examples are compute-only and have no
+  // each derive a capability the GLSL backend does not support yet (Rule 10.5), so BOTH stages are
+  // refused by the capability gate before any emit. The other WGSL-only examples are compute-only and have no
   // GLSL stage for this sweep to examine.
   { id: 'cube-array-gather', stage: 'vertex', match: /texture1d|textureCubeArray|textureGather/ },
   { id: 'cube-array-gather', stage: 'fragment', match: /texture1d|textureCubeArray|textureGather/ },
   // The multisampled resolve (item 13, §37): both stages refused under msaaTextureLoad.
   { id: 'msaa-resolve', stage: 'vertex', match: /msaaTextureLoad/ },
   { id: 'msaa-resolve', stage: 'fragment', match: /msaaTextureLoad/ },
-  // The packed 4x8 integer family (§47, #152): GLSL ES 3.00 has no form of any of the eight,
-  // so both stages are refused by the capability gate. This is the fail-closed half of the
+  // The packed 4x8 integer family (§47, #152): the GLSL backend does not support any of the eight
+  // yet (Rule 10.3), so both stages are refused by the capability gate. This is the fail-closed half of the
   // capability, asserted here rather than assumed — the alternative is a writer asked to spell
   // `dot4U8Packed` and throwing from inside the emit.
   { id: 'packed-bytes', stage: 'vertex', match: /packed4x8Dot/ },
   { id: 'packed-bytes', stage: 'fragment', match: /packed4x8Dot/ },
-  // User clip planes (§50): `@builtin("clip_distances")` derives `clipDistances`, which GLSL
-  // ES 3.00 has no row for — `gl_ClipDistance` is `EXT_clip_cull_distance`, which WebGL2 does
-  // not expose. Both stages are refused by the capability gate before any emit, which is the
-  // point: the alternative is a linked shader whose clip planes silently do nothing.
+  // User clip planes (§50): `@builtin("clip_distances")` derives `clipDistances`, which the
+  // GLSL backend does not support yet (Rule 10.3). Both stages are refused by the capability gate
+  // before any emit, which is the point: the alternative is a linked shader whose clip planes silently do nothing.
   { id: 'clip-planes', stage: 'vertex', match: /clipDistances/ },
   { id: 'clip-planes', stage: 'fragment', match: /clipDistances/ },
 ];

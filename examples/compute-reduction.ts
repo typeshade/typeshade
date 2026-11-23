@@ -70,7 +70,7 @@ export const computeReduction: ShaderExample = {
   id: 'compute-reduction',
   title: 'Compute reduction',
   blurb:
-    'A @workgroup_size compute kernel folding a window of an input storage buffer into one output element with reduce(). GLSL ES 3.00 has no compute stage, so this shows WGSL + reflection.',
+    'A @workgroup_size compute kernel folding a window of an input storage buffer into one output element with reduce(). A compute kernel draws nothing, so this shows WGSL + reflection.',
   category: 'compute',
   file: 'compute-reduction.ts',
   module: reductionModule,
