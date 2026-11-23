@@ -134,14 +134,6 @@ layout(std140) uniform Uniforms {
 int _f2i(float x) {
   return int(mix(clamp(x, -2147483648.0, 2147483520.0), 0.0, isnan(x)));
 }
-PolarResult PolarResult_new(vec3 point, float index) {
-  return PolarResult(point, index);
-}
-
-MarchResult MarchResult_new(vec2 hit, float edge, float winEdge, float tEdge) {
-  return MarchResult(hit, edge, winEdge, tEdge);
-}
-
 float Noise_hash12(vec2 p) {
   vec3 p3 = fract((vec3(p.xyx) * 0.1031));
   p3 += dot(p3, (p3.yzx + 33.33));
@@ -230,7 +222,7 @@ PolarResult SDF_polarY(float angle, float radius, float y, float count, float of
   float shifted = (angle - offset);
   float index = floor(((shifted / sector) + 0.5));
   float localAngle = (shifted - (index * sector));
-  return PolarResult_new(vec3((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
+  return PolarResult(vec3((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
 }
 
 vec2 _flow3_shared(vec2 _flow0_input, vec2 _flow1_input, vec2 _flow2_input) {
@@ -266,7 +258,7 @@ _spec1_result _spec0_SDF_polarY(float angle, float radius, float y, float count,
   float shifted = (angle - offset);
   float index = floor(((shifted / sector) + 0.5));
   float localAngle = (shifted - (index * sector));
-  PolarResult _spec2_returned = PolarResult_new(vec3((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
+  PolarResult _spec2_returned = PolarResult(vec3((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
   return _spec1_result(_spec2_returned.point);
 }
 
@@ -395,10 +387,6 @@ float NamekTree_shadowRadius(NamekTree self_) {
 
 vec3 NamekTree_shadowCenter(NamekTree self_) {
   return vec3(self_.position.x, (GROUND + (0.5 * self_.height)), self_.position.y);
-}
-
-NamekTree NamekTree_new(vec2 position, float height, float radius) {
-  return NamekTree(position, height, radius);
 }
 
 vec2 NamekTrees_map(NamekTrees self_, vec3 p) {
@@ -840,7 +828,7 @@ MarchResult NamekScene_marchCel(NamekScene self_, vec3 ro, vec3 rd, float lineA,
   for (int i = 0; (i < 180); i = (i + 1)) {
     vec2 hit = NamekScene_mapCel(self_, (ro + (rd * t)));
     if ((hit.x < (0.0003 * t))) {
-      return MarchResult_new(vec2(t, hit.y), edge, windowEdge, edgeT);
+      return MarchResult(vec2(t, hit.y), edge, windowEdge, edgeT);
     }
     float width = (lineA * t);
     if (((hit.x > previous.x) && (previous.x < width))) {
@@ -856,7 +844,7 @@ MarchResult NamekScene_marchCel(NamekScene self_, vec3 ro, vec3 rd, float lineA,
       break;
     }
   }
-  return MarchResult_new(vec2(t, -1.0), edge, windowEdge, edgeT);
+  return MarchResult(vec2(t, -1.0), edge, windowEdge, edgeT);
 }
 
 float _flow12_shared(float _flow10_input, float _flow11_input) {
@@ -1142,7 +1130,7 @@ layout(location = 0) out vec4 _ret;
 
 void main() {
   Ship _i21_self_1 = Ship(4.0);
-  NamekTrees _i21_self_2 = NamekTrees(NamekTree_new(vec2(1.86, 0.83), 0.65, 0.15), NamekTree_new(vec2(-5.9, -4.4), 1.9, 0.38));
+  NamekTrees _i21_self_2 = NamekTrees(NamekTree(vec2(1.86, 0.83), 0.65, 0.15), NamekTree(vec2(-5.9, -4.4), 1.9, 0.38));
   NamekTree _cse0 = NamekTree(vec2(0.0, 0.0), 0.0, 0.0);
   NamekScene _i21_self_ = NamekScene(_i21_self_1, _i21_self_2, ShipDetails(Ship(0.0), NamekTrees(_cse0, _cse0)), Lettering(0.0));
   Ship _i21_a0 = _i21_self_.ship;

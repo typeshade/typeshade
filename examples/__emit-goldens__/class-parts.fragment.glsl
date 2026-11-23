@@ -21,11 +21,6 @@ void Mover_step(inout Mover self_, float dt) {
   self_.pos += (self_.vel * dt);
 }
 
-Mover Mover_new() {
-  vec2 _cse0 = vec2(0.0);
-  return Mover(_cse0, _cse0);
-}
-
 void Ring_advance(inout Ring self_, float dt) {
   Mover_step(self_.center, dt);
 }
@@ -33,10 +28,10 @@ in vec2 uv;
 layout(location = 0) out vec4 color;
 
 void main() {
-  Ring ring = Ring(Mover_new(), 0.3, 0.04);
+  Ring ring = Ring(Mover(vec2(0.0), vec2(0.0)), 0.3, 0.04);
   ring.center.vel = vec2(0.5, 0.2);
   Ring_advance(ring, 0.5);
-  Dot spot = Dot(Mover_new(), 0.1);
+  Dot spot = Dot(Mover(vec2(0.0), vec2(0.0)), 0.1);
   spot.center.pos = vec2(-0.45, -0.3);
   vec3 col = vec3(0.06, 0.07, 0.12);
   vec2 _i3a1 = uv;

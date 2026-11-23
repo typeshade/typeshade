@@ -65,16 +65,16 @@ const count = (text: string, re: RegExp): number => text.match(re)?.length ?? 0;
 describe('a class built by its constructor is one constructor in the emit', () => {
   it('builds each object with one constructor and no field write in WGSL', () => {
     const { wgsl } = emit();
-    expect(wgsl).toMatch(/Ball\(Material\(\w+, \w+\), \w+\)/);
-    expect(wgsl).toMatch(/\(\*_dst\) = Scene\(\w+, \w+\);/);
-    expect(count(wgsl, /\bScene\(/g)).toBe(1);
+    expect(wgsl).toMatch(/var scene: Scene = Scene\(Ball\(Material\(.*\), [\w.]+\), [\d.]+\);/);
+    expect(count(wgsl, /\bScene\(/g)).toBe(2);
+    expect(wgsl).not.toContain('_new');
     expect(wgsl).not.toMatch(/\b\w+\.(ball|gain|material|radius|albedo|rough) = /);
   });
 
   it('builds each object with one constructor and no field write in GLSL', () => {
     const { glsl } = emit();
-    expect(glsl).toMatch(/Ball \w+ = Ball\(Material\(\w+, \w+\), \w+\);/);
-    expect(glsl).toMatch(/return Scene\(\w+, \w+\);/);
+    expect(glsl).toMatch(/Scene scene = Scene\(Ball\(Material\(.*\), [\w.]+\), [\d.]+\);/);
+    expect(glsl).not.toContain('_new');
     expect(glsl).not.toMatch(/\b\w+\.(ball|gain|material|radius|albedo|rough) = /);
   });
 

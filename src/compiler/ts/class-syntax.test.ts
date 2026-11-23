@@ -1329,7 +1329,7 @@ export function run(): f32 {
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain(
-      '  var _chain: V;\n  V_new_into(&_chain);\n  V_setX(&_chain, 3.0);\n  var v: V = V_setY(&_chain, 4.0);',
+      '  var _chain: V = V(0.0, 0.0);\n  V_setX(&_chain, 3.0);\n  var v: V = V_setY(&_chain, 4.0);',
     );
     // A chain that is a `return` runs its first call ahead of it, on the same object.
     expect(r.wgsl).toContain(

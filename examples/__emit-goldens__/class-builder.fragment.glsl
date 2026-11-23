@@ -38,12 +38,8 @@ float Disc_coverage(Disc self_, vec2 p) {
   return (1.0 - smoothstep((self_.radius - 0.01), self_.radius, length((p - self_.center))));
 }
 
-Disc Disc_new() {
-  return Disc(0.2, vec2(0.0), vec3(1.0));
-}
-
 Disc Disc_unit() {
-  Disc d = Disc_new();
+  Disc d = Disc(0.2, vec2(0.0), vec3(1.0));
   Disc_set_size(d, Disc_SIZE);
   return d;
 }
@@ -82,7 +78,7 @@ void main() {
   Capped_at(b, vec2(0.4, 0.0));
   Capped_tinted(b, vec3(0.3, 0.6, 0.95));
   Capped_set_size(b, (b.radius * 2.0));
-  Disc _chain = Disc_new();
+  Disc _chain = Disc(0.2, vec2(0.0), vec3(1.0));
   Disc_at(_chain, vec2(0.0, 0.55));
   Disc_sized(_chain, 0.1);
   Disc c = Disc_tinted(_chain, vec3(0.9, 0.3, 0.4));

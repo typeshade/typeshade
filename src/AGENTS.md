@@ -221,7 +221,8 @@ table of `docs/language-design.md` §9, and `argument-access.test.ts` holds
   `assertCaps`, `assertBuiltins`, then `autoVars`, `lowerModule`, O2's module-level
   `specializeCalls` (shared helpers for constant booleans and demanded return fields),
   O2's `inlineSmall` (`core/passes/inline-small.ts`: a pure helper called once, or with a body
-  of at most `SMALL_BODY_COST` nodes, is inlined and removed; an entry point, a recursive or
+  of at most `SMALL_BODY_COST` nodes after `core/passes/inline-small-cost.ts` settles it with
+  `structCtor`, `memberFold` and the copy passes, is inlined and removed; an entry point, a recursive or
   `opaque` function, a loop, a derivative, a barrier and an `inout` parameter keep the call; a test
   reads the shipped emit with inlining on, a test whose subject is an emitted helper wraps its
   body with `keepHelpers()` of `core/testing/keep-helpers.ts`, and `NO_INLINING` of

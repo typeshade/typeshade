@@ -13,7 +13,7 @@ import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
-import { keepHelpers } from '../../core/testing/keep-helpers.js';
+import { keepHelpers, uninlined } from '../../core/testing/keep-helpers.js';
 
 const errorsOf = (src: string) =>
   compileTsSource(src)
@@ -301,9 +301,8 @@ describe('a namespace class and a parenthesized class are built as a top-level o
   // no constructor here' (the constructor was registered under `P`, never `N_P`), and
   // `new (C)()` was refused as '"(C)" is not one of them' although TypeScript takes it.
   it('new N.P(), and a bare new P() inside the namespace', () => {
-    const r = compile(
-      file(
-        `namespace N {
+    const src = file(
+      `namespace N {
   export class P {
     x: f32 = 2.
   }
@@ -316,9 +315,9 @@ class C {
   a: f32 = 3.
 }
 `,
-        `  const p = new N.P()\n  const c = new (C)()\n  return vec4(p.x, N.mk(), c.a, 1.)`,
-      ),
+      `  const p = new N.P()\n  const c = new (C)()\n  return vec4(p.x, N.mk(), c.a, 1.)`,
     );
+    const r = uninlined(() => compile(src));
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('fn N_P_new_into(_dst: ptr<function, N_P>) {');
     agree(r, [2, 2, 3, 1]);

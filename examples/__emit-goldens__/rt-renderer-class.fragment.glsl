@@ -14,10 +14,6 @@ struct Material {
   vec3 emission;
 };
 
-struct SdfShape {
-  Material material;
-};
-
 struct SDF_SdfSphere {
   Material material;
   vec3 center;
@@ -75,10 +71,6 @@ layout(std140) uniform Frame {
   float time;
   float frame;
 } u;
-Ray Ray_new(vec3 origin, vec3 direction) {
-  return Ray(origin, direction);
-}
-
 float SDF_SdfSphere_distanceTo(SDF_SdfSphere self_, vec3 point) {
   return (length((point - self_.center)) - self_.radius);
 }
@@ -94,10 +86,6 @@ float SDF_SdfTorus_distanceTo(SDF_SdfTorus self_, vec3 point) {
   vec3 local = (point - self_.center);
   float ring = (length(vec2(local.x, local.z)) - self_.majorRadius);
   return (length(vec2(ring, local.y)) - self_.minorRadius);
-}
-
-Hit Hit_new(float distance, int objectIndex) {
-  return Hit(distance, objectIndex);
 }
 
 Hit Scene_raymarch(Scene self_, Ray ray, float maxDistance) {
@@ -129,59 +117,17 @@ Hit Scene_raymarch(Scene self_, Ray ray, float maxDistance) {
     bool _ifc3 = (_i13_groundDistance < _i13_closestDistance);
     _i13_closestDistance = mix(_i13_closestDistance, _i13_groundDistance, _ifc3);
     _i13_closestObjectIndex = (_ifc3 ? 3 : _i13_closestObjectIndex);
-    Hit _i13ret = Hit_new(_i13_closestDistance, _i13_closestObjectIndex);
+    Hit _i13ret = Hit(_i13_closestDistance, _i13_closestObjectIndex);
     if ((_i13ret.distance < SURFACE_EPSILON)) {
       objectIndex = _i13ret.objectIndex;
-      return Hit_new(distance, objectIndex);
+      return Hit(distance, objectIndex);
     }
     distance = (distance + _i13ret.distance);
     if ((distance > maxDistance)) {
       break;
     }
   }
-  return Hit_new(-1.0, objectIndex);
-}
-
-Hit _flow22_fused(Scene _flow0_input, vec3 _flow1_input, vec3 _flow2_input, float _flow6_input) {
-  SDF_SdfSphere _licm0 = _flow0_input.redSphere;
-  SDF_SdfBox _licm1 = _flow0_input.blueBox;
-  SDF_SdfTorus _licm2 = _flow0_input.goldTorus;
-  float _licm3 = _flow0_input.ground.height;
-  float _flow7_local = 0.0;
-  int _flow8_local = -1;
-  for (int _flow9_local = 0; (_flow9_local < MAX_STEPS); _flow9_local = (_flow9_local + 1)) {
-    vec3 _flow10_local = (_flow1_input + (_flow2_input * _flow7_local));
-    float _flow11_local = MAX_DISTANCE;
-    int _flow12_local = -1;
-    float _flow13_local = SDF_SdfSphere_distanceTo(_licm0, _flow10_local);
-    bool _ifc0 = (_flow13_local < _flow11_local);
-    _flow11_local = mix(_flow11_local, _flow13_local, _ifc0);
-    _flow12_local = (_ifc0 ? 0 : _flow12_local);
-    float _flow14_local = SDF_SdfBox_distanceTo(_licm1, _flow10_local);
-    bool _ifc1 = (_flow14_local < _flow11_local);
-    _flow11_local = mix(_flow11_local, _flow14_local, _ifc1);
-    _flow12_local = (_ifc1 ? 1 : _flow12_local);
-    float _flow15_local = SDF_SdfTorus_distanceTo(_licm2, _flow10_local);
-    bool _ifc2 = (_flow15_local < _flow11_local);
-    _flow11_local = mix(_flow11_local, _flow15_local, _ifc2);
-    _flow12_local = (_ifc2 ? 2 : _flow12_local);
-    float _flow16_local = (_flow10_local.y - _licm3);
-    bool _ifc3 = (_flow16_local < _flow11_local);
-    _flow11_local = mix(_flow11_local, _flow16_local, _ifc3);
-    _flow12_local = (_ifc3 ? 3 : _flow12_local);
-    Hit _flow31_whole = Hit_new(_flow11_local, _flow12_local);
-    float _flow27_part = _flow31_whole.distance;
-    int _flow28_part = _flow31_whole.objectIndex;
-    if ((_flow27_part < SURFACE_EPSILON)) {
-      _flow8_local = _flow28_part;
-      return Hit_new(_flow7_local, _flow8_local);
-    }
-    _flow7_local = (_flow7_local + _flow27_part);
-    if ((_flow7_local > _flow6_input)) {
-      break;
-    }
-  }
-  return Hit_new(-1.0, _flow8_local);
+  return Hit(-1.0, objectIndex);
 }
 
 vec3 Renderer_trace(Renderer self_, Ray primaryRay, float seed0) {
@@ -269,7 +215,9 @@ vec3 Renderer_trace(Renderer self_, Ray primaryRay, float seed0) {
     float _i18_distanceToLight = length(_i18_toLight);
     vec3 _i18_lightDirection_ = normalize(_i18_toLight);
     vec3 _gv0 = (point + (normal * RAY_EPSILON));
-    bool _i18_ret = ((_flow22_fused(_licm0, _gv0, _i18_lightDirection_, _i18_distanceToLight).objectIndex >= 0) == false);
+    Ray _i18_shadowRay = Ray(_gv0, _i18_lightDirection_);
+    Hit _i18_shadowHit = Scene_raymarch(_licm0, _i18_shadowRay, _i18_distanceToLight);
+    bool _i18_ret = ((_i18_shadowHit.objectIndex >= 0) == false);
     _i18_visibility = mix(_i18_visibility, 1.0, _i18_ret);
     float _i18_ndl = max(dot(normal, _i18_lightDirection), 0.0);
     vec3 _i18_diffuse = ((material.albedo * (1.0 - material.metallic)) * _i18_ndl);
@@ -298,13 +246,9 @@ vec3 Renderer_trace(Renderer self_, Ray primaryRay, float seed0) {
     float bounceAmount = (material.metallic + (_gv1 * 0.25));
     vec3 nextDirection = normalize(mix(_i21ret, reflectedDirection, bounceAmount));
     throughput = (throughput * (mix(material.albedo, _cse0, material.metallic) * 0.65));
-    ray = Ray_new(_gv0, nextDirection);
+    ray = Ray(_gv0, nextDirection);
   }
   return radiance;
-}
-
-SdfShape _flow43_fused(vec3 _flow32_input, float _flow33_input, float _flow34_input, vec3 _flow35_input) {
-  return SdfShape(Material(_flow32_input, _flow33_input, _flow34_input, _flow35_input));
 }
 in vec2 ndc;
 layout(location = 0) out vec4 _ret;
@@ -324,16 +268,20 @@ void main() {
   vec3 _i23_a1 = vec3(0.0, 0.6, -1.8);
   vec3 _i17_a0 = vec3(-1.15, 0.2, -1.7);
   vec3 _cse0 = vec3(0.0);
-  SDF_SdfSphere _i17_self_1 = SDF_SdfSphere(_flow43_fused(vec3(0.78, 0.12, 0.08), 0.0, 0.4, _cse0).material, _i17_a0, 1.0);
+  Material _i17_a2 = Material(vec3(0.78, 0.12, 0.08), 0.0, 0.4, _cse0);
+  SDF_SdfSphere _i17_self_1 = SDF_SdfSphere(_i17_a2, _i17_a0, 1.0);
   vec3 _i17_a0_ = vec3(1.05, 0.25, -2.0);
   vec3 _i17_a1 = vec3(0.75, 0.75, 0.75);
-  SDF_SdfBox _i17_self_2 = SDF_SdfBox(_flow43_fused(vec3(0.08, 0.3, 0.84), 0.2, 0.3, _cse0).material, _i17_a0_, _i17_a1);
+  Material _i17_a2_ = Material(vec3(0.08, 0.3, 0.84), 0.2, 0.3, _cse0);
+  SDF_SdfBox _i17_self_2 = SDF_SdfBox(_i17_a2_, _i17_a0_, _i17_a1);
   vec3 _i17_a0_1 = vec3(0.0, 1.35, -2.9);
-  SDF_SdfTorus _i17_self_3 = SDF_SdfTorus(_flow43_fused(vec3(0.95, 0.65, 0.1), 0.9, 0.12, _cse0).material, _i17_a0_1, 0.72, 0.24);
-  SDF_SdfPlane _i17_self_4 = SDF_SdfPlane(_flow43_fused(vec3(0.68, 0.72, 0.8), 0.0, 0.92, _cse0).material, -1.0);
+  Material _i17_a3 = Material(vec3(0.95, 0.65, 0.1), 0.9, 0.12, _cse0);
+  SDF_SdfTorus _i17_self_3 = SDF_SdfTorus(_i17_a3, _i17_a0_1, 0.72, 0.24);
+  Material _i17_a1_ = Material(vec3(0.68, 0.72, 0.8), 0.0, 0.92, _cse0);
+  SDF_SdfPlane _i17_self_4 = SDF_SdfPlane(_i17_a1_, -1.0);
   vec3 _i17_a0_2 = vec3(-2.5, 4.8, 2.0);
-  vec3 _i17_a1_ = vec3(1.0, 0.88, 0.72);
-  PointLight _i17_self_5 = PointLight(_i17_a0_2, _i17_a1_, 70.0);
+  vec3 _i17_a1_1 = vec3(1.0, 0.88, 0.72);
+  PointLight _i17_self_5 = PointLight(_i17_a0_2, _i17_a1_1, 70.0);
   Scene _i17_self_ = Scene(_i17_self_1, _i17_self_2, _i17_self_3, _i17_self_4, _i17_self_5);
   Renderer _i20_self_ = Renderer(_i17_self_);
   vec3 color = _cse0;
@@ -354,7 +302,7 @@ void main() {
     vec2 _i24_sampleNdc = (_licm0 + vec2(((_i24_jitter.x * 2.0) / _licm1.x), ((_i24_jitter.y * 2.0) / _licm1.y)));
     float _gv1 = ((_i24_sampleNdc.x * _licm1.x) / _licm1.y);
     vec3 _i24_direction = normalize(((_licm8 + ((_licm13 * _gv1) * _licm9)) + ((_licm17 * _i24_sampleNdc.y) * _licm9)));
-    Ray _i24_ret = Ray_new(_i23_a0, _i24_direction);
+    Ray _i24_ret = Ray(_i23_a0, _i24_direction);
     float _i24_seed = (_licm18 + (_gv0 * 3.7));
     vec3 _i24ret = Renderer_trace(_i20_self_, _i24_ret, _i24_seed);
     color += _i24ret;
