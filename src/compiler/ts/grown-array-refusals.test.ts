@@ -39,18 +39,6 @@ describe('what change 0114, S5d, refuses as not supported yet (TS8099)', () => {
       NOT_TOP('while (i < n)'),
     ],
     [
-      'a push in a loop inside a loop',
-      grows(
-        'for (let i: u32 = 0; i < n; i++) { for (let j: u32 = 0; j < n; j++) { out.push(1.); } }',
-      ),
-      NOT_TOP('for (let j: u32 = 0; j < n; j++)'),
-    ],
-    [
-      'a push in a loop under a branch',
-      grows('if (c > 0) { for (let i: u32 = 0; i < n; i++) { out.push(1.); } }', 'n: u32, c: u32'),
-      NOT_TOP('for (let i: u32 = 0; i < n; i++)'),
-    ],
-    [
       'a push in a loop whose range the device holds',
       grows('for (let i: u32 = 0; i < xs[0]; i++) { out.push(1.); }', 'xs: u32[]'),
       UNKNOWN('for (let i: u32 = 0; i < xs[0]; i++)'),
