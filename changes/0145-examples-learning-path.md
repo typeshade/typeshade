@@ -590,10 +590,12 @@ Each question has a recommended answer. The owner chose every recommended answer
 
 ## Amendments
 
-### A1. A fourth gallery group, inspired by other sources (2026-11-23, status: draft)
+### A1. A fourth gallery group, inspired by other sources (2026-11-23, status: accepted)
 
-- Status: draft. `status: accepted` of 0145 does not change. A1 is part of the approved text only
-  after the owner accepts it. No code and no example changes with this pull request.
+- Status: accepted. [decision, owner, 2026-11-23] The owner answered A1-Q1, A1-Q2, A1-Q4 and
+  A1-Q5 in the conversation, in a question form the agent showed (Owner's answers, below). A1 is
+  part of the approved text from the merge of its pull request (#1432). No code and no example
+  changes with this pull request.
 - Baseline: `main` at `34d65efd`. M1 is delivered there (`examples/path/` holds steps 1 to 8).
   M3 is not on `main`: `examples/path/` has no `double-array`, `image-blur`, `parallel-sum`,
   `histogram` or `ray-tracer` yet. [fact] Read with `ls examples/path` and `examples/path/_order.ts`.
@@ -773,15 +775,29 @@ owner says "merge" (CLAUDE.md, Merging).
 - No deviation from the approved text is open. A1 adds to it and changes no sentence, except that
   "three groups" becomes "four groups" where the text counts them. The sentences are marked in the
   pull request.
-- Open: whether the first batch is right (A1-Q1).
-- Open: the id clash `path-tracer` (A1-Q3).
+- Closed: the first batch (A1-Q1) and the id `path-tracer-progressive` (A1-Q3), as the owner
+  answered.
 
-#### Open questions for the owner
+#### Owner's answers (2026-11-23)
+
+- [decision, owner] A1-Q1: "이대로" (as it is). The first batch is the eight examples below. The
+  question named `path-tracer-progressive` as the id for the clash, so the answer also settles
+  A1-Q3.
+- [decision, owner] A1-Q2: "예, 같은 형식" (yes, the same form). Each inspired example has a
+  `host.ts` of the path's form.
+- [decision, owner] A1-Q4: "예, 같은 조건으로" (yes, under the same terms). A reused part may be
+  code or an asset, under the same comment and license terms.
+- [decision, owner] A1-Q5: "예, 검토 없이" (yes, with no review). The agent reads each source's
+  license and lists the five facts (source, URL, revision, license, copyright line) in the pull
+  request. The owner does not review the list before the merge. A source whose license is unclear
+  is not reused.
+
+#### Open questions for the owner (answered above)
 
 1. **A1-Q1. Is the first batch right?** The eight examples are `three-body`, `bloom`,
    `tone-mapping`, `game-of-life`, `boids`, `reaction-diffusion`, `path-tracer-progressive` and
    `fluid-2d`. Recommended: yes. Each is written with forms the compiler has today, and the five
-   that need a buffer target WebGPU and CPU.
+   that need a buffer target all three tiers too (OD-11).
 2. **A1-Q2. Does an inspired example need a `host.ts` in the form of the path?** Recommended: yes,
    the same form as the path (`run(canvas)` or `run()`, and an optional `animate(canvas)`). The
    reader and the check harness then read one host of one form.
