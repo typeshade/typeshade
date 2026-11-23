@@ -14,6 +14,7 @@ surface:
   - 12
   - 13
   - 14
+  - 22
   - 24
   - 26
 exports: []
@@ -1394,11 +1395,13 @@ abs(k)`), a constant fold (`abs(i32(-2147483647 - 1))`) and a nested conversion
   open. The decision on #1363 and decision (e) are decided and not implemented (issues #1363 and
   #1399). The deviations of decisions (a), (d) and the numbers of a refusal sentence are open
   (issues #1380, #1388 and #1386).
-- Affects: the front matter gains Rule 7.4, whose rationale the decision "TypeScript 값으로"
-  changes. `scripts/changes.ts` reads what a proposal declares on the base branch, so the text of
-  Rule 7.4 changes in a pull request of its own after this amendment merges. Rules 5.1 and 12.7
-  and surface §13, which the front matter declares, carry the other readings. The sentences
-  follow Rule 12.5.
+- Affects: the front matter gains Rule 7.4 and surface §22. The decision "TypeScript 값으로"
+  makes two sentences false for these quotients: Rule 7.4's rationale and surface §22 say that a
+  divisor that is zero at run time gives WGSL's answer, `x / 0 = x`, on every target.
+  `scripts/changes.ts` reads what a proposal declares on the base branch, so their text changes
+  in a pull request of its own after this amendment merges. Rules 5.1 and 12.7 and surface §13,
+  which the front matter declared before, carry the other readings. The sentences follow
+  Rule 12.5.
 - Status: `status: accepted` does not change.
 
 ### Configuration and validation record
