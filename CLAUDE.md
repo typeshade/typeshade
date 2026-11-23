@@ -292,7 +292,9 @@ through the owner's account can too, so the rule is written here:
 
 The owner's rules, given on 2026-10-13, for every session:
 
-- Run at most three sub-agents at the same time. Start the next one only when one has finished.
+- Run at most six sub-agents at the same time, workflow agents included. Start the next one only
+  when one has finished. The owner raised the cap from three to six on 2026-11-23: "6개로 상향" (raise
+  it to six).
 - Stop a sub-agent as soon as its report is in. A sub-agent stops every server and background
   process that it started before it reports.
 - Give every task its pull request first. Push the first commit early and open a draft pull

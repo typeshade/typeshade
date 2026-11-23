@@ -1,14 +1,5 @@
 "use typeshade";
 
-/* @example
-{
-  "title": "SDF shapes",
-  "blurb": "Step 4 of the learning path. A function gives the distance from a point to a shape. `length` measures the circle, and `smoothstep` turns a distance into a soft edge. Two small functions, `circle` and `box`, are called from the entry.",
-  "renderable": false,
-  "reason": "no entry point"
-}
-*/
-
 // Step 4. A function returns the distance from a point to a shape: negative inside, positive outside.
 interface Frame {
   size: vec2;

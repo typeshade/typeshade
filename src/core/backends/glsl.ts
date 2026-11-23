@@ -2125,7 +2125,7 @@ function assertTextureSamplerPairs(
   for (const [texture, samplers] of pairs) {
     if (samplers.size < 2) continue;
     throw new UnsupportedFeatureError(
-      `glsl-es300: it samples "${written(texture)}" with ${[...samplers].map((n) => `"${written(n)}"`).join(' and ')}, and GLSL ES 3.00 fuses a texture with one sampler. Declare the texture twice, one binding per sampler.`,
+      `glsl-es300: it samples "${written(texture)}" with ${[...samplers].map((n) => `"${written(n)}"`).join(' and ')}, and a texture with more than one sampler is not supported yet on the WebGL2 tier. Declare the texture twice, one binding per sampler.`,
     );
   }
 }

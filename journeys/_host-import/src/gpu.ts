@@ -57,7 +57,7 @@ export async function run(): Promise<Record<string, number[]>> {
   const ys = new Float32Array(256);
   await scale({ k: 2.5, xs, ys }, 4); // ys is filled in place
   const sums = new Float32Array(4);
-  await blockSum({ xs, sums, scratch: new Float32Array(256) }, 4); // WebGPU only: a barrier
+  await blockSum({ xs, sums, scratch: new Float32Array(256) }, 4); // a barrier: WebGL2 runs it as a pass program (Rule 8.24)
   // Buffer bindings (Rule 11.8): the map's output stays on the device and is the block sum's
   // input, the two calls only queue, and each handle is read back once.
   const devYs = array(new Float32Array(256));

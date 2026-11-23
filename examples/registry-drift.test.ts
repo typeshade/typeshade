@@ -45,7 +45,7 @@ describe('examples registry — the directory and the curated list agree', () =>
     expect(() =>
       buildRegistry(discovered, {
         order: examples.map((e) => e.id),
-        regenerateWith: 'add the new example to `examples` in shader-dsl/examples/index.ts',
+        regenerateWith: 'bun scripts/gen-example-registry.ts',
       }),
     ).not.toThrow();
   });

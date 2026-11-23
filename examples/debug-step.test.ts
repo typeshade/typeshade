@@ -13,12 +13,13 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { shadeExamples, SHADE_EXT } from './_shade.js';
+import { shadeExamples } from './_shade.js';
 import { examples as allExamples } from './index.js';
 import { compileModule } from '../src/index.js';
 import { startDebugSession, type DebugPause, type SourceSpan } from '../src/debug.js';
 import type { ModuleDecl, Stmt } from '../src/core/ir/index.js';
 import { zeroOf, type CpuValue } from '../src/core/cpu-runtime.js';
+import { exampleSource } from './_example-file.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -27,7 +28,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 function example(id: string): { module: ModuleDecl; src: string } {
   const ex = shadeExamples.find((e) => e.id === id);
   expect(ex, `registered example ${id}`).toBeDefined();
-  return { module: ex!.module, src: readFileSync(join(HERE, `${id}${SHADE_EXT}`), 'utf8') };
+  return { module: ex!.module, src: exampleSource(id) };
 }
 
 const textAt = (src: string, span: SourceSpan): string =>

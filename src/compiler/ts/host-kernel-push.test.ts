@@ -97,7 +97,7 @@ describe('the face of a kernel function that pushes (change 0078)', () => {
     expect(wgsl).toContain('strong_loop0_push[strong_args._n] = _at;');
     expect(wgsl).toContain('if ((_p < arrayLength(&out))) {');
     expect(k.noWebgl2).toBe(
-      'loop 1 pushes onto an array, which the WebGL2 tier does not run (change 0078)',
+      'loop 1 pushes onto an array, which is not supported yet on the WebGL2 tier (Rule 11.8, change 0078)',
     );
   });
 

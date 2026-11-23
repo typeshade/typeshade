@@ -1,0 +1,11 @@
+{
+  "title": "Tile pattern",
+  "blurb": "Step 5 of the learning path. `fract` keeps the part of a coordinate inside one tile, and `floor` names the tile. A `for` loop counts three rings, and an `if` picks the colours of one tile from its place in the grid.",
+  "group": "path",
+  "part": "The language",
+  "step": 5,
+  "tiers": ["webgpu", "webgl2", "cpu"],
+  "host": "run",
+  "renderable": false,
+  "reason": "no entry point"
+}

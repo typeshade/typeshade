@@ -16,14 +16,12 @@ import {
   abstractLiteralOf,
   noteCastRead,
   noteIntegerRead,
-  noteWrittenDivisionRead,
   refuseTwoReadings,
   twoReadingsOf,
 } from '../abstract-const.js';
 import { foldConstNumber } from '../loop-bound.js';
 import { foldF64ModuleConst } from '../module-const-f64.js';
 import {
-  isIntegerQuotient,
   readKindlessExactly,
   reportIntLitRange,
   retargetIntLitCtx,
@@ -32,7 +30,7 @@ import {
 } from '../lit-coerce.js';
 import { readonlyClassUpcast } from '../class-upcasts.js';
 import { lowerExpression } from './expression.js';
-import { integerConversionArg } from './integer-quotient.js';
+import { convertedQuotientArg } from './integer-quotient.js';
 import { captureArguments } from './local-functions.js';
 import { lowerReferenceArgument } from './references.js';
 import { makeDiagnostic } from '../diagnostic.js';
@@ -105,12 +103,7 @@ export function lowerScalarCastCall(
     }
   }
   if (name === 'i32' || name === 'u32') {
-    if (isIntegerQuotient(lowered)) {
-      let inner: ts.Expression = node.arguments[0]!;
-      while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
-      noteWrittenDivisionRead(inner, sourceFile, 'read');
-    }
-    lowered = integerConversionArg(lowered, name === 'u32' ? u32T : i32T);
+    lowered = convertedQuotientArg(lowered, node.arguments[0]!, sourceFile, name);
     readKindlessExactly(lowered);
   }
   // A cast is a read of a constant of no fixed type: `u32(K)` converts the written number, as

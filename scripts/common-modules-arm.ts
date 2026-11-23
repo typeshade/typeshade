@@ -16,8 +16,9 @@
 // grouping. A function whose IR carries a row (`exp`, `log`, `sin`, `cos`, `tan`, `tanh`,
 // `inverseSqrt`, `/`) is held to an envelope instead, since WGSL §15.7.4 gives the driver room
 // there: each value within 32 ULP of the oracle's or within 2^-11 of it, and the arm prints the
-// largest distance it saw. A tier that refuses a function (WebGL2 has no atomics, so `histogram`
-// falls to the next tier; Rule 11.8) is reported, and allowed only for the functions listed in
+// largest distance it saw. A tier that refuses a function (`histogram` is not supported yet on the
+// WebGL2 tier, since a kernel function runs there only when each loop writes one array of 4-byte
+// elements at exactly `i`; Rule 11.8) is reported, and allowed only for the functions listed in
 // `REFUSED_ON`.
 //
 //   TYPESHADE_CHROMIUM=/path/to/headless_shell TYPESHADE_DIFF_ARMS=common bun scripts/gpu-differential.ts

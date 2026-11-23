@@ -9,12 +9,11 @@
 //
 // Verifies: Rule 8.19 (docs/language-design.md; traced in reqs/).
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { migrateSource } from '../../cli/migrate.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { exampleSource } from '../../../examples/_example-file.js';
 
 const errorsOf = (src: string): string[] =>
   compile(src)
@@ -97,10 +96,7 @@ ${VS_OUT}
   });
 
   it('finds a struct the program names nowhere else, and never a resource struct', () => {
-    const example = readFileSync(
-      fileURLToPath(new URL('../../../examples/loops-over-data.shade.ts', import.meta.url)),
-      'utf8',
-    );
+    const example = exampleSource('loops-over-data');
     // The example with both entries' return types left off and `while (true)` written `for
     // (;;)`: `Color` is named nowhere else, and the emit is the example's.
     const after = example
