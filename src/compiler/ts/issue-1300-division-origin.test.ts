@@ -76,6 +76,52 @@ describe('a refused / names what makes the operand an integer (issue 1300)', () 
     },
   );
 
+  it.each([
+    ['let a = ii;\n  a = (a | 0) / 2;\n  return a;', 'a | 0', '(a | 0) / 2', 'i32(a | 0) / 2'],
+    ['let a = ii;\n  a = (a & 3) / 2;\n  return a;', 'a & 3', '(a & 3) / 2', 'i32(a & 3) / 2'],
+    [
+      'let a = ii;\n  a = (a | 0) / (a | 1);\n  return a;',
+      'a | 0',
+      '(a | 0) / (a | 1)',
+      'i32(a | 0) / i32(a | 1)',
+    ],
+    ['let a = ii;\n  let b = a | 0;\n  a = b / 2;\n  return a;', 'b', 'b / 2', 'i32(b) / 2'],
+    [
+      'let a = ii;\n  a = ((a | 0) + 1) / 2;\n  return a;',
+      '(a | 0) + 1',
+      '((a | 0) + 1) / 2',
+      'i32((a | 0) + 1) / 2',
+    ],
+    ['let a = ii;\n  a = a / (1|2);\n  return a;', 'a', 'a / (1|2)', 'i32(a) / i32(1|2)'],
+    [
+      'let a = ii;\n  a = a / (1|2) / (3|0);\n  return a;',
+      'a / (1|2)',
+      'a / (1|2) / (3|0)',
+      'i32(a / (1|2)) / i32(3|0)',
+    ],
+    [
+      'let a = ii;\n  let b = (1 | 0);\n  a = (a / b) / 2;\n  return a;',
+      'a',
+      'a / b',
+      'i32(a) / i32(b)',
+    ],
+    ['let a = (3|0) * ii;\n  a = a / 2;\n  return a;', 'a', 'a / 2', 'i32(a) / 2'],
+    ['let a = -ii;\n  a = a / 2;\n  return a;', 'a', 'a / 2', 'i32(a) / 2'],
+    ['let a = ii << 1;\n  a = a / 2;\n  return a;', 'a', 'a / 2', 'i32(a) / 2'],
+  ] as const)(
+    'a bit expression over a typed operand is an integer by inference: %s',
+    (body, subject, written, edit) => {
+      const said = sentence(
+        subject,
+        INFERENCE,
+        written,
+        '/',
+        `Write "${edit}" for the integer division.`,
+      );
+      bothRefuse(program('i32', body), 'TS8003', said);
+    },
+  );
+
   it('the operand that is an integer by inference is the subject beside a bit operand', () => {
     const body = 'let a = ii;\n  let b = (-7 | 0);\n  a = a / b;\n  return a;';
     const said = sentence(
