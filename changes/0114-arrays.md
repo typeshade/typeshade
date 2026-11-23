@@ -1449,7 +1449,17 @@ Each runs on the CPU tier only (section 1, item 4.1).
 
 - [fact] Form 3 (a loop with an `f32` counter) is not in #1431. With Q2 decided (A), A12 sends it to
   Route 3, which is slice 3. This follows A12; it is no deviation.
-- Affects: section 2 (S5d items 5 and 6). No front-matter entry, rule number or code changes.
+  **A10 item 2.4 decided.** A10 refuses a call on a resource that also writes a plain array, because
+  change 0138, Amendment A11, Q7 and A1 item 7 point different ways.
+
+- [decision, owner, 2026-11-23] The agent recommended 0138's Q7, and the owner chose it: "0138 Q7:
+  일반 데이터". Such a call waits, and its promise gives the made array as plain data (the typed
+  array or the array of objects of A1 item 6), not a `Buffer`. A call on a resource that does not
+  wait still gives a new `Buffer` (A1 item 7).
+- [fact] The refusal of A10 item 2.4 stays until an implementing pull request lands this.
+
+- Affects: section 2 (S5 item 7, S5d items 5 and 6). No front-matter entry, rule number or code
+  changes.
 - Status: `status: accepted` does not change. A12's heading no longer says "draft". S5d slice 2:
   form 1 and Q1 (C) done (#1431); form 2 on Routes 1 and 2 not started. S5d slice 3 (Route 3, form 3) not started.
 
