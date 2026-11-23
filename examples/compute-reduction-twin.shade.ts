@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Compute reduction (source twin)",
-  "blurb": "`compute-reduction.ts` written in the source language: the EDSL's `reduce()` combinator spelled as the `for` loop it expands into. WGSL-only like its original — GLSL ES 3.00 has no compute stage.",
+  "blurb": "`compute-reduction.ts` written in the source language: the EDSL's `reduce()` combinator spelled as the `for` loop it expands into. Like its original, `compile()` emits WGSL and no GLSL text for it, since GLSL ES 3.00 has no compute stage.",
   "renderable": false,
   "twinOf": "compute-reduction",
   "reason": "missing capabilities: storageBuffer, compute"

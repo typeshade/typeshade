@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Two-dimensional workgroup",
-  "blurb": "`@compute([8, 8])` is WGSL's `@workgroup_size(8, 8)`: one invocation per pixel of an 8x8 tile, which loads the tile into workgroup memory, waits at a barrier, and blurs each pixel with its four neighbours inside the tile (§3, §24, §25). WGSL-only: WebGL2 has no compute stage.",
+  "blurb": "`@compute([8, 8])` is WGSL's `@workgroup_size(8, 8)`: one invocation per pixel of an 8x8 tile, which loads the tile into workgroup memory, waits at a barrier, and blurs each pixel with its four neighbours inside the tile (§3, §24, §25). `compile()` emits WGSL and no GLSL text for it; on WebGL2 the entry runs as a pass program, with its barrier as a cut of the phased order (Rule 11.8).",
   "renderable": false,
   "reason": "missing capabilities: storageBuffer, compute"
 }
@@ -20,8 +20,8 @@
 // sits in uniform control flow, so a pixel past the image edge is clamped rather than
 // returned from, and only the final store is guarded.
 //
-// GLSL ES 3.00 has no compute stage and no workgroup memory, so like `workgroup-scratch` this
-// module is WGSL-only.
+// GLSL ES 3.00 has no compute stage, so like `workgroup-scratch` `compile()` emits WGSL and no
+// GLSL text for this module. The WebGL2 tier still runs the entry as a pass program (Rule 11.8).
 
 declare const size: uniform<vec2u>;
 declare const src: storage<array<f32>>;

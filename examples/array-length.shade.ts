@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Runtime array length",
-  "blurb": "The bounds guard every kernel over a runtime-sized storage array needs: `src.length` reads the bound buffer's length as WGSL `arrayLength(&src)`, a `u32`, so the guard is real where it once folded to `gid.x >= 0u` and returned every invocation (#46). WGSL-only: GLSL ES 3.00 has no storage buffers.",
+  "blurb": "The bounds guard every kernel over a runtime-sized storage array needs: `src.length` reads the bound buffer's length as WGSL `arrayLength(&src)`, a `u32`, so the guard is real where it once folded to `gid.x >= 0u` and returned every invocation (#46). `compile()` emits WGSL and no GLSL text for it; a runtime-sized `read_write` storage array has no GLSL spelling.",
   "renderable": false,
   "reason": "missing capabilities: storageBuffer, compute"
 }
@@ -16,8 +16,10 @@
 // the kernel returned at once and wrote nothing, with no diagnostic, as valid WGSL, on a
 // real GPU.
 //
-// GLSL ES 3.00 has no storage buffer and so no form of this module; like
-// `compute-reduction-twin` it is WGSL-only, and the compile gate runs it on Tint.
+// `compile()` emits no GLSL text for this module, since GLSL ES 3.00 has no
+// compute stage; like `compute-reduction-twin` it is WGSL text only, and the compile gate runs
+// it on Tint. This says nothing of the WebGL2 tier, which runs a compute entry as a pass
+// program (Rule 11.8).
 //
 // That makes it the gate's evidence for the other half of #103: `half` is a word GLSL ES 3.00
 // reserves — a field of that name is "Illegal use of reserved word" on ANGLE, which is how the
