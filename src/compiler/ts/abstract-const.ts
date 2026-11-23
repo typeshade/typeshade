@@ -33,6 +33,7 @@
 // Implements: Rule 5.1, Rule 5.2 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
+import { divisionOrigin, writtenDivisionsOf } from './abstract-const/written-divisions.js';
 import type { Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { f32T, f64T, i32T, u32T } from '../../core/ir/types.js';
@@ -106,6 +107,7 @@ import {
   type Reading,
 } from './abstract-const/reading.js';
 import { builtinReadingsOf } from './abstract-const/builtin-readings.js';
+import { heldWraps, readsNegativeAsWgsl } from './abstract-const/held-use.js';
 import { divisionEdits as buildDivisionEdits } from './remedies/candidates.js';
 import { NO_DIVISION } from './remedies/contracts.js';
 import type {
@@ -1092,73 +1094,10 @@ export function abstractDivisionMessage(
   return divisionSentence(info, read, division.node, edit, sourceFile);
 }
 
-/** The `/` and `/=` over a bitwise expression of written integers, by file (the owner's decision
- *  of 2026-11-11 on #1272, D-b, "A2대로 거부"): such a value is an integer by its bit operator,
- *  and no operand has a declared type, so the division is refused as Amendment A2 refuses one
- *  over a constant, unless an integer position reads the quotient (Amendment A4). */
-const writtenDivisionsOf = new WeakMap<ts.SourceFile, WrittenDivision[]>();
-
-/** One `/` or `/=` over a binding that holds a tree of written integers (D-b). */
-interface WrittenDivision {
-  readonly node: ts.BinaryExpression;
-  readonly subject: string;
-  /** Each operand that carries a tree, as written: what a remedy that names no edit wraps. */
-  readonly subjects: readonly string[];
-  readonly edit: string;
-  readonly kind: 'float' | 'integer';
-  /** The edit for an integer peer that states no type, by its type. */
-  readonly peerEdit?: (type: 'i32' | 'u32') => string;
-  /** A position that states an integer type, or a comparison, read the quotient (A4). */
-  read: boolean;
-  /** The type of an integer peer that states no type and read the quotient. */
-  peer?: 'i32' | 'u32';
-  /** Whether an operand holds two readings (D2): its float is `f32(i32(…))`. */
-  readonly readings?: boolean;
-}
-
-/** Records a `/` or `/=` over a binding that holds a tree of written integers: `subject` is the
- *  operand that carries it, as written, and `edit` the text that compiles in its place. */
-export function noteWrittenDivision(
-  node: ts.BinaryExpression,
-  sourceFile: ts.SourceFile,
-  subject: string,
-  edit: string,
-  kind: 'float' | 'integer',
-  peerEdit?: (type: 'i32' | 'u32') => string,
-  subjects: readonly string[] = [subject],
-  readings = false,
-): void {
-  // A `/` over a constant of no fixed type that A2 refuses is said by A2's sentence: the report
-  // drops this record then (`outer`). One A2 leaves alone (no other read makes the constant an
-  // integer) is refused here, as E1 of 2026-11-13 asks (`a /= k` with `const k = 7`).
-  let list = writtenDivisionsOf.get(sourceFile);
-  if (list === undefined) writtenDivisionsOf.set(sourceFile, (list = []));
-  if (list.some((d) => d.node === node)) return;
-  list.push({
-    node,
-    subject,
-    subjects,
-    edit,
-    kind,
-    read: false,
-    ...(peerEdit !== undefined ? { peerEdit } : {}),
-    ...(readings ? { readings } : {}),
-  });
-}
-
-/** Records how a position read the quotient of the `/` at `node`: a position that states an
- *  integer type, or a comparison (`'read'`), takes it and the `/` stands; an integer peer that
- *  states none names its type for the edit. */
-export function noteWrittenDivisionRead(
-  node: ts.Node,
-  sourceFile: ts.SourceFile,
-  how: 'read' | 'i32' | 'u32',
-): void {
-  const record = writtenDivisionsOf.get(sourceFile)?.find((d) => d.node === node);
-  if (record === undefined) return;
-  if (how === 'read') record.read = true;
-  else record.peer ??= how;
-}
+export {
+  noteWrittenDivision,
+  noteWrittenDivisionRead,
+} from './abstract-const/written-divisions.js';
 
 /** The reads of each binding that holds a refused quotient (`q` in `let q = (1 | 2) / 2`), by
  *  file: a mismatch that a read's `f32` raises where it flows is that refusal said again. */
@@ -1371,7 +1310,7 @@ export function reportAbstractDivisions(
       makeDiagnostic(
         sourceFile,
         node,
-        `"${w.subject}" is an integer by its bit operator, and no operand of "${text}" has a ` +
+        `"${w.subject}" is an integer ${divisionOrigin(w, hasNoWrittenResult)}, and no operand of "${text}" has a ` +
           `declared type, so the "${operator}" ${NO_DIVISION}. ` +
           (edit !== null
             ? `Write "${edit}" for the ${kind} division.`
@@ -1381,9 +1320,11 @@ export function reportAbstractDivisions(
                   .join(' or ')} to choose the division.`
               : genericDivisionRemedy(
                   w.subjects,
-                  w.readings === true
-                    ? (allowed ?? ALL_SCALARS).map((t) => (t === 'f32' ? 'f32(i32' : t))
-                    : allowed,
+                  w.noEdit === true
+                    ? []
+                    : w.readings === true
+                      ? heldWraps(node, allowed ?? ALL_SCALARS)
+                      : allowed,
                   { node },
                 )),
         TS_CODES.TYPE_MISMATCH,
@@ -1391,6 +1332,10 @@ export function reportAbstractDivisions(
     const editIn = (t: Scalar): string =>
       t === 'f32' || w.peerEdit === undefined ? w.edit : w.peerEdit(t);
     const peer = w.peerEdit !== undefined ? w.peer : undefined;
+    if (w.noEdit === true) {
+      diagnostics.push(sentence(null, 'integer'));
+      continue;
+    }
     let current = sentence(editIn(peer ?? 'f32'), peer === undefined ? w.kind : 'integer');
     diagnostics.push(current);
     const say = (edit: string | null, kind = 'integer', allowed?: readonly Scalar[]) =>
@@ -1439,11 +1384,10 @@ export function reportAbstractDivisions(
           };
         }
         const { first, second, conflict, allowed } = typesFromUse(node, peer, cx);
-        const change = (t: Scalar): SourceChange => ({
-          start: node.getStart(sourceFile),
-          end: node.getEnd(),
-          text: editIn(t),
-        });
+        const change = (t: Scalar): SourceChange | undefined =>
+          w.readings === true && readsNegativeAsWgsl(node)
+            ? undefined
+            : { start: node.getStart(sourceFile), end: node.getEnd(), text: editIn(t) };
         return {
           diagnostic: () => current,
           sets: [change(first), change(second)],
@@ -2140,6 +2084,7 @@ export function wrapsCannotChoose(
   constant = false,
 ): boolean {
   const offers = (t: string) => allowed.some((a) => a === t || (t === 'f32' && a === 'f32(i32'));
+  if (allowed.length === 0) return true;
   // The refusal may stand on a minus around the `/` (`-((~(1|2)) / 7)`).
   let node: ts.Expression = at;
   let negated = false;

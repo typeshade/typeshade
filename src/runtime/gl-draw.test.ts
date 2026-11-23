@@ -271,7 +271,7 @@ declare const linear: sampler;
       const program = rt.load(manifest(source(sample(a), sample(b))));
       calls.length = 0;
       await expect(program.render({})).rejects.toThrow(
-        `it samples "photo" with "${a}" and "${b}", and GLSL ES 3.00 fuses a texture with one sampler`,
+        `it samples "photo" with "${a}" and "${b}", and a texture with more than one sampler is not supported yet on the WebGL2 tier`,
       );
       expect(
         calls.some((c) => /^(createShader|createProgram|linkProgram|drawArrays)/.test(c)),
@@ -1388,7 +1388,7 @@ declare const photo: texture_2d<f32>;
   /** A pipeline as the cases of this describe draw it. */
   type Drawable = { draw(t: unknown, b: unknown, g: unknown): void };
   const SAME_PASS =
-    'The WebGL2 tier cannot sample the depth attachment of the pass that writes it; sample it in a later pass.';
+    'Sampling the depth attachment of the pass that writes it is not supported yet on the WebGL2 tier (Rule 11.11); sample it in a later pass.';
   const env = () => {
     const { gl, calls } = fakeGl(4);
     const d = new GlDrawing(webgl2Device(gl));

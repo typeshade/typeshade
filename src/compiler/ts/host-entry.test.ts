@@ -10,7 +10,7 @@
 // import journey (`scripts/user-journey.ts`).
 
 import { afterAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -24,9 +24,9 @@ import { packed, type EntryBinding } from '../../core/host-entry.js';
 import { createTypeshadeLanguageService } from '../../language-service/index.js';
 import { array } from '../../runtime.js';
 import { uninlined } from '../../core/testing/keep-helpers.js';
+import { exampleSource } from '../../../examples/_example-file.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
-const ROOT = resolve(__dirname, '../../..');
 const dirs: string[] = [];
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
@@ -90,8 +90,8 @@ declare const particles: storage<array<Particle>, "read_write">;
   particles[gid.x] = { pos: vec4(pos, 1), vel: vec4(vel, 0) };
 }
 `;
-const HISTOGRAM = readFileSync(join(ROOT, 'examples/atomic-histogram.shade.ts'), 'utf8');
-const SYNC = readFileSync(join(ROOT, 'examples/compute-sync.shade.ts'), 'utf8');
+const HISTOGRAM = exampleSource('atomic-histogram');
+const SYNC = exampleSource('compute-sync');
 
 const SCALE = `"use typeshade";
 declare const k: uniform<f32>;
@@ -415,7 +415,7 @@ declare const out: storage<array<vec3>, "read_write">;
       ]),
     );
     await expect(call(bindings, 1)).rejects.toThrow(
-      /^cs\(\) needs WebGPU: it reaches workgroupBarrier\(\) at m\.shade\.ts:\d+, and a barrier has no CPU tier\.$/,
+      /^cs\(\) needs WebGPU: it reaches workgroupBarrier\(\) at m\.shade\.ts:\d+, not supported yet on the CPU tier \(Rule 8\.24\)\.$/,
     );
   });
 });

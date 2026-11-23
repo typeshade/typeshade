@@ -64,54 +64,30 @@
 // ignores it, and `"use typeshade"` is still the first non-comment line of every file. The block is REQUIRED: a shader without one fails the drift
 // arm in `shade-examples.test.ts` rather than going quietly unregistered.
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compile } from '../src/index.js';
 import type { ModuleDecl } from '../src/index.js';
+import { hasManifest, parseSpecFields, readManifest, type ExampleSpec } from './_manifest.js';
 import type { ShaderExample, ShaderPass } from './_shared.js';
+import { SHADE_EXT, SHADE_FILES } from './_example-file.js';
+
+export {
+  exampleFile,
+  exampleSource,
+  GALLERY_DIR,
+  HOSTS_DIR,
+  PATH_DIR,
+  SHADE_EXT,
+  SHADE_FILES,
+} from './_example-file.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-/** The extension that marks a TypeShade source module — the same one the Vite plugin
- *  (`src/vite.ts`) and `tshc sync` pick modules by (Rule 3.8), so the corpus on disk and the
- *  bundler plugin agree on what a shade module is. */
-export const SHADE_EXT = '.shade.ts';
-
-/** The hand-written half of a `.shade.ts` registration: everything `compile()` cannot infer. */
-type ShadeSpec = {
-  /** Registry id. Also the golden filename stem, so it must not collide with an `examples` id. */
-  readonly id: string;
-  readonly title: string;
-  readonly blurb: string;
-  /** The `examples` id this file is the source-language TWIN of: the same shader, authored
-   *  through the other surface. Set it and `shade-twins.test.ts` pins the two emits side by
-   *  side and compares the lowered modules — which is what turns "the EDSL corpus is the
-   *  oracle" from a claim in the surface document into something a suite can fail on. */
-  readonly twinOf?: string;
-  /** The passes drawn before this file each frame, in draw order (change 0026), as the block
-   *  names them: each pass's name and its file under `examples/passes/`. */
-  readonly passes?: readonly { readonly name: string; readonly file: string }[];
-} & (
-  | {
-      /** Has a GLSL ES 3.00 form — both stages emit AND link. Authored, never derived: a flag
-       *  computed by try/catch around the emitter agrees with the emitter by construction, and
-       *  the compile gate would then have nothing left to catch. */
-      readonly renderable: true;
-    }
-  | {
-      readonly renderable: false;
-      /** WHY the GLSL backend cannot serve this example, checked rather than believed
-       *  (`shade-examples.test.ts`): a substring of the refusal the backend throws, or the
-       *  literal `NO_ENTRY_POINT` for a module that emits a stage with no `main()` because it
-       *  declares no entry point.
-       *
-       *  `renderable: false` without one would be a way to opt out of the compile gate for
-       *  free; with one, the flag and the reason are both claims a suite can fail. A UNION
-       *  rather than an optional field, so `tsc` refuses an entry that leaves it out. */
-      readonly reason: string;
-    }
-);
+/** The hand-written half of a `.shade.ts` registration: everything `compile()` cannot infer.
+ *  Its fields are documented in `_manifest.ts`, which both readers share. */
+type ShadeSpec = ExampleSpec;
 
 /** The `reason` of an example whose GLSL stages emit but carry no `main()`, because the module
  *  declares no entry point at all. Not a refusal message — there is no throw to match. */
@@ -156,93 +132,22 @@ function readSpec(id: string, source: string): ShadeSpec {
       `typeshade: ${file}'s @example block is not JSON: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
-  const spec = parsed as Partial<Record<string, unknown>>;
-  const { title, blurb, renderable, twinOf, reason, passes } = spec;
-  if (typeof title !== 'string' || title === '')
-    throw new Error(`typeshade: ${file}'s @example block has no "title"`);
-  if (typeof blurb !== 'string' || blurb === '')
-    throw new Error(`typeshade: ${file}'s @example block has no "blurb"`);
-  if (typeof renderable !== 'boolean')
-    throw new Error(
-      `typeshade: ${file}'s @example block needs "renderable": true or false — authored, never ` +
-        `derived, because a flag computed from the emitter agrees with it by construction and ` +
-        `the compile gate would then have nothing left to catch`,
-    );
-  if (twinOf !== undefined && typeof twinOf !== 'string')
-    throw new Error(`typeshade: ${file}'s "twinOf" is not a string`);
-  if (
-    passes !== undefined &&
-    (!Array.isArray(passes) ||
-      passes.length === 0 ||
-      !passes.every(
-        (x: unknown) =>
-          typeof x === 'object' &&
-          x !== null &&
-          typeof (x as Record<string, unknown>)['name'] === 'string' &&
-          typeof (x as Record<string, unknown>)['file'] === 'string',
-      ))
-  )
-    throw new Error(
-      `typeshade: ${file}'s "passes" is not a list of { "name", "file" } with string fields`,
-    );
-  if (passes !== undefined && renderable !== true)
-    throw new Error(
-      `typeshade: ${file} names passes and is not "renderable": true — an example drawn in ` +
-        `several passes is drawn, so it has a GLSL ES 3.00 form the compile gate links`,
-    );
-  const common = {
-    id,
-    title,
-    blurb,
-    ...(twinOf === undefined ? {} : { twinOf }),
-    ...(passes === undefined
-      ? {}
-      : {
-          passes: (passes as { name: string; file: string }[]).map(({ name, file: f }) => ({
-            name,
-            file: f,
-          })),
-        }),
-  };
-  if (renderable) return { ...common, renderable: true };
-  if (typeof reason !== 'string' || reason === '')
-    throw new Error(
-      `typeshade: ${file} is "renderable": false and states no "reason" — the flag is a claim ` +
-        `this package checks (shade-examples.test.ts), not a way out of the compile gate`,
-    );
-  return { ...common, renderable: false, reason };
+  return parseSpecFields(id, file, '@example block', parsed as Partial<Record<string, unknown>>);
+}
+
+/** One module's registration: its `example.json` where its directory has one, and its
+ *  `@example` header otherwise (change 0145, amendment A2). */
+function specFor(id: string): ShadeSpec {
+  const path = SHADE_FILES.get(id)!;
+  const dir = join(HERE, dirname(path));
+  if (hasManifest(dir)) return readManifest(dir, id);
+  return readSpec(id, readFileSync(join(HERE, path), 'utf8'));
 }
 
 /** `readSpec` under a name a suite may import: `shade-examples.test.ts` drives it with a
  *  missing, malformed and incomplete block, because refusing those is the whole reason a
  *  shader registering ITSELF is safer than one hand-ordered array. Not part of the corpus. */
 export const readSpecForTest = readSpec;
-
-/** The directory of the host examples (change 0061): one directory for each, `hosts/<id>/`,
- *  holding the module `<id>.shade.ts` and the host file `host.ts` that runs it. The module is an
- *  example of the corpus like any file of this directory, so it reaches the emit goldens and the
- *  compile gate; `hosts/index.ts` lists the pairs for a reader (`hostExamples`). */
-export const HOSTS_DIR = 'hosts';
-
-/** The directory of the learning path (change 0145): one directory for each step, `path/<id>/`,
- *  holding the module `<id>.shade.ts` and the host file `host.ts`. The gallery's directories
- *  (`hosts/` today) are a separate place, so a path step and a gallery example never share one. */
-export const PATH_DIR = 'path';
-
-/** Every `.shade.ts` file of the corpus, id → its path relative to this directory: each file of
- *  this directory, each host example's module, and each step's module of the learning path. The id is the basename without `.shade.ts`,
- *  so a host example's directory and its module carry one name. */
-export const SHADE_FILES: ReadonlyMap<string, string> = new Map([
-  ...readdirSync(HERE)
-    .filter((f) => f.endsWith(SHADE_EXT))
-    .map((f) => [f.slice(0, -SHADE_EXT.length), f] as const),
-  ...readdirSync(join(HERE, HOSTS_DIR), { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .map((d) => [d.name, `${HOSTS_DIR}/${d.name}/${d.name}${SHADE_EXT}`] as const),
-  ...readdirSync(join(HERE, PATH_DIR), { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .map((d) => [d.name, `${PATH_DIR}/${d.name}/${d.name}${SHADE_EXT}`] as const),
-]);
 
 /** Every `.shade.ts` file of the corpus, id-sorted, each registered from its own bytes.
  *
@@ -251,9 +156,7 @@ export const SHADE_FILES: ReadonlyMap<string, string> = new Map([
  *  entries up by id, and the goldens are per-id files. Deriving the order from the id rather
  *  than from whichever line an author picked is the second half of removing the conflict class:
  *  there is no longer an order for two branches to disagree about. */
-const SHADE_ORDER: readonly ShadeSpec[] = [...SHADE_FILES.keys()]
-  .sort()
-  .map((id) => readSpec(id, readFileSync(join(HERE, SHADE_FILES.get(id)!), 'utf8')));
+const SHADE_ORDER: readonly ShadeSpec[] = [...SHADE_FILES.keys()].sort().map((id) => specFor(id));
 
 /**
  * Compile one `.shade.ts` file into the registry shape the EDSL examples use.
@@ -297,9 +200,11 @@ function shadeExample(spec: ShadeSpec): ShaderExample {
   };
 }
 
-/** Where a pass's file lives: a `.shade.ts` path under `examples/passes/`, which the corpus
- *  scan does not read, the way it does not read `lib/`. */
-const PASS_FILE = /^passes\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.shade\.ts$/;
+/** Where a pass's file lives: a `.shade.ts` path under `examples/passes/`, or in the directory of
+ *  the example that draws it (`gallery/<id>/`). The corpus scan reads neither as an example, the
+ *  way it does not read `lib/`. */
+const PASS_FILE =
+  /^(?:passes|gallery\/[A-Za-z0-9_-]+)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.shade\.ts$/;
 
 /** A pass's name is the name of the bindings that read it, so it is an identifier. */
 const PASS_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -310,10 +215,13 @@ function compilePass(
   file: string,
   pass: { readonly name: string; readonly file: string },
 ): ShaderPass {
-  if (!PASS_FILE.test(pass.file))
+  if (
+    !PASS_FILE.test(pass.file) ||
+    (pass.file.startsWith('gallery/') && !pass.file.startsWith(`${dirname(file)}/`))
+  )
     throw new Error(
       `typeshade: ${file}'s pass "${pass.name}" names ${JSON.stringify(pass.file)}, and a pass ` +
-        `file is a .shade.ts path under passes/`,
+        `file is a .shade.ts path under passes/ or in the example's own gallery directory`,
     );
   const source = readHere(pass.file);
   if (source === undefined)

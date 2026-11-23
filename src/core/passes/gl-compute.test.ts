@@ -2,7 +2,7 @@
 // on WebGL2 by the GPU differential's compute arm (`scripts/gl-compute-arm.ts`), which holds what
 // it leaves to the CPU model of the executor; here, what the executor reads from the program.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -22,6 +22,7 @@ import { keepHelpers } from '../testing/keep-helpers.js';
 import { stageOf } from '../ir/index.js';
 import { dispatchCompute } from '../debug/dispatch.js';
 import { runGlModel, storageFloats, storageWords } from '../testing/gl-model.js';
+import { CORPUS_FILES, exampleSource } from '../../../examples/_example-file.js';
 
 describe('buildGlCompute (change 0054)', () => {
   it('stores double low words in their scalar slots and vector planes across log cuts (#1021)', () => {
@@ -160,20 +161,14 @@ function put(i: u32) { b[i] = kb + scratch[63 - i]; }
   it("keeps an author local apart from the pass program's own names", () => {
     // `const w` in this example was hoisted to the name of the pass loop's counter, and the
     // pass program assigned a struct to an int.
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/array-length.shade.ts', import.meta.url)),
-      'utf8',
-    );
+    const src = exampleSource('array-length');
     const g = buildGlCompute(compile(src).module, 'scale_all');
     expect(g.vertex).toMatch(/_phv\d+_w = Weights\(/);
     expect(g.vertex).not.toMatch(/__/);
   });
 
   it('wraps a uniform that is not a struct in a block, and names it', () => {
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/particle-step.shade.ts', import.meta.url)),
-      'utf8',
-    );
+    const src = exampleSource('particle-step');
     const g = buildGlCompute(compile(src).module, 'k');
     expect(g.uniforms.map((u) => [u.name, u.block])).toEqual([['delta', '_PhU_delta']]);
     expect(g.vertex).toContain('uniform _PhU_delta');
@@ -261,7 +256,7 @@ declare const out: storage<array<f32>, "read_write">;
 }
 `).module;
     expect(() => buildGlCompute(twice, 'main')).toThrow(
-      'it samples "photo" with "a" and "b", and GLSL ES 3.00 fuses a texture with one sampler',
+      'it samples "photo" with "a" and "b", and a texture with more than one sampler is not supported yet on the WebGL2 tier',
     );
     for (const [decl, use, type, why] of [
       [
@@ -417,7 +412,7 @@ function put(t: texture_storage_2d<"r32float", "write">, i: i32) {
   it('builds every compute entry of the examples, the storage texture one included', () => {
     const dir = fileURLToPath(new URL('../../../examples/', import.meta.url));
     const built: string[] = [];
-    for (const f of readdirSync(dir).filter((x) => x.endsWith('.shade.ts'))) {
+    for (const f of CORPUS_FILES) {
       const src = readFileSync(join(dir, f), 'utf8');
       if (!src.includes('@compute') && !/\bcompute\(/.test(src)) continue;
       const r = compile(src);
@@ -580,6 +575,6 @@ let tile: workgroup<array<f32, 64>>;
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(() => buildGlCompute(r.module, 'mm')).toThrow('a mat2x2<f64> cannot be kept in state');
+    expect(() => buildGlCompute(r.module, 'mm')).toThrow('a mat2x2<f64> is not supported yet');
   });
 });

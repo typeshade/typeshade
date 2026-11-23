@@ -4,10 +4,7 @@ import { describe, it } from 'vitest';
 import { bothRefuse } from '../../core/testing/both-halves.js';
 
 const H = `"use typeshade";\n`;
-const REMEDY = 'Push onto it inside a for loop at the top level of "f".';
-const NOT_TOP = (loop: string): string =>
-  `"out.push(1.)" pushes onto "out" inside "${loop}", which is no for loop at the top level of ` +
-  `"f", and that is not supported yet. ${REMEDY}`;
+const REMEDY = 'Push onto it inside a loop of "f".';
 const UNKNOWN = (loop: string): string =>
   `"${loop}" pushes onto "out", and its start or bound reads a value the call does not know ` +
   `before it runs. It reads the value parameters, their components and fields, module ` +
@@ -15,10 +12,6 @@ const UNKNOWN = (loop: string): string =>
   `and top-level consts of these, with +, -, *, /, %, min and max; any other operand is not ` +
   `supported yet.`;
 const LOOP = 'for (let i: u32 = 0; i < n; i++) { out.push(1.); }';
-const APPENDS =
-  'writes an element of "out" that can append to it, and its trip count is no count from a ' +
-  'start to a bound by a constant whole step, so the call cannot reserve room for "out" before ' +
-  'it runs; that is not supported yet.';
 const MADE_OF = (t: string): string =>
   `This function makes and returns array<${t}>, an array of ${t} whose length the call gives. ` +
   `An array of ${t} made this way is not supported yet; an array of f32, i32 or u32, of a vector of them, or of a struct of these is.`;
@@ -34,23 +27,6 @@ describe('what change 0114, S5d, refuses as not supported yet (TS8099)', () => {
         `and that is not supported yet. ${REMEDY}`,
     ],
     [
-      'a push in a while loop',
-      grows('let i: u32 = 0; while (i < n) { out.push(1.); i++; }'),
-      NOT_TOP('while (i < n)'),
-    ],
-    [
-      'a push in a loop inside a loop',
-      grows(
-        'for (let i: u32 = 0; i < n; i++) { for (let j: u32 = 0; j < n; j++) { out.push(1.); } }',
-      ),
-      NOT_TOP('for (let j: u32 = 0; j < n; j++)'),
-    ],
-    [
-      'a push in a loop under a branch',
-      grows('if (c > 0) { for (let i: u32 = 0; i < n; i++) { out.push(1.); } }', 'n: u32, c: u32'),
-      NOT_TOP('for (let i: u32 = 0; i < n; i++)'),
-    ],
-    [
       'a push in a loop whose range the device holds',
       grows('for (let i: u32 = 0; i < xs[0]; i++) { out.push(1.); }', 'xs: u32[]'),
       UNKNOWN('for (let i: u32 = 0; i < xs[0]; i++)'),
@@ -59,13 +35,6 @@ describe('what change 0114, S5d, refuses as not supported yet (TS8099)', () => {
       'a push in a loop whose bound reads an unlisted operand',
       grows('let m = n; m += 1; for (let i: u32 = 0; i < m; i++) { out.push(1.); }'),
       UNKNOWN('for (let i: u32 = 0; i < m; i++)'),
-    ],
-    [
-      'a push in a loop that is not counted',
-      grows('for (let i: u32 = 1; i < n; i *= 2) { out.push(1.); }'),
-      '"for (let i: u32 = 1; i < n; i *= 2)" pushes onto "out", and its trip count is no count ' +
-        'from a start to a bound by a constant whole step, so the call cannot reserve room for ' +
-        '"out" before it runs; that is not supported yet.',
     ],
     [
       'an array of matrices',
@@ -106,11 +75,6 @@ describe('what change 0114, S5d, refuses as not supported yet (TS8099)', () => {
       '"out[j]" writes an element of "out" inside a loop that is no for loop at the top level ' +
         'of "f", at an index the compiler cannot prove is below its length, and that is not ' +
         'supported yet. Index it by the counter of a loop up to out.length.',
-    ],
-    [
-      'an element write that can append, in a while loop',
-      grows(`${LOOP} let j: u32 = 0; while (j < n) { out[j] = 2.; j++; }`),
-      `"while (j < n)" ${APPENDS}`,
     ],
     [
       'an element write that can append, in a loop up to its length',

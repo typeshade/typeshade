@@ -155,75 +155,75 @@ describe('the type a remedy spells is the one an author writes', () => {
   }[] = [
     {
       what: 'a scalar',
-      decl: 'declare const s: storage<f32>',
+      decl: 'declare const s: storage<f32, "read">',
       body: 's = 1.',
       names: 'declare const s: storage<f32, "read_write">',
       hole: constWholeWrite('s'),
     },
     {
       what: 'an f32 vector',
-      decl: 'declare const v: storage<vec2>',
+      decl: 'declare const v: storage<vec2, "read">',
       body: 'v.x = 1.',
       names: 'declare const v: storage<vec2, "read_write">',
     },
     {
       what: 'an integer vector',
-      decl: 'declare const iv: storage<vec4i>',
+      decl: 'declare const iv: storage<vec4i, "read">',
       body: 'iv.x = 1',
       names: 'declare const iv: storage<vec4i, "read_write">',
     },
     {
       what: 'a vector inside an array',
-      decl: 'declare const a: storage<array<vec4>>',
+      decl: 'declare const a: storage<array<vec4>, "read">',
       body: 'a[gid.x] = vec4(1.)',
       names: 'declare const a: storage<array<vec4>, "read_write">',
     },
     {
       what: 'a matrix',
-      decl: 'declare const m: storage<mat2x3>',
+      decl: 'declare const m: storage<mat2x3, "read">',
       body: 'm[0] = vec3(1.)',
       names: 'declare const m: storage<mat2x3, "read_write">',
     },
     {
       what: 'a square matrix, whose alias is the shorthand',
-      decl: 'declare const m4: storage<mat4>',
+      decl: 'declare const m4: storage<mat4, "read">',
       body: 'm4[0] = vec4(1.)',
       names: 'declare const m4: storage<mat4x4, "read_write">',
     },
     {
       what: 'an emulated double',
-      decl: 'declare const d: storage<f64>',
+      decl: 'declare const d: storage<f64, "read">',
       body: 'd = f64(1.)',
       names: 'declare const d: storage<f64, "read_write">',
       hole: constWholeWrite('d'),
     },
     {
       what: 'an emulated-double vector',
-      decl: 'declare const dv: storage<array<vec2f64>>',
+      decl: 'declare const dv: storage<array<vec2f64>, "read">',
       body: 'dv[gid.x] = vec2f64(f64(1.), f64(2.))',
       names: 'declare const dv: storage<array<vec2f64>, "read_write">',
     },
     {
       what: 'a struct',
-      decl: 'declare const p: storage<Params>',
+      decl: 'declare const p: storage<Params, "read">',
       body: 'p.scale = 1.',
       names: 'declare const p: storage<Params, "read_write">',
     },
     {
       what: 'an array of structs',
-      decl: 'declare const ps: storage<array<Params>>',
+      decl: 'declare const ps: storage<array<Params>, "read">',
       body: 'ps[gid.x].scale = 1.',
       names: 'declare const ps: storage<array<Params>, "read_write">',
     },
     {
       what: 'a sized array',
-      decl: 'declare const xs: storage<array<f32, 4>>',
+      decl: 'declare const xs: storage<array<f32, 4>, "read">',
       body: 'xs[0] = 1.',
       names: 'declare const xs: storage<array<f32, 4>, "read_write">',
     },
     {
       what: 'an atomic, which only the compiler refuses (Appendix B, rule 6.2)',
-      decl: 'declare const bins: storage<array<atomic<u32>>>',
+      decl: 'declare const bins: storage<array<atomic<u32>>, "read">',
       body: 'atomicAdd(bins[gid.x], 1)',
       names: 'declare const bins: storage<array<atomic<u32>>, "read_write">',
     },
@@ -259,17 +259,17 @@ describe('every refusal that names a line names one that compiles', () => {
     {
       what: 'a write through a read binding',
       site: 'context.ts writableRemedy, reached from lower/statement.ts',
-      program: write('declare const src: storage<array<f32>>', 'src[gid.x] = 1.'),
+      program: write('declare const src: storage<array<f32>, "read">', 'src[gid.x] = 1.'),
     },
     {
       what: 'a compound write through a read binding',
       site: 'context.ts writableRemedy, reached from lower/statement.ts',
-      program: write('declare const src: storage<array<f32>>', 'src[gid.x] += 1.'),
+      program: write('declare const src: storage<array<f32>, "read">', 'src[gid.x] += 1.'),
     },
     {
       what: 'an increment of a read binding',
       site: 'context.ts writableRemedy, reached from lower/control.ts',
-      program: write('declare const n: storage<u32>', 'n++'),
+      program: write('declare const n: storage<u32, "read">', 'n++'),
       hole: constWholeWrite('n'),
     },
     {
@@ -280,7 +280,7 @@ class Acc {
   total: f32 = 0. as f32;
   add(x: f32): void { this.total = this.total + x; }
 }
-declare const acc: storage<Acc>;
+declare const acc: storage<Acc, "read">;
 @compute([64, 1, 1]) export function k(): void {
   acc.add(1.);
 }
@@ -289,24 +289,24 @@ declare const acc: storage<Acc>;
     {
       what: 'an atomic builtin on a read binding',
       site: 'context.ts writableRemedy, reached from lower/atomics.ts',
-      program: write('declare const bins: storage<array<atomic<u32>>>', 'atomicAdd(bins[0], 1)'),
+      program: write('declare const b: storage<array<atomic<u32>>, "read">', 'atomicAdd(b[0], 1)'),
     },
     {
       what: 'a CALL-form binding written through, which names the call form back',
       site: 'context.ts writableRemedy with the call form recorded by bindings.ts',
-      program: write('const xs = storage<array<f32>>({ binding: 3 })', 'xs[gid.x] = 1.'),
+      program: write('const xs = storage<array<f32>, "read">({ binding: 3 })', 'xs[gid.x] = 1.'),
       names: 'const xs = storage<array<f32>, "read_write">({ binding: 3 })',
     },
     {
       what: 'a CALL-form binding with no options, whose empty argument list is kept',
       site: 'context.ts writableRemedy with the call form recorded by bindings.ts',
-      program: write('const xs = storage<array<f32>>()', 'xs[gid.x] = 1.'),
+      program: write('const xs = storage<array<f32>, "read">()', 'xs[gid.x] = 1.'),
       names: 'const xs = storage<array<f32>, "read_write">()',
     },
     {
       what: 'a CALL-form binding whose slot is positional, which the remedy carries',
       site: 'context.ts writableRemedy with the call form recorded by bindings.ts',
-      program: write('const xs = storage<array<f32>>(1, 2)', 'xs[gid.x] = 1.'),
+      program: write('const xs = storage<array<f32>, "read">(1, 2)', 'xs[gid.x] = 1.'),
       names: 'const xs = storage<array<f32>, "read_write">(1, 2)',
     },
     {
@@ -441,7 +441,7 @@ let gain: uniform<f32>;
   // const xs: …` — a declaration is a line they ADD. Added, it is a second resource of the same
   // name. So the call form is pinned by the line the case above asserts, and by this.
   it('names the call form because the declare form is a second resource beside it', () => {
-    const call = 'const xs = storage<array<f32>>({ binding: 3 })';
+    const call = 'const xs = storage<array<f32>, "read">({ binding: 3 })';
     const decl = 'declare const xs: storage<array<f32>, "read_write">';
     const program = write(call, 'xs[gid.x] = 1.');
     // Added ABOVE the call and added BELOW it, because a reader adds a declaration wherever
@@ -530,7 +530,7 @@ describe('a refusal names no line when it could not make the line good', () => {
     },
     {
       what: 'a matrix with no emulated-double form, recovered',
-      read: 'declare const mnd: storage<mat2x3<f64>>',
+      read: 'declare const mnd: storage<mat2x3<f64>, "read">',
       writable: 'declare const mnd: storage<mat2x3<f64>, "read_write">',
       body: 'mnd[0] = vec3f64(f64(1.), f64(2.), f64(3.))',
       says: ['TS8027 mat2x3<f64> has no emulated-double form'],
@@ -580,19 +580,19 @@ describe('a refusal names no line when it could not make the line good', () => {
   const recovered: readonly { what: string; decl: string; body: string; first: string }[] = [
     {
       what: 'a matrix with no emulated-double form',
-      decl: 'declare const mnd: storage<mat2x3<f64>>',
+      decl: 'declare const mnd: storage<mat2x3<f64>, "read">',
       body: 'mnd = mat2x3(vec3(1.), vec3(2.))',
       first: 'TS8027 mat2x3<f64> has no emulated-double form',
     },
     {
       what: 'a scalar this surface does not have',
-      decl: 'declare const q: storage<f16>',
+      decl: 'declare const q: storage<f16, "read">',
       body: 'q = 1.',
       first: 'TS8002 Unknown type "f16"',
     },
     {
       what: 'a scalar this surface does not have, incremented',
-      decl: 'declare const nn: storage<u64>',
+      decl: 'declare const nn: storage<u64, "read">',
       body: 'nn++',
       first: 'TS8002 Unknown type "u64"',
     },
@@ -682,12 +682,8 @@ describe('every refusal that names a line is pinned above', () => {
       lines: 0,
       note: 'two refusals say a body cannot `write "this"`, which is prose and names nothing to write',
     },
-    {
-      file: 'lower/array-methods.ts',
-      sites: 2,
-      lines: 0,
-      note: 'quotes a call to write instead, `xs.findIndex((x) => …)`, with the predicate left open, and names a captured variable to write in a forEach or a for loop: an expression and a name, not a declaration (change 0079)',
-    },
+    { file: 'lower/array-methods.ts', sites: 1, lines: 0, note: 'a captured name to write (0079)' },
+    { file: 'lower/array-methods/value-refusals.ts', sites: 1, lines: 0, note: 'a findIndex call' },
     {
       file: 'lower/class-access.ts',
       sites: 3,

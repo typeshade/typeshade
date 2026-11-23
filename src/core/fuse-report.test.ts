@@ -71,7 +71,7 @@ const glWithCpu: FuseReport = {
       fused: false,
       tier: 'cpu',
       dispatches: 0,
-      why: 'peak runs on the CPU, it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
+      why: 'peak runs on the CPU, it runs on the CPU, loop 1 reduces, which the WebGL2 tier does not support yet (Rule 11.8)',
     },
   ],
 };

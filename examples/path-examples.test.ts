@@ -24,11 +24,12 @@ import { bothTake } from '../src/core/testing/both-halves.js';
 import { pathExamples } from './index.js';
 import { PATH_ORDER } from './path/_order.js';
 import { REGISTRY, renderPathRegistry } from './path/_registry.js';
-import { compare, reference, type Drive, type Surface } from './path/_reference.js';
+import { cpuSurface, driveOf, withCpuCanvas } from './_driver.js';
+import { compare, reference } from './path/_reference.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PATH = join(HERE, 'path');
-const ids = PATH_ORDER.map((s) => s.id);
+const ids = [...PATH_ORDER];
 const COMPUTE = ['double-array', 'image-blur', 'parallel-sum', 'histogram'];
 const drawing = ids.filter((id) => !COMPUTE.includes(id));
 
@@ -41,7 +42,9 @@ describe('pathExamples: the directories, in order, with their text', () => {
     expect(dirs.length).toBeGreaterThanOrEqual(4);
     expect(pathExamples.map((s) => s.id)).toEqual(ids);
     expect([...ids].sort()).toEqual(dirs);
-    expect(pathExamples.map((s) => s.step)).toEqual(PATH_ORDER.map((s) => s.step));
+    expect(pathExamples.map((s) => s.step)).toEqual(
+      [...pathExamples.map((s) => s.step)].sort((a, b) => a - b),
+    );
   });
 
   it('carries the text of both files as they are on disk', () => {
@@ -118,48 +121,13 @@ describe('both halves read each module the same way (Rule 12.7)', () => {
   });
 });
 
-class PixelCanvas {
-  data: Uint8ClampedArray = new Uint8ClampedArray(0);
-  constructor(
-    public width: number,
-    public height: number,
-  ) {}
-  getContext(kind: string): object | null {
-    if (kind !== '2d') return null;
-    return {
-      createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(4 * w * h) }),
-      putImageData: (img: { data: Uint8ClampedArray }) => {
-        this.data = img.data.slice();
-      },
-    };
-  }
-}
-
-async function driver(): Promise<Drive> {
-  const file = join(PATH, '_drive.ts');
-  return ((await import(/* @vite-ignore */ file)) as { drive: Drive }).drive;
-}
-
-describe('the CPU tier: each step draws the reference where _order.ts lists cpu', () => {
-  const surface: Surface = {
-    canvas: (w, h) => new PixelCanvas(w, h) as unknown as OffscreenCanvas,
-    pixels: (c) => [...(c as unknown as PixelCanvas).data],
-  };
-  const g = globalThis as { OffscreenCanvas?: unknown };
-
-  for (const { id, tiers } of PATH_ORDER) {
+describe('the CPU tier: each step draws the reference where example.json lists cpu', () => {
+  for (const { id, tiers } of pathExamples) {
     const listed = tiers.includes('cpu');
-    it(`${id}: run() on the CPU tier ${listed ? 'gives' : 'does not give'} the reference, as _order.ts says`, async () => {
-      const before = g.OffscreenCanvas;
-      g.OffscreenCanvas = PixelCanvas;
-      try {
-        const ran = await (await driver())(surface, [id]);
-        if (listed) expect(compare(id, ran[id])).toEqual([]);
-        else expect(compare(id, ran[id]).length, JSON.stringify(ran[id])).toBeGreaterThan(0);
-      } finally {
-        if (before === undefined) delete g.OffscreenCanvas;
-        else g.OffscreenCanvas = before;
-      }
+    it(`${id}: run() on the CPU tier ${listed ? 'gives' : 'does not give'} the reference, as example.json says`, async () => {
+      const ran = await withCpuCanvas(async () => (await driveOf('path'))(cpuSurface, [id]));
+      if (listed) expect(compare(id, ran[id])).toEqual([]);
+      else expect(compare(id, ran[id]).length, JSON.stringify(ran[id])).toBeGreaterThan(0);
     });
   }
 

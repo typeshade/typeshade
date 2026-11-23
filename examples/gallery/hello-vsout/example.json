@@ -1,0 +1,8 @@
+{
+  "title": "Hello varyings",
+  "blurb": "The triangle again, now carrying a `uv` varying from the vertex stage into the fragment stage through a shared `VsOut` interface — the `builtin<\"position\">` field beside a plain `uv: vec2`, the pair that every interpolated value rides: the compiler gives `uv` its location.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

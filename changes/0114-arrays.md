@@ -1426,7 +1426,7 @@ Each runs on the CPU tier only (section 1, item 4.1).
   `TS8099` exists, and `Array.prototype.push` and `length` are in `src/__api__/author-names.md`.
 - Status: `status: accepted` does not change. A12: reviewed, Q1 decided (C), Q2 decided (A). The
   capacity bug fix: done (#1426, `e73d0464`). S5d slice 2: in progress (#1431): form 1 and Q1 (C)
-  first; form 2 on Routes 1 and 2 next. S5d slice 3: not started.
+  first; form 2 on Route 1 second (A14); form 2 on Route 2 next. S5d slice 3: not started.
 
 ### A13. The deviations of S5d slice 2, part 1 (2026-11-23)
 
@@ -1462,6 +1462,80 @@ Each runs on the CPU tier only (section 1, item 4.1).
   changes.
 - Status: `status: accepted` does not change. A12's heading no longer says "draft". S5d slice 2:
   form 1 and Q1 (C) done (#1431); form 2 on Routes 1 and 2 not started. S5d slice 3 (Route 3, form 3) not started.
+
+### A14. S5d slice 2, part 2: form 2 on Route 1, and its deviations (2026-11-23)
+
+- [fact] Why. Pull request #1444 (merged as `82121fd`) delivers form 2 of A12 on Route 1: a push in a
+  nest of counted loops, and in a loop under a top-level branch whose condition reads only listed
+  operands. Route 2 (a count pass) is not in it. Route 2 needs a change to the dispatch of the
+  WebGPU tier that cannot run in the container of this slice (section 6, test 8).
+- [fact] What the pull request does. The capacity sums over every push at every depth: the pushes
+  of one depth times the product of the trip counts of every loop around them (A12, section 1,
+  item 2.1; finding M7). A loop under a top-level branch counts only when the host finds its
+  branch taken, evaluated with the CPU tier's generated code (item 2.2; finding S1). The host
+  sums in `BigInt` and compares with 4294967295 exactly (item 5.2). A product that wraps in
+  `u32` throws its `RangeError` and does not wrap.
+- This amendment records the differences from A12. Each stays open until the owner decides it,
+  or a later slice closes it.
+
+1. **D1. Route 2 is not built.** A12, section 3, item 5, and section 1, item 3, are not
+   delivered. An inner loop whose start or bound reads a counter of a loop around it (Example 2)
+   stays refused. A12 words no sentence for the interim, so the sentence is the one of a start or
+   bound that reads another operand ("reads a value the call does not know before it runs …").
+   Closes with Route 2.
+2. **D2. Route 1's preference for Route 2.** A12, section 1, item 3, prefers Route 2 when Route 1's
+   capacity passes the tier's limit (finding S2). Route 1 throws its `RangeError` there until
+   Route 2 lands. Closes with Route 2.
+3. **D3. A loop under a branch inside a loop, and a loop under a `switch`.** A12 counts a loop
+   under a top-level branch (item 2.2) and sends "a loop under a top-level branch that item 2.2
+   does not count" to Route 3. It words nothing for a loop under a branch inside a loop, or for a
+   loop under a `switch`. The slice refuses both with `TS8099` and one new sentence for the
+   first: `"out.push(1.)" pushes onto "out" inside "for (…)", which stands under a branch inside
+"for (…)", and a loop under a branch inside a loop is not supported yet. Move the loop out of
+the branch.` The second takes the A7 sentence. Closes with Route 3 or with an owner decision.
+4. **D4. A branch whose condition reads another operand.** A12 sends it to Route 3. The slice
+   refuses it with `TS8099` and a sentence in the style of A13, D4: `"if (xs[0] > 0)" decides
+whether a loop pushes onto "out", and its condition reads a value the call does not know
+before it runs. …` Closes with Route 3.
+5. **D5. The A7 sentence for a `while`.** A7 item 2 retires for a nest and a branch. It stays for
+   a push in a `while`, a `do … while`, and a loop inside either, since A12 sends them to Route 3.
+   For a `for` loop inside a `while`, the sentence names the `while`. Closes with Route 3.
+6. **D6. The `RangeError` sentence.** A12, section 1, item 5.3, words it `f(): "out" can grow to
+more than 4294967295 elements, and a capacity past that is not supported yet.` The delivered
+   sentence is the one of #1426, which names the capacity: `f(): the array it grows with push,
+"out", needs room for N elements, the most its loops can push, and a length past 4294967295 is
+not supported yet.` Open until the owner decides which sentence holds.
+7. **D7. Test 3, the hazard of a loop that steps by `h`.** A12, section 6, item 3, tests `if
+(h > 0)` around a loop that steps by `h`, with `h = 0`. A loop whose step is a variable is no
+   counted loop, so it is refused (form 3, Route 3). The test uses a counted nest under a branch
+   whose capacity would pass the limit if it were counted "as if taken" (`guarded`). Closes
+   with Route 3.
+8. **D8. Tests, gates and measurements not run.** Section 6, test 8 (journeys on WebGPU), test 9
+   (the differential gate) and test 10 (measurements) did not run, and Route 2's cases in test 3
+   are not tested. The compile gate (Tint and WebGL2) passed in CI on #1444.
+
+- Affects: section 3 (A7 item 2 for a nest and a top-level branch). Rules 8.22 and 8.23 and surface
+  §65 change as the pull request lists. No front-matter entry, rule number or code changes.
+- Status: `status: accepted` does not change. S5d slice 2: form 1 and Q1 (C) done (#1431); form 2
+  on Route 1 done (#1444); form 2 on Route 2 not started. S5d
+  slice 3 (Route 3, form 3) not started.
+
+### A15. Status: A10 item 2.4 implemented (2026-11-24)
+
+- [fact] Pull request #1456 (merged as `a6934b3`) implements the owner's answer recorded in A13
+  ("0138 Q7: 일반 데이터"). A call on a resource of a kernel function that makes and returns an
+  array, and that also writes a plain array, waits. Its promise gives the made array as plain
+  data, the typed array or the array of objects of A1 item 6. The refusal of A10 item 2.4 is gone.
+  A call on a resource that writes no plain array still returns a new `Buffer` at once (A1 item 7).
+- [fact] The waiting call takes the path of a call with plain data. So the forms A10 refuses on a
+  resource (items 2.1 to 2.3: a grown array, a struct fill that shares one object, a struct of no
+  exported class) work there when the call also writes a plain array, as they work for a call
+  with plain data. A10 items 2.1 to 2.3 keep their refusal for a call that does not wait.
+- [fact] A length or a fill value that reads a resource argument (A10 item 2.5) stays refused on
+  the waiting call too; the promise rejects with the `TypeError` that names it.
+- [fact] This amendment records status only. It decides nothing.
+- Status: `status: accepted` does not change. A10's open items: 2.4 done (#1456); 2.1 to 2.3 and
+  2.5 stay refused for a call that does not wait.
 
 ## What it owes downstream
 

@@ -78,9 +78,9 @@ export type RhiBufferUsage =
 export interface RhiBufferDesc {
   readonly size: number;
   readonly usage: readonly RhiBufferUsage[];
-  /** The element type of a `'storage'` buffer: `'f32'` when omitted. WebGL2 has no storage buffer;
-   *  it gives a program the buffer as a data texture of 32-bit words of this type (change 0046),
-   *  as X-GIS's `elem` does. WebGPU does not read it. */
+  /** The element type of a `'storage'` buffer: `'f32'` when omitted. On WebGL2 a
+   *  program gets the buffer as a data texture of 32-bit words of this type (change 0046), as
+   *  X-GIS's `elem` does. WebGPU does not read it. */
   readonly elem?: 'f32' | 'i32' | 'u32';
 }
 

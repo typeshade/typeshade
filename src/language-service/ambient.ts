@@ -876,7 +876,7 @@ ${matTypeAliases}
 
 declare const arrayTag: unique symbol
 // The index signature is WRITABLE. \`out[gid.x] = value\` is the shape of every compute kernel
-// (examples/compute-reduction-twin.shade.ts), and the compiler lowers it to a storage store, so a
+// (examples/gallery/compute-reduction-twin/compute-reduction-twin.shade.ts), and the compiler lowers it to a storage store, so a
 // \`readonly\` here reported TS2542 ("Index signature ... only permits reading") on a program that
 // compiles. The tag and \`length\` stay readonly: neither is assignable in the source language.
 //
@@ -990,13 +990,13 @@ type ReadView<T> = T extends number | boolean
  * did before. */
 type uniform<T> = ReadView<T>
 /** A storage binding takes its access mode as a TYPE ARGUMENT, the way WGSL spells it:
- * \`storage<T>\` is \`var<storage, read>\` and \`storage<T, "read_write">\` is
+ * \`storage<T>\` is inferred from the program (change 0114, S3), and \`"read_write"\` keeps
  * \`var<storage, read_write>\`. The declaration keyword does not carry it, because a \`const\`
  * array in TypeScript forbids rebinding and permits \`arr[0] = 1\`, so \`declare let\` never meant
  * read_write to a reader. \`read_write\` hands back \`T\` itself, which is why \`out[gid.x] = 1.\`
  * in a compute kernel reports no TS2542 (ambient.test.ts, "a storage array is writable in the
  * editor, as it is in the compiler"). */
-type storage<T, A extends StorageBufferAccess = 'read'> = A extends 'read_write' ? T : ReadView<T>
+type storage<T, A extends StorageBufferAccess = 'read_write'> = A extends 'read_write' ? T : ReadView<T>
 /** THE SLOT THE CALL FORM MAY NAME. \`bindings.ts\` reads a bare number as the binding, two
  * numbers as the group and the binding, and an object literal as \`{ group, binding }\`; these
  * declarations took NO parameters, so every call form that named its slot was
@@ -1007,7 +1007,7 @@ type storage<T, A extends StorageBufferAccess = 'read'> = A extends 'read_write'
 ${renderJSDoc(FUNCTION_DOCS.uniform)}
 declare function uniform<T>(slot?: number | { group?: number; binding?: number }, binding?: number): ReadView<T>
 ${renderJSDoc(FUNCTION_DOCS.storage)}
-declare function storage<T, A extends StorageBufferAccess = 'read'>(slot?: number | { group?: number; binding?: number }, binding?: number): A extends 'read_write' ? T : ReadView<T>
+declare function storage<T, A extends StorageBufferAccess = 'read_write'>(slot?: number | { group?: number; binding?: number }, binding?: number): A extends 'read_write' ? T : ReadView<T>
 
 /** Specialization constants (#8 A7). TRANSPARENT, which \`uniform<T>\` no longer is: an
  * override's value arrives when the pipeline is built and a function body reads it as a plain
@@ -1071,13 +1071,13 @@ type texture_2d_array<E extends TextureElem = f32> = { readonly [textureTag]: re
  * declaration. */
 type texture_cube<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, 'cube'] }
 type texture_3d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '3d'] }
-/** WebGPU-only (roadmap 0.4 item 12): a 1D texture is a row of texels addressed by ONE number,
- * and a cube array is N cube maps addressed by a direction and a layer. GLSL ES 3.00 has
- * neither, so a module using one emits WGSL alone. */
+/** Roadmap 0.4 item 12: a 1D texture is a row of texels addressed by ONE number, and a cube
+ * array is N cube maps addressed by a direction and a layer. TypeShade emits no GLSL ES 3.00
+ * form of either yet, so a module using one emits WGSL alone: not supported yet on WebGL2. */
 type texture_1d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '1d'] }
 type texture_cube_array<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, 'cube-array'] }
 /** A multisampled colour texture (roadmap 0.4 item 13): read one sample at a time with
- * \`textureLoad(t, coords, sampleIndex)\`, never sampled. WebGPU-only. */
+ * \`textureLoad(t, coords, sampleIndex)\`, never sampled. Not supported yet on the WebGL2 tier. */
 type texture_multisampled_2d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '2d-ms'] }
 type sampler = { readonly [samplerTag]: true }
 
@@ -1162,7 +1162,7 @@ type texture_depth_2d = { readonly [depthTextureTag]: false }
 type texture_depth_2d_array = { readonly [depthTextureTag]: true }
 /** The shadow map of a point light, compared by the direction from the light. */
 type texture_depth_cube = { readonly [depthTextureTag]: 'cube' }
-/** The shadow maps of N point lights in one binding; WebGPU-only, like \`texture_cube_array\`. */
+/** The shadow maps of N point lights in one binding; not supported yet on the WebGL2 tier, like \`texture_cube_array\`. */
 type texture_depth_cube_array = { readonly [depthTextureTag]: 'cube-array' }
 /** The depth attachment of an MSAA target, read one sample at a time and never compared. */
 type texture_depth_multisampled_2d = { readonly [depthTextureTag]: '2d-ms' }

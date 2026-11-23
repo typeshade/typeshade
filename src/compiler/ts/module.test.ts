@@ -17,6 +17,7 @@ import { compileTsSources } from './module.js';
 import { compile } from './compile.js';
 import { TS_CODES } from './codes.js';
 import { keepHelpers } from '../../core/testing/keep-helpers.js';
+import { bothHalves, bothRefuse, bothTake } from '../../core/testing/both-halves.js';
 
 describe('compileTsSources import', () => {
   it('resolves relative named import onto declRef', () => {
@@ -68,6 +69,14 @@ describe('compileTsSources import', () => {
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
       `${TS_CODES.IMPORT} Cannot find the shader module "./nope" (looked for "nope.ts").`,
     ]);
+    expect(
+      bothHalves(
+        `"use typeshade";\nimport { square } from "./nope";\nexport function foo(x: f32): f32 { return square(x); }`,
+        { fileName: 'app.ts' },
+      ).editor,
+    ).toEqual([
+      `typeshade ${TS_CODES.IMPORT}: Cannot find the shader module "./nope" (looked for "nope.ts").`,
+    ]);
   });
 });
 
@@ -92,57 +101,6 @@ describe('compileTsSources syntax errors', () => {
   });
 });
 
-describe('compileTsSources — ported from sources.test.ts', () => {
-  it('PORTED: resolves relative named imports into one WGSL module', () => {
-    const r = compileTsSources(
-      [
-        {
-          fileName: 'math.ts',
-          source: `
-          "use typeshade";
-          export function square(x: f32): f32 { return x * x; }
-        `,
-        },
-        {
-          fileName: 'app.ts',
-          source: `
-          "use typeshade";
-          import { square } from "./math";
-          export function foo(x: f32): f32 { return square(x) + 1.; }
-        `,
-        },
-      ],
-      'app.ts',
-    );
-    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-    expect(r.funcs.map((f) => f.name).sort()).toEqual(['foo', 'square']);
-    expect(r.wgsl).toMatch(/fn square/);
-    expect(r.wgsl).toMatch(/fn foo/);
-    expect(r.wgsl).toMatch(/square\(/);
-  });
-
-  it('PORTED: refuses a package the files it is handed do not hold (change 0024)', () => {
-    const r = compileTsSources(
-      [
-        {
-          fileName: 'app.ts',
-          source: `
-          "use typeshade";
-          import { sin } from "some-pkg";
-          export function f(x: f32): f32 { return x; }
-        `,
-        },
-      ],
-      'app.ts',
-    );
-    // A package is found through the files handed in, as through any readDocument: no
-    // `node_modules/some-pkg/package.json` among them, so it is not found.
-    expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
-      'TS8072 Cannot find the package "some-pkg" (looked in node_modules from "." up).',
-    ]);
-  });
-});
-
 // The two capabilities the merge carried over from sources.ts. Without these arms the merge
 // looks green while having silently dropped them: every existing case above passes on a
 // compileTsSources that does neither.
@@ -163,6 +121,12 @@ describe('compileTsSources — what the merge carried over', () => {
     );
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
     expect(r.consts.map((c) => c.name)).toEqual(['K']);
+    bothTake(
+      `"use typeshade";\nconst K: f32 = 2.;\nexport function f(x: f32): f32 { return x * K; }`,
+      {
+        fileName: 'app.ts',
+      },
+    );
     expect(r.wgsl).toMatch(/const K/);
   });
 
@@ -186,6 +150,12 @@ describe('compileTsSources — what the merge carried over', () => {
         'the merge, so the documentation gate accepted in a multi-file fence what it rejects ' +
         'in a single-file one',
     ).toContain('lib.ts');
+    bothRefuse(
+      `"use typeshade";\nvar loose = 1;\nexport function g(x: f32): f32 { return x; }`,
+      'TS8014',
+      'Top-level var is not allowed. Use `let` for a per-invocation variable or `const` for a module constant.',
+      { fileName: 'lib.ts' },
+    );
   });
 
   it('a top-level let is a module variable in whichever file declares it (Rule 3.9)', () => {
@@ -261,6 +231,7 @@ declare const heights: storage<array<f32>, "read_write">;
       expect(errors(multi)).toEqual([]);
       const single = compile(source);
       expect(errors(single)).toEqual([]);
+      expect(bothTake(source, { fileName: 'x.shade.ts' }).result.wgsl).toBe(multi.wgsl);
       expect(multi.wgsl).toBe(single.wgsl);
     }
   });

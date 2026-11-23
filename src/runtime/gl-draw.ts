@@ -174,12 +174,13 @@ export class GlTextureImpl implements Texture {
       );
     if ((o.sampleCount ?? 1) !== 1)
       throw new TypeError(
-        'texture(): the WebGL2 tier has no multisampled texture: GLSL ES 3.00 cannot read one (sampler2DMS is ES 3.10).',
+        'texture(): a multisampled texture is not supported yet on the WebGL2 tier (Rule 10.5, Rule 11.11).',
       );
     // `storage: true` asks for nothing more here: a compute entry's storage texture is a memory
     // root of its pass program, drawn back into this texture after the dispatch (change 0054).
     const kind = textureKindOf(o.format);
-    if (kind === undefined) throw new TypeError(`texture(): WebGL2 has no ${o.format} texture.`);
+    if (kind === undefined)
+      throw new TypeError(`texture(): ${o.format} is not supported yet on WebGL2 (Rule 11.11).`);
     this.format = o.format;
     this.#kind = kind;
     this.#storage = o.storage === true;
@@ -266,7 +267,7 @@ export class GlTextureImpl implements Texture {
       );
     if (/snorm$/.test(this.format))
       throw new TypeError(
-        `${who}(): WebGL2 renders into no ${this.format} texture, and reads none back.`,
+        `${who}(): a ${this.format} texture is not supported yet on the WebGL2 tier, as a target or as a read-back (Rule 11.11).`,
       );
     const tex = this.#tex;
     return kernelQueue.run(() => this.d.rhi.readTexture(tex, layout.bytes));
@@ -458,7 +459,7 @@ export class GlRenderPrograms {
       const previous = samplers[texture];
       if (previous != null && sampler !== null && previous !== sampler)
         throw new TypeError(
-          `${prefix}: it samples "${texture}" with "${previous}" and "${sampler}", and GLSL ES 3.00 fuses a texture with one sampler. Declare the texture twice, one binding per sampler.`,
+          `${prefix}: it samples "${texture}" with "${previous}" and "${sampler}", and a texture with more than one sampler is not supported yet on the WebGL2 tier. Declare the texture twice, one binding per sampler.`,
         );
       samplers[texture] = previous ?? sampler;
     }
@@ -600,7 +601,6 @@ function checkState(plan: RenderPlan, vs: PackEntry, fs: PackEntry | undefined):
     throw new TypeError(
       `${where}: "${String(plan.primitive.topology)}" is not a topology; WebGPU's are ${Object.keys(GL_TOPOLOGY).join(', ')}.`,
     );
-  // WebGL2 has one blend state and one write mask for every target.
   const targets = plan.targets;
   const first = targets[0];
   for (const t of targets.slice(1))
@@ -609,7 +609,7 @@ function checkState(plan: RenderPlan, vs: PackEntry, fs: PackEntry | undefined):
       (t.writeMask ?? 15) !== (first?.writeMask ?? 15)
     )
       throw new TypeError(
-        `${where}: WebGL2 blends and masks every target alike; give its targets one blend and one writeMask.`,
+        `${where}: targets that blend or mask apart are not supported yet on the WebGL2 tier (Rule 11.11); give its targets one blend and one writeMask.`,
       );
   const blend = first?.blend as { color?: BlendComponent; alpha?: BlendComponent } | undefined;
   if (blend === undefined) return;
@@ -653,10 +653,9 @@ interface Bind {
   readonly resource: (made: RhiBuffer[]) => RhiBindResource;
 }
 
-/** The WebGL2 tier refuses to sample the depth attachment of the pass that writes it: WebGL2 raises
- *  INVALID_OPERATION for it, whatever the depth test and mask say. */
+/** The WebGL2 tier does not yet sample the depth attachment of the pass that writes it (Rule 11.11). */
 const SAMPLES_OWN_DEPTH =
-  'The WebGL2 tier cannot sample the depth attachment of the pass that writes it; sample it in a later pass.';
+  'Sampling the depth attachment of the pass that writes it is not supported yet on the WebGL2 tier (Rule 11.11); sample it in a later pass.';
 
 /** A render pipeline of the WebGL2 tier. */
 export class GlRenderPipelineImpl implements RenderPipeline {

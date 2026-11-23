@@ -101,7 +101,8 @@ export function corpus(): Case[] {
       bindings: p.bindings,
     });
   }
-  for (const f of readdirSync('examples').filter((x) => x.endsWith('.shade.ts'))) {
+  const gallery = readdirSync('examples/gallery').map((id) => `gallery/${id}/${id}.shade.ts`);
+  for (const f of [...readdirSync('examples').filter((x) => x.endsWith('.shade.ts')), ...gallery]) {
     const src = readFileSync(join('examples', f), 'utf8');
     if (!src.includes('@compute') && !/\bcompute\(/.test(src)) continue;
     const r = compile(src);

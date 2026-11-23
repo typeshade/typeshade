@@ -10,8 +10,6 @@
 // diagnostic on the same program.
 
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { compile } from './compile.js';
 import { TS_CODES } from './codes.js';
 import { compileModule } from '../../core/oracle.js';
@@ -21,6 +19,7 @@ import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { uninlined } from '../../core/testing/keep-helpers.js';
+import { exampleSource } from '../../../examples/_example-file.js';
 
 /** `body` with an entry that calls `run(2.)`: the GLSL writer emits only what an entry reaches. */
 const RUN = (body: string): string =>
@@ -1024,10 +1023,7 @@ export function run(k: f32): f32 {
 
 describe('examples/higher-order.shade.ts', () => {
   it('renders the disc, the petals, the glow and the rings on every CPU path', () => {
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/higher-order.shade.ts', import.meta.url)),
-      'utf8',
-    );
+    const src = exampleSource('higher-order');
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     const at = (uv: number[]): number[] => {

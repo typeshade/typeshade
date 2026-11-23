@@ -2511,7 +2511,7 @@ declare const img: texture_storage_2d<"rgba8snorm", "write">;
     expect(manifest(DRAW).gl?.computes).toBeUndefined();
   });
 
-  it('runs compute entries and draws, and refuses what WebGL2 has no form of', async () => {
+  it('runs compute entries and draws, and refuses what the WebGL2 tier does not support yet', async () => {
     const rt = await createRuntime({ device: fakeGl() });
     const program = rt.load(manifest(TUNED));
     expect(program.recording).toBe(false);
@@ -2525,12 +2525,12 @@ declare const img: texture_storage_2d<"rgba8snorm", "write">;
       'texture(): the WebGL2 tier makes 2D textures of one layer; an array or a 3D texture is not here yet.',
     );
     expect(texture({ size: [4, 4], format: 'rgba8unorm', sampleCount: 4 })).toThrow(
-      'texture(): the WebGL2 tier has no multisampled texture: GLSL ES 3.00 cannot read one (sampler2DMS is ES 3.10).',
+      'texture(): a multisampled texture is not supported yet on the WebGL2 tier (Rule 10.5, Rule 11.11).',
     );
     // A storage texture is a texture like any: a dispatch holds its texels as a memory root.
     expect(texture({ size: [4, 4], format: 'rgba8unorm', storage: true })).not.toThrow();
     expect(texture({ size: [4, 4], format: 'bc1-rgba-unorm' })).toThrow(
-      'texture(): WebGL2 has no bc1-rgba-unorm texture.',
+      'texture(): bc1-rgba-unorm is not supported yet on WebGL2 (Rule 11.11).',
     );
     const f = rt.frame();
     expect(() => f.pass({ color: [{} as never] }, () => {})).toThrow(
@@ -2552,7 +2552,7 @@ declare const img: texture_storage_2d<"rgba8snorm", "write">;
       'submit(...encoders): a WebGL2 runtime has no command encoders; submit a frame, rt.frame().submit().',
     );
     expect(() => rt.load(manifest(SCALE), { console: true })).toThrow(
-      'load({ console: true }): the WebGL2 tier of the program runtime does not record console calls.',
+      'load({ console: true }): recording console calls is not supported yet on the WebGL2 tier of the program runtime (Rule 11.9).',
     );
     await expect(program.render({ multisample: { count: 4 } })).rejects.toThrow(
       'The render pipeline of "fs" (typeshade-input.ts:18): the WebGL2 tier draws with one sample; a multisampled target is not here.',
@@ -2587,7 +2587,7 @@ declare const hits: storage<array<u32>, "read_write">;
 @fragment export function fs(p: builtin<"position">): vec4 { hits[0] = u32(1); return vec4(1.); }
 `);
     expect(writes.gl?.draws?.['fs']).toEqual({
-      none: 'it reaches the storage binding "hits", and GLSL ES 3.00 has no storage buffer',
+      none: 'it reaches the storage binding "hits", and the WebGL2 tier does not support a storage binding in a draw yet',
     });
   });
 
@@ -2605,7 +2605,7 @@ declare const img: texture_storage_2d<"r32float", "write">;
       .compute('main');
     const f = rt.frame();
     expect(() => f.dispatch(pipeline, { img: {} } as never, 1)).toThrow(
-      "takes a Texture of the runtime, made with { format: 'r32float' }; got an object. WebGL2 cannot ask a WebGLTexture its size, which the dispatch needs.",
+      "takes a Texture of the runtime, made with { format: 'r32float' }; got an object. A host's own texture is not supported yet on the WebGL2 tier (Rule 11.8); the dispatch needs the size that a Texture of the runtime carries.",
     );
     const wrong = rt.texture({ size: [4, 4], format: 'rgba8unorm', storage: true });
     expect(() => f.dispatch(pipeline, { img: wrong } as never, 1)).toThrow(
@@ -2709,7 +2709,7 @@ function wave(i: u32): f32 {
     const pipeline = await program.compute('main');
     expect(pipeline.workgroupShape).toEqual([64, 1, 1]);
     await expect(program.compute('main', { constants: { WG_SIZE: 128 } })).rejects.toThrow(
-      'WebGL2 supports only the declared default [64, 1, 1].',
+      'a shape other than the declared default [64, 1, 1] is not supported yet on the WebGL2 tier (Rule 11.8).',
     );
   });
 

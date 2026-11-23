@@ -10,7 +10,6 @@
 //
 // Verifies: Rule 12.7 (docs/language-design.md; traced in reqs/).
 
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type ts from 'typescript';
 import { compile } from '../compiler/ts/compile.js';
@@ -21,6 +20,7 @@ import {
   createTypeshadeLanguageServiceWith,
   type TypeshadeLanguageService,
 } from './service.js';
+import { exampleSource } from '../../examples/_example-file.js';
 
 type Files = Readonly<Record<string, string>>;
 
@@ -1145,7 +1145,7 @@ export function fs(): vec4 {
 
   it('a field of a mixin, which two classes hold, keeps the compiler’s type in one file', () => {
     const MIXIN = 'examples/mixin-surface.shade.ts';
-    const files: Files = { [MIXIN]: readFileSync(MIXIN, 'utf8') };
+    const files: Files = { [MIXIN]: exampleSource('mixin-surface') };
     expect(errorsOf(files, MIXIN)).toEqual([]);
     // Each applying class has the field in its own struct.
     expect(compiled(files, MIXIN).wgsl!.match(/^ {2}tint: vec3<f32>,$/gm)).toHaveLength(2);

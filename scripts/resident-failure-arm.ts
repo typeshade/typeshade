@@ -384,7 +384,8 @@ async function runInPage(input: {
         equal(await out.read(), [0, 1, 2, 0]) &&
         commands === beforeBound,
     );
-    // Pushed arrays require atomics. WebGL2 cannot run the positive control on its sole tier.
+    // A pushed array is not supported yet on the WebGL2 tier: Rule 11.8 runs a kernel loop there
+    // only when it writes one array at exactly i. The positive control skips that tier.
     if (input.tier !== 'webgl2') {
       const pushed = d.array(new Uint32Array(4));
       const length = d.array(Uint32Array.of(0));
@@ -406,8 +407,9 @@ async function runInPage(input: {
       );
     }
 
-    // A Resident draw requires a runtime-sized storage array. WebGL2 has no storage-buffer
-    // fragment path; a uniform cannot substitute, because uniform bindings take no Resident.
+    // A Resident draw requires a runtime-sized storage array. A storage binding in a draw is not
+    // supported yet on the WebGL2 tier; a uniform cannot substitute, because uniform bindings
+    // take no Resident.
     if (input.tier === 'webgl2') {
       const refusal = await attempt(() =>
         m.color!(document.createElement('canvas'), { xs: floats(0.5) }),
@@ -416,7 +418,9 @@ async function runInPage(input: {
         'WebGL2 storage draw refusal',
         false,
         refusal instanceof TypeError &&
-          String(refusal).includes('GLSL ES 3.00 has no storage buffer'),
+          String(refusal).includes(
+            'the WebGL2 tier does not support a storage binding in a draw yet',
+          ),
       );
       return result;
     }
@@ -520,7 +524,7 @@ export async function residentFailureArm(page: Page): Promise<number> {
       }
     }
     console.log(
-      `Resident failure arm: ${checked} controls, ${failures} failures; WebGL2 push and Resident draw excluded (atomics and fragment storage unavailable)`,
+      `Resident failure arm: ${checked} controls, ${failures} failures; WebGL2 push and Resident draw excluded (neither is supported yet on the WebGL2 tier)`,
     );
     return failures;
   } finally {

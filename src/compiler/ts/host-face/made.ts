@@ -1,13 +1,22 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
-import type { FuncDecl, StructDecl } from '../../../core/ir/nodes.js';
+import type { FuncDecl, ModuleDecl, StructDecl } from '../../../core/ir/nodes.js';
+import { lowerKernel } from '../../../core/passes/kernel-lower.js';
+import type { LowerOptions } from '../../../core/passes/kernel-lower-ir.js';
+import type { KernelProof } from '../../../core/passes/parallel-loop.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { zeroOf } from '../../../core/cpu-runtime.js';
 import type { KernelFace } from '../../../core/host-kernel.js';
 import type { HostType } from '../../../core/host-values.js';
-import { isMadeParam, madeOf, type KernelMade } from '../../../core/kernel-made-face.js';
+import {
+  isMadeParam,
+  madeOf,
+  type KernelCapacityLoop,
+  type KernelCapacityTerm,
+  type KernelMade,
+} from '../../../core/kernel-made-face.js';
 import type { HostExport } from '../host-face-contracts.js';
 import { hostTypeOf } from '../host-types.js';
-import { madeArrayOf } from '../lower/made-array/registry.js';
+import { madeArrayOf, type GrownLoop } from '../lower/made-array/registry.js';
 import { grownChecks, type GrownSite } from '../lower/made-array/bounds.js';
 
 type MadeShape = Pick<KernelMade, 'array' | 'width' | 'struct' | 'zero'>;
@@ -39,13 +48,41 @@ export function grownChecked(f: FuncDecl): FuncDecl {
   return checked.sites.length === 0 ? f : { ...f, body: checked.body };
 }
 
-function onCpuOnly(face: Record<string, unknown>, shown: string, first: GrownSite): void {
-  const why =
+function growingReason(shown: string): string {
+  return (
+    `it grows "${shown}" with push in a loop whose number of pushes the call cannot know ` +
+    `before it runs, and only the CPU tier grows an array while it runs; a run that grows an ` +
+    `array on WebGPU or WebGL2 is not supported yet`
+  );
+}
+
+function checkReason(shown: string, first: GrownSite): string {
+  return (
     `it ${first.write ? 'writes' : 'reads'} "${first.text}", an element of "${shown}" at an ` +
     `index the compiler cannot prove is below its length, and only the CPU tier checks such an ` +
-    `index at the call`;
+    `index at the call`
+  );
+}
+
+export function cpuOnly(
+  face: Record<string, unknown>,
+  reasons: readonly (string | undefined)[],
+): void {
+  const why = reasons.find((r) => r !== undefined);
   for (const key of ['gpu', 'gl', 'noWebgl2']) delete face[key];
-  face.noGpu = why;
+  if (why !== undefined) face.noGpu = why;
+}
+
+export function lowerKernelFor(
+  f: FuncDecl,
+  m: ModuleDecl,
+  proof: KernelProof,
+  options: LowerOptions = {},
+): ReturnType<typeof lowerKernel> {
+  return lowerKernel(f, m, proof, {
+    ...options,
+    ...(madeArrayOf(f)?.counted === true ? { exactTotal: true } : {}),
+  });
 }
 
 export function madeFace(
@@ -63,18 +100,37 @@ export function madeFace(
     kernel: true,
   });
   const length = made.length === undefined ? undefined : cpuFn('length', made.length);
-  const bounds = (made.capacity ?? []).map((t, i) => ({
-    term: t,
-    low: cpuFn(`low${i}`, t.low),
-    high: cpuFn(`high${i}`, t.high),
-  }));
-  const capacity = bounds.map(({ term, low, high }) => ({
-    low: low.name,
-    high: high.name,
-    inclusive: term.inclusive,
-    step: term.step,
-    pushes: term.pushes,
-  }));
+  const loopFns = (
+    loop: GrownLoop,
+    tag: string,
+  ): { readonly record: KernelCapacityLoop; readonly funcs: FuncDecl[] } => {
+    const low = cpuFn(`low${tag}`, loop.low);
+    const high = cpuFn(`high${tag}`, loop.high);
+    return {
+      record: { low: low.name, high: high.name, inclusive: loop.inclusive, step: loop.step },
+      funcs: [low, high],
+    };
+  };
+  const bounds = (made.capacity ?? []).map((t, i) => {
+    const head = loopFns(t, String(i));
+    const inner = (t.inner ?? []).map((l, k) => loopFns(l, `${i}_${k}`));
+    const when = t.when === undefined ? undefined : cpuFn(`when${i}`, t.when);
+    const record: KernelCapacityTerm = {
+      ...head.record,
+      pushes: t.pushes,
+      ...(inner.length > 0 ? { inner: inner.map((l) => l.record) } : {}),
+      ...(when !== undefined ? { when: when.name } : {}),
+    };
+    return {
+      record,
+      funcs: [
+        ...head.funcs,
+        ...inner.flatMap((l) => l.funcs),
+        ...(when !== undefined ? [when] : []),
+      ],
+    };
+  });
+  const capacity = bounds.map(({ record }) => record);
   const fill = made.fill === undefined ? undefined : cpuFn('fill', made.fill);
   const reads = paramsRead(f, [made.prelude, made.length, made.capacity, made.fill]);
   const sites = made.grown === true ? grownChecks(f, made.param).sites : [];
@@ -87,6 +143,8 @@ export function madeFace(
     ...(made.capacity !== undefined ? { capacity } : {}),
     ...(fill !== undefined ? { fill: fill.name } : {}),
     ...(made.grown === true ? { grown: true as const } : {}),
+    ...(made.counted === true ? { counted: true as const } : {}),
+    ...(made.growing === true ? { growing: true as const } : {}),
     ...(made.share !== undefined ? { share: made.share } : {}),
     ...(made.written !== undefined ? { written: made.written } : {}),
     ...(made.fillFrom !== undefined ? { fillFrom: made.fillFrom } : {}),
@@ -95,14 +153,19 @@ export function madeFace(
   };
   const face: Record<string, unknown> = { ...e.face };
   delete face.fuse;
-  if (sites.length > 0) onCpuOnly(face, made.shown, sites[0]!);
+  if (made.growing === true || sites.length > 0)
+    cpuOnly(face, [
+      typeof face.noGpu === 'string' ? face.noGpu : undefined,
+      made.growing === true ? growingReason(made.shown) : undefined,
+      sites.length > 0 ? checkReason(made.shown, sites[0]!) : undefined,
+    ]);
   return {
     ...e,
     face: { ...(face as unknown as typeof e.face), made: record } as typeof e.face,
     ranges: [
       ...e.ranges,
       ...(length !== undefined ? [length] : []),
-      ...bounds.flatMap(({ low, high }) => [low, high]),
+      ...bounds.flatMap(({ funcs }) => funcs),
       ...(fill !== undefined ? [fill] : []),
     ],
   };

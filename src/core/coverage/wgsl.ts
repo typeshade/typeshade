@@ -279,7 +279,7 @@ export const WGSL_ROWS: readonly Row[] = [
       'atomic_vec2u_min_max; roadmap After 1.0, docs/roadmap.md:304; no proposal names it',
       640,
     ),
-    webgl2: na('WebGL2 has no atomic of a vector type'),
+    webgl2: na('a vector atomic is not supported yet on any tier; the WebGPU row is the open work'),
   },
   {
     table: 'B',
@@ -292,7 +292,7 @@ export const WGSL_ROWS: readonly Row[] = [
       'atomic_vec2u_min_max; roadmap After 1.0, docs/roadmap.md:304; no proposal names it',
       640,
     ),
-    webgl2: na('WebGL2 has no atomic of a vector type'),
+    webgl2: na('a vector atomic is not supported yet on any tier; the WebGPU row is the open work'),
   },
   {
     table: 'B',
@@ -364,7 +364,7 @@ export const WGSL_ROWS: readonly Row[] = [
     covers: ['wgsl:builtinFunctions:bufferArrayView'],
     evidence: 'src/core/builtins/overlay.ts:161',
     webgpu: gap(9, 'the buffer_view extension; the overlay marks it not WGSL', 162),
-    webgl2: na('WebGL2 has no buffer view type'),
+    webgl2: na('a buffer view is not supported yet on any tier; the WebGPU row is the open work'),
   },
   {
     table: 'B',
@@ -373,7 +373,7 @@ export const WGSL_ROWS: readonly Row[] = [
     covers: ['wgsl:builtinFunctions:bufferLength'],
     evidence: 'src/core/builtins/overlay.ts:162',
     webgpu: gap(9, 'the buffer_view extension; the overlay marks it not WGSL', 162),
-    webgl2: na('WebGL2 has no buffer view type'),
+    webgl2: na('a buffer view is not supported yet on any tier; the WebGPU row is the open work'),
   },
   {
     table: 'B',
@@ -382,7 +382,7 @@ export const WGSL_ROWS: readonly Row[] = [
     covers: ['wgsl:builtinFunctions:bufferView'],
     evidence: 'src/core/builtins/overlay.ts:163',
     webgpu: gap(9, 'the buffer_view extension; the overlay marks it not WGSL', 162),
-    webgl2: na('WebGL2 has no buffer view type'),
+    webgl2: na('a buffer view is not supported yet on any tier; the WebGPU row is the open work'),
   },
   {
     table: 'B',
@@ -729,7 +729,7 @@ export const WGSL_ROWS: readonly Row[] = [
       'the front end raises TS8004 (UNKNOWN_FN); §14 row, docs/language-design.md:1505; roadmap 8, docs/roadmap.md:184',
       162,
     ),
-    webgl2: na('GLSL ES 3.00 has no frexp'),
+    webgl2: na('not supported yet on the WebGL2 tier: TypeShade emits no frexp helper'),
   },
   {
     table: 'B',
@@ -1107,7 +1107,7 @@ export const WGSL_ROWS: readonly Row[] = [
       'proposal 0117 section 6 leaves the quad operations out: a quad is four invocations of a fragment block, and a one-lane meaning for a swap says nothing true; the overlay defers them to an extension',
       536,
     ),
-    webgl2: na('WebGL2 has no subgroups'),
+    webgl2: na('not supported yet; on WebGL2 a subgroup is one invocation (Rule 11.21)'),
   },
   {
     table: 'B',
@@ -1121,7 +1121,7 @@ export const WGSL_ROWS: readonly Row[] = [
       'proposal 0117 section 6 leaves the quad operations out: a quad is four invocations of a fragment block, and a one-lane meaning for a swap says nothing true; the overlay defers them to an extension',
       536,
     ),
-    webgl2: na('WebGL2 has no subgroups'),
+    webgl2: na('not supported yet; on WebGL2 a subgroup is one invocation (Rule 11.21)'),
   },
   {
     table: 'B',
@@ -1135,7 +1135,7 @@ export const WGSL_ROWS: readonly Row[] = [
       'proposal 0117 section 6 leaves the quad operations out: a quad is four invocations of a fragment block, and a one-lane meaning for a swap says nothing true; the overlay defers them to an extension',
       536,
     ),
-    webgl2: na('WebGL2 has no subgroups'),
+    webgl2: na('not supported yet; on WebGL2 a subgroup is one invocation (Rule 11.21)'),
   },
   {
     table: 'B',
@@ -1149,7 +1149,7 @@ export const WGSL_ROWS: readonly Row[] = [
       'proposal 0117 section 6 leaves the quad operations out: a quad is four invocations of a fragment block, and a one-lane meaning for a swap says nothing true; the overlay defers them to an extension',
       536,
     ),
-    webgl2: na('WebGL2 has no subgroups'),
+    webgl2: na('not supported yet; on WebGL2 a subgroup is one invocation (Rule 11.21)'),
   },
   {
     table: 'B',
@@ -2359,7 +2359,7 @@ export const WGSL_ROWS: readonly Row[] = [
         'compute entry only; Rule 10.5 (docs/language-design.md:1153) lifts the deferral for the storage texture (#136) in a compute entry on WebGL2; changes/0054-webgl2-compute.md:171 states the same lift',
       ),
       10,
-      'an rgba8snorm storage texture the entry writes has no WebGL2 render target and is refused (EXT_render_snorm); roadmap 10, docs/roadmap.md:223',
+      'an rgba8snorm storage texture the entry writes is not supported yet on the WebGL2 tier (EXT_render_snorm would give it a render target); roadmap 10, docs/roadmap.md:223',
       641,
     ),
   },
@@ -2865,7 +2865,7 @@ export const WGSL_ROWS: readonly Row[] = [
       'refused today with no rule number: src/compiler/ts/builtin-check.ts:226-228 (the attribute is not applied); §14 row, docs/language-design.md:1506; roadmap After 1.0, docs/roadmap.md:306',
       536,
     ),
-    webgl2: na('WebGL2 has no subgroups'),
+    webgl2: na('not supported yet; on WebGL2 a subgroup is one invocation (Rule 11.21)'),
   },
   {
     table: 'B',
@@ -3185,7 +3185,7 @@ export const WGSL_ROWS: readonly Row[] = [
     covers: ['wgsl:enableExtensions:atomic_vec2u_min_max'],
     evidence: 'docs/roadmap.md:304',
     webgpu: gap(9, 'roadmap After 1.0, docs/roadmap.md:304; no proposal names it', 640),
-    webgl2: na('WebGL2 has no atomic of a vector type'),
+    webgl2: na('a vector atomic is not supported yet on any tier; the WebGPU row is the open work'),
   },
   {
     table: 'B',
@@ -3236,7 +3236,7 @@ export const WGSL_ROWS: readonly Row[] = [
       'refused today with no rule number: src/compiler/ts/builtin-check.ts:226-228 (the attribute @subgroup_size is not applied); §14 row, docs/language-design.md:1506; roadmap After 1.0, docs/roadmap.md:306',
       536,
     ),
-    webgl2: na('WebGL2 has no subgroups'),
+    webgl2: na('not supported yet; on WebGL2 a subgroup is one invocation (Rule 11.21)'),
   },
   {
     table: 'B',
@@ -3259,7 +3259,7 @@ export const WGSL_ROWS: readonly Row[] = [
     covers: ['wgsl:languageExtensions:atomic_vec2u_min_max'],
     evidence: 'docs/roadmap.md:304',
     webgpu: gap(9, 'roadmap After 1.0, docs/roadmap.md:304; no proposal names it', 640),
-    webgl2: na('WebGL2 has no atomic of a vector type'),
+    webgl2: na('a vector atomic is not supported yet on any tier; the WebGPU row is the open work'),
   },
   {
     table: 'B',
@@ -3268,7 +3268,7 @@ export const WGSL_ROWS: readonly Row[] = [
     covers: ['wgsl:languageExtensions:buffer_view'],
     evidence: 'src/core/builtins/overlay.ts:156-181',
     webgpu: gap(9, 'the overlay marks the bufferView builtins not WGSL', 162),
-    webgl2: na('WebGL2 has no buffer view type'),
+    webgl2: na('a buffer view is not supported yet on any tier; the WebGPU row is the open work'),
   },
   {
     table: 'B',

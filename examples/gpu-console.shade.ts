@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Console from the GPU",
-  "blurb": "`console.log(\"i =\", gid.x, p)` inside a compute kernel: a string literal is a label, and a value of any fixed size is an argument; `console.table(m)` shows a matrix by column. On the CPU the call reaches the host's sink; compiled with `console: 'gpu'`, the WGSL records it in a buffer that `decodeConsole` reads back as the same events. WGSL-only: GLSL ES 3.00 has no compute stage.",
+  "blurb": "`console.log(\"i =\", gid.x, p)` inside a compute kernel: a string literal is a label, and a value of any fixed size is an argument; `console.table(m)` shows a matrix by column. On the CPU the call reaches the host's sink; compiled with `console: 'gpu'`, the WGSL records it in a buffer that `decodeConsole` reads back as the same events. The site shows the WGSL only: `compile()` emits no GLSL text for a compute entry (the WebGL2 tier runs one as a pass program, Rule 11.8).",
   "renderable": false,
   "reason": "missing capabilities: storageBuffer, compute"
 }

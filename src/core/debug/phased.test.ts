@@ -5,7 +5,7 @@
 // atomics. A program whose result WGSL defines gives the same memory both ways; one whose
 // atomic values depend on order gives the phased order, which is pinned here.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -20,6 +20,7 @@ import type { CpuValue } from '../cpu-runtime.js';
 import { stageOf, type ModuleDecl, type ShaderType } from '../ir/index.js';
 import type { CpuPrecision } from '../oracle.js';
 import { PROGRAMS } from '../testing/compute-programs.js';
+import { CORPUS_FILES } from '../../../examples/_example-file.js';
 
 const moduleOf = (src: string): ModuleDecl => {
   const r = compile(src);
@@ -146,7 +147,7 @@ declare const seen: storage<array<u32>, "read_write">;
 
 describe('every compute example, phased and in lockstep (change 0054)', () => {
   const dir = fileURLToPath(new URL('../../../examples/', import.meta.url));
-  const files = readdirSync(dir).filter((f) => f.endsWith('.shade.ts'));
+  const files = CORPUS_FILES;
 
   /** A value of type `t` for a binding: numbers that differ by position, so a misplaced write
    *  shows; a runtime-sized array gets `length` elements. */

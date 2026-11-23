@@ -77,6 +77,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import { GALLERY_DIR } from '../examples/_example-file.js';
 import { fileURLToPath } from 'node:url';
 import { compile } from '../src/compiler/ts/compile.js';
 import { authorTypeText } from '../src/compiler/ts/context.js';
@@ -182,13 +183,21 @@ interface Member {
 const hasModifier = (n: ts.Node, kind: ts.SyntaxKind): boolean =>
   ts.canHaveModifiers(n) && (ts.getModifiers(n) ?? []).some((m) => m.kind === kind);
 
+/** The module of each gallery directory, relative to `examples/` (change 0145, amendment A2). */
+const galleryFiles = (): string[] =>
+  readdirSync(join(ROOT, 'examples', GALLERY_DIR), { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => `${GALLERY_DIR}/${d.name}/${d.name}.shade.ts`);
+
 /** Every shader file of the corpus, in order. */
 function corpusFiles(): { dir: string; files: string[] }[] {
   return CORPUS_DIRS.map((dir) => ({
     dir,
-    files: readdirSync(join(ROOT, dir))
-      .filter((f) => f.endsWith('.shade.ts'))
-      .sort()
+    files: [
+      ...readdirSync(join(ROOT, dir)).filter((f) => f.endsWith('.shade.ts')),
+      ...(dir === 'examples' ? galleryFiles() : []),
+    ]
+      .sort((a, b) => basename(a).localeCompare(basename(b)))
       .map((f) => join(ROOT, dir, f)),
   }));
 }
@@ -1230,7 +1239,7 @@ function refusalOf(t: Twin, tag: string, kind: 'entry' | 'kernel', tier: Tier): 
     if (tier === 'webgl2') return e.entry.noGl;
     if (tier === 'cpu')
       return e.entry.barrier !== undefined
-        ? `it reaches ${e.entry.barrier}, and a barrier has no CPU tier`
+        ? `it reaches ${e.entry.barrier}, not supported yet on the CPU tier (Rule 8.24)`
         : e.entry.noCpu;
     return undefined;
   }

@@ -1,14 +1,5 @@
 "use typeshade";
 
-/* @example
-{
-  "title": "Ray tracer",
-  "blurb": "Step 17 of the learning path. No new concept: the pieces of steps 1 to 8 work together. A uniform gives the canvas size, vectors build a camera ray for each pixel, a `class Sphere` finds where a ray hits it, and a loop follows the ray through one bounce. The floor is a plane with a checker made from `floor` and `fract`. Each hit asks the light if a sphere is in the way, and that gives the shadow. The host is the host of step 2.",
-  "renderable": false,
-  "reason": "no entry point"
-}
-*/
-
 // Step 17. A ray from the eye through each pixel hits two spheres and a floor, and bounces once.
 interface Frame {
   size: vec2;

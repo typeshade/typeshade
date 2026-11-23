@@ -359,13 +359,13 @@ function glStageOf(
     }
   | { none: string } {
   // A read-only storage array is a data texture where the reader can upload one (`data`); the
-  // call layer's full-screen draw cannot, and a written one has no GLSL ES 3.00 form at all.
+  // call layer's full-screen draw does not upload one yet, and a written one has no GLSL ES 3.00 form.
   const storage = bindings.find(
     (b) => b.space === 'storage' && !(dataTextures?.has(b.name) ?? false),
   );
   if (storage !== undefined)
     return {
-      none: `it reaches the storage binding "${storage.name}", and GLSL ES 3.00 has no storage buffer`,
+      none: `it reaches the storage binding "${storage.name}", and the WebGL2 tier does not support a storage binding in a draw yet`,
     };
   const emitted = sources ?? ownGlsl(m, f, stage, closure, emit);
   const failed = [emitted.shipped, emitted.text].find((v) => v instanceof Error);
@@ -422,7 +422,7 @@ function glStageOf(
     const with_ = [...(pairs.get(b.name) ?? [])];
     if (with_.length > 1)
       return {
-        none: `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and GLSL ES 3.00 fuses a texture with one sampler`,
+        none: `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and a texture with more than one sampler is not supported yet on the WebGL2 tier`,
       };
     samplers[b.name] = with_[0] ?? null;
   }

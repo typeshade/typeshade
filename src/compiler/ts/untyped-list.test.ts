@@ -141,11 +141,9 @@ describe('what an untyped list is refused for', () => {
     );
   });
 
-  it('asks for the type of a list of integer-written numbers alone', () => {
-    bothRefuse(
-      inFunction('[1, 2, 3]'),
-      'TS8002',
-      '"const a" is a list of integer-written numbers, whose element type its uses will decide; that is not supported yet. Declare the type: const a: array<f32, 3> = [...].',
-    );
+  it('takes an f32 element type from a list of integer-written numbers that no use decides', () => {
+    const halves = bothTake(inFunction('[1, 2, 3]'));
+    expect(hoverOf(halves, 'a = ')).toBe('const a: array<f32, 3>');
+    expect(halves.result.wgsl).toContain('var a: array<f32, 3> = array<f32, 3>(1.0, 2.0, 3.0);');
   });
 });

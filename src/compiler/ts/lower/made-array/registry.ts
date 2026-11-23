@@ -9,12 +9,22 @@ export interface MadeSource {
   readonly path: readonly string[];
 }
 
-export interface GrownTerm {
+export interface GrownLoop {
   readonly low: Expr;
   readonly high: Expr;
   readonly inclusive: boolean;
   readonly step: number;
+}
+
+export interface GrownTerm extends GrownLoop {
   readonly pushes: number;
+  readonly inner?: readonly GrownLoop[];
+  readonly when?: Expr;
+}
+
+export interface DeferredRefusal {
+  readonly message: string;
+  readonly node: ts.Node;
 }
 
 export interface MadeArray {
@@ -26,6 +36,10 @@ export interface MadeArray {
   readonly capacity?: readonly GrownTerm[];
   readonly fill?: Expr;
   readonly grown?: true;
+  readonly counted?: true;
+  readonly growing?: true;
+  readonly open?: true;
+  readonly deferred?: DeferredRefusal;
   readonly share?: MadeShare;
   readonly written?: string;
   readonly fillFrom?: MadeSource;

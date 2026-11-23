@@ -169,9 +169,9 @@ export class Lanes {
       case 'vec64':
         return 2 * t.n;
       case 'mat':
-        // A matrix of doubles has no column a pass could read or rebuild: the emulation carries
-        // only `*` and `transpose` for it (surface §39).
-        if (t.elem === 'f64') throw new GlComputeError(`a ${typeKey(t)} cannot be kept in state`);
+        // The emulation carries only `*` and `transpose` for a matrix of doubles (surface §39).
+        if (t.elem === 'f64')
+          throw new GlComputeError(`a ${typeKey(t)} is not supported yet in state (Rule 11.8)`);
         return t.cols * t.rows;
       case 'struct':
         return this.structs.get(t.name)!.fields.reduce((n, f) => n + this.count(f.type), 0);
@@ -179,7 +179,7 @@ export class Lanes {
         if (t.size === undefined) throw new GlComputeError('a runtime-sized array in state');
         return t.size * this.count(t.elem);
       default:
-        throw new GlComputeError(`a ${t.kind} cannot be kept in state`);
+        throw new GlComputeError(`a ${t.kind} is not supported yet in state (Rule 11.8)`);
     }
   }
 
@@ -194,7 +194,7 @@ export class Lanes {
         if (s === 'f32') return [call('bitcastU32', u32T, [v])];
         if (s === 'bool')
           return [{ op: 'select', type: u32T, cond: v, ifTrue: lit(1), ifFalse: lit(0) }];
-        throw new GlComputeError(`a ${s} cannot be kept in state`);
+        throw new GlComputeError(`a ${s} is not supported yet in state (Rule 11.8)`);
       }
       case 'f64': {
         // `hi` is the nearest `f32`, and `lo` what is left of the double: an `f32` holds it
@@ -230,7 +230,7 @@ export class Lanes {
           this.words(t.elem, index(v, lit(i), t.elem)),
         ).flat();
       default:
-        throw new GlComputeError(`a ${t.kind} cannot be kept in state`);
+        throw new GlComputeError(`a ${t.kind} is not supported yet in state (Rule 11.8)`);
     }
   }
 
@@ -287,7 +287,7 @@ export class Lanes {
           args: Array.from({ length: t.size! }, () => this.value(t.elem, words)),
         };
       default:
-        throw new GlComputeError(`a ${t.kind} cannot be kept in state`);
+        throw new GlComputeError(`a ${t.kind} is not supported yet in state (Rule 11.8)`);
     }
   }
 
@@ -401,7 +401,7 @@ function sampledTextures(m: ModuleDecl, entry: string): GlTexture[] {
     const with_ = [...(pairs.get(b.name) ?? [])];
     if (with_.length > 1)
       throw new GlComputeError(
-        `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and GLSL ES 3.00 fuses a texture with one sampler`,
+        `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and a texture with more than one sampler is not supported yet on the WebGL2 tier`,
       );
     const t = b.type;
     const dim = t.dim as '2d' | '2d-array' | '3d' | 'cube';
@@ -619,7 +619,7 @@ function storageTexturesAsRoots(
             return member(size, 'z', u32T);
           default:
             throw new GlComputeError(
-              `it calls ${String(o['fn'])} on the storage texture "${name}", which the WebGL2 tier does not lower`,
+              `it calls ${String(o['fn'])} on the storage texture "${name}", which is not supported yet on the WebGL2 tier (Rule 11.8)`,
             );
         }
       }) as FuncDecl,

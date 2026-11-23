@@ -582,7 +582,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'the runtime pipeline is internal, so a host cannot issue an indirect draw of a runtime program; a non-zero firstInstance in the indirect buffer also needs the feature indirect-first-instance',
       636,
     ),
-    webgl2: na('WebGPU indirect draw; WebGL2 has no indirect draw'),
+    webgl2: na('WebGPU indirect draw; not supported yet on the WebGL2 tier'),
   },
   {
     table: 'A',
@@ -595,7 +595,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'the runtime pipeline is internal, so a host cannot issue an indirect draw of a runtime program; a non-zero firstInstance in the indirect buffer also needs the feature indirect-first-instance',
       636,
     ),
-    webgl2: na('WebGPU indirect draw; WebGL2 has no indirect draw'),
+    webgl2: na('WebGPU indirect draw; not supported yet on the WebGL2 tier'),
   },
   {
     table: 'A',
@@ -792,7 +792,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'no typed spelling of a subgroup size; subgroup operations are After 1.0 (docs/roadmap.md:306; docs/language-design.md:1506)',
       536,
     ),
-    webgl2: na('WebGL2 has no subgroups, so it reports no subgroup size'),
+    webgl2: na('a subgroup is one invocation on WebGL2 (Rule 11.21); no subgroup size'),
   },
   {
     table: 'A',
@@ -806,7 +806,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'no typed spelling of a subgroup size; subgroup operations are After 1.0 (docs/roadmap.md:306; docs/language-design.md:1506)',
       536,
     ),
-    webgl2: na('WebGL2 has no subgroups, so it reports no subgroup size'),
+    webgl2: na('a subgroup is one invocation on WebGL2 (Rule 11.21); no subgroup size'),
   },
   {
     table: 'A',
@@ -1261,7 +1261,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'an entry call takes { indirect, offset? }, the counts a Buffer<u32> holds (change 0075); the program runtime takes no indirect count yet, so a host cannot issue an indirect dispatch of a runtime program (#540)',
     ),
     webgl2: na(
-      'WebGPU indirect dispatch; WebGL2 has no compute shader, so it has no indirect dispatch',
+      'WebGPU indirect dispatch; WebGL2 has no such call to cover, and an entry call there reads its indirect counts from the host copy (change 0075, Rule 11.8)',
     ),
   },
   {

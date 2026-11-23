@@ -79,11 +79,11 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   texture_3d:
     'A sampled 3D texture, looked up by a `vec3` coordinate, as a volume is. Declared as `declare const t: texture_3d<f32>`.',
   texture_1d:
-    'A sampled 1D texture, looked up by one `f32` coordinate, as a colour ramp is. Declared as `declare const t: texture_1d<f32>`; GLSL ES 3.00 has no form for it, so it derives the `texture1d` capability and runs on WGSL only.',
+    'A sampled 1D texture, looked up by one `f32` coordinate, as a colour ramp is. Declared as `declare const t: texture_1d<f32>`; TypeShade emits no GLSL ES 3.00 form of it yet, so it derives the `texture1d` capability and is not supported yet on the WebGL2 tier.',
   texture_cube_array:
-    'An array of sampled cube textures in one binding, looked up by a direction and a layer. Declared as `declare const t: texture_cube_array<f32>`; GLSL ES 3.00 has no form for it, so it derives the `textureCubeArray` capability and runs on WGSL only.',
+    'An array of sampled cube textures in one binding, looked up by a direction and a layer. Declared as `declare const t: texture_cube_array<f32>`; TypeShade emits no GLSL ES 3.00 form of it yet, so it derives the `textureCubeArray` capability and is not supported yet on the WebGL2 tier.',
   texture_multisampled_2d:
-    'A multisampled 2D texture, read one sample at a time with `textureLoad(t, coords, sampleIndex)` and never filtered. Declared as `declare const t: texture_multisampled_2d<f32>`; it derives the `msaaTextureLoad` capability, which GLSL ES 3.00 does not have.',
+    'A multisampled 2D texture, read one sample at a time with `textureLoad(t, coords, sampleIndex)` and never filtered. Declared as `declare const t: texture_multisampled_2d<f32>`; it derives the `msaaTextureLoad` capability, whose GLSL lowering is not supported yet (Rule 10.5).',
   texture_depth_2d:
     'A 2D depth texture, single-channel float, read with `textureSampleCompare` through a `sampler_comparison` or with `textureLoad`. Declared bare as `declare const shadowMap: texture_depth_2d`.',
   texture_depth_2d_array:
@@ -91,9 +91,9 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   texture_depth_cube:
     'A cube depth texture, looked up by a `vec3` direction, the shadow map of a point light. Declared bare as `declare const t: texture_depth_cube`.',
   texture_depth_cube_array:
-    'An array of cube depth textures in one binding, looked up by a direction and a layer. Declared bare as `declare const t: texture_depth_cube_array`; it derives the `textureCubeArray` capability, which GLSL ES 3.00 does not have.',
+    'An array of cube depth textures in one binding, looked up by a direction and a layer. Declared bare as `declare const t: texture_depth_cube_array`; it derives the `textureCubeArray` capability, whose GLSL lowering is not supported yet (Rule 10.5).',
   texture_depth_multisampled_2d:
-    'The depth attachment of a multisampled target, read one sample at a time with `textureLoad`. Declared bare as `declare const t: texture_depth_multisampled_2d`; it derives the `msaaTextureLoad` capability, which GLSL ES 3.00 does not have.',
+    'The depth attachment of a multisampled target, read one sample at a time with `textureLoad`. Declared bare as `declare const t: texture_depth_multisampled_2d`; it derives the `msaaTextureLoad` capability, whose GLSL lowering is not supported yet (Rule 10.5).',
   texture_storage_2d:
     'A 2D storage texture, read and written by texel coordinate with `textureLoad` and `textureStore`, with no sampler. Its format and access mode are its type arguments, as in `declare const dst: texture_storage_2d<"rgba8unorm", "write">`; GLSL ES 3.00 has no form for it.',
   texture_storage_2d_array:
@@ -115,11 +115,11 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
   location:
     'The decorated form of `location<I, T>`, a numeric shader IO location: `uv: location<0, vec2>` for `@location(0) uv: vec2`.',
   interpolate:
-    'The decorated form of the `interpolate` option, `location<0, u32, { interpolate: "flat" }>`, or a type and a sampling as `{ interpolate: ["linear", "centroid"] }`. An integer varying takes `flat` automatically. GLSL ES 3.00 has `smooth`, `flat` and `centroid` only, so `"linear"` and the `"sample"` position fail the module closed on that target.',
+    'The decorated form of the `interpolate` option, `location<0, u32, { interpolate: "flat" }>`, or a type and a sampling as `{ interpolate: ["linear", "centroid"] }`. An integer varying takes `flat` automatically. `"linear"` and the `"sample"` position are not supported yet by the GLSL backend (Rule 10.3; GLSL ES 3.00 has `smooth`, `flat` and `centroid` only), so they fail the module closed there.',
   invariant:
     'The decorated form of the `invariant` option, `builtin<"position", { invariant: true }>`: WGSL\'s promise that this position is computed the same way in two pipelines, so a depth pre-pass matches the shading pass. Emits `invariant gl_Position;` on GLSL ES 3.00.',
   blend_src:
-    'The decorated form of the `blend_src` option, `location<0, vec4, { blend_src: 0 }>` beside `{ blend_src: 1 }`: which of the two colours a dual-source blend mixes this fragment output is. Derives the `dualSourceBlending` capability; GLSL ES 3.00 has no second source, so a module using it fails closed there.',
+    'The decorated form of the `blend_src` option, `location<0, vec4, { blend_src: 0 }>` beside `{ blend_src: 1 }`: which of the two colours a dual-source blend mixes this fragment output is. Derives the `dualSourceBlending` capability; the GLSL lowering of a second source is not supported yet (Rule 10.3), so a module using it fails closed there.',
 };
 
 /** One Markdown sentence per attribute type of change 0111, the plain-TypeScript spelling of
@@ -226,25 +226,25 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   atomicCompareExchangeWeak:
     'Stores the third argument into the atomic location only when it holds the second, as one indivisible step. Answers a struct: `old_value` is what the location held before the call and `exchanged` says whether the store happened. WGSL gives that struct no writable name, so bind the result with `const` and read its fields.',
   textureBarrier:
-    'Holds every invocation of the workgroup until all have arrived, ordering their writes to the TEXTURE address space. A statement, in a compute entry or a function it calls, in uniform control flow. WebGPU-only, and part of the `readonly_and_readwrite_storage_textures` WGSL language feature that `reflect().requiredLanguageFeatures` reports.',
+    'Holds every invocation of the workgroup until all have arrived, ordering their writes to the TEXTURE address space. A statement, in a compute entry or a function it calls, in uniform control flow; not supported yet on the WebGL2 tier, where an entry that reaches a texture does not run as the pass program (Rule 8.24). Part of the `readonly_and_readwrite_storage_textures` WGSL language feature that `reflect().requiredLanguageFeatures` reports.',
   workgroupUniformLoad:
-    "Reads one value out of workgroup memory with a barrier on each side, so every invocation of the workgroup gets the same one. Takes a place in `workgroup<T>` memory, not storage, and returns its type. WebGPU-only, and it carries a barrier's placement rules: a compute entry or a function it calls, in uniform control flow.",
+    "Reads one value out of workgroup memory with a barrier on each side, so every invocation of the workgroup gets the same one. Takes a place in `workgroup<T>` memory, not storage, and returns its type. It cuts a phase on WebGL2 as a barrier does (Rule 8.24), and it carries a barrier's placement rules: a compute entry or a function it calls, in uniform control flow.",
   dot4U8Packed:
-    'Reads both `u32` arguments as four UNSIGNED bytes and sums the four products into a `u32`. WebGPU-only: GLSL ES 3.00 has no form of it, so a module using it emits WGSL alone. The host should check `navigator.gpu.wgslLanguageFeatures` for `packed_4x8_integer_dot_product`, which `reflect().requiredLanguageFeatures` reports.',
+    'Reads both `u32` arguments as four UNSIGNED bytes and sums the four products into a `u32`. Not supported yet on the WebGL2 tier: TypeShade emits no GLSL ES 3.00 form of it, so a module using it emits WGSL alone. The host should check `navigator.gpu.wgslLanguageFeatures` for `packed_4x8_integer_dot_product`, which `reflect().requiredLanguageFeatures` reports.',
   dot4I8Packed:
-    'Reads both `u32` arguments as four SIGNED bytes and sums the four products into an `i32`, wrapping at 32 bits. WebGPU-only, like `dot4U8Packed`.',
+    'Reads both `u32` arguments as four SIGNED bytes and sums the four products into an `i32`, wrapping at 32 bits. Not supported yet on the WebGL2 tier, like `dot4U8Packed`.',
   pack4xU8:
-    'Packs the low byte of each component of a `vec4u` into a `u32`, component 0 in the low byte. A component that does not fit is TRUNCATED, not clamped; `pack4xU8Clamp` saturates instead. WebGPU-only.',
+    'Packs the low byte of each component of a `vec4u` into a `u32`, component 0 in the low byte. A component that does not fit is TRUNCATED, not clamped; `pack4xU8Clamp` saturates instead. Not supported yet on the WebGL2 tier.',
   pack4xI8:
-    'Packs the low byte of each component of a `vec4i` into a `u32`, four bytes in a word. The result is unsigned even though the components are not; a component that does not fit is TRUNCATED, where `pack4xI8Clamp` saturates. WebGPU-only.',
+    'Packs the low byte of each component of a `vec4i` into a `u32`, four bytes in a word. The result is unsigned even though the components are not; a component that does not fit is TRUNCATED, where `pack4xI8Clamp` saturates. Not supported yet on the WebGL2 tier.',
   pack4xU8Clamp:
-    'Packs a `vec4u` into a `u32` as four bytes, clamping each component into [0, 255] first. WebGPU-only.',
+    'Packs a `vec4u` into a `u32` as four bytes, clamping each component into [0, 255] first. Not supported yet on the WebGL2 tier.',
   pack4xI8Clamp:
-    'Packs a `vec4i` into a `u32` as four bytes, clamping each component into [-128, 127] first. The result is unsigned because it is a word of bytes, not a number with a sign. WebGPU-only.',
+    'Packs a `vec4i` into a `u32` as four bytes, clamping each component into [-128, 127] first. The result is unsigned because it is a word of bytes, not a number with a sign. Not supported yet on the WebGL2 tier.',
   unpack4xU8:
-    'Unpacks the four bytes of a `u32` into a `vec4u`, the low byte into component 0. The inverse of `pack4xU8`. WebGPU-only.',
+    'Unpacks the four bytes of a `u32` into a `vec4u`, the low byte into component 0. The inverse of `pack4xU8`. Not supported yet on the WebGL2 tier.',
   unpack4xI8:
-    'Unpacks the four bytes of a `u32` into a `vec4i`, sign-extending each byte, the low byte into component 0. The inverse of `pack4xI8`. WebGPU-only.',
+    'Unpacks the four bytes of a `u32` into a `vec4i`, sign-extending each byte, the low byte into component 0. The inverse of `pack4xI8`. Not supported yet on the WebGL2 tier.',
   pack4x8snorm:
     'Packs a `vec4` of values in [-1, 1] into the four bytes of a `u32` as signed bytes, component 0 in the low byte. Hand-inlined on GLSL ES 3.00, which has no `packSnorm4x8` (that is ES 3.10).',
   unpack4x8unorm:
@@ -308,9 +308,9 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   textureSample:
     'Samples a float texture through the sampler `smp` with the implicit level of detail, in the fragment stage only: at `uv` on a `texture_2d`, by a `vec3` direction on a `texture_cube`, by a `vec3` coordinate on a `texture_3d`, by one `f32` on a `texture_1d`, and on an array texture the argument after the coordinate picks the layer. Compiles to `textureSample` on WGSL and `texture` on GLSL, where the layer is folded into a `vec3` coordinate; a `texture_1d` or a `texture_cube_array` has no GLSL ES 3.00 form, so a module using one emits WGSL alone.',
   textureGather:
-    'Reads one channel from the four texels a linear filter would blend at the coordinate on mip level 0, through the sampler `smp`, and returns them as a `vec4` in the order (umin,vmax), (umax,vmax), (umax,vmin), (umin,vmin), in any stage. On a colour texture the first argument is the channel, a whole number from 0 to 3 written in the call; a depth texture has one channel and takes none; an array texture takes the layer after the coordinate. Compiles to `textureGather` on WGSL; GLSL ES 3.00 has no gather, so a module using it emits WGSL alone.',
+    'Reads one channel from the four texels a linear filter would blend at the coordinate on mip level 0, through the sampler `smp`, and returns them as a `vec4` in the order (umin,vmax), (umax,vmax), (umax,vmin), (umin,vmin), in any stage. On a colour texture the first argument is the channel, a whole number from 0 to 3 written in the call; a depth texture has one channel and takes none; an array texture takes the layer after the coordinate. Compiles to `textureGather` on WGSL; its GLSL lowering is not supported yet (Rule 10.5), so a module using it emits WGSL alone.',
   textureGatherCompare:
-    'Compares the reference depth `ref` against the four texels a linear filter would blend at the coordinate on mip level 0, through the comparison sampler `smp`, and returns the four results (0 or 1 each) as a `vec4` in the order (umin,vmax), (umax,vmax), (umax,vmin), (umin,vmin), in any stage. On a `texture_depth_2d_array` or a `texture_depth_cube_array` the layer comes before the reference. Compiles to `textureGatherCompare` on WGSL; GLSL ES 3.00 has no gather, so a module using it emits WGSL alone.',
+    'Compares the reference depth `ref` against the four texels a linear filter would blend at the coordinate on mip level 0, through the comparison sampler `smp`, and returns the four results (0 or 1 each) as a `vec4` in the order (umin,vmax), (umax,vmax), (umax,vmin), (umin,vmin), in any stage. On a `texture_depth_2d_array` or a `texture_depth_cube_array` the layer comes before the reference. Compiles to `textureGatherCompare` on WGSL; its GLSL lowering is not supported yet (Rule 10.5), so a module using it emits WGSL alone.',
   textureSampleLevel:
     'Samples a float texture through the sampler `smp` at an explicit mip `level`, in any stage; the coordinate is a `vec2` on a `texture_2d` and a `vec3` on a `texture_cube` or a `texture_3d`. On a `texture_2d_array` the layer comes before the level. Compiles to `textureSampleLevel` on WGSL and `textureLod` on GLSL.',
   textureSampleBias:
@@ -318,9 +318,9 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   textureSampleGrad:
     'Samples a float texture through the sampler `smp` with the explicit gradients `ddx` and `ddy`, which have the width of the coordinate, in any stage. On a `texture_2d_array` the layer comes before the gradients. Compiles to `textureSampleGrad` on WGSL and `textureGrad` on GLSL.',
   textureLoad:
-    'Reads one texel at the integer `coord` and mip `level` without filtering, by a `vec2i` on a `texture_2d`, a `vec3i` on a `texture_3d` and one integer on a `texture_1d`; a cube texture has no texel fetch on either target. On a `texture_2d_array` the layer comes before the level, and on a `texture_multisampled_2d` or `texture_depth_multisampled_2d` the third argument is the sample index instead of a level. Compiles to `textureLoad` on WGSL and `texelFetch` on GLSL, which has no multisampled form, so a module loading one emits WGSL alone.',
+    'Reads one texel at the integer `coord` and mip `level` without filtering, by a `vec2i` on a `texture_2d`, a `vec3i` on a `texture_3d` and one integer on a `texture_1d`; a cube texture has no texel fetch on either target. On a `texture_2d_array` the layer comes before the level, and on a `texture_multisampled_2d` or `texture_depth_multisampled_2d` the third argument is the sample index instead of a level. Compiles to `textureLoad` on WGSL and `texelFetch` on GLSL, where the lowering of a multisampled texture is not supported yet (Rule 10.5), so a module loading one emits WGSL alone.',
   textureNumSamples:
-    'Returns the number of samples per texel of a `texture_multisampled_2d` or a `texture_depth_multisampled_2d` as a `u32`. A single-sample texture is refused. Compiles to `textureNumSamples` on WGSL; GLSL ES 3.00 has no multisampled textures, so a module using it emits WGSL alone.',
+    'Returns the number of samples per texel of a `texture_multisampled_2d` or a `texture_depth_multisampled_2d` as a `u32`. A single-sample texture is refused. Compiles to `textureNumSamples` on WGSL; its GLSL lowering is not supported yet (Rule 10.5), so a module using it emits WGSL alone.',
   textureSampleCompare:
     'Compares the reference depth `ref` against the shadow map at `uv` through the comparison sampler `smp`, with the implicit level of detail, in the fragment stage only; returns an `f32`, how much of the filter footprint passed. On a `texture_depth_2d_array` the layer comes before the reference, and on a `texture_depth_cube` the coordinate is a `vec3` direction. Compiles to `textureSampleCompare` on WGSL and `texture(sampler2DShadow, vec3(uv, ref))` on GLSL, where the reference folds into the coordinate.',
   textureSampleCompareLevel:
@@ -332,7 +332,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   textureNumLayers:
     'Returns the number of layers of a `texture_2d_array` or a `texture_cube_array` as a `u32`. A texture with no layers is refused.',
   atomicLoad:
-    'Reads the value of an `atomic<u32>` or `atomic<i32>` location in a read-write storage binding (`atomicLoad(bins[i])`). Compiles to `atomicLoad(&bins[i])` on WGSL; GLSL ES 3.00 has no atomics, so a module using it emits WGSL alone. The CPU oracle runs invocations in order and reads the location.',
+    'Reads the value of an `atomic<u32>` or `atomic<i32>` location in a read-write storage binding (`atomicLoad(bins[i])`). Compiles to `atomicLoad(&bins[i])` on WGSL; its GLSL lowering is not supported yet (Rule 10.5), so a module using it emits WGSL alone. The CPU oracle runs invocations in order and reads the location.',
   atomicStore:
     'Writes `value` to an atomic location in a read-write storage binding (`atomicStore(bins[i], 0)`); returns nothing. Compiles to `atomicStore(&bins[i], v)` on WGSL only.',
   atomicAdd:
@@ -352,9 +352,9 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   atomicExchange:
     'Stores `value` in the atomic location as one indivisible step and returns the value it held before. Compiles to `atomicExchange(&bins[i], v)` on WGSL only.',
   workgroupBarrier:
-    'Waits until every invocation of the workgroup has reached this line, and makes every write to workgroup memory before it visible to every invocation after it. A statement, in a compute entry or a helper and never inside an `if` or `switch`. WGSL only; the CPU oracle runs the workgroup in lockstep through `dispatch`.',
+    'Waits until every invocation of the workgroup has reached this line, and makes every write to workgroup memory before it visible to every invocation after it. A statement, in a compute entry or a helper and never inside an `if` or `switch`. On WebGL2 it cuts a phase of the pass program, when the entry reaches no texture (Rule 8.24); the CPU oracle runs the workgroup in lockstep through `dispatch`.',
   storageBarrier:
-    'Waits until every invocation of the workgroup has reached this line, and makes every write to storage before it visible to every invocation after it. A statement, in a compute entry or a helper and never inside an `if` or `switch`. WGSL only; the CPU oracle runs the workgroup in lockstep through `dispatch`.',
+    'Waits until every invocation of the workgroup has reached this line, and makes every write to storage before it visible to every invocation after it. A statement, in a compute entry or a helper and never inside an `if` or `switch`. On WebGL2 it cuts a phase of the pass program, when the entry reaches no texture (Rule 8.24); the CPU oracle runs the workgroup in lockstep through `dispatch`.',
   sin: 'Returns the sine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   cos: 'Returns the cosine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   tan: 'Returns the tangent of `x` (in radians), componentwise over vectors. Accepts `f32` and integer scalar/vector operands only.',

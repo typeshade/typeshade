@@ -5,7 +5,6 @@ import { typeEq, type ShaderType } from '../../../../core/ir/types.js';
 import { authorTypeText } from '../../context.js';
 import { shortText } from '../array-constructor/form.js';
 import { MADE_ADMITS, MADE_ELEMENTS } from './candidate.js';
-import { loopText } from './capacity.js';
 import { bindMade, ownBody, refusedPlace, say, type GrownUse, type MadeAt } from './lower.js';
 import { refuseSharedStores } from './identity.js';
 import { sayOnceAt, setMadeLowering } from './registry.js';
@@ -53,24 +52,13 @@ function grownUse(name: string, fn: string, at: MadeAt): GrownUse {
       p.parent.expression === p
     ) {
       const call = shortText(p.parent);
-      const loop = innermostLoop(p.parent, body);
-      const remedy = `Push onto it inside a for loop at the top level of "${fn}".`;
-      if (loop === undefined) {
+      if (innermostLoop(p.parent, body) === undefined) {
         sayOnceAt(at.scope.owner()!, p.parent);
         say(
           at,
           p.parent,
           `"${call}" pushes onto "${name}", the array "${fn}" grows and returns, outside every ` +
-            `loop, and that is not supported yet. ${remedy}`,
-        );
-        return 'refused';
-      }
-      if (loop.parent !== body || !(ts.isForStatement(loop) || ts.isForOfStatement(loop))) {
-        say(
-          at,
-          p.parent,
-          `"${call}" pushes onto "${name}" inside "${loopText(loop, at.sourceFile)}", which is ` +
-            `no for loop at the top level of "${fn}", and that is not supported yet. ${remedy}`,
+            `loop, and that is not supported yet. Push onto it inside a loop of "${fn}".`,
         );
         return 'refused';
       }

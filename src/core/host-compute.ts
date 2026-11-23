@@ -8,9 +8,9 @@
 // A runtime-sized storage array binding may be a `Resident` (0013's handle): on WebGPU it is
 // bound as the buffer it already has on the device and nothing is read back; on the CPU tier it
 // is the array the handle holds, brought up to date first. The tiers are tried in the order
-// `configure({ prefer })` sets: WebGPU, WebGL2, then the CPU tier. WebGL2 has no compute stage;
-// there the entry runs as the pass program of change 0054 (`gl-compute.ts`), its storage as
-// textures of words, and a `Resident` is the array it holds, as on the CPU tier. A scratch array
+// `configure({ prefer })` sets: WebGPU, WebGL2, then the CPU tier. On WebGL2 the
+// entry runs as the pass program of change 0054 (`gl-compute.ts`), its storage as textures of
+// words, and a `Resident` is the array it holds, as on the CPU tier. A scratch array
 // of a `fuse` scope (change 0058) is no binding for an entry: the call is refused, and the
 // refusal names the array as scratch.
 //
@@ -547,7 +547,7 @@ export async function entryTierFit(
     return gl === null ? { why: 'there is no WebGL2 context' } : { tier, gl };
   }
   if (e.barrier !== undefined)
-    return { why: `it reaches ${e.barrier}, and a barrier has no CPU tier` };
+    return { why: `it reaches ${e.barrier}, not supported yet on the CPU tier (Rule 8.24)` };
   if (e.noCpu !== undefined) return { why: `${e.noCpu}, and the CPU tier cannot` };
   return { tier: 'cpu' };
 }
@@ -733,7 +733,7 @@ async function onGl(
       const img = checked.images.get(t.name)!;
       if (img.view !== undefined)
         throw new TypeError(
-          `${e.name}(): binding "${t.name}" is a Texture on the WebGPU device, which the WebGL2 tier cannot read; pass an image source for a call that may fall back.`,
+          `${e.name}(): binding "${t.name}" is a Texture on the WebGPU device, which the WebGL2 tier does not read yet (Rule 8.24); pass an image source for a call that may fall back.`,
         );
       // An unpaired texture is only loaded or measured, which no filter changes; a texture
       // with no mipmaps still needs a filter that reads none.

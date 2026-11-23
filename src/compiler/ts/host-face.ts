@@ -59,7 +59,7 @@ import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { addsTo, colourOf } from './host-face/entry-shapes.js';
-import { grownChecked, madeFace } from './host-face/made.js';
+import { grownChecked, lowerKernelFor, madeFace } from './host-face/made.js';
 import { exportsOf, type ExportRef } from './host-face/exports.js';
 import { wgslLoweredOf } from './source-file/wgsl-lowered.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
@@ -76,7 +76,6 @@ import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.j
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
 import { buildGlCompute, type GlComputeProgram } from '../../core/passes/gl-compute.js';
 import {
-  lowerKernel,
   lowerKernelGl,
   type KernelLoopPlan,
   type KernelPlan,
@@ -888,7 +887,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   if ('none' in result) return never(name, `its result: ${result.none}`);
   const face: KernelFace = { name, fn: f.name, params, result };
   const proof = proveKernels(m).find((p) => p.fn === f.name);
-  const plan = proof === undefined ? { noGpu: 'it was not proved' } : lowerKernel(f, m, proof);
+  const plan = proof === undefined ? { noGpu: 'it was not proved' } : lowerKernelFor(f, m, proof);
   if ('noGpu' in plan)
     return { kind: 'kernel', name, face: { ...face, noGpu: plan.noGpu }, ranges: [] };
   let wgsl: string;
@@ -1079,11 +1078,11 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     ? { noWebgl2: 'it takes a texture, which the WebGL2 tier does not bind yet (change 0077)' }
     : collected !== undefined
       ? {
-          noWebgl2: `it takes the Map or Set "${collected.name}", which the WebGL2 tier does not run (change 0080)`,
+          noWebgl2: `it takes the Map or Set "${collected.name}", which is not supported yet on the WebGL2 tier (Rule 11.8, change 0080)`,
         }
       : pushing >= 0
         ? {
-            noWebgl2: `loop ${pushing + 1} pushes onto an array, which the WebGL2 tier does not run (change 0078)`,
+            noWebgl2: `loop ${pushing + 1} pushes onto an array, which is not supported yet on the WebGL2 tier (Rule 11.8, change 0078)`,
           }
         : kernelGl(f, m, proof!, params);
   // Facts retain the full layout. Only an ordinary non-resident call selects this private face.
@@ -1305,7 +1304,7 @@ function heldVariant(
   m: ModuleDecl,
   proof: KernelProof,
 ): NonNullable<NonNullable<KernelFace['gpu']>['held']> | undefined {
-  const plan = lowerKernel(f, m, proof, { held: true });
+  const plan = lowerKernelFor(f, m, proof, { held: true });
   if ('noGpu' in plan) return undefined;
   let wgsl: string;
   let wgslInteger: string | undefined;
