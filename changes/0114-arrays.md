@@ -1657,9 +1657,9 @@ not supported yet.` Open until the owner decides which sentence holds.
 
 **(b) Route 3 (A12, S5d slice 3).**
 
-- [fact] The design is at
-  `/tmp/claude-0/-home-user/0a3c0a09-e34d-550d-9564-1563ad8f2607/scratchpad/route3/design.md`
-  (revision 2). It is a scratch file and not part of the repository. Its stages are S0 to S5.
+- [fact] The decisions below settle three questions of the Route 3 design, which an agent wrote
+  outside the repository. Its stages are S0 to S5. S0 and S1 merged in #1479, and S2 merged in
+  #1481. Each decision below states what it changes, so this record does not depend on the design.
 - [decision, owner, 2026-11-23] "승인", to the recommendation R3-Q1 (B). At call time, Route 1's
   capacity can pass 4294967295, or its allocation can throw. If Route 2 does not serve the
   function, Route 3 runs on a CPU-only face of that call. The pattern is `counting(k)` in
@@ -1668,9 +1668,9 @@ not supported yet.` Open until the owner decides which sentence holds.
   - Rests on: OD-5 (a throw leaves the caller's arrays unchanged), OD-9, OD-10.
   - Changes in the approved text: A12 section 1, items 5.3 and 5.4, and the delivered Rule 8.23
     say that such a call "throws" before anything runs. That sentence changes to "runs on the CPU
-    tier" for a function with a CPU tier. The stage that delivers it is S1, with the limit and
-    the `RangeError` marker of design section 2.4. It settles design section 1.3, row "A capacity
-    Route 1 sizes past 4294967295".
+    tier" for a function with a CPU tier. A later stage of S5d slice 3 delivers it. S1 (#1479)
+    built the growing store and the `RangeError` marker that it uses. It settles the design's
+    question on the row "A capacity Route 1 sizes past 4294967295".
 - [decision, owner, 2026-11-23] "승인", to the recommendation R3-Q2 (A). A function that the proof
   accepts, and whose capacity no route can size (shape 5, `repeated`), draws a `TS8070` warning.
   Both halves show it, on the loop whose header the compiler cannot read. The sentence is new and
