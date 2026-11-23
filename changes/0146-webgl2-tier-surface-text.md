@@ -1,7 +1,7 @@
 ---
 id: '0146'
 title: The surface document and three rule texts say what the WebGL2 tier runs, and name its real gaps as not supported yet
-status: draft
+status: accepted
 rules:
   - '10.3'
   - '10.5'
@@ -36,11 +36,11 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                    |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0146, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                 |
+| Identity and status           | Proposal 0146, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                              |
 | Date and attribution          | 2026-11-23, UTC (the drafting date). An AI agent (Claude Code) drafted it for the owner, who said "네" on 2026-11-23 to drafting it. The owner's words in `docs/owner-decisions.md` (OD-11) are a decision about direction, not an approval of this text. |
 | Applicability / Effectivity   | `docs/use-typeshade-surface.md` (thirteen sections) and `docs/language-design.md` (Rules 10.3, 10.5 and 11.11). No release version is assigned (OD-6: nothing is released).                                                                               |
 | Review baseline               | `main` at `698af76f`, where the patches were made. Both patches also apply to `main` at `d31bfbff`.                                                                                                                                                       |
-| Review and revision authority | No pull request is assigned yet. Git records the revisions. The review and merge of the proposal's pull request will record the decision.                                                                                                                 |
+| Review and revision authority | Pull request #1441. Git records the revisions. The owner's go-ahead in the conversation is the review (CLAUDE.md, Merging), and the merge of #1441 records the decision.                                                                                  |
 
 ## What changes
 
@@ -266,8 +266,32 @@ fact. The answers add no independent review.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the evidence in `README.md`: the
-decision, the approved revision and scope, and the validation evidence.
+- Decision. [decision, owner, 2026-11-23] The owner answered the conflict ("규칙 문구를 바꿈",
+  reword the rule texts) and open question 2 ("draw의 storage texture만", only a storage texture
+  in a draw). [decision, owner, 2026-11-24] The owner said "병합 승인 및 추천안으로" (merge
+  approved, with the recommended answers) and "9시 30분 까지 자율 진행 승인" (autonomous progress
+  approved until 09:30). The merge of #1441 with `status: accepted` is the agreement.
+- Approved revision and scope. The revision of this file that #1441 merges. The scope is the
+  front matter: Rules 10.3, 10.5 and 11.11, and surface §14, §20, §23, §33, §46, §48, §65, §66,
+  §67, §69, §71, §72 and §74. No export, code, example or name.
+- Independent review. It ran on 2026-11-23 (the record above). Its two blocking findings are
+  fixed in the revision this pull request merges.
+- Open at acceptance. Open question 1 (which of `atomicCompareExchangeWeak`,
+  `workgroupUniformLoad` and `textureBarrier` the pass program gives a form) stays open. The
+  §48 text states only what the GLSL writer does, so acceptance approves no claim about them.
+- Plan. One implementing pull request, with `Change: 0146`:
+  1. Apply the held surface patch and the held rules patch on the base branch.
+  2. Run `bun run reqs:sync`.
+  3. Change the `TS8015` text in `src/core/passes/gl-compute.ts` and its four test files.
+     Decide the text at `src/core/gl-compute.ts:923` under Rule 10.5.
+  4. Assert both halves on the `TS8015` source (Rule 12.7).
+- Responsibilities. An agent writes the implementing pull request. A person runs
+  `doorstop review` for each changed RULE and SURF item, and for the new SURF-020 and SURF-048
+  (`reqs/README.md`). The owner merges the implementing pull request, because it changes
+  normative text.
+- Required validation. The four required checks of CI, `bun run docs:refs`, `bun run
+docs:impact`, `bun scripts/changes.ts` and `python scripts/doorstop-check.py -C` after the
+  person's review.
 
 ### Configuration and validation record
 
