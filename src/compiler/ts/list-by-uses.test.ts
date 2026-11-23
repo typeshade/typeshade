@@ -1,6 +1,6 @@
 // Verifies: Rule 5.1 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
-import { bothHalves, bothRefuse, bothTake } from '../../core/testing/both-halves.js';
+import { bothRefuse, bothTake } from '../../core/testing/both-halves.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 
@@ -177,20 +177,31 @@ describe('Rule 5.1: a list of integer-written numbers takes its element type fro
       );
     });
 
-    it('shows the editor one more TS2345 where a whole use meets another use', () => {
-      const head = 'function take(p: array<i32, 3>): i32 { return p[0]; }';
-      const halves = bothHalves(
-        inFunction(
-          '  const a = [1, 2, 3];\n  const q = take(a);\n  return a[0] + vi;',
-          'u32',
-          head,
-        ),
+    it('is refused once where a whole use meets another use, for one parameter and for two', () => {
+      const one = 'function take(p: array<i32, 3>): i32 { return p[0]; }';
+      bothRefuse(
+        inFunction('  const a = [1, 2, 3];\n  const q = take(a);\n  return a[0] + vi;', 'u32', one),
+        'TS8003',
+        conflict,
       );
-      expect(halves.compiler).toEqual([`typeshade TS8003: ${conflict}`]);
-      expect(halves.editor[0]).toBe(`typeshade TS8003: ${conflict}`);
-      expect(halves.editor.slice(1)).toHaveLength(1);
-      expect(halves.editor[1]).toMatch(
-        /^typescript 2345: Argument of type 'number\[\]' is not assignable to parameter of type 'array<i32, 3>'\./,
+      const two = `${one}\nfunction take2(p: array<i32, 3>): i32 { return p[1]; }`;
+      bothRefuse(
+        inFunction(
+          '  const a = [1, 2, 3];\n  const q = take(a) + take2(a);\n  return a[0] + vi;',
+          'u32',
+          two,
+        ),
+        'TS8003',
+        conflict,
+      );
+    });
+
+    it('keeps the refusal of a list argument that genuinely mismatches, with no conflict', () => {
+      const head = 'function take(p: array<i32, 3>): i32 { return p[0]; }';
+      bothRefuse(
+        inFunction('  const a = [1., 2., 3.];\n  const q = take(a);\n  return vi;', 'u32', head),
+        'TS8003',
+        'Argument 1 of "take" type mismatch.',
       );
     });
 
