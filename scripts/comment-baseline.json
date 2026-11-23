@@ -224,7 +224,7 @@
   "src/compiler/ts/lower/references.ts": 16,
   "src/compiler/ts/lower/runtime-array.ts": 25,
   "src/compiler/ts/lower/statement.test.ts": 6,
-  "src/compiler/ts/lower/statement.ts": 494,
+  "src/compiler/ts/lower/statement.ts": 493,
   "src/compiler/ts/lower/subgroups.ts": 27,
   "src/compiler/ts/mat4-mul.test.ts": 10,
   "src/compiler/ts/math-alias.test.ts": 5,
