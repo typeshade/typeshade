@@ -858,6 +858,18 @@ decides. A9's disposition is closed.
   a call on a resource done (#1411), with these five forms refused; the WebGL2 tier and the
   WebAssembly tier not started.
 
+### A11. Status of S5 slice 2 after the WebGL2 tier (2026-11-23)
+
+- [fact] Pull request #1418 (merged as `75b3ea2`) runs a made array on each tier that would run
+  an array parameter of the same element in its place (A1 item 8). On WebGL2 that is one loop that
+  writes an `f32`, `i32` or `u32` element at `i`. A vector or struct element, an array grown with
+  `push` (S5d), and a struct fill with written marks stay on the CPU tier, as their parameter
+  forms do. No rule, surface section or code changes beyond what A1 item 8 declares.
+- [fact] This amendment records status only. It decides nothing.
+- Status: `status: accepted` does not change. S5 slice 2: vector and struct elements done (#1404);
+  a call on a resource done (#1411), with A10's five forms refused; the WebGL2 tier done (#1418);
+  the WebAssembly tier not started.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`
