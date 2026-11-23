@@ -2940,10 +2940,17 @@ component it cannot represent. The refusal is TS8003, `Division by zero: "K" is 
 invocation`, in a function body, in a compound `/=` or `%=`, and in a module const's initializer,
 which used to be the one place it was checked (issue #68). A divisor the folder cannot prove
 anything about passes: the point is to refuse what is certainly a mistake, not to demand a proof
-of safety. Such a divisor that is zero at run time gives WGSL's answer on every target, `x / 0`
-is `x` and `x % 0` is 0: the GLSL writer spells an integer `/` and `%` by a run-time divisor
-through `_idiv`, `_irem`, `_udiv` and `_urem`, which also give WGSL's least `i32` over -1 and its
-truncating remainder of a negative operand (Rule 11.12).
+of safety. Where an operand has a declared integer type, such a divisor that is zero at run
+time gives WGSL's answer on every target: `x / 0` is `x` and `x % 0` is 0. The GLSL writer
+spells an integer `/` and `%` by a run-time divisor through `_idiv`, `_irem`, `_udiv` and
+`_urem`, which also give WGSL's least `i32` over -1 and its truncating remainder of a negative
+operand (Rule 11.12). A quotient over integers by inference that a position stating an integer
+type reads (§13) gives TypeScript's value instead, 0 (the owner's decision of 2026-11-17,
+Amendment A8 of change 0134). With `function gg() { return 5 | 0; }`,
+`let a = (-7|0); let z = gg() - 5; let j: i32 = a / z;` makes `j` 0. The zero test is a
+generated helper, `_opt_div0_i32_i32_` or `_opt_div0_u32_u32_`, which evaluates each operand
+once and in order, so a divisor that is a call is tested too. Operands of two integer types are
+still divided through an `f32` (an open deviation, #1403).
 
 **A `clamp` whose constant bounds cross is refused.** WGSL makes `clamp(e, low, high)` with
 `low` above `high` a shader-creation error when both bounds are constant, and GLSL ES 3.00 leaves

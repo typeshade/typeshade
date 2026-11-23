@@ -3,7 +3,7 @@ active: true
 derived: false
 level: 22
 links:
-- RULE-0704: Emky1db0T6Mhf0H1_VyxRD8Ub8JLKEB_0DqK59uhD-M=
+- RULE-0704: ZEMP_DHjdtBoPGWD8lkvR9UzTxj1UCjzazL8oCXgsv0=
 - RULE-1112: 30yuoBdpwkfDlJLbGKIzbnlOXHnKqWPpqDe7V6UDujU=
 normative: true
 ref: ''
