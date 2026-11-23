@@ -3,8 +3,9 @@ import type { CpuValue } from '../cpu-runtime.js';
 import type { KernelFace } from '../host-kernel.js';
 import type { GeneratedCpu } from '../host-entry.js';
 import type { KernelCapacityLoop, KernelMade } from '../kernel-made-face.js';
+import { MOST_PUSHED } from '../push-count.js';
 
-export const MOST_PUSHED = 4294967295;
+export { MOST_PUSHED };
 
 const TYPED = { f32: 'Float32Array', i32: 'Int32Array', u32: 'Uint32Array' } as const;
 
@@ -38,7 +39,7 @@ export function exactCapacity(
 
 export class PastLimit extends RangeError {}
 
-function pastLimit(
+export function pastLimit(
   k: KernelFace,
   made: KernelMade,
   capacity: number | bigint | string,

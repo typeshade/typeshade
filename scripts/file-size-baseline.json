@@ -121,7 +121,7 @@
   "src/core/coverage/wgsl.ts": 3450,
   "src/core/cpu-codegen.test.ts": 1947,
   "src/core/cpu-codegen.ts": 2081,
-  "src/core/cpu-runtime.ts": 1337,
+  "src/core/cpu-runtime.ts": 1331,
   "src/core/debug/config.test.ts": 923,
   "src/core/debug/config.ts": 757,
   "src/core/debug/interp.ts": 1077,

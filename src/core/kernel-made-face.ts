@@ -28,6 +28,7 @@ export interface KernelMade {
   readonly fill?: string;
   readonly grown?: true;
   readonly counted?: true;
+  readonly growing?: true;
   readonly share?: 'every' | 'unwritten';
   readonly written?: string;
   readonly fillFrom?: { readonly param: string; readonly path: readonly string[] };
