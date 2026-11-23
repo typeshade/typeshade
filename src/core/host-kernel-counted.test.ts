@@ -7,12 +7,12 @@ import type { KernelFace } from './host-kernel.js';
 import type { KernelMade } from './kernel-made-face.js';
 import { nextPushCount, withSaturatingPushes } from './push-count.js';
 
-const calls: { array: unknown; n: unknown }[] = [];
+const calls: { k: KernelFace; array: unknown; n: unknown }[] = [];
 let totals: number[] = [];
 
 vi.mock('./host-kernel.js', () => ({
-  callKernel: (_cpu: unknown, _k: unknown, _argc: number, args: unknown[]) => {
-    calls.push({ array: args[0], n: args[1] });
+  callKernel: (_cpu: unknown, k: KernelFace, _argc: number, args: unknown[]) => {
+    calls.push({ k, array: args[0], n: args[1] });
     return Promise.resolve(totals.shift());
   },
 }));
@@ -65,10 +65,24 @@ describe('Route 2, a count pass, in the call of a made array (change 0114, A12 f
     expect(calls[1]!.n).toBe(3);
   });
 
-  it('keeps the RangeError of Route 1 for a function that has a GPU plan', async () => {
+  it('takes Route 2 for a function that has a GPU plan, and counts with the count-only face', async () => {
     const { k, cpu } = face(true);
-    await expect(callMadeKernel(cpu, k, 0, [])).rejects.toThrow(/needs room for 5000000000/);
-    expect(calls).toHaveLength(0);
+    totals = [3, 3];
+    const out = (await callMadeKernel(cpu, k, 0, [])) as Uint32Array;
+    expect(out).toHaveLength(3);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.k.gpu?.countOnly).toBe(true);
+    expect(calls[1]!.k.gpu?.countOnly).toBeUndefined();
+    expect(k.gpu?.countOnly).toBeUndefined();
+  });
+
+  it('builds the count-only face once for a face', async () => {
+    const { k } = face(true);
+    const { counting } = await import('./host-kernel-made/counted.js');
+    expect(counting(k)).toBe(counting(k));
+    expect(counting(k).gpu?.countOnly).toBe(true);
+    const cpuOnly = face(false).k;
+    expect(counting(cpuOnly)).toBe(cpuOnly);
   });
 
   it('stays on Route 1, with one run, when the capacity is within the limit', async () => {

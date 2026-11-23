@@ -9203,7 +9203,8 @@ array, an element of an array parameter is read only at the counter of a loop up
 length, and only the return follows the loops. The call runs the function once to count the pushes
 (a `u32` that stops at 4294967295), reserves exactly that many elements and runs it again. A count
 of 4294967295 or more throws a `RangeError` before the second run, and a second run that pushes
-another count throws an `Error`. Such a function runs on the CPU tier. Other forms wait for the
+another count throws an `Error`. On WebGPU the first run dispatches only the count and scan steps and
+reads the total; on every other tier it is the function's run on the CPU tier. Other forms wait for the
 heap OD-10 names. The host value, the tiers and the other refusals are those of the made array above.
 
 An element of the array reads and writes as in JavaScript (proposal 0114, Amendment A12): a read

@@ -15,6 +15,18 @@ export function saturating(cpu: GeneratedCpu, k: KernelFace): GeneratedCpu {
   };
 }
 
+const countingFaces = new WeakMap<KernelFace, KernelFace>();
+
+export function counting(k: KernelFace): KernelFace {
+  if (k.gpu === undefined) return k;
+  let face = countingFaces.get(k);
+  if (face === undefined) {
+    face = { ...k, gpu: { ...k.gpu, countOnly: true } };
+    countingFaces.set(k, face);
+  }
+  return face;
+}
+
 export async function countedCapacity(
   cpu: GeneratedCpu,
   k: KernelFace,
@@ -30,6 +42,6 @@ export async function countedCapacity(
         ? 0
         : args[next++],
   );
-  const pushed = await callKernel(saturating(cpu, k), k, all.length, all, reads);
+  const pushed = await callKernel(saturating(cpu, k), counting(k), all.length, all, reads);
   return countedTotal(k, made, Number(pushed));
 }

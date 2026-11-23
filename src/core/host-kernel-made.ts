@@ -101,12 +101,11 @@ async function makingOf(
   reads?: IncomingReads,
 ): Promise<{ readonly making: ReturnType<typeof madeArray>; readonly exact: boolean }> {
   if (made.counted !== true) return { making: madeArray(cpu, k, made, args), exact: false };
-  const routeTwo = made.capacity === undefined || k.gpu === undefined;
   if (made.capacity !== undefined)
     try {
       return { making: madeArray(cpu, k, made, args), exact: false };
     } catch (e) {
-      if (!(e instanceof PastLimit) || !routeTwo) throw e;
+      if (!(e instanceof PastLimit)) throw e;
     }
   const total = await countedCapacity(cpu, k, made, args, reads);
   return { making: madeArray(cpu, k, made, args, total), exact: true };

@@ -30,6 +30,7 @@ export interface PushDispatch {
   readonly onDevice: ReadonlyMap<string, GpuBuffer>;
   readonly batch: DispatchBatch;
   readonly word: boolean;
+  readonly countOnly: boolean;
   readonly kept: GpuBuffer[];
   readonly folds: Folded[];
   readonly pending: (() => Promise<void>)[];
@@ -53,7 +54,7 @@ export async function dispatchPush(x: PushDispatch): Promise<void> {
   try {
     if (n > 0) await batch.add(entries.count!, checked, firstWorkgroups);
     await batch.add(entries.scan!, checked, [1, 1, 1]);
-    if (n > 0) await batch.add(entries.loop, checked, firstWorkgroups);
+    if (n > 0 && !x.countOnly) await batch.add(entries.loop, checked, firstWorkgroups);
   } catch (e) {
     slots.destroy();
     throw e;

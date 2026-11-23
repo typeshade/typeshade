@@ -41,6 +41,7 @@ import { arityError, heldArgument } from './host-arity.js';
 import type { CpuValue } from './cpu-runtime.js';
 import { pushedLength, startPushesAt } from './push-count.js';
 import { dispatchPush } from './host-kernel-push.js';
+import { identityValue } from './host-kernel-identity.js';
 import { CpuTexture, isCpuTexture } from './cpu-texture.js';
 import { fuseSlot } from './fuse-scope.js';
 import { checkIncoming, type IncomingReads } from './host-failure.js';
@@ -53,7 +54,7 @@ import {
   type CallOwner,
 } from './owner.js';
 import type { PortableIr } from './ir/portable.js';
-import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
+import { KERNEL_TREE, type TreeOp } from './kernel-tree.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
 import {
   glContext,
@@ -365,6 +366,7 @@ export interface KernelFace {
     /** The CPU-tier function that gives the result from the parameters and what the GPU folded
      *  for each reduction, in loop order; absent when the function returns nothing. */
     readonly tail?: string;
+    readonly countOnly?: true;
     /** The stores after the loops (change 0094): the `@compute` entry of one invocation the call
      *  dispatches after the loops, the CPU-tier function that runs them over the host's arrays
      *  (WebGL2, after its draws), and the array parameters they write. Absent when the function
@@ -2227,7 +2229,7 @@ async function onDevice(
   // The stores after the loops (change 0094): where the finish entry reads what each loop that
   // reduces folded, and the partials it binds, which the call frees once it has run. `ats` also
   // holds where each length word is, which every entry's uniform carries.
-  const fin = g.finish;
+  const fin = g.countOnly === true ? undefined : g.finish;
   const ats: Record<string, number> = {};
   const partsOf = new Map<number, readonly GpuBuffer[]>();
   const kept: GpuBuffer[] = [];
@@ -2336,6 +2338,7 @@ async function onDevice(
         onDevice,
         batch,
         word,
+        countOnly: g.countOnly === true,
         kept,
         folds,
         pending,
@@ -2525,11 +2528,6 @@ export async function reduceOnGpu(
     (await Promise.all(reads)).map(
       (dv, i) => readInto(dv, 0, layouts[i]!.e, undefined) as CpuValue,
     );
-}
-
-function identityValue(op: TreeOp, scalar: string, n: number): CpuValue {
-  const one = treeIdentity(op, scalar) as number;
-  return (n === 1 ? one : new Array<number>(n).fill(one)) as CpuValue;
 }
 
 // ─── the CPU tier ────────────────────────────────────────────────────────────────────────────

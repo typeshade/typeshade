@@ -1,5 +1,8 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
-import type { FuncDecl, StructDecl } from '../../../core/ir/nodes.js';
+import type { FuncDecl, ModuleDecl, StructDecl } from '../../../core/ir/nodes.js';
+import { lowerKernel } from '../../../core/passes/kernel-lower.js';
+import type { LowerOptions } from '../../../core/passes/kernel-lower-ir.js';
+import type { KernelProof } from '../../../core/passes/parallel-loop.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { zeroOf } from '../../../core/cpu-runtime.js';
 import type { KernelFace } from '../../../core/host-kernel.js';
@@ -54,11 +57,16 @@ function onCpuOnly(face: Record<string, unknown>, shown: string, first: GrownSit
   face.noGpu = why;
 }
 
-function onCpuForCount(face: Record<string, unknown>, shown: string): void {
-  for (const key of ['gpu', 'gl', 'noWebgl2']) delete face[key];
-  face.noGpu =
-    `the trip counts of the loops that push onto "${shown}" are known only by running them, ` +
-    `and a call that counts the pushes first runs on the CPU tier in this release`;
+export function lowerKernelFor(
+  f: FuncDecl,
+  m: ModuleDecl,
+  proof: KernelProof,
+  options: LowerOptions = {},
+): ReturnType<typeof lowerKernel> {
+  return lowerKernel(f, m, proof, {
+    ...options,
+    ...(madeArrayOf(f)?.counted === true ? { exactTotal: true } : {}),
+  });
 }
 
 export function madeFace(
@@ -129,7 +137,6 @@ export function madeFace(
   const face: Record<string, unknown> = { ...e.face };
   delete face.fuse;
   if (sites.length > 0) onCpuOnly(face, made.shown, sites[0]!);
-  else if (made.counted === true && made.capacity === undefined) onCpuForCount(face, made.shown);
   return {
     ...e,
     face: { ...(face as unknown as typeof e.face), made: record } as typeof e.face,

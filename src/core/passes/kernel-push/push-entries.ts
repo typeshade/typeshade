@@ -18,11 +18,14 @@ import {
 } from '../kernel-lower-ir.js';
 import { computeEntry, kcRef, laneScaffold } from './entry.js';
 
+const MOST_U32 = 4294967295;
+
 export function pushEntries(
   c: LoopCtx,
   pushed: string,
   arrays: ReadonlySet<string>,
   word?: PushWord,
+  saturating = false,
 ): {
   funcs: FuncDecl[];
   workgroup: ModuleVarDecl;
@@ -36,6 +39,7 @@ export function pushEntries(
   const binding = `${base}_push`;
   const field = argsOf(c);
   const lit = (n: number): Expr => ({ op: 'lit', type: u32T, value: n });
+  const minU = (a: Expr, b: Expr): Expr => ({ op: 'call', type: u32T, fn: 'min', args: [a, b] });
   const slots: ShaderType = { kind: 'array', elem: u32T };
   const slot = (at: Expr): Expr => ({
     op: 'index',
@@ -55,8 +59,16 @@ export function pushEntries(
     return { s: 'assign', target: v, expr: { op: 'binop', type: u32T, bop: '+', a: v, b: lit(1) } };
   };
 
+  const plus = (a: Expr, b: Expr): Expr =>
+    saturating
+      ? bin('+', a, minU(b, { op: 'binop', type: u32T, bop: '-', a: lit(MOST_U32), b: a }))
+      : { op: 'binop', type: u32T, bop: '+', a, b };
+  const countUp = (name: string): Stmt => {
+    const v: Expr = { op: 'varref', type: u32T, name };
+    return { s: 'assign', target: v, expr: plus(v, lit(1)) };
+  };
   const countBody = mapBlock(c.loop.body, (st) => {
-    if (isPush(st)) return [plus1('_c')];
+    if (isPush(st)) return [countUp('_c')];
     if (st.s === 'assign' || st.s === 'assignOp') {
       const root = placeRoot(st.target);
       if (root.op === 'param' && arrays.has(root.name)) return [];
@@ -123,7 +135,6 @@ export function pushEntries(
     s: 'call',
     expr: { op: 'call', type: { kind: 'void' }, fn: 'workgroupBarrier', args: [] },
   };
-  const minU = (a: Expr, b: Expr): Expr => ({ op: 'call', type: u32T, fn: 'min', args: [a, b] });
   const length: Expr | undefined =
     word === undefined
       ? undefined
@@ -161,7 +172,7 @@ export function pushEntries(
         {
           s: 'assign',
           target: ref('_sum'),
-          expr: { op: 'binop', type: u32T, bop: '+', a: ref('_sum'), b: slot(ref('_t')) },
+          expr: plus(ref('_sum'), slot(ref('_t'))),
         },
       ]),
       { s: 'assign', target: run(lid), expr: ref('_sum') },
@@ -179,7 +190,7 @@ export function pushEntries(
                 {
                   s: 'assign',
                   target: ref('_acc'),
-                  expr: { op: 'binop', type: u32T, bop: '+', a: ref('_acc'), b: ref('_v') },
+                  expr: plus(ref('_acc'), ref('_v')),
                 },
               ]),
               ...(length !== undefined
@@ -197,7 +208,7 @@ export function pushEntries(
         {
           s: 'assign',
           target: ref('_at'),
-          expr: { op: 'binop', type: u32T, bop: '+', a: ref('_at'), b: ref('_w') },
+          expr: plus(ref('_at'), ref('_w')),
         },
       ]),
       {

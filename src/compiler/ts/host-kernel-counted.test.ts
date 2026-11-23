@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { hostFace } from './host-face.js';
 import { bothRefuse, bothTake } from '../../core/testing/both-halves.js';
 import { madeOf } from '../../core/kernel-made-face.js';
+import type { HostExport } from './host-face-contracts.js';
 import type { KernelFace } from '../../core/host-kernel.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
@@ -50,6 +51,10 @@ export function twice(xs: f32[], r: f32): u32[] {
   return out;
 }
 `;
+
+function faceOf(exports: readonly HostExport[], name: string): KernelFace {
+  return (exports.find((e) => e.name === name) as { face: KernelFace }).face;
+}
 
 function faces(): Map<string, KernelFace> {
   const f = hostFace(SOURCE, { fileName: '/app/m.shade.ts', runtime: RUNTIME });
@@ -97,14 +102,26 @@ describe('a push in a loop whose start reads the outer counter, Route 2 (change 
     expect(halves.hover('out: u32[] = []')).toBeDefined();
   });
 
-  it('gives the face a count pass and no GPU plan, since Route 1 cannot size it', () => {
+  it('gives the face a count pass and a GPU plan whose count and scan saturate', () => {
     const k = faces();
+    const sat = /min\(\w+, \(?4294967295u - \w+\)?\)/;
     for (const name of ['pairs', 'twice']) {
       expect(madeOf(k.get(name)!)).toMatchObject({ counted: true, grown: true });
       expect(madeOf(k.get(name)!)!.capacity).toBeUndefined();
-      expect(k.get(name)).toHaveProperty('noGpu');
-      expect(k.get(name)).not.toHaveProperty('gpu');
+      expect(k.get(name)).not.toHaveProperty('noGpu');
+      const wgsl = k.get(name)!.gpu!.wgsl;
+      expect(wgsl).toMatch(sat);
+      expect(wgsl.match(/4294967295u/g)!.length).toBeGreaterThanOrEqual(4);
     }
+  });
+
+  it('keeps the WGSL of a push into an array the caller passes free of saturating adds', () => {
+    const f = hostFace(
+      `"use typeshade";\nexport function g(xs: f32[], out: u32[]): u32 { for (let i: u32 = 0; i < xs.length; i++) { if (xs[i] > 0) out.push(i); } return out.length; }`,
+      { fileName: '/app/m.shade.ts', runtime: RUNTIME },
+    );
+    const g = faceOf(f.exports ?? [], 'g');
+    expect(g.gpu!.wgsl).not.toContain('4294967295u');
   });
 
   it('gives the elements and the order of a JavaScript loop, for each input', async () => {

@@ -530,6 +530,7 @@ export function lowerKernel(
         pushedOnto,
         new Set(arrays.map((p) => p.name)),
         wordOf.get(pushedOnto),
+        options.exactTotal === true,
       );
       entries.push(...lowered.funcs);
       extraVars.push(lowered.workgroup);
@@ -1578,8 +1579,7 @@ function stillPlain(sts: readonly Stmt[], name: string): boolean {
 }
 
 function rootOf(e: Expr): string | undefined {
-  let b: Expr = e;
-  while (b.op === 'index' || b.op === 'member') b = b.base;
+  const b = placeRoot(e);
   return b.op === 'varref' || b.op === 'param' ? b.name : undefined;
 }
 
