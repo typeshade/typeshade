@@ -4,7 +4,8 @@
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, u32T } from '../../../core/ir/types.js';
-import { logicalTypeKey as typeKey, optionalHelper } from '../optional.js';
+import { logicalTypeKey as typeKey } from '../optional.js';
+import { optionalHelper } from '../optional/helpers.js';
 import {
   fitsTarget,
   integerQuotientAt,
