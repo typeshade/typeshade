@@ -1,5 +1,5 @@
 ---
-id: '0141'
+id: '0147'
 title: A `"use typeshade"` file can carry a decorator that a host module defines as an ordinary function, and the decorator runs on the host
 status: draft
 rules:
@@ -31,16 +31,16 @@ downstream:
   - repo: radiance
     what: Design record 0108 marks a table and a system by the file's place and its exports. After the pin moves past this change, an amendment of that record gives the decorated form, and the reference games move to it.
   - repo: typeshade.github.io
-    what: The new surface section, the changed rows of sections 2, 4, 7, 26, 49, 51, 64 and 70, and the new texts of `TS8028`, `TS8035` and `TS8072` on their error-code pages. Record 0141 in compiler-changes.md.
+    what: The new surface section, the changed rows of sections 2, 4, 7, 26, 49, 51, 64 and 70, and the new texts of `TS8028`, `TS8035` and `TS8072` on their error-code pages. Record 0147 in compiler-changes.md.
   - repo: vscode-typeshade
-    what: The tests of the editor's filter for TypeScript's diagnostics on a decorator gain a host module's decorator on a function and on a parameter, and the import that only a decorator uses. Record 0141 in compiler-changes.md.
+    what: The tests of the editor's filter for TypeScript's diagnostics on a decorator gain a host module's decorator on a function and on a parameter, and the import that only a decorator uses. Record 0147 in compiler-changes.md.
 ---
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                                      |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0141, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                   |
+| Identity and status           | Proposal 0147, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                   |
 | Date and attribution          | Drafted 2026-11-11 (UTC) by an AI agent (Claude Code) in the session that designs the game engine of `typeshade/radiance`. This is the third revision, written the same day. Attribution is not approval.                                                   |
 | Request source                | The owner (Seungup), in that session on 2026-11-11, in Korean. `docs/owner-decisions.md` OD-8 holds the words of the decision. "The readings" below holds the words that chose this revision's design.                                                      |
 | Applicability / effectivity   | Expected: `docs/language-design.md` Rules 1.7, 1.8, 2.1, 3.9, 6.7, 8.16, 8.20, 8.25 and 12.4, nine surface sections, the front end's decorator reading, the linker's import rule, the host module and the language service. No release version is assigned. |
