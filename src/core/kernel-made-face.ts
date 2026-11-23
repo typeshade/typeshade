@@ -1,10 +1,15 @@
+import type { CpuValue } from './cpu-runtime.js';
 import type { KernelFace } from './host-kernel.js';
+import type { HostType } from './host-values.js';
 
 export interface KernelMade {
   readonly param: string;
   readonly count: string;
   readonly shown: string;
-  readonly array: 'f32' | 'i32' | 'u32';
+  readonly array?: 'f32' | 'i32' | 'u32';
+  readonly width?: number;
+  readonly struct?: HostType;
+  readonly zero?: CpuValue;
   readonly length: string;
   readonly fill?: string;
   readonly grown?: true;

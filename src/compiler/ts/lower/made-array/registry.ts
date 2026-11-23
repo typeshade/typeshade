@@ -1,13 +1,12 @@
 import type ts from 'typescript';
 import type { Expr, FuncDecl, Stmt } from '../../../../core/ir/nodes.js';
-
-export type MadeElement = 'f32' | 'i32' | 'u32';
+import type { ShaderType } from '../../../../core/ir/types.js';
 
 export interface MadeArray {
   readonly param: string;
   readonly count: string;
   readonly shown: string;
-  readonly element: MadeElement;
+  readonly element: ShaderType;
   readonly length: Expr;
   readonly fill?: Expr;
   readonly grown?: true;
@@ -19,7 +18,7 @@ export interface MadeArray {
 export interface MadeLowering {
   readonly decl: ts.VariableDeclaration;
   readonly param: string;
-  readonly element: MadeElement;
+  readonly element: ShaderType;
   readonly length: Expr;
   readonly fill?: Expr;
   readonly lengthNode: ts.Node;

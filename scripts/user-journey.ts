@@ -576,7 +576,8 @@ async function hostImport(
       key === 'residentRender' ||
       key === 'renderMade' ||
       key === 'renderPushed' ||
-      key === 'renderKept'
+      key === 'renderKept' ||
+      key === 'shadeMade'
         ? 3 * 2 ** -11
         : key === 'glRender'
           ? 3 * 2 ** -10

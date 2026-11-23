@@ -282,6 +282,8 @@ export function loopReference() {
     renderMade: render,
     renderPushed: render,
     renderKept: render.filter((_, i) => Math.floor(i / 64) % 3 !== 1),
+    shadeMade: render.flatMap((h, i) => [h, i % 64, 1]),
+    driftMade: drift,
     residentStats: stats,
     residentScaled: scaled,
     ...doubleLoops(),

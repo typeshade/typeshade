@@ -57,6 +57,29 @@ export function drift(ps: array<Particle>, dt: f32) {
   }
 }
 
+export function shadeMade(k: vec4, size: u32): vec3[] {
+  const out = new Array(size * size).fill(vec3(0., 0., 1.));
+  for (let i: u32 = 0; i < size * size; i++) {
+    const p = vec2(f32(i % size), f32(i / size)) / f32(size);
+    out[i] = vec3(height(p, k), f32(i % size), 1.);
+  }
+  return out;
+}
+
+class Spark {
+  pos: vec4;
+  vel: vec4;
+}
+
+export function driftMade(n: u32, dt: f32): Spark[] {
+  const out = new Array(n).fill({ pos: vec4(), vel: vec4() });
+  for (let i: u32 = 0; i < n; i++) {
+    const vel = vec4(1., -9.8 * dt, -1., 0.);
+    out[i] = { pos: vec4(f32(i), 10., 0., 1.) + vel * dt, vel: vel };
+  }
+  return out;
+}
+
 export function odds(out: array<f32>, n: i32) {
   for (let i = n - 1; i >= 0; i--) {
     if (i % 2 === 0) {

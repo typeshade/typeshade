@@ -69,7 +69,7 @@ function readable(
       makeDiagnostic(
         sourceFile,
         made.fillNode,
-        notKnown(`The value "${made.form}" fills its array with`),
+        notKnown(`The value "${made.form}" fills its array with`, true),
         TS_CODES.UNSUPPORTED,
       ),
     );

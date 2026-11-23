@@ -1,13 +1,13 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import ts from 'typescript';
 import type { Expr } from '../../../../core/ir/nodes.js';
-import type { ShaderType } from '../../../../core/ir/types.js';
+import { typeEq, type ShaderType } from '../../../../core/ir/types.js';
 import { authorTypeText } from '../../context.js';
 import { shortText } from '../array-constructor/form.js';
-import { MADE_ELEMENTS } from './candidate.js';
+import { MADE_ADMITS, MADE_ELEMENTS } from './candidate.js';
 import { loopText } from './capacity.js';
 import { bindMade, refusedPlace, say, type GrownUse, type MadeAt } from './lower.js';
-import { sayOnceAt, setMadeLowering, type MadeElement } from './registry.js';
+import { sayOnceAt, setMadeLowering } from './registry.js';
 
 function innermostLoop(n: ts.Node, body: ts.Block): ts.IterationStatement | undefined {
   for (let at = n.parent; at !== body && !ts.isFunctionLike(at); at = at.parent)
@@ -84,12 +84,17 @@ export function lowerGrown(
   const name = (decl.name as ts.Identifier).text;
   const elem = target.elem;
   const refused = (): Expr => bindMade(decl, stub, target, at).ref;
-  if (elem.kind !== 'scalar' || !MADE_ELEMENTS.has(elem.scalar)) {
+  const ret = stub.ret.kind === 'array' ? stub.ret.elem : undefined;
+  if (
+    elem.kind === 'scalar'
+      ? !MADE_ELEMENTS.has(elem.scalar)
+      : ret === undefined || !typeEq(elem, ret)
+  ) {
     say(
       at,
       decl,
       `"${name}" grows an array of ${authorTypeText(elem)} with push, and that is not ` +
-        `supported yet; an array of f32, i32 or u32 is.`,
+        `supported yet; ${MADE_ADMITS}.`,
     );
     return refused();
   }
@@ -98,7 +103,7 @@ export function lowerGrown(
   setMadeLowering(stub, {
     decl,
     param: bound.param,
-    element: elem.scalar as MadeElement,
+    element: elem,
     length: { op: 'lit', type: { kind: 'scalar', scalar: 'u32' }, value: 0 },
     lengthNode: form,
     grown: true,

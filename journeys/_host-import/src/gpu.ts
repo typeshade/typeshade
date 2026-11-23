@@ -35,6 +35,8 @@ import {
   render,
   renderKept,
   renderMade,
+  shadeMade,
+  driftMade,
   renderPushed,
   scaleNonNegative,
   stamp,
@@ -453,6 +455,13 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   const pushed = await renderPushed([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
   configure({ prefer: ['webgpu'] });
   const kept = await renderKept([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
+  // A kernel function that makes an array of vectors and one of structs (change 0114, S5,
+  // slice 2), on WebGPU: a vec3 element is padded to 16 bytes on the device, and comes back as
+  // its three components one after another.
+  configure({ prefer: ['webgpu'] });
+  const shade = await shadeMade([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
+  configure({ prefer: ['webgpu'] });
+  const drifted = await driftMade(100, 0.25).finally(() => configure({}));
   const ps = Array.from({ length: 100 }, (_, i) => ({
     pos: [i, 10, 0, 1] as [number, number, number, number],
     vel: [1, 0, -1, 0] as [number, number, number, number],
@@ -594,6 +603,8 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     renderMade: [...made],
     renderPushed: [...pushed],
     renderKept: [...kept],
+    shadeMade: [...shade],
+    driftMade: drifted.flatMap((p) => [...p.pos, ...p.vel]),
     drift: ps.flatMap((p) => [...p.pos, ...p.vel]),
     odds: [...every],
     stats: [...summary],

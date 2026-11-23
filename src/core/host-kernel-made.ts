@@ -5,10 +5,26 @@ import type { IncomingReads } from './host-failure.js';
 import { callKernel, type KernelFace } from './host-kernel.js';
 import { isResource } from './host-record.js';
 import { runtimeCount, type GeneratedCpu } from './host-entry.js';
-import { toShader } from './host-values.js';
+import { fromShaderIn, toShader } from './host-values.js';
 import { isMadeParam, madeOf, type KernelMade } from './kernel-made-face.js';
 
 const ARRAYS = { f32: Float32Array, i32: Int32Array, u32: Uint32Array } as const;
+const NO_CLASSES: ReadonlyMap<string, object> = new Map();
+
+type Made = Float32Array | Int32Array | Uint32Array | unknown[];
+
+function filled(k: KernelFace, made: KernelMade, n: number, v: CpuValue | undefined): Made {
+  if (made.struct !== undefined) {
+    const classes = k.P?.() ?? NO_CLASSES;
+    return Array.from({ length: n }, () => fromShaderIn(made.struct!, v ?? made.zero!, classes));
+  }
+  const width = made.width ?? 1;
+  const array = new ARRAYS[made.array!](n * width);
+  if (v === undefined) return array;
+  if (width === 1) array.fill(Number(v));
+  else for (let i = 0; i < n; i++) array.set(v as unknown as number[], i * width);
+  return array;
+}
 
 function lengthsBefore(k: KernelFace, made: KernelMade, args: readonly unknown[]): CpuValue[] {
   let at = 0;
@@ -43,7 +59,7 @@ function madeArray(
   k: KernelFace,
   made: KernelMade,
   args: readonly unknown[],
-): Float32Array | Int32Array | Uint32Array {
+): { readonly array: Made; readonly n: number } {
   const values = lengthsBefore(k, made, args);
   const init = cpu.F['$initPrivates'];
   init?.();
@@ -53,12 +69,9 @@ function madeArray(
       `${k.name}(): the array it returns, "${made.shown}", would have length ${String(n)}, ` +
         `and JavaScript throws a RangeError for it: a length is a whole number of 0 or more.`,
     );
-  const array = new ARRAYS[made.array](n);
-  if (made.fill !== undefined) {
-    init?.();
-    array.fill(Number(cpu.F[made.fill]!(...values)));
-  }
-  return array;
+  if (made.fill === undefined) return { array: filled(k, made, n, undefined), n };
+  init?.();
+  return { array: filled(k, made, n, cpu.F[made.fill]!(...values)), n };
 }
 
 export function callMadeKernel(
@@ -86,15 +99,16 @@ export function callMadeKernel(
         `${k.name}(): returns the array it makes, "${made.shown}", and a call of it on a ` +
           `resource is not supported yet. Pass plain data and await the call.`,
       );
-    const array = madeArray(cpu, k, made, args);
-    const n = array.length;
-    const bound = array.length > 0 ? array : new ARRAYS[made.array](1);
+    const { array, n } = madeArray(cpu, k, made, args);
+    const bound = n > 0 ? array : filled(k, made, 1, undefined);
     let next = 0;
     const all = k.params.map((p) =>
-      p.name === made.param ? bound : p.name === made.count ? array.length : args[next++],
+      p.name === made.param ? bound : p.name === made.count ? n : args[next++],
     );
+    const width = made.width ?? 1;
     return callKernel(cpu, k, all.length, all, reads).then(
-      (pushed) => (made.grown === true ? array.slice(0, Math.min(Number(pushed), n)) : array),
+      (pushed) =>
+        made.grown === true ? array.slice(0, Math.min(Number(pushed), n) * width) : array,
       (e: unknown) => Promise.reject(renamed(e, made)),
     );
   } catch (e) {
