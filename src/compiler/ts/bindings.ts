@@ -9,6 +9,7 @@ import { structT, type ShaderType } from '../../core/ir/types.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { mapTsTypeToShaderType, HANDLE_TYPE_NAMES, writesRefusedType } from './type-map.js';
 import { atomicWithin } from './lower/atomics.js';
+import { inferredStorageAccess } from './storage-access.js';
 import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { authorTypeText, recordCallFormBinding, recordRecoveredBinding } from './context.js';
 import { refuseOptionalAt, type StructLookup } from './optional.js';
@@ -332,17 +333,10 @@ function fromType(
   }
   let access: StorageBufferAccess | undefined;
   if (kind === 'storage') {
-    // The word the author wrote, on BOTH keyword paths. Forcing `read_write` on the `let` path
-    // discarded an explicit `"read"` — the refusal named the opposite mode to the one the
-    // declaration asked for — and skipped the word check, so `storage<T, "nope">` under a `let`
-    // got no `TS8002` at all. An absent argument is the one thing the keyword still decides:
-    // WGSL's default is `read`, and a `let` author wanted to write.
     access =
       type.typeArguments?.[1] !== undefined
-        ? readStorageAccess(type.typeArguments[1], sourceFile, diagnostics)
-        : isConst
-          ? 'read'
-          : 'read_write';
+        ? readStorageAccess(type.typeArguments[1], sourceFile, diagnostics, name)
+        : inferredStorageAccess(sourceFile, name);
   } else if (type.typeArguments?.[1] !== undefined) {
     diagnostics.push(
       makeDiagnostic(
@@ -542,7 +536,7 @@ function fromCall(
   let binding = autoBinding;
   let access: StorageBufferAccess | undefined;
   if (kind === 'storage') {
-    access = readStorageAccess(call.typeArguments?.[1], sourceFile, diagnostics);
+    access = readStorageAccess(call.typeArguments?.[1], sourceFile, diagnostics, name);
   } else if (call.typeArguments?.[1] !== undefined) {
     diagnostics.push(
       makeDiagnostic(
@@ -656,7 +650,7 @@ function parseOptions(obj: ts.ObjectLiteralExpression): {
 }
 
 /** The access mode a `storage<T, Access>` declaration asks for, read off the second type
- *  argument. An absent argument is `read`, WGSL's own default for the address space. Anything
+ *  argument. An absent argument is inferred from the program. Anything
  *  that is not one of {@link STORAGE_BUFFER_ACCESS} is `TS8002`, the code `mapStorageTexture`
  *  already raises for a bad `texture_storage_2d<Format, Access>` word, and recovers as
  *  `read_write`: measured, recovering as `read` makes the author's own write a second `TS8005`
@@ -667,8 +661,9 @@ function readStorageAccess(
   accessArg: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
+  name: string,
 ): StorageBufferAccess {
-  if (accessArg === undefined) return 'read';
+  if (accessArg === undefined) return inferredStorageAccess(sourceFile, name);
   const written =
     ts.isLiteralTypeNode(accessArg) && ts.isStringLiteral(accessArg.literal)
       ? accessArg.literal.text
