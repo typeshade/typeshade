@@ -37,8 +37,8 @@ export function sharedFillRefusal(
     sourceFile,
     at,
     `"${shown}" of a ${authorTypeText(elem)} would make every element of "${recvText}" one ` +
-      `object, as ECMAScript's "fill" does, and the host's array holds that sharing: this is ` +
-      `not supported yet (change 0114, A8 item 4). Write a loop that stores a new object in ` +
+      `object, as ECMAScript's "fill" does, and one object shared on an existing array is not ` +
+      `implemented: this is not supported yet (language design Rule 2, change 0142, stage 3). Write a loop that stores a new object in ` +
       `each element, "for (let i = 0; i < ${recvText}.length; i++) { ${recvText}[i] = { … }; }".`,
     TS_CODES.UNSUPPORTED,
   );

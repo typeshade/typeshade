@@ -35,7 +35,7 @@ async function load(source: string): Promise<Record<string, Call>> {
   return (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Record<string, Call>;
 }
 
-const REFUSED = `"xs.fill" of a P would make every element of "xs" one object, as ECMAScript's "fill" does, and the host's array holds that sharing: this is not supported yet (change 0114, A8 item 4). Write a loop that stores a new object in each element, "for (let i = 0; i < xs.length; i++) { xs[i] = { … }; }".`;
+const REFUSED = `"xs.fill" of a P would make every element of "xs" one object, as ECMAScript's "fill" does, and one object shared on an existing array is not implemented: this is not supported yet (language design Rule 2, change 0142, stage 3). Write a loop that stores a new object in each element, "for (let i = 0; i < xs.length; i++) { xs[i] = { … }; }".`;
 
 const LOOP = `"use typeshade";
 export interface P { a: f32; c: u32; }
@@ -55,6 +55,11 @@ export function reset(xs: vec2f[], p: vec2f): void {
 describe('xs.fill(p) of a struct on a kernel function array', () => {
   it('both halves refuse it as not supported yet, as the host cannot share one object', () => {
     bothRefuse(SOURCE, 'TS8099', REFUSED);
+  });
+
+  it('the compiler reports the refusal with the code TS8099', () => {
+    const f = hostFace(SOURCE, { fileName: '/app/m.shade.ts', runtime: RUNTIME });
+    expect(f.diagnostics.map((d) => d.code)).toContain('TS8099');
   });
 
   it('both halves take a loop that stores a new object in each element, and a vector fill', () => {
