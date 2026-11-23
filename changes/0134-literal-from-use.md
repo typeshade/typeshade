@@ -1345,12 +1345,15 @@ the owner chose, as the pull request or the issue records it. Each program below
     whose two readings differ gave the wrapped answer beside a typed `i32` operand. With result
     `i32` and `ii = -9`, after `let a = 1 << 30; let b = a + a;`, `return i32(b / ii);` compiled
     to 238609294 on `main` at `2c43206b`. TypeScript gives -238609294. On `main` at `34d65efd`
-    both halves refuse it with the approved A7 sentence and the edit `i32(b)`. The same refusal
-    covers these programs, after the same two lines:
+    both halves refuse it with the approved A7 sentence and the edit `i32(b)`. The approved A7
+    sentence also refuses these programs, after the same two lines:
     - `return i32(ii / b);` and `let r: i32 = b / ii; return r;`.
     - `return i32(b % ii);`, and `<`, `>`, `<=`, `>=`, `===` and `!==` between `b` and `ii`.
     - `let p = 1 << 20; let q = p + p; return i32(b / q);`, a divisor that is an agreeing tree.
-    - `let c = 1 << 4; let d = c + c; return i32(b / (d / 4));` is refused by D-b with no edit.
+
+    After the same two lines, `let c = 1 << 4; let d = c + c; return i32(b / (d / 4));` is refused
+    by D-b with no edit.
+
   - Open deviation, issue #1416: after the same two lines, a comparison of `b / 7` beside a peer
     that states no type or an `f32` reads the wrapped quotient. `return b / 7 > 5 ? 1 : 0;` and
     `return b / 7 > f ? 1 : 0;` compile to 0, where TypeScript gives 1. Issue #1416 reports the
