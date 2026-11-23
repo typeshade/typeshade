@@ -16,9 +16,11 @@ rules:
 surface:
   - 1
   - 7
+  - 9
   - 14
   - 18
   - 20
+  - 23
   - 26
   - 28
   - 63
@@ -1609,6 +1611,102 @@ not supported yet.` Open until the owner decides which sentence holds.
 - [fact] `git log --oneline` on the two test files shows #1367, #1369 and #1370 only.
 - Status: S1 done: `T[]` and `Array<T>` (#1367), `readonly T[]`, `ReadonlyArray<T>` and the write
   refusal (#1369), Rule 6.1 (#1370). A2's text stays as written.
+
+### A17. The owner's decisions of 2026-11-23 on S3, Route 3 and do ... while (2026-11-23)
+
+- [fact] This amendment follows A16 in number only. It records five decisions that the owner gave
+  in the conversation on 2026-11-23. The owner chose the recommended option of each question and
+  answered "승인". A decision below quotes the recommendation that the owner accepted.
+- [fact] No earlier amendment changes. Where a decision differs from an earlier sentence, the
+  decision names the sentence.
+
+**(a) S3: a storage binding's access (pull request #1476, merged as `698af76f`).**
+
+- [decision, owner, 2026-11-23] "승인", to the recommendation (1) to add surface sections 9 and 23
+  to the front-matter `surface` list of this change. Their sentences that call a bare `storage<T>`
+  read-only can then be fixed. Section 9 holds the table row "`declare const x: uniform<T>` /
+  `storage<T>` | no: `TS8005`". Section 23 holds the sentence "Every atomic builtin needs
+  read_write access, so a binding whose type does not say `"read_write"` is TS8005". Both
+  sentences are false after S3. A bare `storage<T>` that an entry writes is `read_write` now.
+  - Rests on: OD-3 (the author does not state what the compiler can infer) and OD-9. The
+    front-matter list is the scope of the change (`changes/README.md`).
+  - Changes in the approved text: the front matter gains `9` and `23`. The implementing pull
+    request fixes the two sentences above. No rule number or code changes.
+- [decision, owner, 2026-11-23] "승인", to the recommendation (2): a write to a bare storage
+  binding inside a helper that no entry reaches is accepted. The binding stays
+  `var<storage, read>`. The compiler does not emit the helper.
+  - Rests on: OD-5 (a write goes through the call) and OD-9 (the program need not translate
+    one-to-one: a helper that no entry reaches has no target code).
+  - Changes in the approved text: the implementing pull request changes the first sentence of
+    Rule 6.2. It says that a binding is `read_write` when an entry reaches a write to it, by
+    assignment, a mutating method, an atomic builtin, or a write through a function or a
+    reference parameter. It changes the last sentence of Rule 6.2 ("A write to a read-only
+    resource must be refused") to say that an unreached write is not refused. The matching
+    surface sentences change too.
+- [decision, owner, 2026-11-23] "승인", to the recommendation (3): a binding declared with an
+  explicit `"read_write"` argument that a vertex entry reads is refused now. The refusal stands
+  under the Rule 6.2 vertex sentence, because WebGPU refuses that layout.
+  - Rests on: OD-9. The target forces the refusal, and the refusal is not the compiler's choice.
+  - Changes in the approved text: the implementing pull request changes the last sentence of
+    Rule 6.2. The sentence now says: "A binding that the module writes and a vertex entry reads
+    is refused". It will also name a binding that the author declared `"read_write"` and a
+    vertex entry reads, with no write. The surface sentence of the same refusal changes too. The
+    refusal keeps its existing code. No code is added.
+- Affects: the front matter `surface` gains 9 and 23. Rule 6.2 and surface sections 9 and 23, and
+  the surface sentences that restate Rule 6.2, change in the implementing pull request. No rule number or code changes.
+
+**(b) Route 3 (A12, S5d slice 3).**
+
+- [fact] The design is at
+  `/tmp/claude-0/-home-user/0a3c0a09-e34d-550d-9564-1563ad8f2607/scratchpad/route3/design.md`
+  (revision 2). It is a scratch file and not part of the repository. Its stages are S0 to S5.
+- [decision, owner, 2026-11-23] "승인", to the recommendation R3-Q1 (B). At call time, Route 1's
+  capacity can pass 4294967295, or its allocation can throw. If Route 2 does not serve the
+  function, Route 3 runs on a CPU-only face of that call. The pattern is `counting(k)` in
+  `host-kernel-made/counted.ts`. If the runtime's tier list has no CPU tier, the call throws the
+  `pastLimit` sentence as today.
+  - Rests on: OD-5 (a throw leaves the caller's arrays unchanged), OD-9, OD-10.
+  - Changes in the approved text: A12 section 1, items 5.3 and 5.4, and the delivered Rule 8.23
+    say that such a call "throws" before anything runs. That sentence changes to "runs on the CPU
+    tier" for a function with a CPU tier. The stage that delivers it is S1, with the limit and
+    the `RangeError` marker of design section 2.4. It settles design section 1.3, row "A capacity
+    Route 1 sizes past 4294967295".
+- [decision, owner, 2026-11-23] "승인", to the recommendation R3-Q2 (A). A function that the proof
+  accepts, and whose capacity no route can size (shape 5, `repeated`), draws a `TS8070` warning.
+  Both halves show it, on the loop whose header the compiler cannot read. The sentence is new and
+  sits under the existing code.
+  - Rests on: OD-9 and OD-11.
+  - Changes in the approved text: surface section 7 gains one `TS8070` sentence. The compiler and
+    the language service emit it in stage S3 (`kernelLoopDiagnostics`). A12 section 4 names the
+    warning for a loop the proof refuses only. This decision extends it to shape 5. No code is
+    added.
+- [decision, owner, 2026-11-23] "승인", to the recommendation R3-Q3 (A). A pull request closes
+  A16 D1 first, before Route 3 stage S3. Then the `repeated` shape takes Route 2 on WebGPU, as
+  A12 section 1, item 3 approves. The shape is an inner loop whose header reads an element of an
+  array parameter at the outer counter, under an outer loop to that array's length.
+  - Widening needs a proof or a call-time length check, because a read out of range differs
+    between tiers.
+  - An inner pushing `while` stays on Route 3 until S5.
+  - Rests on: OD-11 (a device tier is not dropped silently) and OD-9.
+  - Changes in the approved text: S3 does not start before that pull request merges. `repeated`
+    is then no S3 case. A16 D1 stays open until that pull request closes it.
+- [fact] The three decisions settle the design questions R3-Q1, R3-Q2 and R3-Q3. They settle
+  items of A12: section 1, item 3 (R3-Q3), section 1, items 5.3 and 5.4 (R3-Q1) and section 4
+  (R3-Q2).
+
+**(c) do ... while (A-record of Route 3 S2, deviation 1, pull request #1481).**
+
+- [decision, owner, 2026-11-23] "승인", to the recommendation: a later stage adds a bottom-tested
+  loop to the IR and serves a pushing `do ... while` on Route 3. The stage comes after Route 3
+  S3, in its own pull request.
+- [fact] Until that stage merges, the `TS8099` refusal of a pushing `do ... while` stays an open
+  deviation from A12. Rests on OD-10: the refusal says "not supported yet".
+- Open item. Reason: the IR has no bottom-tested loop. Next action: the later stage, after Route 3
+  S3.
+- Affects: no front-matter entry, rule number or code changes by (b) and (c).
+- Status: `status: accepted` does not change. S3 (#1476): decisions (1) to (3) recorded; the
+  implementing pull request for (2) and (3) is not started. Route 3: R3-Q1 to R3-Q3 decided; A16
+  D1 closing pull request not started; S0 to S5 not started. `do ... while`: open deviation.
 
 ## What it owes downstream
 
