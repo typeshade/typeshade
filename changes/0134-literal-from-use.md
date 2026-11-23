@@ -5,6 +5,7 @@ status: accepted
 rules:
   - '5.1'
   - '5.2'
+  - '7.4'
   - '8.14'
   - '8.19'
   - '12.7'
@@ -1187,15 +1188,18 @@ and its readings are in Amendment A6 and are not repeated here.
     (`let [a] = [tree]`, `let { v } = s` after `s.v = tree`).
 
   C, a computed number past `i32` that reaches a bit operator through a variable
-  (`const c = 2e9 + 2e9; let d = c | 0; f32(d + d)`), is open with issue #1309.
+  (`const c = 2e9 + 2e9; let d = c | 0; f32(d + d)`), was open with issue #1309 when this
+  amendment was written. Pull request #1358 (merged as `b9497706`, 2026-11-23) implements it
+  (Amendment A8).
 
 - [decision, owner, 2026-11-16] "두 값 유지, 다르면 거부". The result of `+`, `-`, `*`, `&`, `|`,
   `^`, `<<` and `~` over a tree beside a typed `u32` keeps the tree's two readings. A later
   `f32()`, comparison or `/` whose result differs between them is to be refused with the D2
-  sentence. `a + vi` alone still compiles, as D2 says. Status: decided, not implemented. On `main`
-  at `93c3d247`, `f32(a + vi)` still reads the `u32` bits (4026531847, TypeScript -268435449).
-  Issue #1307 records the work and the tests owed. Rule 5.1 and surface §13 do not state this
-  decision until that work is merged.
+  sentence. `a + vi` alone still compiles, as D2 says. Status: implemented by pull request #1356
+  (issue #1307, merged as `d408254c`, 2026-11-18). On `main` at `93c3d247`, `f32(a + vi)` read
+  the `u32` bits (4026531847, TypeScript -268435449). On `main` at `b9497706` it is refused with
+  the sentence below and the edit `i32(a + vi)`. Rule 5.1 and surface §13 state this decision
+  (Amendment A8).
 - [decision, owner, 2026-11-17] "거부: let b = vi와 같게" (pull request #1322). A class field with
   no written type is no typed peer, as `let b = vi` is not. With `s.v = vi`, `f32(a + s.v)` is
   refused with the sentence above. A field with a written `u32` is a typed peer
@@ -1238,10 +1242,163 @@ and its readings are in Amendment A6 and are not repeated here.
     `TS8003: The compiler cannot prove that the u32 bits and the TypeScript value of "v + v" agree, so the "f32()" does not say which value it means. Write "i32(v + v)" for the i32 value.`
     The edit `f32(i32(v + v))` compiles to -536870912.
 
-- Disposition: made part of the approved text by this amendment, except "두 값 유지, 다르면 거부",
-  which stays open with issue #1307, and C, which stays open with issue #1309.
+- Disposition: made part of the approved text by this amendment. "두 값 유지, 다르면 거부" and C
+  were open with issues #1307 and #1309 when this amendment was written. Pull requests #1356 and
+  #1358 implement them, and Amendment A8 records the decisions their reviews needed.
 - Affects: no front-matter field. Rules 5.1 and 12.7 and surface §13, which the front matter
   declares, carry these readings. The sentence follows Rule 12.5.
+- Status: `status: accepted` does not change.
+
+### Amendment A8. The owner's decisions on the bug fixes of the two readings (2026-11-17 to 2026-11-23)
+
+Four bug fixes restore D2 and D-b as Amendments A2 to A7 state them: pull request #1355 (issue
+#1320, merged as `d856067e`, 2026-11-17), pull request #1354 (issue #1331, merged as
+`52f9265d`, 2026-11-18), pull request #1356 (issue #1307, merged as `d408254c`, 2026-11-18) and
+pull request #1358 (issue #1309, merged as `b9497706`, 2026-11-23). Their reviews left choices
+that this text did not decide. The owner decided each in the Claude Code session, after the
+choices, their costs and one example each were shown (`OD-4`). This amendment records each
+decision with the pull request or issue it came from, and its status on `main` at `b9497706`.
+Where the owner's own words are not recorded, the quotation is the English that the pull
+request or the issue records. Each program below is the body of
+`export function t(ii: i32, vi: u32, f: f32): f32` unless it names another result, with
+`ii = -3` and `vi = 7`.
+
+- [decision, owner, 2026-11-17] "좁게: 트리에서 나온 정수만" (issue #1309, pull request #1358).
+  The scope of #1309 is narrow. Only an integer that comes out of a tree, a bit operator over
+  operands with no written type, starts a signed `i32` tree. Such an integer keeps two readings,
+  its wrapped `i32` bits and TypeScript's value, through a binding, an accumulator, `+`, `-`,
+  `*`, `<<` and unary minus. A bit operator and `| 0` over it agree with TypeScript (ToInt32), so
+  they compile. A D2 reader refuses it unless the walk proves its range, by a constant fold or by
+  a constant trip count. The refusal is the approved A7 sentence with the edit `i32(…)`.
+  - A bit operator over an operand of a written type (`vi & 1`) gives that type and starts no
+    tree.
+  - A computed number past `i32` that reaches a bit operator through a variable starts a `u32`
+    tree, as a written one does. This is C of Amendment A7.
+  - [reading, 2026-11-18] A loop with a constant trip count bounds the values of a variable
+    where every store runs at most that many times, and at most 24 times in all.
+  - Example: `let a = 1 << 31; return f32(a + a);` was 0 on `main` at `7513a9af` (TypeScript
+    -4294967296). It is refused, and the edit `f32(i32(a + a))` compiles to 0.
+  - Cost recorded (pull request #1358): `s += (1|2)` forty times (120) is refused, past the 24
+    stores the walk follows. An accumulator in a `while` loop or in a loop with no written bound
+    is refused. `let a = 3|0; f32((a << vi) + 0)` (384) is refused.
+  - Status: implemented by #1358.
+- [decision, owner, 2026-11-17] "TypeScript 값으로" (issue #1320, pull request #1355). A position
+  that states an integer type reads a quotient over integers by inference (D-b) as the integer
+  division of the operands' own integer type, truncated toward zero, and never through `f32`.
+  `i32()` and `u32()` then convert it as ToInt32 and ToUint32 do. A divisor that is zero at run
+  time gives TypeScript's value, which is 0, and not WGSL's `x / 0 = x`.
+  - This changes the rationale of Rule 7.4 for these quotients. Rule 7.4 says that a run-time
+    divisor takes WGSL's answer on every target. A divisor the compiler proves zero stays
+    refused (Rule 7.4). A division whose operands have a written integer type keeps WGSL's
+    `x / 0 = x`.
+  - Example (with `function gg() { return 5 | 0; }`, result `i32`):
+    `let a = (-7|0); let z = gg() - 5; return i32(a / z);` was -2147483648 on `main` at
+    `7513a9af`. It is 0 on `main` at `b9497706`, as TypeScript gives.
+  - Status: implemented by #1355.
+- [decision, owner, 2026-11-17] The scope of the conversion (issue #1320, pull request #1355),
+  recorded as "Only `i32()` and `u32()` convert a quotient across integer types". A declaration,
+  a parameter or a result of the other integer type stays refused with its verified edit.
+  - Example (result `u32`): `let a = (-7|0); return u32(a / 2);` was 0 on `main` at
+    `7513a9af`, and is 4294967293, as TypeScript gives.
+    `let a = (-7|0); let j: u32 = a / 2; return j;` stays refused, before and after, with
+    `"a" is an integer by its bit operator, and no operand of "a / 2" has a declared type, so the "/" does not say which division it is. Write "u32(a) / 2" for the integer division.`
+  - Status: implemented by #1355.
+- [decision, owner, 2026-11-17] A mask of low bits (issue #1307, pull request #1356). A result
+  beside a typed `u32` keeps its two readings ("두 값 유지, 다르면 거부", Amendment A7). A mask
+  of low bits makes the two readings agree, so the masked value is accepted:
+  `f32((a + b) & 0xFF)` with `let b: u32 = vi`.
+  - [reading, 2026-11-17] A masked value carries the largest value it can take. `+`, `*`, `&`,
+    `|`, `^`, `<<` and `>>` by written amounts keep it agreeing while that bound stays at most
+    2^31 - 1. A mask over an unproven value stays unproven (B2 of Amendment A7).
+  - Example, after `let a = (0xF0000000|0);`: `return f32(a + vi);` was 4026531847 on `main` at
+    `7513a9af` (TypeScript -268435449). It is refused with
+    `The compiler cannot prove that the u32 bits and the TypeScript value of "a + vi" agree, so the "f32()" does not say which value it means. Write "i32(a + vi)" for the i32 value.`
+    `return f32((a + vi) & 0xFF);` is 7, before and after.
+  - Status: implemented by #1356.
+- [decision, owner, 2026-11-17] D2 holds over the D-b truncation of Amendment A6 (issue #1363).
+  A `/` over a binding of a `u32` tree, in a position that states `u32`, is refused with the
+  approved A7 sentence and a verified edit. The compiler cannot prove that the two readings
+  agree. An example, with result `u32`: `let c = (3000000000|0); let d = c; return d / 7;`.
+  - Status: decided, not implemented. On `main` at `b9497706` the example compiles to 428571428. TypeScript gives -184995328, which a `u32` stores as 4109971970. Issue #1363
+    records the work and the tests owed. Rule 5.1 and surface §13 do not state this decision
+    until that work is merged.
+- [decision, owner, 2026-11-18] (a) Rule 1.3 against D2 (pull request #1358), recorded as "D2
+  holds". A tree whose two readings already differ is refused, also beside a typed `i32`
+  operand. Rule 1.3 still governs an integer typed only by its peer (`let s = 0; s += ii`): it
+  keeps the arithmetic of its WGSL type and is not refused.
+  - Example, with `ii = 3`: `let h = (1 << 30); return f32(h + h + ii);` was -2147483645 on
+    `main` at `7513a9af` (TypeScript 2147483651). It is refused, with the edit
+    `i32(h + h + ii)`. `let s = 0; s += ii; return f32(s);` is -3, before and after.
+  - Status: implemented by #1358 for an operand beside a typed `i32`. A typed `i32` position
+    (`let r: i32 = h + h + ii`, an `i32` parameter or result) is not covered yet. That is an
+    open deviation, issue #1380.
+- [decision, owner, 2026-11-18] (b) An explicit conversion is a written type inside a builtin
+  too (pull request #1358). With `let h = 5 | 0`, `f32(abs(i32(h)))` and `f32(max(i32(h), 2))`
+  compile to 5. This keeps the value of `main` at `7513a9af`. An earlier head of #1358 refused
+  these programs. Status: implemented by #1358.
+- [decision, owner, 2026-11-18] (c) A refusal names a suggested edit only where the edited
+  program gives TypeScript's value (pull request #1358). A builtin whose edit cannot be verified
+  names no edit. `f32(abs(h + h))` with `let h = 1 << 30` is refused with the approved A7
+  sentence and no edit, since `abs(i32(h + h))` gives WGSL's -2147483648 and TypeScript gives 2147483648.
+  - [reading, 2026-11-18] An `i32(…)` edit inside `abs` is named only where the walk proves that
+    the operand's `i32` value is not the `i32` minimum. `max`, `min`, `clamp`, `sign` and a
+    `u32(…)` edit inside `abs` give TypeScript's value, so their edits stand.
+  - Example: `let h = 1 << 30; return f32(abs(h + h));` was -2147483648 on `main` at `7513a9af`.
+    It is refused with
+    `The compiler cannot prove that the u32 bits and the TypeScript value of "h + h" agree, so the "abs" does not say which value it means.`
+  - Status: implemented by #1358.
+- [decision, owner, 2026-11-18] (d) The `i32` minimum under `abs` (pull request #1358). Where the
+  compiler proves that the `i32` argument of `abs` is the `i32` minimum, the program is refused
+  with no edit. A value known only at run time (`abs(ii)`) keeps WGSL's rule.
+  - Example: `let h = 1 << 30; return f32(abs(i32(h + h)));` was -2147483648 on `main` at
+    `7513a9af` (TypeScript 2147483648). It is refused with no edit.
+  - Cost recorded: `abs(ii)` with `ii` the `i32` minimum gives -2147483648, where TypeScript
+    gives 2147483648.
+  - Status: implemented by #1358. Open deviation, issue #1388: a binding (`let k = i32(h + h);
+abs(k)`), a constant fold (`abs(i32(-2147483647 - 1))`) and a nested conversion
+    (`abs(i32(u32(h + h)))`) still compile to -2147483648.
+- [decision, owner, 2026-11-18] The numbers of a refusal sentence (pull request #1354), recorded
+  as "A refusal sentence states the two readings as numbers only when the variable or expression
+  involves no variable that is reassigned after its declaration. Every other case uses the
+  approved A7 sentence with its verified edit." This replaces an earlier decision of the same
+  day, which held the numbers back only for a variable stored inside a loop. Acceptance and
+  refusal do not change, only the sentence.
+  - Example: `let a = (0xFFFFFFFF & 5); a *= 0x40000000; return f32(a);` was refused on `main`
+    at `7513a9af` with `"a" is 0 on its u32 bits and 2.5684257331779168e+208 in TypeScript, …`,
+    a value the program never reaches. It is refused with
+    `The compiler cannot prove that the u32 bits and the TypeScript value of "a" agree, so the "f32()" does not say which value it means. Write "i32(a)" for the i32 value.`
+    A value that no reassigned variable reaches keeps its numbers:
+    `const c = 2000000000 + 2000000000; let d = c | 0; return f32(d + d);` is refused with
+    `"d + d" is 3705032704 on its u32 bits and -589934592 in TypeScript, …`.
+  - Status: implemented by #1354, and merged into #1358. Open deviation, issue #1386: a
+    reassigned variable read through the IR readings, or as a shift amount, still states its
+    initializer's numbers.
+- [decision, owner, 2026-11-18] (e) A refusal over an expression with more than one possible
+  value (a `?:` or `select` arm set, or an operand with several readings) states no numbers. It
+  uses the approved A7 sentence.
+  - [decision, owner, 2026-11-23] The implementation moves out of #1358 to issue #1399, because
+    both implementations that #1358 tried changed acceptance.
+  - Status: decided, not implemented. On `main` at `b9497706`,
+    `let a = (0xF0000000|0); return f32(abs(vi > 3 ? a + 0x90000000 : a));` states one arm's
+    numbers (4026531840 and -268435456). Rule 5.1 and surface §13 do not state this decision
+    until issue #1399 is fixed.
+- [decision, owner, 2026-11-18] Merge #1354, and fix in issue #1371 the peer forms its re-review
+  found: a plain store into the tree variable, an arm of `?:`, an argument of `select` and an
+  operand nested under an operator.
+- [decision, owner, 2026-11-18] Fix the mask past 2^53 as a bug of its own, issue #1377, after
+  #1354, #1356 and #1358 merge. A product past 2^53 is not exact in TypeScript's doubles, so the
+  masked-value rule can accept a wrong value.
+- [decision, owner, 2026-11-18] Fix the typed `i32` positions, issue #1380, after #1354, #1356
+  and #1358 merge.
+- Disposition: made part of the approved text by this amendment, except four items that stay
+  open. The decision on #1363 and decision (e) are decided and not implemented (issues #1363 and
+  #1399). The deviations of decisions (a), (d) and the numbers of a refusal sentence are open
+  (issues #1380, #1388 and #1386).
+- Affects: the front matter gains Rule 7.4, whose rationale the decision "TypeScript 값으로"
+  changes. `scripts/changes.ts` reads what a proposal declares on the base branch, so the text of
+  Rule 7.4 changes in a pull request of its own after this amendment merges. Rules 5.1 and 12.7
+  and surface §13, which the front matter declares, carry the other readings. The sentences
+  follow Rule 12.5.
 - Status: `status: accepted` does not change.
 
 ### Configuration and validation record
