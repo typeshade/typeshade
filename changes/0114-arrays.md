@@ -1546,14 +1546,14 @@ not supported yet.` Open until the owner decides which sentence holds.
    runs up to that array's length. A12 item 3 allows more. Any other function keeps `TS8099`.
    Open.
 2. **D2. No mismatch word (owner decision (b), 2026-11-23).** The second run checks that its
-   total equals the first run's. Count and store errors that cancel in the total are not caught.
+   total equals the first run's. [inference] Count and store errors that cancel in the total are not caught.
    Open.
 3. **D3. A count of 4294967295 or more throws (owner decision (e)).** `countedTotal`
    (`src/core/host-kernel-made/capacity.ts`) throws the `RangeError` at 4294967295. The count
    saturates only for a counted function (decision (f)). On WebGPU, `min` and `-` in the count
    helper and in the scan do it (`exactTotal` of `LowerOptions`). On the CPU tier, the push builtin
    does it (`withSaturatingPushes`). A total of exactly 4294967295 throws, though it is
-   representable, since no tier allocates it. Open.
+   representable. [inference] Decision (e) is the reason: no tier allocates that total. Open.
 4. **D4. Route 1's limit test at the call.** `host-kernel-grown-capacity.test.ts` and
    `host-kernel-grown-nest.test.ts` no longer assert at the call that a counted function past the
    limit throws Route 1's `RangeError`. That call takes Route 2, and a real run needs billions of
@@ -1566,8 +1566,12 @@ not supported yet.` Open until the owner decides which sentence holds.
 6. **D6. A13 D1 and D2 stay open.** This slice does not close them. Open.
 
 - [fact] Not run for #1466: the differential gate, and a saturated scan on a device. A real count
-  past 4294967295 is infeasible. CI ran the full suite. The journey cases `pairSearch` and
-  `pairTwice` ran on WebGPU (SwiftShader) and equal the reference.
+  past 4294967295 is infeasible.
+- [fact] The four required checks were green on head `4c3c022e` of #1466: `typecheck + unit`,
+  `traceability (Doorstop)`, `compile gate (Tint + WebGL2)` and
+  `user journeys (packed tarball, WebGPU)`.
+- [fact] The journey cases `pairSearch` and `pairTwice` ran locally on WebGPU (SwiftShader) on
+  2026-11-23. Their results equal the reference. This local run is not a CI result.
 - Affects: Rule 8.23 and surface section 65 (the first run on WebGPU). No front-matter entry,
   rule number or code changes.
 - Status: `status: accepted` does not change. S5d slice 2: form 2 on Route 2 done on the CPU tier
@@ -1577,12 +1581,15 @@ not supported yet.` Open until the owner decides which sentence holds.
 
 - [fact] A2's status line says that `readonly T[]`, `ReadonlyArray<T>` and the write refusal are
   not started. That line is out of date.
-- [fact] Pull request #1369 (merge commit `b30b8a6b`, "Proposal 0114 S1: accept readonly f32[] and
-  ReadonlyArray<f32> and refuse a write through them") delivered them. It added
-  `src/compiler/ts/type-map/readonly-array.ts` and `src/compiler/ts/readonly-ts-arrays.test.ts`.
-  Pull request #1370 (merge commit `a2e69146`, "State 0114 S1 in Rule 6.1") stated S1 in
-  Rule 6.1 and changed the test. Evidence: `git log --oneline` on those two files shows only
-  these two commits.
+- [fact] Pull request #1369 (merge commit `b30b8a6b`) delivered `readonly T[]`, `ReadonlyArray<T>`
+  and the write refusal. Its title is "Proposal 0114 S1: accept readonly f32[] and
+  ReadonlyArray<f32> and refuse a write through them".
+- [fact] Pull request #1369 added `src/compiler/ts/type-map/readonly-array.ts` and
+  `src/compiler/ts/readonly-ts-arrays.test.ts`.
+- [fact] Pull request #1370 (merge commit `a2e69146`, "State 0114 S1 in Rule 6.1") stated S1 in
+  Rule 6.1. It changed two tests: `src/compiler/ts/readonly-ts-arrays.test.ts` and
+  `src/compiler/ts/unsized-ts-arrays.test.ts`.
+- [fact] `git log --oneline` on the two test files shows #1367, #1369 and #1370 only.
 - Status: S1 done: `T[]` and `Array<T>` (#1367), `readonly T[]`, `ReadonlyArray<T>` and the write
   refusal (#1369), Rule 6.1 (#1370). A2's text stays as written.
 
