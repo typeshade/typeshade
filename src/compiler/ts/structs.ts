@@ -1756,10 +1756,7 @@ export function inferredFieldOf(
  *  its type is `inferredFieldType`'s while the use inference runs), `true` and
  *  `false` a `bool`, `new P()` the struct it builds, and a type's own constructor, `vec3(0.)` or
  *  `u32(1)`, that type. A call to anything else could return anything, so it is not guessed at. */
-export function initializerType(
-  init: ts.Expression,
-  sourceFile: ts.SourceFile,
-): ShaderType | undefined {
+export function initializerType(init: ts.Expression, sourceFile: ts.SourceFile) {
   let e = init;
   while (ts.isParenthesizedExpression(e)) e = e.expression;
   if (
