@@ -10,7 +10,7 @@
 // result is fixed to the bit: this suite pins both, against a reference written in plain
 // JavaScript, on the CPU oracle and on the generated CPU code.
 
-import { readFileSync } from 'node:fs';
+import { exampleSource } from './_example-file.js';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../src/index.js';
 import { compileModule } from '../src/core/oracle.js';
@@ -37,7 +37,7 @@ for (let y = -8; y <= 8; y += 1) for (let x = -8; x <= 8; x += 1) POINTS.push([x
 POINTS.push([123456, -98765], [0.5, -0.5], [91.3, 45.6]);
 
 describe.each(TWINS)('%s-twin: the lattice hash', (name) => {
-  const r = compile(readFileSync(new URL(`./${name}-twin.shade.ts`, import.meta.url), 'utf8'));
+  const r = compile(exampleSource(`${name}-twin`));
 
   it('compiles', () => {
     expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
