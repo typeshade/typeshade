@@ -682,12 +682,8 @@ describe('every refusal that names a line is pinned above', () => {
       lines: 0,
       note: 'two refusals say a body cannot `write "this"`, which is prose and names nothing to write',
     },
-    {
-      file: 'lower/array-methods.ts',
-      sites: 2,
-      lines: 0,
-      note: 'quotes a call to write instead, `xs.findIndex((x) => …)`, with the predicate left open, and names a captured variable to write in a forEach or a for loop: an expression and a name, not a declaration (change 0079)',
-    },
+    { file: 'lower/array-methods.ts', sites: 1, lines: 0, note: 'a captured name to write (0079)' },
+    { file: 'lower/array-methods/value-refusals.ts', sites: 1, lines: 0, note: 'a findIndex call' },
     {
       file: 'lower/class-access.ts',
       sites: 3,

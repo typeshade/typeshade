@@ -256,7 +256,7 @@ declare const out: storage<array<f32>, "read_write">;
 }
 `).module;
     expect(() => buildGlCompute(twice, 'main')).toThrow(
-      'it samples "photo" with "a" and "b", and GLSL ES 3.00 fuses a texture with one sampler',
+      'it samples "photo" with "a" and "b", and a texture with more than one sampler is not supported yet on the WebGL2 tier',
     );
     for (const [decl, use, type, why] of [
       [

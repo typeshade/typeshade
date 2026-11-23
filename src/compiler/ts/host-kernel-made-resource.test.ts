@@ -102,6 +102,18 @@ export function both(xs: f32[], ys: f32[]): f32[] {
 }
 `;
 
+const PLAIN_STRUCT = `"use typeshade";
+export class P { a: f32; b: vec3f; }
+export function pointsBoth(xs: f32[], ys: f32[]): P[] {
+  const out = new Array(xs.length).fill({ a: 0., b: vec3f() });
+  for (let i: u32 = 0; i < xs.length; i++) {
+    ys[i] = xs[i];
+    out[i] = { a: xs[i], b: vec3f(f32(i), 2., 3.) };
+  }
+  return out;
+}
+`;
+
 const read = (b: unknown): Promise<unknown> => (b as Buffer<number>).read();
 
 describe('a kernel function that makes its result, called on a resource (change 0114, S5)', () => {
@@ -183,9 +195,6 @@ describe('a kernel function that makes its result, called on a resource (change 
     expect(() => m['quads']!(xs)).toThrow(
       'of Q, which is no class the module exports, and a call of it on a resource that does so is not supported yet.',
     );
-    expect(() => m['both']!(xs, new Float32Array(2))).toThrow(
-      'and writes the plain array of parameter "ys", and a call of it on a resource that does so is not supported yet.',
-    );
     const n = array(new Uint32Array([2]));
     expect(() => m['sized']!(xs, n)).toThrow(
       new TypeError(
@@ -220,5 +229,56 @@ describe('a kernel function that makes its result, called on a resource (change 
     expect(f.view).toContain('): Buffer<P>;');
     expect(f.view).not.toMatch(/function kept\([^)]*\): Buffer/);
     expect(f.view).not.toMatch(/function quads\([^)]*\): Buffer/);
+  });
+
+  it('waits and gives plain data when the call also writes a plain array (change 0114, A13)', async () => {
+    const m = await load(SOURCE);
+    const xs = array(new Float32Array([1, 2, 3]));
+    const ys = new Float32Array(3);
+    const call = m['both']!(xs, ys);
+    expect(call).toBeInstanceOf(Promise);
+    const got = await call;
+    expect(got).toBeInstanceOf(Float32Array);
+    expect([...(got as Float32Array)]).toEqual([1, 2, 3]);
+    expect([...ys]).toEqual([1, 2, 3]);
+    const again = (await m['both']!(
+      new Float32Array([1, 2, 3]),
+      new Float32Array(3),
+    )) as Float32Array;
+    expect([...again]).toEqual([...(got as Float32Array)]);
+    xs.dispose();
+  });
+
+  it('gives plain objects of the class for a struct element of a waiting call', async () => {
+    const m = await load(PLAIN_STRUCT);
+    const xs = array(new Float32Array([5, 6]));
+    const ys = new Float32Array(2);
+    const got = (await m['pointsBoth']!(xs, ys)) as object[];
+    expect(got[1]).toBeInstanceOf(m['P'] as unknown as new () => object);
+    expect([...ys]).toEqual([5, 6]);
+    xs.dispose();
+  });
+
+  it('still gives a Buffer when the written array is a resource', async () => {
+    const m = await load(SOURCE);
+    const xs = array(new Float32Array([1, 2]));
+    const ys = array(new Float32Array(2));
+    const out = m['both']!(xs, ys) as Buffer<number>;
+    expect(out).not.toBeInstanceOf(Promise);
+    expect([...((await read(out)) as Float32Array)]).toEqual([1, 2]);
+    expect([...((await read(ys)) as Float32Array)]).toEqual([1, 2]);
+    out.dispose();
+    xs.dispose();
+    ys.dispose();
+  });
+
+  it('declares the promise of plain data for the waiting call in the host view', () => {
+    const f = face(SOURCE);
+    expect(f.view).toContain(
+      'export declare function both(xs: Float32Array | Buffer<f32>, ys: Float32Array | Buffer<f32>): Promise<Float32Array>;',
+    );
+    expect(f.view).toContain(
+      'export declare function both(xs: Float32Array | Buffer<f32>, ys: Buffer<f32>): Buffer<f32>;',
+    );
   });
 });

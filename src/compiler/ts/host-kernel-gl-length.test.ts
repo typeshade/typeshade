@@ -187,7 +187,9 @@ export function k(out: array<f32>, range: Range): void {
       face(`export function k(out: array<f32>, x: array<f32>): void {
   for (let i: u32 = 0; i < x.length; i++) out.push(x[i]);
 }`).noWebgl2,
-    ).toBe('loop 1 pushes onto an array, which the WebGL2 tier does not run (change 0078)');
+    ).toBe(
+      'loop 1 pushes onto an array, which is not supported yet on the WebGL2 tier (Rule 11.8, change 0078)',
+    );
     expect(
       face(`declare const x: storage<array<f32>>;
 function n(): u32 { return x.length; }

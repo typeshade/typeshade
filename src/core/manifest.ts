@@ -422,7 +422,7 @@ function glStageOf(
     const with_ = [...(pairs.get(b.name) ?? [])];
     if (with_.length > 1)
       return {
-        none: `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and GLSL ES 3.00 fuses a texture with one sampler`,
+        none: `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and a texture with more than one sampler is not supported yet on the WebGL2 tier`,
       };
     samplers[b.name] = with_[0] ?? null;
   }
