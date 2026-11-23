@@ -28,7 +28,10 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { KERNEL_TREE } from '../../core/kernel-tree.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
-import { diagnosticAtSpan } from './diagnostic.js';
+import { diagnosticAtSpan, makeDiagnostic } from './diagnostic.js';
+import { countable } from '../../core/passes/countable.js';
+import { madeArrayOf, setMadeArray } from './lower/made-array/registry.js';
+import { routeOf } from './lower/made-array/route.js';
 
 /** What each IR name of a kernel function was written as, recorded when its body is lowered, in
  *  three tables, since one IR name can be three things. A parameter keeps the name its signature
@@ -69,6 +72,22 @@ export function kernelLoopDiagnostics(
     const names = kernelSourceNames.get(f) ?? NO_NAMES;
     const sourceFile = sourceFileOf(f);
     const w = new Wording(sourceFile, names);
+    const made = madeArrayOf(f);
+    if (made?.grown === true) {
+      const route = routeOf(made, proof.shape === undefined && countable(proof.loops, f));
+      if ('refused' in route) {
+        out.push(
+          makeDiagnostic(
+            sourceFile,
+            route.refused.node,
+            route.refused.message,
+            TS_CODES.UNSUPPORTED,
+          ),
+        );
+        continue;
+      }
+      setMadeArray(f, route.made);
+    }
     if (proof.shape !== undefined) {
       out.push(warn(sourceFile, proof.shape.at ?? sourceSpanOf(f), w.shape(proof.shape)));
       continue;

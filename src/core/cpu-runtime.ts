@@ -29,7 +29,7 @@ import {
   type NumKind,
 } from './scalar-arith.js';
 import { makeLibm, type Libm } from './libm/index.js';
-import { PUSHED_BUILTINS, pushedLength, startPushesAt } from './pushed-index.js';
+import { PUSHED_BUILTINS, pushOnto } from './pushed-index.js';
 
 export { atomicStep, intDiv, intRem, scalarBin, wrapInt, type NumKind } from './scalar-arith.js';
 
@@ -788,13 +788,7 @@ export const BUILTINS: Record<string, Builtin> = {
   // inside the capacity, counts it either way, and gives the new count. A call binds a fresh copy
   // of each array (`core/host-kernel.ts`), so a count starts at 0 on each call, or at the held
   // length a call passes (change 0094). The count is a `u32`, as the device's scan adds it.
-  push: (xs, v) => {
-    const a = xs as CpuValue[];
-    const n = pushedLength(a);
-    if (n < a.length) a[n] = v;
-    startPushesAt(a, n + 1);
-    return (n + 1) >>> 0;
-  },
+  push: (xs, v) => pushOnto(xs as CpuValue[], v),
   // `out.length` of an array the function pushes onto: the count appended, which may exceed the
   // capacity (change 0078, decision 1), after the held length a call passes (change 0094).
   ...PUSHED_BUILTINS,

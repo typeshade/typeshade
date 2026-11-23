@@ -10,6 +10,9 @@ import { fromShaderIn } from './host-values.js';
 import { isMadeParam, madeOf, type KernelMade } from './kernel-made-face.js';
 import { filled, madeArray, NO_CLASSES, renamed, type Made } from './host-kernel-made/making.js';
 import { callMadeOnResource, writesPlainArray } from './host-kernel-made/on-resource.js';
+import { countedCapacity, saturating } from './host-kernel-made/counted.js';
+import { PastLimit } from './host-kernel-made/capacity.js';
+import { callGrowing } from './host-kernel-made/growing.js';
 
 function sharedObject(
   k: KernelFace,
@@ -25,8 +28,18 @@ function sharedObject(
   return from.path.reduce((o, name) => (o as Record<string, unknown>)[name], args[at]);
 }
 
-function pushedWithin(k: KernelFace, made: KernelMade, pushed: unknown, capacity: number): number {
+function pushedWithin(
+  k: KernelFace,
+  made: KernelMade,
+  pushed: unknown,
+  capacity: number,
+  exact: boolean,
+): number {
   const count = Number(pushed);
+  if (exact && count !== capacity)
+    throw new Error(
+      `${k.name}(): the counting pass counted ${String(capacity)} elements pushed onto "${made.shown}" and the store pass ${String(pushed)}.`,
+    );
   if (!Number.isInteger(count) || count < 0 || count > capacity)
     throw new Error(
       `${k.name}(): the array it grows with push, "${made.shown}", reports ${String(pushed)} ` +
@@ -42,12 +55,13 @@ function result(
   args: readonly unknown[],
   marks: Uint32Array | undefined,
   pushed: unknown,
+  exact: boolean,
 ): Made {
   const width = made.width ?? 1;
   const all = making.array;
   const kept =
     made.grown === true
-      ? all.slice(0, pushedWithin(k, made, pushed, all.length / width) * width)
+      ? all.slice(0, pushedWithin(k, made, pushed, all.length / width, exact) * width)
       : all;
   if (made.share === undefined) return kept;
   const elements = kept as unknown[];
@@ -80,6 +94,24 @@ function onResource(taken: KernelFace['params'], args: readonly unknown[]): bool
   });
 }
 
+async function makingOf(
+  cpu: GeneratedCpu,
+  k: KernelFace,
+  made: KernelMade,
+  args: readonly unknown[],
+  reads?: IncomingReads,
+): Promise<{ readonly making: ReturnType<typeof madeArray>; readonly exact: boolean }> {
+  if (made.counted !== true) return { making: madeArray(cpu, k, made, args), exact: false };
+  if (made.capacity !== undefined)
+    try {
+      return { making: madeArray(cpu, k, made, args), exact: false };
+    } catch (e) {
+      if (!(e instanceof PastLimit)) throw e;
+    }
+  const total = await countedCapacity(cpu, k, made, args, reads);
+  return { making: madeArray(cpu, k, made, args, total), exact: true };
+}
+
 export function callMadeKernel(
   cpu: GeneratedCpu,
   k: KernelFace,
@@ -101,24 +133,31 @@ export function callMadeKernel(
       throw new TypeError(
         `${k.name}() takes ${taken.length} argument${taken.length === 1 ? '' : 's'}; got ${argc}.`,
       );
-    const making = madeArray(cpu, k, made, args);
-    const n = making.n;
-    const bound = n > 0 ? making.array : filled(k, made, 1, undefined);
-    const marks = made.written === undefined ? undefined : new Uint32Array(Math.max(n, 1));
-    let next = 0;
-    const all = k.params.map((p) =>
-      p.name === made.param
-        ? bound
-        : p.name === made.count
-          ? n
-          : p.name === made.written
-            ? marks
-            : args[next++],
-    );
-    return callKernel(cpu, k, all.length, all, reads).then(
-      (pushed) => result(k, made, making, args, marks, pushed),
-      (e: unknown) => Promise.reject(explained(e, k, made)),
-    );
+    if (made.growing === true)
+      return callGrowing(cpu, k, made, args, reads).catch((e: unknown) =>
+        Promise.reject(explained(e, k, made)),
+      );
+    return makingOf(cpu, k, made, args, reads)
+      .then(({ making, exact }) => {
+        const n = making.n;
+        const bound = n > 0 ? making.array : filled(k, made, 1, undefined);
+        const marks = made.written === undefined ? undefined : new Uint32Array(Math.max(n, 1));
+        let next = 0;
+        const all = k.params.map((p) =>
+          p.name === made.param
+            ? bound
+            : p.name === made.count
+              ? n
+              : p.name === made.written
+                ? marks
+                : args[next++],
+        );
+        const running = exact ? saturating(cpu, k) : cpu;
+        return callKernel(running, k, all.length, all, reads).then((pushed) =>
+          result(k, made, making, args, marks, pushed, exact),
+        );
+      })
+      .catch((e: unknown) => Promise.reject(explained(e, k, made)));
   } catch (e) {
     return Promise.reject(e instanceof RangeError ? explained(e, k, made) : e);
   }

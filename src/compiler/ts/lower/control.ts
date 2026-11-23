@@ -16,8 +16,7 @@ import {
 import { localNumericInference } from '../local-numeric-inference.js';
 import ts from 'typescript';
 import { objectWrites } from '../object-reference/written.js';
-import { optionalInner } from '../optional.js';
-import { logicalTypeKey as typeKey } from '../optional.js';
+import { optionalInner, logicalTypeKey as typeKey } from '../optional.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, isVec, isVec64, u32T } from '../../../core/ir/types.js';
@@ -50,6 +49,7 @@ import {
 } from './statement.js';
 import { refuseParamWrite } from './statement/writable.js';
 import { holdIndexesOnce } from './second-name.js';
+import { defineLoopElement } from './for-of-element.js';
 import { finishAccessorWrite, lowerAccessorTarget, refuseReadonlyWrite } from './class-access.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
 import { optionalConditionSentence } from './optional-values.js';
@@ -852,7 +852,7 @@ function lowerForOfOver(
     const i = { op: 'varref' as const, type: u32T, name: scope.defineTemp('_i', u32T, true) };
     let element;
     try {
-      element = scope.define({ kind: 'local', name: decl.name.text, type: elemType, mutable });
+      element = defineLoopElement(scope, decl.name.text, elemType, mutable, array);
     } catch (e) {
       pushDiag(
         diagnostics,
