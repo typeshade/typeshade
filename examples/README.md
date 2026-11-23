@@ -132,14 +132,16 @@ run to `hosts/_drive.ts`, run `bun examples/hosts/_registry.ts`, and bake the go
 The learning path (change 0145) is in `path/`: one directory for each step, `path/<id>/<id>.shade.ts`
 and `path/<id>/host.ts`, in the order of `path/_order.ts`. A step uses only the concepts of the steps
 before it. Its host imports the module and exports `run(canvas)`, and also `animate(canvas)` where
-the step moves; the Playground calls `animate` when both exist, and a check calls `run`. The host
+the step moves; the Playground calls `animate` when both exist, and a check calls `run`. A compute
+step exports `run()` only and returns what the kernel wrote: its numbers, with `values` as the key a
+check reads. The host
 holds no pipeline, buffer, bind group or encoder code. `path/tsconfig.json` type-checks the host
 files with the host views `tshc sync` writes, `path-examples.test.ts` runs each `run()` on the CPU
 tier against `path/_reference.ts`, and `path/index.ts` is `pathExamples`, the list
 `typeshade/examples` exports, written by `bun examples/path/_registry.ts`. Adding a step is: write
 the two files, add its id to `path/_order.ts`, add its reference to `path/_reference.ts` and its run
-to `path/_drive.ts`, run the registry script, and bake the goldens. Steps 1 to 8 exist; the
-gallery in `hosts/` and the top level keeps its own form until a later milestone of change 0145.
+to `path/_drive.ts`, run the registry script, and bake the goldens. Steps 1 to 8, 12 to 15 and 17
+exist (steps 9 to 11 and 16 wait for change 0138 milestone 5, as change 0145 says); the gallery in `hosts/` and the top level keeps its own form until a later milestone of change 0145.
 
 An example can be drawn in several passes (change 0026). Its block names them in draw order,
 `"passes": [{ "name": "trail", "file": "passes/trail.shade.ts" }]`, and the example's own file

@@ -131,4 +131,79 @@ export const pathExamples: readonly PathExample[] = [
       "// Step 8. Time is the uniform of step 3. `run` draws one frame, and `animate` draws a frame each tick.\nimport { fs } from './bouncing-balls.shade.ts';\n\nexport async function run(canvas: HTMLCanvasElement | OffscreenCanvas, time = 0): Promise<void> {\n  await fs(canvas, { frame: { size: [canvas.width, canvas.height], time } });\n}\n\nexport function animate(canvas: HTMLCanvasElement): void {\n  const tick = (ms: number): void => {\n    void run(canvas, ms / 1000);\n    requestAnimationFrame(tick);\n  };\n  requestAnimationFrame(tick);\n}\n",
     tiers: ['webgpu', 'webgl2', 'cpu'],
   },
+  {
+    id: 'double-array',
+    step: 12,
+    part: 'GPU compute',
+    title: 'Double an array',
+    blurb:
+      'Step 12 of the learning path. The first compute kernel. A `@compute` entry runs once for each invocation, and `global_invocation_id` says which one. The storage binding `numbers` is the array the host passes by name. The host calls `doubled({ numbers }, workgroups)`, waits, and reads the doubled numbers from the array it passed.',
+    shadeFile: 'path/double-array/double-array.shade.ts',
+    shadeSource:
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Double an array",\n  "blurb": "Step 12 of the learning path. The first compute kernel. A `@compute` entry runs once for each invocation, and `global_invocation_id` says which one. The storage binding `numbers` is the array the host passes by name. The host calls `doubled({ numbers }, workgroups)`, waits, and reads the doubled numbers from the array it passed.",\n  "renderable": false,\n  "reason": "missing capabilities: storageBuffer, compute"\n}\n*/\n\n// Step 12. One invocation doubles one number. The entry checks its own bound, because the host dispatches whole workgroups.\ndeclare const numbers: storage<array<f32>, "read_write">;\n\n@compute([64])\nexport function doubled(gid: builtin<"global_invocation_id">) {\n  if (gid.x >= numbers.length) {\n    return;\n  }\n  numbers[gid.x] = numbers[gid.x] * 2.0;\n}\n',
+    hostFile: 'path/double-array/host.ts',
+    hostSource:
+      "// Step 12. A compute entry takes its arrays by binding name and a count of workgroups of 64.\n// When the promise resolves, the array holds what the entry wrote.\nimport { doubled } from './double-array.shade.ts';\n\nexport async function run(count = 100): Promise<Float32Array> {\n  const numbers = Float32Array.from({ length: count }, (_, i) => i);\n  await doubled({ numbers }, Math.ceil(count / 64));\n  return numbers;\n}\n",
+    tiers: ['webgpu', 'webgl2', 'cpu'],
+  },
+  {
+    id: 'image-blur',
+    step: 13,
+    part: 'GPU compute',
+    title: 'Image blur',
+    blurb:
+      'Step 13 of the learning path. An image is a grid of numbers, one brightness for each pixel. The entry is `@compute([8, 8])`, so each invocation has an `x` and a `y`, and it averages the nine pixels around its own. A uniform holds the width and the height. The host dispatches a 2D grid of workgroups and reads the blurred image back.',
+    shadeFile: 'path/image-blur/image-blur.shade.ts',
+    shadeSource:
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Image blur",\n  "blurb": "Step 13 of the learning path. An image is a grid of numbers, one brightness for each pixel. The entry is `@compute([8, 8])`, so each invocation has an `x` and a `y`, and it averages the nine pixels around its own. A uniform holds the width and the height. The host dispatches a 2D grid of workgroups and reads the blurred image back.",\n  "renderable": false,\n  "reason": "missing capabilities: storageBuffer, compute"\n}\n*/\n\n// Step 13. A 2D grid of invocations, one for each pixel. A pixel at an edge reads the nearest pixel inside the image.\ninterface Size {\n  width: u32;\n  height: u32;\n}\n\ndeclare const size: uniform<Size>;\ndeclare const source: storage<array<f32>>;\ndeclare const blurred: storage<array<f32>, "read_write">;\n\n@compute([8, 8])\nexport function blur(gid: builtin<"global_invocation_id">) {\n  if (gid.x >= size.width || gid.y >= size.height) {\n    return;\n  }\n  let total = 0.0;\n  for (let dy: i32 = -1; dy <= 1; dy++) {\n    for (let dx: i32 = -1; dx <= 1; dx++) {\n      const x = clamp(i32(gid.x) + dx, 0, i32(size.width) - 1);\n      const y = clamp(i32(gid.y) + dy, 0, i32(size.height) - 1);\n      total += source[u32(y) * size.width + u32(x)];\n    }\n  }\n  blurred[gid.y * size.width + gid.x] = total / 9.0;\n}\n',
+    hostFile: 'path/image-blur/host.ts',
+    hostSource:
+      "// Step 13. A 2D dispatch: the workgroup count is `[x, y]`, and a uniform is passed as a plain object.\n// The image is a flat array of brightness values, row by row.\nimport { blur } from './image-blur.shade.ts';\n\nexport async function run(width = 16, height = 16): Promise<Float32Array> {\n  const source = Float32Array.from({ length: width * height }, (_, i) => {\n    const x = i % width;\n    const y = Math.floor(i / width);\n    return x >= width / 4 && x < width / 2 && y >= height / 4 && y < height / 2 ? 1 : 0;\n  });\n  const blurred = new Float32Array(width * height);\n  await blur({ size: { width, height }, source, blurred }, [\n    Math.ceil(width / 8),\n    Math.ceil(height / 8),\n  ]);\n  return blurred;\n}\n",
+    tiers: ['webgpu', 'webgl2', 'cpu'],
+  },
+  {
+    id: 'parallel-sum',
+    step: 14,
+    part: 'GPU compute',
+    title: 'Parallel sum',
+    blurb:
+      'Step 14 of the learning path. One workgroup of 64 invocations adds up an array. Each invocation adds every 64th number, then the workgroup halves its partial sums in rounds through `workgroup` memory. `workgroupBarrier()` makes every invocation wait, so a round reads only what the round before wrote. The CPU tier refuses a barrier, so this step lists WebGPU and WebGL2, which runs the barrier in its pass program.',
+    shadeFile: 'path/parallel-sum/parallel-sum.shade.ts',
+    shadeSource:
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Parallel sum",\n  "blurb": "Step 14 of the learning path. One workgroup of 64 invocations adds up an array. Each invocation adds every 64th number, then the workgroup halves its partial sums in rounds through `workgroup` memory. `workgroupBarrier()` makes every invocation wait, so a round reads only what the round before wrote. The CPU tier refuses a barrier, so this step lists WebGPU and WebGL2, which runs the barrier in its pass program.",\n  "renderable": false,\n  "reason": "missing capabilities: storageBuffer, compute"\n}\n*/\n\n// Step 14. Workgroup memory is shared by the 64 invocations of one workgroup. A barrier orders the rounds.\ndeclare const numbers: storage<array<f32>>;\ndeclare const total: storage<array<f32>, "read_write">;\n\nlet partial: workgroup<array<f32, 64>>;\n\n@compute([64])\nexport function sum(lid: builtin<"local_invocation_id">) {\n  let mine = 0.0;\n  for (let i: u32 = lid.x; i < numbers.length; i += 64) {\n    mine += numbers[i];\n  }\n  partial[lid.x] = mine;\n  workgroupBarrier();\n  for (let stride: u32 = 32; stride > 0; stride /= 2) {\n    if (lid.x < stride) {\n      partial[lid.x] = partial[lid.x] + partial[lid.x + stride];\n    }\n    workgroupBarrier();\n  }\n  if (lid.x === 0) {\n    total[0] = partial[0];\n  }\n}\n',
+    hostFile: 'path/parallel-sum/host.ts',
+    hostSource:
+      "// Step 14. One workgroup does the whole sum, so the call dispatches one workgroup and reads one number.\n// A barrier needs a GPU tier: this host runs on WebGPU.\nimport { sum } from './parallel-sum.shade.ts';\n\nexport async function run(count = 1000): Promise<number> {\n  const numbers = Float32Array.from({ length: count }, (_, i) => (i % 10) + 1);\n  const total = new Float32Array(1);\n  await sum({ numbers, total }, 1);\n  return total[0]!;\n}\n",
+    tiers: ['webgpu', 'webgl2'],
+  },
+  {
+    id: 'histogram',
+    step: 15,
+    part: 'GPU compute',
+    title: 'Histogram',
+    blurb:
+      'Step 15 of the learning path. Many invocations count into the same bin at once. `bins[bin] = bins[bin] + 1` would lose counts, because two invocations read the same old value. `atomicAdd` is one indivisible step, so no count is lost. The host reads eight counts, and each count is the height of one bar. Atomics need a storage buffer, so this step lists WebGPU and the CPU tier.',
+    shadeFile: 'path/histogram/histogram.shade.ts',
+    shadeSource:
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Histogram",\n  "blurb": "Step 15 of the learning path. Many invocations count into the same bin at once. `bins[bin] = bins[bin] + 1` would lose counts, because two invocations read the same old value. `atomicAdd` is one indivisible step, so no count is lost. The host reads eight counts, and each count is the height of one bar. Atomics need a storage buffer, so this step lists WebGPU and the CPU tier.",\n  "renderable": false,\n  "reason": "missing capabilities: storageBuffer, compute"\n}\n*/\n\n// Step 15. A value from 0 to 1 lands in one of eight bins. The atomic add counts it without a lost update.\ndeclare const values: storage<array<f32>>;\ndeclare const bins: storage<array<atomic<u32>>, "read_write">;\n\n@compute([64])\nexport function histogram(gid: builtin<"global_invocation_id">) {\n  if (gid.x >= values.length) {\n    return;\n  }\n  const bin = u32(clamp(values[gid.x], 0.0, 0.999) * 8.0);\n  atomicAdd(bins[bin], 1);\n}\n',
+    hostFile: 'path/histogram/host.ts',
+    hostSource:
+      "// Step 15. An array of atomics is passed as a typed array of its integers.\n// The eight counts are the heights of the eight bars of the chart.\nimport { histogram } from './histogram.shade.ts';\n\nexport async function run(count = 1000): Promise<Uint32Array> {\n  const values = Float32Array.from({ length: count }, (_, i) => ((i * 37) % 100) / 100);\n  const bins = new Uint32Array(8);\n  await histogram({ values, bins }, Math.ceil(count / 64));\n  return bins;\n}\n",
+    tiers: ['webgpu', 'webgl2', 'cpu'],
+  },
+  {
+    id: 'ray-tracer',
+    step: 17,
+    part: 'Putting it together',
+    title: 'Ray tracer',
+    blurb:
+      'Step 17 of the learning path. No new concept: the pieces of steps 1 to 8 work together. A uniform gives the canvas size, vectors build a camera ray for each pixel, a `class Sphere` finds where a ray hits it, and a loop follows the ray through one bounce. The floor is a plane with a checker made from `floor` and `fract`. Each hit asks the light if a sphere is in the way, and that gives the shadow. The host is the host of step 2.',
+    shadeFile: 'path/ray-tracer/ray-tracer.shade.ts',
+    shadeSource:
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Ray tracer",\n  "blurb": "Step 17 of the learning path. No new concept: the pieces of steps 1 to 8 work together. A uniform gives the canvas size, vectors build a camera ray for each pixel, a `class Sphere` finds where a ray hits it, and a loop follows the ray through one bounce. The floor is a plane with a checker made from `floor` and `fract`. Each hit asks the light if a sphere is in the way, and that gives the shadow. The host is the host of step 2.",\n  "renderable": false,\n  "reason": "no entry point"\n}\n*/\n\n// Step 17. A ray from the eye through each pixel hits two spheres and a floor, and bounces once.\ninterface Frame {\n  size: vec2;\n}\n\ndeclare const frame: uniform<Frame>;\n\nclass Sphere {\n  constructor(\n    readonly center: vec3,\n    readonly radius: f32,\n    readonly color: vec3,\n  ) {}\n\n  hit(origin: vec3, direction: vec3): f32 {\n    const offset = origin - this.center;\n    const b = dot(offset, direction);\n    const c = dot(offset, offset) - this.radius * this.radius;\n    const discriminant = b * b - c;\n    if (discriminant < 0.0) {\n      return -1.0;\n    }\n    return -b - sqrt(discriminant);\n  }\n}\n\nfunction sky(direction: vec3): vec3 {\n  return mix(vec3(0.95, 0.9, 0.8), vec3(0.3, 0.5, 0.9), clamp(direction.y, 0.0, 1.0));\n}\n\n@fragment\nexport function fs(p: builtin<"position">): vec4 {\n  const uv = (2.0 * p.xy - frame.size) / frame.size.y;\n  const red = new Sphere(vec3(-0.6, -0.2, 0.0), 0.8, vec3(0.9, 0.2, 0.2));\n  const blue = new Sphere(vec3(0.9, -0.5, 0.5), 0.5, vec3(0.2, 0.4, 0.9));\n  const light = normalize(vec3(0.5, 1.0, 0.7));\n  let origin = vec3(0.0, 0.0, 3.0);\n  let direction = normalize(vec3(uv.x, -uv.y, -1.5));\n  let weight = 1.0;\n  let color = vec3(0.0, 0.0, 0.0);\n  for (let bounce: i32 = 0; bounce < 2; bounce++) {\n    let nearest = 1000.0;\n    let normal = vec3(0.0, 1.0, 0.0);\n    let albedo = vec3(0.0, 0.0, 0.0);\n    const onRed = red.hit(origin, direction);\n    if (onRed > 0.001 && onRed < nearest) {\n      nearest = onRed;\n      normal = normalize(origin + direction * onRed - red.center);\n      albedo = red.color;\n    }\n    const onBlue = blue.hit(origin, direction);\n    if (onBlue > 0.001 && onBlue < nearest) {\n      nearest = onBlue;\n      normal = normalize(origin + direction * onBlue - blue.center);\n      albedo = blue.color;\n    }\n    if (direction.y < 0.0) {\n      const onFloor = (-1.0 - origin.y) / direction.y;\n      if (onFloor > 0.001 && onFloor < nearest) {\n        nearest = onFloor;\n        normal = vec3(0.0, 1.0, 0.0);\n        const spot = origin + direction * onFloor;\n        const tile = fract(0.5 * (floor(spot.x + 0.31) + floor(spot.z + 0.17)));\n        albedo = vec3(0.35 + 0.5 * tile, 0.35 + 0.5 * tile, 0.35 + 0.5 * tile);\n      }\n    }\n    if (nearest >= 1000.0) {\n      color += weight * sky(direction);\n      weight = 0.0;\n      break;\n    }\n    const point = origin + direction * nearest;\n    let lit = max(dot(normal, light), 0.0);\n    if (red.hit(point, light) > 0.001 || blue.hit(point, light) > 0.001) {\n      lit = lit * 0.3;\n    }\n    color += weight * 0.65 * albedo * (0.2 + 0.8 * lit);\n    weight = weight * 0.35;\n    origin = point;\n    direction = reflect(direction, normal);\n  }\n  color += weight * sky(direction);\n  return vec4(sqrt(color), 1.0);\n}\n',
+    hostFile: 'path/ray-tracer/host.ts',
+    hostSource:
+      "// Step 17. The host is the host of step 2: the scene lives in the module, and the call only passes the canvas size.\nimport { fs } from './ray-tracer.shade.ts';\n\nexport async function run(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<void> {\n  await fs(canvas, { frame: { size: [canvas.width, canvas.height] } });\n}\n",
+    tiers: ['webgpu', 'webgl2', 'cpu'],
+  },
 ];
