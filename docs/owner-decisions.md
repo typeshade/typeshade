@@ -205,3 +205,28 @@ and every person reads this file before any other document of this repository.
   - Where compile time cannot decide it, the compiler uses a heap it manages at run time.
   - A form the compiler does not implement yet is refused as "not supported yet", never as
     impossible.
+
+### OD-11. A feature WebGL2 lacks is TypeShade's work to provide, not a reason to drop the tier
+
+- Date: 2026-11-23. The owner said this after agents, in this session and in other sessions,
+  kept writing that a program cannot run on WebGL2 because WebGL2 has no storage buffer, no
+  atomics or no workgroup memory.
+- The owner's words: "WebGL2 에 스토리지 버퍼가 없어도 typeshade에서는 구현되잖아요. 지금 그것도
+  typeshade가 폴백 구현해주는데"; "이런 문제가 계속 나오는데 다른 세션에서도요. 그렇지 않게
+  해결해주세요. WebGPU에서는 있는데 WebGL2에는 없으니 안된다 라는건 잘못된거예요". English: "Even
+  if WebGL2 has no storage buffer, TypeShade implements it; TypeShade provides that fallback now";
+  "This problem keeps coming up, in other sessions too. Fix it so it does not. 'WebGPU has it,
+  WebGL2 does not, so it cannot be done' is wrong."
+- What it means:
+  - "WebGL2 has no X" is a fact about the WebGL2 API. It is never, by itself, a reason that a
+    TypeShade program does not run on the WebGL2 tier. Providing X there is the compiler's and
+    the runtime's work (OD-3), in whatever form gives the same result (OD-9).
+  - TypeShade provides such fallbacks today. A `@compute` entry runs on WebGL2 as its pass
+    program over textures of 32-bit words, with read-write storage, barriers and atomic
+    operations in the phased order of change 0054 (`docs/language-design.md`, Rule 11.8 and
+    Rule 8.24).
+  - Before an agent writes that a tier cannot run something, it reads what the rules say that
+    tier runs, and cites the rule. A guess from the underlying API is not evidence.
+  - Where TypeShade has no fallback yet, the tier refuses the form as "not supported yet", never
+    as impossible (as OD-10 says of arrays). The missing fallback is recorded as open work, not
+    as a limit of the design.
