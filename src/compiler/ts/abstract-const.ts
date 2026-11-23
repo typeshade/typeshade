@@ -3547,7 +3547,7 @@ const READING_RESTARTS = 256;
  *  bindings is read from its far end first. A walk that cannot finish, by its restarts or by
  *  the engine's stack, leaves the value unproven, which a position that needs it refuses (the
  *  owner's decision of 2026-11-16, "증명 못 하면 거부"). */
-function readingsFrom(node: ts.Expression): Reading[] {
+export function readingsFrom(node: ts.Expression): Reading[] {
   const sourceFile = node.getSourceFile();
   // No tree reaches it: nothing to refuse, and no walk.
   if (!taintedNode(skipParenNodes(node), sourceFile)) return [];
