@@ -10,6 +10,10 @@ import { run as firstColor } from './first-color/host.js';
 import { run as uvGradient } from './uv-gradient/host.js';
 import { run as movingWave } from './moving-wave/host.js';
 import { run as sdfShapes } from './sdf-shapes/host.js';
+import { run as tilePattern } from './tile-pattern/host.js';
+import { run as fractal } from './fractal/host.js';
+import { run as palette } from './palette/host.js';
+import { run as bouncingBalls } from './bouncing-balls/host.js';
 import { INPUTS, type Drive, type Outputs, type Surface } from './_reference.js';
 
 export { configure } from 'typeshade/runtime';
@@ -19,6 +23,10 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
   'uv-gradient': (surface) => drawn(surface, (canvas) => uvGradient(canvas)),
   'moving-wave': (surface) => drawn(surface, (canvas) => movingWave(canvas, INPUTS.time)),
   'sdf-shapes': (surface) => drawn(surface, (canvas) => sdfShapes(canvas)),
+  'tile-pattern': (surface) => drawn(surface, (canvas) => tilePattern(canvas)),
+  fractal: (surface) => drawn(surface, (canvas) => fractal(canvas)),
+  palette: (surface) => drawn(surface, (canvas) => palette(canvas)),
+  'bouncing-balls': (surface) => drawn(surface, (canvas) => bouncingBalls(canvas, INPUTS.time)),
 };
 
 async function drawn(

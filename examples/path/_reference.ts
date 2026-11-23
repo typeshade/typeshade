@@ -69,6 +69,56 @@ export function reference(): Readonly<Record<string, readonly number[]>> {
       const panel = edge(Math.max(Math.abs(u - 0.5) - 0.3, Math.abs(v) - 0.2));
       return [0.1 + 0.8 * disc, 0.1 + 0.4 * disc + 0.3 * panel, 0.15 + 0.8 * panel, 1];
     }),
+    'tile-pattern': frame(size, (x, y) => {
+      const gx = (6 * x) / size;
+      const gy = (6 * y) / size;
+      let level = 0;
+      for (let n = 0; n < 3; n++)
+        if (Math.hypot(gx - Math.floor(gx) - 0.5, gy - Math.floor(gy) - 0.5) < 0.15 + 0.1 * n)
+          level += 1;
+      level /= 3;
+      return (Math.floor(gx) + Math.floor(gy)) % 2 === 0
+        ? [0.2 + 0.7 * level, 0.3 + 0.4 * level, 0.9 - 0.5 * level, 1]
+        : [0.9 - 0.6 * level, 0.4 + 0.2 * level, 0.2 + 0.3 * level, 1];
+    }),
+    fractal: frame(size, (x, y) => {
+      const cx = (1.3 * (2 * x - size)) / size - 0.6;
+      const cy = (1.3 * (2 * y - size)) / size;
+      let zx = 0;
+      let zy = 0;
+      let count = 0;
+      for (let i = 0; i < 32; i++) {
+        if (Math.hypot(zx, zy) > 2) break;
+        [zx, zy] = [zx * zx - zy * zy + cx, 2 * zx * zy + cy];
+        count += 1;
+      }
+      const t = count / 32;
+      return [t, Math.sqrt(t) * 0.8, 1 - t, 1];
+    }),
+    palette: frame(size, (x, y) => {
+      const stops = [
+        [0.1, 0.1, 0.35],
+        [0.8, 0.2, 0.4],
+        [0.98, 0.65, 0.2],
+        [1, 0.95, 0.7],
+      ];
+      const wavy = x / size + 0.1 * Math.sin((10 * y) / size);
+      const scaled = Math.min(0.999, Math.max(0, wavy)) * 3;
+      const i = Math.floor(scaled);
+      const f = scaled - i;
+      return [0, 1, 2].map((k) => stops[i]![k]! * (1 - f) + stops[i + 1]![k]! * f).concat(1);
+    }),
+    'bouncing-balls': frame(size, (x, y) => {
+      const u = (2 * x - size) / size;
+      const v = -(2 * y - size) / size;
+      const cover = (px: number, rise: number, radius: number): number => {
+        const py = radius - 0.8 + rise * Math.abs(Math.sin(3 * time + 4 * px));
+        return edge(Math.hypot(u - px, v - py) - radius);
+      };
+      const a = cover(-0.5, 1.2, 0.2);
+      const b = cover(0.4, 0.8, 0.15);
+      return [0.1 + 0.8 * a, 0.1 + 0.3 * a + 0.3 * b, 0.15 + 0.8 * b, 1];
+    }),
   };
 }
 

@@ -138,7 +138,7 @@ files with the host views `tshc sync` writes, `path-examples.test.ts` runs each 
 tier against `path/_reference.ts`, and `path/index.ts` is `pathExamples`, the list
 `typeshade/examples` exports, written by `bun examples/path/_registry.ts`. Adding a step is: write
 the two files, add its id to `path/_order.ts`, add its reference to `path/_reference.ts` and its run
-to `path/_drive.ts`, run the registry script, and bake the goldens. Steps 1 to 4 exist; the
+to `path/_drive.ts`, run the registry script, and bake the goldens. Steps 1 to 8 exist; the
 gallery in `hosts/` and the top level keeps its own form until a later milestone of change 0145.
 
 An example can be drawn in several passes (change 0026). Its block names them in draw order,

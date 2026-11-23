@@ -62,7 +62,7 @@ describe('the host form: run, and animate only where the step moves', () => {
     expect(host, id).toMatch(
       /^export async function run\(canvas: HTMLCanvasElement \| OffscreenCanvas/m,
     );
-    const moves = id === 'moving-wave';
+    const moves = id === 'moving-wave' || id === 'bouncing-balls';
     expect(/^export function animate\(canvas: HTMLCanvasElement\)/m.test(host), id).toBe(moves);
     expect(host.match(/^export /gm)?.length, id).toBe(moves ? 2 : 1);
     const lead = host.split('\n').findIndex((l) => !l.startsWith('//'));
@@ -161,7 +161,7 @@ describe('the CPU tier: each step draws the reference where _order.ts lists cpu'
     );
   });
 
-  it('the steps draw four different pictures', () => {
+  it('the steps draw different pictures', () => {
     const pictures = Object.values(reference()).map((p) => p.join(','));
     expect(new Set(pictures).size).toBe(pictures.length);
   });
