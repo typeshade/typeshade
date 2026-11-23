@@ -35,6 +35,16 @@ const refused = (subject: string, at: string, type: string): string => {
   );
 };
 
+const refusedValue = (
+  subject: string,
+  bits: number,
+  typeScript: number,
+  at: string,
+  type: string,
+): string =>
+  `"${subject}" is ${bits} on its u32 bits and ${typeScript} in TypeScript, so the "${at}" ` +
+  `does not say which value it means. Write "${type}(${subject})" for the ${type} value.`;
+
 const TREE = 'let c = 9;\n  let t = (3000000000|0);\n  ';
 const SHIFT = 'c << 31';
 const RETURN = `return f32(${SHIFT});`;
@@ -119,5 +129,60 @@ describe('issue 1371: a written number joined to a u32 tree keeps its u32 bits (
       'let c = 9;\n  let d = 4;\n  let x = (c + 1) + d;\n  d = c;\n  return f32(c << 31);',
     );
     expect(valuesAt(source)).toEqual([-2147483648, -2147483648, -2147483648]);
+  });
+});
+
+describe('issue 1371: the other return positions and operand shapes of the same join', () => {
+  it.each([
+    ['a store', 't = c;'],
+    ['a conditional', 'let x = vi < 3 ? c : t;'],
+  ])('a product that overflows i32 is refused at f32(): %s', (_, join) => {
+    const source = program(`${TREE}${join} return f32(c*1000000000);`);
+    bothRefuse(
+      source,
+      'TS8003',
+      refusedValue('c*1000000000', 410065408, 9000000000, 'f32()', 'i32'),
+    );
+    editedAndChecked(source, 'f32(c*1000000000)', 'f32(i32(c*1000000000))');
+  });
+
+  it.each([
+    ['a store', 't = c;'],
+    ['a conditional', 'let x = vi < 3 ? c : t;'],
+  ])('a strict equality against zero is refused at ===: %s', (_, join) => {
+    const source = program(`${TREE}${join} return ((${SHIFT}) === 0) ? 1.0 : 0.0;`);
+    bothRefuse(source, 'TS8003', refused(SHIFT, '===', 'i32'));
+    editedAndChecked(source, `((${SHIFT}) ===`, `((i32(${SHIFT})) ===`);
+  });
+
+  it.each([
+    ['a store', 't = c;'],
+    ['a conditional', 'let x = vi < 3 ? c : t;'],
+  ])('an arithmetic shift of the shifted number is refused at >>: %s', (_, join) => {
+    const source = program(`${TREE}${join} return f32((${SHIFT}) >> 1);`);
+    bothRefuse(source, 'TS8003', refused(SHIFT, '>>', 'i32'));
+    editedAndChecked(source, `f32((${SHIFT}) >> 1)`, `f32(i32(${SHIFT}) >> 1)`);
+  });
+
+  it.each([
+    ['a bare block', '{ t = c; }'],
+    ['an if', 'if (vi < 3) { t = c; }'],
+    ['a for loop', 'for (let i = 0; i < 2; i++) { t = c; }'],
+    ['a read after the store', 't = c; let u = t;'],
+    ['a copy overwritten by the number', 'let x = t; x = c;'],
+    ['a product with a nested tree', 'let x = c * (t + 1);'],
+  ])('the store forms of the issue are refused in each statement shape: %s', (_, join) => {
+    const source = program(`${TREE}${join} ${RETURN}`);
+    bothRefuse(source, 'TS8003', refused(SHIFT, 'f32()', 'i32'));
+    editedAndChecked(source, `f32(${SHIFT})`, `f32(i32(${SHIFT}))`);
+  });
+
+  it('a second store of the tree to a plain number adds the sentence after the mismatch', () => {
+    const source = program(`${TREE}let o = 0; o = c; o = t; ${RETURN}`);
+    const { compiler, editor } = bothHalves(source);
+    expect(compiler).toEqual(editor);
+    expect(compiler).toHaveLength(2);
+    expect(compiler[0]).toContain('cannot assign i32 to u32');
+    expect(compiler[1]).toBe(`typeshade TS8003: ${refused(SHIFT, 'f32()', 'i32')}`);
   });
 });
