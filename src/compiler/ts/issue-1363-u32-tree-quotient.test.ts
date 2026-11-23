@@ -141,7 +141,7 @@ describe('a u32 quotient of a binding that holds a u32 tree is refused (issue 13
       program('u32', `${C}return d / 7 + vi;`),
       'TS8003',
       '"d" is an integer by its bit operator, and no operand of "d / 7" has a declared type, so ' +
-        'the "/" does not say which division it is. Write "u32(d) / 7" for the integer division.',
+        'the "/" does not say which division it is. Write "u32(i32(d) / 7)" for the integer division.',
     );
   });
 
