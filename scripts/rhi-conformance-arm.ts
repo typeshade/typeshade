@@ -35,7 +35,11 @@ export async function rhiConformanceBundle(): Promise<string> {
   return built.outputs[0]!.text();
 }
 
-/** The cases WebGL2 does not run: those that need a compute pass. */
+/**
+ * The cases the WebGL2 leg skips: those that need a native compute pass, which the RHI there does
+ * not have (`caps.compute` is not `'native'`). The pass program runs a dispatch on WebGL2, and
+ * other gates measure it.
+ */
 const NOT_ON_WEBGL2 = CONFORMANCE.filter((c) => c.covers.includes('beginComputePass')).length;
 
 /** Print the leg's verdicts; the number of failures. */

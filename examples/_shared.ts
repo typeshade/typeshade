@@ -109,7 +109,7 @@ export interface ShaderExample {
    *  for a host example's module (change 0061). */
   readonly file: string;
   readonly module: ModuleDecl;
-  /** WebGL2-renderable? Compute kernels have no GLSL text (GLSL ES 3.00 has no compute stage), and the site draws no image for them → false. */
+  /** WebGL2-renderable? The site draws no image for a compute kernel → false. `compile()` emits no GLSL text for one; the WebGL2 tier runs it as a pass program (Rule 11.8). */
   readonly renderable: boolean;
   /** Per-uniform-field fill strategy, keyed by the uniform struct's field name. */
   readonly controls?: Readonly<Record<string, Control>>;
