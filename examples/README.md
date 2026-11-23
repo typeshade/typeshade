@@ -112,7 +112,9 @@ its extension, in id order, reads that block and compiles the file into the same
 time and three of its gates fail on a fourth category — the reasoning is written out in
 `_shade.ts`'s header. Adding a file here is: write `<id>.shade.ts` with its `@example` block, bake the goldens. A
 file whose block is missing, is not JSON or leaves out a field fails `shade-examples.test.ts`
-rather than going unregistered. The scan reads this directory's top level, and the module of
+rather than going unregistered. A directory that holds an `example.json` states the same fields there
+instead (change 0145, amendment A2; the learning-path steps do so and carry no block), and the scan reads
+`example.json` where there is one and the block otherwise. The scan reads this directory's top level, and the module of
 each host example and each learning-path step below, so a shader library in `lib/` is not an example of its own:
 `imported-noise.shade.ts` imports `lib/noise.shade.ts` (surface §68), and `_shade.ts` compiles it
 with what it imports.
@@ -130,7 +132,9 @@ the two files, add its id to `hosts/_order.ts`, add its reference to `hosts/_ref
 run to `hosts/_drive.ts`, run `bun examples/hosts/_registry.ts`, and bake the goldens.
 
 The learning path (change 0145) is in `path/`: one directory for each step, `path/<id>/<id>.shade.ts`
-and `path/<id>/host.ts`, in the order of `path/_order.ts`. A step uses only the concepts of the steps
+and `path/<id>/host.ts`, in the order of `path/_order.ts`, which lists the ids. Each step's `path/<id>/example.json` holds its
+title, blurb, `group`, `part`, `step`, `tiers`, `host`, `renderable` and, when `tiers` omits one, its
+`tierNotes` (`_manifest.ts` is the schema, `groups.json` the groups). A step uses only the concepts of the steps
 before it. Its host imports the module and exports `run(canvas)`, and also `animate(canvas)` where
 the step moves; the Playground calls `animate` when both exist, and a check calls `run`. A compute
 step exports `run()` only and returns what the kernel wrote: its numbers, with `values` as the key a
@@ -139,7 +143,7 @@ holds no pipeline, buffer, bind group or encoder code. `path/tsconfig.json` type
 files with the host views `tshc sync` writes, `path-examples.test.ts` runs each `run()` on the CPU
 tier against `path/_reference.ts`, and `path/index.ts` is `pathExamples`, the list
 `typeshade/examples` exports, written by `bun examples/path/_registry.ts`. Adding a step is: write
-the two files, add its id to `path/_order.ts`, add its reference to `path/_reference.ts` and its run
+the two files and `example.json`, add its id to `path/_order.ts`, add its reference to `path/_reference.ts` and its run
 to `path/_drive.ts`, run the registry script, and bake the goldens. Steps 1 to 8, 12 to 15 and 17
 exist (steps 9 to 11 and 16 wait for change 0138 milestone 5, as change 0145 says); the gallery in `hosts/` and the top level keeps its own form until a later milestone of change 0145.
 

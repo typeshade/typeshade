@@ -1,0 +1,11 @@
+{
+  "title": "Palette",
+  "blurb": "Step 7 of the learning path. A module constant holds four colours in an array. The coordinate picks two neighbours of the array by index, and `mix` blends them, so the picture is one smooth ramp through the palette.",
+  "group": "path",
+  "part": "The language",
+  "step": 7,
+  "tiers": ["webgpu", "webgl2", "cpu"],
+  "host": "run",
+  "renderable": false,
+  "reason": "no entry point"
+}
