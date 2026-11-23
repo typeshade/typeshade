@@ -1357,6 +1357,8 @@ only a read at or past the length, and a write past it.
   With that cost, the recommendation changes to (C). The answer "추천대로" was given to another
   recommendation, so this record does not take it as a decision for (B) or for (C). The owner is
   shown the corrected costs and decides again.
+- [decision, owner, 2026-11-23] Shown the corrected costs of (A), (B) and (C), the owner chose
+  (C): "(C) CPU에서만 검사, 나중에 (B)". Q1 is decided (C).
 - Recommendation: (C) now, and (B) when change 0144, stage A3, gives the restore. It rests on OD-5
   and OD-9. No accepted program runs with a meaning JavaScript would not give. The host sees the
   caller's arrays unchanged after a throw. It rests on OD-10, since the refusal says "not supported
@@ -1417,13 +1419,13 @@ Each runs on the CPU tier only (section 1, item 4.1).
 | M6      | Item 4 cites R4, but a write gives another reason.                                                                               | Fixed, in part. R4 is right for a read ("an array the loop pushes onto is not read at all"). A write gives the reason of `kernel-loops.ts`. Section 2, item 4 names both.                                                                             |
 | M7      | Item 2.1's formula leaves out pushes in the outer body and in deeper nests. `pushesIn` counts an inner push once per outer trip. | Fixed. Confirmed in `capacity.ts`. Item 2.1 sums over every push. Tests 3 and 4 add a square nest, a nest three deep and a capacity near 2^32.                                                                                                        |
 
-- Open findings: none. Q1 is open for the owner, with the corrected costs. Q2 is decided (A).
+- Open findings: none. Q1 is decided (C). Q2 is decided (A).
 - Affects: section 2 (S5d items 1, 2, 5 and 6; A7 items 1 to 3; A1 item 9 for a grown array).
   Rules 8.22 and 8.23 and surface §63 and §65 change in the implementing pull request. No
   front-matter entry changes. Rules 8.22 and 8.23 and surface §63, §64 and §65 are declared,
   `TS8099` exists, and `Array.prototype.push` and `length` are in `src/__api__/author-names.md`.
-- Status: `status: accepted` does not change. A12: draft, reviewed, Q2 decided (A), open on Q1. The
-  capacity bug fix: not started. S5d slice 2: not started. S5d slice 3: not started.
+- Status: `status: accepted` does not change. A12: reviewed, Q1 decided (C), Q2 decided (A). The
+  capacity bug fix: in progress (#1426). S5d slice 2: not started. S5d slice 3: not started.
 
 ## What it owes downstream
 
