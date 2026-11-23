@@ -34,7 +34,7 @@ import ts from 'typescript';
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, boolT, i32T, u32T, isF64, isVec64 } from '../../../core/ir/types.js';
-import { integerQuotientIn } from './integer-quotient.js';
+import { holdReadings, integerQuotientIn, type QuotientSite } from './integer-quotient.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, dropsRecoveredUse, irNameOf, type LoweringScope } from '../context.js';
 import { LANG_CONST, resolveLangConst, resolveMathConst } from '../math-alias.js';
@@ -1420,6 +1420,7 @@ function lowerBinary(
   // owner's decision of 2026-11-12, D2). `+ - * & | ^ <<` agree on both, modulo 2^32. A tree
   // under `/`, `%` or `>>` beside written numbers is folded as TypeScript computes it.
   const opKind = node.operatorToken.kind;
+  const site: QuotientSite = { node, sourceFile, diagnostics };
   if (VALUE_SENSITIVE.has(opKind) || opKind === ts.SyntaxKind.GreaterThanGreaterThanToken) {
     const resolve = (n: string) => scope.resolveIr(n);
     for (const [e, other, n, m] of [
@@ -1451,13 +1452,14 @@ function lowerBinary(
         continue;
       }
       // A `/` of a binding that holds the tree, by written numbers, is D-b's refusal, whose
-      // float edit reads TypeScript's value (`f32(i32(a)) / 2`).
+      // float edit reads TypeScript's value (`f32(i32(a)) / 2`), until a `u32` position reads it.
       if (
         opKind === ts.SyntaxKind.SlashToken &&
         !typedOther &&
         e.op === 'varref' &&
         kindlessDeclaration(resolve(e.name)) !== undefined
       ) {
+        holdReadings(site, n, readings);
         continue;
       }
       retractKindlessRefusal(e);
@@ -1611,20 +1613,13 @@ function lowerBinary(
         const asF32 = (e: Expr): Expr =>
           intElem(e.type) === undefined ? e : { op: 'call', type: f32T, fn: 'f32', args: [e] };
         const [l, r] = [left, right];
-        const integerAt = (target: ShaderType, declared = true): Expr | undefined => {
-          const quotient = integerQuotientIn(
+        const integerAt = (target: ShaderType, declared = true): Expr | undefined =>
+          integerQuotientIn(
             (t) => [retargetIntLitCtx(l, node.left, t), retargetIntLitCtx(r, node.right, t)],
             target,
             declared,
+            site,
           );
-          if (quotient === undefined) return undefined;
-          noteWrittenDivisionRead(
-            node,
-            sourceFile,
-            declared ? 'read' : typeKey(target) === 'u32' ? 'u32' : 'i32',
-          );
-          return quotient;
-        };
         // An integer position that states its type reads the quotient: the integer division of
         // that type (Amendment A4). Anywhere else the `f32` its edit names, which an integer
         // position that reads it later converts (`integerQuotientAt`).
