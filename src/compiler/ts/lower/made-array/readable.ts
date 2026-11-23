@@ -47,6 +47,23 @@ export function hostReadable(e: Expr, r: Readable): boolean {
   }
 }
 
+export function hostCondition(e: Expr, r: Readable): boolean {
+  switch (e.op) {
+    case 'logical':
+      return hostCondition(e.a, r) && hostCondition(e.b, r);
+    case 'compare':
+      return hostCondition(e.a, r) && hostCondition(e.b, r);
+    case 'varref': {
+      const init = r.lets.get(e.name);
+      if (init === undefined) return false;
+      r.needed.add(e.name);
+      return hostCondition(init, r);
+    }
+    default:
+      return hostReadable(e, r);
+  }
+}
+
 export function readersOf(stub: FuncDecl, param: string): Readable {
   const values = new Set<string>();
   const arrays = new Set<string>();

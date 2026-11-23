@@ -84,7 +84,7 @@ function bounds(made: KernelMade, read: ((...a: number[]) => number)[][]): Gener
   return { F, $: { bindings: {}, vars: {} } };
 }
 
-const pastLimit = (fn: string, capacity: number): RangeError =>
+const pastLimit = (fn: string, capacity: number | bigint): RangeError =>
   new RangeError(
     `${fn}(): the array it grows with push, "out", needs room for ${String(capacity)} ` +
       `elements, the most its loops can push, and a length past 4294967295 is not supported yet.`,
