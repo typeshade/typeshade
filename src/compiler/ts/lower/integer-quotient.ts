@@ -22,8 +22,10 @@ import {
   isIntegerQuotient,
   isKindlessBitwise,
   markIntegerQuotient,
+  readKindlessExactly,
   retypeKindlessDeclared,
 } from '../lit-coerce.js';
+import { wrapChosenF32 } from './wrapped-float-conversion.js';
 
 function guardZero(div: Expr & { op: 'binop' }): Expr {
   if (div.b.op === 'lit') return div;
@@ -155,7 +157,7 @@ export function integerConversionArg(arg: Expr, target: ShaderType): Expr {
   return retypeKindlessDeclared(arg, fitsTarget(truncated, i32T) ? i32T : u32T) ?? arg;
 }
 
-export function convertedQuotientArg(
+function readQuotientArg(
   arg: Expr,
   node: ts.Expression,
   sourceFile: ts.SourceFile,
@@ -168,4 +170,16 @@ export function convertedQuotientArg(
   if (!isIntegerQuotient(converted)) noteWrittenDivisionRead(inner, sourceFile, 'read');
   else if (name === 'u32') noteWrittenDivisionRead(inner, sourceFile, 'none');
   return converted;
+}
+
+export function convertedQuotientArg(
+  arg: Expr,
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  name: 'i32' | 'u32',
+): { readonly arg: Expr; readonly wrapped?: Expr } {
+  const converted = readQuotientArg(arg, node, sourceFile, name);
+  readKindlessExactly(converted);
+  const wrapped = wrapChosenF32(name, converted);
+  return wrapped === undefined ? { arg: converted } : { arg: converted, wrapped };
 }

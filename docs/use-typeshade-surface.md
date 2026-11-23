@@ -1561,6 +1561,13 @@ A module variable (§24), a static field that code writes, a class field (§26) 
 function of the file that returns a written integer or such a value (§14) take their type from
 their uses in the same way. A `/` over one of them that only inference made an integer is refused
 with the edit that compiles, as above.
+`u32()` and `i32()` of an `f32` that the compiler chose, because nothing decides the type of the
+`let`, read it as TypeScript's ToUint32 and ToInt32 do and wrap (change 0134 Amendment A9, issue
+#1353). With `let k = 5; k -= 8;`, `u32(k)` is 4294967293 and `i32(k)` is -3. The conversion
+truncates toward zero, then wraps modulo 2^32, on the `f32` value that the program computes.
+Arithmetic over such a value and written numbers (`u32(k * 2)`) is read the same way. An `f32`
+that the author typed or wrote as a float keeps the saturating conversion of the targets
+(`u32(f - 10.0)` with `f: f32` is 0).
 `compile(source, { deprecations: true })` stays as the mechanism of Rule 13.10 and reports
 nothing until a window opens (`RELEASING.md` §7).
 
