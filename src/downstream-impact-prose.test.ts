@@ -114,6 +114,9 @@ describe('a removed export whose name is an English word', () => {
       'vitest.config.ts:2',
       'package.json',
     ])
-      expect(found.some((f) => f.endsWith(at)), at).toBe(false);
+      expect(
+        found.some((f) => f.endsWith(at)),
+        at,
+      ).toBe(false);
   });
 });
