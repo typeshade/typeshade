@@ -167,14 +167,14 @@ export const pathExamples: readonly PathExample[] = [
     part: 'GPU compute',
     title: 'Parallel sum',
     blurb:
-      'Step 14 of the learning path. One workgroup of 64 invocations adds up an array. Each invocation adds every 64th number, then the workgroup halves its partial sums in rounds through `workgroup` memory. `workgroupBarrier()` makes every invocation wait, so a round reads only what the round before wrote. A barrier needs a GPU tier, so this step lists WebGPU only.',
+      'Step 14 of the learning path. One workgroup of 64 invocations adds up an array. Each invocation adds every 64th number, then the workgroup halves its partial sums in rounds through `workgroup` memory. `workgroupBarrier()` makes every invocation wait, so a round reads only what the round before wrote. The CPU tier refuses a barrier, so this step lists WebGPU and WebGL2, which runs the barrier in its pass program.',
     shadeFile: 'path/parallel-sum/parallel-sum.shade.ts',
     shadeSource:
-      '"use typeshade";\n\n/* @example\n{\n  "title": "Parallel sum",\n  "blurb": "Step 14 of the learning path. One workgroup of 64 invocations adds up an array. Each invocation adds every 64th number, then the workgroup halves its partial sums in rounds through `workgroup` memory. `workgroupBarrier()` makes every invocation wait, so a round reads only what the round before wrote. A barrier needs a GPU tier, so this step lists WebGPU only.",\n  "renderable": false,\n  "reason": "missing capabilities: storageBuffer, compute"\n}\n*/\n\n// Step 14. Workgroup memory is shared by the 64 invocations of one workgroup. A barrier orders the rounds.\ndeclare const numbers: storage<array<f32>>;\ndeclare const total: storage<array<f32>, "read_write">;\n\nlet partial: workgroup<array<f32, 64>>;\n\n@compute([64])\nexport function sum(lid: builtin<"local_invocation_id">) {\n  let mine = 0.0;\n  for (let i: u32 = lid.x; i < numbers.length; i += 64) {\n    mine += numbers[i];\n  }\n  partial[lid.x] = mine;\n  workgroupBarrier();\n  for (let stride: u32 = 32; stride > 0; stride /= 2) {\n    if (lid.x < stride) {\n      partial[lid.x] = partial[lid.x] + partial[lid.x + stride];\n    }\n    workgroupBarrier();\n  }\n  if (lid.x === 0) {\n    total[0] = partial[0];\n  }\n}\n',
+      '"use typeshade";\n\n/* @example\n{\n  "title": "Parallel sum",\n  "blurb": "Step 14 of the learning path. One workgroup of 64 invocations adds up an array. Each invocation adds every 64th number, then the workgroup halves its partial sums in rounds through `workgroup` memory. `workgroupBarrier()` makes every invocation wait, so a round reads only what the round before wrote. The CPU tier refuses a barrier, so this step lists WebGPU and WebGL2, which runs the barrier in its pass program.",\n  "renderable": false,\n  "reason": "missing capabilities: storageBuffer, compute"\n}\n*/\n\n// Step 14. Workgroup memory is shared by the 64 invocations of one workgroup. A barrier orders the rounds.\ndeclare const numbers: storage<array<f32>>;\ndeclare const total: storage<array<f32>, "read_write">;\n\nlet partial: workgroup<array<f32, 64>>;\n\n@compute([64])\nexport function sum(lid: builtin<"local_invocation_id">) {\n  let mine = 0.0;\n  for (let i: u32 = lid.x; i < numbers.length; i += 64) {\n    mine += numbers[i];\n  }\n  partial[lid.x] = mine;\n  workgroupBarrier();\n  for (let stride: u32 = 32; stride > 0; stride /= 2) {\n    if (lid.x < stride) {\n      partial[lid.x] = partial[lid.x] + partial[lid.x + stride];\n    }\n    workgroupBarrier();\n  }\n  if (lid.x === 0) {\n    total[0] = partial[0];\n  }\n}\n',
     hostFile: 'path/parallel-sum/host.ts',
     hostSource:
       "// Step 14. One workgroup does the whole sum, so the call dispatches one workgroup and reads one number.\n// A barrier needs a GPU tier: this host runs on WebGPU.\nimport { sum } from './parallel-sum.shade.ts';\n\nexport async function run(count = 1000): Promise<number> {\n  const numbers = Float32Array.from({ length: count }, (_, i) => (i % 10) + 1);\n  const total = new Float32Array(1);\n  await sum({ numbers, total }, 1);\n  return total[0]!;\n}\n",
-    tiers: ['webgpu'],
+    tiers: ['webgpu', 'webgl2'],
   },
   {
     id: 'histogram',
@@ -189,7 +189,7 @@ export const pathExamples: readonly PathExample[] = [
     hostFile: 'path/histogram/host.ts',
     hostSource:
       "// Step 15. An array of atomics is passed as a typed array of its integers.\n// The eight counts are the heights of the eight bars of the chart.\nimport { histogram } from './histogram.shade.ts';\n\nexport async function run(count = 1000): Promise<Uint32Array> {\n  const values = Float32Array.from({ length: count }, (_, i) => ((i * 37) % 100) / 100);\n  const bins = new Uint32Array(8);\n  await histogram({ values, bins }, Math.ceil(count / 64));\n  return bins;\n}\n",
-    tiers: ['webgpu', 'cpu'],
+    tiers: ['webgpu', 'webgl2', 'cpu'],
   },
   {
     id: 'ray-tracer',

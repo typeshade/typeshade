@@ -33,10 +33,10 @@ export const PATH_ORDER: readonly {
   { id: 'bouncing-balls', step: 8, part: 'The language', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'double-array', step: 12, part: 'GPU compute', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'image-blur', step: 13, part: 'GPU compute', tiers: ['webgpu', 'webgl2', 'cpu'] },
-  // A barrier needs a GPU tier: with the CPU tier alone the call is refused (Rule 8.24), and
-  // WebGL2 has no workgroup memory.
-  { id: 'parallel-sum', step: 14, part: 'GPU compute', tiers: ['webgpu'] },
-  // Not WebGL2: it has no atomics (change 0080).
-  { id: 'histogram', step: 15, part: 'GPU compute', tiers: ['webgpu', 'cpu'] },
+  // Not the CPU tier: it refuses an entry that reaches a barrier (Rule 8.24). WebGL2 runs the entry
+  // as its pass program, the barrier a cut of the phased order (change 0054, Rule 11.8).
+  { id: 'parallel-sum', step: 14, part: 'GPU compute', tiers: ['webgpu', 'webgl2'] },
+  // WebGL2 runs the atomic operations in the phased order of its pass program (change 0054).
+  { id: 'histogram', step: 15, part: 'GPU compute', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'ray-tracer', step: 17, part: 'Putting it together', tiers: ['webgpu', 'webgl2', 'cpu'] },
 ];
