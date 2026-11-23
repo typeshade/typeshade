@@ -36,7 +36,9 @@ type ForStmt = Extract<Stmt, { s: 'for' }>;
 
 /** A deliberately small proof that the body executes at least once. In particular,
  *  do not speculate local-dependent expressions across a zero-trip/dynamic loop. */
-function entersLoop(s: ForStmt): boolean {
+type TripBounds = ReadonlyMap<string, number>;
+
+function entersLoop(s: ForStmt, bounds: TripBounds): boolean {
   const { init, cond } = s;
   if (init.s !== 'var' || init.init?.op !== 'lit') return false;
   if (init.type.kind !== 'scalar' || !['i32', 'u32'].includes(init.type.scalar)) return false;
@@ -45,11 +47,11 @@ function entersLoop(s: ForStmt): boolean {
     cond.cop !== '<' ||
     cond.a.op !== 'varref' ||
     cond.a.name !== init.name ||
-    cond.b.op !== 'lit'
+    (cond.b.op !== 'lit' && cond.b.op !== 'constref')
   )
     return false;
   const start = init.init.value;
-  const end = cond.b.value;
+  const end = cond.b.op === 'lit' ? cond.b.value : bounds.get(cond.b.name);
   const min = init.type.scalar === 'u32' ? 0 : -2147483648;
   const max = init.type.scalar === 'u32' ? 4294967295 : 2147483647;
   return (
@@ -69,7 +71,12 @@ function entersLoop(s: ForStmt): boolean {
  *  operands keep their guards. All declarations and mutations anywhere in the loop
  *  (including nested scopes, update and hidden callee reads) exclude a dependency.
  *  The caller has already ruled out raw code and effectful/synchronising calls. */
-function hoistLocalInputs(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
+function hoistLocalInputs(
+  f: FuncDecl,
+  writes: FnWrites,
+  reads: FnReads,
+  bounds: TripBounds,
+): FuncDecl {
   const locals = new Set<string>();
   collectLocals(f.body, locals);
   let n = 0;
@@ -86,7 +93,7 @@ function hoistLocalInputs(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDe
         const inside = new Set(visible);
         if (s.init.s === 'var' || s.init.s === 'let') inside.add(s.init.name);
         s = { ...s, body: block(s.body, inside) };
-        if (entersLoop(s)) {
+        if (entersLoop(s, bounds)) {
           const excluded = new Set([...locals].filter((name) => !visible.has(name)));
           collectLocals([s], excluded);
           collectMutatedRoots([s], excluded, writes);
@@ -252,7 +259,7 @@ function gatherStmt(
   }
 }
 
-function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
+function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads, bounds: TripBounds): FuncDecl {
   if (bodyHasRaw(f.body)) return f;
   // A call that writes a binding is not invariant, however constant its arguments: hoisting
   // it out of the loop would write once where the loop wrote every iteration (issue #47).
@@ -265,7 +272,7 @@ function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
 
   const invariants = new Map<string, Expr>();
   for (const s of f.body) gatherStmt(s, false, noHoist, invariants, reads);
-  if (invariants.size === 0) return hoistLocalInputs(f, writes, reads);
+  if (invariants.size === 0) return hoistLocalInputs(f, writes, reads, bounds);
 
   const temp = new Map<string, string>();
   const lets: Stmt[] = [];
@@ -290,12 +297,20 @@ function licmFn(f: FuncDecl, writes: FnWrites, reads: FnReads): FuncDecl {
     return mapChildren(e, replace);
   };
   const newBody = f.body.map((s) => mapStmtExpr(s, replace));
-  return hoistLocalInputs({ ...f, body: [...lets, ...newBody] }, writes, reads);
+  return hoistLocalInputs({ ...f, body: [...lets, ...newBody] }, writes, reads, bounds);
 }
 
 /** Hoist loop-invariant input-only and scoped local-input expressions. Pure (module -> module). */
 export function licm(m: ModuleDecl): ModuleDecl {
   const writes = fnWrites(m);
   const reads = fnReads(m);
-  return { ...m, funcs: m.funcs.map((f) => licmFn(f, writes, reads)) };
+  const bounds = new Map<string, number>();
+  for (const c of m.consts) {
+    const integer =
+      c.type.kind === 'scalar' && (c.type.scalar === 'i32' || c.type.scalar === 'u32');
+    if (integer && c.valueExpr === undefined && c.wgslValue === c.cpuValue) {
+      bounds.set(c.name, c.wgslValue);
+    }
+  }
+  return { ...m, funcs: m.funcs.map((f) => licmFn(f, writes, reads, bounds)) };
 }

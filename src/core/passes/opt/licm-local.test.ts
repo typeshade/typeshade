@@ -68,6 +68,28 @@ describe('LICM with local inputs at the loop preheader', () => {
     expect(licm(out)).toEqual(out);
   });
 
+  it.each([
+    ['4', 1],
+    ['0', 0],
+  ])('reads a module constant bound of %s as the trip count', (value, hoists) => {
+    const result = compile(`"use typeshade";
+      const N: i32 = ${value};
+      export function f(x: f32): f32 {
+        let fixed: f32 = x * 2.;
+        let acc: f32 = 0.;
+        for (let i: i32 = 0; i < N; i++) { const value: f32 = sin(fixed); acc += value; }
+        return acc;
+      }`);
+    expect(result.diagnostics).toEqual([]);
+    const loop = bodyOf(result.module).find((s) => s.s === 'for');
+    expect(JSON.stringify(loop)).toContain('"op":"constref"');
+    const out = licm(result.module);
+    expect(localHoists(bodyOf(out))).toHaveLength(hoists);
+    const before = compileModule(result.module).fns.f!;
+    const after = compileModule(out).fns.f!;
+    for (const x of [-2, 0, 0.5, 3]) expect(after(x)).toBe(before(x));
+  });
+
   it.each(['0', 'n'])('does not speculate across a loop with bound %s', (bound) => {
     expect(localHoists(bodyOf(licm(fixture(undefined, bound))))).toHaveLength(0);
   });
