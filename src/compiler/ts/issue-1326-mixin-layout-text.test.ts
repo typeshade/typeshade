@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bothHalves, bothRefuse } from '../../core/testing/both-halves.js';
+import { bothHalves, bothRefuse, bothTake } from '../../core/testing/both-halves.js';
 
 const mixins = (a: string, b: string, use: string): string => `"use typeshade";
 class S2 { pos: vec3; }
@@ -10,6 +10,8 @@ function B<TB extends AnyClass>(Base: TB) {
   return class extends Base { ${b} };
 }
 class D extends B(A(S2)) {}
+class E extends A(S2) {}
+class F extends B(S2) {}
 @fragment export function fs(): vec4 {
   ${use}
   return vec4(1.);
@@ -22,6 +24,8 @@ const text = (one: string, another: string): string =>
   `"D" gets the field "v" twice through its mixins, written "${one}" in one and "${another}" in ` +
   `another. One of them decides the layout, and picking either silently would change what the ` +
   `other's code reads. Give them one type, or two names.`;
+
+const useD = (t: string): string => `const d = new D();\n  const k: ${t} = d.v;`;
 
 const twice = (lines: readonly string[]): string[] => lines.filter((l) => l.includes('twice'));
 
@@ -54,5 +58,51 @@ describe('a mixin field layout message reads the same in both halves (issue 1326
     const h = bothHalves(mixins('v = 0;', 'v = 1;', ''));
     expect(twice(h.compiler)).toEqual([]);
     expect(twice(h.editor)).toEqual([]);
+  });
+
+  it('refuses two untyped fields when a use decides one of them as u32', () => {
+    bothRefuse(mixins('v = 0;', 'v = 1;', useD('u32')), 'TS8099', text('f32', 'u32'));
+  });
+
+  it('refuses two untyped fields when a use decides one of them as i32', () => {
+    bothRefuse(mixins('v = 0;', 'v = 1;', useD('i32')), 'TS8099', text('f32', 'i32'));
+  });
+
+  it('refuses an untyped integer-written field against a bool', () => {
+    const h = bothHalves(mixins('v = 0;', 'v = true;', ''));
+    const expected = [`typeshade TS8099: ${text('f32', 'bool')}`];
+    expect(twice(h.compiler)).toEqual(expected);
+    expect(twice(h.editor)).toEqual(expected);
+  });
+
+  it('refuses an untyped integer-written field against a u32 constructor', () => {
+    bothRefuse(mixins('v = 0;', 'v = u32(1);', ''), 'TS8099', text('f32', 'u32'));
+  });
+
+  it('takes two untyped fields that every use decides as u32', () => {
+    const uses = `${useD('u32')}\n  const e = new E();\n  const k2: u32 = e.v;\n  const f = new F();\n  const k3: u32 = f.v;`;
+    const h = bothTake(mixins('v = 0;', 'v = 1;', uses));
+    expect(twice(h.compiler)).toEqual([]);
+  });
+
+  it('refuses two untyped fields that two uses decide as different types', () => {
+    const uses = `${useD('u32')}\n  const e = new E();\n  const k2: i32 = e.v;`;
+    bothRefuse(mixins('v = 0;', 'v = 1;', uses), 'TS8099', text('i32', 'u32'));
+  });
+
+  it('spells an integer-written expression as f32 when no use decides it', () => {
+    bothRefuse(mixins('v: i32;', 'v = 1 + 2;', ''), 'TS8099', text('i32', 'f32'));
+  });
+
+  it('spells an integer-written expression as the type a use decides', () => {
+    bothRefuse(mixins('v = 1 + 2;', 'v = 1 + 2;', useD('u32')), 'TS8099', text('f32', 'u32'));
+  });
+
+  it('takes an integer-written expression against an untyped integer-written number', () => {
+    bothTake(mixins('v = 0;', 'v = 1 + 2;', ''));
+  });
+
+  it('takes a field written f32 against an untyped number with a fraction', () => {
+    bothTake(mixins('v: f32;', 'v = 0.5;', ''));
   });
 });

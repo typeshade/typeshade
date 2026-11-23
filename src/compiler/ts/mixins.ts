@@ -20,6 +20,8 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import { hasNoWrittenType } from './abstract-const.js';
+import { f32T } from '../../core/ir/types.js';
+import { isIntegerLiteralTree } from './lit-coerce.js';
 import { initializerType } from './structs.js';
 import { decidedType } from './use-inference.js';
 import { authorTypeText } from './written-context.js';
@@ -308,7 +310,9 @@ function writtenType(member: ts.ClassElement, sourceFile: ts.SourceFile): string
   if (!ts.isPropertyDeclaration(member)) return undefined;
   if (!hasNoWrittenType(member, sourceFile)) return member.type!.getText(sourceFile);
   if (member.initializer === undefined) return '';
-  const named = decidedType(sourceFile, member) ?? initializerType(member.initializer, sourceFile);
+  const named = isIntegerLiteralTree(member.initializer)
+    ? (decidedType(sourceFile, member) ?? f32T)
+    : initializerType(member.initializer, sourceFile);
   return named === undefined ? '' : authorTypeText(named);
 }
 
