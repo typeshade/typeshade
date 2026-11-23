@@ -6,7 +6,15 @@ import type { TsCompilerDiagnostic } from '../../source-file.js';
 import { TS_CODES } from '../../codes.js';
 import { makeDiagnostic } from '../../diagnostic.js';
 import { lengthFromHost } from './length.js';
-import { madeLoweringOf, nodesSaidOnce, setMadeArray, type MadeLowering } from './registry.js';
+import {
+  madeLoweringOf,
+  nodesSaidOnce,
+  setMadeArray,
+  type MadeLowering,
+  type MadeShare,
+  type MadeSource,
+} from './registry.js';
+import { markWrites, sourceOf, writtenOf } from './written.js';
 import { hostReadable, notKnown, readersOf, type Readable } from './readable.js';
 import { grownCapacity } from './capacity.js';
 
@@ -90,6 +98,23 @@ function quietRepeats(
   }
 }
 
+function sharing(
+  stub: FuncDecl,
+  made: MadeLowering,
+  count: string,
+  r: Readable,
+): { share?: MadeShare; written?: string; fillFrom?: MadeSource } {
+  if (made.element.kind !== 'struct') return {};
+  if (made.grown === true) return made.pushedOne === true ? { share: 'every' } : {};
+  const from = made.fill === undefined ? undefined : sourceOf(made.fill, r.lets);
+  const fillFrom = from === undefined ? {} : { fillFrom: from };
+  const lengths: Expr[] = [made.length, { op: 'param', type: u32T, name: count }];
+  const written = writtenOf(stub, made.param, lengths);
+  if (written === 'every') return {};
+  if (written === 'none') return { share: 'every', ...fillFrom };
+  return { share: 'unwritten', written: markWrites(stub, made.param), ...fillFrom };
+}
+
 export function settleMadeArray(
   stub: FuncDecl,
   sourceFile: ts.SourceFile,
@@ -114,7 +139,9 @@ export function settleMadeArray(
   (stub as { body: readonly Stmt[] }).body = withoutResult(stub.body, made.param, pushed);
   (stub as { ret: FuncDecl['ret'] }).ret = pushed === undefined ? voidT : u32T;
   const count = lengthFromHost(stub, made.param);
+  const shared = sharing(stub, made, count, read.r);
   setMadeArray(stub, {
+    ...shared,
     param: made.param,
     count,
     shown: (made.decl.name as ts.Identifier).text,

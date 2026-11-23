@@ -37,6 +37,7 @@ import {
   renderMade,
   shadeMade,
   driftMade,
+  shareMade,
   renderPushed,
   scaleNonNegative,
   stamp,
@@ -462,6 +463,11 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   const shade = await shadeMade([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
   configure({ prefer: ['webgpu'] });
   const drifted = await driftMade(100, 0.25).finally(() => configure({}));
+  // A struct fill shares one object (change 0114, A8 item 4), on WebGPU: the elements the run did
+  // not write are one object, so a write on the host to one of them shows in all of them.
+  configure({ prefer: ['webgpu'] });
+  const shared = await shareMade(30).finally(() => configure({}));
+  shared[1]!.pos = [42, 2, 3, 4];
   const ps = Array.from({ length: 100 }, (_, i) => ({
     pos: [i, 10, 0, 1] as [number, number, number, number],
     vel: [1, 0, -1, 0] as [number, number, number, number],
@@ -605,6 +611,10 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     renderKept: [...kept],
     shadeMade: [...shade],
     driftMade: drifted.flatMap((p) => [...p.pos, ...p.vel]),
+    shareMade: [
+      ...shared.map((p) => shared.indexOf(p)),
+      ...shared.flatMap((p) => [...p.pos, ...p.vel]),
+    ],
     drift: ps.flatMap((p) => [...p.pos, ...p.vel]),
     odds: [...every],
     stats: [...summary],

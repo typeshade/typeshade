@@ -29,7 +29,8 @@ function filled(k: KernelFace, made: KernelMade, n: number, v: CpuValue | undefi
 function lengthsBefore(k: KernelFace, made: KernelMade, args: readonly unknown[]): CpuValue[] {
   let at = 0;
   return k.params.map((p) => {
-    if (p.name === made.param) return { length: 0 } as unknown as CpuValue;
+    if (p.name === made.param || p.name === made.written)
+      return { length: 0 } as unknown as CpuValue;
     if (p.name === made.count) return 0 as CpuValue;
     const v = args[at++];
     if (p.k === 'value') return toShader(k.name, p.name, p.type, v) as CpuValue;
@@ -59,7 +60,7 @@ function madeArray(
   k: KernelFace,
   made: KernelMade,
   args: readonly unknown[],
-): { readonly array: Made; readonly n: number } {
+): { readonly array: Made; readonly n: number; readonly v?: CpuValue } {
   const values = lengthsBefore(k, made, args);
   const init = cpu.F['$initPrivates'];
   init?.();
@@ -71,7 +72,40 @@ function madeArray(
     );
   if (made.fill === undefined) return { array: filled(k, made, n, undefined), n };
   init?.();
-  return { array: filled(k, made, n, cpu.F[made.fill]!(...values)), n };
+  const v = cpu.F[made.fill]!(...values);
+  return { array: filled(k, made, n, v), n, v };
+}
+
+function sharedObject(
+  k: KernelFace,
+  made: KernelMade,
+  args: readonly unknown[],
+  v: CpuValue | undefined,
+): unknown {
+  const from = made.fillFrom;
+  if (from === undefined) return fromShaderIn(made.struct!, v ?? made.zero!, k.P?.() ?? NO_CLASSES);
+  const at = k.params
+    .filter((p) => !isMadeParam(made, p.name))
+    .findIndex((p) => p.name === from.param);
+  return from.path.reduce((o, name) => (o as Record<string, unknown>)[name], args[at]);
+}
+
+function result(
+  k: KernelFace,
+  made: KernelMade,
+  making: { readonly array: Made; readonly v?: CpuValue },
+  args: readonly unknown[],
+  marks: Uint32Array | undefined,
+  pushed: unknown,
+): Made {
+  const width = made.width ?? 1;
+  const all = making.array;
+  const kept =
+    made.grown === true ? all.slice(0, Math.min(Number(pushed), all.length / width) * width) : all;
+  if (made.share === undefined) return kept;
+  const elements = kept as unknown[];
+  const one = made.grown === true ? elements[0] : sharedObject(k, made, args, making.v);
+  return elements.map((own, i) => (marks !== undefined && marks[i] !== 0 ? own : one));
 }
 
 export function callMadeKernel(
@@ -99,16 +133,22 @@ export function callMadeKernel(
         `${k.name}(): returns the array it makes, "${made.shown}", and a call of it on a ` +
           `resource is not supported yet. Pass plain data and await the call.`,
       );
-    const { array, n } = madeArray(cpu, k, made, args);
-    const bound = n > 0 ? array : filled(k, made, 1, undefined);
+    const making = madeArray(cpu, k, made, args);
+    const n = making.n;
+    const bound = n > 0 ? making.array : filled(k, made, 1, undefined);
+    const marks = made.written === undefined ? undefined : new Uint32Array(Math.max(n, 1));
     let next = 0;
     const all = k.params.map((p) =>
-      p.name === made.param ? bound : p.name === made.count ? n : args[next++],
+      p.name === made.param
+        ? bound
+        : p.name === made.count
+          ? n
+          : p.name === made.written
+            ? marks
+            : args[next++],
     );
-    const width = made.width ?? 1;
     return callKernel(cpu, k, all.length, all, reads).then(
-      (pushed) =>
-        made.grown === true ? array.slice(0, Math.min(Number(pushed), n) * width) : array,
+      (pushed) => result(k, made, making, args, marks, pushed),
       (e: unknown) => Promise.reject(renamed(e, made)),
     );
   } catch (e) {

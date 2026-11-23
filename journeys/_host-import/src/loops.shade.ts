@@ -80,6 +80,16 @@ export function driftMade(n: u32, dt: f32): Spark[] {
   return out;
 }
 
+export function shareMade(n: u32): Spark[] {
+  const out = new Array(n).fill({ pos: vec4(1., 2., 3., 4.), vel: vec4() });
+  for (let i: u32 = 0; i < n; i++) {
+    if (i % 3 == 0) {
+      out[i] = { pos: vec4(f32(i), 0., 0., 1.), vel: vec4(0., 1., 0., 0.) };
+    }
+  }
+  return out;
+}
+
 export function odds(out: array<f32>, n: i32) {
   for (let i = n - 1; i >= 0; i--) {
     if (i % 2 === 0) {

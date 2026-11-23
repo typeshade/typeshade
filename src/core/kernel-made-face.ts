@@ -13,6 +13,9 @@ export interface KernelMade {
   readonly length: string;
   readonly fill?: string;
   readonly grown?: true;
+  readonly share?: 'every' | 'unwritten';
+  readonly written?: string;
+  readonly fillFrom?: { readonly param: string; readonly path: readonly string[] };
 }
 
 export function madeOf(k: KernelFace): KernelMade | undefined {
@@ -20,5 +23,7 @@ export function madeOf(k: KernelFace): KernelMade | undefined {
 }
 
 export function isMadeParam(made: KernelMade | undefined, name: string): boolean {
-  return made !== undefined && (name === made.param || name === made.count);
+  return (
+    made !== undefined && (name === made.param || name === made.count || name === made.written)
+  );
 }

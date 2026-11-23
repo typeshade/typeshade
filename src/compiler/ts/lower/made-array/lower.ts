@@ -12,6 +12,7 @@ import { lowerExpression } from '../expression.js';
 import { shortText, unparenthesized } from '../array-constructor/form.js';
 import { MADE_ADMITS, MADE_ELEMENTS } from './candidate.js';
 import { madeCandidateOf, madeLoweringOf, setMadeCandidate, setMadeLowering } from './registry.js';
+import { refuseSharedStores } from './identity.js';
 
 export interface MadeAt {
   readonly sourceFile: ts.SourceFile;
@@ -118,6 +119,10 @@ function refuseUses(
   };
   ts.forEachChild(body, visit);
   return refused;
+}
+
+export function ownBody(at: MadeAt): ts.Block {
+  return (at.scope.ownerNode() as ts.FunctionDeclaration).body!;
 }
 
 export function refusedPlace(
@@ -245,6 +250,8 @@ export function lowerMade(
     );
     return refused();
   }
+  if (elemType.kind === 'struct' && refuseSharedStores(decl, ownBody(at), fn, at) === undefined)
+    return refused();
   const bound = bindMade(decl, stub, { kind: 'array', elem: elemType }, at);
   setMadeLowering(stub, {
     decl,

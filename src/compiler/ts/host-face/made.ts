@@ -43,6 +43,9 @@ export function madeFace(
     length: length.name,
     ...(fill !== undefined ? { fill: fill.name } : {}),
     ...(made.grown === true ? { grown: true as const } : {}),
+    ...(made.share !== undefined ? { share: made.share } : {}),
+    ...(made.written !== undefined ? { written: made.written } : {}),
+    ...(made.fillFrom !== undefined ? { fillFrom: made.fillFrom } : {}),
   };
   const face: Record<string, unknown> = { ...e.face };
   delete face.gl;

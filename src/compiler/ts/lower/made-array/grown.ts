@@ -6,7 +6,8 @@ import { authorTypeText } from '../../context.js';
 import { shortText } from '../array-constructor/form.js';
 import { MADE_ADMITS, MADE_ELEMENTS } from './candidate.js';
 import { loopText } from './capacity.js';
-import { bindMade, refusedPlace, say, type GrownUse, type MadeAt } from './lower.js';
+import { bindMade, ownBody, refusedPlace, say, type GrownUse, type MadeAt } from './lower.js';
+import { refuseSharedStores } from './identity.js';
 import { sayOnceAt, setMadeLowering } from './registry.js';
 
 function innermostLoop(n: ts.Node, body: ts.Block): ts.IterationStatement | undefined {
@@ -99,6 +100,8 @@ export function lowerGrown(
     return refused();
   }
   if (refusedPlace(decl, stub, fn, at, grownUse(name, fn, at))) return refused();
+  const pushed = elem.kind === 'struct' ? refuseSharedStores(decl, ownBody(at), fn, at) : 'own';
+  if (pushed === undefined) return refused();
   const bound = bindMade(decl, stub, target, at);
   setMadeLowering(stub, {
     decl,
@@ -107,6 +110,7 @@ export function lowerGrown(
     length: { op: 'lit', type: { kind: 'scalar', scalar: 'u32' }, value: 0 },
     lengthNode: form,
     grown: true,
+    ...(pushed === 'one' ? { pushedOne: true as const } : {}),
     form: shortText(decl),
     lengthText: '',
   });

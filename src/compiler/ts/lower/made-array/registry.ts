@@ -2,6 +2,13 @@ import type ts from 'typescript';
 import type { Expr, FuncDecl, Stmt } from '../../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../../core/ir/types.js';
 
+export type MadeShare = 'every' | 'unwritten';
+
+export interface MadeSource {
+  readonly param: string;
+  readonly path: readonly string[];
+}
+
 export interface MadeArray {
   readonly param: string;
   readonly count: string;
@@ -10,6 +17,9 @@ export interface MadeArray {
   readonly length: Expr;
   readonly fill?: Expr;
   readonly grown?: true;
+  readonly share?: MadeShare;
+  readonly written?: string;
+  readonly fillFrom?: MadeSource;
   readonly prelude: readonly Stmt[];
   readonly form: string;
   readonly lengthText: string;
@@ -24,6 +34,7 @@ export interface MadeLowering {
   readonly lengthNode: ts.Node;
   readonly fillNode?: ts.Node;
   readonly grown?: true;
+  readonly pushedOne?: true;
   readonly form: string;
   readonly lengthText: string;
 }

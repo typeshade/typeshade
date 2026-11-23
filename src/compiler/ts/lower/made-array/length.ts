@@ -24,11 +24,16 @@ function namesIn(body: readonly Stmt[]): Set<string> {
   return names;
 }
 
-export function lengthFromHost(stub: FuncDecl, param: string): string {
+export function freeParamName(stub: FuncDecl, wanted: string): string {
   const taken = namesIn(stub.body);
   for (const p of stub.params) taken.add(p.name);
-  let name = `${param}_length`;
+  let name = wanted;
   while (taken.has(name)) name = `${name}_`;
+  return name;
+}
+
+export function lengthFromHost(stub: FuncDecl, param: string): string {
+  const name = freeParamName(stub, `${param}_length`);
   const arrays = new Set([param]);
   const count: Expr = { op: 'param', type: U32, name };
   const swap = (e: Expr): Expr =>
