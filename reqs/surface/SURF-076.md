@@ -10,7 +10,7 @@ links:
 - RULE-0710: awrenGpJnu8zBls9Pv2jj7fEo-74gkBjxV-mgXsqwSk=
 - RULE-0818: b50KmXwjsoSL8kq_x-fUEfya9QJaNEUVSqAtLnsYMOM=
 - RULE-0819: wlPv7Guict_JkeEqZaQEYPWvIkxAq4nnKoZpliuKSVg=
-- RULE-0821: NOC_wW_ZToXUmtN1Lp-0d-cy6KWulrZjnByexiVBRJs=
+- RULE-0821: o30vXMTggGydtkrbQCkQ6FLScoCgdoL7IFKF0KrMQc4=
 normative: true
 ref: ''
 reviewed: e-Ygko8-Oe1dDRIlOWV2uTcEwohh-X88JKMPiUqdUs4=
