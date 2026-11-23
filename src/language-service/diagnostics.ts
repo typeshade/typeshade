@@ -10,10 +10,12 @@ import { refusedVars, refusedWhole, STRICT_MODE_NAMES } from '../compiler/ts/sem
 import { GPU_BRAND_TAGS } from './ambient.js';
 import { clampSpan, nodeAtPosition, rangeForSpan, spanForDiagnostic } from './positions.js';
 import { ERASING_OPERATORS, ERASING_UNARY_OPERATORS } from './projection.js';
-import type { TypeshadeDiagnostic, TypeshadeSeverity, TypeshadeTextSpan } from './types.js';
+import type { TypeshadeDiagnostic, TypeshadeTextSpan } from './types.js';
 import { foreignNameInRefusal } from './diagnostics/foreign-name.js';
 import { spanEnd, spanOfNode, within } from './diagnostics/spans.js';
 import { repeatsReadonlyWrite } from './diagnostics/readonly-write.js';
+import { repeatsRefusedListUses } from './diagnostics/refused-list.js';
+import { severityOfTs, severityOfTypeshade } from './diagnostics/severity.js';
 
 /**
  * One TypeScript diagnostic code the ambient lib cannot silence, and the rule that decides
@@ -3067,6 +3069,7 @@ export function mergeDiagnostics(
     if (repeatsRefusal(context, diagnostic, refusals, compilerErrors)) return false;
     if (repeatsStrictModeRefusal(context, diagnostic, compilerErrors)) return false;
     if (repeatsReadonlyWrite(diagnostic, compilerErrors)) return false;
+    if (repeatsRefusedListUses(context, diagnostic, compilerErrors)) return false;
     if (readsDeclarationAsValue(context, diagnostic, compilerErrors)) return false;
     if (
       isResultOfRefusedCycle(
@@ -3111,23 +3114,6 @@ function insideDynamicImport(context: DiagnosticFilterContext, span: TypeshadeTe
     node = node.parent;
   }
   return false;
-}
-
-function severityOfTs(category: ts.DiagnosticCategory): TypeshadeSeverity {
-  switch (category) {
-    case ts.DiagnosticCategory.Error:
-      return 'error';
-    case ts.DiagnosticCategory.Warning:
-      return 'warning';
-    case ts.DiagnosticCategory.Suggestion:
-      return 'hint';
-    default:
-      return 'information';
-  }
-}
-
-function severityOfTypeshade(category: 'error' | 'warning' | 'message'): TypeshadeSeverity {
-  return category === 'message' ? 'information' : category;
 }
 
 function toTypeshadeDiagnostic(
