@@ -1,7 +1,7 @@
 ---
 id: '0145'
 title: An author learns TypeShade from a path of 17 examples and finds the other examples in a gallery
-status: draft
+status: accepted
 rules: []
 surface: []
 exports: []
@@ -37,11 +37,11 @@ downstream:
 
 | Field                         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0145, front-matter status `draft`. Numbers 0145 and above were free on `main` at `64593b03` and in the open pull requests on 2026-11-23 (checked: `changes/` listing and `gh api repos/typeshade/typeshade/pulls?state=open`).                                                                                                                                                                                                                               |
+| Identity and status           | Proposal 0145, `status: accepted` (owner, 2026-11-23, Approval and plan record). Numbers 0145 and above were free on `main` at `64593b03` and in the open pull requests on 2026-11-23 (checked: `changes/` listing and `gh api repos/typeshade/typeshade/pulls?state=open`).                                                                                                                                                                                          |
 | Date and attribution          | 2026-11-23, UTC. The date is the drafting date. An AI agent session (Claude Code) drafted the text for the session that works for the repository owner. The owner's decisions in `## Why` are quoted from the conversation of 2026-11-23. They are decisions about the direction. They are not an approval of this text.                                                                                                                                              |
 | Applicability / Effectivity   | `examples/` (the `*.shade.ts` files, `examples/hosts/`, `_order.ts`, `_shade.ts`, `_scan.ts`, `index.ts`, `__emit-goldens__/`), `examples/hosts/_order.ts`, `_registry.ts`, `_drive.ts`, `_reference.ts`, the generator that `examples/_order.ts` names, `scripts/compile-gate.ts`, `scripts/user-journey.ts`, `scripts/changes.ts`, the docs that list examples, and the site and Playground repository. No release version is assigned (OD-6: nothing is released). |
 | Review baseline               | `main` at `64593b038fc8d8b201174f482474d5374b395e55`. Proposal 0138 (`accepted`) and proposal 0142 (`accepted`) are read at that commit.                                                                                                                                                                                                                                                                                                                              |
-| Review and revision authority | No pull request is assigned yet. Git records the revisions. The review and merge records of the pull request will record the decision. This text does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                               |
+| Review and revision authority | Pull request #1415. Git records the revisions. The review and merge records of the pull request will record the decision. This text does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                                            |
 
 ## What changes
 
@@ -399,7 +399,7 @@ Evidence the implementation will give (each milestone below): `bun run gate:comp
 gate:journeys`, a Playground run, `bun run docs:impact`, `bun run docs:refs`, and
 `bun scripts/changes.ts`.
 
-### Draft impact estimate
+### Impact estimate
 
 **What an author must learn that is new** (README, Independent review, question 1).
 
@@ -476,12 +476,21 @@ lead to a decision for the owner are Q6 and Q7.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the evidence below.
-
-- The owner's decision and the merge reference of the pull request with `status: accepted`.
-- The approved revision and scope.
-- The owner's answers to Q1 to Q7.
-- Assigned responsibilities and agreed milestones. None is assigned now.
+- [decision, owner, 2026-11-23] Shown the revision `11fd771c` in the conversation, with the
+  example before and after (`hello.shade.ts` against the `first-color` pair) and the recommended
+  answers to Q1 to Q7, the owner answered "추천대로" (English translation: as recommended). The
+  record has no other words. The approved revision is the one pull request #1415 merges.
+- Scope approved: the learning path, the gallery rules, the host.ts form and milestones M1 to M6
+  as this text states them.
+- The owner's answers to Q1 to Q7: each recommended answer (Open questions for the owner). In
+  short: Q1 no redirect; Q2 move with `git mv`; Q3 show all 124 entries; Q4 step 1 states that
+  the three tiers give the same pixels; Q5 keep all 36 builder examples; Q6 option (b), Part 3
+  and step 16 after 0138 milestone 5; Q7 a module with no host-callable export has no `host.ts`.
+- Responsibilities: the agent implements each milestone in its own pull request. The owner says
+  "merge" for each pull request that changes how an author writes an example (CLAUDE.md,
+  Merging).
+- Milestones: M1 to M4 in order, then M5 in the site repository. M6 follows 0138 milestone 5. No
+  duration is established.
 
 #### Milestones (proposed, one pull request each)
 
@@ -495,7 +504,7 @@ author-facing form shows the example before and after, and waits for the owner's
 | M3        | Part 4 (steps 12 to 15) and step 17.                                                                                                                                                      | As M1 for 5 modules. Compute steps: the result read back equals a plain JavaScript reference (`_reference.ts` form). Step 17 on WebGPU and the tiers it lists.                                                                                                 |
 | M4        | The gallery migration: every example gets a `host.ts` as The gallery rules say, and a `group`. The nine host examples, `_drive.ts`, `_reference.ts` and their journeys move to the form.  | `gate:journeys` on WebGPU and WebGL2 (the tiers each host lists). `examples/host-examples.test.ts` on the CPU tier. Goldens unchanged for a pure move. The full group table, with the modules that have no `host.ts`, is in the pull request.                  |
 | M5        | The site and the Playground (the site repository): the examples page, the example pages, `playground-host-default.ts`, `playground-host-run.ts`, the host example pages, the i18n blurbs. | The site build. A Playground run of each `host.ts` of the path that exists. The site's own gates. This milestone belongs to the site repository and follows its compiler pin (README, The lifecycle, item 5).                                                  |
-| M6        | Part 3 (steps 9 to 11) and step 16, written after 0138 milestone 5 is delivered (Q6, recommended). Both use `fs(vs(vertices))`.                                                           | As M1 for 4 modules, on the tiers that 0138 milestone 5 gives. Both halves on each source. If the owner chooses the other option in Q6, M6 moves before M5 and its `host.ts` files are rewritten when 0138 milestone 5 lands.                                  |
+| M6        | Part 3 (steps 9 to 11) and step 16, written after 0138 milestone 5 is delivered (Q6, option (b), chosen). Both use `fs(vs(vertices))`.                                                    | As M1 for 4 modules, on the tiers that 0138 milestone 5 gives. Both halves on each source.                                                                                                                                                                     |
 
 [inference, agent] M5 runs in the site repository, and the compiler pin pull request there fails
 until 0145 is in its `compiler-changes.md`. The names of the Playground files are as the
@@ -511,7 +520,8 @@ both halves of each author-facing form); the document audit (`docs:impact`, `doc
 
 ## Open questions for the owner
 
-Each question has a recommended answer. The agent does not decide any of them.
+Each question has a recommended answer. The owner chose every recommended answer on 2026-11-23
+(Approval and plan record).
 
 1. **Q1. Do old example ids keep redirects on the site?** The site may link old ids.
    Recommended: no redirect. OD-6 says nothing is released. The ids of the gallery do not
