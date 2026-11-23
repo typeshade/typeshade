@@ -1420,12 +1420,13 @@ O2 chose a separate `example.json`. The text above was revised to match. Each fo
 - `downstream`: the site reads `groups.json` and the manifest fields; the Playground runs `run` with `image`, extras and the tier list; the editor
   skill's example list names the layout. Nothing is verified in those repositories here.
 
-### A3. The gallery move edits the paths in rules and surface sections (2026-11-23, status: draft)
+### A3. The gallery move edits the paths in rules and surface sections (2026-11-23, status: accepted)
 
-- Status: draft. [proposal, agent] A3 waits for the owner's "merge" of its pull request. It is part
-  of the approved text from that merge. No code and no example changes with this pull request.
-- Baseline: `main` at `9c47626a`. [fact] The M4.3a pull request (#1472, open, branch
-  `claude/0145-m4-3a-gallery-move`, commit `d42218f6`) is not on `main`.
+- Status: accepted. [decision, owner, 2026-11-24] The owner said "병합 승인 및 추천안으로" (merge
+  approved, with the recommended answers). A3 is part of the approved text from the merge of its
+  pull request (#1485). No code and no example changes with that pull request.
+- Baseline: `main` at `9c47626a` for the scan. [fact] The M4.3a pull request (#1472, commit
+  `d42218f6`) merged into `main` on 2026-11-23 as `d31bfbff`.
 - A3 adds no author-facing name, no diagnostic code and no export. `exports`, `exports-removed`,
   `codes` and `names` stay empty. A3 edits no meaning of a rule or of a surface section.
 
@@ -1527,9 +1528,9 @@ After:
 
 #### Deviations and open items
 
-| Deviation                                                                                                                                                       | Disposition                                                                       |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| D-9. M4.3a left 18 modules of `a` to `h` at the top level, because rules and surface sections name them by path and A2 declares no rule and no surface section. | Made part of the approved text by A3, once A3 is accepted. Open until that merge. |
+| Deviation                                                                                                                                                       | Disposition                                                                               |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| D-9. M4.3a left 18 modules of `a` to `h` at the top level, because rules and surface sections name them by path and A2 declares no rule and no surface section. | Made part of the approved text by A3 (accepted 2026-11-24). Closed when M4.3c moves them. |
 
 | Item                                                    | Reason                                                 | Next action                                           |
 | ------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------- |
@@ -1537,12 +1538,14 @@ After:
 | The order "M4.3c after A3".                             | `scripts/changes.ts` does not enforce it (see item 5). | The plan keeps it. A reviewer checks it.              |
 | Paths in other documents (`AGENTS.md`, `docs/*.md`).    | A3 names only the three places the scan covered.       | `bun run docs:impact` lists them at each slice.       |
 
-#### Open questions for the owner
+#### Questions for the owner, answered
 
 1. **A3-Q1. Does the owner accept a path-only edit of 17 rules and 27 surface sections?**
    Recommended: yes. No meaning changes, and a reviewer sees one path in each hunk.
+   [decision, owner, 2026-11-24] Yes, with the recommended answer ("추천안으로").
 2. **A3-Q2. Does the owner accept the four ids in `examples:`?** Recommended: yes. Each id is
    an example that already exists, and only its place and its header change.
+   [decision, owner, 2026-11-24] Yes, with the recommended answer ("추천안으로").
 
 #### What A3 touches
 
