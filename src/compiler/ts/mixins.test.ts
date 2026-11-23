@@ -128,7 +128,7 @@ class Body extends AgedParticle {
     expect(r.wgsl).not.toContain('AgedParticle');
   });
 
-  it('reads the mixin wherever it is written, above or below its use', () => {
+  it('reads the mixin wherever it is written, above or below its use; the editor disagrees with compile(): it refuses the use of Particle before its declaration (2449)', () => {
     const halves = bothHalves(`"use typeshade";
 class Body extends Aged(Particle) {
   mass: f32;
@@ -157,7 +157,7 @@ function Aged<TBase extends AnyClass>(Base: TBase) {
 
 describe('what a mixin may carry', () => {
   it(
-    'a constructor, including one that calls super over a base that has one',
+    'a constructor, including one that calls super over a base that has one; the editor disagrees with compile(): it refuses the mixin constructor and the base types (2545, 2417, 2510, 2339)',
     keepHelpers(() => {
       const halves = bothHalves(`"use typeshade";
 class Particle {
@@ -223,7 +223,7 @@ class Body extends Scaled(Particle) {}
     }),
   );
 
-  it('a field with a decorator, which reaches entry I/O as any other field does', () => {
+  it('a field with a decorator, which reaches entry I/O as any other field does; the editor disagrees with compile(): it refuses the decorator position (1206)', () => {
     const halves = bothHalves(`"use typeshade";
 function WithUv() {
   return class {
@@ -258,7 +258,7 @@ class Varyings extends WithUv() {
   });
 
   it(
-    'a method reading a field of the base it was mixed over',
+    'a method reading a field of the base it was mixed over; the editor disagrees with compile(): it does not see the base field on the mixin class (2339)',
     keepHelpers(() => {
       const halves = bothHalves(`"use typeshade";
 class Particle {
@@ -289,7 +289,7 @@ class Body extends Aged(Particle) {
     }),
   );
 
-  it('applies over an abstract base, whose abstract method the class supplies', () => {
+  it('applies over an abstract base, whose abstract method the class supplies; the editor disagrees with compile(): it refuses the abstract base and the mixed-in field (2345, 2339)', () => {
     const halves = bothHalves(`"use typeshade";
 abstract class Shape {
   k: f32;
