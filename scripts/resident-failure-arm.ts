@@ -416,7 +416,9 @@ async function runInPage(input: {
         'WebGL2 storage draw refusal',
         false,
         refusal instanceof TypeError &&
-          String(refusal).includes('GLSL ES 3.00 has no storage buffer'),
+          String(refusal).includes(
+            'the WebGL2 tier does not support a storage binding in a draw yet',
+          ),
       );
       return result;
     }
