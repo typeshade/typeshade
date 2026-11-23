@@ -19,14 +19,14 @@
 // `examples/mixin-surface.shade.ts`.
 
 import { describe, expect, it } from 'vitest';
-import { compile } from './compile.js';
+import { bothHalves, bothTake } from '../../core/testing/both-halves.js';
 import { keepHelpers } from '../../core/testing/keep-helpers.js';
 
 describe('a mixin is a function that returns a class, run when the file is compiled', () => {
   it(
     'splices its fields behind the base and ahead of the class that applied it',
     keepHelpers(() => {
-      const r = compile(`"use typeshade";
+      const r = bothTake(`"use typeshade";
 class Particle {
   pos: vec3;
 }
@@ -45,7 +45,7 @@ class Body extends Aged(Particle) {
   const b = new Body();
   return vec4(b.pos, b.faded() + b.mass);
 }
-`);
+`).result;
       expect(r.diagnostics).toEqual([]);
       expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}');
       // The mixin's method is the applying class's, named for it: there is no
@@ -56,7 +56,7 @@ class Body extends Aged(Particle) {
   );
 
   it('chains, innermost first', () => {
-    const r = compile(`"use typeshade";
+    const r = bothTake(`"use typeshade";
 class Particle {
   pos: vec3;
 }
@@ -77,7 +77,7 @@ class Body extends Named(Aged(Particle)) {
   const b = new Body();
   return vec4(b.pos.x, b.age, f32(b.tag), b.mass);
 }
-`);
+`).result;
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain(
       'struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  tag: u32,\n  mass: f32,\n}',
@@ -85,7 +85,7 @@ class Body extends Named(Aged(Particle)) {
   });
 
   it('takes no base at all, which is a mixin that only adds', () => {
-    const r = compile(`"use typeshade";
+    const r = bothTake(`"use typeshade";
 function Tagged() {
   return class {
     tag: u32;
@@ -98,13 +98,13 @@ class Body extends Tagged() {
   const b = new Body();
   return vec4(f32(b.tag), b.mass, 0., 1.);
 }
-`);
+`).result;
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Body {\n  tag: u32,\n  mass: f32,\n}');
   });
 
   it('is applied through a const, the spelling the TypeScript handbook uses', () => {
-    const r = compile(`"use typeshade";
+    const r = bothTake(`"use typeshade";
 class Particle {
   pos: vec3;
 }
@@ -121,7 +121,7 @@ class Body extends AgedParticle {
   const b = new Body();
   return vec4(b.pos.x, b.age, b.mass, 1.);
 }
-`);
+`).result;
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}');
     // The const holds a class, not a value: it is no module constant.
@@ -129,7 +129,7 @@ class Body extends AgedParticle {
   });
 
   it('reads the mixin wherever it is written, above or below its use', () => {
-    const r = compile(`"use typeshade";
+    const halves = bothHalves(`"use typeshade";
 class Body extends Aged(Particle) {
   mass: f32;
 }
@@ -146,6 +146,10 @@ function Aged<TBase extends AnyClass>(Base: TBase) {
   return vec4(b.pos.x, b.age, b.mass, 1.);
 }
 `);
+    const r = halves.result;
+    expect(halves.editor, 'the editor disagrees with compile()').toEqual([
+      "typescript 2449: Class 'Particle' used before its declaration.",
+    ]);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Body {\n  pos: vec3<f32>,\n  age: f32,\n  mass: f32,\n}');
   });
@@ -155,7 +159,7 @@ describe('what a mixin may carry', () => {
   it(
     'a constructor, including one that calls super over a base that has one',
     keepHelpers(() => {
-      const r = compile(`"use typeshade";
+      const halves = bothHalves(`"use typeshade";
 class Particle {
   pos: vec3;
   constructor(p: vec3) {
@@ -177,6 +181,13 @@ class Body extends Aged(Particle) {}
   return vec4(b.pos, b.age);
 }
 `);
+      const r = halves.result;
+      expect(halves.editor, 'the editor disagrees with compile()').toEqual([
+        "typescript 2545: A mixin class must have a constructor with a single rest parameter of type 'any[]'.",
+        "typescript 2417: Class static side 'typeof Body' incorrectly extends base class static side '{ prototype: Aged<any>.(Anonymous class); } & typeof Particle'.\n  Types of property 'prototype' are incompatible.\n    Type 'Body' is not assignable to type 'Aged<any>.(Anonymous class) & Particle'.\n      Property 'pos' is missing in type 'Body' but required in type 'Particle'.",
+        'typescript 2510: Base constructors must all have the same return type.',
+        "typescript 2339: Property 'pos' does not exist on type 'Body'.",
+      ]);
       expect(r.diagnostics).toEqual([]);
       // Each constructor builds into its local through a pointer (change 0105).
       expect(r.wgsl).toContain(
@@ -189,7 +200,7 @@ class Body extends Aged(Particle) {}
   it(
     'a static function, which belongs to the applying class',
     keepHelpers(() => {
-      const r = compile(`"use typeshade";
+      const r = bothTake(`"use typeshade";
 class Particle {
   pos: vec3;
 }
@@ -206,14 +217,14 @@ class Body extends Scaled(Particle) {}
   const b = new Body();
   return vec4(b.pos, Body.unit() + b.k);
 }
-`);
+`).result;
       expect(r.diagnostics).toEqual([]);
       expect(r.wgsl).toContain('fn Body_unit() -> f32 {');
     }),
   );
 
   it('a field with a decorator, which reaches entry I/O as any other field does', () => {
-    const r = compile(`"use typeshade";
+    const halves = bothHalves(`"use typeshade";
 function WithUv() {
   return class {
     @location(0) uv: vec2;
@@ -229,6 +240,11 @@ class Varyings extends WithUv() {
   return vec4(v.uv, 0., 1.);
 }
 `);
+    const r = halves.result;
+    expect(halves.editor, 'the editor disagrees with compile()').toEqual([
+      'typescript 1206: Decorators are not valid here.',
+      'typeshade TS8028: "@location(0)" is the decorated form, which the next release refuses: write "uv: location<0, vec2>", or run "tshc migrate" (change 0111).',
+    ]);
     // The decorated form is read, and warned once (TS8028, change 0111, milestone 4).
     expect(r.diagnostics.map((d) => [d.category, d.code, d.message])).toEqual([
       [
@@ -244,7 +260,7 @@ class Varyings extends WithUv() {
   it(
     'a method reading a field of the base it was mixed over',
     keepHelpers(() => {
-      const r = compile(`"use typeshade";
+      const halves = bothHalves(`"use typeshade";
 class Particle {
   pos: vec3;
 }
@@ -264,13 +280,17 @@ class Body extends Aged(Particle) {
   return vec4(b.faded(), b.mass);
 }
 `);
+      const r = halves.result;
+      expect(halves.editor, 'the editor disagrees with compile()').toEqual([
+        "typescript 2339: Property 'pos' does not exist on type '(Anonymous class)'.",
+      ]);
       expect(r.diagnostics).toEqual([]);
       expect(r.wgsl).toContain('return ((*self_).pos * (1.0 - (*self_).age));');
     }),
   );
 
   it('applies over an abstract base, whose abstract method the class supplies', () => {
-    const r = compile(`"use typeshade";
+    const halves = bothHalves(`"use typeshade";
 abstract class Shape {
   k: f32;
   abstract area(): f32;
@@ -291,6 +311,11 @@ class Disc extends Scaled(Shape) {
   return vec4(d.area(), d.k, d.s, 1.);
 }
 `);
+    const r = halves.result;
+    expect(halves.editor, 'the editor disagrees with compile()').toEqual([
+      "typescript 2345: Argument of type 'typeof Shape' is not assignable to parameter of type 'AnyClass'.\n  Cannot assign an abstract constructor type to a non-abstract constructor type.",
+      "typescript 2339: Property 'k' does not exist on type 'Disc'.",
+    ]);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct Disc {\n  k: f32,\n  s: f32,\n  r: f32,\n}');
   });

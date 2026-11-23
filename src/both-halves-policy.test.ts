@@ -18,14 +18,7 @@ const SRC = fileURLToPath(new URL('.', import.meta.url));
 
 /** The test files that read only `compile()` when this check landed. Convert one with
  *  `bothHalves` (`src/core/testing/both-halves.ts`), then remove its line. Never add a line. */
-const KNOWN: readonly string[] = [
-  'compiler/ts/builtins.test.ts',
-  'compiler/ts/int-lit-context.test.ts',
-  'compiler/ts/mixins.test.ts',
-  'compiler/ts/module.test.ts',
-  'compiler/ts/texture-dims.test.ts',
-  'vite.test.ts',
-];
+const KNOWN: readonly string[] = [];
 
 /** Whether the text of a test file reads a refusal of `compile()` and not the editor. */
 export function readsOnlyTheCompiler(path: string, text: string): boolean {

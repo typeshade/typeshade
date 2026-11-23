@@ -17,18 +17,20 @@
 
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
-import { compileTsSource } from './source-file.js';
 import { reflect } from '../../core/reflect.js';
 import { compileModule } from '../../core/oracle.js';
+import { bothHalves, bothTake } from '../../core/testing/both-halves.js';
 
-const errorsOf = (src: string) =>
-  compileTsSource(src)
-    .diagnostics.filter((d) => d.category === 'error')
-    .map((d) => d.message);
+const codedErrorsOf = (src: string) => {
+  const halves = bothHalves(src);
+  for (const line of halves.compiler) expect(halves.editor).toContain(line);
+  return halves.compiler.map((line) => line.replace(/^typeshade /, ''));
+};
+
+const errorsOf = (src: string) => codedErrorsOf(src).map((line) => line.replace(/^TS\d+: /, ''));
 
 const both = (src: string): { wgsl: string; glsl: string } => {
-  const r = compile(src);
-  expect(r.diagnostics.filter((d) => d.category === 'error').map((d) => d.message)).toEqual([]);
+  const r = bothTake(src).result;
   return { wgsl: r.wgsl ?? '', glsl: r.glsl?.fragment ?? '' };
 };
 
@@ -402,10 +404,7 @@ declare const ms: texture_multisampled_2d<f32>`,
     //
     // One case per `TS_CODES.TEXTURE_ARGUMENT` site in `lowerTextureCall`, so a site that drifts
     // off the code fails here rather than in a consumer's rule file.
-    const coded = (src: string) =>
-      compileTsSource(src)
-        .diagnostics.filter((d) => d.category === 'error')
-        .map((d) => `${d.code} ${d.message}`);
+    const coded = (src: string) => codedErrorsOf(src).map((line) => line.replace(': ', ' '));
 
     // 1. The coordinate's WIDTH against the texture's dim.
     expect(coded(fragment(`  return textureSample(env, smp, p.xy)`))).toEqual([
