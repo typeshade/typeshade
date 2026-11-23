@@ -61,7 +61,7 @@
   "src/compiler/ts/lower/expression-call.ts": 2671,
   "src/compiler/ts/lower/expression-misc.ts": 556,
   "src/compiler/ts/lower/expression-prop.ts": 879,
-  "src/compiler/ts/lower/expression.ts": 2296,
+  "src/compiler/ts/lower/expression.ts": 2293,
   "src/compiler/ts/lower/function-signature.ts": 1428,
   "src/compiler/ts/lower/function.ts": 3069,
   "src/compiler/ts/lower/local-functions.ts": 606,

@@ -34,7 +34,8 @@ import ts from 'typescript';
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, boolT, i32T, u32T, isF64, isVec64 } from '../../../core/ir/types.js';
-import { holdReadings, integerQuotientIn, type QuotientSite } from './integer-quotient.js';
+import { holdReadings, integerQuotientIn, pastI32Readings } from './integer-quotient.js';
+import type { QuotientSite } from './integer-quotient.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, dropsRecoveredUse, irNameOf, type LoweringScope } from '../context.js';
 import { LANG_CONST, resolveLangConst, resolveMathConst } from '../math-alias.js';
@@ -1441,16 +1442,12 @@ function lowerBinary(
           opKind === ts.SyntaxKind.GreaterThanGreaterThanToken) &&
         !typedOther;
       if (folds) continue;
-      // Beside an `i32` the tree is ToInt32 of its bits, which is TypeScript's value; beside an
-      // `f32` it is an integer beside a float, refused as such (decision 1 of #1272).
+      // Beside an `i32` a tree is refused only past `i32` (`pastI32Readings`); beside an `f32` it
+      // is an integer beside a float, refused as such (decision 1 of #1272).
       // (A shift's amount is no peer: the left operand's type decides the shift.)
-      if (
-        typedOther &&
-        (otherType === 'i32' || otherType === 'f32') &&
-        opKind !== ts.SyntaxKind.GreaterThanGreaterThanToken
-      ) {
-        continue;
-      }
+      const peer = typedOther && opKind !== ts.SyntaxKind.GreaterThanGreaterThanToken && otherType;
+      const shown = peer === 'i32' ? pastI32Readings(n, readings) : readings;
+      if (shown === undefined || peer === 'f32') continue;
       // A `/` of a binding that holds the tree, by written numbers, is D-b's refusal, whose
       // float edit reads TypeScript's value (`f32(i32(a)) / 2`), until a `u32` position reads it.
       if (
@@ -1467,7 +1464,7 @@ function lowerBinary(
         node: n,
         operation: node,
         operator: node.operatorToken.getText(sourceFile),
-        readings,
+        readings: shown,
         ...(typedOther && otherType === 'u32' ? { peer: 'u32' as const } : {}),
         target: false,
       });
