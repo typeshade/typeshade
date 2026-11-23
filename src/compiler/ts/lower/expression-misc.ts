@@ -105,12 +105,19 @@ export function lowerScalarCastCall(
     }
   }
   if (name === 'i32' || name === 'u32') {
-    if (isIntegerQuotient(lowered)) {
+    const quotient = isIntegerQuotient(lowered);
+    const converted = integerConversionArg(lowered, name === 'u32' ? u32T : i32T);
+    if (quotient) {
       let inner: ts.Expression = node.arguments[0]!;
       while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
-      noteWrittenDivisionRead(inner, sourceFile, 'read');
+      const resolved = !isIntegerQuotient(converted);
+      // A quotient no integer type divides (an `i32` operand beside a `u32` one) stays refused
+      // (issue 1403). Its `u32()` read names the `i32` edit: the float edit gives 0 for a
+      // negative quotient, where TypeScript's ToUint32 wraps it.
+      if (resolved) noteWrittenDivisionRead(inner, sourceFile, 'read');
+      else if (name === 'u32') noteWrittenDivisionRead(inner, sourceFile, 'i32');
     }
-    lowered = integerConversionArg(lowered, name === 'u32' ? u32T : i32T);
+    lowered = converted;
     readKindlessExactly(lowered);
   }
   // A cast is a read of a constant of no fixed type: `u32(K)` converts the written number, as
