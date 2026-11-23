@@ -1,14 +1,5 @@
 "use typeshade";
 
-/* @example
-{
-  "title": "Bouncing balls",
-  "blurb": "Step 8 of the learning path. A `class Ball` keeps a place, a height and a radius, and has two methods: `bounce` moves the ball, `cover` measures a pixel against it. A function that takes a `Ball` and calls `bounce` changes the caller's ball, as it does in JavaScript: objects are references (change 0142). `animate(canvas)` shows the balls move.",
-  "renderable": false,
-  "reason": "no entry point"
-}
-*/
-
 // Step 8. A class groups data with methods. A function that writes its Ball changes the caller's Ball.
 interface Frame {
   size: vec2;

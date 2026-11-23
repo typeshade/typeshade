@@ -1,0 +1,11 @@
+{
+  "title": "Moving wave",
+  "blurb": "Step 3 of the learning path. The uniform of step 2 gains one field, `time`, and the colour depends on it. `run(canvas, time)` draws one frame. `animate(canvas)` calls `run` once a frame, so the Playground shows the wave move.",
+  "group": "path",
+  "part": "First pixels",
+  "step": 3,
+  "tiers": ["webgpu", "webgl2", "cpu"],
+  "host": "run",
+  "renderable": false,
+  "reason": "no entry point"
+}

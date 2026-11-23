@@ -10,6 +10,7 @@ import { chromium } from 'playwright';
 import { compile, reflect } from '../src/index.js';
 import type { Page } from 'playwright';
 import { gateBrowserSettings, verifyGateGpu, withGateBrowser } from './gate-browser.js';
+import { exampleSource } from '../examples/_example-file.js';
 
 const browserSettings = gateBrowserSettings(process.env);
 
@@ -20,8 +21,7 @@ const FRAME = 0;
 const UPDATE = process.env.UPDATE_RT_GOLDEN === '1';
 const GOLDEN_URL = new URL('./__render-goldens__/rt-renderer-class-48.png', import.meta.url);
 
-const sourceUrl = new URL('../examples/rt-renderer-class.shade.ts', import.meta.url);
-const source = readFileSync(sourceUrl, 'utf8');
+const source = exampleSource('rt-renderer-class');
 const result = compile(source, { fileName: 'examples/rt-renderer-class.shade.ts' });
 
 if (result.diagnostics.length > 0) {

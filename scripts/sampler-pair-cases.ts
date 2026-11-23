@@ -137,7 +137,7 @@ interface Out { p: builtin<"position">; r: location<0, f32>; }
 };
 
 const conflict = (texture: string, first: string, second: string): string =>
-  `it samples "${texture}" with "${first}" and "${second}", and GLSL ES 3.00 fuses a texture with one sampler. Declare the texture twice, one binding per sampler.`;
+  `it samples "${texture}" with "${first}" and "${second}", and a texture with more than one sampler is not supported yet on the WebGL2 tier. Declare the texture twice, one binding per sampler.`;
 export const SAMPLER_REFUSALS: Readonly<Record<string, string>> = {
   direct: conflict('tex', 'nearest', 'linear'),
   cross: conflict('tex', 'nearest', 'linear'),

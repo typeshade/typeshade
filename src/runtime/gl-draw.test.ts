@@ -271,7 +271,7 @@ declare const linear: sampler;
       const program = rt.load(manifest(source(sample(a), sample(b))));
       calls.length = 0;
       await expect(program.render({})).rejects.toThrow(
-        `it samples "photo" with "${a}" and "${b}", and GLSL ES 3.00 fuses a texture with one sampler`,
+        `it samples "photo" with "${a}" and "${b}", and a texture with more than one sampler is not supported yet on the WebGL2 tier`,
       );
       expect(
         calls.some((c) => /^(createShader|createProgram|linkProgram|drawArrays)/.test(c)),

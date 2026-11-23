@@ -9146,8 +9146,13 @@ await twice.read(); // Float32Array [20, 40, 60]
 With a length of 0 such a call throws a `RangeError`: a `Buffer` of length 0 is not supported
 yet. It throws a `TypeError` that says it is not supported yet for an array the function grows
 with `push`, a struct fill whose unwritten elements share one object, a struct of no exported
-class, a call that also writes a plain array, and a length or a fill value that reads a
-resource; the host view gives such a parameter no `Buffer`.
+class, and a length or a fill value that reads a resource; the host view gives such a
+parameter no `Buffer`.
+
+A call on a resource that also writes a plain array waits (change 0138, Amendment A11, Q7).
+Its promise gives the array the function makes as plain data, the typed array or the array of
+objects of a call with plain data, and not a `Buffer`. It fills the plain array when it has
+run (change 0114, Amendment A13).
 
 **An array the function grows with `push`** (Rule 8.23, proposal 0114, S5d). The `const` may
 also start empty, annotated with an array with no size of an element a made array may hold

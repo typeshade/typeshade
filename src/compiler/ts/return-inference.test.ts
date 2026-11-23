@@ -11,8 +11,6 @@
 // text, each said once; the multi-file path; and the editor agreeing.
 
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { compile } from './compile.js';
 import { keepHelpers } from '../../core/testing/keep-helpers.js';
 import { TS_CODES } from './codes.js';
@@ -22,6 +20,7 @@ import { startDebugSession } from '../../core/debug/session.js';
 import { optimize } from '../../core/passes/opt/optimize.js';
 import { autoVars } from '../../core/passes/opt/index.js';
 import { emitModuleAt } from '../../core/backends/wgsl.js';
+import { exampleSource } from '../../../examples/_example-file.js';
 
 const compileKept = keepHelpers((s: string) => compile(s));
 
@@ -586,10 +585,7 @@ export function run(k: f32): f32 {
 
 describe('examples/inferred-returns.shade.ts', () => {
   it('renders the dots, the ring and the falloff on every CPU path', () => {
-    const src = readFileSync(
-      fileURLToPath(new URL('../../../examples/inferred-returns.shade.ts', import.meta.url)),
-      'utf8',
-    );
+    const src = exampleSource('inferred-returns');
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     // Every function in it writes no return type, and each says the one its body returns.

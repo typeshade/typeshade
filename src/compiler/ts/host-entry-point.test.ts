@@ -5,14 +5,10 @@
 // Verifies: Proposal 0070 (C5, the generated host).
 
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { hostFace } from './host-face.js';
+import { exampleSource } from '../../../examples/_example-file.js';
 
-const EXAMPLE = new URL(
-  '../../../examples/hosts/host-compute/host-compute.shade.ts',
-  import.meta.url,
-);
-const SOURCE = readFileSync(EXAMPLE, 'utf8');
+const SOURCE = exampleSource('host-compute');
 
 describe('the generated host of a respelled entry (Proposal 0070, C5)', () => {
   it('passes the emitted entry name as entryPoint and keeps the authored name for the host', () => {

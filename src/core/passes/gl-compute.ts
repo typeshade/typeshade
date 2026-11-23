@@ -401,7 +401,7 @@ function sampledTextures(m: ModuleDecl, entry: string): GlTexture[] {
     const with_ = [...(pairs.get(b.name) ?? [])];
     if (with_.length > 1)
       throw new GlComputeError(
-        `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and GLSL ES 3.00 fuses a texture with one sampler`,
+        `it samples "${b.name}" with ${with_.map((n) => `"${n}"`).join(' and ')}, and a texture with more than one sampler is not supported yet on the WebGL2 tier`,
       );
     const t = b.type;
     const dim = t.dim as '2d' | '2d-array' | '3d' | 'cube';

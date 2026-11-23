@@ -45,6 +45,7 @@ import { declarationOf } from './closures.js';
 import { type FunctionShape } from './function-types.js';
 import { liftWritten } from './function-args.js';
 import { namedFunction } from './array-methods/named-function.js';
+import { searchElementRefusal, sharedFillRefusal } from './array-methods/value-refusals.js';
 
 type Method = 'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'findIndex' | 'findLastIndex';
 
@@ -786,15 +787,7 @@ function lowerValueMethod(
   const search = method !== 'fill';
   const scalar = elem.kind === 'scalar' ? elem.scalar : undefined;
   if (search && scalar !== 'f32' && scalar !== 'i32' && scalar !== 'u32' && scalar !== 'bool') {
-    return push(
-      diagnostics,
-      sourceFile,
-      callee.name,
-      `"${shown}" compares each element with "===", which ECMAScript reads as the same object ` +
-        `for a ${authorTypeText(elem)}. It looks for an f32, i32, u32 or bool here: for any other ` +
-        `element write "${recvText}.findIndex((x) => …)".`,
-      TS_CODES.UNSUPPORTED,
-    );
+    return searchElementRefusal(elem, shown, recvText, callee.name, sourceFile, diagnostics);
   }
   if (scope.owner() === undefined) {
     return push(
@@ -834,6 +827,8 @@ function lowerValueMethod(
     globalRoot = { op: 'varref', type: root!.type, name: to };
   }
   const kernelArray = !fixed && recv.op === 'param';
+  if (method === 'fill' && kernelArray && (elem.kind === 'struct' || elem.kind === 'array'))
+    return sharedFillRefusal(elem, shown, recvText, callee.name, sourceFile, diagnostics);
   const isGlobal =
     rootBinding?.kind === 'binding' ||
     rootBinding?.kind === 'modvar' ||

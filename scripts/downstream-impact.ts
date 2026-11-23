@@ -15,8 +15,10 @@
 // repository, from the pinned compiler, over the range the pin moves:
 //
 //   must fix   an export the compiler's `src/__api__/surface.md` lists at the old pin and not at
-//              the new one, still named in a downstream file on a line the downstream branch did
-//              not touch; a compiler file deleted or moved that a downstream file still names
+//              the new one, still used in a downstream file on a line the downstream branch did
+//              not touch. A use is code: a line of a source file, a fenced block or a code span in
+//              Markdown. A name that is an English word (`resident`) counts only as code, not in
+//              prose, a comment or a data file (#1349); a compiler file deleted or moved that a downstream file still names
 //   must fix   a compiler `LINT.IfChange` block the range changed whose `ThenChange` names a file
 //              in THIS repository (`//typeshade.github.io/src/pages/index.astro`), when the
 //              downstream branch did not change that target: the cross-repository half of
@@ -76,6 +78,50 @@ const tryRun = (cwd: string, ...args: string[]): string => {
     return '';
   }
 };
+
+/** An English word: one lowercase run, with or without a first capital. */
+const PLAIN_WORD = /^[A-Z]?[a-z]+$/;
+
+const SOURCE = /\.(ts|mts|mjs|js|cjs|astro)$/;
+const MARKDOWN = /\.mdx?$/;
+const spans = (line: string): { code: string; prose: string } => {
+  const code: string[] = [];
+  const prose = line.replace(/`([^`]*)`/g, (_, c: string) => {
+    code.push(c);
+    return ' ';
+  });
+  return { code: code.join(' '), prose };
+};
+
+/**
+ * Splits each line of a file into the text that is code and the text that is prose. A fenced
+ * block and a code span in Markdown are code. A line of a source file is code, except a comment
+ * line, whose code spans only are code. A data file is all prose.
+ */
+export function classify(
+  file: string,
+  lines: readonly string[],
+): { code: string; prose: string }[] {
+  let fence = false;
+  let block = false;
+  return lines.map((line) => {
+    if (MARKDOWN.test(file)) {
+      if (/^\s*(```|~~~)/.test(line)) {
+        fence = !fence;
+        return { code: '', prose: '' };
+      }
+      return fence ? { code: line, prose: '' } : spans(line);
+    }
+    if (SOURCE.test(file)) {
+      const t = line.trim();
+      const comment = block || t.startsWith('//') || t.startsWith('/*') || t.startsWith('*');
+      if (t.startsWith('/*') && !t.includes('*/')) block = true;
+      else if (block && t.includes('*/')) block = false;
+      return comment ? spans(line) : { code: line, prose: '' };
+    }
+    return { code: '', prose: line };
+  });
+}
 
 /** Exports listed in the old bake and not the new one. */
 export function removedExports(oldSurface: string, newSurface: string): string[] {
@@ -186,11 +232,15 @@ export function downstreamImpact(o: Options): { mustFix: Finding[]; waived: stri
     tryRun(sub, 'show', `${o.oldSha}:src/__api__/surface.md`),
     tryRun(sub, 'show', `${o.newSha}:src/__api__/surface.md`),
   );
+  const split = new Map([...text].map(([f, lines]) => [f, classify(f, lines)]));
   for (const name of removed) {
-    const re = new RegExp(`(?<![\\w$])${name.replace(/[$]/g, '\\$')}(?![\\w$])`);
+    const re = new RegExp(`(?<![\\w$])${name.replace(/[$]/g, '\\$&')}(?![\\w$])`);
+    const inProse = !PLAIN_WORD.test(name);
     for (const [f, lines] of text) {
+      const parts = split.get(f)!;
       lines.forEach((l, i) => {
-        if (re.test(l) && untouched(f, i + 1)) {
+        const hit = re.test(parts[i]!.code) || (inProse && re.test(parts[i]!.prose));
+        if (hit && untouched(f, i + 1)) {
           mustFix.push({
             kind: 'removed',
             subject: `export \`${name}\` removed from the compiler`,

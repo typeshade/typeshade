@@ -1,14 +1,5 @@
 "use typeshade";
 
-/* @example
-{
-  "title": "Mandelbrot set",
-  "blurb": "Step 6 of the learning path. Each pixel is a point `c` of the plane. A loop squares a complex number again and again, and `break` leaves it as soon as the number is far from the origin. The count of rounds the pixel lasted gives its colour.",
-  "renderable": false,
-  "reason": "no entry point"
-}
-*/
-
 // Step 6. A loop with an early exit: break leaves the loop as soon as the point has escaped.
 interface Frame {
   size: vec2;

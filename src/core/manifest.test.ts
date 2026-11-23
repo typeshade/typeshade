@@ -33,6 +33,7 @@ import { emitGlslStages } from './backends/glsl.js';
 import { emitModule as emitWith, type EmitPlugin } from './emit.js';
 import { consoleBuffer } from './passes/console-buffer.js';
 import { VERSION } from './version.js';
+import { exampleFile, exampleSource } from '../../examples/_example-file.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 
@@ -298,7 +299,7 @@ interface Color {
   });
 
   it("the call layer's layouts are the manifest's", () => {
-    const file = join(ROOT, 'examples', 'gpu-console.shade.ts');
+    const file = exampleFile('gpu-console');
     const source = readFileSync(file, 'utf8');
     const face = hostFace(source, { fileName: file });
     const m = compile(source, { fileName: file }).module;
@@ -316,8 +317,7 @@ interface Color {
   });
 
   it('carries a struct parameter of a vertex entry in its vertex layout', () => {
-    const file = join(ROOT, 'examples', 'hello-vsin.shade.ts');
-    const r = compile(readFileSync(file, 'utf8'), { fileName: file });
+    const r = compile(exampleSource('hello-vsin'), { fileName: exampleFile('hello-vsin') });
     const p = buildManifest(r.module);
     const vs = p.entries.find((e) => e.name === 'vs');
     expect(vs?.vertex).toEqual({
