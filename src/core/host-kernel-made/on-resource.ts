@@ -23,23 +23,22 @@ function notYet(k: KernelFace, made: KernelMade, why: string): TypeError {
   );
 }
 
-function refusedForm(
-  k: KernelFace,
-  made: KernelMade,
+export function writesPlainArray(
   params: readonly KernelParam[],
   args: readonly unknown[],
-): TypeError | undefined {
+): boolean {
+  return params.some(
+    (p, i) => p.k === 'array' && p.writes && !isResource(heldArgument(args[i])?.array ?? args[i]),
+  );
+}
+
+function refusedForm(k: KernelFace, made: KernelMade): TypeError | undefined {
   if (made.grown === true)
     return notYet(k, made, 'whose length is the number of elements it pushes, known after the run');
   if (made.share !== undefined)
     return notYet(k, made, 'whose elements the run does not write share one object');
   if (made.struct !== undefined && k.P?.().get(made.struct.s) === undefined)
     return notYet(k, made, `of ${made.struct.s}, which is no class the module exports`);
-  const plain = params.findIndex(
-    (p, i) => p.k === 'array' && p.writes && !isResource(heldArgument(args[i])?.array ?? args[i]),
-  );
-  if (plain >= 0)
-    return notYet(k, made, `and writes the plain array of parameter "${params[plain]!.name}"`);
   return undefined;
 }
 
@@ -97,7 +96,7 @@ export function callMadeOnResource(
   reads: IncomingReads,
 ): unknown {
   const params = k.params.filter((p) => p.name !== made.param && p.name !== made.count);
-  const refused = refusedForm(k, made, params, args);
+  const refused = refusedForm(k, made);
   if (refused !== undefined) throw refused;
   const owner = ownerOfCall(k, params, args);
   const making = madeArray(cpu, k, made, args);

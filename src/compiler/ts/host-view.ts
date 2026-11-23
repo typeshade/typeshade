@@ -767,13 +767,12 @@ export function viewText(
         const onResource = shown.result === undefined ? buffers : shown.onResource;
         if (onResource !== undefined && !noBuffer && params('resource') !== params('plain'))
           out.push(`export declare function ${e.name}(${params('resource')}): ${onResource};`);
-        if (shown.result !== undefined) break;
         if (
           f.params.some((p) => p.k === 'array' && p.writes) &&
           params('waits') !== params('plain')
         )
           out.push(
-            `export declare function ${e.name}(${params('waits')}): Promise<${resultType(f.result, named)}>;`,
+            `export declare function ${e.name}(${params('waits')}): Promise<${shown.result ?? resultType(f.result, named)}>;`,
           );
         break;
       }

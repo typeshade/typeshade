@@ -1055,11 +1055,11 @@ type MutableView<V> = {
  *  read-only fields, so `buf.at(i).p0.assign(...)` is a tsc error, and `'read_write'` hands
  *  out mutable ones.
  *
- *  WebGL2 has no storage buffers, so on GLSL ES 3.00 the array is emitted as a data texture
- *  and each read becomes a `texelFetch`. Nothing changes at the authoring site. This path
- *  only reads: a `read_write` binding throws {@link UnsupportedFeatureError} at GLSL emit, so
- *  a write is never silently dropped. A compute kernel's output takes the compute-to-fragment
- *  path; declare the kernel `portable: true`.
+ *  On GLSL ES 3.00 the array is emitted as a data texture and each read becomes a
+ *  `texelFetch`. Nothing changes at the authoring site. This GLSL emit path only reads: a
+ *  `read_write` binding throws {@link UnsupportedFeatureError} at GLSL emit, so a write is
+ *  never silently dropped. A `@compute` entry writes storage on WebGL2 as the pass program
+ *  (Rule 8.24); a kernel function does where each loop writes one array at `i` (Rule 11.8).
  *
  *  The host has one obligation the DSL cannot check for it: give that data texture the
  *  internal format matching the element. `array<u32>` and `array<vecN<u32>>` become a

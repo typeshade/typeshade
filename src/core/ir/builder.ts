@@ -650,8 +650,8 @@ type FnOpts = {
    *  index, a first `uniform` binding of `vec4<u32>` (the dispatch uniform: `.x` is the
    *  invocation count, `.y` the output-grid width), and no `raw` statements anywhere the
    *  entry can reach. Anything outside that shape fails validation at every emit on both
-   *  writers with `SD0111` and a per-violation remedy. Omit it to keep a compute kernel
-   *  WebGPU-only. */
+   *  writers with `SD0111` and a per-violation remedy. Omit it and the compute entry runs on
+   *  WebGL2 as the pass program when it reaches no texture (Rule 8.24). */
   portable?: boolean;
   /** Return-value attribute for a bare (non-struct) stage output, giving
    *  `-> @location(0) vec4<f32>`. A typed `location(0, T)` spec is accepted and its `.attr`

@@ -2709,7 +2709,7 @@ function wave(i: u32): f32 {
     const pipeline = await program.compute('main');
     expect(pipeline.workgroupShape).toEqual([64, 1, 1]);
     await expect(program.compute('main', { constants: { WG_SIZE: 128 } })).rejects.toThrow(
-      'WebGL2 supports only the declared default [64, 1, 1].',
+      'a shape other than the declared default [64, 1, 1] is not supported yet on the WebGL2 tier (Rule 11.8).',
     );
   });
 

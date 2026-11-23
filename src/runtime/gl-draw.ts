@@ -458,7 +458,7 @@ export class GlRenderPrograms {
       const previous = samplers[texture];
       if (previous != null && sampler !== null && previous !== sampler)
         throw new TypeError(
-          `${prefix}: it samples "${texture}" with "${previous}" and "${sampler}", and GLSL ES 3.00 fuses a texture with one sampler. Declare the texture twice, one binding per sampler.`,
+          `${prefix}: it samples "${texture}" with "${previous}" and "${sampler}", and a texture with more than one sampler is not supported yet on the WebGL2 tier. Declare the texture twice, one binding per sampler.`,
         );
       samplers[texture] = previous ?? sampler;
     }

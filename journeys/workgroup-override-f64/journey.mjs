@@ -17,7 +17,10 @@ function run(size, fp64Flavor) {
       ? {}
       : // The text is the runtime's refusal, matched as is. A pass program for each shape is not
         // supported yet on the WebGL2 tier (Rule 11.8).
-        { webgl2Unsupported: 'WebGL2 supports only the declared default [64, 1, 1].' }),
+        {
+          webgl2Unsupported:
+            'a shape other than the declared default [64, 1, 1] is not supported yet on the WebGL2 tier (Rule 11.8).',
+        }),
   };
 }
 

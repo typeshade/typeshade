@@ -70,7 +70,7 @@ export function lowerKernelGl(
   const collection = f.params.find((p) => p.type.kind === 'collection');
   if (collection !== undefined)
     return {
-      noWebgl2: `it takes the Map or Set "${collection.name}", which the WebGL2 tier does not run (change 0080)`,
+      noWebgl2: `it takes the Map or Set "${collection.name}", which is not supported yet on the WebGL2 tier (Rule 11.8, change 0080)`,
     };
   const scalars = f.params.filter((p) => !isRuntimeArray(p.type));
   const arrays = f.params.filter((p) => isRuntimeArray(p.type));
