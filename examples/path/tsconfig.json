@@ -1,0 +1,20 @@
+{
+  // The learning path's project (change 0145): each `host.ts` is checked as an application's host
+  // file is, with the setup surface §64 documents, as `hosts/tsconfig.json` does for the host
+  // examples. `tshc sync` writes the host view of each `.shade.ts` beside it, and `moduleSuffixes`
+  // makes `./name.shade.ts` resolve to that view. `examples/path-examples.test.ts` runs
+  // `tshc sync` and then `tsc -p` over this file.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "moduleSuffixes": [".typeshade", ""]
+  },
+  "include": ["*/host.ts", "_drive.ts"],
+  "exclude": ["**/*.shade.ts"]
+}

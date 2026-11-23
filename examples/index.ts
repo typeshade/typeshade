@@ -49,10 +49,13 @@ import { textureArrayLod } from './texture-array-lod.js';
 import { computeReduction } from './compute-reduction.js';
 import type { ShaderExample } from './_shared.js';
 
-export type { ShaderExample, Control, HostExample } from './_shared.js';
+export type { ShaderExample, Control, HostExample, PathExample } from './_shared.js';
 // The host examples (change 0061): a module and the host file that runs it, in
 // `examples/hosts/`, listed with their text by `hosts/index.ts` (written by `hosts/_registry.ts`).
 export { hostExamples } from './hosts/index.js';
+// The learning path (change 0145): a module and its host file for each step, in `examples/path/`,
+// listed with their text by `path/index.ts` (written by `path/_registry.ts`).
+export { pathExamples } from './path/index.js';
 export {
   graticule,
   hillshade,

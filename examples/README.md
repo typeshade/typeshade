@@ -113,7 +113,7 @@ time and three of its gates fail on a fourth category — the reasoning is writt
 `_shade.ts`'s header. Adding a file here is: write `<id>.shade.ts` with its `@example` block, bake the goldens. A
 file whose block is missing, is not JSON or leaves out a field fails `shade-examples.test.ts`
 rather than going unregistered. The scan reads this directory's top level, and the module of
-each host example below, so a shader library in `lib/` is not an example of its own:
+each host example and each learning-path step below, so a shader library in `lib/` is not an example of its own:
 `imported-noise.shade.ts` imports `lib/noise.shade.ts` (surface §68), and `_shade.ts` compiles it
 with what it imports.
 
@@ -128,6 +128,18 @@ this directory. `hosts/tsconfig.json` type-checks the host files with the host v
 files; `hosts/_order.ts` is its order and the tiers of each host, which those checks hold to what passed. Adding a host example is: write
 the two files, add its id to `hosts/_order.ts`, add its reference to `hosts/_reference.ts` and its
 run to `hosts/_drive.ts`, run `bun examples/hosts/_registry.ts`, and bake the goldens.
+
+The learning path (change 0145) is in `path/`: one directory for each step, `path/<id>/<id>.shade.ts`
+and `path/<id>/host.ts`, in the order of `path/_order.ts`. A step uses only the concepts of the steps
+before it. Its host imports the module and exports `run(canvas)`, and also `animate(canvas)` where
+the step moves; the Playground calls `animate` when both exist, and a check calls `run`. The host
+holds no pipeline, buffer, bind group or encoder code. `path/tsconfig.json` type-checks the host
+files with the host views `tshc sync` writes, `path-examples.test.ts` runs each `run()` on the CPU
+tier against `path/_reference.ts`, and `path/index.ts` is `pathExamples`, the list
+`typeshade/examples` exports, written by `bun examples/path/_registry.ts`. Adding a step is: write
+the two files, add its id to `path/_order.ts`, add its reference to `path/_reference.ts` and its run
+to `path/_drive.ts`, run the registry script, and bake the goldens. Steps 1 to 4 exist; the
+gallery in `hosts/` and the top level keeps its own form until a later milestone of change 0145.
 
 An example can be drawn in several passes (change 0026). Its block names them in draw order,
 `"passes": [{ "name": "trail", "file": "passes/trail.shade.ts" }]`, and the example's own file
