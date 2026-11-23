@@ -1071,13 +1071,13 @@ type texture_2d_array<E extends TextureElem = f32> = { readonly [textureTag]: re
  * declaration. */
 type texture_cube<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, 'cube'] }
 type texture_3d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '3d'] }
-/** WebGPU-only (roadmap 0.4 item 12): a 1D texture is a row of texels addressed by ONE number,
- * and a cube array is N cube maps addressed by a direction and a layer. GLSL ES 3.00 has
- * neither, so a module using one emits WGSL alone. */
+/** Roadmap 0.4 item 12: a 1D texture is a row of texels addressed by ONE number, and a cube
+ * array is N cube maps addressed by a direction and a layer. TypeShade emits no GLSL ES 3.00
+ * form of either yet, so a module using one emits WGSL alone: not supported yet on WebGL2. */
 type texture_1d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '1d'] }
 type texture_cube_array<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, 'cube-array'] }
 /** A multisampled colour texture (roadmap 0.4 item 13): read one sample at a time with
- * \`textureLoad(t, coords, sampleIndex)\`, never sampled. WebGPU-only. */
+ * \`textureLoad(t, coords, sampleIndex)\`, never sampled. Not supported yet on the WebGL2 tier. */
 type texture_multisampled_2d<E extends TextureElem = f32> = { readonly [textureTag]: readonly [E, '2d-ms'] }
 type sampler = { readonly [samplerTag]: true }
 
@@ -1162,7 +1162,7 @@ type texture_depth_2d = { readonly [depthTextureTag]: false }
 type texture_depth_2d_array = { readonly [depthTextureTag]: true }
 /** The shadow map of a point light, compared by the direction from the light. */
 type texture_depth_cube = { readonly [depthTextureTag]: 'cube' }
-/** The shadow maps of N point lights in one binding; WebGPU-only, like \`texture_cube_array\`. */
+/** The shadow maps of N point lights in one binding; not supported yet on the WebGL2 tier, like \`texture_cube_array\`. */
 type texture_depth_cube_array = { readonly [depthTextureTag]: 'cube-array' }
 /** The depth attachment of an MSAA target, read one sample at a time and never compared. */
 type texture_depth_multisampled_2d = { readonly [depthTextureTag]: '2d-ms' }

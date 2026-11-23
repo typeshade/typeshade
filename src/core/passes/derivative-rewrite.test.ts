@@ -6,13 +6,13 @@
 //
 // Verifies: Rule 8.5 (docs/language-design.md; traced in reqs/).
 
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../../compiler/ts/compile.js';
 import { TS_CODES } from '../../compiler/ts/codes.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import { compileModule } from '../oracle.js';
 import { keepHelpers } from '../testing/keep-helpers.js';
+import { exampleSource } from '../../../examples/_example-file.js';
 
 const HEAD = `declare const t: texture_2d<f32>;
 declare const s: sampler;
@@ -401,7 +401,7 @@ describe("the two examples that wrote the filter (change 0132's evidence)", () =
   // Change 0132 deleted the option from both sources. Read as written, both compile with every
   // call reached.
   const without = (id: string): string => {
-    const text = readFileSync(new URL(`../../../examples/${id}.shade.ts`, import.meta.url), 'utf8');
+    const text = exampleSource(id);
     expect(text).not.toContain('diagnostic: [');
     return text.replace(/^"use typeshade";\n/, '');
   };

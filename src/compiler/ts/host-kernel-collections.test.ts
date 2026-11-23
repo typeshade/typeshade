@@ -15,6 +15,7 @@ import { hostFace } from './host-face.js';
 import { compile } from './compile.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import type { KernelFace } from '../../core/host-kernel.js';
+import { exampleSource } from '../../../examples/_example-file.js';
 // A device's fuse() runs through the planner `typeshade/fuse` loads (change 0071).
 import '../../fuse.js';
 
@@ -117,7 +118,7 @@ describe('the face of a kernel function that takes a Map or a Set (change 0080)'
     ]);
     expect(labels.gpu!.arrays.map((b) => b.name)).toEqual(['pixels']);
     expect(labels.noWebgl2).toBe(
-      'it takes the Map or Set "seen", which the WebGL2 tier does not run (change 0080)',
+      'it takes the Map or Set "seen", which is not supported yet on the WebGL2 tier (Rule 11.8, change 0080)',
     );
     // A Map's record is its key and its value.
     const latest = kernelOf(f, 'latest');
@@ -435,11 +436,7 @@ export function f(): f32 { return 0.; }`,
 
 describe('the example kernel-set-unique (change 0080)', () => {
   it('compiles in both halves, and gives on the CPU tier what JavaScript gives', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(
-      resolve(__dirname, '../../../examples/kernel-set-unique.shade.ts'),
-      'utf8',
-    );
+    const source = exampleSource('kernel-set-unique');
     expect(compiler(source)).toEqual([]);
     expect(editor(source)).toEqual([]);
     const { labels, latest, lookup } = await load(source);

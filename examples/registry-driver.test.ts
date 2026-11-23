@@ -19,11 +19,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { compareParts, nonFinite } from './_compare.js';
 import { cpuRunnables, runCheck, runnables, runOnCpu, type Runnable } from './_driver.js';
+import { exampleSource } from './_example-file.js';
 import { expectedOf, oracleOutputs, type OracleCase } from './_oracle.js';
 import { ORACLE_CASES as HOST_CASES } from './hosts/_oracle-cases.js';
 import { ORACLE_CASES as PATH_CASES } from './path/_oracle-cases.js';
 import { PIXEL, RELATIVE } from './path/_reference.js';
-import { readFileSync } from 'node:fs';
 
 const CASES: Readonly<Record<string, OracleCase>> = {
   ...Object.fromEntries(Object.entries(PATH_CASES).map(([id, c]) => [`path/${id}`, c])),
@@ -104,7 +104,7 @@ describe('C5: the CPU run() is held to the f64 oracle of the same IR', () => {
 
   it.each(covered.map((e) => [key(e), e] as const))('%s', async (name, entry) => {
     const c = CASES[name]!;
-    const source = readFileSync(join(entry.dir, `${entry.id}.shade.ts`), 'utf8');
+    const source = exampleSource(entry.id);
     const oracle = oracleOutputs(source, `${entry.id}.shade.ts`, c);
     const want = expectedOf(oracle, (part) => (part === 'pixels' ? PIXEL : RELATIVE));
     expect(compareParts(name, await runOnCpu(entry), want)).toEqual([]);
@@ -133,7 +133,7 @@ describe('C5: the CPU run() is held to the f64 oracle of the same IR', () => {
   it('is exact where the determinism report lists no operation, and loose where it does', () => {
     const exactOf = (id: string): boolean => {
       const entry = entries.find((e) => key(e) === id)!;
-      const source = readFileSync(join(entry.dir, `${entry.id}.shade.ts`), 'utf8');
+      const source = exampleSource(entry.id);
       return oracleOutputs(source, `${entry.id}.shade.ts`, CASES[id]!).exact;
     };
     expect(exactOf('path/first-color')).toBe(true);
@@ -142,10 +142,7 @@ describe('C5: the CPU run() is held to the f64 oracle of the same IR', () => {
   });
 
   it('sees a wrong pixel, a wrong value and a failed run (the instrument is not blind)', () => {
-    const source = readFileSync(
-      join(entries.find((e) => key(e) === 'path/first-color')!.dir, 'first-color.shade.ts'),
-      'utf8',
-    );
+    const source = exampleSource('first-color');
     const oracle = oracleOutputs(source, 'first-color.shade.ts', CASES['path/first-color']!);
     const want = expectedOf(oracle, () => PIXEL);
     const pixels = [...oracle.outputs['pixels']!];

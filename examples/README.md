@@ -9,6 +9,7 @@ with **no dependency on any host runtime**. They import only from the package's 
 Every example is also exported (`module` + metadata) from [`index.ts`](./index.ts), so the same
 sources power the interactive **/shader-dsl** site page (which renders the renderable ones live
 on a WebGL2 canvas) and the CLI printer.
+`index.ts` is generated: after a change to `_order.ts` or to an example file, run `bun scripts/gen-example-registry.ts`, which rewrites the indexes itself, and `example-index-drift.test.ts` fails when an index is stale.
 
 The fullscreen boilerplate — the `{time, resolution, …}` uniform head, the `VsOut` ioStruct,
 and the fullscreen-triangle vertex stage — is shared from [`_fullscreen.ts`](./_fullscreen.ts)
@@ -107,7 +108,7 @@ Each one registers itself: a `/* @example { "title": …, "blurb": …, "rendera
 block directly after the directive carries what `compile()` cannot infer (and a `reason` when
 `renderable` is false, a `twinOf` for a twin). [`_shade.ts`](./_shade.ts) finds every file by
 its extension, in id order, reads that block and compiles the file into the same
-`ShaderExample` shape the EDSL corpus uses (`category: 'source'`). That array is
+`ShaderExample` shape the EDSL corpus uses (`category: 'source'`). A reader that needs one file calls `exampleFile(id)` or `exampleSource(id)` from [`_example-file.ts`](./_example-file.ts), which `_shade.ts` re-exports, and names no path. That array is
 `shadeExamples`, kept separate from `examples` because the site consumes `examples` at build
 time and three of its gates fail on a fourth category — the reasoning is written out in
 `_shade.ts`'s header. Adding a file here is: write `<id>.shade.ts` with its `@example` block, bake the goldens. A

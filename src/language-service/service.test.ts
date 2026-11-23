@@ -1,17 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { withoutDecoratedForm } from '../core/testing/decorated-form.js';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   analyzeSourceFile,
   createTypeshadeLanguageService,
   createTypeshadeLanguageServiceWith,
 } from './service.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
+import { exampleSource } from '../../examples/_example-file.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const HELLO = readFileSync(join(HERE, '..', '..', 'examples', 'hello.shade.ts'), 'utf8');
+const HELLO = exampleSource('hello');
 
 describe('document lifecycle', () => {
   it('returns no diagnostics for a document that was never opened', () => {
