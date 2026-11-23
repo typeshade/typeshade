@@ -29,7 +29,7 @@ import {
   type NumKind,
 } from './scalar-arith.js';
 import { makeLibm, type Libm } from './libm/index.js';
-import { PUSHED_BUILTINS, pushedLength, startPushesAt } from './push-count.js';
+import { PUSHED_BUILTINS, pushedLength, startPushesAt } from './pushed-index.js';
 
 export { atomicStep, intDiv, intRem, scalarBin, wrapInt, type NumKind } from './scalar-arith.js';
 

@@ -7,7 +7,6 @@ import { heldArgument } from './host-arity.js';
 import { isResource } from './host-record.js';
 import type { GeneratedCpu } from './host-entry.js';
 import { fromShaderIn } from './host-values.js';
-import { PastPushedLength } from './push-count.js';
 import { isMadeParam, madeOf, type KernelMade } from './kernel-made-face.js';
 import { filled, madeArray, NO_CLASSES, renamed, type Made } from './host-kernel-made/making.js';
 import { callMadeOnResource } from './host-kernel-made/on-resource.js';
@@ -56,11 +55,17 @@ function result(
   return elements.map((own, i) => (marks !== undefined && marks[i] !== 0 ? own : one));
 }
 
+interface PastLength {
+  readonly site: number;
+  readonly index: number;
+  readonly length: number;
+}
+
 function explained(e: unknown, k: KernelFace, made: KernelMade): unknown {
-  const site = e instanceof PastPushedLength ? made.checks?.[e.site] : undefined;
+  const err = e as Partial<PastLength>;
+  const site = e instanceof RangeError ? made.checks?.[err.site ?? -1] : undefined;
   if (site === undefined) return renamed(e, made);
   const [verb, noun] = site.write ? ['writes', 'A write'] : ['reads', 'A read'];
-  const err = e as PastPushedLength;
   return new RangeError(
     `${k.name}(): "${site.text}" ${verb} index ${String(err.index)} of "${made.shown}", whose ` +
       `length is ${String(err.length)} there. ${noun} past the length is not supported yet.`,
@@ -115,6 +120,6 @@ export function callMadeKernel(
       (e: unknown) => Promise.reject(explained(e, k, made)),
     );
   } catch (e) {
-    return Promise.reject(e instanceof PastPushedLength ? explained(e, k, made) : e);
+    return Promise.reject(e instanceof RangeError ? explained(e, k, made) : e);
   }
 }

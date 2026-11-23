@@ -377,8 +377,7 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'arrayLength',
   // A kernel function's append and its count (change 0078): they move a value and count, and
   // compute nothing that rounds.
-  'push',
-  'pushCount',
+  ...['push', 'pushCount', 'pushedReadAt', 'pushedStoreAt'],
   // A kernel function's Map and Set (change 0080): they compare keys by SameValueZero and move
   // values, and compute nothing that rounds.
   'collectionAdd',

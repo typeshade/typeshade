@@ -168,7 +168,7 @@
   "src/core/passes/derivative-rewrite.test.ts": 424,
   "src/core/passes/derivative-rewrite.ts": 1459,
   "src/core/passes/determinism.test.ts": 733,
-  "src/core/passes/determinism.ts": 609,
+  "src/core/passes/determinism.ts": 608,
   "src/core/passes/effects.ts": 451,
   "src/core/passes/fp64-lower.test.ts": 962,
   "src/core/passes/fp64-lower.ts": 1713,
