@@ -1355,7 +1355,7 @@ the owner chose, as the pull request or the issue records it. Each program below
     by D-b with no edit.
 
   - Issue #1416, implemented by #1440 (merged as `118c0434`, 2026-11-23). A comparison of a D-b
-    quotient of a tree whose two readings differ compiled silently, and two D-b edits gave a wrong
+    quotient of a tree whose two readings differ compiled silently. Two D-b edits gave a wrong
     value. On `main` at `118c0434` both halves refuse each of these programs.
     - After `let c = (3000000000|0); let d = c;`, `return d / 7 > 5 ? 1 : 0;` compiled to 1 on
       `main` at `0dc0e7a7`, where TypeScript gives 0. It is refused with
@@ -1370,10 +1370,8 @@ the owner chose, as the pull request or the issue records it. Each program below
       (decision (c)). `return u32(d / 7 / 1);` named `f32(i32(d)) / 7` on `0dc0e7a7`, and the
       edited program gave 0. `xs[d / 1000000000]` named `i32(d) / 1000000000`, a negative index.
     - Not changed, and not open deviations: `d / d` and `d / e` name no edit (decision (c)).
-      Observed, with no issue yet: `let a = (-7|0); return u32(a / 2 / 1);` names `f32(a) / 2`,
-      and the edited program gives 0, where TypeScript gives 4294967293. `b / 7 + vi` names
-      `u32(b) / 7`, which gives TypeScript's value only for a `b` that fits a `u32`.
-      The owner decides whether either becomes an issue.
+      Observed, with no issue yet: `let a = (-7|0); return u32(a / 2 / 1);` names `f32(a) / 2`.
+      The edited program gives 0. TypeScript gives 4294967293.
   - Open deviation, issue #1380: after `let a = 1 << 30; let b = a + a;`, a typed `i32` position reads the
     wrapped value. `b /= 7; return b;` is refused with the edit `let b: i32 = a + a`, and the
     edited program gives -306783378, where TypeScript gives 306783378. With
