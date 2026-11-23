@@ -1,0 +1,9 @@
+{
+  "title": "Loops that run on the CPU",
+  "blurb": "One loop for each rule of the independence proof (R1 to R6) that the proof refuses. Each carries a warning, TS8070, whose first sentence names the line and the names in it and whose second gives the remedy. A warning refuses nothing: the module compiles, and a host call runs the function on the CPU tier, where the loop means what it says.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "no entry point"
+}

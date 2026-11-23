@@ -1,0 +1,8 @@
+{
+  "title": "Path tracer",
+  "blurb": "A small path tracer as ordinary TypeScript: four spheres with diffuse and emissive materials, eight bounces per path as an iterative loop with an early `break`, cosine-weighted sampling from `random(seed)`, a constant array of structs as the scene, and sixteen paths per pixel, tone-mapped. The first program of #199's domain table outside shading: it compiles with no diagnostic on both targets, and it renders on WebGPU (measured on Tint with SwiftShader).",
+  "group": "works",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

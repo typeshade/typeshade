@@ -1,0 +1,14 @@
+{
+  "title": "Separable blur",
+  "blurb": "A blur in two passes: the `blurX` pass draws a pattern blurred along x, and this file reads what it drew in the same frame through a `texture_2d<f32>` of the same name and blurs it along y.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true,
+  "passes": [
+    {
+      "name": "blurX",
+      "file": "gallery/separable-blur/blur-x.shade.ts"
+    }
+  ]
+}

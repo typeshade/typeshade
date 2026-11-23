@@ -718,7 +718,7 @@ at `b5ff3963`, with `main` at `2efdff61` merged; the checks below ran again afte
 - Examples: 100 of the 114 `examples/**/*.shade.ts` files, 301 lines. `tshc migrate` rewrote the
   196 lines of item 1. A scratch script dropped 105 written locations of item 2, one at a time,
   and kept each only where `compile()` and `reflect()` gave the same result. One written location
-  stays without an option, `FsIn.uv` in `examples/twin-structs.shade.ts`: `FsIn` is the type of a
+  stays without an option, `FsIn.uv` in `examples/gallery/twin-structs/twin-structs.shade.ts`: `FsIn` is the type of a
   helper's parameter and no entry's, so only the written location puts `@location(0)` in its
   struct. `examples/id-pick.shade.ts` keeps the one location that carries an option.
 - `CHANGELOG.md`, `AUTHORING.md`, `docs/language-service-api.md`, `AGENTS.md`, `src/AGENTS.md`.

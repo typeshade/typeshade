@@ -124,8 +124,8 @@ come from `find examples -name '*.shade.ts'` and `examples/_order.ts`, run on 20
 - 36 builder examples `examples/*.ts` that `examples/_order.ts` lists (`CURATED_ORDER`). The
   site reads them at build time from `examples/index.ts`. 23 of the 102 `.shade.ts` files are
   twins of these (`twinOf`). The other 13 builder examples have no `.shade.ts` form.
-- 3 support modules, which are not examples: `examples/lib/noise.shade.ts` and
-  `examples/passes/blur-x.shade.ts` and `trail.shade.ts` (it moved to `examples/gallery/feedback-trail/` in M4.3a). An example imports
+- 3 support modules, which are not examples: `noise.shade.ts` (once in
+  `examples/lib/`), `blur-x.shade.ts` (once in `examples/passes/`) and `trail.shade.ts` (the three moved into the directories of the examples that import them, `examples/gallery/imported-noise/`, `examples/gallery/separable-blur/` and `examples/gallery/feedback-trail/`, in M4.3a and M4.3b). An example imports
   each of them (`imported-noise`, `separable-blur`, `feedback-trail`).
 
 Total: 114 `.shade.ts` files (102 + 9 + 3) and 36 builder files. They hold 147 examples
@@ -731,20 +731,20 @@ entry called as `fs(canvas, bindings?)` (Rule 8.24) and a `@compute` entry or a 
 No example has a vertex entry, a render pass or a texture. Those wait for 0138 milestone 5
 (Q6 of the approved text). The ids are new in the tree, except `path-tracer` (below).
 
-| Id                        | What it shows                                                                                                                                              | Path concepts it uses                                                               | Tiers it targets                     |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------ |
-| `three-body`              | Three bodies under gravity. Each pixel replays the system for a fixed number of steps and draws the bodies and their trails.                               | Steps 4 to 8: functions, loops with an early exit, arrays, a class with references. | WebGPU, WebGL2, CPU (fragment only). |
-| `bloom`                   | A glow around bright points. A procedural image function is sampled at the taps of a Gaussian kernel inside one fragment entry.                            | Steps 4, 5 and 7: functions, loops, a constant array of weights.                    | WebGPU, WebGL2, CPU (fragment only). |
-| `tone-mapping`            | One HDR ramp, split into three bands: clamped, Reinhard and an ACES fit. No input image.                                                                   | Steps 2 and 4: `position`, vectors, functions.                                      | WebGPU, WebGL2, CPU (fragment only). |
-| `game-of-life`            | Conway's rule on a grid. A compute entry reads one buffer and writes the other. A fragment entry draws the cells.                                          | Step 7 (arrays), step 12 (the first compute kernel).                                | WebGPU, WebGL2, CPU.                 |
-| `boids`                   | Flocking from three rules. A compute entry reads every boid and writes the next state. A fragment entry draws each boid as a disc.                         | Steps 5 and 8 (loops, a class), step 12.                                            | WebGPU, WebGL2, CPU.                 |
-| `reaction-diffusion`      | Gray-Scott pattern growth on a grid, in a compute entry with two buffers. A fragment entry maps the two chemicals to colour.                               | Steps 7 and 12, and the `palette` ramp of step 7.                                   | WebGPU, WebGL2, CPU.                 |
-| `path-tracer-progressive` | A path tracer that keeps the sum of its samples in a buffer. A compute entry adds one sample for each pixel in each call. A fragment entry shows the mean. | Steps 4 to 8 and step 12. It continues `examples/path-tracer.shade.ts`.             | WebGPU, WebGL2, CPU.                 |
-| `fluid-2d`                | Stable fluids on a grid: advection, divergence, a fixed count of Jacobi pressure iterations and projection, each a kernel function.                        | Steps 5, 7 and 12, and the kernel call of step 12 (`await kernel(args)`).           | WebGPU, WebGL2, CPU.                 |
+| Id                        | What it shows                                                                                                                                              | Path concepts it uses                                                                       | Tiers it targets                     |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `three-body`              | Three bodies under gravity. Each pixel replays the system for a fixed number of steps and draws the bodies and their trails.                               | Steps 4 to 8: functions, loops with an early exit, arrays, a class with references.         | WebGPU, WebGL2, CPU (fragment only). |
+| `bloom`                   | A glow around bright points. A procedural image function is sampled at the taps of a Gaussian kernel inside one fragment entry.                            | Steps 4, 5 and 7: functions, loops, a constant array of weights.                            | WebGPU, WebGL2, CPU (fragment only). |
+| `tone-mapping`            | One HDR ramp, split into three bands: clamped, Reinhard and an ACES fit. No input image.                                                                   | Steps 2 and 4: `position`, vectors, functions.                                              | WebGPU, WebGL2, CPU (fragment only). |
+| `game-of-life`            | Conway's rule on a grid. A compute entry reads one buffer and writes the other. A fragment entry draws the cells.                                          | Step 7 (arrays), step 12 (the first compute kernel).                                        | WebGPU, WebGL2, CPU.                 |
+| `boids`                   | Flocking from three rules. A compute entry reads every boid and writes the next state. A fragment entry draws each boid as a disc.                         | Steps 5 and 8 (loops, a class), step 12.                                                    | WebGPU, WebGL2, CPU.                 |
+| `reaction-diffusion`      | Gray-Scott pattern growth on a grid, in a compute entry with two buffers. A fragment entry maps the two chemicals to colour.                               | Steps 7 and 12, and the `palette` ramp of step 7.                                           | WebGPU, WebGL2, CPU.                 |
+| `path-tracer-progressive` | A path tracer that keeps the sum of its samples in a buffer. A compute entry adds one sample for each pixel in each call. A fragment entry shows the mean. | Steps 4 to 8 and step 12. It continues `examples/gallery/path-tracer/path-tracer.shade.ts`. | WebGPU, WebGL2, CPU.                 |
+| `fluid-2d`                | Stable fluids on a grid: advection, divergence, a fixed count of Jacobi pressure iterations and projection, each a kernel function.                        | Steps 5, 7 and 12, and the kernel call of step 12 (`await kernel(args)`).                   | WebGPU, WebGL2, CPU.                 |
 
 Notes on the table.
 
-- [fact] `examples/path-tracer.shade.ts` exists in the gallery. Its header says that progressive
+- [fact] `examples/gallery/path-tracer/path-tracer.shade.ts` exists in the gallery. A comment in its source says that progressive
   accumulation "needs a second pass that reads the previous image, which is host work today". The
   id `path-tracer` is therefore taken. [proposal, agent] The new example uses the id
   `path-tracer-progressive`. A1-Q3 asks the owner.
@@ -834,7 +834,7 @@ owner says "merge" (CLAUDE.md, Merging).
    the same form as the path (`run(canvas)` or `run()`, and an optional `animate(canvas)`). The
    reader and the check harness then read one host of one form.
 3. **A1-Q3. The id `path-tracer` is taken. Which id does the new example use?** Recommended:
-   `path-tracer-progressive`, so that `examples/path-tracer.shade.ts` keeps its id (OD-6 allows a
+   `path-tracer-progressive`, so that `examples/gallery/path-tracer/path-tracer.shade.ts` keeps its id (OD-6 allows a
    rename, but nothing needs it).
 4. **A1-Q4. May a reused part be an asset as well as code?** The owner's third statement says
    "사용하도록" without naming either. Recommended: yes, for both, under the same comment and the
@@ -946,8 +946,8 @@ examples/
 1. **One directory for each example.** The directory name is the id. The module is `<id>.shade.ts`.
    A test fails when the two disagree. The directory holds one `example.json` beside the module. The nine hosts, the 93 other `.shade.ts` examples and the 3
    support modules move under `examples/gallery/`. A support module moves into the directory of the
-   example that imports it (`lib/noise.shade.ts` to `imported-noise`, `passes/blur-x.shade.ts` and
-   `trail.shade.ts` to `feedback-trail` and `passes/blur-x.shade.ts` to `separable-blur`, as 0145 says each is imported by one example).
+   example that imports it (`noise.shade.ts` of `examples/lib/` to `imported-noise`, `blur-x.shade.ts` of `examples/passes/` to `separable-blur`, and
+   `trail.shade.ts` to `feedback-trail`, as 0145 says each is imported by one example).
 2. **The manifest is a separate `example.json` in each example directory.** [decision, owner, O2]
    [fact] Today the `@example` block of a module holds its hand-written metadata
    (`examples/_shade.ts`, decision #65: two branches that add two examples touch two new files and no

@@ -1,0 +1,9 @@
+{
+  "title": "Reductions in a loop",
+  "blurb": "A sum, a mean and a variance, and a histogram, each a loop over an array. `s += x` is a reduction: the GPU folds it 256 at a time by the workgroup tree and then the partials the same way, and the CPU tier and the oracle fold it in the same order, so a sum is the same bits on every tier (Rule 7.2). `bins[k] += 1` is a scatter: two iterations may land on one bin, so each add is an atomic on the GPU.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "no entry point"
+}

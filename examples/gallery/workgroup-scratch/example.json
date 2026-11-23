@@ -1,0 +1,9 @@
+{
+  "title": "Workgroup scratch memory",
+  "blurb": "`let tile: workgroup<array<f32, 64>>` is WGSL's `var<workgroup>`, one copy per workgroup its invocations share, here as scratch each invocation owns a slot of, beside a workgroup array of atomics and a per-invocation counter (§24). `compile()` emits WGSL and no GLSL text for it; on WebGL2 the entry runs as a pass program, with its workgroup memory as words (Rule 11.8).",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}
