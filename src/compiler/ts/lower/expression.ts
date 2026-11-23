@@ -34,7 +34,14 @@ import ts from 'typescript';
 import type { Expr, BinOp, CmpOp, LogOp } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { f32T, boolT, i32T, u32T, isF64, isVec64 } from '../../../core/ir/types.js';
-import { holdReadings, integerQuotientIn, pastI32Readings } from './integer-quotient.js';
+import {
+  holdReadings,
+  integerQuotientIn,
+  floatQuotient,
+  pastI32Readings,
+  quotientPeerEdit,
+  refuseHeldComparison,
+} from './integer-quotient.js';
 import type { QuotientSite } from './integer-quotient.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { authorTypeText, dropsRecoveredUse, irNameOf, type LoweringScope } from '../context.js';
@@ -74,7 +81,6 @@ import {
   integerQuotientAt,
   isIntegerQuotient,
   readKindlessExactly,
-  markIntegerQuotient,
   markQuotientRead,
   retractOperandRefusals,
   intLiteralRangeMessage,
@@ -1456,7 +1462,7 @@ function lowerBinary(
         e.op === 'varref' &&
         kindlessDeclaration(resolve(e.name)) !== undefined
       ) {
-        holdReadings(site, n, readings);
+        holdReadings(site, n, readings, typeKey(e.type) === 'u32');
         continue;
       }
       retractKindlessRefusal(e);
@@ -1584,14 +1590,7 @@ function lowerBinary(
             : n.getText(sourceFile).replace(/\s+/g, ' ');
         const subject = text(lo === 'kindless' ? node.left : node.right);
         const edit = `${shown(node.left, lo)} / ${shown(node.right, ro)}`;
-        const peerEdit = (type: string): string =>
-          [node.left, node.right]
-            .map((n, i) =>
-              [lo, ro][i] === 'kindless'
-                ? `${type}(${text(n)})`
-                : n.getText(sourceFile).replace(/\s+/g, ' '),
-            )
-            .join(' / ');
+        const peerEdit = quotientPeerEdit(site, [lo, ro], text);
         const subjects = [node.left, node.right]
           .filter((_, i) => [lo, ro][i] === 'kindless')
           .map(text);
@@ -1607,8 +1606,6 @@ function lowerBinary(
           // `f32(i32(…))` for it, as the tree's does.
           [node.left, node.right].some((n) => twoReadingsOf(n) !== undefined),
         );
-        const asF32 = (e: Expr): Expr =>
-          intElem(e.type) === undefined ? e : { op: 'call', type: f32T, fn: 'f32', args: [e] };
         const [l, r] = [left, right];
         const integerAt = (target: ShaderType, declared = true): Expr | undefined =>
           integerQuotientIn(
@@ -1623,10 +1620,7 @@ function lowerBinary(
         refusedQuotient =
           contextual !== undefined && intElem(contextual) !== undefined
             ? integerAt(contextual)
-            : markIntegerQuotient(
-                { op: 'binop', type: f32T, bop: '/', a: asF32(l), b: asF32(r) },
-                integerAt,
-              );
+            : floatQuotient(l, r, integerAt, site);
       }
     }
     if (refusedQuotient !== undefined) return refusedQuotient;
@@ -2042,6 +2036,7 @@ function lowerBinary(
         [right, node.right],
       ] as const) {
         readKindlessExactly(e);
+        refuseHeldComparison(e);
         if (isIntegerQuotient(e)) noteWrittenDivisionRead(skipParensNode(n), sourceFile, 'read');
       }
     }

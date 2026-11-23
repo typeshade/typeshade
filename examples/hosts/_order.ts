@@ -22,9 +22,9 @@ export const HOST_ORDER: readonly {
   { id: 'host-draw', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'host-compute', tiers: ['webgpu', 'webgl2', 'cpu'] },
   // Not WebGL2 yet: `peak` reduces, and the WebGL2 tier runs a kernel loop only when it writes one
-  // array at exactly `i` (Rule 11.8). A reduction is not supported there yet, so with WebGL2
-  // alone the call is refused. Where WebGPU is absent, `exposure` runs on WebGL2 and `peak` on
-  // the CPU tier.
+  // array at exactly `i` (Rule 11.8). With WebGL2 alone the call is refused ("loop 1 reduces,
+  // which the WebGL2 tier does not support yet (Rule 11.8)"). Where WebGPU is absent, `exposure`
+  // runs on WebGL2 and `peak` on the CPU tier.
   { id: 'host-kernel', tiers: ['webgpu', 'cpu'] },
   // Not WebGL2 yet, for the same reason: `sum` reduces.
   { id: 'host-resident', tiers: ['webgpu', 'cpu'] },

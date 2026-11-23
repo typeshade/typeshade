@@ -299,6 +299,17 @@ The owner's rules, given on 2026-10-13, for every session:
   request at once. Push each later commit to the same branch, so that no work stays only in the
   container.
 
+The owner's rule, given on 2026-11-23: "구현이랑 테스트, 기타 작업은 sonnet haiku를 사용하시고 당신은
+오케스트레이션을 중심으로해주세요" (English: use Sonnet and Haiku for implementation, tests and other
+work, and keep yourself to orchestration).
+
+- The session's own model orchestrates: it splits the work, briefs each sub-agent, checks what
+  comes back, commits, pushes, opens and merges pull requests, and reports to the owner.
+- A Sonnet sub-agent does implementation, tests, fixes, proposal drafts, reviews and plans.
+- A Haiku sub-agent does mechanical work: reading a CI log, a measurement, a text check, a
+  baseline update.
+- The orchestrator checks each report's key facts itself before it commits or merges.
+
 ## Waiting on a pull request
 
 - Mark a draft pull request ready for review as soon as its required checks are green, not at

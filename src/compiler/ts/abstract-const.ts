@@ -106,6 +106,7 @@ import {
   type Reading,
 } from './abstract-const/reading.js';
 import { builtinReadingsOf } from './abstract-const/builtin-readings.js';
+import { heldWraps, readsNegativeAsWgsl } from './abstract-const/held-use.js';
 import { divisionEdits as buildDivisionEdits } from './remedies/candidates.js';
 import { NO_DIVISION } from './remedies/contracts.js';
 import type {
@@ -1381,9 +1382,7 @@ export function reportAbstractDivisions(
                   .join(' or ')} to choose the division.`
               : genericDivisionRemedy(
                   w.subjects,
-                  w.readings === true
-                    ? (allowed ?? ALL_SCALARS).map((t) => (t === 'f32' ? 'f32(i32' : t))
-                    : allowed,
+                  w.readings === true ? heldWraps(node, allowed ?? ALL_SCALARS) : allowed,
                   { node },
                 )),
         TS_CODES.TYPE_MISMATCH,
@@ -1439,11 +1438,10 @@ export function reportAbstractDivisions(
           };
         }
         const { first, second, conflict, allowed } = typesFromUse(node, peer, cx);
-        const change = (t: Scalar): SourceChange => ({
-          start: node.getStart(sourceFile),
-          end: node.getEnd(),
-          text: editIn(t),
-        });
+        const change = (t: Scalar): SourceChange | undefined =>
+          w.readings === true && readsNegativeAsWgsl(node)
+            ? undefined
+            : { start: node.getStart(sourceFile), end: node.getEnd(), text: editIn(t) };
         return {
           diagnostic: () => current,
           sets: [change(first), change(second)],
@@ -2140,6 +2138,7 @@ export function wrapsCannotChoose(
   constant = false,
 ): boolean {
   const offers = (t: string) => allowed.some((a) => a === t || (t === 'f32' && a === 'f32(i32'));
+  if (allowed.length === 0) return true;
   // The refusal may stand on a minus around the `/` (`-((~(1|2)) / 7)`).
   let node: ts.Expression = at;
   let negated = false;

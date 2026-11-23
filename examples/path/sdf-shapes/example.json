@@ -1,0 +1,11 @@
+{
+  "title": "SDF shapes",
+  "blurb": "Step 4 of the learning path. A function gives the distance from a point to a shape. `length` measures the circle, and `smoothstep` turns a distance into a soft edge. Two small functions, `circle` and `box`, are called from the entry.",
+  "group": "path",
+  "part": "First pixels",
+  "step": 4,
+  "tiers": ["webgpu", "webgl2", "cpu"],
+  "host": "run",
+  "renderable": false,
+  "reason": "no entry point"
+}

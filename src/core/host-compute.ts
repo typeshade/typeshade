@@ -8,9 +8,9 @@
 // A runtime-sized storage array binding may be a `Resident` (0013's handle): on WebGPU it is
 // bound as the buffer it already has on the device and nothing is read back; on the CPU tier it
 // is the array the handle holds, brought up to date first. The tiers are tried in the order
-// `configure({ prefer })` sets: WebGPU, WebGL2, then the CPU tier. WebGL2 has no compute stage;
-// there the entry runs as the pass program of change 0054 (`gl-compute.ts`), its storage as
-// textures of words, and a `Resident` is the array it holds, as on the CPU tier. A scratch array
+// `configure({ prefer })` sets: WebGPU, WebGL2, then the CPU tier. On WebGL2 the
+// entry runs as the pass program of change 0054 (`gl-compute.ts`), its storage as textures of
+// words, and a `Resident` is the array it holds, as on the CPU tier. A scratch array
 // of a `fuse` scope (change 0058) is no binding for an entry: the call is refused, and the
 // refusal names the array as scratch.
 //

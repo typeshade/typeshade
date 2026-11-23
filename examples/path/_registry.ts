@@ -4,8 +4,8 @@
 //
 // `typeshade/examples` is browser-safe and reads no file at run time, so the text of each step's
 // two files is written into `path/index.ts` here, at authoring time, as `hosts/_registry.ts` does
-// for the host examples. The order, the part and the tiers come from `_order.ts`, the title and
-// the blurb from the module's own `@example` block (`_shade.ts`), and the text from the files.
+// for the host examples. The order comes from `_order.ts`; the part, the step, the tiers, the title
+// and the blurb come from each step's `example.json` (`_manifest.ts`), and the text from the files.
 // `examples/path-examples.test.ts` renders the file again and fails while it differs from the one
 // checked in.
 //
@@ -15,7 +15,8 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { format, resolveConfig } from 'prettier';
-import { exampleText, PATH_DIR, SHADE_EXT } from '../_shade.js';
+import { readManifest } from '../_manifest.js';
+import { PATH_DIR, SHADE_EXT } from '../_shade.js';
 import type { PathExample } from '../_shared.js';
 import { PATH_ORDER } from './_order.js';
 
@@ -31,7 +32,7 @@ export function pathExampleRecords(): PathExample[] {
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
     .sort();
-  const listed = PATH_ORDER.map((h) => h.id);
+  const listed = [...PATH_ORDER];
   const unlisted = onDisk.filter((id) => !listed.includes(id));
   const missing = listed.filter((id) => !onDisk.includes(id));
   if (unlisted.length > 0 || missing.length > 0 || new Set(listed).size !== listed.length)
@@ -40,7 +41,11 @@ export function pathExampleRecords(): PathExample[] {
         `not listed ${JSON.stringify(unlisted)}, no directory ${JSON.stringify(missing)}, ` +
         `listed ${JSON.stringify(listed)}`,
     );
-  return PATH_ORDER.map(({ id, step, part, tiers }) => {
+  return PATH_ORDER.map((id) => {
+    const manifest = readManifest(join(HERE, id), id);
+    const { step, part, title, blurb, tiers } = manifest;
+    if (step === undefined || part === undefined)
+      throw new Error(`typeshade: examples/path/${id}/example.json has no "step" and "part"`);
     const shadeFile = `${PATH_DIR}/${id}/${id}${SHADE_EXT}`;
     const hostFile = `${PATH_DIR}/${id}/host.ts`;
     const read = (file: string): string => readFileSync(join(HERE, '..', file), 'utf8');
@@ -48,12 +53,13 @@ export function pathExampleRecords(): PathExample[] {
       id,
       step,
       part,
-      ...exampleText(id),
+      title,
+      blurb,
       shadeFile,
       shadeSource: read(shadeFile),
       hostFile,
       hostSource: read(hostFile),
-      tiers: [...tiers],
+      tiers: [...(tiers ?? ['webgpu', 'webgl2', 'cpu'])],
     };
   });
 }
@@ -67,8 +73,8 @@ export async function renderPathRegistry(): Promise<string> {
 //
 // Each step is a \`"use typeshade"\` module and the host file that runs it, in
 // \`examples/path/<id>/\`. This file carries their text, so \`typeshade/examples\` stays
-// browser-safe and reads no file. The order, the part and the tiers are \`_order.ts\`'s; the title
-// and the blurb are the module's \`@example\` block.
+// browser-safe and reads no file. The order is \`_order.ts\`'s; the part, the step, the tiers, the
+// title and the blurb are each step's \`example.json\`.
 
 import type { PathExample } from '../_shared.js';
 

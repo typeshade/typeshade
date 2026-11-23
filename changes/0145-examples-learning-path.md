@@ -541,12 +541,12 @@ with its disposition; and the pending work.
 - Not run: a WebGPU page that runs the four `host.ts` files, since `gate:journeys` reads only
   `HOST_ORDER`; the `animate` of `moving-wave`. Open: M4 brings the path into the journeys.
 
-| Deviation                                                                                                                                                                                                  | Disposition                                                        |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| D-1. The four modules carry `"renderable": false, "reason": "no entry point"`, as `host-draw` does. A module with only a fragment entry has no vertex stage, and the `shade-examples` GLSL test needs one. | Open. M5 decides what the site reads for a step that draws.        |
-| D-2. The uniform is `interface Frame`, where `host-draw` uses `class Frame`. Step 8 stays the first step with a class.                                                                                     | Closed. The path rule "a step uses only earlier concepts" asks it. |
-| D-3. `examples/index.ts` names the generator scripts/gen-example-registry.ts, which does not exist, so `pathExamples` was added by hand.                                                                   | Open. A later pull request restores the generator or the text.     |
-| D-4. Steps 1 to 4 also use `abs`, `max`, `sin`, `const` locals and swizzles, which the path table does not list.                                                                                           | Open. The path table is amended to list them.                      |
+| Deviation                                                                                                                                                                                                  | Disposition                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| D-1. The four modules carry `"renderable": false, "reason": "no entry point"`, as `host-draw` does. A module with only a fragment entry has no vertex stage, and the `shade-examples` GLSL test needs one. | Open. M5 decides what the site reads for a step that draws.         |
+| D-2. The uniform is `interface Frame`, where `host-draw` uses `class Frame`. Step 8 stays the first step with a class.                                                                                     | Closed. The path rule "a step uses only earlier concepts" asks it.  |
+| D-3. `examples/index.ts` names the generator scripts/gen-example-registry.ts, which does not exist, so `pathExamples` was added by hand.                                                                   | Closed by M4.1: the generator is written and a drift test holds it. |
+| D-4. Steps 1 to 4 also use `abs`, `max`, `sin`, `const` locals and swizzles, which the path table does not list.                                                                                           | Open. The path table is amended to list them.                       |
 
 **M2, delivered.** Pull request #1429, merged on 2026-11-23 as `7cc11705`, under the owner's
 go-ahead of that day for every pull request until 24:00 KST ("12시까지 모두 자동 진행 승인").
@@ -854,6 +854,519 @@ owner says "merge" (CLAUDE.md, Merging).
 - `downstream`: the site shows four groups, not three. The site needs one more group heading and
   a blurb in each locale for each shown id. The editor skill's example list names the group.
   [fact] The front matter `downstream` lines say "three groups" and are amended in this text.
+
+### A2. The gallery (milestone M4) designed from scratch (2026-11-23, status: accepted)
+
+- Status: accepted. [decision, owner, 2026-11-23] The owner answered O1 to O6 in the conversation,
+  in a question form the agent showed (Owner's answers to the options, below). O7 was not asked
+  and stands as written. A2 is part of the approved text from the merge of its pull request
+  (#1443). No code and no example changes with this pull request.
+- Baseline: `main` at `360b35d6`. M1, M2 and M3 are delivered there (`examples/path/` holds steps 1
+  to 8, 12 to 15 and 17).
+- A2 replaces the old text of M4, of Q2 and of Q7. It keeps the path, M1 to M3, A1 and every other
+  sentence of the approved text (Supersession, below).
+- A2 adds no rule, no author-facing name, no diagnostic code and no export. `rules`, `surface`,
+  `exports`, `exports-removed`, `codes` and `names` stay empty. [proposal] The front matter
+  `examples` does not change.
+
+#### Why A2 exists
+
+A planning pass for M4 read the gallery at `360b35d6` and found four things. Each is a fact, read
+with the command named.
+
+1. 81 of the 102 files `examples/*.shade.ts` have a `@vertex` entry (`grep -l "@vertex"`). The
+   other 21 hold a `@compute` entry or a kernel function. No file holds a fragment entry alone.
+2. Each of the 81 vertex stages reads the `vertex_index` builtin (`grep -l vertex_index`). [inference]
+   Each draws without a vertex buffer. The fragment entry of each reads a vertex output, so Rule 8.24
+   does not make it callable (Rule 8.20: a vertex entry is not callable yet; the host view declares
+   such a fragment `never`, `src/compiler/ts/host-face-shared.ts`). Under Q7 these modules get no `host.ts`.
+3. The text of this proposal names two layouts. The table of What it touches says
+   `examples/gallery/`. Q2 says `examples/<group>/<id>/`.
+4. Three host examples lose what they show under one `run()`. `host-program` shows the program
+   runtime (`runtime()`, `rt.load`, `rt.frame`). `host-compute` shows `runSpecialized`, which returns a
+   `FuseReport`. `loop-fuse` shows the fuse reports. A plain-JavaScript reference for every gallery
+   example is not practical, for example for the path tracer.
+
+The owner was asked four questions on 2026-11-23. Each answer is a decision about the direction.
+Each is quoted in Korean as said, with its English translation:
+
+- [decision, owner, 2026-11-23] O2, the 81 modules with no `host.ts`: "그냥 처음부터 다시".
+  English: just start over.
+- [decision, owner, 2026-11-23] O1, the layout: "제대로 확장 가능하게 처음부터 다시".
+  English: start over properly, so that it can grow.
+- [decision, owner, 2026-11-23] O4, the three special hosts: "제대로 처음부터 다시".
+  English: start over properly.
+- [decision, owner, 2026-11-23] O5, the verification: "제대로 처음부터 다시".
+  English: start over properly.
+
+The owner's words are decisions about the direction. They are not an approval of this text.
+
+#### Goal
+
+After A2 is implemented:
+
+1. Every example of the gallery is runnable by a host, in the same form as the path.
+2. The layout holds hundreds of examples and new groups. A new example or a new group needs no
+   change to a TypeScript file of the registry.
+3. A special demonstration keeps what it shows.
+4. Every example has a check that needs no hand-written reference for that example.
+
+Fact: today a host file exists for the 9 host examples and the 13 path steps. No other example
+has one. A2 does not hold that the goal is met before 0138 milestone 5 (The draw dependency).
+Until then the count of examples with `host: "pending"` states the gap, and the goal is a count to bring to zero.
+
+#### The layout
+
+Today five files carry order and metadata. [fact] `examples/_order.ts` (`CURATED_ORDER`, 36 builder
+ids), `examples/hosts/_order.ts` (`HOST_ORDER`, 9 ids and tiers), `examples/path/_order.ts`
+(`PATH_ORDER`, 13 entries with part, step and tiers), the `@example` header block of each
+`.shade.ts` (title, blurb, `renderable`, `reason`, `twinOf`, `passes`) and the builder object of
+each `examples/*.ts`. [fact] `examples/index.ts` names scripts/gen-example-registry.ts, which is not
+in the tree (deviation D-3). Two scripts, `examples/hosts/_registry.ts` and `examples/path/_registry.ts`, write
+the other two indexes.
+
+[proposal] The new layout:
+
+```text
+examples/
+  groups.json                      the groups, as data
+  path/<id>/<id>.shade.ts          the path: module unchanged (M1 to M3)
+  path/<id>/example.json           the manifest (added by M4.2)
+  path/<id>/host.ts
+  path/_order.ts                   ids in reading order, nothing else
+  gallery/<id>/<id>.shade.ts       every other module, one directory each, no `@example` block
+  gallery/<id>/example.json        the manifest of the example
+  gallery/<id>/host.ts             the host, when `host` is "run"
+  gallery/<id>/check.ts            optional: the assertion of a special demonstration
+  gallery/<id>/<support>.shade.ts  a support module of this example (no `example.json`)
+  *.ts                             the 36 builder examples stay as they are (Q5)
+  index.ts                         generated by scripts/gen-example-registry.ts
+```
+
+1. **One directory for each example.** The directory name is the id. The module is `<id>.shade.ts`.
+   A test fails when the two disagree. The directory holds one `example.json` beside the module. The nine hosts, the 93 other `.shade.ts` examples and the 3
+   support modules move under `examples/gallery/`. A support module moves into the directory of the
+   example that imports it (`lib/noise.shade.ts` to `imported-noise`, `passes/blur-x.shade.ts` and
+   `passes/trail.shade.ts` to `separable-blur` and `feedback-trail`, as 0145 says each is imported by one example).
+2. **The manifest is a separate `example.json` in each example directory.** [decision, owner, O2]
+   [fact] Today the `@example` block of a module holds its hand-written metadata
+   (`examples/_shade.ts`, decision #65: two branches that add two examples touch two new files and no
+   shared line). [proposal] A directory keeps that property: a new example is a new directory with
+   a new `example.json`, and no shared line changes. The file is plain JSON. A test rejects an
+   unknown field. The module holds no `@example` block (Registry, item 4). The fields:
+
+   | Field          | Meaning                                                                                              |
+   | -------------- | ---------------------------------------------------------------------------------------------------- |
+   | `title`        | The English title. Required. It moves from the old `@example` block.                                 |
+   | `blurb`        | The English blurb. Required. It moves from the old `@example` block.                                 |
+   | `group`        | One id from `groups.json`. Required.                                                                 |
+   | `tags`         | Free words for search and filter. Optional.                                                          |
+   | `tiers`        | The tiers the host's `run()` passes on. Default: `webgpu`, `webgl2`, `cpu`.                          |
+   | `tierNotes`    | One line for each tier that `tiers` omits. It cites a Rule or says "not supported yet" (OD-11).      |
+   | `host`         | `"run"` (a `host.ts` exists), `"pending"` (waits for a named dependency), or `"none"` with a reason. |
+   | `waitsFor`     | With `host: "pending"`: the proposal and milestone that deliver the missing form.                    |
+   | `extras`       | Names of other exports of `host.ts` that the Playground lists (The host form).                       |
+   | `demonstrates` | For a special demonstration: one sentence on what the extra output shows.                            |
+
+   `renderable`, `reason`, `twinOf` and `passes` keep their meaning and move from the old block into
+   `example.json`. The id is the directory name, so the file has no `id`. The module has no
+   `@example` block after M4.3, so the shader file holds only the program.
+
+3. **Groups are data, not directories.** examples/groups.json lists each group: its id, its English
+   title, its order and one line on the assignment rule. The four groups of the approved text
+   (works, high precision, feature examples, inspired) are its first four lines. A new group is one
+   new line and one line in each locale of the site. The reasons for data over directories:
+   an example can carry tags besides its group; a move between groups edits one field and moves
+   no file; and the directory stays one level deep for any number of groups. The cost: the tree
+   does not show the group.
+4. **One generated registry.** scripts/gen-example-registry.ts is written (this closes D-3). It reads
+   `groups.json`, `path/_order.ts` and each `example.json`, and writes `examples/index.ts`. The text of each
+   `host.ts` and module is written into the index at authoring time, as `examples/path/_registry.ts` does today, so the index stays
+   browser-safe. A drift test fails when the checked-in index differs from a fresh render, when a
+   directory has no `example.json`, when a manifest names a group that `groups.json` lacks, and when a
+   listed id has no directory.
+
+   What happens to the `@example` header. [proposal, agent] Recommended: `title` and `blurb` live
+   only in `example.json`, and M4.3 removes the header from each module as it moves the file. One
+   fact then has one home, the generator reads one kind of source, and a module is only the
+   program. The cost: a reader who opens the `.shade.ts` alone does not see the title and the
+   blurb, and each moved module changes by its first lines. The alternative is to keep the header
+   for single-file readers. That keeps two copies of `title` and `blurb`, and a drift test must
+   hold them equal. A2 does not take it. Until a module moves, the scan reads its header, and
+   after it moves the scan reads `example.json`.
+
+5. **What the registry replaces.**
+
+   | Today                                                       | After A2                                                                                                                                                |
+   | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `examples/_order.ts`, `CURATED_ORDER`                       | Deleted. The builder example's literal gains `group` and `tags`. Order inside a group is the id, then `rank`.                                           |
+   | `examples/hosts/_order.ts`, `HOST_ORDER`                    | Deleted. `tiers` and `tierNotes` move into each `example.json`. The notes of the file become `tierNotes` text.                                          |
+   | `examples/path/_order.ts`, `PATH_ORDER`                     | Keeps the ids in reading order. `part`, `step` and `tiers` move into each `example.json`. A test checks `step` rises.                                   |
+   | `examples/hosts/_registry.ts`, `examples/path/_registry.ts` | Deleted. scripts/gen-example-registry.ts writes all of it.                                                                                              |
+   | the missing scripts/gen-example-registry.ts (D-3)           | Written.                                                                                                                                                |
+   | `examples/hosts/_drive.ts`, `examples/path/_drive.ts`       | One driver reads the registry (Verification).                                                                                                           |
+   | `examples/hosts/index.ts`, `examples/path/index.ts`         | Folded into `examples/index.ts`. The names `hostExamples` and `pathExamples` stay exported until the site pin moves (OD-6: no warning release is owed). |
+
+   The path keeps its own ordered list because a reader's progress is editorial. The gallery has no
+   list: its order is data in the manifests, and a new example touches no shared line.
+
+6. **The builder examples.** [fact] The 36 files `examples/*.ts` keep the surface of Q5. [proposal]
+   No new example is written in that form. A new example is a directory of `"use typeshade"`
+   source (OD-1).
+7. **How the site reads it.** [proposal] The site reads `examples/index.ts` at build time, as today.
+   It builds its group headings from `groups.json` and the localized titles from its own i18n by
+   group id. A group id with no i18n line fails the site build, so a new group cannot go unnamed. The typed
+   record `cartographic | generic | compute` goes (M5). [fact] The site repository is not read here.
+
+Cost of the layout. The move touches about 127 files and adds one `example.json` for each
+example directory. Each emit golden is named by id, so no golden
+name changes (`examples/__emit-goldens__/`). Each test that names a path under `examples/` changes.
+
+#### The draw dependency
+
+[fact] 0138, R5 (`changes/0138-host-nodes-and-graphs.md`): "Inside a graph or outside it,
+`fs(vs(vertices))` draws". The result is a texture of the fragment's output type. The vertex call takes
+`{ count, instances, indices, topology }`. With a `Buffer<T>` argument and no `count`, it draws
+one vertex for each element. R6 puts an image on a canvas with `show(image, canvas)`.
+
+[fact] 0138 milestone 5 is "Rendering. R5, R6 and R11: compositions, texture outputs, render-state
+options, `show`, class parameters as uniforms". Its open questions are Q3, Q5 and Q15, which the owner
+settles before it starts (0138, Approval and plan record). Amendment A9 moved slice 2c, with `show`, to
+milestone 5. [fact] No module of `src/` exports `show`. 0138 A19 lists slices 4 to 6 of milestone 4 as not started, and
+no amendment records milestone 5 as started.
+
+[fact] R5 says nothing on whether the CPU tier draws a vertex entry. The program runtime has no CPU tier
+(`examples/hosts/_order.ts`, the note on `host-program`). [inference] A vertex example then runs on WebGPU and
+WebGL2 first. The CPU tier is "not supported yet" there, and OD-11 and OD-9 ask that it be recorded as open work.
+
+[inference] 81 of 102 modules draw with an index-only vertex stage. The draw form that the gallery
+needs at least is: draw a vertex entry with a count and no vertex data, run its fragment entry on the
+result, and put the image on a canvas. R5 and R6 cover it. R11 (class parameters as uniforms),
+instancing and render state are not needed for the gallery's first batches.
+
+Options for the dependency. The owner chooses (Options, O3).
+
+- **D-a. The draw part of M4 waits for 0138 milestone 5.** The layout, the manifest, the registry, the
+  verification and the hosts of the 21 callable modules and the 3 special hosts go first. The 81 draw
+  modules carry `host: "pending"` and `waitsFor: "0138 milestone 5"`.
+- **D-b. A minimum draw form comes first.** A2 only names the need. A compiler and runtime feature
+  needs its own accepted proposal (`changes/README.md`). The candidate is an amendment of 0138 that
+  carries a slice "5a" out of milestone 5: R5 for a vertex call with `count` and no vertex data, R6's
+  `show` into a canvas, and the answers to Q5 and Q15. A2 does not draft that amendment.
+- **D-c. A hand-written program-runtime `host.ts` for each of the 81.** This is Q7's rejected
+  alternative. Each file breaks host form item 1, has no CPU tier, and is rewritten when R5 lands.
+
+Until the form exists, a `pending` module is shown with its module and its emit, and the gallery says
+what it waits for. This follows OD-9: a form the compiler does not implement yet is "not supported yet".
+It is not a decision that the module needs no host.
+
+[proposal] A module with no callable export and no draw (for example `hello-camera`, whose only export reads a
+binding) gets `host: "none"` and a reason. M4.1 measures how many modules this applies to. [fact] The
+count is not known today.
+
+#### The host form for the gallery
+
+The form of the approved text stays: the file imports its module, holds no pipeline code and
+has a one-to-three-line leading comment. A2 completes it where D-6 left a gap.
+
+1. `run` takes the target first: `run(canvas, options?)` for a drawing example and `run(inputs?)`
+   for a compute example. Every parameter has a default, so the harness calls `run()` or `run(canvas)`.
+2. `run` resolves to a **result**: `void`, or a plain object of host values (numbers, typed arrays,
+   nested objects). A fuse report or a specialization is such a value (`FuseReport`). This closes D-6:
+   steps 12 to 15 already return an array or a number.
+3. A result may carry `image`, `{ width, height, rgba }`, for an example that cannot draw into a canvas
+   yet. The Playground shows it as a picture. [proposal] This is a convention of the Playground and the harness. It adds no name to the language.
+4. A host file may export **extras**: named functions with the call form of `run`, listed in the
+   manifest `extras`. The Playground shows one button for each. The harness runs each extra too, so no
+   extra goes unchecked.
+5. An example that must assert more than a comparison (a report's group count, for instance) adds
+   `check.ts`. It exports `check(result, tier)` and throws on a failure. The harness reads it. The
+   Playground and the reader do not. The `host.ts` stays the reader's file.
+
+How the three special hosts fit:
+
+| Host           | `run()`                                                                       | Extras and `check.ts`                                                                                                      | What it keeps                                               |
+| -------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `host-program` | Draws on the program runtime, returns `{ image }` (the pixels it reads back). | None. `waitsFor: "0138 milestone 5"` for the form that replaces `runtime()`; the example stays in the old form until then. | The program runtime: `runtime()`, `rt.load`, `rt.frame`.    |
+| `host-compute` | Returns `{ values }` of the scale call.                                       | Extra `runSpecialized`, returning `{ direct, values, report }`. `check.ts` asserts the report's shape on each tier.        | Constants and a workgroup size chosen per call; the report. |
+| `loop-fuse`    | Returns `{ chain, split, reduce }`, each with its `report`. Today's shape.    | `check.ts` asserts the group count of each scope on WebGPU, and that each call runs apart on the CPU tier.                 | The fuse reports, the dispatch counts.                      |
+
+[fact] `loop-fuse` already returns reports from `run`. Only `examples/hosts/_drive.ts` reduces them to numbers.
+[inference] The form is therefore a name for what the three hosts do, not a new shape.
+
+#### Verification without a reference for each example
+
+[fact] Checks that exist today: both halves on each `.shade.ts` (`examples/shade-examples.test.ts`),
+the emit goldens (`examples/__emit-goldens__/`, 423 files), the compile gate on Tint and ANGLE
+(`scripts/compile-gate.ts`), and the entry-call leg of the gate, which calls each exported compute entry and
+full-screen fragment entry on every tier and compares the results (`scripts/entry-calls.ts`). The
+path adds a plain-JavaScript reference for each step (`examples/path/_reference.ts`).
+
+[proposal] The gallery rests on these checks. None needs a reference written for one example.
+
+| Check                                                                                                                                                                                                                                                   | Where it runs                                                          | Needs a GPU                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| C1. Both halves on every manifest and module: `compile()` and the language service agree, and the `example.json` of each example passes its schema (`bothTake`). Generated from the registry.                                                           | `vitest`, job `typecheck + unit`.                                      | No.                                                              |
+| C2. Emit goldens for every module, by id.                                                                                                                                                                                                               | `vitest`, job `typecheck + unit`.                                      | No.                                                              |
+| C3. Compile gate: each module on Tint and ANGLE.                                                                                                                                                                                                        | `bun run gate:compile`, job `compile gate (Tint + WebGL2)`.            | A browser; no hardware GPU named.                                |
+| C4. CPU `run()`: each `host: "run"` example runs on the CPU tier, twice. The two results are equal, all numbers are finite, and `check.ts` passes where it exists.                                                                                      | `vitest`, job `typecheck + unit`.                                      | No.                                                              |
+| C5. CPU against the oracle: the CPU `run()` is held to the CPU f64 oracle of the same IR (`AGENTS.md`), within the tolerance that the determinism report states for the operations it lists.                                                            | `vitest`, job `typecheck + unit`.                                      | No.                                                              |
+| C6. Cross-tier: each `run()` on WebGPU and on WebGL2 is held to the CPU result, with the same tolerance. A tier that `tiers` lists must pass. A tier that `tiers` omits must fail with the refusal that `tierNotes` names (as `HOST_ORDER` does today). | `bun run gate:journeys`, job `user journeys (packed tarball, WebGPU)`. | Yes: WebGPU in the job. A local run needs a browser with WebGPU. |
+| C7. The entry-call leg of C3 stays for every compute and full-screen fragment entry, on every tier.                                                                                                                                                     | `bun run gate:compile`, job `compile gate (Tint + WebGL2)`.            | A browser.                                                       |
+
+Notes.
+
+- [fact] C5 is open: this text has not verified that the oracle can be called through a host `run()`.
+  M4.6 checks it first. If it cannot, C5 is dropped and C6 stays the check that holds a result to
+  an independent evaluation. The text of M4.6 then says so.
+- [inference] C6 compares a GPU tier to the CPU tier. A bug that all three tiers share is not found
+  by C6. The path keeps its plain-JavaScript references for this reason, and the gallery has none
+  (owner's answer O5). A shared bug is the work of C5 and of the gate's differential legs (`bun run gate:differential`).
+- [proposal] A reference stays optional. An example whose result is simple may add `reference.ts` and
+  join C6's comparison. No example needs one.
+- A digest golden of each CPU result is left out. C2 and C6 already hold the emit and the tiers.
+- The path is unchanged. Its references, drives and `examples/path-examples.test.ts` stay.
+- Not run: nothing in this list runs yet. A2 is a design. Each slice records the checks it ran.
+
+#### One example before and after
+
+CLAUDE.md asks for one example before and after for a change to how an author writes an example. [fact]
+The gallery has no lit cube. The deferred list of A1 names meshes as waiting for 0138 milestone 5.
+The example is `hello-vsout`, which has the shape that 81 modules share: a fragment entry that reads
+a vertex output.
+
+**Before.** One file, `examples/hello-vsout.shade.ts` (37 lines). It has no group, no host and no
+tier list. Its header holds `title`, `blurb` and `"renderable": true`. A reader cannot run it.
+
+```ts
+"use typeshade";
+
+/* @example
+{
+  "title": "Hello varyings",
+  "blurb": "The triangle again, now carrying a `uv` varying ...",
+  "renderable": true
+}
+*/
+
+interface VsOut { pos: builtin<"position">; uv: vec2; }
+interface Color { color: vec4; }
+
+@vertex
+export function vs(i: builtin<"vertex_index">): VsOut { /* three corners, with uv */ }
+
+@fragment
+export function fs(v: VsOut): Color {
+  return { color: vec4(v.uv.x, v.uv.y, 0.2, 1) };
+}
+```
+
+**After, now (M4.1 to M4.5).** The directory is `examples/gallery/hello-vsout/`. The shader body is
+byte for byte the same. The `@example` header block is gone from `hello-vsout.shade.ts`, and the
+manifest is the file examples/gallery/hello-vsout/example.json:
+
+```json
+{
+  "title": "Hello varyings",
+  "blurb": "The triangle again, now carrying a `uv` varying ...",
+  "group": "feature",
+  "tags": ["varyings", "vertex-stage"],
+  "renderable": true,
+  "host": "pending",
+  "waitsFor": "0138 milestone 5"
+}
+```
+
+The gallery page shows the module and its emit, and says what the example waits for. C1 to C3 run on it.
+
+**After, once 0138 milestone 5 delivers a draw (M4.10).** The directory gains `host.ts`. [illustrative]
+The spelling of an index-only draw is open until milestone 5. The file below shows the form, not the final call.
+
+```ts
+// A vertex stage hands a `uv` varying to the fragment stage.
+import { fs, vs } from './hello-vsout.shade.ts';
+import { show } from 'typeshade/runtime';
+
+export async function run(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<void> {
+  show(fs(vs(undefined, { count: 3 })), canvas);
+}
+```
+
+And `example.json` says `"host": "run"` with `tiers: ["webgpu", "webgl2"]` and a `tierNotes.cpu` of
+"not supported yet: the CPU tier draws no vertex entry". C4 to C6 then run on it.
+
+What the author writes: one `example.json` with a group beside the shader, and one host of one call. What the author does
+not write: a pipeline, a bind group, a reference for the example, an entry in a shared list.
+
+#### Slices
+
+Each slice is one pull request that a Sonnet sub-agent can finish in about 30 minutes. `main` is green
+after each. Each says `Change: 0145`. Marks: **owner** means the pull request changes how an author writes an
+example (CLAUDE.md, Merging) and waits for the owner's "merge", with the before and after in the body.
+**pre-approved** means a move, a generator, a check or a rewrite of a harness, and
+merges on green checks under the rule for an accepted proposal. [fact] A2 is `accepted` from the merge of
+PR #1443: no slice starts before that merge.
+
+| Slice | Content                                                                                                                                                                                                                                                                                                             | Mark                                        | Depends on          |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------- |
+| M4.1  | Write scripts/gen-example-registry.ts (closes D-3). It writes the three current indexes byte for byte as now. A drift test. Measure the modules with no callable export and no draw.                                                                                                                                | pre-approved                                | none                |
+| M4.2  | The `example.json` schema and its test; `groups.json`; the scan reads `example.json` where a directory has one, and the header otherwise. The 13 path steps get an `example.json` that holds the old header fields and moves `part`, `step` and `tiers` from `PATH_ORDER`; their headers go.                        | owner                                       | M4.1                |
+| M4.3  | Move the `.shade.ts` files under `examples/gallery/<id>/`, by first letter, in two or three pull requests. Each move writes the `example.json` of the module from its header (`title`, `blurb`, `renderable`, `reason`, `twinOf`, `passes`) and removes the header. The scan reads both places until the last move. | owner                                       | M4.2                |
+| M4.4  | The group table: `group` and `tags` in every `example.json` and builder literal; delete `CURATED_ORDER`. The owner reviews the table here (Q3).                                                                                                                                                                     | owner                                       | M4.3                |
+| M4.5  | Move the 3 support modules and the 23 twins' links into the directories. Delete `examples/lib/` and `examples/passes/`. `examples/README.md` and `examples/PORTING.md` rewritten.                                                                                                                                   | pre-approved                                | M4.3                |
+| M4.6  | One driver reads the registry. C4, C5 and the shared compare helper. The CPU suite runs every `host: "run"` example. Check whether C5 is possible.                                                                                                                                                                  | pre-approved                                | M4.2                |
+| M4.7  | `host.ts` for the callable compute and kernel modules, in batches of about five (the 21 modules, less those that M4.1 marks `none`). One batch of the form first.                                                                                                                                                   | owner (first batch), then green checks (O6) | M4.4, M4.6          |
+| M4.8  | The three special hosts in the form: `host-compute` extras and `check.ts`, `loop-fuse` `check.ts`, `host-program` `{ image }`. Remove `draw` and `runSpecialized` as exports.                                                                                                                                       | owner                                       | M4.6                |
+| M4.9  | `scripts/user-journey.ts` reads the registry. C6 for every `host: "run"` entry. `HOST_ORDER` has no reader and goes.                                                                                                                                                                                                | pre-approved                                | M4.7, M4.8          |
+| M4.10 | After 0138 milestone 5: `host.ts` for the `pending` draw modules, in about 14 batches of six. The first batch shows the form.                                                                                                                                                                                       | owner (first batch), then green checks (O6) | the draw dependency |
+
+[inference] M4.1, M4.5, M4.6 and M4.9 change no example's text for a reader. M4.2, M4.3, M4.4, M4.7, M4.8
+and M4.10 change what an author writes. [fact] M4.2 and M4.3 add the `example.json` files, so an
+author writes an `example.json` beside the shader from M4.2 on. These two slices, and M4.4, wait
+for the owner's "merge", with the before and after of the example in the body.
+
+A1's milestone M7 now follows M4.4 and M4.7. An inspired example is a directory of
+`examples/gallery/` with `"group": "inspired"`. A1-Q2 holds: it has a `host.ts` of this form.
+
+#### Supersession
+
+A2 supersedes these sentences of the approved text. It records each as a deviation of the approved
+text, made part of it by this amendment.
+
+- The M4 row of the milestone table, and the M4 line of the Approval and plan record.
+- Rules 1 to 3 of "What `has a host.ts` means in the gallery": a module with no callable export gets no
+  `host.ts` (Q7). A2 replaces them with `host: "run" | "pending" | "none"`. Rules 4 to 6 stay.
+- Q2, the layout `examples/<group>/<id>/`, and the table row `examples/gallery/` (Q2): the layout is
+  `examples/gallery/<id>/` with the group in the manifest.
+- Q7, the recommended answer: "show the module with no `host.ts`". A `pending` module is shown the same way, but only until its draw form exists.
+- The rows of What it touches that say `_order.ts`, `index.ts` and `examples/hosts/_order.ts` "split in
+  two", and `_drive.ts` and `_reference.ts` "rewritten by M4" for the gallery. The path keeps its pair.
+- The list in "What the change removes": `CURATED_ORDER` is removed, not split. `HOST_ORDER` is removed. `draw` and
+  `runSpecialized` go as the text says.
+- The `group` header field "beside `title` and `blurb`": `group` moves into `example.json` with `title`,
+  `blurb` and the new fields of this amendment. The `@example` header block leaves the modules (M4.3).
+- The host form: item 2 gains the result, `image`, extras and `check.ts`.
+
+Stays: the learning path and its table, M1, M2, M3, M5, M6, A1, the host form items 1, 3 to 6, the
+tiers of the path, the Q1, Q3 to Q6 answers, and the owner's decisions listed under Owner's decisions.
+Deviations: D-3 closes with M4.1. D-6 closes with the host form above. D-1, D-4, D-5 and D-7 are
+unchanged.
+
+#### The owner's decisions that A2 rests on
+
+A2 reverses no entry of `docs/owner-decisions.md`.
+
+- **OD-3.** The manifest holds what the compiler cannot know: group, tags, tiers. No construct is added.
+  The registry is a script, not a language form.
+- **OD-4.** This text shows one example before and after, and the options with their costs.
+- **OD-6.** Nothing is released. The names `hostExamples` and `pathExamples` may go with no warning release. The site pin moves in M5.
+- **OD-9.** A `pending` module waits for a form the compiler does not implement yet. The text says so and refuses nothing.
+- **OD-11.** `tierNotes` never says that a tier cannot run a program because WebGL2 or the CPU lacks a feature. It cites a Rule
+  or says "not supported yet". The draw modules list `webgl2` with `webgpu`, and the CPU tier is recorded as open work.
+- **OD-1, OD-2, OD-5, OD-7.** No example changes its source. Each entry keeps `@vertex`, `@fragment` or `@compute`.
+
+#### Options for the owner (closed: answered above)
+
+Each option had a recommendation. The owner answered each one (Owner's answers to the options). The
+lines below stay as the owner saw them, and each option ends with its answer.
+
+1. **O1. The layout.**
+   - (a) `examples/path/<id>/` and `examples/gallery/<id>/`, groups in `groups.json`.
+   - (b) One flat `examples/<id>/` for path and gallery, with a `collection` field. Simpler tree. The path would move, and
+     the infrastructure files of `examples/` would sit beside hundreds of directories.
+   - (c) `examples/gallery/<group>/<id>/`. The tree shows the group. A group change moves files, and an example has one group only.
+   - Recommended: (a). It keeps the delivered path, and a group is a field (OD-3: no new construct; the O1 answer asked for growth).
+   - **Answered: (a).**
+2. **O2. Where the manifest lives.**
+   - (a) The extended `@example` block of the module.
+   - (b) A separate `example.json` in each directory. It adds a file for each example, and `title` and `blurb` need a move.
+   - Recommended: (a). The block is the manifest today, and it leaves with the module (`examples/_shade.ts`, #65).
+   - **Answered: (b), not the recommended one.** A separate `example.json`.
+3. **O3. The draw dependency.** D-a, D-b or D-c (The draw dependency).
+   - Recommended: D-a, with M4.1 to M4.9 now. D-c spends work on a form that R5 replaces (Q6, option (b), made the same
+     choice for the path's part 3). D-b needs an amendment of 0138, which is a decision for the owner on milestone 5's Q3, Q5 and Q15.
+     The owner may ask for D-b if 81 pending modules are too long a gap.
+   - **Answered: D-a.** The 81 draw modules carry `host: "pending"` until 0138 milestone 5.
+4. **O4. The special demonstrations.**
+   - (a) One `run()` that returns a result, extras, and an optional `check.ts` (The host form).
+   - (b) Split each special demonstration into its own example id (`host-compute-specialized`, and so on), each with a plain `run()`.
+   - Recommended: (a). `loop-fuse` already returns reports, and one module carries both calls of `host-compute`. (b) adds ids to the registry and the site.
+   - **Answered: (a).**
+5. **O5. The verification.**
+   - (a) C1 to C7, no reference for a gallery example.
+   - (b) (a), and every gallery example also needs a plain-JavaScript reference, as the path does.
+   - (c) (a), and a digest golden of each CPU result.
+   - Recommended: (a). (b) is the cost the owner's answer O5 refused (the path tracer). (c) adds a golden to bake for
+     little that C2 and C6 do not hold.
+   - **Answered: (a).** C1 to C7, no reference for a gallery example.
+6. **O6. How the owner merges the batches of M4.7 and M4.10.** Each batch adds `host.ts` files, which change what an author reads.
+   - (a) The owner says "merge" for each batch.
+   - (b) The owner says "merge" for the first batch of each kind and for the group table. Later batches of the same form merge on green
+     checks, and the agent reports each merge.
+   - Recommended: (b). The form is reviewed once. CLAUDE.md (Merging) makes the owner's word the approval, so this is the owner's choice.
+   - **Answered: (b).** The owner merges the first batch and the group table. Later batches merge on green checks.
+7. **O7. The group table (Q3).** M4.4 writes it. [proposal] The owner reviews the table in that pull request, as Q3 says.
+   Nothing to decide here now.
+   - **Not asked.** It stands as written: the owner reviews the table in the M4.4 pull request.
+
+#### Owner's answers to the options (2026-11-23)
+
+The owner answered in a question form that the agent showed. Each answer is quoted in Korean as
+said, with an English gloss.
+
+- [decision, owner] O1, layout: "path와 gallery, 그룹은 데이터" (English: path and gallery, groups
+  as data). Option (a): `examples/path/<id>/` and `examples/gallery/<id>/`, groups in `groups.json`.
+- [decision, owner] O2, manifest: "별도 example.json" (English: a separate example.json). Option
+  (b), not the recommended one. Each example directory holds an `example.json` that carries `title`,
+  `blurb`, `group`, `tags`, `tiers`, `tierNotes`, `host`, `waitsFor`, `extras` and `demonstrates`,
+  and the old `renderable`, `reason`, `twinOf` and `passes`. The shader file holds no manifest.
+- [decision, owner] O3, draw dependency: "0138 M5 기다리기" (English: wait for 0138 M5). Option D-a.
+  The 81 vertex-and-fragment modules carry `host: "pending"` until 0138 milestone 5.
+- [decision, owner] O4, special hosts: "run() + extras" (English: `run()` plus extras). Option (a).
+- [decision, owner] O5, verification: "C1~C7" (English: C1 to C7). Option (a).
+- [decision, owner] O6, merge policy for host batches: "첫 묶음만 소유자 병합" (English: only the
+  first batch is merged by the owner). Option (b). The owner merges the first batch and the group
+  table. Later batches merge on green checks.
+- O7, the group table reviewed in M4.4: not asked. It stands as written.
+
+#### Changes after the owner's answers
+
+O2 chose a separate `example.json`. The text above was revised to match. Each forced change:
+
+1. The layout tree and item 1 of The layout: each directory gains `example.json`. A support module has none.
+2. Item 2 of The layout: the manifest is `example.json`, not the extended `@example` block. `title` and
+   `blurb` are listed as fields. `renderable`, `reason`, `twinOf` and `passes` move into the file.
+3. Item 4 of The layout: the generator reads each `example.json`. The drift test fails on a directory with no
+   `example.json`. [proposal, agent] The `@example` header is removed in M4.3, and `title` and `blurb` live only in `example.json`.
+4. Item 5 and the cost line: the moved fields go into each `example.json`.
+5. C1: it checks the schema of each `example.json`. No check reads the header.
+6. The before and after example: the header block is gone, and `example.json` is shown.
+7. The slices: M4.2 adds the schema and the files of the path steps. M4.3 writes the files and removes the headers. M4.2, M4.3 and
+   M4.4 are marked owner, so M4.3 changes from pre-approved to owner. M4.7 and M4.10 are owner for the first batch (O6).
+8. Supersession and What A2 touches: the `group` field moves to `example.json`, and `examples/_shade.ts` is named.
+9. A1 is not edited. Its illustrative `@example` block shows the fields of an inspired example. After M4.3 those fields are in its `example.json`.
+10. Status: draft becomes accepted. The options list is closed.
+
+#### Open items
+
+| Item                                                                                                                   | Reason                                                 | Next action                                      |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------ |
+| The count of modules with no callable export and no draw (`host: "none"`).                                             | Not measured. `hello-camera` is one.                   | M4.1 measures it.                                |
+| Whether the CPU f64 oracle can be called through a host `run()` (C5).                                                  | Not verified.                                          | M4.6 checks it.                                  |
+| Whether the CPU tier draws a vertex entry.                                                                             | R5 is silent. No CPU tier in the program runtime.      | Ask at milestone 5; record as open work (OD-11). |
+| The spelling of an index-only draw, and `show` into a canvas.                                                          | 0138 milestone 5 and its Q5 and Q15.                   | The owner decides at milestone 5.                |
+| The site: groups from `groups.json`, the typed record, the blurbs, the Playground reading `image`, extras and `tiers`. | The site repository is not read here.                  | M5, after the compiler pin.                      |
+| Whether later pull requests of M4.3 (the same form, after the first) merge on green checks.                            | O6 names host batches only. M4.3 is marked owner.      | The owner says in the conversation.              |
+| Tolerance of C6 for each example.                                                                                      | The determinism report gives it; not read per example. | M4.6.                                            |
+
+#### What A2 touches
+
+- `examples`: no id is added or removed. [fact] `scripts/changes.ts` must learn `examples/gallery/` before M4.3, as it learned `examples/path/` in M1 (`src/changes-path.test.ts`).
+- `examples/_shade.ts` (the header parser; the scan reads `example.json` instead), `examples/` registry files, the scan, `examples/registry-drift.test.ts`, `examples/host-examples.test.ts`, `examples/examples.test.ts`,
+  `scripts/user-journey.ts`, `scripts/compile-gate.ts` (its example set reads the registry), scripts/gen-example-registry.ts (new).
+- Docs: `examples/README.md`, `examples/PORTING.md`, `AGENTS.md` (the example gates), `bun run docs:impact` lists the rest at each slice.
+- `downstream`: the site reads `groups.json` and the manifest fields; the Playground runs `run` with `image`, extras and the tier list; the editor
+  skill's example list names the layout. Nothing is verified in those repositories here.
 
 ## What it owes downstream
 

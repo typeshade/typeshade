@@ -9,12 +9,17 @@ export interface MadeSource {
   readonly path: readonly string[];
 }
 
-export interface GrownTerm {
+export interface GrownLoop {
   readonly low: Expr;
   readonly high: Expr;
   readonly inclusive: boolean;
   readonly step: number;
+}
+
+export interface GrownTerm extends GrownLoop {
   readonly pushes: number;
+  readonly inner?: readonly GrownLoop[];
+  readonly when?: Expr;
 }
 
 export interface MadeArray {
