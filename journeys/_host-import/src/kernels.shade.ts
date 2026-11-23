@@ -2,9 +2,8 @@
 
 // Three compute entries a host file calls through the import (change 0016): a map, a block sum
 // through a scratch buffer and a barrier, and a report that logs. A barrier needs a GPU tier
-// (Rule 8.24: WebGPU, or WebGL2 as a pass program), so `blockSum` answers only where one ran
-// it; `report`'s console calls print from WebGPU in `vite dev`, and a production build records
-// none.
+// (Rule 8.24), so `blockSum` answers only where one ran it; `report`'s console calls print from
+// WebGPU in `vite dev`, and a production build records none.
 
 declare const k: uniform<f32>;
 declare const xs: storage<array<f32>>;
