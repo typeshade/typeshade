@@ -186,3 +186,77 @@ describe('issue 1371: the other return positions and operand shapes of the same 
     expect(compiler[1]).toBe(`typeshade TS8003: ${refused(SHIFT, 'f32()', 'i32')}`);
   });
 });
+
+describe('issue 1371: a refusal the pull replaces, and a nested shift that pulls', () => {
+  const unary = (subject: string, bits: number, typeScript: number, at: string): string =>
+    `"${subject}" is ${bits} on its u32 bits and ${typeScript} in TypeScript, so the "${at}" ` +
+    `does not say which value it means. Write u32(…) or i32(…) around "${subject}" to choose its value.`;
+  const shiftAround = (): string => unary(SHIFT, 2147483648, -2147483648, 'f32()');
+
+  it.each([
+    ['a store', 't = c;'],
+    ['a conditional', 'let x = vi < 3 ? c : t;'],
+  ])('a quotient of the shifted number is refused at / and not at the division: %s', (_, join) => {
+    const source = program(`${TREE}${join} return f32((${SHIFT}) / 2);`);
+    bothRefuse(source, 'TS8003', refused(SHIFT, '/', 'i32'));
+    editedAndChecked(source, `f32((${SHIFT}) / 2)`, `f32(i32(${SHIFT}) / 2)`);
+  });
+
+  it('a quotient by a typed u32 is refused at / with the u32 edit', () => {
+    const source = program(`${TREE}t = c; return f32((${SHIFT}) / vi);`);
+    bothRefuse(source, 'TS8003', refused(SHIFT, '/', 'u32'));
+  });
+
+  it('a product of the shifted number names the bits and the TypeScript value', () => {
+    const source = program(`${TREE}t = c; return f32((${SHIFT}) * 3);`);
+    bothRefuse(
+      source,
+      'TS8003',
+      refusedValue(`(${SHIFT}) * 3`, 2147483648, -6442450944, 'f32()', 'i32'),
+    );
+  });
+
+  it.each([
+    ['a quotient', 'return f32((c << 31) / 2);', refused(SHIFT, '/', 'i32')],
+    ['a comparison', COMPARE, refused(SHIFT, '<', 'u32')],
+  ])('a compound store keeps its mismatch and adds the sentence: %s', (_, ret, sentence) => {
+    const source = program(`${TREE}t += c; ${ret}`);
+    const { compiler, editor } = bothHalves(source);
+    expect(compiler).toEqual(editor);
+    expect(compiler).toHaveLength(2);
+    expect(compiler[0]).toContain('cannot += u32 and i32');
+    expect(compiler[1]).toBe(`typeshade TS8003: ${sentence}`);
+  });
+
+  it.each([
+    ['a left shift', 'let x = (c << 1) + t;'],
+    ['a right shift', 'let x = (c >> 1) + t;'],
+  ])('the left operand of a shift pulls the number beside a tree: %s', (_, join) => {
+    for (const [ret, sentence] of [
+      [RETURN, refused(SHIFT, 'f32()', 'i32')],
+      [COMPARE, refused(SHIFT, '<', 'u32')],
+    ] as const) {
+      const { compiler, editor } = bothHalves(program(`${TREE}${join} ${ret}`));
+      expect(compiler).toEqual(editor);
+      expect(compiler).toHaveLength(2);
+      expect(compiler[0]).toContain('cannot + i32 and u32');
+      expect(compiler[1]).toBe(`typeshade TS8003: ${sentence}`);
+    }
+  });
+
+  it.each([
+    ['a negation under <', 'let x = (-c) < t;', '-c', 4294967287, -9, '<'],
+    ['a complement under <', 'let x = (~c) < t;', '~c', 4294967286, -10, '<'],
+    ['a complement under ===', 'let x = (~c) === t ? 1 : 0;', '~c', 4294967286, -10, '==='],
+  ])(
+    'an operand of a comparison with the tree is refused with its own bits: %s',
+    (_, join, subject, bits, typeScript, at) => {
+      const { compiler, editor } = bothHalves(program(`${TREE}${join} ${RETURN}`));
+      expect(compiler).toEqual(editor);
+      expect(compiler).toEqual([
+        `typeshade TS8003: ${unary(subject, bits, typeScript, at)}`,
+        `typeshade TS8003: ${shiftAround()}`,
+      ]);
+    },
+  );
+});
