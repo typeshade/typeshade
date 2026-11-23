@@ -575,6 +575,6 @@ let tile: workgroup<array<f32, 64>>;
 }
 `);
     expect(r.diagnostics).toEqual([]);
-    expect(() => buildGlCompute(r.module, 'mm')).toThrow('a mat2x2<f64> cannot be kept in state');
+    expect(() => buildGlCompute(r.module, 'mm')).toThrow('a mat2x2<f64> is not supported yet');
   });
 });
