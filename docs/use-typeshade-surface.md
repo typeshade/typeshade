@@ -9124,9 +9124,27 @@ write the whole element, `out[i] = { a: x, c: 3 }`), a fill value that calls a c
 constructor, such an array in a helper or an entry, one made under a
 branch, inside a loop or after a loop or a store, a length that reads another operand,
 `Array.from({ length: n }, f)` with such a length, another `return`, `out.push(v)` on such an
-array, a second name or an argument of a call, and a 2D storage texture beside it. A call on a
-resource and a call inside `fuse()` throw a `TypeError` that says so, and WebGL2 runs it on the
-CPU tier.
+array, a second name or an argument of a call, and a 2D storage texture beside it. A call inside
+`fuse()` throws a `TypeError` that says so, and WebGL2 runs it on the CPU tier.
+
+Called on a resource (§64), the function returns at once a new `Buffer` on the call's device,
+which the caller owns and disposes (Rule 11.8; proposal 0114, Amendment A1, item 7): a `Buffer`
+of the scalar for a scalar or a vector element (a `Buffer<f32>` of `4n` elements for `vec4f[]`),
+and a `Buffer<C>` for an element of an exported class `C`. Another call takes it as an argument,
+and `read()` gives its values. The call checks each index against `n` at the call:
+
+```ts
+const xs = array(new Float32Array([1, 2, 3]));
+const once: Buffer<f32> = scaled(xs, 2); // no await: a call on a resource does not block
+const twice = scaled(once, 10);
+await twice.read(); // Float32Array [20, 40, 60]
+```
+
+With a length of 0 such a call throws a `RangeError`: a `Buffer` of length 0 is not supported
+yet. It throws a `TypeError` that says it is not supported yet for an array the function grows
+with `push`, a struct fill whose unwritten elements share one object, a struct of no exported
+class, a call that also writes a plain array, and a length or a fill value that reads a
+resource; the host view gives such a parameter no `Buffer`.
 
 **An array the function grows with `push`** (Rule 8.23, proposal 0114, S5d). The `const` may
 also start empty, annotated with an array with no size of an element a made array may hold

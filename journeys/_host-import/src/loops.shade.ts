@@ -24,6 +24,14 @@ export function renderMade(k: vec4, size: u32): f32[] {
   return out;
 }
 
+export function scaleMade(xs: f32[], s: f32): f32[] {
+  const out = new Float32Array(xs.length);
+  for (let i: u32 = 0; i < xs.length; i++) {
+    out[i] = xs[i] * s;
+  }
+  return out;
+}
+
 export function renderPushed(k: vec4, size: u32): f32[] {
   const out: f32[] = [];
   for (let i: u32 = 0; i < size * size; i++) {
