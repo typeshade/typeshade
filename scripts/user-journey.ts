@@ -665,6 +665,8 @@ async function hostExamples(
     recursive: true,
     filter: (from) => !from.endsWith('tsconfig.json') && !from.endsWith('.shade.typeshade.ts'),
   });
+  // `hosts/_reference.ts` imports `../_compare.ts` (change 0145), which sits beside `hosts/`.
+  cpSync(join(REPO, 'examples', '_compare.ts'), join(app, '_compare.ts'));
   writeFileSync(
     join(app, 'vite.hosts.config.ts'),
     [
