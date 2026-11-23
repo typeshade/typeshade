@@ -115,7 +115,7 @@ describe('a short name inside a namespace is the namespace’s, ahead of a top-l
         ),
       );
       expect(r.diagnostics).toEqual([]);
-      expect(r.wgsl).toContain('N_A_new_into(&self_.a);');
+      expect(r.wgsl).toContain('return N_B(N_A_new());');
       agree(r, [1, 1, 1, 1]);
     }),
   );

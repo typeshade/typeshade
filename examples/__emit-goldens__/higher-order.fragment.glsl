@@ -66,12 +66,9 @@ void main() {
   float glow = 0.0;
   times3_fs_body(glow, p);
   col += vec3((glow * 0.3), (glow * 0.2), (glow * 0.6));
-  Ring _i0_self_ = Ring(0, 0.0);
-  _i0_self_.n = 6;
-  _i0_self_.radius = 0.7;
-  Ring ring = _i0_self_;
+  Ring _i0_self_ = Ring(6, 0.7);
   float dots = 0.0;
-  Ring_each_fs_dot(dots, p, ring);
+  Ring_each_fs_dot(dots, p, _i0_self_);
   col = mix(col, vec3(0.9, 0.3, 0.5), dots);
   float[3] bands = float[3](0.8, 0.88, 0.96);
   bool _ifc0 = array_some_fs_p(p, bands);

@@ -62,9 +62,8 @@ describe('the three positions that declare a type', () => {
         return o;
       }
     `);
-    // The annotation shows in the CONSTRUCTOR. Since change 0105 a struct `const` lowers to a
-    // WGSL `var`, which spells its type on the binding line too.
-    expect(w).toContain('var o: Q = Q(1.0, 2.0);');
+    // The annotation shows in the CONSTRUCTOR; the optimizer folds the single-use local into the return.
+    expect(w).toContain('return Q(1.0, 2.0);');
   });
 
   it('3. a parameter type names it', () => {
@@ -134,7 +133,7 @@ describe('name matching is still the fallback', () => {
         return o;
       }
     `);
-    expect(w).toContain('var o: P = P(1.0, 2.0);');
+    expect(w).toContain('return P(1.0, 2.0);');
   });
 
   it('still refuses what it cannot resolve without a context', () => {
@@ -298,12 +297,12 @@ describe('a position that declares a type through something else', () => {
     const w = wgslOf(
       `${TWINS}export function f(): P {\n  let o: P = { a: 1., b: 2. };\n  o = { a: 3., b: 4. };\n  return o;\n}`,
     );
-    expect(w).toContain('var o: P = P(3.0, 4.0);');
+    expect(w).toContain('return P(3.0, 4.0);');
     // The other twin from the same literal, so it is the target deciding and not an order.
     const wq = wgslOf(
       `${TWINS}export function f(): Q {\n  let o: Q = { a: 1., b: 2. };\n  o = { a: 3., b: 4. };\n  return o;\n}`,
     );
-    expect(wq).toContain('var o: Q = Q(3.0, 4.0);');
+    expect(wq).toContain('return Q(3.0, 4.0);');
   });
 
   it("both arms of a ternary sit in the ternary's own position", () => {

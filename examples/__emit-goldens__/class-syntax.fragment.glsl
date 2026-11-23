@@ -26,11 +26,7 @@ void Ring_count() {
 }
 
 Ring Ring_new(vec2 center, float radius) {
-  Ring self_ = Ring(0.0, vec2(0.0, 0.0), 0.0);
-  self_.center = center;
-  self_.radius = radius;
-  self_.width = 0.05;
-  return self_;
+  return Ring(0.05, center, radius);
 }
 in vec2 uv;
 layout(location = 0) out vec4 color;

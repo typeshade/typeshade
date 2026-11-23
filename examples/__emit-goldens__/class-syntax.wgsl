@@ -34,10 +34,7 @@ fn Ring_count() {
 }
 
 fn Ring_new_into(_dst: ptr<function, Ring>, center: vec2<f32>, radius: f32) {
-  (*_dst) = Ring(0.0, vec2<f32>(0.0, 0.0), 0.0);
-  (*_dst).center = center;
-  (*_dst).radius = radius;
-  (*_dst).width = 0.05;
+  (*_dst) = Ring(0.05, center, radius);
 }
 
 @vertex

@@ -15,8 +15,7 @@ float Rng_next(inout Rng self_) {
 }
 
 Rng Rng_new(uint seed) {
-  Rng self_ = Rng(0u);
-  self_.state = seed;
+  Rng self_ = Rng(seed);
   Rng_next(self_);
   return self_;
 }

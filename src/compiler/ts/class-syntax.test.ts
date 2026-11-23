@@ -493,9 +493,7 @@ export function run(): f32 {
     const r = compile(src);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('struct V {\n  twice: f32,\n  x: f32,\n  y: f32,\n  z: f32,\n}');
-    expect(r.wgsl).toContain(
-      '(*_dst).x = x;\n  (*_dst).y = y;\n  (*_dst).z = z;\n  (*_dst).twice = ((*_dst).x * 2.0);',
-    );
+    expect(r.wgsl).toContain('(*_dst) = V(0.0, x, y, z);\n  (*_dst).twice = ((*_dst).x * 2.0);');
     expect(runAll(src)).toBe(848);
   });
 

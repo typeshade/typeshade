@@ -44,12 +44,9 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs(v: VsOut) -> FsOut {
   let p = v.uv;
-  var orbit: Orbit = Orbit(0.0, 0.0);
-  orbit.radius = 0.45;
-  orbit.speed = 1.5;
+  var orbit: Orbit = Orbit(0.45, 1.5);
   Orbit_set_span(&orbit, 0.9);
-  var rng: Rng = Rng(0u);
-  rng.seed = 7u;
+  var rng: Rng = Rng(7u);
   var glow: f32 = 0.0;
   for (var i: i32 = 0; (i < 5); i = (i + 1)) {
     let _seq0 = Rng_next(&rng);

@@ -28,12 +28,9 @@ layout(location = 0) out vec4 color;
 
 void main() {
   vec2 p = uv;
-  Orbit orbit = Orbit(0.0, 0.0);
-  orbit.radius = 0.45;
-  orbit.speed = 1.5;
+  Orbit orbit = Orbit(0.45, 1.5);
   Orbit_set_span(orbit, 0.9);
-  Rng rng = Rng(0u);
-  rng.seed = 7u;
+  Rng rng = Rng(7u);
   float glow = 0.0;
   for (int i = 0; (i < 5); i = (i + 1)) {
     float _seq0 = Rng_next(rng);

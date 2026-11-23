@@ -44,20 +44,18 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs(v: VsOut) -> Color {
   let _i1a0 = v.uv.x;
   var _i1ret: _opt_Sample_;
-  var _cse1: _opt_f32_ = _opt_f32_(0.0, false);
-  var _cse0: Sample = Sample(_cse1);
+  var _cse0: _opt_f32_ = _opt_f32_(0.0, false);
   if ((_i1a0 < 0.333)) {
-    _i1ret = _opt_Sample_(_cse0, false);
+    _i1ret = _opt_Sample_(Sample(_cse0), false);
   } else {
     var _sel0: _opt_f32_;
     if ((_i1a0 < 0.666)) {
-      _sel0 = _cse1;
+      _sel0 = _cse0;
     } else {
       _sel0 = _opt_f32_(_i1a0, true);
     }
     var _i1_a0: _opt_f32_ = _sel0;
-    var _i1_self_: Sample = _cse0;
-    _i1_self_.value = _i1_a0;
+    var _i1_self_: Sample = Sample(_i1_a0);
     _i1ret = _opt_Sample_(_i1_self_, true);
   }
   var _opt: _opt_Sample_ = _i1ret;

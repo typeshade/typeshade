@@ -28,10 +28,7 @@ layout(location = 0) out vec4 _ret;
 void main() {
   vec4 frag = gl_FragCoord;
   vec2 uv = (fract((frag.xy * 0.01)) - vec2(0.5));
-  Body b = Body(vec2(0.0, 0.0), vec2(0.0, 0.0), 0.0);
-  b.at = uv;
-  b.vel = (vec2((-uv.y), uv.x) * 0.4);
-  b.spin = 2.2;
+  Body b = Body(uv, (vec2((-uv.y), uv.x) * 0.4), 2.2);
   Body_advance(b, 0.05);
   Body_advance(b, 0.05);
   Body_advance(b, 0.05);

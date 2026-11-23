@@ -261,7 +261,7 @@
   "src/compiler/ts/newline-return.test.ts": 1,
   "src/compiler/ts/numeric.ts": 126,
   "src/compiler/ts/numerics-removed.test.ts": 10,
-  "src/compiler/ts/object-literal-context.test.ts": 53,
+  "src/compiler/ts/object-literal-context.test.ts": 52,
   "src/compiler/ts/open-for.test.ts": 20,
   "src/compiler/ts/operators-statements.test.ts": 99,
   "src/compiler/ts/optional-values.test.ts": 76,

@@ -39,9 +39,7 @@ fn fs(v: VsOut) -> Color {
   let _ifc1 = select(a, b, _ifc0);
   b = select(b, a, _ifc0);
   a = _ifc1;
-  var r: Ray = Ray(vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 0.0));
-  r.origin = v.uv;
-  r.dir = vec2<f32>(0.5, -0.25);
+  var r: Ray = Ray(v.uv, vec2<f32>(0.5, -0.25));
   advance(&r, (b - a));
   var w: array<f32, 3> = array<f32, 3>(a, b, 0.5);
   liftAll(&w, 0.25);

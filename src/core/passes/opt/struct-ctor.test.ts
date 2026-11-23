@@ -112,7 +112,7 @@ describe('optimize — write-once struct local → constructor (X-GIS #1867)', (
         ),
       ],
     });
-    expect(emitModule(structCtor(m))).toMatch(/var \w+: IoOut;/);
+    expect(emitModule(structCtor(m))).toMatch(/var \w+: IoOut\b[^;]*;\n\s+\w+\.uv\.x = /);
   });
 
   it('KEEPS a local something else READS', () => {

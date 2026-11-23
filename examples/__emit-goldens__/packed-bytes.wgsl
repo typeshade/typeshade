@@ -16,8 +16,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
   var ys: array<f32, 3> = array<f32, 3>(-1.0, -1.0, 3.0);
   let i = i32(vi);
   let p = vec2<f32>(xs[i], ys[i]);
-  var out: VsOut = VsOut(vec4<f32>(p, 0.0, 1.0), ((p * 0.5) + vec2<f32>(0.5, 0.5)));
-  return out;
+  return VsOut(vec4<f32>(p, 0.0, 1.0), ((p * 0.5) + vec2<f32>(0.5, 0.5)));
 }
 
 @fragment
