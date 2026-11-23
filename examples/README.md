@@ -167,7 +167,8 @@ computed from the clip-space position runs up the screen on both backends, and r
 the texture comes back upside down on WebGPU.
 
 The table lists the first seven, the hello programs and the first twin; every other file's
-title and blurb are in its own `@example` block.
+title and blurb are in its own `@example` block, or, for a module that moved into
+`examples/gallery/<id>/` (change 0145, M4.3), in the `example.json` beside it.
 
 | File                              | Renderable | What it shows                                                                                                                                      |
 | --------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -1,7 +1,7 @@
 // Verifies: Rule 12.7, Rule 6.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -13,6 +13,7 @@ import {
   STORAGE_BUFFER_ACCESS,
   WGSL_BUILTIN_NAMES,
 } from './ambient.js';
+import { exampleFile, SHADE_FILES } from '../../examples/_example-file.js';
 import { compile } from '../compiler/ts/compile.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
 
@@ -32,18 +33,17 @@ const STRUCTS_FILE = join(HERE, '..', 'compiler', 'ts', 'structs.ts');
 // place) — included here so this test still covers where `@builtin(...)` is actually parsed.
 const BUILTIN_CHECK_FILE = join(HERE, '..', 'compiler', 'ts', 'builtin-check.ts');
 
-/** Every `"use typeshade"` example, read from the directory rather than listed by hand so a new
- * one joins this corpus by existing. The corpus was the five `hello*` files, which are all
- * vertex and fragment shaders; `compute-reduction-twin.shade.ts` is what caught the ambient
- * `array`'s read-only index signature, since a compute kernel is the only program that writes
- * to a storage binding. */
-const SHADE_EXAMPLES = readdirSync(EXAMPLES_DIR)
-  .filter((name) => name.endsWith('.shade.ts'))
+/** Every `"use typeshade"` example, found by the scan of `examples/_example-file.ts` so a new one
+ * joins this corpus by existing. The corpus was the five `hello*` files, all vertex and fragment
+ * shaders; `compute-reduction-twin.shade.ts` caught the ambient `array`'s read-only index
+ * signature, since a compute kernel is the only program that writes to a storage binding. */
+const SHADE_EXAMPLES = [...SHADE_FILES.entries()]
+  .filter(([, f]) => !/^(?:hosts|path)\//.test(f))
+  .map(([id]) => `${id}.shade.ts`)
   .sort();
 
-/** The names this corpus must contain: a `readdirSync` that resolved nothing, or an examples
- * directory that lost its compute kernel, would otherwise leave the suite below green over
- * nothing at all. */
+/** The names this corpus must contain: a scan that found nothing, or a directory that lost its
+ * compute kernel, would leave the suite below green over nothing at all. */
 const REQUIRED_EXAMPLES = [
   'compute-reduction-twin.shade.ts',
   'hello-camera.shade.ts',
@@ -88,7 +88,7 @@ describe('SHADE_DTS: every .shade.ts example produces zero diagnostics', () => {
   };
   for (const name of SHADE_EXAMPLES) {
     it(`${name}: zero TypeScript diagnostics and zero TypeShade diagnostics`, () => {
-      const text = readFileSync(join(EXAMPLES_DIR, name), 'utf8');
+      const text = readFileSync(exampleFile(name.replace('.shade.ts', '')), 'utf8');
       const service = createTypeshadeLanguageServiceWith(
         { readDocument: readExample },
         analyzeSourceFile,

@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -20,8 +20,15 @@ export const HOSTS_DIR = 'hosts';
  *  (`hosts/` today) are a separate place, so a path step and a gallery example never share one. */
 export const PATH_DIR = 'path';
 
+/** The directory of the gallery (change 0145, amendment A2): one directory for each example,
+ *  `gallery/<id>/`, holding the module `<id>.shade.ts` and its `example.json`. A support module of
+ *  the example sits beside them and is no example of its own. The modules that have not moved yet
+ *  stay in this directory, and the scan reads both places until the last one moves. */
+export const GALLERY_DIR = 'gallery';
+
 /** Every `.shade.ts` file of the corpus, id → its path relative to this directory: each file of
- *  this directory, each host example's module, and each step's module of the learning path. The id is the basename without `.shade.ts`,
+ *  this directory, each host example's module, each step's module of the learning path and each
+ *  module of the gallery. The id is the basename without `.shade.ts`,
  *  so a host example's directory and its module carry one name. */
 export const SHADE_FILES: ReadonlyMap<string, string> = new Map([
   ...readdirSync(HERE)
@@ -33,7 +40,18 @@ export const SHADE_FILES: ReadonlyMap<string, string> = new Map([
   ...readdirSync(join(HERE, PATH_DIR), { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => [d.name, `${PATH_DIR}/${d.name}/${d.name}${SHADE_EXT}`] as const),
+  ...readdirSync(join(HERE, GALLERY_DIR), { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => [d.name, `${GALLERY_DIR}/${d.name}/${d.name}${SHADE_EXT}`] as const),
 ]);
+
+/** The `.shade.ts` files of the corpus that are neither a host example nor a path step, as paths
+ *  relative to this directory, in the order of their file names: the files of this directory and
+ *  the module of each gallery directory. A suite that sweeps the corpus reads this list, so a move
+ *  into `gallery/` keeps each module in the sweep. */
+export const CORPUS_FILES: readonly string[] = [...SHADE_FILES.values()]
+  .filter((f) => !f.startsWith(`${HOSTS_DIR}/`) && !f.startsWith(`${PATH_DIR}/`))
+  .sort((a, b) => basename(a).localeCompare(basename(b)));
 
 /** The absolute path of the `.shade.ts` file of an example id, found through the same scan as
  *  the corpus, so it holds when a file moves into a subdirectory. Throws for an unknown id. */
