@@ -14,9 +14,11 @@ const UNKNOWN = (loop: string): string =>
   `constants, the length of an array parameter, number literals, u32, i32 and f32 of these, ` +
   `and top-level consts of these, with +, -, *, /, %, min and max; any other operand is not ` +
   `supported yet.`;
-const ELEMENT = (text: string, verb: string): string =>
-  `"${text}" ${verb} an element of "out", the array "f" grows with push, and that is not ` +
-  `supported yet. Push onto it in a loop, read its length, and return it.`;
+const LOOP = 'for (let i: u32 = 0; i < n; i++) { out.push(1.); }';
+const APPENDS =
+  'writes an element of "out" that can append to it, and its trip count is no count from a ' +
+  'start to a bound by a constant whole step, so the call cannot reserve room for "out" before ' +
+  'it runs; that is not supported yet.';
 const MADE_OF = (t: string): string =>
   `This function makes and returns array<${t}>, an array of ${t} whose length the call gives. ` +
   `An array of ${t} made this way is not supported yet; an array of f32, i32 or u32, of a vector of them, or of a struct of these is.`;
@@ -76,14 +78,47 @@ describe('what change 0114, S5d, refuses as not supported yet (TS8099)', () => {
       MADE_OF('P'),
     ],
     [
-      'an element read',
-      grows('for (let i: u32 = 0; i < n; i++) { out.push(1.); } const x = out[0];'),
-      ELEMENT('out[0]', 'reads'),
+      'an element read before the first loop',
+      grows(`const x = out[0]; ${LOOP}`),
+      '"out[0]" reads an element of "out", the array "f" grows with push, before anything is ' +
+        'pushed onto it; a read past its length is not supported yet. Read it after the loop ' +
+        'that pushes onto it.',
     ],
     [
-      'an element write',
-      grows('for (let i: u32 = 0; i < n; i++) { out.push(1.); out[i] = 2.; }'),
-      ELEMENT('out[i]', 'writes'),
+      'an element write before the first loop',
+      grows(`out[0] = 1.; ${LOOP}`),
+      '"out[0] = 1." writes an element of "out", the array "f" grows with push, before its ' +
+        'first loop, which adds an element outside every loop, and that is not supported yet. ' +
+        'Push onto it inside a loop of "f".',
+    ],
+    [
+      'a compound element write before the first loop',
+      grows(`out[0] += 1.; ${LOOP}`),
+      '"out[0]" reads an element of "out", the array "f" grows with push, before anything is ' +
+        'pushed onto it; a read past its length is not supported yet. Read it after the loop ' +
+        'that pushes onto it.',
+    ],
+    [
+      'an element write that can append, in a loop inside a loop',
+      grows(
+        `${LOOP} for (let i: u32 = 0; i < n; i++) { for (let j: u32 = 0; j < n; j++) { out[j] = 2.; } }`,
+      ),
+      '"out[j]" writes an element of "out" inside a loop that is no for loop at the top level ' +
+        'of "f", at an index the compiler cannot prove is below its length, and that is not ' +
+        'supported yet. Index it by the counter of a loop up to out.length.',
+    ],
+    [
+      'an element write that can append, in a while loop',
+      grows(`${LOOP} let j: u32 = 0; while (j < n) { out[j] = 2.; j++; }`),
+      `"while (j < n)" ${APPENDS}`,
+    ],
+    [
+      'an element write that can append, in a loop up to its length',
+      grows(`${LOOP} for (let j: u32 = 0; j < out.length; j++) { out[j + 1] = 2.; }`),
+      UNKNOWN('for (let j: u32 = 0; j < out.length; j++)').replace(
+        'pushes onto "out"',
+        'writes an element of "out" that can append to it',
+      ),
     ],
     [
       'a second name for it',

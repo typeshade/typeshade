@@ -8,6 +8,7 @@ import { isMadeParam, madeOf, type KernelMade } from '../../../core/kernel-made-
 import type { HostExport } from '../host-face-contracts.js';
 import { hostTypeOf } from '../host-types.js';
 import { madeArrayOf } from '../lower/made-array/registry.js';
+import { grownChecks, type GrownSite } from '../lower/made-array/bounds.js';
 
 type MadeShape = Pick<KernelMade, 'array' | 'width' | 'struct' | 'zero'>;
 
@@ -29,6 +30,22 @@ function paramsRead(f: FuncDecl, nodes: readonly unknown[]): string[] {
   };
   walk(nodes);
   return f.params.map((p) => p.name).filter((name) => read.has(name));
+}
+
+export function grownChecked(f: FuncDecl): FuncDecl {
+  const made = madeArrayOf(f);
+  if (made?.grown !== true) return f;
+  const checked = grownChecks(f, made.param);
+  return checked.sites.length === 0 ? f : { ...f, body: checked.body };
+}
+
+function onCpuOnly(face: Record<string, unknown>, shown: string, first: GrownSite): void {
+  const why =
+    `it ${first.write ? 'writes' : 'reads'} "${first.text}", an element of "${shown}" at an ` +
+    `index the compiler cannot prove is below its length, and only the CPU tier checks such an ` +
+    `index at the call`;
+  for (const key of ['gpu', 'gl', 'noWebgl2']) delete face[key];
+  face.noGpu = why;
 }
 
 export function madeFace(
@@ -60,6 +77,7 @@ export function madeFace(
   }));
   const fill = made.fill === undefined ? undefined : cpuFn('fill', made.fill);
   const reads = paramsRead(f, [made.prelude, made.length, made.capacity, made.fill]);
+  const sites = made.grown === true ? grownChecks(f, made.param).sites : [];
   const record: KernelMade = {
     param: made.param,
     count: made.count,
@@ -73,9 +91,11 @@ export function madeFace(
     ...(made.written !== undefined ? { written: made.written } : {}),
     ...(made.fillFrom !== undefined ? { fillFrom: made.fillFrom } : {}),
     ...(reads.length > 0 ? { reads } : {}),
+    ...(sites.length > 0 ? { checks: sites } : {}),
   };
   const face: Record<string, unknown> = { ...e.face };
   delete face.fuse;
+  if (sites.length > 0) onCpuOnly(face, made.shown, sites[0]!);
   return {
     ...e,
     face: { ...(face as unknown as typeof e.face), made: record } as typeof e.face,
