@@ -187,7 +187,7 @@ class GlProgramImpl implements Program {
     const workgroupShape = specializedWorkgroupShape(e, constants?.values);
     if (workgroupShape.some((n, axis) => n !== defaultShape[axis]))
       throw new TypeError(
-        `"${e.name}"${at(e)} has no WebGL2 program for workgroup shape [${workgroupShape.join(', ')}]; WebGL2 supports only the declared default [${defaultShape.join(', ')}].`,
+        `"${e.name}"${at(e)} has no WebGL2 program for workgroup shape [${workgroupShape.join(', ')}]; a shape other than the declared default [${defaultShape.join(', ')}] is not supported yet on the WebGL2 tier (Rule 11.8).`,
       );
     const key = `${e.name}:${constants?.key ?? ''}`;
     let p = this.#pipelines.get(key);

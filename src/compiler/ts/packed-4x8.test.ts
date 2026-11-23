@@ -183,7 +183,7 @@ declare const out: storage<array<u32>, "read_write">;
       )[0],
     ).toBe(
       'TS8003 pack4xU8 takes a vec4u; got vec4. WGSL gives it one overload, and ' +
-        'GLSL ES 3.00 has no form of it at all.',
+        'TypeShade emits no GLSL ES 3.00 form of it yet.',
     );
   });
 

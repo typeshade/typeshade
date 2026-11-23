@@ -79,9 +79,9 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   texture_3d:
     'A sampled 3D texture, looked up by a `vec3` coordinate, as a volume is. Declared as `declare const t: texture_3d<f32>`.',
   texture_1d:
-    'A sampled 1D texture, looked up by one `f32` coordinate, as a colour ramp is. Declared as `declare const t: texture_1d<f32>`; GLSL ES 3.00 has no form for it, so it derives the `texture1d` capability and runs on WGSL only.',
+    'A sampled 1D texture, looked up by one `f32` coordinate, as a colour ramp is. Declared as `declare const t: texture_1d<f32>`; TypeShade emits no GLSL ES 3.00 form of it yet, so it derives the `texture1d` capability and is not supported yet on the WebGL2 tier.',
   texture_cube_array:
-    'An array of sampled cube textures in one binding, looked up by a direction and a layer. Declared as `declare const t: texture_cube_array<f32>`; GLSL ES 3.00 has no form for it, so it derives the `textureCubeArray` capability and runs on WGSL only.',
+    'An array of sampled cube textures in one binding, looked up by a direction and a layer. Declared as `declare const t: texture_cube_array<f32>`; TypeShade emits no GLSL ES 3.00 form of it yet, so it derives the `textureCubeArray` capability and is not supported yet on the WebGL2 tier.',
   texture_multisampled_2d:
     'A multisampled 2D texture, read one sample at a time with `textureLoad(t, coords, sampleIndex)` and never filtered. Declared as `declare const t: texture_multisampled_2d<f32>`; it derives the `msaaTextureLoad` capability, which GLSL ES 3.00 does not have.',
   texture_depth_2d:
@@ -226,25 +226,25 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   atomicCompareExchangeWeak:
     'Stores the third argument into the atomic location only when it holds the second, as one indivisible step. Answers a struct: `old_value` is what the location held before the call and `exchanged` says whether the store happened. WGSL gives that struct no writable name, so bind the result with `const` and read its fields.',
   textureBarrier:
-    'Holds every invocation of the workgroup until all have arrived, ordering their writes to the TEXTURE address space. A statement, in a compute entry or a function it calls, in uniform control flow. WebGPU-only, and part of the `readonly_and_readwrite_storage_textures` WGSL language feature that `reflect().requiredLanguageFeatures` reports.',
+    'Holds every invocation of the workgroup until all have arrived, ordering their writes to the TEXTURE address space. A statement, in a compute entry or a function it calls, in uniform control flow; not supported yet on the WebGL2 tier, where an entry that reaches a texture does not run as the pass program (Rule 8.24). Part of the `readonly_and_readwrite_storage_textures` WGSL language feature that `reflect().requiredLanguageFeatures` reports.',
   workgroupUniformLoad:
-    "Reads one value out of workgroup memory with a barrier on each side, so every invocation of the workgroup gets the same one. Takes a place in `workgroup<T>` memory, not storage, and returns its type. WebGPU-only, and it carries a barrier's placement rules: a compute entry or a function it calls, in uniform control flow.",
+    "Reads one value out of workgroup memory with a barrier on each side, so every invocation of the workgroup gets the same one. Takes a place in `workgroup<T>` memory, not storage, and returns its type. It cuts a phase on WebGL2 as a barrier does (Rule 8.24), and it carries a barrier's placement rules: a compute entry or a function it calls, in uniform control flow.",
   dot4U8Packed:
-    'Reads both `u32` arguments as four UNSIGNED bytes and sums the four products into a `u32`. WebGPU-only: GLSL ES 3.00 has no form of it, so a module using it emits WGSL alone. The host should check `navigator.gpu.wgslLanguageFeatures` for `packed_4x8_integer_dot_product`, which `reflect().requiredLanguageFeatures` reports.',
+    'Reads both `u32` arguments as four UNSIGNED bytes and sums the four products into a `u32`. Not supported yet on the WebGL2 tier: TypeShade emits no GLSL ES 3.00 form of it, so a module using it emits WGSL alone. The host should check `navigator.gpu.wgslLanguageFeatures` for `packed_4x8_integer_dot_product`, which `reflect().requiredLanguageFeatures` reports.',
   dot4I8Packed:
-    'Reads both `u32` arguments as four SIGNED bytes and sums the four products into an `i32`, wrapping at 32 bits. WebGPU-only, like `dot4U8Packed`.',
+    'Reads both `u32` arguments as four SIGNED bytes and sums the four products into an `i32`, wrapping at 32 bits. Not supported yet on the WebGL2 tier, like `dot4U8Packed`.',
   pack4xU8:
-    'Packs the low byte of each component of a `vec4u` into a `u32`, component 0 in the low byte. A component that does not fit is TRUNCATED, not clamped; `pack4xU8Clamp` saturates instead. WebGPU-only.',
+    'Packs the low byte of each component of a `vec4u` into a `u32`, component 0 in the low byte. A component that does not fit is TRUNCATED, not clamped; `pack4xU8Clamp` saturates instead. Not supported yet on the WebGL2 tier.',
   pack4xI8:
-    'Packs the low byte of each component of a `vec4i` into a `u32`, four bytes in a word. The result is unsigned even though the components are not; a component that does not fit is TRUNCATED, where `pack4xI8Clamp` saturates. WebGPU-only.',
+    'Packs the low byte of each component of a `vec4i` into a `u32`, four bytes in a word. The result is unsigned even though the components are not; a component that does not fit is TRUNCATED, where `pack4xI8Clamp` saturates. Not supported yet on the WebGL2 tier.',
   pack4xU8Clamp:
-    'Packs a `vec4u` into a `u32` as four bytes, clamping each component into [0, 255] first. WebGPU-only.',
+    'Packs a `vec4u` into a `u32` as four bytes, clamping each component into [0, 255] first. Not supported yet on the WebGL2 tier.',
   pack4xI8Clamp:
-    'Packs a `vec4i` into a `u32` as four bytes, clamping each component into [-128, 127] first. The result is unsigned because it is a word of bytes, not a number with a sign. WebGPU-only.',
+    'Packs a `vec4i` into a `u32` as four bytes, clamping each component into [-128, 127] first. The result is unsigned because it is a word of bytes, not a number with a sign. Not supported yet on the WebGL2 tier.',
   unpack4xU8:
-    'Unpacks the four bytes of a `u32` into a `vec4u`, the low byte into component 0. The inverse of `pack4xU8`. WebGPU-only.',
+    'Unpacks the four bytes of a `u32` into a `vec4u`, the low byte into component 0. The inverse of `pack4xU8`. Not supported yet on the WebGL2 tier.',
   unpack4xI8:
-    'Unpacks the four bytes of a `u32` into a `vec4i`, sign-extending each byte, the low byte into component 0. The inverse of `pack4xI8`. WebGPU-only.',
+    'Unpacks the four bytes of a `u32` into a `vec4i`, sign-extending each byte, the low byte into component 0. The inverse of `pack4xI8`. Not supported yet on the WebGL2 tier.',
   pack4x8snorm:
     'Packs a `vec4` of values in [-1, 1] into the four bytes of a `u32` as signed bytes, component 0 in the low byte. Hand-inlined on GLSL ES 3.00, which has no `packSnorm4x8` (that is ES 3.10).',
   unpack4x8unorm:
@@ -352,9 +352,9 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   atomicExchange:
     'Stores `value` in the atomic location as one indivisible step and returns the value it held before. Compiles to `atomicExchange(&bins[i], v)` on WGSL only.',
   workgroupBarrier:
-    'Waits until every invocation of the workgroup has reached this line, and makes every write to workgroup memory before it visible to every invocation after it. A statement, in a compute entry or a helper and never inside an `if` or `switch`. WGSL only; the CPU oracle runs the workgroup in lockstep through `dispatch`.',
+    'Waits until every invocation of the workgroup has reached this line, and makes every write to workgroup memory before it visible to every invocation after it. A statement, in a compute entry or a helper and never inside an `if` or `switch`. On WebGL2 it cuts a phase of the pass program, when the entry reaches no texture (Rule 8.24); the CPU oracle runs the workgroup in lockstep through `dispatch`.',
   storageBarrier:
-    'Waits until every invocation of the workgroup has reached this line, and makes every write to storage before it visible to every invocation after it. A statement, in a compute entry or a helper and never inside an `if` or `switch`. WGSL only; the CPU oracle runs the workgroup in lockstep through `dispatch`.',
+    'Waits until every invocation of the workgroup has reached this line, and makes every write to storage before it visible to every invocation after it. A statement, in a compute entry or a helper and never inside an `if` or `switch`. On WebGL2 it cuts a phase of the pass program, when the entry reaches no texture (Rule 8.24); the CPU oracle runs the workgroup in lockstep through `dispatch`.',
   sin: 'Returns the sine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   cos: 'Returns the cosine of `x` (in radians), componentwise over vectors. Also accepts `f64` operands.',
   tan: 'Returns the tangent of `x` (in radians), componentwise over vectors. Accepts `f32` and integer scalar/vector operands only.',

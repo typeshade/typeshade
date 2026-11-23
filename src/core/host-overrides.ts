@@ -65,8 +65,8 @@ export function specializeEntry(e: ComputeEntry, options: unknown): ComputeEntry
         ? {
             gl: undefined,
             noGl: changed
-              ? `WebGL2 supports only the declared default [${e.wg.join(', ')}]; selected workgroup shape [${wg.join(', ')}]`
-              : 'WebGL2 supports only the declared default workgroup-array lengths',
+              ? `a workgroup shape other than the declared default [${e.wg.join(', ')}] is not supported yet on the WebGL2 tier (Rule 11.8); selected workgroup shape [${wg.join(', ')}]`
+              : 'workgroup-array lengths other than the declared default are not supported yet on the WebGL2 tier (Rule 11.8)',
           }
         : e.gl === undefined
           ? {}
