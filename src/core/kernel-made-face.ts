@@ -2,6 +2,14 @@ import type { CpuValue } from './cpu-runtime.js';
 import type { KernelFace } from './host-kernel.js';
 import type { HostType } from './host-values.js';
 
+export interface KernelCapacityTerm {
+  readonly low: string;
+  readonly high: string;
+  readonly inclusive: boolean;
+  readonly step: number;
+  readonly pushes: number;
+}
+
 export interface KernelMade {
   readonly param: string;
   readonly count: string;
@@ -10,7 +18,8 @@ export interface KernelMade {
   readonly width?: number;
   readonly struct?: HostType;
   readonly zero?: CpuValue;
-  readonly length: string;
+  readonly length?: string;
+  readonly capacity?: readonly KernelCapacityTerm[];
   readonly fill?: string;
   readonly grown?: true;
   readonly share?: 'every' | 'unwritten';

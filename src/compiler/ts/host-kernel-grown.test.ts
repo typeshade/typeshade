@@ -156,7 +156,9 @@ describe('a kernel function that grows the array it returns with push (change 01
       count: 'out_length',
       shown: 'out',
       array: 'f32',
-      length: 'render__length',
+      capacity: [
+        { low: 'render__low0', high: 'render__high0', inclusive: false, step: 1, pushes: 1 },
+      ],
       reads: ['size'],
       grown: true,
     });

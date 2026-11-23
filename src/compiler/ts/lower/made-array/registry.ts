@@ -9,12 +9,21 @@ export interface MadeSource {
   readonly path: readonly string[];
 }
 
+export interface GrownTerm {
+  readonly low: Expr;
+  readonly high: Expr;
+  readonly inclusive: boolean;
+  readonly step: number;
+  readonly pushes: number;
+}
+
 export interface MadeArray {
   readonly param: string;
   readonly count: string;
   readonly shown: string;
   readonly element: ShaderType;
-  readonly length: Expr;
+  readonly length?: Expr;
+  readonly capacity?: readonly GrownTerm[];
   readonly fill?: Expr;
   readonly grown?: true;
   readonly share?: MadeShare;
