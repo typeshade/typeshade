@@ -614,6 +614,22 @@ async function hostImport(
       twiceGpu.every((v, i) => Object.is(v, twiceCpu[i])),
     'pairTwice, two pushing nests with a call that pushes nothing, returns on WebGPU the CPU tier bit for bit (change 0114, A12)',
   );
+  const insideGpu = web.loops?.['inside'];
+  const insideCpu = web.loops?.['insideCpu'];
+  check(
+    typeof insideGpu === 'object' &&
+      typeof insideCpu === 'object' &&
+      insideGpu.length > 0 &&
+      insideGpu.length === insideCpu.length &&
+      insideGpu.every((v, i) => Object.is(v, insideCpu[i])),
+    'inside, a counted for with a branch and a counted for under it that pushes, returns on WebGPU the CPU tier bit for bit (change 0114, A12, Route 3 S2)',
+  );
+  check(
+    /a loop of it runs on the CPU \(TS8070\)|only the CPU tier grows an array while it runs/.test(
+      String(web.loops?.['evensReason']),
+    ),
+    `evens, a while that pushes (Route 3), names the proof's reason (TS8070) or the growing reason on a WebGPU-only runtime (${String(web.loops?.['evensReason'])})`,
+  );
   const scaledOnResource = web.loops?.['scaleMade'];
   const madeOnDevice = web.loops?.['renderMade'];
   check(

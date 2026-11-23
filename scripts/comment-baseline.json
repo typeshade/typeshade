@@ -44,7 +44,7 @@
   "src/compiler/ts/bare-uniform-glsl.test.ts": 1,
   "src/compiler/ts/barriers.test.ts": 95,
   "src/compiler/ts/bindings.test.ts": 13,
-  "src/compiler/ts/bindings.ts": 186,
+  "src/compiler/ts/bindings.ts": 181,
   "src/compiler/ts/block-scope.test.ts": 14,
   "src/compiler/ts/bool-vectors.test.ts": 15,
   "src/compiler/ts/broadcast.test.ts": 16,

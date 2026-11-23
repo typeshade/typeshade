@@ -1,3 +1,4 @@
+// Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import type { CpuValue } from '../cpu-runtime.js';
 import type { GeneratedCpu } from '../host-entry.js';
 import type { IncomingReads } from '../host-failure.js';

@@ -31,6 +31,7 @@ import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
 import { diagnosticAtSpan, makeDiagnostic } from './diagnostic.js';
 import { countable } from '../../core/passes/countable.js';
 import { madeArrayOf, setMadeArray } from './lower/made-array/registry.js';
+import { routeOf } from './lower/made-array/route.js';
 
 /** What each IR name of a kernel function was written as, recorded when its body is lowered, in
  *  three tables, since one IR name can be three things. A parameter keeps the name its signature
@@ -73,21 +74,19 @@ export function kernelLoopDiagnostics(
     const w = new Wording(sourceFile, names);
     const made = madeArrayOf(f);
     if (made?.grown === true) {
-      const counts = proof.shape === undefined && countable(proof.loops, f);
-      if (counts) {
-        const { deferred: _deferred, ...rest } = made;
-        setMadeArray(f, { ...rest, counted: true });
-      } else if (made.deferred !== undefined) {
+      const route = routeOf(made, proof.shape === undefined && countable(proof.loops, f));
+      if ('refused' in route) {
         out.push(
           makeDiagnostic(
             sourceFile,
-            made.deferred.node,
-            made.deferred.message,
+            route.refused.node,
+            route.refused.message,
             TS_CODES.UNSUPPORTED,
           ),
         );
         continue;
       }
+      setMadeArray(f, route.made);
     }
     if (proof.shape !== undefined) {
       out.push(warn(sourceFile, proof.shape.at ?? sourceSpanOf(f), w.shape(proof.shape)));

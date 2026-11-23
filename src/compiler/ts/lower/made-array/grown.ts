@@ -5,7 +5,6 @@ import { typeEq, type ShaderType } from '../../../../core/ir/types.js';
 import { authorTypeText } from '../../context.js';
 import { shortText } from '../array-constructor/form.js';
 import { MADE_ADMITS, MADE_ELEMENTS } from './candidate.js';
-import { loopText } from './nest.js';
 import { bindMade, ownBody, refusedPlace, say, type GrownUse, type MadeAt } from './lower.js';
 import { refuseSharedStores } from './identity.js';
 import { sayOnceAt, setMadeLowering } from './registry.js';
@@ -13,30 +12,6 @@ import { sayOnceAt, setMadeLowering } from './registry.js';
 function innermostLoop(n: ts.Node, body: ts.Block): ts.IterationStatement | undefined {
   for (let at = n.parent; at !== body && !ts.isFunctionLike(at); at = at.parent)
     if (ts.isIterationStatement(at, false)) return at;
-  return undefined;
-}
-
-function enclosing(n: ts.Node, body: ts.Block): ts.Node[] {
-  const found: ts.Node[] = [];
-  for (let at = n.parent; at !== body && !ts.isFunctionLike(at); at = at.parent)
-    if (!ts.isBlock(at)) found.unshift(at);
-  return found;
-}
-
-interface Refused {
-  readonly loop: ts.IterationStatement;
-  readonly under?: ts.IterationStatement;
-}
-
-function refusedNest(chain: readonly ts.Node[]): Refused | undefined {
-  const loops = chain.filter((n): n is ts.IterationStatement => ts.isIterationStatement(n, false));
-  const bad = loops.find((l) => !ts.isForStatement(l) && !ts.isForOfStatement(l));
-  if (bad !== undefined) return { loop: bad };
-  if (chain.slice(0, chain.indexOf(loops[0]!)).some((n) => !ts.isIfStatement(n)))
-    return { loop: loops[0]! };
-  for (let k = 1; k < loops.length; k++)
-    if (chain.indexOf(loops[k]!) - chain.indexOf(loops[k - 1]!) > 1)
-      return { loop: loops[k]!, under: loops[k - 1]! };
   return undefined;
 }
 
@@ -77,37 +52,13 @@ function grownUse(name: string, fn: string, at: MadeAt): GrownUse {
       p.parent.expression === p
     ) {
       const call = shortText(p.parent);
-      const chain = enclosing(p.parent, body);
-      const remedy = `Push onto it inside a for loop at the top level of "${fn}".`;
-      if (!chain.some((n) => ts.isIterationStatement(n, false))) {
+      if (innermostLoop(p.parent, body) === undefined) {
         sayOnceAt(at.scope.owner()!, p.parent);
         say(
           at,
           p.parent,
           `"${call}" pushes onto "${name}", the array "${fn}" grows and returns, outside every ` +
-            `loop, and that is not supported yet. ${remedy}`,
-        );
-        return 'refused';
-      }
-      const refused = refusedNest(chain);
-      if (refused?.under !== undefined) {
-        say(
-          at,
-          p.parent,
-          `"${call}" pushes onto "${name}" inside "${loopText(refused.loop, at.sourceFile)}", ` +
-            `which stands under a branch inside "${loopText(refused.under, at.sourceFile)}", and ` +
-            `a loop under a branch inside a loop is not supported yet. Move the loop out of the ` +
-            `branch.`,
-        );
-        return 'refused';
-      }
-      if (refused !== undefined) {
-        say(
-          at,
-          p.parent,
-          `"${call}" pushes onto "${name}" inside "${loopText(refused.loop, at.sourceFile)}", ` +
-            `which is no for loop at the top level of "${fn}", and that is not supported yet. ` +
-            `${remedy}`,
+            `loop, and that is not supported yet. Push onto it inside a loop of "${fn}".`,
         );
         return 'refused';
       }
