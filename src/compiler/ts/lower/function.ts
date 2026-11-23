@@ -16,8 +16,7 @@ import type {
 } from '../../../core/ir/nodes.js';
 import { setParameterLocals } from '../../../core/ir/parameter-locals.js';
 import type { SourceSpan } from '../../../core/ir/span.js';
-import type { ShaderType } from '../../../core/ir/types.js';
-import { f32T, structT, voidT } from '../../../core/ir/types.js';
+import { f32T, structT, voidT, type ShaderType } from '../../../core/ir/types.js';
 import { guardKernelBody } from '../../../core/passes/kernel-stores.js';
 import { alwaysReturns } from '../../../core/passes/lint/rules/all-paths-return.js';
 import {
@@ -123,6 +122,7 @@ import {
   type Receiver,
 } from './class-methods.js';
 import { closureUse, declarationOf } from './closures.js';
+import { valueExprBinding } from './expression-array/list-values.js';
 import { lowerExpression } from './expression.js';
 import { argumentSignature, capturesOfArgument, functionArgument } from './function-args.js';
 import {
@@ -2114,7 +2114,7 @@ export function lowerSourceFunctions(
       path.map((f) => nodeByName.get(f.name)),
     );
   }
-  checkEntryStageUses(funcs, vars, nodeByName, sourceFile, diagnostics);
+  checkEntryStageUses(funcs, vars, bindings, nodeByName, sourceFile, diagnostics);
   // A read before an assignment, on the source (Rule 7.6).
   checkDefiniteAssignment(sourceFile, diagnostics);
   // Two references to one place in one call, read off the lowered calls once every callee says
@@ -2350,7 +2350,7 @@ export function functionScope(
       ...(moduleAbstractConst(sourceFile, c.name) !== undefined
         ? { abstract: moduleAbstractConst(sourceFile, c.name) }
         : {}),
-      ...(c.type.kind !== 'scalar' && c.valueExpr !== undefined ? { valueExpr: c.valueExpr } : {}),
+      ...valueExprBinding(c),
     });
   }
   for (const b of bindings) {

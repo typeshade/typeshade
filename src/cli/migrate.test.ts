@@ -9,9 +9,10 @@
 // change 0135).
 
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { CORPUS_FILES } from '../../examples/_example-file.js';
 import { migrateSource } from './migrate.js';
 import { runCli, type CliHost } from './run.js';
 import { compile } from '../compiler/ts/compile.js';
@@ -302,7 +303,7 @@ export const fs = fragment(function fs(): vec4 { return vec4(0.); }, { diagnosti
 
 describe('every registered example, migrated, compiles as it did', () => {
   const dir = join(ROOT, 'examples');
-  const files = readdirSync(dir).filter((f) => f.endsWith('.shade.ts'));
+  const files = CORPUS_FILES;
   const readDocument = (uri: string): string | undefined => {
     try {
       return readFileSync(new URL(uri), 'utf8');

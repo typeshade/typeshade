@@ -40,6 +40,8 @@
 import { arityError, heldArgument } from './host-arity.js';
 import type { CpuValue } from './cpu-runtime.js';
 import { pushedLength, startPushesAt } from './push-count.js';
+import { dispatchPush } from './host-kernel-push.js';
+import { identityValue } from './host-kernel-identity.js';
 import { CpuTexture, isCpuTexture } from './cpu-texture.js';
 import { fuseSlot } from './fuse-scope.js';
 import { checkIncoming, type IncomingReads } from './host-failure.js';
@@ -52,7 +54,7 @@ import {
   type CallOwner,
 } from './owner.js';
 import type { PortableIr } from './ir/portable.js';
-import { KERNEL_TREE, treeIdentity, type TreeOp } from './kernel-tree.js';
+import { KERNEL_TREE, type TreeOp } from './kernel-tree.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
 import {
   glContext,
@@ -364,6 +366,7 @@ export interface KernelFace {
     /** The CPU-tier function that gives the result from the parameters and what the GPU folded
      *  for each reduction, in loop order; absent when the function returns nothing. */
     readonly tail?: string;
+    readonly countOnly?: true;
     /** The stores after the loops (change 0094): the `@compute` entry of one invocation the call
      *  dispatches after the loops, the CPU-tier function that runs them over the host's arrays
      *  (WebGL2, after its draws), and the array parameters they write. Absent when the function
@@ -2226,7 +2229,7 @@ async function onDevice(
   // The stores after the loops (change 0094): where the finish entry reads what each loop that
   // reduces folded, and the partials it binds, which the call frees once it has run. `ats` also
   // holds where each length word is, which every entry's uniform carries.
-  const fin = g.finish;
+  const fin = g.countOnly === true ? undefined : g.finish;
   const ats: Record<string, number> = {};
   const partsOf = new Map<number, readonly GpuBuffer[]>();
   const kept: GpuBuffer[] = [];
@@ -2322,55 +2325,24 @@ async function onDevice(
     });
 
     if (loop.push !== undefined) {
-      // Count, scan, store (change 0078): `n` counts become their offsets in place, and the
-      // total is written after them, read back in the submission that holds the three.
-      const slots = zeroedBuffer(d, (n + 1) * 4);
-      const bound = new Map(onDevice);
-      bound.set(loop.push.binding.name, slots);
-      // The records of a Map or Set the loop adds to (change 0080): `n` times the most an
-      // iteration pushes, so every record fits.
-      const collected = (g.collections ?? []).filter((c) => c.loop === j);
-      const recordBuffers = collected.map((c) => {
-        const st = (c.records.layout as Layout & { k: 'a' }).st;
-        const buffer = zeroedBuffer(d, Math.max(4, n * c.perIteration * st));
-        bound.set(c.records.name, buffer);
-        return { c, st, buffer };
-      });
-      const first = grid(Math.ceil(n / loop.wg));
-      const checked = { values: bound_, images, samplers: new Map(), onDevice: bound };
-      try {
-        if (n > 0) await batch.add(es[j]!.count!, checked, first.wg);
-        await batch.add(es[j]!.scan!, checked, [1, 1, 1]);
-        if (n > 0) await batch.add(es[j]!.loop, checked, first.wg);
-      } catch (e) {
-        slots.destroy();
-        throw e;
-      }
-      // The total, read back for the result. With a length word and no result, it stays on the
-      // device, where the word holds the new length, and nothing is read back (change 0094).
-      const total = g.tail !== undefined || !word ? batch.read(slots, n * 4, 4) : undefined;
-      if (total === undefined) kept.push(slots);
-      else {
-        const free = (): void => slots.destroy();
-        void total.then(free, free);
-      }
-      const records = recordBuffers.map((r) => {
-        const read = batch.read(r.buffer, 0, Math.max(4, n * r.c.perIteration * r.st));
-        const drop = (): void => r.buffer.destroy();
-        void read.then(drop, drop);
-        return { ...r, read };
-      });
-      let applied: Promise<void> | undefined;
-      const apply = (): Promise<void> =>
-        (applied ??= (async () => {
-          const count = (await total!).getUint32(0, true);
-          for (const r of records) applyRecords(k, r.c, count, await r.read, args, values);
-        })());
-      if (records.length > 0) pending.push(apply);
-      folds.push(async () => {
-        if (total === undefined) return [0 as CpuValue];
-        await apply();
-        return [(await total).getUint32(0, true) as CpuValue];
+      await dispatchPush({
+        d,
+        g,
+        j,
+        n,
+        loop: { push: loop.push },
+        entries: es[j]!,
+        firstWorkgroups: grid(Math.ceil(n / loop.wg)).wg,
+        boundValues: bound_,
+        images,
+        onDevice,
+        batch,
+        word,
+        countOnly: g.countOnly === true,
+        kept,
+        folds,
+        pending,
+        applyRecords: (c, count, dv) => applyRecords(k, c, count, dv, args, values),
       });
     } else if (vars.length === 0) {
       const first = grid(Math.ceil(n / loop.wg));
@@ -2556,11 +2528,6 @@ export async function reduceOnGpu(
     (await Promise.all(reads)).map(
       (dv, i) => readInto(dv, 0, layouts[i]!.e, undefined) as CpuValue,
     );
-}
-
-function identityValue(op: TreeOp, scalar: string, n: number): CpuValue {
-  const one = treeIdentity(op, scalar) as number;
-  return (n === 1 ? one : new Array<number>(n).fill(one)) as CpuValue;
 }
 
 // ─── the CPU tier ────────────────────────────────────────────────────────────────────────────

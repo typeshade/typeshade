@@ -33,7 +33,7 @@
 // Implements: Rule 5.1, Rule 5.2 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
-import { writtenDivisionsOf } from './abstract-const/written-divisions.js';
+import { divisionOrigin, writtenDivisionsOf } from './abstract-const/written-divisions.js';
 import type { Expr } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { f32T, f64T, i32T, u32T } from '../../core/ir/types.js';
@@ -1310,7 +1310,7 @@ export function reportAbstractDivisions(
       makeDiagnostic(
         sourceFile,
         node,
-        `"${w.subject}" is an integer by its bit operator, and no operand of "${text}" has a ` +
+        `"${w.subject}" is an integer ${divisionOrigin(w, hasNoWrittenResult)}, and no operand of "${text}" has a ` +
           `declared type, so the "${operator}" ${NO_DIVISION}. ` +
           (edit !== null
             ? `Write "${edit}" for the ${kind} division.`

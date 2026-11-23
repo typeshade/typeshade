@@ -95,6 +95,7 @@ import { refuseBareAtomic } from './atomics.js';
 import { builtinCalleeNames } from './expression-call.js';
 import { declarationOf } from './closures.js';
 import { lowerThis } from './class-methods.js';
+import { readModuleConst } from './module-read.js';
 import { lowerCallOrArray, lowerNewOrArray } from './array-constructor/lower.js';
 import { bitwiseFloatMessage, isFloatBitOperand } from './expression/bitwise-float.js';
 import { notAValueSentence } from './new-target.js';
@@ -621,11 +622,7 @@ function lowerIdentifier(
         binding.inferred,
       );
     case 'module':
-      return markAbstractRead(
-        { op: 'constref', type: binding.type, name: binding.name },
-        node,
-        binding.abstract,
-      );
+      return readModuleConst(binding, node);
     // A resource binding is a module-scope `var`, so it reads as a `varref` — the same shape
     // the fn() EDSL builds. `constref` here is what #14 was: invisible to the binding
     // reachability walk, which counts `varref` names alone. Spelled as an exhaustive switch

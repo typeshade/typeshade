@@ -20,12 +20,18 @@ const valuesAt = (source: string, args: readonly unknown[]): unknown[] => {
 const at = (value: number): number[] => LEVELS.map(() => value);
 const toUint32 = (x: number): number => Math.trunc(x) >>> 0;
 
-const refusal = (quotient: string, subject: string, edit: string, kind: string): string =>
-  `"${subject}" is an integer by its bit operator, and no operand of "${quotient}" has a ` +
+const refusal = (
+  quotient: string,
+  subject: string,
+  edit: string,
+  kind: string,
+  by = 'by its bit operator',
+): string =>
+  `"${subject}" is an integer ${by}, and no operand of "${quotient}" has a ` +
   `declared type, so the "/" does not say which division it is. Write "${edit}" for the ${kind} division.`;
 
-const noEdit = (quotient: string, subject: string): string =>
-  `"${subject}" is an integer by its bit operator, and no operand of "${quotient}" has a ` +
+const noEdit = (quotient: string, subject: string, by = 'by its bit operator'): string =>
+  `"${subject}" is an integer ${by}, and no operand of "${quotient}" has a ` +
   `declared type, so the "/" does not say which division it is. ` +
   `Declare the type of the division's operands to choose it.`;
 
@@ -37,7 +43,7 @@ describe('a quotient of an inferred i32 and an inferred u32 operand is refused (
   });
 
   it('refuses the operands swapped, and names no edit for u32()', () => {
-    const sentence = noEdit('b / a', 'b');
+    const sentence = noEdit('b / a', 'b', 'by inference');
     bothRefuse(program('f32', 'return f32(u32(b / a));'), 'TS8003', sentence);
     bothRefuse(program('u32', 'return u32(b / a);'), 'TS8003', sentence);
   });
@@ -53,7 +59,7 @@ describe('a quotient of an inferred i32 and an inferred u32 operand is refused (
     const forward = refusal('a / b', 'a', 'f32(a) / f32(b)', 'float');
     bothRefuse(program('f32', 'return f32(i32(a / b));'), 'TS8003', forward);
     bothRefuse(program('i32', 'return i32(a / b);'), 'TS8003', forward);
-    const swapped = refusal('b / a', 'b', 'f32(b) / f32(a)', 'float');
+    const swapped = refusal('b / a', 'b', 'f32(b) / f32(a)', 'float', 'by inference');
     bothRefuse(program('i32', 'return i32(b / a);'), 'TS8003', swapped);
     expect(valuesAt(program('i32', 'return i32(f32(a) / f32(b));'), [-9, 3, 1.5])).toEqual(
       at(Math.trunc(-7 / 3)),
