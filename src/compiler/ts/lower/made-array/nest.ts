@@ -1,8 +1,9 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import ts from 'typescript';
 import type { Expr, Stmt } from '../../../../core/ir/nodes.js';
-import { boolT, u32T, type ShaderType } from '../../../../core/ir/types.js';
+import { boolT, u32T } from '../../../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../../../core/ir/visit.js';
+import { plainCount } from '../../../../core/passes/countable.js';
 import { rangeOf, type ForStmt } from '../../../../core/passes/kernel-lower-ir.js';
 import type { TsCompilerDiagnostic } from '../../source-file.js';
 import { TS_CODES } from '../../codes.js';
@@ -40,9 +41,7 @@ function pushesIn(st: Stmt, param: string): number {
 
 function counted(loop: ForStmt): GrownLoop | undefined {
   const range = rangeOf(loop);
-  if (range === undefined || loop.counted?.op !== 'add') return undefined;
-  const t: ShaderType = range.type;
-  if (t.kind !== 'scalar' || (t.scalar !== 'u32' && t.scalar !== 'i32')) return undefined;
+  if (range === undefined || loop.counted?.op !== 'add' || !plainCount(loop)) return undefined;
   const up = range.cop === '<' || range.cop === '<=';
   const [low, high] = up ? [range.start, range.bound] : [range.bound, range.start];
   return {
@@ -94,6 +93,7 @@ export interface NestEnv {
   readonly diagnostics: TsCompilerDiagnostic[];
   readonly writesIn: (loop: ForStmt) => number;
   readonly defer: (refusal: DeferredRefusal) => void;
+  readonly open: () => void;
 }
 
 export function nestTerms(env: NestEnv, body: readonly Stmt[]): readonly GrownTerm[] | undefined {
@@ -115,22 +115,17 @@ export function nestTerms(env: NestEnv, body: readonly Stmt[]): readonly GrownTe
     ok = false;
   };
   const loopIn = (st: ForStmt, loops: readonly GrownLoop[], at: Place): Place | undefined => {
+    const factor = counted(st);
+    if (factor === undefined) {
+      env.open();
+      return undefined;
+    }
     const node = nodeAt(root, st.span?.start, sourceFile, isLoop);
     const shown = node === undefined ? 'a loop' : `"${loopText(node, sourceFile)}"`;
     const adds =
       pushesIn(st, made.param) > 0
         ? `${shown} pushes onto "${name}"`
         : `${shown} writes an element of "${name}" that can append to it`;
-    const factor = counted(st);
-    if (factor === undefined) {
-      refuse(
-        `${adds}, and its trip count is no count from a start to a bound by a constant whole ` +
-          `step, so the call cannot reserve room for "${name}" before it runs; that is not ` +
-          `supported yet.`,
-        node ?? made.decl,
-      );
-      return undefined;
-    }
     const range = rangeOf(st)!;
     if (!hostReadable(range.start, r) || !hostReadable(range.bound, r)) {
       const message = notKnown(`${adds}, and its start or bound`);
@@ -144,28 +139,33 @@ export function nestTerms(env: NestEnv, body: readonly Stmt[]): readonly GrownTe
     own.pushes += loops.length === 0 ? env.writesIn(st) : 0;
     return own;
   };
-  const walk = (sts: readonly Stmt[], at: Place): void => {
+  const walk = (sts: readonly Stmt[], at: Place, under = false): void => {
     for (const st of sts) {
       if (!ok) return;
       switch (st.s) {
         case 'for': {
           if (pushesIn(st, made.param) + env.writesIn(st) === 0) break;
+          if (under) {
+            env.open();
+            break;
+          }
           const inner = loopIn(st, at.loops, at);
           if (inner !== undefined) walk(st.body, inner);
           break;
         }
         case 'if': {
           if (at.loops.length > 0 || pushesIn(st, made.param) === 0) {
-            for (const arm of st.arms) walk(arm.body, at);
-            if (st.elseBody !== undefined) walk(st.elseBody, at);
+            const nested = under || at.loops.length > 0;
+            for (const arm of st.arms) walk(arm.body, at, nested);
+            if (st.elseBody !== undefined) walk(st.elseBody, at, nested);
             break;
           }
-          branch(st, at);
+          branch(st, at, under);
           break;
         }
         case 'switch':
-          for (const c of st.cases) walk(c.body, at);
-          if (st.defaultBody !== undefined) walk(st.defaultBody, at);
+          for (const c of st.cases) walk(c.body, at, true);
+          if (st.defaultBody !== undefined) walk(st.defaultBody, at, true);
           break;
         default:
           eachStmtExpr(st, (e) =>
@@ -176,7 +176,7 @@ export function nestTerms(env: NestEnv, body: readonly Stmt[]): readonly GrownTe
       }
     }
   };
-  const branch = (st: Stmt & { s: 'if' }, at: Place): void => {
+  const branch = (st: Stmt & { s: 'if' }, at: Place, under: boolean): void => {
     let before: Expr | undefined;
     const arms = st.arms.map((a) => ({
       ...a,
@@ -200,9 +200,9 @@ export function nestTerms(env: NestEnv, body: readonly Stmt[]): readonly GrownTe
       }
       const when = allOf(at.when, before, arm.cond);
       before = allOf(before, not(arm.cond));
-      if (arm.pushes > 0) walk(arm.body, place(at.loops, when));
+      if (arm.pushes > 0) walk(arm.body, place(at.loops, when), under);
     }
-    if (elseHolds && ok) walk(st.elseBody!, place(at.loops, allOf(at.when, before)));
+    if (elseHolds && ok) walk(st.elseBody!, place(at.loops, allOf(at.when, before)), under);
   };
   const top = place([], undefined);
   walk(body, top);

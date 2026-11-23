@@ -24,6 +24,7 @@ const loop = (body: Stmt[]): Stmt & { s: 'for' } => ({
     b: lit(2),
   },
   update: { s: 'assign', target: { op: 'varref', type: u32T, name: 'i' }, expr: lit(1) },
+  counted: { name: 'i', op: 'add', step: 1 },
   body,
 });
 const fn = (body: Stmt[]): FuncDecl => ({
@@ -106,5 +107,37 @@ describe('countable, the allow-list of a function that Route 2 may run twice (ch
       },
     ]);
     expect(countable([verdict(length, [append])], fn([length, { s: 'return' }]))).toBe(false);
+  });
+
+  it('requires a loop that pushes onto the grown array to count, and no other loop', () => {
+    const open = (body: Stmt[]): Stmt & { s: 'for' } => {
+      const { counted: _counted, ...rest } = loop(body);
+      return {
+        ...rest,
+        update: { s: 'assign', target: { op: 'varref', type: u32T, name: 'k' }, expr: lit(1) },
+      };
+    };
+    const spare: Stmt = {
+      s: 'var',
+      name: 's',
+      type: u32T,
+      init: lit(0),
+    };
+    const pushing = open([push]);
+    const nested = loop([pushing]);
+    const quiet = loop([push, open([spare])]);
+    const write: Stmt = {
+      s: 'assign',
+      target: { op: 'index', type: u32T, base: out, idx: lit(0) },
+      expr: lit(1),
+    };
+    const writing = loop([push, open([write])]);
+    expect(countable([verdict(loop([push]), [append])], fn([loop([push]), { s: 'return' }]))).toBe(
+      true,
+    );
+    expect(countable([verdict(pushing, [append])], fn([pushing, { s: 'return' }]))).toBe(false);
+    expect(countable([verdict(nested, [append])], fn([nested, { s: 'return' }]))).toBe(false);
+    expect(countable([verdict(writing, [append])], fn([writing, { s: 'return' }]))).toBe(false);
+    expect(countable([verdict(quiet, [append])], fn([quiet, { s: 'return' }]))).toBe(true);
   });
 });

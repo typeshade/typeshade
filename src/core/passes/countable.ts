@@ -1,6 +1,7 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import type { Expr, FuncDecl, Stmt } from '../ir/nodes.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
+import { rangeOf } from './kernel-lower-ir.js';
 import type { LoopVerdict, LoopWrite } from './parallel-loop.js';
 
 type ForStmt = Stmt & { s: 'for' };
@@ -13,6 +14,17 @@ export const WRITE_COUNTABLE: Readonly<Record<LoopWrite['kind'], boolean>> = {
   texel: false,
   scatter: false,
 };
+
+export function plainCount(loop: ForStmt): boolean {
+  const range = rangeOf(loop);
+  if (range === undefined || loop.counted?.op !== 'add') return false;
+  const t = range.type;
+  return (
+    t.kind === 'scalar' &&
+    (t.scalar === 'u32' || t.scalar === 'i32') &&
+    !assigns(loop.body, loop.counted.name)
+  );
+}
 
 const isCall = (x: Expr, fn: string): x is Expr & { op: 'call' } => x.op === 'call' && x.fn === fn;
 
@@ -103,6 +115,39 @@ function grownOnlyPushed(fn: FuncDecl, name: string): boolean {
   return uses === allowed && pushes === pushStatements && lengthsBeforeEnd === 0;
 }
 
+function reachesArray(st: Stmt, name: string): boolean {
+  let found = false;
+  const visit = (s: Stmt): void => {
+    if ((s.s === 'assign' || s.s === 'assignOp') && s.target.op === 'index')
+      found ||= isParam(s.target.base, name);
+    eachStmtExpr(
+      s,
+      (e) =>
+        eachExpr(e, (x) => {
+          if (isCall(x, 'push') && isParam(x.args[0], name)) found = true;
+        }),
+      visit,
+    );
+  };
+  visit(st);
+  return found;
+}
+
+function everyGrowerCounted(body: readonly Stmt[], name: string): boolean {
+  return body.every((st) => {
+    if (st.s === 'for' && reachesArray(st, name) && !plainCount(st)) return false;
+    let ok = true;
+    eachStmtExpr(
+      st,
+      () => undefined,
+      (inner) => {
+        ok &&= everyGrowerCounted([inner], name);
+      },
+    );
+    return ok;
+  });
+}
+
 function onlyReturnAfterLoops(body: readonly Stmt[]): boolean {
   const lastLoop = body.map((st) => st.s).lastIndexOf('for');
   if (lastLoop < 0) return false;
@@ -138,6 +183,7 @@ export function countable(verdicts: readonly LoopVerdict[], fn: FuncDecl): boole
   );
   return (
     !handles &&
+    everyGrowerCounted(fn.body, name!) &&
     plainTopLevel(fn.body) &&
     onlyReturnAfterLoops(fn.body) &&
     grownOnlyPushed(fn, name!) &&

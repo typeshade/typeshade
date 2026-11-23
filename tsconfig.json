@@ -85,6 +85,7 @@
     "src/core/testing/tsc-diagnostics.ts",
     "src/core/testing/yield-between-tests.ts",
     "src/compiler/ts/remedy-lines/sites.ts",
+    "src/compiler/ts/growing-load.ts",
     "examples/**/*.test.ts",
     "examples/**/*.shade.ts",
     "src/**/*.shade.ts",
