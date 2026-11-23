@@ -74,7 +74,6 @@ import {
   nwg,
   u,
   vec3u,
-  workgroupFirst,
   x,
   y,
 } from '../kernel-workgroup.js';
@@ -92,7 +91,6 @@ import {
   iterationOf,
   kRef,
   liveRef,
-  mapBlock,
   mapStmt,
   placeRoot,
   rangeOf,
@@ -110,6 +108,8 @@ import {
   type LowerOptions,
   type PushWord,
 } from './kernel-lower-ir.js';
+import { computeEntry, kcRef, laneScaffold } from './kernel-push/entry.js';
+import { pushEntries } from './kernel-push/push-entries.js';
 import { deviceRangeLoops, lastLoopOf, readsElements, storeAfterLoops } from './kernel-stores.js';
 import { mapExpr } from './opt/ir-transform.js';
 import { proveKernels, type KernelProof, type LoopReduction } from './parallel-loop.js';
@@ -1028,41 +1028,6 @@ function rangeEntryFor(
   ];
   return computeEntry(`${c.f.name}_range${c.j}`, body, false, 1);
 }
-/** `_kc = min(_k, _n - 1)`: the invocation itself within the trip count, and the last
- *  iteration's past it (change 0096). A lane that reaches it is in a workgroup whose first index
- *  is below `_n`, so `_n` is at least 1 and the subtraction does not wrap. */
-const kcRef: Expr = { op: 'varref', type: u32T, name: '_kc' };
-
-/** The statements before the iteration of an entry whose lanes may lie past the trip count
- *  (change 0096, Rule 8.22): the invocation's index, the return of a workgroup wholly past the
- *  trip count, which every invocation of the workgroup takes alike, the lane's `_live` flag and
- *  its clamped index `_kc`. The number of them is the plan's `iteration`. `fuse-entry.ts` writes
- *  the same four for a fused group. */
-function laneScaffold(wg: number, n: Expr): Stmt[] {
-  return [
-    invocationIndex(wg),
-    {
-      s: 'if',
-      arms: [
-        {
-          cond: { op: 'compare', type: boolT, cop: '>=', a: workgroupFirst(wg), b: n },
-          body: [{ s: 'return' }],
-        },
-      ],
-    },
-    { s: 'let', name: '_live', expr: { op: 'compare', type: boolT, cop: '<', a: kRef, b: n } },
-    {
-      s: 'let',
-      name: '_kc',
-      expr: {
-        op: 'call',
-        type: u32T,
-        fn: 'min',
-        args: [kRef, { op: 'binop', type: u32T, bop: '-', a: n, b: u(1) }],
-      },
-    },
-  ];
-}
 
 /** Whether a lane past the trip count must skip the iteration rather than run iteration `n - 1`
  *  beside the lane that runs it (change 0096, decision D2): where that iteration reads an
@@ -1096,25 +1061,6 @@ function laneSkips(
   return found;
 }
 
-/** The `@compute` entry's parameters: the three ids every entry reads (the workgroup's for the
- *  return of a workgroup wholly past the trip count, change 0096), and what a tree reads. */
-function entryParams(tree: boolean, subgroup = false): FuncDecl['params'] {
-  return [
-    { name: '_gid', type: vec3u, builtin: 'global_invocation_id' },
-    { name: '_nwg', type: vec3u, builtin: 'num_workgroups' },
-    { name: '_wid', type: vec3u, builtin: 'workgroup_id' },
-    ...(tree ? [{ name: '_lid', type: u32T, builtin: 'local_invocation_index' }] : []),
-    // The subgroup variant of a reduction (change 0119) reads which subgroup a lane is in.
-    ...(subgroup
-      ? [
-          { name: '_sgi', type: u32T, builtin: 'subgroup_invocation_id' },
-          { name: '_sgid', type: u32T, builtin: 'subgroup_id' },
-          { name: '_nsg', type: u32T, builtin: 'num_subgroups' },
-        ]
-      : []),
-  ];
-}
-
 /** A map loop's entry, and the index in its body where the iteration starts: after the
  *  statements that index the invocation, return a workgroup wholly past the trip count and set
  *  the lane's flag (change 0096). */
@@ -1134,34 +1080,6 @@ function entryFor(c: LoopCtx): { entry: FuncDecl; iteration: number } {
       c.subgroupScatter === true ? 'scatter' : undefined,
     ),
     iteration: scaffold.length,
-  };
-}
-
-function computeEntry(
-  name: string,
-  body: Stmt[],
-  tree: boolean,
-  size: number = KERNEL_WORKGROUP,
-  variant?: 'reduce' | 'scatter',
-): FuncDecl {
-  const wg = tree ? KERNEL_TREE : size;
-  return {
-    name,
-    params: entryParams(tree, variant === 'reduce'),
-    ret: { kind: 'void' },
-    body,
-    stage: 'compute',
-    workgroupSize: wg,
-    // The scatter variant's fold (change 0119) branches on what `subgroupAny` returns, which
-    // every lane of the subgroup receives alike, so its control flow is subgroup uniform by
-    // construction; Tint's analysis (Chrome for Testing 153, measured 2026-11-03) does not
-    // read a subgroup function's result as uniform and refuses the fold under the default
-    // rule, so the entry turns the rule off for itself. The differential against the tree
-    // text is what holds the fold to its bits.
-    attrs: [
-      `@compute @workgroup_size(${wg})`,
-      ...(variant === 'scatter' ? ['@diagnostic(off, subgroup_uniformity)'] : []),
-    ],
   };
 }
 
@@ -1815,279 +1733,6 @@ function pushCountsIn(sts: readonly Stmt[]): Set<string> {
   const walk = (st: Stmt): void => eachStmtExpr(st, visit, walk);
   sts.forEach(walk);
   return found;
-}
-
-/**
- * The three steps a loop that pushes onto array `pushed` lowers to (change 0078):
- *
- *   1. `<base>_counts`: each invocation runs its iteration in `<base>_count`, which counts the
- *      pushes and stores nothing, and writes the count to its slot of the binding `<base>_push`;
- *   2. `<base>_scan`: one workgroup of 256 turns the counts into the exclusive scan in place,
- *      each invocation over a run of slots one after another, and writes the total at slot `n`;
- *   3. `<base>` (the loop's entry): each invocation runs its iteration again and stores its
- *      `j`th push at its offset plus `j`, while that is inside the array, and the loop's other
- *      writes.
- *
- * The elements land in the order of the iterations, as a sequential run appends them, and the
- * total is the count appended, which may exceed the array's length (decision 1).
- *
- * With the array's length `word` (change 0094), the pushes start at the length it holds: the
- * first invocation of the scan starts the offsets there and writes the new length into the word
- * after them, so slot `n` holds the length after the loop, and a later loop that pushes onto the
- * array appends after this one. The one invocation that reads the word is the one that writes it.
- */
-function pushEntries(
-  c: LoopCtx,
-  pushed: string,
-  arrays: ReadonlySet<string>,
-  word?: PushWord,
-): {
-  funcs: FuncDecl[];
-  workgroup: ModuleVarDecl;
-  binding: string;
-  count: string;
-  scan: string;
-  store: string;
-  iteration: number;
-} {
-  const base = `${c.f.name}_loop${c.j}`;
-  const binding = `${base}_push`;
-  const field = argsOf(c);
-  const lit = (n: number): Expr => ({ op: 'lit', type: u32T, value: n });
-  const slots: ShaderType = { kind: 'array', elem: u32T };
-  const slot = (at: Expr): Expr => ({
-    op: 'index',
-    type: u32T,
-    base: { op: 'varref', type: slots, name: binding },
-    idx: at,
-  });
-  const isPush = (st: Stmt): st is Stmt & { s: 'call'; expr: Expr & { op: 'call' } } =>
-    st.s === 'call' &&
-    st.expr.op === 'call' &&
-    st.expr.fn === 'push' &&
-    st.expr.declRef === undefined &&
-    st.expr.args[0]?.op === 'param' &&
-    st.expr.args[0].name === pushed;
-  const plus1 = (name: string): Stmt => {
-    const v: Expr = { op: 'varref', type: u32T, name };
-    return { s: 'assign', target: v, expr: { op: 'binop', type: u32T, bop: '+', a: v, b: lit(1) } };
-  };
-
-  // 1. Count: each push adds one, and no array is written.
-  const countBody = mapBlock(c.loop.body, (st) => {
-    if (isPush(st)) return [plus1('_c')];
-    if (st.s === 'assign' || st.s === 'assignOp') {
-      const root = placeRoot(st.target);
-      if (root.op === 'param' && arrays.has(root.name)) return [];
-    }
-    return undefined;
-  });
-  const cRef: Expr = { op: 'varref', type: u32T, name: '_c' };
-  const counting = iterationOf({ ...c, loop: { ...c.loop, body: countBody } }, cRef, [
-    { s: 'var', name: '_c', type: u32T, init: lit(0) },
-  ]);
-  const asParam = (e: Expr): Expr =>
-    e.op === 'varref' && e.name === '_k'
-      ? { op: 'param', type: u32T, name: '_k' }
-      : mapChildren(e, asParam);
-  const helper: FuncDecl = {
-    name: `${base}_count`,
-    params: [{ name: '_k', type: u32T }],
-    ret: u32T,
-    body: counting.map((st) => mapStmt(st, asParam)),
-  };
-  const n = field('_n', u32T);
-  const countOf = (k: Expr): Expr => ({
-    op: 'call',
-    type: u32T,
-    fn: helper.name,
-    args: [k],
-    declRef: helper,
-  });
-  // A lane past the trip count counts iteration `_n - 1` and stores no count (change 0096);
-  // where the lane skips (decision D2), it counts nothing, as every lane did before.
-  const cntRef: Expr = { op: 'varref', type: u32T, name: '_cnt' };
-  const counts: Stmt[] = c.skip
-    ? [
-        {
-          s: 'if',
-          arms: [
-            { cond: liveRef, body: [{ s: 'assign', target: slot(kRef), expr: countOf(kRef) }] },
-          ],
-        },
-      ]
-    : [
-        { s: 'let', name: '_cnt', expr: countOf(kcRef) },
-        {
-          s: 'if',
-          arms: [{ cond: liveRef, body: [{ s: 'assign', target: slot(kRef), expr: cntRef }] }],
-        },
-      ];
-  const countEntry = computeEntry(
-    `${base}_counts`,
-    [...laneScaffold(c.wg, n), ...counts],
-    false,
-    c.wg,
-  );
-
-  // 2. Scan: one workgroup of 256, each invocation over its run of slots, the runs' totals
-  //    scanned by the first invocation, then each run written as its offsets.
-  const wgName = `${base}_scan_runs`;
-  const runs: ShaderType = { kind: 'array', elem: u32T, size: KERNEL_TREE };
-  const run = (at: Expr): Expr => ({
-    op: 'index',
-    type: u32T,
-    base: { op: 'varref', type: runs, name: wgName },
-    idx: at,
-  });
-  const lid: Expr = { op: 'param', type: u32T, name: '_lid' };
-  const ref = (name: string): Expr => ({ op: 'varref', type: u32T, name });
-  const barrier: Stmt = {
-    s: 'call',
-    expr: { op: 'call', type: { kind: 'void' }, fn: 'workgroupBarrier', args: [] },
-  };
-  const minU = (a: Expr, b: Expr): Expr => ({ op: 'call', type: u32T, fn: 'min', args: [a, b] });
-  // The array's length word, when its pushes start at a held length (change 0094).
-  const length: Expr | undefined =
-    word === undefined
-      ? undefined
-      : {
-          op: 'index',
-          type: u32T,
-          base: { op: 'varref', type: slots, name: word.binding },
-          idx: field(word.field, u32T),
-        };
-  const over = (counter: string, from: Expr, to: Expr, body: Stmt[]): Stmt => ({
-    s: 'for',
-    init: { s: 'var', name: counter, type: u32T, init: from },
-    cond: { op: 'compare', type: boolT, cop: '<', a: ref(counter), b: to },
-    update: plus1(counter),
-    body,
-  });
-  const scanEntry = computeEntry(
-    `${base}_scan`,
-    [
-      {
-        s: 'let',
-        name: '_run',
-        expr: {
-          op: 'binop',
-          type: u32T,
-          bop: '/',
-          a: { op: 'binop', type: u32T, bop: '+', a: n, b: lit(KERNEL_TREE - 1) },
-          b: lit(KERNEL_TREE),
-        },
-      },
-      { s: 'let', name: '_lo', expr: minU(bin('*', lid, ref('_run')), n) },
-      { s: 'let', name: '_hi', expr: minU(bin('+', ref('_lo'), ref('_run')), n) },
-      { s: 'var', name: '_sum', type: u32T, init: lit(0) },
-      over('_t', ref('_lo'), ref('_hi'), [
-        {
-          s: 'assign',
-          target: ref('_sum'),
-          expr: { op: 'binop', type: u32T, bop: '+', a: ref('_sum'), b: slot(ref('_t')) },
-        },
-      ]),
-      { s: 'assign', target: run(lid), expr: ref('_sum') },
-      barrier,
-      {
-        s: 'if',
-        arms: [
-          {
-            cond: { op: 'compare', type: boolT, cop: '==', a: lid, b: lit(0) },
-            body: [
-              { s: 'var', name: '_acc', type: u32T, init: length ?? lit(0) },
-              over('_r', lit(0), lit(KERNEL_TREE), [
-                { s: 'let', name: '_v', expr: run(ref('_r')) },
-                { s: 'assign', target: run(ref('_r')), expr: ref('_acc') },
-                {
-                  s: 'assign',
-                  target: ref('_acc'),
-                  expr: { op: 'binop', type: u32T, bop: '+', a: ref('_acc'), b: ref('_v') },
-                },
-              ]),
-              // The new length, the held one plus what the loop appends (change 0094).
-              ...(length !== undefined
-                ? [{ s: 'assign', target: length, expr: ref('_acc') } as Stmt]
-                : []),
-            ],
-          },
-        ],
-      },
-      barrier,
-      { s: 'var', name: '_at', type: u32T, init: run(lid) },
-      over('_u', ref('_lo'), ref('_hi'), [
-        { s: 'let', name: '_w', expr: slot(ref('_u')) },
-        { s: 'assign', target: slot(ref('_u')), expr: ref('_at') },
-        {
-          s: 'assign',
-          target: ref('_at'),
-          expr: { op: 'binop', type: u32T, bop: '+', a: ref('_at'), b: ref('_w') },
-        },
-      ]),
-      // The last invocation's run ends at `n`, so what it ends at is the total.
-      {
-        s: 'if',
-        arms: [
-          {
-            cond: { op: 'compare', type: boolT, cop: '==', a: lid, b: lit(KERNEL_TREE - 1) },
-            body: [{ s: 'assign', target: slot(n), expr: ref('_at') }],
-          },
-        ],
-      },
-    ],
-    true,
-  );
-
-  // 3. Store: the iteration again, each push at its offset while inside the array.
-  const pRef = ref('_p');
-  const storeBody = mapBlock(c.loop.body, (st) => {
-    if (!isPush(st)) return undefined;
-    const [arr, value] = st.expr.args as [Expr, Expr];
-    return [
-      {
-        s: 'if',
-        arms: [
-          {
-            cond: {
-              op: 'compare',
-              type: boolT,
-              cop: '<',
-              a: pRef,
-              b: { op: 'call', type: u32T, fn: 'arrayLength', args: [arr] },
-            },
-            body: [
-              {
-                s: 'assign',
-                target: { op: 'index', type: value.type, base: arr, idx: pRef },
-                expr: value,
-              },
-            ],
-          },
-        ],
-      },
-      plus1('_p'),
-    ];
-  });
-  // The same scaffold as a map's entry (change 0096): a lane past the trip count runs the last
-  // iteration from its slot, and its stores are masked, so it stores no push.
-  const scaffold = laneScaffold(c.wg, n);
-  const storing = iterationOf(
-    { ...c, loop: { ...c.loop, body: storeBody } },
-    undefined,
-    [{ s: 'var', name: '_p', type: u32T, init: slot(kcRef) }],
-    { k: kcRef, mask: liveRef, skip: c.skip },
-  );
-  const storeEntry = computeEntry(base, [...scaffold, ...storing], false, c.wg);
-  return {
-    funcs: [helper, countEntry, scanEntry, storeEntry],
-    workgroup: { name: wgName, space: 'workgroup', type: runs },
-    binding,
-    count: countEntry.name,
-    scan: scanEntry.name,
-    store: storeEntry.name,
-    iteration: scaffold.length,
-  };
 }
 
 // ─── A Map or a Set (change 0080) ────────────────────────────────────────────────────────────

@@ -40,6 +40,7 @@
 import { arityError, heldArgument } from './host-arity.js';
 import type { CpuValue } from './cpu-runtime.js';
 import { pushedLength, startPushesAt } from './push-count.js';
+import { dispatchPush } from './host-kernel-push.js';
 import { CpuTexture, isCpuTexture } from './cpu-texture.js';
 import { fuseSlot } from './fuse-scope.js';
 import { checkIncoming, type IncomingReads } from './host-failure.js';
@@ -2322,55 +2323,23 @@ async function onDevice(
     });
 
     if (loop.push !== undefined) {
-      // Count, scan, store (change 0078): `n` counts become their offsets in place, and the
-      // total is written after them, read back in the submission that holds the three.
-      const slots = zeroedBuffer(d, (n + 1) * 4);
-      const bound = new Map(onDevice);
-      bound.set(loop.push.binding.name, slots);
-      // The records of a Map or Set the loop adds to (change 0080): `n` times the most an
-      // iteration pushes, so every record fits.
-      const collected = (g.collections ?? []).filter((c) => c.loop === j);
-      const recordBuffers = collected.map((c) => {
-        const st = (c.records.layout as Layout & { k: 'a' }).st;
-        const buffer = zeroedBuffer(d, Math.max(4, n * c.perIteration * st));
-        bound.set(c.records.name, buffer);
-        return { c, st, buffer };
-      });
-      const first = grid(Math.ceil(n / loop.wg));
-      const checked = { values: bound_, images, samplers: new Map(), onDevice: bound };
-      try {
-        if (n > 0) await batch.add(es[j]!.count!, checked, first.wg);
-        await batch.add(es[j]!.scan!, checked, [1, 1, 1]);
-        if (n > 0) await batch.add(es[j]!.loop, checked, first.wg);
-      } catch (e) {
-        slots.destroy();
-        throw e;
-      }
-      // The total, read back for the result. With a length word and no result, it stays on the
-      // device, where the word holds the new length, and nothing is read back (change 0094).
-      const total = g.tail !== undefined || !word ? batch.read(slots, n * 4, 4) : undefined;
-      if (total === undefined) kept.push(slots);
-      else {
-        const free = (): void => slots.destroy();
-        void total.then(free, free);
-      }
-      const records = recordBuffers.map((r) => {
-        const read = batch.read(r.buffer, 0, Math.max(4, n * r.c.perIteration * r.st));
-        const drop = (): void => r.buffer.destroy();
-        void read.then(drop, drop);
-        return { ...r, read };
-      });
-      let applied: Promise<void> | undefined;
-      const apply = (): Promise<void> =>
-        (applied ??= (async () => {
-          const count = (await total!).getUint32(0, true);
-          for (const r of records) applyRecords(k, r.c, count, await r.read, args, values);
-        })());
-      if (records.length > 0) pending.push(apply);
-      folds.push(async () => {
-        if (total === undefined) return [0 as CpuValue];
-        await apply();
-        return [(await total).getUint32(0, true) as CpuValue];
+      await dispatchPush({
+        d,
+        g,
+        j,
+        n,
+        loop: { push: loop.push },
+        entries: es[j]!,
+        firstWorkgroups: grid(Math.ceil(n / loop.wg)).wg,
+        boundValues: bound_,
+        images,
+        onDevice,
+        batch,
+        word,
+        kept,
+        folds,
+        pending,
+        applyRecords: (c, count, dv) => applyRecords(k, c, count, dv, args, values),
       });
     } else if (vars.length === 0) {
       const first = grid(Math.ceil(n / loop.wg));
