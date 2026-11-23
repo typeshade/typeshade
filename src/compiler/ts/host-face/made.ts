@@ -24,6 +24,7 @@ export function madeFace(e: HostExport, f: FuncDecl): HostExport {
     array: made.element,
     length: length.name,
     ...(fill !== undefined ? { fill: fill.name } : {}),
+    ...(made.grown === true ? { grown: true as const } : {}),
   };
   const face: Record<string, unknown> = { ...e.face };
   delete face.gl;
@@ -55,9 +56,14 @@ export interface MadeView {
 export function madeView(face: KernelFace): MadeView {
   const made = madeOf(face);
   if (made === undefined) return { face, note: '' };
+  const length = made.grown === true ? 'is the number of elements it pushes' : 'its arguments give';
   return {
-    face: { ...face, params: face.params.filter((p) => !isMadeParam(made, p.name)) },
+    face: {
+      ...face,
+      params: face.params.filter((p) => !isMadeParam(made, p.name)),
+      ...(made.grown === true ? { result: { k: 'void' as const, s: 'void' } } : {}),
+    },
     result: TYPED_NAME[made.array],
-    note: ` It makes the array it returns, "${made.shown}", a new ${TYPED_NAME[made.array]} whose length its arguments give, and the caller owns it; a call on a resource, or inside fuse(), is not supported yet (Rules 8.21 and 8.23).`,
+    note: ` It makes the array it returns, "${made.shown}", a new ${TYPED_NAME[made.array]} whose length ${length}, and the caller owns it; a call on a resource, or inside fuse(), is not supported yet (Rules 8.21 and 8.23).`,
   };
 }
