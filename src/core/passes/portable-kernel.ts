@@ -291,7 +291,7 @@ export function analyzePortableKernel(
   const shape = workgroupShapeOf(entry);
   if (shape !== undefined && (shape[1] !== 1 || shape[2] !== 1)) {
     violations.push(
-      `the portable compute entry '${entry.name}' has workgroup shape [${shape.join(', ')}] — the portable tier is 1-D, so its workgroup is \`[x, 1, 1]\`; give the invocations to x (\`[${shape[0] * shape[1] * shape[2]}]\`) and derive a 2-D coordinate from \`gid.x\`, or drop \`portable\` and keep the kernel WebGPU-only`,
+      `the portable compute entry '${entry.name}' has workgroup shape [${shape.join(', ')}] — the portable tier is 1-D, so its workgroup is \`[x, 1, 1]\`; give the invocations to x (\`[${shape[0] * shape[1] * shape[2]}]\`) and derive a 2-D coordinate from \`gid.x\`, or drop \`portable\` so that the kernel runs on WebGL2 as the pass program (Rule 8.24)`,
     );
   }
 
@@ -313,7 +313,7 @@ export function analyzePortableKernel(
     const t = outBinding.type;
     if (t.kind !== 'array' || t.elem.kind !== 'scalar' || t.elem.scalar !== 'u32')
       violations.push(
-        `the read_write storage binding '${outBinding.name}' is ${typeKey(t)} — the portable tier's output must be \`array<u32>\` (the R32UI draw buffer is the only storage-write form WebGL2 has), so pack the value into a u32 (e.g. with pack4x8unorm) before storing it`,
+        `the read_write storage binding '${outBinding.name}' is ${typeKey(t)} — the portable tier's output must be \`array<u32>\` (another output is not supported yet on the portable tier), so pack the value into a u32 (e.g. with pack4x8unorm) before storing it`,
       );
     const writes: Stmt[] = [];
     collectWrites(entry.body, outBinding.name, writes);
@@ -356,13 +356,13 @@ export function analyzePortableKernel(
   for (const f of reachableFns(m, entry)) {
     if (bodyHasRaw(f.body))
       violations.push(
-        `fn '${f.name}', reachable from the portable compute entry '${entry.name}', contains a \`raw\` statement — raw text is per-target and opaque to this analyzer, so it contradicts the portability claim; express the code in the DSL, or drop \`portable\` and keep the kernel WebGPU-only`,
+        `fn '${f.name}', reachable from the portable compute entry '${entry.name}', contains a \`raw\` statement — raw text is per-target and opaque to this analyzer, so it contradicts the portability claim; express the code in the DSL, or drop \`portable\` so that the kernel runs on WebGL2 as the pass program (Rule 8.24)`,
       );
     // The tier's one store is a plain assignment in the entry; a call statement is a write
     // the analyzer would have to follow into the callee, so it is refused rather than guessed.
     if (bodyHasCallStmt(f.body))
       violations.push(
-        `fn '${f.name}', reachable from the portable compute entry '${entry.name}', calls a function as a statement — the portable tier's single store is a plain \`out[gid.x] = …\` written in the entry itself, so inline the call's work into that store, or drop \`portable\` and keep the kernel WebGPU-only`,
+        `fn '${f.name}', reachable from the portable compute entry '${entry.name}', calls a function as a statement — the portable tier's single store is a plain \`out[gid.x] = …\` written in the entry itself, so inline the call's work into that store, or drop \`portable\` so that the kernel runs on WebGL2 as the pass program (Rule 8.24)`,
       );
   }
 

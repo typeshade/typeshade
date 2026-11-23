@@ -333,7 +333,7 @@ describe('X-GIS #1812 reflect() — the host-contract signal', () => {
 
     const undeclared = reflect(PLAIN_MOD).entries[0]!;
     expect(undeclared.stage).toBe('compute');
-    // Absent, never `false` — the host reads "WebGPU-only" as it reads any absent capability.
+    // Absent, never `false` — the host reads "not portable" as it reads any absent capability.
     expect('portable' in undeclared).toBe(false);
   });
 });

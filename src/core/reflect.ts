@@ -644,7 +644,7 @@ export interface EntryInfo {
    *  never `false`. It tells a host which dispatch shape the kernel needs: on a backend with
    *  no compute stage a portable kernel emits as fragment-shader GPGPU and is dispatched as
    *  a fullscreen draw into an `R32UI` target instead of a compute dispatch. An entry
-   *  without it runs on WebGPU only. */
+   *  without it runs on WebGL2 as the pass program when it reaches no texture (Rule 8.24). */
   readonly portable?: true;
   /** The entry's location and builtin interface, in structured form. `inputs` and `output`
    *  are type keys, which is what {@link semanticDiff} fingerprints with; `io` is the view
@@ -1061,7 +1061,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       inputs: f.params.map((p) => typeKey(p.type)),
       output: typeKey(f.ret),
       // Present only when declared (X-GIS #1812) — an absent field, not `portable: false`, so the
-      // host reads "WebGPU-only" the same way it reads every other absent capability.
+      // host reads "not portable" the same way it reads every other absent capability.
       ...(f.portable === true ? { portable: true as const } : {}),
       io: {
         inputs: io.inputs.map(ioField(plan.wgsl.members)),
