@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Methods that change their object",
-  "blurb": "A `class Particle` whose `step`, `bounce` and `tick` assign to `this`, called on a storage element: each takes and returns the struct and the call statement writes the receiver back, `ps[gid.x] = Particle_tick(ps[gid.x], dt)` (§26). WGSL-only: a storage buffer and a compute stage have no WebGL2 form.",
+  "blurb": "A `class Particle` whose `step`, `bounce` and `tick` assign to `this`, called on a storage element: each takes and returns the struct and the call statement writes the receiver back, `ps[gid.x] = Particle_tick(ps[gid.x], dt)` (§26). The WebGL2 tier runs the compute entry as a pass program, with read-write storage (Rule 11.8).",
   "renderable": false,
   "reason": "missing capabilities: storageBuffer, compute"
 }
@@ -15,7 +15,8 @@
 // statement writes the receiver back: `ps[gid.x].tick(dt)` is
 // `ps[gid.x] = Particle_tick(ps[gid.x], dt)`. `tick` calls `step` and `bounce` on `this`, which
 // is what makes it a changing method too. `speed` reads its object and keeps the plain
-// parameter. WGSL-only: a storage buffer and a compute stage have no WebGL2 form.
+// parameter. The WebGL2 tier runs the compute entry as a pass program, with read-write
+// storage (Rule 11.8); the site draws no image for it.
 
 declare const ps: storage<array<Particle>, "read_write">;
 declare const delta: uniform<f32>;

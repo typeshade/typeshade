@@ -16,8 +16,8 @@
 //   - a full-screen `@fragment` entry is drawn into a canvas on WebGPU, on WebGL2 and on the
 //     CPU tier, and each frame is compared with WebGPU's pixel by pixel.
 //
-// A tier the entry has no form for (a barrier or a texture on the CPU tier, a texture on
-// WebGL2's compute tier, a storage buffer in a WebGL2 draw) is reported as skipped with the reason
+// A tier that does not support the entry yet (a barrier or a texture on the CPU tier, a texture
+// on WebGL2's compute tier, a storage buffer in a WebGL2 draw) is reported as skipped with the reason
 // the host face gives, never passed silently.
 //
 // The program cases (`PROGRAM_CASES` in `scripts/compute-case.ts`) reach a texture the call layer
