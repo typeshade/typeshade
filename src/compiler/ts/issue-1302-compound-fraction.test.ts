@@ -25,10 +25,30 @@ describe('a compound assignment of a fraction over an integer variable (issue 13
       ['let a: i32 = ii;\n  a /= 0.5;\n  return a;', '/=', 'i32'],
       ['let a = vi;\n  a /= 0.5;\n  return i32(a);', '/=', 'u32'],
       ['arr[0] /= 0.5;\n  return arr[0];', '/=', 'i32'],
+      ['let a = vi;\n  a += 0.5;\n  return i32(a);', '+=', 'u32'],
+      ['let a = vi;\n  a %= 1.5;\n  return i32(a);', '%=', 'u32'],
+      ['arr[0] += 0.5;\n  return arr[0];', '+=', 'i32'],
+      ['arr[0] -= 0.5;\n  return arr[0];', '-=', 'i32'],
+      ['arr[0] %= 0.5;\n  return arr[0];', '%=', 'i32'],
+      ['arr[ii] *= 0.5;\n  return arr[0];', '*=', 'i32'],
+      ['let a = ii;\n  a *= 1e-1;\n  return a;', '*=', 'i32'],
+      ['let a = ii;\n  a += 1.5e0;\n  return a;', '+=', 'i32'],
+      ['let a = ii;\n  a *= .5;\n  return a;', '*=', 'i32'],
+      ['let a: i32 = ii;\n  a += 0.5;\n  return a;', '+=', 'i32'],
+      ['let a = 5;\n  a *= 0.5;\n  return a;', '*=', 'i32'],
+      ['let a: i32 = 5;\n  a /= 0.5;\n  return a;', '/=', 'i32'],
+      ['let a = ii;\n  if (ii > 0) {\n    a *= 0.5;\n  }\n  return a;', '*=', 'i32'],
     ];
     for (const [body, op, kind] of cases) {
       bothRefuse(program(body), 'TS8003', mismatch(op, kind));
     }
+  });
+
+  it('refuses each fraction statement once', () => {
+    bothRefuse(program('let a = ii;\n  a *= 0.5;\n  a *= 0.5;\n  return a;'), 'TS8003', [
+      mismatch('*=', 'i32'),
+      mismatch('*=', 'i32'),
+    ]);
   });
 
   it('refuses the expanded form with the same code', () => {
