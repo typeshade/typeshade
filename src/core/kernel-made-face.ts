@@ -26,6 +26,7 @@ export interface KernelMade {
   readonly written?: string;
   readonly fillFrom?: { readonly param: string; readonly path: readonly string[] };
   readonly reads?: readonly string[];
+  readonly checks?: readonly { readonly text: string; readonly write: boolean }[];
 }
 
 export function madeOf(k: KernelFace): KernelMade | undefined {

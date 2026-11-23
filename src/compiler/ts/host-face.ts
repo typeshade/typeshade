@@ -59,7 +59,7 @@ import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { addsTo, colourOf } from './host-face/entry-shapes.js';
-import { madeFace } from './host-face/made.js';
+import { grownChecked, madeFace } from './host-face/made.js';
 import { exportsOf, type ExportRef } from './host-face/exports.js';
 import { wgslLoweredOf } from './source-file/wgsl-lowered.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
@@ -411,7 +411,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   }
   const ranges = exports.flatMap((e) => (e.kind === 'kernel' ? e.ranges : []));
   const gen = generateModuleJs(
-    { ...m, funcs: [...m.funcs, ...ranges].filter((f) => keep.has(f.name)) },
+    { ...m, funcs: [...m.funcs, ...ranges].filter((f) => keep.has(f.name)).map(grownChecked) },
     { precision: 'f32' },
   );
   const fallbacks = new Set(gen.fallbacks);

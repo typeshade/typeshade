@@ -26,6 +26,22 @@ function written(access: ts.ElementAccessExpression): boolean {
   return ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p);
 }
 
+function isPlainAssignment(e: ts.BinaryExpression): boolean {
+  return e.operatorToken.kind === ts.SyntaxKind.EqualsToken;
+}
+
+function beforeFirstLoop(access: ts.Node, body: ts.Block, sf: ts.SourceFile): boolean {
+  if (innermostLoop(access, body) !== undefined) return false;
+  let first: number | undefined;
+  const visit = (n: ts.Node): void => {
+    if (first !== undefined || ts.isFunctionLike(n)) return;
+    if (ts.isIterationStatement(n, false)) first = n.getStart(sf);
+    else ts.forEachChild(n, visit);
+  };
+  ts.forEachChild(body, visit);
+  return first === undefined || access.getStart(sf) < first;
+}
+
 function grownUse(name: string, fn: string, at: MadeAt): GrownUse {
   return (use, body) => {
     const p = use.parent;
@@ -61,12 +77,18 @@ function grownUse(name: string, fn: string, at: MadeAt): GrownUse {
       return 'fine';
     }
     if (ts.isElementAccessExpression(p) && p.expression === use) {
+      if (!beforeFirstLoop(p, body, at.sourceFile)) return 'fine';
+      const plain = written(p) && ts.isBinaryExpression(p.parent) && isPlainAssignment(p.parent);
       say(
         at,
         p,
-        `"${shortText(p)}" ${written(p) ? 'writes' : 'reads'} an element of "${name}", the ` +
-          `array "${fn}" grows with push, and that is not supported yet. Push onto it in a ` +
-          `loop, read its length, and return it.`,
+        plain
+          ? `"${shortText(p.parent)}" writes an element of "${name}", the array "${fn}" grows ` +
+              `with push, before its first loop, which adds an element outside every loop, and ` +
+              `that is not supported yet. Push onto it inside a loop of "${fn}".`
+          : `"${shortText(p)}" reads an element of "${name}", the array "${fn}" grows with ` +
+              `push, before anything is pushed onto it; a read past its length is not supported ` +
+              `yet. Read it after the loop that pushes onto it.`,
       );
       return 'refused';
     }

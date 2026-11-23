@@ -1425,7 +1425,8 @@ Each runs on the CPU tier only (section 1, item 4.1).
   front-matter entry changes. Rules 8.22 and 8.23 and surface §63, §64 and §65 are declared,
   `TS8099` exists, and `Array.prototype.push` and `length` are in `src/__api__/author-names.md`.
 - Status: `status: accepted` does not change. A12: reviewed, Q1 decided (C), Q2 decided (A). The
-  capacity bug fix: in progress (#1426). S5d slice 2: not started. S5d slice 3: not started.
+  capacity bug fix: done (#1426, `e73d0464`). S5d slice 2: in progress (#1431): form 1 and Q1 (C)
+  first; form 2 on Routes 1 and 2 next. S5d slice 3: not started.
 
 ## What it owes downstream
 

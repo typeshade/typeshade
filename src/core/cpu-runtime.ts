@@ -29,7 +29,7 @@ import {
   type NumKind,
 } from './scalar-arith.js';
 import { makeLibm, type Libm } from './libm/index.js';
-import { pushedLength, startPushesAt } from './push-count.js';
+import { PUSHED_BUILTINS, pushedLength, startPushesAt } from './pushed-index.js';
 
 export { atomicStep, intDiv, intRem, scalarBin, wrapInt, type NumKind } from './scalar-arith.js';
 
@@ -797,7 +797,7 @@ export const BUILTINS: Record<string, Builtin> = {
   },
   // `out.length` of an array the function pushes onto: the count appended, which may exceed the
   // capacity (change 0078, decision 1), after the held length a call passes (change 0094).
-  pushCount: (xs) => pushedLength(xs as CpuValue[]),
+  ...PUSHED_BUILTINS,
   // A kernel function's Map and Set (change 0080): JavaScript's own, so the entries, the size,
   // the insertion order and SameValueZero are ECMAScript's. A value is copied in and out, so
   // nothing the function does later changes what a set stored.

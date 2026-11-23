@@ -55,6 +55,23 @@ function result(
   return elements.map((own, i) => (marks !== undefined && marks[i] !== 0 ? own : one));
 }
 
+interface PastLength {
+  readonly site: number;
+  readonly index: number;
+  readonly length: number;
+}
+
+function explained(e: unknown, k: KernelFace, made: KernelMade): unknown {
+  const err = e as Partial<PastLength>;
+  const site = e instanceof RangeError ? made.checks?.[err.site ?? -1] : undefined;
+  if (site === undefined) return renamed(e, made);
+  const [verb, noun] = site.write ? ['writes', 'A write'] : ['reads', 'A read'];
+  return new RangeError(
+    `${k.name}(): "${site.text}" ${verb} index ${String(err.index)} of "${made.shown}", whose ` +
+      `length is ${String(err.length)} there. ${noun} past the length is not supported yet.`,
+  );
+}
+
 function onResource(taken: KernelFace['params'], args: readonly unknown[]): boolean {
   return args.some((a, i) => {
     if (isResource(a)) return true;
@@ -100,9 +117,9 @@ export function callMadeKernel(
     );
     return callKernel(cpu, k, all.length, all, reads).then(
       (pushed) => result(k, made, making, args, marks, pushed),
-      (e: unknown) => Promise.reject(renamed(e, made)),
+      (e: unknown) => Promise.reject(explained(e, k, made)),
     );
   } catch (e) {
-    return Promise.reject(e);
+    return Promise.reject(e instanceof RangeError ? explained(e, k, made) : e);
   }
 }

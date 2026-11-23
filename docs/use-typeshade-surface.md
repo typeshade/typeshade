@@ -9185,8 +9185,36 @@ push outside every loop; a push in a loop that is no `for` at the top level of t
 start to a bound by a constant whole step, or whose start or bound reads another operand (a loop
 whose range the device holds included); an element a made array may not hold (above); pushes of
 a struct that the compiler cannot tell are one object or new ones (one object mixed with new
-ones, or one the body changes); and a read or a write of an element of the array. These wait for the heap OD-10 names. The host value, the tiers and
-the other refusals are those of the made array above.
+ones, or one the body changes); a read or a write of an element before the first loop; and a
+write the compiler cannot prove below the length in a loop that is no `for` at the top level of
+the body, or in a loop whose trip count the call cannot compute. These wait for the heap OD-10
+names. The host value, the tiers and the other refusals are those of the made array above.
+
+An element of the array reads and writes as in JavaScript (proposal 0114, Amendment A12): a read
+needs an index below the length, a write an index at most the length, and a write at the length
+appends as `push` does. An index the compiler proves below the length (the counter of a loop up
+to `out.length` from 0) runs on every tier, as on an array parameter. Any other index is checked
+at the call on the CPU tier only: the function runs on the CPU, each such write counts as one push
+in the capacity, and an index past the length throws a `RangeError`, before the caller's arrays
+change:
+
+```ts
+export function keepScaled(xs: f32[], t: f32): f32[] {
+  const out: f32[] = [];
+  for (const x of xs) {
+    if (x > t) {
+      out.push(x);
+    }
+  }
+  for (let j: u32 = 0; j < out.length; j++) {
+    out[j] = out[j] / t;
+  }
+  return out;
+}
+// out[j] is proved below the length: the second loop runs on WebGPU too.
+// out[k] = v after the loops runs on the CPU, and throws for k > out.length:
+// RangeError: f(): "out[k]" writes index 9 of "out", whose length is 5 there. A write past the length is not supported yet.
+```
 
 A texture, a storage texture, a `Map` and a `Set` are the caller's too, with no qualifier. A
 push to an array parameter, `out.push(v)`, writes the caller's array as an element write does.
