@@ -1520,6 +1520,72 @@ not supported yet.` Open until the owner decides which sentence holds.
   on Route 1 done (#1444); form 2 on Route 2 not started. S5d
   slice 3 (Route 3, form 3) not started.
 
+### A16. Route 2 delivered, and S1's status (2026-11-23)
+
+- [fact] Amendment A15 is in pull request #1460 and is not yet merged. This amendment follows it in
+  number only and does not depend on its text.
+
+**(a) S5d slice 2, part 3: Route 2 on the CPU tier and on WebGPU.**
+
+- [fact] Pull request #1466 (merge commit `369f1b41`) delivers Route 2 of A12 for form 2
+  (Example 2). On WebGPU the first run dispatches only the count and scan entries of change 0078,
+  with no store entry, and reads the total. On every other tier the first run is the function's run
+  on the CPU tier.
+- [fact] Route 2 reads the size back before the second run. It is the interim of the alternative
+  change 0144 rejected ("always read the size back first", 0144, Alternatives). A12 review
+  finding S7 accepts that interim until 0144 A3.
+- [fact] Pull request #1466 closes A14 D1 (Route 2 is not built) and A14 D2 (Route 1's preference
+  for Route 2).
+- This amendment records the differences from A12, section 1, item 3. Each stays open until the
+  owner decides it.
+
+1. **D1. The eligibility is stricter than `pushGap`.** `countable`
+   (`src/core/passes/countable.ts`) accepts a function only on these conditions. Every write is an
+   `append` onto one array. Every push is a statement. The body reads no element of the grown
+   array. Only the return follows the loops. Every read of an operand array is at a counter that
+   runs up to that array's length. A12 item 3 allows more. Any other function keeps `TS8099`.
+   Open.
+2. **D2. No mismatch word (owner decision (b), 2026-11-23).** The second run checks that its
+   total equals the first run's. Count and store errors that cancel in the total are not caught.
+   Open.
+3. **D3. A count of 4294967295 or more throws (owner decision (e)).** `countedTotal`
+   (`src/core/host-kernel-made/capacity.ts`) throws the `RangeError` at 4294967295. The count
+   saturates only for a counted function (decision (f)). On WebGPU, `min` and `-` in the count
+   helper and in the scan do it (`exactTotal` of `LowerOptions`). On the CPU tier, the push builtin
+   does it (`withSaturatingPushes`). A total of exactly 4294967295 throws, though it is
+   representable, since no tier allocates it. Open.
+4. **D4. Route 1's limit test at the call.** `host-kernel-grown-capacity.test.ts` and
+   `host-kernel-grown-nest.test.ts` no longer assert at the call that a counted function past the
+   limit throws Route 1's `RangeError`. That call takes Route 2, and a real run needs billions of
+   trips. Before the change it ran 520 s and 570 s before it failed. The tests assert
+   `exactCapacity` and `checkedCapacity` for the same inputs. A function that is not counted
+   (`guarded`) keeps the assertion at the call. The switch from Route 1 to Route 2 at the limit is
+   tested with a mocked `callKernel` only. Open.
+5. **D5. WebGL2.** A push loop has no WebGL2 plan (`noWebgl2`, Rule 11.8). A counted function
+   runs there on the CPU tier, and its face keeps that reason. Open.
+6. **D6. A13 D1 and D2 stay open.** This slice does not close them. Open.
+
+- [fact] Not run for #1466: the differential gate, and a saturated scan on a device. A real count
+  past 4294967295 is infeasible. CI ran the full suite. The journey cases `pairSearch` and
+  `pairTwice` ran on WebGPU (SwiftShader) and equal the reference.
+- Affects: Rule 8.23 and surface section 65 (the first run on WebGPU). No front-matter entry,
+  rule number or code changes.
+- Status: `status: accepted` does not change. S5d slice 2: form 2 on Route 2 done on the CPU tier
+  and on WebGPU (#1466, merge commit `369f1b41`). S5d slice 3 (Route 3, form 3) not started.
+
+**(b) S1's status.**
+
+- [fact] A2's status line says that `readonly T[]`, `ReadonlyArray<T>` and the write refusal are
+  not started. That line is out of date.
+- [fact] Pull request #1369 (merge commit `b30b8a6b`, "Proposal 0114 S1: accept readonly f32[] and
+  ReadonlyArray<f32> and refuse a write through them") delivered them. It added
+  `src/compiler/ts/type-map/readonly-array.ts` and `src/compiler/ts/readonly-ts-arrays.test.ts`.
+  Pull request #1370 (merge commit `a2e69146`, "State 0114 S1 in Rule 6.1") stated S1 in
+  Rule 6.1 and changed the test. Evidence: `git log --oneline` on those two files shows only
+  these two commits.
+- Status: S1 done: `T[]` and `Array<T>` (#1367), `readonly T[]`, `ReadonlyArray<T>` and the write
+  refusal (#1369), Rule 6.1 (#1370). A2's text stays as written.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`
