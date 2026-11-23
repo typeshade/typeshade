@@ -132,7 +132,7 @@ since 0042 adds no dependency; and one program runs alike on four tiers, so the 
 A1 to A4 must be one that WebGPU and WebAssembly both take.
 
 The units with no dependency can start at once and in any order. P1 comes before any unit that
-removes a spelling (B7, C2). Area S comes first: the structure the other units stand on. Then area W (decision D5), then R. Among the rest, the
+removes a spelling (B7, C2). Area S comes first: the structure the other units stand on, and within it S3, the memory and thread contract, comes first, so that one design serves the run-time heap of OD-10 and the wasm memory of area W. Then area W (decision D5). Right after W, before R and the other units, come A1, A2 and A3, the heap that OD-10 names for the dynamic arrays compile time cannot size (the owner, 2026-11-18: option A, which keeps decision D5). The dynamic arrays compile time can size (proposal 0114, S5 and S5d) need no heap and go on in any order. Then R. Among the rest, the
 TypeCV audit's ranking of its forced forms (sort, `Map`, bounded lists, records at a stride) is the
 evidence for G2, H1 and B9 first. Each proposal takes the next free number when it is drafted
 (Rule 3.7).
