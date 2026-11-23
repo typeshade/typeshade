@@ -1,0 +1,10 @@
+{
+  "title": "Compute reduction (source twin)",
+  "blurb": "`compute-reduction.ts` written in the source language: the EDSL's `reduce()` combinator spelled as the `for` loop it expands into. Like its original, `compile()` emits WGSL and no GLSL text for it. That is no gap of the WebGL2 tier, which runs a compute entry as its pass program (Rule 11.8).",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute",
+  "twinOf": "compute-reduction"
+}

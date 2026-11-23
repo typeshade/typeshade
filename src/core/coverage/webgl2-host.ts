@@ -837,8 +837,8 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     ),
     webgl2: refused(
       'Rule 11.11',
-      'none: the WebGL2 tier has no multisampled target',
-      "the platform has a multisampled renderbuffer path (renderbufferStorageMultisample); table A's GPUTextureDescriptor.sampleCount and GPUMultisampleState.count rows are refused on this tier too",
+      'none: a multisampled target is not supported yet on the WebGL2 tier',
+      "the platform has a multisampled renderbuffer path (renderbufferStorageMultisample) that the runtime does not take yet; table A's GPUTextureDescriptor.sampleCount and GPUMultisampleState.count rows are refused on this tier too",
     ),
   },
   {
@@ -857,8 +857,8 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     ),
     webgl2: refused(
       'Rule 11.11',
-      'none: the WebGL2 tier has no multisampled target',
-      "the resolve of a multisampled target is refused on this tier; table A's GPURenderPassColorAttachment.resolveTarget row has the same capability",
+      'none: a multisampled target is not supported yet on the WebGL2 tier',
+      "the resolve of a multisampled target is not supported yet on this tier; table A's GPURenderPassColorAttachment.resolveTarget row has the same capability",
     ),
   },
   {
@@ -1209,7 +1209,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     webgpu: gap(1, 'alphaToCoverageEnabled and the sample mask', 632),
     webgl2: gap(
       1,
-      'the WebGL2 tier has no multisampled target (Rule 11.11), so a sample coverage value has no effect; no typed form',
+      'a multisampled target is not supported yet on the WebGL2 tier (Rule 11.11), so a sample coverage value has no effect; no typed form',
       632,
     ),
   },
@@ -1522,7 +1522,7 @@ export const WEBGL2_HOST_ROWS: readonly Row[] = [
     name: '`EXT_render_snorm`',
     covers: ['webgl:EXT_render_snorm'],
     evidence:
-      'docs/use-typeshade-surface.md:4191-4192 (an rgba8snorm storage target has no WebGL2 render target and is refused); docs/use-typeshade-surface.md:7944-7946 (WebGL2 renders to no rgba8snorm texture the entry writes)',
+      'docs/use-typeshade-surface.md:4191-4192 (an rgba8snorm storage target is not supported yet on the WebGL2 tier); docs/use-typeshade-surface.md:7944-7946 (an rgba8snorm texture the entry writes is not supported yet on the WebGL2 tier)',
     note: 'the extension would lift the refusal',
     webgpu: gap(
       15,

@@ -1,0 +1,8 @@
+{
+  "title": "Boolean vectors",
+  "blurb": "A comparison of two vectors is a vector of bools (§27): `v.uv > vec2(0.5)` masks the screen, `select` picks a colour per channel from two palettes through it, and `all`/`any` of the mask tint the corners. WGSL spells the comparison as an operator, GLSL ES 3.00 as `lessThan`/`greaterThan` with `mix`; the gate runs both.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

@@ -3,10 +3,11 @@
 // Verifies: Rule 10.3 (docs/language-design.md; traced in reqs/).
 
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { CORPUS_FILES } from '../../examples/_example-file.js';
 import { SHADE_DTS } from './ambient.js';
 import { checkDocuments, checkOpenDocument, type CheckDocument } from './check.js';
 import { createTypeshadeLanguageService } from './service.js';
@@ -213,14 +214,11 @@ export function f(): f32 {
     // errors, none of them real. The only rows left here are the GLSL shortfalls compile()
     // itself reports as TS8015 warnings.
     const dir = join(PKG_DIR, 'examples');
-    const docs = readdirSync(dir)
-      .filter((f) => f.endsWith('.shade.ts'))
-      .sort()
-      .map((f) => ({
-        path: `examples/${f}`,
-        uri: join(dir, f),
-        text: readFileSync(join(dir, f), 'utf8'),
-      }));
+    const docs = CORPUS_FILES.map((f) => ({
+      path: `examples/${f}`,
+      uri: join(dir, f),
+      text: readFileSync(join(dir, f), 'utf8'),
+    }));
     expect(docs.length, 'read no examples — the reader is broken').toBeGreaterThanOrEqual(60);
     const report = checkDocuments(docs, { readDocument: (uri) => readFileSync(uri, 'utf8') });
     expect(

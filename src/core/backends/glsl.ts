@@ -764,7 +764,7 @@ export const glslEs300Backend: Backend = {
       return `uniform ${qualified(b)}${glslType(b.type)} ${b.name};`;
     if (b.space === 'storage')
       throw new UnsupportedFeatureError(
-        'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',
+        'glsl-es300: storage buffer (SSBO) — not supported yet by the GLSL backend (Rule 10.5); fail-closed',
       );
     throw new UnsupportedFeatureError(
       `glsl-es300: uniform struct binding '${b.name}' — std140 UBO is assembled by emitGlslModule (needs the struct map)`,
@@ -848,7 +848,7 @@ function glslInterpolation(interpolate: string | undefined, isInt: boolean): str
   const [type, sampling] = interpolate.split(/\s*,\s*/);
   if (type === 'linear') {
     throw new UnsupportedFeatureError(
-      'glsl-es300: @interpolate("linear") has no GLSL ES 3.00 form — that spec has smooth, ' +
+      'glsl-es300: @interpolate("linear") is not supported yet by the GLSL backend (Rule 10.3) — GLSL ES 3.00 has smooth, ' +
         'flat and centroid, and linear (desktop `noperspective`) is none of them. Use ' +
         '"perspective", or keep the shader WGSL-only.',
     );
@@ -1519,7 +1519,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     // read_write output is fine: lowerComputeToFragment strips it before this pass.
     if (b.access === 'read_write')
       throw new UnsupportedFeatureError(
-        `glsl-es300 storage-emul: storage binding '${b.name}' is read_write — the data-texture emulation is read-only (gather); a compute kernel's output lowers via the compute→fragment path instead (declare the kernel { stage: 'compute', portable: true } — X-GIS #1812 — or pass the legacy emitGlslModule({ emulateCompute: true }) opt-in), and WebGL2 has no storage-write form`,
+        `glsl-es300 storage-emul: storage binding '${b.name}' is read_write — the data-texture emulation is read-only (gather); a compute kernel's output lowers via the compute→fragment path instead (declare the kernel { stage: 'compute', portable: true } — X-GIS #1812 — or pass the legacy emitGlslModule({ emulateCompute: true }) opt-in); a storage write here is not supported yet on the WebGL2 tier (Rule 10.5)`,
       );
     if (b.type.kind !== 'array')
       throw new UnsupportedFeatureError(
@@ -2473,7 +2473,7 @@ function assembleGlslParts(
       /* fused into the texture's sampler2D / sampler2DShadow — skip */
     } else if (b.space === 'storage')
       throw new UnsupportedFeatureError(
-        'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',
+        'glsl-es300: storage buffer (SSBO) — not supported yet by the GLSL backend (Rule 10.5); fail-closed',
       );
     else if (b.type.kind === 'struct')
       bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name), structs));
