@@ -4602,7 +4602,7 @@ describe('the tier of each group, and why a group ran on a later tier than its p
       const sum = m.total(t) as unknown as { read(): Promise<unknown> };
       const reason = reasonIn(await sum.read().catch((e: unknown) => e), 'webgl2');
       expect(reason).toBe(
-        'it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
+        'it runs on the CPU, loop 1 reduces, which the WebGL2 tier does not support yet (Rule 11.8)',
       );
       // `add` draws on WebGL2. `total` reduces, which WebGL2 has no program for, so the CPU tier
       // runs it, and its group says so with that reason.
@@ -4651,7 +4651,7 @@ describe('the tier of each group, and why a group ran on a later tier than its p
             fused: false,
             tier: 'cpu',
             dispatches: 0,
-            why: 'total runs on the CPU, there is no WebGPU device; it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
+            why: 'total runs on the CPU, there is no WebGPU device; it runs on the CPU, loop 1 reduces, which the WebGL2 tier does not support yet (Rule 11.8)',
           },
           {
             calls: ['add'],
@@ -5537,8 +5537,8 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
     const [out, xs, sink] = [zeros(4), live(1, 2, 3, 4), zeros(4)];
     webgl.context = stubGl();
     glCompute.run = async () => ({ passes: 1 });
-    // `doubleTotal` reduces, which WebGL2 has no workgroup memory for: it runs on WebGPU. The entry
-    // runs on WebGL2, so the batch is submitted and `out` is read back before it.
+    // `doubleTotal` reduces, which the WebGL2 tier does not support yet (Rule 11.8): it runs on
+    // WebGPU. The entry runs on WebGL2, so the batch is submitted and `out` is read back before it.
     configure({ prefer: ['webgl2', 'webgpu', 'cpu'] });
     try {
       const report = await fuse(() => {
@@ -6611,7 +6611,7 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
           fused: false,
           tier: 'cpu',
           dispatches: 0,
-          why: 'sumInto runs on the CPU, its stores after the loops bind 3 storage buffers, and the device allows 2; it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
+          why: 'sumInto runs on the CPU, its stores after the loops bind 3 storage buffers, and the device allows 2; it runs on the CPU, loop 1 reduces, which the WebGL2 tier does not support yet (Rule 11.8)',
         },
       ],
     } satisfies FuseReport);

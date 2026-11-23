@@ -963,7 +963,7 @@ export function axpy(a: f32, xs: array<f32>, ys: array<f32>, out: array<f32>) {
       'a reduction',
       `export function total(xs: array<f32>): f32 { let s = 0.; for (const x of xs) { s += x; } return s; }`,
       'total',
-      'loop 1 reduces, which WebGL2 has no workgroup memory for',
+      'loop 1 reduces, which the WebGL2 tier does not support yet (Rule 11.8)',
     ],
     [
       'a write other than at i',

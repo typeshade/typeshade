@@ -21,9 +21,9 @@ export const HOST_ORDER: readonly {
 }[] = [
   { id: 'host-draw', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'host-compute', tiers: ['webgpu', 'webgl2', 'cpu'] },
-  // Not WebGL2: `peak` reduces, and WebGL2 has no workgroup memory for a reduction, so with
-  // WebGL2 alone the call is refused ("loop 1 reduces, which WebGL2 has no workgroup memory
-  // for"). Where WebGPU is absent, `exposure` runs on WebGL2 and `peak` on the CPU tier.
+  // Not WebGL2: `peak` reduces, and the WebGL2 tier does not support a reduction in a kernel
+  // function yet (Rule 11.8), so with WebGL2 alone the call is refused ("loop 1 reduces, which
+  // the WebGL2 tier does not support yet (Rule 11.8)"). Where WebGPU is absent, `exposure` runs on WebGL2 and `peak` on the CPU tier.
   { id: 'host-kernel', tiers: ['webgpu', 'cpu'] },
   // Not WebGL2, for the same reason: `sum` reduces.
   { id: 'host-resident', tiers: ['webgpu', 'cpu'] },

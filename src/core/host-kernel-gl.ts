@@ -1,8 +1,7 @@
 // ═══ A kernel function's loops on WebGL2 (Rule 11.8, surface §65, change 0013) ═══
 //
-// WebGL2 has no compute stage and no storage buffer. A loop that writes one array of 4-byte
-// elements at exactly `i` runs as a fragment program instead (`lowerKernelGl`,
-// `core/passes/kernel-lower.ts`, through the GLSL writer's compute→fragment lowering): one
+// A loop that writes one array of 4-byte elements at exactly `i` runs on WebGL2 as a fragment
+// program (`lowerKernelGl`, `core/passes/kernel-lower.ts`, through the GLSL writer's compute→fragment lowering): one
 // fullscreen draw into an `R32UI` target, one texel per iteration, and a readback. Each array
 // it reads is a data texture of its name, and each scalar a uniform.
 //

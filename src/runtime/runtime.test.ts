@@ -2587,7 +2587,7 @@ declare const hits: storage<array<u32>, "read_write">;
 @fragment export function fs(p: builtin<"position">): vec4 { hits[0] = u32(1); return vec4(1.); }
 `);
     expect(writes.gl?.draws?.['fs']).toEqual({
-      none: 'it reaches the storage binding "hits", and GLSL ES 3.00 has no storage buffer',
+      none: 'it reaches the storage binding "hits", and the WebGL2 tier does not support a storage binding in a draw yet',
     });
   });
 

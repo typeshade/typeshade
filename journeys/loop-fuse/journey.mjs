@@ -74,7 +74,7 @@ function reduction(n, folds) {
       why: [
         undefined,
         'WebGL2 runs the calls apart',
-        'total runs on the CPU, it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for',
+        'total runs on the CPU, it runs on the CPU, loop 1 reduces, which the WebGL2 tier does not support yet (Rule 11.8)',
       ],
       tiers: ['webgl2', 'webgl2', 'cpu'],
     },
