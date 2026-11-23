@@ -14,8 +14,9 @@
 export type PathTier = 'webgpu' | 'webgl2' | 'cpu';
 
 /** Every step of the path built so far, in order, with its part and the tiers its host runs on.
- *  Part 1 is steps 1 to 4, part 2 steps 5 to 8. Later parts are added by later milestones of
- *  change 0145. */
+ *  Part 1 is steps 1 to 4, part 2 steps 5 to 8, part 4 steps 12 to 15, and step 17 is part 5.
+ *  Steps 9 to 11 and 16 are written by a later milestone of change 0145, so a step number is the
+ *  proposal's and the list has gaps. */
 export const PATH_ORDER: readonly {
   readonly id: string;
   readonly step: number;
@@ -30,4 +31,12 @@ export const PATH_ORDER: readonly {
   { id: 'fractal', step: 6, part: 'The language', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'palette', step: 7, part: 'The language', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'bouncing-balls', step: 8, part: 'The language', tiers: ['webgpu', 'webgl2', 'cpu'] },
+  { id: 'double-array', step: 12, part: 'GPU compute', tiers: ['webgpu', 'webgl2', 'cpu'] },
+  { id: 'image-blur', step: 13, part: 'GPU compute', tiers: ['webgpu', 'webgl2', 'cpu'] },
+  // A barrier needs a GPU tier: with the CPU tier alone the call is refused (Rule 8.24), and
+  // WebGL2 has no workgroup memory.
+  { id: 'parallel-sum', step: 14, part: 'GPU compute', tiers: ['webgpu'] },
+  // Not WebGL2: it has no atomics (change 0080).
+  { id: 'histogram', step: 15, part: 'GPU compute', tiers: ['webgpu', 'cpu'] },
+  { id: 'ray-tracer', step: 17, part: 'Putting it together', tiers: ['webgpu', 'webgl2', 'cpu'] },
 ];

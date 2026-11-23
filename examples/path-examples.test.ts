@@ -29,6 +29,8 @@ import { compare, reference, type Drive, type Surface } from './path/_reference.
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PATH = join(HERE, 'path');
 const ids = PATH_ORDER.map((s) => s.id);
+const COMPUTE = ['double-array', 'image-blur', 'parallel-sum', 'histogram'];
+const drawing = ids.filter((id) => !COMPUTE.includes(id));
 
 describe('pathExamples: the directories, in order, with their text', () => {
   it('lists every step directory, in the order of _order.ts', () => {
@@ -39,7 +41,7 @@ describe('pathExamples: the directories, in order, with their text', () => {
     expect(dirs.length).toBeGreaterThanOrEqual(4);
     expect(pathExamples.map((s) => s.id)).toEqual(ids);
     expect([...ids].sort()).toEqual(dirs);
-    expect(pathExamples.map((s) => s.step)).toEqual(ids.map((_, i) => i + 1));
+    expect(pathExamples.map((s) => s.step)).toEqual(PATH_ORDER.map((s) => s.step));
   });
 
   it('carries the text of both files as they are on disk', () => {
@@ -59,8 +61,11 @@ describe('pathExamples: the directories, in order, with their text', () => {
 
 describe('the host form: run, and animate only where the step moves', () => {
   it.each(pathExamples.map((s) => [s.id, s.hostSource] as const))('%s', (id, host) => {
+    const compute = COMPUTE.includes(id);
     expect(host, id).toMatch(
-      /^export async function run\(canvas: HTMLCanvasElement \| OffscreenCanvas/m,
+      compute
+        ? /^export async function run\([a-z]+ = \d+(, [a-z]+ = \d+)?\): Promise<(Float32Array|Uint32Array|number)>/m
+        : /^export async function run\(canvas: HTMLCanvasElement \| OffscreenCanvas/m,
     );
     const moves = id === 'moving-wave' || id === 'bouncing-balls';
     expect(/^export function animate\(canvas: HTMLCanvasElement\)/m.test(host), id).toBe(moves);
@@ -87,11 +92,19 @@ describe('both halves read each module the same way (Rule 12.7)', () => {
       fileName: `${id}.shade.ts`,
     }).result.module.funcs.map((f) => String(f.stage));
 
-  it.each(ids)(
+  it.each(drawing)(
     '%s: no diagnostic from compile() or the language service, one fragment entry',
     (id) => {
       expect(stages(id).filter((s) => s === 'fragment')).toHaveLength(1);
       expect(stages(id).filter((s) => s === 'vertex' || s === 'compute')).toEqual([]);
+    },
+  );
+
+  it.each(COMPUTE)(
+    '%s: no diagnostic from compile() or the language service, one compute entry',
+    (id) => {
+      expect(stages(id).filter((s) => s === 'compute')).toHaveLength(1);
+      expect(stages(id).filter((s) => s === 'vertex' || s === 'fragment')).toEqual([]);
     },
   );
 
