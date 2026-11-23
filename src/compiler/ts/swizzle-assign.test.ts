@@ -192,7 +192,7 @@ describe('what stays refused (change 0106)', () => {
     // The compiler half only: on a read binding the editor also reports TypeScript's own
     // read-only error before compile() runs (surface §7, TS2540 / TS2542).
     const result = compile(
-      source(`declare const ro: storage<array<vec2f>>;
+      source(`declare const ro: storage<array<vec2f>, "read">;
 @compute([1]) export function main(gid: builtin<"global_invocation_id">) {
   ro[gid.x].xx = vec2f(1.);
   ro[gid.x].xy = vec2f(1.);

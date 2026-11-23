@@ -1,6 +1,6 @@
 // Validate stage-restricted operations after every function body has been lowered (Rule 8.3).
 import ts from 'typescript';
-import type { Expr, FuncDecl, ModuleVarDecl, Stmt } from '../../core/ir/nodes.js';
+import type { BindingDecl, Expr, FuncDecl, ModuleVarDecl, Stmt } from '../../core/ir/nodes.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { collectLocals } from '../../core/passes/opt/expr-utils.js';
 import {
@@ -13,6 +13,7 @@ import { TS_CODES } from './codes.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { sameFile, writtenText } from './context.js';
 import { calleeNamesOf } from './function-call-graph.js';
+import { checkVertexReadsWritten } from './storage-access.js';
 
 type RenderStage = 'vertex' | 'fragment';
 export const workgroupStageMessage = (name: string, stage: RenderStage): string =>
@@ -311,10 +312,12 @@ function checkFragmentOnlyOps(
 export function checkEntryStageUses(
   funcs: readonly FuncDecl[],
   vars: readonly ModuleVarDecl[],
+  bindings: readonly BindingDecl[],
   nodes: ReadonlyMap<string, ts.NamedDeclaration>,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
 ): void {
   checkFragmentOnlyOps(funcs, nodes, sourceFile, diagnostics);
+  checkVertexReadsWritten(funcs, bindings, nodes, sourceFile, diagnostics);
   checkComputeOnlyUses(funcs, vars, nodes, sourceFile, diagnostics);
 }
