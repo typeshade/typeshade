@@ -5325,13 +5325,13 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
       fuse(() => {
         void t.tiled(bindings(), [1, 1]);
       }),
-    ).rejects.toThrow(/tiled\(\) needs WebGPU: it reaches .*a barrier has no CPU tier\./);
+    ).rejects.toThrow(/tiled\(\) needs WebGPU: .*not supported yet on the CPU tier \(Rule 8\.24\)/);
     // Outside a scope a call on a Buffer is recorded, and its failure is thrown at the next read()
     // (change 0138, R2).
     const outside = bindings();
     void t.tiled(outside, [1, 1]);
     await expect(outside.c.read()).rejects.toThrow(
-      /tiled\(\) needs WebGPU: it reaches .*a barrier has no CPU tier\./,
+      /tiled\(\) needs WebGPU: .*not supported yet on the CPU tier \(Rule 8\.24\)/,
     );
   });
 

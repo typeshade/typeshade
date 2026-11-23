@@ -276,8 +276,8 @@ export type ShaderType =
   // existing `t.kind === 'texture'` switch keeps meaning "sampled", and a site that must decide
   // about storage textures fails to compile until it does.
   //
-  // WebGPU only. GLSL ES 3.00 has no image load/store at all — that is ES 3.1 — so the GLSL
-  // backend fails closed, as it does for storage buffers and atomics.
+  // WebGPU only. The GLSL lowering of an image load or store is not supported yet (Rule 10.5),
+  // so the GLSL backend fails closed, as it does for storage buffers and atomics.
   | {
       readonly kind: 'storage-texture';
       readonly dim: '2d' | '2d-array';
@@ -738,8 +738,8 @@ export const texture3dfT = {
 } as const satisfies ShaderType;
 /** A sampled float 1D texture (WGSL `texture_1d<f32>`): a row of texels addressed by one `f32`,
  *  the shape a transfer function or a colour ramp takes (roadmap 0.4 item 12). WebGPU only:
- *  GLSL ES 3.00 has no `sampler1D` (the word is reserved), so a module carrying one needs the
- *  `texture1d` {@link Capability}, which the GLSL backend has no row for.
+ *  the GLSL lowering of a 1d texture is not supported yet (Rule 10.5), so a module carrying one
+ *  needs the `texture1d` {@link Capability}, which the GLSL backend has no row for.
  *
  *  Exported from `typeshade/core/ir`.
  */
@@ -749,9 +749,9 @@ export const texture1dfT = {
   elem: 'f32',
 } as const satisfies ShaderType;
 /** An array of float cube textures (WGSL `texture_cube_array<f32>`): N environment maps in one
- *  binding, looked up by a `vec3` direction and a layer (roadmap 0.4 item 12). WebGPU only: GLSL
- *  ES 3.00 has no `samplerCubeArray` and a WebGL2 driver refuses the extension, so a module
- *  carrying one needs the `textureCubeArray` {@link Capability}.
+ *  binding, looked up by a `vec3` direction and a layer (roadmap 0.4 item 12). WebGPU only: the
+ *  GLSL lowering of a cube array is not supported yet (Rule 10.5), so a module carrying one
+ *  needs the `textureCubeArray` {@link Capability}.
  *
  *  Exported from `typeshade/core/ir`.
  */
@@ -772,7 +772,7 @@ export const textureDepthCubeArrayT = {
 /** A multisampled depth texture (WGSL `texture_depth_multisampled_2d`): the depth attachment of
  *  an MSAA render target, read one sample at a time with `textureLoad(t, coords, sampleIndex)`
  *  and never sampled or compared (roadmap 0.4 item 13). WebGPU only, under `msaaTextureLoad`:
- *  GLSL ES 3.00 has no `sampler2DMS` (that is ES 3.10).
+ *  the GLSL lowering of a multisampled texture is not supported yet (Rule 10.5).
  *
  *  Exported from `typeshade/core/ir`.
  */

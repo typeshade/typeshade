@@ -325,7 +325,7 @@ export async function entryBundle(): Promise<EntryBundle> {
         else fragment++;
         const noCpu =
           e.kind === 'compute' && e.entry.barrier !== undefined
-            ? `it reaches ${e.entry.barrier}, and a barrier has no CPU tier`
+            ? `it reaches ${e.entry.barrier}, not supported yet on the CPU tier (Rule 8.24)`
             : e.entry.noCpu;
         const noGl = e.entry.noGl;
         cases.push(
