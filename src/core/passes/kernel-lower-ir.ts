@@ -191,6 +191,7 @@ export interface LowerOptions {
    *  push onto, or whose length the stores after the loops read, has a word, so a function whose
    *  pushes start at 0 lowers to the module it always did. */
   readonly held?: boolean;
+  readonly exactTotal?: boolean;
 }
 
 /** How an entry of the function reads a parameter: a scalar as a field of the uniform, an array
@@ -777,9 +778,7 @@ export function rangeOf(
   return { start: loop.init.init, bound, cop, type: loop.init.type };
 }
 
-export function typeKey(t: ShaderType): string {
-  return t.kind === 'scalar' ? t.scalar : t.kind;
-}
+export const typeKey = (t: ShaderType): string => (t.kind === 'scalar' ? t.scalar : t.kind);
 
 /** `sts` with each statement `f` maps to the statements it gives, in nested bodies too. */
 export function mapBlock(sts: readonly Stmt[], f: (st: Stmt) => Stmt[] | undefined): Stmt[] {

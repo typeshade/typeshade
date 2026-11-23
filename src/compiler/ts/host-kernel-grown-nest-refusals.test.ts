@@ -8,10 +8,11 @@ describe('what stays refused as not supported yet (change 0114, A12 form 2)', ()
   const grows = (body: string, params = 'n: u32'): string =>
     `${H}export function f(${params}): f32[] { const out: f32[] = []; ${body} return out; }`;
 
-  it('refuses a nest whose inner start reads the outer counter, until Route 2', () => {
+  it('refuses a nest whose inner start reads the outer counter and whose read the proof cannot show in range', () => {
     const halves = bothRefuse(
       grows(
-        'for (let i: u32 = 0; i < n; i++) { for (let j: u32 = i + 1; j < n; j++) { out.push(1.); } }',
+        'for (let i: u32 = 0; i < n; i++) { for (let j: u32 = i + 1; j < n; j++) { out.push(xs[j]); } }',
+        'n: u32, xs: f32[]',
       ),
       'TS8099',
       '"for (let j: u32 = i + 1; j < n; j++)" pushes onto "out", and its start or bound reads a ' +

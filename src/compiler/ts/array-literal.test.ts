@@ -8,7 +8,7 @@ import { compileTsSource } from './source-file.js';
 import { compile } from './compile.js';
 import { stripSpans } from '../../core/testing/strip-spans.js';
 import type { Stmt } from '../../core/ir/nodes.js';
-import { bothHalves } from '../../core/testing/both-halves.js';
+import { bothHalves, bothTake } from '../../core/testing/both-halves.js';
 
 function src(body: string, ret = 'f32', params = ''): string {
   return `"use typeshade";\nexport function f(${params}): ${ret} {\n${body}\n}`;
@@ -190,13 +190,13 @@ interface Out {
 });
 
 describe('what a list is refused for', () => {
-  it('says a list of integer-written numbers alone is not supported yet', () => {
-    expect(diagnose(src('  const xs = [1, 2, 3];\n  return xs[0];'))).toBe(
-      '"const xs" is a list of integer-written numbers, whose element type its uses will decide; that is not supported yet. Declare the type: const xs: array<f32, 3> = [...].',
-    );
-    expect(diagnose(src('  let xs = [1, 2];\n  return xs[0];'))).toBe(
-      '"let xs" is a list of integer-written numbers, whose element type its uses will decide; that is not supported yet. Declare the type: let xs: array<f32, 2> = [...].',
-    );
+  it('gives a list of integer-written numbers that no use decides the f32 element type', () => {
+    const constant = bothTake(src('  const xs = [1, 2, 3];\n  return xs[0];'));
+    expect(constant.hover('xs =')).toContain('const xs: array<f32, 3>');
+    expect(constant.result.eval('f', [])).toBe(1);
+    const mutable = bothTake(src('  let xs = [1, 2];\n  xs[0] = 5.;\n  return xs[0] + xs[1];'));
+    expect(mutable.hover('xs =')).toContain('let xs: array<f32, 2>');
+    expect(mutable.result.eval('f', [])).toBe(7);
   });
 
   it('needs that annotation to be an array', () => {
@@ -312,16 +312,14 @@ describe('what a list is refused for', () => {
     `);
     expect(r.diagnostics).toEqual([]);
     expect(r.wgsl).toContain('array<f32, 3>(0.0, 0.5, 1.0)');
-    // Without the annotation, integer-written numbers alone give no type, and the message says
-    // so for a module const in its own words rather than pointing at a local.
-    const bare = compileTsSource(`"use typeshade";
+    const bare = bothTake(`"use typeshade";
       const STOPS = [0, 5, 1];
       export function f(): f32 {
         return STOPS[1];
       }
     `);
-    expect(bare.diagnostics.map((d) => d.message)).toContain(
-      'Module const "STOPS" is a list of integer-written numbers, whose element type its uses will decide; that is not supported yet. Declare the type: const STOPS: array<f32, 3> = [...].',
+    expect(bare.result.wgsl).toContain(
+      'const STOPS: array<f32, 3> = array<f32, 3>(0.0, 5.0, 1.0);',
     );
   });
 });

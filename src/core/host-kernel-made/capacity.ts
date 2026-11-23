@@ -3,8 +3,9 @@ import type { CpuValue } from '../cpu-runtime.js';
 import type { KernelFace } from '../host-kernel.js';
 import type { GeneratedCpu } from '../host-entry.js';
 import type { KernelCapacityLoop, KernelMade } from '../kernel-made-face.js';
+import { MOST_PUSHED } from '../push-count.js';
 
-export const MOST_PUSHED = 4294967295;
+export { MOST_PUSHED };
 
 const TYPED = { f32: 'Float32Array', i32: 'Int32Array', u32: 'Uint32Array' } as const;
 
@@ -36,17 +37,26 @@ export function exactCapacity(
   return total > BigInt(Number.MAX_SAFE_INTEGER) ? total : Number(total);
 }
 
-function pastLimit(
+export class PastLimit extends RangeError {}
+
+export function pastLimit(
   k: KernelFace,
   made: KernelMade,
-  capacity: number | bigint,
+  capacity: number | bigint | string,
   limit: string,
-): RangeError {
-  return new RangeError(
+  exact = false,
+): PastLimit {
+  return new PastLimit(
     `${k.name}(): the array it grows with push, "${made.shown}", needs room for ` +
-      `${String(capacity)} elements, the most its loops can push, and a length past ${limit} ` +
-      `is not supported yet.`,
+      `${String(capacity)} elements, ${exact ? 'the number its loops push' : 'the most its loops can push'}, ` +
+      `and a length past ${limit} is not supported yet.`,
   );
+}
+
+export function countedTotal(k: KernelFace, made: KernelMade, total: number): number {
+  if (total >= MOST_PUSHED)
+    throw pastLimit(k, made, `${String(total)} or more`, String(MOST_PUSHED - 1), true);
+  return total;
 }
 
 export function checkedCapacity(
@@ -63,6 +73,7 @@ export function allocatedFor<T>(
   made: KernelMade,
   capacity: number,
   allocate: () => T,
+  exact = false,
 ): T {
   if (made.grown !== true) return allocate();
   try {
@@ -70,6 +81,6 @@ export function allocatedFor<T>(
   } catch (e) {
     if (!(e instanceof RangeError)) throw e;
     const held = made.struct === undefined ? TYPED[made.array!] : 'Array';
-    throw pastLimit(k, made, capacity, `what one ${held} holds on this host`);
+    throw pastLimit(k, made, capacity, `what one ${held} holds on this host`, exact);
   }
 }

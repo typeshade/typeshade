@@ -10,6 +10,7 @@ import { logicalTypeKey as typeKey } from '../../optional.js';
 import { TS_CODES } from '../../codes.js';
 import { lowerExpression } from '../expression.js';
 import { lowerArrayLiteral, pushDiag } from '../expression-array.js';
+import { lowerListByUses } from './list-uses.js';
 
 export interface ListDeclaration {
   readonly said: string;
@@ -74,11 +75,7 @@ export function lowerUntypedList(
   if (typedAt < 0) {
     if (integerAt < 0)
       return lowerArrayLiteral(list, arrayOf(f32T, count), sourceFile, scope, diagnostics);
-    return refuse(
-      `${declared.said} is a list of integer-written numbers, whose element type its uses will ` +
-        `decide; that is not supported yet. Declare the type: ` +
-        `${declared.head}: array<f32, ${String(count)}> = [...].`,
-    );
+    return lowerListByUses(list, declared, { sourceFile, scope, diagnostics });
   }
   const elem = found[typedAt] as ShaderType;
   const elemText = authorTypeText(elem);

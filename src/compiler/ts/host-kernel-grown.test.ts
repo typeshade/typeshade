@@ -161,6 +161,7 @@ describe('a kernel function that grows the array it returns with push (change 01
       ],
       reads: ['size'],
       grown: true,
+      counted: true,
     });
   });
 

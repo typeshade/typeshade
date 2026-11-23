@@ -31,7 +31,7 @@ import type { ShaderType } from '../../core/ir/types.js';
 import { f32T, f64T, i32T, u32T } from '../../core/ir/types.js';
 import { logicalTypeKey as typeKey } from './optional.js';
 import { resetResultCopies } from './symbols.js';
-import { abstractLiteralOf, type AbstractConst, type Carried } from './abstract-const.js';
+import { abstractLiteralOf } from './abstract-const.js';
 
 /** What a use asks of a value: a concrete scalar, or `int`, an integer of no kind (an index, a
  *  bitwise operand with no typed peer), which is an `i32` unless another use says `u32`. */
@@ -68,6 +68,7 @@ export interface InferredValue {
   /** The type the uses gave it, when an earlier pass decided one (or the declared uses of
    *  changes 0036 and 0037 did). `undefined` while undecided: it reads as an `f32`. */
   readonly type?: ShaderType;
+  readonly list?: number;
 }
 
 interface State {
@@ -467,7 +468,7 @@ export function markInferredRead<E extends Expr>(
 ): E {
   if (value !== undefined) {
     readByExpr.set(expr, value);
-    readByNode.set(node, value);
+    if (value.list === undefined || expr.type.kind !== 'array') readByNode.set(node, value);
   }
   return expr;
 }
@@ -613,85 +614,11 @@ export function readsUndecided(expr: Expr): boolean {
  *  element scalar, `f64` for an emulated double; nothing for any other type. */
 function demandOfType(type: ShaderType): Demand | undefined {
   if (type === counterDefaultI32) return 'int';
+  if (type.kind === 'array') return demandOfType(type.elem);
   if (type.kind === 'f64' || type.kind === 'vec64') return 'f64';
   if (type.kind === 'vec') return type.elem === 'f32' ? 'f32' : type.elem === 'i32' ? 'i32' : 'u32';
   const key = typeKey(type);
   return key === 'i32' || key === 'u32' || key === 'f32' ? key : undefined;
 }
 
-/** The origin a read of `value` carries when its uses made it an integer: a `/` over it whose
- *  operands have no declared type is refused, as a `/` over a constant that some read makes an
- *  integer is (decisions Q6 and Q11; `abstract-const.ts` reports it, with the edit it checks).
- *  One record for each declaration, for each type its uses gave it. */
-const origins = new WeakMap<object, { key: string; carried: Carried }>();
-export function inferredOrigin(value: InferredValue | undefined): Carried | undefined {
-  if (value === undefined) return undefined;
-  // The counter of a `for` that is not counted, which no use gives a type, reads as the `f32`
-  // the compiler chooses. It was an `i32` on `main`, so a `/` over it does not say which
-  // division it is, and is refused as a `/` over an integer is (the owner's decision of
-  // 2026-11-11, "A2 우선: 거부"). Its edits keep the `i32` it had.
-  const openCounter =
-    value.type === undefined && isOpenCounter(value.decl.getSourceFile(), value.decl);
-  const own = value.integerResult ?? value.type;
-  if (own === undefined && !openCounter) return undefined;
-  const key = own === undefined ? 'i32' : typeKey(own);
-  if (key !== 'i32' && key !== 'u32') return undefined;
-  const cacheKey = openCounter ? 'counter' : key;
-  const cached = origins.get(value.key ?? value.decl);
-  if (cached !== undefined && cached.key === cacheKey) return cached.carried;
-  // A `let` or a module variable is written `let`, a static field `static`, a field with no
-  // keyword; a call of a function its callers decide names the function, whose result the
-  // edit does not declare (`function`).
-  const decl = value.decl as ts.VariableDeclaration | ts.PropertyDeclaration;
-  const keyword: AbstractConst['keyword'] =
-    value.function !== undefined
-      ? 'function'
-      : ts.isPropertyDeclaration(decl)
-        ? decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) === true
-          ? 'static'
-          : ''
-        : 'let';
-  const nameNode = value.function ?? decl.name;
-  const info: AbstractConst = {
-    // A call is named as the author wrote it: `g()`, `c.m()`, and `c.m` for a getter's read.
-    name:
-      value.function !== undefined
-        ? value.decl.getText(value.decl.getSourceFile()).replace(/\s+/g, ' ')
-        : value.name,
-    value: Number.NaN,
-    integerWritten: true,
-    keyword,
-    nameNode,
-    written: value.written ?? '',
-    sources: [],
-    // Its uses are the other read that makes it an integer: they stand outside any `/`.
-    integerReads: [{ type: key, node: nameNode as ts.Expression }],
-    ...(openCounter ? { openCounter: true as const } : {}),
-  };
-  const carried: Carried = {
-    reaches: [info],
-    float: false,
-    ...(keyword === 'function'
-      ? {}
-      : {
-          variable: {
-            keyword,
-            name: value.name,
-            init: value.written ?? '',
-            type: openCounter ? 'f32' : key,
-          },
-        }),
-  };
-  origins.set(value.key ?? value.decl, { key: cacheKey, carried });
-  return carried;
-}
-
-/** What a read of a binding carries: the constants its initializer reaches, and where its uses
- *  made it an integer and it reaches none, the record of {@link inferredOrigin}. */
-export function carriedOf(
-  carries: Carried | undefined,
-  value: InferredValue | undefined,
-): Carried | undefined {
-  if (carries !== undefined && carries.reaches.length > 0) return carries;
-  return inferredOrigin(value) ?? carries;
-}
+export { carriedOf, inferredOrigin } from './inferred-origin.js';
