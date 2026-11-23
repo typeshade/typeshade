@@ -1354,21 +1354,31 @@ the owner chose, as the pull request or the issue records it. Each program below
     After the same two lines, `let c = 1 << 4; let d = c + c; return i32(b / (d / 4));` is refused
     by D-b with no edit.
 
-  - Open deviation, issue #1416: after the same two lines, a comparison of `b / 7` beside a peer
-    that states no type or an `f32` reads the wrapped quotient. `return b / 7 > 5 ? 1 : 0;` and
-    `return b / 7 > f ? 1 : 0;` compile to 0, where TypeScript gives 1. Issue #1416 reports the
-    same path for a `u32` tree. Beside a typed `i32`, `return b / 7 > ii ? 1 : 0;` is refused.
-  - Open deviation, issue #1380: after the same two lines, a typed `i32` position reads the
+  - Issue #1416, implemented by #1440 (merged as `118c0434`, 2026-11-23). A comparison of a D-b
+    quotient of a tree whose two readings differ compiled silently, and two D-b edits gave a wrong
+    value. On `main` at `118c0434` both halves refuse each of these programs.
+    - After `let c = (3000000000|0); let d = c;`, `return d / 7 > 5 ? 1 : 0;` compiled to 1 on
+      `main` at `0dc0e7a7`, where TypeScript gives 0. It is refused with
+      `"d" is 3000000000 on its u32 bits and -1294967296 in TypeScript, so the "/" does not say which value it means. Write "i32(d)" for the i32 value.`
+      The edit `i32(d) / 7 > 5 ? 1 : 0` gives 0.
+    - After `let a = 1 << 30; let b = a + a;`, `return b / 7 > 5 ? 1 : 0;` compiled to 0, where
+      TypeScript gives 1. It is refused with the approved A7 sentence and the edit `i32(b)`.
+      `return b / 7 > f ? 1 : 0;` is refused with the A7 sentence and no edit.
+    - With result `u32`, `return d / 7 + vi;` names the edit `u32(i32(d) / 7)`, which gives
+      4109971975 as TypeScript does. It named `u32(d) / 7` on `0dc0e7a7`, which gives 428571435.
+    - A refusal whose quotient reaches `u32()` or an index through arithmetic names no edit
+      (decision (c)). `return u32(d / 7 / 1);` named `f32(i32(d)) / 7` on `0dc0e7a7`, and the
+      edited program gave 0. `xs[d / 1000000000]` named `i32(d) / 1000000000`, a negative index.
+    - Not changed, and not open deviations: `d / d` and `d / e` name no edit (decision (c)).
+      Observed, with no issue yet: `let a = (-7|0); return u32(a / 2 / 1);` names `f32(a) / 2`,
+      and the edited program gives 0, where TypeScript gives 4294967293. `b / 7 + vi` names
+      `u32(b) / 7`, which gives TypeScript's value only for a `b` that fits a `u32`.
+      The owner decides whether either becomes an issue.
+  - Open deviation, issue #1380: after `let a = 1 << 30; let b = a + a;`, a typed `i32` position reads the
     wrapped value. `b /= 7; return b;` is refused with the edit `let b: i32 = a + a`, and the
     edited program gives -306783378, where TypeScript gives 306783378. With
     `function div(x: i32, y: i32) { return x / y; }`, `return div(b, ii);` compiles to
     238609294, where TypeScript gives -238609294.
-  - Open deviation, issue #1416: other D-b quotients of a `u32` tree value are not refused or
-    name a wrong edit. After `let c = (3000000000|0); let d = c;`, `return d / 7 > 5 ? 1 : 0;`
-    compiles to 1, where TypeScript gives 0. `return u32(d / 7 / 1);` (result `u32`) is refused
-    with the edit `f32(i32(d)) / 7`, and the edited program gives 0, where TypeScript gives the
-    value 4109971968. `return d / 7 + vi;` (result `u32`) is refused with the edit `u32(d) / 7`,
-    and the edited program gives 428571435, where TypeScript gives 4109971975 as a `u32`.
 - [decision, owner, 2026-11-18] (a) Rule 1.3 against D2 (pull request #1358), recorded as "D2
   holds". A tree whose two readings already differ is refused, also beside a typed `i32`
   operand. Rule 1.3 still governs an integer typed only by its peer (`let s = 0; s += ii`): it
@@ -1445,7 +1455,7 @@ the owner chose, as the pull request or the issue records it. Each program below
   - one decision that is not implemented: decision (e) (issue #1399);
   - six open deviations: decision (a) (issue #1380), decision (c) (issue #1388), decision (d)
     (issue #1388), the numbers of a refusal sentence (issue #1386), the decisions on #1320
-    (issue #1403), and the decision on #1363 (issues #1380 and #1416).
+    (issue #1403), and the decision on #1363 (issue #1380).
 - Affects: the front matter gains Rule 7.4 and surface §22. The decision "TypeScript 값으로"
   makes two sentences false for these quotients: Rule 7.4's rationale and surface §22 say that a
   divisor that is zero at run time gives WGSL's answer, `x / 0 = x`, on every target.
