@@ -168,7 +168,7 @@ export function moduleText(
         // A result `Buffer<S>` reads instances of `S`'s exported class (change 0138, Amendment
         // A12, Q6): the face is handed the classes' prototypes.
         const face =
-          classes.length > 0 && holdsStructs(e.face.result)
+          classes.length > 0 && (holdsStructs(e.face.result) || made?.struct !== undefined)
             ? `{ ...${JSON.stringify(e.face)}, P: () => __ts_P }`
             : JSON.stringify(e.face);
         out.push(

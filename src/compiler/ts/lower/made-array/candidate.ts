@@ -6,6 +6,8 @@ import type { TsCompilerDiagnostic } from '../../source-file.js';
 import { TS_CODES } from '../../codes.js';
 import { makeDiagnostic } from '../../diagnostic.js';
 import { authorTypeText } from '../../context.js';
+import { keysOf } from '../../key-types.js';
+import { optionalInner } from '../../optional.js';
 import { refuseRuntimeArraySignature } from '../runtime-array.js';
 import {
   fillFormOf,
@@ -15,6 +17,20 @@ import {
 } from '../array-constructor/form.js';
 
 export const MADE_ELEMENTS: ReadonlySet<string> = new Set(['f32', 'i32', 'u32']);
+
+export const MADE_ADMITS =
+  'an array of f32, i32 or u32, of a vector of them, or of a struct of these is';
+
+export function madeElementAdmitted(
+  t: ShaderType,
+  structByName: (name: string) => StructDecl | undefined,
+): boolean {
+  if (t.kind === 'scalar') return MADE_ELEMENTS.has(t.scalar) && keysOf(t) === undefined;
+  if (t.kind === 'vec') return MADE_ELEMENTS.has(t.elem);
+  if (t.kind !== 'struct' || optionalInner(t) !== undefined) return false;
+  const fields = structByName(t.name)?.fields ?? [];
+  return fields.length > 0 && fields.every((f) => madeElementAdmitted(f.type, structByName));
+}
 
 export function isMadeForm(e: ts.Expression): boolean {
   const x = unparenthesized(e);
@@ -99,15 +115,14 @@ export function refuseResultArray(
   }
   if (made === 'kernel' && mapped?.kind === 'array' && mapped.size === undefined) {
     const elem = mapped.elem;
-    if (elem.kind === 'scalar' && MADE_ELEMENTS.has(elem.scalar)) return false;
+    if (madeElementAdmitted(elem, structByName)) return false;
     diagnostics.push(
       makeDiagnostic(
         sourceFile,
         typeNode,
         `This function makes and returns ${authorTypeText(mapped)}, an array of ` +
           `${authorTypeText(elem)} whose length the call gives. An array of ` +
-          `${authorTypeText(elem)} made this way is not supported yet; an array of f32, i32 or ` +
-          `u32 is.`,
+          `${authorTypeText(elem)} made this way is not supported yet; ${MADE_ADMITS}.`,
         TS_CODES.UNSUPPORTED,
       ),
     );

@@ -1,7 +1,7 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import ts from 'typescript';
 import type { Expr, FuncDecl } from '../../../../core/ir/nodes.js';
-import type { ShaderType } from '../../../../core/ir/types.js';
+import { typeEq, type ShaderType } from '../../../../core/ir/types.js';
 import { authorTypeText, type LoweringScope } from '../../context.js';
 import type { TsCompilerDiagnostic } from '../../source-file.js';
 import { TS_CODES } from '../../codes.js';
@@ -10,14 +10,9 @@ import { isIntegerLiteralTree, retargetDeclaredIntLit } from '../../lit-coerce.j
 import { declarationOf } from '../closures.js';
 import { lowerExpression } from '../expression.js';
 import { shortText, unparenthesized } from '../array-constructor/form.js';
-import { MADE_ELEMENTS } from './candidate.js';
-import {
-  madeCandidateOf,
-  madeLoweringOf,
-  setMadeCandidate,
-  setMadeLowering,
-  type MadeElement,
-} from './registry.js';
+import { MADE_ADMITS, MADE_ELEMENTS } from './candidate.js';
+import { madeCandidateOf, madeLoweringOf, setMadeCandidate, setMadeLowering } from './registry.js';
+import { refuseSharedStores } from './identity.js';
 
 export interface MadeAt {
   readonly sourceFile: ts.SourceFile;
@@ -124,6 +119,10 @@ function refuseUses(
   };
   ts.forEachChild(body, visit);
   return refused;
+}
+
+export function ownBody(at: MadeAt): ts.Block {
+  return (at.scope.ownerNode() as ts.FunctionDeclaration).body!;
 }
 
 export function refusedPlace(
@@ -238,20 +237,26 @@ export function lowerMade(
   const fill = fillArg === undefined ? undefined : fillValue(fillArg, want, at);
   if (fillArg !== undefined && fill === undefined) return refused();
   const elemType = fill?.type ?? { kind: 'scalar' as const, scalar: 'f32' as const };
-  if (elemType.kind !== 'scalar' || !MADE_ELEMENTS.has(elemType.scalar)) {
+  const admitted =
+    elemType.kind === 'scalar'
+      ? MADE_ELEMENTS.has(elemType.scalar) && (want === undefined || want.kind === 'scalar')
+      : want !== undefined && typeEq(elemType, want);
+  if (!admitted) {
     say(
       at,
       fillArg ?? form,
       `"${shortText(form)}" makes an array of ${authorTypeText(elemType)} whose length the call ` +
-        `gives, and that is not supported yet; an array of f32, i32 or u32 is.`,
+        `gives, and that is not supported yet; ${MADE_ADMITS}.`,
     );
     return refused();
   }
+  if (elemType.kind === 'struct' && refuseSharedStores(decl, ownBody(at), fn, at) === undefined)
+    return refused();
   const bound = bindMade(decl, stub, { kind: 'array', elem: elemType }, at);
   setMadeLowering(stub, {
     decl,
     param: bound.param,
-    element: elemType.scalar as MadeElement,
+    element: elemType,
     length: n,
     ...(fill !== undefined ? { fill } : {}),
     lengthNode: length,

@@ -31,7 +31,10 @@ export function hostReadable(e: Expr, r: Readable): boolean {
     case 'binop':
       return ARITHMETIC.has(e.bop) && hostReadable(e.a, r) && hostReadable(e.b, r);
     case 'construct':
-      return e.type.kind === 'scalar' && e.args.length === 1 && hostReadable(e.args[0]!, r);
+      return e.type.kind === 'scalar'
+        ? e.args.length === 1 && hostReadable(e.args[0]!, r)
+        : (e.type.kind === 'vec' || e.type.kind === 'struct') &&
+            e.args.every((a) => hostReadable(a, r));
     case 'call': {
       if (e.fn === 'arrayLength')
         return e.args.length === 1 && e.args[0]!.op === 'param' && r.arrays.has(e.args[0]!.name);
@@ -57,8 +60,9 @@ export function readersOf(stub: FuncDecl, param: string): Readable {
   return { values, arrays, lets, needed: new Set() };
 }
 
-export const notKnown = (what: string): string =>
+export const notKnown = (what: string, built = false): string =>
   `${what} reads a value the call does not know before it runs. It reads the value parameters, ` +
   `their components and fields, module constants, the length of an array parameter, number ` +
-  `literals, u32, i32 and f32 of these, and top-level consts of these, with +, -, *, /, %, min ` +
-  `and max; any other operand is not supported yet.`;
+  `literals, u32, i32 and f32 of these, ${built ? 'vectors and structs built of these, ' : ''}` +
+  `and top-level consts of these, with +, -, *, /, %, min and max; any other operand is not ` +
+  `supported yet.`;

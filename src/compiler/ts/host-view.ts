@@ -671,7 +671,7 @@ export function viewText(
         break;
       }
       case 'kernel': {
-        const shown = madeView(e.face);
+        const shown = madeView(e.face, (t) => resultType(t, named));
         const f = shown.face;
         // The parameters of a call with plain data (`plain`), of a call on a resource that does not
         // block (`resource`), and of one that waits (`waits`, Amendment A11, Q7).

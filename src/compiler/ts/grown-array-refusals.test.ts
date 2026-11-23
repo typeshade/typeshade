@@ -19,7 +19,7 @@ const ELEMENT = (text: string, verb: string): string =>
   `supported yet. Push onto it in a loop, read its length, and return it.`;
 const MADE_OF = (t: string): string =>
   `This function makes and returns array<${t}>, an array of ${t} whose length the call gives. ` +
-  `An array of ${t} made this way is not supported yet; an array of f32, i32 or u32 is.`;
+  `An array of ${t} made this way is not supported yet; an array of f32, i32 or u32, of a vector of them, or of a struct of these is.`;
 const grows = (body: string, params = 'n: u32'): string =>
   `export function f(${params}): f32[] { const out: f32[] = []; ${body} return out; }`;
 
@@ -66,13 +66,13 @@ describe('what change 0114, S5d, refuses as not supported yet (TS8099)', () => {
         '"out" before it runs; that is not supported yet.',
     ],
     [
-      'an array of vectors',
-      `export function f(n: u32): vec4f[] { const out: vec4f[] = []; for (let i: u32 = 0; i < n; i++) { out.push(vec4f()); } return out; }`,
-      MADE_OF('vec4'),
+      'an array of matrices',
+      `export function f(n: u32): mat2x2f[] { const out: mat2x2f[] = []; for (let i: u32 = 0; i < n; i++) { out.push(mat2x2f()); } return out; }`,
+      MADE_OF('mat2x2'),
     ],
     [
-      'an array of structs',
-      `class P { a: f32; }\nexport function f(n: u32): P[] { const out: P[] = []; for (let i: u32 = 0; i < n; i++) { out.push(new P()); } return out; }`,
+      'an array of structs that hold a bool',
+      `class P { a: f32; b: bool; }\nexport function f(n: u32): P[] { const out: P[] = []; for (let i: u32 = 0; i < n; i++) { out.push(new P()); } return out; }`,
       MADE_OF('P'),
     ],
     [

@@ -16,14 +16,29 @@ const USES = (text: string): string =>
 describe('what slice 1 of change 0114, S5, refuses as not supported yet (TS8099)', () => {
   const cases: readonly (readonly [string, string, string | readonly string[]])[] = [
     [
-      'an array of vectors',
-      `export function f(n: u32): vec4f[] { const out = new Array(n).fill(vec4f()); return out; }`,
-      'This function makes and returns array<vec4>, an array of vec4 whose length the call gives. An array of vec4 made this way is not supported yet; an array of f32, i32 or u32 is.',
+      'an array of matrices',
+      `export function f(n: u32): mat2x2f[] { const out = new Array(n).fill(mat2x2f()); return out; }`,
+      'This function makes and returns array<mat2x2>, an array of mat2x2 whose length the call gives. An array of mat2x2 made this way is not supported yet; an array of f32, i32 or u32, of a vector of them, or of a struct of these is.',
     ],
     [
-      'an array of structs',
-      `class P { a: f32; }\nexport function f(n: u32): P[] { const out = new Array(n).fill(new P()); return out; }`,
-      'This function makes and returns array<P>, an array of P whose length the call gives. An array of P made this way is not supported yet; an array of f32, i32 or u32 is.',
+      'an array of structs that hold a bool',
+      `class P { a: f32; b: bool; }\nexport function f(n: u32): P[] { const out = new Array(n).fill(new P()); return out; }`,
+      'This function makes and returns array<P>, an array of P whose length the call gives. An array of P made this way is not supported yet; an array of f32, i32 or u32, of a vector of them, or of a struct of these is.',
+    ],
+    [
+      'a field write into an element that fill made one object',
+      `interface Q { a: f32; c: u32; }\nexport function f(n: u32, s: f32): Q[] { const out = new Array(n).fill({ a: s, c: 3 }); for (let i: u32 = 0; i < n; i++) { out[i].a = 5.; } return out; }`,
+      '"new Array(n).fill({ a: s, c: 3 })" puts one object in every element, and the elements are then one object. One object under two names is not supported yet (change 0142, stage 3). Build each element in a loop.',
+    ],
+    [
+      'a fill value that reads an element',
+      `export function f(n: u32, xs: vec4f[]): vec4f[] { const out = new Array(n).fill(xs[0]); return out; }`,
+      'The value "new Array(n).fill(xs[0])" fills its array with reads a value the call does not know before it runs. It reads the value parameters, their components and fields, module constants, the length of an array parameter, number literals, u32, i32 and f32 of these, vectors and structs built of these, and top-level consts of these, with +, -, *, /, %, min and max; any other operand is not supported yet.',
+    ],
+    [
+      'a fill value that calls a constructor',
+      `class P { a: f32; constructor(a: f32) { this.a = a; } }\nexport function f(n: u32, s: f32): P[] { const out = new Array(n).fill(new P(s)); return out; }`,
+      'The value "new Array(n).fill(new P(s))" fills its array with reads a value the call does not know before it runs. It reads the value parameters, their components and fields, module constants, the length of an array parameter, number literals, u32, i32 and f32 of these, vectors and structs built of these, and top-level consts of these, with +, -, *, /, %, min and max; any other operand is not supported yet.',
     ],
     [
       'a helper',
