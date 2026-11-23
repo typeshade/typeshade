@@ -38,8 +38,8 @@ downstream:
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity and status           | Proposal 0146, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                 |
 | Date and attribution          | 2026-11-23, UTC (the drafting date). An AI agent (Claude Code) drafted it for the owner, who said "네" on 2026-11-23 to drafting it. The owner's words in `docs/owner-decisions.md` (OD-11) are a decision about direction, not an approval of this text. |
-| Applicability / Effectivity   | `docs/use-typeshade-surface.md` only, thirteen sections. No release version is assigned (OD-6: nothing is released).                                                                                                                                      |
-| Review baseline               | `main` at `3a6006ae` (merge of pull request #1436).                                                                                                                                                                                                       |
+| Applicability / Effectivity   | `docs/use-typeshade-surface.md` (thirteen sections) and `docs/language-design.md` (Rules 10.3, 10.5 and 11.11). No release version is assigned (OD-6: nothing is released).                                                                               |
+| Review baseline               | `main` at `698af76f`, where the patches were made. Both patches also apply to `main` at `d31bfbff`.                                                                                                                                                       |
 | Review and revision authority | No pull request is assigned yet. Git records the revisions. The review and merge of the proposal's pull request will record the decision.                                                                                                                 |
 
 ## What changes
@@ -63,32 +63,32 @@ After this change, each passage does one of two things.
 
 The passages, by section:
 
-| Section | Passage                                                                                                                                     | Disposition                                                                                                                                                                                                                              |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| §14     | A whole struct element of a storage array is not copied                                                                                     | Reworded neutrally: "this version does not copy ..." on the WebGL2 tier. No rule states it (open question 1).                                                                                                                            |
-| §20     | "GLSL ES 3.00 has no form: it has no storage buffer"                                                                                        | Reworded: the GLSL writer has no form of a runtime-sized array. `compile()` emits WGSL alone. A `@compute` entry that reaches it runs on the tier as its pass program (change 0054, Rule 11.8).                                          |
-| §23     | "GLSL ES 3.00 has no storage buffers and no atomics"                                                                                        | Reworded: the GLSL writer has no form of an atomic. A `@compute` entry that reaches no texture runs on the tier as its pass program in the phased order (change 0054, Rule 11.8).                                                        |
-| §33     | "GLSL ES 3.00 has no image load/store", as a reason for WGSL only                                                                           | Kept as a fact about the GLSL emitter, reworded so that it says `compile()` emits no GLSL text. A storage texture on the tier is a runtime texture (§69, Rule 11.11).                                                                    |
-| §46     | "WGSL-only ... GLSL ES 3.00 has no image load/store at all"                                                                                 | Reworded: `compile()` emits no GLSL text for an image load or store (§33).                                                                                                                                                               |
-| §48     | "all three WebGPU-only"                                                                                                                     | Reworded: the GLSL writer fails closed; the tier runs a `@compute` entry that reaches no texture as the pass program of change 0054 (Rule 11.8). The rules do not say which of the three builtins gets a form, so the text does not say. |
-| §65     | "WebGL2 has no compute stage"; a reduction, a scatter or a write not at `i`                                                                 | Reworded: Rule 11.8 states what the tier takes. The rest "is not supported yet on the WebGL2 tier" and goes on to the CPU tier.                                                                                                          |
-| §66     | "GLSL ES 3.00 has no storage buffer and records nothing"                                                                                    | Reworded: a GLSL program that `compile()` emits records nothing. Recording a console on the tier is "not supported yet" (§69, Rule 11.11).                                                                                               |
-| §67     | "WebGL2 has no compute stage"; "WebGL2 has no storage buffer" in a draw                                                                     | The first is dropped. The second is a gap: "does not support a storage binding in a draw yet (OD-11)".                                                                                                                                   |
-| §69     | "WebGL2 cannot ask a `WebGLTexture` its size"; "records no console"; "targets that blend or mask apart, because WebGL2 has one blend state" | Each is a gap: "not supported yet on the WebGL2 tier (Rule 11.11)". A lowering of each is TypeShade's work (OD-11). The size one names its cause, that the runtime cannot learn the size unless the host passes it.                      |
-| §71     | The reduction reason: "which WebGL2 has no workgroup memory for"                                                                            | Reworded to the text of pull request #1437 (below).                                                                                                                                                                                      |
-| §72     | Histogram: "WebGL2 has no atomics"                                                                                                          | A gap: the tier does not support a kernel function's atomic add yet (Rule 11.8).                                                                                                                                                         |
-| §74     | "WebGL2 has no atomics, and runs no such function"                                                                                          | A gap: the tier does not support such a function yet (change 0080, Rule 11.8).                                                                                                                                                           |
+| Section | Passage                                                                                                                                     | Disposition                                                                                                                                                                                             |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §14     | A whole struct element of a storage array is not copied                                                                                     | Reworded neutrally: "this version does not copy ..." on the WebGL2 tier. No rule states it (open question 1).                                                                                           |
+| §20     | "GLSL ES 3.00 has no form: it has no storage buffer"                                                                                        | Reworded: the GLSL writer has no form of a runtime-sized array. `compile()` emits WGSL alone. A `@compute` entry that reaches it runs on the tier as its pass program (change 0054, Rule 11.8).         |
+| §23     | "GLSL ES 3.00 has no storage buffers and no atomics"                                                                                        | Reworded: the GLSL writer has no form of an atomic. A `@compute` entry that reaches no texture runs on the tier as its pass program in the phased order (change 0054, Rule 11.8).                       |
+| §33     | "GLSL ES 3.00 has no image load/store", as a reason for WGSL only                                                                           | Kept as a fact about the GLSL emitter, reworded so that it says `compile()` emits no GLSL text. A storage texture on the tier is a runtime texture (§69, Rule 11.11).                                   |
+| §46     | "WGSL-only ... GLSL ES 3.00 has no image load/store at all"                                                                                 | Reworded: `compile()` emits no GLSL text for an image load or store (§33).                                                                                                                              |
+| §48     | "all three WebGPU-only"                                                                                                                     | Reworded: the GLSL writer fails closed; the pass program of change 0054 (Rule 11.8) is not made by that writer. The rules do not say which of the three builtins gets a form, so the text does not say. |
+| §65     | "WebGL2 has no compute stage"; a reduction, a scatter or a write not at `i`                                                                 | Reworded: Rule 11.8 states what the tier takes. The rest "is not supported yet on the WebGL2 tier" and goes on to the CPU tier.                                                                         |
+| §66     | "GLSL ES 3.00 has no storage buffer and records nothing"                                                                                    | Reworded: a GLSL program that `compile()` emits records nothing. Recording a console on the tier is "not supported yet" (§69, Rule 11.11).                                                              |
+| §67     | "WebGL2 has no compute stage"; "WebGL2 has no storage buffer" in a draw                                                                     | The first is dropped. The second is a gap: "does not support a storage binding in a draw yet (OD-11)".                                                                                                  |
+| §69     | "WebGL2 cannot ask a `WebGLTexture` its size"; "records no console"; "targets that blend or mask apart, because WebGL2 has one blend state" | Each is a gap: "not supported yet on the WebGL2 tier (Rule 11.11)". A lowering of each is TypeShade's work (OD-11). The text states no cause for the size one.                                          |
+| §71     | The reduction reason: "which WebGL2 has no workgroup memory for"                                                                            | Reworded to the text of pull request #1437 (below).                                                                                                                                                     |
+| §72     | Histogram: "WebGL2 has no atomics"                                                                                                          | A gap: the tier does not support a kernel function's atomic add yet (Rule 11.8).                                                                                                                        |
+| §74     | "WebGL2 has no atomics, and runs no such function"                                                                                          | A gap: the tier does not support such a function yet (change 0080, Rule 11.8).                                                                                                                          |
 
 **Rule texts (added 2026-11-23).** Each refusal stays as it is. Only the reason is reworded.
 
-| Rule  | Passage                                                                                                                     | Disposition                                                                                                                                        |
-| ----- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 10.3  | `TS8015` stays "only for what the WebGL2 tier cannot do"; the example "whose format WebGL2 cannot render to"                | Reworded: "does not support yet (OD-11)"; the example ends "a format that is not supported yet on the WebGL2 tier (Rule 10.5)".                    |
-| 10.5  | "a format WebGL2 cannot render to is refused with that reason"                                                              | Reworded: the refusal is "not supported yet on the WebGL2 tier (Rule 10.5)"; a fallback is later work (OD-11).                                     |
-| 11.11 | "it refuses with a `TypeError` what WebGL2 has no form of (...)"                                                            | Reworded: it refuses what it does not support yet, "not supported yet on the WebGL2 tier (Rule 11.11)"; a fallback for each is later work (OD-11). |
-| 11.11 | The list item "a multisampled, layered, 3D or storage texture" (added 2026-11-23, by the owner's answer to open question 2) | Reworded: the item names "a storage texture in a draw". A compute entry's storage texture runs as its pass program (Rule 10.5, Rule 11.8).         |
+| Rule  | Passage                                                                                                                     | Disposition                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10.3  | `TS8015` stays "only for what the WebGL2 tier cannot do"; the example "whose format WebGL2 cannot render to"                | Reworded: "does not support yet (OD-11)"; the example ends "a format that is not supported yet on the WebGL2 tier (Rule 10.5)".                                                                                                                                                                                                                                                                                                                                         |
+| 10.5  | "a format WebGL2 cannot render to is refused with that reason"                                                              | Reworded: the refusal is "not supported yet on the WebGL2 tier (Rule 10.5)"; a fallback is later work (OD-11).                                                                                                                                                                                                                                                                                                                                                          |
+| 11.11 | "it refuses with a `TypeError` what WebGL2 has no form of (...)"                                                            | Reworded in two groups. The tier does not support the first group yet, and a fallback for each is later work (OD-11). The first group includes a texture bound from the depth attachment of the pass that draws: WebGPU samples a read-only depth attachment, so a fallback is TypeShade's work. The second group has no fallback meant: a `GPUCommandEncoder` and a pass's `GPURenderPassEncoder`, which are WebGPU objects. The runtime's refusal wording is #1470's. |
+| 11.11 | The list item "a multisampled, layered, 3D or storage texture" (added 2026-11-23, by the owner's answer to open question 2) | Reworded: the item names "a storage texture in a draw". A compute entry's storage texture runs as its pass program (Rule 10.5, Rule 11.8).                                                                                                                                                                                                                                                                                                                              |
 
-The list in Rule 11.11 keeps its items, except the storage texture item (open question 2, answered
+The list in Rule 11.11 keeps its items, and splits them as the table says, except the storage texture item (open question 2, answered
 2026-11-23). Rule 10.5's first sentence, the
 deferral of the GLSL lowering of the WGSL-only family, is the maintainer's and is not changed.
 The mirrors `reqs/rules/RULE-1003.md`, `RULE-1005.md` and `RULE-1111.md` are generated by
@@ -100,15 +100,21 @@ assertions that carry the old text change with it:
 `src/runtime/runtime.test.ts`, `src/core/passes/gl-compute.test.ts`,
 `src/language-service/check.test.ts` and `src/compiler/ts/compile.contract.test.ts`. The
 implementing pull request also reads the related user-facing message "which this context cannot
-render to" in `src/core/gl-compute.ts`. The compiler and the language service build the same text
+render to" (`src/core/gl-compute.ts:923` on `main` at `d31bfbff`). It decides there whether that
+text changes under Rule 10.5. It also updates the comment at `src/runtime/runtime.test.ts:2500`.
+The compiler and the language service build the same text
 (Rule 12.7), so both halves are asserted on the same source.
 
-**Dependency on pull request #1437.** Pull request #1437 (open, not merged) changes two runtime
-texts in `src/`. The kernel reduction reason becomes `which the WebGL2 tier does not support yet
-(Rule 11.8)`. The draw refusal becomes `the WebGL2 tier does not support a storage binding in a
-draw yet`. §71 quotes the first text, and §67 states the second in prose. The implementing pull
-request for this proposal merges after #1437, or it quotes the text that `main` then holds.
-This is a dependency, not a question: merge #1437 first.
+**Dependency on pull request #1437.** Pull request #1437 is merged. It changed two runtime texts
+in `src/`. The kernel reduction reason is now `which the WebGL2 tier does not support yet
+(Rule 11.8)` (`src/core/passes/kernel-lower-gl.ts`). The draw refusal text is in
+`src/core/manifest.ts`. §71 quotes the first text, and §67 states the second in prose. The
+dependency is met.
+
+**The runtime refusals are not changed here.** On `main` at `698af76f`, the runtime's refusal
+texts in `src/runtime/` (for example `gl-draw.ts` and `gl.ts`) state API facts as reasons. OD-11
+forbids that. Rule 11.11 no longer claims one wording for them. Pull request #1470 (open, a bug fix
+with `Change: none`) rewords them under OD-11. This proposal does not declare that work.
 
 Before (§74):
 
@@ -196,8 +202,8 @@ It corrects the text of existing sections.
 
 ### Draft impact estimate
 
-Known: the surface document changes, with about 70 lines, and three rule texts change by one
-sentence each. No code changes in this proposal. Unknown: the number of site and
+Known: the surface document changes, with about 70 lines, and three rule texts change: Rule 11.11 in its list, its split of
+items and its closing clause, and Rules 10.3 and 10.5 in one reason each. No code changes in this proposal. Unknown: the number of site and
 editor passages that repeat the old claims; the downstream search sets it. A person must review
 each changed SURF item in `reqs/` (`reqs/README.md`). Decision needed before acceptance: open
 question 1, below.
@@ -243,6 +249,17 @@ patch was rebased on `main` at `18f7935e`. The widened scope has no independent 
 The scope was widened again on 2026-11-23, after the second OD-11 audit. It adds Rule 10.3, Rule
 10.5 and Rule 11.11 (rule texts), the held patch `p0146-rules.patch`, and the `TS8015` message
 and its four test files in the implementing pull request. This widening needs review.
+
+An independent review ran on 2026-11-23 on the widened scope. It had 2 blocking findings and 5
+non-blocking ones. Blocking 1: Rule 11.11 claimed a refusal wording that the runtime does not emit.
+The rule now claims no wording, and the proposal says the runtime refusals are not changed.
+Blocking 2: the "later work" clause covered items with no fallback meant. The rule now splits the
+list into two groups, and only the first has a fallback (OD-11). The orchestrator then moved the
+depth-attachment item into the first group: WebGPU samples a read-only depth attachment, so "no
+tier takes" was not supported, and #1470 words it "not supported yet". Non-blocking, all fixed: #1437
+recorded as merged; the §48 sentence states the writer only; the §69 sentence about the host
+passing a size is removed; Applicability, Review baseline and the impact estimate corrected; the
+TS8015 note names `runtime.test.ts:2500` and `gl-compute.ts:923`.
 
 The owner answered the conflict and open question 2 on 2026-11-23. This record states only that
 fact. The answers add no independent review.
