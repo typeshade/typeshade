@@ -52,7 +52,11 @@ const shaderModulesUncached: Plugin = {
 // in the same worker has often loaded the mocked module already. `src/fuse.test.ts` mocks
 // `core/gl-context.js` and `core/gl-compute.js`, and in a shuffled order (seed 11) four of its
 // WebGL2-tier tests read the real `glContext` and failed. List such a file in `MOCKS`.
-const MOCKS = ['src/fuse.test.ts', 'src/core/fuse-loading.test.ts'];
+const MOCKS = [
+  'src/fuse.test.ts',
+  'src/core/fuse-loading.test.ts',
+  'src/compiler/ts/host-kernel-made-gl.test.ts',
+];
 
 // This file ran slower after other tests in the shared-worker measurements.
 // Give this file a fresh worker; retain module reuse for the rest of the suite.

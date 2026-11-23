@@ -297,6 +297,7 @@ export function loopReference() {
     residentScaled: scaled,
     ...doubleLoops(),
     glRender: render,
+    glMade: render,
     // An array's methods (change 0079): a count of 1s is exact in any order, and each search
     // has one answer.
     ...methodsReference(),

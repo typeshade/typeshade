@@ -598,15 +598,19 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   const glImg = new Float32Array(64 * 64);
   const glSkip = Float32Array.from({ length: 512 }, () => -1);
   const glXs = Float32Array.from({ length: 512 }, (_, i) => Math.sin(i) * 10);
+  let glMade = new Float32Array(0);
   try {
     configure({ prefer: ['webgl2'] });
     await render([1, 0.5, 2, 0.25], 64, glImg);
     await scaleNonNegative(glXs, glSkip, 0.5);
+    // The array a kernel function makes, on WebGL2, required (change 0114, A1 item 8).
+    glMade = await renderMade([1, 0.5, 2, 0.25], 64);
   } finally {
     configure({});
   }
   return {
     glRender: [...glImg],
+    glMade: [...glMade],
     ...scatter,
     layout: [...layoutOut],
     layoutMapped: [...layoutMapped],
