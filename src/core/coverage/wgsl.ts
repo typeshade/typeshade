@@ -2359,7 +2359,7 @@ export const WGSL_ROWS: readonly Row[] = [
         'compute entry only; Rule 10.5 (docs/language-design.md:1153) lifts the deferral for the storage texture (#136) in a compute entry on WebGL2; changes/0054-webgl2-compute.md:171 states the same lift',
       ),
       10,
-      'an rgba8snorm storage texture the entry writes has no WebGL2 render target and is refused (EXT_render_snorm); roadmap 10, docs/roadmap.md:223',
+      'an rgba8snorm storage texture the entry writes is not supported yet on the WebGL2 tier (EXT_render_snorm would give it a render target); roadmap 10, docs/roadmap.md:223',
       641,
     ),
   },

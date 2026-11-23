@@ -417,11 +417,11 @@ export function touchedBy(diff: Diff): Touched {
   for (const [name, code] of codesBefore) if (codesAfter.get(name) !== code) codes.add(code);
   for (const [name, code] of codesAfter) if (codesBefore.get(name) !== code) codes.add(code);
 
-  // Match the corpus: a top-level shader, or the namesake shader of a host directory or of a
-  // learning-path directory (change 0145).
+  // Match the corpus: a top-level shader, or the namesake shader of a host, learning-path or
+  // gallery directory (change 0145).
   const exampleId = (file: string): string | undefined =>
     /^examples\/([\w-]+)\.shade\.ts$/.exec(file)?.[1] ??
-    /^examples\/(?:hosts|path)\/([\w-]+)\/\1\.shade\.ts$/.exec(file)?.[1];
+    /^examples\/(?:hosts|path|gallery)\/([\w-]+)\/\1\.shade\.ts$/.exec(file)?.[1];
   const examples = new Set<string>();
   const addExample = (file: string): void => {
     const id = exampleId(file);

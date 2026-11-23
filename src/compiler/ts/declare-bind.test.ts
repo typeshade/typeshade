@@ -229,10 +229,10 @@ describe('declare uniform / storage', () => {
 
   // A write to a read binding is still TS8005, and the sentence now names the declaration that
   // would permit it. The first clause and its em dash are origin/main's, verbatim.
-  it('names the storage<T, "read_write"> remedy on a write to a read binding', () => {
+  it('names the storage<T, "read_write"> remedy on a write to a "read" binding', () => {
     const r = editorAgrees(`
       "use typeshade";
-      declare const src: storage<array<f32>>;
+      declare const src: storage<array<f32>, "read">;
       @compute([64, 1, 1]) export function k(gid: builtin<"global_invocation_id">): void {
         src[gid.x] = 1.;
       }

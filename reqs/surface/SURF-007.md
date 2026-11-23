@@ -3,7 +3,7 @@ active: true
 derived: false
 level: 7
 links:
-- RULE-0602: CXz3X6MRbAlRqL0P_XAOrd21coKlywTcQZED5eCFMUY=
+- RULE-0602: M9sPOe3vpavU8DiKvcq2AkjP9ABwNyaMtJoYPojjYcw=
 - RULE-0606: v9R6bYC4u9FE8PK38m5uVaVvXQHjyaWMpH1XGuB7AWA=
 - RULE-0607: jV4SlBG4yMTjK_m_vWgBsezMVkgPD0FjrQubBY__rK4=
 - RULE-0706: QwxPeHG5qtWmKYXe_xw6n22Y4c3K-gndLK4E9xd25lE=
