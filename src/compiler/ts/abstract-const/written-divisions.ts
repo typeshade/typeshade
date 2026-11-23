@@ -3,6 +3,9 @@
 // record. A `u32()` read marks it `none`: the `i32` edit is exact only while the `u32` operand is
 // below 2^31, which no check proves, so its refusal names no edit (issue 1403).
 import ts from 'typescript';
+import { divisionOrigin } from './bit-origin.js';
+
+export { divisionOrigin };
 
 export const writtenDivisionsOf = new WeakMap<ts.SourceFile, WrittenDivision[]>();
 
