@@ -2394,7 +2394,10 @@ function lowerAssignOpTo(
     typeof value.value === 'number' &&
     isNumericScalar(target.type) &&
     // `a /= f32(2)`: a written conversion keeps its type (decision Q11 of change 0134).
-    !statesType(right)
+    !statesType(right) &&
+    // `a *= 0.5` over an integer target: the fraction keeps its `f32` type and the mismatch
+    // below refuses it, as it refuses `a = a * 0.5` (issue 1302).
+    !(isIntScalar(target.type) && !Number.isInteger(value.value))
   ) {
     value = { op: 'lit', type: target.type, value: value.value };
   } else if (isVec(target.type) || isVec64(target.type) || isF64(target.type)) {
