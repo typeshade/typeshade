@@ -173,7 +173,9 @@ export function k(out: array<u32>, x: array<u32>): void {
       face(`export function k(a: array<f32>, b: array<f32>): void {
   for (let i: u32 = 0; i < a.length; i++) { a[i] = 1.; b[i] = 2.; }
 }`).noWebgl2,
-    ).toBe('loop 1 writes more than one array, and WebGL2 draws one');
+    ).toBe(
+      'loop 1 writes more than one array, which the WebGL2 tier does not support yet (Rule 11.8)',
+    );
     expect(
       face(`interface Range { value: f32; }
 export function k(out: array<f32>, range: Range): void {

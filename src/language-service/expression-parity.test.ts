@@ -26,6 +26,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { SHADE_FILES } from '../../examples/_example-file.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { SHADE_DTS } from './ambient.js';
@@ -48,10 +49,9 @@ const readRoot = (uri: string): string | undefined => {
 
 /** Every program the repository ships: the examples, and each journey's shader. */
 function shippedPrograms(): { readonly uri: string; readonly text: string }[] {
-  const files: string[] = [];
-  for (const f of readdirSync(join(ROOT, 'examples'))) {
-    if (f.endsWith('.shade.ts')) files.push(join(ROOT, 'examples', f));
-  }
+  const files: string[] = [...SHADE_FILES.values()]
+    .filter((f) => !/^(?:hosts|path)\//.test(f))
+    .map((f) => join(ROOT, 'examples', f));
   for (const d of readdirSync(join(ROOT, 'journeys'), { withFileTypes: true })) {
     if (!d.isDirectory()) continue;
     for (const f of readdirSync(join(ROOT, 'journeys', d.name))) {
@@ -366,7 +366,7 @@ describe('the editor gives every expression the type the compiler gives it (Rule
     const fixed = 'readonly length: number extends N ? u32 : N';
     expect(SHADE_DTS).toContain(fixed);
     const before = SHADE_DTS.replace(fixed, 'readonly length: N');
-    const example = programs.filter((p) => p.uri === '/examples/array-length.shade.ts');
+    const example = programs.filter((p) => p.uri.endsWith('/array-length.shade.ts'));
     expect(example).toHaveLength(1);
     const { divergences } = firstDivergences(example, before);
     expect(divergences.map(groupOf)).toContain('.length | u32 | number');
