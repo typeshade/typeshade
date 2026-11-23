@@ -4,18 +4,13 @@ import { nodeAtPosition } from '../positions.js';
 import type { TypeshadeDiagnostic } from '../types.js';
 import { spanOfNode } from './spans.js';
 
-const LIST_AS_ARRAY_ARGUMENT =
-  /^Argument of type '(?:number|boolean)\[\]' is not assignable to parameter of type 'array</;
-
 export function repeatsRefusedListUses(
   context: { readonly sourceFile: ts.SourceFile; readonly checker: ts.TypeChecker | undefined },
   diagnostic: TypeshadeDiagnostic,
   compilerErrors: readonly TypeshadeDiagnostic[],
 ): boolean {
   if (diagnostic.source !== 'typescript' || diagnostic.code !== 2345) return false;
-  if (!LIST_AS_ARRAY_ARGUMENT.test(diagnostic.message) || context.checker === undefined) {
-    return false;
-  }
+  if (context.checker === undefined) return false;
   const argument = nodeAtPosition(context.sourceFile, diagnostic.span.start);
   if (!ts.isIdentifier(argument)) return false;
   const declaration = context.checker.getSymbolAtLocation(argument)?.valueDeclaration;

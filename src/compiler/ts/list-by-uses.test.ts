@@ -1,6 +1,6 @@
 // Verifies: Rule 5.1 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
-import { bothRefuse, bothTake } from '../../core/testing/both-halves.js';
+import { bothHalves, bothRefuse, bothTake } from '../../core/testing/both-halves.js';
 import { compileModule } from '../../core/oracle.js';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 
@@ -177,14 +177,18 @@ describe('Rule 5.1: a list of integer-written numbers takes its element type fro
       );
     });
 
-    it('is refused once where a whole use meets another use, for one parameter and for two', () => {
-      const one = 'function take(p: array<i32, 3>): i32 { return p[0]; }';
+    const one = 'function take(p: array<i32, 3>): i32 { return p[0]; }';
+    const two = `${one}\nfunction take2(p: array<i32, 3>): i32 { return p[1]; }`;
+
+    it('is refused once where a whole use meets another use, for one parameter', () => {
       bothRefuse(
         inFunction('  const a = [1, 2, 3];\n  const q = take(a);\n  return a[0] + vi;', 'u32', one),
         'TS8003',
         conflict,
       );
-      const two = `${one}\nfunction take2(p: array<i32, 3>): i32 { return p[1]; }`;
+    });
+
+    it('is refused once where a whole use meets another use, for two parameters', () => {
       bothRefuse(
         inFunction(
           '  const a = [1, 2, 3];\n  const q = take(a) + take2(a);\n  return a[0] + vi;',
@@ -196,13 +200,64 @@ describe('Rule 5.1: a list of integer-written numbers takes its element type fro
       );
     });
 
-    it('keeps the refusal of a list argument that genuinely mismatches, with no conflict', () => {
-      const head = 'function take(p: array<i32, 3>): i32 { return p[0]; }';
+    it('is refused once at module scope, for one parameter', () => {
       bothRefuse(
-        inFunction('  const a = [1., 2., 3.];\n  const q = take(a);\n  return vi;', 'u32', head),
+        atModule('[1, 2, 3]', '  const q = take(a);\n  return a[0] + vi;', 'u32', one),
         'TS8003',
-        'Argument 1 of "take" type mismatch.',
+        conflict,
       );
+    });
+
+    it('is refused once at module scope, for two parameters', () => {
+      bothRefuse(
+        atModule('[1, 2, 3]', '  const q = take(a) + take2(a);\n  return a[0] + vi;', 'u32', two),
+        'TS8003',
+        conflict,
+      );
+    });
+
+    it('is refused once where two whole uses want an i32 and a u32 array', () => {
+      const head = `${one}\nfunction takeU(p: array<u32, 3>): u32 { return p[0]; }`;
+      bothRefuse(
+        inFunction('  const a = [1, 2, 3];\n  const q = take(a);\n  return takeU(a);', 'u32', head),
+        'TS8003',
+        conflict,
+      );
+    });
+
+    it('is refused once where a list meets a scalar parameter, with no TS2345 in the editor', () => {
+      const head = 'function takeS(p: i32): i32 { return p; }';
+      bothRefuse(
+        inFunction(
+          '  const a = [1, 2, 3];\n  const q = takeS(a);\n  return a[0] + vi;',
+          'u32',
+          head,
+        ),
+        'TS8003',
+        conflict,
+      );
+    });
+
+    it('keeps the TS2345 of an annotated number[] list, which no TS8003 stands for', () => {
+      const halves = bothHalves(
+        inFunction(
+          '  const a = [1, 2, 3];\n  const b: number[] = [4, 5, 6];\n  const q = take(a) + take(b);\n  return a[0] + vi;',
+          'u32',
+          one,
+        ),
+      );
+      const width =
+        'A number on the GPU has a width. Write f32 for a float, i32 or u32 for an integer.';
+      expect(halves.compiler).toEqual([
+        `typeshade TS8003: ${conflict}`,
+        `typeshade TS8002: ${width}`,
+      ]);
+      expect(halves.editor.filter((line) => !line.startsWith('typescript 2345'))).toEqual(
+        halves.compiler,
+      );
+      const typescript = halves.editor.filter((line) => line.startsWith('typescript 2345'));
+      expect(typescript).toHaveLength(1);
+      expect(typescript[0]).toContain("Argument of type 'number[]'");
     });
 
     it('refuses += of an element into a u32, as it refuses += of a let', () => {
