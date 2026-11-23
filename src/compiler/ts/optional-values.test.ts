@@ -1035,8 +1035,7 @@ export function set(x: f32): C { const c = new C(); c.a = x; c.b = undefined; re
         '(make().a ?? 0.) + (make().b ?? 0.)',
       ),
     );
-    // The constructor builds its object in the caller's local (change 0105).
-    expect(r.wgsl).toContain('(*_dst) = C(_opt_f32_(0.0, false), _opt_f32_(2.0, true));');
+    expect(r.wgsl).toContain('return vec4<f32>(uv, 2.0, 1.0);');
     const run = cpu(r);
     expect(run('make')).toEqual({ a: absent(0), b: present(2) });
     expect(run('set', 5)).toEqual({ a: present(5), b: absent(0) });

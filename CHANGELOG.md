@@ -337,6 +337,25 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **The optimizer cleans up more of the emit** (#1360, #1366, #1378, #1381, #1387, #1397, #1407,
+  #1413). The emit need not mirror the source (OD-9), and each pass keeps every result the same.
+  - `splitLocalArrays` (`src/core/passes/opt/sroa.ts`, #1360) splits a local fixed-size array that
+    only literal indices reach into scalars, so `[a, b] = [b, a]` emits no array.
+  - The inliner (#1366) inlines a small helper into its caller. A test that reads the helper
+    itself switches this off with `keepHelpers()` (`src/core/testing/keep-helpers.ts`).
+  - `ifConvert` (`src/core/passes/opt/if-convert.ts`, #1378) turns a small branch of
+    assignments into `select`. The GLSL backend writes a float `select` as `mix` (#1381).
+  - `varToLet` (`src/core/passes/opt/var-to-let.ts`, #1387) writes a variable that nothing
+    writes again as a `let`. A variable with a constant initializer stays a `var`, as Tint asks.
+  - Loop-invariant code motion (#1397) reads a loop bound from an integer module constant.
+  - `structCtor` (`src/core/passes/opt/struct-ctor.ts`, #1407) folds a struct built by field
+    writes into one constructor.
+  - The inliner judges a helper by the body the optimizer leaves (#1413), so a struct
+    constructor helper inlines.
+  - Measured bundle budgets move (`scripts/bundle-budget.json`, gzip bytes), over the eight
+    pull requests: `typeshade/runtime` 171805 to 178407, `typeshade/emit` 117636 to 124529 and
+    `typeshade/fuse` 116231 to 122844: each one carries the passes.
+
 - **D2 reads a `let` read twice and every value a `let` holds** (issue #1299; change 0134,
   Amendments A2-A6; the owner's decisions of 2026-11-12, D2, and of 2026-11-16). `let a =
 (0xF0000000|0); f32(a + a)` gave 3758096384, where TypeScript gives -536870912; it is now

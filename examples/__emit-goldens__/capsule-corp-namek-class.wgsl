@@ -146,14 +146,6 @@ fn _mod_f32(x: f32, y: f32) -> f32 {
   return (x - y * floor(x / y));
 }
 
-fn PolarResult_new_into(_dst: ptr<function, PolarResult>, point: vec3<f32>, index: f32) {
-  (*_dst) = PolarResult(point, index);
-}
-
-fn MarchResult_new_into(_dst: ptr<function, MarchResult>, hit: vec2<f32>, edge: f32, winEdge: f32, tEdge: f32) {
-  (*_dst) = MarchResult(hit, edge, winEdge, tEdge);
-}
-
 fn Noise_hash12(p: vec2<f32>) -> f32 {
   var p3: vec3<f32> = fract((vec3<f32>(p.xyx) * 0.1031));
   p3 += dot(p3, (p3.yzx + 33.33));
@@ -242,7 +234,7 @@ fn SDF_polarY_into(_dst: ptr<function, PolarResult>, angle: f32, radius: f32, y:
   let shifted = (angle - offset);
   let index = floor(((shifted / sector) + 0.5));
   let localAngle = (shifted - (index * sector));
-  PolarResult_new_into(_dst, vec3<f32>((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
+  (*_dst) = PolarResult(vec3<f32>((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
 }
 
 fn Ship_flapOutline_function(self_: ptr<function, Ship>, s: vec3<f32>) -> f32 {
@@ -549,10 +541,6 @@ fn NamekTree_shadowCenter_function(self_: ptr<function, NamekTree>) -> vec3<f32>
 
 fn NamekTree_shadowCenter_value(self_: NamekTree) -> vec3<f32> {
   return vec3<f32>(self_.position.x, (GROUND + (0.5 * self_.height)), self_.position.y);
-}
-
-fn NamekTree_new(position: vec2<f32>, height: f32, radius: f32) -> NamekTree {
-  return NamekTree(position, height, radius);
 }
 
 fn NamekTrees_map_function(self_: ptr<function, NamekTrees>, p: vec3<f32>) -> vec2<f32> {
@@ -1097,7 +1085,7 @@ fn NamekScene_marchCel_into(_dst: ptr<function, MarchResult>, self_: ptr<functio
   for (var i: i32 = 0; (i < 180); i = (i + 1)) {
     let hit = NamekScene_mapCel(self_, (ro + (rd * t)));
     if ((hit.x < (0.0003 * t))) {
-      MarchResult_new_into(_dst, vec2<f32>(t, hit.y), edge, windowEdge, edgeT);
+      (*_dst) = MarchResult(vec2<f32>(t, hit.y), edge, windowEdge, edgeT);
       return;
     }
     let width = (lineA * t);
@@ -1114,7 +1102,7 @@ fn NamekScene_marchCel_into(_dst: ptr<function, MarchResult>, self_: ptr<functio
       break;
     }
   }
-  MarchResult_new_into(_dst, vec2<f32>(t, -1.0), edge, windowEdge, edgeT);
+  (*_dst) = MarchResult(vec2<f32>(t, -1.0), edge, windowEdge, edgeT);
 }
 
 fn NamekScene_render(self_: ptr<function, NamekScene>, ro: vec3<f32>, rd: vec3<f32>, pixA: f32, lineA: f32) -> vec3<f32> {
@@ -1391,7 +1379,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
   var _i21_self__: Ship = Ship(4.0);
-  var _i21_self___: NamekTrees = NamekTrees(NamekTree_new(vec2<f32>(1.86, 0.83), 0.65, 0.15), NamekTree_new(vec2<f32>(-5.9, -4.4), 1.9, 0.38));
+  var _i21_self___: NamekTrees = NamekTrees(NamekTree(vec2<f32>(1.86, 0.83), 0.65, 0.15), NamekTree(vec2<f32>(-5.9, -4.4), 1.9, 0.38));
   var _cse0: NamekTree = NamekTree(vec2<f32>(0.0, 0.0), 0.0, 0.0);
   var _i21_self_: NamekScene = NamekScene(_i21_self__, _i21_self___, ShipDetails(Ship(0.0), NamekTrees(_cse0, _cse0)), Lettering(0.0));
   var _i21_self____: ShipDetails = ShipDetails(_i21_self_.ship, _i21_self_.trees);
@@ -1407,8 +1395,7 @@ fn _spec0_SDF_polarY_into(_dst: ptr<function, _spec1_result>, angle: f32, radius
   let shifted = (angle - offset);
   let index = floor(((shifted / sector) + 0.5));
   let localAngle = (shifted - (index * sector));
-  var _spec2_returned: PolarResult;
-  PolarResult_new_into(&_spec2_returned, vec3<f32>((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
+  var _spec2_returned: PolarResult = PolarResult(vec3<f32>((radius * sin(localAngle)), y, (radius * cos(localAngle))), index);
   (*_dst) = _spec1_result(_spec2_returned.point);
 }
 

@@ -35,6 +35,10 @@ import {
   render,
   renderKept,
   renderMade,
+  scaleMade,
+  shadeMade,
+  driftMade,
+  shareMade,
   renderPushed,
   scaleNonNegative,
   stamp,
@@ -447,12 +451,32 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   // A kernel function that makes the array it returns (change 0114, S5), on WebGPU.
   configure({ prefer: ['webgpu'] });
   const made = await renderMade([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
+  // The same function called on a resource (change 0114, A1 item 7), on WebGPU: each call returns
+  // a new Buffer at once, the second call takes the first's, and read() brings the values back.
+  configure({ prefer: ['webgpu'] });
+  const madeIn = array(Float32Array.from(made));
+  const doubled = scaleMade(madeIn, 2);
+  const halved = scaleMade(doubled, 0.5);
+  const madeOnResource = await halved.read().finally(() => configure({}));
+  for (const b of [madeIn, doubled, halved]) b.dispose();
   // A kernel function that grows the array it returns with push (change 0114, S5d), on WebGPU:
   // every iteration pushes, and then two rows of three push.
   configure({ prefer: ['webgpu'] });
   const pushed = await renderPushed([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
   configure({ prefer: ['webgpu'] });
   const kept = await renderKept([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
+  // A kernel function that makes an array of vectors and one of structs (change 0114, S5,
+  // slice 2), on WebGPU: a vec3 element is padded to 16 bytes on the device, and comes back as
+  // its three components one after another.
+  configure({ prefer: ['webgpu'] });
+  const shade = await shadeMade([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
+  configure({ prefer: ['webgpu'] });
+  const drifted = await driftMade(100, 0.25).finally(() => configure({}));
+  // A struct fill shares one object (change 0114, A8 item 4), on WebGPU: the elements the run did
+  // not write are one object, so a write on the host to one of them shows in all of them.
+  configure({ prefer: ['webgpu'] });
+  const shared = await shareMade(30).finally(() => configure({}));
+  shared[1]!.pos = [42, 2, 3, 4];
   const ps = Array.from({ length: 100 }, (_, i) => ({
     pos: [i, 10, 0, 1] as [number, number, number, number],
     vel: [1, 0, -1, 0] as [number, number, number, number],
@@ -592,8 +616,15 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     glSkip: [...glSkip],
     render: [...img],
     renderMade: [...made],
+    scaleMade: [...madeOnResource],
     renderPushed: [...pushed],
     renderKept: [...kept],
+    shadeMade: [...shade],
+    driftMade: drifted.flatMap((p) => [...p.pos, ...p.vel]),
+    shareMade: [
+      ...shared.map((p) => shared.indexOf(p)),
+      ...shared.flatMap((p) => [...p.pos, ...p.vel]),
+    ],
     drift: ps.flatMap((p) => [...p.pos, ...p.vel]),
     odds: [...every],
     stats: [...summary],

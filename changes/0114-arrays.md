@@ -797,6 +797,67 @@ change their wording to name the new forms. No code changes (Rule 12.5).
   with item 4 of this amendment to be implemented there before it merges; a call on a resource,
   the WebGL2 tier and the WebAssembly tier are not started.
 
+### A9. Two open deviations of A8 item 4 (2026-11-23)
+
+- [fact] Why. The implementation of A8 item 4 (pull request #1404, merged as `68a4ca0`) refuses
+  two groups of forms that A8's text does not list. Both are "not supported yet" refusals
+  (`TS8099`, both halves; OD-9). Each keeps A8 item 4 and OD-5 true: no accepted form gives an
+  object JavaScript would not give.
+- [fact] This amendment records them. It decides nothing. Their disposition is open until the
+  owner decides it.
+
+1. **A whole write whose object may be in two elements.** A8 item 4 says an element written as a
+   whole is its own object. When the written value may also be in another element, its own object
+   would differ from JavaScript. So `out[i] = w`, where `w` is a parameter, another element or a
+   `const` declared before the loop, is refused. `main` never accepted these forms.
+2. **Pushes the compiler could decide.** A8 refuses a push only where the compiler cannot decide
+   whether two pushes push one object. The implementation decides two cases: every push pushes a
+   new object, or every push pushes one top-level `const` that only the pushes use. Every other
+   case is refused, a mix of one object and new ones included. A written mark for each pushed
+   element needs a change to the push lowering.
+
+- Disposition: closed by A10 (the owner, 2026-11-23).
+- Affects: section 2 (S5 item 2, S5d item 1). No front-matter entry, rule number or code changes.
+- Status: `status: accepted` does not change. S5 slice 2: the first part is done (#1404); a call
+  on a resource, the WebGL2 tier and the WebAssembly tier are not started.
+
+### A10. The deviations of A9 and of a call on a resource, made part of the approved text (2026-11-23)
+
+- [fact] Why. A9 records two open deviations of A8 item 4. The call on a resource of A1 item 7
+  (pull request #1411, merged as `64593b0`) differs from A1 in five places, each recorded on #1411
+  as an open deviation. All seven are "not supported yet" refusals (`TS8099` at compile time, or a
+  throw at the call; both halves where a half can see them; OD-9).
+- [decision, owner, 2026-11-23] For A9: the agent recommended making both refusals part of the
+  approved text, and the owner chose it ("거부로 승인").
+- [decision, owner, 2026-11-23] For #1411: the agent recommended making all five refusals part of
+  the approved text, and the owner chose it ("다섯 모두 거부로 승인").
+
+**1. A9 items 1 and 2.** Both refusals are part of the approved text: a whole write whose object
+may also be in another element, and the pushes of a struct outside the two cases the compiler
+decides. A9's disposition is closed.
+
+**2. A call on a resource refuses, as "not supported yet":**
+
+1. an array the function grows with `push` (S5d): its length is known only after the run, and a
+   `Buffer`'s `length` is read at once (to be revisited after change 0144, stages A2 and A3);
+2. a struct fill whose unwritten elements share one object (A8 item 4): what sharing means in a
+   `Buffer<C>` is not yet decided;
+3. a struct of no exported class: item 7 names only `Buffer<C>`, and change 0138, Amendment A11,
+   gives such a parameter no `Buffer`;
+4. a call that also writes a plain array: change 0138, Amendment A11, Q7 says such a call waits
+   and gives plain data, and item 7 says the result is a `Buffer`; the owner decides which holds
+   before it is implemented;
+5. a length or a fill value that reads a resource argument: `n` must be known at the call, and
+   such a value is read only when the call runs.
+
+- [fact] Item 7 gives a vector element a `Buffer` of the scalar: `vec4f[]` gives a `Buffer<f32>`
+  of `4n` elements (#1411).
+- Affects: section 2 (S5 items 2 and 7, S5d item 1). No front-matter entry, rule number or code
+  changes.
+- Status: `status: accepted` does not change. S5 slice 2: vector and struct elements done (#1404);
+  a call on a resource done (#1411), with these five forms refused; the WebGL2 tier and the
+  WebAssembly tier not started.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`

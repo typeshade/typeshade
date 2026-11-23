@@ -26,6 +26,7 @@ import {
 } from './host-face-contracts.js';
 import { baseClass, header } from './host-face-shared.js';
 import { madeView, TYPED_NAME } from './host-face/made.js';
+import { bufferArgument } from './host-view/buffer-argument.js';
 import { hostTypeOf } from './host-types.js';
 import { keyTypeText } from './key-types.js';
 import { HANDLE_TYPE_NAMES, SUPPORTED_TYPE_NAMES } from './type-map.js';
@@ -73,18 +74,6 @@ function argType(t: HostType, named: ReadonlyMap<string, string>): string {
         `{ ${t.f.map(([n, ft]) => `readonly ${n}: ${argType(ft, named)}`).join('; ')} }`
       );
   }
-}
-
-/** The `Buffer`s a value parameter of type `t`, spelled `spelled`, takes on a call on a resource
- *  (change 0138, Amendment A10, Q-C; Amendment A12, decision 4): a `Buffer` of one element for a
- *  number, a vector, a `bool` or a key; for a matrix a `Buffer` of it or of `f32` (Q3). A
- *  `Buffer<number>` (Q8) passes where a `Buffer` of `f32`, `i32` or `u32` does (`scalarBuffers`).
- *  Undefined for any other type. */
-function bufferArgument(t: HostType, spelled: string): string | undefined {
-  if (t.k === 'num' || t.k === 'vec' || t.k === 'bool' || t.k === 'key')
-    return `Buffer<${spelled}>`;
-  if (t.k === 'mat' && t.e === 'f32') return `Buffer<${spelled}> | Buffer<f32>`;
-  return undefined;
 }
 
 /** No struct name: the spelling of a struct by its fields. */
@@ -671,7 +660,11 @@ export function viewText(
         break;
       }
       case 'kernel': {
-        const shown = madeView(e.face);
+        const shown = madeView(
+          e.face,
+          (t) => resultType(t, named),
+          (cls) => resource(cls, 'buffer') !== undefined,
+        );
         const f = shown.face;
         // The parameters of a call with plain data (`plain`), of a call on a resource that does not
         // block (`resource`), and of one that waits (`waits`, Amendment A11, Q7).
@@ -680,7 +673,7 @@ export function viewText(
             .map((p) => {
               if (p.k === 'value') {
                 const t = argType(p.type, args);
-                if (mode === 'plain') return `${p.name}: ${t}`;
+                if (mode === 'plain' || shown.plain.has(p.name)) return `${p.name}: ${t}`;
                 // A uniform of the class (change 0138, R2), and for a number or a vector a
                 // `Buffer` of one element, another call's result (Amendment A10, Q-C).
                 const u = resource(t, 'uniform');
@@ -771,9 +764,10 @@ export function viewText(
         const noBuffer = f.params.some(
           (p) => p.k === 'array' && p.writes && params('resource').includes(`${p.name}: never`),
         );
+        const onResource = shown.result === undefined ? buffers : shown.onResource;
+        if (onResource !== undefined && !noBuffer && params('resource') !== params('plain'))
+          out.push(`export declare function ${e.name}(${params('resource')}): ${onResource};`);
         if (shown.result !== undefined) break;
-        if (buffers !== undefined && !noBuffer && params('resource') !== params('plain'))
-          out.push(`export declare function ${e.name}(${params('resource')}): ${buffers};`);
         if (
           f.params.some((p) => p.k === 'array' && p.writes) &&
           params('waits') !== params('plain')

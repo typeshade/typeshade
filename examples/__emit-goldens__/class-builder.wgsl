@@ -50,12 +50,8 @@ fn Disc_coverage(self_: ptr<function, Disc>, p: vec2<f32>) -> f32 {
 }
 
 fn Disc_unit_into(_dst: ptr<function, Disc>) {
-  Disc_new_into(_dst);
-  Disc_set_size(_dst, Disc_SIZE);
-}
-
-fn Disc_new_into(_dst: ptr<function, Disc>) {
   (*_dst) = Disc(0.2, vec2<f32>(0.0), vec3<f32>(1.0));
+  Disc_set_size(_dst, Disc_SIZE);
 }
 
 fn Capped_set_size(self_: ptr<function, Capped>, r: f32) {
@@ -104,8 +100,7 @@ fn fs(v: VsOut) -> FsOut {
   Capped_at(&b, vec2<f32>(0.4, 0.0));
   Capped_tinted(&b, vec3<f32>(0.3, 0.6, 0.95));
   Capped_set_size(&b, (b.radius * 2.0));
-  var _chain: Disc;
-  Disc_new_into(&_chain);
+  var _chain: Disc = Disc(0.2, vec2<f32>(0.0), vec3<f32>(1.0));
   Disc_at(&_chain, vec2<f32>(0.0, 0.55));
   Disc_sized(&_chain, 0.1);
   var c: Disc = Disc_tinted(&_chain, vec3<f32>(0.9, 0.3, 0.4));

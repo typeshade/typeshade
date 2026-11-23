@@ -1568,7 +1568,7 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
     if (f.stage === 'vertex') return never(name, REASON.vertex);
     if (f.stage === 'fragment') return fragmentFace(name, f, c);
     if (f.stage === 'compute') return computeFace(name, f, c);
-    if (f.kernel === true) return madeFace(kernelFace(name, f, c), f);
+    if (f.kernel === true) return madeFace(kernelFace(name, f, c), f, c.structs);
     const params: { name: string; type: HostType }[] = [];
     for (const p of f.params) {
       const t = hostTypeOf(p.type, c.structs);

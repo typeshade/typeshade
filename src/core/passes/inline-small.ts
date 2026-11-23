@@ -5,7 +5,7 @@ import { adoptTemp } from './inline-small-rename.js';
 import { exprHasEffect, fnWrites, type FnWrites } from './effects.js';
 import { bodyHasRaw } from './opt/expr-utils.js';
 import {
-  chosen,
+  settledPlan,
   isEntry,
   isLeaf,
   planOf,
@@ -286,8 +286,9 @@ export function inlineSmall(m: ModuleDecl): ModuleDecl {
     let plan: Plan | undefined;
     for (const f of cur.funcs) {
       if (tried.has(f.name)) continue;
-      const p = planOf(f, cur.funcs, writes, sensitive);
-      if (p !== undefined && chosen(p, cur.funcs)) {
+      const raw = planOf(f, cur.funcs, writes, sensitive);
+      const p = raw && settledPlan(raw, cur, writes, sensitive);
+      if (p !== undefined) {
         plan = p;
         break;
       }

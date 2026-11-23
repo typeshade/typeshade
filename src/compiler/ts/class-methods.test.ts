@@ -76,7 +76,7 @@ const TAIL = `
 
 describe('class members: what each one lowers to', () => {
   it('a method takes the struct first, a static function nothing, the constructor returns it', () => {
-    const r = compile(RAY);
+    const r = uninlined(() => compile(RAY));
     expect(r.diagnostics).toEqual([]);
     // Pin the original method/constructor ABI at O1. O2 may project P and
     // fuse the single-use farther/at chain without changing the ray result.

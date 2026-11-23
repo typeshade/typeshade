@@ -221,6 +221,10 @@ export function loopReference() {
     const vel = [1, f(-9.8 * 0.25), -1, 0];
     drift.push(f(i + vel[0] * 0.25), f(10 + vel[1] * 0.25), f(vel[2] * 0.25), 1, ...vel);
   }
+  const shared = new Array(30).fill({ pos: [1, 2, 3, 4], vel: [0, 0, 0, 0] });
+  for (let i = 0; i < 30; i++)
+    if (i % 3 === 0) shared[i] = { pos: [i, 0, 0, 1], vel: [0, 1, 0, 0] };
+  shared[1].pos = [42, 2, 3, 4];
   const odds = new Array(30).fill(0);
   for (let i = 9; i >= 0; i--) if (i % 2 === 1) odds.splice(i * 3, 3, 1, 2, i);
   // The tree order (Rule 7.2): each iteration from the identity, blocks of 256 folded at
@@ -280,8 +284,15 @@ export function loopReference() {
     residentStamp: [7, 7, 7, 7, 7, 7, 7],
     residentRender: render,
     renderMade: render,
+    scaleMade: render,
     renderPushed: render,
     renderKept: render.filter((_, i) => Math.floor(i / 64) % 3 !== 1),
+    shadeMade: render.flatMap((h, i) => [h, i % 64, 1]),
+    driftMade: drift,
+    shareMade: [
+      ...shared.map((p) => shared.indexOf(p)),
+      ...shared.flatMap((p) => [...p.pos, ...p.vel]),
+    ],
     residentStats: stats,
     residentScaled: scaled,
     ...doubleLoops(),

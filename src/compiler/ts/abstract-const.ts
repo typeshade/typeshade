@@ -2248,15 +2248,15 @@ function declarationChange(name: string, at: ts.Node, type: string): SourceChang
   return { start: d.name.getEnd(), end: d.type?.getEnd() ?? d.name.getEnd(), text: `: ${type}` };
 }
 
-/** The two values of `node` where a tree's `u32` bits and its TypeScript value reach it and
- *  differ (D2, 2026-11-12): a tree over a written number only a `u32` holds, carried untyped
- *  through a `let`, a `const`, a function's result, `?:`, `select` and arithmetic over written
- *  numbers (`let c = a + 0`). An annotation, a conversion and a typed operand end it.
- *  `undefined` where the two agree. */
-export function twoReadingsOf(node: ts.Expression): TwoReadings | undefined {
+/** The two values of `node` where a tree's `u32` bits and TypeScript value reach it and differ
+ *  (D2): carried untyped through a `let`, a `const`, a function's result, `?:`, `select` and
+ *  arithmetic over written numbers, and ended by an annotation, a conversion or a typed operand.
+ *  `single` states numbers only where `node` has one value. `undefined` where the two agree. */
+export function twoReadingsOf(node: ts.Expression, single = false): TwoReadings | undefined {
   const xs = readingsFrom(node);
   const proven = xs.find((x) => provenDiffering(x) && x.signed !== true && !x.reassigned);
-  if (proven !== undefined) return { u32: proven.u32, ts: proven.ts };
+  if (proven !== undefined && (!single || xs.length === 1))
+    return { u32: proven.u32, ts: proven.ts };
   const unproven = xs.some((x) => x.unproven || provenDiffering(x));
   return unproven ? { u32: NaN, ts: NaN, unproven: true } : undefined;
 }
