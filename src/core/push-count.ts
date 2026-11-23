@@ -6,6 +6,8 @@
 // length before the function runs and reads the new length after it (`core/host-kernel.ts`). The
 // table is a module of its own, so that the call layer reads it without the op library.
 
+export const MOST_PUSHED = 4294967295;
+
 const counts = new WeakMap<object, number>();
 
 /** The length of pushed array `xs` in the function: the held length, if any, plus the count
@@ -34,5 +36,5 @@ export function withSaturatingPushes<T>(run: () => T): T {
 }
 
 export function nextPushCount(n: number): number {
-  return saturating && n === 0xffffffff ? n : (n + 1) >>> 0;
+  return saturating && n === MOST_PUSHED ? n : (n + 1) >>> 0;
 }

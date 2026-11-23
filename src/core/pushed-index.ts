@@ -4,6 +4,13 @@ import { nextPushCount, pushedLength, startPushesAt } from './push-count.js';
 
 export { nextPushCount, pushedLength, startPushesAt };
 
+export function pushOnto(xs: CpuValue[], v: CpuValue): CpuValue {
+  const n = pushedLength(xs);
+  if (n < xs.length) xs[n] = v;
+  startPushesAt(xs, nextPushCount(n));
+  return nextPushCount(n) as CpuValue;
+}
+
 function within(xs: CpuValue, k: CpuValue, site: CpuValue, room: number): number {
   const index = Number(k);
   const length = pushedLength(xs as unknown as object);

@@ -4,6 +4,7 @@ import type { GeneratedCpu } from '../host-entry.js';
 import { callKernel, type KernelFace } from '../host-kernel.js';
 import type { KernelMade } from '../kernel-made-face.js';
 import { withSaturatingPushes } from '../push-count.js';
+import { boundArguments } from './bound.js';
 import { countedTotal } from './capacity.js';
 import { filled } from './making.js';
 
@@ -34,14 +35,7 @@ export async function countedCapacity(
   args: readonly unknown[],
   reads?: IncomingReads,
 ): Promise<number> {
-  let next = 0;
-  const all = k.params.map((p) =>
-    p.name === made.param
-      ? filled(k, made, 1, undefined)
-      : p.name === made.count
-        ? 0
-        : args[next++],
-  );
+  const all = boundArguments(k, made, args, filled(k, made, 1, undefined));
   const pushed = await callKernel(saturating(cpu, k), counting(k), all.length, all, reads);
   return countedTotal(k, made, Number(pushed));
 }
