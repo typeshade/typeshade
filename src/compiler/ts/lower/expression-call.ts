@@ -6,6 +6,7 @@ import {
   peekingReads,
   refuseTwoReadings,
   twoReadingsOf,
+  besideI32Readings,
 } from '../abstract-const.js';
 import ts from 'typescript';
 import { statesType } from '../lit-coerce.js';
@@ -738,19 +739,17 @@ export function lowerCall(
     );
     // A binding that holds two readings is no tree the peer can retype: beside an `i32` it is
     // refused, and its edit takes TypeScript's value, `i32(a)` (C1; F9 of the fourteenth review).
-    const boundBesideI32 =
-      peers.includes('i32') &&
-      !peers.includes('f32') &&
-      args.some((a) => a.op === 'varref' && readingsOf(a, (n) => scope.resolveIr(n)) !== undefined);
-    if (boundBesideI32) {
-      const i = args.findIndex(
-        (a) => a.op === 'varref' && readingsOf(a, (n) => scope.resolveIr(n)) !== undefined,
-      );
+    const held = (a: Expr, i: number) =>
+      (a.op === 'varref' ? readingsOf(a, (n) => scope.resolveIr(n)) : undefined) ??
+      besideI32Readings(node.arguments[i]!, callee.text);
+    const i =
+      peers.includes('i32') && !peers.includes('f32') ? args.findIndex((a, j) => held(a, j)) : -1;
+    if (i >= 0) {
       refuseTwoReadings(sourceFile, diagnostics, {
         node: node.arguments[i]!,
         operation: node,
         operator: callee.text,
-        readings: readingsOf(args[i]!, (n) => scope.resolveIr(n))!,
+        readings: held(args[i]!, i)!,
         peer: 'i32',
         target: false,
       });

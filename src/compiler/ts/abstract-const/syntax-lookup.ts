@@ -84,3 +84,20 @@ export function regionOf(node: ts.Node, sourceFile: ts.SourceFile): readonly [nu
   }
   return [n.getStart(sourceFile), n.getEnd()];
 }
+
+export function inIntegerSlot(leaf: ts.Node, within: ts.Node): boolean {
+  for (let n: ts.Node = leaf; n !== within && n.parent !== undefined; n = n.parent) {
+    const up = n.parent;
+    if (ts.isElementAccessExpression(up) && up.argumentExpression === n) return true;
+    if (
+      ts.isBinaryExpression(up) &&
+      up.right === n &&
+      (up.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken ||
+        up.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanToken ||
+        up.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken)
+    )
+      return true;
+    if (up === within) break;
+  }
+  return false;
+}

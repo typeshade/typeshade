@@ -60,20 +60,8 @@ import {
   unaryValue,
 } from './issue-1261-differential/oracle.js';
 import { rng } from './issue-1261-differential/rng.js';
+import { FILE, INPUTS, LIBS, LIB_FILE } from './issue-1261-differential/libs.js';
 import { editedRanges } from './issue-1261-differential/ranges.js';
-
-const INPUTS = { ii: -3, vi: 7, f: 2.5 } as const;
-/** The imported file: the same exports in each, and in three of them one more that the file
- *  itself refuses, so that an edit lands in the imported file. */
-const LIB_BASE =
-  '"use typeshade";\nexport const L = 3;\nexport const LB = 0xF0000000 | 0;\n' +
-  'export const LK = 1 | 2;\nexport function lg() {\n  return 6 ^ 3;\n}\n';
-const LIBS = [
-  LIB_BASE,
-  `${LIB_BASE}export const LQ = (1|2)/2;\n`,
-  `${LIB_BASE}export function lh() {\n  return (5|0)/2;\n}\n`,
-  `${LIB_BASE}export const LS = 0xF0000000 >> 28;\n`,
-] as const;
 
 /** One generated expression: its source text and its reference value. */
 interface Expr {
@@ -717,6 +705,8 @@ class Program {
           () => this.tree(),
           () => this.tree(),
           () => lit(this.pick([2, 3, 4, 7, 268435456])),
+          () => this.bin(this.pick(['|', '^']), this.bin('+', lit(2147483647), lit(1)), lit(0)),
+          () => this.bin('<<', lit(1), lit(this.pick([30, 31]))),
           () => this.expr('k', 1),
         ])();
       const ea = init();
@@ -759,8 +749,19 @@ class Program {
         this.lines.push(`c = ${n.text};`);
         this.steps.push(() => this.env.set('c', n.value()));
       }
-      // A store that reads its own variable (the review of #1304): `a = a - K`, `a -= K`, once,
-      // inside `if`, or twice in a loop.
+      const accumulated = this.chance(0.25);
+      if (accumulated) {
+        const trips = this.pick([2, 3, 4, 30]);
+        const step = this.pick([() => this.tree(), () => this.name('a'), () => lit(1073741824)])();
+        this.lines.push(
+          `for (let i = 0; i < ${String(trips)}; i++) {\n    c += ${step.text};\n  }`,
+        );
+        this.steps.push(() => {
+          for (let i = 0; i < trips; i++)
+            this.env.set('c', binary('+', this.env.get('c')!, step.value()));
+        });
+      }
+      // A store that reads its own variable (#1304): `a = a - K`, `a -= K`, once, in `if` or a loop.
       if (this.chance(0.3)) {
         const op = this.pick(['+', '-', '|', '^']);
         const n = lit(this.pick([0x10000000, 0x40000000, 3]));
@@ -794,7 +795,7 @@ class Program {
         this.bind('sa', 'i32', () => ({ t: 'i32', v: n }));
         amount = this.name(this.pick(['sa', 'sa', 'ii', 'vi']));
       }
-      let e = this.bin(op, this.name(l), amount);
+      let e = accumulated && this.chance(0.5) ? this.name('c') : this.bin(op, this.name(l), amount);
       if (this.chance(0.3))
         e = this.bin(this.pick(['+', '-']), e, this.name(this.pick(['a', 'c'])));
       if (this.chance(0.5)) {
@@ -853,9 +854,6 @@ class Program {
     return { source, value: expected, lib: this.lib };
   }
 }
-
-const FILE = '/p/a.shade.ts';
-const LIB_FILE = '/p/lib.shade.ts';
 
 /** One error of one file of the program, from either half. */
 interface Line {

@@ -146,11 +146,11 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
     expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(-2147483648);
   });
 
-  it('re-review of #1354: values past a loop bound are no fact, so the sentence states none', () => {
+  it('re-review of #1354: a constant trip count bounds the values, so the loop compiles to 243', () => {
     const body =
       'let t = (3000000000|0);\n  let acc = 1;\n  for (let k = 0; k < 5; k++) {\n    acc = acc * 3;\n  }\n  let x = acc ^ t;\n  return f32(acc);';
     const source = program(body, 'f32');
-    bothRefuse(source, 'TS8003', unproven('acc', 'f32()', 'i32(acc)'));
+    expect(run(source)).toBe(243);
     expect(run(source.replace('f32(acc)', 'f32(i32(acc))'))).toBe(243);
   });
 
@@ -161,16 +161,9 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
   it.each([
     ['twenty rounds', LOOP(20, 'acc = acc * 3;') + READ, 3 ** 20],
     ['twenty-one rounds', LOOP(21, 'acc = acc * 3;') + READ, 3 ** 21],
-    ['two stores in the body', LOOP(5, 'acc = acc * 3;\n    acc = acc + 0;') + READ, 243],
     [
       'an if and an else',
       LOOP(5, 'if (vi > 3) {\n      acc = acc * 3;\n    } else {\n      acc = acc * 2;\n    }') +
-        READ,
-      243,
-    ],
-    [
-      'two variables that store each other',
-      'let acc = 1;\n  let b = 1;\n  for (let k = 0; k < 5; k++) {\n    acc = b * 3;\n    b = acc;\n  }\n  ' +
         READ,
       243,
     ],
@@ -189,24 +182,17 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
     },
   );
 
-  it('owner decision of 2026-11-18: a declaration inside an outer loop states no numbers', () => {
+  it('owner decision of 2026-11-18: a declaration inside an outer loop, followed to its end, compiles', () => {
     const body = `let s = 0.0;\n  for (let j = 0; j < 3; j++) {\n    let acc = 1;\n    for (let k = 0; k < 5; k++) {\n      acc = acc * 3;\n    }\n    let x = acc ^ t;\n    s = s + f32(acc);\n  }\n  return s;`;
     const source = program(T + body, 'f32');
-    bothRefuse(source, 'TS8003', unproven('acc', 'f32()', 'i32(acc)'));
-    expect(run(source.replace('f32(acc)', 'f32(i32(acc))'))).toBe(729);
+    expect(run(source)).toBe(729);
   });
 
-  it('owner decision of 2026-11-18: a loop with a break states no numbers at either reader', () => {
+  it('owner decision of 2026-11-18: a loop with a break states no numbers', () => {
     const body = `let acc = 1;\n  for (let k = 0; k < 20; k++) {\n    if (acc > 200) {\n      break;\n    }\n    acc = acc * 3;\n  }\n  ${READ}`;
     const source = program(T + body, 'f32');
-    bothRefuse(source, 'TS8003', [
-      unproven('acc', '>', 'i32(acc)'),
-      unproven('acc', 'f32()', 'i32(acc)'),
-    ]);
-    const fixed = source
-      .replace('acc > 200', 'i32(acc) > 200')
-      .replace('f32(acc)', 'f32(i32(acc))');
-    expect(run(fixed)).toBe(243);
+    bothRefuse(source, 'TS8003', unproven('acc', 'f32()', 'i32(acc)'));
+    expect(run(source.replace('f32(acc)', 'f32(i32(acc))'))).toBe(243);
   });
 
   it('owner decision of 2026-11-18: a value outside loops keeps its numbers', () => {
@@ -224,6 +210,16 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
     expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(-536870912);
   });
 
+  it.each([
+    ['two stores in the body', LOOP(5, 'acc = acc * 3;\n    acc = acc + 0;') + READ],
+    [
+      'two variables that store each other',
+      'let acc = 1;\n  let b = 1;\n  for (let k = 0; k < 5; k++) {\n    acc = b * 3;\n    b = acc;\n  }\n  ' +
+        READ,
+    ],
+  ] as const)('a constant trip count bounds the values, so the loop compiles: %s', (_, body) => {
+    expect(run(program(T + body, 'f32'))).toBe(243);
+  });
   it.each([
     [
       'a *= K outside a loop',
@@ -268,5 +264,13 @@ describe('issue 1331: a u32 tree variable keeps two readings through a store and
     const source = program(body, 'f32');
     bothRefuse(source, 'TS8003', unproven('c << 31', 'f32()', 'i32(c << 31)'));
     expect(run(source.replace('f32(c << 31)', 'f32(i32(c << 31))'))).toBe(-4294967296);
+  });
+
+  it('a store in a for header refuses the plain test at "<", with no edit', () => {
+    const body =
+      'let t = (3000000000|0);\n  let s = 0.0;\n  for (let c = 1; c < 5; c = c * 3) {\n    let x = c ^ t;\n    s = s + f32(c << 31);\n  }\n  return s;';
+    const said =
+      'The compiler cannot prove that the u32 bits and the TypeScript value of "c" agree, so the "<" does not say which value it means.';
+    bothRefuse(program(body, 'f32'), 'TS8003', said);
   });
 });

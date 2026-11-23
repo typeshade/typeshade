@@ -95,6 +95,50 @@ export function integerWrittenLiteral(node: ts.NumericLiteral): boolean {
   return /^0[xXbBoO]/.test(written) || !/[.eE]/.test(written);
 }
 
+export function typeScriptBitOp(k: ts.SyntaxKind, x: number, y: number): number {
+  switch (k) {
+    case ts.SyntaxKind.BarToken:
+      return x | y;
+    case ts.SyntaxKind.AmpersandToken:
+      return x & y;
+    case ts.SyntaxKind.CaretToken:
+      return x ^ y;
+    case ts.SyntaxKind.LessThanLessThanToken:
+      return x << (y & 31);
+    default:
+      return x >> (y & 31);
+  }
+}
+
+const BIT_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.BarToken,
+  ts.SyntaxKind.AmpersandToken,
+  ts.SyntaxKind.CaretToken,
+  ts.SyntaxKind.LessThanLessThanToken,
+  ts.SyntaxKind.GreaterThanGreaterThanToken,
+  ts.SyntaxKind.BarEqualsToken,
+  ts.SyntaxKind.AmpersandEqualsToken,
+  ts.SyntaxKind.CaretEqualsToken,
+  ts.SyntaxKind.LessThanLessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanGreaterThanEqualsToken,
+]);
+
+export function bitOperands(n: ts.Node): ts.Expression[] {
+  if (ts.isBinaryExpression(n) && BIT_OPERATORS.has(n.operatorToken.kind)) {
+    return [skipParenNodes(n.left), skipParenNodes(n.right)];
+  }
+  if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.TildeToken) {
+    return [skipParenNodes(n.operand)];
+  }
+  return [];
+}
+
+export function isTreeSource(n: ts.Node, typed: (e: ts.Expression) => boolean): boolean {
+  if (ts.isNumericLiteral(n)) return isBigNumber(Number(n.text));
+  const operands = bitOperands(n);
+  return operands.length > 0 && !operands.some(typed);
+}
+
 const PATTERN_PARTS = (n: ts.Node): boolean =>
   ts.isArrayLiteralExpression(n) ||
   ts.isObjectLiteralExpression(n) ||
@@ -162,4 +206,82 @@ export function maskValue(
   const call = ts.isCallExpression(n) && /^[iu]32$/.test(n.expression.getText()) ? n : undefined;
   const v = declared ? writtenNumber(n) : call && writtenNumber(call.arguments[0]!);
   return v !== undefined && Number.isInteger(v) && v >= 0 && v <= 0x7fffffff ? v : undefined;
+}
+
+export const ONE = ts.factory.createNumericLiteral(1);
+export const COUNTING_BUILTINS = new Set([
+  'countOneBits',
+  'countLeadingZeros',
+  'countTrailingZeros',
+]);
+
+export function constantValue(
+  node: ts.Expression,
+  initializerOf: (id: ts.Identifier) => ts.Expression | undefined,
+  depth = 0,
+): number | undefined {
+  const n = skipParenNodes(node);
+  if (depth > 32) return undefined;
+  const v = writtenNumber(n);
+  if (v !== undefined) return v;
+  if (ts.isIdentifier(n)) {
+    const init = initializerOf(n);
+    return init === undefined ? undefined : constantValue(init, initializerOf, depth + 1);
+  }
+  if (ts.isPrefixUnaryExpression(n)) {
+    const x = constantValue(n.operand, initializerOf, depth + 1);
+    if (x === undefined) return undefined;
+    return n.operator === ts.SyntaxKind.MinusToken
+      ? -x
+      : n.operator === ts.SyntaxKind.TildeToken
+        ? ~x
+        : undefined;
+  }
+  if (!ts.isBinaryExpression(n)) return undefined;
+  const a = constantValue(n.left, initializerOf, depth + 1);
+  const b = constantValue(n.right, initializerOf, depth + 1);
+  if (a === undefined || b === undefined) return undefined;
+  switch (n.operatorToken.kind) {
+    case ts.SyntaxKind.PlusToken:
+      return a + b;
+    case ts.SyntaxKind.MinusToken:
+      return a - b;
+    case ts.SyntaxKind.AsteriskToken:
+      return a * b;
+    case ts.SyntaxKind.BarToken:
+      return a | b;
+    case ts.SyntaxKind.AmpersandToken:
+      return a & b;
+    case ts.SyntaxKind.CaretToken:
+      return a ^ b;
+    case ts.SyntaxKind.LessThanLessThanToken:
+      return a << (b & 31);
+    case ts.SyntaxKind.GreaterThanGreaterThanToken:
+      return a >> (b & 31);
+    default:
+      return undefined;
+  }
+}
+
+export function reachedBy(
+  entries: readonly (readonly [ts.Node, readonly ts.Expression[]])[],
+  reads: (id: ts.Identifier, reached: ReadonlySet<ts.Node>) => boolean,
+): Set<ts.Node> {
+  const reached = new Set<ts.Node>();
+  const holds = (e: ts.Node): boolean =>
+    (ts.isNumericLiteral(e) && isBigNumber(Number(e.text))) ||
+    (ts.isIdentifier(e) && reads(e, reached)) ||
+    ts.forEachChild(e, (c) => (holds(c) ? true : undefined)) === true;
+  for (let more = true; more;) {
+    more = false;
+    for (const [d, exprs] of entries) {
+      if (!reached.has(d) && exprs.some(holds)) more = reached.add(d) !== undefined;
+    }
+  }
+  return reached;
+}
+
+export function i32Argument(arg: ts.Expression): ts.Expression | undefined {
+  const n = skipParenNodes(arg);
+  return ts.isCallExpression(n) && n.expression.getText() === 'i32' ? n.arguments[0] : undefined;
 }

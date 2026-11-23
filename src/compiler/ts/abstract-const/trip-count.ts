@@ -95,3 +95,23 @@ export function storeExecutions(store: ts.Node, declaration: ts.Node): number {
   }
   return Infinity;
 }
+
+interface StoreAt {
+  readonly kind: 'value' | 'compound' | 'opaque';
+  readonly id?: ts.Identifier;
+  readonly expr?: ts.Expression;
+}
+
+export function groupExecutions(
+  group: readonly ts.VariableDeclaration[],
+  storesOf: (v: ts.VariableDeclaration) => readonly StoreAt[],
+): number {
+  let executions = 0;
+  for (const v of group) {
+    for (const s of storesOf(v)) {
+      const at = s.kind === 'compound' ? s.id : s.expr;
+      executions += s.kind === 'opaque' || at === undefined ? 1 : storeExecutions(at, v);
+    }
+  }
+  return executions;
+}

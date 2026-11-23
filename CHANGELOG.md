@@ -405,6 +405,20 @@ f32(v / 2)` after `s.v = ii` is refused, as `f32(s.v / 2)` is. A swizzle of a sw
     owner's decision of 2026-11-17, "변환식도 적은 타입"); a field of a plain number (`v = 0`)
     does not.
 
+- **D2 keeps the two readings of a tree-origin integer** (issue #1309; change 0134,
+  Amendment A7, the owner's decision of 2026-11-17, "좁게: 트리에서 나온 정수만"). An integer
+  whose type comes from a bit operator now keeps two readings, its wrapped bits and TypeScript's
+  value, through bindings, accumulators, `+ - * <<` and unary minus. `let a = 1 << 31;
+f32(a + a)` gave 0, where TypeScript gives -4294967296, and the accumulator
+  `s += max(((3000000000|0) ^ (-7|0)), (6^3))` three times gave -410065429 (TypeScript
+  3884901888 as an `f32`). A computed number past i32 that reaches a bit operator through a variable
+  (`const c = 2000000000 + 2000000000; let d = c | 0; f32(d + d)`) starts a tree too. Each D2
+  reader refuses such a value where the two readings differ, with the approved sentence and the
+  edit `i32(…)`. A loop with a constant trip count of at most 24 executions is followed to its
+  end, so `s += (1|2)` four times compiles to 12. Cost: the same loop forty times is refused.
+  An integer typed only by a typed peer (`let s = 0; s += ii`) keeps its typed semantics, a
+  known difference under Rule 1.3.
+
 - **D2 keeps the two readings of an operation beside a typed u32** (issue #1307; change 0134,
   Amendment A7, the owner's decision of 2026-11-16, "두 값 유지, 다르면 거부"). With
   `let a = (0xF0000000|0);`, `f32(a + vi)` gave 4026531847, where TypeScript gives -268435449,
