@@ -33,7 +33,7 @@ function loopWgslOf(source: string): string {
 
 function refused(source: string): ReturnType<typeof bothHalves>['result'] {
   const halves = bothHalves(`${USE}${source}`);
-  expect(halves.editor).toContain(halves.compiler[0]);
+  expect(halves.editor).toEqual(halves.compiler);
   return halves.result;
 }
 

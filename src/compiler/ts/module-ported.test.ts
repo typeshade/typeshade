@@ -45,8 +45,6 @@ describe('compileTsSources — ported from sources.test.ts', () => {
       ],
       'app.ts',
     );
-    // A package is found through the files handed in, as through any readDocument: no
-    // `node_modules/some-pkg/package.json` among them, so it is not found.
     expect(r.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([
       'TS8072 Cannot find the package "some-pkg" (looked in node_modules from "." up).',
     ]);

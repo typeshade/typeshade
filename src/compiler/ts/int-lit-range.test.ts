@@ -13,7 +13,7 @@ function wgslOf(source: string): string {
 
 function refused(source: string): ReturnType<typeof bothHalves>['result'] {
   const halves = bothHalves(`${USE}${source}`);
-  expect(halves.editor).toContain(halves.compiler[0]);
+  expect(halves.editor).toEqual(halves.compiler);
   return halves.result;
 }
 
@@ -22,10 +22,6 @@ function diagnose(source: string): string {
 }
 
 describe('an integer literal out of range for its declared type (§13: "the value has to fit")', () => {
-  // `const a: u32 = 4294967296` was told "cannot let/const a u32 and f32 — no implicit
-  // int/float conversion", a conversion the author never wrote. Every declared integer
-  // position now says what §13 says: the value has to fit. One diagnostic, TS8003, the code
-  // the scalar casts' and module constants' range checks already use.
   const U32 = 'u32, which holds 0 to 4294967295 (§13).';
   const I32 = 'i32, which holds -2147483648 to 2147483647 (§13).';
   function only(source: string): { code?: string; message: string } {
@@ -86,7 +82,6 @@ describe('an integer literal out of range for its declared type (§13: "the valu
     expect(
       wgslOf('export function f(): i32 {\n  let b: i32 = -2147483648;\n  return b;\n}'),
     ).toContain('-2147483648');
-    // Written as a float: not an integer literal, so the int/float mismatch is the right one.
     expect(diagnose('export function f(): u32 {\n  const a: u32 = 1.5;\n  return a;\n}')).toContain(
       'no implicit int/float conversion',
     );

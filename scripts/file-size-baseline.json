@@ -92,7 +92,7 @@
   "src/compiler/ts/struct-cycle.test.ts": 800,
   "src/compiler/ts/structs.ts": 2915,
   "src/compiler/ts/symbols.ts": 405,
-  "src/compiler/ts/texture-dims.test.ts": 715,
+  "src/compiler/ts/texture-dims.test.ts": 710,
   "src/compiler/ts/texture-sampler.test.ts": 472,
   "src/compiler/ts/texture-wgsl-only.test.ts": 474,
   "src/compiler/ts/ts-syntax.test.ts": 856,

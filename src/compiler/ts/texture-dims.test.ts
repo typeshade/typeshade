@@ -19,15 +19,8 @@ import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { reflect } from '../../core/reflect.js';
 import { compileModule } from '../../core/oracle.js';
-import { bothHalves, bothTake } from '../../core/testing/both-halves.js';
-
-const codedErrorsOf = (src: string) => {
-  const halves = bothHalves(src);
-  for (const line of halves.compiler) expect(halves.editor).toContain(line);
-  return halves.compiler.map((line) => line.replace(/^typeshade /, ''));
-};
-
-const errorsOf = (src: string) => codedErrorsOf(src).map((line) => line.replace(/^TS\d+: /, ''));
+import { bothTake } from '../../core/testing/both-halves.js';
+import { codedErrorsOf, codedPlus2769, errorsOf, errorsPlus2769 } from './texture-dims-halves.js';
 
 const both = (src: string): { wgsl: string; glsl: string } => {
   const r = bothTake(src).result;
@@ -117,11 +110,11 @@ describe('the reads, by direction and by vec3 coordinate', () => {
     expect(glsl).toContain('textureLod(lut, dir, 0.0)');
   });
 
-  it('fetches a texel of a 3d texture by vec3i, and refuses the fetch on a cube, which neither target has', () => {
+  it('fetches a texel of a 3d texture by vec3i, and refuses the fetch on a cube, which neither target has (the editor adds typescript 2769, which compile() does not)', () => {
     const { wgsl, glsl } = both(fragment(`  return textureLoad(lut, vec3i(1, 2, 3), 0)`));
     expect(wgsl).toContain('textureLoad(lut, ');
     expect(glsl).toContain('texelFetch(lut, ');
-    expect(errorsOf(fragment(`  return textureLoad(env, vec3i(0, 0, 0), 0)`))).toEqual([
+    expect(errorsPlus2769(fragment(`  return textureLoad(env, vec3i(0, 0, 0), 0)`))).toEqual([
       'textureLoad has no cube form on either target: a texture_cube<f32> is looked up by ' +
         'direction, so read it with textureSample or textureSampleLevel.',
     ]);
@@ -213,42 +206,42 @@ declare const out: storage<array<vec4>, "read_write">
 });
 
 describe('the coordinate has the width the dim decides, and this says so first', () => {
-  it('refuses a vec2 on a cube, naming the direction', () => {
-    expect(errorsOf(fragment(`  return textureSample(env, smp, p.xy)`))).toEqual([
+  it('refuses a vec2 on a cube, naming the direction (the editor adds typescript 2769, which compile() does not)', () => {
+    expect(errorsPlus2769(fragment(`  return textureSample(env, smp, p.xy)`))).toEqual([
       'textureSample on a texture_cube<f32> takes a vec3 direction; got vec2.',
     ]);
   });
 
-  it('refuses a vec3 on a 2d texture', () => {
-    expect(errorsOf(fragment(`  return textureSampleLevel(atlas, smp, dir, 0.)`))).toEqual([
+  it('refuses a vec3 on a 2d texture (the editor adds typescript 2769, which compile() does not)', () => {
+    expect(errorsPlus2769(fragment(`  return textureSampleLevel(atlas, smp, dir, 0.)`))).toEqual([
       'textureSampleLevel on a texture_2d<f32> takes a vec2 coordinate; got vec3.',
     ]);
   });
 
-  it('refuses a vec2i fetch on a 3d texture', () => {
-    expect(errorsOf(fragment(`  return textureLoad(lut, vec2i(0, 0), 0)`))).toEqual([
+  it('refuses a vec2i fetch on a 3d texture (the editor adds typescript 2769, which compile() does not)', () => {
+    expect(errorsPlus2769(fragment(`  return textureLoad(lut, vec2i(0, 0), 0)`))).toEqual([
       'textureLoad on a texture_3d<f32> takes a vec3 coordinate; got vec2i.',
     ]);
   });
 
-  it('refuses a gradient of the wrong width', () => {
+  it('refuses a gradient of the wrong width (the editor adds typescript 2769, which compile() does not)', () => {
     expect(
-      errorsOf(fragment(`  return textureSampleGrad(env, smp, dir, vec2(0.), vec2(0.))`)),
+      errorsPlus2769(fragment(`  return textureSampleGrad(env, smp, dir, vec2(0.), vec2(0.))`)),
     ).toEqual(['textureSampleGrad on a texture_cube<f32> takes a vec3 gradient; got vec2.']);
   });
 
-  it('refuses a coordinate of the right width and the wrong element kind', () => {
+  it('refuses a coordinate of the right width and the wrong element kind (the editor adds typescript 2769, which compile() does not)', () => {
     // The width was all that was checked, so `textureSample(atlas, smp, vec2i(0, 0))` emitted
     // `textureSample(atlas, smp, vec2<i32>(0, 0))` and `textureLoad(atlas, vec2(0., 0.), 0)` a
     // float fetch coordinate — both "no matching call" on Tint. A sampled read is by
     // normalised f32 coordinate, a texel fetch by whole texel (wgsl.txt:24435, 24129).
-    expect(errorsOf(fragment(`  return textureSample(atlas, smp, vec2i(0, 0))`))).toEqual([
+    expect(errorsPlus2769(fragment(`  return textureSample(atlas, smp, vec2i(0, 0))`))).toEqual([
       'textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2i.',
     ]);
-    expect(errorsOf(fragment(`  return textureLoad(atlas, vec2(0., 0.), 0)`))).toEqual([
+    expect(errorsPlus2769(fragment(`  return textureLoad(atlas, vec2(0., 0.), 0)`))).toEqual([
       'textureLoad on a texture_2d<f32> takes an integer coordinate, an i32 or a u32; got vec2.',
     ]);
-    expect(errorsOf(fragment(`  return textureSample(env, smp, vec3i(0, 0, 1))`))).toEqual([
+    expect(errorsPlus2769(fragment(`  return textureSample(env, smp, vec3i(0, 0, 1))`))).toEqual([
       'textureSample on a texture_cube<f32> takes an f32 coordinate; got vec3i.',
     ]);
     // A u32 fetch coordinate is the other integer WGSL takes, and stays as written.
@@ -369,12 +362,12 @@ declare const ms: texture_multisampled_2d<f32>`,
     ]);
   });
 
-  it('refuses an emulated double as a coordinate, naming the element and not the width', () => {
+  it('refuses an emulated double as a coordinate, naming the element and not the width (the editor adds typescript 2769, which compile() does not)', () => {
     // A `vec2f64` has the width a 2d texture wants; what is wrong with it is the element. The
     // width gate used to reject it first and say "takes a vec2 coordinate; got vec2<f64>",
     // which names a width that is right.
     expect(
-      errorsOf(
+      errorsPlus2769(
         fragment(`  const c = vec2f64(f64(0.), f64(0.))
   return textureSample(atlas, smp, c)`),
       ),
@@ -396,7 +389,7 @@ declare const ms: texture_multisampled_2d<f32>`,
     ]);
   });
 
-  it('reports every shape under TS8041, code and sentence pinned together', () => {
+  it('reports every shape under TS8041, code and sentence pinned together (the editor adds typescript 2769, which compile() does not)', () => {
     // The tests above read `.message` alone, so the CODE was only ever asserted through the
     // language service's `from:` labels — nothing here would have caught a site that pushed the
     // right sentence under the wrong code, or a renumber. The code is part of the contract: it
@@ -405,16 +398,18 @@ declare const ms: texture_multisampled_2d<f32>`,
     // One case per `TS_CODES.TEXTURE_ARGUMENT` site in `lowerTextureCall`, so a site that drifts
     // off the code fails here rather than in a consumer's rule file.
     const coded = (src: string) => codedErrorsOf(src).map((line) => line.replace(': ', ' '));
+    const codedPlus2769Spaced = (src: string) =>
+      codedPlus2769(src).map((line) => line.replace(': ', ' '));
 
     // 1. The coordinate's WIDTH against the texture's dim.
-    expect(coded(fragment(`  return textureSample(env, smp, p.xy)`))).toEqual([
+    expect(codedPlus2769Spaced(fragment(`  return textureSample(env, smp, p.xy)`))).toEqual([
       'TS8041 textureSample on a texture_cube<f32> takes a vec3 direction; got vec2.',
     ]);
     // 2. The coordinate's ELEMENT kind: normalised reads are f32, a texel fetch is an integer.
-    expect(coded(fragment(`  return textureSample(atlas, smp, vec2i(0, 0))`))).toEqual([
-      'TS8041 textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2i.',
-    ]);
-    expect(coded(fragment(`  return textureLoad(atlas, p.xy, 0)`))).toEqual([
+    expect(
+      codedPlus2769Spaced(fragment(`  return textureSample(atlas, smp, vec2i(0, 0))`)),
+    ).toEqual(['TS8041 textureSample on a texture_2d<f32> takes an f32 coordinate; got vec2i.']);
+    expect(codedPlus2769Spaced(fragment(`  return textureLoad(atlas, p.xy, 0)`))).toEqual([
       'TS8041 textureLoad on a texture_2d<f32> takes an integer coordinate, an i32 or a u32; ' +
         'got vec2.',
     ]);
@@ -484,9 +479,9 @@ declare const shadowSmp: sampler_comparison`;
     expect(glsl).not.toContain('textureLod(pointShadow');
   });
 
-  it('refuses a vec2 coordinate on it, and textureNumLayers', () => {
+  it('refuses a vec2 coordinate on it, and textureNumLayers (the editor adds typescript 2769, which compile() does not)', () => {
     expect(
-      errorsOf(
+      errorsPlus2769(
         fragment(`  return vec4(textureSampleCompare(pointShadow, shadowSmp, p.xy, 0.5))`, D),
       ),
     ).toEqual(['textureSampleCompare on a texture_depth_cube takes a vec3 direction; got vec2.']);
