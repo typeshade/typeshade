@@ -167,7 +167,6 @@ export function containsPart(e: ts.Node, part: (e: ts.Expression) => boolean): b
 
 const PEER_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
   ...[ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.AsteriskToken],
-  ...[ts.SyntaxKind.SlashToken, ts.SyntaxKind.PercentToken],
   ...[ts.SyntaxKind.BarToken, ts.SyntaxKind.AmpersandToken, ts.SyntaxKind.CaretToken],
   ...[ts.SyntaxKind.LessThanToken, ts.SyntaxKind.LessThanEqualsToken],
   ...[ts.SyntaxKind.GreaterThanToken, ts.SyntaxKind.GreaterThanEqualsToken],
@@ -200,10 +199,7 @@ function isSelectCall(n: ts.Node): n is ts.CallExpression {
   );
 }
 
-/** The identifiers whose value an expression takes on as its own: itself, an operand of an
- *  arithmetic or bit operator, the value shifted, an arm of `?:` and a value argument of
- *  `select`. A call, a comparison and an index take no operand's value. */
-export function joinedIdentifiers(e: ts.Expression): ts.Identifier[] {
+function joinedIdentifiers(e: ts.Expression): ts.Identifier[] {
   const n = skipParenNodes(e);
   if (ts.isIdentifier(n)) return [n];
   if (
@@ -225,13 +221,17 @@ export function joinedIdentifiers(e: ts.Expression): ts.Identifier[] {
     : [];
 }
 
-/** The pairs of an identifier and the expression it is joined to: the operands of an operator
- *  that types both alike, the two sides of a store, and the arms of `?:` and `select`. */
 export function peerOperands(n: ts.Node): (readonly [ts.Identifier, ts.Expression])[] {
+  if (ts.isBinaryExpression(n) && STORE_OPERATORS.has(n.operatorToken.kind)) {
+    const target = skipParenNodes(n.left);
+    if (!ts.isIdentifier(target)) return [];
+    return joinedIdentifiers(n.right)
+      .filter((id) => id.text !== target.text)
+      .map((id) => [id, target] as const);
+  }
   let sides: readonly [ts.Expression, ts.Expression] | undefined;
-  if (ts.isBinaryExpression(n)) {
-    const k = n.operatorToken.kind;
-    if (PEER_OPERATORS.has(k) || STORE_OPERATORS.has(k)) sides = [n.left, n.right];
+  if (ts.isBinaryExpression(n) && PEER_OPERATORS.has(n.operatorToken.kind)) {
+    sides = [n.left, n.right];
   } else if (ts.isConditionalExpression(n)) {
     sides = [n.whenTrue, n.whenFalse];
   } else if (isSelectCall(n)) {
