@@ -21,6 +21,7 @@ export function floatPositionOperands(at: ts.Node): ts.Expression[] {
   if (ts.isReturnStatement(at)) return at.expression === undefined ? [] : [at.expression];
   if (ts.isVariableDeclaration(at)) return at.initializer === undefined ? [] : [at.initializer];
   if (ts.isBinaryExpression(at)) return [at.left, at.right];
+  if (ts.isConditionalExpression(at)) return [at.whenTrue, at.whenFalse];
   if (ts.isCallExpression(at) || ts.isNewExpression(at)) return [...(at.arguments ?? [])];
   if (ts.isExpression(at) && ts.isCallExpression(at.parent)) return [...at.parent.arguments];
   return [];
