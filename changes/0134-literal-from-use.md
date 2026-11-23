@@ -1252,17 +1252,17 @@ and its readings are in Amendment A6 and are not repeated here.
 
 ### Amendment A8. The owner's decisions on the bug fixes of the two readings (2026-11-17 to 2026-11-23)
 
-Four bug fixes restore D2 and D-b as Amendments A2 to A7 state them: pull request #1355 (issue
-#1320, merged as `d856067e`, 2026-11-17), pull request #1354 (issue #1331, merged as
-`52f9265d`, 2026-11-18), pull request #1356 (issue #1307, merged as `d408254c`, 2026-11-18) and
-pull request #1358 (issue #1309, merged as `b9497706`, 2026-11-23). Their reviews left choices
-that this text did not decide. The owner decided each in the Claude Code session, after the
-choices, their costs and one example each were shown (`OD-4`). This amendment records each
-decision with the pull request or issue it came from, and its status on `main` at `b9497706`.
-Where the owner's own words are not recorded, the quotation is the English that the pull
-request or the issue records. Each program below is the body of
-`export function t(ii: i32, vi: u32, f: f32): f32` unless it names another result, with
-`ii = -3` and `vi = 7`.
+Four bug fixes restore D2 and D-b as Amendments A2 to A7 state them. They are pull request
+#1355 (issue #1320, merged as `d856067e`, 2026-11-17), pull request #1354 (issue #1331, merged
+as `52f9265d`, 2026-11-18), pull request #1356 (issue #1307, merged as `d408254c`, 2026-11-18)
+and pull request #1358 (issue #1309, merged as `b9497706`, 2026-11-23). Their reviews left
+choices that this text did not decide. The owner decided each in the Claude Code session, after
+the agent showed the choices, their costs and one example each (`OD-4`). This amendment records
+each decision with the pull request or issue it came from, and its status on `main` at
+`b9497706`. Where the owner's own words are not recorded, the quotation is the agent's English
+wording of the option the owner chose, as the pull request or the issue records it. Each
+program below is the body of `export function t(ii: i32, vi: u32, f: f32): f32` unless it names
+another result, with `ii = -3` and `vi = 7`.
 
 - [decision, owner, 2026-11-17] "좁게: 트리에서 나온 정수만" (issue #1309, pull request #1358).
   The scope of #1309 is narrow. Only an integer that comes out of a tree, a bit operator over
@@ -1276,7 +1276,7 @@ request or the issue records. Each program below is the body of
   - A computed number past `i32` that reaches a bit operator through a variable starts a `u32`
     tree, as a written one does. This is C of Amendment A7.
   - [reading, 2026-11-18] A loop with a constant trip count bounds the values of a variable
-    where every store runs at most that many times, and at most 24 times in all.
+    where its stores, its initializer included, run at most 24 times in all.
   - Example: `let a = 1 << 31; return f32(a + a);` was 0 on `main` at `7513a9af` (TypeScript
     -4294967296). It is refused, and the edit `f32(i32(a + a))` compiles to 0.
   - Cost recorded (pull request #1358): `s += (1|2)` forty times (120) is refused, past the 24
@@ -1295,7 +1295,11 @@ request or the issue records. Each program below is the body of
   - Example (with `function gg() { return 5 | 0; }`, result `i32`):
     `let a = (-7|0); let z = gg() - 5; return i32(a / z);` was -2147483648 on `main` at
     `7513a9af`. It is 0 on `main` at `b9497706`, as TypeScript gives.
-  - Status: implemented by #1355.
+  - Status: implemented by #1355. Open deviation, issue #1403: with operands of two integer
+    types the quotient is still computed through `f32`. With
+    `function pass(v: u32) { return v; }` and `vi = 3`,
+    `let a = (-7|0); let b = pass(vi); return u32(a / b);` (result `u32`) emits
+    `u32(f32(a) / f32(b))` and gives 0, where TypeScript gives 4294967294.
 - [decision, owner, 2026-11-17] The scope of the conversion (issue #1320, pull request #1355),
   recorded as "Only `i32()` and `u32()` convert a quotient across integer types". A declaration,
   a parameter or a result of the other integer type stays refused with its verified edit.
@@ -1303,7 +1307,7 @@ request or the issue records. Each program below is the body of
     `7513a9af`, and is 4294967293, as TypeScript gives.
     `let a = (-7|0); let j: u32 = a / 2; return j;` stays refused, before and after, with
     `"a" is an integer by its bit operator, and no operand of "a / 2" has a declared type, so the "/" does not say which division it is. Write "u32(a) / 2" for the integer division.`
-  - Status: implemented by #1355.
+  - Status: implemented by #1355. Open deviation, issue #1403, as for the decision above.
 - [decision, owner, 2026-11-17] A mask of low bits (issue #1307, pull request #1356). A result
   beside a typed `u32` keeps its two readings ("두 값 유지, 다르면 거부", Amendment A7). A mask
   of low bits makes the two readings agree, so the masked value is accepted:
@@ -1320,7 +1324,7 @@ request or the issue records. Each program below is the body of
   A `/` over a binding of a `u32` tree, in a position that states `u32`, is refused with the
   approved A7 sentence and a verified edit. The compiler cannot prove that the two readings
   agree. An example, with result `u32`: `let c = (3000000000|0); let d = c; return d / 7;`.
-  - Status: decided, not implemented. On `main` at `b9497706` the example compiles to 428571428. TypeScript gives -184995328, which a `u32` stores as 4109971970. Issue #1363
+  - Status: decided, not implemented. On `main` at `b9497706` the example compiles to 428571428. TypeScript gives -184995328, which a `u32` stores as 4109971968. Issue #1363
     records the work and the tests owed. Rule 5.1 and surface §13 do not state this decision
     until that work is merged.
 - [decision, owner, 2026-11-18] (a) Rule 1.3 against D2 (pull request #1358), recorded as "D2
@@ -1347,7 +1351,9 @@ request or the issue records. Each program below is the body of
   - Example: `let h = 1 << 30; return f32(abs(h + h));` was -2147483648 on `main` at `7513a9af`.
     It is refused with
     `The compiler cannot prove that the u32 bits and the TypeScript value of "h + h" agree, so the "abs" does not say which value it means.`
-  - Status: implemented by #1358.
+  - Status: implemented by #1358. Open deviation, issue #1388:
+    `let h = 1 << 30; return f32(abs(i32(f32(h + h))));` names the edit `i32(h + h)`, and the
+    edited program gives -2147483648, where TypeScript gives 2147483648.
 - [decision, owner, 2026-11-18] (d) The `i32` minimum under `abs` (pull request #1358). Where the
   compiler proves that the `i32` argument of `abs` is the `i32` minimum, the program is refused
   with no edit. A value known only at run time (`abs(ii)`) keeps WGSL's rule.
@@ -1355,9 +1361,10 @@ request or the issue records. Each program below is the body of
     `7513a9af` (TypeScript 2147483648). It is refused with no edit.
   - Cost recorded: `abs(ii)` with `ii` the `i32` minimum gives -2147483648, where TypeScript
     gives 2147483648.
-  - Status: implemented by #1358. Open deviation, issue #1388: a binding (`let k = i32(h + h);
-abs(k)`), a constant fold (`abs(i32(-2147483647 - 1))`) and a nested conversion
-    (`abs(i32(u32(h + h)))`) still compile to -2147483648.
+  - Status: implemented by #1358. Open deviation, issue #1388: a binding
+    (`let k = i32(h + h); abs(k)`), a constant fold (`abs(i32(-2147483647 - 1))`) and a nested
+    conversion (`abs(i32(u32(h + h)))`) still compile to -2147483648. The edit named for
+    `abs(i32(f32(h + h)))` gives a wrong value (decision (c) above).
 - [decision, owner, 2026-11-18] The numbers of a refusal sentence (pull request #1354), recorded
   as "A refusal sentence states the two readings as numbers only when the variable or expression
   involves no variable that is reassigned after its declaration. Every other case uses the
@@ -1391,10 +1398,13 @@ abs(k)`), a constant fold (`abs(i32(-2147483647 - 1))`) and a nested conversion
   masked-value rule can accept a wrong value.
 - [decision, owner, 2026-11-18] Fix the typed `i32` positions, issue #1380, after #1354, #1356
   and #1358 merge.
-- Disposition: made part of the approved text by this amendment, except four items that stay
-  open. The decision on #1363 and decision (e) are decided and not implemented (issues #1363 and
-  #1399). The deviations of decisions (a), (d) and the numbers of a refusal sentence are open
-  (issues #1380, #1388 and #1386).
+- Disposition: made part of the approved text by this amendment, except seven items that stay
+  open:
+  - two decisions that are not implemented: the decision on #1363, and decision (e) (issue
+    #1399);
+  - five open deviations: decision (a) (issue #1380), decision (c) (issue #1388), decision (d)
+    (issue #1388), the numbers of a refusal sentence (issue #1386), and the
+    decisions on #1320 (issue #1403).
 - Affects: the front matter gains Rule 7.4 and surface §22. The decision "TypeScript 값으로"
   makes two sentences false for these quotients: Rule 7.4's rationale and surface §22 say that a
   divisor that is zero at run time gives WGSL's answer, `x / 0 = x`, on every target.
