@@ -19,6 +19,9 @@ import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
+import { hasNoWrittenType } from './abstract-const.js';
+import { initializerType } from './structs.js';
+import { authorTypeText } from './written-context.js';
 
 /** What an `extends <expression>` clause comes to once the mixins in it have been run. */
 export interface MixinApplication {
@@ -302,7 +305,10 @@ function memberKey(member: ts.ClassElement): string | undefined {
  *  here, which is the safe direction — it asks rather than silently picking one. */
 function writtenType(member: ts.ClassElement, sourceFile: ts.SourceFile): string | undefined {
   if (!ts.isPropertyDeclaration(member)) return undefined;
-  return member.type?.getText(sourceFile) ?? '';
+  if (!hasNoWrittenType(member, sourceFile)) return member.type!.getText(sourceFile);
+  const named =
+    member.initializer === undefined ? undefined : initializerType(member.initializer, sourceFile);
+  return named === undefined ? '' : authorTypeText(named);
 }
 
 /** The members a class carries once its mixins are applied: each mixin's in the order the
