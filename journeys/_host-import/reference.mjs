@@ -290,6 +290,9 @@ export function loopReference() {
     pairSearchCpu: pairReference(),
     pairTwice: twiceCases.flatMap(([xs, r]) => twiceReference(xs, r)),
     pairTwiceCpu: twiceCases.flatMap(([xs, r]) => twiceReference(xs, r)),
+    inside: insideNs.flatMap(insideReference),
+    insideCpu: insideNs.flatMap(insideReference),
+    evens: [0, 1, 9, 64].flatMap(evensReference),
     renderKept: render.filter((_, i) => Math.floor(i / 64) % 3 !== 1),
     shadeMade: render.flatMap((h, i) => [h, i % 64, 1]),
     driftMade: drift,
@@ -354,6 +357,22 @@ const twiceCases = [
   [[5], 100],
   [Array.from({ length: 40 }, (_, i) => (i * 37) % 101), 60],
 ];
+
+const insideNs = [0, 1, 3, 4, 64];
+
+/** What `inside` pushes: integers. */
+function insideReference(n) {
+  const out = [];
+  for (let i = 0; i < n; i++) if (i > 2) for (let j = 0; j < i; j++) out.push(j);
+  return out;
+}
+
+/** What `evens` pushes. */
+function evensReference(limit) {
+  const out = [];
+  for (let k = 0; k < limit; k += 2) out.push(k);
+  return out;
+}
 
 /** What `pairTwice` pushes: integers, so f32 arithmetic is exact. */
 function twiceReference(xs, r) {
