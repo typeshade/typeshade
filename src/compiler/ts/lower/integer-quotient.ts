@@ -1,6 +1,9 @@
 // Why: TypeScript's ToInt32 and ToUint32 read the ±Infinity or NaN of a division by zero as 0,
 // and WGSL's integer `x / 0` is `x` (issue 1320, Amendment A4 of change 0134). A call of the
 // helper evaluates each operand once, in order, where a select's arms would be sequenced lazily.
+import type ts from 'typescript';
+import { noteWrittenDivisionRead, refuseTwoReadings, twoReadingsOf } from '../abstract-const.js';
+import type { TsCompilerDiagnostic } from '../source-file.js';
 import type { Expr } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { boolT, i32T, u32T } from '../../../core/ir/types.js';
@@ -30,13 +33,43 @@ function guardZero(div: Expr & { op: 'binop' }): Expr {
   }));
 }
 
+type ReadingsRefusal = Parameters<typeof refuseTwoReadings>[2];
+
+export interface QuotientSite {
+  readonly node: ts.BinaryExpression;
+  readonly sourceFile: ts.SourceFile;
+  readonly diagnostics: TsCompilerDiagnostic[];
+  held?: ReadingsRefusal;
+}
+
+export function holdReadings(
+  site: QuotientSite,
+  operand: ts.Expression,
+  readings: ReadingsRefusal['readings'],
+): void {
+  site.held ??= {
+    node: operand,
+    operation: site.node,
+    operator: '/',
+    readings: twoReadingsOf(operand, true) ?? readings,
+    target: false,
+  };
+}
+
 export function integerQuotientIn(
   at: (t: ShaderType) => readonly [Expr, Expr],
   target: ShaderType,
   declared: boolean,
+  site: QuotientSite,
 ): Expr | undefined {
   const [a, b] = at(target);
   if (typeKey(a.type) !== typeKey(target) || typeKey(b.type) !== typeKey(target)) return undefined;
+  const u32 = typeKey(target) === 'u32';
+  if (declared && u32 && site.held !== undefined) {
+    refuseTwoReadings(site.sourceFile, site.diagnostics, site.held);
+    site.held = undefined;
+  }
+  noteWrittenDivisionRead(site.node, site.sourceFile, declared ? 'read' : u32 ? 'u32' : 'i32');
   const div = { op: 'binop', type: target, bop: '/', a, b } as const;
   return declared ? guardZero(div) : div;
 }
