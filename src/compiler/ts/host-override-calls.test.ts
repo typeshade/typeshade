@@ -184,7 +184,7 @@ describe('entry-call constants on generated CPU closures (0084)', () => {
         device.fuse(() => {
           void barrier.scale({ src, dst }, 1, { constants: { WORK: 8, SCRATCH: 8 } });
         }),
-      ).rejects.toThrow('barrier has no CPU tier');
+      ).rejects.toThrow('not supported yet on the CPU tier (Rule 8.24)');
     } finally {
       await device.dispose();
     }

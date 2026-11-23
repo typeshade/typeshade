@@ -1469,7 +1469,7 @@ class GlDevice implements RhiDevice {
     if ((desc.sampleCount ?? 1) !== 1)
       throw new TypeError('The WebGL2 backend makes no multisampled texture.');
     const fmt = formatOf(gl, desc.format);
-    if (fmt === undefined) throw new TypeError(`WebGL2 has no ${desc.format} texture.`);
+    if (fmt === undefined) throw new TypeError(`${desc.format} is not supported yet on WebGL2.`);
     const [w, h] = desc.size;
     const t = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, t);
@@ -1620,7 +1620,7 @@ class GlDevice implements RhiDevice {
     const topology = desc.primitive.topology;
     if (flat && this.state().provokingVertex === null && /^line/.test(topology))
       throw new TypeError(
-        `${desc.label ?? 'A render pipeline'}: a flat interstage value on a ${topology} needs WEBGL_provoking_vertex on WebGL2, and this context lacks it. WebGPU takes a flat value from the first vertex of a line and GLSL ES 3.00 from the last, and a line turned round covers other pixels at its ends.`,
+        `${desc.label ?? 'A render pipeline'}: a flat interstage value on a ${topology} is not supported yet on the WebGL2 tier without WEBGL_provoking_vertex (Rule 11.11), and this context lacks it. WebGPU takes a flat value from the first vertex of a line and GLSL ES 3.00 from the last, and a line turned round covers other pixels at its ends.`,
       );
     const program = compile(gl, vertex, fragment, desc.label ?? 'a render pipeline');
     const slots = this.#slots(program, desc.layouts as readonly GlLayout[]);

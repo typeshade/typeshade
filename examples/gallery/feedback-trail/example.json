@@ -1,0 +1,14 @@
+{
+  "title": "Feedback trail",
+  "blurb": "A dot that leaves a trail: the `trail` pass reads what it drew the frame before through a texture of its own name, fades it and adds the dot again, and this file tone-maps the result into the canvas.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true,
+  "passes": [
+    {
+      "name": "trail",
+      "file": "gallery/feedback-trail/trail.shade.ts"
+    }
+  ]
+}

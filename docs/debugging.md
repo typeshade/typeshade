@@ -655,7 +655,7 @@ or from the engine.
   "type": "typeshade",
   "request": "launch",
   "name": "fs at (100, 50)",
-  "program": "${workspaceFolder}/examples/hello.shade.ts",
+  "program": "${workspaceFolder}/examples/gallery/hello/hello.shade.ts",
   "entry": "fs",
   "stopOnEntry": true,
   "maxSteps": 10000,

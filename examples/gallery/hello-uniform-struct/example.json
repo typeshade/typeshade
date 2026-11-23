@@ -1,0 +1,8 @@
+{
+  "title": "Hello uniform block",
+  "blurb": "A `Uniforms` class behind `uniform<T>` groups several values in one std140 block on both targets. Both stages read the same binding. This was the first source-compiled example with a binding and a renderable GLSL pair, the configuration whose absence let #14 hide.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

@@ -1388,7 +1388,7 @@ declare const photo: texture_2d<f32>;
   /** A pipeline as the cases of this describe draw it. */
   type Drawable = { draw(t: unknown, b: unknown, g: unknown): void };
   const SAME_PASS =
-    'The WebGL2 tier cannot sample the depth attachment of the pass that writes it; sample it in a later pass.';
+    'Sampling the depth attachment of the pass that writes it is not supported yet on the WebGL2 tier (Rule 11.11); sample it in a later pass.';
   const env = () => {
     const { gl, calls } = fakeGl(4);
     const d = new GlDrawing(webgl2Device(gl));
