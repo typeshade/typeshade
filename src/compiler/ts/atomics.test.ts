@@ -263,7 +263,7 @@ describe('atomics: reflection', () => {
 describe('atomics: what is refused, and what the fix is', () => {
   const HEAD = `"use typeshade"
 declare const bins: storage<array<atomic<u32>>, "read_write">
-declare const ro: storage<array<atomic<u32>>>
+declare const ro: storage<array<atomic<u32>>, "read">
 @compute([64, 1, 1])
 export function k(@builtin("global_invocation_id") gid: vec3u): void {
 `;
@@ -477,7 +477,7 @@ declare const o: storage<array<i32>, "read_write">;
     // A `declare const` binding is read-only, and every atomic builtin needs read_write.
     expect(
       compileTsSource(`"use typeshade";
-declare const lock: storage<atomic<u32>>;
+declare const lock: storage<atomic<u32>, "read">;
 declare const o: storage<array<u32>, "read_write">;
 @compute([1, 1, 1]) export function cs(gid: builtin<"global_invocation_id">): void {
   const r = atomicCompareExchangeWeak(lock, 0, 7);

@@ -32,11 +32,14 @@ Do not put an entry method on a class. Do not use a class as a bind group.
 Host-owned. No initializer. Slot index = source order of `declare` in the file. Every resource
 is declared `const`, and a storage binding says in its TYPE how the shader may touch it.
 
-**The two forms.** `storage<T>` is WGSL's `var<storage, read>` and `storage<T, "read_write">` is
-`var<storage, read_write>`. The access mode is the second type argument, and the only two words
-it takes are `"read"` and `"read_write"` — WGSL's own enumerants, written as string literal
-types the way a storage texture already writes its own (§33). `"read"` is the default, so
-`storage<T>` and `storage<T, "read">` are the same binding. A uniform buffer is read-only in
+**The access mode is inferred** (Rule 6.2, change 0114, S3). A `storage<T>` binding that some
+entry writes (an assignment, a mutating method, an atomic builtin, or a write through a function or
+a reference parameter) is `var<storage, read_write>`, and every other one is `var<storage, read>`.
+`storage<readonly T[]>` promises that nothing writes the binding, and a write is refused. A
+second type argument is still accepted: `"read_write"` keeps `var<storage, read_write>` and
+`"read"` keeps `var<storage, read>`, the two words being WGSL's own enumerants, written as string
+literal types the way a storage texture writes its own (§33). Change 0114, decision D3, removes
+the `"read_write"` argument in S4 and does not name `"read"`. A uniform buffer is read-only in
 WGSL, so `uniform<T>` takes one type argument and has no mode to ask for.
 
 ```ts
@@ -72,11 +75,11 @@ no `access` field at all.
 | Declaration | Space | Access | Emitted |
 |-------------|-------|--------|---------|
 | `declare const x: uniform<T>` | uniform | read | `var<uniform> x: T;` |
-| `declare const x: storage<T>` | storage | read | `var<storage, read> x: T;` |
-| `declare const x: storage<T, "read">` | storage | read | the same; the default written out |
+| `declare const x: storage<T>` | storage | inferred | `var<storage, read> x: T;` when no entry writes `x`, else `var<storage, read_write> x: T;` |
+| `declare const x: storage<T, "read">` | storage | read | `var<storage, read> x: T;`; a write is `TS8005` |
 | `declare const x: storage<T, "read_write">` | storage | read_write | `var<storage, read_write> x: T;` |
-| `declare const x: storage<f32[]>`, `storage<Array<f32>>` | storage | read | `var<storage, read> x: array<f32>;`, as `storage<array<f32>>` (§20, change 0114) |
-| `declare const x: storage<readonly f32[]>`, `storage<ReadonlyArray<f32>>` | storage | read | the same; `readonly` promises that nothing writes `x`, and a write is `TS8005` (§20, change 0114) |
+| `declare const x: storage<f32[]>`, `storage<Array<f32>>` | storage | inferred | as `storage<array<f32>>` (§20, change 0114) |
+| `declare const x: storage<readonly f32[]>`, `storage<ReadonlyArray<f32>>` | storage | read | `readonly` promises that nothing writes `x`, and a write is `TS8005` (§20, change 0114) |
 | `declare const x: T` | illegal | space required | `TS8099` |
 | `declare let x: storage<T>` | illegal | the mode is a type argument | `TS8099` |
 | `declare let x: uniform<T>` | illegal | a uniform is read-only | `TS8099` |
@@ -98,7 +101,7 @@ refused declaration is still COLLECTED, so the one sentence is not buried under 
   write a second refusal on the same program.
 - `declare const cam: uniform<Camera, "read">` — `TS8002`,
   `uniform<T> takes one type argument. A uniform buffer is read-only, so it has no access mode to write.`
-- A write to a read binding — `TS8005`,
+- A write to a `"read"` binding — `TS8005`,
   `Cannot assign to "src" — it is a read-only resource. Write "declare const src: storage<array<f32>, "read_write">" to write to it.`
   A `uniform` gets the same first clause and no remedy: there is no writable uniform.
   The remedy names the form the file uses and the type as an AUTHOR spells it: a call-form
@@ -108,9 +111,10 @@ refused declaration is still COLLECTED, so the one sentence is not buried under 
   `TS2315 Type 'vec4' is not generic`). `src.length = 2` gets no remedy at all, because it is
   `TS8018` under either mode.
 
-**The editor says the same thing.** The ambient library resolves `storage<T>` and `uniform<T>`
+**The editor says the same thing.** The ambient library resolves `uniform<T>` and `storage<T, "read">`
 to `ReadView<T>`, one mapped type that makes every field, lane and index signature `readonly`
-all the way down, and resolves `storage<T, "read_write">` to `T` itself. So `src[0] = 1.` is
+all the way down, and resolves `storage<T>` and `storage<T, "read_write">` to `T` itself; a
+`readonly` value type is refused by its own type. So `src[0] = 1.` is
 TS2542 and `camera.fov = 1.` is TS2540 as they are typed, before `compile()` is called, while
 `dst[0] = 1.` stays clean. A bad access word is TS2344 and a second type argument on a
 `uniform` is TS2314, from the declaration's own constraint. Reading is untouched: a struct
@@ -655,7 +659,8 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | an access word outside `"read"` and `"read_write"` | `TS8002`. `storage<T, Access> Access is "read" or "read_write"; got "write". A storage BUFFER has no write-only mode; that is a storage texture's, texture_storage_2d<Format, "write">.` Collected as `read_write` (§1); TS2344 in the editor |
 | a second type argument on a `uniform<T>` | `TS8002`. `uniform<T> takes one type argument. A uniform buffer is read-only, so it has no access mode to write.` TS2314 in the editor |
 | the retired `{ access }` option on the call form | `TS8099`, naming the type-argument spelling to write (§1). Reported and ignored: the mode comes from the type argument |
-| assign to a read resource: a `uniform<T>`, or a `storage<T>` with no `"read_write"` | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a swizzle that repeats a component `v.xx` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
+| assign to a read resource: a `uniform<T>`, a `storage<T, "read">` or a `storage<readonly T[]>` (a `storage<T>` that no `"read"` or `readonly` promises is inferred `read_write` by the write, Rule 6.2) | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a swizzle that repeats a component `v.xx` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
+| a storage binding the module writes that a vertex entry reads | `TS8099` at the vertex entry, one sentence: `WebGPU allows no writable storage buffer in the vertex stage, and the module writes "pos" that the vertex entry "vs" reads: give the vertex stage a separate binding, or declare "pos" readonly and write nothing to it.` (§1, Rule 6.2) |
 | two resources share `@binding` | name both |
 | a decorator on a declaration: a binding, an override, a `const` or `let` at any depth, an enum, an interface, a type alias, a namespace, a function declared in another function's body, or a `static` field | `TS8028`, one per decorator, saying what it is: `@group` and `@binding` are WGSL's and not applied, since `reflect()` reports the group and slot each binding gets (§1); `@id` is not applied, since the host sets an override by its name; `@size` and `@align` are named as a struct field's (§51); an attribute the compiler reads elsewhere by what it marks (`"@fragment" does not apply to a local function: it marks an entry function. Remove it.`); a name WGSL does not have either is `Unknown attribute`. The editor shows this sentence alone, without TypeScript's TS1206, or its TS2304 on a name the ambient library does not declare |
 | `@size` on a function, a parameter or a class, `@align` on a function or a parameter | `TS8028`, `"@align" is WGSL's attribute for a struct field, not a function. Remove it.` On a field, and `@align` on a class, they keep their own sentences (§51) |
@@ -2821,7 +2826,7 @@ element assignment, a compound assignment, an increment, a write from a local fu
 mutating method (`push`, `fill`, `sort` and the others) through it are refused in both halves
 with `TS8005`, for example `Cannot write to "xs" — its type "readonly f32[]" promises that
 nothing writes it. Write "f32[]" to write to it.` The remedy names the writable spelling, and for
-a storage binding the whole `read_write` declaration. A promise written through a type alias
+a storage binding the whole declaration with that spelling (`storage<f32[]>`, change 0114, S3). A promise written through a type alias
 names the alias and gives no remedy. The editor declares `ReadonlyArray<T>` with a read-only index
 and no mutating member, so TypeScript's checker refuses the same writes (TS2542, TS2339); the
 editor shows the compiler's sentence in place of TypeScript's. Where `array<T>` is refused, both
