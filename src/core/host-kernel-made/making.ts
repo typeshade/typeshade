@@ -7,6 +7,7 @@ import { flatWidth, runtimeCount, type GeneratedCpu } from '../host-entry.js';
 import { fromShaderIn, toShader } from '../host-values.js';
 import type { KernelMade } from '../kernel-made-face.js';
 import { lengthOf, residentState } from '../resident.js';
+import { allocatedFor, checkedCapacity, exactCapacity } from './capacity.js';
 
 const ARRAYS = { f32: Float32Array, i32: Int32Array, u32: Uint32Array } as const;
 export const NO_CLASSES: ReadonlyMap<string, object> = new Map();
@@ -87,13 +88,17 @@ export function madeArray(
   const values = lengthsBefore(k, made, args);
   const init = cpu.F['$initPrivates'];
   init?.();
-  const n = Number(cpu.F[made.length]!(...values));
+  const n =
+    made.capacity !== undefined
+      ? checkedCapacity(k, made, exactCapacity(cpu, made, values))
+      : Number(cpu.F[made.length!]!(...values));
   if (!Number.isInteger(n) || n < 0)
     throw new RangeError(
       `${k.name}(): the array it returns, "${made.shown}", would have length ${String(n)}, ` +
         `and JavaScript throws a RangeError for it: a length is a whole number of 0 or more.`,
     );
-  if (made.fill === undefined) return { array: filled(k, made, n, undefined), n };
+  if (made.fill === undefined)
+    return { array: allocatedFor(k, made, n, () => filled(k, made, n, undefined)), n };
   init?.();
   const v = cpu.F[made.fill]!(...values);
   return { array: filled(k, made, n, v), n, v };

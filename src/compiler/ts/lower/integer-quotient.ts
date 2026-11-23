@@ -63,7 +63,18 @@ export function holdReadings(
     readings: twoReadingsOf(operand, true) ?? readings,
     target: false,
   };
-  site.heldPastI32 = readingsFrom(operand).some((x) => pastInt32(x) || x.unproven === true);
+  site.heldPastI32 = mayPassI32(operand);
+}
+
+function mayPassI32(operand: ts.Expression): boolean {
+  return readingsFrom(operand).some((x) => pastInt32(x) || x.unproven === true);
+}
+
+export function pastI32Readings(
+  operand: ts.Expression,
+  readings: ReadingsRefusal['readings'],
+): ReadingsRefusal['readings'] | undefined {
+  return mayPassI32(operand) ? (twoReadingsOf(operand, true) ?? readings) : undefined;
 }
 
 export function integerQuotientIn(

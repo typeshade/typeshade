@@ -45,15 +45,28 @@ export function madeFace(
     body: [...made.prelude, { s: 'return', expr }],
     kernel: true,
   });
-  const length = cpuFn('length', made.length);
+  const length = made.length === undefined ? undefined : cpuFn('length', made.length);
+  const bounds = (made.capacity ?? []).map((t, i) => ({
+    term: t,
+    low: cpuFn(`low${i}`, t.low),
+    high: cpuFn(`high${i}`, t.high),
+  }));
+  const capacity = bounds.map(({ term, low, high }) => ({
+    low: low.name,
+    high: high.name,
+    inclusive: term.inclusive,
+    step: term.step,
+    pushes: term.pushes,
+  }));
   const fill = made.fill === undefined ? undefined : cpuFn('fill', made.fill);
-  const reads = paramsRead(f, [made.prelude, made.length, made.fill]);
+  const reads = paramsRead(f, [made.prelude, made.length, made.capacity, made.fill]);
   const record: KernelMade = {
     param: made.param,
     count: made.count,
     shown: made.shown,
     ...madeShape(made.element, structs),
-    length: length.name,
+    ...(length !== undefined ? { length: length.name } : {}),
+    ...(made.capacity !== undefined ? { capacity } : {}),
     ...(fill !== undefined ? { fill: fill.name } : {}),
     ...(made.grown === true ? { grown: true as const } : {}),
     ...(made.share !== undefined ? { share: made.share } : {}),
@@ -66,7 +79,12 @@ export function madeFace(
   return {
     ...e,
     face: { ...(face as unknown as typeof e.face), made: record } as typeof e.face,
-    ranges: [...e.ranges, length, ...(fill !== undefined ? [fill] : [])],
+    ranges: [
+      ...e.ranges,
+      ...(length !== undefined ? [length] : []),
+      ...bounds.flatMap(({ low, high }) => [low, high]),
+      ...(fill !== undefined ? [fill] : []),
+    ],
   };
 }
 

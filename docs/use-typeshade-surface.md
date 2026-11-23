@@ -9154,7 +9154,10 @@ also start empty, annotated with an array with no size of an element a made arra
 (above), `const out: f32[] = []`, and the function's `for` and `for…of` loops at the top level of its body
 push onto it. The compiler computes the capacity: for each loop, its trip count times the pushes
 one iteration can make (a push under an `if` counts as one), summed over the loops. A trip count
-reads only the operands a length reads (above). The host reserves that many elements, the pushes
+reads only the operands a length reads (above). The host counts the capacity exactly, with no
+wrap, and reserves that many elements. A capacity past 4294967295, or past what one host array of
+the element holds, throws a `RangeError` that names the function, the array and the capacity
+before anything runs, since a length past that limit is not supported yet. The pushes
 append in the order a sequential run makes them (below), and the call resolves to a new array of
 exactly the elements pushed, in the made array's form. Pushes of a struct keep JavaScript's
 objects (Amendment A8, item 4): when every push pushes one `const` object declared at the top of

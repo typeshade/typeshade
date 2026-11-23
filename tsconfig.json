@@ -93,6 +93,10 @@
     // `typeshade/examples` reaches of that directory is `hosts/index.ts`, their text.
     "examples/hosts/*/*.ts",
     "examples/hosts/_*.ts",
+    // The learning path (change 0145): its host files are checked by `examples/path/tsconfig.json`
+    // in the same way.
+    "examples/path/*/*.ts",
+    "examples/path/_*.ts",
     "examples/_goldens.ts",
     "examples/_mrt-gate.ts",
     "examples/_order.ts",

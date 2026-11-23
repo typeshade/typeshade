@@ -149,3 +149,15 @@ export interface HostExample {
    *  gate:journeys` runs every host on each GPU tier and the unit suite on the CPU tier. */
   readonly tiers: readonly ('webgpu' | 'webgl2' | 'cpu')[];
 }
+
+/**
+ * A step of the learning path (change 0145): a `"use typeshade"` module and the host file that
+ * runs it, as a {@link HostExample} is, in `examples/path/<id>/`. A step uses only the concepts
+ * of the steps before it.
+ */
+export interface PathExample extends HostExample {
+  /** The step's number in the path, from 1. */
+  readonly step: number;
+  /** The part of the path that holds the step, by its name. */
+  readonly part: string;
+}

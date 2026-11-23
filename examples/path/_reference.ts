@@ -1,0 +1,137 @@
+// ═══ The learning path's JavaScript reference (change 0145) ═══
+//
+// What each step's `run()` should draw, computed in plain JavaScript with no TypeShade, and the
+// inputs each run is called with. The unit suite reads it on the CPU tier
+// (`examples/path-examples.test.ts`), and a page with WebGPU can read it through `_drive.ts`.
+// The pixels follow `hosts/_reference.ts`: RGBA, one byte to a channel, the top row first, each
+// colour taken at the pixel's centre.
+//
+// No imports and no environment, so a gate can read this file under Bun and the test under Vitest.
+
+/** A canvas the driver draws into, and how to read it back. */
+export interface Surface {
+  /** A fresh canvas of this size, into which nothing has drawn. */
+  canvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas;
+  /** The canvas's pixels: RGBA, one byte to a channel, the top row first. */
+  pixels(canvas: HTMLCanvasElement | OffscreenCanvas): number[] | Promise<number[]>;
+}
+
+/** What one step's run gave back: each part as numbers. */
+export type Outputs = Readonly<Record<string, readonly number[]>>;
+
+/** `_drive.ts`'s export, typed here so a caller can import the driver by a computed path. */
+export type Drive = (
+  surface: Surface,
+  ids: readonly string[],
+) => Promise<Readonly<Record<string, Outputs | string>>>;
+
+/** The inputs each run is called with. */
+export const INPUTS = {
+  size: 16,
+  time: 1.25,
+} as const;
+
+/** Two steps of an 8-bit channel: `f32` arithmetic against this `f64` reference, rounded. */
+const PIXEL = 2;
+
+/** One frame of `size` by `size` pixels, each `color(x, y)` at the pixel's centre in pixels,
+ *  stored as an `rgba8unorm` target stores it. */
+function frame(size: number, color: (x: number, y: number) => readonly number[]): number[] {
+  const out: number[] = [];
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++)
+      for (const c of color(x + 0.5, y + 0.5))
+        out.push(Math.round(Math.min(1, Math.max(0, c)) * 255));
+  return out;
+}
+
+const smoothstep = (a: number, b: number, x: number): number => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+const edge = (distance: number): number => 1 - smoothstep(0, 0.01, distance);
+
+/** The pixels each step draws, by id. */
+export function reference(): Readonly<Record<string, readonly number[]>> {
+  const { size, time } = INPUTS;
+  return {
+    'first-color': frame(size, () => [0.2, 0.6, 1, 1]),
+    'uv-gradient': frame(size, (x, y) => [x / size, y / size, 0.5, 1]),
+    'moving-wave': frame(size, (x, y) => {
+      const wave = 0.5 + 0.5 * Math.sin(12 * (x / size) + 3 * time);
+      return [y / size, 0.5 * wave, wave, 1];
+    }),
+    'sdf-shapes': frame(size, (x, y) => {
+      const u = (2 * x - size) / size;
+      const v = (2 * y - size) / size;
+      const disc = edge(Math.hypot(u + 0.5, v) - 0.3);
+      const panel = edge(Math.max(Math.abs(u - 0.5) - 0.3, Math.abs(v) - 0.2));
+      return [0.1 + 0.8 * disc, 0.1 + 0.4 * disc + 0.3 * panel, 0.15 + 0.8 * panel, 1];
+    }),
+    'tile-pattern': frame(size, (x, y) => {
+      const gx = (6 * x) / size;
+      const gy = (6 * y) / size;
+      let level = 0;
+      for (let n = 0; n < 3; n++)
+        if (Math.hypot(gx - Math.floor(gx) - 0.5, gy - Math.floor(gy) - 0.5) < 0.15 + 0.1 * n)
+          level += 1;
+      level /= 3;
+      return (Math.floor(gx) + Math.floor(gy)) % 2 === 0
+        ? [0.2 + 0.7 * level, 0.3 + 0.4 * level, 0.9 - 0.5 * level, 1]
+        : [0.9 - 0.6 * level, 0.4 + 0.2 * level, 0.2 + 0.3 * level, 1];
+    }),
+    fractal: frame(size, (x, y) => {
+      const cx = (1.3 * (2 * x - size)) / size - 0.6;
+      const cy = (1.3 * (2 * y - size)) / size;
+      let zx = 0;
+      let zy = 0;
+      let count = 0;
+      for (let i = 0; i < 32; i++) {
+        if (Math.hypot(zx, zy) > 2) break;
+        [zx, zy] = [zx * zx - zy * zy + cx, 2 * zx * zy + cy];
+        count += 1;
+      }
+      const t = count / 32;
+      return [t, Math.sqrt(t) * 0.8, 1 - t, 1];
+    }),
+    palette: frame(size, (x, y) => {
+      const stops = [
+        [0.1, 0.1, 0.35],
+        [0.8, 0.2, 0.4],
+        [0.98, 0.65, 0.2],
+        [1, 0.95, 0.7],
+      ];
+      const wavy = x / size + 0.1 * Math.sin((10 * y) / size);
+      const scaled = Math.min(0.999, Math.max(0, wavy)) * 3;
+      const i = Math.floor(scaled);
+      const f = scaled - i;
+      return [0, 1, 2].map((k) => stops[i]![k]! * (1 - f) + stops[i + 1]![k]! * f).concat(1);
+    }),
+    'bouncing-balls': frame(size, (x, y) => {
+      const u = (2 * x - size) / size;
+      const v = -(2 * y - size) / size;
+      const cover = (px: number, rise: number, radius: number): number => {
+        const py = radius - 0.8 + rise * Math.abs(Math.sin(3 * time + 4 * px));
+        return edge(Math.hypot(u - px, v - py) - radius);
+      };
+      const a = cover(-0.5, 1.2, 0.2);
+      const b = cover(0.4, 0.8, 0.15);
+      return [0.1 + 0.8 * a, 0.1 + 0.3 * a + 0.3 * b, 0.15 + 0.8 * b, 1];
+    }),
+  };
+}
+
+/** What differs between what a step's run gave back and its reference, one line each: empty when
+ *  they agree. A run that threw gives its error as a string, which is one line. */
+export function compare(id: string, got: Outputs | string | undefined): string[] {
+  if (typeof got === 'string') return [`${id}: ${got}`];
+  const want = reference()[id];
+  if (want === undefined) return [`${id}: no reference`];
+  const pixels = got?.['pixels'];
+  if (pixels === undefined) return [`${id}: the run gave no pixels`];
+  if (pixels.length !== want.length)
+    return [`${id}: ${pixels.length} values, the reference has ${want.length}`];
+  const worst = pixels.reduce((m, v, i) => Math.max(m, Math.abs(v - want[i]!)), 0);
+  return worst <= PIXEL ? [] : [`${id}: a pixel is off by ${worst}, the allowance is ${PIXEL}`];
+}

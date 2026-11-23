@@ -512,11 +512,31 @@ owner's task gave them and are not verified in this repository.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require: the accepted revision; the pull requests
-and commits that say `Change: 0145`; the delivered configuration; the functional checks per
-milestone (the compile gate, the goldens, the example suites, the journeys, a Playground run;
-both halves of each author-facing form); the document audit (`docs:impact`, `docs:refs`,
-`scripts/changes.ts`); each deviation with its disposition; and the pending work.
+The proposal is `accepted`, not `implemented`. This record grows with each milestone. Delivery of
+the whole change will require: the pull requests and commits that say `Change: 0145`; the
+delivered configuration; the functional checks per milestone; the document audit; each deviation
+with its disposition; and the pending work.
+
+**M1, delivered.** Pull request #1422, merged on 2026-11-23 as `0e86ecd0`. The owner said "승인"
+(English: approved) in the conversation for it.
+
+- Delivered: steps 1 to 4 under `examples/path/<id>/`, the path registry (`examples/path/_order.ts`,
+  `_registry.ts`, `index.ts`, `_reference.ts`, `_drive.ts`, `tsconfig.json`), the scan and
+  `scripts/changes.ts` reading `examples/path/`, `examples/path-examples.test.ts`,
+  `src/changes-path.test.ts` and the four emit goldens.
+- [fact] Checks before the merge, on the branch based on `08e98bb8`: `bun run gate:compile` (211
+  examples, 0 failures), `bun run bake:goldens` (only the four new files), `vitest run examples`
+  and the policy tests (32 files, 1292 tests), `tsc --build --force`, `docs:refs`, `docs:impact`.
+  Every check of the pull request's head `7da4726e` was green, the four required checks included.
+- Not run: a WebGPU page that runs the four `host.ts` files, since `gate:journeys` reads only
+  `HOST_ORDER`; the `animate` of `moving-wave`. Open: M4 brings the path into the journeys.
+
+| Deviation                                                                                                                                                                                                  | Disposition                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| D-1. The four modules carry `"renderable": false, "reason": "no entry point"`, as `host-draw` does. A module with only a fragment entry has no vertex stage, and the `shade-examples` GLSL test needs one. | Open. M5 decides what the site reads for a step that draws.        |
+| D-2. The uniform is `interface Frame`, where `host-draw` uses `class Frame`. Step 8 stays the first step with a class.                                                                                     | Closed. The path rule "a step uses only earlier concepts" asks it. |
+| D-3. `examples/index.ts` names the generator scripts/gen-example-registry.ts, which does not exist, so `pathExamples` was added by hand.                                                                   | Open. A later pull request restores the generator or the text.     |
+| D-4. Steps 1 to 4 also use `abs`, `max`, `sin`, `const` locals and swizzles, which the path table does not list.                                                                                           | Open. The path table is amended to list them.                      |
 
 ## Open questions for the owner
 

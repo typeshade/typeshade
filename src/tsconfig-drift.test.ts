@@ -37,6 +37,7 @@ const PACKAGE_TSCONFIGS = [
   'examples/tsconfig.json',
   // The host examples' project (change 0061): host files checked with the host views.
   'examples/hosts/tsconfig.json',
+  'examples/path/tsconfig.json',
 ];
 
 /** Strip JSONC comments. String-aware: a `//` inside a string literal (e.g. a URL in

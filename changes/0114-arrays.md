@@ -870,6 +870,563 @@ decides. A9's disposition is closed.
   a call on a resource done (#1411), with A10's five forms refused; the WebGL2 tier done (#1418);
   the WebAssembly tier not started.
 
+### A12. The forms A7 left refused: an element of a grown array, a push in a nested or open loop, and a loop with an `f32` counter (draft, 2026-11-23)
+
+- [fact] Status of this amendment: draft. Questions Q1 and Q2 below are the owner's. The owner
+  answered both on 2026-11-23 against the draft's text (section 9). Q2 is decided: (A). Q1 is
+  open again, since the review corrected its costs and its recommendation. The merge of its pull
+  request, after the owner's answer to Q1, is its acceptance.
+- [fact] Q2 is decided (A). So the parts marked "with Q2 (B)" do not apply. They stay in the text
+  as the record of the option the owner did not take.
+- [fact] Baseline: `main` at `b1622981` (2026-11-23). The draft was written at `747e8637` and
+  revised at the same commit after the independent review (record below). `src/` is the same at
+  both commits.
+
+**Why.**
+
+- [fact] A7 made three forms of S5d part of the approved text as "not supported yet" refusals
+  (`TS8099`, both halves; OD-9), "to be implemented in a later slice". This amendment designs that
+  slice for each form. It gives the meaning, the storage, the dependencies, what stays refused,
+  the tests and one example.
+- [fact] OD-10 says that the compiler handles the storage of a dynamic array. At compile time it
+  uses "a capacity it computes from the program, a second pass, or another form with the same
+  result". Where compile time cannot decide it, it uses a heap it manages at run time. A form
+  the compiler does not implement yet is "not supported yet", never impossible.
+- [observed, 2026-11-23, `bothHalves` of `src/core/testing/both-halves.ts`, Bun 1.4.4, a tree
+  equal to `b1622981`] Each form is accepted today on an array parameter (changes 0078 and 0094),
+  whose host array is the capacity. The two halves agree on every row.
+
+| Source                                                    | The grown array (`const out: T[] = []`) | The same loop on an array parameter                                                      |
+| --------------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Example 1 below: `out[j] = out[j] / t` in a later loop    | `TS8099` (A7 item 1)                    | no diagnostic                                                                            |
+| `out[0] = 2.` after the last loop                         | `TS8099` (A7 item 1)                    | no diagnostic (`s[0] = out[0]` after the loop)                                           |
+| Example 2 below: a push in a loop inside a top-level loop | `TS8099` (A7 item 2)                    | no diagnostic                                                                            |
+| A push in a `while` inside a top-level loop               | `TS8099` (A7 item 2)                    | no diagnostic                                                                            |
+| A push in a top-level `while`                             | `TS8099` (A7 item 2)                    | `TS8070` warning: "This loop runs on the CPU because it is an open loop, …"              |
+| A push in a loop under a branch                           | `TS8099` (A7 item 2)                    | `TS8070` warning: "This function runs on the CPU because line 2 is neither a loop nor …" |
+| Example 3 below: a push in a loop with an `f32` counter   | `TS8099` (A7 item 3)                    | `TS8070` warning: "This loop runs on the CPU because it is an open loop, …"              |
+| `out.push(f32(out.length))` in the loop that pushes       | `TS8070` warning, accepted              | `TS8070` warning, accepted                                                               |
+
+- [observed, 2026-11-23, `lowerKernel` of `src/core/passes/kernel-lower.ts` on the parameter
+  form, Bun 1.4.4, `747e8637`] No diagnostic does not mean WebGPU. The plans differ:
+
+| Parameter form                                                                  | `lowerKernel`                                                                                                                |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Example 1 below                                                                 | a GPU plan                                                                                                                   |
+| Example 1 with `const total = f32(out.length)` between the loops, and `/ total` | `noGpu`: `loop 2 writes "out", which the statements before it read, and each of its invocations runs those statements again` |
+| Example 2 below                                                                 | a GPU plan                                                                                                                   |
+| `ys[i] = ks[i] * 2; for (let j: u32 = 0; j < ys[i]; j++) { out.push(j); }`      | `noGpu`: `loop 1 pushes and reads back what it writes to "ys", which its counting step does not write`                       |
+| a second loop `for (let j: u32 = 0; j < out.length; j++) { out.push(1.); }`     | `noGpu`: `it reads the length of an array it pushes onto before its result, which the call knows once the loop has run`      |
+
+- [inference] So the parameter form already gives each of these loops its JavaScript order, on
+  the tier that runs it (Rule 8.22, Rule 8.23). The grown array lacks two things only. It lacks
+  a capacity that the call can reserve. It lacks a meaning for an index at or past its length.
+
+**Terms.** [proposal] The amendment names three routes to the storage of a grown array.
+
+| Route                    | What the compiler does                                                                                                         | OD-10                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
+| Route 1, the headers     | The host computes the capacity before the dispatch from the headers of the loops that push. A6 item 2 is Route 1's first case. | compile time: "a capacity"    |
+| Route 2, a count pass    | The call counts the pushes first (change 0078's count and scan steps), reads the total, reserves it, then runs the store step. | compile time: "a second pass" |
+| Route 3, growing storage | The storage grows while the run pushes.                                                                                        | the heap                      |
+
+**1. Storage, for all three forms.** [proposal]
+
+1. The compiler takes Route 1 where it can, then Route 2, then Route 3 (OD-10). The choice is
+   the compiler's (OD-3, OD-9). No route changes the result, the host view or what the author
+   writes. A1 item 12 holds: the representation is the compiler's.
+2. Route 1 extends A6 item 2 to these cases:
+   1. A nest of counted loops whose starts and bounds read only the operands A1 item 4 lists.
+      Each push adds the product of the trip counts of every loop around it, at every depth.
+      The capacity is the sum of that over the pushes. A push in the outer body counts once for
+      each outer trip. A push in an inner body counts once for each inner trip of each outer
+      trip. Today `pushesIn` (`src/compiler/ts/lower/made-array/capacity.ts`) counts an inner
+      push once for each outer trip. The implementing pull request replaces it for a nest.
+   2. A loop under a top-level branch whose condition reads only listed operands. The host
+      evaluates the condition with the CPU tier's generated code, and counts the loop only when
+      the branch is taken. A branch whose condition reads any other value: Route 3 (item 4).
+      The loop never counts "as if the branch is taken". Such a count can run a header that
+      the program never runs, as `if (h > 0)` around a loop that steps by `h` shows.
+   3. Only with Q2 (B): a `for` loop that is not counted (an `f32` counter, a step `i *= 2`).
+      Its initializer, condition and update read only listed operands and its own counter, and
+      its body does not write the counter. The host runs the header alone, with the CPU tier's
+      generated code, and counts the trips (section 4, items 1 and 2). With Q2 (A), Route 3
+      serves these loops, and this item is not built (Q2).
+   4. An element write that the compiler cannot prove below the length (section 2, item 2)
+      counts as one push. It replaces an element or appends one. A write past the length is not
+      supported (section 2, item 3).
+3. Route 2 applies to a top-level loop when all of these hold:
+   - the proof of Rule 8.22 accepts it, and the host knows its range;
+   - Route 1 cannot bound its pushes, or Route 1's capacity passes the tier's limit (A1 item 8);
+   - it meets the conditions of `pushGap` (`src/core/passes/kernel-lower.ts`). It pushes onto
+     one array and adds to no `Map` or `Set`. It reduces nothing. It does not scatter or store
+     into a texture. It does not read back what it writes to an array.
+
+   Its cases are two. One is an inner loop whose header reads an element, a value of the iteration
+   or an outer counter (Example 2). The other is an inner `while`.
+   1. WebGPU: the call runs the count and scan steps of change 0078, reads back the total,
+      reserves that many elements, and runs the store step.
+   2. The CPU tier: it runs the same count step, which stores nothing but the counts, and then
+      runs the loop as written. The conditions above make that count exact. A count step that
+      stores nothing under-counts an iteration that reads back its own writes. It combines a
+      reduction twice.
+   3. Where two loops push, the call reserves before each store step. It keeps the elements that
+      earlier loops stored. On WebGPU that can be a copy on the device.
+   4. Cost: one more read from the device for each such loop. [inference] A call that takes
+      Route 2 cannot be one submission of a fuse plan until change 0144, stage A3.
+   5. Change 0144 rejected this design as its general memory contract ("Always read the size back
+      first", its section "Alternatives"). That alternative paid a round trip on every call and
+      broke a fuse plan's one submission. Route 2 is acceptable in the interim for three reasons:
+      - it reads back only for a loop that Route 1 cannot bound, and no other call pays it;
+      - these forms are refused today, so no call becomes slower;
+      - a run region of change 0144, stage A3, replaces it with no change to the program
+        (section 7).
+   6. [assumption] The proof accepts these inner loops on a grown array as it accepts them on an
+      array parameter (observed above). The implementing pull request confirms it.
+
+4. Route 3 applies to every other loop that pushes onto a grown array. The closing rule is: a
+   loop that pushes and that neither Route 1 nor Route 2 serves takes Route 3. Among them:
+   - a top-level `while` or `do … while`, and a loop inside one;
+   - a `for` that is not counted, whose body writes its counter or whose header reads another
+     value, and every such `for` with Q2 (A);
+   - a top-level counted loop that the proof rejects and that holds an inner `while`, or an
+     inner loop whose header reads an element;
+   - a loop that fails one of `pushGap`'s conditions (item 3);
+   - a loop, or an inner `while`, under a top-level branch that item 2.2 does not count;
+   - a later loop whose header reads `out.length` of the grown array and that pushes onto it.
+   1. [inference] Each such loop runs on the CPU tier already, as for a parameter (Rule 8.22, R1
+      or the proof's refusal; `TS8070`; or `lowerKernel`'s `noGpu`). Change 0144 does not change
+      the proof, so no GPU tier runs these loops before or after it.
+   2. When Route 3 lands is question Q2. Until it lands, each such loop stays refused with
+      `TS8099` (sections 3 and 4).
+5. The capacity is exact. [proposal]
+   1. A trip count is a value of the program. It keeps the program's arithmetic, as A1 item 4
+      gives a length.
+   2. The capacity is the compiler's: the products and the sums of items 2.1 to 2.4. The host
+      computes them exactly, in `f64` or `BigInt`, never in wrapping `u32` arithmetic. Each
+      comparison of an `f64` capacity with 4294967295 is exact, since the rounding is monotone.
+   3. The call checks the capacity, not the trips. Past 4294967295 it throws, before anything
+      runs: `RangeError: f(): "out" can grow to more than 4294967295 elements, and a capacity past
+that is not supported yet.`
+   4. Past the tier's limit, it does what A1 item 8 gives. A loop whose range the device holds
+      stays with A6 item 5 and change 0144, stage A3. This amendment does not change it.
+   5. [fact] Today `grownCapacity` (`src/compiler/ts/lower/made-array/capacity.ts`) builds the
+      capacity as `u32` expressions. The CPU tier's code runs them with `Math.imul(…) >>> 0`. A
+      wrap under-allocates. `src/core/host-kernel-made.ts` then cuts the result to the
+      allocation with no error, against OD-5.
+   6. [fact] That is a latent bug on `main`, reached by a product of two large trip counts. A
+      separate bug-fix pull request fixes it. A12 changes no code. Item 2.1's nest product makes
+      the wrap easier to reach, so S5d slice 2 needs that fix first (section 7).
+
+**2. Form 1: an element read or write of the grown array.** [proposal]
+
+Meaning. The meaning is that of a JavaScript array (OD-5), at that point of a sequential run:
+
+1. A read `out[k]`, with `0 <= k < out.length`, gives element `k`.
+2. A write `out[k] = v` with `k < out.length` replaces element `k`. With `k === out.length` it
+   appends `v`, as `out.push(v)` does, and the length grows by one. A compound write
+   (`out[k] += v`, `out[k]++`) is a read, then a write. So a write needs `k <= out.length`, and a
+   read needs `k < out.length`.
+3. These have a JavaScript meaning that the compiler does not represent yet. They are not
+   supported yet (OD-9, OD-10):
+   - a read at `k >= out.length`, which gives `undefined` in JavaScript. Change 0093 represents
+     an optional value, not an element that is not there;
+   - a write at `k > out.length`, which leaves holes in JavaScript (A1 item 11);
+   - a negative `i32` index, which reads or writes a property in JavaScript, not an element.
+
+   How these are refused, at compile time or at the call, is question Q1.
+
+Where it runs:
+
+4. In a loop that also pushes onto `out`: the loop runs on the CPU tier (`TS8070`), as for a
+   parameter. A read follows Rule 8.22, R4: "an array the loop pushes onto is not read at all".
+   A write gives the reason of `src/compiler/ts/kernel-loops.ts`: `writes "out" in place, and the
+loop also pushes onto it`. The run is sequential, so items 1 to 3 hold as written.
+5. In a later loop that does not push onto `out`: the loop is a candidate loop, as for a
+   parameter. The index is the loop's counter, and the range is inside `0 .. out.length`
+   (`j < out.length`). Then the compiler proves every access below the length. The loop then
+   runs on WebGPU, over a range the device holds (change 0094). These cases run on the CPU tier
+   instead:
+   - A write that the compiler cannot prove at most the length. An append moves the length for
+     the iterations after it. `TS8070` names the write.
+   - A statement between the loops that reads `out`, its length included (Example 1 with
+     `const total = f32(out.length)`). `lowerKernel` gives `loop 2 writes "out", which the
+statements before it read, and each of its invocations runs those statements again`. The
+     function runs on the CPU tier, as its parameter form does.
+   - A later loop over `j < out.length` that reduces or pushes, unless it has the cap of change
+     0094, decision D6. That cap is `min(d, c)`, with `c` a value the host knows. A loop that pushes
+     onto `out` itself also takes Route 3 (section 1, item 4).
+6. After the last loop (change 0094, part 3, stores after the loops): on WebGPU the stores run in
+   the finish entry. One invocation runs them in program order. It reads the count the loops left,
+   so items 1 to 3 hold as written. This changes A1 item 9 for a grown array. A1 item 9 says that "a
+   store after the loops past the end is dropped". For a grown array such a store appends (at the
+   length) or is refused (past it). So `guardStoresAfterLoops` (`src/core/passes/kernel-stores.ts`)
+   guards a grown array by its length, the number pushed, not by its capacity.
+7. In a statement between two loops: the function runs on the CPU tier. Rule 8.22 runs a function so
+   when a statement before its last loop writes an array.
+8. Before the first loop: the array is empty. A read is past the length, and a write at index 0
+   is a push outside every loop (A6 item 6). Both stay refused at compile time (below).
+9. A struct element: A8 item 4, A9 and A10 item 1 apply to a whole write `out[k] = w`. A field
+   write `out[k].a = v` stays refused by change 0142, stage 3 (A8 item 2).
+
+Storage: Route 1, with section 1, item 2.4. Dependencies: none on change 0144.
+
+Refused as "not supported yet", `TS8099`, the same sentence in both halves:
+
+- A read before the first loop: `"out[0]" reads an element of "out", the array "f" grows with
+push, before anything is pushed onto it; a read past its length is not supported yet. Read it
+after the loop that pushes onto it.`
+- A write before the first loop: `"out[0] = 1." writes an element of "out", the array "f" grows
+with push, before its first loop, which adds an element outside every loop, and that is not
+supported yet. Push onto it inside a loop of "f".`
+- With Q1 (A) only, a read that the compiler cannot prove below the length: `"out[k]" reads an
+element of "out", the array "f" grows with push, at an index the compiler cannot prove is below
+its length; a read past the length is not supported yet. Index it by the counter of a loop up to
+out.length.` A write that it cannot prove at most the length says `writes` and `is at most its
+length`.
+- With Q1 (B) or (C), the call throws instead. There is no editor half, since the editor cannot
+  see the run: `RangeError: f(): "out[k]" reads index 7 of "out", whose length is 5 there. A read
+past the length is not supported yet.` A write says `writes index 9` and `A write past the
+length`.
+
+The sentence of A7 item 1 retires.
+
+Example 1. Before, both halves give `TS8099`: `"out[j]" writes an element of "out", the array
+"keepScaled" grows with push, and that is not supported yet. …`. After, both halves give no
+diagnostic. The second loop runs on WebGPU over a range the device holds, as its parameter form
+does today (observed above). A statement between the loops that reads `out` would send the
+function to the CPU tier (item 5).
+
+```ts
+export function keepScaled(xs: f32[], t: f32): f32[] {
+  const out: f32[] = [];
+  for (const x of xs) {
+    if (x > t) {
+      out.push(x);
+    }
+  }
+  for (let j: u32 = 0; j < out.length; j++) {
+    out[j] = out[j] / t;
+  }
+  return out;
+}
+```
+
+**3. Form 2: a push in a nested loop, in a `while`, or in a loop under a branch.** [proposal]
+
+Meaning. The pushes append in the order of a sequential run, as Rule 8.23 gives them for an
+array parameter. The order is loop by loop, iteration by iteration, and statement by statement.
+The iterations of an inner loop keep their order. The result is the elements pushed, in that
+order.
+
+Where it runs. Each form runs on the tier that runs its parameter form today (observed above):
+
+1. A push in a loop nested in a top-level loop: the top-level loop runs on WebGPU when two things
+   hold. The proof of Rule 8.22 accepts it, and `pushGap` gives no reason. One invocation runs one
+   whole iteration, inner loop included. So change 0078's count, scan and store keep the order.
+2. A push in a top-level `while`: the loop runs on the CPU tier (R1, `TS8070`).
+3. A push in a loop under a branch: the function runs on the CPU tier (`TS8070`).
+
+Storage. A nest takes one route, chosen in this order:
+
+4. Route 1 (section 1, item 2.1), when every loop of the nest is counted with listed operands
+   and the capacity is within the tier's limit.
+5. Otherwise Route 2, when the top-level loop meets section 1, item 3. Example 2 is this case:
+   its inner start reads `i`.
+6. Otherwise Route 3 (section 1, item 4).
+7. A loop under a top-level branch: Route 1 (item 2.2), when the condition reads only listed
+   operands and the loop's own headers are ones Route 1 counts. Otherwise Route 3.
+8. A top-level `while` or `do … while`, and a loop inside one: Route 3.
+
+[fact] A header run would cost the nest's total inner trips on the host. For Example 2 that is
+n(n−1)/2, which passes 4294967295 at n = 92683. Its capacity, n(n−1), passes 4294967295 at
+n = 65537. So no nest uses a header run. Route 2 counts on the device instead.
+
+Dependencies: items 4, 5 and 7 need nothing of change 0144. Items 6 and 8 are question Q2.
+
+Refused as "not supported yet", `TS8099`, the same sentence in both halves:
+
+- With Q2 (B) only, until change 0144, stage A3: `"while (at !== 0)" pushes onto "path", and its
+trip count is known only when it ends, so the call cannot reserve room for "path" before it
+runs; that is not supported yet.`
+- Unchanged: a push outside every loop (A6 item 6), and a loop whose range the device holds (A6
+  item 5).
+
+The sentence of A7 item 2 retires.
+
+Example 2. Before, both halves give `TS8099`: `"out.push(i)" pushes onto "out" inside "for (let
+j: u32 = i + 1; j < xs.length; j++)", which is no for loop at the top level of "pairs", and that
+is not supported yet. …`. After, both halves give no diagnostic. The inner start reads `i`, so
+the capacity comes from Route 2 (item 5).
+
+```ts
+export function pairs(xs: f32[], r: f32): u32[] {
+  const out: u32[] = [];
+  for (let i: u32 = 0; i < xs.length; i++) {
+    for (let j: u32 = i + 1; j < xs.length; j++) {
+      if (abs(xs[i] - xs[j]) < r) {
+        out.push(i);
+        out.push(j);
+      }
+    }
+  }
+  return out;
+}
+```
+
+**4. Form 3: a loop with an `f32` counter.** [proposal]
+
+Meaning. The loop runs as the CPU tier's code runs it. The counter's type comes from its uses,
+and is `f32` where no use decides (OD-7). The counter is rounded to `f32` after each step, as
+the CPU tier's code runs it. The trip count is the one that sequential run gives. Each trip's
+pushes append in order.
+
+- [observed, 2026-11-23, `Math.fround` in Bun 1.4.4] `samples(0, 1, 0.1)` takes 10 trips in
+  `f32` and 11 in plain JavaScript's `f64`. `samples(0, 1, 0.01)` takes 101 in `f32` and 100 in
+  `f64`.
+
+Where it runs. On the CPU tier (R1, `TS8070`), as its parameter form does today (observed above).
+
+Storage:
+
+1. With Q2 (A): Route 3. The loop runs once, and the storage grows as it pushes. No header run
+   is needed.
+2. With Q2 (B): Route 1 (section 1, item 2.3). Before the dispatch, the host runs the
+   initializer, the condition and the update alone, and counts the trips. It runs them with the
+   CPU tier's generated code, as `cpu.F[made.length]` runs a length today
+   (`src/core/host-kernel-made/making.ts`). So the count equals the tier's trips exactly. The
+   capacity is the trips times the pushes in one trip, computed exactly (section 1, item 5).
+   The same holds for any `for` that is not counted, a step `i *= 2` included.
+   1. The host stops when that capacity passes the tier's limit (A1 item 8) or 4294967295, and
+      the call throws before anything runs: `RangeError: f(): "for (let x = a; x < b; x += h)"
+can push more than 4294967295 elements, the most this tier holds, and that is not supported
+yet.` The number is the tier's limit or 4294967295, whichever is less.
+   2. Cost: the header's work on the host, at most the steps that reach the tier's limit. A
+      conditional push counts once for each trip. So the call can throw where JavaScript pushes
+      fewer elements.
+3. A header that reads another value, or a body that writes the counter: Route 3 (question Q2).
+
+Dependencies: nothing of change 0144 with either answer to Q2. Route 3 is question Q2.
+
+Refused as "not supported yet", `TS8099`, the same sentence in both halves:
+
+- With Q2 (B) only, for item 3: `"for (let x = a; x < b; x += h)" pushes onto "out", and its
+header reads a value the call does not know before it runs, or its body changes its counter, so
+the call cannot reserve room for "out" before it runs; that is not supported yet.`
+
+The sentence of A7 item 3 retires: with Q2 (A) for every loop of this form, with Q2 (B) for the
+loops Route 1 counts.
+
+Example 3. Before, both halves give `TS8099`: `"for (let x = a; x < b; x += h)" pushes onto
+"out", and its trip count is no count from a start to a bound by a constant whole step, …`.
+After, both halves give the `TS8070` warning of the parameter form, "This loop runs on the CPU
+because it is an open loop, …", and no error.
+
+```ts
+export function samples(a: f32, b: f32, h: f32): f32[] {
+  const out: f32[] = [];
+  for (let x = a; x < b; x += h) {
+    out.push(sin(x));
+  }
+  return out;
+}
+```
+
+**5. Both halves (Rule 12.7).** [proposal]
+
+- The ambient `Array<T>` already declares the index, `push` and `length`. An element read is a
+  `T`.
+- The hover on `out` shows the same type text as the hover on an array parameter `out: T[]`.
+  [observed, 2026-11-23, `bothHalves(…).hover`, `747e8637`] The hovers are not equal. A grown
+  array shows `const out: array<f32>`. A parameter shows `(parameter) out: array<f32>` and a
+  paragraph on the caller's object.
+- Each `TS8099` above reaches the editor with the compiler's code and sentence.
+- A `RangeError` of the call has no editor half: Q1 (B) or (C), section 1, item 5.3, and section
+  4, item 2.1. The tests read it at the call.
+
+**6. What the implementing pull request tests and checks.** [proposal]
+
+1. `bothTake` (`src/core/testing/both-halves.ts`) on examples 1 and 2: no diagnostic in either
+   half. `bothHalves` on example 3, since `bothTake` throws on a warning: no error, and the
+   `TS8070` warning with one text in both halves. On each example, the hover on `out` shows the
+   same type text as the parameter form's.
+2. `bothRefuse` on each refusal that stays, with its sentence.
+3. The CPU tier against a JavaScript loop on the same inputs. An `f32` counter's oracle rounds
+   each step with `Math.fround`. The cases are each example and:
+   - an empty result; a read of the last element; a write at `out.length`, which appends; a
+     compound write; a store after the loops;
+   - two loops on Route 2; a triangular nest;
+   - a square nest with unconditional pushes in the outer body and the inner body; a nest three
+     deep;
+   - a loop under a branch taken and not taken, and `if (h > 0)` around a loop that steps by `h`,
+     with `h = 0`;
+   - an `f32` step that rounds (`0.1` and `0.01`); a loop of zero trips; a step `i *= 2`.
+4. The capacity: a nest whose exact capacity is 4294967295 passes the check of section 1, item 5.
+   One of 4294967296 (65536 × 65536) throws its `RangeError` and does not wrap to 0.
+5. With Q1 (B): the `RangeError` text of a read past the length, a write past the length and a
+   negative index. Every caller array is unchanged after the throw, on WebGPU, WebGL2 and the
+   CPU tier. On WebGPU, a throw in the second loop after the first loop's flush.
+6. With Q1 (C): the same texts on the CPU tier. A function with an unproved access has no GPU
+   plan, and its reason names the access. Every caller array is unchanged after the throw.
+7. With Q2 (A): a top-level `while` that pushes, and example 3, against a JavaScript loop.
+8. WebGPU, in `journeys/_host-import`: example 1, example 2 and a store after the loops, each
+   equal to the CPU tier. Example 1 with a statement between its loops runs on the CPU tier.
+9. The differential gate (`scripts/gpu-differential.ts`) gains grown arrays with nested pushes
+   and element writes.
+10. Measurements: the extra read of Route 2 against the parameter form's call. With Q2 (B), the
+    host time of Route 1's header run for three trip counts.
+11. The gates of `AGENTS.md`: `bun run test`, the compile gate (Tint and WebGL2) on the count
+    steps and the finish entry, `bun run docs:impact`, `bun run reqs:sync` with
+    `python scripts/doorstop-check.py -C`, and `bun run changes:check`.
+12. The document audit: the push sentence of Rule 8.22, the S5d paragraph of Rule 8.23 and its
+    "Enforced by" list, and surface §63 and §65, against the delivered behaviour.
+
+**7. Stages and dependencies.** [proposal]
+
+| Slice                                | Delivers                                                                                                                                       | Needs first                                                         |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| bug fix, no proposal                 | The exact capacity and its check (section 1, items 5.2 and 5.3) for the forms on `main`.                                                       | nothing                                                             |
+| S5d slice 2                          | Form 1 (section 2), form 2 on Routes 1 and 2 (section 3, items 4, 5 and 7), and with Q2 (B) form 3 on Route 1 (section 4, item 2).             | the bug fix                                                         |
+| S5d slice 3                          | Route 3: form 2, items 6 and 8; form 3, items 1 and 3; the other loops of section 1, item 4.                                                   | Q2 (A): S5d slice 2. Q2 (B): change 0144, stage A3, on the CPU tier |
+| a later amendment of change 0144, A2 | Routes 1 and 2 reserve a call region in place of a binding of their own. No program changes.                                                   | 0144 A1                                                             |
+| a later amendment of change 0144, A3 | Route 2 may reserve a run region from the bump word in one submission, with no read between steps (the compiler's choice). No program changes. | 0144 A2                                                             |
+
+[fact] Change 0144, section 5, excludes "A push in a loop inside a loop (0114, Amendment A7, item
+2)". So the last two rows are not 0144's work as approved. Each needs an amendment of change
+0144 that widens its scope first.
+
+**8. Check against the owner's decisions.**
+
+| Entry | How A12 keeps it                                                                                                                                                                          |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OD-1  | No new syntax. The author writes TypeScript's index, `push`, `while` and `for`.                                                                                                           |
+| OD-2  | Not touched.                                                                                                                                                                              |
+| OD-3  | The capacity and the route are the compiler's. The author states nothing for them.                                                                                                        |
+| OD-4  | One example before and after for each form. Q1 and Q2 show options and costs.                                                                                                             |
+| OD-5  | The array is a JavaScript array. Each accepted form has its JavaScript meaning. A form without one in TypeShade yet is refused and says so. A wrapped capacity that cuts a result is not. |
+| OD-6  | No release exists, so no warning release is owed.                                                                                                                                         |
+| OD-7  | The counter of form 3 takes its type from its uses.                                                                                                                                       |
+| OD-8  | Not touched.                                                                                                                                                                              |
+| OD-9  | The routes, the count pass and the header run are the compiler's code with the same result. Each refusal is "not supported yet".                                                          |
+| OD-10 | Compile time first (Routes 1 and 2), the heap second (Route 3). Nothing is refused as impossible.                                                                                         |
+
+**9. Questions for the owner.**
+
+**Q1. An index that the compiler cannot prove inside the length.** Example: `const first = out[0]`
+after a loop whose push is conditional. JavaScript gives element 0 when one was pushed. It gives
+`undefined` when none was. A write `out[0] = 2.` in the same place needs no question. Index 0 is
+always at most the length, so the write replaces or appends (section 2, item 2). The question is
+only a read at or past the length, and a write past it.
+
+- [fact] What a throw during the run costs. A call with plain data on WebGPU flushes after each
+  loop and after the finish entry (`onDevice`, `src/core/host-kernel.ts`). `DispatchBatch.flush`
+  reads each storage binding back into the caller's value in place (`src/core/host-entry.ts`).
+  The bound arrays are the caller's own. WebGL2 writes into the caller's array after each draw
+  (`onWebgl2`, `src/core/host-kernel-gl.ts`). Only the CPU tier copies: it runs on copies and
+  writes them back after the function returns (`onCpu`, `src/core/host-kernel.ts`). So on
+  WebGPU and WebGL2, a throw in a later loop finds the caller's arrays already changed.
+- (A) Refuse at compile time. The compiler accepts a read only where it proves the index below the
+  length. It accepts a write only where it proves the index at most the length. Elsewhere it gives
+  `TS8099`. Cost: the read `out[0]` after a conditional push is refused. So is a later loop `j < n`
+  that writes `out[j]`. The author rewrites these.
+- (B) Check at the call, on every tier. The compiler proves where it can. Elsewhere the call
+  checks the index and throws a `RangeError` "not supported yet". Every caller array must be
+  unchanged after the throw (OD-5). On WebGPU and WebGL2 that needs one of these:
+  - a restore, as change 0144, C11 gives it. The call copies each array it can write before it runs.
+    It copies each back before it throws;
+  - every loop's copy-back deferred to the end of the call, after the check of the flag word.
+
+  Cost: a program that compiles can throw for some inputs. Each unproved access costs a
+  comparison, and on WebGPU a flag word read back with the results. The restore costs a copy of
+  each writable array on every call of such a function. The deferral changes when every
+  function's results reach the caller.
+
+- (C) Check at the call, on the CPU tier only. A function with an unproved access has no GPU
+  plan, as section 2, item 5 already gives an unproved write. The CPU tier runs on copies, so a
+  throw leaves every caller array unchanged. Cost: a program that compiles can throw for some
+  inputs. Each such function runs on the CPU tier, its other loops included, until a later
+  change gives (B)'s restore. That later change is the compiler's, with no change to the
+  program.
+- [fact] A check at the call is new in kind. A1 item 4 (a `RangeError` for a length), A1 item 7
+  and A5 item 1 refuse at the call too, but before anything runs. (B) and (C) throw during the
+  run.
+- [decision, owner, 2026-11-23] "추천대로", to the draft's recommendation, (B). The owner saw the
+  draft's cost of (B), which held no restore: the draft assumed a caller array changes only at
+  copy-back. Review finding B2 shows that assumption false on WebGPU and WebGL2.
+- [fact] Q1 is open again. The corrected cost of (B) adds the restore or the deferred copy-back.
+  With that cost, the recommendation changes to (C). The answer "추천대로" was given to another
+  recommendation, so this record does not take it as a decision for (B) or for (C). The owner is
+  shown the corrected costs and decides again.
+- [decision, owner, 2026-11-23] Shown the corrected costs of (A), (B) and (C), the owner chose
+  (C): "(C) CPU에서만 검사, 나중에 (B)". Q1 is decided (C).
+- Recommendation: (C) now, and (B) when change 0144, stage A3, gives the restore. It rests on OD-5
+  and OD-9. No accepted program runs with a meaning JavaScript would not give. The host sees the
+  caller's arrays unchanged after a throw. It rests on OD-10, since the refusal says "not supported
+  yet", and on OD-3, since the author rewrites nothing. It reverses no entry.
+- Not offered: a read past the length that gives `0`, or the value a target's robust access
+  gives. Such a read has a meaning JavaScript would not give (OD-5, OD-9).
+
+**Q2. Growing storage before change 0144, stage A3.** Route 3 serves every loop of section 1,
+item 4: a top-level `while`, a loop inside it, a `for` that is not counted, and the others there.
+Each runs on the CPU tier only (section 1, item 4.1).
+
+- (A) Land with S5d slice 3, now. The CPU tier holds the array in storage of its own that grows
+  as the run pushes. Change 0144, stages A1 to A3, later move it into the CPU tier's arena, with
+  no change to the program. This is the pattern the owner chose for S5 in A1: a binding of its
+  own first, the arena when it exists. Cost: a storage path outside the arena on the CPU tier
+  until change 0144, stage A3. A grown copy each time the storage fills.
+- (B) Wait for change 0144, stage A3. Until the CPU tier has run regions, these costs hold:
+  - The loops that section 1, item 2.3 counts land only through a header run on the host. Its
+    work is up to the steps that reach the tier's limit. Over-counted conditional pushes can make
+    the call throw where JavaScript returns.
+  - Every other loop of section 1, item 4 stays refused, with the `TS8099` sentences of sections
+    3 and 4.
+  - The forms wait for change 0144, A1, A2 and A3.
+- [decision, owner, 2026-11-23] "추천대로", to the recommendation (A). The review did not change
+  the options or the recommendation of Q2; it added costs of (B) (finding S6). Q2 is decided:
+  (A).
+- Recommendation: (A). With (A), Route 3 serves every CPU-only loop. Item 2.3, the header run,
+  its `RangeError` and the hazard of a header the program never runs are not built. It rests on
+  OD-10 (a heap the compiler manages at run time; storage that the CPU tier grows is one), OD-3
+  and OD-9. It reverses no entry, and no GPU tier runs these loops in either option.
+- Not offered: refusing these forms for good. OD-10 says "not supported yet", never impossible.
+
+**Independent review record.**
+
+- [fact] Reviewer: an independent agent that did not write this amendment. Date: 2026-11-23.
+  Configuration: `747e8637`. Each finding was checked against the code at that commit before
+  its disposition. The probes ran `lowerKernel` and `bothHalves` with Bun 1.4.4.
+
+| Finding | What it found                                                                                                                    | Disposition                                                                                                                                                                                                                                           |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1      | Example 1 does not run on WebGPU: `const total = f32(out.length)` between the loops gives `noGpu`.                               | Fixed. Confirmed by probe (observed table). Example 1 drops `total`. Section 2, item 5 adds the statement between the loops. Test 8 checks both.                                                                                                      |
+| B2      | Q1's assumption is false: WebGPU and WebGL2 write the caller's arrays after each loop. Only the CPU tier copies.                 | Fixed. Confirmed in `onDevice`, `DispatchBatch.flush`, `onWebgl2` and `onCpu`. The assumption is removed. Q1 (B) states the restore or the deferral and its cost. Q1 (C) is added. Tests 5 and 6 replace the old test 4.                              |
+| B3      | The capacity is computed in wrapping `u32` arithmetic, and a wrap cuts the result with no error (OD-5).                          | Fixed in the text. Confirmed in `grownCapacity`, `cpu-codegen.ts` (`Math.imul`) and `host-kernel-made.ts`. Section 1, item 5 requires the exact capacity and checks it. The latent bug goes to a separate bug-fix pull request; no code changes here. |
+| B4      | Route 2's store-free count under-counts an iteration that reads back its own writes, or reduces.                                 | Fixed. Confirmed by probe (`pushGap`'s reason). Route 2 requires `pushGap`'s conditions (section 1, item 3). Every other loop takes Route 3.                                                                                                          |
+| S1      | Route 1 under a branch "as if taken" can run a header the program never runs, and throw where JavaScript returns.                | Fixed. Section 1, item 2.2 evaluates a listed condition on the host. Any other condition takes Route 3. Test 3 adds `if (h > 0)` with `h = 0`.                                                                                                        |
+| S2      | Say which route a nest takes, and correct the header run's cost.                                                                 | Fixed. Section 3, items 4 to 8 give the order. The cost is the nest's total inner trips. Corrected: n(n−1)/2 passes 4294967295 at n = 92683, not about 92682. No nest uses a header run.                                                              |
+| S3      | The route classification has gaps.                                                                                               | Fixed. Section 1, item 4 has the closing rule and lists the three gaps found.                                                                                                                                                                         |
+| S4      | The `f32` counter's trip count differs from plain JavaScript.                                                                    | Fixed. Confirmed with `Math.fround`: 10 against 11, and 101 against 100. Section 4 states the rounding, the CPU tier's generated code for the header run, and a `Math.fround` oracle.                                                                 |
+| S5      | Q1 contradicts itself: a write needs only "at most its length". The checks of A1 and A5 run before the run.                      | Fixed. Q1's example is now a read. (A)'s cost names the read only. The fact on A1 and A5 is corrected.                                                                                                                                                |
+| S6      | Every loop that needs items 2.2 or 2.3 runs on the CPU tier only, so Q2 (A) makes them unneeded.                                 | Fixed, with one correction. Item 2.3's nest clause served Example 2, which WebGPU runs. That nest now takes Route 2, so the finding holds after the revision. Item 2.3 is built only with Q2 (B), and Q2 shows it as a cost of (B).                   |
+| S7      | Route 2 is the alternative change 0144 rejected. 0144, section 5, excludes a push in a nested loop.                              | Fixed. Confirmed at both places in change 0144. Section 1, item 3.5 cites it and says why it is acceptable in the interim. Section 7 marks the rows as a later amendment of change 0144.                                                              |
+| S8      | Change 0094, D6 and A1 item 9 need statements.                                                                                   | Fixed. Section 2, item 5 states D6's cap. Section 2, item 6 states the change to A1 item 9 and to `guardStoresAfterLoops`.                                                                                                                            |
+| M1      | `bothTake` throws on a warning.                                                                                                  | Fixed. Confirmed in `both-halves.ts`. Test 1 uses `bothHalves` for example 3.                                                                                                                                                                         |
+| M2      | The hovers differ.                                                                                                               | Fixed. Confirmed by probe. Section 5 and test 1 say "the same type text".                                                                                                                                                                             |
+| M3      | Two labels are wrong.                                                                                                            | Fixed. Both are `[inference]` now.                                                                                                                                                                                                                    |
+| M4      | Sentences over 25 words.                                                                                                         | Fixed. The revision splits them.                                                                                                                                                                                                                      |
+| M5      | The form 3 bound can cost 4.29e9 header steps.                                                                                   | Fixed. The header run stops at the tier's limit (section 4, item 2.1).                                                                                                                                                                                |
+| M6      | Item 4 cites R4, but a write gives another reason.                                                                               | Fixed, in part. R4 is right for a read ("an array the loop pushes onto is not read at all"). A write gives the reason of `kernel-loops.ts`. Section 2, item 4 names both.                                                                             |
+| M7      | Item 2.1's formula leaves out pushes in the outer body and in deeper nests. `pushesIn` counts an inner push once per outer trip. | Fixed. Confirmed in `capacity.ts`. Item 2.1 sums over every push. Tests 3 and 4 add a square nest, a nest three deep and a capacity near 2^32.                                                                                                        |
+
+- Open findings: none. Q1 is decided (C). Q2 is decided (A).
+- Affects: section 2 (S5d items 1, 2, 5 and 6; A7 items 1 to 3; A1 item 9 for a grown array).
+  Rules 8.22 and 8.23 and surface §63 and §65 change in the implementing pull request. No
+  front-matter entry changes. Rules 8.22 and 8.23 and surface §63, §64 and §65 are declared,
+  `TS8099` exists, and `Array.prototype.push` and `length` are in `src/__api__/author-names.md`.
+- Status: `status: accepted` does not change. A12: reviewed, Q1 decided (C), Q2 decided (A). The
+  capacity bug fix: in progress (#1426). S5d slice 2: not started. S5d slice 3: not started.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`
