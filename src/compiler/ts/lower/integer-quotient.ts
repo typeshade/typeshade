@@ -1,7 +1,7 @@
 // Why: TypeScript's ToInt32 and ToUint32 read the ±Infinity or NaN of a division by zero as 0,
 // and WGSL's integer `x / 0` is `x` (issue 1320, Amendment A4 of change 0134). A call of the
 // helper evaluates each operand once, in order, where a select's arms would be sequenced lazily.
-import type ts from 'typescript';
+import ts from 'typescript';
 import {
   noteWrittenDivisionRead,
   readingsFrom,
@@ -153,4 +153,19 @@ export function integerConversionArg(arg: Expr, target: ShaderType): Expr {
   if (Number.isInteger(arg.value)) return arg;
   const truncated = Math.trunc(arg.value);
   return retypeKindlessDeclared(arg, fitsTarget(truncated, i32T) ? i32T : u32T) ?? arg;
+}
+
+export function convertedQuotientArg(
+  arg: Expr,
+  node: ts.Expression,
+  sourceFile: ts.SourceFile,
+  name: 'i32' | 'u32',
+): Expr {
+  const converted = integerConversionArg(arg, name === 'u32' ? u32T : i32T);
+  if (!isIntegerQuotient(arg)) return converted;
+  let inner = node;
+  while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+  if (!isIntegerQuotient(converted)) noteWrittenDivisionRead(inner, sourceFile, 'read');
+  else if (name === 'u32') noteWrittenDivisionRead(inner, sourceFile, 'none');
+  return converted;
 }
