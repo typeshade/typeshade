@@ -2,12 +2,17 @@ import type { CpuValue } from './cpu-runtime.js';
 import type { KernelFace } from './host-kernel.js';
 import type { HostType } from './host-values.js';
 
-export interface KernelCapacityTerm {
+export interface KernelCapacityLoop {
   readonly low: string;
   readonly high: string;
   readonly inclusive: boolean;
   readonly step: number;
+}
+
+export interface KernelCapacityTerm extends KernelCapacityLoop {
   readonly pushes: number;
+  readonly inner?: readonly KernelCapacityLoop[];
+  readonly when?: string;
 }
 
 export interface KernelMade {
