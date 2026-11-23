@@ -167,18 +167,81 @@ export function containsPart(e: ts.Node, part: (e: ts.Expression) => boolean): b
 
 const PEER_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
   ...[ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.AsteriskToken],
+  ...[ts.SyntaxKind.SlashToken, ts.SyntaxKind.PercentToken],
   ...[ts.SyntaxKind.BarToken, ts.SyntaxKind.AmpersandToken, ts.SyntaxKind.CaretToken],
   ...[ts.SyntaxKind.LessThanToken, ts.SyntaxKind.LessThanEqualsToken],
   ...[ts.SyntaxKind.GreaterThanToken, ts.SyntaxKind.GreaterThanEqualsToken],
   ...[ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken],
 ]);
 
+const JOINED_BOTH: ReadonlySet<ts.SyntaxKind> = new Set([
+  ...[ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.AsteriskToken],
+  ...[ts.SyntaxKind.SlashToken, ts.SyntaxKind.PercentToken],
+  ...[ts.SyntaxKind.BarToken, ts.SyntaxKind.AmpersandToken, ts.SyntaxKind.CaretToken],
+]);
+
+const JOINED_LEFT: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.LessThanLessThanToken,
+  ts.SyntaxKind.GreaterThanGreaterThanToken,
+]);
+
+const STORE_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ...[ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.MinusEqualsToken],
+  ...[ts.SyntaxKind.AsteriskEqualsToken, ts.SyntaxKind.BarEqualsToken],
+  ...[ts.SyntaxKind.AmpersandEqualsToken, ts.SyntaxKind.CaretEqualsToken],
+]);
+
+function isSelectCall(n: ts.Node): n is ts.CallExpression {
+  return (
+    ts.isCallExpression(n) &&
+    ts.isIdentifier(n.expression) &&
+    n.expression.text === 'select' &&
+    n.arguments.length === 3
+  );
+}
+
+/** The identifiers whose value an expression takes on as its own: itself, an operand of an
+ *  arithmetic or bit operator, the value shifted, an arm of `?:` and a value argument of
+ *  `select`. A call, a comparison and an index take no operand's value. */
+export function joinedIdentifiers(e: ts.Expression): ts.Identifier[] {
+  const n = skipParenNodes(e);
+  if (ts.isIdentifier(n)) return [n];
+  if (
+    ts.isPrefixUnaryExpression(n) &&
+    (n.operator === ts.SyntaxKind.MinusToken || n.operator === ts.SyntaxKind.TildeToken)
+  ) {
+    return joinedIdentifiers(n.operand);
+  }
+  if (ts.isBinaryExpression(n)) {
+    const k = n.operatorToken.kind;
+    if (JOINED_LEFT.has(k)) return joinedIdentifiers(n.left);
+    return JOINED_BOTH.has(k) ? [...joinedIdentifiers(n.left), ...joinedIdentifiers(n.right)] : [];
+  }
+  if (ts.isConditionalExpression(n)) {
+    return [...joinedIdentifiers(n.whenTrue), ...joinedIdentifiers(n.whenFalse)];
+  }
+  return isSelectCall(n)
+    ? [...joinedIdentifiers(n.arguments[0]!), ...joinedIdentifiers(n.arguments[1]!)]
+    : [];
+}
+
+/** The pairs of an identifier and the expression it is joined to: the operands of an operator
+ *  that types both alike, the two sides of a store, and the arms of `?:` and `select`. */
 export function peerOperands(n: ts.Node): (readonly [ts.Identifier, ts.Expression])[] {
-  if (!ts.isBinaryExpression(n) || !PEER_OPERATORS.has(n.operatorToken.kind)) return [];
-  const [l, r] = [skipParenNodes(n.left), skipParenNodes(n.right)];
+  let sides: readonly [ts.Expression, ts.Expression] | undefined;
+  if (ts.isBinaryExpression(n)) {
+    const k = n.operatorToken.kind;
+    if (PEER_OPERATORS.has(k) || STORE_OPERATORS.has(k)) sides = [n.left, n.right];
+  } else if (ts.isConditionalExpression(n)) {
+    sides = [n.whenTrue, n.whenFalse];
+  } else if (isSelectCall(n)) {
+    sides = [n.arguments[0]!, n.arguments[1]!];
+  }
+  if (sides === undefined) return [];
+  const [l, r] = [skipParenNodes(sides[0]), skipParenNodes(sides[1])];
   return [
-    ...(ts.isIdentifier(l) && !ts.isNumericLiteral(r) ? [[l, r] as const] : []),
-    ...(ts.isIdentifier(r) && !ts.isNumericLiteral(l) ? [[r, l] as const] : []),
+    ...(ts.isNumericLiteral(r) ? [] : joinedIdentifiers(l).map((id) => [id, r] as const)),
+    ...(ts.isNumericLiteral(l) ? [] : joinedIdentifiers(r).map((id) => [id, l] as const)),
   ];
 }
 
