@@ -1,7 +1,7 @@
 ---
 id: '0144'
 title: An array whose length is known only when the call runs gets its storage from one memory the compiler owns, the arena, which WebGPU and WebAssembly hold in the same layout
-status: draft
+status: accepted
 rules:
   - '1.5'
   - '6.8'
@@ -36,11 +36,11 @@ downstream:
 
 | Field                         | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0144, status `draft`. It is plan unit S3 of `docs/typeshade-plan.md`, "the memory and thread contract", with one stage for each of the plan units A1, A2 and A3. That split departs from proposal 0100, decision D4 (deviation DV1, question Q5).                                                                                                                                                                                                                                                                                                 |
-| Date and attribution          | 2026-11-23, UTC (the container's clock). The date is the drafting date. An AI agent session (Claude Code) drafted the text at the request of the session that works for the repository owner. An independent agent review read it at `c722574d` on 2026-11-23, and the same day's revision answers it (Independent review record). The owner has not approved it.                                                                                                                                                                                          |
+| Identity and status           | Proposal 0144, status `accepted` (2026-11-23). It is plan unit S3 of `docs/typeshade-plan.md`, "the memory and thread contract", with one stage for each of the plan units A1, A2 and A3. That split departs from proposal 0100, decision D4 (deviation DV1, question Q5), closed by the owner's answer.                                                                                                                                                                                                                                                   |
+| Date and attribution          | 2026-11-23, UTC (the container's clock). The date is the drafting date. An AI agent session (Claude Code) drafted the text at the request of the session that works for the repository owner. An independent agent review read it at `c722574d` on 2026-11-23, and the same day's revision answers it (Independent review record). The owner approved it on 2026-11-23 (Owner's answers).                                                                                                                                                                  |
 | Applicability / Effectivity   | The call layer (`src/core/host-kernel.ts`, `src/core/host-entry.ts`, `src/core/resident.ts`), the kernel lowering (`src/core/passes/kernel-lower.ts`, `src/core/passes/kernel-lower-ir.ts`), the reflection and the manifest (`src/core/reflect.ts`, `src/core/manifest-types.ts`, `src/core/manifest.ts`), the program runtime (`src/runtime/program.ts`, `src/runtime/runtime.ts`), the region (`src/runtime/region.ts`), and the WebAssembly tier of proposal 0042 when it exists. No release version is assigned. TypeShade has no release yet (OD-6). |
 | Review baseline               | `origin/main` at `4f789240` (merge of #1398, "Order the run-time heap in the plan after OD-10").                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Review and revision authority | PR #1400 (draft) carries this proposal. Git records the revisions of this file. The review and merge records of the proposal-only pull request will record the decisions.                                                                                                                                                                                                                                                                                                                                                                                  |
+| Review and revision authority | PR #1400 carries this proposal. Git records the revisions of this file. The review and merge records of the proposal-only pull request will record the decisions.                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ## What changes
 
@@ -381,8 +381,8 @@ W9 brings the arena into the shared memory.
 
 **Deviation DV1.** [fact] Proposal 0100, decision D4, gives one proposal for each area, with a
 stage for each unit. This proposal is unit S3 of area S, and it carries the stages of units A1 to
-A3 of area A. Unit A4 of area A stays out (C10). Disposition: open, until the owner answers
-question Q5.
+A3 of area A. Unit A4 of area A stays out (C10). Disposition: closed. The owner answered question Q5 with (A) on
+2026-11-23.
 
 ### 5. Exclusions
 
@@ -476,6 +476,21 @@ It changes these accepted decisions, and it says so:
   and question Q5.
 
 ## Questions for the owner
+
+### Owner's answers
+
+[decision] On 2026-11-23 the owner chose the recommendation of each question, in the words
+"추천대로 기록 후 병합" (record as recommended, then merge):
+
+| Question | Answer | Effect on the text                                                                                                                                                                  |
+| -------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Q1       | (A)    | The arena is one opaque binding in `reflect()` and the manifest. Its record shows the header words of C3. Rule 11.10 gains the sentence that Q1 (A) names.                          |
+| Q2       | (A)    | C8 holds as written: one run again with the arena grown, then the next tier.                                                                                                        |
+| Q3       | (A)    | The order of 2026-11-18 holds. The plan's row of S3 changes to "none" and names the region of 0138 (R17, Amendment A4). W9 moves after A1.                                          |
+| Q4       | (C)    | C1's one arena for each owner and target can span more than one binding. The compiler binds it only for a function that uses it. The runtime requests the adapter's largest limits. |
+| Q5       | (A)    | This proposal keeps the stages A1 to A3. A4 gets a later proposal of area A. Deviation DV1 is closed.                                                                               |
+
+The questions below keep their text as the owner read it.
 
 **Q1. How much of the arena do `reflect()` and the manifest show? (two rules point different
 ways)**
@@ -674,15 +689,17 @@ Each measurement names its device and commit when it runs. None has run.
 | 13  | WebGL2 does not fit C1 to C5: it writes through transform feedback, and C3's header is neither atomic nor single-threaded there.                                                                       | `src/core/gl-compute.ts` (the execution model); `PackGlCompute` in `src/core/manifest-types.ts`; `src/core/passes/kernel-lower-gl.ts`.                                                | Applied, with one correction. WebGL2 has no writable texture binding and writes through the record, as the finding says. It does perform atomics, on the host in invocation index order, and it holds barriers between passes. Section 1 states this, and a table in section 2 lists the clauses WebGL2 follows. |
 | 14  | Statements marked [fact] that say "not verified" are assumptions; record the language service run.                                                                                                     | Section 1; C3.                                                                                                                                                                        | Applied. Those statements are [assumption]. Section 1 records the `bothHalves` run, which this session repeated on 2026-11-23 at `c722574d` with Bun 1.4.4 and the same result.                                                                                                                                  |
 
-No finding was rejected. Finding 13 was corrected in one point. Findings 7 and 9 wait for the owner's answers to Q4 and Q5.
+No finding was rejected. Finding 13 was corrected in one point. The owner answered Q4 with (C) and Q5 with (A) on 2026-11-23, which closes findings 7 and 9.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require: the owner's answers to Q1 to Q5 and
-their dates; the independent review record with every finding answered; the disposition of
-deviation DV1; the merge of the proposal-only pull request with `status: accepted`; and the
-plan's rows of S3, A1, A3 and W9 written again as the answers give them. No responsibility or
-milestone date is assigned.
+- [decision] The owner answered Q1 to Q5 on 2026-11-23 (Owner's answers), and told the session to
+  merge PR #1400 the same day ("병합"). That go-ahead is the review of this proposal-only pull
+  request.
+- [fact] The independent review record answers every finding. Deviation DV1 is closed.
+- [proposal] The plan's rows of S3, A1, A3 and W9 are written again as the answers give them, in
+  a documentation pull request of its own after this merge. No responsibility or milestone date is
+  assigned.
 
 ### Configuration and validation record
 
