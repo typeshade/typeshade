@@ -157,7 +157,7 @@ interface Two { a: location<0, vec4>; b: location<1, vec4>; }
 
   it('says which tiers an entry has, and why not the others', () => {
     expect(fragmentOf(f.exports, 'stored').entry.noGl).toBe(
-      'it reaches the storage binding "data", and GLSL ES 3.00 has no storage buffer',
+      'it reaches the storage binding "data", and the WebGL2 tier does not support a storage binding in a draw yet',
     );
     const plain = face(`"use typeshade";
 declare const k: uniform<f32>;

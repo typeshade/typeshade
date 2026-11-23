@@ -1261,7 +1261,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
       'an entry call takes { indirect, offset? }, the counts a Buffer<u32> holds (change 0075); the program runtime takes no indirect count yet, so a host cannot issue an indirect dispatch of a runtime program (#540)',
     ),
     webgl2: na(
-      'WebGPU indirect dispatch; WebGL2 has no compute shader, so it has no indirect dispatch',
+      'WebGPU indirect dispatch; WebGL2 has no such call to cover, and an entry call there reads its indirect counts from the host copy (change 0075, Rule 11.8)',
     ),
   },
   {

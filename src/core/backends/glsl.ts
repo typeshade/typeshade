@@ -286,8 +286,8 @@ function glslLit(value: number | boolean, t: ShaderType): string {
 
 /** A module variable as a GLSL ES 3.00 global. A private variable is a plain global, which
  *  GLSL ES 3.00 gives every invocation its own copy of, so `var<private>` is portable;
- *  workgroup memory has no WebGL2 form (roadmap 0.2 item 5), and a module that declares some
- *  is WebGPU-only.
+ *  workgroup memory has no GLSL ES 3.00 form, so this writer refuses a module that declares some.
+ *  A `@compute` entry that uses it runs on WebGL2 as its pass program (Rule 11.8, change 0054).
  *
  *  A variable with no initializer is written with its zero. The IR starts it at zero
  *  ({@link ModuleVarDecl}), and so do WGSL and both CPU backends, but GLSL ES 3.00 §4.3 lets a
@@ -296,7 +296,7 @@ function glslLit(value: number | boolean, t: ShaderType): string {
 function glslModuleVar(v: ModuleVarDecl, structs?: ReadonlyMap<string, StructDecl>): string {
   if (v.space === 'workgroup')
     throw new UnsupportedFeatureError(
-      `glsl-es300: var<workgroup> ${v.name} has no GLSL ES 3.00 form (WebGL2 has no workgroup memory); the module is WebGPU-only`,
+      `glsl-es300: var<workgroup> ${v.name} has no GLSL ES 3.00 form; a @compute entry that uses it runs on WebGL2 as its pass program (Rule 11.8)`,
     );
   const type = glslType(v.type);
   const init = v.init ? emitExprNeutral(v.init, glslEs300Backend) : glslZero(v.type, structs);
