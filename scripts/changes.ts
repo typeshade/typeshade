@@ -15,8 +15,9 @@
 //   visible   changes what a repository downstream shows or checks: a numbered section of
 //             docs/use-typeshade-surface.md, a diagnostic code (added, removed or renumbered in
 //             src/compiler/ts/codes.ts or src/core/diagnostics/codes.ts), or the set of
-//             `examples/*.shade.ts` and `examples/hosts/<id>/<id>.shade.ts` files
-//             the site's gallery and the Playground list one by one
+//             `examples/*.shade.ts`, `examples/hosts/<id>/<id>.shade.ts` and
+//             `examples/path/<id>/<id>.shade.ts` files the site's gallery and the Playground
+//             list one by one
 //   names     adds an author-facing name to src/__api__/author-names.md, the snapshot of every
 //             name a `"use typeshade"` file can write (docs/language-design.md §2.1), baked and
 //             held by src/author-names.test.ts. A removed name needs no proposal: it is reported,
@@ -416,10 +417,11 @@ export function touchedBy(diff: Diff): Touched {
   for (const [name, code] of codesBefore) if (codesAfter.get(name) !== code) codes.add(code);
   for (const [name, code] of codesAfter) if (codesBefore.get(name) !== code) codes.add(code);
 
-  // Match the corpus: a top-level shader, or the host directory's namesake shader.
+  // Match the corpus: a top-level shader, or the namesake shader of a host directory or of a
+  // learning-path directory (change 0145).
   const exampleId = (file: string): string | undefined =>
     /^examples\/([\w-]+)\.shade\.ts$/.exec(file)?.[1] ??
-    /^examples\/hosts\/([\w-]+)\/\1\.shade\.ts$/.exec(file)?.[1];
+    /^examples\/(?:hosts|path)\/([\w-]+)\/\1\.shade\.ts$/.exec(file)?.[1];
   const examples = new Set<string>();
   const addExample = (file: string): void => {
     const id = exampleId(file);

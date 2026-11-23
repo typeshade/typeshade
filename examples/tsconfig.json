@@ -34,5 +34,5 @@
   // one of them and pins its emits.
   // The host files and their driver are the project of `hosts/tsconfig.json`, which resolves
   // `./name.shade.ts` to its host view as an application does (change 0061).
-  "exclude": ["**/*.shade.ts", "hosts/*/*.ts", "hosts/_drive.ts"]
+  "exclude": ["**/*.shade.ts", "hosts/*/*.ts", "hosts/_drive.ts", "path/*/*.ts", "path/_drive.ts"]
 }

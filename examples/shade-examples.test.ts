@@ -37,6 +37,7 @@ import {
   SHADE_EXT,
   SHADE_FILES,
   HOSTS_DIR,
+  PATH_DIR,
   SHADE_REFUSALS,
   SHADE_TWINS,
   NO_ENTRY_POINT,
@@ -57,6 +58,10 @@ const onDisk = [
   // A host example's module (change 0061): `hosts/<id>/<id>.shade.ts`, read here without the
   // scanner's own list, so a scanner that skipped one would show up below.
   ...readdirSync(join(HERE, 'hosts'), { recursive: true, encoding: 'utf8' })
+    .filter((f) => f.endsWith(SHADE_EXT))
+    .map((f) => f.split(/[\\/]/).pop()!),
+  // A learning-path step's module (change 0145): `path/<id>/<id>.shade.ts`.
+  ...readdirSync(join(HERE, PATH_DIR), { recursive: true, encoding: 'utf8' })
     .filter((f) => f.endsWith(SHADE_EXT))
     .map((f) => f.split(/[\\/]/).pop()!),
 ]
@@ -145,7 +150,9 @@ describe('"use typeshade" examples — the directory and the registry agree', ()
       expect(ex.file, ex.id).toBe(
         SHADE_FILES.get(ex.id)?.startsWith(`${HOSTS_DIR}/`)
           ? `${HOSTS_DIR}/${ex.id}/${ex.id}${SHADE_EXT}`
-          : `${ex.id}${SHADE_EXT}`,
+          : SHADE_FILES.get(ex.id)?.startsWith(`${PATH_DIR}/`)
+            ? `${PATH_DIR}/${ex.id}/${ex.id}${SHADE_EXT}`
+            : `${ex.id}${SHADE_EXT}`,
       );
   });
 
