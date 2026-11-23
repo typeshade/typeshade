@@ -723,6 +723,30 @@ const img: Float32Array = await render(k, 512);
   Rule 8.23 and surface §65 are declared.
 - Status: `status: accepted` does not change. S5d: not started.
 
+### A7. The deviations of S5d (2026-11-18)
+
+- [fact] Why. S5d (pull request #1385, merged as `9aa51e4`) differs from A6 in three places, each
+  recorded on #1385 as an open deviation.
+- [decision, owner, 2026-11-23] "승인", to the agent's recommendation to make all three part of
+  the approved text. Each is a "not supported yet" refusal (`TS8099`, both halves; OD-9), to be
+  implemented in a later slice.
+
+1. **An element read or write of the grown array.** A6 item 1 carried over A1 item 5 ("its loops
+   read and write it"). JavaScript extends an array on a write past its length, and the number
+   pushed is known only after the run, so `out[i]` on an array the function grows is refused:
+   `"out[0]" reads an element of "out", the array "f" grows with push, and that is not supported
+yet. Push onto it in a loop, read its length, and return it.`
+2. **A push in a loop inside a loop.** A6 names the candidate loops, the `for` and `for…of`
+   loops at the top level of the body (Rule 8.22). A push in a loop nested in one, in a `while`
+   or in a loop under a branch is refused: `"out.push(1.)" pushes onto "out" inside "<loop>",
+which is no for loop at the top level of "f", and that is not supported yet. …`
+3. **A loop with an `f32` counter.** Its trip count is no count from a start to a bound by a
+   constant whole step, so the capacity cannot be computed; it is refused with A6 item 5's
+   sentence for a loop that is not counted.
+
+- Affects: section 2 (S5d items 1 and 5). No front-matter entry, rule number or code changes.
+- Status: `status: accepted` does not change. S5d: done (#1385), with these three forms open.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`
