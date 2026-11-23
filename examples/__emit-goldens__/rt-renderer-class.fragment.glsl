@@ -389,19 +389,25 @@ void main() {
   _i20_self_.scene = scene;
   Renderer renderer = _i20_self_;
   vec3 color = _cse1;
+  vec3 _licm8 = normalize((camera.lookAt - camera.position));
+  float _licm9 = tan((camera.fov * 0.5));
+  vec2 _licm10 = (((_licm0 * 0.5) + _licm3) * _licm1);
+  float _licm11 = (_licm2 * 0.71);
+  float _licm12 = (_licm2 * 1.17);
+  vec3 _licm13 = normalize(cross(_licm8, _licm6));
+  float _licm14 = (_licm2 * 11.3);
+  float _licm15 = (dot(_licm10, _licm4) + _licm11);
+  float _licm16 = (dot(_licm10, _licm5) + _licm12);
+  vec3 _licm17 = cross(_licm13, _licm8);
+  float _licm18 = (dot(_licm10, _licm7) + _licm14);
   for (int sample_ = 0; (sample_ < SAMPLES_PER_PIXEL); sample_ = (sample_ + 1)) {
-    vec2 _i24_pixel = (((_licm0 * 0.5) + _licm3) * _licm1);
     float _gv0 = float(sample_);
-    vec2 _i24_jitter = vec2((fract((sin(((dot(_i24_pixel, _licm4) + (_licm2 * 0.71)) + (_gv0 * 19.17))) * 43758.5453123)) - 0.5), (fract((sin(((dot(_i24_pixel, _licm5) + (_licm2 * 1.17)) + (_gv0 * 7.91))) * 43758.5453123)) - 0.5));
+    vec2 _i24_jitter = vec2((fract((sin((_licm15 + (_gv0 * 19.17))) * 43758.5453123)) - 0.5), (fract((sin((_licm16 + (_gv0 * 7.91))) * 43758.5453123)) - 0.5));
     vec2 _i24_sampleNdc = (_licm0 + vec2(((_i24_jitter.x * 2.0) / _licm1.x), ((_i24_jitter.y * 2.0) / _licm1.y)));
     float _gv1 = ((_i24_sampleNdc.x * _licm1.x) / _licm1.y);
-    vec3 _i24_forward = normalize((camera.lookAt - camera.position));
-    vec3 _i24_right = normalize(cross(_i24_forward, _licm6));
-    vec3 _i24_up = cross(_i24_right, _i24_forward);
-    float _i24_scale = tan((camera.fov * 0.5));
-    vec3 _i24_direction = normalize(((_i24_forward + ((_i24_right * _gv1) * _i24_scale)) + ((_i24_up * _i24_sampleNdc.y) * _i24_scale)));
+    vec3 _i24_direction = normalize(((_licm8 + ((_licm13 * _gv1) * _licm9)) + ((_licm17 * _i24_sampleNdc.y) * _licm9)));
     Ray _i24_ret = Ray_new(camera.position, _i24_direction);
-    float _i24_seed = ((dot(_i24_pixel, _licm7) + (_licm2 * 11.3)) + (_gv0 * 3.7));
+    float _i24_seed = (_licm18 + (_gv0 * 3.7));
     vec3 _i24ret = Renderer_trace(renderer, _i24_ret, _i24_seed);
     color += _i24ret;
   }
