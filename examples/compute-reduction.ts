@@ -5,9 +5,10 @@
 // (read + read_write), a uniform count, a `@workgroup_size` compute entry, and the
 // `reduce()` loop-fold combinator. Emits WGSL + the std430 storage layouts.
 //
-// NOT WebGL2-renderable (`renderable: false`): GLSL ES 3.00 has no compute / SSBO, so the
-// GLSL backend fails-closed on this module. The site shows its WGSL + Reflection only —
-// this is the WebGPU/compute face of the same DSL.
+// Not drawn on the site's WebGL2 canvas (`renderable: false`): it is a compute kernel, and GLSL
+// ES 3.00 has no compute stage, so the GLSL backend emits no text for this module. The site
+// shows its WGSL + Reflection only. This says nothing of the WebGL2 tier, which runs a compute
+// entry as a pass program (Rule 11.8).
 
 import {
   fn,
@@ -69,7 +70,7 @@ export const computeReduction: ShaderExample = {
   id: 'compute-reduction',
   title: 'Compute reduction',
   blurb:
-    'A @workgroup_size compute kernel folding a window of an input storage buffer into one output element with reduce(). WebGPU-only — GLSL ES 3.00 has no compute, so this shows WGSL + reflection.',
+    'A @workgroup_size compute kernel folding a window of an input storage buffer into one output element with reduce(). GLSL ES 3.00 has no compute stage, so this shows WGSL + reflection.',
   category: 'compute',
   file: 'compute-reduction.ts',
   module: reductionModule,

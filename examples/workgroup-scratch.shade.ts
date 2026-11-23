@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Workgroup scratch memory",
-  "blurb": "`let tile: workgroup<array<f32, 64>>` is WGSL's `var<workgroup>`, one copy per workgroup its invocations share, here as scratch each invocation owns a slot of, beside a workgroup array of atomics and a per-invocation counter (§24). WGSL-only: WebGL2 has no compute stage and no workgroup memory.",
+  "blurb": "`let tile: workgroup<array<f32, 64>>` is WGSL's `var<workgroup>`, one copy per workgroup its invocations share, here as scratch each invocation owns a slot of, beside a workgroup array of atomics and a per-invocation counter (§24). `compile()` emits WGSL and no GLSL text for it; on WebGL2 the entry runs as a pass program, with its workgroup memory as words (Rule 11.8).",
   "renderable": false,
   "reason": "missing capabilities: storageBuffer, compute"
 }
@@ -17,8 +17,9 @@
 // another's slot, is the next step of #82; without one each invocation touches only its own
 // slot.
 //
-// GLSL ES 3.00 has no workgroup memory (WebGL2 has no compute stage), so like `array-length`
-// this module is WGSL-only.
+// GLSL ES 3.00 has no compute stage, so `compile()` emits WGSL and no GLSL text for this
+// module. The WebGL2 tier still runs the entry, as a pass program with its workgroup memory as
+// words (Rule 11.8, change 0054).
 
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;

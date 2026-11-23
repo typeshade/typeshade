@@ -21,21 +21,22 @@ export const HOST_ORDER: readonly {
 }[] = [
   { id: 'host-draw', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'host-compute', tiers: ['webgpu', 'webgl2', 'cpu'] },
-  // Not WebGL2: `peak` reduces, and the WebGL2 tier does not support a reduction in a kernel
-  // function yet (Rule 11.8), so with WebGL2 alone the call is refused ("loop 1 reduces, which
-  // the WebGL2 tier does not support yet (Rule 11.8)"). Where WebGPU is absent, `exposure` runs on WebGL2 and `peak` on the CPU tier.
+  // Not WebGL2 yet: `peak` reduces, and the WebGL2 tier runs a kernel loop only when it writes one
+  // array at exactly `i` (Rule 11.8). With WebGL2 alone the call is refused ("loop 1 reduces,
+  // which the WebGL2 tier does not support yet (Rule 11.8)"). Where WebGPU is absent, `exposure`
+  // runs on WebGL2 and `peak` on the CPU tier.
   { id: 'host-kernel', tiers: ['webgpu', 'cpu'] },
-  // Not WebGL2, for the same reason: `sum` reduces.
+  // Not WebGL2 yet, for the same reason: `sum` reduces.
   { id: 'host-resident', tiers: ['webgpu', 'cpu'] },
   { id: 'host-helper', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'string-keys-record', tiers: ['webgpu', 'webgl2', 'cpu'] },
   // The program runtime runs on WebGPU and WebGL2; the CPU tier is the call layer's (surface §69).
   { id: 'host-program', tiers: ['webgpu', 'webgl2'] },
   // Fuses on WebGPU alone; on the CPU tier each call runs on its own, with the same result
-  // (change 0058). Not WebGL2, for the reason `host-kernel` gives: the third scope ends in
+  // (change 0058). Not WebGL2 yet, for the reason `host-kernel` gives: the third scope ends in
   // `total`, which reduces, and with WebGL2 alone that call is refused.
   { id: 'loop-fuse', tiers: ['webgpu', 'cpu'] },
-  // Not WebGL2: it has no atomics, and runs no kernel function that takes a Map or a Set
-  // (change 0080).
+  // Not WebGL2 yet: the WebGL2 tier runs no kernel function that takes a Map or a Set
+  // (Rule 11.8, change 0080). That is work not done yet, not a limit of WebGL2.
   { id: 'host-set-unique', tiers: ['webgpu', 'cpu'] },
 ];

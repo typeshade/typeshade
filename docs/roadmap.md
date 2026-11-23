@@ -76,7 +76,9 @@ block real shaders, and correctness bugs in what already compiles come before ne
 feature that one target has no spelling for (atomics, workgroup memory, storage textures on
 GLSL ES 3.00) is accepted by the front end, emitted for the target that has it, and reported
 as a target diagnostic by the one that does not. That is the rule the compile gate already
-follows: an example can be WGSL-only, and the gate says so, and nothing crashes.
+follows: an example can have WGSL text and no GLSL text, and the gate says so, and nothing
+crashes. A missing GLSL spelling is not a missing WebGL2 tier: the WebGL2 tier runs a compute
+entry as a pass program (Rule 11.8).
 
 **The run layer has no import.** A `.shade.ts` module imported from a `.ts` file exports the
 names it declares, and calling one is the whole API: a helper runs on the CPU as the function
@@ -315,8 +317,8 @@ call faster without changing it.
 
 Items 1 to 3 are first because they are small and because everything with a side effect
 (atomics, barriers, `textureStore`, `console.log`) lands on the call statement. Items 4 to 6
-are the constructs a compute shader cannot do without, and they are the first WebGPU-only
-surface, so they also set the rule for target diagnostics; they are also what a reduction
+are the constructs a compute shader cannot do without, and they are the first surface
+with WGSL text and no GLSL text, so they also set the rule for target diagnostics; they are also what a reduction
 loop lowers to, so 15 depends on them. The TypeScript surface comes next, ahead of textures, because it is the
 first rule applied to what the language already has rather than to what it lacks: every one of
 its items is a construct a developer writes on their first afternoon, and each week it is not

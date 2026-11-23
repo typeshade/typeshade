@@ -870,7 +870,7 @@ decides. A9's disposition is closed.
   a call on a resource done (#1411), with A10's five forms refused; the WebGL2 tier done (#1418);
   the WebAssembly tier not started.
 
-### A12. The forms A7 left refused: an element of a grown array, a push in a nested or open loop, and a loop with an `f32` counter (draft, 2026-11-23)
+### A12. The forms A7 left refused: an element of a grown array, a push in a nested or open loop, and a loop with an `f32` counter (2026-11-23)
 
 - [fact] Status of this amendment: draft. Questions Q1 and Q2 below are the owner's. The owner
   answered both on 2026-11-23 against the draft's text (section 9). Q2 is decided: (A). Q1 is
@@ -1427,6 +1427,41 @@ Each runs on the CPU tier only (section 1, item 4.1).
 - Status: `status: accepted` does not change. A12: reviewed, Q1 decided (C), Q2 decided (A). The
   capacity bug fix: done (#1426, `e73d0464`). S5d slice 2: in progress (#1431): form 1 and Q1 (C)
   first; form 2 on Routes 1 and 2 next. S5d slice 3: not started.
+
+### A13. The deviations of S5d slice 2, part 1 (2026-11-23)
+
+- [fact] Why. Pull request #1431 (merged as `579c6d1`) delivers form 1 of A12 and Q1 (C). It
+  differs from A12 in four places, each recorded on #1431 as an open deviation.
+- [fact] This amendment records them. It decides nothing. Each stays open until the owner decides
+  it, or a later slice closes it.
+
+1. **D1. A store after the loops.** A12, section 2, item 6, runs a store after the loops on
+   WebGPU, with a journey case (test 8). An index after the loops is never proved below the length,
+   so the store runs on the CPU tier with the check of Q1 (C). The journey case is not added.
+2. **D2. The reason for an unproved write.** A12, section 2, item 5, asks that `TS8070` name an
+   unproved write in a later loop. No `TS8070` is added. The function's `noGpu` reason names the
+   access instead.
+3. **D3. A negative index.** A12 gives no `RangeError` sentence for a negative index. The
+   implementation uses the read and write sentences, which say "past the length".
+4. **D4. Two `TS8099` sentences.** A12 does not word two refusals: an unproved write in a loop that
+   is no `for` at the top level, and a loop whose only push is such a write. The implementation
+   words them in the style of A7.
+
+- [fact] Form 3 (a loop with an `f32` counter) is not in #1431. With Q2 decided (A), A12 sends it to
+  Route 3, which is slice 3. This follows A12; it is no deviation.
+  **A10 item 2.4 decided.** A10 refuses a call on a resource that also writes a plain array, because
+  change 0138, Amendment A11, Q7 and A1 item 7 point different ways.
+
+- [decision, owner, 2026-11-23] The agent recommended 0138's Q7, and the owner chose it: "0138 Q7:
+  일반 데이터". Such a call waits, and its promise gives the made array as plain data (the typed
+  array or the array of objects of A1 item 6), not a `Buffer`. A call on a resource that does not
+  wait still gives a new `Buffer` (A1 item 7).
+- [fact] The refusal of A10 item 2.4 stays until an implementing pull request lands this.
+
+- Affects: section 2 (S5 item 7, S5d items 5 and 6). No front-matter entry, rule number or code
+  changes.
+- Status: `status: accepted` does not change. A12's heading no longer says "draft". S5d slice 2:
+  form 1 and Q1 (C) done (#1431); form 2 on Routes 1 and 2 not started. S5d slice 3 (Route 3, form 3) not started.
 
 ## What it owes downstream
 

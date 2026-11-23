@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Workgroup reduction",
-  "blurb": "64 invocations sum 64 values into one through workgroup memory, with `workgroupBarrier()` ordering the rounds (§25). On the CPU it runs through `dispatch`, which holds every invocation of a workgroup at each barrier; a workgroup whose invocations disagree about a barrier is refused with the line and the counts. WGSL-only: WebGL2 has no compute stage.",
+  "blurb": "64 invocations sum 64 values into one through workgroup memory, with `workgroupBarrier()` ordering the rounds (§25). On the CPU it runs through `dispatch`, which holds every invocation of a workgroup at each barrier; a workgroup whose invocations disagree about a barrier is refused with the line and the counts. `compile()` emits WGSL and no GLSL text for it; on WebGL2 the entry runs as a pass program (Rule 11.8).",
   "renderable": false,
   "reason": "missing capabilities: storageBuffer, compute"
 }
@@ -19,7 +19,8 @@
 // On the CPU this needs `dispatch(entry, workgroups)`: the oracle runs one invocation per call
 // otherwise, and a barrier has no one to wait for there. `dispatch` runs each workgroup's
 // invocations in lockstep at every barrier, and refuses a workgroup whose invocations do not
-// all reach it. WGSL-only: WebGL2 has no compute stage.
+// all reach it. `compile()` emits WGSL and no GLSL text; the WebGL2 tier runs the entry as a pass
+// program (Rule 11.8).
 
 declare const src: storage<array<f32>>;
 declare const sums: storage<array<f32>, "read_write">;
