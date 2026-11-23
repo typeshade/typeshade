@@ -710,6 +710,29 @@ gate green on the implementing head; the measurements of its stage with device a
 `python scripts/doorstop-check.py -C` clean; and the document audit that the rule text, the
 surface sections and the plan's rows match the delivered configuration.
 
+## Amendments
+
+### A1. C11 item 1's inference is false on WebGPU and WebGL2 (2026-11-23)
+
+- [fact] Why. The independent review of change 0114, Amendment A12 (finding B2, 2026-11-23) read
+  the call layer. C11 item 1 and the "Assumptions" section infer that a call with plain data writes
+  the caller's array only when it copies the results back. That holds on the CPU tier only.
+- [fact] Evidence, at `main` `747e8637`:
+  - WebGPU: `onDevice` flushes after each loop and after the finish entry
+    (`src/core/host-kernel.ts`), and `DispatchBatch.flush` reads each storage binding back into
+    the caller's value in place (`src/core/host-entry.ts`). With two loops, loop 1's writes reach
+    the caller's arrays before loop 2 runs.
+  - WebGL2: `onWebgl2` writes into the caller's array after each draw
+    (`src/core/host-kernel-gl.ts`).
+  - The CPU tier works on copies and writes back after the function returns.
+- [proposal] So C11 item 1 reads, from this amendment: a call with plain data restores the caller's
+  arrays from a copy taken before its first run, or defers every loop's copy-back to the end of the
+  call. Stage A3 chooses one and measures it (M4). Item 3's proof that skips the copy still applies.
+- [fact] This amendment corrects an inference. It changes no clause's intent, no stage and no
+  front-matter entry. Change 0114, Amendment A12, Q1 (C) already runs its checked accesses on the
+  CPU tier for this reason.
+- Status: `status: accepted` does not change.
+
 ## What it owes downstream
 
 - **typeshade.github.io.** The pages for host calls, kernel functions, `fuse` and the runtime, in
