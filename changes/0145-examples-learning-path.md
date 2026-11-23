@@ -548,6 +548,38 @@ with its disposition; and the pending work.
 | D-3. `examples/index.ts` names the generator scripts/gen-example-registry.ts, which does not exist, so `pathExamples` was added by hand.                                                                   | Open. A later pull request restores the generator or the text.     |
 | D-4. Steps 1 to 4 also use `abs`, `max`, `sin`, `const` locals and swizzles, which the path table does not list.                                                                                           | Open. The path table is amended to list them.                      |
 
+**M2, delivered.** Pull request #1429, merged on 2026-11-23 as `7cc11705`, under the owner's
+go-ahead of that day for every pull request until 24:00 KST ("12시까지 모두 자동 진행 승인").
+
+- Delivered: steps 5 to 8 (`tile-pattern`, `fractal`, `palette`, `bouncing-balls`) with their
+  references, drives and four emit goldens.
+- [fact] Checks: `bun run gate:compile` (215 examples, 0 failures), `bun run bake:goldens`,
+  `examples/path-examples.test.ts` (32 tests: both halves, each `run()` on the CPU tier, `tsc` on
+  the hosts). Every check of the head `7a42dff5` was green, the four required checks included.
+- Not run: a WebGPU or WebGL2 page.
+
+**M3, delivered.** Pull request #1430, merged on 2026-11-23 as `4d2ca1aa`, under the same
+go-ahead.
+
+- Delivered: steps 12 to 15 and 17 (`double-array`, `image-blur`, `parallel-sum`, `histogram`,
+  `ray-tracer`) with their references, drives and five emit goldens.
+- [fact] Checks: `bun run gate:compile` (220 examples, 0 failures), `bun run bake:goldens` (368
+  tests), `npx vitest run examples` and the policy tests (1342 tests). Every check of the head
+  `233906c3` was green, the four required checks included.
+- Not run: a WebGPU or WebGL2 page. The WebGL2 entries of `examples/path/_order.ts` rest on
+  Rule 11.8 and change 0054, not on a run.
+- [fact] The first M3 commit listed no WebGL2 for `parallel-sum` and `histogram`, on the ground
+  that WebGL2 has no workgroup memory and no atomics. That was wrong: the pass program of change
+  0054 runs both. Commit `233906c3` corrected it before the merge, and OD-11 now records the
+  owner's decision against that reasoning.
+
+| Deviation                                                                                                                                                         | Disposition                                                       |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| D-5. The text says step 8 passes class instances as bindings. Step 8 builds its balls in the fragment entry, so no instance crosses the host boundary.            | Open. The text is amended, or a later step shows a class binding. |
+| D-6. The text leaves the compute host form open. Steps 12 to 15 use `run(args = default): Promise<result>`, which returns an array or a number and draws nothing. | Open. The host form section is amended to name it.                |
+| D-7. `image-blur` blurs a flat `f32` array with a 2D compute entry, not a texture.                                                                                | Open. A texture form follows 0138 milestone 5.                    |
+| D-8. `ray-tracer` offsets its floor checker by 0.31 and 0.17, so no tile edge falls on a pixel centre, where f32 and f64 disagree.                                | Closed. The offset changes no concept the step teaches.           |
+
 ## Open questions for the owner
 
 Each question has a recommended answer. The owner chose every recommended answer on 2026-11-23
