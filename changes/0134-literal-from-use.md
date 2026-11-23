@@ -1259,9 +1259,9 @@ and pull request #1358 (issue #1309, merged as `b9497706`, 2026-11-23). Their re
 choices that this text did not decide. The owner decided each in the Claude Code session, after
 the agent showed the choices, their costs and one example each (`OD-4`). This amendment records
 each decision with the pull request or issue it came from, and its status on `main` at
-`b9497706`, or at `f2dd46a1` and `2c43206b` for the decision on #1363. Where the owner's own words are not
-recorded, the quotation is the agent's English wording of the option the owner chose, as the
-pull request or the issue records it. Each program below is the body of
+`b9497706`, or at `f2dd46a1`, `2c43206b` and `34d65efd` for the decision on #1363. Where the
+owner's own words are not recorded, the quotation is the agent's English wording of the option
+the owner chose, as the pull request or the issue records it. Each program below is the body of
 `export function t(ii: i32, vi: u32, f: f32): f32` unless it names another result, with
 `ii = -3` and `vi = 7`.
 
@@ -1341,18 +1341,25 @@ pull request or the issue records it. Each program below is the body of
     at `2c43206b` both halves refuse it with
     `The compiler cannot prove that the u32 bits and the TypeScript value of "b" agree, so the "/" does not say which value it means. Write "i32(b)" for the i32 value.`
     The edit `i32(i32(b) / 7)` compiles to -306783378, TypeScript's value of the edited program.
-  - Open deviation, issue #1424: a signed `i32` tree whose two readings differ, divided by a
-    typed `i32` operand, gives the wrapped quotient. With result `i32` and `ii = -9`, after
-    `let a = 1 << 30; let b = a + a;`, `return i32(b / ii);` compiles to 238609294. TypeScript
-    gives -238609294. `let r: i32 = b / ii; return r;` gives the same. The issue also covers
-    these programs, after the same two lines:
-    - `let p = 1 << 20; let q = p + p; return i32(b / q);` compiles to -1024, where TypeScript
-      gives 1024.
-    - `let c = 1 << 4; let d = c + c; return i32(b / (d / 4));` is refused with the edit
-      `i32(d) / 4`. The edited program gives -268435456, where TypeScript gives 268435456.
-    - `b /= 7; return b;` is refused with the edit `let b: i32 = a + a`. The edited program
-      gives -306783378, where TypeScript gives 306783378 (a typed `i32` position, issue #1380).
-    - `return b / 7 > 5 ? 1 : 0;` compiles to 0, where TypeScript gives 1.
+  - Issue #1424, implemented by #1427 (merged as `34d65efd`, 2026-11-23). A signed `i32` tree
+    whose two readings differ gave the wrapped answer beside a typed `i32` operand. With result
+    `i32` and `ii = -9`, after `let a = 1 << 30; let b = a + a;`, `return i32(b / ii);` compiled
+    to 238609294 on `main` at `2c43206b`. TypeScript gives -238609294. On `main` at `34d65efd`
+    both halves refuse it with the approved A7 sentence and the edit `i32(b)`. The same refusal
+    covers these programs, after the same two lines:
+    - `return i32(ii / b);` and `let r: i32 = b / ii; return r;`.
+    - `return i32(b % ii);`, and `<`, `>`, `<=`, `>=`, `===` and `!==` between `b` and `ii`.
+    - `let p = 1 << 20; let q = p + p; return i32(b / q);`, a divisor that is an agreeing tree.
+    - `let c = 1 << 4; let d = c + c; return i32(b / (d / 4));` is refused by D-b with no edit.
+  - Open deviation, issue #1416: after the same two lines, a comparison of `b / 7` beside a peer
+    that states no type or an `f32` reads the wrapped quotient. `return b / 7 > 5 ? 1 : 0;` and
+    `return b / 7 > f ? 1 : 0;` compile to 0, where TypeScript gives 1. Issue #1416 reports the
+    same path for a `u32` tree. Beside a typed `i32`, `return b / 7 > ii ? 1 : 0;` is refused.
+  - Open deviation, issue #1380: after the same two lines, a typed `i32` position reads the
+    wrapped value. `b /= 7; return b;` is refused with the edit `let b: i32 = a + a`, and the
+    edited program gives -306783378, where TypeScript gives 306783378. With
+    `function div(x: i32, y: i32) { return x / y; }`, `return div(b, ii);` compiles to
+    238609294, where TypeScript gives -238609294.
   - Open deviation, issue #1416: other D-b quotients of a `u32` tree value are not refused or
     name a wrong edit. After `let c = (3000000000|0); let d = c;`, `return d / 7 > 5 ? 1 : 0;`
     compiles to 1, where TypeScript gives 0. `return u32(d / 7 / 1);` (result `u32`) is refused
@@ -1435,7 +1442,7 @@ pull request or the issue records it. Each program below is the body of
   - one decision that is not implemented: decision (e) (issue #1399);
   - six open deviations: decision (a) (issue #1380), decision (c) (issue #1388), decision (d)
     (issue #1388), the numbers of a refusal sentence (issue #1386), the decisions on #1320
-    (issue #1403), and the decision on #1363 (issues #1416 and #1424).
+    (issue #1403), and the decision on #1363 (issues #1380 and #1416).
 - Affects: the front matter gains Rule 7.4 and surface §22. The decision "TypeScript 값으로"
   makes two sentences false for these quotients: Rule 7.4's rationale and surface §22 say that a
   divisor that is zero at run time gives WGSL's answer, `x / 0 = x`, on every target.
