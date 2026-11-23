@@ -1,5 +1,8 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
-import type { FuncDecl, StructDecl } from '../../../core/ir/nodes.js';
+import type { FuncDecl, ModuleDecl, StructDecl } from '../../../core/ir/nodes.js';
+import { lowerKernel } from '../../../core/passes/kernel-lower.js';
+import type { LowerOptions } from '../../../core/passes/kernel-lower-ir.js';
+import type { KernelProof } from '../../../core/passes/parallel-loop.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { zeroOf } from '../../../core/cpu-runtime.js';
 import type { KernelFace } from '../../../core/host-kernel.js';
@@ -52,6 +55,18 @@ function onCpuOnly(face: Record<string, unknown>, shown: string, first: GrownSit
     `index at the call`;
   for (const key of ['gpu', 'gl', 'noWebgl2']) delete face[key];
   face.noGpu = why;
+}
+
+export function lowerKernelFor(
+  f: FuncDecl,
+  m: ModuleDecl,
+  proof: KernelProof,
+  options: LowerOptions = {},
+): ReturnType<typeof lowerKernel> {
+  return lowerKernel(f, m, proof, {
+    ...options,
+    ...(madeArrayOf(f)?.counted === true ? { exactTotal: true } : {}),
+  });
 }
 
 export function madeFace(
@@ -112,6 +127,7 @@ export function madeFace(
     ...(made.capacity !== undefined ? { capacity } : {}),
     ...(fill !== undefined ? { fill: fill.name } : {}),
     ...(made.grown === true ? { grown: true as const } : {}),
+    ...(made.counted === true ? { counted: true as const } : {}),
     ...(made.share !== undefined ? { share: made.share } : {}),
     ...(made.written !== undefined ? { written: made.written } : {}),
     ...(made.fillFrom !== undefined ? { fillFrom: made.fillFrom } : {}),

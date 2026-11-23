@@ -28,7 +28,9 @@ import type { TsCompilerDiagnostic } from './source-file.js';
 import { TS_CODES } from './codes.js';
 import { KERNEL_TREE } from '../../core/kernel-tree.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
-import { diagnosticAtSpan } from './diagnostic.js';
+import { diagnosticAtSpan, makeDiagnostic } from './diagnostic.js';
+import { countable } from '../../core/passes/countable.js';
+import { madeArrayOf, setMadeArray } from './lower/made-array/registry.js';
 
 /** What each IR name of a kernel function was written as, recorded when its body is lowered, in
  *  three tables, since one IR name can be three things. A parameter keeps the name its signature
@@ -69,6 +71,24 @@ export function kernelLoopDiagnostics(
     const names = kernelSourceNames.get(f) ?? NO_NAMES;
     const sourceFile = sourceFileOf(f);
     const w = new Wording(sourceFile, names);
+    const made = madeArrayOf(f);
+    if (made?.grown === true) {
+      const counts = proof.shape === undefined && countable(proof.loops, f);
+      if (counts) {
+        const { deferred: _deferred, ...rest } = made;
+        setMadeArray(f, { ...rest, counted: true });
+      } else if (made.deferred !== undefined) {
+        out.push(
+          makeDiagnostic(
+            sourceFile,
+            made.deferred.node,
+            made.deferred.message,
+            TS_CODES.UNSUPPORTED,
+          ),
+        );
+        continue;
+      }
+    }
     if (proof.shape !== undefined) {
       out.push(warn(sourceFile, proof.shape.at ?? sourceSpanOf(f), w.shape(proof.shape)));
       continue;

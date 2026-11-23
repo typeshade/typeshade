@@ -7,8 +7,13 @@ import { diagnosticAtSpan } from '../../diagnostic.js';
 import { describeRead } from '../../kernel-loops.js';
 import { grownAccesses } from './bounds.js';
 import { nestTerms, once } from './nest.js';
-import type { GrownTerm, MadeLowering } from './registry.js';
+import type { DeferredRefusal, GrownTerm, MadeLowering } from './registry.js';
 import type { Readable } from './readable.js';
+
+export interface GrownCapacity {
+  readonly terms: readonly GrownTerm[];
+  readonly deferred?: DeferredRefusal;
+}
 
 export function grownCapacity(
   stub: FuncDecl,
@@ -16,7 +21,7 @@ export function grownCapacity(
   r: Readable,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
-): readonly GrownTerm[] | undefined {
+): GrownCapacity | undefined {
   const name = (made.decl.name as ts.Identifier).text;
   const writes = grownAccesses(stub.body, made.param).filter(
     (a) => a.mode === 'write' && !a.proven,
@@ -45,6 +50,7 @@ export function grownCapacity(
     outside === 0
       ? []
       : [{ low: once(0), high: once(1), inclusive: false, step: 1, pushes: outside }];
+  let deferred: DeferredRefusal | undefined;
   const nest = nestTerms(
     {
       name,
@@ -53,8 +59,12 @@ export function grownCapacity(
       sourceFile,
       diagnostics,
       writesIn: (l) => writes.filter((a) => a.loop === l).length,
+      defer: (refusal) => {
+        deferred ??= refusal;
+      },
     },
     stub.body,
   );
-  return nest === undefined ? undefined : [...terms, ...nest];
+  if (nest === undefined) return undefined;
+  return { terms: [...terms, ...nest], ...(deferred !== undefined ? { deferred } : {}) };
 }

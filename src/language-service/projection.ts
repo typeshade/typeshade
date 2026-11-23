@@ -224,8 +224,8 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
     if (spelled !== undefined) out.push({ at: name.getEnd(), text: `: ${spelled}` });
   }
   for (const name of listCandidates(analysis.sourceFile)) {
-    const type = byNameStart.get(name.getStart(analysis.sourceFile));
-    const spelled = sizedArraySpelling(type, undefined);
+    const at = name.getStart(analysis.sourceFile);
+    const spelled = sizedArraySpelling(byNameStart.get(at) ?? fieldTypes.get(at), undefined);
     if (spelled !== undefined) out.push({ at: name.getEnd(), text: `: ${spelled}` });
   }
   const sf = analysis.sourceFile;

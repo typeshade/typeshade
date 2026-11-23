@@ -45,15 +45,13 @@ import { recordDeclaration, type DeclaredSymbolSink } from './symbols.js';
 import { foldConstComponents } from './loop-bound.js';
 import { isIntegerLiteralTree, reportIntLitRange, retargetDeclaredIntLit } from './lit-coerce.js';
 import { hasNoWrittenType, moduleAbstractConst } from './abstract-const.js';
-import {
-  decidedType,
-  inferenceConflict,
-  useInferenceActive,
-  type InferredValue,
-} from './use-inference.js';
+import { useInferenceActive, type InferredValue } from './use-inference.js';
 import { lowerExpression } from './lower/expression.js';
 import { lowerArrayLiteral, refuseListSpread } from './lower/expression-array.js';
 import { isOverrideType } from './overrides.js';
+import { inferredModuleValue } from './module-vars/inferred-value.js';
+import { lowerModuleLetList } from './module-vars/untyped-list.js';
+import { listValueOf } from './lower/expression-array/list-values.js';
 import {
   declaredCallIn,
   isFoldableConstExpr,
@@ -391,7 +389,7 @@ export function collectModuleVars(
 /** A declaration this collector makes a module variable of: a top-level `let`, or a class's
  *  `static` field the file writes (Rule 8.13). Both carry a name, an optional annotation and an
  *  optional initializer. */
-type VarSite = ts.VariableDeclaration | ts.PropertyDeclaration;
+export type VarSite = ts.VariableDeclaration | ts.PropertyDeclaration;
 
 /** `let x: workgroup<T>`: the space is the wrapper's, and workgroup memory is the only space
  *  this surface writes out. */
@@ -535,7 +533,7 @@ function lowerPlain(
   const projected =
     decl.type !== undefined &&
     decl.initializer !== undefined &&
-    isIntegerLiteralTree(decl.initializer) &&
+    (isIntegerLiteralTree(decl.initializer) || ts.isArrayLiteralExpression(decl.initializer)) &&
     hasNoWrittenType(decl, sourceFile);
   if (decl.type !== undefined && !projected) {
     // `let seed: perInvocation<u32> = 7` (#83, removed in §24). Refused here, at the
@@ -600,18 +598,28 @@ function lowerPlain(
     );
     return undefined;
   }
-  if (ts.isArrayLiteralExpression(decl.initializer)) {
-    // A spread is the list's one sentence, said before the list is counted (Rule 12.4).
-    if (spreadRefused(decl, sourceFile, scope, diagnostics)) return undefined;
-    diagnostics.push(
-      diag(
-        sourceFile,
-        decl,
-        `"${name}" needs an array type to take a list: ` +
-          `let ${name}: array<f32, ${decl.initializer.elements.length}> = [...].`,
-      ),
+  if (ts.isArrayLiteralExpression(decl.initializer) && ts.isVariableDeclaration(decl)) {
+    const init = lowerModuleLetList(decl, decl.initializer, name, sourceFile, scope, diagnostics);
+    if (init === undefined) {
+      if (diagnostics.some((d) => d.category === 'error')) refuse(name, sourceFile, scope);
+      return undefined;
+    }
+    const one = finish(
+      decl,
+      decl,
+      name,
+      'private',
+      init.type,
+      authorTypeText(init.type),
+      undefined,
+      sourceFile,
+      scope,
+      diagnostics,
+      init,
     );
-    return undefined;
+    const inferred = listValueOf(init);
+    if (one !== undefined && inferred !== undefined) inferredVars.set(one, inferred);
+    return one;
   }
   // A module variable, or a static field the file writes, initialized by integer-written numbers
   // takes its type from its uses (Rule 5.1, surface §24, change 0134 item 1): the decision an
@@ -666,27 +674,6 @@ const inferredVars = new WeakMap<ModuleVarDecl, InferredValue>();
 /** The record of `v`, when its uses decide its type (change 0134 item 1). */
 export function inferredModuleVar(v: ModuleVarDecl): InferredValue | undefined {
   return inferredVars.get(v);
-}
-
-function inferredModuleValue(
-  decl: VarSite,
-  name: string,
-  sourceFile: ts.SourceFile,
-  diagnostics: TsCompilerDiagnostic[],
-): InferredValue {
-  const conflict = inferenceConflict(sourceFile, decl);
-  if (conflict !== undefined) {
-    diagnostics.push(makeDiagnostic(sourceFile, decl.name, conflict, TS_CODES.TYPE_MISMATCH));
-  }
-  const type = decidedType(sourceFile, decl);
-  const shown = ts.isIdentifier(decl.name) ? decl.name.text : name;
-  return {
-    decl,
-    key: decl,
-    name: shown,
-    written: decl.initializer!.getText(sourceFile).replace(/\s+/g, ' '),
-    ...(type !== undefined ? { type } : {}),
-  };
 }
 
 /** The rules both spaces share once the type is known: what the space may hold, no initializer

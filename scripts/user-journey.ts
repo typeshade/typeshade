@@ -594,6 +594,26 @@ async function hostImport(
       `the kernel function ${key}, called through the import, writes the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,
     );
   }
+  const pairsGpu = web.loops?.['pairSearch'];
+  const pairsCpu = web.loops?.['pairSearchCpu'];
+  check(
+    typeof pairsGpu === 'object' &&
+      typeof pairsCpu === 'object' &&
+      pairsGpu.length > 0 &&
+      pairsGpu.length === pairsCpu.length &&
+      pairsGpu.every((v, i) => Object.is(v, pairsCpu[i])),
+    'pairSearch, a push in a nest that Route 2 counts first, returns on WebGPU the CPU tier bit for bit (change 0114, A12)',
+  );
+  const twiceGpu = web.loops?.['pairTwice'];
+  const twiceCpu = web.loops?.['pairTwiceCpu'];
+  check(
+    typeof twiceGpu === 'object' &&
+      typeof twiceCpu === 'object' &&
+      twiceGpu.length > 0 &&
+      twiceGpu.length === twiceCpu.length &&
+      twiceGpu.every((v, i) => Object.is(v, twiceCpu[i])),
+    'pairTwice, two pushing nests with a call that pushes nothing, returns on WebGPU the CPU tier bit for bit (change 0114, A12)',
+  );
   const scaledOnResource = web.loops?.['scaleMade'];
   const madeOnDevice = web.loops?.['renderMade'];
   check(
@@ -665,6 +685,8 @@ async function hostExamples(
     recursive: true,
     filter: (from) => !from.endsWith('tsconfig.json') && !from.endsWith('.shade.typeshade.ts'),
   });
+  // `hosts/_reference.ts` imports `../_compare.ts` (change 0145), which sits beside `hosts/`.
+  cpSync(join(REPO, 'examples', '_compare.ts'), join(app, '_compare.ts'));
   writeFileSync(
     join(app, 'vite.hosts.config.ts'),
     [

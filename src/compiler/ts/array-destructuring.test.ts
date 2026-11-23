@@ -69,12 +69,12 @@ describe('fixed-array binding declarations', () => {
     expect(r.glsl?.fragment).toContain('xs[2u]');
   });
 
-  it('infers bare literals only in the binding source; integer literals still default to f32', () => {
+  it('infers bare literals only in the binding source; integer literals default to f32 where no use decides', () => {
     agree('const [a, b] = ([1, 2]); return a + b;', 3);
     expect(errors('const [a] = [1]; const b: u32 = a; return f32(b);')[0]?.message).toContain(
       'no implicit',
     );
-    expect(errors('const xs = [1, 2]; return 0.;')[0]?.message).toContain('not supported yet');
+    expect(errors('const xs = [1, 2]; return 0.;')).toEqual([]);
     expect(errors('const [a, b] = [1., u32(2)]; return a;')[0]?.message).toContain(
       'one element type',
     );

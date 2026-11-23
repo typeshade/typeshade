@@ -30,6 +30,8 @@ import {
   fuseMark,
   fuseScale,
   odds,
+  pairSearch,
+  pairTwice,
   pushAbove,
   pushPairs,
   render,
@@ -463,6 +465,31 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   // every iteration pushes, and then two rows of three push.
   configure({ prefer: ['webgpu'] });
   const pushed = await renderPushed([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
+  // The pair search (change 0114, A12 Example 2) on WebGPU, required: a count-only first run,
+  // then the store run, with the CPU tier's answer beside it.
+  const pairXs = Float32Array.from({ length: 400 }, (_, i) => (i * 37) % 101);
+  configure({ prefer: ['webgpu'] });
+  const pairs = await pairSearch(pairXs, 1.5).finally(() => configure({}));
+  configure({ prefer: ['cpu'] });
+  const pairsCpu = await pairSearch(pairXs, 1.5).finally(() => configure({}));
+  // Two pushing nests, a call that pushes nothing, a call of one element, and a mixed call: the
+  // count-only run carries the first nest's total into the second nest's scan.
+  const twiceCases: [number[], number][] = [
+    [[5], 0],
+    [[5], 100],
+    [Array.from({ length: 40 }, (_, i) => (i * 37) % 101), 60],
+  ];
+  const twiceOn = async (tier: 'webgpu' | 'cpu'): Promise<number[]> => {
+    const all: number[] = [];
+    for (const [xs, r] of twiceCases) {
+      configure({ prefer: [tier] });
+      const got = await pairTwice(Float32Array.from(xs), r).finally(() => configure({}));
+      all.push(...got);
+    }
+    return all;
+  };
+  const twiceGpu = await twiceOn('webgpu');
+  const twiceCpu = await twiceOn('cpu');
   configure({ prefer: ['webgpu'] });
   const kept = await renderKept([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
   // A kernel function that makes an array of vectors and one of structs (change 0114, S5,
@@ -623,6 +650,10 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     scaleMade: [...madeOnResource],
     renderPushed: [...pushed],
     renderKept: [...kept],
+    pairSearch: [...pairs],
+    pairSearchCpu: [...pairsCpu],
+    pairTwice: twiceGpu,
+    pairTwiceCpu: twiceCpu,
     shadeMade: [...shade],
     driftMade: drifted.flatMap((p) => [...p.pos, ...p.vel]),
     shareMade: [
