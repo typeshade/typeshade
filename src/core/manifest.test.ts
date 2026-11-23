@@ -33,7 +33,7 @@ import { emitGlslStages } from './backends/glsl.js';
 import { emitModule as emitWith, type EmitPlugin } from './emit.js';
 import { consoleBuffer } from './passes/console-buffer.js';
 import { VERSION } from './version.js';
-import { exampleFile } from '../../examples/_example-file.js';
+import { exampleFile, exampleSource } from '../../examples/_example-file.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 
@@ -317,8 +317,7 @@ interface Color {
   });
 
   it('carries a struct parameter of a vertex entry in its vertex layout', () => {
-    const file = exampleFile('hello-vsin');
-    const r = compile(readFileSync(file, 'utf8'), { fileName: file });
+    const r = compile(exampleSource('hello-vsin'), { fileName: exampleFile('hello-vsin') });
     const p = buildManifest(r.module);
     const vs = p.entries.find((e) => e.name === 'vs');
     expect(vs?.vertex).toEqual({
