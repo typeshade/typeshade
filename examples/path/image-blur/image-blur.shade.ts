@@ -1,14 +1,5 @@
 "use typeshade";
 
-/* @example
-{
-  "title": "Image blur",
-  "blurb": "Step 13 of the learning path. An image is a grid of numbers, one brightness for each pixel. The entry is `@compute([8, 8])`, so each invocation has an `x` and a `y`, and it averages the nine pixels around its own. A uniform holds the width and the height. The host dispatches a 2D grid of workgroups and reads the blurred image back.",
-  "renderable": false,
-  "reason": "missing capabilities: storageBuffer, compute"
-}
-*/
-
 // Step 13. A 2D grid of invocations, one for each pixel. A pixel at an edge reads the nearest pixel inside the image.
 interface Size {
   width: u32;

@@ -28,7 +28,7 @@ import { compare, reference, type Drive, type Surface } from './path/_reference.
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PATH = join(HERE, 'path');
-const ids = PATH_ORDER.map((s) => s.id);
+const ids = [...PATH_ORDER];
 const COMPUTE = ['double-array', 'image-blur', 'parallel-sum', 'histogram'];
 const drawing = ids.filter((id) => !COMPUTE.includes(id));
 
@@ -41,7 +41,9 @@ describe('pathExamples: the directories, in order, with their text', () => {
     expect(dirs.length).toBeGreaterThanOrEqual(4);
     expect(pathExamples.map((s) => s.id)).toEqual(ids);
     expect([...ids].sort()).toEqual(dirs);
-    expect(pathExamples.map((s) => s.step)).toEqual(PATH_ORDER.map((s) => s.step));
+    expect(pathExamples.map((s) => s.step)).toEqual(
+      [...pathExamples.map((s) => s.step)].sort((a, b) => a - b),
+    );
   });
 
   it('carries the text of both files as they are on disk', () => {
@@ -140,16 +142,16 @@ async function driver(): Promise<Drive> {
   return ((await import(/* @vite-ignore */ file)) as { drive: Drive }).drive;
 }
 
-describe('the CPU tier: each step draws the reference where _order.ts lists cpu', () => {
+describe('the CPU tier: each step draws the reference where example.json lists cpu', () => {
   const surface: Surface = {
     canvas: (w, h) => new PixelCanvas(w, h) as unknown as OffscreenCanvas,
     pixels: (c) => [...(c as unknown as PixelCanvas).data],
   };
   const g = globalThis as { OffscreenCanvas?: unknown };
 
-  for (const { id, tiers } of PATH_ORDER) {
+  for (const { id, tiers } of pathExamples) {
     const listed = tiers.includes('cpu');
-    it(`${id}: run() on the CPU tier ${listed ? 'gives' : 'does not give'} the reference, as _order.ts says`, async () => {
+    it(`${id}: run() on the CPU tier ${listed ? 'gives' : 'does not give'} the reference, as example.json says`, async () => {
       const before = g.OffscreenCanvas;
       g.OffscreenCanvas = PixelCanvas;
       try {

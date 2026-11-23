@@ -1,0 +1,11 @@
+{
+  "title": "Double an array",
+  "blurb": "Step 12 of the learning path. The first compute kernel. A `@compute` entry runs once for each invocation, and `global_invocation_id` says which one. The storage binding `numbers` is the array the host passes by name. The host calls `doubled({ numbers }, workgroups)`, waits, and reads the doubled numbers from the array it passed.",
+  "group": "path",
+  "part": "GPU compute",
+  "step": 12,
+  "tiers": ["webgpu", "webgl2", "cpu"],
+  "host": "run",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}

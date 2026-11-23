@@ -1,14 +1,5 @@
 "use typeshade";
 
-/* @example
-{
-  "title": "Tile pattern",
-  "blurb": "Step 5 of the learning path. `fract` keeps the part of a coordinate inside one tile, and `floor` names the tile. A `for` loop counts three rings, and an `if` picks the colours of one tile from its place in the grid.",
-  "renderable": false,
-  "reason": "no entry point"
-}
-*/
-
 // Step 5. A loop repeats work, an if chooses, and fract turns one picture into a grid of tiles.
 interface Frame {
   size: vec2;

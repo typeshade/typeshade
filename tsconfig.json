@@ -98,6 +98,7 @@
     "examples/path/*/*.ts",
     "examples/path/_*.ts",
     "examples/_goldens.ts",
+    "examples/_manifest.ts",
     "examples/_mrt-gate.ts",
     "examples/_order.ts",
     "examples/_scan.ts",
