@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, it } from 'vitest';
 import { bothRefuse } from '../../core/testing/both-halves.js';
 
 const program = (result: string, body: string): string =>
