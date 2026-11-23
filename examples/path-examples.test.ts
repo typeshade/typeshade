@@ -24,7 +24,8 @@ import { bothTake } from '../src/core/testing/both-halves.js';
 import { pathExamples } from './index.js';
 import { PATH_ORDER } from './path/_order.js';
 import { REGISTRY, renderPathRegistry } from './path/_registry.js';
-import { compare, reference, type Drive, type Surface } from './path/_reference.js';
+import { cpuSurface, driveOf, withCpuCanvas } from './_driver.js';
+import { compare, reference } from './path/_reference.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PATH = join(HERE, 'path');
@@ -120,48 +121,13 @@ describe('both halves read each module the same way (Rule 12.7)', () => {
   });
 });
 
-class PixelCanvas {
-  data: Uint8ClampedArray = new Uint8ClampedArray(0);
-  constructor(
-    public width: number,
-    public height: number,
-  ) {}
-  getContext(kind: string): object | null {
-    if (kind !== '2d') return null;
-    return {
-      createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(4 * w * h) }),
-      putImageData: (img: { data: Uint8ClampedArray }) => {
-        this.data = img.data.slice();
-      },
-    };
-  }
-}
-
-async function driver(): Promise<Drive> {
-  const file = join(PATH, '_drive.ts');
-  return ((await import(/* @vite-ignore */ file)) as { drive: Drive }).drive;
-}
-
 describe('the CPU tier: each step draws the reference where example.json lists cpu', () => {
-  const surface: Surface = {
-    canvas: (w, h) => new PixelCanvas(w, h) as unknown as OffscreenCanvas,
-    pixels: (c) => [...(c as unknown as PixelCanvas).data],
-  };
-  const g = globalThis as { OffscreenCanvas?: unknown };
-
   for (const { id, tiers } of pathExamples) {
     const listed = tiers.includes('cpu');
     it(`${id}: run() on the CPU tier ${listed ? 'gives' : 'does not give'} the reference, as example.json says`, async () => {
-      const before = g.OffscreenCanvas;
-      g.OffscreenCanvas = PixelCanvas;
-      try {
-        const ran = await (await driver())(surface, [id]);
-        if (listed) expect(compare(id, ran[id])).toEqual([]);
-        else expect(compare(id, ran[id]).length, JSON.stringify(ran[id])).toBeGreaterThan(0);
-      } finally {
-        if (before === undefined) delete g.OffscreenCanvas;
-        else g.OffscreenCanvas = before;
-      }
+      const ran = await withCpuCanvas(async () => (await driveOf('path'))(cpuSurface, [id]));
+      if (listed) expect(compare(id, ran[id])).toEqual([]);
+      else expect(compare(id, ran[id]).length, JSON.stringify(ran[id])).toBeGreaterThan(0);
     });
   }
 

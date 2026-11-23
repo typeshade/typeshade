@@ -497,7 +497,7 @@ declare const out: storage<array<f32>, "read_write">;
     );
     expect(
       only(
-        RUN(`declare const data: storage<array<f32>>;
+        RUN(`declare const data: storage<array<f32>, "read">;
 export function run(k: f32): f32 {
   data.fill(k);
   return 0.;

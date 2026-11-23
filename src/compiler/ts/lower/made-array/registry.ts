@@ -22,6 +22,11 @@ export interface GrownTerm extends GrownLoop {
   readonly when?: Expr;
 }
 
+export interface DeferredRefusal {
+  readonly message: string;
+  readonly node: ts.Node;
+}
+
 export interface MadeArray {
   readonly param: string;
   readonly count: string;
@@ -31,6 +36,10 @@ export interface MadeArray {
   readonly capacity?: readonly GrownTerm[];
   readonly fill?: Expr;
   readonly grown?: true;
+  readonly counted?: true;
+  readonly growing?: true;
+  readonly open?: true;
+  readonly deferred?: DeferredRefusal;
   readonly share?: MadeShare;
   readonly written?: string;
   readonly fillFrom?: MadeSource;
