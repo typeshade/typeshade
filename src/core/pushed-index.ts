@@ -1,3 +1,4 @@
+// Implements: Rule 8.23, the checked index of a grown array on the CPU tier (docs/language-design.md; traced in reqs/).
 import type { CpuValue } from './cpu-runtime.js';
 import { pushedLength, startPushesAt } from './push-count.js';
 
