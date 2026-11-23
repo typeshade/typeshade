@@ -876,7 +876,7 @@ ${matTypeAliases}
 
 declare const arrayTag: unique symbol
 // The index signature is WRITABLE. \`out[gid.x] = value\` is the shape of every compute kernel
-// (examples/compute-reduction-twin.shade.ts), and the compiler lowers it to a storage store, so a
+// (examples/gallery/compute-reduction-twin/compute-reduction-twin.shade.ts), and the compiler lowers it to a storage store, so a
 // \`readonly\` here reported TS2542 ("Index signature ... only permits reading") on a program that
 // compiles. The tag and \`length\` stay readonly: neither is assignable in the source language.
 //

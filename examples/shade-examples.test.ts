@@ -36,6 +36,7 @@ import {
   shadeExamples,
   SHADE_EXT,
   SHADE_FILES,
+  GALLERY_DIR,
   HOSTS_DIR,
   PATH_DIR,
   SHADE_REFUSALS,
@@ -65,6 +66,12 @@ const onDisk = [
   ...readdirSync(join(HERE, PATH_DIR), { recursive: true, encoding: 'utf8' })
     .filter((f) => f.endsWith(SHADE_EXT))
     .map((f) => f.split(/[\\/]/).pop()!),
+  // A gallery module (change 0145, amendment A2): `gallery/<id>/<id>.shade.ts`. A support module
+  // beside it is no example, so only the file named like its directory counts.
+  ...readdirSync(join(HERE, GALLERY_DIR), { recursive: true, encoding: 'utf8' })
+    .map((f) => f.split(/[\\/]/))
+    .filter(([dir, file]) => file === `${dir}${SHADE_EXT}`)
+    .map(([, file]) => file!),
 ]
   .map((f) => f.slice(0, -SHADE_EXT.length))
   .sort();
@@ -150,7 +157,9 @@ describe('"use typeshade" examples — the directory and the registry agree', ()
           ? `${HOSTS_DIR}/${ex.id}/${ex.id}${SHADE_EXT}`
           : SHADE_FILES.get(ex.id)?.startsWith(`${PATH_DIR}/`)
             ? `${PATH_DIR}/${ex.id}/${ex.id}${SHADE_EXT}`
-            : `${ex.id}${SHADE_EXT}`,
+            : SHADE_FILES.get(ex.id)?.startsWith(`${GALLERY_DIR}/`)
+              ? `${GALLERY_DIR}/${ex.id}/${ex.id}${SHADE_EXT}`
+              : `${ex.id}${SHADE_EXT}`,
       );
   });
 
@@ -248,11 +257,16 @@ describe('"use typeshade" examples — passes (change 0026)', () => {
   });
 
   it('every file under passes/ is a pass of exactly one example, and every pass has its file', () => {
-    const passFiles = readdirSync(join(HERE, 'passes'), { recursive: true })
-      .map(String)
-      .filter((f) => f.endsWith(SHADE_EXT))
-      .map((f) => `passes/${f.replaceAll('\\', '/')}`)
-      .sort();
+    const passFiles = [
+      ...readdirSync(join(HERE, 'passes'), { recursive: true })
+        .map(String)
+        .filter((f) => f.endsWith(SHADE_EXT))
+        .map((f) => `passes/${f.replaceAll('\\', '/')}`),
+      ...readdirSync(join(HERE, GALLERY_DIR), { recursive: true })
+        .map((f) => String(f).replaceAll('\\', '/').split('/'))
+        .filter(([dir, file]) => file?.endsWith(SHADE_EXT) && file !== `${dir}${SHADE_EXT}`)
+        .map((parts) => `${GALLERY_DIR}/${parts.join('/')}`),
+    ].sort();
     const named = withPasses.flatMap((e) => (e.passes ?? []).map((p) => p.file)).sort();
     expect(named).toEqual(passFiles);
   });
@@ -260,7 +274,7 @@ describe('"use typeshade" examples — passes (change 0026)', () => {
   it('records the passes in the order the block names them', () => {
     const trail = shadeExamples.find((e) => e.id === 'feedback-trail');
     expect(trail?.passes?.map((p) => [p.name, p.file])).toEqual([
-      ['trail', 'passes/trail.shade.ts'],
+      ['trail', 'gallery/feedback-trail/trail.shade.ts'],
     ]);
     expect(trail?.passes?.[0]?.module.bindings.some((b) => b.name === 'trail')).toBe(true);
   });

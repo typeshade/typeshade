@@ -48,7 +48,7 @@ const reflected = (
   return field!.location;
 };
 
-// The example of the proposal, `examples/hello-vsout.shade.ts`, with a helper that reads the
+// The example of the proposal, `examples/gallery/hello-vsout/hello-vsout.shade.ts`, with a helper that reads the
 // struct the two entries share.
 const PROGRAM = (o: {
   uv: string;
