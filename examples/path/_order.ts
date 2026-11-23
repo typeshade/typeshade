@@ -14,7 +14,8 @@
 export type PathTier = 'webgpu' | 'webgl2' | 'cpu';
 
 /** Every step of the path built so far, in order, with its part and the tiers its host runs on.
- *  Part 1 is steps 1 to 4. Later parts are added by later milestones of change 0145. */
+ *  Part 1 is steps 1 to 4, part 2 steps 5 to 8. Later parts are added by later milestones of
+ *  change 0145. */
 export const PATH_ORDER: readonly {
   readonly id: string;
   readonly step: number;
@@ -25,4 +26,8 @@ export const PATH_ORDER: readonly {
   { id: 'uv-gradient', step: 2, part: 'First pixels', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'moving-wave', step: 3, part: 'First pixels', tiers: ['webgpu', 'webgl2', 'cpu'] },
   { id: 'sdf-shapes', step: 4, part: 'First pixels', tiers: ['webgpu', 'webgl2', 'cpu'] },
+  { id: 'tile-pattern', step: 5, part: 'The language', tiers: ['webgpu', 'webgl2', 'cpu'] },
+  { id: 'fractal', step: 6, part: 'The language', tiers: ['webgpu', 'webgl2', 'cpu'] },
+  { id: 'palette', step: 7, part: 'The language', tiers: ['webgpu', 'webgl2', 'cpu'] },
+  { id: 'bouncing-balls', step: 8, part: 'The language', tiers: ['webgpu', 'webgl2', 'cpu'] },
 ];
