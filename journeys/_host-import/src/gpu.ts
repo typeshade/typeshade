@@ -18,7 +18,6 @@ import 'typeshade/fuse';
 import {
   countMod,
   drift,
-  evens,
   histogram,
   inside,
   LayoutItem,
@@ -49,6 +48,7 @@ import {
   stats,
   tally,
 } from './loops.shade.ts';
+import { evens } from './growing.shade.ts';
 import { OnePole, run as runFilters } from './filters.shade.ts';
 // Copied in by the journey from journeys/particles and journeys/plasma.
 import { step } from './particles.shade.ts';
