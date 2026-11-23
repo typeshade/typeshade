@@ -5,10 +5,15 @@ status: draft
 rules: []
 surface:
   - 14
+  - 20
   - 23
+  - 33
+  - 46
   - 48
   - 65
+  - 66
   - 67
+  - 69
   - 71
   - 72
   - 74
@@ -19,7 +24,7 @@ examples: []
 names: []
 downstream:
   - repo: typeshade.github.io
-    what: Each page that quotes or paraphrases the eight sections says that WebGL2 has no atomics, no workgroup memory or no storage buffer. Search the pages (en and ko) for those claims and for the old reduction reason in §71. Each page follows the new text. compiler-changes.md records 0146
+    what: Each page that quotes or paraphrases the thirteen sections says that WebGL2 has no atomics, no workgroup memory or no storage buffer. Search the pages (en and ko) for those claims and for the old reduction reason in §71. Each page follows the new text. compiler-changes.md records 0146
   - repo: vscode-typeshade
     what: The skill and any hover or completion text that repeat the same claims follow the new text. compiler-changes.md records 0146
 ---
@@ -30,14 +35,14 @@ downstream:
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity and status           | Proposal 0146, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                 |
 | Date and attribution          | 2026-11-23, UTC (the drafting date). An AI agent (Claude Code) drafted it for the owner, who said "네" on 2026-11-23 to drafting it. The owner's words in `docs/owner-decisions.md` (OD-11) are a decision about direction, not an approval of this text. |
-| Applicability / Effectivity   | `docs/use-typeshade-surface.md` only, eight sections. No release version is assigned (OD-6: nothing is released).                                                                                                                                         |
+| Applicability / Effectivity   | `docs/use-typeshade-surface.md` only, thirteen sections. No release version is assigned (OD-6: nothing is released).                                                                                                                                      |
 | Review baseline               | `main` at `3a6006ae` (merge of pull request #1436).                                                                                                                                                                                                       |
 | Review and revision authority | No pull request is assigned yet. Git records the revisions. The review and merge of the proposal's pull request will record the decision.                                                                                                                 |
 
 ## What changes
 
 This proposal changes no behaviour, rule, export, diagnostic code or example. It changes the
-text of eight sections of `docs/use-typeshade-surface.md`, so that they match Rule 11.8, Rule
+text of thirteen sections of `docs/use-typeshade-surface.md`, so that they match Rule 11.8, Rule
 8.24, change 0054, change 0080 and OD-11.
 
 Today the surface document says in several places that WebGL2 has no atomics, no workgroup memory
@@ -53,16 +58,21 @@ After this change, each passage does one of two things.
 
 The passages, by section:
 
-| Section | Passage                                                                     | Disposition                                                                                                                                                                                                                              |
-| ------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| §14     | A whole struct element of a storage array is not copied                     | Reworded neutrally: "this version does not copy ..." on the WebGL2 tier. No rule states it (open question 1).                                                                                                                            |
-| §23     | "GLSL ES 3.00 has no storage buffers and no atomics"                        | Reworded: the GLSL writer has no form of an atomic. A `@compute` entry that reaches no texture runs on the tier as its pass program in the phased order (change 0054, Rule 11.8).                                                        |
-| §48     | "all three WebGPU-only"                                                     | Reworded: the GLSL writer fails closed; the tier runs a `@compute` entry that reaches no texture as the pass program of change 0054 (Rule 11.8). The rules do not say which of the three builtins gets a form, so the text does not say. |
-| §65     | "WebGL2 has no compute stage"; a reduction, a scatter or a write not at `i` | Reworded: Rule 11.8 states what the tier takes. The rest "is not supported yet on the WebGL2 tier" and goes on to the CPU tier.                                                                                                          |
-| §67     | "WebGL2 has no compute stage"; "WebGL2 has no storage buffer" in a draw     | The first is dropped. The second is a gap: "does not support a storage binding in a draw yet (OD-11)".                                                                                                                                   |
-| §71     | The reduction reason: "which WebGL2 has no workgroup memory for"            | Reworded to the text of pull request #1437 (below).                                                                                                                                                                                      |
-| §72     | Histogram: "WebGL2 has no atomics"                                          | A gap: the tier does not support a kernel function's atomic add yet (Rule 11.8).                                                                                                                                                         |
-| §74     | "WebGL2 has no atomics, and runs no such function"                          | A gap: the tier does not support such a function yet (change 0080, Rule 11.8).                                                                                                                                                           |
+| Section | Passage                                                                                                                                     | Disposition                                                                                                                                                                                                                              |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §14     | A whole struct element of a storage array is not copied                                                                                     | Reworded neutrally: "this version does not copy ..." on the WebGL2 tier. No rule states it (open question 1).                                                                                                                            |
+| §20     | "GLSL ES 3.00 has no form: it has no storage buffer"                                                                                        | Reworded: the GLSL writer has no form of a runtime-sized array. `compile()` emits WGSL alone. A `@compute` entry that reaches it runs on the tier as its pass program (change 0054, Rule 11.8).                                          |
+| §23     | "GLSL ES 3.00 has no storage buffers and no atomics"                                                                                        | Reworded: the GLSL writer has no form of an atomic. A `@compute` entry that reaches no texture runs on the tier as its pass program in the phased order (change 0054, Rule 11.8).                                                        |
+| §33     | "GLSL ES 3.00 has no image load/store", as a reason for WGSL only                                                                           | Kept as a fact about the GLSL emitter, reworded so that it says `compile()` emits no GLSL text. A storage texture on the tier is a runtime texture (§69, Rule 11.11).                                                                    |
+| §46     | "WGSL-only ... GLSL ES 3.00 has no image load/store at all"                                                                                 | Reworded: `compile()` emits no GLSL text for an image load or store (§33).                                                                                                                                                               |
+| §48     | "all three WebGPU-only"                                                                                                                     | Reworded: the GLSL writer fails closed; the tier runs a `@compute` entry that reaches no texture as the pass program of change 0054 (Rule 11.8). The rules do not say which of the three builtins gets a form, so the text does not say. |
+| §65     | "WebGL2 has no compute stage"; a reduction, a scatter or a write not at `i`                                                                 | Reworded: Rule 11.8 states what the tier takes. The rest "is not supported yet on the WebGL2 tier" and goes on to the CPU tier.                                                                                                          |
+| §66     | "GLSL ES 3.00 has no storage buffer and records nothing"                                                                                    | Reworded: a GLSL program that `compile()` emits records nothing. Recording a console on the tier is "not supported yet" (§69, Rule 11.11).                                                                                               |
+| §67     | "WebGL2 has no compute stage"; "WebGL2 has no storage buffer" in a draw                                                                     | The first is dropped. The second is a gap: "does not support a storage binding in a draw yet (OD-11)".                                                                                                                                   |
+| §69     | "WebGL2 cannot ask a `WebGLTexture` its size"; "records no console"; "targets that blend or mask apart, because WebGL2 has one blend state" | Each is a gap: "not supported yet on the WebGL2 tier (Rule 11.11)". A lowering of each is TypeShade's work (OD-11). The size one names its cause, that the runtime cannot learn the size unless the host passes it.                      |
+| §71     | The reduction reason: "which WebGL2 has no workgroup memory for"                                                                            | Reworded to the text of pull request #1437 (below).                                                                                                                                                                                      |
+| §72     | Histogram: "WebGL2 has no atomics"                                                                                                          | A gap: the tier does not support a kernel function's atomic add yet (Rule 11.8).                                                                                                                                                         |
+| §74     | "WebGL2 has no atomics, and runs no such function"                                                                                          | A gap: the tier does not support such a function yet (change 0080, Rule 11.8).                                                                                                                                                           |
 
 **Dependency on pull request #1437.** Pull request #1437 (open, not merged) changes two runtime
 texts in `src/`. The kernel reduction reason becomes `which the WebGL2 tier does not support yet
@@ -113,19 +123,22 @@ It corrects the text of existing sections.
 
 ## What it touches
 
-- Surface §14, §23, §48, §65, §67, §71, §72, §74: the passages in the table above. The
+- Surface §14, §20, §23, §33, §46, §48, §65, §66, §67, §69, §71, §72, §74: the passages in the table above. The
   declaration is exactly the set that `scripts/changes.ts` finds in the diff.
 - Rules, exports, codes, examples and names: none. The cited rules are read, not changed.
-- Requirement items. The surface patch edits `reqs/surface/SURF-023.md` and
-  `reqs/surface/SURF-074.md`, and adds the new item SURF-048 in the same directory. Each carries a link to
-  RULE-1108 (Rule 11.8). The implementing pull request needs `doorstop review SURF-048` by a
-  person who read the item.
+- Requirement items. The surface patch edits `reqs/surface/SURF-023.md`,
+  `reqs/surface/SURF-074.md`, `reqs/surface/SURF-033.md` and `reqs/surface/SURF-066.md`, and
+  adds the new items SURF-020 and SURF-048 in the same directory (`bun run reqs:sync` writes
+  them). SURF-020, SURF-023, SURF-048 and SURF-074 carry a link to RULE-1108 (Rule 11.8).
+  SURF-033 and SURF-066 carry a link to RULE-1111 (Rule 11.11). The implementing pull request
+  needs `doorstop review SURF-020` and `doorstop review SURF-048` by a person who read each
+  item, and the review of the changed links of the other four.
 - Evidence the implementing pull request needs: `bun scripts/changes.ts`, `bun run docs:refs`,
   `bun run docs:impact`, `bun run reqs:sync`, and the review of the SURF items it flags.
 
 ### Draft impact estimate
 
-Known: one file changes, with about 40 lines. No code changes. Unknown: the number of site and
+Known: one file changes, with about 70 lines. No code changes. Unknown: the number of site and
 editor passages that repeat the old claims; the downstream search sets it. A person must review
 each changed SURF item in `reqs/` (`reqs/README.md`). Decision needed before acceptance: the
 open question below.
@@ -153,6 +166,11 @@ open question below.
 | 4       | nit        | The §14 hedge now reads "this version does not copy ..." and is an open question.                                                                                          |
 | 5       | nit        | The surface patch edits and adds SURF items. "What it touches" names them and the `doorstop review` of SURF-048.                                                           |
 | 6       | note       | Open question 2 is a dependency on #1437. It moved to the dependency paragraph.                                                                                            |
+
+The scope was widened after the OD-11 audit of 2026-11-23. The audit found passages in
+sections the first scope did not name. This record lists the sections added: §20, §33, §46, §66
+and §69. The audit's findings in §14, §23, §48, §72 and §74 were already in scope. The surface
+patch was rebased on `main` at `18f7935e`. The widened scope has no independent review yet.
 
 ### Approval and plan record
 
