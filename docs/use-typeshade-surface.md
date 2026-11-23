@@ -2662,10 +2662,18 @@ one type, and a list that does not says which types it found, one sentence on th
   Declare the type: const a: array<f32, 2> = [...].`
 - `[]`: `"const a" takes its type and its length from its list, and an empty list has neither: a
   shader array has at least one element. Write its elements.`
-- A list of integer-written numbers alone, `[1, 2, 3]`, is not supported yet: its uses will
-  decide its element type (change 0114, Amendment A3, stage S2c). `"const a" is a list of
-  integer-written numbers, whose element type its uses will decide; that is not supported yet.
-  Declare the type: const a: array<f32, 3> = [...].`
+- A list of integer-written numbers alone, `[1, 2, 3]`, takes its element type from its uses
+  (change 0114, Amendment A3, stage S2c; Rule 5.1), as a `let` of an integer-written number does
+  (§13), for a `const` and a `let`, in a function body and at module scope. An element read
+  (`a[i] + vi`, `xs[a[i]]`), an argument of a declared `array<T, N>` parameter, an assignment to
+  a typed array, a `return` in a function whose result type is declared and the variable of
+  `for (const x of a)` decide it. Where no use decides, it is `array<f32, 3>`. The hover shows the
+  decided type, `const a: array<u32, 3>` where an index and a `u32` use meet. Uses that need
+  `i32` and `u32` are refused as for a `let`: `Cannot infer "a": its uses require i32 and u32.
+  Write an explicit type annotation on "a" and cast the uses that need another type.` A `/` over
+  an element that its uses make an integer is refused as the `/` over a `let` is: `"a" is a u32
+  where another line reads it, and no operand of "a[0] / 2" has a declared type, so the "/" does
+  not say which division it is. Write "u32(a[0]) / 2" for the integer division.`
 
 A constructor with a constant length gives the size too, with no list: `new Array(16).fill(0.)`,
 `new Float32Array(4)` and `Array.from({ length: 8 }, (_, i) => f32(i))` (§63, change 0114, S2).
@@ -4798,7 +4806,7 @@ neither does a call of it, `h(a)`, `N.h(a)`, `c.m()` or `C.s()`, or a local decl
 holds fields. A `var` is refused once, `TS8013` in a body and `TS8014` at the top level or in a
 namespace. One in a body is lowered as the `let` it would have been: a `var` that declares a
 parameter or an earlier `var` again is that variable, as in JavaScript, and a sentence about the
-declaration quotes it as written, `"var b" needs an array type annotation`, with `let` in its
+declaration quotes it as written, `"var b" without an initializer needs a type annotation`, with `let` in its
 remedy. Wherever it is written, a use of the name says nothing more, as for any refused
 declaration: a read after the block the `var` is written in, and `N.x` for one in a namespace,
 included. An interface or a type alias inside a namespace is refused once, and a type that names
