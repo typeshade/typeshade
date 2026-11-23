@@ -15,6 +15,8 @@ describe('a compound assignment of a fraction over an integer variable (issue 13
       ['let a = 1 | 2;\n  a += 0.5;\n  return a;', '+=', 'i32'],
       ['const K = 1 | 2;\n  let a = K;\n  a *= 0.5;\n  return a;', '*=', 'i32'],
       ['let a = vi;\n  a *= 0.5;\n  return i32(a);', '*=', 'u32'],
+      ['let a = 0;\n  a += 0.5;\n  return a;', '+=', 'i32'],
+      ['let a = 0;\n  for (let i = 0; i < 3; i++) {\n    a += 0.5;\n  }\n  return a;', '+=', 'i32'],
     ];
     for (const [body, op, kind] of cases) {
       bothRefuse(program(body), 'TS8003', mismatch(op, kind));
@@ -28,5 +30,10 @@ describe('a compound assignment of a fraction over an integer variable (issue 13
   it('takes an integer operand and a float target', () => {
     bothTake(program('let a = ii;\n  a *= 2;\n  return a;'));
     bothTake(program('let f = 1.5;\n  f *= 0.5;\n  return i32(f);'));
+    bothTake(
+      program(
+        'let a = 0.0;\n  for (let i = 0; i < 3; i++) {\n    a += 0.5;\n  }\n  return i32(a * 2);',
+      ),
+    );
   });
 });
