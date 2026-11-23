@@ -135,6 +135,7 @@ describe('the capacity of an array a kernel function grows with push (change 011
     const past = exactCapacity(cpu, made, [MOST_PUSHED - 1, 1] as CpuValue[]);
     expect(past).toBe(MOST_PUSHED + 1);
     expect(() => checkedCapacity(face, made, past)).toThrow(pastLimit('twoLoops', past));
+    expect(made.counted).toBe(true);
   });
 
   it('throws a RangeError before the run when the capacity passes 4294967295, and cuts nothing', async () => {
@@ -144,7 +145,6 @@ describe('the capacity of an array a kernel function grows with push (change 011
     await expect(m['spread']!(2 ** 31 - 1, -(2 ** 31))).rejects.toThrow(
       pastLimit('spread', 4 * Math.ceil((2 ** 32 - 1) / 3)),
     );
-    await expect(m['twoLoops']!(2 ** 32 - 3, 0)).rejects.toThrow(pastLimit('twoLoops', 2 ** 32));
   });
 
   it('still keeps every element a small run pushes, in order', async () => {

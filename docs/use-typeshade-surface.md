@@ -9157,7 +9157,7 @@ only the operands a length reads (proposal 0114, Amendment A12, form 2). The com
 capacity: for each push, the product of the trip counts of every loop around it, summed over the
 pushes (a push under an `if` inside a loop counts as one). A loop under a top-level `if` counts only
 when the host finds the branch taken. A trip count reads only the operands a length reads (above),
-which an outer counter is not. The host counts the capacity exactly, with no
+which an outer counter is not, except for a loop nested in a top-level loop of a function the call may run twice (below). The host counts the capacity exactly, with no
 wrap, and reserves that many elements. A capacity past 4294967295, or past what one host array of
 the element holds, throws a `RangeError` that names the function, the array and the capacity
 before anything runs, since a length past that limit is not supported yet. The pushes
@@ -9186,13 +9186,20 @@ Not supported yet, each refused with `TS8099` and a sentence that names the loop
 push outside every loop; a push in a `while` or `do … while`, under a `switch`, in a loop under a
 branch inside a loop, or in a loop under a top-level `if` whose condition reads another operand; a
 loop whose trip count is no count from a start to a bound by a constant whole step, or whose start
-or bound reads another operand (the counter of a loop around it, or a range the device holds,
-included); an element a made array may not hold (above); pushes of
+or bound reads another operand (a range the device holds included, and the counter of a loop around it, unless the function qualifies for a count pass, below); an element a made array may not hold (above); pushes of
 a struct that the compiler cannot tell are one object or new ones (one object mixed with new
 ones, or one the body changes); a read or a write of an element before the first loop; and a
 write the compiler cannot prove below the length in a loop that is no `for` at the top level of
-the body, or in a loop whose trip count the call cannot compute. These wait for the heap OD-10
-names. The host value, the tiers and the other refusals are those of the made array above.
+the body, or in a loop whose trip count the call cannot compute. A loop nested in a top-level loop may start or end at the counter of a loop around it, or at an
+element of an array parameter, when the function qualifies for a count pass (proposal 0114,
+Amendment A12, form 2, Route 2): the proof of Rule 8.22 accepts every loop, the only write of the
+function is the push onto this array, every push is a statement, the body reads no element of the
+array, an element of an array parameter is read only at the counter of a loop up to that array's
+length, and only the return follows the loops. The call runs the function once to count the pushes
+(a `u32` that stops at 4294967295), reserves exactly that many elements and runs it again. A count
+of 4294967295 or more throws a `RangeError` before the second run, and a second run that pushes
+another count throws an `Error`. Such a function runs on the CPU tier. Other forms wait for the
+heap OD-10 names. The host value, the tiers and the other refusals are those of the made array above.
 
 An element of the array reads and writes as in JavaScript (proposal 0114, Amendment A12): a read
 needs an index below the length, a write an index at most the length, and a write at the length

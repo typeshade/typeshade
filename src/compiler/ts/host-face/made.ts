@@ -54,6 +54,13 @@ function onCpuOnly(face: Record<string, unknown>, shown: string, first: GrownSit
   face.noGpu = why;
 }
 
+function onCpuForCount(face: Record<string, unknown>, shown: string): void {
+  for (const key of ['gpu', 'gl', 'noWebgl2']) delete face[key];
+  face.noGpu =
+    `the trip counts of the loops that push onto "${shown}" are known only by running them, ` +
+    `and a call that counts the pushes first runs on the CPU tier in this release`;
+}
+
 export function madeFace(
   e: HostExport,
   f: FuncDecl,
@@ -112,6 +119,7 @@ export function madeFace(
     ...(made.capacity !== undefined ? { capacity } : {}),
     ...(fill !== undefined ? { fill: fill.name } : {}),
     ...(made.grown === true ? { grown: true as const } : {}),
+    ...(made.counted === true ? { counted: true as const } : {}),
     ...(made.share !== undefined ? { share: made.share } : {}),
     ...(made.written !== undefined ? { written: made.written } : {}),
     ...(made.fillFrom !== undefined ? { fillFrom: made.fillFrom } : {}),
@@ -121,6 +129,7 @@ export function madeFace(
   const face: Record<string, unknown> = { ...e.face };
   delete face.fuse;
   if (sites.length > 0) onCpuOnly(face, made.shown, sites[0]!);
+  else if (made.counted === true && made.capacity === undefined) onCpuForCount(face, made.shown);
   return {
     ...e,
     face: { ...(face as unknown as typeof e.face), made: record } as typeof e.face,

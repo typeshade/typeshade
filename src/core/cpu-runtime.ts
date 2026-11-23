@@ -29,7 +29,7 @@ import {
   type NumKind,
 } from './scalar-arith.js';
 import { makeLibm, type Libm } from './libm/index.js';
-import { PUSHED_BUILTINS, pushedLength, startPushesAt } from './pushed-index.js';
+import { nextPushCount, PUSHED_BUILTINS, pushedLength, startPushesAt } from './pushed-index.js';
 
 export { atomicStep, intDiv, intRem, scalarBin, wrapInt, type NumKind } from './scalar-arith.js';
 
@@ -792,8 +792,8 @@ export const BUILTINS: Record<string, Builtin> = {
     const a = xs as CpuValue[];
     const n = pushedLength(a);
     if (n < a.length) a[n] = v;
-    startPushesAt(a, n + 1);
-    return (n + 1) >>> 0;
+    startPushesAt(a, nextPushCount(n));
+    return nextPushCount(n);
   },
   // `out.length` of an array the function pushes onto: the count appended, which may exceed the
   // capacity (change 0078, decision 1), after the held length a call passes (change 0094).
