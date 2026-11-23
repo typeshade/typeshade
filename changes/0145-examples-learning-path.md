@@ -25,10 +25,18 @@ examples:
   - histogram
   - particle-system
   - ray-tracer
+  - three-body
+  - bloom
+  - tone-mapping
+  - game-of-life
+  - boids
+  - reaction-diffusion
+  - path-tracer-progressive
+  - fluid-2d
 names: []
 downstream:
   - repo: typeshade.github.io
-    what: The examples page, the example detail pages and the Playground starters (en and ko) show the learning path in order and the gallery in three groups; the Playground default host and the host runner run the new host.ts form; the example blurbs and i18n lines name the new ids; each page that links an old example id or lists the examples is checked; compiler-changes.md records 0145
+    what: The examples page, the example detail pages and the Playground starters (en and ko) show the learning path in order and the gallery in four groups (amendment A1); the Playground default host and the host runner run the new host.ts form; the example blurbs and i18n lines name the new ids; each page that links an old example id or lists the examples is checked; compiler-changes.md records 0145
   - repo: vscode-typeshade
     what: The skill's example references and any sample list name the learning path and the gallery; the sample files the extension offers match the new first-color pair; compiler-changes.md records 0145
 ---
@@ -49,9 +57,10 @@ After this change, an author who opens the examples finds two things.
 
 1. A **learning path**: 17 new examples in five parts. The first is the smallest program that
    draws. The last is a ray tracer. Each step uses only the concepts of the steps before it.
-2. A **gallery**: every example that exists today, regrouped in three groups. The groups are
-   _works_ (visual pieces), _high precision_ (the `fp64` examples) and _feature examples_
-   (small examples of one language feature).
+2. A **gallery**: every example that exists today, regrouped in four groups. The groups are
+   _works_ (visual pieces), _high precision_ (the `fp64` examples), _feature examples_
+   (small examples of one language feature) and _inspired_ (examples that implement an effect
+   known from another source; amendment A1).
 
 Each example of the path is a pair: one `.shade.ts` module and one `host.ts`. Each example of
 the gallery that a host can call has the same pair (The gallery, below). The `host.ts` runs as
@@ -126,13 +135,14 @@ these two numbers everywhere: 147 examples, 124 gallery entries.
 The 124 entries are: 79 modules with no twin (102 - 23), 9 host examples, 23 twin pairs and 13
 builder examples with no twin.
 
-The three groups are:
+The four groups are (the fourth, _inspired_, is the amendment A1 and holds no existing example):
 
-| Group            | Content                                                                                                                            | First assignment rule                                              |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Works            | Visual pieces: raymarching, fractals, noise, terrain, ocean, path tracer, and so on.                                               | A renderable example that is not `fp64` and not one-feature.       |
-| High precision   | The `fp64` examples: 25 examples, 13 builder and 12 `.shade.ts` (14 entries with twins shown once).                                | The id starts with `fp64-`.                                        |
-| Feature examples | Small examples of one language feature: `closures`, `class-syntax`, `workgroup-reduce`, `hello-*`, the 9 host examples, and so on. | An example that shows one construct and is not a finished picture. |
+| Group            | Content                                                                                                                            | First assignment rule                                               |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Works            | Visual pieces: raymarching, fractals, noise, terrain, ocean, path tracer, and so on.                                               | A renderable example that is not `fp64` and not one-feature.        |
+| High precision   | The `fp64` examples: 25 examples, 13 builder and 12 `.shade.ts` (14 entries with twins shown once).                                | The id starts with `fp64-`.                                         |
+| Feature examples | Small examples of one language feature: `closures`, `class-syntax`, `workgroup-reduce`, `hello-*`, the 9 host examples, and so on. | An example that shows one construct and is not a finished picture.  |
+| Inspired (A1)    | Examples that implement an effect or a technique known from another source. The first batch is in A1.                              | The example names its source as inspiration (A1, The writing rule). |
 
 The tree holds 28 files named `fp64-*`. Of these, 25 are examples. The other 3 are test files
 (`fp64-julia.test.ts`, `fp64-lane-stripes.test.ts`, `fp64-twins.test.ts`). They are not examples
@@ -382,7 +392,7 @@ Files and subsystems at `64593b03` (the implementation touches each):
 | Item                                                                         | Change                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `examples/path/<id>/` (new)                                                  | 17 directories with `<id>.shade.ts` and `host.ts`.                                                                                                                                                                                                                                                                                                                                                                 |
-| `examples/gallery/` (new, Q2)                                                | The 147 examples (124 entries, twins once) regrouped in three groups. Each gets a `host.ts` as The gallery rules say. The 3 support modules move with their importers.                                                                                                                                                                                                                                             |
+| `examples/gallery/` (new, Q2)                                                | The 147 examples (124 entries, twins once) regrouped in the groups (four with amendment A1). Each gets a `host.ts` as The gallery rules say. The 3 support modules move with their importers.                                                                                                                                                                                                                      |
 | `examples/_order.ts`, `examples/index.ts`, `examples/hosts/_order.ts`        | Split in two: the path order (hand-written, by step) and the gallery order (by group). The two `_order.ts` lists and `examples/hosts/_registry.ts` merge or are replaced.                                                                                                                                                                                                                                          |
 | the script `gen-example-registry`                                            | [fact] The file named in `examples/_order.ts`, `_scan.ts` and `index.ts` does not exist in the tree at `64593b03` (`git ls-files`). M1 finds which script writes `examples/index.ts` and updates it.                                                                                                                                                                                                               |
 | `examples/_shade.ts`, `examples/_scan.ts`, `examples/registry-drift.test.ts` | Discover the new directories. The drift gate reports an id in the order lists that has no file, and a file that no list names.                                                                                                                                                                                                                                                                                     |
@@ -552,7 +562,7 @@ Each question has a recommended answer. The owner chose every recommended answer
    `git mv`, because each gallery example now needs a `host.ts` beside it.
 3. **Q3. Does the gallery show all 124 entries or a curated subset?** The 147 examples (102
    `.shade.ts`, 9 hosts, 36 builder) hold 23 twin pairs. Showing each pair once gives 124
-   entries. Recommended: show all 124, grouped by the three groups, and mark the builder form
+   entries. Recommended: show all 124, grouped by the four groups, and mark the builder form
    as the twin. The owner reviews the group table at M4.
 4. **Q4. What does the CPU tier show for step 1?** The CPU tier paints pixel by pixel. For one
    colour it shows the same colour. Recommended: step 1 states that the three tiers give the
@@ -578,13 +588,248 @@ Each question has a recommended answer. The owner chose every recommended answer
    `run()` that reaches the module through the program runtime. That would break host form
    item 1.
 
+## Amendments
+
+### A1. A fourth gallery group, inspired by other sources (2026-11-23, status: accepted)
+
+- Status: accepted. [decision, owner, 2026-11-23] The owner answered A1-Q1, A1-Q2, A1-Q4 and
+  A1-Q5 in the conversation, in a question form the agent showed (Owner's answers, below). A1 is
+  part of the approved text from the merge of its pull request (#1432). No code and no example
+  changes with this pull request.
+- Baseline: `main` at `34d65efd`. M1 is delivered there (`examples/path/` holds steps 1 to 8).
+  M3 is not on `main`: `examples/path/` has no `double-array`, `image-blur`, `parallel-sum`,
+  `histogram` or `ray-tracer` yet. [fact] Read with `ls examples/path` and `examples/path/_order.ts`.
+
+#### What A1 changes
+
+1. The gallery gets a fourth group, **inspired**. It holds an example that implements an effect or
+   a technique known from another source: a NVIDIA sample, a WebGPU sample or an example of
+   another engine. The three groups of The gallery stay as they are.
+2. A1 states the writing rule of the group (The writing rule, below).
+3. A1 names a first batch of eight examples (The first batch, below).
+4. A1 lists the examples that wait for 0138 milestone 5 (The deferred list, below).
+5. A1 adds milestone M7 for the first batch.
+6. The front matter `examples` gains the ids of the first batch. The text that counts the groups
+   says four where it said three.
+
+A1 adds no rule, no author-facing name, no diagnostic code and no export. `rules`, `surface`,
+`exports`, `exports-removed`, `codes` and `names` stay empty.
+
+#### Why, and the owner's words
+
+The owner said three things on 2026-11-23, in the conversation. Each is quoted in Korean as said.
+
+1. "그래픽스로는 엔비디아 예제도 가져와도 좋고요, 다른 엔진의 예제들도 가져와도 좋겠어요"
+   (English: For graphics, it is good to bring in NVIDIA's examples too, and the examples of
+   other engines too.)
+2. "라이센스 문제없이, 그냥 그 예제에 대한 구현을 하는거니까 라이센스 문제없잖아요. 예를 들어
+   3체 예제를 만든다고 다른 라이센스 문제를 받는건 아니잖아요"
+   (English: No license problem: we just implement that example, so there is no license problem.
+   For example, making a three-body example does not bring another license's problem.)
+3. "라이센스가 허락하면 주석에 달고, 사용하도록 합시다"
+   (English: Where the license permits, note it in a comment and use it.)
+
+[inference, agent] Statements 2 and 3 together mean this. An idea implemented anew needs no
+license. Code or an asset of a source may be used where its license permits, with a comment.
+The owner's words are decisions about the direction. They are not an approval of this text.
+
+#### The writing rule of the inspired group
+
+- [decision, owner] Default. An idea, an algorithm or a technique is implemented anew in
+  TypeShade, from its description and its result.
+- [decision, owner] Where the license of the source permits reuse (for example MIT, Apache-2.0,
+  BSD or CC0), its code or its asset may be used.
+- [decision, owner] A reused part carries a comment. The comment names the source, its URL, the
+  revision, its license and its copyright line.
+- [proposal, agent] A reused part also follows the terms of its license. An Apache-2.0 source goes
+  into `NOTICE`, as fdlibm does today. An MIT or BSD source keeps its copyright notice in the
+  comment of the part.
+- [proposal, agent] A source whose license does not permit reuse, or that has no license, is not
+  reused. The example implements the idea anew. It copies no code and no asset. It does not
+  translate the source line by line. An example is the default license of ShaderToy listings
+  (CC BY-NC-SA), which `examples/README.md` (the licensing note) already treats this way.
+- [proposal, agent] An example that reuses nothing has a header that names the source as
+  inspiration. The header gives the source's name and URL. It is a courtesy. It does not
+  present the example as an official example of that product.
+- [proposal, agent] An example needs no texture, model or other asset of its source for its idea.
+  It makes what it needs procedurally. A reused asset is the exception that the owner's third
+  statement allows, with its comment.
+- [proposal, agent] This is the project's rule. It is not legal advice. This is no claim that a
+  license reading is certain, and an owner who doubts a source may leave it out.
+- [proposal, agent] Which comment rule applies. The comment policy covers `src/` only:
+  `src/comment-policy.test.ts` counts the files `git ls-files -- src` lists
+  (`scripts/comment-policy.ts`, line 96). A file of `examples/` is not `src/`. The attribution
+  comment is allowed there, and `scripts/comment-baseline.json` is not affected. [fact] Read on
+  2026-11-23 at `34d65efd`. A reused part that is to live in `src/` follows CLAUDE.md, Comments:
+  the attribution goes in `NOTICE` and in the commit message, and the comment is a `Why:` comment
+  only if no name or test can carry it.
+- [proposal, agent] A reused part is a change that a person reads. The pull request of M7 lists
+  each reused part with the five facts of the comment, so that the reviewer can check them.
+
+An example of a header of the group (illustrative: M7 writes each real header):
+
+```ts
+"use typeshade";
+
+/* @example
+{
+  "title": "Boids",
+  "blurb": "Flocking from three rules, in one compute entry and one fragment entry.",
+  "group": "inspired",
+  "renderable": false,
+  "reason": "no entry point"
+}
+*/
+
+// Inspired by the flocking model of Craig Reynolds (1986) and the WebGPU samples
+// (https://webgpu.github.io/webgpu-samples/). Written anew. No code or asset is copied.
+// Not an official example of either.
+```
+
+The owner's earlier entries are not reversed. A1 rests on OD-3 (it adds no construct), OD-4
+(this text shows the owner a header, and the options are in the questions) and OD-9 (the first
+batch uses only forms that the compiler implements; a form it does not implement waits). OD-1,
+OD-2 and OD-5 hold for the batch: each entry is `@compute` or `@fragment`, and objects are
+references.
+
+#### The first batch
+
+Every example of the batch uses forms of the compiler at `34d65efd`: a full-screen `@fragment`
+entry called as `fs(canvas, bindings?)` (Rule 8.24) and a `@compute` entry or a kernel function.
+No example has a vertex entry, a render pass or a texture. Those wait for 0138 milestone 5
+(Q6 of the approved text). The ids are new in the tree, except `path-tracer` (below).
+
+| Id                        | What it shows                                                                                                                                              | Path concepts it uses                                                               | Tiers it targets                     |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------ |
+| `three-body`              | Three bodies under gravity. Each pixel replays the system for a fixed number of steps and draws the bodies and their trails.                               | Steps 4 to 8: functions, loops with an early exit, arrays, a class with references. | WebGPU, WebGL2, CPU (fragment only). |
+| `bloom`                   | A glow around bright points. A procedural image function is sampled at the taps of a Gaussian kernel inside one fragment entry.                            | Steps 4, 5 and 7: functions, loops, a constant array of weights.                    | WebGPU, WebGL2, CPU (fragment only). |
+| `tone-mapping`            | One HDR ramp, split into three bands: clamped, Reinhard and an ACES fit. No input image.                                                                   | Steps 2 and 4: `position`, vectors, functions.                                      | WebGPU, WebGL2, CPU (fragment only). |
+| `game-of-life`            | Conway's rule on a grid. A compute entry reads one buffer and writes the other. A fragment entry draws the cells.                                          | Step 7 (arrays), step 12 (the first compute kernel).                                | WebGPU, WebGL2, CPU.                 |
+| `boids`                   | Flocking from three rules. A compute entry reads every boid and writes the next state. A fragment entry draws each boid as a disc.                         | Steps 5 and 8 (loops, a class), step 12.                                            | WebGPU, WebGL2, CPU.                 |
+| `reaction-diffusion`      | Gray-Scott pattern growth on a grid, in a compute entry with two buffers. A fragment entry maps the two chemicals to colour.                               | Steps 7 and 12, and the `palette` ramp of step 7.                                   | WebGPU, WebGL2, CPU.                 |
+| `path-tracer-progressive` | A path tracer that keeps the sum of its samples in a buffer. A compute entry adds one sample for each pixel in each call. A fragment entry shows the mean. | Steps 4 to 8 and step 12. It continues `examples/path-tracer.shade.ts`.             | WebGPU, WebGL2, CPU.                 |
+| `fluid-2d`                | Stable fluids on a grid: advection, divergence, a fixed count of Jacobi pressure iterations and projection, each a kernel function.                        | Steps 5, 7 and 12, and the kernel call of step 12 (`await kernel(args)`).           | WebGPU, WebGL2, CPU.                 |
+
+Notes on the table.
+
+- [fact] `examples/path-tracer.shade.ts` exists in the gallery. Its header says that progressive
+  accumulation "needs a second pass that reads the previous image, which is host work today". The
+  id `path-tracer` is therefore taken. [proposal, agent] The new example uses the id
+  `path-tracer-progressive`. A1-Q3 asks the owner.
+- [fact] `bloom` and `tone-mapping` are written without a texture input. A texture sample is a
+  form that the compiler implements (surface §15), but a host binds a texture to a fragment entry
+  only through the program runtime, which is 0138 milestone 5 territory for the path. The two
+  examples therefore make their HDR image inside the fragment entry. A bloom that blurs the image
+  of an earlier pass waits for 0138 milestone 5 and is in the deferred list.
+- [fact] Tiers. WebGL2 has no storage buffer of its own, but TypeShade runs a `@compute` entry
+  there as its pass program over textures of 32-bit words, with read-write storage, barriers and
+  atomic operations in the phased order of change 0054 (`docs/language-design.md`, Rule 11.8 and
+  the compute entry's tiers). The owner pointed this out on 2026-11-23: "WebGL2 에 스토리지 버퍼가
+  없어도 typeshade에서는 구현되잖아요. 지금 그것도 typeshade가 폴백 구현해주는데" (English: even
+  if WebGL2 has no storage buffer, TypeShade implements it; TypeShade provides that fallback
+  now). So all eight target WebGL2. A kernel function runs on WebGL2 only when each loop writes
+  one array of 4-byte elements at exactly `i` (Rule 11.8); M7 checks `fluid-2d` against that.
+- [fact] None of the eight uses workgroup memory, a barrier or an atomic. None is GPU-only for
+  that reason. [fact] If M7 finds that a rewrite needs a barrier, that example lists WebGPU and
+  WebGL2: the CPU tier refuses an entry that reaches a barrier, and WebGL2 runs it in its pass
+  program (Rule 8.24, Rule 11.8). An atomic alone keeps all three tiers. M7 checks it.
+- The tiers above are targets, not results. An example lists a tier exactly when its whole
+  `run()` gives the reference on that tier alone (as `HOST_ORDER` and `PATH_ORDER` do). M7 fixes
+  the list from what runs.
+- The steps that the batch names and that are not on `main` are steps 12 and later. M7 therefore
+  follows M3.
+
+Each example of the group gets a `host.ts` of the host form (A1-Q2). Its `run` draws one frame or
+runs the calls once, and its `animate` repeats them. `game-of-life`, `boids`,
+`reaction-diffusion`, `path-tracer-progressive` and `fluid-2d` keep their buffers resident
+between calls (as `host-resident` does).
+
+#### The deferred list
+
+These examples need a vertex entry, a render pass or a texture. Each waits for 0138 milestone 5
+and is written after M6. A1 does not add them to the front matter.
+
+- Meshes with a vertex buffer (a lit mesh, an instanced field of cubes).
+- Shadow maps (a depth pass, then a lit pass).
+- Deferred shading (a G-buffer of more than one target, then a lighting pass).
+- Physically based shading on a mesh.
+- Bloom and tone mapping as passes that read the image of an earlier pass.
+- Particles drawn as points or sprites from a vertex entry.
+- Reflections and water that render to a texture.
+
+[proposal, agent] Each is a candidate for an inspired example. A later amendment names them id by id.
+
+#### Milestone M7
+
+M7 follows M3 and M4: it needs steps 12 and later, and the directory layout of the gallery (Q2 of
+the approved text). It carries `Change: 0145`. One pull request holds the batch, or one pull
+request holds each few examples. M7 shows a header of each new example to the owner before the
+owner says "merge" (CLAUDE.md, Merging).
+
+| Milestone | Content                                                                                                                                    | What it verifies                                                                                                                                                                                                                                                                                                                                                                         |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M7        | The eight examples of the first batch in the inspired group. Each has a module, a `host.ts`, a `group` and a header that names its source. | `bun run gate:compile` with the new modules. Goldens baked and the diff read. Both halves on each source (`compile()` and the language service). Each `host.ts` run on the tiers it lists. A CPU-tier reference in plain JavaScript where the tier runs it (`_reference.ts` form). The header of each, and any reused part with its five facts, read in the pull request. `docs:impact`. |
+
+#### Deviations and open items
+
+- No deviation from the approved text is open. A1 adds to it and changes no sentence, except that
+  "three groups" becomes "four groups" where the text counts them. The sentences are marked in the
+  pull request.
+- Closed: the first batch (A1-Q1) and the id `path-tracer-progressive` (A1-Q3), as the owner
+  answered.
+
+#### Owner's answers (2026-11-23)
+
+- [decision, owner] A1-Q1: "이대로" (as it is). The first batch is the eight examples below. The
+  question named `path-tracer-progressive` as the id for the clash, so the answer also settles
+  A1-Q3.
+- [decision, owner] A1-Q2: "예, 같은 형식" (yes, the same form). Each inspired example has a
+  `host.ts` of the path's form.
+- [decision, owner] A1-Q4: "예, 같은 조건으로" (yes, under the same terms). A reused part may be
+  code or an asset, under the same comment and license terms.
+- [decision, owner] A1-Q5: "예, 검토 없이" (yes, with no review). The agent reads each source's
+  license and lists the five facts (source, URL, revision, license, copyright line) in the pull
+  request. The owner does not review the list before the merge. A source whose license is unclear
+  is not reused.
+
+#### Open questions for the owner (answered above)
+
+1. **A1-Q1. Is the first batch right?** The eight examples are `three-body`, `bloom`,
+   `tone-mapping`, `game-of-life`, `boids`, `reaction-diffusion`, `path-tracer-progressive` and
+   `fluid-2d`. Recommended: yes. Each is written with forms the compiler has today, and the five
+   that need a buffer target all three tiers too (OD-11).
+2. **A1-Q2. Does an inspired example need a `host.ts` in the form of the path?** Recommended: yes,
+   the same form as the path (`run(canvas)` or `run()`, and an optional `animate(canvas)`). The
+   reader and the check harness then read one host of one form.
+3. **A1-Q3. The id `path-tracer` is taken. Which id does the new example use?** Recommended:
+   `path-tracer-progressive`, so that `examples/path-tracer.shade.ts` keeps its id (OD-6 allows a
+   rename, but nothing needs it).
+4. **A1-Q4. May a reused part be an asset as well as code?** The owner's third statement says
+   "사용하도록" without naming either. Recommended: yes, for both, under the same comment and the
+   same license terms. The first batch reuses nothing, so the question has no effect on M7 now.
+5. **A1-Q5. Does the owner want to read each source's license, or does the agent decide?**
+   Recommended: the agent reads it and lists the five facts in the pull request. The owner reviews
+   the list. A source whose license is unclear is not reused.
+
+#### What A1 touches
+
+- `examples`: the eight ids are added. [fact] `scripts/changes.ts` reads the ids of the front
+  matter against the tree, so M7 must add the files for each.
+- `NOTICE`: changes only if M7 reuses an Apache-2.0 part. The first batch reuses none.
+- `examples/README.md`: its licensing note is amended to name the group and the rule (M7).
+- Docs that count the groups: this text (the sentences marked above). `bun run docs:impact`
+  lists the rest at M7.
+- `downstream`: the site shows four groups, not three. The site needs one more group heading and
+  a blurb in each locale for each shown id. The editor skill's example list names the group.
+  [fact] The front matter `downstream` lines say "three groups" and are amended in this text.
+
 ## What it owes downstream
 
 For each repository in `downstream`. This is expected work. No responsibility is assigned.
 
 - **typeshade.github.io** (the site and the Playground; the repository name is the one
   `DOWNSTREAM_REPOS` in `scripts/changes.ts` gives).
-  - The examples page: show the path in order and the gallery in three groups. The typed
+  - The examples page: show the path in order and the gallery in four groups. The typed
     `categories` record (`cartographic | generic | compute`) is replaced.
   - The example detail pages: a page for each of the 17 new ids, in en and ko, with the
     blurb, the module and the `host.ts`.
