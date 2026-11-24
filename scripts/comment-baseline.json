@@ -608,7 +608,7 @@
   "src/core/passes/console-buffer.test.ts": 13,
   "src/core/passes/console-buffer.ts": 49,
   "src/core/passes/const-expr.test.ts": 36,
-  "src/core/passes/const-expr.ts": 177,
+  "src/core/passes/const-expr.ts": 89,
   "src/core/passes/derivative-rewrite.test.ts": 22,
   "src/core/passes/derivative-rewrite.ts": 152,
   "src/core/passes/determinism.test.ts": 92,
