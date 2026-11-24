@@ -266,6 +266,11 @@ through the owner's account can too, so the rule is written here:
     proposal declares (`scripts/changes.ts` passes), and that adds or renames no author-facing
     name and does not change how an author writes an example (below);
   - a bug fix that needs no proposal.
+  - a pull request whose commits declare `Move: pure` or `Move: comments` and that
+    `scripts/move-purity.ts` accepts (`docs/structure-refactoring-plan.md`, section 8). Before
+    the merge, the merging agent runs the checker of `main` on the range of the pull request and
+    reads "pure". A pull request runs its own copy of the checker, so the run on `main` is the
+    one that counts. The owner approved this on 2026-11-24: "승인".
 
   Everything else waits for the owner to say "merge" in the conversation: a new proposal, and a
   change to a design rule, a public export, a surface section, a diagnostic code or the set of
