@@ -46,6 +46,7 @@ surface:
   - 54
   - 62
   - 66
+  - 67
   - 76
   - 77
 exports: []
@@ -1649,6 +1650,144 @@ After:
 - `examples`: four ids join the list (item 6 of "What A3 declares"). No example is added to or
   removed from the tree.
 - `downstream`: no change. The site and the editor read rule numbers, not these paths.
+
+### A4. M4.8 scope: surface §67 and the special hosts (2026-11-24, status: draft)
+
+- Status: draft. [fact] Approval does not apply yet. The owner's "merge" of its pull request makes A4
+  part of the approved text. No code and no example changes with that pull request.
+- Baseline: `main` at `bd860eba`. [fact] A first implementation of M4.8 is commit `78dbc51d` on branch
+  `claude/0145-m4-8-special-hosts`. It is not pushed and not merged.
+- A4 adds no rule, no author-facing name, no diagnostic code and no export. `rules`, `exports`,
+  `exports-removed`, `codes` and `names` do not change. `draw` and `runSpecialized` are exports of
+  example files, not of the package: `src/__api__/surface.md` does not list them.
+
+#### Why A4 exists
+
+1. [fact] `docs/use-typeshade-surface.md` §67, line 10082 on the baseline, says:
+   "`examples/hosts/host-compute/host.ts` contains the complete default, direct-specialized and
+   device-plan runs."
+2. [fact] M4.8 moves the direct-specialized and device-plan runs to a new `check.ts` beside it.
+   The sentence is then false.
+3. [fact] §67 is not in the `surface:` list of 0145. `bun run precommit` refuses an edit of §67 under `Change: 0145`.
+4. [fact] The slice text of M4.8 does not give three details: the result shapes, what `check.ts` holds
+   and what replaces `draw`. Commit `78dbc51d` chose a reading for each.
+5. [proposal] A4 declares §67 for the one sentence, and states the readings, so that M4.8 stays inside
+   the approved text.
+
+#### What A4 declares
+
+1. [proposal] The front matter `surface:` gains `67`. [fact] `scripts/changes.ts` has no state for an
+   amendment in draft, so the list counts from the merge of this pull request (A2 and A3, same rule).
+2. [proposal] M4.8 edits one sentence of §67: the one named in item 1 above. It changes no other word of §67.
+3. [fact] `reqs/surface/SURF-067.md` carries §67. M4.8 runs `bun run reqs:sync` and reads the item that it flags.
+   A person runs `doorstop review SURF-067`. An agent does not.
+4. [fact] The stale line references `examples/hosts/host-program/host.ts:28` are in
+   `src/core/coverage/webgpu-objects.ts` (lines 2200 and 2203) and in the baked
+   `docs/capability-coverage.md` (line 197). M4.8 changes the line number there. [inference] No
+   criterion of `changes/README.md` reaches those files. `bun scripts/changes.ts` confirms this on the M4.8 diff.
+
+#### The readings M4.8 takes
+
+Each reading fills a gap in the slice text. Each is a [proposal] for the owner.
+
+| Id    | Host           | Reading                                                                                                                                                                                 |
+| ----- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A4-R1 | `host-compute` | `run()` returns `{ values }`. The specialized run is `specialized()` in `check.ts`. It is not an extra: no manifest `extras` entry, no button in the Playground.                        |
+| A4-R2 | `host-compute` | The harness calls `specialized()` from `check.ts` and holds its report to each tier. `_drive.ts` reads `values`, `direct` and `planned` from the two runs.                              |
+| A4-R3 | `loop-fuse`    | `run()` takes default inputs, so the harness calls `run()`. It still returns `{ chain, split, reduce }`, each with its `report`. `check.ts` calls `run()` again and checks each report. |
+| A4-R4 | `host-program` | `run()` returns `{ image: { width, height, rgba } }`. The program runtime stays (`waitsFor: "0138 milestone 5"`).                                                                       |
+| A4-R5 | `host-draw`    | `draw` is replaced by the form's `run(canvas, time = 0)`: one frame. `animate(canvas)` stays and calls `run(canvas, time)` each frame. The `times` list of today's `run` goes.          |
+
+1. [fact] A2 (host form, item 4 and the table) lists `runSpecialized` as an extra of `host-compute`. The
+   owner chose "run() + extras" as O4. The slice text says to remove `runSpecialized` as an export.
+   The two differ. A4-R1 follows the slice text.
+2. [fact] A2 says of `loop-fuse`: "Today's shape." The existing `run(a, b, c)` has no default
+   inputs. A4-R3 adds them. The result shape does not change.
+3. [fact] `check.ts` is the harness's file (host form, item 5). It exports `check(result, tier)`.
+   [proposal] the new `check.ts` of `host-compute` also exports `specialized`, which `_drive.ts` imports.
+4. [fact] `draw` in `host-draw/host.ts` is not a form name. The form calls the one-frame function `run`.
+5. [fact] `bun run docs:impact` reported three must-fix mentions of `draw()` while `draw` stayed.
+   They name the runtime methods of Rule 11.17 and §69, not the example's export. A fix of
+   `scripts/doc-impact.ts` removes them. It is a separate change and A4 does not declare it.
+
+#### One host.ts before and after
+
+[fact] `examples/hosts/host-compute/host.ts`, from commit `78dbc51d`. The reader sees the default
+call only. The specialized runs move to `check.ts`.
+
+Before:
+
+```ts
+import { createDevice, type FuseReport } from 'typeshade/runtime';
+import 'typeshade/fuse';
+import { scale } from './host-compute.shade.ts';
+
+export async function run(n = 259): Promise<Float32Array> {
+  const xs = Float32Array.from({ length: n }, (_, i) => i);
+  const ys = new Float32Array(n);
+  await scale({ k: 2.5, xs, ys }, Math.ceil(n / 64));
+  return ys;
+}
+
+export async function runSpecialized(n = 259): Promise<{ direct: Float32Array; values: Float32Array; report: FuseReport }> {
+  // direct call with { constants: { GAIN: 0.5 } }, then a device plan with { constants: { WIDTH } }
+}
+```
+
+After:
+
+```ts
+// Dispatch a `@compute` entry: bindings by name and a workgroup count (surface §67, Rule 8.24).
+// The import is the shader module itself: the Vite plugin turns `scale` into a function.
+import { scale } from './host-compute.shade.ts';
+
+export async function run(n = 259): Promise<{ values: Float32Array }> {
+  const xs = Float32Array.from({ length: n }, (_, i) => i);
+  const ys = new Float32Array(n);
+  await scale({ k: 2.5, xs, ys }, Math.ceil(n / 64));
+  return { values: ys };
+}
+```
+
+[fact] The sentence of §67 after M4.8 says that `host.ts` contains the default run, and that
+`check.ts` beside it contains the direct-specialized and device-plan runs. The wording is M4.8's. The meaning is the one in this section.
+
+#### What the site and M4.9 then owe
+
+1. [proposal] The site repository (`typeshade/web`, the `downstream` entry of 0145): the Playground reads
+   `image` from `host-program` (A4-R4). It lists no extra for `host-compute` (A4-R1). It calls
+   `animate` for `host-draw`, and `run(canvas)` for the check (A4-R5).
+2. [proposal] The site's host example pages for `host-compute`, `loop-fuse`, `host-program` and `host-draw`
+   follow the new `host.ts` text. The site does not show `check.ts`.
+3. [proposal] M4.9 reads `check.ts` through the registry for each entry that has one, and calls
+   `check(result, tier)` as `_drive.ts` does after M4.8. It does not read `HOST_ORDER`.
+4. [fact] `compiler-changes.md` already records 0145. A4 adds no id to it.
+
+#### Questions for the owner
+
+1. **A4-Q1. Does the owner accept `67` in `surface:`, for the one sentence?** Recommended: yes.
+2. **A4-Q2. Does the owner accept A4-R1: `specialized()` in `check.ts`, not an extra?** Recommended: yes.
+   It follows the slice text, and the reader's file stays small. The cost: the Playground has no button for it.
+3. **A4-Q3. Does the owner accept A4-R3 and A4-R4 as written?** Recommended: yes. Neither changes a result shape.
+4. **A4-Q4. Does the owner accept A4-R5: `run(canvas, time = 0)` and `animate(canvas)` for `host-draw`?**
+   Recommended: yes. It is the form, and it removes `draw`.
+
+#### Deviations and open items
+
+| Deviation                                                                  | Disposition                                  |
+| -------------------------------------------------------------------------- | -------------------------------------------- |
+| D-10. A2 lists `runSpecialized` as an extra. A4-R1 moves it to `check.ts`. | Open. Closed by the owner's answer to A4-Q2. |
+
+| Item                                                          | Reason                                        | Next action                                          |
+| ------------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------------- |
+| The `doorstop review` of `SURF-067`.                          | A person reads the item. An agent does not.   | A person runs it after `bun run reqs:sync`, in M4.8. |
+| The three false must-fix mentions of `draw()` in docs:impact. | They are a defect of `scripts/doc-impact.ts`. | A separate pull request fixes the script.            |
+
+#### What A4 touches
+
+- `surface`: §67. [proposal] It joins the front matter.
+- `docs/use-typeshade-surface.md`: one sentence of §67, in M4.8. `reqs/surface/SURF-067.md`: the item that `bun run reqs:sync` changes.
+- `examples`: no id is added or removed. `downstream`: see "What the site and M4.9 then owe".
 
 ## What it owes downstream
 
