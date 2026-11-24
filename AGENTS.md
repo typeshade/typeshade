@@ -281,8 +281,9 @@ tier runs. Where no fallback exists, write "not supported yet" and cite the rule
     checker, so a range could lie to skip gates. For a merge under decision D5 the orchestrating
     agent runs the checker of `main` on the range first (`docs/structure-refactoring-plan.md`,
     section 9.1). A skipped gate runs again on the push to `main`, and a run on `main` is never
-    cancelled by a later push (`cancel-in-progress` is false for `main` in `ci.yml`,
-    `package-smoke.yml` and `downstream.yml`; change `0147`, Rule 13.4). On a pull request the
+    cancelled by a later push (in `ci.yml`, `package-smoke.yml` and `downstream.yml`,
+    `cancel-in-progress` is false for `main` and each commit of `main` has its own `concurrency`
+    group, so a waiting run is not replaced either; change `0147`, Rule 13.4). On a pull request the
     pinned unit shards run the selection of `scripts/affected-tests.ts`, not the whole suite; the
     full suite runs on `main`. A failed run there marks the
     commit on `main` red and reaches, by the default notifications of GitHub, the account that merged and every watcher of Actions; no
