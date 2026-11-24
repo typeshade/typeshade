@@ -38,6 +38,7 @@ import { kernelTree, reductionIdentity, ScatterRun } from '../kernel-tree.js';
 import { fnWrites } from '../passes/effects.js';
 import { treeCombine, type LoopReduction, type TreeLoop } from '../passes/parallel-loop.js';
 import type { StepFrame, StepCtx, Step, Signal } from './interp/types.js';
+import { rootName, whole, markStub } from './interp/stub-marks.js';
 export type {
   StepFrame,
   StepEvent,
@@ -330,33 +331,6 @@ export function* runFunction(
   } finally {
     ctx.frames.pop();
   }
-}
-
-function rootName(target: Expr): string | undefined {
-  let e = target;
-  for (;;) {
-    if (e.op === 'varref' || e.op === 'param') return e.name;
-    if (e.op === 'member' || e.op === 'index') {
-      e = e.base;
-      continue;
-    }
-    return undefined;
-  }
-}
-
-function whole(target: Expr): boolean {
-  return target.op === 'varref' || target.op === 'param';
-}
-
-function markStub(
-  frame: StepFrame | undefined,
-  name: string | undefined,
-  derived: boolean,
-  canClear: boolean,
-): void {
-  if (!frame || name === undefined) return;
-  if (derived) frame.stubbed.add(name);
-  else if (canClear) frame.stubbed.delete(name);
 }
 
 function isMemoryRoot(root: string | undefined, env: Map<string, CpuValue>, ctx: StepCtx): boolean {
