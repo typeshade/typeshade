@@ -2,9 +2,9 @@ import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js';
-import type { TypeshadeCompletionItem, TypeshadeCompletionKind } from './types.js';
+import type { TypeshadeCompletionItem } from './types.js';
 import { enclosingStage } from './completions/builtin-stage.js';
-import { completesVectorMembers } from './completions/vector-members.js';
+import { tsCompletions } from './completions/typescript-entries.js';
 
 const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', readonly string[]>> = {
   vertex: ['vertex_index', 'instance_index'],
@@ -65,51 +65,6 @@ function vecSnippetItem(snippet: {
     insertText: snippet.insertText,
     insertTextFormat: 'snippet',
   };
-}
-
-function kindOfTsCompletion(kind: ts.ScriptElementKind): TypeshadeCompletionKind {
-  const k = kind as string;
-  if (k === 'keyword') return 'keyword';
-  if (k === 'method' || k.includes('function')) return 'function';
-  if (k === 'class' || k === 'interface' || k === 'type' || k === 'alias' || k === 'enum')
-    return 'type';
-  if (k === 'property') return 'field';
-  return 'variable';
-}
-
-const LISTED_SWIZZLES: ReadonlySet<string> = new Set([
-  'x',
-  'y',
-  'z',
-  'w',
-  'r',
-  'g',
-  'b',
-  'a',
-  'xy',
-  'xyz',
-  'xyzw',
-  'rg',
-  'rgb',
-  'rgba',
-]);
-const SWIZZLE = /^(?:[xyzw]{1,4}|[rgba]{1,4})$/;
-
-function tsCompletions(
-  languageService: ts.LanguageService,
-  uri: string,
-  offset: number,
-): TypeshadeCompletionItem[] {
-  const result = languageService.getCompletionsAtPosition(uri, offset, {});
-  if (!result) return [];
-  const vector = result.isMemberCompletion && completesVectorMembers(languageService, uri, offset);
-  return result.entries
-    .filter((entry) => !vector || !SWIZZLE.test(entry.name) || LISTED_SWIZZLES.has(entry.name))
-    .map((entry) => ({
-      label: entry.name,
-      kind: kindOfTsCompletion(entry.kind),
-      sortText: entry.sortText,
-    }));
 }
 
 type CompletionContext =
