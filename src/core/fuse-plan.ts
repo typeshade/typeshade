@@ -28,11 +28,9 @@ import {
   reduceOnGpu,
   runChecked,
   tailResult,
-  tierFit,
   type CheckedCall,
   type Finish,
   type Folded,
-  type KernelFace,
   type PlanRun,
 } from './host-kernel.js';
 import type { CallOwner } from './owner.js';
@@ -47,9 +45,9 @@ import {
   type Plan,
   type PlanGroup,
   type RecordedCall,
-  type RecordedEntry,
   type RecordedKernel,
 } from './fuse-record.js';
+import { tierOf, tierOfEntry, type Choice } from './fuse-plan/tier-choice.js';
 export { buildPlan, runScope, ScratchState } from './fuse-record.js';
 export type { Plan, PlanCall, PlanDependency, PlanGroup, PlanInput } from './fuse-record.js';
 
@@ -106,32 +104,6 @@ export interface FuseScope {
   scratch(length: number, element: 'i32'): ScratchBuffer<'i32'>;
   scratch(length: number, element: 'u32'): ScratchBuffer<'u32'>;
   scratch(length: number, element: 'vec4f'): ScratchBuffer<'vec4f'>;
-}
-
-interface Choice {
-  readonly tier: Tier;
-  readonly why: readonly string[];
-}
-
-async function firstTier(
-  owner: CallOwner,
-  fit: (tier: Tier) => Promise<{ readonly why?: string | undefined }>,
-): Promise<Choice> {
-  const why: string[] = [];
-  for (const tier of owner.tiers()) {
-    const no = (await fit(tier)).why;
-    if (no === undefined) return { tier, why };
-    why.push(no);
-  }
-  return { tier: 'cpu', why };
-}
-
-function tierOf(k: KernelFace, c: CheckedCall, owner: CallOwner): Promise<Choice> {
-  return firstTier(owner, (tier) => tierFit(k, c, owner, tier));
-}
-
-function tierOfEntry(c: RecordedEntry, owner: CallOwner): Promise<Choice> {
-  return firstTier(owner, (tier) => c.host.entryTierFit(c.e, owner, tier));
 }
 
 interface FusedRun {
