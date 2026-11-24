@@ -1322,12 +1322,12 @@ src/core/ir/nodes.ts#workgroupShapeOf  const  (f: Pick<FuncDecl, "attrs" | "work
 src/core/ir/nodes.ts#workgroupSizeOf  const  (f: Pick<FuncDecl, "attrs" | "workgroupSize">) => number
 src/core/ir/span.ts#SourceSpan  interface  { character: number; endCharacter: number; endLine: number; file: string; length: number; line: number; start: number }
 src/core/ir/span.ts#sourceSpanOf  function  (node: FuncDecl | Stmt | Expr) => SourceSpan
-src/core/ir/types.ts#arrayT  const  <E extends ShaderType, S extends number | undefined = undefined>(elem: E, size?: S) => { readonly kind: "array"; readonly elem: E; readonly size: S; }
-src/core/ir/types.ts#structT  const  <N extends string>(name: N) => { readonly kind: "struct"; readonly name: N; }
 src/core/ir/types.ts#typeEq  function  (a: ShaderType, b: ShaderType) => boolean
 src/core/ir/types.ts#typeKey  function  (t: ShaderType) => string
 src/core/ir/types/cas-result.ts#CAS_RESULT_STRUCTS  const  readonly { readonly name: string; readonly fields: readonly { readonly name: string; readonly type: ShaderType; }[]; }[]
 src/core/ir/types/cas-result.ts#casResultT  const  (elem: "i32" | "u32") => ShaderType
+src/core/ir/types/composite-types.ts#arrayT  const  <E extends ShaderType, S extends number | undefined = undefined>(elem: E, size?: S) => { readonly kind: "array"; readonly elem: E; readonly size: S; }
+src/core/ir/types/composite-types.ts#structT  const  <N extends string>(name: N) => { readonly kind: "struct"; readonly name: N; }
 src/core/ir/types/f64-types.ts#f64T  const  { readonly kind: "f64"; }
 src/core/ir/types/f64-types.ts#mat2f64T  const  { readonly kind: "mat"; readonly cols: 2; readonly rows: 2; readonly elem: "f64"; }
 src/core/ir/types/f64-types.ts#mat3f64T  const  { readonly kind: "mat"; readonly cols: 3; readonly rows: 3; readonly elem: "f64"; }
