@@ -321,11 +321,11 @@ touches", with the configuration and the result of each.
 
 Both obligations are expected work. Responsibilities are agreed at acceptance. Both are pending.
 
-### A1. The rest of the rules and the surface, after the third OD-11 audit (2026-11-24, status: draft)
+### A1. The rest of the rules and the surface, after the third OD-11 audit (2026-11-24, status: accepted)
 
-- Status: draft. [fact] A1 is part of the approved text only from the merge of its pull request,
-  which the owner merges (CLAUDE.md, Merging). Until then the lists in the front matter of the
-  base branch are the declared scope.
+- Status: accepted. [decision, owner, 2026-11-24] The owner said "머지승인" (merge approved) for
+  pull request #1502. A1 is part of the approved text from that merge. The two questions below
+  were not answered; they stay open, and the rows stand as written until the owner answers.
 - Baseline: `main` at `998659c4` for the audit. [fact] The scan found line numbers on `main` at
   `e96fd47d`. The held patch applies to `main` at `de7f742d`.
 - A1 adds no author-facing name, no diagnostic code, no export and no example. `exports`,
@@ -441,12 +441,13 @@ docs:refs` pass on it.
    barriers. Row 7 cites only Rule 10.3, the fail-closed shape.
    - [recommendation] Keep row 7 as it is. Open a separate proposal if the family should join
      Rule 10.5, because the first sentence of Rule 10.5 is the maintainer's.
-   - [answer, owner] Not given.
+   - [answer, owner] Not given. The owner approved the merge of A1 on 2026-11-24 without an
+     answer. The question stays open.
 2. Appendix C row 14. The old text made "the platform has no such capability" a sufficient reason
    for `n/a`. Some `n/a` rows in `src/core/coverage/` may give only that reason.
    - [recommendation] The implementing pull request lists each such row and its target. It
      changes no status in A1. The owner decides each status change in its own record.
-   - [answer, owner] Not given.
+   - [answer, owner] Not given. The question stays open.
 
 [fact] Rows 1 to 13 need no question. Each says "not supported yet" with a rule, and none says a
 form is impossible where a rule says otherwise. Open question 1 of this proposal is not changed.
