@@ -215,7 +215,7 @@
   "src/doc-test-selection.test.ts": 409,
   "src/fuse.test.ts": 7088,
   "src/language-service/ambient-parity.test.ts": 1111,
-  "src/language-service/ambient.test.ts": 1640,
+  "src/language-service/ambient.test.ts": 1639,
   "src/language-service/ambient.ts": 1718,
   "src/language-service/completions.ts": 433,
   "src/language-service/diagnostics.test.ts": 1512,

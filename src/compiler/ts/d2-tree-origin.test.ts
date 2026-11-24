@@ -126,12 +126,6 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
     ['h = h + i * 1e9', `${LOOP_H}h = h + i * 1000000000;\n  }\n  `, 'h', -1294967295],
     ['h += i * 1e9', `${LOOP_H}h += i * 1000000000;\n  }\n  `, 'h', -1294967295],
     [
-      'a while loop',
-      'let h = 7 | 0;\n  let k = 0;\n  while (k < 3) {\n    k = k + 1;\n    h = h + k * 1000000000;\n  }\n  ',
-      'h',
-      1705032711,
-    ],
-    [
       'n++ then a sum',
       'let n = 0;\n  n++;\n  let h = (1|0) + n * 2000000000;\n  ',
       'h + h',
@@ -153,6 +147,16 @@ describe('issue 1309: a tree-origin integer keeps its two readings (D2)', () => 
       expect(run(source.replace(`f32(${subject})`, `f32(i32(${subject}))`))).toBe(value);
     },
   );
+
+  it('review of #1358: a while loop is refused for its counter and its sum, and both edits compile', () => {
+    const source = program(
+      'let h = 7 | 0;\n  let k = 0;\n  while (k < 3) {\n    k = k + 1;\n    h = h + k * 1000000000;\n  }\n  return f32(h);',
+      'f32',
+    );
+    bothRefuse(source, 'TS8003', [unproven('k', '<', 'i32(k)'), unproven('h', 'f32()', 'i32(h)')]);
+    const edited = source.replace('(k < 3)', '(i32(k) < 3)').replace('f32(h)', 'f32(i32(h))');
+    expect(run(edited)).toBe(1705032711);
+  });
 
   it('review of #1358: a comparison of -(1 << 30) * 3 is refused, and its edit compiles', () => {
     const source = program('let a = -(1 << 30);\n  return a * 3 > 0 ? 1.0 : 0.0;', 'f32');

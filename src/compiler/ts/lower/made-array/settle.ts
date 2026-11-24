@@ -156,7 +156,7 @@ export function settleMadeArray(
       : undefined;
   (stub as { body: readonly Stmt[] }).body = withoutResult(stub.body, made.param, pushed);
   (stub as { ret: FuncDecl['ret'] }).ret = pushed === undefined ? voidT : u32T;
-  const count = lengthFromHost(stub, made.param);
+  const count = lengthFromHost(stub, made.param, made.grown === true);
   const shared = sharing(stub, made, count, read.r);
   setMadeArray(stub, {
     ...shared,

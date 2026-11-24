@@ -117,7 +117,7 @@ rather than going unregistered. A directory that holds an `example.json` states 
 instead (change 0145, amendment A2; the learning-path steps do so and carry no block), and the scan reads
 `example.json` where there is one and the block otherwise. The scan reads this directory's top level, and the module of
 each host example and each learning-path step below, so a shader library in `lib/` is not an example of its own:
-`imported-noise.shade.ts` imports `lib/noise.shade.ts` (surface §68), and `_shade.ts` compiles it
+`gallery/imported-noise/imported-noise.shade.ts` imports `noise.shade.ts` of its own directory (surface §68), and `_shade.ts` compiles it
 with what it imports.
 
 The host examples (change 0061) are in `hosts/`, one directory each: `hosts/<id>/<id>.shade.ts`,

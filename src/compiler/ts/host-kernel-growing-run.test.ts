@@ -59,6 +59,26 @@ export function vectors(n: u32): vec2f[] {
   }
   return out;
 }
+export function whole(n: u32): vec2f[] {
+  const out: vec2f[] = [];
+  let k: u32 = 0;
+  let v = vec2f(0., 1.);
+  while (k < n) {
+    v = vec2f(f32(k), 1.);
+    out.push(v);
+    v += vec2f(10., 0.);
+    k++;
+  }
+  return out;
+}
+export function onParameter(xs: array<f32>, out: array<vec2f>): u32 {
+  for (let i: u32 = 0; i < xs.length; i++) {
+    let v = vec2f(xs[i], 1.);
+    out.push(v);
+    v.x = 99.;
+  }
+  return out.length;
+}
 export function vectorsCounted(n: u32): vec2f[] {
   const out: vec2f[] = [];
   for (let k: u32 = 0; k < n; k++) {
@@ -126,6 +146,16 @@ describe('a function that takes Route 3 gives the result of a JavaScript run (ch
     for (const n of [0, 1, 5])
       expect(await run('appended', n)).toEqual(await run('countedAppended', n));
     expect(await run('vectors', 3)).toEqual(await run('vectorsCounted', 3));
+  });
+
+  it('stores a copy of a vector that push takes, as a storage buffer does (Rule 8.28)', async () => {
+    const expected = [0, 1, 1, 1, 2, 1];
+    expect(await run('vectors', 3)).toEqual(expected);
+    expect(await run('vectorsCounted', 3)).toEqual(expected);
+    expect(await run('whole', 3)).toEqual(expected);
+    const out = new Float32Array(6);
+    expect(await m.call['onParameter']!(new Float32Array([0, 1, 2]), out)).toBe(3);
+    expect([...out]).toEqual(expected);
   });
 
   it('takes the whole function to Route 3 where one loop is counted and another is not', async () => {
