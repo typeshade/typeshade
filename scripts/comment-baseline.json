@@ -393,7 +393,7 @@
   "src/core/builtins/row-types.ts": 28,
   "src/core/capability-matrix.test.ts": 23,
   "src/core/compute/runner.test.ts": 89,
-  "src/core/compute/runner.ts": 199,
+  "src/core/compute/runner.ts": 196,
   "src/core/console-print.test.ts": 4,
   "src/core/console-print.ts": 29,
   "src/core/console.ts": 28,

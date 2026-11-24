@@ -144,7 +144,7 @@ interface GpuDeviceApi {
   };
 }
 
-/** Why: `GPUBufferUsage` / `GPUMapMode` flags, spelled out because `types: []` means the real
+/* Why: `GPUBufferUsage` / `GPUMapMode` flags, spelled out because `types: []` means the real
  *  globals are not declared here. These values are NORMATIVE in the WebGPU spec (§buffer
  *  usage flags), not implementation detail — they are as stable as the API itself. */
 const GPU_USAGE = {
