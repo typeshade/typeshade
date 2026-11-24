@@ -209,8 +209,10 @@ describe('a plain read of a depth texture is refused for now, with the reason', 
   it('names the read that does apply and why the plain one waits', () => {
     const errors = errorsOf(fragment(`  return vec4(textureLoad(shadowMap, vec2i(0, 0), 0))`));
     expect(errors[0]).toContain('is read by comparison: textureSampleCompare(tex, smp, uv, ref)');
-    // The reason is GLSL's fused sampler, whose type the READ decides.
-    expect(errors[0]).toContain('needs separate samplers, which a later item adds');
+    // The reason is the deferred GLSL lowering of a depth texture read both ways (Rule 10.5).
+    expect(errors[0]).toContain(
+      'is not supported yet (Rule 10.5): the lowering of a depth texture read both ways to GLSL ES 3.00 is deferred',
+    );
   });
 
   it('is not a module variable', () => {

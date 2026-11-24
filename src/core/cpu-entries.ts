@@ -89,7 +89,7 @@ export function cpuEntriesOf(
       for (const n of [...(reads.get(g) ?? []), ...(writes.get(g) ?? [])]) {
         const h = handles.get(n);
         if (h !== undefined)
-          return `it reaches the ${h.type.kind} "${h.name}", which the CPU tier cannot read (change 0120, O6 (a))`;
+          return `it reaches the ${h.type.kind} "${h.name}", which is not supported yet on the CPU tier (Rule 8.24, change 0120, O6 (a))`;
       }
       let call: string | undefined;
       for (const s of byName.get(g)!.body)
@@ -102,7 +102,7 @@ export function cpuEntriesOf(
       if (call !== undefined)
         return isBarrierIntrinsic(call)
           ? `it reaches ${call}(), and the CPU backend runs one invocation at a time`
-          : `it reaches ${call}(), which only a GPU computes (change 0120, O6 (a))`;
+          : `it reaches ${call}(), which is not supported yet on the CPU tier (Rule 8.24, change 0120, O6 (a))`;
     }
     return undefined;
   };

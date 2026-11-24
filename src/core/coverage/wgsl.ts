@@ -212,7 +212,7 @@ export const WGSL_ROWS: readonly Row[] = [
     webgpu: typed('src/compiler/ts/atomics.test.ts'),
     webgl2: gap(
       15,
-      'also: typed in code; no test reads it on this target (Rule 11.18): no program that calls atomicLoad runs on WebGL2; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054',
+      'also: typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test or gate case calls atomicLoad; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054',
       645,
     ),
   },
@@ -3335,7 +3335,7 @@ export const WGSL_ROWS: readonly Row[] = [
       'Rule 8.8',
       'none: TypeShade has no pointer values; a reference parameter is Rule 8.25',
     ),
-    webgl2: na('GLSL ES 3.00 has no pointers'),
+    webgl2: na('TypeShade has no pointer values (Rule 8.8); a reference parameter is Rule 8.25'),
   },
   {
     table: 'B',
@@ -3445,6 +3445,6 @@ export const WGSL_ROWS: readonly Row[] = [
     evidence: 'docs/language-design.md:918-934; src/core/passes/required-caps.ts:90-107',
     note: 'Used by Rule 8.25 for a storage or workgroup place. reflect() does not report it. Measured 2026-10-12 on Chromium headless shell 1194 (Tint): a storage or workgroup pointer parameter compiles with and without `requires unrestricted_pointer_parameters;`.',
     webgpu: typed('src/compiler/ts/reference-parameters.test.ts'),
-    webgl2: na('GLSL ES 3.00 has no pointers; an inout parameter is its form'),
+    webgl2: na('Rule 8.25 gives an inout parameter, and Rule 8.8 gives no pointer values'),
   },
 ];

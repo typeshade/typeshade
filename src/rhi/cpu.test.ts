@@ -311,7 +311,7 @@ ${FULL}
     await expect(
       device.createRenderPipeline(pipelineDesc(device, sampled) as never),
     ).rejects.toThrow(
-      'The CPU tier does not run "fs" yet: it reaches the texture "tex", which the CPU tier cannot read (change 0120, O6 (a)).',
+      'The CPU tier does not run "fs" yet: it reaches the texture "tex", which is not supported yet on the CPU tier (Rule 8.24, change 0120, O6 (a)).',
     );
     const derivative = cpuProgramOf(`"use typeshade";
 ${FULL}
@@ -322,7 +322,7 @@ ${FULL}
     await expect(
       device.createRenderPipeline(pipelineDesc(device, derivative) as never),
     ).rejects.toThrow(
-      'The CPU tier does not run "fs" yet: it reaches dpdx(), which only a GPU computes (change 0120, O6 (a)).',
+      'The CPU tier does not run "fs" yet: it reaches dpdx(), which is not supported yet on the CPU tier (Rule 8.24, change 0120, O6 (a)).',
     );
     expect(() =>
       device.createBindGroupLayout([

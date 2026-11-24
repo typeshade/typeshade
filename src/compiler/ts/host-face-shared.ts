@@ -23,8 +23,8 @@ export const REASON = {
   workgroup:
     'it reaches a workgroup variable, which exists only in a dispatch; call the entry that uses it (Rule 8.24)',
   gpuOnly: (fn: string) =>
-    `it reaches ${fn}, which only a GPU computes; call the entry that uses it (Rule 8.24)`,
-  fallback: 'the CPU tier cannot generate code for a function it reaches',
+    `it reaches ${fn}, which is not supported yet on the CPU tier; call the entry that uses it (Rule 8.24)`,
+  fallback: 'the CPU tier does not generate code for a function it reaches yet (Rule 11.7)',
   notLowered: 'it was not lowered to one function of the module',
   bindingExport: 'it is a resource binding; pass it to the entry that uses it (Rule 8.24)',
   /** An exported binding that is no host resource yet (change 0138, R10; Rule 6.1). */
