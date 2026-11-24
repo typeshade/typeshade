@@ -873,7 +873,6 @@
   "src/language-service/host.test.ts": 18,
   "src/language-service/host.ts": 96,
   "src/language-service/hover.test.ts": 74,
-  "src/language-service/hover.ts": 472,
   "src/language-service/imported-symbol-hover.test.ts": 95,
   "src/language-service/index.ts": 8,
   "src/language-service/inferred-result-parity.test.ts": 13,
