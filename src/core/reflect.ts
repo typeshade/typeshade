@@ -1,35 +1,32 @@
+import {
+  glslOnly,
+  ioField,
+  resourceKind,
+  bindingsIncludingInjected,
+  sampleTypeOf,
+} from './reflect/bindings.js';
 // Implements: Rule 4.8, Rule 6.8, Rule 11.10 (docs/language-design.md; traced in reqs/).
 
 import { withoutKernels } from './ir/kernels.js';
 import { emittedName, inheritSpellings, spellingsOf } from './spelling-plan.js';
 import {
-  type ShaderType,
   type ModuleDecl,
-  type AddressSpace,
   storageTextureLayoutAccess,
-  type BindingDecl,
   typeKey,
   stageOf,
   workgroupShapeOf,
   type WorkgroupShape,
 } from './ir/index.js';
-import { entryIo, type IoField } from './ir/entry-io.js';
+import { entryIo } from './ir/entry-io.js';
 import { vertexLayoutOfEntry } from './vertex-layout.js';
 import { requiredCaps, requiredLanguageFeatures } from './passes/required-caps.js';
 import { bindingStages } from './passes/stage-bindings.js';
 import { sampledTextures } from './passes/texture-pairs.js';
-import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js';
 import { consoleBuffer } from './passes/console-buffer.js';
 import { glslDataTextureOf } from './glsl-data-texture.js';
 import { structLayout, type StructLayout } from './reflect/layout.js';
-import type { ResourceKind, BindEntry, BindGroup } from './reflect/bind-entry.js';
-import type {
-  VertexAttr,
-  VertexLayout,
-  EntryIoField,
-  EntryInfo,
-  OverrideInfo,
-} from './reflect/entry-types.js';
+import type { BindEntry, BindGroup } from './reflect/bind-entry.js';
+import type { VertexAttr, VertexLayout, EntryInfo, OverrideInfo } from './reflect/entry-types.js';
 import type { Reflection, ReflectOptions } from './reflect/reflection.js';
 export type { Reflection, ReflectOptions } from './reflect/reflection.js';
 export type {
@@ -44,62 +41,6 @@ export type {
 export type { ResourceKind, BindEntry, BindGroup } from './reflect/bind-entry.js';
 export { typeLayout, wgslLayout } from './reflect/layout.js';
 export type { LayoutKind, FieldLayout, StructLayout } from './reflect/layout.js';
-
-function glslOnly(
-  name: string,
-  wgsl: ReadonlyMap<string, string>,
-  glsl: ReadonlyMap<string, string>,
-): { emittedGlsl?: string } {
-  const g = emittedName(glsl, name);
-  return g === emittedName(wgsl, name) ? {} : { emittedGlsl: g };
-}
-
-const ioField =
-  (members: ReadonlyMap<string, string>) =>
-  (f: IoField): EntryIoField => ({
-    name: f.name,
-    emitted: emittedName(members, f.name),
-    type: typeKey(f.type),
-    ...(f.location !== undefined ? { location: f.location } : {}),
-    ...(f.builtin !== undefined ? { builtin: f.builtin } : {}),
-  });
-
-const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
-  t.kind === 'texture' || t.kind === 'depth-texture'
-    ? 'texture'
-    : t.kind === 'storage-texture'
-      ? 'storage-texture'
-      : t.kind === 'sampler' || t.kind === 'sampler-comparison'
-        ? 'sampler'
-        : space === 'storage'
-          ? 'storage-buffer'
-          : 'uniform-buffer';
-
-function bindingsIncludingInjected(
-  m: ModuleDecl,
-  flavor: Fp64Flavor | undefined,
-): { readonly bindings: readonly BindingDecl[]; readonly lowered: ModuleDecl } {
-  const lowered = fp64Lower(m, flavor !== undefined ? { flavor } : undefined);
-  if (lowered === m) return { bindings: m.bindings, lowered };
-  const declared = new Set(m.bindings.map((b) => b.name));
-  const injected = lowered.bindings.filter((b) => !declared.has(b.name));
-  return {
-    bindings: injected.length === 0 ? m.bindings : [...m.bindings, ...injected],
-    lowered,
-  };
-}
-
-const sampleTypeOf = (
-  t: Extract<ShaderType, { kind: 'texture' }>,
-  paired: boolean,
-): 'float' | 'unfilterable-float' | 'sint' | 'uint' =>
-  t.elem === 'u32'
-    ? 'uint'
-    : t.elem === 'i32'
-      ? 'sint'
-      : paired && t.dim !== '2d-ms'
-        ? 'float'
-        : 'unfilterable-float';
 
 /** Recover a module's pipeline metadata from its IR. It is what a host reads to build bind
  *  groups, write uniform buffers, describe vertex state and check device features, without
