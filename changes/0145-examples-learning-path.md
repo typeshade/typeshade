@@ -1650,7 +1650,7 @@ After:
   removed from the tree.
 - `downstream`: no change. The site and the editor read rule numbers, not these paths.
 
-### A4. M4.8 scope: surface §67 and the special hosts (2026-11-24, status: accepted 2026-11-24, the owner answered A4-Q1 to A4-Q4 in the conversation)
+### A4. The readings of M4.8: the special hosts (2026-11-24, status: accepted 2026-11-24, the owner answered A4-Q1 to A4-Q4 in the conversation)
 
 - Status: accepted. [fact] The owner answered A4-Q1 to A4-Q4 on 2026-11-24. A4 is part of the approved text
   when its pull request is merged. No code and no example changes with that pull request.
@@ -1684,13 +1684,13 @@ After:
 
 Each reading fills a gap in the slice text. [decision] The owner accepted each one.
 
-| Id    | Host           | Reading                                                                                                                                                                                                                                                                                                             |
-| ----- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A4-R1 | `host-compute` | `host.ts` exports `run()`, which returns `{ values }`, and the extra `runSpecialized()`, which returns `{ direct, values, report }`. The manifest lists it in `extras`. `check.ts` asserts the report's shape on each tier.                                                                                         |
-| A4-R2 | `host-compute` | The driver (`examples/_driver.ts`, `runCheck`) calls `check.ts`. `_drive.ts` imports what it needs and reads `values`, `direct` and `report` from the two runs.                                                                                                                                                     |
-| A4-R3 | `loop-fuse`    | `run()` takes default inputs, so the harness calls `run()`. It still returns `{ chain, split, reduce }`, each with its `report`. `check.ts` calls `run()` again and checks each report.                                                                                                                             |
-| A4-R4 | `host-program` | `run()` returns `{ image: { width, height, rgba } }`. The program runtime stays (`waitsFor: "0138 milestone 5"`).                                                                                                                                                                                                   |
-| A4-R5 | `host-draw`    | `draw` is replaced by `run(canvas, time = 0)`: one frame. This keeps the `time` parameter of item 2 of "The host.ts form". A2 changed item 1 to `run(canvas, options?)`, and D-11 records the difference. `animate(canvas)` stays and calls `run(canvas, time)` each frame. The `times` list of today's `run` goes. |
+| Id    | Host           | Reading                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A4-R1 | `host-compute` | `host.ts` exports `run()`, which returns `{ values }`, and the extra `runSpecialized()`, which returns `{ direct, values, report }`. The manifest lists it in `extras`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| A4-R2 | `host-compute` | The driver (`examples/_driver.ts`) calls each listed extra on the CPU tier and requires it to resolve. `runCheck(file, result, tier)` calls `check(result, tier)`. `check.ts` calls `runSpecialized()` from the `host.ts` of the same directory and holds its `direct` and `values` to `result['direct']` and `result['planned']`. It checks `report.tier` on every tier. On WebGPU it also checks one dispatch and one submission. On WebGPU and WebGL2 it checks the entry group's workgroup shape: `[[scale], [[width,1,1]]]`, with width 32 on WebGPU and 64 on WebGL2. `examples/hosts/_drive.ts` runs `run()` and `runSpecialized(INPUTS.compute.n)` for the journeys and reports `direct` and `planned`. |
+| A4-R3 | `loop-fuse`    | `run()` takes default inputs, so the harness calls `run()`. It still returns `{ chain, split, reduce }`, each with its `report`. `check.ts` calls `run()` again and checks each report.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| A4-R4 | `host-program` | `run()` returns `{ image: { width, height, rgba } }`. The program runtime stays (`waitsFor: "0138 milestone 5"`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| A4-R5 | `host-draw`    | `draw` is replaced by `run(canvas, time = 0)`: one frame. This keeps the `time` parameter of item 2 of "The host.ts form". A2 changed item 1 to `run(canvas, options?)`, and D-11 records the difference. `animate(canvas)` stays and calls `run(canvas, time)` each frame. The `times` list of today's `run` goes.                                                                                                                                                                                                                                                                                                                                                                                             |
 
 1. [fact] A2 (host form, item 4 and the host-form table) lists `runSpecialized` as an extra of `host-compute`.
    The owner chose "run() + extras" as O4.
@@ -1699,8 +1699,8 @@ Each reading fills a gap in the slice text. [decision] The owner accepted each o
 3. [fact] A2 says of `loop-fuse`: "Today's shape." The existing `run(a, b, c)` has no default
    inputs. A4-R3 adds them. The result shape does not change.
 4. [fact] `check.ts` is the harness's file (host form, item 5). It exports `check(result, tier)`.
-   [fact] `check.ts` keeps this signature (A2, item 5). M4.8 calls the `runSpecialized` of the host from
-   `check.ts`. The driver also runs each listed extra on the CPU tier.
+   [fact] `check.ts` keeps this signature (A2, item 5). `check.ts` calls the `runSpecialized` of the host (A4-R2).
+   The driver also runs each listed extra on the CPU tier and requires it to resolve.
 5. [fact] `draw` in `host-draw/host.ts` is not a form name. The form calls the one-frame function `run`.
 
 #### What the site and M4.9 then owe
@@ -1711,7 +1711,8 @@ Each reading fills a gap in the slice text. [decision] The owner accepted each o
 2. [proposal] The site's host example pages for `host-compute`, `loop-fuse`, `host-program` and `host-draw`
    follow the new `host.ts` text. The site does not show `check.ts`.
 3. [proposal] M4.9 reads `check.ts` through the registry for each entry that has one. The driver
-   (`examples/_driver.ts`, `runCheck`) calls `check(result, tier)`. M4.9 does not read `HOST_ORDER`.
+   (`examples/_driver.ts`, `runCheck(file, result, tier)`) calls `check(result, tier)`. For `host-compute`, `check.ts`
+   calls `runSpecialized()` itself and checks `report.tier` on every tier, as A4-R2 says. M4.9 does not read `HOST_ORDER`.
 4. [fact] `compiler-changes.md` already records 0145. A4 adds no id to it.
 
 #### Questions for the owner
@@ -1720,7 +1721,7 @@ Each answer is "[answer, owner, 2026-11-24]".
 
 1. **A4-Q1. Does the owner accept `67` in `surface:`, for the one sentence?**
    [Answer, owner, 2026-11-24: "모두 추천안대로 (Recommended)". Yes.]
-   [fact] After the answer to A4-Q2, the §67 sentence stays true. M4.8 does not edit §67 and A4 does not declare it.
+   [fact] The answer to A4-Q2 made A4-Q1 moot. The §67 sentence stays true, so `67` is not added to `surface:`.
 2. **A4-Q2. Does the owner accept A4-R1 as first drafted: `specialized()` in `check.ts`, not an extra?**
    [Answer, owner, 2026-11-24: "Extra로 유지 (Recommended)". No. `runSpecialized` stays an extra, as O4 and the A2 table say. A4-R1 is rewritten.]
 3. **A4-Q3. Does the owner accept A4-R3 and A4-R4 as written?**
