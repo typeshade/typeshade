@@ -108,10 +108,9 @@ describe('a draw takes what it binds when it is recorded', () => {
       pass.draw(pipe, { photo, linear } as never, { count: 3 });
       photo.resize(4, 4);
     });
-    const view = rec.bindGroups[0]!.map((e) => e.resource).find((r) => 'view' in r) as {
-      view: { of: unknown };
-    };
-    expect(view.view.of).toBe(original);
+    const view = rec.bindGroups[0]!.map((e) => e.resource).find((r) => 'view' in r);
+    if (view === undefined || !('view' in view)) throw new Error('the draw bound no texture view');
+    expect((view.view as unknown as { of: unknown }).of).toBe(original);
   });
 });
 

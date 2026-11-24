@@ -3,6 +3,7 @@ import { adopt, kernelQueue, ResidentArrayState, residentState } from '../core/r
 import { CallWords } from './program.js';
 import { array } from '../runtime.js';
 import { bits, dispatched, lastArgs, setup } from './gl-compute-host-harness.js';
+import type { Frame } from './runtime.js';
 import { compile } from '../compiler/ts/compile.js';
 import { packModule } from '../compiler/ts/pack.js';
 
@@ -41,6 +42,12 @@ vi.mock('../core/gl-compute.js', async (importOriginal) => ({
   runGlCompute: vi.fn(async () => undefined),
 }));
 
+type Recording = Frame & {
+  record(run: () => Promise<void> | void, written: readonly ResidentArrayState[]): void;
+};
+const recording = (f: Frame) => f as Recording;
+const report = { passes: 1, barrierPhases: 0 };
+
 beforeEach(() => dispatched.mockClear());
 
 describe('a compute dispatch on the WebGL2 tier hands the executor what it was given', () => {
@@ -66,7 +73,7 @@ describe('a compute dispatch on the WebGL2 tier hands the executor what it was g
     cfg.k = 7;
     await f.submit();
     expect(lastArgs().memory['xs']).toEqual(bits([1, 2]));
-    expect(lastArgs().uniforms['cfg']).toEqual({ k: 2 });
+    expect(lastArgs().uniforms?.['cfg']).toEqual({ k: 2 });
   });
 
   it('runs on a copy of a packed value and on the very words of the call layer', async () => {
@@ -89,6 +96,7 @@ describe('a compute dispatch on the WebGL2 tier hands the executor what it was g
     dispatched.mockImplementationOnce(async (_gl, _program, args) => {
       args.memory['out']!.set(bits([5, 6]));
       args.memory['xs']!.set(bits([7, 8]));
+      return report;
     });
     const plain = new Float32Array(2);
     const xs = array(new Float32Array([1, 2]));
@@ -102,6 +110,7 @@ describe('a compute dispatch on the WebGL2 tier hands the executor what it was g
     expect(await xs.read()).toEqual(new Float32Array([1, 2]));
     dispatched.mockImplementationOnce(async (_gl, _program, args) => {
       args.memory['out']!.set(bits([5, 6]));
+      return report;
     });
     const g = rt.frame();
     g.dispatch(pipeline, { cfg: { k: 1 }, xs: new Float32Array(2), out: plain }, 1);
@@ -115,6 +124,7 @@ describe('a scalar and an odd-sized array on the WebGL2 tier', () => {
     const { rt, pipeline } = await setup(TOTAL);
     dispatched.mockImplementationOnce(async (_gl, _program, args) => {
       args.memory['total']!.set(bits([6]));
+      return report;
     });
     const total = {};
     adopt(total, new ResidentArrayState(0));
@@ -151,9 +161,9 @@ describe('a frame on the WebGL2 tier runs in the order of the queue', () => {
     const { rt } = await setup(SCALE);
     const order: number[] = [];
     const release = held();
-    const first = rt.frame();
+    const first = recording(rt.frame());
     first.record(() => void order.push(1), []);
-    const second = rt.frame();
+    const second = recording(rt.frame());
     second.record(() => void order.push(2), []);
     const done = [first.submit(), second.submit()];
     expect(await settles(Promise.all(done))).toBe('waiting');
@@ -170,12 +180,13 @@ describe('a frame on the WebGL2 tier runs in the order of the queue', () => {
       order.push(n);
     };
     const queued: number[] = [];
-    const f = rt.frame();
+    const f = recording(rt.frame());
     f.record(slow(1, queued), []);
     f.record(slow(2, queued), []);
     await f.submit();
     const now: number[] = [];
-    await rt.runFrame((g) => {
+    await rt.runFrame((frame) => {
+      const g = recording(frame);
       g.record(slow(1, now), []);
       g.record(slow(2, now), []);
     });
@@ -189,7 +200,7 @@ describe('a frame on the WebGL2 tier runs in the order of the queue', () => {
     const { rt, calls } = await setup(SCALE);
     const release = held();
     const ran = vi.fn();
-    expect(await settles(rt.runFrame((f) => f.record(ran, [])))).toBe('settled');
+    expect(await settles(rt.runFrame((f) => recording(f).record(ran, [])))).toBe('settled');
     expect(ran).toHaveBeenCalledTimes(1);
     const target = rt.texture({ size: [2, 2], format: 'rgba8unorm' });
     calls.length = 0;

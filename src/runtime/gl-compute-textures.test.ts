@@ -51,6 +51,17 @@ vi.mock('../core/gl-compute.js', async (importOriginal) => ({
   runGlCompute: vi.fn(async () => undefined),
 }));
 
+const sampledArgs = () => {
+  const textures = lastArgs().textures;
+  if (textures === undefined) throw new Error('the dispatch passed no sampled textures');
+  return textures;
+};
+const storedArgs = () => {
+  const textures = lastArgs().storageTextures;
+  if (textures === undefined) throw new Error('the dispatch passed no storage textures');
+  return textures;
+};
+
 beforeEach(() => dispatched.mockClear());
 
 describe('a texture of a dispatch on the WebGL2 tier', () => {
@@ -62,9 +73,7 @@ describe('a texture of a dispatch on the WebGL2 tier', () => {
     const f = sampled.rt.frame();
     f.dispatch(sampled.pipeline, { photo, smp: linear, out }, 1);
     await f.submit();
-    expect(lastArgs().textures['photo']!.sampler).toBe(
-      sampled.rt.rhi.toNative(linear.sampler as never),
-    );
+    expect(sampledArgs()['photo']!.sampler).toBe(sampled.rt.rhi.toNative(linear.sampler as never));
     const loaded = await setup(LOADED);
     const g = loaded.rt.frame();
     g.dispatch(
@@ -73,7 +82,7 @@ describe('a texture of a dispatch on the WebGL2 tier', () => {
       1,
     );
     await g.submit();
-    expect(lastArgs().textures['photo']!.sampler).toBe(loaded.rt.rhi.toNative(loaded.rt.nearest));
+    expect(sampledArgs()['photo']!.sampler).toBe(loaded.rt.rhi.toNative(loaded.rt.nearest));
     expect(loaded.rt.nearest).toBe(loaded.rt.nearest);
   });
 
@@ -98,7 +107,7 @@ describe('a texture of the dispatch that is not sampled', () => {
     const f = rt.frame();
     f.dispatch(pipeline, { img } as never, 1);
     await f.submit();
-    expect(lastArgs().storageTextures['img']).toMatchObject({
+    expect(storedArgs()['img']).toMatchObject({
       texture: (img as unknown as { texture: object }).texture,
       width: 3,
       height: 2,
@@ -114,7 +123,7 @@ describe('a texture of the dispatch that is not sampled', () => {
       const f = rt.frame();
       f.dispatch(pipeline, { photo: own, out: new Float32Array(1) } as never, 1);
       await f.submit();
-      expect(lastArgs().textures['photo']!.texture).toBe(own);
+      expect(sampledArgs()['photo']!.texture).toBe(own);
     } finally {
       vi.unstubAllGlobals();
     }
