@@ -104,7 +104,7 @@ describe('a stepped call writes an inout argument back where the caller named it
 });
 
 describe('a stepped call writes a scalar inout argument back where the caller named it', () => {
-  const arrayT: ShaderType = { kind: 'array', elem: f32T, n: 2 };
+  const arrayT: ShaderType = { kind: 'array', elem: f32T, size: 2 };
   const Q: ShaderType = { kind: 'struct', name: 'Q' };
   const structs = [{ name: 'Q', fields: [{ name: 'v', type: f32T }] }];
   const inc: FuncDecl = {

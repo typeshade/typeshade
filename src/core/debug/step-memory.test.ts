@@ -57,7 +57,7 @@ describe('a phased dispatch keeps what a pass undoes and redoes apart from what 
         mats: [
           [0, 0, 0, 0],
           [0, 0, 0, 0],
-        ],
+        ] as unknown as CpuValue,
       }).mats,
     ).toEqual([
       [0, 0, 0, 7],
@@ -68,7 +68,9 @@ describe('a phased dispatch keeps what a pass undoes and redoes apart from what 
 
 describe('a pass of a phased dispatch', () => {
   it('reads a matrix column as the pass began, and its own write as written', () => {
-    expect(phased('racesOnColumn', { out: [9, 9], mats: [[0, 0, 0, 0]] }).out).toEqual([5, 0]);
+    expect(
+      phased('racesOnColumn', { out: [9, 9], mats: [[0, 0, 0, 0]] as unknown as CpuValue }).out,
+    ).toEqual([5, 0]);
   });
 });
 
