@@ -85,7 +85,7 @@ export class GlRenderPrograms {
     const p = built.then(
       (b) =>
         new GlRenderPipelineImpl(
-          this,
+          this.d,
           vs,
           fs,
           b,
@@ -269,7 +269,7 @@ const SAMPLES_OWN_DEPTH =
 
 export class GlRenderPipelineImpl implements RenderPipeline {
   constructor(
-    private readonly programs: GlRenderPrograms,
+    private readonly d: GlDrawing,
     private readonly vs: PackEntry,
     private readonly fs: PackEntry | undefined,
     private readonly built: Built,
@@ -336,7 +336,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       throw new TypeError(
         `"${entry.name}"${at(entry)}: the bindings are ${describe(values)}, not an object.`,
       );
-    const d = this.programs.d;
+    const d = this.d;
     const rhi = d.rhi;
     const reached = new Set<string>();
     for (const e of [this.vs, this.fs]) for (const b of e?.bindings ?? []) reached.add(b.name);
@@ -458,7 +458,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       throw new TypeError(
         `"${this.vs.name}"${at(this.vs)} reads vertex attributes; the geometry gives no vertices.`,
       );
-    return bufferSource(this.programs.d, v, 'vertices', entry);
+    return bufferSource(this.d, v, 'vertices', entry);
   }
 
   #indices(
@@ -467,7 +467,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
   ): ((made: RhiBuffer[]) => { buffer: RhiBuffer; format: 'uint16' | 'uint32' }) | undefined {
     const idx = geometry.indices;
     if (idx === undefined) return undefined;
-    const d = this.programs.d;
+    const d = this.d;
     if (residentState(idx) !== undefined || ArrayBuffer.isView(idx)) {
       const format =
         residentState(idx) !== undefined || idx instanceof Uint32Array ? 'uint32' : 'uint16';
