@@ -225,7 +225,7 @@
   "src/language-service/projection.ts": 528,
   "src/language-service/service.test.ts": 715,
   "src/language-service/service.ts": 605,
-  "src/rhi/cpu.ts": 887,
+  "src/rhi/cpu.ts": 815,
   "src/rhi/rhi-conformance.ts": 1415,
   "src/rhi/rhi.ts": 442,
   "src/rhi/webgl2.ts": 1762,
