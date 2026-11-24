@@ -3,6 +3,7 @@
 // (`webgpu.ts`, milestone M1), WebGL2 (`webgl2.ts`, M2), and a CPU device (`cpu.ts`, M3). The runtime calls
 // no native function itself; it asks the device for each object and each command.
 //
+// Why: the names follow X-GIS's `RhiDevice` (`@xgis/rhi`) so that X-GIS can later move to this interface.
 // The names follow X-GIS's `RhiDevice` (`@xgis/rhi`) where the meaning is the same, so that
 // X-GIS can later move to this interface. The interface is internal (change 0120, O1 (a)): no
 // `package.json` subpath exports it. It has what the program runtime needs and nothing more;
@@ -70,6 +71,7 @@ export interface RhiCanvas {
   readonly __rhi: 'canvas';
 }
 
+// Why: WebGPU forces a `'map-read'` buffer to take only `'copy-dst'` beside it; no backend checks it.
 /** What a buffer is used for. `'map-read'` makes a buffer that `readBuffer` reads; such a buffer
  *  takes only `'copy-dst'` beside it. */
 export type RhiBufferUsage =
@@ -349,6 +351,7 @@ export interface RhiCaps {
   /** Whether the encoder runs each command when it is recorded (WebGL2, which has no command
    *  buffer), rather than at the submit. */
   readonly immediate: boolean;
+  // Why: WebGL2 has no `GPUSupportedLimits`; `maxViewportDimension` is the smaller of `MAX_VIEWPORT_DIMS`, read once.
   /** The device's limits by their names in WebGPU's `GPUSupportedLimits`, copied at the read. A
    *  WebGL2 device has none of them; it gives `maxViewportDimension`, the smaller of its
    *  `MAX_VIEWPORT_DIMS`, read once. */
@@ -374,6 +377,7 @@ export interface RhiNativeKinds {
 
 /** A device: the objects it makes, the commands it runs, and its capabilities. */
 export interface RhiDevice {
+  // Why: this list is not `TIERS` (`../core/tiers.ts`) on purpose; a tier that is a code form of the software backend adds no backend (change 0042).
   /** The RHI's backend. This list is not `TIERS` (`../core/tiers.ts`), the tiers a call may run
    *  on, and it is written here on purpose: a tier that is a code form of the software backend
    *  runs on the backend `'cpu'` and adds no backend (change 0042). */
