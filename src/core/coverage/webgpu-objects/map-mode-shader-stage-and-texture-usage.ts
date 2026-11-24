@@ -23,7 +23,7 @@ export const MAP_MODE_SHADER_STAGE_AND_TEXTURE_USAGE_ROWS: readonly Row[] = [
       'the host maps its own GPUBuffer for writing; the runtime maps for reading only (src/core/host-entry.ts:656)',
     ),
     webgl2: na(
-      'WebGL2 has no write mapping; a buffer is written with bufferSubData (the runtime uploads with bufferData, src/runtime/gl-draw.ts:886)',
+      'WebGL2 has no write mapping; a buffer is written with bufferSubData (the runtime uploads with bufferData, `GlDrawing.uploaded` of `src/runtime/gl-draw.ts`)',
     ),
   },
   {

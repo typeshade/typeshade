@@ -15,7 +15,7 @@ export const PRIMITIVE_STAGE_AND_QUERY_SET_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a topology; every draw runs triangle-list (src/rhi/webgl2.ts:444-453); topology, cullMode, frontFace',
+      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a topology; every draw runs triangle-list (`GL_TOPOLOGY` of `src/rhi/webgl2.ts`); topology, cullMode, frontFace',
       645,
     ),
   },
@@ -46,7 +46,7 @@ export const PRIMITIVE_STAGE_AND_QUERY_SET_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): culling is none in every WebGL2 draw, so no frame shows the front face (src/rhi/webgl2.ts:535-537); topology, cullMode, frontFace',
+      'typed in code; no test reads it on this target (Rule 11.18): culling is none in every WebGL2 draw, so no frame shows the front face (`drawStateOf` of `src/rhi/webgl2.ts`); topology, cullMode, frontFace',
       645,
     ),
   },
@@ -64,7 +64,7 @@ export const PRIMITIVE_STAGE_AND_QUERY_SET_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): every WebGL2 draw uses cullMode none (src/rhi/webgl2.ts:535-537); topology, cullMode, frontFace',
+      'typed in code; no test reads it on this target (Rule 11.18): every WebGL2 draw uses cullMode none (`drawStateOf` of `src/rhi/webgl2.ts`); topology, cullMode, frontFace',
       645,
     ),
   },

@@ -77,7 +77,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.stencilOpSeparate',
     ],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/rhi/webgpu.ts#WebGpuEncoder.copyBufferToBuffer|depthStencilOf (depthStencilOf); src/rhi/webgl2.ts#setState~"stencilFuncSeparate" (setState)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/rhi/webgpu.ts#WebGpuEncoder.copyBufferToBuffer|depthStencilOf (depthStencilOf); src/rhi/webgl2.ts#setState~"stencilFuncSeparate"',
     note: 'the stencil test, its functions, operations and masks are set by each draw of a pipeline with depth.stencil',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -103,7 +103,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       6,
-      'the stencil aspect of a depth-stencil texture has no typed spelling; WebGL2 reads a depth texture through a copy to r32float and refuses other depth formats (src/runtime/gl-draw.ts:253; src/rhi/webgl2.ts:714-716)',
+      'the stencil aspect of a depth-stencil texture has no typed spelling; WebGL2 reads a depth texture through a copy to r32float and refuses other depth formats (`GlTextureImpl.readFloats` of `src/runtime/gl-draw.ts`; `depthToColour` of `src/rhi/webgl2.ts`)',
       637,
     ),
   },
@@ -127,7 +127,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (src/runtime/gl-draw.ts:972-973)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (`drawStateOf` of `src/rhi/webgl2.ts`)',
       645,
     ),
   },
@@ -137,7 +137,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
     name: '`blendColor`',
     covers: ['webgl:WebGLRenderingContextBase.blendColor'],
     evidence:
-      'src/rhi/webgl2.ts#GL_BLEND_FACTOR (the constant factor maps to CONSTANT_COLOR); src/rhi/webgl2.ts#GlRenderPass.setBlendConstant (setState sets the functions, not the colour)',
+      'src/rhi/webgl2.ts#GL_BLEND_FACTOR (the constant factor maps to CONSTANT_COLOR); src/rhi/webgl2.ts#GlRenderPass.setBlendConstant (the blendColor call); src/rhi/webgl2.ts#setState~"blendFuncSeparate" (setState sets the functions, not the colour)',
     note: 'the constant blend factor is typed (TargetState.blend, src/runtime/program.ts:73-79); the constant colour is typed by RenderPass.setBlendConstant and RenderState.blendConstant',
     webgpu: typed(
       'journeys/render-state',
@@ -172,7 +172,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
     webgl2: refused(
       'Rule 11.11',
       'give every target the same blend and writeMask',
-      "OES_draw_buffers_indexed would lower it (group 10); table A's GPUColorTargetState.blend row names the same capability; WebGL2 keeps one blend state and one mask (src/rhi/webgl2.ts:1486-1525)",
+      "OES_draw_buffers_indexed would lower it (group 10); table A's GPUColorTargetState.blend row names the same capability; WebGL2 keeps one blend state and one mask (`drawStateOf` of `src/rhi/webgl2.ts`)",
     ),
   },
   {
@@ -202,7 +202,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets writeMask on the WebGL2 tier (src/runtime/gl-draw.ts:975)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets writeMask on the WebGL2 tier (`drawStateOf` of `src/rhi/webgl2.ts`)',
       645,
     ),
   },

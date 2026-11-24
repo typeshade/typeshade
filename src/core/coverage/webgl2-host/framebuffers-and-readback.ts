@@ -28,7 +28,7 @@ export const FRAMEBUFFERS_AND_READBACK_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.invalidateSubFramebuffer',
     ],
     evidence:
-      'src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts:1198-1215 (depthStencilAttachmentOf); src/rhi/webgl2.ts#GlRenderPass.end (recordPass)',
+      'src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts:1198-1215 (depthStencilAttachmentOf); src/rhi/webgl2.ts#GlRenderPass.end~"storeOp" (a discarded attachment is cleared, and no invalidation call is made)',
     note: 'a hint: the contents after a pass may be dropped',
     webgpu: typed(
       'journeys/pass-attachments',
@@ -130,7 +130,7 @@ export const FRAMEBUFFERS_AND_READBACK_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.clearStencil',
     ],
     evidence:
-      'src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferiv" (recordPass); src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilAttachmentOf)',
+      'src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferiv" (the stencil clear); src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilAttachmentOf)',
     note: 'PassTargets clear values',
     webgpu: typed(
       'journeys/pass-attachments',

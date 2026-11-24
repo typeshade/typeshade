@@ -6,8 +6,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderPassEncoder.setViewport()`',
     covers: ['GPURenderPassEncoder.setViewport'],
-    evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts#GlPass.setViewport (GlPass.setViewport)',
+    evidence: 'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts#GlPass.setViewport',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setViewport; also src/runtime/runtime.test.ts',
@@ -24,8 +23,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderPassEncoder.setScissorRect()`',
     covers: ['GPURenderPassEncoder.setScissorRect'],
-    evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts#GlPass.setScissorRect (GlPass.setScissorRect)',
+    evidence: 'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts#GlPass.setScissorRect',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setScissorRect; also src/runtime/runtime.test.ts',
@@ -41,7 +39,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setBlendConstant()`',
     covers: ['GPURenderPassEncoder.setBlendConstant'],
     evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts#GlPass.setBlendConstant (GlPass.setBlendConstant, the blendColor call)',
+      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts#GlPass.setBlendConstant (the blendColor call)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setBlendConstant; also src/runtime/runtime.test.ts',
@@ -57,7 +55,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setStencilReference()`',
     covers: ['GPURenderPassEncoder.setStencilReference'],
     evidence:
-      'src/runtime/runtime.ts:581-585 (FramePass.setStencilReference); src/runtime/gl-draw.ts#GlPass.setStencilReference (GlPass.setStencilReference)',
+      'src/runtime/runtime.ts:581-585 (FramePass.setStencilReference); src/runtime/gl-draw.ts#GlPass.setStencilReference',
     webgpu: typed(
       'journeys/pipeline-state',
       'RenderPass.setStencilReference; also src/runtime/runtime.test.ts',
@@ -85,7 +83,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (`GlFrameImpl.record` and `GlFrameImpl.submit` of `src/runtime/gl.ts`), so a query the host begins earlier wraps none',
       635,
     ),
   },
@@ -107,7 +105,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (`GlFrameImpl.record` and `GlFrameImpl.submit` of `src/runtime/gl.ts`), so a query the host begins earlier wraps none',
       635,
     ),
   },

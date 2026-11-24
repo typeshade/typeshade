@@ -90,7 +90,8 @@ export const COMMAND_MIXINS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.setVertexBuffer()`',
     covers: ['GPURenderCommandsMixin.setVertexBuffer'],
-    evidence: 'src/runtime/program.ts:331-361; src/rhi/webgl2.ts#GlRenderPass.setBindGroup',
+    evidence:
+      'src/runtime/program.ts:331-361; src/rhi/webgl2.ts#GlRenderPass.setVertexBuffer|GlRenderPass~"vertexAttribPointer"',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'Geometry.vertices: one buffer'),
       2,

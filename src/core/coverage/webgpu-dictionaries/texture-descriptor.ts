@@ -54,7 +54,7 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     ),
     webgl2: typed(
       'scripts/compile-gate.ts',
-      'also: array layers and a 3D depth are refused (Rule 11.11, src/runtime/gl-draw.ts:161-164); typed for size [width, height]',
+      'also: array layers and a 3D depth are refused (Rule 11.11, `GlTextureImpl` constructor of `src/runtime/gl-draw.ts`); typed for size [width, height]',
     ),
   },
   {
@@ -66,7 +66,7 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     webgpu: planned('0050'),
     webgl2: gap(
       6,
-      'texture() on WebGL2 takes size and format only (src/runtime/gl-draw.ts:158-159); 0050 names the WebGPU target only (changes/0050-texture-write.md:331)',
+      'texture() on WebGL2 takes size and format only (`GlTextureImpl` constructor of `src/runtime/gl-draw.ts`); 0050 names the WebGPU target only (changes/0050-texture-write.md:331)',
       637,
     ),
   },
@@ -85,7 +85,7 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     webgl2: refused(
       'Rule 11.11',
       'omit sampleCount (one sample)',
-      'a multisampled texture is not supported yet on the WebGL2 tier (src/runtime/gl-draw.ts:165-168)',
+      'a multisampled texture is not supported yet on the WebGL2 tier (`GlTextureImpl` constructor of `src/runtime/gl-draw.ts`)',
     ),
   },
   {
@@ -102,7 +102,7 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): the WebGL2 tier refuses a dimension other than 2d with layers (src/runtime/gl-draw.ts:161), and no test reads the member; also: 1d is refused (Rule 10.5); 3d is refused (Rule 11.11, src/runtime/gl-draw.ts:161-164); typed for 2d',
+      'typed in code; no test reads it on this target (Rule 11.18): the WebGL2 tier refuses a dimension other than 2d with layers (`GlTextureImpl` constructor of `src/runtime/gl-draw.ts`), and no test reads the member; also: 1d is refused (Rule 10.5); 3d is refused (Rule 11.11, `GlTextureImpl` constructor of `src/runtime/gl-draw.ts`); typed for 2d',
       645,
     ),
   },
@@ -125,10 +125,10 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     webgl2: andGap(
       typed(
         'journeys/hdr-target/journey.mjs',
-        'typed for the formats formatOf accepts (src/rhi/webgl2.ts:211; src/runtime/gl-draw.ts:170-172)',
+        'typed for the formats formatOf accepts (`formatOf` of `src/rhi/webgl2.ts`; `GlTextureImpl` constructor of `src/runtime/gl-draw.ts`)',
       ),
       6,
-      'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:172); depth16unorm cannot be copied by read() (src/runtime/resources.ts:153-155); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:172) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
+      'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (`GlTextureImpl` constructor of `src/runtime/gl-draw.ts`); depth16unorm cannot be copied by read() (src/runtime/resources.ts:153-155); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (`GlTextureImpl` constructor of `src/runtime/gl-draw.ts`) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
       637,
     ),
   },
@@ -143,7 +143,7 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
       'the usages the runtime sets: render attachment, texture binding, copy when one sample, storage when storage is true (src/runtime/resources.ts:221-223)',
     ),
     webgl2: na(
-      'WebGL2 has no texture usage flags; storage: true asks for nothing more (src/runtime/gl-draw.ts:169)',
+      'WebGL2 has no texture usage flags; storage: true asks for nothing more (`GlTextureImpl` constructor of `src/runtime/gl-draw.ts`)',
     ),
   },
   {

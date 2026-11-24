@@ -139,7 +139,7 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Primitive topology of `drawArrays`: `POINTS`, `LINES`, `LINE_STRIP`, `TRIANGLES`, `TRIANGLE_STRIP`',
     covers: ['webgl:WebGLRenderingContextBase.drawArrays'],
-    evidence: 'src/rhi/webgl2.ts#firstVertexLast',
+    evidence: 'src/rhi/webgl2.ts#GL_TOPOLOGY',
     note: "WebGPU's five topologies map",
     webgpu: typed('scripts/compile-gate.ts', 'the five topologies'),
     webgl2: typed('scripts/compile-gate.ts', 'the five topologies'),
@@ -152,8 +152,7 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.LINE_LOOP',
       'webgl:WebGLRenderingContextBase.TRIANGLE_FAN',
     ],
-    evidence:
-      'src/rhi/webgl2.ts#firstVertexLast (the five topologies the runtime maps, not these two)',
+    evidence: 'src/rhi/webgl2.ts#GL_TOPOLOGY (the five topologies the runtime maps, not these two)',
     note: 'declared on WebGLRenderingContextBase (WebGL 1.0); flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
     webgpu: na('no WebGPU form: GPUPrimitiveTopology has no line-loop or triangle-fan value'),
     webgl2: gap(
@@ -169,7 +168,7 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
     name: '`lineWidth`',
     covers: ['webgl:WebGLRenderingContextBase.lineWidth'],
     evidence: 'src/rhi/webgl2.ts#setState (setState sets no line width)',
-    note: 'the runtime never sets a line width (src/rhi/webgl2.ts:626-651); WebGPU has no line width',
+    note: 'the runtime never sets a line width (`setState` of `src/rhi/webgl2.ts`); WebGPU has no line width',
     webgpu: na('no WebGPU form: WebGPU has no line width'),
     webgl2: gap(
       11,

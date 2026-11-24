@@ -20,8 +20,8 @@ export const TEXTURES_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextOverloads.texSubImage2D',
     ],
     evidence:
-      'src/rhi/webgl2.ts#bindTexture|GlDevice.createTexture; src/runtime/gl-draw.ts#GlDrawing.guard (texSubImage2D for storage round trips and the _fp64 guard, activeTexture, bindTexture); changes/0050-texture-write.md',
-    note: 'rt.texture() makes a 2D texture in any WebGPU-named format WebGL2 has; an upload from the host and mipmaps are 0050 on WebGPU only; copies between textures and texParameter (LOD, compare) have no typed form. The sRGB formats (EXT_sRGB is core in WebGL2; src/rhi/webgl2.ts:152) and the cube faces are covered by this row; the WebGL2 route to a cube texture is in the Textures 3D / array row',
+      'src/rhi/webgl2.ts#bindTexture~"activeTexture"|dataTexture~"texSubImage2D"|GlDevice.writeTexture~"texSubImage2D"|GlDevice.createTexture; src/runtime/gl-draw.ts#GlDrawing.guard (the _fp64 guard texture, written once); changes/0050-texture-write.md',
+    note: 'rt.texture() makes a 2D texture in any WebGPU-named format WebGL2 has; an upload from the host and mipmaps are 0050 on WebGPU only; copies between textures and texParameter (LOD, compare) have no typed form. The sRGB formats (EXT_sRGB is core in WebGL2; `specOf` of `src/rhi/webgl2.ts`) and the cube faces are covered by this row; the WebGL2 route to a cube texture is in the Textures 3D / array row',
     webgpu: andGap(
       typed(
         'scripts/compile-gate.ts',
@@ -47,7 +47,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.LUMINANCE',
       'webgl:WebGLRenderingContextBase.LUMINANCE_ALPHA',
     ],
-    evidence: 'src/rhi/webgl2.ts#specOf (formatOf: no luminance or alpha case)',
+    evidence: 'src/rhi/webgl2.ts#specOf (specOf: no luminance or alpha case)',
     note: 'declared on WebGLRenderingContextBase (WebGL 1.0); flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
     webgpu: na('no WebGPU form: WebGPU has no luminance or alpha-only texture format'),
     webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)', 642),
@@ -73,7 +73,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.RGB565',
     ],
     evidence:
-      'src/rhi/webgl2.ts#specOf (formatOf: no unpacked three-component case); src/rhi/webgl2.ts#specOf~"rg11b10ufloat" (rg11b10ufloat, the one packed three-component case); node_modules/@webgpu/types/dist/index.d.ts:429 (rgb9e5ufloat, a packed three-component format)',
+      'src/rhi/webgl2.ts#specOf (specOf: no unpacked three-component case); src/rhi/webgl2.ts#specOf~"rg11b10ufloat" (rg11b10ufloat, the one packed three-component case); node_modules/@webgpu/types/dist/index.d.ts:429 (rgb9e5ufloat, a packed three-component format)',
     note: 'RGB and RGB565 are declared on WebGLRenderingContextBase (WebGL 1.0); the others on WebGL2RenderingContextBase; flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
     webgpu: na(
       'no WebGPU form: WebGPU has no unpacked three-component texture format; rgb9e5ufloat and rg11b10ufloat are packed',
@@ -92,7 +92,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.texSubImage3D',
     ],
     evidence:
-      'docs/use-typeshade-surface.md:7939-7941 (a 2D array, 3D or cube texture is a host WebGLTexture on the WebGL2 tier); src/runtime/gl.ts#GlComputePipelineImpl~"GL_TARGET"|GL_TARGET (a host texture of another dimension is bound for the target its pass program names); src/runtime/gl-draw.ts#recordPass~"a colour target on WebGL2" (a colour target is a runtime Texture or the canvas context)',
+      'docs/use-typeshade-surface.md:7939-7941 (a 2D array, 3D or cube texture is a host WebGLTexture on the WebGL2 tier); src/runtime/gl.ts#GlComputePipelineImpl~"textureOf(rhi, v, where)"|GL_TARGET (a host texture of another dimension is bound for the target its pass program names); src/runtime/gl-draw.ts#recordPass~"a colour target on WebGL2" (a colour target is a runtime Texture or the canvas context)',
     note: "the runtime's texture is 2D on WebGL2; a 2D array, 3D or cube texture is a host WebGLTexture on WebGL2 (surface §69); a layered colour target is the row below",
     webgpu: gap(
       15,
@@ -102,10 +102,10 @@ export const TEXTURES_ROWS: readonly Row[] = [
     webgl2: andGap(
       raw(
         'WebGLTexture',
-        'a host WebGLTexture of TEXTURE_2D_ARRAY, TEXTURE_3D or TEXTURE_CUBE_MAP; only a compute entry binds it, since a draw binds TEXTURE_2D (src/rhi/webgl2.ts:285)',
+        'a host WebGLTexture of TEXTURE_2D_ARRAY, TEXTURE_3D or TEXTURE_CUBE_MAP; only a compute entry binds it, since a draw binds TEXTURE_2D (`bindTexture` of `src/rhi/webgl2.ts`)',
       ),
       6,
-      'no pass takes a layer: a colour target on WebGL2 is a runtime Texture or the canvas context (src/runtime/gl-draw.ts:1097-1100); roadmap row 12 names texture_cube_array and texture_3d (docs/roadmap.md:225)',
+      'no pass takes a layer: a colour target on WebGL2 is a runtime Texture or the canvas context (`recordPass` of `src/runtime/gl-draw.ts`); roadmap row 12 names texture_cube_array and texture_3d (docs/roadmap.md:225)',
       637,
     ),
   },
@@ -129,7 +129,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
     webgl2: refused(
       'Rule 11.11',
       'use a 2D texture; omit depthSlice',
-      'a layer of a 3D or array texture as a colour target; src/runtime/gl-draw.ts:161-164 refuses a dimension other than 2d',
+      'a layer of a 3D or array texture as a colour target; the `GlTextureImpl` constructor of `src/runtime/gl-draw.ts` refuses a dimension other than 2d',
     ),
   },
   {
@@ -152,7 +152,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
     ],
     evidence:
       'src/runtime/resources.ts:153-154 (read cannot copy a compressed format); changes/0050-texture-write.md:284, 387 (write refuses a compressed format, and no write of compressed blocks)',
-    note: 'the runtime makes no compressed texture and uploads none; a texture the host makes is bound as is (src/runtime/resources.ts:206-210; src/rhi/webgl2.ts:621-622)',
+    note: 'the runtime makes no compressed texture and uploads none; a texture the host makes is bound as is (src/runtime/resources.ts:206-210; `GlDevice.fromNative` of `src/rhi/webgl2.ts`)',
     webgpu: andGap(
       raw(
         'GPUTexture',
@@ -165,7 +165,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
     webgl2: andGap(
       raw(
         'WebGLTexture',
-        'a compressed texture the host makes is bound as is (src/rhi/webgl2.ts:621-622)',
+        'a compressed texture the host makes is bound as is (`GlDevice.fromNative` of `src/rhi/webgl2.ts`)',
       ),
       6,
       'no upload path; changes/0050-texture-write.md:387 excludes a write of compressed blocks',
@@ -178,8 +178,8 @@ export const TEXTURES_ROWS: readonly Row[] = [
     name: '`EXT_texture_norm16` (16-bit unorm and snorm colour formats)',
     covers: ['webgl:EXT_texture_norm16'],
     evidence:
-      'src/rhi/webgl2.ts#GlFormat.type (NAMED admits the names); src/rhi/webgl2.ts#specOf (formatOf: no 16-bit unorm or snorm case)',
-    note: 'the runtime does not turn EXT_texture_norm16 on (src/rhi/webgl2.ts:256-261); the sampling route is read, not measured on a WebGL2 context',
+      'src/rhi/webgl2.ts#GlFormat.type (NAMED admits the names); src/rhi/webgl2.ts#specOf (specOf: no 16-bit unorm or snorm case)',
+    note: 'the runtime does not turn EXT_texture_norm16 on (`GlState` constructor of `src/rhi/webgl2.ts`); the sampling route is read, not measured on a WebGL2 context',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',
@@ -192,10 +192,10 @@ export const TEXTURES_ROWS: readonly Row[] = [
     webgl2: andGap(
       raw(
         'WebGLTexture',
-        'a host WebGLTexture of this format is bound as is (src/rhi/webgl2.ts:621-622)',
+        'a host WebGLTexture of this format is bound as is (`GlDevice.fromNative` of `src/rhi/webgl2.ts`)',
       ),
       14,
-      'not measured as a target; the runtime makes no 16-bit unorm or snorm texture and admits no render target of the format (src/rhi/webgl2.ts:103-227; src/runtime/gl-draw.ts:1099); roadmap row 13b names the tier-1 formats (docs/roadmap.md:228)',
+      'not measured as a target; the runtime makes no 16-bit unorm or snorm texture and admits no render target of the format (`specOf` and `formatOf` of `src/rhi/webgl2.ts`; `recordPass` of `src/runtime/gl-draw.ts`); roadmap row 13b names the tier-1 formats (docs/roadmap.md:228)',
       644,
     ),
   },

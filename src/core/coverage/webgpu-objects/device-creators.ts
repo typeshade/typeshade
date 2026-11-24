@@ -164,7 +164,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (`GlFrameImpl.record` and `GlFrameImpl.submit` of `src/runtime/gl.ts`), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },

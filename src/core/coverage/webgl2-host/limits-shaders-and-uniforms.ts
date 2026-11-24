@@ -40,7 +40,7 @@ export const LIMITS_SHADERS_AND_UNIFORMS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.useProgram',
     ],
     evidence:
-      'src/core/gl-compute.ts:99-131 (compile: shaders, link and the info log of a failure); src/core/compute/runner.ts#compileGlProgram (compile and link status); src/rhi/webgl2.ts#GlDevice.createTexture (a render pipeline, among them the draws of the call layer)',
+      'src/core/gl-compute.ts:99-131 (compile: shaders, link and the info log of a failure); src/core/compute/runner.ts#compileGlProgram (compile and link status); src/rhi/webgl2.ts#GlDevice.createRenderPipeline|GlDevice~"compile(gl, vertex" (a render pipeline, among them the draws of the call layer)',
     note: "from the manifest's GLSL (Rule 11.11); a driver refusal is an Error with the info log (src/core/gl-compute.ts:99-131)",
     webgpu: typed('scripts/compile-gate.ts', 'shader module from the manifest'),
     webgl2: typed('scripts/compile-gate.ts', 'from the manifest GLSL'),

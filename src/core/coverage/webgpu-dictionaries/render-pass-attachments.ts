@@ -55,7 +55,7 @@ export const RENDER_PASS_ATTACHMENTS_ROWS: readonly Row[] = [
     webgl2: refused(
       'Rule 11.11',
       'use a 2D texture; omit depthSlice',
-      'a slice of a 3D texture; src/runtime/gl-draw.ts:161-164 refuses a dimension other than 2d',
+      'a slice of a 3D texture; the `GlTextureImpl` constructor of `src/runtime/gl-draw.ts` refuses a dimension other than 2d',
     ),
   },
   {
@@ -74,7 +74,7 @@ export const RENDER_PASS_ATTACHMENTS_ROWS: readonly Row[] = [
     webgl2: refused(
       'Rule 11.11',
       'none: a multisampled target is not supported yet on the WebGL2 tier',
-      'the WebGL2 tier draws with one sample for now; a multisampled target is not supported yet (src/runtime/gl-draw.ts:436-438); one sample is the default: omit resolveTarget',
+      'the WebGL2 tier draws with one sample for now; a multisampled target is not supported yet (`GlRenderPrograms` of `src/runtime/gl-draw.ts`); one sample is the default: omit resolveTarget',
     ),
   },
   {
@@ -83,7 +83,7 @@ export const RENDER_PASS_ATTACHMENTS_ROWS: readonly Row[] = [
     name: '`GPURenderPassColorAttachment.clearValue`',
     covers: ['GPURenderPassColorAttachment.clearValue'],
     evidence:
-      'src/runtime/runtime.ts:105-170, 467-498; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#blitScreen',
+      'src/runtime/runtime.ts:105-170, 467-498; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferfv"|blitScreen',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'view, clear, load'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'view, clear, load'),
   },
@@ -93,7 +93,7 @@ export const RENDER_PASS_ATTACHMENTS_ROWS: readonly Row[] = [
     name: '`GPURenderPassColorAttachment.loadOp`',
     covers: ['GPURenderPassColorAttachment.loadOp'],
     evidence:
-      'src/runtime/runtime.ts:105-170, 467-498; src/runtime/gl-draw.ts#recordPass~"loadOp"; src/rhi/webgl2.ts#blitScreen',
+      'src/runtime/runtime.ts:105-170, 467-498; src/runtime/gl-draw.ts#recordPass~"loadOp"; src/rhi/webgl2.ts#GlRenderPass.constructor~"loadOp"|blitScreen',
     webgpu: typed('scripts/compile-gate.ts', 'view, clear, load'),
     webgl2: typed('scripts/compile-gate.ts', 'view, clear, load'),
   },
@@ -165,7 +165,7 @@ export const RENDER_PASS_ATTACHMENTS_ROWS: readonly Row[] = [
     name: '`GPURenderPassDepthStencilAttachment.depthReadOnly`',
     covers: ['GPURenderPassDepthStencilAttachment.depthReadOnly'],
     evidence:
-      'src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilAttachmentOf); src/runtime/program.ts:1071-1181 (passOf); src/runtime/program.ts#checkPassFit (checkPassFit); src/runtime/gl-draw.ts#GlPass.depthReadOnly|GlPass.readsOwnDepth (GlPass.readsOwnDepth); src/runtime/runtime.ts#PassTargets.color (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
+      'src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilAttachmentOf); src/runtime/program.ts:1071-1181 (passOf); src/runtime/program.ts#checkPassFit (checkPassFit); src/runtime/gl-draw.ts#GlPass.depthReadOnly|GlPass.readsOwnDepth; src/runtime/runtime.ts#PassTargets.color (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
     webgpu: typed(
       'journeys/pass-attachments',
       'DepthAttachment.readOnly; also src/runtime/runtime.test.ts',
@@ -234,7 +234,7 @@ export const RENDER_PASS_ATTACHMENTS_ROWS: readonly Row[] = [
     name: '`GPURenderPassDepthStencilAttachment.stencilReadOnly`',
     covers: ['GPURenderPassDepthStencilAttachment.stencilReadOnly'],
     evidence:
-      'src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilAttachmentOf); src/runtime/program.ts:1071-1181 (passOf); src/runtime/program.ts#checkPassFit (checkPassFit); src/runtime/gl-draw.ts#GlPass.stencilReadOnly|GlPass.readsOwnDepth (GlPass.readsOwnDepth); src/runtime/runtime.ts#PassTargets.color (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
+      'src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilAttachmentOf); src/runtime/program.ts:1071-1181 (passOf); src/runtime/program.ts#checkPassFit (checkPassFit); src/runtime/gl-draw.ts#GlPass.stencilReadOnly|GlPass.readsOwnDepth; src/runtime/runtime.ts#PassTargets.color (PassTargets); src/runtime/runtime.ts:127-129 (DepthAttachment)',
     webgpu: typed(
       'journeys/pass-attachments',
       'DepthAttachment.stencil.readOnly; also src/runtime/runtime.test.ts',

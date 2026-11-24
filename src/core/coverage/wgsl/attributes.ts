@@ -206,7 +206,7 @@ export const ATTRIBUTES_ROWS: readonly Row[] = [
     webgl2: andGap(
       typed('scripts/gpu-differential.ts', 'default shape only, change 0057'),
       12,
-      'a workgroup shape other than the declared default is refused when the pipeline is made (src/runtime/gl.ts:161-163); changes/0057-workgroup-size-overrides.md:84 names the override-sized case; roadmap 23, docs/roadmap.md:293, names override axes',
+      'a workgroup shape other than the declared default is refused when the pipeline is made (`GlProgramImpl` of `src/runtime/gl.ts`); changes/0057-workgroup-size-overrides.md:84 names the override-sized case; roadmap 23, docs/roadmap.md:293, names override axes',
       643,
     ),
   },

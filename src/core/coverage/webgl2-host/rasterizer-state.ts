@@ -18,7 +18,7 @@ export const RASTERIZER_STATE_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode or frontFace on the WebGL2 tier (src/rhi/webgl2.ts:647; src/runtime/gl-draw.ts:967)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode or frontFace on the WebGL2 tier (`setState` of `src/rhi/webgl2.ts`)',
       645,
     ),
   },
@@ -59,7 +59,7 @@ export const RASTERIZER_STATE_ROWS: readonly Row[] = [
     name: 'Viewport: `viewport`',
     covers: ['webgl:WebGLRenderingContextBase.viewport'],
     evidence:
-      'src/rhi/webgl2.ts#GlRenderPass.constructor~"gl.viewport"|GlRenderPass.setViewport (the whole target at each pass start); src/runtime/gl-draw.ts#GlPass.setViewport (GlPass.setViewport)',
+      'src/rhi/webgl2.ts#GlRenderPass.constructor~"gl.viewport"|GlRenderPass.setViewport (the whole target at each pass start); src/runtime/gl-draw.ts#GlPass.setViewport',
     note: 'RenderPass.setViewport sets a sub-viewport; the runtime sets the whole target at each WebGL2 pass start',
     webgpu: typed(
       'journeys/render-state',
@@ -78,7 +78,7 @@ export const RASTERIZER_STATE_ROWS: readonly Row[] = [
     name: 'Polygon offset: `polygonOffset`, `EXT_polygon_offset_clamp`',
     covers: ['webgl:EXT_polygon_offset_clamp', 'webgl:WebGLRenderingContextBase.polygonOffset'],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.bias); src/rhi/webgpu.ts#WebGpuEncoder.copyBufferToBuffer|depthStencilOf (depthStencilOf); src/runtime/gl-draw.ts#GlSamplerImpl.sampler|BIASED_FORMATS|refuseBias (refuseBias); src/rhi/webgl2.ts#setState~"polygonOffsetClampEXT" (setState, the polygon offset)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.bias); src/rhi/webgpu.ts#WebGpuEncoder.copyBufferToBuffer|depthStencilOf (depthStencilOf); src/runtime/gl-draw.ts#refuseBias|BIASED_FORMATS (refuseBias); src/rhi/webgl2.ts#setState~"polygonOffsetClampEXT" (setState, the polygon offset)',
     note: 'depthBias is pipeline state; each draw sets the polygon offset from its pipeline',
     webgpu: typed(
       'journeys/pipeline-state',

@@ -55,7 +55,7 @@ export const SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no assertion depends on WRAP_R (src/rhi/webgl2.ts:1437); address applies to every axis; one address for every axis; per-axis address modes have no spelling (src/runtime/resources.ts:78-79)',
+      'typed in code; no test reads it on this target (Rule 11.18): no assertion depends on WRAP_R (`createSampler` of `GlDevice` in `src/rhi/webgl2.ts`); address applies to every axis; one address for every axis; per-axis address modes have no spelling (src/runtime/resources.ts:78-79)',
       645,
     ),
   },
@@ -109,7 +109,7 @@ export const SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 texture a test samples has mip levels (src/rhi/webgl2.ts:1424-1434); filter, address (one word for U, V and W), compare; a mip chain to filter over: 0050 is WebGPU only (changes/0050-texture-write.md:323-325, 331)',
+      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 texture a test samples has mip levels (`createSampler` of `GlDevice` in `src/rhi/webgl2.ts`); filter, address (one word for U, V and W), compare; a mip chain to filter over: 0050 is WebGPU only (changes/0050-texture-write.md:323-325, 331)',
       645,
     ),
   },

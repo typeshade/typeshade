@@ -16,7 +16,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (`GlFrameImpl.record` and `GlFrameImpl.submit` of `src/runtime/gl.ts`), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -35,7 +35,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (`GlFrameImpl.record` and `GlFrameImpl.submit` of `src/runtime/gl.ts`), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -57,7 +57,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (`GlFrameImpl.record` and `GlFrameImpl.submit` of `src/runtime/gl.ts`), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -67,7 +67,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     name: '`GPUQueue.submit()`',
     covers: ['GPUQueue.submit'],
     evidence:
-      'src/runtime/runtime.ts:419-432, 500-510; src/rhi/webgpu.ts:433-436; src/runtime/gl.ts#packWords',
+      'src/runtime/runtime.ts:419-432, 500-510; src/rhi/webgpu.ts:433-436; src/runtime/gl.ts#GlFrameImpl.submit',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },
