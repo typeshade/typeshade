@@ -1,6 +1,5 @@
 import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
-import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { entryNode } from '../compiler/ts/entry-locations.js';
 import { referenceOf } from '../compiler/ts/lower/references.js';
 import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
@@ -27,6 +26,7 @@ import { resourceBindingLine, bindingLine } from './hover/binding-line.js';
 import { linkedFieldAt } from './hover/linked-field.js';
 import { ROLES, fieldLine, type FieldFacts } from './hover/field-line.js';
 import { shownNames } from './hover/shown-names.js';
+import { refusalCode } from './hover/refusal-code.js';
 export { spellShaderType } from './hover/spell-type.js';
 export type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
 
@@ -125,20 +125,6 @@ function fieldLinesAcross(
       ? `${fieldLine(f.facts)!} in ${names.get(f.uri)!}`
       : `no location in ${names.get(f.uri)!} (${f.refusal!})`,
   );
-}
-
-function refusalCode(
-  analysis: CompileTsSourceResult,
-  facts: FieldFacts,
-  fileName: string,
-  start: number,
-): string | undefined {
-  if (facts.location !== undefined || facts.builtin === true) return undefined;
-  const covers = (at: { fileName: string; start: number; length: number }): boolean =>
-    at.fileName === fileName && at.start <= start && start < at.start + at.length;
-  return analysis.diagnostics.find(
-    (d) => d.category === 'error' && (covers(d) || relatedSitesOf(d).some(covers)),
-  )?.code;
 }
 
 function locationLine(
