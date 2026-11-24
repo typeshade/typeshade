@@ -23,7 +23,7 @@ downstream: []
 | Date and attribution          | Written 2026-11-24, UTC. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction (the owner's words are in section "Why"). The owner's decision of 2026-11-24 is recorded in the approval record below. |
 | Applicability / Effectivity   | `docs/language-design.md` Rule 13.4 (second paragraph) and its Doorstop item `reqs/rules/RULE-1304.md`; the CI files of the unmerged commit `29f61c82` (branch `local/ci-scope`). No `src/` code, surface, export, diagnostic or example. Release version unassigned. |
 | Review baseline               | `origin/main` at `d14bebb4` (the merge of PR #1529).                                                                                                                                                                                                                  |
-| Review and revision authority | Pull request PR-NUMBER-UNASSIGNED (the number is not assigned yet). Git records revisions. The owner's go-ahead in the conversation is the review (`CLAUDE.md`, Merging), and the merge of that pull request records the decision.                                    |
+| Review and revision authority | Pull request #1531. Git records revisions. The owner's go-ahead in the conversation is the review (`CLAUDE.md`, Merging), and the merge of that pull request records the decision.                                                                                    |
 
 ## What changes
 
