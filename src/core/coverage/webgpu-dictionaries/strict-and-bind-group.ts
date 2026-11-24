@@ -75,7 +75,7 @@ export const STRICT_AND_BIND_GROUP_ROWS: readonly Row[] = [
     name: '`GPUBindGroupEntry.binding`',
     covers: ['GPUBindGroupEntry.binding'],
     evidence:
-      'src/runtime/program.ts:1746-1843; src/rhi/webgpu.ts:362-379; src/runtime/gl-draw.ts:742; src/rhi/webgl2.ts:622, 629',
+      'src/runtime/program.ts:1746-1843; src/rhi/webgpu.ts:362-379; src/runtime/gl-draw.ts#GlRenderPipelineImpl~"values[b.name]"; src/rhi/webgl2.ts#GlDevice.createBindGroup|GlDevice~"getUniformBlockIndex"',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'bindings by name; also: raw (a host GPUBuffer, GPUSampler or GPUTextureView bound as is; a host GPUTexture through its default view)',
@@ -88,7 +88,7 @@ export const STRICT_AND_BIND_GROUP_ROWS: readonly Row[] = [
     name: '`GPUBindGroupEntry.resource`',
     covers: ['GPUBindGroupEntry.resource'],
     evidence:
-      'src/runtime/program.ts:1746-1843; src/rhi/webgpu.ts:362-379; src/runtime/gl-draw.ts:742; src/rhi/webgl2.ts:622, 629',
+      'src/runtime/program.ts:1746-1843; src/rhi/webgpu.ts:362-379; src/runtime/gl-draw.ts#GlRenderPipelineImpl~"values[b.name]"; src/rhi/webgl2.ts#GlDevice.createBindGroup|GlDevice~"getUniformBlockIndex"',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'bindings by name; also: raw (a host GPUBuffer, GPUSampler or GPUTextureView bound as is; a host GPUTexture through its default view)',

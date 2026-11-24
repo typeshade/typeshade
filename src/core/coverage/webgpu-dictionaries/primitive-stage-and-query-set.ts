@@ -6,7 +6,8 @@ export const PRIMITIVE_STAGE_AND_QUERY_SET_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUPrimitiveState.topology`',
     covers: ['GPUPrimitiveState.topology'],
-    evidence: 'src/runtime/program.ts:301-307; src/rhi/webgl2.ts:1507',
+    evidence:
+      'src/runtime/program.ts:301-307; src/rhi/webgl2.ts#GL_TOPOLOGY|drawStateOf~"GL_TOPOLOGY"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a topology; the runtime writes the default (src/runtime/program.ts:1671; src/rhi/webgpu.ts:418-422); topology, cullMode, frontFace; a strip drawn with indices needs stripIndexFormat, which the runtime does not set (to measure)',
@@ -36,7 +37,8 @@ export const PRIMITIVE_STAGE_AND_QUERY_SET_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUPrimitiveState.frontFace`',
     covers: ['GPUPrimitiveState.frontFace'],
-    evidence: 'src/runtime/program.ts:301-307; src/rhi/webgl2.ts:1507',
+    evidence:
+      'src/runtime/program.ts:301-307; src/rhi/webgl2.ts#drawStateOf~"frontFace"|setState~"frontFace"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets frontFace; every draw uses ccw; topology, cullMode, frontFace',
@@ -53,7 +55,8 @@ export const PRIMITIVE_STAGE_AND_QUERY_SET_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUPrimitiveState.cullMode`',
     covers: ['GPUPrimitiveState.cullMode'],
-    evidence: 'src/runtime/program.ts:301-307; src/rhi/webgl2.ts:1507',
+    evidence:
+      'src/runtime/program.ts:301-307; src/rhi/webgl2.ts#drawStateOf~"cullMode"|setState~"cullFace"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no frame shows a cull mode; the only test that sets one checks a pipeline-cache key (src/runtime/runtime.test.ts:391); topology, cullMode, frontFace',
@@ -70,7 +73,7 @@ export const PRIMITIVE_STAGE_AND_QUERY_SET_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUPrimitiveState.unclippedDepth`',
     covers: ['GPUPrimitiveState.unclippedDepth'],
-    evidence: 'src/runtime/program.ts:301-307; src/rhi/webgl2.ts:535-537',
+    evidence: 'src/runtime/program.ts:301-307; src/rhi/webgl2.ts#setState',
     webgpu: gap(1, 'feature depth-clip-control; WebGL2 EXT_depth_clamp', 632),
     webgl2: andGap(
       raw(
@@ -114,7 +117,8 @@ export const PRIMITIVE_STAGE_AND_QUERY_SET_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUProgrammableStage.constants`',
     covers: ['GPUProgrammableStage.constants'],
-    evidence: 'src/runtime/program.ts:1649-1657; src/runtime/gl-draw.ts:413-424',
+    evidence:
+      'src/runtime/program.ts:1649-1657; src/runtime/gl-draw.ts#GlRenderPrograms~"plan.constants"',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'module, entryPoint and constants from the manifest and RenderState.constants (change 0028)',

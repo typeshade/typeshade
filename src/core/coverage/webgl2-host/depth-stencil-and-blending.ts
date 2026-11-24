@@ -19,7 +19,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`depthRange`',
     covers: ['webgl:WebGLRenderingContextBase.depthRange'],
-    evidence: 'src/rhi/webgl2.ts:575-617 (setState sets no depth range)',
+    evidence: 'src/rhi/webgl2.ts#setState|GlRenderPass.setViewport (setState sets no depth range)',
     note: "the runtime sets the depth range to 0 to 1 at each WebGL2 pass start and gives the host's back at its end; on WebGPU it is an argument of setViewport",
     webgpu: typed(
       'journeys/render-state',
@@ -77,7 +77,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.stencilOpSeparate',
     ],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/rhi/webgpu.ts#WebGpuEncoder.copyBufferToBuffer|depthStencilOf (depthStencilOf); src/rhi/webgl2.ts:575-617 (setState)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/rhi/webgpu.ts#WebGpuEncoder.copyBufferToBuffer|depthStencilOf (depthStencilOf); src/rhi/webgl2.ts#setState~"stencilFuncSeparate" (setState)',
     note: 'the stencil test, its functions, operations and masks are set by each draw of a pipeline with depth.stencil',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -94,7 +94,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
     name: '`WEBGL_stencil_texturing`',
     covers: ['webgl:WEBGL_stencil_texturing'],
     evidence:
-      'src/rhi/webgl2.ts:923-1178 (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts#Texture (a depth or stencil format other than depth32float rejects a read)',
+      'src/rhi/webgl2.ts#GlRenderPass.constructor~"stencilClearValue" (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts#Texture (a depth or stencil format other than depth32float rejects a read)',
     note: 'the stencil aspect of a depth-stencil texture as a sampled texture; the same capability as the stencil-only aspect of GPUTextureAspect in table A',
     webgpu: gap(
       6,
@@ -118,7 +118,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.blendFuncSeparate',
     ],
     evidence:
-      'src/rhi/webgl2.ts:596-597 (blendFuncSeparate, blendEquationSeparate); src/runtime/program.ts#Bindings',
+      'src/rhi/webgl2.ts#setState~"blendEquationSeparate" (blendFuncSeparate, blendEquationSeparate); src/runtime/program.ts#Bindings',
     note: 'TargetState.blend; min and max are core in WebGL2 (ES 3.00), the form EXT_blend_minmax adds in WebGL 1.0; the switch that turns blending on is in Capability switches',
     webgpu: gap(
       15,
@@ -137,7 +137,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
     name: '`blendColor`',
     covers: ['webgl:WebGLRenderingContextBase.blendColor'],
     evidence:
-      'src/rhi/webgl2.ts:468 (the constant factor maps to CONSTANT_COLOR); src/rhi/webgl2.ts:575-617 (setState sets the functions, not the colour)',
+      'src/rhi/webgl2.ts#GL_BLEND_FACTOR (the constant factor maps to CONSTANT_COLOR); src/rhi/webgl2.ts#GlRenderPass.setBlendConstant (setState sets the functions, not the colour)',
     note: 'the constant blend factor is typed (TargetState.blend, src/runtime/program.ts:73-79); the constant colour is typed by RenderPass.setBlendConstant and RenderState.blendConstant',
     webgpu: typed(
       'journeys/render-state',
@@ -162,7 +162,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
       'webgl:OES_draw_buffers_indexed.enableiOES',
     ],
     evidence:
-      'docs/use-typeshade-surface.md:7967 (targets that blend or mask apart are refused on WebGL2); src/runtime/gl-draw.ts:588-613 (the refusal, a TypeError)',
+      'docs/use-typeshade-surface.md:7967 (targets that blend or mask apart are refused on WebGL2); src/runtime/gl-draw.ts#checkState~"blend or mask apart" (the refusal, a TypeError)',
     note: 'the extension would lift the refusal',
     webgpu: gap(
       15,

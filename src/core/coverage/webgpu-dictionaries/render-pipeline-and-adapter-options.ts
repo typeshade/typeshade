@@ -7,7 +7,7 @@ export const RENDER_PIPELINE_AND_ADAPTER_OPTIONS_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.vertex`',
     covers: ['GPURenderPipelineDescriptor.vertex'],
     evidence:
-      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts:443-444; src/rhi/webgl2.ts:1082-1085',
+      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts#GlRenderPrograms~"vertex: {"; src/rhi/webgl2.ts#GlDevice~"desc.vertex.buffers"',
     webgpu: typed('src/runtime/runtime.test.ts', 'program.render(state)'),
     webgl2: typed('scripts/compile-gate.ts', 'program.render(state)'),
   },
@@ -17,7 +17,7 @@ export const RENDER_PIPELINE_AND_ADAPTER_OPTIONS_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.primitive`',
     covers: ['GPURenderPipelineDescriptor.primitive'],
     evidence:
-      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts:443-444; src/rhi/webgl2.ts:1082-1085',
+      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts#GlRenderPrograms~"plan.primitive"|checkState~"GL_TOPOLOGY"; src/rhi/webgl2.ts#GlDevice~"desc.primitive.topology"|drawStateOf~"GL_TOPOLOGY"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test reads descriptor.primitive (src/runtime/program.ts:1674); program.render(state)',
@@ -35,7 +35,7 @@ export const RENDER_PIPELINE_AND_ADAPTER_OPTIONS_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.depthStencil`',
     covers: ['GPURenderPipelineDescriptor.depthStencil'],
     evidence:
-      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts:443-444; src/rhi/webgl2.ts:1082-1085',
+      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts#GlRenderPrograms~"depthStencil"; src/rhi/webgl2.ts#drawStateOf~"desc.depthStencil"',
     webgpu: typed('scripts/compile-gate.ts', 'program.render(state)'),
     webgl2: typed('scripts/compile-gate.ts', 'program.render(state)'),
   },
@@ -45,7 +45,7 @@ export const RENDER_PIPELINE_AND_ADAPTER_OPTIONS_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.multisample`',
     covers: ['GPURenderPipelineDescriptor.multisample'],
     evidence:
-      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts:443-444; src/rhi/webgl2.ts:1082-1085',
+      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts#GlRenderPrograms~"multisample: plan.multisample"; src/rhi/webgl2.ts#GlDevice.createTexture~"sampleCount"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test creates a multisampled render pipeline on WebGPU (src/runtime/program.ts:1217); program.render(state)',
@@ -59,7 +59,7 @@ export const RENDER_PIPELINE_AND_ADAPTER_OPTIONS_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.fragment`',
     covers: ['GPURenderPipelineDescriptor.fragment'],
     evidence:
-      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts:443-444; src/rhi/webgl2.ts:1082-1085',
+      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts#GlRenderPrograms~"fragment: {"; src/rhi/webgl2.ts#GlDevice~"desc.fragment"',
     webgpu: typed('src/runtime/runtime.test.ts', 'program.render(state)'),
     webgl2: typed('scripts/compile-gate.ts', 'program.render(state)'),
   },

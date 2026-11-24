@@ -113,7 +113,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.RED`',
     covers: ['GPUColorWrite.RED'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts#checkState~"writeMask"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -131,7 +131,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.GREEN`',
     covers: ['GPUColorWrite.GREEN'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts#checkState~"writeMask"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -149,7 +149,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.BLUE`',
     covers: ['GPUColorWrite.BLUE'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts#checkState~"writeMask"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -167,7 +167,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.ALPHA`',
     covers: ['GPUColorWrite.ALPHA'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts#checkState~"writeMask"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -185,7 +185,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.ALL`',
     covers: ['GPUColorWrite.ALL'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts#checkState~"writeMask"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test passes writeMask; the runtime sets no mask on WebGPU unless the author passes one (src/runtime/program.ts:73-78, 502-519); the typed surface is TargetState.writeMask',

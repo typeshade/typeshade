@@ -67,7 +67,7 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUBuffer.mapAsync()`',
     covers: ['GPUBuffer.mapAsync'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/rhi/webgl2.ts:762; src/core/host-entry.ts:654-661',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/rhi/webgl2.ts#GlDevice.readBuffer; src/core/host-entry.ts:654-661',
     webgpu: typed('src/runtime/runtime.test.ts', 'Buffer.read() and Texture.read()'),
     webgl2: typed('scripts/compile-gate.ts', 'Buffer.read() and Texture.read()'),
   },
@@ -77,7 +77,7 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUBuffer.getMappedRange()`',
     covers: ['GPUBuffer.getMappedRange'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/rhi/webgl2.ts:762; src/core/host-entry.ts:654-661',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/rhi/webgl2.ts#GlDevice.readBuffer; src/core/host-entry.ts:654-661',
     webgpu: typed('src/runtime/runtime.test.ts', 'Buffer.read() and Texture.read()'),
     webgl2: typed('scripts/compile-gate.ts', 'Buffer.read() and Texture.read()'),
   },
@@ -87,7 +87,7 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUBuffer.unmap()`',
     covers: ['GPUBuffer.unmap'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/rhi/webgl2.ts:762; src/core/host-entry.ts:654-661',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/rhi/webgl2.ts#GlDevice.readBuffer; src/core/host-entry.ts:654-661',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test observes the unmap; the typed surface is Buffer.read() and Texture.read()',
@@ -101,7 +101,7 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUBuffer.destroy()`',
     covers: ['GPUBuffer.destroy'],
     evidence:
-      'src/core/resident.ts:71; src/core/resident.ts:249-257; src/runtime/gl-draw.ts:752-753',
+      'src/core/resident.ts:71; src/core/resident.ts:249-257; src/runtime/gl-draw.ts#GlRenderPipelineImpl~"was disposed"',
     webgpu: typed('journeys/mnist/test-webgpu.mjs', 'Buffer.dispose()'),
     webgl2: gap(
       15,

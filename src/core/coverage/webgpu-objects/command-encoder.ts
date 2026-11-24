@@ -7,7 +7,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     name: '`GPUCommandBuffer`',
     covers: ['GPUCommandBuffer'],
     evidence:
-      'src/runtime/runtime.ts#Frame; src/runtime/runtime.ts#RuntimeImpl.takeConsole; src/runtime/gl.ts:124-127',
+      'src/runtime/runtime.ts#Frame; src/runtime/runtime.ts#RuntimeImpl.takeConsole; src/runtime/gl.ts#GlFrameImpl.encoder',
     webgpu: typed('src/runtime/runtime.test.ts', 'Frame.submit() and rt.submit(encoders)'),
     webgl2: refused(
       'Rule 11.11',
@@ -20,7 +20,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.beginRenderPass()`',
     covers: ['GPUCommandEncoder.beginRenderPass'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl.ts:455-457',
+    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl.ts#GlFrameImpl.pass',
     webgpu: typed('src/runtime/runtime.test.ts', 'Frame.pass()'),
     webgl2: typed('scripts/compile-gate.ts', 'Frame.pass()'),
   },
@@ -29,7 +29,8 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.beginComputePass()`',
     covers: ['GPUCommandEncoder.beginComputePass'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl.ts:447-453',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/runtime/gl.ts#GlFrameImpl.dispatch|GlComputePipelineImpl.dispatch',
     webgpu: typed('journeys/mesh-raycast/journey.mjs', 'Frame.dispatch()'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs', 'Frame.dispatch()'),
   },
@@ -102,7 +103,8 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.resolveQuerySet()`',
     covers: ['GPUCommandEncoder.resolveQuerySet'],
-    evidence: 'src/runtime/runtime.ts#RenderPass|Frame; src/runtime/gl.ts:469-472',
+    evidence:
+      'src/runtime/runtime.ts#RenderPass|Frame; src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit',
     webgpu: andGap(
       raw(
         'Frame.encoder',
@@ -123,7 +125,8 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.finish()`',
     covers: ['GPUCommandEncoder.finish'],
-    evidence: 'src/runtime/runtime.ts#RuntimeImpl.takeConsole; src/runtime/gl.ts:124-127',
+    evidence:
+      'src/runtime/runtime.ts#RuntimeImpl.takeConsole; src/runtime/gl.ts#GlFrameImpl.encoder',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       "rt.submit(encoders) finishes the host's encoders",

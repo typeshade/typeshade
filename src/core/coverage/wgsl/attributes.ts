@@ -201,7 +201,7 @@ export const ATTRIBUTES_ROWS: readonly Row[] = [
     name: '`@workgroup_size`',
     covers: ['wgsl:attributes:workgroup_size'],
     evidence:
-      'docs/language-design.md:668-677; src/runtime/gl.ts:161-163; changes/0057-workgroup-size-overrides.md:84',
+      'docs/language-design.md:668-677; src/runtime/gl.ts#GlProgramImpl~"workgroup shape"; changes/0057-workgroup-size-overrides.md:84',
     webgpu: typed('src/compiler/ts/stage3.test.ts', 'Rule 8.7: the argument of @compute'),
     webgl2: andGap(
       typed('scripts/gpu-differential.ts', 'default shape only, change 0057'),

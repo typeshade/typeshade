@@ -7,7 +7,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.compare`',
     covers: ['GPUStencilFaceState.compare'],
     evidence:
-      'src/runtime/program.ts:118 (StencilFaceState); src/runtime/program.ts:750 (planOf); src/rhi/webgl2.ts:501-502 (stencilOpOf)',
+      'src/runtime/program.ts:118 (StencilFaceState); src/runtime/program.ts:750 (planOf); src/rhi/webgl2.ts#compareOf|stencilOpOf (stencilOpOf)',
     webgpu: typed(
       'src/runtime/render-state-parity.test.ts',
       'RenderState.depth.stencil.compare; the pass of each draw in the journey',
@@ -23,7 +23,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.failOp`',
     covers: ['GPUStencilFaceState.failOp'],
     evidence:
-      'src/runtime/program.ts:118 (StencilFaceState); src/runtime/program.ts:750 (planOf); src/rhi/webgl2.ts:501-502 (stencilOpOf)',
+      'src/runtime/program.ts:118 (StencilFaceState); src/runtime/program.ts:750 (planOf); src/rhi/webgl2.ts#stencilOpOf (stencilOpOf)',
     webgpu: typed(
       'src/runtime/render-state-parity.test.ts',
       'RenderState.depth.stencil.failOp; the pass of each draw in the journey',
@@ -39,7 +39,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.depthFailOp`',
     covers: ['GPUStencilFaceState.depthFailOp'],
     evidence:
-      'src/runtime/program.ts:118 (StencilFaceState); src/runtime/program.ts:750 (planOf); src/rhi/webgl2.ts:501-502 (stencilOpOf)',
+      'src/runtime/program.ts:118 (StencilFaceState); src/runtime/program.ts:750 (planOf); src/rhi/webgl2.ts#stencilOpOf (stencilOpOf)',
     webgpu: typed(
       'src/runtime/render-state-parity.test.ts',
       'RenderState.depth.stencil.depthFailOp; the pass of each draw in the journey',
@@ -55,7 +55,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     name: '`GPUStencilFaceState.passOp`',
     covers: ['GPUStencilFaceState.passOp'],
     evidence:
-      'src/runtime/program.ts:118 (StencilFaceState); src/runtime/program.ts:750 (planOf); src/rhi/webgl2.ts:501-502 (stencilOpOf)',
+      'src/runtime/program.ts:118 (StencilFaceState); src/runtime/program.ts:750 (planOf); src/rhi/webgl2.ts#stencilOpOf (stencilOpOf)',
     webgpu: typed(
       'src/runtime/render-state-parity.test.ts',
       'RenderState.depth.stencil.passOp; the pass of each draw in the journey',

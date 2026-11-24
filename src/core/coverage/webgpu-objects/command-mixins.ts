@@ -66,7 +66,7 @@ export const COMMAND_MIXINS_ROWS: readonly Row[] = [
     name: '`GPURenderCommandsMixin.setPipeline()`',
     covers: ['GPURenderCommandsMixin.setPipeline'],
     evidence:
-      'src/runtime/program.ts:1942, 2009; src/runtime/runtime.ts#RenderPass; src/runtime/gl-draw.ts:693',
+      'src/runtime/program.ts:1942, 2009; src/runtime/runtime.ts#RenderPass; src/runtime/gl-draw.ts#GlRenderPipelineImpl~"p.setPipeline"',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'draw(pipeline, bindings, geometry) sets the pipeline; the draw rows name what it lacks',
@@ -81,7 +81,7 @@ export const COMMAND_MIXINS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.setIndexBuffer()`',
     covers: ['GPURenderCommandsMixin.setIndexBuffer'],
-    evidence: 'src/runtime/program.ts:331-361; src/rhi/webgl2.ts:1056',
+    evidence: 'src/runtime/program.ts:331-361; src/rhi/webgl2.ts#GlRenderPass.setIndexBuffer',
     webgpu: typed('src/runtime/runtime.test.ts', 'Geometry.indices'),
     webgl2: typed('scripts/compile-gate.ts', 'Geometry.indices'),
   },
@@ -109,7 +109,8 @@ export const COMMAND_MIXINS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.draw()`',
     covers: ['GPURenderCommandsMixin.draw'],
-    evidence: 'src/runtime/program.ts:331-361; src/runtime/gl-draw.ts:903',
+    evidence:
+      'src/runtime/program.ts:331-361; src/runtime/gl-draw.ts#GlRenderPipelineImpl~"p.draw(count"',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'count and instances'),
       2,
@@ -128,7 +129,8 @@ export const COMMAND_MIXINS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.drawIndexed()`',
     covers: ['GPURenderCommandsMixin.drawIndexed'],
-    evidence: 'src/runtime/program.ts:331-361; src/runtime/gl-draw.ts:903-907',
+    evidence:
+      'src/runtime/program.ts:331-361; src/runtime/gl-draw.ts#GlRenderPipelineImpl~"p.drawIndexed(count"',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'count and instances'),
       2,

@@ -7,7 +7,7 @@ export const DEVICE_LOSS_AND_ERRORS_ROWS: readonly Row[] = [
     name: '`GPUDevice.lost`',
     covers: ['GPUDevice.lost'],
     evidence:
-      'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/host-entry.ts:703-706; src/rhi/webgl2.ts:1601-1605',
+      'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/host-entry.ts:703-706; src/rhi/webgl2.ts#GlDevice.destroy',
     webgpu: andGap(
       raw(
         'Runtime.device',

@@ -17,7 +17,7 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     name: '`GPUMipmapFilterMode`',
     covers: ['GPUMipmapFilterMode'],
     evidence:
-      'src/runtime/resources.ts#SamplerImpl.constructor; src/rhi/webgl2.ts:1336, 1424-1437; changes/0050-texture-write.md:323-325, 331',
+      'src/runtime/resources.ts#SamplerImpl.constructor; src/rhi/webgl2.ts#GlDevice.createTexture~"texStorage2D"|GlDevice.createSampler~"TEXTURE_MIN_FILTER"; changes/0050-texture-write.md:323-325, 331',
     note: '2 members. follows filter; a chain to filter over is 0050 (WebGPU)',
     webgpu: gap(
       15,
@@ -91,7 +91,7 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     name: '`GPUQueryType`',
     covers: ['GPUQueryType'],
     evidence:
-      'node_modules/@webgpu/types/dist/index.d.ts:361; src/runtime/runtime.ts#SubmitResult|Runtime.info; src/runtime/gl.ts:459-478',
+      'node_modules/@webgpu/types/dist/index.d.ts:361; src/runtime/runtime.ts#SubmitResult|Runtime.info; src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit',
     note: '2 members.',
     webgpu: andGap(
       raw(
@@ -113,7 +113,8 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUSamplerBindingType`',
     covers: ['GPUSamplerBindingType'],
-    evidence: 'src/runtime/program.ts:1330-1381; src/rhi/webgl2.ts:1438-1440',
+    evidence:
+      'src/runtime/program.ts:1330-1381; src/rhi/webgl2.ts#GlDevice.createSampler~"TEXTURE_COMPARE_MODE"',
     note: '3 members. filtering and comparison; non-filtering is not spellable (surface §69)',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts'),
@@ -137,7 +138,7 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     name: '`GPUStencilOperation`',
     covers: ['GPUStencilOperation'],
     evidence:
-      'src/runtime/program.ts:102 (STENCIL_OPERATIONS); src/rhi/webgl2.ts:501-502 (stencilOpOf)',
+      'src/runtime/program.ts:102 (STENCIL_OPERATIONS); src/rhi/webgl2.ts#stencilOpOf (stencilOpOf)',
     note: '8 members. The eight operations are taken on both tiers',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -195,7 +196,7 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     name: '`GPUTextureAspect`',
     covers: ['GPUTextureAspect'],
     evidence:
-      'src/runtime/resources.ts#TextureImpl.destroy; src/runtime/gl-draw.ts#GlTextureImpl.readFloats; src/rhi/webgl2.ts:714-716',
+      'src/runtime/resources.ts#TextureImpl.destroy; src/runtime/gl-draw.ts#GlTextureImpl.readFloats; src/rhi/webgl2.ts#depthToColour',
     note: '3 members. depth-only on a depth32float read; stencil-only is a sub-gap; the stencil-only aspect is the capability of table D row WEBGL_stencil_texturing (group 6)',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts'),
@@ -235,7 +236,7 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     name: '`GPUTextureFormat`',
     covers: ['GPUTextureFormat'],
     evidence:
-      'src/runtime/resources.ts:15-16, 153-163; src/rhi/webgl2.ts:64-227; src/runtime/gl-draw.ts#GlTextureImpl.constructor; changes/0050-texture-write.md:96-97, 387',
+      'src/runtime/resources.ts:15-16, 153-163; src/rhi/webgl2.ts#specOf|formatOf; src/runtime/gl-draw.ts#GlTextureImpl.constructor; changes/0050-texture-write.md:96-97, 387',
     note: '101 members. grouped: 8/16/32-bit colour, srgb, packed (rgb10a2, rg11b10, rgb9e5), depth24plus, depth32float typed on WebGPU; stencil8, depth24plus-stencil8, depth32float-stencil8 pass to createTexture on WebGPU but have no stencil state (sub-gap); depth16unorm is a depth attachment that read() cannot copy (sub-gap); BC, ETC2, EAC and ASTC compressed (52 names): no upload path; 0050 does not cover compressed blocks (changes/0050-texture-write.md:387); sampling is a sub-gap; 3-component and LUMINANCE formats exist only on WebGL2 (D); on WebGL2, r16, rg16 and rgba16 in unorm and snorm and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:172); the 16-bit norm formats and rgb9e5ufloat as targets are not measured',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts'),
@@ -255,7 +256,7 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUTextureSampleType`',
     covers: ['GPUTextureSampleType'],
-    evidence: 'docs/language-design.md:1239; src/rhi/webgl2.ts:67-68',
+    evidence: 'docs/language-design.md:1239; src/rhi/webgl2.ts#textureKindOf',
     note: '5 members. from the calls (Rule 11.10)',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed(
@@ -269,7 +270,7 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     name: '`GPUTextureViewDimension`',
     covers: ['GPUTextureViewDimension'],
     evidence:
-      'src/runtime/program.ts:1330-1381; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/runtime/gl.ts:340, 397-401',
+      'src/runtime/program.ts:1330-1381; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/runtime/gl.ts#GlComputePipelineImpl~"textureDim"|GL_TARGET',
     note: '6 members. from the binding type; cube-array and 1d refused on WebGL2 (Rule 10.5)',
     webgpu: typed('src/compiler/ts/texture-dims.test.ts'),
     webgl2: typed(

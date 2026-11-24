@@ -41,7 +41,8 @@ export const DEVICE_EXTENT_FRAGMENT_AND_MULTISAMPLE_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUExtent3DDict.width`',
     covers: ['GPUExtent3DDict.width'],
-    evidence: 'src/runtime/resources.ts#TextureOptions; src/rhi/webgl2.ts:1336',
+    evidence:
+      'src/runtime/resources.ts#TextureOptions; src/rhi/webgl2.ts#GlDevice.createTexture~"texStorage2D"',
     webgpu: typed('src/runtime/runtime.test.ts', 'TextureOptions.size'),
     webgl2: typed('journeys/emit-options/journey.mjs', 'TextureOptions.size'),
   },
@@ -50,7 +51,8 @@ export const DEVICE_EXTENT_FRAGMENT_AND_MULTISAMPLE_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUExtent3DDict.height`',
     covers: ['GPUExtent3DDict.height'],
-    evidence: 'src/runtime/resources.ts#TextureOptions; src/rhi/webgl2.ts:1336',
+    evidence:
+      'src/runtime/resources.ts#TextureOptions; src/rhi/webgl2.ts#GlDevice.createTexture~"texStorage2D"',
     webgpu: typed('src/runtime/runtime.test.ts', 'TextureOptions.size'),
     webgl2: typed('journeys/emit-options/journey.mjs', 'TextureOptions.size'),
   },
@@ -148,7 +150,7 @@ export const DEVICE_EXTENT_FRAGMENT_AND_MULTISAMPLE_ROWS: readonly Row[] = [
     name: '`GPUMultisampleState.mask`',
     covers: ['GPUMultisampleState.mask'],
     evidence:
-      'src/runtime/program.ts:314 (RenderState.multisample.mask); src/rhi/webgpu.ts#depthStencilOf|multisampleOf (multisampleOf); src/runtime/gl-draw.ts:688 (the draw a sample mask drops)',
+      'src/runtime/program.ts:314 (RenderState.multisample.mask); src/rhi/webgpu.ts#depthStencilOf|multisampleOf (multisampleOf); src/runtime/gl-draw.ts#GlRenderPipelineImpl~"sampleMask" (the draw a sample mask drops)',
     webgpu: andGap(
       typed(
         'journeys/pipeline-state',

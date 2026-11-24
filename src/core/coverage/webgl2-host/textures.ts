@@ -20,7 +20,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextOverloads.texSubImage2D',
     ],
     evidence:
-      'src/rhi/webgl2.ts:626-651, 1344-1383; src/runtime/gl-draw.ts:101-113 (texSubImage2D for storage round trips and the _fp64 guard, activeTexture, bindTexture); changes/0050-texture-write.md',
+      'src/rhi/webgl2.ts#bindTexture|GlDevice.createTexture; src/runtime/gl-draw.ts#GlDrawing.guard (texSubImage2D for storage round trips and the _fp64 guard, activeTexture, bindTexture); changes/0050-texture-write.md',
     note: 'rt.texture() makes a 2D texture in any WebGPU-named format WebGL2 has; an upload from the host and mipmaps are 0050 on WebGPU only; copies between textures and texParameter (LOD, compare) have no typed form. The sRGB formats (EXT_sRGB is core in WebGL2; src/rhi/webgl2.ts:152) and the cube faces are covered by this row; the WebGL2 route to a cube texture is in the Textures 3D / array row',
     webgpu: andGap(
       typed(
@@ -47,7 +47,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.LUMINANCE',
       'webgl:WebGLRenderingContextBase.LUMINANCE_ALPHA',
     ],
-    evidence: 'src/rhi/webgl2.ts:103-227 (formatOf: no luminance or alpha case)',
+    evidence: 'src/rhi/webgl2.ts#specOf (formatOf: no luminance or alpha case)',
     note: 'declared on WebGLRenderingContextBase (WebGL 1.0); flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
     webgpu: na('no WebGPU form: WebGPU has no luminance or alpha-only texture format'),
     webgl2: gap(11, 'no typed spelling; WebGL2-only capability; no door yet (Rule 11.16)', 642),
@@ -73,7 +73,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.RGB565',
     ],
     evidence:
-      'src/rhi/webgl2.ts:103-227 (formatOf: no unpacked three-component case); src/rhi/webgl2.ts:131-138 (rg11b10ufloat, the one packed three-component case); node_modules/@webgpu/types/dist/index.d.ts:429 (rgb9e5ufloat, a packed three-component format)',
+      'src/rhi/webgl2.ts#specOf (formatOf: no unpacked three-component case); src/rhi/webgl2.ts#specOf~"rg11b10ufloat" (rg11b10ufloat, the one packed three-component case); node_modules/@webgpu/types/dist/index.d.ts:429 (rgb9e5ufloat, a packed three-component format)',
     note: 'RGB and RGB565 are declared on WebGLRenderingContextBase (WebGL 1.0); the others on WebGL2RenderingContextBase; flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
     webgpu: na(
       'no WebGPU form: WebGPU has no unpacked three-component texture format; rgb9e5ufloat and rg11b10ufloat are packed',
@@ -92,7 +92,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.texSubImage3D',
     ],
     evidence:
-      'docs/use-typeshade-surface.md:7939-7941 (a 2D array, 3D or cube texture is a host WebGLTexture on the WebGL2 tier); src/runtime/gl.ts:334-343 (a host texture of another dimension is bound for the target its pass program names); src/runtime/gl-draw.ts:1108-1136 (a colour target is a runtime Texture or the canvas context)',
+      'docs/use-typeshade-surface.md:7939-7941 (a 2D array, 3D or cube texture is a host WebGLTexture on the WebGL2 tier); src/runtime/gl.ts#GlComputePipelineImpl~"GL_TARGET"|GL_TARGET (a host texture of another dimension is bound for the target its pass program names); src/runtime/gl-draw.ts#recordPass~"a colour target on WebGL2" (a colour target is a runtime Texture or the canvas context)',
     note: "the runtime's texture is 2D on WebGL2; a 2D array, 3D or cube texture is a host WebGLTexture on WebGL2 (surface §69); a layered colour target is the row below",
     webgpu: gap(
       15,
@@ -115,7 +115,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
     name: '`framebufferTextureLayer` (a layer of a 3D or array texture as a colour target)',
     covers: ['webgl:WebGL2RenderingContextBase.framebufferTextureLayer'],
     evidence:
-      'src/runtime/gl-draw.ts#GlTextureImpl.constructor (the WebGL2 tier makes 2D textures of one layer); src/runtime/gl-draw.ts:1108-1136 (a colour target is a runtime Texture or the canvas context)',
+      'src/runtime/gl-draw.ts#GlTextureImpl.constructor (the WebGL2 tier makes 2D textures of one layer); src/runtime/gl-draw.ts#recordPass~"a colour target on WebGL2" (a colour target is a runtime Texture or the canvas context)',
     note: 'the runtime binds each colour target as a 2D texture; on WebGPU a layer is the depthSlice member of table A',
     webgpu: andGap(
       raw(
@@ -178,7 +178,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
     name: '`EXT_texture_norm16` (16-bit unorm and snorm colour formats)',
     covers: ['webgl:EXT_texture_norm16'],
     evidence:
-      'src/rhi/webgl2.ts#GlFormat.type (NAMED admits the names); src/rhi/webgl2.ts:103-227 (formatOf: no 16-bit unorm or snorm case)',
+      'src/rhi/webgl2.ts#GlFormat.type (NAMED admits the names); src/rhi/webgl2.ts#specOf (formatOf: no 16-bit unorm or snorm case)',
     note: 'the runtime does not turn EXT_texture_norm16 on (src/rhi/webgl2.ts:256-261); the sampling route is read, not measured on a WebGL2 context',
     webgpu: andGap(
       typed(

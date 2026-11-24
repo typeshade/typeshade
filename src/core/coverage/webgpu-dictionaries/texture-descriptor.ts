@@ -47,7 +47,7 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     name: '`GPUTextureDescriptor.size`',
     covers: ['GPUTextureDescriptor.size'],
     evidence:
-      'src/runtime/resources.ts:17-32, 218-231; src/rhi/webgpu.ts:286-298; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/rhi/webgl2.ts:1336',
+      'src/runtime/resources.ts:17-32, 218-231; src/rhi/webgpu.ts:286-298; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/rhi/webgl2.ts#GlDevice.createTexture~"texStorage2D"',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'size, format, dimension (2d, 3d), sampleCount and storage usage',
@@ -112,7 +112,7 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     name: '`GPUTextureDescriptor.format`',
     covers: ['GPUTextureDescriptor.format'],
     evidence:
-      'src/runtime/resources.ts:17-32, 220-233; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/rhi/webgl2.ts:1336; src/rhi/webgl2.ts:70-71, 211; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
+      'src/runtime/resources.ts:17-32, 220-233; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/rhi/webgl2.ts#GlDevice.createTexture~"formatOf"; src/rhi/webgl2.ts#formatOf|textureKindOf; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',

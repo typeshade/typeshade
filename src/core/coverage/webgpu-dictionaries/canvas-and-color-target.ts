@@ -59,7 +59,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.colorSpace`',
     covers: ['GPUCanvasConfiguration.colorSpace'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:315, 731; src/runtime/runtime.ts:609-616; src/runtime/gl-draw.ts:1094-1100',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:315, 731; src/runtime/runtime.ts:609-616; src/runtime/gl-draw.ts#recordPass~"currentTexture"',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -90,7 +90,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.alphaMode`',
     covers: ['GPUCanvasConfiguration.alphaMode'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:315, 731; src/runtime/runtime.ts:609-616; src/runtime/gl-draw.ts:1094-1100',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:315, 731; src/runtime/runtime.ts:609-616; src/runtime/gl-draw.ts#recordPass~"currentTexture"',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -120,7 +120,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUColorDict.r`',
     covers: ['GPUColorDict.r'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts:1087; src/rhi/webgl2.ts#blitScreen',
+      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#blitScreen',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },
@@ -130,7 +130,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUColorDict.g`',
     covers: ['GPUColorDict.g'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts:1087; src/rhi/webgl2.ts#blitScreen',
+      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#blitScreen',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },
@@ -140,7 +140,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUColorDict.b`',
     covers: ['GPUColorDict.b'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts:1087; src/rhi/webgl2.ts#blitScreen',
+      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#blitScreen',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },
@@ -150,7 +150,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUColorDict.a`',
     covers: ['GPUColorDict.a'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts:1087; src/rhi/webgl2.ts#blitScreen',
+      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#blitScreen',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },
@@ -160,7 +160,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUColorTargetState.format`',
     covers: ['GPUColorTargetState.format'],
     evidence:
-      'src/runtime/program.ts#TargetState; src/runtime/program.ts:277; src/runtime/gl-draw.ts:573',
+      'src/runtime/program.ts#TargetState; src/runtime/program.ts:277; src/runtime/gl-draw.ts#GlRenderPrograms~"plan.targets"',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'RenderState.targets'),
       6,
@@ -179,7 +179,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUColorTargetState.blend`',
     covers: ['GPUColorTargetState.blend'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts:1513-1522; src/runtime/gl-draw.ts:972',
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#drawStateOf~"first?.blend"; src/runtime/gl-draw.ts#checkState~"first?.blend"|GlRenderPrograms~"plan.targets"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a target blend on WebGPU; RenderState.targets',

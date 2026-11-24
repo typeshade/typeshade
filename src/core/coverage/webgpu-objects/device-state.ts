@@ -71,7 +71,7 @@ export const DEVICE_STATE_ROWS: readonly Row[] = [
     name: '`GPUDevice.queue`',
     covers: ['GPUDevice.queue'],
     evidence:
-      'src/runtime/runtime.ts:419-432; src/rhi/webgpu.ts:270-272, 433-436; src/runtime/gl.ts:459-464',
+      'src/runtime/runtime.ts:419-432; src/rhi/webgpu.ts:270-272, 433-436; src/runtime/gl.ts#GlFrameImpl.submit',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },
@@ -80,7 +80,7 @@ export const DEVICE_STATE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.destroy()`',
     covers: ['GPUDevice.destroy'],
-    evidence: 'src/runtime/runtime.ts#Runtime; src/rhi/webgl2.ts:1601-1605',
+    evidence: 'src/runtime/runtime.ts#Runtime; src/rhi/webgl2.ts#GlDevice.destroy',
     webgpu: gap(
       15,
       "typed in code; no test reads it on this target (Rule 11.18): no test observes the device destroyed or a host device left alone; rt.destroy() releases what the runtime made and never the host's device",

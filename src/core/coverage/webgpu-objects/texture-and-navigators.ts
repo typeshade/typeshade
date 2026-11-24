@@ -21,7 +21,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     name: '`GPUTexture.destroy()`',
     covers: ['GPUTexture.destroy'],
     evidence:
-      'src/runtime/resources.ts#Texture.destroy; src/runtime/gl-draw.ts:265-269; examples/hosts/host-program/host.ts:25',
+      'src/runtime/resources.ts#Texture.destroy; src/runtime/gl-draw.ts#GlTextureImpl.destroy; examples/hosts/host-program/host.ts:25',
     webgpu: typed(
       'scripts/user-journey.ts',
       'Texture.destroy(): the host-program example destroys its target (examples/hosts/host-program/host.ts:25)',
@@ -36,7 +36,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.width`',
     covers: ['GPUTexture.width'],
-    evidence: 'src/runtime/resources.ts#Texture.width; src/runtime/gl-draw.ts:204-206',
+    evidence: 'src/runtime/resources.ts#Texture.width; src/runtime/gl-draw.ts#GlTextureImpl.width',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Texture.width; also: Texture.texture is the GPUTexture (raw)',
@@ -51,7 +51,8 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.height`',
     covers: ['GPUTexture.height'],
-    evidence: 'src/runtime/resources.ts#Texture.height; src/runtime/gl-draw.ts:207-209',
+    evidence:
+      'src/runtime/resources.ts#Texture.height; src/runtime/gl-draw.ts#GlTextureImpl.height',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Texture.height; also: Texture.texture is the GPUTexture (raw)',

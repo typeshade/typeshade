@@ -15,7 +15,7 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.vertexAttribPointer',
     ],
     evidence:
-      'src/core/vertex-layout.ts:23-80; src/rhi/webgl2.ts:1057-1079 (enableVertexAttribArray, vertexAttribPointer, vertexAttribIPointer); src/core/gl-compute.ts:445, 579, 807 (createVertexArray, bindVertexArray, deleteVertexArray)',
+      'src/core/vertex-layout.ts:23-80; src/rhi/webgl2.ts#GlRenderPass~"enableVertexAttribArray" (enableVertexAttribArray, vertexAttribPointer, vertexAttribIPointer); src/core/gl-compute.ts:445, 579, 807 (createVertexArray, bindVertexArray, deleteVertexArray)',
     note: 'one tightly packed buffer of f32/i32/u32 attributes (Rule 6.8); a divisor (per-instance attribute), normalized 8/16-bit attributes and a second buffer have no typed form',
     webgpu: andGap(
       typed('scripts/compile-gate.ts'),
@@ -48,7 +48,8 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.vertexAttrib4f',
       'webgl:WebGLRenderingContextBase.vertexAttrib4fv',
     ],
-    evidence: 'src/rhi/webgl2.ts:1057-1079 (every attribute a program reads comes from a buffer)',
+    evidence:
+      'src/rhi/webgl2.ts#GlRenderPass~"vertexAttribPointer" (every attribute a program reads comes from a buffer)',
     note: 'a value for an attribute with no buffer; WebGPU has no such input, and each vertex input comes from a vertex buffer (Rule 6.8); no caller of these keys in src/',
     webgpu: na('no WebGPU form: each vertex input is read from a vertex buffer (Rule 6.8)'),
     webgl2: gap(
@@ -167,7 +168,7 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`lineWidth`',
     covers: ['webgl:WebGLRenderingContextBase.lineWidth'],
-    evidence: 'src/rhi/webgl2.ts:575-617 (setState sets no line width)',
+    evidence: 'src/rhi/webgl2.ts#setState (setState sets no line width)',
     note: 'the runtime never sets a line width (src/rhi/webgl2.ts:626-651); WebGPU has no line width',
     webgpu: na('no WebGPU form: WebGPU has no line width'),
     webgl2: gap(

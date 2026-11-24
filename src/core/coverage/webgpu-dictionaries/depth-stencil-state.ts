@@ -6,7 +6,7 @@ export const DEPTH_STENCIL_STATE_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUDepthStencilState.format`',
     covers: ['GPUDepthStencilState.format'],
-    evidence: 'src/runtime/program.ts:268-327, 1217; src/rhi/webgl2.ts:643-647',
+    evidence: 'src/runtime/program.ts:268-327, 1217; src/rhi/webgl2.ts#drawStateOf~"ds.write"',
     webgpu: andGap(
       typed('scripts/compile-gate.ts', 'RenderState.depth: format, compare, write'),
       6,
@@ -24,7 +24,7 @@ export const DEPTH_STENCIL_STATE_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUDepthStencilState.depthWriteEnabled`',
     covers: ['GPUDepthStencilState.depthWriteEnabled'],
-    evidence: 'src/runtime/program.ts:268-327, 1217; src/rhi/webgl2.ts:643-647',
+    evidence: 'src/runtime/program.ts:268-327, 1217; src/rhi/webgl2.ts#setState~"depthMask"',
     webgpu: typed('scripts/compile-gate.ts', 'RenderState.depth: format, compare, write'),
     webgl2: typed('scripts/compile-gate.ts', 'RenderState.depth: format, compare, write'),
   },
@@ -33,7 +33,7 @@ export const DEPTH_STENCIL_STATE_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUDepthStencilState.depthCompare`',
     covers: ['GPUDepthStencilState.depthCompare'],
-    evidence: 'src/runtime/program.ts:268-327, 1217; src/rhi/webgl2.ts:643-647',
+    evidence: 'src/runtime/program.ts:268-327, 1217; src/rhi/webgl2.ts#setState~"depthFunc"',
     webgpu: typed('scripts/compile-gate.ts', 'RenderState.depth: format, compare, write'),
     webgl2: typed('scripts/compile-gate.ts', 'RenderState.depth: format, compare, write'),
   },
@@ -43,7 +43,7 @@ export const DEPTH_STENCIL_STATE_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilFront`',
     covers: ['GPUDepthStencilState.stencilFront'],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/rhi/webgl2.ts:575-617 (setState)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/rhi/webgl2.ts#drawStateOf~"stencil.front"|setState~"stencilOpSeparate" (setState)',
     webgpu: typed(
       'journeys/pipeline-state',
       'RenderState.depth.stencil.front; also src/runtime/runtime.test.ts',
@@ -59,7 +59,7 @@ export const DEPTH_STENCIL_STATE_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilBack`',
     covers: ['GPUDepthStencilState.stencilBack'],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/rhi/webgl2.ts:575-617 (setState)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/rhi/webgl2.ts#drawStateOf~"stencil.back"|setState~"stencilOpSeparate" (setState)',
     webgpu: typed(
       'journeys/pipeline-state',
       'RenderState.depth.stencil.back; also src/runtime/runtime.test.ts',
@@ -75,7 +75,7 @@ export const DEPTH_STENCIL_STATE_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilReadMask`',
     covers: ['GPUDepthStencilState.stencilReadMask'],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/rhi/webgl2.ts:575-617 (setState)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/rhi/webgl2.ts#setState~"t.readMask" (setState)',
     webgpu: typed(
       'journeys/pipeline-state',
       'RenderState.depth.stencil.readMask; also src/runtime/runtime.test.ts',
@@ -91,7 +91,7 @@ export const DEPTH_STENCIL_STATE_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilWriteMask`',
     covers: ['GPUDepthStencilState.stencilWriteMask'],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/rhi/webgl2.ts:575-617 (setState)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/rhi/webgl2.ts#setState~"stencilMaskSeparate" (setState)',
     webgpu: typed(
       'journeys/pipeline-state',
       'RenderState.depth.stencil.writeMask; also src/runtime/runtime.test.ts',
@@ -107,7 +107,7 @@ export const DEPTH_STENCIL_STATE_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.depthBias`',
     covers: ['GPUDepthStencilState.depthBias'],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.bias); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/runtime/gl-draw.ts#GlSamplerImpl.sampler|BIASED_FORMATS|refuseBias (refuseBias); src/rhi/webgl2.ts:611-616 (setState, the polygon offset)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.bias); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/runtime/gl-draw.ts#GlSamplerImpl.sampler|BIASED_FORMATS|refuseBias (refuseBias); src/rhi/webgl2.ts#setState~"polygonOffset" (setState, the polygon offset)',
     webgpu: typed(
       'journeys/pipeline-state',
       'RenderState.depth.bias.constant; also src/runtime/runtime.test.ts',
@@ -127,7 +127,7 @@ export const DEPTH_STENCIL_STATE_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.depthBiasSlopeScale`',
     covers: ['GPUDepthStencilState.depthBiasSlopeScale'],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.bias); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/runtime/gl-draw.ts#GlSamplerImpl.sampler|BIASED_FORMATS|refuseBias (refuseBias); src/rhi/webgl2.ts:611-616 (setState, the polygon offset)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.bias); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/runtime/gl-draw.ts#GlSamplerImpl.sampler|BIASED_FORMATS|refuseBias (refuseBias); src/rhi/webgl2.ts#setState~"polygonOffset" (setState, the polygon offset)',
     webgpu: typed(
       'journeys/pipeline-state',
       'RenderState.depth.bias.slopeScale; also src/runtime/runtime.test.ts',
@@ -147,7 +147,7 @@ export const DEPTH_STENCIL_STATE_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.depthBiasClamp`',
     covers: ['GPUDepthStencilState.depthBiasClamp'],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.bias); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/runtime/gl-draw.ts#GlSamplerImpl.sampler|BIASED_FORMATS|refuseBias (refuseBias); src/rhi/webgl2.ts:611-616 (setState, the polygon offset)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.bias); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/runtime/gl-draw.ts#GlSamplerImpl.sampler|BIASED_FORMATS|refuseBias (refuseBias); src/rhi/webgl2.ts#setState~"polygonOffsetClampEXT" (setState, the polygon offset)',
     webgpu: typed(
       'src/runtime/render-state-parity.test.ts',
       'depth.bias.clamp reaches depthBiasClamp',

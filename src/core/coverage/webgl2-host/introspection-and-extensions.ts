@@ -66,7 +66,7 @@ export const INTROSPECTION_AND_EXTENSIONS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.drawingBufferColorSpace',
     ],
     evidence:
-      'src/rhi/webgl2.ts:279-292, 1410-1420 (the pass draws into the drawing buffer); docs/use-typeshade-surface.md:7960 (a colour target is the runtime context for its canvas)',
+      'src/rhi/webgl2.ts#GlState.screen|GlDevice.currentTexture (the pass draws into the drawing buffer); docs/use-typeshade-surface.md:7960 (a colour target is the runtime context for its canvas)',
     note: "colour space is the host's; the host makes its canvas and its context",
     webgpu: raw(
       'createRuntime({ device })',
@@ -150,7 +150,7 @@ export const INTROSPECTION_AND_EXTENSIONS_ROWS: readonly Row[] = [
     name: '`WEBGL_render_shared_exponent` (rgb9e5 render target)',
     covers: ['webgl:WEBGL_render_shared_exponent'],
     evidence:
-      'src/rhi/webgl2.ts:92 (NAMED does not match rgb9e5ufloat); src/rhi/webgl2.ts:103-227 (formatOf: no rgb9e5 case); src/runtime/gl-draw.ts:1133 (a colour target is a runtime Texture or the canvas context)',
+      'src/rhi/webgl2.ts#NAMED (NAMED does not match rgb9e5ufloat); src/rhi/webgl2.ts#specOf (formatOf: no rgb9e5 case); src/runtime/gl-draw.ts#recordPass~"a colour target on WebGL2" (a colour target is a runtime Texture or the canvas context)',
     note: 'read, not measured: NAMED does not match rgb9e5ufloat, formatOf has no rgb9e5 case, and the extension is not turned on (src/rhi/webgl2.ts:256-261)',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts'),

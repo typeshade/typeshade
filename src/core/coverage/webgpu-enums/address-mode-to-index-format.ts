@@ -46,7 +46,8 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUBlendOperation`',
     covers: ['GPUBlendOperation'],
-    evidence: 'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts:583',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts#checkState~"GL_BLEND_OPERATION"',
     note: '5 members.',
     webgpu: gap(
       15,
@@ -65,7 +66,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     name: '`GPUBufferBindingType`',
     covers: ['GPUBufferBindingType'],
     evidence:
-      'src/runtime/program.ts:1334-1338; src/runtime/gl.ts:378-380; src/core/reflect.ts:903',
+      'src/runtime/program.ts:1334-1338; src/runtime/gl.ts#GlComputePipelineImpl~"b.space"; src/core/reflect.ts:903',
     note: '3 members.',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed(
@@ -92,7 +93,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     name: '`GPUCanvasAlphaMode`',
     covers: ['GPUCanvasAlphaMode'],
     evidence:
-      'src/runtime/runtime.ts:526-530; src/rhi/webgpu.ts:346-348; src/runtime/gl-draw.ts:1094-1100; docs/language-design.md:906',
+      'src/runtime/runtime.ts:526-530; src/rhi/webgpu.ts:346-348; src/runtime/gl-draw.ts#recordPass~"currentTexture"; docs/language-design.md:906',
     note: '2 members. the host configures; the call layer draws opaque (Rule 8.24)',
     webgpu: raw(
       'createRuntime({ device })',

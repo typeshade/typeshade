@@ -116,7 +116,7 @@ export const LIMITS_SHADERS_AND_UNIFORMS_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextOverloads.uniformMatrix4fv',
     ],
     evidence:
-      'src/rhi/webgl2.ts:1515 (uniform1i for sampler units); src/core/host-kernel-gl.ts:179 (uniform4uiv for the _dispatch uniform); src/core/gl-compute.ts:735 (uniform1ui)',
+      'src/rhi/webgl2.ts#GlDevice~"uniform1i" (uniform1i for sampler units); src/core/host-kernel-gl.ts:179 (uniform4uiv for the _dispatch uniform); src/core/gl-compute.ts:735 (uniform1ui)',
     note: 'a program has no default-block uniforms; everything is a block or a texture; the runtime sets uniforms itself, and the author writes none by location',
     webgpu: na('the writer uses blocks; Rule 6.8'),
     webgl2: na('the writer uses blocks; Rule 6.8'),

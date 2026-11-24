@@ -7,7 +7,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setViewport()`',
     covers: ['GPURenderPassEncoder.setViewport'],
     evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1062-1079 (GlPass.setViewport)',
+      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts#GlPass.setViewport (GlPass.setViewport)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setViewport; also src/runtime/runtime.test.ts',
@@ -25,7 +25,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setScissorRect()`',
     covers: ['GPURenderPassEncoder.setScissorRect'],
     evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1070-1073 (GlPass.setScissorRect)',
+      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts#GlPass.setScissorRect (GlPass.setScissorRect)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setScissorRect; also src/runtime/runtime.test.ts',
@@ -41,7 +41,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setBlendConstant()`',
     covers: ['GPURenderPassEncoder.setBlendConstant'],
     evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts:1058-1062 (GlPass.setBlendConstant, the blendColor call)',
+      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts#GlPass.setBlendConstant (GlPass.setBlendConstant, the blendColor call)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setBlendConstant; also src/runtime/runtime.test.ts',
@@ -57,7 +57,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setStencilReference()`',
     covers: ['GPURenderPassEncoder.setStencilReference'],
     evidence:
-      'src/runtime/runtime.ts:581-585 (FramePass.setStencilReference); src/runtime/gl-draw.ts:1012-1014 (GlPass.setStencilReference)',
+      'src/runtime/runtime.ts:581-585 (FramePass.setStencilReference); src/runtime/gl-draw.ts#GlPass.setStencilReference (GlPass.setStencilReference)',
     webgpu: typed(
       'journeys/pipeline-state',
       'RenderPass.setStencilReference; also src/runtime/runtime.test.ts',
@@ -73,7 +73,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.beginOcclusionQuery()`',
     covers: ['GPURenderPassEncoder.beginOcclusionQuery'],
     evidence:
-      'src/runtime/runtime.ts#StencilAspect|RenderPass; src/runtime/program.ts#RenderPipeline.vertex|RenderPipeline.fragment; src/runtime/gl.ts:469-472',
+      'src/runtime/runtime.ts#StencilAspect|RenderPass; src/runtime/program.ts#RenderPipeline.vertex|RenderPipeline.fragment; src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit',
     webgpu: andGap(
       raw(
         'RenderPipeline.draw(pass, …)',
@@ -95,7 +95,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.endOcclusionQuery()`',
     covers: ['GPURenderPassEncoder.endOcclusionQuery'],
     evidence:
-      'src/runtime/runtime.ts#StencilAspect|RenderPass; src/runtime/program.ts#RenderPipeline.vertex|RenderPipeline.fragment; src/runtime/gl.ts:469-472',
+      'src/runtime/runtime.ts#StencilAspect|RenderPass; src/runtime/program.ts#RenderPipeline.vertex|RenderPipeline.fragment; src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit',
     webgpu: andGap(
       raw(
         'RenderPipeline.draw(pass, …)',
@@ -125,7 +125,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderPassEncoder.end()`',
     covers: ['GPURenderPassEncoder.end'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl.ts:455-457',
+    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl.ts#GlFrameImpl.pass',
     webgpu: typed('src/runtime/runtime.test.ts', 'Frame.pass()'),
     webgl2: typed('scripts/compile-gate.ts', 'Frame.pass()'),
   },
@@ -135,7 +135,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPipeline`',
     covers: ['GPURenderPipeline'],
     evidence:
-      'src/runtime/program.ts#ComputePipeline|RenderPipeline.vertex|RenderPipeline.fragment; src/rhi/webgl2.ts:571',
+      'src/runtime/program.ts#ComputePipeline|RenderPipeline.vertex|RenderPipeline.fragment; src/rhi/webgl2.ts#GlDevice.createRenderPipeline|GlPipeline',
     webgpu: typed('src/runtime/runtime.test.ts', 'RenderPipeline'),
     webgl2: typed('scripts/compile-gate.ts', 'RenderPipeline'),
   },
@@ -144,7 +144,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUSampler`',
     covers: ['GPUSampler'],
-    evidence: 'src/runtime/resources.ts#Sampler; src/runtime/gl-draw.ts:284',
+    evidence: 'src/runtime/resources.ts#Sampler; src/runtime/gl-draw.ts#GlSamplerImpl',
     webgpu: typed(
       'journeys/engine/engine.mjs',
       'Sampler, made by rt.sampler(); also: Sampler.sampler is the GPUSampler (raw)',

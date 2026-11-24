@@ -6,7 +6,8 @@ export const RENDER_PASS_DESCRIPTOR_AND_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDescriptor.colorAttachments`',
     covers: ['GPURenderPassDescriptor.colorAttachments'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/rhi/webgl2.ts:1135-1143',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/rhi/webgl2.ts#GlRenderPass.constructor~"desc.colorAttachments"',
     webgpu: typed('scripts/compile-gate.ts', 'Frame.pass(targets, record)'),
     webgl2: typed('scripts/compile-gate.ts', 'Frame.pass(targets, record)'),
   },
@@ -16,7 +17,7 @@ export const RENDER_PASS_DESCRIPTOR_AND_LAYOUT_ROWS: readonly Row[] = [
     name: '`GPURenderPassDescriptor.depthStencilAttachment`',
     covers: ['GPURenderPassDescriptor.depthStencilAttachment'],
     evidence:
-      'src/runtime/runtime.ts#PassTargets; src/runtime/program.ts#depthStencilAttachmentOf; src/rhi/webgl2.ts:923-1178',
+      'src/runtime/runtime.ts#PassTargets; src/runtime/program.ts#depthStencilAttachmentOf; src/rhi/webgl2.ts#GlRenderPass.constructor~"desc.depthStencilAttachment"',
     webgpu: typed('scripts/compile-gate.ts', 'Frame.pass(targets, record)'),
     webgl2: typed('scripts/compile-gate.ts', 'Frame.pass(targets, record)'),
   },

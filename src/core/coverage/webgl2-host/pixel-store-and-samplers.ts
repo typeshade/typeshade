@@ -7,7 +7,7 @@ export const PIXEL_STORE_AND_SAMPLERS_ROWS: readonly Row[] = [
     name: 'Pixel store: `pixelStorei` (`UNPACK_FLIP_Y_WEBGL`, `UNPACK_PREMULTIPLY_ALPHA_WEBGL`, alignments)',
     covers: ['webgl:WebGLRenderingContextBase.pixelStorei'],
     evidence:
-      'changes/0050-texture-write.md:148-152 (the call layer sets both for an image upload); src/core/gl-image.ts#uploadImage; src/rhi/webgl2.ts:742, 576',
+      'changes/0050-texture-write.md:148-152 (the call layer sets both for an image upload); src/core/gl-image.ts#uploadImage; src/rhi/webgl2.ts#GlDevice.writeTexture~"pixelStorei"',
     note: 'WebGPU spells flipY and premultipliedAlpha on copyExternalImageToTexture, a copy member of table A; the typed route here is the call-layer image upload',
     webgpu: typed('scripts/user-journey.ts', 'call layer; also: planned (0050)'),
     webgl2: andGap(
@@ -71,7 +71,7 @@ export const PIXEL_STORE_AND_SAMPLERS_ROWS: readonly Row[] = [
     name: '`EXT_texture_filter_anisotropic`',
     covers: ['webgl:EXT_texture_filter_anisotropic'],
     evidence:
-      'src/runtime/resources.ts#SamplerImpl.constructor (a host GPUSampler is bound as is); src/runtime/gl-draw.ts:977-984 (samplerOf takes a WebGLSampler)',
+      'src/runtime/resources.ts#SamplerImpl.constructor (a host GPUSampler is bound as is); src/runtime/gl-draw.ts#samplerOf (samplerOf takes a WebGLSampler)',
     note: 'a host sampler carries the anisotropy: a host GPUSampler on WebGPU, a host WebGLSampler on WebGL2',
     webgpu: andGap(
       raw('GPUSampler', 'a host GPUSampler with maxAnisotropy is bound as is'),
@@ -97,7 +97,7 @@ export const PIXEL_STORE_AND_SAMPLERS_ROWS: readonly Row[] = [
       'webgl:OES_texture_float_linear',
     ],
     evidence:
-      'src/rhi/webgl2.ts:256-261 (turns on three of the four); src/core/backends/glsl.ts:604-607; docs/use-typeshade-surface.md:5916-5917 (floatRenderTarget, float32Blend and float32Filterable are still unspellable)',
+      'src/rhi/webgl2.ts#GlState.constructor~"EXT_color_buffer_float" (turns on three of the four); src/core/backends/glsl.ts:604-607; docs/use-typeshade-surface.md:5916-5917 (floatRenderTarget, float32Blend and float32Filterable are still unspellable)',
     note: 'the runtime turns on EXT_color_buffer_float, EXT_color_buffer_half_float and OES_texture_float_linear; the three declarable capabilities (floatRenderTarget, float32Filterable, float32Blend) have no "use typeshade" spelling',
     webgpu: gap(6, 'float32-filterable and float32-blendable are not spellable', 637),
     webgl2: andGap(
