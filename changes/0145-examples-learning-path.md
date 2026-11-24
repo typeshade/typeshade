@@ -1655,7 +1655,7 @@ After:
 
 - Status: accepted. [fact] The owner answered A4-Q1 to A4-Q4 on 2026-11-24. A4 is part of the approved text
   when its pull request is merged. No code and no example changes with that pull request.
-- Baseline: `main` at `bd860eba`. [fact] A first implementation of M4.8 is commit `78dbc51d` on branch
+- Baseline: `main` at `7af32059`. [fact] A first implementation of M4.8 is commit `78dbc51d` on branch
   `claude/0145-m4-8-special-hosts`. It is not pushed and not merged. M4.8 follows A4, not that commit.
 - A4 adds no rule, no author-facing name, no diagnostic code and no export. `rules`, `exports`,
   `exports-removed`, `codes` and `names` do not change. `draw` and `runSpecialized` are exports of
@@ -1663,7 +1663,7 @@ After:
 
 #### Why A4 exists
 
-1. [fact] `docs/use-typeshade-surface.md` §67, line 10082 on the baseline, says:
+1. [fact] `docs/use-typeshade-surface.md` §67, line 10090 on the baseline, says:
    "`examples/hosts/host-compute/host.ts` contains the complete default, direct-specialized and
    device-plan runs."
 2. [fact] M4.8 moves the direct-specialized and device-plan runs to `check.ts` beside `host.ts`, as far as
@@ -1690,13 +1690,13 @@ After:
 
 Each reading fills a gap in the slice text. [decision] The owner accepted each one.
 
-| Id    | Host           | Reading                                                                                                                                                                                                                     |
-| ----- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A4-R1 | `host-compute` | `host.ts` exports `run()`, which returns `{ values }`, and the extra `runSpecialized()`, which returns `{ direct, values, report }`. The manifest lists it in `extras`. `check.ts` asserts the report's shape on each tier. |
-| A4-R2 | `host-compute` | The driver (`examples/_driver.ts`, `runCheck`) calls `check.ts`. `_drive.ts` imports what it needs and reads `values`, `direct` and `report` from the two runs.                                                             |
-| A4-R3 | `loop-fuse`    | `run()` takes default inputs, so the harness calls `run()`. It still returns `{ chain, split, reduce }`, each with its `report`. `check.ts` calls `run()` again and checks each report.                                     |
-| A4-R4 | `host-program` | `run()` returns `{ image: { width, height, rgba } }`. The program runtime stays (`waitsFor: "0138 milestone 5"`).                                                                                                           |
-| A4-R5 | `host-draw`    | `draw` is replaced by the form's `run(canvas, time = 0)`: one frame. `animate(canvas)` stays and calls `run(canvas, time)` each frame. The `times` list of today's `run` goes.                                              |
+| Id    | Host           | Reading                                                                                                                                                                                                                                                                                                             |
+| ----- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A4-R1 | `host-compute` | `host.ts` exports `run()`, which returns `{ values }`, and the extra `runSpecialized()`, which returns `{ direct, values, report }`. The manifest lists it in `extras`. `check.ts` asserts the report's shape on each tier.                                                                                         |
+| A4-R2 | `host-compute` | The driver (`examples/_driver.ts`, `runCheck`) calls `check.ts`. `_drive.ts` imports what it needs and reads `values`, `direct` and `report` from the two runs.                                                                                                                                                     |
+| A4-R3 | `loop-fuse`    | `run()` takes default inputs, so the harness calls `run()`. It still returns `{ chain, split, reduce }`, each with its `report`. `check.ts` calls `run()` again and checks each report.                                                                                                                             |
+| A4-R4 | `host-program` | `run()` returns `{ image: { width, height, rgba } }`. The program runtime stays (`waitsFor: "0138 milestone 5"`).                                                                                                                                                                                                   |
+| A4-R5 | `host-draw`    | `draw` is replaced by `run(canvas, time = 0)`: one frame. This keeps the `time` parameter of item 2 of "The host.ts form". A2 changed item 1 to `run(canvas, options?)`, and D-11 records the difference. `animate(canvas)` stays and calls `run(canvas, time)` each frame. The `times` list of today's `run` goes. |
 
 1. [fact] A2 (host form, item 4 and the host-form table) lists `runSpecialized` as an extra of `host-compute`.
    The owner chose "run() + extras" as O4.
@@ -1733,9 +1733,10 @@ Each answer is "[answer, owner, 2026-11-24]".
 
 #### Deviations and open items
 
-| Deviation                                                                  | Disposition                                                                                                              |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| D-10. A2 lists `runSpecialized` as an extra. The first A4-R1 moved it out. | Closed. The owner answered "Extra로 유지 (Recommended)" on 2026-11-24. A4-R1 keeps it as an extra, as the A2 table says. |
+| Deviation                                                                                                               | Disposition                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| D-10. A2 lists `runSpecialized` as an extra. The first A4-R1 moved it out.                                              | Closed. The owner answered "Extra로 유지 (Recommended)" on 2026-11-24. A4-R1 keeps it as an extra, as the A2 table says. |
+| D-11. A2 item 1 gives `run(canvas, options?)`. A4-R5 keeps the `time` parameter of the original item 2 for `host-draw`. | Closed. Accepted by the owner's answer to A4-Q4 (2026-11-24).                                                            |
 
 | Item                                                         | Reason                                           | Next action                                          |
 | ------------------------------------------------------------ | ------------------------------------------------ | ---------------------------------------------------- |
