@@ -58,6 +58,7 @@ import { formatOf, type GlFormat } from './webgl2/format.js';
 import { GlState } from './webgl2/state.js';
 import { compareOf, drawStateOf, setState, type DrawState } from './webgl2/draw-state.js';
 import { dataTexture } from './webgl2/data-texture.js';
+import { bindTexture } from './webgl2/bind-texture.js';
 export { DATA_WIDTH } from './webgl2/data-texture.js';
 export { GL_TOPOLOGY, GL_BLEND_FACTOR, GL_BLEND_OPERATION } from './webgl2/draw-state.js';
 export { textureKindOf } from './webgl2/format.js';
@@ -190,12 +191,6 @@ void main() {
   gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;
 }
 `;
-}
-
-function bindTexture(gl: GL, unit: number, tex: WebGLTexture, sampler: WebGLSampler): void {
-  gl.activeTexture(gl.TEXTURE0 + unit);
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.bindSampler(unit, sampler);
 }
 
 const BLIT_VS = `#version 300 es
