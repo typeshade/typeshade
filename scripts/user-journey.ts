@@ -327,8 +327,8 @@ async function hostImport(
   }
 
   // The GPU half (change 0016, Rule 8.24): the browser bundle of src/gpu.ts calls compute entries
-  // in a page with WebGPU. `blockSum` reaches a barrier, which has no CPU tier, so it answers only
-  // where WebGPU ran it. `markGroups` runs over a count `planGroups` wrote (change 0075), on WebGPU
+  // in a page with WebGPU. `blockSum` reaches a barrier, which the CPU tier of the call layer does not
+  // support yet (Rule 8.24), so it answers only where WebGPU ran it. `markGroups` runs over a count `planGroups` wrote (change 0075), on WebGPU
   // and again on the CPU tier.
   sh('npx', ['vite', 'build', '--config', 'vite.web.config.ts', '--logLevel', 'warn'], app);
   sh('npx', ['vite', 'build', '--config', 'vite.auto.config.ts', '--logLevel', 'warn'], app);
@@ -513,8 +513,10 @@ async function hostImport(
   const noCpu = drawn['tiled 2d'];
   check(
     typeof noCpu === 'string' &&
-      /TypeError: tiled\(\).*"image", which the CPU tier cannot read/.test(noCpu),
-    `a sampled texture has no CPU tier, and the draw says so (${String(noCpu)})`,
+      /TypeError: tiled\(\).*"image", which is not supported yet on the CPU tier \(Rule 8\.24\)/.test(
+        noCpu,
+      ),
+    `a sampled texture is not supported yet on the CPU tier, and the draw says so (${String(noCpu)})`,
   );
 
   // The particles and plasma journeys through the import (change 0016): `step` 20 frames on

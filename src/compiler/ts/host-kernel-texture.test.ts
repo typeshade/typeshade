@@ -156,7 +156,7 @@ describe('the call of a kernel function that takes a texture', () => {
     await expect(
       invert(fakeTexture(4, 4, 'rgba8unorm'), fakeTexture(4, 4, 'rgba8unorm'), 4, 4),
     ).rejects.toThrow(
-      'cpu: parameter "src" is a texture the CPU tier cannot read; it reads an ImageData and a texture a device on the CPU tier made',
+      'cpu: parameter "src" is a texture that is not supported yet on the CPU tier (Rule 11.8); the CPU tier reads an ImageData and a texture a device on the CPU tier made',
     );
   });
 });

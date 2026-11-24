@@ -683,17 +683,17 @@ function noCpuTier(
     (b) => (b.space === 'texture' || b.space === 'sampler') && !('guard' in b),
   );
   if (handle !== undefined)
-    return `it reaches the ${handle.s} "${handle.name}", which the CPU tier cannot read`;
+    return `it reaches the ${handle.s} "${handle.name}", which is not supported yet on the CPU tier (Rule 8.24)`;
   for (const g of closure)
     for (const n of [...(c.entry.reads.get(g) ?? []), ...(c.entry.writes.get(g) ?? [])]) {
       const b = c.entry.bindings.find((x) => x.name === n);
       if (b !== undefined && CPU_HANDLES.has(b.type.kind))
-        return `it reaches the ${spell(b.type)} "${b.name}", which the CPU tier cannot read`;
+        return `it reaches the ${spell(b.type)} "${b.name}", which is not supported yet on the CPU tier (Rule 8.24)`;
     }
   for (const g of closure) {
     const gpu = gpuOnlyCall(c.byName.get(g)!, c.entry.declared);
     if (gpu !== undefined && !isAtomicIntrinsic(gpu) && !isBarrierIntrinsic(gpu))
-      return `it reaches ${gpu}(), which only a GPU computes`;
+      return `it reaches ${gpu}(), which is not supported yet on the CPU tier (Rule 8.24)`;
   }
   return undefined;
 }

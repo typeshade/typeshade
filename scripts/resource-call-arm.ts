@@ -181,8 +181,8 @@ async function runInPage(input: {
     kernelQueue: { held: unknown[]; idle(): Promise<unknown> };
   };
   const { m } = g;
-  // A kernel function on a Buffer of structs has no WebGL2 tier (Rule 11.8): on WebGL2 it runs on
-  // the CPU tier, and the entry runs its WebGL2 pass program.
+  // A kernel function on a Buffer of structs is not supported yet on the WebGL2 tier (Rule 11.8):
+  // it runs on the CPU tier, and the entry runs its WebGL2 pass program.
   g.configure({ prefer: input.tier === 'webgl2' ? ['webgl2', 'cpu'] : [input.tier] });
   const out: Outcome = {
     bits: [],

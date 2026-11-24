@@ -12,7 +12,8 @@
 // every pass, and the scatter between the passes reads its integer textures on units a sampler
 // was bound to. The page gives every texture an 8 x 8 image and every sampler `nearest` and
 // `repeat`, and samples at texel centres, so each tier reads the same texels and the values are
-// exact. The CPU tier has no texture; WebGPU is the reference.
+// exact. The CPU tier does not run an entry that reaches a texture yet (Rules 8.24 and 11.8); WebGPU is
+// the reference.
 //
 // `twiddle` and `butterfly` compute the twiddle of an FFT in the emulated double (§39), `sin` and
 // `cos` of an `f64` angle in a helper, as typeshade/typeaudio#9 does (#966). Each reads and writes

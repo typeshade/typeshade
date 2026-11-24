@@ -20,6 +20,32 @@ export function inferredStorageAccess(sourceFile: ts.SourceFile, name: string): 
   return table.get(name)!;
 }
 
+export function dropDeadStorageWriters(
+  sourceFile: ts.SourceFile,
+  funcs: FuncDecl[],
+  bindings: readonly BindingDecl[],
+): void {
+  const readOnly = new Set<string>();
+  for (const [name, access] of DECISIONS.get(sourceFile) ?? [])
+    if (access === 'read') readOnly.add(name);
+  const roots = funcs.filter(isRoot);
+  if (readOnly.size === 0 || roots.length === 0) return;
+  const module = moduleOf(funcs, bindings);
+  const live = reachFrom(module, roots).fns;
+  const writes = fnWrites(module);
+  const dead = funcs.filter(
+    (f) => !live.has(f.name) && [...(writes.get(f.name) ?? [])].some((n) => readOnly.has(n)),
+  );
+  for (const f of dead) funcs.splice(funcs.indexOf(f), 1);
+}
+
+export function isInferredStorageAccess(
+  sourceFile: ts.SourceFile | undefined,
+  name: string,
+): boolean {
+  return sourceFile !== undefined && (DECISIONS.get(sourceFile)?.has(name) ?? false);
+}
+
 const moduleOf = (funcs: readonly FuncDecl[], bindings: readonly BindingDecl[]): ModuleDecl => ({
   consts: [],
   structs: [],
@@ -45,7 +71,11 @@ function writtenByRoots(
 export function settleStorageAccess(sourceFile: ts.SourceFile, result: CompileTsSourceResult) {
   const table = DECISIONS.get(sourceFile);
   if (table === undefined) return false;
-  const written = writtenByRoots(result.funcs, result.bindings);
+  const written = writtenByRoots(
+    result.funcs,
+    result.bindings,
+    result.funcs.some(isRoot) ? isRoot : () => true,
+  );
   for (const b of result.bindings) if (atomicWithin(b.type) !== undefined) written.add(b.name);
   let changed = false;
   for (const [name, access] of table) {
@@ -102,6 +132,21 @@ export function checkVertexReadsWritten(
             `WebGPU allows no writable storage buffer in the vertex stage, and the module writes ` +
               `"${name}" that the vertex entry "${entry.name}" reads: give the vertex stage a ` +
               `separate binding, or declare "${name}" readonly and write nothing to it.`,
+            TS_CODES.UNSUPPORTED,
+          ),
+        );
+      } else if (
+        binding?.access === 'read_write' &&
+        atomicWithin(binding.type) === undefined &&
+        !isInferredStorageAccess(sourceFile, name)
+      ) {
+        diagnostics.push(
+          makeDiagnostic(
+            sourceFile,
+            node.name,
+            `WebGPU allows no writable storage buffer in the vertex stage, and "${name}" is ` +
+              `declared "read_write" while the vertex entry "${entry.name}" reads it: remove the ` +
+              `"read_write" argument from "${name}", or give the vertex stage a separate binding.`,
             TS_CODES.UNSUPPORTED,
           ),
         );
