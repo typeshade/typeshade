@@ -218,7 +218,7 @@ describe('optional positions and declarations', () => {
 describe('optional struct collection and order', () => {
   const names = (decls: readonly { decl: StructDecl }[]): string[] => decls.map((d) => d.decl.name);
   const wrap = (decl: StructDecl) => ({ decl });
-  const declared = (name: string, fieldType?: ShaderType) => ({
+  const declared = (name: string, fieldType?: ShaderType): { decl: StructDecl } => ({
     decl: { name, fields: fieldType === undefined ? [] : [{ name: 'f', type: fieldType }] },
   });
 

@@ -117,12 +117,14 @@ describe('optional representation', () => {
   });
 
   it('spells the zero of a matrix by columns, an array by elements, a struct by fields', () => {
-    const mat = zeroOfInner(matT(3, 2), noStructs) as { args: { type: ShaderType }[] };
+    const mat = zeroOfInner(matT(3, 2), noStructs) as unknown as { args: { type: ShaderType }[] };
     expect(mat.args).toHaveLength(3);
     expect(mat.args[0]!.type).toEqual({ kind: 'vec', n: 2, elem: 'f32' });
-    const mat64 = zeroOfInner(matT(2, 2, 'f64'), noStructs) as { args: { type: ShaderType }[] };
+    const mat64 = zeroOfInner(matT(2, 2, 'f64'), noStructs) as unknown as {
+      args: { type: ShaderType }[];
+    };
     expect(mat64.args[0]!.type).toEqual({ kind: 'vec64', n: 2 });
-    const array = zeroOfInner({ kind: 'array', elem: i32T, size: 3 }, noStructs) as {
+    const array = zeroOfInner({ kind: 'array', elem: i32T, size: 3 }, noStructs) as unknown as {
       args: unknown[];
     };
     expect(array.args).toEqual([lit(i32T, 0), lit(i32T, 0), lit(i32T, 0)]);
@@ -149,12 +151,12 @@ describe('optional representation', () => {
       args: [lit(f32T, 0), lit(boolT, false)],
     });
     const three = optionalT(f32T, 3);
-    expect((absentOf(three, f32T, noStructs, 1) as { args: unknown[] }).args).toEqual([
+    expect((absentOf(three, f32T, noStructs, 1) as unknown as { args: unknown[] }).args).toEqual([
       lit(f32T, 0),
       lit(boolT, false),
       lit(boolT, false),
     ]);
-    expect((absentOf(three, f32T, noStructs, 2) as { args: unknown[] }).args[2]).toEqual(
+    expect((absentOf(three, f32T, noStructs, 2) as unknown as { args: unknown[] }).args[2]).toEqual(
       lit(boolT, true),
     );
   });
@@ -164,7 +166,8 @@ describe('optional representation', () => {
     expect(presentOf(optionalT(f32T), value as never)).toMatchObject({
       args: [value, lit(boolT, true)],
     });
-    const args = (presentOf(optionalT(f32T, 3), value as never) as { args: unknown[] }).args;
+    const args = (presentOf(optionalT(f32T, 3), value as never) as unknown as { args: unknown[] })
+      .args;
     expect(args).toEqual([value, lit(boolT, true), lit(boolT, false)]);
   });
 

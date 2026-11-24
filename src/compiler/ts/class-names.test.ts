@@ -36,7 +36,7 @@ function memberNamed(cls: ts.ClassLikeDeclaration, name: string): ts.ClassElemen
   )!;
 }
 
-function firstOf<T extends ts.Node>(file: ts.SourceFile, test: (n: ts.Node) => n is T): T {
+function firstOf<T extends ts.Node>(file: ts.Node, test: (n: ts.Node) => n is T): T {
   let hit: T | undefined;
   const walk = (n: ts.Node): void => {
     if (hit === undefined && test(n)) hit = n;

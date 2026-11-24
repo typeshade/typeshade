@@ -203,7 +203,7 @@ describe('result copies table', () => {
     const calls = linked.statements.slice(1);
     const [first, second] = calls.map(
       (s) => ((s as ts.ExpressionStatement).expression as ts.CallExpression).expression,
-    ) as [ts.Node, ts.Node];
+    ) as unknown as [ts.Node, ts.Node];
     const declName = (linked.statements[0] as ts.FunctionDeclaration).name!;
     recordResultCopies(linked, declName, 'g', [f32T]);
     recordCopyCall(linked, first, f32T, [u32T]);
