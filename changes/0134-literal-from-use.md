@@ -1617,6 +1617,89 @@ the same on `main` at `9e1cfef6`, except for the refusal words of issue #1300, w
   surfaces 13 and 22.
 - Status: `status: accepted` does not change.
 
+### Amendment A10. The owner's decision on the boundary of decision (4) of A9 (2026-11-24)
+
+The owner decided the boundary of decision (4) of Amendment A9 (issue #1353) on 2026-11-24. The
+issue records it under "Owner decision (2026-11-24, the boundary)". The owner answered by choosing
+option A of pull request #1492. The English below is the agent's wording of that option, as the
+issue records it. This amendment changes no code. It also records the status of the items of
+Amendment A9 on `main` at `af0a3f8e`. Each program below is the body of
+`export function t(f: f32, ii: i32): u32` with `f = 1.5` and `ii = -3`, unless it names another
+result. Each value was read in
+`compile()`, in the language service and on the CPU oracle at O0, O1 and O2, on `main` at
+`af0a3f8e`. Both halves gave no diagnostic, and the three levels gave one value.
+
+- [decision, owner, 2026-11-24] The boundary of the conversion of a compiler-chosen `f32`
+  (issue #1353, pull request #1492). The rule of #1492 stands (option A). A binding whose type
+  the compiler chose wraps, even when an author-typed `f32` was stored into it. An argument
+  that reads the author's `f32` itself keeps its WGSL meaning and saturates. The two spellings
+  give two answers, and the owner accepted that.
+  - Example: `let k = 5; k -= 8; k += f; return u32(k);`
+    - Before the decision (`main` at `f0506551`, before #1492): 0, in WGSL, in the GLSL helpers
+      and in the oracle.
+    - After (`main` at `af0a3f8e`): 4294967295. The binding `k` has a type that the compiler
+      chose, so `u32(k)` reads the value that `k` holds and wraps it.
+  - Neighbour that keeps its meaning: `let k = 5; k -= 8; return u32(k + f);` is 0 before and
+    after. The `f32` type of the argument comes from the author's `f`, so the conversion
+    saturates.
+  - The two programs above give two answers. TypeScript gives 4294967295 for both. The owner
+    accepted the difference, so it is not a deviation. It is a cost of option A.
+  - Neighbours that keep their meaning, as the decision of 2026-11-23 left them: `u32(f - 10.0)`,
+    `i32(f * 1.0e10)` (result `i32`), `let k: f32 = 5; k -= 8; return u32(k);` and
+    `let k = 5.0; k -= 8; return u32(k);`. The author wrote the `f32` or the float, so each
+    saturates.
+  - The same rule gives the answer of the other two programs that #1492 lists for the owner.
+    `let k = 5; k = f - 10.0; return u32(k);` wraps and gives 4294967288. `return u32(f - 10.0);`
+    saturates and gives 0.
+  - This decision does not settle the two further candidates that #1492 lists: a copy
+    `let j = k` of a chosen value and a destructured name. They keep the meaning that
+    `main` gives them (`let k = 5; k -= 8; let j = k; return u32(j);` is 0). The owner
+    decided the boundary of an author-typed `f32`, and the agent reads no other line into it.
+  - Status: decided and implemented. Pull request #1492 is merged as `2ff93cd3` (2026-11-24).
+    It holds both sides of this line in `src/compiler/ts/issue-1353-chosen-f32-conversion.test.ts`.
+- [status] Decision (4) of Amendment A9 (issue #1353), implemented by #1492 (merged as
+  `2ff93cd3`, 2026-11-24). Surface §13 states the new meaning. The decision keeps one value
+  open in A9, and #1492 states it.
+  - Example: `let k = 5; k *= 1000000000; k *= 5;`. The `f32` value of `k` is 24999999488, because
+    `5e9 * 5` rounds in `f32`.
+    - A9 said that the value is not fixed after the decision. It read ToInt32 and ToUint32 of
+      the exact 25000000000.
+    - After (`main` at `af0a3f8e`): `i32(k)` is -769804288 and `u32(k)` is 3525163008. Both are
+      the conversion of the `f32` value that `k` holds.
+    - Before (`main` at `e96fd47d`): `i32(k)` was 2147483520 and `u32(k)` was 4294967040.
+  - [inference] The value follows OD-7 (change 0134 Q5), which chooses `f32` for a `let` that
+    nothing decides. It is not a failure of the conversion. A9 states 2147483520 and 4294967040 as the
+    values before and states no value after, so this status replaces nothing.
+  - Programs where the author's float decides the type keep their saturating meaning, as A9
+    reads them.
+  - The differential test that skips this class as "an open item of #1272" stays unchanged.
+    #1492 records it as not run to cover this class.
+- [status] Issue #1301, decided by A9. Implementing pull request #1493 is open and not merged,
+  at the time of this amendment (`main` at `af0a3f8e`).
+- [status] Issue #1308, decided by A9. Implementing pull request #1498 is open and not merged,
+  at the time of this amendment (`main` at `af0a3f8e`).
+- [recorded for a later decision] Issue #1446 stays as A9 records it. The owner has not decided.
+- Open deviations, issue #1467 and issue #1483, stay open as A9 records them.
+- Disposition: made part of the approved text by this amendment, except five items that stay
+  open. These are the items of Amendment A9 after decision (4):
+  - two decisions that are not implemented: issue #1301 and issue #1308. Both have an open pull
+    request;
+  - one question that the owner has not decided: issue #1446;
+  - two open deviations: issue #1467 and issue #1483.
+
+  Amendment A9 counted six open items, with decision (4) among the three decisions that were
+  not implemented. #1492 closes that item, so Amendment A9 keeps five. Amendment A8 keeps four
+  items: one decision and three deviations. With the five items of A9, nine items are open in
+  all. Amendment A10 adds no open item.
+
+- Affects: Rule 5.1 does not state decision (4) of A9 or this boundary. Surface §13 states the
+  meaning and the example `u32(f - 10.0)`. It does not say that a binding with a chosen type
+  wraps when an author-typed `f32` was stored into it. This pull request edits neither text.
+  The rule and surface sentences follow in a pull request of their own, after the owner says
+  "merge" for this amendment, and they follow Rule 12.5. The front matter already declares
+  Rules 5.1 and 12.7 and surfaces 13 and 22.
+- Status: `status: accepted` does not change.
+
 ### Configuration and validation record
 
 The change is delivered in parts. `status: accepted` stays until every part is delivered and
