@@ -1,10 +1,10 @@
 import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
-import { ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js';
 import type { TypeshadeCompletionItem } from './types.js';
 import { enclosingStage } from './completions/builtin-stage.js';
 import { tsCompletions } from './completions/typescript-entries.js';
+import { VEC_SNIPPETS, attributeItem, builtinItem, vecSnippetItem } from './completions/items.js';
 
 const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', readonly string[]>> = {
   vertex: ['vertex_index', 'instance_index'],
@@ -29,43 +29,6 @@ const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', read
     'num_subgroups',
   ],
 };
-
-const VEC_SNIPPETS: readonly { readonly label: string; readonly insertText: string }[] = [
-  { label: 'vec2', insertText: 'vec2(${1:x}, ${2:y})' },
-  { label: 'vec3', insertText: 'vec3(${1:x}, ${2:y}, ${3:z})' },
-  { label: 'vec4', insertText: 'vec4(${1:x}, ${2:y}, ${3:z}, ${4:w})' },
-];
-
-function attributeItem(name: string): TypeshadeCompletionItem {
-  return {
-    label: `@${name}`,
-    kind: 'attribute',
-    detail: `TypeShade attribute`,
-    documentation: ATTRIBUTE_DOCS[name],
-  };
-}
-
-function builtinItem(name: string): TypeshadeCompletionItem {
-  return {
-    label: name,
-    kind: 'builtin',
-    detail: 'WGSL builtin',
-    documentation: BUILTIN_DOCS[name],
-  };
-}
-
-function vecSnippetItem(snippet: {
-  readonly label: string;
-  readonly insertText: string;
-}): TypeshadeCompletionItem {
-  return {
-    label: snippet.label,
-    kind: 'snippet',
-    detail: `Construct a ${snippet.label} value`,
-    insertText: snippet.insertText,
-    insertTextFormat: 'snippet',
-  };
-}
 
 type CompletionContext =
   | { readonly kind: 'comment' }
