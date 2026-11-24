@@ -718,14 +718,10 @@ export function constShiftAmountOutOfRange(amount: Expr, scope: LoweringScope): 
   return parts.map((v) => (int === undefined ? v : wrapInt(v, int))).find(shiftAmountOutOfRange);
 }
 
-/** The builtins {@link foldConstComponents} evaluates, componentwise: the ones whose domain or
- *  range Tint checks when every argument is constant (#613, measured on Tint in Chromium
- *  141.0.7390.37: `exp(89.0)`, `exp2(128.0)`, `sinh(90.0)`, `cosh(90.0)`, `degrees(1e37)`,
- *  `ldexp(1.0, 128)`, `fma(1e30, 1e30, 0.0)` and `pow(10.0, 40.0)` "cannot be represented as
- *  'f32'"; `sqrt`, `inverseSqrt`, `log`, `log2` and `pow` outside their domains, which
- *  {@link constCallOutsideDomain} names). A value Tint refuses that a double cannot hold either
- *  (`exp(1000.0)`) folds to an infinity, which the range check leaves to Tint: a false
- *  negative, as for a literal no double holds. */
+/* Why: Tint checks the domain or range of these builtins when every argument is constant (#613,
+ *  measured on Tint in Chromium 141.0.7390.37): `exp(89.0)`, `exp2(128.0)`, `sinh(90.0)`,
+ *  `cosh(90.0)`, `degrees(1e37)`, `ldexp(1.0, 128)`, `fma(1e30, 1e30, 0.0)` and `pow(10.0, 40.0)`
+ *  "cannot be represented as 'f32'". */
 const CONST_CALLS: Readonly<Record<string, (...xs: number[]) => number>> = {
   pow: (a, b) => Math.pow(a!, b!),
   sqrt: (x) => Math.sqrt(x!),
@@ -741,11 +737,9 @@ const CONST_CALLS: Readonly<Record<string, (...xs: number[]) => number>> = {
   fma: (a, b, c) => a! * b! + c!,
 };
 
-/** A constant call of a builtin outside the domain WGSL gives it: the first component where an
- *  argument is outside, the values of the arguments there, and the reason in words; or
- *  undefined (#613, Rule 12.6). WGSL evaluates a call whose arguments are all constant when it
- *  creates the shader, and an argument outside the domain is a shader-creation error
- *  (WGSL §15.7.2). Measured on Tint (Chromium 141.0.7390.37, SwiftShader):
+/* Why: WGSL evaluates a call whose arguments are all constant when it creates the shader, and an
+ *  argument outside the domain is a shader-creation error (WGSL §15.7.2, #613, Rule 12.6).
+ *  Measured on Tint (Chromium 141.0.7390.37, SwiftShader):
  *
  *    pow(-2.0, 0.5), pow(-2.0, 2.0)   '-2.0 ^ 2.0' cannot be represented as 'abstract-float'
  *    pow(0.0, -1.0), pow(0.0, 0.0)    '0.0 ^ 0.0' cannot be represented as 'abstract-float'
@@ -761,10 +755,7 @@ const CONST_CALLS: Readonly<Record<string, (...xs: number[]) => number>> = {
  *
  *  and accepted: pow(-0.0, 2.0), pow(0.0, 2.0), pow(2.0, 0.5), sqrt(-0.0), log(1.0), acos(-1.0),
  *  acosh(1.0), atanh(0.5), smoothstep(2.0, 1.0, 0.5) (crossed edges are not refused), and every
- *  other call with a run-time argument (`pow(-2.0, x)`, `pow(x, -1.0)`). A component is refused only where it is outside under both
- *  readings {@link constF32OutOfRange} names, the exact one and the one in `f32` steps, so an
- *  argument one `f32` rounding from the bound is left to Tint: a false negative, never a false
- *  refusal. */
+ *  other call with a run-time argument (`pow(-2.0, x)`, `pow(x, -1.0)`). */
 export function constCallOutsideDomain(
   fn: string,
   args: readonly Expr[],
