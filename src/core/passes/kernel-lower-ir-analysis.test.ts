@@ -65,6 +65,13 @@ describe('rangeOf', () => {
     expect(g).toMatchObject({ cop: '>=' });
   });
 
+  it('flips each ordering of a counter on the right', () => {
+    const down = rangeOf(loopOver([], cmp('<', param('n'), ref('i')), -1));
+    expect(down).toMatchObject({ cop: '>', bound: param('n') });
+    const up = rangeOf(loopOver([], cmp('>=', param('n'), ref('i')), 1));
+    expect(up).toMatchObject({ cop: '<=', bound: param('n') });
+  });
+
   it('refuses a step that moves away from the bound', () => {
     expect(rangeOf(loopOver([], cmp('<', ref('i'), param('n')), -1))).toBeUndefined();
     expect(rangeOf(loopOver([], cmp('>', ref('i'), param('n')), 1))).toBeUndefined();
@@ -147,6 +154,42 @@ describe('mapStmt', () => {
     expect(out.init).toMatchObject({ init: lit(1) });
     expect(out.update).toMatchObject({ expr: lit(2) });
     expect(out.body[0]).toMatchObject({ expr: lit(6) });
+  });
+
+  it('maps the expressions of a switch, an assignment, a var and a call statement', () => {
+    const sw = mapStmt(
+      {
+        s: 'switch',
+        scrut: lit(1),
+        cases: [{ values: [lit(1)], body: [{ s: 'let', name: 'a', expr: lit(2) }] }],
+        defaultBody: [{ s: 'let', name: 'b', expr: lit(3) }],
+      } as unknown as Stmt,
+      bump,
+    ) as unknown as {
+      scrut: Expr;
+      cases: { body: Stmt[] }[];
+      defaultBody: Stmt[];
+    };
+    expect(sw.scrut).toEqual(lit(2));
+    expect(sw.cases[0]!.body[0]).toMatchObject({ expr: lit(3) });
+    expect(sw.defaultBody[0]).toMatchObject({ expr: lit(4) });
+    const place = lit(7);
+    expect(mapStmt({ s: 'assign', target: place, expr: lit(1) }, bump)).toMatchObject({
+      target: lit(8),
+      expr: lit(2),
+    });
+    expect(mapStmt({ s: 'assignOp', target: place, bop: '+', expr: lit(4) }, bump)).toMatchObject({
+      target: lit(8),
+      expr: lit(5),
+    });
+    expect(mapStmt({ s: 'var', name: 'v', type: u32T, init: lit(9) }, bump)).toMatchObject({
+      init: lit(10),
+    });
+    const call: Stmt = {
+      s: 'call',
+      expr: { op: 'call', type: voidT, fn: 'f', args: [lit(1)] },
+    };
+    expect(mapStmt(call, bump)).toEqual(call);
   });
 
   it('keeps a bare return and a statement without expressions', () => {
