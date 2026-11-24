@@ -21,11 +21,11 @@ describe('the evaluation order of existing modules is unchanged (S1)', () => {
     );
   });
 
-  it('refuses the same swap when neither target has an effect', () => {
+  it('accepts the same swap when neither target is active, since their order is unobservable', () => {
     const files = { 'src/p.ts': plain('p'), 'src/q.ts': plain('q') };
     const base = tree({ ...files, 'src/a.ts': importer('p', 'q') });
     const head = tree({ ...files, 'src/a.ts': importer('q', 'p') });
-    expect(kinds(checkMove(base, head))).toEqual(['evaluation order from']);
+    expect(checkMove(base, head).findings).toEqual([]);
   });
 
   const second = 'export function useTwo(): number {\n  return two;\n}\n';

@@ -46,7 +46,7 @@ describe('a pure move touches clean files only (P4)', () => {
       'src/b.ts':
         "import { fa } from './a.js';\nexport function fb(): number {\n  return fa();\n}\n",
     };
-    const head = { ...files, 'src/a.ts': `import { fb } from './b.js';\n${files['src/a.ts']}` };
+    const head = { ...files, 'src/a.ts': `import './b.js';\n${files['src/a.ts']}` };
     const found = refusals(checkMove(tree(files), tree(head)));
     expect(found).toContain('src/a.ts head: import cycle: src/a.ts -> src/b.ts -> src/a.ts');
   });

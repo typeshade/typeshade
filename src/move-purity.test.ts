@@ -208,7 +208,7 @@ describe('the move-purity check (docs/structure-refactoring-plan.md, S0 item a)'
   });
 
   describe('free comments', () => {
-    const link = `import { x } from './x.js';\n`;
+    const link = `import './x.js';\n`;
 
     it('refuses a header comment that was deleted', () => {
       const base = tree({ 'src/a.ts': `// header\n${link}${BETA}` });

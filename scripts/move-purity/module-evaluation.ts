@@ -2,7 +2,7 @@ import { finding, type Finding } from './finding.js';
 import type { FilePairs } from './file-pairs.js';
 import type { Links, Link } from './module-links.js';
 
-export interface EvaluationInput {
+interface EvaluationInput {
   readonly baseLinks: Links;
   readonly headLinks: Links;
   readonly files: FilePairs;
@@ -31,6 +31,25 @@ export function linkFindings({ baseLinks, headLinks, files }: EvaluationInput): 
       .map((link) => link.target);
     if (effects.length > 0) {
       findings.push(finding('side-effect import in a new file', path, effects.join(', ')));
+    }
+  }
+  const starCount = (links: Link[]): number =>
+    links.filter(
+      (link) => link.kind === 'export' && [...link.names.keys()].some((n) => n[0] === '*'),
+    ).length;
+  for (const pair of files.pairs) {
+    if (starCount(headLinks.of(pair.head)) > starCount(baseLinks.of(pair.base))) {
+      findings.push(finding('export * added', pair.head, ''));
+    }
+  }
+  for (const path of files.newFiles) {
+    if (starCount(headLinks.of(path)) > 0) findings.push(finding('export * added', path, ''));
+  }
+  for (const path of [...files.pairs.map((pair) => pair.head), ...files.newFiles]) {
+    for (const link of headLinks.of(path)) {
+      if (link.droppedAsType) {
+        findings.push(finding('value import used only as a type path', path, link.specifier));
+      }
     }
   }
   for (const pair of files.pairs) {

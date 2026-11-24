@@ -3,7 +3,8 @@ import ts from 'typescript';
 import { fileClassOf } from './file-class.js';
 import { finding, type Finding } from './finding.js';
 import type { Side } from './side-program.js';
-import { isTestCall, testMoveFindings } from './test-moves.js';
+import { testMoveFindings } from './test-moves.js';
+import { isTestCall } from './test-calls.js';
 import type { Unit } from './units.js';
 
 const nameOf = (unit: Unit): string => unit.names.join(', ') || '(unnamed)';
@@ -18,7 +19,7 @@ function dynamicSpecifierReason(call: ts.CallExpression): string | undefined {
     : undefined;
 }
 
-export function locationReason(node: ts.Node, directoryChanged: boolean): string | undefined {
+function locationReason(node: ts.Node, directoryChanged: boolean): string | undefined {
   let reason: string | undefined;
   const visit = (current: ts.Node): void => {
     if (reason !== undefined) return;
@@ -60,6 +61,9 @@ export function movedUnitFindings(
     const at = (kind: string, detail = ''): void => {
       findings.push(finding(kind, to.path, `${nameOf(to)}${detail}`, to.line));
     };
+    if (from.path.split('/')[0] !== to.path.split('/')[0]) {
+      at('unit moved across top-level directories', ` ${from.path} -> ${to.path}`);
+    }
     if (fileClassOf(from.path) !== fileClassOf(to.path)) {
       at('file class changed', ` ${fileClassOf(from.path)} -> ${fileClassOf(to.path)}`);
     }

@@ -14,7 +14,7 @@ export interface Unit {
   readonly to: number;
 }
 
-export interface SourceAnalysis {
+interface SourceAnalysis {
   readonly units: Unit[];
   readonly directives: string[];
   readonly bom: boolean;
@@ -35,7 +35,7 @@ function bindingNames(name: ts.BindingName): string[] {
   );
 }
 
-export function declaredNames(statement: ts.Statement): string[] {
+function declaredNames(statement: ts.Statement): string[] {
   if (ts.isVariableStatement(statement)) {
     return statement.declarationList.declarations.flatMap((d) => bindingNames(d.name));
   }

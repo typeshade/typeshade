@@ -2,7 +2,7 @@ import { groupBy, matchGroups } from './group-match.js';
 import { isRunnableTest } from './runnable-tests.js';
 import { testTitles, type Title } from './titles.js';
 
-export interface TitleDiff {
+interface TitleDiff {
   readonly vanished: Title[];
   readonly appeared: Title[];
 }

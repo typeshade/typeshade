@@ -9,7 +9,7 @@ export interface UnitRef {
   readonly names: readonly string[];
 }
 
-export interface ChangedUnit {
+interface ChangedUnit {
   readonly base: UnitRef;
   readonly head: UnitRef;
 }
@@ -29,7 +29,7 @@ export interface UnitDiff {
   readonly exportsRemoved: UnitRef[];
 }
 
-export interface UnitMatch {
+interface UnitMatch {
   readonly diff: UnitDiff;
   readonly kept: [Unit, Unit][];
   readonly moved: [Unit, Unit][];

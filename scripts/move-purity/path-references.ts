@@ -9,14 +9,14 @@ const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\
 
 const FULL_PATH_BOUNDARY = '(^|[^\\w.-])';
 
-export interface RemovedPath {
+interface RemovedPath {
   readonly path: string;
   readonly renamedTo: string | undefined;
 }
 
 const BASELINES = new Set(['scripts/file-size-baseline.json', 'scripts/comment-baseline.json']);
 
-export const patternsFor = ({ path, renamedTo }: RemovedPath): RegExp[] => {
+const patternsFor = ({ path, renamedTo }: RemovedPath): RegExp[] => {
   const stem = basename(path).replace(/\.ts$/, '');
   const keepsName = renamedTo !== undefined && basename(renamedTo) === basename(path);
   const lead = keepsName ? `['"\`]` : `[/'"\`]`;
@@ -26,7 +26,7 @@ export const patternsFor = ({ path, renamedTo }: RemovedPath): RegExp[] => {
   ];
 };
 
-export const isScannedText = (path: string): boolean =>
+const isScannedText = (path: string): boolean =>
   !path.endsWith('.md') && !path.endsWith('.ts') && !BASELINES.has(path);
 
 function isSpecifier(literal: ts.Node): boolean {

@@ -1,4 +1,4 @@
-export interface Match<T> {
+interface Match<T> {
   readonly kept: [T, T][];
   readonly moved: [T, T][];
   readonly vanished: T[];

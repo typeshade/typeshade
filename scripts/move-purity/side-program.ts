@@ -13,7 +13,7 @@ export interface Side {
   pathOf(fileName: string): string | undefined;
 }
 
-export const PROGRAM_OPTIONS: ts.CompilerOptions = {
+const PROGRAM_OPTIONS: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
   module: ts.ModuleKind.ESNext,
   moduleResolution: ts.ModuleResolutionKind.Bundler,

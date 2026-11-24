@@ -11,6 +11,7 @@ export interface Link {
   readonly entries: string[];
   readonly sideEffect: boolean;
   readonly valueLoad: boolean;
+  readonly droppedAsType: boolean;
   readonly names: Map<string, boolean>;
 }
 
@@ -46,6 +47,34 @@ export function createLinks(side: Side, keyer: Keyer): Links {
     return target;
   };
 
+  const retained = new Map<string, Map<string, number>>();
+  const retainedCounts = (path: string): Map<string, number> => {
+    const known = retained.get(path);
+    if (known !== undefined) return known;
+    const counts = new Map<string, number>();
+    if (path.endsWith('.d.ts')) {
+      retained.set(path, counts);
+      return counts;
+    }
+    const output = ts.transpileModule(side.texts.get(path) ?? '', {
+      fileName: path,
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        isolatedModules: true,
+        verbatimModuleSyntax: false,
+      },
+    }).outputText;
+    const emitted = ts.createSourceFile(path, output, ts.ScriptTarget.ES2022);
+    for (const statement of emitted.statements) {
+      if (!ts.isImportDeclaration(statement) || !statement.importClause) continue;
+      const specifier = (statement.moduleSpecifier as ts.StringLiteral).text;
+      counts.set(specifier, (counts.get(specifier) ?? 0) + 1);
+    }
+    retained.set(path, counts);
+    return counts;
+  };
+
   const importLink = (source: ts.SourceFile, node: ts.ImportDeclaration): Link => {
     const specifier = (node.moduleSpecifier as ts.StringLiteral).text;
     const target = targetOf(source, specifier);
@@ -53,7 +82,15 @@ export function createLinks(side: Side, keyer: Keyer): Links {
     const names = new Map<string, boolean>();
     const entries: string[] = [];
     const attributes = node.attributes?.getText() ?? '';
-    const made = { kind: 'import' as const, target, attributes, specifier, entries, names };
+    const made = {
+      kind: 'import' as const,
+      target,
+      attributes,
+      specifier,
+      entries,
+      names,
+      droppedAsType: false,
+    };
     if (!clause) {
       entries.push(`${specifier}||`);
       return { ...made, sideEffect: true, valueLoad: false };
@@ -75,8 +112,8 @@ export function createLinks(side: Side, keyer: Keyer): Links {
         entries.push(`${specifier}|${imported}|${element.name.text}|${typeOnly}`);
       }
     }
-    const valueLoad = [...names.values()].some((typeOnly) => !typeOnly);
-    return { ...made, sideEffect: false, valueLoad };
+    const nonType = [...names.values()].some((typeOnly) => !typeOnly);
+    return { ...made, sideEffect: false, valueLoad: nonType, droppedAsType: false };
   };
 
   const exportLink = (source: ts.SourceFile, node: ts.ExportDeclaration): Link => {
@@ -99,7 +136,11 @@ export function createLinks(side: Side, keyer: Keyer): Links {
         entries.push(`${specifier}|${imported}|${element.name.text}|${typeOnly}`);
       }
     }
-    const valueLoad = !node.isTypeOnly && [...names.values()].some((typeOnly) => !typeOnly);
+    const valueLoad =
+      !node.isTypeOnly &&
+      (clause === undefined || ts.isNamespaceExport(clause)
+        ? true
+        : clause.elements.some((element) => !element.isTypeOnly && hasValueMeaning(element)));
     const attributes = node.attributes?.getText() ?? '';
     return {
       kind: 'export',
@@ -110,10 +151,30 @@ export function createLinks(side: Side, keyer: Keyer): Links {
       names,
       sideEffect: false,
       valueLoad,
+      droppedAsType: false,
     };
   };
 
+  const hasValueMeaning = (element: ts.ExportSpecifier): boolean => {
+    const symbol = side.checker.getExportSpecifierLocalTargetSymbol(element);
+    if (symbol === undefined) return true;
+    let current = symbol;
+    for (let step = 0; step < 32 && current.flags & ts.SymbolFlags.Alias; step += 1) {
+      current = side.checker.getAliasedSymbol(current);
+    }
+    return current.flags === ts.SymbolFlags.Alias || (current.flags & ts.SymbolFlags.Value) !== 0;
+  };
+
+  const computed = new Map<string, Link[]>();
   const of = (path: string): Link[] => {
+    const known = computed.get(path);
+    if (known !== undefined) return known;
+    const result = linksOf(path);
+    computed.set(path, result);
+    return result;
+  };
+
+  const linksOf = (path: string): Link[] => {
     const source = side.sourceOf(path);
     if (!source) return [];
     const links: Link[] = [];
@@ -138,11 +199,29 @@ export function createLinks(side: Side, keyer: Keyer): Links {
           entries: [`${specifier}|=||${statement.isTypeOnly}`],
           sideEffect: false,
           valueLoad: !statement.isTypeOnly,
+          droppedAsType: false,
           names,
         });
       }
     }
-    return links;
+    const counts = retainedCounts(path);
+    const declared = new Map<string, number>();
+    for (const link of links) {
+      if (link.kind === 'import' && link.valueLoad && !link.names.has('=')) {
+        declared.set(link.specifier, (declared.get(link.specifier) ?? 0) + 1);
+      }
+    }
+    return links.map((link) => {
+      if (link.kind !== 'import' || !link.valueLoad || link.names.has('=')) {
+        return link;
+      }
+      const kept = counts.get(link.specifier) ?? 0;
+      return {
+        ...link,
+        valueLoad: kept > 0,
+        droppedAsType: kept < (declared.get(link.specifier) ?? 0),
+      };
+    });
   };
 
   const entryOf = (declaration: ts.Declaration): string | undefined => {

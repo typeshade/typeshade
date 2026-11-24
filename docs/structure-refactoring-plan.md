@@ -350,8 +350,9 @@ Doc comments of public definitions, markers and `Why:` comments can travel.
 Decision D8: the comments of a directory go first, in their own ordinary pull request (`CLAUDE.md`, Comments).
 D5 does not cover that pull request.
 
-Decision D9: D5 requires that the `move purity` step ran as required on the head that is merged.
-The orchestrating agent reads the output of that step before it merges.
+Decision D9: D5 requires the commit line `Move: pure` on the head that is merged.
+The title alone is not enough, because CI does not run again when a title is edited.
+The orchestrating agent reads the output of the `move purity` step on that head before it merges.
 
 Fact: three reviews of the move-purity check broke it through module evaluation.
 The breaks were import cycles with reads of uninitialised bindings, units that run or read at load, and import order.
@@ -471,7 +472,9 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
    5. Without a title and without the line, the check prints a notice and exits 0. It did not run.
    6. The flag `--require` runs the check anyway. An empty range then exits 2.
 
-   Decision D5 applies only to a pull request that has both the title and the lines.
+   Decision D5 applies only to a pull request whose merged head has the commit line `Move: pure`.
+   The title alone is not enough, because CI does not run again when a title is edited.
+   The orchestrating agent reads the output of the `move purity` step on that head before it merges.
    A slice that changes the plan puts that change in its own pull request.
 
    Promise. A range passes only when all of these hold:
@@ -495,7 +498,27 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
      A file whose only change is a link statement is a changed file too.
      A move therefore cannot create a cycle, and a file of an existing cycle cannot take part in a pure move.
      Evaluating a clean file does nothing observable, and no read in it can see an uninitialised binding.
+     An edge of the graph is what loads at run time.
+     A side-effect import is an edge.
+     An `import` with bindings is an edge only when TypeScript keeps it, that is, when at least one
+     binding is referenced in a value position of the file.
+     An `export ... from` is an edge when it re-exports at least one value, and `export *` is an edge.
+     The repository sets no `verbatimModuleSyntax`, so TypeScript, esbuild and Bun drop the other imports.
+     A test reads the `tsconfig` files and fails when such an option appears.
+     Cycles (P4) and order (P5) use this one edge definition.
+     The classifier is an allow-list by syntax kind, in `scripts/move-purity/accepted-kinds.ts`.
+     A kind that is not in the list is active, and the reason is the kind name.
+     A `using` declaration, an `import x = ...` and an `import x = require(...)` are active.
      The rules for an evaluation-free declaration are in `scripts/move-purity/evaluation-free.ts`.
+     Accepted statement kinds: `ClassDeclaration`, `EnumDeclaration`, `ExportAssignment`, `ExportDeclaration`, `FunctionDeclaration`, `InterfaceDeclaration`, `TypeAliasDeclaration`, `VariableStatement`.
+     Accepted expression kinds: `ArrayLiteralExpression`, `ArrowFunction`, `AsExpression`, `BigIntLiteral`, `BinaryExpression`, `CallExpression`, `ClassExpression`, `ConditionalExpression`, `FalseKeyword`, `FunctionExpression`, `Identifier`, `NewExpression`, `NoSubstitutionTemplateLiteral`, `NonNullExpression`, `NullKeyword`, `NumericLiteral`, `ObjectLiteralExpression`, `OmittedExpression`, `ParenthesizedExpression`, `PrefixUnaryExpression`, `PropertyAccessExpression`, `RegularExpressionLiteral`, `SatisfiesExpression`, `StringLiteral`, `TemplateExpression`, `TrueKeyword`, `TypeAssertionExpression`, `TypeOfExpression`, `VoidExpression`.
+     Accepted class member kinds: `Constructor`, `GetAccessor`, `IndexSignature`, `MethodDeclaration`, `PropertyDeclaration`, `SemicolonClassElement`, `SetAccessor`.
+     Accepted object member kinds: `GetAccessor`, `MethodDeclaration`, `PropertyAssignment`, `SetAccessor`, `ShorthandPropertyAssignment`.
+     A `new Map` or `new WeakMap` takes no argument, or one array of two-element array entries.
+     A `new Set` or `new WeakSet` takes no argument, or one array of elements.
+     An entry element is a primitive, a function, or a name of a function, a class or an enum.
+     No entry is an object, a spread or another name, because the constructor reads the entries.
+     `Object.freeze` takes one object or array literal.
      A function, a type, an interface, a `declare` function or constant, a literal `const`, an
      enum of literals, a class without decorators or static blocks, and an `Object.freeze` of a literal are free.
      A call, a `let`, a destructuring, an element access and a `declare module` are not.
@@ -503,9 +526,12 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
      Operands of operators and templates, and computed keys, must be primitive values.
      A reference to an object in such a position is active.
      In doubt, a declaration is active.
-   - P5. The evaluation order of the modules that exist on both sides is unchanged.
-     From every module that exists on both sides, the depth-first order of its value imports
-     and re-exports, in source order, must be equal in the base and the head.
+   - P5. The evaluation order of the modules that exist on both sides is unchanged among the modules that are not clean.
+     From every module that exists on both sides, the depth-first order of its edges
+     in source order, taken over the modules that are not clean, must be equal in the base and the head.
+     A module is not clean when it has an active unit or is in an import cycle.
+     The order among clean modules cannot be observed, so it is not compared.
+     Every changed file is clean (P4), so a module that a slice edits is never one that is compared.
      A module that is new in the head does not appear in the compared sequence.
      The type-only flags and the import attributes of a link are kept.
      A new file has no import without bindings.
@@ -516,6 +542,12 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
      One exception holds for series S11 and S12. A top-level `describe`, `it` or `test` call may move
      between two files that vitest runs, when both are clean test files.
      A test file is clean when it has only evaluation-free declarations and such calls at the top level.
+     A `describe` call, `describe.each(...)(...)` included, is such a call only when its callback body
+     holds, recursively, only `it` and `test` calls, nested `describe` calls, the hooks `beforeEach`,
+     `afterEach`, `beforeAll` and `afterAll`, and evaluation-free declarations.
+     The table of `.each` must be evaluation-free.
+     Other code in the body is `collection-time code in describe`.
+     The source and the target file must hold the same free comments that contain `Verifies:` or `Implements:`.
      A hook, a `vi.*` call or any other active statement in the source or the target file refuses the move.
      The source and the target file must also have the same `@vitest-` pragma comments.
      Neither file may be named in a path list of a vitest project of `vitest.config.ts`.
@@ -529,6 +561,16 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
      A removed or renamed file may not stay named in a string of a declaration or in any tracked
      text file that is not Markdown.
      A mode change or a symlink is refused.
+   - Further refusals, each a finding of the check:
+     a changed file may not gain an `export *` statement (`export * added`, so facades use named re-exports);
+     a changed file may not hold a non-`type` import that has no value reference
+     (`value import used only as a type path`, so a slice writes `import type`);
+     a unit moves only between files under the same top-level directory (`src/` to `src/`);
+     a changed, added or deleted `.shade.ts` file is refused, since the check does not model shaders
+     (`shade files do not take part in a pure move`);
+     a file whose repository path is written in `tsconfig*.json`, `eslint.config.mjs`, `vitest.config.ts`,
+     `package.json` or a `scripts/*.json` that is not a baseline may not gain or lose units
+     and may not be added or deleted (`path is named in <config>`).
 
    Consequence of P4 and P5 for a slice. Both files of a split are clean.
    The old file keeps its re-export or its import of the new file.
@@ -549,8 +591,9 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
    - An import of an external package that changes how that package loads.
    - A dynamic or computed access that the checker does not resolve to a declaration.
    - A dynamic `import()` or `require` is not an edge of the cycle graph and of the order.
-   - A value import that the compiler drops (an import used only as a type) counts as an edge.
-   - The check does not load the modules. The order rule of P5 is the only proof of the load order.
+   - The check does not load the modules. Nothing proves a load.
+   - The behaviour of the external packages is assumed identical on both sides.
+   - The order of the hooks of a `describe` across files in a project with `isolate: false` is not modelled.
    - An unchanged file that gets another resolution of a specifier because a file appeared is not checked.
    - The check reads the base and the head only. It does not read the commits between them.
 

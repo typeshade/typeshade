@@ -1,15 +1,8 @@
-import ts from 'typescript';
 import { finding, type Finding } from './finding.js';
 import { freeComments } from './free-comments.js';
 import { isRunnableTest } from './runnable-tests.js';
 import type { Side } from './side-program.js';
-import { isSuiteCallee } from './titles.js';
 import type { Unit } from './units.js';
-
-export const isTestCall = (statement: ts.Statement): boolean =>
-  ts.isExpressionStatement(statement) &&
-  ts.isCallExpression(statement.expression) &&
-  isSuiteCallee(statement.expression.expression);
 
 const startsWithPragma = (text: string): boolean =>
   text
@@ -20,6 +13,15 @@ const pragmasOf = (side: Side, path: string): string =>
   freeComments(side, path)
     .map((comment) => comment.text)
     .filter(startsWithPragma)
+    .sort()
+    .join('\0');
+
+const hasMarker = (text: string): boolean => /\b(?:Verifies|Implements):/.test(text);
+
+const markersOf = (side: Side, path: string): string =>
+  freeComments(side, path)
+    .map((comment) => comment.text)
+    .filter(hasMarker)
     .sort()
     .join('\0');
 
@@ -37,6 +39,9 @@ export function testMoveFindings(
   };
   if (pragmasOf(base, from.path) !== pragmasOf(head, to.path))
     at('test moved across a vitest pragma');
+  if (markersOf(base, from.path) !== markersOf(head, to.path)) {
+    at('test moved across a traceability marker');
+  }
   if (listed.has(from.path) || listed.has(to.path)) at('test moved across a vitest project path');
   if (!isRunnableTest(to.path)) at('test moved to a file vitest does not run');
   return findings;

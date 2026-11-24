@@ -6,7 +6,10 @@ import {
   type EvaluationContext,
   type State,
 } from './evaluation-state.js';
+import { ACCEPTED_STATEMENT_KINDS, isAccepted } from './accepted-kinds.js';
 import { classReason, expressionReason } from './evaluation-free.js';
+
+const PURE_PREFIX = [ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.TildeToken];
 
 function enumInitializerReason(expression: ts.Expression, st: State): string | undefined {
   const { checker } = st.ctx;
@@ -21,18 +24,16 @@ function enumInitializerReason(expression: ts.Expression, st: State): string | u
   if (ts.isParenthesizedExpression(expression))
     return enumInitializerReason(expression.expression, st);
   if (ts.isPrefixUnaryExpression(expression)) {
-    return enumInitializerReason(expression.operand, st);
+    return PURE_PREFIX.includes(expression.operator)
+      ? enumInitializerReason(expression.operand, st)
+      : describeNode(expression);
   }
   if (ts.isBinaryExpression(expression) && !isAssignment(expression.operatorToken.kind)) {
     return (
       enumInitializerReason(expression.left, st) ?? enumInitializerReason(expression.right, st)
     );
   }
-  if (
-    ts.isIdentifier(expression) ||
-    ts.isPropertyAccessExpression(expression) ||
-    ts.isElementAccessExpression(expression)
-  ) {
+  if (ts.isIdentifier(expression) || ts.isPropertyAccessExpression(expression)) {
     const target = ts.isPropertyAccessExpression(expression) ? expression.name : expression;
     const symbol = checker.getSymbolAtLocation(target);
     const declaration = symbol && resolvedDeclaration(symbol, st);
@@ -45,17 +46,8 @@ const isAmbient = (statement: ts.Statement): boolean =>
   ts.canHaveModifiers(statement) &&
   (ts.getModifiers(statement)?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false);
 
-function importEqualsReason(statement: ts.ImportEqualsDeclaration, st: State): string | undefined {
-  const reference = statement.moduleReference;
-  if (ts.isExternalModuleReference(reference)) return undefined;
-  const target = ts.isIdentifier(reference) ? reference : reference.right;
-  const symbol = st.ctx.checker.getSymbolAtLocation(target);
-  const declaration = symbol && resolvedDeclaration(symbol, st);
-  return declaration ? undefined : `unresolved ${describeNode(statement)}`;
-}
-
 function statementReason(statement: ts.Statement, st: State): string | undefined {
-  if (ts.isModuleDeclaration(statement)) return describeNode(statement);
+  if (!isAccepted(ACCEPTED_STATEMENT_KINDS, statement)) return describeNode(statement);
   if (isAmbient(statement)) return undefined;
   if (
     ts.isFunctionDeclaration(statement) ||
@@ -65,7 +57,6 @@ function statementReason(statement: ts.Statement, st: State): string | undefined
   ) {
     return undefined;
   }
-  if (ts.isImportEqualsDeclaration(statement)) return importEqualsReason(statement, st);
   if (ts.isEnumDeclaration(statement)) {
     for (const member of statement.members) {
       const reason = member.initializer && enumInitializerReason(member.initializer, st);
@@ -76,7 +67,9 @@ function statementReason(statement: ts.Statement, st: State): string | undefined
   if (ts.isClassDeclaration(statement)) return classReason(statement, st);
   if (ts.isVariableStatement(statement)) {
     const list = statement.declarationList;
-    if (!(list.flags & ts.NodeFlags.Const)) return describeNode(statement);
+    if ((list.flags & ts.NodeFlags.BlockScoped) !== ts.NodeFlags.Const) {
+      return describeNode(statement);
+    }
     for (const declaration of list.declarations) {
       if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) {
         return describeNode(declaration);

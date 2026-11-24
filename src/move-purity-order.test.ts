@@ -6,8 +6,8 @@ const kinds = (report: MoveReport): string[] => [...new Set(report.findings.map(
 
 describe('the full evaluation order of the modules that exist on both sides (S1)', () => {
   const files = {
-    'src/dA.ts': 'export const A = 1;\n',
-    'src/dB.ts': 'export const B = 2;\n',
+    'src/dA.ts': "export const A = 1;\nregister('A');\n",
+    'src/dB.ts': "export const B = 2;\nregister('B');\n",
   };
   const useB = 'export function useB(): number {\n  return B;\n}\n';
   const base = tree({

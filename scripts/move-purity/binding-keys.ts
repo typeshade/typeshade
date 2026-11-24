@@ -2,7 +2,7 @@ import ts from 'typescript';
 import type { Side } from './side-program.js';
 import { analyzeSource, type Unit } from './units.js';
 
-export interface Bindings {
+interface Bindings {
   readonly texts: string[];
   readonly keys: string[];
 }
@@ -26,7 +26,7 @@ export function identifiersOf(node: ts.Node): ts.Identifier[] {
   return found;
 }
 
-export function topLevelOf(node: ts.Node): ts.Node {
+function topLevelOf(node: ts.Node): ts.Node {
   let current = node;
   while (current.parent && !ts.isSourceFile(current.parent)) current = current.parent;
   return current;

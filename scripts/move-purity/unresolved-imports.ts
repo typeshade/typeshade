@@ -4,7 +4,7 @@ import { finding, type Finding } from './finding.js';
 import type { Links } from './module-links.js';
 import type { Unit } from './units.js';
 
-export interface UnresolvedInput {
+interface UnresolvedInput {
   readonly baseLinks: Links;
   readonly headLinks: Links;
   readonly files: FilePairs;

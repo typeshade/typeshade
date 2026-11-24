@@ -35,11 +35,18 @@ describe('keys that tell a global from an unresolved import (S4)', () => {
     const manifest = JSON.stringify({ name: 'pkg', exports: { './x': './src/x.ts' } });
     const lib = 'export function f(): number {\n  return 1;\n}\n';
     const user = "import { f } from 'pkg/x';\nexport const g = (): number => f();\n";
-    const base = tree({ 'package.json': manifest, 'src/x.ts': lib, 'src/c.ts': user });
+    const entry = "export { f } from './lib.js';\n";
+    const base = tree({
+      'package.json': manifest,
+      'src/x.ts': entry,
+      'src/lib.ts': lib,
+      'src/c.ts': user,
+    });
     const head = tree({
       'package.json': manifest,
-      'src/x.ts': "export { f } from './x/part.js';\n",
-      'src/x/part.ts': lib,
+      'src/x.ts': entry,
+      'src/lib.ts': "export { f } from './lib/part.js';\n",
+      'src/lib/part.ts': lib,
       'src/c.ts': user,
     });
     const report = checkMove(base, head);

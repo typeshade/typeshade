@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { kindName } from './accepted-kinds.js';
 
 export interface EvaluationContext {
   readonly checker: ts.TypeChecker;
@@ -14,7 +15,7 @@ const REASON_LIMIT = 60;
 
 export function describeNode(node: ts.Node): string {
   const text = node.getText().replace(/\s+/g, ' ');
-  return `${ts.SyntaxKind[node.kind]} ${text.slice(0, REASON_LIMIT)}`;
+  return `${kindName(node.kind)} ${text.slice(0, REASON_LIMIT)}`;
 }
 
 export const unwrap = (expression: ts.Expression): ts.Expression => {

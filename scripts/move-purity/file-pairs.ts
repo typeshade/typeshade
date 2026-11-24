@@ -7,7 +7,7 @@ const SPECIFIER = /(\b(?:from|import|require)\s*\(?\s*)(['"])[^'"\n]*\2/g;
 
 const shapeOf = (text: string | undefined): string => (text ?? '').replace(SPECIFIER, '$1$2$2');
 
-export interface FilePair {
+interface FilePair {
   readonly base: string;
   readonly head: string;
 }

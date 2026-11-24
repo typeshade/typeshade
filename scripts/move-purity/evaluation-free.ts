@@ -10,6 +10,12 @@ import {
   type EvaluationContext,
   type State,
 } from './evaluation-state.js';
+import {
+  ACCEPTED_CLASS_MEMBER_KINDS,
+  ACCEPTED_EXPRESSION_KINDS,
+  ACCEPTED_OBJECT_MEMBER_KINDS,
+  isAccepted,
+} from './accepted-kinds.js';
 import { isPrimitiveLiteral } from './primitive-values.js';
 
 export { describeNode, type EvaluationContext };
@@ -102,6 +108,7 @@ function referenceReason(
 }
 
 function primitiveReason(expression: ts.Expression, st: State): string | undefined {
+  if (!isAccepted(ACCEPTED_EXPRESSION_KINDS, expression)) return describeNode(expression);
   if (isPrimitiveLiteral(expression)) return undefined;
   if (ts.isBigIntLiteral(expression)) return undefined;
   if (ts.isTemplateExpression(expression)) {
@@ -194,7 +201,35 @@ function callReason(call: ts.CallExpression | ts.NewExpression, st: State): stri
   if (args.length === 0) return undefined;
   const literal = args.length === 1 ? unwrap(args[0]!) : undefined;
   if (literal === undefined || !ts.isArrayLiteralExpression(literal)) return refuse();
-  return expressionReason(literal, st);
+  const keyed = key === 'new Map' || key === 'new WeakMap';
+  return literal.elements.every((entry) => isCollectionEntry(entry, keyed, st))
+    ? undefined
+    : refuse();
+}
+
+function isEntryAtom(node: ts.Expression, st: State): boolean {
+  const atom = unwrap(node);
+  if (isPrimitiveLiteral(atom) || ts.isBigIntLiteral(atom)) return true;
+  if (ts.isArrowFunction(atom) || ts.isFunctionExpression(atom)) return true;
+  if (!ts.isIdentifier(atom)) return false;
+  const symbol = st.ctx.checker.getSymbolAtLocation(atom);
+  const declaration = symbol && resolvedDeclaration(symbol, st);
+  return (
+    declaration !== undefined &&
+    (ts.isFunctionDeclaration(declaration) ||
+      ts.isClassDeclaration(declaration) ||
+      ts.isEnumDeclaration(declaration))
+  );
+}
+
+function isCollectionEntry(entry: ts.Expression, keyed: boolean, st: State): boolean {
+  if (!keyed) return isEntryAtom(entry, st);
+  const pair = unwrap(entry);
+  return (
+    ts.isArrayLiteralExpression(pair) &&
+    pair.elements.length === 2 &&
+    pair.elements.every((element) => isEntryAtom(element, st))
+  );
 }
 
 function nameReason(name: ts.PropertyName | undefined, st: State): string | undefined {
@@ -211,8 +246,9 @@ const isStatic = (member: ts.ClassElement): boolean =>
   (ts.getModifiers(member)?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ?? false);
 
 function memberReason(member: ts.ClassElement, st: State): string | undefined {
-  if (ts.isClassStaticBlockDeclaration(member) || hasDecorators(member))
+  if (!isAccepted(ACCEPTED_CLASS_MEMBER_KINDS, member) || hasDecorators(member)) {
     return describeNode(member);
+  }
   if (ts.isConstructorDeclaration(member) && member.parameters.some(hasDecorators)) {
     return describeNode(member);
   }
@@ -247,17 +283,19 @@ export function classReason(node: ts.ClassLikeDeclaration, st: State): string | 
 function objectReason(literal: ts.ObjectLiteralExpression, st: State): string | undefined {
   for (const property of literal.properties) {
     let reason: string | undefined;
-    if (ts.isShorthandPropertyAssignment(property)) reason = referenceReason(property.name, st);
+    if (!isAccepted(ACCEPTED_OBJECT_MEMBER_KINDS, property)) reason = describeNode(property);
+    else if (ts.isShorthandPropertyAssignment(property))
+      reason = referenceReason(property.name, st);
     else if (ts.isPropertyAssignment(property)) {
       reason = nameReason(property.name, st) ?? expressionReason(property.initializer, st);
-    } else if (ts.isSpreadAssignment(property)) reason = describeNode(property);
-    else reason = nameReason(property.name, st);
+    } else reason = nameReason(property.name, st);
     if (reason !== undefined) return reason;
   }
   return undefined;
 }
 
 export function expressionReason(expression: ts.Expression, st: State): string | undefined {
+  if (!isAccepted(ACCEPTED_EXPRESSION_KINDS, expression)) return describeNode(expression);
   if (
     ts.isNumericLiteral(expression) ||
     ts.isBigIntLiteral(expression) ||

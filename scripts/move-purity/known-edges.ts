@@ -14,7 +14,7 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return current;
 }
 
-export function knownStatement(
+function knownStatement(
   source: ts.SourceFile,
 ): { statement: ts.VariableStatement; array: ts.ArrayLiteralExpression } | undefined {
   for (const statement of source.statements) {

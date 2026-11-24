@@ -7,14 +7,14 @@ import { createSide } from './side-program.js';
 
 const SAMPLE_FILES = 3;
 
-export interface CleanFileRow {
+interface CleanFileRow {
   readonly path: string;
   readonly units: number;
   readonly activeUnits: number;
   readonly inCycle: boolean;
 }
 
-export interface CleanTotals {
+interface CleanTotals {
   readonly files: number;
   readonly clean: number;
   readonly withActiveUnits: number;
@@ -30,7 +30,7 @@ export interface CleanReport {
   readonly files: CleanFileRow[];
 }
 
-export const isReportedFile = (path: string): boolean =>
+const isReportedFile = (path: string): boolean =>
   path.startsWith('src/') &&
   path.endsWith('.ts') &&
   !path.endsWith('.test.ts') &&

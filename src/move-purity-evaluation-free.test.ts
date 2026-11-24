@@ -8,13 +8,19 @@ const library = {
   'src/e.ts':
     'export enum SOME_ENUM {\n  A,\n  B,\n}\nexport const shared = { a: 1 };\nexport const FROZEN = Object.freeze({ a: 1 });\nexport class Base {}\nexport function helper(): number {\n  return 1;\n}\n',
 };
-const imports =
-  "import { SOME_ENUM, shared, FROZEN, Base, helper } from './e.js';\nimport * as ns from './e.js';\n";
+const importsFor = (text: string): string => {
+  const names = ['SOME_ENUM', 'shared', 'FROZEN', 'Base', 'helper'].filter((name) =>
+    new RegExp(`\\b${name}\\b`).test(text),
+  );
+  const named = names.length > 0 ? `import { ${names.join(', ')} } from './e.js';\n` : '';
+  return named + (/\bns\./.test(text) ? "import * as ns from './e.js';\n" : '');
+};
+const withImports = (text: string): string => importsFor(text) + text;
 
 const moveOut = (unit: string): MoveReport =>
   checkMove(
-    tree({ ...library, 'src/a.ts': imports + unit + keep }),
-    tree({ ...library, 'src/a.ts': imports + keep, 'src/b.ts': imports + unit }),
+    tree({ ...library, 'src/a.ts': withImports(unit + keep) }),
+    tree({ ...library, 'src/a.ts': withImports(keep), 'src/b.ts': withImports(unit) }),
   );
 
 const refusals = (report: MoveReport): string[] =>
@@ -105,9 +111,9 @@ describe('evaluation-free moves only (P4)', () => {
     const report = moveOut(unit);
     const details = refusals(report);
     expect(details).toHaveLength(2);
-    expect(details[0]).toMatch(/^base: active unit at line 3: [A-Za-z]+/);
-    expect(details[1]).toMatch(/^head: active unit at line 3: [A-Za-z]+/);
-    const reason = details[0]!.replace(/^base: active unit at line 3: /, '');
+    expect(details[0]).toMatch(/^base: active unit at line \d+: [A-Za-z]+/);
+    expect(details[1]).toMatch(/^head: active unit at line \d+: [A-Za-z]+/);
+    const reason = details[0]!.replace(/^base: active unit at line \d+: /, '');
     expect(reason.length).toBeLessThanOrEqual(60);
     expect(report.pure).toBe(false);
   });
@@ -121,27 +127,56 @@ describe('evaluation-free moves only (P4)', () => {
     expect(report.pure).toBe(true);
   });
 
-  const snippets: Record<string, (argument: string) => string> = {
-    'Object.freeze': (a) => `const V = Object.freeze({ a: ${a} });\n`,
-    'new Map': (a) => `const V = new Map([[1, ${a}]]);\n`,
-    'new Set': (a) => `const V = new Set([${a}]);\n`,
-    'new WeakMap': (a) => `const V = new WeakMap([[{}, ${a}]]);\n`,
-    'new WeakSet': (a) => `const V = new WeakSet([${a}]);\n`,
-    Symbol: (a) => `const V = Symbol(${a});\n`,
-    'Symbol.for': (a) => `const V = Symbol.for(${a});\n`,
+  const forms: Record<string, { good: string[]; bad: string[] }> = {
+    'Object.freeze': {
+      good: ['Object.freeze({ a: 1 })', 'Object.freeze([1, 2])'],
+      bad: ['Object.freeze(shared)', 'Object.freeze({ a: make() })', 'Object.freeze(make())'],
+    },
+    'new Map': {
+      good: ['new Map()', "new Map([[1, 'a'], ['b', helper], [Base, SOME_ENUM]])"],
+      bad: [
+        'new Map([{ get 0() { run(); return 1; }, 1: 2 }])',
+        'new Map([shared])',
+        'new Map([...[[1, 2]]])',
+        'new Map([[shared, 1]])',
+        'new Map([[1, 2, 3]])',
+        'new Map([[1, make()]])',
+        'new Map(shared)',
+      ],
+    },
+    'new WeakMap': {
+      good: ['new WeakMap()', 'new WeakMap([[helper, 1]])'],
+      bad: [
+        'new WeakMap([{ get 0() { run(); return helper; }, 1: 2 }])',
+        'new WeakMap([[{}, 1]])',
+        'new WeakMap([shared])',
+        'new WeakMap([...[]])',
+      ],
+    },
+    'new Set': {
+      good: ['new Set()', "new Set([1, 'a', helper, Base])"],
+      bad: ['new Set([{ a: 1 }])', 'new Set([shared])', 'new Set([...[1]])', 'new Set([make()])'],
+    },
+    'new WeakSet': {
+      good: ['new WeakSet()', 'new WeakSet([helper])'],
+      bad: ['new WeakSet([{}])', 'new WeakSet([shared])', 'new WeakSet([...[]])'],
+    },
+    Symbol: { good: ["Symbol('a')", 'Symbol()'], bad: ['Symbol(make())', 'Symbol(shared)'] },
+    'Symbol.for': { good: ["Symbol.for('a')"], bad: ['Symbol.for(make())', 'Symbol.for()'] },
   };
 
-  it('has one snippet for each entry of the allow-list', () => {
-    expect(Object.keys(snippets).sort()).toEqual([...EVALUATION_FREE_CALLS].sort());
+  it('has one set of forms for each entry of the allow-list', () => {
+    expect(Object.keys(forms).sort()).toEqual([...EVALUATION_FREE_CALLS].sort());
   });
 
-  it.each(EVALUATION_FREE_CALLS)(
-    'accepts %s with free arguments and refuses it with a call',
-    (entry) => {
-      const snippet = snippets[entry]!;
-      const literal = entry.startsWith('Symbol') ? "'a'" : "'a'";
-      expect(refusals(moveOut(snippet(literal)))).toEqual([]);
-      expect(refusals(moveOut(snippet('make()'))).length).toBeGreaterThan(0);
+  it.each(Object.entries(forms))(
+    'accepts the good forms of %s and refuses the bad ones',
+    (_, f) => {
+      for (const good of f.good)
+        expect(refusals(moveOut(`const V = ${good};\n`)), good).toEqual([]);
+      for (const bad of f.bad) {
+        expect(refusals(moveOut(`const V = ${bad};\n`)).length, bad).toBeGreaterThan(0);
+      }
     },
   );
 });

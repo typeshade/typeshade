@@ -4,8 +4,8 @@ import { renamingOnlyMarkdown } from './markdown.js';
 
 export const SIZE_BASELINE = 'scripts/file-size-baseline.json';
 export const COMMENT_BASELINE = 'scripts/comment-baseline.json';
-export const SURFACE_PATH = 'src/__api__/surface.md';
-export const FORBIDDEN_PATHS: readonly string[] = ['docs/owner-decisions.md', 'CLAUDE.md'];
+const SURFACE_PATH = 'src/__api__/surface.md';
+const FORBIDDEN_PATHS: readonly string[] = ['docs/owner-decisions.md', 'CLAUDE.md'];
 
 export interface OutsideEntry {
   readonly path: string;
@@ -18,7 +18,7 @@ export interface DiffEntry {
   readonly newMode: string;
 }
 
-export interface OutsideResult {
+interface OutsideResult {
   readonly outside: OutsideEntry[];
   readonly knownEdgesRemoved: string[];
   readonly surfacePathChanges: number;

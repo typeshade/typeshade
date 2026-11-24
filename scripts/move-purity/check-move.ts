@@ -5,11 +5,12 @@ import { matchUnits, type UnitDiff } from './compare-units.js';
 import { directiveViolations, type DirectiveViolation } from './directives.js';
 import { surfaceFindings } from './export-surface.js';
 import { filePairs } from './file-pairs.js';
-import type { Finding } from './finding.js';
+import { finding, type Finding } from './finding.js';
 import { freeCommentFindings, preambleFindings } from './free-comments.js';
 import { VITEST_CONFIG_PATH, listedPaths } from './vitest-config.js';
 import { linkFindings } from './module-evaluation.js';
 import { cleanFileFindings } from './clean-files.js';
+import { configPathFindings } from './config-paths.js';
 import { evaluationOrderFindings } from './evaluation-order.js';
 import { pathReferenceFindings } from './path-references.js';
 import { unresolvedImportFindings } from './unresolved-imports.js';
@@ -37,13 +38,13 @@ export interface MoveReport {
   readonly surfacePathChanges: number;
 }
 
-export interface CheckOptions {
+interface CheckOptions {
   readonly paths?: readonly string[];
   readonly entries?: readonly DiffEntry[];
   readonly root?: string;
 }
 
-export const FIXTURE_ROOT = '/move-purity-fixture';
+const FIXTURE_ROOT = '/move-purity-fixture';
 
 export function changedPaths(
   base: ReadonlyMap<string, string>,
@@ -121,6 +122,10 @@ export function checkMove(
         label: 'head',
       }),
       ...order.findings,
+      ...sources
+        .filter((path) => path.endsWith('.shade.ts'))
+        .map((path) => finding('shade files do not take part in a pure move', path, '')),
+      ...configPathFindings(baseSide, headSide, sources),
       ...surfaceFindings(baseSide, headSide, baseKeyer, headKeyer),
       ...linkFindings({ baseLinks, headLinks, files }),
       ...unresolvedImportFindings({ baseLinks, headLinks, files, moved: match.moved }),
