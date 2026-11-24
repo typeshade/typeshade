@@ -903,6 +903,7 @@ What a pass does not prove:
     - A skipped gate runs on the push to `main` after the merge (`on.push.branches: [main]` of each workflow).
       A run on `main` is never cancelled by a later push: `concurrency` of the three workflows sets
       `cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}`.
+      Each commit of `main` also has its own `concurrency` group (`github.sha`), because GitHub replaces a waiting run of a group with a newer one.
       Rule 13.4 and change `0147` record this exception.
       A failure there marks the commit on `main` red and notifies the account that merged and the watchers of Actions.
       No workflow opens an issue or reverts the commit.
