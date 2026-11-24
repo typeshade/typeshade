@@ -1,6 +1,7 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import type { FuncDecl, ModuleDecl, StructDecl } from '../../../core/ir/nodes.js';
 import { lowerKernel } from '../../../core/passes/kernel-lower.js';
+import { pruneUnreachedHelpers } from '../../../core/passes/kernel-prune.js';
 import type { LowerOptions } from '../../../core/passes/kernel-lower-ir.js';
 import type { KernelProof } from '../../../core/passes/parallel-loop.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -79,10 +80,18 @@ export function lowerKernelFor(
   proof: KernelProof,
   options: LowerOptions = {},
 ): ReturnType<typeof lowerKernel> {
-  return lowerKernel(f, m, proof, {
+  const plan = lowerKernel(f, m, proof, {
     ...options,
     ...(madeArrayOf(f)?.counted === true ? { exactTotal: true } : {}),
   });
+  if ('noGpu' in plan) return plan;
+  return {
+    ...plan,
+    module: pruneUnreachedHelpers(plan.module),
+    ...(plan.subgroupModule !== undefined
+      ? { subgroupModule: pruneUnreachedHelpers(plan.subgroupModule) }
+      : {}),
+  };
 }
 
 export function madeFace(
