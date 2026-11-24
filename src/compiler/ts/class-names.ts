@@ -166,11 +166,10 @@ export function callerClassForm(
   return own === true && returnsIt ? { thisParam: first, typeParam: name } : undefined;
 }
 
-/** Whether a `this` inside a static member is typed by the member's `this` parameter of 0020
- *  ({@link callerClassForm}): a constructor type, which TypeScript lets `new this()` build
- *  whatever class the call names, an `abstract` one aside, which the call alone is refused for
- *  (TS2684). Without it `this` is the class that declares the member, and TypeScript refuses a
- *  `new` of it when that class is abstract (TS2511). */
+// Why: TypeScript lets `new this()` build whatever class the call names under the `this`
+// parameter of 0020, an `abstract` one aside, which the call alone is refused for (TS2684);
+// without it `this` is the class that declares the member, and a `new` of it is refused when
+// that class is abstract (TS2511).
 export function isCallerClassThis(node: ts.Node): boolean {
   const member = staticThisMember(node);
   return (

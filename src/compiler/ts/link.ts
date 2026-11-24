@@ -287,8 +287,8 @@ const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean =>
 /** What a top-level statement's name means to a host, when the linker must leave it alone. */
 function fixedNameOf(stmt: ts.Statement): Unit['fixedName'] {
   if (ts.isFunctionDeclaration(stmt)) {
-    // A decorator on a function declaration is not TypeScript's grammar, so the parser leaves
-    // it among the modifiers rather than where `getDecorators` looks.
+    // Why: a decorator on a function declaration is not TypeScript's grammar, so the parser
+    // leaves it among the modifiers rather than where `getDecorators` looks.
     for (const m of stmt.modifiers ?? []) {
       if (!ts.isDecorator(m)) continue;
       const e = ts.isCallExpression(m.expression) ? m.expression.expression : m.expression;
@@ -911,8 +911,8 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     const decl = symbol.declarations?.[0];
     if (decl === undefined) return false;
     if (ts.isTypeOnlyImportOrExportDeclaration(decl)) return true;
-    // `import { N } from "./c"` and `export { N } from "./c"` name a module, whose export of
-    // `N` may come through an `export *`, which leaves no alias symbol to walk.
+    // Why: `import { N } from "./c"` and `export { N } from "./c"` name a module, whose export
+    // of `N` may come through an `export *`, which leaves no alias symbol to walk.
     const spec = ts.isImportSpecifier(decl) || ts.isExportSpecifier(decl) ? decl : undefined;
     const from =
       spec === undefined
@@ -969,7 +969,7 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     let values = moduleValues.get(f);
     if (values === undefined) {
       values = new Map();
-      // An import's binding is an alias, which is in scope only when asked for.
+      // Why: an import's binding is an alias, which `getSymbolsInScope` lists only when asked for.
       const flags = ts.SymbolFlags.Value | ts.SymbolFlags.Alias;
       for (const s of checker.getSymbolsInScope(f.sf, flags)) values.set(s.name, s);
       moduleValues.set(f, values);
