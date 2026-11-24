@@ -426,7 +426,6 @@
   "src/core/debug/interp.ts": 255,
   "src/core/debug/phased.test.ts": 16,
   "src/core/debug/phased.ts": 33,
-  "src/core/debug/session.ts": 64,
   "src/core/debug/step-differential.test.ts": 21,
   "src/core/debug/step-multifile.test.ts": 29,
   "src/core/debug/step.test.ts": 92,
