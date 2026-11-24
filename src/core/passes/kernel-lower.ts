@@ -113,7 +113,7 @@ import { pushEntries } from './kernel-push/push-entries.js';
 import { deviceRangeLoops, lastLoopOf, readsElements, storeAfterLoops } from './kernel-stores.js';
 import { mapExpr } from './opt/ir-transform.js';
 import { proveKernels, type KernelProof, type LoopReduction } from './parallel-loop.js';
-// Rule 11.8: keep the WebGL2 lowering entry point here; kernel-lower-gl.ts owns its implementation.
+// Why: Rule 11.8 keeps the WebGL2 lowering entry point exported here; kernel-lower-gl.ts owns its implementation.
 export { GL_DISPATCH, GL_OUT, lowerKernelGl, type KernelGlLoopPlan } from './kernel-lower-gl.js';
 export {
   type KernelCollection,
@@ -295,7 +295,7 @@ export function lowerKernel(
         return { noGpu: `the module already declares "${n}", the name of the call's trip buffer` };
   }
 
-  // Rule 3.3: a storage binding is the WGSL name of an array parameter, and WGSL reserves some
+  // Why: Rule 3.3. A storage binding is the WGSL name of an array parameter, and WGSL reserves some
   // of the names an author may give one. Only the emitted spelling changes: the face, the
   // loops' facts and the errors keep the authored name.
   const bindingNames = spellArrayBindings(
@@ -1451,8 +1451,8 @@ function combineInto(r: LoopReduction, t: Expr): Stmt {
 function identityOf(r: LoopReduction): Expr {
   const t = r.type;
   if (t.kind === 'f64' || t.kind === 'vec64') {
-    // An emulated double's range is its `hi` f32's, and an infinity is no literal Tint takes, so
-    // `min` and `max` start from the largest finite f32, as an `f32` one does.
+    // Why: an infinity is no literal Tint takes, so the `min` and `max` of an emulated double start
+    // from the largest finite f32, as an `f32` one does.
     const one = treeIdentity(r.op, 'f64') as number;
     const value = Number.isFinite(one) ? one : one > 0 ? F32_MAX_VALUE : -F32_MAX_VALUE;
     const e: Expr = { op: 'lit', type: { kind: 'f64' }, value };
