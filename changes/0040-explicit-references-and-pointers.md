@@ -343,7 +343,7 @@ request.
   `@inout`. §70: retitled "Parameter qualifiers: `@inout` and `@out`", restated.
 - `TS8073` reworded for unmarked arguments and qualifiers; `TS8074` unchanged; `TS8018`'s remedy
   names `@inout`. `TS8075` is change 0043's.
-- `examples/reference-parameters.shade.ts`: the same shapes written with `@inout`, and an `@out`
+- `examples/gallery/reference-parameters/reference-parameters.shade.ts`: the same shapes written with `@inout`, and an `@out`
   that writes a result into an unassigned local, through the compile gate on Tint and WebGL2 and
   the differential gate, and in the site's gallery.
 - `src/__api__/surface.md` is rebaked if the ambient declaration file's exported text changes;

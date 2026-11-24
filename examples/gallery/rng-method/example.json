@@ -1,0 +1,8 @@
+{
+  "title": "A method that changes its object and returns a value",
+  "blurb": "A `class Rng` whose `next()` advances the generator's state and returns the draw: it takes its object by reference, a pointer on WGSL and `inout` on GLSL ES 3.00, and returns an `f32` like any method (§26). Three draws inside one `vec3(...)` and a draw in one arm of `?:` run in source order, each bound to a `let` ahead of its statement, and the arm is an `if`, so it draws only where it is chosen (Rule 7.9). Renders coloured grain with a few sparkles.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

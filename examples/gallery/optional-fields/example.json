@@ -1,0 +1,8 @@
+{
+  "title": "Optional fields, elements and parameters",
+  "blurb": "A struct field, an array element and a parameter hold `T | undefined` (§76, change 0093). `Hit` carries `normal: vec2 | undefined` and `radius?: f32`, built in a function and read through `??`, `?.` and a member path narrowed by `if (h.normal !== undefined)`; `samples` is an `array<f32 | undefined, 4>` filled on some indices and folded in a loop; `clampTo` takes `limit?: f32` and is called with and without it. The optional struct `_opt_f32_` is declared before `Hit`, which holds it, on WGSL and GLSL ES 3.00 alike.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}
