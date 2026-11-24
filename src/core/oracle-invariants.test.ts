@@ -127,7 +127,7 @@ export function run(): f32 { bump(); bump(); return g; }`),
   });
 });
 
-describe('oracle: f32 mode rounds an initializer that autoVars materialises', () => {
+describe('oracle: f32 mode rounds the initializer of a value assigned after its binding', () => {
   it('a value assigned after its binding holds the f32 of its initializer', () => {
     const m = module({
       funcs: [
