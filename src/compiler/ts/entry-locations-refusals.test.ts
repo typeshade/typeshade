@@ -1,6 +1,3 @@
-// A field or parameter that cannot take a given location is refused once, and what reads it
-// says nothing more. Each program is read by both halves (Rule 12.7).
-
 import { describe, expect, it } from 'vitest';
 import { bothHalves } from '../../core/testing/both-halves.js';
 
