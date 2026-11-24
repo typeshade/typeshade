@@ -1,0 +1,8 @@
+{
+  "title": "Imported noise",
+  "blurb": "Clouds drawn with the `fbm` of another shader file: `import { fbm } from \"./noise.shade.ts\"` links the library into this module, which holds what the fragment entry reaches and nothing else. The two files are one program, and each keeps its own scope.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

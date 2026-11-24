@@ -1,0 +1,9 @@
+{
+  "title": "Plasma (source twin)",
+  "blurb": "`shadertoy-plasma.ts` written in the source language: three interfering sine waves, the same wave at three phase offsets becoming the three colour channels. The smallest fullscreen twin there is.",
+  "group": "works",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true,
+  "twinOf": "plasma"
+}

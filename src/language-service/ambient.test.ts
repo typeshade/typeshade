@@ -24,7 +24,6 @@ const ambientService = () =>
   createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge: false });
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXAMPLES_DIR = join(HERE, '..', '..', 'examples');
 const SOT_FILE = join(HERE, '..', 'core', 'sot.ts');
 const FUNCTION_FILE = join(HERE, '..', 'compiler', 'ts', 'lower', 'function.ts');
 const STRUCTS_FILE = join(HERE, '..', 'compiler', 'ts', 'structs.ts');
@@ -62,11 +61,11 @@ const REQUIRED_EXAMPLES = [
 const EXPECTED_WARNINGS: Readonly<Record<string, readonly string[]>> = {
   'loop-on-cpu.shade.ts': [
     'typeshade TS8070: This loop runs on the CPU because it is an open loop',
-    'typeshade TS8070: This loop runs on the CPU because line 32 returns from inside it',
-    'typeshade TS8070: This loop runs on the CPU because line 43 writes "nearest"',
-    'typeshade TS8070: This loop runs on the CPU because line 52 reads "out[i - 1]"',
-    'typeshade TS8070: This loop runs on the CPU because line 59 calls "tally"',
-    'typeshade TS8070: This loop runs on the CPU because line 66 calls console.log',
+    'typeshade TS8070: This loop runs on the CPU because line 23 returns from inside it',
+    'typeshade TS8070: This loop runs on the CPU because line 34 writes "nearest"',
+    'typeshade TS8070: This loop runs on the CPU because line 43 reads "out[i - 1]"',
+    'typeshade TS8070: This loop runs on the CPU because line 50 calls "tally"',
+    'typeshade TS8070: This loop runs on the CPU because line 57 calls console.log',
   ],
 };
 
@@ -78,10 +77,10 @@ describe('SHADE_DTS: every .shade.ts example produces zero diagnostics', () => {
   });
 
   // An example that imports another file reads it from the examples directory, as `compile()`
-  // does in `examples/_shade.ts`: `imported-noise.shade.ts` imports `lib/noise.shade.ts` (§68).
+  // does in `examples/_shade.ts`: `imported-noise.shade.ts` imports `noise.shade.ts` (§68).
   const readExample = (name: string): string | undefined => {
     try {
-      return readFileSync(join(EXAMPLES_DIR, name), 'utf8');
+      return readFileSync(join(dirname(exampleFile('imported-noise')), name), 'utf8');
     } catch {
       return undefined;
     }

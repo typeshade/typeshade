@@ -215,11 +215,7 @@ class Wording {
           return `${why} ${this.line(r.at)} reads "${this.local(r.name)}", ${what} the loop adds to, whose entries depend on the iterations before. Read it after the loop, or in a later loop that does not add to it.`;
         }
         if (r.why === 'reads-pushed') {
-          const read =
-            r.read.op === 'call' && r.read.fn === 'pushCount'
-              ? `${this.local(r.name)}.length`
-              : this.expr(r.read);
-          return `${why} ${this.line(r.at)} reads "${read}", and "${this.local(r.name)}" is an array the loop pushes onto, whose length and elements depend on the iterations before. Read it after the loop.`;
+          return `${why} ${this.line(r.at)} reads "${this.expr(r.read)}", and "${this.local(r.name)}" is an array the loop pushes onto, whose length and elements depend on the iterations before. Read it after the loop.`;
         }
         if (r.why === 'push-result')
           return `${why} ${this.line(r.at)} uses the value push returns, the length before it, which depends on the iterations before. Call push as a statement of its own, and read the length after the loop.`;
@@ -287,8 +283,10 @@ class Wording {
       case 'overrideref':
       case 'externref':
         return e.name;
-      case 'index':
-        return `${this.print(e.base, 9)}[${this.print(e.idx, 0)}]`;
+      case 'index': {
+        const at = e.idx.op === 'call' && CHECKED_INDEX.has(e.idx.fn) ? e.idx.args[1]! : e.idx;
+        return `${this.print(e.base, 9)}[${this.print(at, 0)}]`;
+      }
       case 'member':
         return `${this.print(e.base, 9)}.${e.field}`;
       case 'unop':
@@ -299,8 +297,8 @@ class Wording {
         return p < outer ? `(${text})` : text;
       }
       case 'call':
-        // The IR spells `xs.length` as `arrayLength(xs)`; the author wrote the first.
-        if (e.fn === 'arrayLength' && e.declRef === undefined && e.args.length === 1)
+        // The IR spells `xs.length` as `arrayLength(xs)`, or `pushCount(xs)` for a grown array; the author wrote the first.
+        if (LENGTH_BUILTINS.has(e.fn) && e.declRef === undefined && e.args.length === 1)
           return `${this.print(e.args[0]!, 9)}.length`;
         // A call through a declaration is a function of the module, which the author wrote as
         // `Voice.shift` where the module emits `Voice_shift`; a builtin keeps its id.
@@ -312,6 +310,9 @@ class Wording {
     }
   }
 }
+
+const LENGTH_BUILTINS: ReadonlySet<string> = new Set(['arrayLength', 'pushCount']);
+const CHECKED_INDEX: ReadonlySet<string> = new Set(['pushedReadAt', 'pushedStoreAt']);
 
 const PRECEDENCE: Readonly<Record<string, number>> = {
   '*': 6,
