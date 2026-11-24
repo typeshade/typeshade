@@ -2493,7 +2493,7 @@ export const WGSL_ROWS: readonly Row[] = [
       643,
     ),
     webgl2: na(
-      'GLSL ES 3.00 has no built-in value for a linear invocation index; its section 7 variables hold none',
+      'surface §50 refuses the value on every tier (Tint does not accept it); a compute entry computes a linear index itself (Rule 11.8)',
     ),
   },
   {
@@ -2679,7 +2679,7 @@ export const WGSL_ROWS: readonly Row[] = [
       643,
     ),
     webgl2: na(
-      'GLSL ES 3.00 has no built-in value for a linear invocation index; its section 7 variables hold none',
+      'surface §50 refuses the value on every tier (Tint does not accept it); a compute entry computes a linear index itself (Rule 11.8)',
     ),
   },
   // ─── attributes (18 keys) ───
@@ -3309,7 +3309,7 @@ export const WGSL_ROWS: readonly Row[] = [
       643,
     ),
     webgl2: na(
-      'GLSL ES 3.00 has no built-in value for a linear invocation index; its section 7 variables hold none',
+      'surface §50 refuses the value on every tier (Tint does not accept it); a compute entry computes a linear index itself (Rule 11.8)',
     ),
   },
   {

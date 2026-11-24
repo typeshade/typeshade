@@ -340,7 +340,7 @@ export type GlTexture = NonNullable<PackGlCompute['textures']>[number];
  *  is. GLSL ES 3.00 reads every sampler a fragment stage reads in a vertex stage as well: a 2D,
  *  2D array, 3D or cube texture of any element, a depth texture of those dimensions as the shadow
  *  sampler its comparison sampler fuses into, and the sampler. A 1D, cube array or multisampled
- *  texture has no GLSL ES 3.00 sampler at all (Rule 10.5 defers their lowering). A storage
+ *  texture is not supported yet on the WebGL2 tier (Rule 10.5). A storage
  *  texture is no sampler: `storageTexturesAsRoots` makes it a memory root. */
 function glUnbound(t: ShaderType): string | undefined {
   switch (t.kind) {
@@ -351,7 +351,7 @@ function glUnbound(t: ShaderType): string | undefined {
     case 'depth-texture':
       return t.dim === '2d' || t.dim === '2d-array' || t.dim === 'cube' || t.dim === '3d'
         ? undefined
-        : 'which GLSL ES 3.00 has no sampler for (Rule 10.5 defers its lowering)';
+        : 'which is not supported yet on the WebGL2 tier (Rule 10.5)';
     // A storage texture is a memory root of the pass program (`storageTexturesAsRoots`).
     case 'storage-texture':
       return undefined;

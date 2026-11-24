@@ -111,8 +111,8 @@ declare const t: texture_storage_2d<"rgba8snorm", "write">;
 }
 `;
 
-// A vertex+fragment module whose storage binding the GLSL storage emulation cannot spell
-// (an array of mat4). WGSL emits; only emitGlslStages throws.
+// A vertex+fragment module whose storage binding the GLSL storage emulation does not lower yet
+// (an array of mat4, Rule 10.5). WGSL emits; only emitGlslStages throws.
 const GLSL_UNSUPPORTED_BINDING = `
 "use typeshade";
 declare const m: storage<array<mat4, 2>>;

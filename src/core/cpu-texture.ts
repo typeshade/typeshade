@@ -56,11 +56,11 @@ const ARRAYS = {
 type Texels =
   Uint8Array | Int8Array | Uint16Array | Int16Array | Float32Array | Uint32Array | Int32Array;
 
-/** Why the CPU tier cannot hold a texture of `format`, or undefined when it can. */
+/** Why a texture of `format` is not supported yet on the CPU tier (Rule 11.7), or undefined. */
 export function cpuFormatGap(format: string): string | undefined {
   return FORMATS[format] !== undefined
     ? undefined
-    : `the CPU tier holds no ${format} texture; it holds ${Object.keys(FORMATS).join(', ')}`;
+    : `a ${format} texture is not supported yet on the CPU tier (Rule 11.7); the CPU tier holds ${Object.keys(FORMATS).join(', ')}`;
 }
 
 /**

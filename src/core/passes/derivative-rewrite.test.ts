@@ -393,7 +393,7 @@ declare const s: sampler;
     const cm = compileModule(r.module);
     cm.setBinding('t', 0);
     cm.setBinding('s', 0);
-    expect(() => cm.fns['fs']!([0, 0, 0, 1])).toThrow(/dpdx.*GPU-only/);
+    expect(() => cm.fns['fs']!([0, 0, 0, 1])).toThrow(/dpdx.*not supported yet on the CPU tier/);
   });
 });
 

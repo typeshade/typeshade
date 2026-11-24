@@ -403,7 +403,7 @@ declare const out: storage<array<vec3>, "read_write">;
     ).rejects.toThrow('binding "xs" (array<f32>): got an empty array, which WebGPU cannot bind.');
   });
 
-  it('needs WebGPU for an entry that reaches a barrier, naming the barrier and its line', async () => {
+  it('has no tier for an entry that reaches a barrier, naming the barrier and its line', async () => {
     const e = entryOf(face(SYNC).exports, 'cs');
     expect(e.entry.barrier).toMatch(/^workgroupBarrier\(\) at m\.shade\.ts:\d+$/);
     const m = await load(SYNC);
@@ -415,7 +415,7 @@ declare const out: storage<array<vec3>, "read_write">;
       ]),
     );
     await expect(call(bindings, 1)).rejects.toThrow(
-      /^cs\(\) needs WebGPU: it reaches workgroupBarrier\(\) at m\.shade\.ts:\d+, not supported yet on the CPU tier \(Rule 8\.24\)\.$/,
+      /^cs\(\) has no tier: .*cpu: it reaches workgroupBarrier\(\) at m\.shade\.ts:\d+, not supported yet on the CPU tier \(Rule 8\.24\)\.$/,
     );
   });
 });
