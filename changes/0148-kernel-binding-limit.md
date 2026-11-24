@@ -1,12 +1,14 @@
 ---
 id: '0148'
 title: A kernel function that binds more arrays than a device allows still runs, and says why where it falls to a tier
-status: draft
+status: accepted
 rules:
   - '8.22'
   - '11.8'
+  - '11.13'
 surface:
   - 65
+  - 71
 exports: []
 exports-removed: []
 codes: []
@@ -25,13 +27,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0148`, `status: draft`. The front matter is the identity and lifecycle authority. `0147` is taken on `main`, so `0148` is the next free number.                                                                                                                                      |
-| Date and attribution          | Written 2026-11-24, UTC. The date records authorship, not an approval. A Claude Code sub-agent drafted it for the orchestrating session. On 2026-11-24 the owner delegated decisions to that session ("제대로 다시, 저의 의견이 사실 필요 없거든요"). The delegation is not an approval of this text. |
-| Applicability / Effectivity   | `src/core/host-kernel.ts` (`tierFit`, `deviceBindings`), `src/core/host-kernel-gl.ts`, `src/core/fuse-plan.ts`, `src/core/fuse-group.ts`, `docs/language-design.md` Rule 11.8 and `docs/use-typeshade-surface.md` §65. No release version is assigned (OD-6).                                         |
-| Review baseline               | `origin/main` at `be2e83de6ba5cdaddc2b8f19a74f98061bad78fe`. The probe in "Why" ran on that commit.                                                                                                                                                                                                   |
-| Review and revision authority | Issue #1137. No pull request is assigned at the time of writing. Git records the revisions, and the review and merge of the pull request that carries this file record the decision.                                                                                                                  |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Change proposal `0148`, `status: accepted`. The front matter is the identity and lifecycle authority. `0147` is taken on `main`, so `0148` is the next free number.                                                                                                                                                                    |
+| Date and attribution          | Written 2026-11-24, UTC. The date records authorship, not an approval. A Claude Code sub-agent drafted it for the orchestrating session. On 2026-11-24 the owner delegated decisions to that session ("제대로 다시, 저의 의견이 사실 필요 없거든요"). The delegation is the authority for the orchestrating session's decisions below. |
+| Applicability / Effectivity   | `src/core/host-kernel.ts` (`tierFit`, `deviceBindings`), `src/core/host-kernel-gl.ts`, `src/core/fuse-plan.ts`, `src/core/fuse-group.ts`, `docs/language-design.md` Rules 11.8 and 11.13 and `docs/use-typeshade-surface.md` §65 and §71. No release version is assigned (OD-6).                                                       |
+| Review baseline               | `origin/main` at `be2e83de6ba5cdaddc2b8f19a74f98061bad78fe`. The probe in "Why" ran on that commit.                                                                                                                                                                                                                                    |
+| Review and revision authority | Issue #1137. Pull request #1562. Git records the revisions, and the review and merge of the pull request that carries this file record the decision.                                                                                                                                                                                   |
 
 ## What changes
 
@@ -48,18 +50,18 @@ import { twelve } from './twelve.shade.js';
 await twelve(x0, x1, x2, x3, x4, x5, o0, o1, o2, o3, o4, o5);
 ```
 
-| Step           | What the author sees                                                                                                                                                                                                                                                                                |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Today          | `tshc check` says `No problems found in 1 file.` On a device that allows 8, the first call rejects with Tint's sentence: `The number of storage buffers (12) in the Compute stage exceeds the maximum per-stage limit (8).` The call does not run on any tier.                                      |
-| After stage S1 | The call runs on the next tier, the CPU tier here. The `why` of its `fuse` report group, and the `Error` of a policy that requires WebGPU, carry `loop 1 binds 12 storage buffers, and the device allows 8; packing the arrays into fewer buffers is not supported yet`. The results do not change. |
-| After stage S2 | The call runs on WebGPU at the default limit. The loop's entry binds 7 storage buffers: the six outputs and one buffer that holds the six inputs. The results are the bits the CPU tier gives.                                                                                                      |
-| After stage S3 | A WebGL2 loop that reads more arrays than the context has texture units runs on WebGL2 with the arrays in fewer textures.                                                                                                                                                                           |
+| Step           | What the author sees                                                                                                                                                                                                                                                                                                                                                    |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Today          | `tshc check` says `No problems found in 1 file.` On a device that allows 8, the first call rejects with Tint's sentence: `The number of storage buffers (12) in the Compute stage exceeds the maximum per-stage limit (8).` The call does not run on any tier.                                                                                                          |
+| After stage S1 | The call runs on the next tier, the CPU tier here. The `why` of its `fuse` report group, and the `Error` of a policy that requires WebGPU, carry `loop 1 binds 12 storage buffers, and the device allows 8; packing the arrays into fewer buffers is not supported yet` (the form is `<kind> <n> binds N storage buffers, ...`, decision 5). The results do not change. |
+| After stage S2 | The call runs on WebGPU at the default limit. The loop's entry binds 7 storage buffers: the six outputs and one buffer that holds the six inputs. The results are the bits the CPU tier gives.                                                                                                                                                                          |
+| After stage S3 | A WebGL2 loop that reads more arrays than the context has texture units runs on WebGL2 with the arrays in fewer textures (S1 already falls with a sentence).                                                                                                                                                                                                            |
 
-Rule 11.8 gains one clause: a call that a device limit stops on a tier runs on the next tier of
+Rule 11.8 gains one clause (for WebGL2 it is an amendment on top of change 0146, which wrote the WebGL2 tier text of the rule): a call that a device limit stops on a tier runs on the next tier of
 the policy, with the reason of the limit in the report, and a tier of a policy of one tier that the
 limit stops throws an `Error` that names the reason. Rule 11.8 does not say today that a limit can
 stop a tier. Surface §65, "Where it runs", already shows this form for two of the entries (the
-stores after the loops, and the loop whose range the device holds).
+stores after the loops, and the loop whose range the device holds). Those two sentences gain "not supported yet" at S1 (Rule 12.5, OD-10), and §71 gains the same clause where it quotes them.
 
 ## Why
 
@@ -96,13 +98,35 @@ Rule 11.8, so that the two rules no longer read differently.
 
 **Alternatives.**
 
-| Option                                                | Cost                                                                                                                                                          | Verdict                                                                               |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| (a) A front-end error or warning at the default of 8  | A code the author learns. It refuses a kernel that runs on a device with a higher limit. It reverses OD-9 and OD-11 for a limit the compiler can work around. | Not chosen. It is the reading the owner's decisions rule out.                         |
-| (b) The next tier only, with the reason               | The kernel never uses WebGPU at the default limit. TypeAudio keeps its workaround.                                                                            | Chosen as stage S1, the interim. It is not the end state (OD-11, analogy).            |
-| (c) Pack read-only arrays into one buffer             | One copy of the packed inputs on each call.                                                                                                                   | Chosen as stage S2, first lowering.                                                   |
-| (d) Split the loop into dispatches that write subsets | Reads are fetched again in each dispatch. It needs the proof that the writes are independent.                                                                 | Chosen as stage S2, second lowering, for what packing leaves above the limit.         |
-| (e) Ask the device for a higher limit from the module | The device is made before a module's kernels are known, and one module would change the device of others.                                                     | Not chosen. `configure({ limits })` stays the author's lever, and no author needs it. |
+| Option                                                                      | Cost                                                                                                                                                          | Verdict                                                                                                                                      |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) A front-end error or warning at the default of 8 (from #1137, rejected) | A code the author learns. It refuses a kernel that runs on a device with a higher limit. It reverses OD-9 and OD-11 for a limit the compiler can work around. | Rejected. As a permanent refusal it conflicts with OD-9 and OD-10. The S1 fall to the next tier is interim, and it is a fall, not a refusal. |
+| (b) The next tier only, with the reason                                     | The kernel never uses WebGPU at the default limit. TypeAudio keeps its workaround.                                                                            | Chosen as stage S1, the interim. It is not the end state (OD-11, analogy).                                                                   |
+| (c) Pack read-only arrays into one buffer                                   | One copy of the packed inputs on each call.                                                                                                                   | Chosen as stage S2, first lowering.                                                                                                          |
+| (d) Split the loop into dispatches that write subsets                       | Reads are fetched again in each dispatch. It needs the proof that the writes are independent.                                                                 | Chosen as stage S2, second lowering, for what packing leaves above the limit.                                                                |
+| (e) Ask the device for a higher limit from the module                       | The device is made before a module's kernels are known, and one module would change the device of others.                                                     | Not chosen. `configure({ limits })` stays the author's lever, and no author needs it.                                                        |
+
+## A conflict between two rules, and the choice
+
+**Sources.** Rule 11.8 (`docs/language-design.md`): a call "runs on the first tier of its owner's
+policy that can run it". Rule 12.6 (same file): "A requirement the front end can check must be
+checked at the front end, in the author's words, and not left to Tint or a driver." The two read
+differently for a kernel of twelve arrays (issue #1137). `CLAUDE.md` says to name both, show one
+example under each choice, and record the choice.
+
+**Example under each choice**, with the kernel of "What changes" on a device that allows 8:
+
+| Choice                   | What the author sees                                                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Rule 12.6 holds          | `tshc check` refuses `twelve` at the default of 8. A device that allows 16 could run it, the author cannot write it, and no tier runs it. |
+| Rule 11.8 holds (chosen) | `tshc check` is silent. The call falls to the next tier with the sentence, and later runs on WebGPU packed.                               |
+
+**Choice.** Rule 11.8 holds. The count is known at compile time, but the limit is known only at run
+time: the device is made then, and `configure({ limits })` and the adapter decide it (change 0051).
+A requirement that depends on a value the front end cannot know is not one the front end can
+check, so Rule 12.6 does not apply to it. The orchestrating session decided this on 2026-11-24
+under the owner's delegation ("제대로 다시, 저의 의견이 사실 필요 없거든요"). The session shows the
+choice to the owner at the merge. The text of Rule 11.8 states the reading.
 
 ## Owner's decisions
 
@@ -131,9 +155,11 @@ rest is the compiler's and the runtime's work.
 ## What it touches
 
 - Rule 8.22: the lowering of a loop may pack its read-only arrays or split its dispatch (stage S2).
+- Rule 11.13: F5 reads the limit from the shared helper, and the group reason keeps its text.
 - Rule 11.8: the tier clause names a device limit as a reason for the next tier, and states why
   Rule 12.6 does not apply.
-- Surface §65: "Where it runs" lists the entries counted, the sentence, and the stages as delivered.
+- Surface §65: "Where it runs" lists the entries counted, the sentences (the two existing ones now say "not supported yet"), and the stages as delivered.
+- Surface §71: the `fuse` group reasons quote the same sentences.
 
 Decisions of this draft, each with the entries it rests on:
 
@@ -150,24 +176,29 @@ Decisions of this draft, each with the entries it rests on:
 4. **The count is every storage binding of every entry of the call.** It covers the loop entries,
    the range entries, the finish entry and the push and fold entries: each array, each partials
    buffer, each length word and the trip buffer. S1 widens the count from two entries to all of
-   them. Entries: OD-10.
-5. **The sentence is the contract (Rule 12.5).** S1 pins this text, with the loop number and the
-   counts of the call:
+   them. When several entries exceed the limit, the reason names the first in call order. Entries: OD-10.
+5. **The sentence is the contract (Rule 12.5).** The form is `<kind> <n> binds N storage buffers,
+and the device allows M; packing the arrays into fewer buffers is not supported yet`, where
+   `<kind>` names the entry (`loop`, `range of loop`, `stores after the loops`, `push of loop`) and
+   `<n>` its number. S1 pins this text for a loop entry:
    `loop 1 binds 12 storage buffers, and the device allows 8; packing the arrays into fewer buffers is not supported yet`.
-   The existing two sentences keep their text. The sentence is in the `why` of a `fuse` group, in
+   S1 also changes the two existing sentences of §65 to end `; packing the arrays into fewer buffers is not supported yet` (Rule 12.5, OD-10). The sentence is in the `why` of a `fuse` group, in
    the `Error` of a policy that requires WebGPU, and in the reason list of a call no tier can run.
    Entries: OD-10.
-6. **S2 packs read-only arrays first.** A read-only array of a loop entry goes into one storage
+6. **S2 packs read-only arrays first.** An array that no loop of the call writes goes into one storage
    buffer of 32-bit words, in the layout the WebGL2 data textures already use. A header in the same
    buffer holds each array's offset and length, so the packing adds no binding. Plain arrays are
    packed at the upload the call makes already. A resident `Buffer` is copied into the packed
    buffer in the same submission. A written array is never packed, because the caller's `Buffer`
-   would be a copy. The results are the bits of the CPU tier (Rule 11.13). If the packed size
+   would be a copy. An array is packed only when no argument of the call aliases an array a loop
+   writes (the same `Buffer` as an input and an output, OD-5): the proof has no alias analysis
+   (Rule 8.22), so the call compares the arguments' identity at run time. The results are the bits of the CPU tier (Rule 11.13). If the packed size
    passes `maxStorageBufferBindingSize`, the call falls with a reason that says so. Entries: OD-3,
    OD-9.
 7. **S2 splits the loop second.** If the entry still binds more than the limit, the loop becomes
    several dispatches, each writing a subset of the written arrays. This applies only when the
-   existing proof shows that the subsets are independent. Otherwise the call falls with the S1
+   proof of Rule 8.22 shows that the subsets are independent: R3 (each write at `a*i + c`) and R4
+   (a written array is read only at an index it writes). Otherwise the call falls with the S1
    sentence. Cost recorded: each dispatch reads its inputs again. Entries: OD-3, OD-9, OD-10.
 8. **WebGL2 reads the context's limit.** The value is `gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS)`
    of the context the call uses, read once. The need of a loop is the arrays it reads as textures
@@ -175,9 +206,10 @@ Decisions of this draft, each with the entries it rests on:
    specification's guaranteed minimum is not used as the value. If the need is higher, S1 falls
    with `loop 1 reads 20 arrays as textures, and the context allows 16 texture units; packing the arrays into fewer textures is not supported yet`. Stage S3 packs read arrays into one data
    texture with a header, as S2 does. Entries: OD-11, OD-9.
-9. **The stages are three pull requests, in this order.** S1 is the tier fit and its sentence (the
-   count, the helper, Rule 11.8 text and §65). S2 is the WebGPU packing and splitting. S3 is the
-   WebGL2 texture count and packing. S1 is useful alone: it removes the silent device failure.
+9. **The stages are three pull requests, in this order.** S1 is the tier fit and its sentences (the
+   count of every entry, the WebGL2 texture-unit check, the helper, the two existing sentences,
+   Rule 11.8 text, §65 and §71). S2 is the WebGPU packing and splitting. S3 is the
+   WebGL2 packing. S1 is useful alone: it removes the silent device failure.
    Entries: OD-10.
 
 ### Draft impact estimate
@@ -189,10 +221,12 @@ call's upload and bind path (S2, large: the packed WGSL, the header, the copy of
 out of it (`CLAUDE.md`, File size). Durations are unknown and not estimated. Compatibility: a call
 that failed on the device now runs, so no working program changes meaning (OD-6).
 
-Validation to define before acceptance: none open. The test plan follows.
+Open validation item: whether the compile gate (Tint) reaches the WGSL of a kernel function. It is
+read from `AGENTS.md#tests` before S2. If it does not reach it, the journey job (item 4) is the
+only Tint check of the packed WGSL. The test plan follows.
 
-**Test plan.** Each test of an author-visible behaviour reads both halves (`CLAUDE.md`, A test reads
-both halves), with `bothTake` of `src/core/testing/both-halves.ts`.
+**Test plan.** `bothTake` of `src/core/testing/both-halves.ts` covers item 1 only. Items 2 to 5 test
+the call layer, which the language service does not read.
 
 1. Both halves, on the twelve-array kernel: `compile()` and the language service give no
    diagnostic, and the host view types the call as today. This pins decision 2.
@@ -208,15 +242,16 @@ both halves), with `bothTake` of `src/core/testing/both-halves.ts`.
 3. S2: the same kernel with `fakeGpu({ storageBuffers: 8 })` runs on `webgpu`, and the recorded
    bind-group sizes (`gpu.binds`) show at most 8 for every entry. Cases: arrays of different
    lengths, an empty array, `f32`, `i32`, `u32` and vector elements, a resident `Buffer` input and
-   a plain one, a packed size past `maxStorageBufferBindingSize` (falls, with its reason), a loop
-   that splits (two independent writes) and one that cannot (falls with the S1 sentence). Each
+   a plain one, a packed size past `maxStorageBufferBindingSize` (falls, with its reason), an
+   argument that aliases a written array (not packed), an array no loop writes beside one a loop
+   writes (packed), a loop that splits (two independent writes) and one that cannot (falls with the
+   S1 sentence). Each
    result is compared bit for bit with the CPU tier.
 4. S2 on a real device: the `user journeys (packed tarball, WebGPU)` job runs the twelve-array
    kernel at the default limit and compares with the CPU result. This is the check the issue says
-   was not run. Whether the compile gate reaches the packed WGSL (Tint) is read from
-   `AGENTS.md#tests` before the stage, and the packed WGSL goes through Tint where it can.
-5. S3: a WebGL2 context stub whose `getParameter(MAX_TEXTURE_IMAGE_UNITS)` returns 16, with a loop
-   that reads 17 arrays: S1 falls with the texture sentence, and S3 runs with the packed texture and
+   was not run. The Tint reach of the packed WGSL is an open validation item (above).
+5. S1 and S3: a WebGL2 context stub whose `getParameter(MAX_TEXTURE_IMAGE_UNITS)` returns 16, with
+   a loop that reads 17 arrays: S1 falls with the texture sentence, and S3 runs with the packed texture and
    gives the CPU result.
 6. Document audit, separate from the above: `bun run docs:impact`, `bun run docs:refs`,
    `bun run reqs:sync`, `python scripts/doorstop-check.py -C` for the changed Rule 11.8, and a
@@ -224,14 +259,19 @@ both halves), with `bothTake` of `src/core/testing/both-halves.ts`.
 
 ### Independent review record
 
-Not done. The orchestrating session runs the independent review (`README.md`, Independent
-review) before it sets `status: accepted`. This record does not yet apply.
+Independent review, 2026-11-24, by a Claude Code sub-agent that did not write this text, against
+`be2e83de`. The reviewer re-probed the 12-array kernel: it compiles with no diagnostic and has 12
+storage bindings. No OD entry is reversed. Findings F1–F9: F1 decided by the orchestrating session
+under the owner's delegation and recorded in the conflict section; F2–F9 fixed in the next
+revision.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance requires the independent review above, the decision
-and its review or merge reference, the approved revision and scope, and the agreed milestones.
-Responsibilities and dates are unassigned.
+Accepted on 2026-11-24 by the orchestrating session under the owner's delegation of decisions of
+the same date ("제대로 다시, 저의 의견이 사실 필요 없거든요"), after the independent review above.
+The merge of pull request #1562, which carries this revision, records the approval. The scope is
+stages S1, S2 and S3. Responsibilities and dates are unassigned. The session shows the owner the
+Rule 11.8 choice at the merge.
 
 ### Configuration and validation record
 
