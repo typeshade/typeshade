@@ -42,7 +42,6 @@ import {
 import type { PassTargets, RenderPass } from './runtime.js';
 import {
   STAGE,
-  type RhiBindGroupLayout,
   type RhiBindLayoutEntry,
   type RhiBindResource,
   type RhiBuffer,
@@ -50,7 +49,6 @@ import {
   type RhiColorTarget,
   type RhiDevice,
   type RhiRenderPass,
-  type RhiRenderPipeline,
   type RhiSampler,
   type RhiTexture,
 } from '../rhi/rhi.js';
@@ -59,6 +57,7 @@ import type { GlDrawing } from './gl-draw/drawing.js';
 import { glslNameOf } from './gl-draw/glsl-name.js';
 import { GlTextureImpl } from './gl-draw/texture.js';
 import { GlSamplerImpl } from './gl-draw/sampler.js';
+import type { Slot, Built, DrawRun } from './gl-draw/pipeline-types.js';
 export { GlSamplerImpl } from './gl-draw/sampler.js';
 export { GlTextureImpl } from './gl-draw/texture.js';
 export { glslNameOf } from './gl-draw/glsl-name.js';
@@ -91,20 +90,6 @@ interface BlendComponent {
   readonly srcFactor?: string;
   readonly dstFactor?: string;
   readonly operation?: string;
-}
-
-interface Slot {
-  readonly binding: PackBinding;
-  readonly index: number;
-  readonly kind: 'block' | 'texture' | 'data';
-  readonly sampler?: { readonly name: string; readonly index: number };
-  readonly layout?: Layout;
-}
-
-interface Built {
-  readonly pipeline: RhiRenderPipeline;
-  readonly layout: RhiBindGroupLayout;
-  readonly slots: readonly Slot[];
 }
 
 export class GlRenderPrograms {
@@ -339,11 +324,6 @@ function stageOf<T>(p: T | { readonly none: string } | undefined, e: PackEntry):
       `"${e.name}"${at(e)} has no WebGL2 program: ${(p as { none: string }).none}.`,
     );
   return p as T;
-}
-
-interface DrawRun {
-  readonly run: (pass: RhiRenderPass) => void;
-  readonly residents: readonly ResidentArrayState[];
 }
 
 interface Bind {
