@@ -3,18 +3,18 @@
     "bytes": 178749,
     "floor": 17600,
     "split": {
-      "initial": 52044,
+      "initial": 52093,
       "floor": 18000,
-      "total": 180817
+      "total": 180856
     }
   },
   "typeshade/emit": {
-    "bytes": 124649,
+    "bytes": 124657,
     "floor": 44200,
     "split": {
-      "initial": 124649,
+      "initial": 124657,
       "floor": 47500,
-      "total": 124649
+      "total": 124657
     }
   },
   "typeshade/fuse": {

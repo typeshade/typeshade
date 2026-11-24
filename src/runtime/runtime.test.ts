@@ -1835,7 +1835,7 @@ describe('a depth target of a stencil format (WebGPU, Rule 11.11)', () => {
 describe('the load-time emitter as the runtime plug-in (change 0025 step 6, Rule 11.11)', () => {
   it('records a program the build did not record, when the runtime has the emitter and the manifest its IR', async () => {
     const r = compile(SCALE);
-    const built = packModule(r.module!, { ir: true });
+    const built = packModule(r.module!, { ir: true, console: 'never' });
     expect(built.console).toBeUndefined();
     const plain = await createRuntime({ device: fakeDevice().device });
     expect(() => plain.load(built, { console: true })).toThrow(
@@ -1847,7 +1847,7 @@ describe('the load-time emitter as the runtime plug-in (change 0025 step 6, Rule
     expect(program.manifest.console?.wgsl).toContain('_console');
     // Without the option, the program is loaded as the build wrote it.
     expect(rt.load(built).recording).toBe(false);
-    expect(() => rt.load(packModule(r.module!), { console: true })).toThrow(
+    expect(() => rt.load(packModule(r.module!, { console: 'never' }), { console: true })).toThrow(
       'load({ console: true }): this manifest carries no recorded variant and no IR to emit one from; build it with packModule(m, { ir: true }) or typeshade({ ir: true }).',
     );
   });
@@ -1913,7 +1913,7 @@ describe('a program packed under emit options (change 0028 item 4, Rule 11.11)',
 
   it('emits the recorded variant a load-time emitter adds under the options the manifest records', async () => {
     const emit = { level: 'O0', fp64Flavor: 'integer' } as const;
-    const built = packModule(module(), { ir: true, emit });
+    const built = packModule(module(), { ir: true, console: 'never', emit });
     expect(built.console).toBeUndefined();
     const fake = fakeDevice();
     const rt = await createRuntime({ device: fake.device, emit: repack });
