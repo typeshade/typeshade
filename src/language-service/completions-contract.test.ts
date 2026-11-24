@@ -92,6 +92,13 @@ describe('getCompletions: builtin ids by pipeline stage', () => {
     expect(items.filter((i) => i.kind === 'builtin')).toEqual([]);
   });
 
+  it('does not filter by stage a builtin id written in the body of a stage function', () => {
+    for (const stage of ['vertex', 'compute']) {
+      const source = `"use typeshade";\n@${stage}\nexport function f(): f32 {\n  const b = builtin("pos")\n  return 1\n}\n`;
+      expect(labelsOf(completionsAt(source, 'builtin("pos')), stage).toEqual(['position']);
+    }
+  });
+
   it('does not treat the cursor before the opening quote as inside the id', () => {
     const source = '"use typeshade";\nclass V {\n  @builtin("ver") pos: vec4\n}\n';
     const items = completionsAt(source, '@builtin(');
