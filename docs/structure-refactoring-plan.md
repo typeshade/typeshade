@@ -688,6 +688,7 @@ the affected set took 11 minutes for one comment-removal slice, and CI runs the 
    Reason: removing comments from `src/runtime/gl-draw.ts` broke `src/core/spec-conformance/capability-coverage.test.ts`,
    because data rows cite that file by line number. A later slice that moves code can break a row the same way.
 6. CI runs `bun run gate:boundary` (the `runtime bundle boundary` step of `quality`).
+   Exception: a slice that splits a file of a bundle runs `bun scripts/bundle-boundary.ts` locally before step C is ready (decision D14).
 7. CI runs `bun run gate:compile` for `Move: pure`, and not for `Move: comments`.
 8. CI runs the emit goldens inside the unit shards.
 9. The move-purity check of S0 item a, over the base and the head commit of the pull request:
@@ -983,6 +984,17 @@ Run these steps from the repository:
 The option `--repo <path>` runs the checker from another checkout against that repository.
 
 Decision D13 (section 6.5) adds a condition for a pull request with the line `Move: comments`: a reviewing sub-agent reads the removed review candidates first.
+
+Decision D14: a rise of a budget of `scripts/bundle-budget.json` that a `Move: pure` range causes merges without a separate "merge" from the owner.
+The rise goes in a pull request of its own, since a `Move: pure` range cannot change that file.
+The conditions and the two limits are in `CLAUDE.md`, Merging: 0.2% for one pull request, and 1% above the value at `c4a12d3f`.
+The procedure is `docs/structure-slice-playbook.md`, The bundle budget.
+Authority: the owner's answer of 2026-11-24 ("추천") to the rule that the conversation recommended.
+
+Fact, measured on 2026-11-24: `src/runtime/runtime.ts` loads `src/runtime/gl.ts` with a dynamic `import()`, and the check builds one chunk.
+Bun then gives a module below that import a lazy-init wrapper of 10 to 25 gzip bytes.
+The split of `src/rhi/webgl2.ts` (#1578) cost 68 bytes of `typeshade/runtime`, and seventeen new files of the split of `src/runtime/gl.ts` and `src/runtime/gl-draw.ts` cost 216.
+The split build did not grow. The headroom of the budget was 17 bytes, so each such split needs a rise.
 
 Decision D11: moving tests is an ordinary reviewed change for now, in S11 and S12 too.
 The flag `--allow-test-moves` exists for local use, and CI does not pass it.

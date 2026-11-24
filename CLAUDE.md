@@ -284,6 +284,27 @@ through the owner's account can too, so the rule is written here:
     the merge, the merging agent runs the checker of `main` on the range of the pull request and
     reads "pure". A pull request runs its own copy of the checker, so the run on `main` is the
     one that counts. The owner approved this on 2026-11-24: "승인".
+  - a pull request that raises a budget of `scripts/bundle-budget.json` because a `Move: pure`
+    range adds modules to a bundle (`docs/structure-slice-playbook.md`, The bundle budget). The
+    owner approved this on 2026-11-24 with the word "추천". All of these conditions hold:
+    - It changes only `scripts/bundle-budget.json` and the record of the rise in `CHANGELOG.md`.
+    - Its body names the pull request of the moves and the commit hash of their head.
+    - Its body gives the measured bytes of `origin/main` and of `origin/main` merged with that
+      commit.
+    - It changes only `bytes`, `split.initial` and `split.total`, and only where that merge is
+      over the budget. A floor never changes.
+    - Each new number is the measured number of that merge.
+    - It raises each number by at most 0.2% of that number's value on `origin/main`.
+    - No number goes more than 1% above its value at
+      `c4a12d3fa2d4847809eeba52a1278dbedee2346c`. A bundle without a budget at that commit is
+      not covered.
+    - No shape of the split that the rules of File size allow avoids the rise.
+    - Before the merge, the merging agent runs the checker of `main` on the range of the moves
+      and reads "pure".
+    - Before the merge, the merging agent measures the same merge again and gets the same
+      numbers.
+
+    Past a limit, and for a rise from any other cause, the owner decides.
 
   Everything else waits for the owner to say "merge" in the conversation: a new proposal, and a
   change to a design rule, a public export, a surface section, a diagnostic code or the set of

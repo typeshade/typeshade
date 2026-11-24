@@ -23,7 +23,8 @@ The opening prompt of the session lists them. Do them one at a time, smallest fi
   of step A, then the comment removals of step B, then the moves of step C. A range that declares
   `Move: comments` or `Move: pure` may span many files, and the checker judges the whole range.
   Start step B's branch from `main` after step A is merged, and step C's after step B is merged,
-  so that each `Move:` range holds nothing but its own kind.
+  so that each `Move:` range holds nothing but its own kind. A budget pull request (The bundle
+  budget) is extra: it carries no step.
 - Keep a pull request a draft until its batch is complete and the local checks pass. Then mark it
   ready for review: CI runs once.
 - Before a batch is marked ready, an agent that did not write it reviews every file of it against
@@ -58,23 +59,56 @@ Step C — move the declarations (`Move: pure`).
 - Check the open pull requests for your file (`mcp__github__list_pull_requests`, then the files of any that might touch it). If another open pull request edits the file, skip to your next file and come back later; if it is still open when everything else is done, stop and list it.
 - `bun run precommit --message-file <file>` for each commit; if it lists review items, read each location and add a truthful `Docs-Impact:` line. Never write that line without reading.
 - `bunx tsc --noEmit -p tsconfig.json`, `bunx tsc -p tsconfig.tests.json --noEmit`, `bun run lint`, `bun run format:check`, `bun run docs:refs`. `tsconfig.json` does not include the test files. `bun run build` runs the second command, so a type error in a test fails every job that builds; #1584 was red for that on 2026-11-24.
-- `bun scripts/bundle-boundary.ts` before step C is pushed. A split of a file that a bundle contains can raise the gzip size of that bundle, and `scripts/bundle-budget.json` has little headroom. Measured on 2026-11-24: `src/runtime/runtime.ts` loads `src/runtime/gl.ts` with a dynamic `import()`, the check builds one chunk, and Bun then gives each module below that import a lazy-init wrapper of 10 to 25 gzip bytes; seventeen new files split from `src/runtime/gl.ts` and `src/runtime/gl-draw.ts` cost 216 bytes. A `Move:` range may not change `scripts/bundle-budget.json`, and a rise of a budget is the owner's to approve. If the check prints FAIL for a budget: keep step C local, record the bytes at `origin/main` and at your head, report them, and go on with your next file.
+- `bun scripts/bundle-boundary.ts` before step C is pushed. A split of a file that a bundle contains can raise the gzip size of that bundle, and `scripts/bundle-budget.json` has little headroom. Measured on 2026-11-24: `src/runtime/runtime.ts` loads `src/runtime/gl.ts` with a dynamic `import()`, the check builds one chunk, and Bun then gives each module below that import a lazy-init wrapper of 10 to 25 gzip bytes; seventeen new files split from `src/runtime/gl.ts` and `src/runtime/gl-draw.ts` cost 216 bytes. A `Move:` range may not change `scripts/bundle-budget.json`. If the check prints FAIL for a budget, follow "The bundle budget" below before step C is marked ready.
 - Tests: let the shell expand the glob — `bunx vitest run src/*.test.ts <the directory of your file> src/core/spec-conformance`. A quoted glob such as `'src/*-policy.test.ts'` selects NOTHING here. Three root test files fail in this container on a clean `main` and pass in CI: `src/affected-tests.test.ts`, `src/doc-test-selection.test.ts`, and `src/publish-manifest.test.ts` when there is no build output. Any other failure is yours.
 - Traps that broke CI before: in no tracked `.ts` file, fixtures included, write a literal traceability marker (the word Verifies or Implements, a colon, then "Rule N.M" — build such a string from parts) unless you mean to register it; a relative import specifier that climbs out of the package; a non-existent repository-looking path with an extension. A file that a rule of `docs/language-design.md` names in its "Enforced by" line must contain the text `Rule N.M` (`src/reqs.test.ts`); when the moves will leave only re-exports in it, step A puts the marker `// Implements: Rule N.M` in place of one of its comment lines, so the file does not grow. An evidence citation in `src/core/coverage/**` is a symbol anchor (`path#Symbol`), never `path:line`; if a moved declaration is cited there, the anchor follows it only through a re-export — run `bun run bake:capability-coverage` and, if it reports a defect, stop that move (a `Move:` range may not edit the coverage rows) and report.
 - Never raise a number in `scripts/comment-baseline.json` or `scripts/file-size-baseline.json`. Never skip, disable or weaken a test. Never push to `main`.
+
+## The bundle budget
+
+A `Move: pure` range may change only source files and the two baseline files, so a budget moves in a pull request of its own. `CLAUDE.md` (Merging) approves that pull request in advance when all its conditions hold. The owner approved this on 2026-11-24. Any other rise of a budget waits for the owner.
+
+Two terms. The head of the moves is the head commit of the branch of step C. The trial merge is `origin/main` merged with the head of the moves in a scratch worktree; it is never pushed.
+
+1. Push the branch of step C. Do not mark its pull request ready yet.
+2. Make the trial merge. Resolve a conflict of a baseline file with the two bake commands.
+3. Run `bun scripts/bundle-boundary.ts` on `origin/main` and on the trial merge.
+4. For each bundle that fails on the trial merge, note `bytes`, `split.initial` and `split.total` of both runs.
+5. Look for a shape of the split that avoids the rise and that the rules of File size allow. If one exists, use it and stop here.
+6. Check the two limits of `CLAUDE.md` (Merging). Past a limit, stop and report the numbers.
+7. On a new branch from `origin/main`, set each number that fails to the measured number of the trial merge.
+8. Edit `scripts/bundle-budget.json` by hand: `--update` adds 10%. Change no floor and no number that does not fail.
+9. In `CHANGELOG.md`, update the entry "Bundle budgets follow the file splits of the structure refactoring" with the new numbers and the pull request of the moves.
+10. Run `bun run precommit --message-file <file>`. The proposal line is `Change: none, bundle budget follows a pure move`.
+11. Open the pull request ready for review, not as a draft. CI runs every job, because the pull request changes a file of `scripts/`.
+12. In its body, name the pull request of the moves and the head of the moves. Give the numbers of step 4 and the shapes that you tried.
+13. Push no commit to the branch of step C until the budget pull request is merged. If you push one, repeat from step 2.
+14. Before the merge, run the checker of `main` on the head of the moves and read "pure" (Merging — you close your own work).
+15. Before the merge, fetch `origin/main` and repeat steps 2 and 3. If a number differs, correct the pull request and wait for CI again.
+16. Merge when every required check is green.
+17. Merge `origin/main` into the branch of step C and run `bun scripts/bundle-boundary.ts` again.
+18. Mark step C ready.
+
+- If CI measures a size that differs from your run, the size of CI holds. The same limits apply to it.
+- If another session's split uses the headroom before step C merges, the check of step 17 fails. Then start again at step 2 with a new budget pull request. Its rise counts against both limits.
+- If the moves do not merge, say in your final status which rise of a budget stays unused.
+
+Measured on 2026-11-24 for step 5: `src/runtime/runtime.ts` loads `src/runtime/gl.ts` with a dynamic `import()`. In the single-file build each module below that import gets a lazy-init wrapper when it holds top-level state or imports a wrapped module. Of seventeen new files, the three with neither got no wrapper. The split build did not grow.
 
 ## Merging — you close your own work
 
 - A `Move: comments` or `Move: pure` pull request is approved in advance (`CLAUDE.md`, Merging). Before the merge, run the checker of `main` on the range and read "pure": `git worktree add --detach /tmp/mainwt origin/main && ln -s "$PWD/node_modules" /tmp/mainwt/node_modules && (cd /tmp/mainwt && bun scripts/move-purity.ts --repo <your checkout> --base origin/main --head <your branch> --require); git worktree remove --force /tmp/mainwt`. Merge (method `merge`) only when every required check is green on the current head (`typecheck + unit`, `traceability (Doorstop)`, `compile gate (Tint + WebGL2)`, `user journeys (packed tarball, WebGPU)`; a skipped GPU gate counts as passed — change 0147 skips the two GPU gates for `Move: comments`; `typecheck + unit` and `traceability (Doorstop)` must show `success`, because `skipped` on those two means the checks of the draft) and there is no conflict. A red check is fixed, never bypassed.
 - A step A pull request (tests and `Why:` text only) and a documentation-only pull request: merge when every required check is green, under the owner's words quoted above. Record those words, as relayed by the orchestrating session with the date, in the pull request body.
 - After each merge, have a Haiku sub-agent read the workflow runs on `main` for the merge commit (the gates a `Move:` pull request skipped run there). If one is red because of your change, fix forward at once in a new pull request; if you cannot within one attempt, revert your merge with a pull request and report.
+- A budget pull request (The bundle budget): merge it when all conditions of `CLAUDE.md` (Merging) hold and every required check is green. If it conflicts, merge `origin/main` into it and measure again; never resolve a number by hand.
 - Conflicts: other sessions merge slices all day, and all of them edit the two baseline files. When your branch conflicts, merge `origin/main` into it (no rebase of pushed commits, no force-push), re-run the two bake commands rather than resolving a baseline by hand, re-run the checks, and for a `Move:` range re-run the checker of `main` (a merge commit in the range is fine if the checker still reads "pure"; if it does not, open a fresh branch from `main` and replay the moves with the tool).
 
 ## Stop and report instead of acting when
 
 - the file turns out not to be clean (the checker says so), or a split needs a behaviour change, an export change, a rule, a diagnostic, an example, or an edit of `docs/owner-decisions.md`, `CLAUDE.md`, a workflow or the checker;
 - a comment states an invariant that you cannot hold with a test, an assert or a `Why:` comment;
-- `bun scripts/changes.ts --base origin/main` says a rule or surface is touched.
+- `bun scripts/changes.ts --base origin/main` says a rule or surface is touched;
+- a rise of a budget passes a limit of `CLAUDE.md` (Merging), or has a cause other than your `Move: pure` range.
   Stop work on that file only, write what you found in your final status, and go on with the next file.
 
 ## Ways of working
