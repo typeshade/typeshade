@@ -177,7 +177,7 @@ export interface RenderPass {
   readonly raw: object;
   /** Record a draw: `bindings` are the ones the pipeline's entries reach (change 0030). */
   draw<B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry): void;
-  /** WebGPU setViewport. x and y are whole numbers within the viewport bounds. width and height are whole numbers from 0 to the viewport limit. 0 <= minDepth <= maxDepth <= 1. An omitted `minDepth` is 0, and an omitted `maxDepth` is 1. Default: the whole attachment. A WebGL2 runtime refuses a depth range other than 0 to 1 for a fragment that writes `frag_depth`. To learn that on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
+  /** WebGPU setViewport. x and y are whole numbers within the viewport bounds. width and height are whole numbers from 0 to the viewport limit. 0 <= minDepth <= maxDepth <= 1. An omitted `minDepth` is 0, and an omitted `maxDepth` is 1. Default: the whole attachment. A depth range other than 0 to 1 for a fragment that writes `frag_depth` is not supported yet on the WebGL2 tier (Rule 11.11). To learn that on WebGPU, run the host a second time with `createRuntime({ prefer: ['webgl2'] })`. */
   setViewport(
     x: number,
     y: number,

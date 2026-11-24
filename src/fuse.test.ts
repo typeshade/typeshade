@@ -5487,7 +5487,7 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
     expect(gpu.flow.filter((c) => c === 'submit')).toEqual(['submit']);
   });
 
-  it('fails the plan when the entry cannot run on the CPU tier: every Resident of the plan holds the error, and a later scope clears it', async () => {
+  it('fails the plan when the entry is not supported yet on the CPU tier (Rule 11.8): every Resident of the plan holds the error, and a later scope clears it', async () => {
     const generatedTiled = hostFace(TILED, { fileName: '/app/tiled.shade.ts', runtime: RUNTIME });
     const t = (await loadCode(generatedTiled.code!, 'tiled3')) as Record<string, Call>;
     const m = await load();
