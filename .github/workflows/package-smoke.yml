@@ -12,6 +12,7 @@ on:
       - '.node-version'
       - '.bun-version'
       - '.github/workflows/package-smoke.yml'
+      - '.github/actions/change-scope/**'
   push:
     branches: [main]
   workflow_dispatch:
@@ -21,11 +22,45 @@ permissions:
 
 concurrency:
   group: package-compatibility-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # A pull request whose range declares and passes `Move: comments` builds no package and runs
+  # no smoke. `Move: pure` keeps one smoke (Linux, Node 24). Other events run all five.
+  scope:
+    name: move scope (package smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      move: ${{ steps.move.outputs.move || 'none' }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: move
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/change-scope
+        with:
+          event: ${{ github.event_name }}
+          base: ${{ github.base_ref }}
+          title: ${{ github.event.pull_request.title }}
+      - id: matrix
+        shell: bash
+        env:
+          MOVE: ${{ steps.move.outputs.move }}
+        run: |
+          if [ "$MOVE" = pure ]; then
+            echo 'matrix=[{"os":"ubuntu-latest","node":"24"}]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix=[{"os":"ubuntu-latest","node":"20"},{"os":"ubuntu-latest","node":"22"},{"os":"ubuntu-latest","node":"24"},{"os":"windows-latest","node":"24"},{"os":"macos-latest","node":"24"}]' >> "$GITHUB_OUTPUT"
+          fi
+
   pack:
     name: build the consumer package
+    needs: scope
+    if: needs.scope.outputs.move != 'comments'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -56,18 +91,13 @@ jobs:
 
   smoke:
     name: package smoke (${{ matrix.os }}, Node ${{ matrix.node }})
-    needs: pack
+    needs: [scope, pack]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-latest, node: '20' }
-          - { os: ubuntu-latest, node: '22' }
-          - { os: ubuntu-latest, node: '24' }
-          - { os: windows-latest, node: '24' }
-          - { os: macos-latest, node: '24' }
+        include: ${{ fromJSON(needs.scope.outputs.matrix) }}
     defaults:
       run:
         shell: bash

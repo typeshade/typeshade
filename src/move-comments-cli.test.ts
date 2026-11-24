@@ -90,7 +90,9 @@ describe('the move-purity command over a range that declares Move: comments', ()
   it('prints the report as JSON', () => {
     commit({ 'src/a.ts': CODE }, 'Remove\n\nMove: comments\n');
     expect(run('--json')).toBe(0);
-    expect(JSON.parse(said()).removedLines).toBe(2);
+    const report = JSON.parse(said());
+    expect(report.removedLines).toBe(2);
+    expect(report.declared).toBe('comments');
   });
 
   it('fails when a code token changed', () => {

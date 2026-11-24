@@ -100,7 +100,17 @@ describe('the move-purity command over a git range', () => {
   it('prints the report as JSON', () => {
     commit(SPLIT, 'Move: pure\n');
     expect(run('--json')).toBe(0);
-    expect(JSON.parse(output.join('\n')).pure).toBe(true);
+    const report = JSON.parse(output.join('\n'));
+    expect(report.pure).toBe(true);
+    expect(report.declared).toBe('pure');
+  });
+
+  it('names no declared kind in the JSON of a required range that declares none', () => {
+    commit(SPLIT, 'Split a\n');
+    expect(run('--require', '--json')).toBe(0);
+    const report = JSON.parse(output.join('\n'));
+    expect(report.pure).toBe(true);
+    expect(report.declared).toBeNull();
   });
 
   it('refuses a mode change that no file text shows', () => {

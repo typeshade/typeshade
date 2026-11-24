@@ -12,7 +12,7 @@ import {
   readTexts,
   trackedPaths,
 } from './move-purity/git-range.js';
-import { declaredKinds, malformedLines } from './move-purity/move-kinds.js';
+import { declaredKinds, malformedLines, type MoveKind } from './move-purity/move-kinds.js';
 
 export { checkMove, formatReport };
 export type { MoveReport };
@@ -58,6 +58,10 @@ function runCleanReport(args: string[], root: string): number {
   return 0;
 }
 
+function jsonWithMode(declared: MoveKind | undefined, report: object): string {
+  return JSON.stringify({ declared: declared ?? null, ...report }, null, 2);
+}
+
 function runCommentRange(
   args: string[],
   range: { root: string; baseRef: string; headRef: string; required: boolean },
@@ -70,7 +74,7 @@ function runCommentRange(
     return 2;
   }
   console.log(
-    args.includes('--json') ? JSON.stringify(report, null, 2) : formatCommentReport(report),
+    args.includes('--json') ? jsonWithMode('comments', report) : formatCommentReport(report),
   );
   return report.pure ? 0 : 1;
 }
@@ -130,7 +134,7 @@ export function runCli(args: string[], cwd: string): number {
     );
     return 2;
   }
-  console.log(args.includes('--json') ? JSON.stringify(report, null, 2) : formatReport(report));
+  console.log(args.includes('--json') ? jsonWithMode(declared[0], report) : formatReport(report));
   return report.pure ? 0 : 1;
 }
 
