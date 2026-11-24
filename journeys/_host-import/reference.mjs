@@ -290,6 +290,8 @@ export function loopReference() {
     pairSearchCpu: pairReference(),
     pairTwice: twiceCases.flatMap(([xs, r]) => twiceReference(xs, r)),
     pairTwiceCpu: twiceCases.flatMap(([xs, r]) => twiceReference(xs, r)),
+    repeatedRuns: repeatedReference(),
+    repeatedRunsCpu: repeatedReference(),
     inside: insideNs.flatMap(insideReference),
     insideCpu: insideNs.flatMap(insideReference),
     evens: [0, 1, 9, 64].flatMap(evensReference),
@@ -382,6 +384,31 @@ function twiceReference(xs, r) {
   for (let i = 0; i < xs.length; i++)
     for (let j = i; j < xs.length; j++)
       for (let q = j; q < xs.length; q++) if (xs[i] + xs[q] < r) out.push(q);
+  return out;
+}
+
+/** What `repeatedRuns` and `byNRuns` push for the journey's cases, in the order of their loops. */
+function repeatedReference() {
+  const out = [];
+  const cases = [
+    [
+      Array.from({ length: 300 }, (_, i) => i + 0.5),
+      Array.from({ length: 300 }, (_, i) => (i * 7) % 5),
+    ],
+    [
+      [1.5, 2.5, 3.5],
+      [0, 0, 0],
+    ],
+    [[4.5], [3]],
+  ];
+  for (const [xs, counts] of cases)
+    for (let i = 0; i < xs.length; i++) for (let j = 0; j < counts[i]; j++) out.push(xs[i]);
+  for (const [counts, n] of [
+    [[2, 0, 3, 1], 4],
+    [[2, 0, 3, 1], 2],
+    [[0, 0], 2],
+  ])
+    for (let i = 0; i < n; i++) for (let j = 0; j < counts[i]; j++) out.push(i);
   return out;
 }
 
