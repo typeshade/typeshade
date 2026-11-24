@@ -29,6 +29,8 @@ import {
   recordKeyText,
 } from '../compiler/ts/key-types.js';
 import { nodeAt } from './hover/node-at.js';
+import type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
+export type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
 
 function isBuiltinStringLiteral(node: ts.Node): node is ts.StringLiteralLike {
   if (!ts.isStringLiteralLike(node)) return false;
@@ -271,18 +273,6 @@ function entryLocationLines(
   }
   return [];
 }
-
-export interface HoverProgram {
-  readonly uri: string;
-  readonly analysis: CompileTsSourceResult;
-}
-
-export interface HoverPrograms {
-  linking(declaringUri: string): readonly HoverProgram[];
-  of(uri: string): HoverProgram | undefined;
-}
-
-export type StructNames = (emitted: string) => string;
 
 // Why: `wgslType` throws SD0040 on `f64`, `vecN<f64>` and `matNxN<f64>`, which are pre-lowering types.
 
