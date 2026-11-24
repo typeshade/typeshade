@@ -1,4 +1,4 @@
-import type { GlComputeLayout, GlComputeProgram } from './passes/gl-compute.js';
+import type { GlComputeProgram } from './passes/gl-compute.js';
 
 const FIRST_PASS = 1;
 const ALL_RUN = 2;
@@ -10,6 +10,13 @@ import { layoutFromPack } from './manifest-types.js';
 import { gpuDone } from './gl-fence.js';
 import { compile } from './gl-compute/program-cache.js';
 import { drawn } from './gl-compute/refused-draw-check.js';
+import {
+  BATCH_LAYERS,
+  MAX_ROOT_WORDS,
+  shape,
+  wordTexture,
+  type Layered,
+} from './gl-compute/word-textures.js';
 export { compile } from './gl-compute/program-cache.js';
 
 export { gpuDone };
@@ -41,59 +48,6 @@ export interface GlComputeReport {
 
 interface Inv extends PassInvocation {
   readonly index: number;
-}
-
-const BATCH_LAYERS = 64;
-
-const MAX_ROOT_WORDS = 1 << 28;
-
-function shape(
-  count: number,
-  { width, layerRows }: GlComputeLayout,
-): { h: number; layers: number } {
-  const rows = Math.max(1, Math.ceil(count / width));
-  const layers = Math.ceil(rows / layerRows);
-  return { h: layers > 1 ? layerRows : rows, layers };
-}
-
-interface Layered {
-  readonly tex: WebGLTexture;
-  readonly h: number;
-  readonly layers: number;
-}
-
-function wordTexture(
-  gl: WebGL2RenderingContext,
-  words: Uint32Array,
-  layout: GlComputeLayout,
-  what: string,
-  createTexture: () => WebGLTexture,
-): Layered {
-  const { h, layers } = shape(words.length, layout);
-  const most = gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) as number;
-  if (layers > most)
-    throw new Error(
-      `typeshade/webgl2: ${what} needs ${String(layers)} layers, more than this context's ${String(most)}`,
-    );
-  const data = new Uint32Array(layout.width * h * layers);
-  data.set(words);
-  const tex = createTexture();
-  gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
-  gl.texImage3D(
-    gl.TEXTURE_2D_ARRAY,
-    0,
-    gl.R32UI,
-    layout.width,
-    h,
-    layers,
-    0,
-    gl.RED_INTEGER,
-    gl.UNSIGNED_INT,
-    data,
-  );
-  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-  return { tex, h, layers };
 }
 
 const NO_FRAGMENTS = `#version 300 es
