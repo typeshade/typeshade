@@ -154,7 +154,8 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUShaderModule.getCompilationInfo()`',
     covers: ['GPUShaderModule.getCompilationInfo'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
+    evidence:
+      'docs/language-design.md:1391-1395; src/core/gl-compute.ts#compile~"getShaderParameter"|compile~"getShaderInfoLog"',
     webgpu: na('Rule 12.6: the front end diagnoses at the source'),
     webgl2: na(
       'WebGL2 has no shader module object; a program reads its compile status with getShaderParameter and getShaderInfoLog',

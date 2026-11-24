@@ -6,12 +6,13 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.message`',
     covers: ['GPUCompilationMessage.message'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
+    evidence:
+      'docs/language-design.md:1391-1395; src/core/gl-compute.ts#compile~"getShaderInfoLog"',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string, and has no compilation message object (src/core/gl-compute.ts:131)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string, and has no compilation message object (`compile` of `src/core/gl-compute.ts`)',
     ),
   },
   {
@@ -19,12 +20,13 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.type`',
     covers: ['GPUCompilationMessage.type'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
+    evidence:
+      'docs/language-design.md:1391-1395; src/core/gl-compute.ts#compile~"getShaderInfoLog"',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no message type (src/core/gl-compute.ts:131)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no message type (`compile` of `src/core/gl-compute.ts`)',
     ),
   },
   {
@@ -32,12 +34,13 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.lineNum`',
     covers: ['GPUCompilationMessage.lineNum'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
+    evidence:
+      'docs/language-design.md:1391-1395; src/core/gl-compute.ts#compile~"getShaderInfoLog"',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/gl-compute.ts:131)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (`compile` of `src/core/gl-compute.ts`)',
     ),
   },
   {
@@ -45,12 +48,13 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.linePos`',
     covers: ['GPUCompilationMessage.linePos'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
+    evidence:
+      'docs/language-design.md:1391-1395; src/core/gl-compute.ts#compile~"getShaderInfoLog"',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/gl-compute.ts:131)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (`compile` of `src/core/gl-compute.ts`)',
     ),
   },
   {
@@ -58,12 +62,13 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.offset`',
     covers: ['GPUCompilationMessage.offset'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
+    evidence:
+      'docs/language-design.md:1391-1395; src/core/gl-compute.ts#compile~"getShaderInfoLog"',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/gl-compute.ts:131)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (`compile` of `src/core/gl-compute.ts`)',
     ),
   },
   {
@@ -71,12 +76,13 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationMessage.length`',
     covers: ['GPUCompilationMessage.length'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
+    evidence:
+      'docs/language-design.md:1391-1395; src/core/gl-compute.ts#compile~"getShaderInfoLog"',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (src/core/gl-compute.ts:131)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no lineNum, linePos, offset or length field (`compile` of `src/core/gl-compute.ts`)',
     ),
   },
   {
