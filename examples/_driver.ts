@@ -5,7 +5,8 @@
 // `hosts/`, which have no manifest yet and are listed by `hosts/_order.ts`. Each group keeps one
 // `_drive.ts` that holds the inputs of its examples; this driver picks the group's file for an
 // entry, runs it, calls each export its `extras` names, and runs the optional `check.ts` of the
-// example with the result of `run` and the results of the extras.
+// example with the result of `run` and the tier. The driver does not pass the extras' results to
+// `check.ts`; a `check.ts` that needs one calls the export itself.
 //
 // The CPU tier has no canvas in Node. `cpuSurface` is a canvas whose only context is `2d`, and
 // `withCpuCanvas` installs it as `OffscreenCanvas` for the length of a call.
@@ -31,7 +32,7 @@ export interface Runnable {
   readonly group: string;
   readonly tiers: readonly Tier[];
   /** The names of its `extras`: exports of `host.ts` other than `run`. `runExtras` calls each one with
-   *  its defaults, and `runCheck` hands the results to `check.ts`. */
+   *  its defaults on the CPU tier. */
   readonly extras: readonly string[];
   /** The example's directory, absolute. */
   readonly dir: string;
@@ -122,37 +123,38 @@ export async function runOnCpu(entry: Runnable): Promise<Outputs | string> {
 }
 
 /** Call each extra of `entry` with its defaults on the CPU tier, and wait for it to resolve.
- *  @returns each extra's result by its name; a rejection is thrown. */
-export async function runExtras(entry: Runnable): Promise<Readonly<Record<string, unknown>>> {
+ *  A rejection is thrown. The results are not kept.
+ *  @returns the names of the extras it ran. */
+export async function runExtras(entry: Runnable): Promise<string[]> {
   const host = (await import(/* @vite-ignore */ join(entry.dir, 'host.ts'))) as Record<
     string,
     unknown
   >;
   return withCpuCanvas(async () => {
-    const out: Record<string, unknown> = {};
+    const ran: string[] = [];
     for (const name of entry.extras) {
       const fn = host[name];
       if (typeof fn !== 'function') throw new Error(`${entry.id}: host.ts exports no ${name}`);
-      out[name] = await (fn as () => unknown)();
+      await (fn as () => unknown)();
+      ran.push(name);
     }
-    return out;
+    return ran;
   });
 }
 
-/** Call the `check(result, tier, extras)` of a `check.ts`; it throws on a failure.
+/** Call the `check(result, tier)` of a `check.ts`; it throws on a failure.
  *  @returns the failure as a line, or nothing when the check holds. */
 export async function runCheck(
   file: string,
   result: Outputs,
   tier: Tier,
-  extras: Readonly<Record<string, unknown>> = {},
 ): Promise<string | undefined> {
   const m = (await import(/* @vite-ignore */ file)) as {
-    check?: (result: Outputs, tier: Tier, extras: Readonly<Record<string, unknown>>) => unknown;
+    check?: (result: Outputs, tier: Tier) => unknown;
   };
-  if (typeof m.check !== 'function') return `${file} exports no check(result, tier, extras)`;
+  if (typeof m.check !== 'function') return `${file} exports no check(result, tier)`;
   try {
-    await m.check(result, tier, extras);
+    await m.check(result, tier);
     return undefined;
   } catch (e) {
     return String(e);

@@ -5,7 +5,8 @@
 //
 //   C4. Each example that lists `cpu` runs twice on the CPU tier. The two results are equal, every
 //       number is finite, each listed extra resolves with its defaults, and its `check.ts` passes
-//       where one exists (it reads the result of `run` and the results of the extras).
+//       where one exists (it reads the result of `run` and the tier; the extras' results are not
+//       passed to it).
 //   C5. Where an oracle case names the bindings of its `host.ts`, the CPU `run()` is held to the
 //       `f64` oracle of the same IR (`_oracle.ts`), exact where the determinism report of the
 //       module lists no operation, within `PIXEL` and `RELATIVE` otherwise.
@@ -81,10 +82,8 @@ describe('C4: each example runs twice on the CPU tier, equal and finite', () => 
     const ran = first as Exclude<typeof first, string>;
     expect(Object.keys(ran).length).toBeGreaterThan(0);
     expect(nonFinite(ran)).toEqual([]);
-    const extras = await runExtras(entry);
-    expect(Object.keys(extras)).toEqual(entry.extras);
-    if (entry.check !== undefined)
-      expect(await runCheck(entry.check, ran, 'cpu', extras)).toBeUndefined();
+    expect(await runExtras(entry)).toEqual(entry.extras);
+    if (entry.check !== undefined) expect(await runCheck(entry.check, ran, 'cpu')).toBeUndefined();
   });
 
   it.each(entries.filter((e) => e.extras.length > 0).map((e) => [key(e), e] as const))(
