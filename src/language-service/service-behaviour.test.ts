@@ -27,6 +27,7 @@ function applied(text: string, edits: readonly TypeshadeTextEdit[]): string {
 describe('the order of rows that share a start', () => {
   const WRITE_TO_CONST =
     '"use typeshade";\nexport function f(): f32 {\n  const k = 1.\n  k = 2.\n  return k\n}\n';
+
   const ARITY =
     '"use typeshade";\nexport function f(): vec4 {\n  let v: vec4 = vec4(1., 2.)\n  return v\n}\n';
 
@@ -121,12 +122,13 @@ function h(a: u32): u32 { return a; }
     const { service, files } = open();
     const compiled = compile(IMPORTER, { fileName: MAIN, readDocument: (uri) => files[uri] });
     expect(compiled.diagnostics.map((d) => d.message)).toHaveLength(1);
+    expect(compiled.diagnostics[0]!.message).toContain('is a u32 where another line reads it');
     expect(service.getDiagnostics(MAIN).map((d) => d.message)).toEqual(
       compiled.diagnostics.map((d) => d.message),
     );
   });
 
-  it('renames in each document through that document own projection', () => {
+  it('renames in each document through its own projection', () => {
     const { service } = open();
     const at = service.positionAt(LIB, LIBRARY.indexOf('shade('));
     const edits = service.rename(LIB, at, 'glow');
