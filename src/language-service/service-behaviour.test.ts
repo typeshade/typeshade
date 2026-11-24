@@ -7,7 +7,8 @@ import {
   importHooksOf,
 } from './service.js';
 import { bothRefuse } from '../core/testing/both-halves.js';
-import type { TypeshadeTextEdit } from './types.js';
+import { byDocumentOrder } from './service/document-order.js';
+import type { TypeshadeDiagnostic, TypeshadeTextEdit } from './types.js';
 
 const MAIN = '/app/main.shade.ts';
 const LIB = '/app/lib.shade.ts';
@@ -27,17 +28,14 @@ function applied(text: string, edits: readonly TypeshadeTextEdit[]): string {
 describe('the order of rows that share a start', () => {
   const WRITE_TO_CONST =
     '"use typeshade";\nexport function f(): f32 {\n  const k = 1.\n  k = 2.\n  return k\n}\n';
-  const ARITY =
-    '"use typeshade";\nexport function f(): vec4 {\n  let v: vec4 = vec4(1., 2.)\n  return v\n}\n';
 
-  it('puts the enclosed row before the enclosing one', () => {
-    const service = createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge: false });
-    service.openDocument('a.ts', ARITY);
-    const rows = service.getDiagnostics('a.ts').filter((d) => d.span.start === 61);
-    expect(rows.map((d) => [d.source, d.span.length])).toEqual([
-      ['typescript', 4],
-      ['typeshade', 12],
-    ]);
+  it('puts the enclosed row before the enclosing one, whatever the sources', () => {
+    const row = (source: 'typescript' | 'typeshade', length: number): TypeshadeDiagnostic =>
+      ({ source, span: { start: 7, length } }) as TypeshadeDiagnostic;
+    const enclosing = row('typescript', 12);
+    const enclosed = row('typeshade', 4);
+    expect([enclosing, enclosed].sort(byDocumentOrder)).toEqual([enclosed, enclosing]);
+    expect([enclosed, enclosing].sort(byDocumentOrder)).toEqual([enclosed, enclosing]);
   });
 
   it('puts the TypeScript row before the TypeShade row of one span', () => {
@@ -121,12 +119,13 @@ function h(a: u32): u32 { return a; }
     const { service, files } = open();
     const compiled = compile(IMPORTER, { fileName: MAIN, readDocument: (uri) => files[uri] });
     expect(compiled.diagnostics.map((d) => d.message)).toHaveLength(1);
+    expect(compiled.diagnostics[0]!.message).toContain('is a u32 where another line reads it');
     expect(service.getDiagnostics(MAIN).map((d) => d.message)).toEqual(
       compiled.diagnostics.map((d) => d.message),
     );
   });
 
-  it('renames in each document through that document own projection', () => {
+  it('renames in each document through its own projection', () => {
     const { service } = open();
     const at = service.positionAt(LIB, LIBRARY.indexOf('shade('));
     const edits = service.rename(LIB, at, 'glow');
