@@ -1745,7 +1745,7 @@ entry(bindings, workgroups)` dispatches it on WebGPU and reads what it wrote bac
 and `entry(bindings, workgroups, { constants: { WIDTH: 32 } })` selects declared overrides
 with the same validation as `program.compute`. A plan keeps its existing submission and reports
 the selected workgroup shape. CPU calls use generated closures with the same constants;
-WebGL2 supports the declared default workgroup shape and array lengths. An imported fragment
+On the WebGL2 tier, the pass program uses the declared default workgroup shape and array lengths. Selecting another shape or length is not supported yet on the WebGL2 tier (Rule 11.8, Rule 8.24). An imported fragment
 entry called as `entry(canvas, bindings)` draws a full-screen fragment entry into a canvas
 (`docs/use-typeshade-surface.md` §67). If it reaches no host-supplied binding, including through
 its helpers, call `entry(canvas)`; explicit `undefined` or `{}` has the same meaning. Unused
@@ -2308,8 +2308,8 @@ with the default. The program runtime pins it from `render({ constants })` or
 `compute(entry, { constants })`; an imported compute entry accepts the same record in its
 third argument. A host that emits GLSL itself supplies
 `emitGlslModule(m, 'fragment', { overrideValues: { quality: 2 } })`. These paths read
-the declared constants from `reflect().overrides`. WebGL2 compute keeps the default workgroup
-shape and array lengths even when ordinary override values change.
+the declared constants from `reflect().overrides`. On the WebGL2 tier, the compute pass program keeps the default workgroup
+shape and array lengths when override values change. Selecting them by override is not supported yet on the WebGL2 tier (Rule 11.8).
 
 Because the read stays opaque to the optimizer, the branch above survives every pass and
 the driver removes it per pipeline variant, which is the classic ubershader mechanism. The
@@ -2430,7 +2430,7 @@ A capability can need either half, both halves, or neither.
 | `f16`                | not authorable yet (Rule 4.7), fails closed (Rule 10.3)         | directive `f16` and host feature `shader-f16`                            |
 | `subgroups`          | one invocation per subgroup (Rule 11.21), nothing to request    | directive `subgroups` and host feature `subgroups`                       |
 | `clipDistances`      | not supported yet, fails closed (Rule 10.3)                     | directive `clip_distances` and host feature `clip-distances`             |
-| `primitiveIndex`     | unsupported, fails closed (Rule 10.3)                           | directive `primitive_index` and host feature `primitive-index`           |
+| `primitiveIndex`     | not supported yet, fails closed (Rule 10.3)                     | directive `primitive_index` and host feature `primitive-index`           |
 | `dualSourceBlending` | not supported yet, fails closed (Rule 10.3)                     | directive `dual_source_blending` and host feature `dual-source-blending` |
 | `bgra8unormStorage`  | not supported yet, fails closed (Rule 10.3)                     | host feature `bgra8unorm-storage`, derived                               |
 | `packed4x8Dot`       | not supported yet, fails closed (Rule 10.3)                     | core, derived; a language feature to check                               |

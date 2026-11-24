@@ -354,7 +354,7 @@ function refuseBias(
     );
   if (b.clamp !== 0 && !clampExtension)
     throw new TypeError(
-      `${prefix} sets depth.bias.clamp to ${b.clamp}; the WebGL2 tier takes a non-zero clamp only through EXT_polygon_offset_clamp, and this context lacks it.`,
+      `${prefix} sets depth.bias.clamp to ${b.clamp}; a non-zero clamp is not supported yet on the WebGL2 tier without EXT_polygon_offset_clamp (Rule 11.11), and this context lacks it.`,
     );
 }
 
@@ -593,8 +593,8 @@ export class GlRenderPrograms {
   }
 }
 
-/** Refuse a state the WebGL2 tier cannot draw, in the sentences it has always used: a topology,
- *  a blend factor or a blend operation it has no name for, and targets blended or masked apart. */
+/** Refuse a state the WebGL2 tier does not draw, in the sentences it has always used: a topology,
+ *  a blend factor or a blend operation WebGPU has no name for, and targets blended or masked apart (not supported yet, Rule 11.11). */
 function checkState(plan: RenderPlan, vs: PackEntry, fs: PackEntry | undefined): void {
   const where = `The render pipeline of "${(fs ?? vs).name}"`;
   if (GL_TOPOLOGY[plan.primitive.topology] === undefined)

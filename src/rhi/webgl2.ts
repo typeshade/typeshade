@@ -1463,7 +1463,7 @@ class GlDevice implements RhiDevice {
     const gl = this.native;
     this.state();
     if ((desc.dimension ?? '2d') !== '2d' || desc.size[2] !== 1)
-      throw new TypeError('The WebGL2 backend makes 2D textures of one layer.');
+      throw new TypeError('A 3D or layered texture is not supported yet on the WebGL2 tier.');
     if ((desc.sampleCount ?? 1) !== 1)
       throw new TypeError(
         'A multisampled texture is not supported yet on the WebGL2 tier (Rule 10.5, Rule 11.11).',

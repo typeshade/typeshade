@@ -1,5 +1,5 @@
 // Step 14. One workgroup does the whole sum, so the call dispatches one workgroup and reads one number.
-// A barrier needs a GPU tier: this host runs on WebGPU.
+// The CPU tier does not run a barrier yet (Rule 8.24). WebGL2 runs it as a pass program (Rule 11.8). This host runs on WebGPU.
 import { sum } from './parallel-sum.shade.ts';
 
 export async function run(count = 1000): Promise<number> {

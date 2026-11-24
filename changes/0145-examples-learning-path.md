@@ -628,6 +628,99 @@ go-ahead.
 | D-7. `image-blur` blurs a flat `f32` array with a 2D compute entry, not a texture.                                                                                | Open. A texture form follows 0138 milestone 5.                    |
 | D-8. `ray-tracer` offsets its floor checker by 0.31 and 0.17, so no tile edge falls on a pixel centre, where f32 and f64 disagree.                                | Closed. The offset changes no concept the step teaches.           |
 
+### Status record, 2026-11-24 (handoff)
+
+This record lists the state of change 0145 at the handoff of 2026-11-24. The owner asked for a
+handoff list inside the repository. [decision, owner, 2026-11-24] The orchestrating session
+relayed it with "추천대로" (English: as recommended) for the OD-11 audit. Labels: [fact] was
+observed, [inference] is the agent's reading, [proposal] is planned work, [decision] is the
+owner's.
+
+Configuration of this record: `main` at `af0a3f8e`. Every commit named below was checked with
+`git cat-file -t` after `git fetch`, and each is an ancestor of `af0a3f8e`. Milestones M1 to M3
+are in the records above.
+
+#### Status of the milestones
+
+| Item                           | Status      | Identifier                                                                    |
+| ------------------------------ | ----------- | ----------------------------------------------------------------------------- |
+| M4.3a (modules `a` to `h`)     | done        | #1472, merge commit `d31bfbff`                                                |
+| M4.3b (27 modules `i` to `z`)  | done        | #1488, merge commit `b013281e`                                                |
+| A3 (the path edits)            | accepted    | #1485, merge commit `1876866d`                                                |
+| M4.6 (one driver)              | done        | #1464, merge commit `c0814b4e`                                                |
+| M4.3c                          | done, held  | A patch. It waits for the owner's Doorstop review. Base `main` at `b013281e`. |
+| M4.4, M4.5 rest, M4.7 to M4.10 | not started | The table "Not started" below                                                 |
+| M5, M6, M7                     | not started | The same table                                                                |
+
+[fact] M4.1 and M4.2 have no merge commit in this record, so it states no status for them.
+[inference] The tree suggests that both were delivered (`examples/_manifest.ts`, and D-3 closed by M4.1). A later record names their commits.
+
+#### M4.3c, held for the Doorstop review
+
+1. [fact] M4.3c is complete as a patch. It is not a pull request in this record. Its base is `main`
+   at `b013281e`.
+2. [fact] It waits for the owner's Doorstop review. It edits the 17 rules and 27 sections of A3 by
+   path only.
+3. [fact] Items to review, with `doorstop review`: RULE-0403, RULE-0408, RULE-0609, RULE-0610,
+   RULE-0705, RULE-0709, RULE-0710, RULE-0809, RULE-0810, RULE-0811, RULE-0812, RULE-0813,
+   RULE-0816, RULE-0817, RULE-0818, RULE-0819 and RULE-0825.
+4. [fact] Items to clear, with `doorstop clear`: SURF-002, SURF-003, SURF-004, SURF-007, SURF-014,
+   SURF-016, SURF-017, SURF-019, SURF-024, SURF-026, SURF-027, SURF-028, SURF-040, SURF-044,
+   SURF-049, SURF-063, SURF-065, SURF-068, SURF-070 and SURF-076.
+5. [procedure] A person reads each item, then runs the command. An agent does not run
+   `doorstop review` or `doorstop clear`, and not `python scripts/doorstop-check.py -C`.
+6. [proposal] After the review, push the patch as a pull request with `Change: 0145`. It waits
+   for the owner's "merge", since M4.3 is marked owner in the slice table of A2.
+
+#### Work that follows M4.3c
+
+[proposal] Each step below needs M4.3c merged. Each is one change on its own pull request.
+
+1. Remove the header reader of `examples/_shade.ts`. The reader is the `EXAMPLE_BLOCK` pattern at
+   `examples/_shade.ts:108` and its use in the function at `:96` to `:135` (lines on `af0a3f8e`).
+   After M4.3c no module carries an `@example` header, and the scan reads `example.json` only.
+2. Fix the stale count in `examples/README.md`. Line 210 says `bun run gate:compile` emits "all 127
+   registered examples". Measure the count with `bun run gate:compile`, then write the number
+   that it prints.
+3. Fix the OD-11 wording in the bodies of the moved modules: `clip-planes`, `compute-sync`,
+   `array-length`, `cube-array-gather`, `msaa-resolve`, `packed-bytes`, `storage-texture`,
+   `shadow-compare` and `subgroup-reduce`. The text and rows are in the record of change 0146
+   (Status record, 2026-11-24, Group 5). [fact] The body comments of these modules are not in
+   the `@example` header, so M4.3c keeps them.
+
+#### Not started
+
+[fact] No item in this table has a commit or a pull request. The approval column says who must
+say "merge" before the item is on `main`.
+
+| Item                   | Content                                                                                                                                                                                                                                         | Next action                                                                            | Approval                                              |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| M4.4                   | The group table: `group` and `tags` in every `example.json` and builder literal. Delete `CURATED_ORDER`.                                                                                                                                        | Write the table after M4.3c is merged. The pull request shows the table for the owner. | Owner reviews the table (Q3), then says "merge".      |
+| M4.4, judgement call 1 | The rule of the group `works` in `examples/groups.json`: "A renderable example that is not fp64 and not one-feature."                                                                                                                           | The owner reads the group of each example where that rule is a judgement.              | Owner, in the M4.4 pull request.                      |
+| M4.4, judgement call 2 | Nine `example.json` files carry `"waitsFor": "0145 M4.7"`: `kernel-set-unique`, `compute-reduction-twin`, `loop-kernel`, `workgroup-scratch`, `workgroup-reduce`, `loop-reduction`, `atomic-histogram`, `workgroup-override` and `loop-on-cpu`. | The owner decides if the label "0145 M4.7" stays for each, or names another slice.     | Owner, in the M4.4 pull request.                      |
+| M4.5, the rest         | Rewrite `examples/README.md` and `examples/PORTING.md` to the new layout.                                                                                                                                                                       | Write the rewrite after M4.3c and M4.4.                                                | Pre-approved: merge on green checks (A2 slice table). |
+| M4.7                   | `host.ts` for the callable compute and kernel modules, in batches of about five.                                                                                                                                                                | Write the first batch of the form. Show it to the owner.                               | Owner for the first batch. Then green checks (O6).    |
+| M4.8                   | The three special hosts in the form: `host-compute`, `loop-fuse`, `host-program`. Remove `draw` and `runSpecialized` as exports.                                                                                                                | Start after M4.6 (done). Show the exports removed.                                     | Owner.                                                |
+| M4.9                   | `scripts/user-journey.ts` reads the registry. C6 for every `host: "run"` entry. `HOST_ORDER` goes.                                                                                                                                              | Start after M4.7 and M4.8.                                                             | Pre-approved: merge on green checks.                  |
+| M4.10                  | `host.ts` for the `pending` draw modules, in about 14 batches of six.                                                                                                                                                                           | Start after 0138 milestone 5 delivers a draw. The first batch shows the form.          | Owner for the first batch. Then green checks (O6).    |
+| M7                     | The eight examples of the first batch of the inspired group (A1).                                                                                                                                                                               | Start after M4.4 and M4.7. Show the header of each new example to the owner first.     | Owner.                                                |
+| M5                     | The site and the Playground, in the site repository.                                                                                                                                                                                            | Start after the site's compiler pin moves and 0145 is in its `compiler-changes.md`.    | The site repository's rules.                          |
+| M6                     | Part 3 (steps 9 to 11) and step 16.                                                                                                                                                                                                             | Start after 0138 milestone 5 is delivered (Q6, option (b)).                            | Owner for a change to what an author writes.          |
+
+[inference] M4.7 and M4.10 wait for the form of one batch, and M7 waits for both M4.4 and M4.7.
+The longest chain is M4.3c, M4.4, M4.7, M7.
+
+#### Verification and audit record of this section
+
+- Ran on 2026-11-24 on `af0a3f8e`: `git cat-file -t` for each commit named above (all `commit`),
+  `git merge-base --is-ancestor` for each (all ancestors), and `grep` for the line numbers of
+  `examples/_shade.ts` and `examples/README.md`.
+- Not run: the four required checks of CI, `python scripts/doorstop-check.py -C`, `doorstop
+review` and `doorstop clear`. This section changes no code, no rule and no example.
+- Not verified: the content of the M4.3c patch. The Doorstop lists are as the orchestrating
+  session gave them. They are not re-derived with `bun run reqs:sync` here.
+- Deviations: none open from this section. D-1, D-4, D-5 and D-7 stay open as above.
+
 ## Open questions for the owner
 
 Each question has a recommended answer. The owner chose every recommended answer on 2026-11-23
