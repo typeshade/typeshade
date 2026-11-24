@@ -61,6 +61,7 @@ import { dataTexture } from './webgl2/data-texture.js';
 import { bindTexture } from './webgl2/bind-texture.js';
 import { blitScreen } from './webgl2/screen-blit.js';
 import { readTexels } from './webgl2/texel-readback.js';
+import { texelView } from './webgl2/texel-view.js';
 export { DATA_WIDTH } from './webgl2/data-texture.js';
 export { GL_TOPOLOGY, GL_BLEND_FACTOR, GL_BLEND_OPERATION } from './webgl2/draw-state.js';
 export { textureKindOf } from './webgl2/format.js';
@@ -193,31 +194,6 @@ void main() {
   gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;
 }
 `;
-}
-
-function texelView(gl: GL, type: number, data: ArrayBufferView): ArrayBufferView {
-  const at = [data.buffer, data.byteOffset] as const;
-  const n = (size: number): number => Math.floor(data.byteLength / size);
-  switch (type) {
-    case gl.FLOAT:
-      return new Float32Array(...at, n(4));
-    case gl.HALF_FLOAT:
-    case gl.UNSIGNED_SHORT:
-      return new Uint16Array(...at, n(2));
-    case gl.SHORT:
-      return new Int16Array(...at, n(2));
-    case gl.UNSIGNED_INT:
-    case gl.UNSIGNED_INT_2_10_10_10_REV:
-    case gl.UNSIGNED_INT_10F_11F_11F_REV:
-    case gl.UNSIGNED_INT_24_8:
-      return new Uint32Array(...at, n(4));
-    case gl.INT:
-      return new Int32Array(...at, n(4));
-    case gl.BYTE:
-      return new Int8Array(...at, data.byteLength);
-    default:
-      return new Uint8Array(...at, data.byteLength);
-  }
 }
 
 const pad = (v: readonly number[]): number[] => [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0, v[3] ?? 0];
