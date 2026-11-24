@@ -7,10 +7,7 @@ import type {
   ExplainedDiffEntry,
   ClassifiedSemanticDiff,
 } from './semantic-diff/result.js';
-import { EMPTY_CANON, buildCanon } from './semantic-diff/canon.js';
-import { controlFlowFacts } from './semantic-diff/skeleton.js';
-import { interfaceFacts, resourceFacts } from './semantic-diff/reflection-facts.js';
-import { constantFacts } from './semantic-diff/constant-facts.js';
+import { BUCKETS, moduleFacts, diffAllFacts, resolvedLines } from './semantic-diff/facts-diff.js';
 export { isSemanticallyEqual } from './semantic-diff/result.js';
 export type {
   SemanticAspect,
@@ -20,60 +17,6 @@ export type {
   ExplainedDiffEntry,
   ClassifiedSemanticDiff,
 } from './semantic-diff/result.js';
-
-function diffFacts(a: readonly string[], b: readonly string[], ignoreOrder: boolean): string[] {
-  const key = (xs: readonly string[]): string[] =>
-    ignoreOrder ? [...xs].sort() : xs.map((x, i) => `@${i} ${x}`);
-  const left = key(a);
-  const right = key(b);
-  const counts = new Map<string, number>();
-  for (const x of left) counts.set(x, (counts.get(x) ?? 0) + 1);
-  for (const x of right) counts.set(x, (counts.get(x) ?? 0) - 1);
-  const out: string[] = [];
-  for (const [line, n] of counts) {
-    for (let i = 0; i < n; i++) out.push(`-${line}`);
-    for (let i = 0; i < -n; i++) out.push(`+${line}`);
-  }
-  return out.sort();
-}
-
-interface ModuleFacts {
-  readonly interface: readonly string[];
-  readonly resources: readonly string[];
-  readonly constants: readonly string[];
-  readonly controlFlow: readonly string[];
-}
-
-const BUCKETS = ['interface', 'resources', 'constants', 'controlFlow'] as const;
-
-function moduleFacts(m: ModuleDecl, canonNames: boolean): ModuleFacts {
-  const c = canonNames ? buildCanon(m) : EMPTY_CANON;
-  return {
-    interface: interfaceFacts(m, c),
-    resources: resourceFacts(m, c),
-    constants: constantFacts(m, c),
-    controlFlow: controlFlowFacts(m, c),
-  };
-}
-
-const diffAllFacts = (fa: ModuleFacts, fb: ModuleFacts, order: boolean): SemanticDiff => ({
-  interface: diffFacts(fa.interface, fb.interface, order),
-  resources: diffFacts(fa.resources, fb.resources, order),
-  constants: diffFacts(fa.constants, fb.constants, order),
-  controlFlow: diffFacts(fa.controlFlow, fb.controlFlow, order),
-});
-
-function resolvedLines(prev: readonly string[], next: readonly string[]): string[] {
-  const counts = new Map<string, number>();
-  for (const l of prev) counts.set(l, (counts.get(l) ?? 0) + 1);
-  for (const l of next) {
-    const n = counts.get(l);
-    if (n !== undefined) counts.set(l, n - 1);
-  }
-  const out: string[] = [];
-  for (const [line, n] of counts) for (let i = 0; i < n; i++) out.push(line);
-  return out;
-}
 
 /** Compare two modules at the IR and reflection layer. A textual diff of emitted source is
  *  hard to read once the optimizer and the production plugins have run; this comparison
