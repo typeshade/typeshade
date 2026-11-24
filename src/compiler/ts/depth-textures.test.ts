@@ -266,9 +266,9 @@ declare const maps: texture_depth_2d_array`,
 
 describe('the CPU twin', () => {
   it('yields 1, the identity for the lighting multiply', () => {
-    // The oracle has no texture memory. A comparison yields a FACTOR, and the placeholder that
-    // leaves the rest of the shader alone is the identity for the multiply it feeds — not the
-    // opaque black a texel read yields, since a texel has no identity and a factor does.
+    // The CPU tier does not read a depth texture yet. A comparison yields a FACTOR, and the
+    // placeholder that leaves the rest of the shader alone is the identity for the multiply it
+    // feeds, not the opaque black a texel read yields: a texel has no identity and a factor does.
     // (`eval` runs under gpuStubs; the codegen twin of every catalogued intrinsic is pinned by
     // oracle-backend-parity O5, so this pins the VALUE, not the parity.)
     const r = compile(

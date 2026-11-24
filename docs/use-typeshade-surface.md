@@ -237,7 +237,7 @@ class Camera {
 
 interface VsIn {
   position: location<0, vec3>;
-  uv: location<1, vec2, { interpolate: "linear" }>; // WGSL only — GLSL ES 3.00 has no `linear`
+  uv: location<1, vec2, { interpolate: "linear" }>; // not supported yet on the WebGL2 tier (Rule 10.3)
 }
 ```
 
@@ -1107,7 +1107,8 @@ type: `const K: i32 = floor(2.7)` is refused, since the emitted line would carry
 not call a declared function or a derivative (`fwidth`, `dpdx`, `dpdy`), read a resource, or
 take a component, field or element — `vec3(UP.x, 0., 0.)` is refused even though both writers
 would fold it. `XS.length` is a constant too, so an array constant can bound a loop. An array
-**of arrays** is refused: the GLSL ES 3.00 spelling it would produce is not one ANGLE accepts.
+**of arrays** is not supported yet in a module constant (Rule 1.2). The GLSL backend does not
+flatten it. Write one `array<f32, 4>` indexed by `row * width + column`.
 
 A scalar constant's value has to be one its declared type can spell, and that is checked on
 the declaration. An `i32` or `u32` one must be a whole number inside its 32-bit range; a `bool`
@@ -2715,11 +2716,12 @@ it means:
   refuses, the element check reports: `array<i32, 2> = [1.5, 2]`, `array<u32, 2> = [-1, 2]`
   and `array<i32, 2> = [3000000000, 2]` each name the element and its type. A value that
   states its own type, `i32(2)`, keeps it.
-- An **array of arrays** is refused, list or call: GLSL ES 3.00 has none. Measured through the
-  compile gate, `array<array<f32, 2>, 2>` passes Tint and fails the WebGL2 context with
-  *arrays of arrays supported in GLSL ES 3.10 and above only*, so the two targets would
-  disagree about the same source. Flatten it: one `array<f32, 4>` indexed by
-  `row * width + column`.
+- An **array of arrays** is not supported yet, list or call (Rule 1.2). The GLSL backend has no
+  lowering for it on the WebGL2 tier. The compiler refuses it on every tier, so that the two
+  targets agree about the same source. Measured through the compile gate,
+  `array<array<f32, 2>, 2>` passes Tint. The WebGL2 context fails it with *arrays of arrays
+  supported in GLSL ES 3.10 and above only*. That is an API fact, and the lowering is
+  TypeShade's work (OD-11). Flatten it: one `array<f32, 4>` indexed by `row * width + column`.
 - A spread and a hole are refused. A spread is one sentence that names the elements to write in
   its place: `[...xs, 3.]` with an `array<f32, 2>` `xs` is `"...xs" spreads a list into a list,
   which a shader array does not do: write its elements, xs[0], xs[1].` A list that is the spread
@@ -3167,10 +3169,11 @@ wrapper and write let seed: u32.`
 group, no binding and no layout, and `reflect()` reports nothing for it. WGSL emits it between
 the consts and the bindings. GLSL ES 3.00 emits a per-invocation variable as a plain global,
 which is per-invocation there too, so a fragment shader that keeps generator state in one
-renders on both targets. Workgroup memory has no GLSL ES 3.00 declaration, so `compile()` emits no
-GLSL for a module that declares one; a module with a render entry as well also warns `TS8015`. A
-compute entry that uses it still runs on WebGL2: the program runtime keeps each workgroup variable
-as memory, one copy per workgroup, and runs the entry as passes (Rule 10.5, change 0054). The
+renders on both targets. A module that declares workgroup memory has no GLSL half yet (Rule
+10.5), so `compile()` emits no GLSL for it. A module with a render entry as well also warns
+`TS8015`. A compute entry that uses workgroup memory still runs on WebGL2: the program runtime
+keeps each workgroup variable as memory, one copy per workgroup, and runs the entry as passes
+(Rule 11.8, Rule 10.5, change 0054). The
 effect table (§19) counts a write to a module variable as a write, so a helper that only writes
 `seed` is a writer and no pass drops or moves the call.
 
@@ -3360,7 +3363,7 @@ that changes its object writes the object you call it on, as a function that wri
 parameter does (§70, change 0142), so `voices[v].tick()` in a kernel function's loop writes `voices` at `v` (§65).
 Where a host may call a function (§64), the same conditions decide for a method, and a method
 that fails one has the reason a function would have. The rule claims no more than that: a method
-that reaches a binding, a workgroup variable or a builtin only a GPU computes has no host call, a
+that reaches a binding, a workgroup variable or a builtin that a host call does not run yet has no host call yet, a
 host call of a method runs on the CPU tier and never dispatches, and a read of a `Buffer` is
 asynchronous. The class arm of `bun run gate:differential` holds the rule. For each exported class
 of the examples and of `journeys/class-twins/` it writes a twin module that builds the class with
@@ -5323,7 +5326,7 @@ sampler reflects as `resourceKind: 'sampler'` with `samplerComparison: true`, fo
 `GPUSamplerBindingLayout.type: 'comparison'`. Both flags are always set on their kind and absent
 on every other, so a host never reads absence as "not depth" on a buffer.
 
-**The CPU twins yield 1.** The oracle has no texture memory. A comparison yields a *factor*, and
+**The CPU twins yield 1.** The CPU tier does not read a depth texture yet (not supported yet on the CPU tier, Rule 11.7). A comparison yields a *factor*, and
 the placeholder that leaves the rest of the shader alone is the identity for the multiply it
 feeds — where a texel read yields opaque black, because a texel has no identity and a factor
 does. `examples/gallery/shadow-compare/shadow-compare.shade.ts` is the gate's evidence on both targets.
@@ -5450,10 +5453,12 @@ let reds = textureGather(0, albedo, smp, uv);
 let passes = textureGatherCompare(shadow, shadowSmp, uv, 0.5);
 ```
 
-**WGSL-only, three capabilities, derived.** GLSL ES 3.00 has none of the three, measured on a
-WebGL2 driver: `sampler1D` is a *reserved word*, `samplerCubeArray` needs
-`GL_EXT_texture_cube_map_array`, which the driver reports "not supported", and `textureGather`
-arrived in ES 3.10 ("no matching overloaded function"). So each is a **derived** capability —
+**Three capabilities, derived. Not supported yet on the WebGL2 tier (Rule 10.5).** The GLSL
+lowering of `texture_1d`, `texture_cube_array` and `textureGather` is deferred (Rule 10.5).
+Measured on a WebGL2 driver, for the record: `sampler1D` is a *reserved word*,
+`samplerCubeArray` needs `GL_EXT_texture_cube_map_array`, which the driver reports "not
+supported", and `textureGather` arrived in ES 3.10 ("no matching overloaded function"). Those
+are API facts, and the lowering is TypeShade's work (OD-11). So each is a **derived** capability —
 `texture1d` and `textureCubeArray` from a binding's type, `textureGather` from a call — with a
 WGSL row and no GLSL row, the pattern `storageTexture` set (§33): the gate fails the module
 closed on GLSL before any emit, `enables` cannot name them, and `reflect().requiredFeatures`
@@ -5532,9 +5537,10 @@ so is `textureNumLayers` (samples, not layers). `textureNumSamples` on a single-
 is refused the same way. The sample index is an integer like a level: a bare `3` is retargeted,
 a fractional one refused.
 
-**WGSL-only, by the capability the binding already derived.** GLSL ES 3.00 has no `sampler2DMS`
-(that is ES 3.10), so `msaaTextureLoad` fails the module closed on that target before any emit,
-for the depth twin too. The reads are their own ids (`textureLoadMs`, `textureLoadDepthMs`,
+**Not supported yet on the WebGL2 tier (Rule 10.5).** The GLSL lowering of a multisampled read
+is deferred, so `msaaTextureLoad` fails the module closed on that target, by the capability the
+binding already derived, before any emit, for the depth twin too. (GLSL ES 3.00 has no
+`sampler2DMS`; that type is ES 3.10.) The reads are their own ids (`textureLoadMs`, `textureLoadDepthMs`,
 `textureDimensionsMs`, `textureNumSamples`) rather than the 2d ones: `texelFetch(t, c, int(s))`
 would be well-formed, wrong text for a sample index, and the 2d size wrapper's `textureSize(t,
 0)` takes a level a multisampled texture has none of.
@@ -6501,13 +6507,14 @@ signed. Typing `pack4xI8` as an `i32` emitted WGSL Tint refuses — measured, as
 `i32` is "cannot assign 'u32' to 'i32'", and adding it to `dot4I8Packed`'s result is "no
 matching overload for 'operator + (u32, i32)'".
 
-### WGSL-only, and not an extension
+### Not supported yet on the WebGL2 tier, and not an extension
 
-GLSL ES 3.00 has no dot product of packed bytes, no byte pack and no byte unpack, so a module
-using one of the eight derives the `packed4x8Dot` capability and fails closed on that target —
-the WGSL half still emits, and the GLSL half is absent with the capability named, the same shape
-the storage-texture rows use. `examples/gallery/packed-bytes/packed-bytes.shade.ts` is registered `renderable: false`
-for that reason, and the gate runs its Tint half alone.
+The GLSL backend has no lowering for the eight packed-byte builtins yet (Rule 10.3). It inlines
+`pack4x8unorm` by hand (§44), and these eight have no such lowering. So a module that uses one
+derives the `packed4x8Dot` capability and fails closed on that target. The WGSL half still emits,
+and the GLSL half is absent with the capability named, the same shape the storage-texture rows
+use. `examples/gallery/packed-bytes/packed-bytes.shade.ts` is registered `renderable: false` until the lowering
+exists, and the gate runs its Tint half alone. No rule defers this family by name.
 
 On the WGSL side there is nothing to declare, and that is measured rather than assumed:
 
@@ -7409,11 +7416,11 @@ the migration release (change 0111, D5).
 | --- | --- | --- |
 | `location<1, u32, { interpolate: "flat" }>` | `@interpolate(flat)` | `flat` |
 | `{ interpolate: ["perspective", "centroid"] }` | `@interpolate(perspective, centroid)` | `smooth centroid` |
-| `{ interpolate: "linear" }`, `{ interpolate: [ …, "sample"] }` | as written | **no form** — the module has no GLSL half |
+| `{ interpolate: "linear" }`, `{ interpolate: [ …, "sample"] }` | as written | **not supported yet on the WebGL2 tier (Rule 10.3)** — the module has no GLSL half until a lowering exists |
 | `builtin<"position", { invariant: true }>` | `@invariant @builtin(position)` | `invariant gl_Position;` |
-| `{ blend_src: 0 }` / `{ blend_src: 1 }` at one location | `enable dual_source_blending;` + the attributes | **no form** — GLSL ES 3.00 has no second source |
+| `{ blend_src: 0 }` / `{ blend_src: 1 }` at one location | `enable dual_source_blending;` + the attributes | **not supported yet on the WebGL2 tier (Rule 10.3)** — no GLSL lowering of a second blend source exists yet |
 
-The two "no form" rows fail the module CLOSED on GLSL rather than emitting something else:
+The two "not supported yet" rows fail the module CLOSED on GLSL rather than emitting something else:
 `emitGlslModule` throws and the module simply has no GLSL text, the way a storage texture
 already does. `blend_src` derives the `dualSourceBlending` capability (§50) from the field
 itself, so the directive is emitted for any module that declares one. No example carries it:
@@ -7955,9 +7962,10 @@ with a clear error.
 namespace's member is `Ns_K`, an inherited field is `Cls_super_Base_member`: the flattening is
 what a backend sees, so that is the name a target is asked to spell.
 
-**A target the module never reaches is not asked.** A compute kernel has no GLSL ES 3.00 form —
-that is the one stage the language does not have — so a field `half` keeps its name in every
-text the module emits. `examples/gallery/array-length/array-length.shade.ts` carries exactly that field, so Tint
+**A target the module never reaches is not asked.** A compute entry has no GLSL vertex or
+fragment text of its own (Rule 10.3). On WebGL2 the program runtime runs it as its pass program
+(Rule 11.8, Rule 8.24, change 0054). So a field `half` keeps its name in every text the module
+emits. `examples/gallery/array-length/array-length.shade.ts` carries exactly that field, so Tint
 accepts the name on every gate run.
 
 **What is spelled.** WGSL spells afresh a keyword or reserved word, a name containing `$`, one
@@ -8567,7 +8575,7 @@ import { height } from './terrain.shade.ts'; // a helper, on the CPU tier
 
 **What a host can call** (Rule 8.20): an exported function that is not an entry point, is not
 generic, takes no function, has a host value for each parameter and for its result, and reaches
-no binding, no workgroup variable and no builtin only a GPU computes. An exported constant, an
+no binding, no workgroup variable and no builtin that a host call does not run yet (Rule 11.7). An exported constant, an
 `enum` and a class are values too (change 0109): a class is built with `new`, and its
 constructor, methods, accessors and static functions run on the CPU tier, each admitted by the
 same conditions as a function (below). An exported `interface` or `type` is a type, as is a struct
@@ -12776,8 +12784,11 @@ the compiler emits on its own. `docs/performance.md` holds the measurement a pro
 last would start from.
 
 `examples/gallery/subgroup-reduce/subgroup-reduce.shade.ts` is the complete example: an integer fold before an atomic,
-with `subgroup_id` and `num_subgroups` on the entry, on the compile gate on Tint; WGSL-only on the
-gallery, since it is a compute entry over storage buffers.
+with `subgroup_id` and `num_subgroups` on the entry, on the compile gate on Tint. It is not drawn
+on the gallery, because the gallery draws a render pair and this entry is a compute entry (Rule
+11.3). The entry runs on WebGL2 as its pass program (Rule 8.24, change 0054), with a subgroup of
+one lane (Rule 11.21). Its GLSL lowering for `compile()` is not supported yet on the WebGL2 tier
+(Rule 10.5).
 
 ## 78. A numerical contract: `numerics(["finite-math"], f)`
 
