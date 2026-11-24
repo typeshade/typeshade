@@ -60,7 +60,6 @@
   "src/compiler/ts/clamp-bounds.test.ts": 21,
   "src/compiler/ts/class-member-diagnostics.test.ts": 1,
   "src/compiler/ts/class-methods.test.ts": 116,
-  "src/compiler/ts/class-names.ts": 103,
   "src/compiler/ts/class-statics.test.ts": 12,
   "src/compiler/ts/class-syntax.test.ts": 117,
   "src/compiler/ts/class-upcasts.ts": 11,
