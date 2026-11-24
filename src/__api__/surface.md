@@ -1350,21 +1350,9 @@ src/core/ir/types.ts#textureDepthCubeT  const  { readonly kind: "depth-texture";
 src/core/ir/types.ts#textureDepthMultisampled2dT  const  { readonly kind: "depth-texture"; readonly dim: "2d-ms"; }
 src/core/ir/types.ts#typeEq  function  (a: ShaderType, b: ShaderType) => boolean
 src/core/ir/types.ts#typeKey  function  (t: ShaderType) => string
-src/core/ir/types.ts#vec2bT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "bool"; }
 src/core/ir/types.ts#vec2f64T  const  { readonly kind: "vec64"; readonly n: 2; }
-src/core/ir/types.ts#vec2fT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "f32"; }
-src/core/ir/types.ts#vec2iT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "i32"; }
-src/core/ir/types.ts#vec2uT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "u32"; }
-src/core/ir/types.ts#vec3bT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "bool"; }
 src/core/ir/types.ts#vec3f64T  const  { readonly kind: "vec64"; readonly n: 3; }
-src/core/ir/types.ts#vec3fT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "f32"; }
-src/core/ir/types.ts#vec3iT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "i32"; }
-src/core/ir/types.ts#vec3uT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }
-src/core/ir/types.ts#vec4bT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "bool"; }
 src/core/ir/types.ts#vec4f64T  const  { readonly kind: "vec64"; readonly n: 4; }
-src/core/ir/types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "f32"; }
-src/core/ir/types.ts#vec4iT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "i32"; }
-src/core/ir/types.ts#vec4uT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "u32"; }
 src/core/ir/types/cas-result.ts#CAS_RESULT_STRUCTS  const  readonly { readonly name: string; readonly fields: readonly { readonly name: string; readonly type: ShaderType; }[]; }[]
 src/core/ir/types/cas-result.ts#casResultT  const  (elem: "i32" | "u32") => ShaderType
 src/core/ir/types/key-of.ts#ArrayElemKey  type  K extends `array<${infer Inner}>` ? DropArraySize<Inner> : never
@@ -1395,6 +1383,18 @@ src/core/ir/types/storage-texture.ts#WRITE_ONLY_STORAGE_FORMATS  const  readonly
 src/core/ir/types/storage-texture.ts#storageFormatFeature  const  (format: StorageTextureFormat) => string
 src/core/ir/types/storage-texture.ts#storageTexel  const  (format: StorageTextureFormat) => TextureElem
 src/core/ir/types/storage-texture.ts#storageTextureLayoutAccess  const  (access: StorageTextureAccess) => "write-only" | "read-only" | "read-write"
+src/core/ir/types/vector-types.ts#vec2bT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "bool"; }
+src/core/ir/types/vector-types.ts#vec2fT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "f32"; }
+src/core/ir/types/vector-types.ts#vec2iT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "i32"; }
+src/core/ir/types/vector-types.ts#vec2uT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "u32"; }
+src/core/ir/types/vector-types.ts#vec3bT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "bool"; }
+src/core/ir/types/vector-types.ts#vec3fT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "f32"; }
+src/core/ir/types/vector-types.ts#vec3iT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "i32"; }
+src/core/ir/types/vector-types.ts#vec3uT  const  { readonly kind: "vec"; readonly n: 3; readonly elem: "u32"; }
+src/core/ir/types/vector-types.ts#vec4bT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "bool"; }
+src/core/ir/types/vector-types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "f32"; }
+src/core/ir/types/vector-types.ts#vec4iT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "i32"; }
+src/core/ir/types/vector-types.ts#vec4uT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "u32"; }
 src/core/manifest-types.ts#Pack  interface  { [entryBindings]?: E; bindings: readonly PackBinding[]; compiler: string; console?: PackConsole; emit?: { readonly level?: "O0" | "O1" | "O2"; readonly parens?: "full" | "minimal"; readonly fp64Flavor?: "float" | "integer"; }; entries: readonly PackEntry[]; features: readonly string[]; gl?: { readonly vertices?: Readonly<Record<string, PackGlVertex | { readonly none: string; }>>; readonly draws?: Readonly<Record<string, PackGlDraw | { readonly none: string; }>>; readonly computes?: Readonly<Record<string, PackGlCompute | { readonly none: string; }>>; }; glsl?: { readonly vertex: string; readonly fragment: string; }; ir?: PortableIr; overrides: readonly PackOverride[]; schema: 2; structs: readonly { readonly name: string; readonly emitted: string; readonly fields: readonly { name: string; emitted: string; type: string; }[]; }[]; variants?: { readonly console?: PackConsole; }; vertexLayout?: GpuVertexLayout; wgsl: string }
 src/core/manifest-types.ts#PackBinding  interface  { access?: "read" | "read_write"; binding: number; dataTexture?: PackDataTexture; emitted: string; emittedGlsl?: string; group: number; injected?: true; layout?: PackLayout; name: string; noLayout?: string; resource: PackResource; rule?: "std140" | "std430"; space: string; stages: readonly ("compute" | "vertex" | "fragment")[]; type: string }
 src/core/manifest-types.ts#PackEntry  interface  { bindings?: readonly { readonly name: string; readonly writes: boolean; }[]; emitted: string; inputs?: readonly PackIo[]; line?: PackLine; name: string; outputs?: readonly PackIo[]; stage: string; vertex?: GpuVertexLayout; workgroupSize?: readonly [number, number, number]; workgroupSizeOverrides?: readonly [string, string, string] }
