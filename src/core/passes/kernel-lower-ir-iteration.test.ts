@@ -247,7 +247,13 @@ describe('iterationOf', () => {
   it('keeps the span of a scatter write on its atomic call', () => {
     const place = idx(param('hist', u32Array), ref('i'));
     const body: Stmt[] = [
-      { s: 'assignOp', target: place, bop: '+', expr: lit(1), span: { start: 3, end: 4 } } as Stmt,
+      {
+        s: 'assignOp',
+        target: place,
+        bop: '+',
+        expr: lit(1),
+        span: { start: 3, end: 4 },
+      } as unknown as Stmt,
     ];
     const c = ctx({ loop: loopOver(body), arrays: ['hist'], scatter: new Set(['hist']) });
     expect(iterationOf(c, undefined, [])[1]).toMatchObject({
@@ -257,12 +263,10 @@ describe('iterationOf', () => {
   });
 
   it('seeds the slot value with the identity of the operator', () => {
-    const mk = (bop: '&' | 'min', elem: ShaderType): Stmt[] => {
+    const mk = (bop: '&', elem: ShaderType): Stmt[] => {
       const t: ShaderType = { kind: 'array', elem };
       const place: Expr = { op: 'index', type: elem, base: param('h', t), idx: ref('i') };
-      const body: Stmt[] = [
-        { s: 'assignOp', target: place, bop: bop === 'min' ? '&' : bop, expr: lit(1, elem) },
-      ];
+      const body: Stmt[] = [{ s: 'assignOp', target: place, bop, expr: lit(1, elem) }];
       return iterationOf(
         ctx({
           loop: loopOver(body),

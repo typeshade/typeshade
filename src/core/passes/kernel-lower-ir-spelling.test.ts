@@ -123,7 +123,7 @@ describe('entryRewrite', () => {
       fn: 'pushCount',
       args: [param('out', u32Array)],
     };
-    const out = entryRewrite(ctx({ loop, words: words as LoopCtx['words'] }))(pushCount);
+    const out = entryRewrite(ctx({ loop, words: words as unknown as LoopCtx['words'] }))(pushCount);
     expect(out).toEqual({
       op: 'index',
       type: u32T,

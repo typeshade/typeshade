@@ -67,7 +67,12 @@ describe('createComputeRunner webgl2 tier: host state on every exit', () => {
     const r = await runnerOn(s);
     await r.run(new Float32Array([1, 2]));
     const lastDelete = s.lastIndexOf('deleteTexture');
-    const restore = s.calls.findLastIndex((c) => c.name === 'bindTexture' && c.args[1] === hostTex);
+    const restore = s.calls
+      .map(
+        (c: { name: string; args: readonly unknown[] }) =>
+          c.name === 'bindTexture' && c.args[1] === hostTex,
+      )
+      .lastIndexOf(true);
     expect(lastDelete).toBeGreaterThan(-1);
     expect(restore).toBeGreaterThan(lastDelete);
   });
