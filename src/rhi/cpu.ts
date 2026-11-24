@@ -42,6 +42,7 @@ import { CpuComputePipeline, CpuRenderPipeline } from './cpu/pipelines.js';
 import { attributeFormat, attributeValue, type Attribute } from './cpu/vertex-fetch.js';
 import { writeTexel, clearTexture, clearDepth } from './cpu/texel.js';
 import { LIMITS } from './cpu/limits.js';
+import type { Command } from './cpu/types.js';
 export { holdValue } from './cpu/binding.js';
 export { decode, encode } from './cpu/codec.js';
 
@@ -272,8 +273,6 @@ function draw(
   if (fs !== undefined) fs.code.$.invocation = undefined;
   writeBack(back);
 }
-
-type Command = () => void;
 
 class CpuRenderPass implements RhiRenderPass {
   readonly #commands: Command[];
