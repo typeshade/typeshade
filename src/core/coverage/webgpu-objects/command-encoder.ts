@@ -40,7 +40,8 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.copyBufferToBuffer()`',
     covers: ['GPUCommandEncoder.copyBufferToBuffer'],
-    evidence: 'src/runtime/runtime.ts#RenderPass|Frame; src/runtime/gl.ts:437',
+    evidence:
+      'src/runtime/runtime.ts#RenderPass|Frame; src/rhi/webgl2.ts#GlEncoder.copyBufferToBuffer',
     webgpu: andGap(raw('Frame.encoder'), 6, 'no typed buffer-to-buffer copy', 637),
     webgl2: gap(6, 'a buffer copy; WebGL2 copyBufferSubData has no typed form', 637),
   },
