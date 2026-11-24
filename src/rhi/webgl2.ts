@@ -31,7 +31,6 @@ import type {
   RhiBindLayoutEntry,
   RhiBuffer,
   RhiBufferDesc,
-  RhiBufferUsage,
   RhiCanvas,
   RhiCaps,
   RhiColorAttachment,
@@ -53,7 +52,7 @@ import type {
   RhiTextureView,
 } from './rhi.js';
 import type { GL, GlTextureKind } from './webgl2/types.js';
-import { formatOf, type GlFormat } from './webgl2/format.js';
+import { formatOf } from './webgl2/format.js';
 import { GlState } from './webgl2/state.js';
 import { compareOf, drawStateOf, setState } from './webgl2/draw-state.js';
 import { dataTexture } from './webgl2/data-texture.js';
@@ -63,71 +62,22 @@ import { readTexels } from './webgl2/texel-readback.js';
 import { texelView } from './webgl2/texel-view.js';
 import { firstVertexLast } from './webgl2/first-vertex-last.js';
 import { GlPipeline, type Slot } from './webgl2/pipeline.js';
+import {
+  GlBuffer,
+  GlTexture,
+  GlView,
+  GlSampler,
+  GlModule,
+  GlLayout,
+  GlGroup,
+  GlCanvas,
+} from './webgl2/handles.js';
 export { glReadBindings } from './webgl2/pipeline.js';
 export { firstVertexLast } from './webgl2/first-vertex-last.js';
 export { DATA_WIDTH } from './webgl2/data-texture.js';
 export { GL_TOPOLOGY, GL_BLEND_FACTOR, GL_BLEND_OPERATION } from './webgl2/draw-state.js';
 export { textureKindOf } from './webgl2/format.js';
 export type { GlTextureKind } from './webgl2/types.js';
-
-class GlBuffer implements RhiBuffer {
-  readonly __rhi = 'buffer' as const;
-  staleBuffer = true;
-  staleTexture = true;
-  padded = -1;
-  texture: WebGLTexture | undefined;
-  first: { readonly native: WebGLBuffer; key: string; count: number } | undefined;
-
-  constructor(
-    readonly size: number,
-    readonly usage: ReadonlySet<RhiBufferUsage>,
-    readonly elem: 'f32' | 'i32' | 'u32',
-    readonly bytes: Uint8Array | undefined,
-    readonly native: WebGLBuffer | undefined,
-    readonly owned: boolean,
-  ) {}
-}
-
-class GlTexture implements RhiTexture {
-  readonly __rhi = 'texture' as const;
-  constructor(
-    readonly native: WebGLTexture | undefined,
-    readonly width: number,
-    readonly height: number,
-    readonly format: string,
-    readonly fmt: GlFormat | undefined,
-    readonly screen = false,
-  ) {}
-}
-
-class GlView implements RhiTextureView {
-  readonly __rhi = 'view' as const;
-  constructor(readonly texture: GlTexture) {}
-}
-
-class GlSampler implements RhiSampler {
-  readonly __rhi = 'sampler' as const;
-  constructor(readonly native: WebGLSampler) {}
-}
-
-class GlModule implements RhiShaderModule {
-  readonly __rhi = 'module' as const;
-  constructor(readonly code: string) {}
-}
-
-class GlLayout implements RhiBindGroupLayout {
-  readonly __rhi = 'bindlayout' as const;
-  constructor(readonly entries: readonly RhiBindLayoutEntry[]) {}
-}
-
-class GlGroup implements RhiBindGroup {
-  readonly __rhi = 'bindgroup' as const;
-  constructor(readonly entries: ReadonlyMap<number, RhiBindEntry['resource']>) {}
-}
-
-class GlCanvas implements RhiCanvas {
-  readonly __rhi = 'canvas' as const;
-}
 
 const NO_COLOUR = `#version 300 es
 precision highp float;
