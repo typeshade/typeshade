@@ -1775,9 +1775,10 @@ the end. Array rest, defaults, assignment patterns, parameter patterns and `for.
 remain unsupported. A vector is read by component, not an array pattern. Runtime-sized,
 specialization-sized, empty and mixed-layout arrays remain outside this form.
 
-Existing storage limits also apply: WebGL2 cannot copy a whole struct element from a storage
-array. Read its fields with a nested pattern, e.g. `const [{ x }] = xs`. A struct element of a
-local or uniform array can be copied into a local value.
+An existing limit also applies: this version does not copy a whole struct element from a
+storage array on the WebGL2 tier. Read its fields with a nested pattern, e.g.
+`const [{ x }] = xs`. A struct element of a local or uniform array can be copied into a local
+value.
 
 ### A default parameter value is filled in at the call site
 
@@ -2884,9 +2885,10 @@ works: give the type a size, `array<f32, 3>`. A sized array's `.length` stays th
 array's hover keeps its literal, `length: 4`.
 
 **The CPU oracle** reads the bound buffer's length, so `compile().eval` and the debug stepper
-agree with the GPU. **GLSL ES 3.00 has no form**: it has no storage buffer and no runtime-sized
-array (`.length()` on one is GLSL ES 3.10), so a module with a runtime-sized storage array emits
-WGSL alone, as it did before this. The `array-length` example is registered WGSL-only for that
+agree with the GPU. **The GLSL ES 3.00 writer has no form of it**: GLSL ES 3.00 has no runtime-sized
+array (`.length()` on one is GLSL ES 3.10), so `compile()` emits no GLSL for a module with a
+runtime-sized storage array and emits WGSL alone, as it did before this. The WebGL2 tier runs a
+`@compute` entry that reaches it as the pass program of change 0054 (Rule 11.8). The `array-length` example is registered WGSL-only for that
 reason, like `compute-reduction-twin`.
 
 **A loop over such an array is written `for (…; i < src.length; …)`** since #203: §17 takes a
@@ -3074,9 +3076,11 @@ its next atomic operation, and the held operations are performed in invocation i
 workgroup by workgroup, before any invocation runs on: the first operation of every invocation
 of the dispatch, then the second (change 0054). That is one of the orders WGSL allows, and the
 one the WebGL2 tier's resolve pass gives, so an append buffer fills in the same order on both. The oracle, the CPU codegen and the debug stepper agree on every kernel in the
-tests, and a host reads the counts back from the arrays it bound. **GLSL ES 3.00**
-has no storage buffers and no atomics, so a module carrying one emits WGSL alone, like §20's; the
-`atomic-histogram` example is registered WGSL-only and the compile gate runs it on Tint.
+tests, and a host reads the counts back from the arrays it bound. The
+GLSL ES 3.00 writer has no form of an atomic, so a module carrying one emits WGSL alone, as in
+§20; the `atomic-histogram` example is registered WGSL-only and the compile gate runs it on
+Tint. A `@compute` entry that carries one and reaches no texture runs on the WebGL2 tier as its
+pass program, in the phased order above (change 0054, Rule 11.8).
 
 A function you declare with an atomic builtin's name keeps winning the call, the way the names
 §10 added do, so no program that compiled before this section compiles differently.
@@ -5167,7 +5171,8 @@ textureStore(dst, at, vec4<f32>(uv.x, uv.y, 0.5, 1.0));
 ```
 
 **WGSL only.** GLSL ES 3.00 has no image load/store at all — that is ES 3.10 — so a module
-carrying one emits WGSL alone, as a storage buffer or an atomic does. Measured on a driver
+carrying one emits WGSL alone, as a storage buffer or an atomic does; `compile()` emits no GLSL
+text for it, and a storage texture on the WebGL2 tier is a runtime texture (§69, Rule 11.11). Measured on a driver
 rather than read off the spec: `layout(rgba8) uniform writeonly image2D` is `'rgba8' : invalid
 layout qualifier: not supported`, and asking for the extension that would bring it is
 `extension is not supported`.
@@ -6348,7 +6353,7 @@ is refused like every other texture level.
 `textureNumLayers` on a `texture_storage_2d_array` answered `takes a sampled texture; … has no
 sampler`, which is the wrong answer and the wrong reason. It is a `u32` now, and a storage
 texture with no layers is told so in its own words. WGSL-only, like the rest of the storage
-family: GLSL ES 3.00 has no image load/store at all.
+family: `compile()` emits no GLSL text for an image load or store (§33).
 
 ### Either integer as a texel coordinate
 
@@ -6528,9 +6533,11 @@ neither the capability nor the language feature, because it never reaches the bu
 
 ## 48. Compare-exchange, the uniform load and the texture barrier
 
-Three WGSL builtins, each an unknown name before, and all three WebGPU-only: GLSL ES 3.00 has no
-compute stage, so it has no workgroup memory, no atomic compare-exchange and no barrier of any
-kind. A module using one fails closed on that target.
+Three WGSL builtins, each an unknown name before. The GLSL ES 3.00 writer has no form of them, so
+a module using one fails closed on that target. The WebGL2 tier runs
+a `@compute` entry that reaches no texture as the pass program of change 0054 (Rule 11.8), and
+that program is not made by that writer. The rules do not say which of the three builtins the pass
+program gives a form, so this section does not say.
 
 ### `atomicCompareExchangeWeak`
 
@@ -8272,7 +8279,8 @@ WGSL cannot record, and the call still reaches the sink on the CPU:
 - an argument has no fixed size or is not a value: a runtime-sized array, a texture, a sampler;
 - the stage already binds eight storage buffers, WebGPU's default limit.
 
-GLSL ES 3.00 has no storage buffer and records nothing, with no diagnostic. A discarded fragment
+A GLSL ES 3.00 program that `compile()` emits records nothing, with no diagnostic. Recording a
+console on the WebGL2 tier is not supported yet (§69, Rule 11.11). A discarded fragment
 writes nothing after its `discard`.
 
 `examples/gallery/gpu-console/gpu-console.shade.ts` is the kernel above with a helper that warns and a `console.table`
@@ -9846,11 +9854,11 @@ const y = await out.read(); // one download, the first copy of the array
 **The facts a chain is fused from.** A chain of calls over `Buffer`s can run as one dispatch (§71), and the compiler records what that needs. By default, `typeshade()` and `hostFace()` generate the facts (§71). The generated module carries, for each loop of a kernel function that lowers and for each array the loop reaches by an element, whether the loop reads it, writes it or does both, and whether every access is at exactly `i`, as in `out[i]` and not in `out[i + 1]` or `t[i ^ 1]`. For the first access that is not, it carries your own words and its line, as `TS8070` gives them: `` `t[i - 1]` (line 9) ``. It also carries the arrays whose length the loop reads (`t.length`), whether the loop reduces, scatters or has a `continue` of its own, and the lowered module as portable IR. These are facts and refuse nothing: the proof accepts and refuses the loops it always did, and `TS8070` is as it was. `fuse: true` keeps this default; `fuse: false` omits the facts and portable IR. Ordinary-call input projection remains independent.
 
 **The tiers.** A call runs on the first of WebGPU, WebGL2 and the CPU tier that can run it.
-WebGL2 has no compute stage, so it takes a function whose every loop writes one array of `f32`,
-`i32` or `u32` at exactly `i` (`out[i] = …`) and whose scalars are numbers or vectors: each loop is
+WebGL2 takes a function whose every loop writes one array of `f32`, `i32` or `u32` at exactly
+`i` (`out[i] = …`) and whose scalars are numbers or vectors (Rule 11.8): each loop is
 one fragment program, one pixel per iteration, reading the other arrays as data textures; a
 `continue` leaves its element as it was. A reduction, a scatter, a struct array written, or a write
-anywhere but `i` goes on to the CPU tier. `configure({ prefer: ['webgpu'] })` changes the order, and a list of one tier makes it required: a
+anywhere but `i` is not supported yet on the WebGL2 tier, and goes on to the CPU tier. `configure({ prefer: ['webgpu'] })` changes the order, and a list of one tier makes it required: a
 call it cannot run on throws, naming why (`render(): no tier it may use can run it (webgpu: there
 is no WebGPU device).`).
 
@@ -10224,7 +10232,7 @@ runtime's `dispatch` (§69) takes no indirect count yet (#540).
 `configure({ runtime })` names (§69), or else one the call requests on first use, with the limits
 and features `configure({ limits, features })` names; `callDevice()` reports that device's limits
 and features (change 0051). Every later call and the default program runtime share it. Where there is none but there is a WebGL2
-context, it runs on WebGL2 (change 0054): WebGL2 has no compute stage, so the entry runs as a pass
+context, it runs on WebGL2 (change 0054): the entry runs as a pass
 program, its storage and workgroup memory as textures of 32-bit words, a pass at a time, with its
 barriers and atomic operations giving the results WGSL defines (§23, §25). Its storage bindings
 are uploaded and the written ones read back, as on WebGPU; a `Buffer` is the array it holds, as
@@ -10291,8 +10299,9 @@ requestAnimationFrame(frame);
   tier: the alpha a shader writes is not composited, and a discarded pixel is opaque black.
   A later owner must allow that tier. Switching owners on a WebGPU canvas reconfigures its context
   and rebuilds device-specific drawing resources.
-- **When a tier cannot draw it.** WebGL2 has no storage buffer, so an entry that reads one draws
-  on WebGPU or the CPU. A scalar, vector or supported matrix uniform uses a private WebGL2 block;
+- **When a tier cannot draw it.** The WebGL2 tier does not support a storage binding in a draw
+  yet (OD-11), so an entry that reads a storage buffer draws on WebGPU or the CPU. A scalar,
+  vector or supported matrix uniform uses a private WebGL2 block;
   the host still supplies the same number or tuple. Two-row uniform matrices remain refused,
   and bare arrays or other GLSL backend shortfalls leave the WebGL2 tier out. A texture has no CPU tier.
   When the canvas's tier cannot draw the entry,
@@ -10707,10 +10716,10 @@ await frame.submit(); // console lines print here
   3.00 sampler, and WebGL2 renders to no `rgba8snorm` texture the entry writes). A storage
   texture is a runtime texture of the binding's format, which `rt.texture({ storage: true })`
   makes on either tier: the dispatch reads its texels in before the first pass and draws them
-  back after the last (§33). WebGL2 cannot ask a `WebGLTexture` its size, so a host's own texture
-  is refused there, and so is a `texture_storage_2d_array`, since a runtime texture is 2D. The
-  WebGL2 tier
-  records no console (`load(m, { console: true })` is refused), and
+  back after the last (§33). A host's own `WebGLTexture` is not supported yet on the WebGL2 tier
+  (Rule 11.11), since the runtime has no way to learn its size, and so is a `texture_storage_2d_array`, since a runtime texture is 2D. The
+  WebGL2 tier does not support recording a console yet (Rule 11.11):
+  `load(m, { console: true })` is refused, and
   `configure({ runtime })` takes no WebGL2 runtime.
 
   A draw on WebGL2 links the vertex and fragment programs the manifest carries (`gl.vertices`,
@@ -10725,12 +10734,13 @@ await frame.submit(); // console lines print here
   storage array the data texture its binding names (`dataTexture`), a texture a runtime texture or
   a `WebGLTexture`, read with the sampler its calls pass it, and vertices and indices a typed
   array, a `Buffer`, uploaded again only when its host copy changes, or a `WebGLBuffer`. A
-  `TypeError` names what WebGL2 has no form of. Before creating a GL program, it refuses two
+  `TypeError` names what the WebGL2 tier does not support yet, or what only WebGPU has (Rule
+  11.11). Before creating a GL program, it refuses two
   selected stages that sample one texture binding with different samplers. A load-only stage
   adds no sampler requirement and keeps the other stage's sampler. For different sampler
   states, declare two texture bindings and bind the same host texture to both.
   It refuses a multisampled, layered or 3D texture.
-  It refuses targets that blend or mask apart, because WebGL2 has one blend state. It refuses a
+  It refuses targets that blend or mask apart: that is not supported yet on the WebGL2 tier (Rule 11.11). It refuses a
   depth range other than 0 to 1 under a fragment that writes `frag_depth`. It refuses a depth bias
   on a format other than `depth24plus`, `depth32float` and `depth24plus-stencil8`. It refuses a
   non-zero depth-bias clamp when the context lacks `EXT_polygon_offset_clamp`. It refuses a draw that
@@ -11785,7 +11795,7 @@ Three reasons are whole sentences, with no `a and b run as two dispatches becaus
 
 The last row is the fall-back. The runtime builds the entry of a group from the loop IR in the faces of its calls. When it cannot (the IR was written by another version of the compiler, one name is declared differently in two files, an iteration returns), the calls of the group run apart, and each call after the first says why.
 
-A group that has none of the reasons above, and ran on a later tier than the plan's `tier`, says why (change 0118): `b runs on the CPU, ` or `b runs on WebGL2, `, then the reason the call layer had for each tier of the owner's policy before its own, in that order, the reasons of two tiers joined by `; `. Each reason is the one the `Error` of a call that no tier can run gives that tier (§65), without the `webgpu: ` or `webgl2: ` before it, so the same call inside a scope and outside one gives one reason for one tier. With `configure({ prefer: ['webgl2', 'cpu'] })`, the scope `add(t, a, b); mul(u, t, c); total(u)` draws `add` and `mul` on WebGL2 and runs the reduction `total` on the CPU tier, and the group of `total` says `total runs on the CPU, it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. With the default tiers and no WebGPU device, the same group says `total runs on the CPU, there is no WebGPU device; it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. A group that ran on the first tier of the owner's policy has no tier before its own, and says nothing of it.
+A group that has none of the reasons above, and ran on a later tier than the plan's `tier`, says why (change 0118): `b runs on the CPU, ` or `b runs on WebGL2, `, then the reason the call layer had for each tier of the owner's policy before its own, in that order, the reasons of two tiers joined by `; `. Each reason is the one the `Error` of a call that no tier can run gives that tier (§65), without the `webgpu: ` or `webgl2: ` before it, so the same call inside a scope and outside one gives one reason for one tier. With `configure({ prefer: ['webgl2', 'cpu'] })`, the scope `add(t, a, b); mul(u, t, c); total(u)` draws `add` and `mul` on WebGL2 and runs the reduction `total` on the CPU tier, and the group of `total` says `total runs on the CPU, it runs on the CPU, loop 1 reduces, which the WebGL2 tier does not support yet (Rule 11.8)`. With the default tiers and no WebGPU device, the same group says `total runs on the CPU, there is no WebGPU device; it runs on the CPU, loop 1 reduces, which the WebGL2 tier does not support yet (Rule 11.8)`. A group that ran on the first tier of the owner's policy has no tier before its own, and says nothing of it.
 
 **The report.** `fuse` resolves to the report of what the plan did:
 
@@ -11970,7 +11980,7 @@ Each function writes every element of its output (Rule 8.23), so a pooled array 
 | Axis reductions  | `sumAxis`, `meanAxis`, `prodAxis`, `maxAxis`, `minAxis`, `argMaxAxis`, `argMinAxis` as `(out, x, axis: u32, inner: u32)`                                            | `x` is read as `[outer, axis, inner]`. One loop at `i` over `out`, each element a serial fold in ascending `k`. `argMaxAxis` and `argMinAxis` write the index as `f32`, the first maximum or minimum winning a tie.                                                                                                                         |
 | Scan             | `inclusiveScan(out, x, sums)`, `exclusiveScan(out, x, sums)` over `array<u32>`                                                                                       | Two loops of one kernel function, with no barrier (change 0072, Amendment 1): the first writes the sum of each block of `x` into `sums`, the caller's scratch of at least one element; the second writes each element's prefix within its block plus the sums of the blocks before it. The block is `ceil(x.length / sums.length)`, so a `sums` of about `sqrt(n)` elements costs about `2 n sqrt(n)` reads. Both loops run on WebGL2; their `x.length` and `sums.length` reads use element counts supplied by the call. |
 | Compaction       | `compact(out, x, flags: array<u32>, offsets: array<u32>)`                                                                                                           | The elements whose flag is 1, in their order, where `offsets` is the exclusive scan of `flags`; 0 past the count of kept elements. Written as a gather at `i`, the source found by a binary search over `offsets[k] + flags[k]`, since a scatter to `offsets[i]` runs on the CPU only (Rule 8.22, R3). It also runs on WebGL2, using the supplied element count for `x.length`. |
-| Histogram        | `histogram(bins: array<u32>, x, lo, hi)`                                                                                                                            | Adds the count of `x` in each of `bins.length` equal bins over `[lo, hi)` into `bins`, a value outside clamped to the edge bins. Each add is an atomic on WebGPU and a plain add in iteration order on the CPU tier; WebGL2 has no atomics, so the call falls to the next tier (Rule 11.8). The caller zeroes `bins`.                         |
+| Histogram        | `histogram(bins: array<u32>, x, lo, hi)`                                                                                                                            | Adds the count of `x` in each of `bins.length` equal bins over `[lo, hi)` into `bins`, a value outside clamped to the edge bins. Each add is an atomic on WebGPU and a plain add in iteration order on the CPU tier; the WebGL2 tier does not support a kernel function's atomic add yet, so the call falls to the next tier (Rule 11.8). The caller zeroes `bins`.                         |
 
 **The planner's facts.** Every map writes `out` at `i` and reads its inputs at `i`, so a chain of
 maps is one dispatch (F3), and a whole reduction joins a chain as its last call (F6). An axis
@@ -12113,8 +12123,8 @@ records to your `Map` or `Set` in that order. A loop that reads a `Map` or a `Se
 call uploads. A loop may read what an earlier loop of the same function added: the call applies
 that loop's records first, then uploads the collection. A loop that adds after one that reads, two
 loops that add to one, and an `add` inside a nested loop run the function on the CPU tier in this
-version, and the call says why. WebGL2 has no atomics, and runs no such function. A
-`fuse` plan runs the call in a group of its own (§71).
+version, and the call says why. The WebGL2 tier does not support such a function yet (change
+0080, Rule 11.8). A `fuse` plan runs the call in a group of its own (§71).
 
 Last updated: 2026-10-22
 

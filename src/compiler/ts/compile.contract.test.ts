@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
 import { TS_CODES } from './codes.js';
+import { checkDocuments } from '../../language-service/check.js';
 
 const CLIP_COLOR = `
 "use typeshade";
@@ -239,8 +240,19 @@ describe('compile() contract', () => {
     expect(s.glsl).toBeDefined();
     expect(s.diagnostics.map((d) => [d.code, d.category])).toEqual([[TS_CODES.BACKEND, 'warning']]);
     expect(s.diagnostics[0]!.message).toBe(
-      'Backend emit failed: compute entry \'cs\' has no WebGL2 pass program: it reaches the texture_storage_2d<rgba8snorm, write> "t", whose format WebGL2 cannot render to',
+      'Backend emit failed: compute entry \'cs\' has no WebGL2 pass program: it reaches the texture_storage_2d<rgba8snorm, write> "t", a format that is not supported yet on the WebGL2 tier (Rule 10.5)',
     );
+  });
+
+  it('words the missing pass program the same in the editor (Rule 12.7)', () => {
+    const gap =
+      'compute entry \'cs\' has no WebGL2 pass program: it reaches the texture_storage_2d<rgba8snorm, write> "t", a format that is not supported yet on the WebGL2 tier (Rule 10.5)';
+    const editor = checkDocuments([
+      { path: 'a.shade.ts', uri: '/p/a.shade.ts', text: RENDER_PLUS_TEXTURE_COMPUTE },
+    ]).diagnostics.filter((d) => d.code === TS_CODES.BACKEND);
+    expect(editor).toHaveLength(1);
+    expect(editor[0]!.message).toContain(gap);
+    expect(compile(RENDER_PLUS_TEXTURE_COMPUTE).diagnostics[0]!.message).toContain(gap);
   });
 
   it('keeps the wgsl of a vertex+fragment module whose binding the GLSL backend cannot spell', () => {

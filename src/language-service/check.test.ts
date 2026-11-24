@@ -176,7 +176,7 @@ declare const img: storage<array<f32>, "read_write">;
     const warned = checkDocuments([doc('textured.shade.ts', textured)]);
     expect(warned.diagnostics.map((d) => `${d.severity} ${d.code}`)).toEqual(['warning TS8015']);
     expect(warned.diagnostics[0]!.message).toContain(
-      'compute entry \'cs\' has no WebGL2 pass program: it reaches the texture_storage_2d<rgba8snorm, write> "t", whose format WebGL2 cannot render to',
+      'compute entry \'cs\' has no WebGL2 pass program: it reaches the texture_storage_2d<rgba8snorm, write> "t", a format that is not supported yet on the WebGL2 tier (Rule 10.5)',
     );
   });
 

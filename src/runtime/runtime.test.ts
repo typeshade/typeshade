@@ -2497,7 +2497,7 @@ declare const img: texture_storage_2d<"r32float", "write">;
     expect(root !== undefined && !('none' in root) && root.storageTextures).toEqual([
       { name: 'img', format: 'r32float', access: 'write', texel: 'float', size: '_phx_size0' },
     ]);
-    // One it writes that WebGL2 cannot render to: the call layer's words (`host-face.ts`, `glTier`).
+    // One it writes in a format the tier does not support yet: the call layer's words (`host-face.ts`, `glTier`).
     const snorm = manifest(`"use typeshade";
 declare const img: texture_storage_2d<"rgba8snorm", "write">;
 @compute([1]) export function main(gid: builtin<"global_invocation_id">) {
@@ -2505,7 +2505,7 @@ declare const img: texture_storage_2d<"rgba8snorm", "write">;
 }
 `);
     expect(snorm.gl?.computes?.['main']).toEqual({
-      none: 'it reaches the texture_storage_2d<rgba8snorm, write> "img", whose format WebGL2 cannot render to',
+      none: 'it reaches the texture_storage_2d<rgba8snorm, write> "img", a format that is not supported yet on the WebGL2 tier (Rule 10.5)',
     });
     // A module with no compute entry carries none.
     expect(manifest(DRAW).gl?.computes).toBeUndefined();
