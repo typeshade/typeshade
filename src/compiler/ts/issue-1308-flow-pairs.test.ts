@@ -183,4 +183,15 @@ describe('a flow-aware walk pairs only values that occur together (issue 1308, A
     const edited = sum('if (vi > 3) { a = 5; c = 6; }', 'return f32(i32(a - c));');
     expect(valuesAt(edited)).toEqual(at(-1, 0, -1));
   });
+
+  it('refuses a pair that a loop carries to its next pass, in i32 and in u32', () => {
+    const i32 =
+      'let a = (0xF0000000|0);\n  let c = a;\n  let r = 0.0;\n' +
+      '  for (let i = 0; i < ii; i++) { r += f32(a - c); a = c; c = 5; }\n  return r;';
+    bothRefuse(program(i32), 'TS8003', refusal('a - c'));
+    const u32 =
+      'let a = 0xF0000000;\n  let c = a;\n  let r = 0.0;\n' +
+      '  for (let i = 0; i < ii; i++) { r += f32(a - c); c = a; a = 5; }\n  return r;';
+    bothRefuse(program(u32), 'TS8003', refusal('a - c'));
+  });
 });
