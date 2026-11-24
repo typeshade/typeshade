@@ -9213,7 +9213,11 @@ element of an array parameter, when the function qualifies for a count pass (pro
 Amendment A12, form 2, Route 2): the proof of Rule 8.22 accepts every loop, the only write of the
 function is the push onto this array, every push is a statement, the body reads no element of the
 array, an element of an array parameter is read only at the counter of a loop up to that array's
-length, and only the return follows the loops. The call runs the function once to count the pushes
+length, or at the counter of the top-level loop that holds the read when no element is read in that
+loop's start or bound and the function has a GPU plan, and only the return follows the loops. For
+the second form the call checks the array against the indices the loop reads before it runs the
+function, and an array too short for them is a `TypeError`, not a read past its end. A read of a
+loop whose range the device holds is not checked, so that loop does not take the second form. The call runs the function once to count the pushes
 (a `u32` that stops at 4294967295), reserves exactly that many elements and runs it again. A count
 of 4294967295 or more throws a `RangeError` before the second run, and a second run that pushes
 another count throws an `Error`. On WebGPU the first run dispatches only the count and scan steps and
@@ -9229,6 +9233,20 @@ pass, and a host that cannot hold the elements pushed throws a `RangeError` that
 function, the array and the length it reached. No GPU tier runs it: the reason names the loop or
 the array, and growing an array during a run on WebGPU or WebGL2 is not supported yet (the heap
 OD-10 names). The host value, the tiers and the other refusals are those of the made array above.
+
+```ts
+export function repeated(xs: f32[], counts: u32[]): f32[] {
+  const out: f32[] = [];
+  for (let i: u32 = 0; i < xs.length; i++) {
+    for (let j: u32 = 0; j < counts[i]; j++) {
+      out.push(xs[i]);
+    }
+  }
+  return out;
+}
+// counts[i] is checked at the call: a counts shorter than xs throws before anything runs.
+// TypeError: repeated(): parameter "counts" holds 1 elements, and loop 1 reads it at indices 0 to 2.
+```
 
 An element of the array reads and writes as in JavaScript (proposal 0114, Amendment A12): a read
 needs an index below the length, a write an index at most the length, and a write at the length
@@ -9399,8 +9417,8 @@ returns nothing and does not block, and a `Buffer` it writes keeps the values un
 
 **Where it runs.** When the proof accepts every loop of the function, each loop is one dispatch
 on WebGPU, one invocation per iteration, in order; the call reads back what each loop wrote
-before the next. Before anything runs it checks each array against the indices a loop writes at
-`a*i + c`, and refuses one too short (`render(): parameter "out" holds 10 elements, and loop 1
+before the next. Before anything runs it checks each array against the indices a loop writes or
+reads at `a*i + c`, and refuses one too short (`render(): parameter "out" holds 10 elements, and loop 1
 writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, the whole function
 runs on the CPU tier (Rule 11.7), and the view's comment says why. The device is the call layer's:
 the one `configure({ limits, features })` asks for (change 0051), and `callDevice()` reports it.

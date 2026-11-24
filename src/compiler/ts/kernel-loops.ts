@@ -29,6 +29,7 @@ import { TS_CODES } from './codes.js';
 import { KERNEL_TREE } from '../../core/kernel-tree.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
 import { diagnosticAtSpan, makeDiagnostic } from './diagnostic.js';
+import { lowerKernel } from '../../core/passes/kernel-lower.js';
 import { countable } from '../../core/passes/countable.js';
 import { madeArrayOf, setMadeArray } from './lower/made-array/registry.js';
 import { routeOf } from './lower/made-array/route.js';
@@ -74,7 +75,9 @@ export function kernelLoopDiagnostics(
     const w = new Wording(sourceFile, names);
     const made = madeArrayOf(f);
     if (made?.grown === true) {
-      const route = routeOf(made, proof.shape === undefined && countable(proof.loops, f));
+      const widen = (): boolean =>
+        made.deferred !== undefined && !('noGpu' in lowerKernel(f, m, proof, { exactTotal: true }));
+      const route = routeOf(made, proof.shape === undefined && countable(proof.loops, f, widen));
       if ('refused' in route) {
         out.push(
           makeDiagnostic(

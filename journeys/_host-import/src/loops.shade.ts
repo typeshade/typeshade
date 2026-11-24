@@ -56,6 +56,28 @@ export function pairSearch(xs: f32[], r: f32): u32[] {
   return out;
 }
 
+// An inner loop whose bound reads an element at the outer counter (change 0114, A17): the call
+// checks `counts` against the indices the loop reads, then counts the pushes and stores them.
+export function repeatedRuns(xs: f32[], counts: u32[]): f32[] {
+  const out: f32[] = [];
+  for (let i: u32 = 0; i < xs.length; i++) {
+    for (let j: u32 = 0; j < counts[i]; j++) {
+      out.push(xs[i]);
+    }
+  }
+  return out;
+}
+
+export function byNRuns(counts: u32[], n: u32): u32[] {
+  const out: u32[] = [];
+  for (let i: u32 = 0; i < n; i++) {
+    for (let j: u32 = 0; j < counts[i]; j++) {
+      out.push(i);
+    }
+  }
+  return out;
+}
+
 // Two nests that push, the second after the first: the count-only run carries the first nest's
 // total into the second nest's scan, and a call may push nothing at all (change 0114, A12).
 export function pairTwice(xs: f32[], r: f32): u32[] {
