@@ -1,24 +1,3 @@
-// ═══ Optional values: undefined, null and three states (Rule 7.10, changes 0088/0098) ═══
-//
-// An author writes "no value here" the way TypeScript writes it: a type `T | undefined`, a
-// `return undefined;`, a test `v === undefined` and a fallback `v ?? d`. The compiler carries
-// whether the value is there. Each `T | undefined` lowers to one internal struct of two fields,
-// the value and a `bool` that says whether the value is there:
-//
-//   struct __opt_f32 { value: f32, present: bool }
-//
-// The name begins with `__`, which neither target spells as written: each writer gives it a
-// fresh spelling under the reserved-name scheme (surface §62), and no author identifier reaches
-// the IR under that prefix. The struct is not in `reflect()` output, since no binding may hold
-// one, and it has no host value (Rule 8.21, decision D4). This file is the one place the
-// representation is spelled: the name, the field order (`value` then `present`, decision D1),
-// the absent value (the zero of `T` and `false`) and the present value (`T` and `true`).
-//
-// Nothing in the IR knows the struct is special. The front end tells an optional from any
-// other struct through {@link optionalInner}; private symbol metadata retains the logical
-// absent states while names identify physical layouts. Every backend emits it
-// as the ordinary struct it is.
-//
 // Implements: Rule 7.10 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
@@ -32,8 +11,6 @@ import { TS_CODES } from './codes.js';
 
 const PREFIX = '__opt_';
 
-/** Logical absent values: undefined (1), null (2), or both (3). Kept private to the
- * front end; the two single-absence types deliberately share one physical struct. */
 export type Absence = 1 | 2 | 3;
 const LOGICAL_OPTIONAL = Symbol('logical optional');
 type OptionalType = ShaderType & {
@@ -52,8 +29,6 @@ export function optionalAbsence(t: ShaderType | undefined): Absence | undefined 
   );
 }
 
-/** Front-end identity, including optional elements in fixed arrays. Core typeKey remains
- * the physical identity used by the writers and layouts. Symbol metadata survives spreads. */
 export function logicalTypeKey(t: ShaderType): string {
   const logical = (t as OptionalType)[LOGICAL_OPTIONAL];
   if (logical !== undefined) {
@@ -69,27 +44,19 @@ export function logicalTypeKey(t: ShaderType): string {
   return typeKey(t);
 }
 
-/** The internal struct of each optional type any compile has mapped, by its name. The map is
- *  never cleared: an entry is a pure function of the name, so a stale one is still right. */
 const OPTIONALS = new Map<string, { readonly inner: ShaderType; readonly decl: StructDecl }>();
 
-/** The emitted name of the optional struct over `inner`: the prefix and `inner`'s key with
- *  every character a name cannot hold replaced, `__opt_f32`, `__opt_vec2_f32`,
- *  `__opt_array_f32_4`, `__opt_Ray`. */
 export function optionalStructName(inner: ShaderType): string {
   const key = inner.kind === 'struct' ? inner.name : typeKey(inner);
   return `${PREFIX}${key.replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+$/, '')}`;
 }
 
-/** Optional declarations carry physical field types. Logical payload types stay on the
- * use-site descriptor, so the registry never depends on which absent spelling compiled first. */
 function physicalPayload(type: ShaderType): ShaderType {
   if (type.kind === 'array') return { ...type, elem: physicalPayload(type.elem) };
   if (type.kind === 'struct' && isOptional(type)) return { kind: 'struct', name: type.name };
   return type;
 }
 
-/** The optional type over `inner`, registering its struct the first time it is asked for. */
 export function optionalT(inner: ShaderType, absence: Absence = 1): ShaderType {
   const name = optionalStructName(inner).replace(PREFIX, absence === 3 ? '__opt3_' : PREFIX);
   if (!OPTIONALS.has(name)) {
@@ -105,13 +72,10 @@ export function optionalT(inner: ShaderType, absence: Absence = 1): ShaderType {
       },
     });
   }
-  // Keep the original undefined-only IR descriptor unchanged when its payload has no
-  // extra logical identity. The name registry already supplies that information.
   if (absence === 1 && logicalTypeKey(inner) === typeKey(inner)) return { kind: 'struct', name };
   return { kind: 'struct', name, [LOGICAL_OPTIONAL]: { inner, absence } } as OptionalType;
 }
 
-/** The `T` of an optional type `T | undefined`, or undefined for any other type. */
 export function optionalInner(t: ShaderType | undefined): ShaderType | undefined {
   if (t === undefined || t.kind !== 'struct') return undefined;
   return (t as OptionalType)[LOGICAL_OPTIONAL]?.inner ?? OPTIONALS.get(t.name)?.inner;
@@ -119,14 +83,10 @@ export function optionalInner(t: ShaderType | undefined): ShaderType | undefined
 
 export const isOptional = (t: ShaderType | undefined): boolean => optionalInner(t) !== undefined;
 
-/** The declaration of the optional struct `name`, or undefined for any other name. */
 export function optionalDeclOf(name: string): StructDecl | undefined {
   return OPTIONALS.get(name)?.decl;
 }
 
-/** Whether `inner` is a type an optional may hold (Rule 7.10): what a function-scope struct
- *  field may hold. A texture, a sampler, an atomic, a runtime-sized array, a Map, a Set, `void`
- *  and another optional stay refused. */
 export function mayBeOptional(inner: ShaderType): boolean {
   switch (inner.kind) {
     case 'scalar':
@@ -144,7 +104,6 @@ export function mayBeOptional(inner: ShaderType): boolean {
   }
 }
 
-/** The structs a zero may need: the fields of a struct `inner` names. */
 export type StructLookup = (name: string) => StructDecl | undefined;
 
 // Why: the zero is spelled out as an expression so that the CPU oracle and GLSL ES 3.00 start the
@@ -209,7 +168,6 @@ export function zeroOfInner(inner: ShaderType, structs: StructLookup): Expr {
   }
 }
 
-/** The absent value of the optional type `opt`: the zero of its `T` and `present: false`. */
 export function absentOf(
   opt: ShaderType,
   inner: ShaderType,
@@ -229,7 +187,6 @@ export function absentOf(
   };
 }
 
-/** The present value of the optional type `opt` holding `value`. */
 export function presentOf(opt: ShaderType, value: Expr): Expr {
   return {
     op: 'construct',
@@ -242,17 +199,14 @@ export function presentOf(opt: ShaderType, value: Expr): Expr {
   };
 }
 
-/** `v.value`, the `T` a present optional holds. */
 export function valueOf(v: Expr, inner: ShaderType): Expr {
   return { op: 'member', type: inner, base: v, field: 'value' };
 }
 
-/** `v.present`, whether the optional holds a value. */
 export function presentFlagOf(v: Expr): Expr {
   return { op: 'member', type: boolT, base: v, field: 'present' };
 }
 
-/** `!b` as the IR spells a logical not: a comparison with `false`. */
 export function notOf(b: Expr): Expr {
   return {
     op: 'compare',
@@ -263,19 +217,12 @@ export function notOf(b: Expr): Expr {
   };
 }
 
-/** Whether `node`, without its parentheses, is the identifier `undefined`, which nothing in a
- *  `"use typeshade"` file may declare (`undefined` is a TypeScript value, not a name the file
- *  binds; `semantic.ts` lists it among the names a body does not read). */
 export function isUndefinedLiteral(node: ts.Node): boolean {
   let x: ts.Node = node;
   while (ts.isParenthesizedExpression(x)) x = x.expression;
   return ts.isIdentifier(x) && x.text === 'undefined';
 }
 
-/** The value compared with an absent literal by a supported presence test (Rule 7.10).
- *  Strict comparisons distinguish absent values; only loose comparisons may use `null`
- *  as the test for an existing `T | undefined` (change 0098, D4). Shared by lowering and
- *  control-flow analysis so they recognize exactly the same operand and operator forms. */
 export function optionalTestOperand(node: ts.BinaryExpression): ts.Expression | undefined {
   const op = node.operatorToken.kind;
   const loose =
@@ -295,10 +242,6 @@ export function optionalTestOperand(node: ts.BinaryExpression): ts.Expression | 
   return literal(node.right) ? node.left : literal(node.left) ? node.right : undefined;
 }
 
-/** Whether a written type contains `undefined` as a union member: `f32 | undefined`, through
- *  parentheses. Read off the syntax alone, for the walks that read no types (`definite.ts`,
- *  `narrowing.ts`). A type alias of such a union is not seen, and a local declared through one
- *  with no initializer is then held to Rule 7.6 as TypeScript holds it to TS2454. */
 export function writesUndefinedUnion(type: ts.TypeNode | undefined): boolean {
   let t = type;
   while (t !== undefined && ts.isParenthesizedTypeNode(t)) t = t.type;
@@ -309,9 +252,6 @@ export function writesUndefinedUnion(type: ts.TypeNode | undefined): boolean {
   );
 }
 
-/** The spelling of a value an author writes for the absent case in a remedy: `0.` for an
- *  `f32`, `0` for an integer, `false` for a bool, and the type's own zero constructor for a
- *  vector, a matrix, an array or a struct. */
 export function absentRemedyValue(inner: ShaderType, spell: (t: ShaderType) => string): string {
   const k = typeKey(inner);
   if (k === 'f32') return '0.';
@@ -321,17 +261,12 @@ export function absentRemedyValue(inner: ShaderType, spell: (t: ShaderType) => s
   return `${spell(inner)}()`;
 }
 
-/** An optional a type holds (Rule 7.10, change 0093): the type itself, an element of an array,
- *  a field of a struct, or one of those inside another, with the path to it as an author reads
- *  it: `` (the type itself), `w`, `u.w`, `xs[i]`, `[i].w`. */
 export interface OptionalWithin {
   readonly opt: ShaderType;
   readonly inner: ShaderType;
   readonly path: string;
 }
 
-/** The first optional `t` holds, in field order and depth first, or undefined when it holds
- *  none. `structs` resolves the fields of a struct `t` names. */
 export function optionalWithin(
   t: ShaderType | undefined,
   structs: StructLookup,
@@ -374,9 +309,6 @@ export function refusedOptionalPosition(
   );
 }
 
-/** Refuse `type` at `node` when it is an optional, or holds one through a field or an element
- *  when `structs` is given, and `position` may not hold one, with the sentence above and its
- *  `remedy`; true when refused. */
 export function refuseOptionalAt(
   type: ShaderType | undefined,
   node: ts.Node,
@@ -408,11 +340,6 @@ export function refuseOptionalAt(
   return true;
 }
 
-/** The type of a field or a parameter written with a `?`, `f?: T` or `x?: T` (Rule 7.10, change
- *  0093, decisions D3 and D5): `T | undefined`, which is `T` itself when `T` is already an
- *  optional. Undefined, having said why, when `T` is a type an optional may not hold.
- *  `subject` names the declaration in the sentence, `"f?" on "U"` or `parameter "x?"`. One with
- *  no `?` keeps `mapped`. */
 export function optionalDeclaredType(
   mapped: ShaderType | undefined,
   questionToken: ts.QuestionToken | undefined,
@@ -439,8 +366,6 @@ export function optionalDeclaredType(
   return undefined;
 }
 
-/** The fields declared `f?: T` (change 0093, decision D3), by struct and field, per file: an
- *  object literal may omit one, and the omitted field is absent. */
 const OMITTABLE = new WeakMap<ts.SourceFile, Set<string>>();
 
 export function markOmittableField(sourceFile: ts.SourceFile, struct: string, field: string): void {
@@ -460,10 +385,6 @@ export function isOmittableField(
   return OMITTABLE.get(sourceFile)?.has(`${struct}.${field}`) ?? false;
 }
 
-/** The IR name a struct of the module carries that is an optional's: every one the functions
- *  name, in a type of a parameter, a result, a local or an expression, and every one a struct
- *  of the module holds in a field (change 0093), so the module declares exactly the optional
- *  structs it uses. {@link orderedStructDecls} places each one. */
 export function usedOptionalDecls(types: Iterable<ShaderType>): StructDecl[] {
   const names = new Set<string>();
   for (const t of types) collectOptionalNames(t, names);
@@ -477,19 +398,12 @@ function collectOptionalNames(t: ShaderType, out: Set<string>): void {
   } else if (t.kind === 'array') collectOptionalNames(t.elem, out);
 }
 
-/** The structs a type names, through an array: what a declaration of it must follow. */
 function structNamesOf(t: ShaderType, out: Set<string> = new Set()): Set<string> {
   if (t.kind === 'struct') out.add(t.name);
   else if (t.kind === 'array') structNamesOf(t.elem, out);
   return out;
 }
 
-/** The module's structs in declaration order (change 0093, decision D11): each optional struct
- *  before the first struct of `declared` that holds it, and after the struct its `T` names
- *  when that struct is one of `declared` (an optional of a struct follows that struct). An
- *  optional no declared struct holds comes after every declared struct, and an optional of a
- *  struct declared below its first holder comes right after that struct. `declared` keeps its
- *  own order. */
 export function orderedStructDecls<S extends { readonly decl: StructDecl }>(
   declared: readonly S[],
   optionals: readonly StructDecl[],
@@ -499,7 +413,6 @@ export function orderedStructDecls<S extends { readonly decl: StructDecl }>(
   const placed = new Set<string>();
   const declaredNames = new Set(declared.map((s) => s.decl.name));
   const optional = new Map(optionals.map((d) => [d.name, d]));
-  /** The optionals waiting for a declared struct their `T` names. */
   const waiting = new Map<string, StructDecl[]>();
   const place = (name: string): void => {
     const decl = optional.get(name);
@@ -535,7 +448,6 @@ export function orderedStructDecls<S extends { readonly decl: StructDecl }>(
   return out;
 }
 
-/** Every type the functions name: a parameter's, a result's, a `var`'s and an expression's. */
 export function typesOfFunctions(funcs: readonly FuncDecl[]): ShaderType[] {
   const out: ShaderType[] = [];
   const visitExpr = (e: Expr): void => eachExpr(e, (x) => out.push(x.type));
@@ -551,20 +463,17 @@ export function typesOfFunctions(funcs: readonly FuncDecl[]): ShaderType[] {
   return out;
 }
 
-/** An absent literal, after parentheses: undefined (1), null (2), or neither. */
 export function absentLiteral(node: ts.Expression): 1 | 2 | undefined {
   let x = node;
   while (ts.isParenthesizedExpression(x)) x = x.expression;
   return isUndefinedLiteral(x) ? 1 : x.kind === ts.SyntaxKind.NullKeyword ? 2 : undefined;
 }
 
-/** A presence test that excludes every absent value of this logical type. */
 export function presenceTest(name: string, type: ShaderType): string {
   const mask = optionalAbsence(type);
   return `${name} ${mask === 3 ? '!= null' : mask === 2 ? '!== null' : '!== undefined'}`;
 }
 
-/** Whether a value/result can widen into an optional without changing an absent identity. */
 export function fitsOptional(from: ShaderType, to: ShaderType | undefined): boolean {
   const inner = optionalInner(to);
   if (inner === undefined) return false;
