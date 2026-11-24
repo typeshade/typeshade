@@ -17,7 +17,7 @@ export const TRANSFORM_FEEDBACK_QUERIES_AND_SYNC_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.transformFeedbackVaryings',
     ],
     evidence:
-      'changes/0054-webgl2-compute.md (a compute entry runs on WebGL2 as a pass program); src/core/gl-compute.ts:801',
+      'changes/0054-webgl2-compute.md (a compute entry runs on WebGL2 as a pass program); src/core/gl-compute.ts#runGlCompute~"beginTransformFeedback"',
     note: "WebGPU captures vertex output through a compute pass; TypeShade's compute entries run on both tiers",
     webgpu: na('no WebGPU form: vertex output is captured through a compute pass'),
     webgl2: na(
@@ -89,7 +89,7 @@ export const TRANSFORM_FEEDBACK_QUERIES_AND_SYNC_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.flush',
     ],
     evidence:
-      'src/core/gl-compute.ts:272-275 (fenceSync, clientWaitSync in gpuDone); src/runtime/gl.ts#GlFrameImpl.submit (the frame runs its draws after submit returns); src/runtime/gl-draw.ts#GlTextureImpl~"kernelQueue.run" (read queues its readback and returns a promise); src/runtime/resources.ts',
+      'src/core/gl-fence.ts#gpuDone~"fenceSync"|gpuDone~"clientWaitSync"|readFence~"clientWaitSync" (fenceSync, clientWaitSync in gpuDone and readFence); src/runtime/gl.ts#GlFrameImpl.submit (the frame runs its draws after submit returns); src/runtime/gl-draw.ts#GlTextureImpl~"kernelQueue.run" (read queues its readback and returns a promise); src/runtime/resources.ts',
     note: 'the promise of submit() and read() is the typed form; the runtime polls clientWaitSync and calls neither waitSync nor getSyncParameter',
     webgpu: typed('src/runtime/runtime.test.ts', 'onSubmittedWorkDone through submit()'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'through submit and read'),
@@ -115,7 +115,7 @@ export const TRANSFORM_FEEDBACK_QUERIES_AND_SYNC_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Debug: `WEBGL_debug_renderer_info`, `getError`',
     covers: ['webgl:WEBGL_debug_renderer_info', 'webgl:WebGLRenderingContextBase.getError'],
-    evidence: 'src/core/host-kernel-gl.ts:185 (getError)',
+    evidence: 'src/core/host-kernel-gl.ts#onWebgl2~"getError" (getError)',
     note: 'the host reads them on rt.device',
     webgpu: andGap(
       raw('Runtime.device', 'GPUAdapterInfo (device.adapterInfo); also: typed (pushErrorScope)'),
@@ -135,7 +135,8 @@ export const TRANSFORM_FEEDBACK_QUERIES_AND_SYNC_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`WEBGL_debug_shaders` (`getTranslatedShaderSource`)',
     covers: ['webgl:WEBGL_debug_shaders.getTranslatedShaderSource'],
-    evidence: 'src/core/gl-compute.ts:99-131 (the runtime compiles and links its own shaders)',
+    evidence:
+      'src/core/gl-compute.ts#compile~"compileShader"|compile~"linkProgram" (the runtime compiles and links its own shaders)',
     note: 'a debugging aid; the runtime holds the shader handles, so a host has no handle to translate; no caller of the key in src/',
     webgpu: na(
       'a debugging aid: WebGPU has no driver translation of a shader; the manifest holds the WGSL (Rule 11.10)',

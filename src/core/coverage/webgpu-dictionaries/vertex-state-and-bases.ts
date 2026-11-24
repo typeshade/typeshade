@@ -20,20 +20,21 @@ export const VERTEX_STATE_AND_BASES_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUVertexAttribute.format`',
     covers: ['GPUVertexAttribute.format'],
-    evidence: 'src/core/vertex-layout.ts:23-88; src/rhi/webgl2.ts#GlRenderPass~"a.format.split"',
+    evidence:
+      'src/core/vertex-layout.ts#vertexFormat|vertexLayoutOfEntry~"format: fmt.format"; src/rhi/webgl2.ts#GlRenderPass~"a.format.split"',
     webgpu: andGap(
       typed(
         'src/compiler/ts/vertex-layout.test.ts',
         'from @location inputs, tightly packed (Rule 6.8)',
       ),
       2,
-      '8/16-bit, normalized, float16 and packed formats have no typed spelling (src/core/vertex-layout.ts:72-80)',
+      '8/16-bit, normalized, float16 and packed formats have no typed spelling (`vertexFormat` of `src/core/vertex-layout.ts`)',
       633,
     ),
     webgl2: andGap(
       typed('scripts/compile-gate.ts', 'from @location inputs, tightly packed (Rule 6.8)'),
       2,
-      '8/16-bit, normalized, float16 and packed formats have no typed spelling (src/core/vertex-layout.ts:72-80)',
+      '8/16-bit, normalized, float16 and packed formats have no typed spelling (`vertexFormat` of `src/core/vertex-layout.ts`)',
       633,
     ),
   },
@@ -43,7 +44,7 @@ export const VERTEX_STATE_AND_BASES_ROWS: readonly Row[] = [
     name: '`GPUVertexAttribute.offset`',
     covers: ['GPUVertexAttribute.offset'],
     evidence:
-      'src/core/vertex-layout.ts:23-80; src/rhi/webgl2.ts#GlRenderPass~"vertexAttribPointer"',
+      'src/core/vertex-layout.ts#vertexLayoutOfEntry~"offset += fmt.size"; src/rhi/webgl2.ts#GlRenderPass~"vertexAttribPointer"',
     webgpu: typed(
       'src/compiler/ts/vertex-layout.test.ts',
       'from @location inputs, tightly packed (Rule 6.8)',
@@ -60,7 +61,7 @@ export const VERTEX_STATE_AND_BASES_ROWS: readonly Row[] = [
     name: '`GPUVertexAttribute.shaderLocation`',
     covers: ['GPUVertexAttribute.shaderLocation'],
     evidence:
-      'src/core/vertex-layout.ts:23-80; src/rhi/webgl2.ts#GlRenderPass~"vertexAttribPointer"',
+      'src/core/vertex-layout.ts#vertexLayoutOfEntry~"add(p.name, p.location, p.type)"|locatedFields; src/rhi/webgl2.ts#GlRenderPass~"vertexAttribPointer"',
     webgpu: typed(
       'src/compiler/ts/vertex-layout.test.ts',
       'from @location inputs, tightly packed (Rule 6.8)',
@@ -77,7 +78,7 @@ export const VERTEX_STATE_AND_BASES_ROWS: readonly Row[] = [
     name: '`GPUVertexBufferLayout.arrayStride`',
     covers: ['GPUVertexBufferLayout.arrayStride'],
     evidence:
-      'src/core/vertex-layout.ts:23-80; src/rhi/webgl2.ts#GlRenderPass~"vertexAttribPointer"',
+      'src/core/vertex-layout.ts#vertexLayoutOfEntry~"arrayStride: offset"; src/rhi/webgl2.ts#GlRenderPass~"vertexAttribPointer"',
     webgpu: typed('src/compiler/ts/vertex-layout.test.ts', 'one buffer, stepMode vertex'),
     webgl2: gap(
       15,
@@ -90,7 +91,7 @@ export const VERTEX_STATE_AND_BASES_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUVertexBufferLayout.stepMode`',
     covers: ['GPUVertexBufferLayout.stepMode'],
-    evidence: 'src/core/vertex-layout.ts:23-80',
+    evidence: 'src/core/vertex-layout.ts#GpuVertexLayout',
     webgpu: gap(2, 'vertex only; per-instance attributes read instance_index instead', 633),
     webgl2: gap(2, 'vertex only; per-instance attributes read instance_index instead', 633),
   },
@@ -99,7 +100,8 @@ export const VERTEX_STATE_AND_BASES_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUVertexBufferLayout.attributes`',
     covers: ['GPUVertexBufferLayout.attributes'],
-    evidence: 'src/core/vertex-layout.ts:23-80; src/rhi/webgl2.ts#GlRenderPass~"layout.attributes"',
+    evidence:
+      'src/core/vertex-layout.ts#vertexLayoutOfEntry~"attributes.push"; src/rhi/webgl2.ts#GlRenderPass~"layout.attributes"',
     webgpu: typed('src/compiler/ts/vertex-layout.test.ts', 'one buffer, stepMode vertex'),
     webgl2: typed('scripts/compile-gate.ts', 'one buffer, stepMode vertex'),
   },
@@ -108,7 +110,7 @@ export const VERTEX_STATE_AND_BASES_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUVertexState.buffers`',
     covers: ['GPUVertexState.buffers'],
-    evidence: 'src/core/vertex-layout.ts:23-80',
+    evidence: 'src/core/vertex-layout.ts#vertexLayoutOf',
     webgpu: andGap(
       typed('scripts/compile-gate.ts', 'one buffer, stepMode vertex'),
       2,

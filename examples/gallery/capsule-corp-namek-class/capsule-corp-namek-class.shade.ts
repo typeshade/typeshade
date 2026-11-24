@@ -2820,7 +2820,7 @@ class Terrain {
         0.3 +
         0.7 *
         sqrt(
-          sin(PI * along)
+          max(sin(PI * along), 0)
         ),
         taper
       )

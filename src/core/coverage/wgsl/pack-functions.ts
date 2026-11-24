@@ -56,7 +56,7 @@ export const PACK_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`pack4xI8`',
     covers: ['wgsl:builtinFunctions:pack4xI8'],
-    evidence: 'src/core/backends/wgsl.ts:229-236',
+    evidence: 'src/core/backends/wgsl.ts#WGSL_CAP_PROFILE.packed4x8Dot',
     note: 'packed4x8Dot capability; GLSL ES 3.00 can spell it with bit arithmetic',
     webgpu: typed('src/compiler/ts/packed-4x8.test.ts'),
     webgl2: gap(
@@ -70,7 +70,7 @@ export const PACK_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`pack4xI8Clamp`',
     covers: ['wgsl:builtinFunctions:pack4xI8Clamp'],
-    evidence: 'src/core/backends/wgsl.ts:229-236',
+    evidence: 'src/core/backends/wgsl.ts#WGSL_CAP_PROFILE.packed4x8Dot',
     note: 'packed4x8Dot capability; GLSL ES 3.00 can spell it with bit arithmetic',
     webgpu: typed('src/compiler/ts/packed-4x8.test.ts'),
     webgl2: gap(
@@ -84,7 +84,7 @@ export const PACK_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`pack4xU8`',
     covers: ['wgsl:builtinFunctions:pack4xU8'],
-    evidence: 'src/core/backends/wgsl.ts:229-236',
+    evidence: 'src/core/backends/wgsl.ts#WGSL_CAP_PROFILE.packed4x8Dot',
     note: 'packed4x8Dot capability; GLSL ES 3.00 can spell it with bit arithmetic',
     webgpu: typed('src/compiler/ts/packed-4x8.test.ts'),
     webgl2: gap(
@@ -98,7 +98,7 @@ export const PACK_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`pack4xU8Clamp`',
     covers: ['wgsl:builtinFunctions:pack4xU8Clamp'],
-    evidence: 'src/core/backends/wgsl.ts:229-236',
+    evidence: 'src/core/backends/wgsl.ts#WGSL_CAP_PROFILE.packed4x8Dot',
     note: 'packed4x8Dot capability; GLSL ES 3.00 can spell it with bit arithmetic',
     webgpu: typed('src/compiler/ts/packed-4x8.test.ts'),
     webgl2: gap(
@@ -112,7 +112,7 @@ export const PACK_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`pow`',
     covers: ['wgsl:builtinFunctions:pow'],
-    evidence: 'src/core/intrinsics.ts:1147; src/core/builtins/overlay.ts:68',
+    evidence: 'src/core/intrinsics.ts:1147; src/core/builtins/overlay.ts#MATH~"\'pow\'"',
     note: 'the same spelling in WGSL and GLSL ES 3.00; no INTRINSICS entry',
     webgpu: typed('src/compiler/ts/builtins.test.ts'),
     webgl2: typed('src/compiler/ts/builtins.test.ts'),

@@ -15,7 +15,8 @@ export const LANGUAGE_EXTENSIONS_ROWS: readonly Row[] = [
     kind: 'WGSL language extension',
     name: '`buffer_view`',
     covers: ['wgsl:languageExtensions:buffer_view'],
-    evidence: 'src/core/builtins/overlay.ts:156-181',
+    evidence:
+      'src/core/builtins/overlay.ts#NOT_WGSL.bufferArrayView|NOT_WGSL.bufferLength|NOT_WGSL.bufferView',
     webgpu: gap(9, 'the overlay marks the bufferView builtins not WGSL', 162),
     webgl2: na('a buffer view is not supported yet on any tier; the WebGPU row is the open work'),
   },
@@ -192,7 +193,8 @@ export const LANGUAGE_EXTENSIONS_ROWS: readonly Row[] = [
     kind: 'WGSL language extension',
     name: '`unrestricted_pointer_parameters`',
     covers: ['wgsl:languageExtensions:unrestricted_pointer_parameters'],
-    evidence: 'docs/language-design.md:918-934; src/core/passes/required-caps.ts:90-107',
+    evidence:
+      'docs/language-design.md:918-934; src/core/passes/required-caps.ts#LanguageFeature|requiredLanguageFeatures',
     note: 'Used by Rule 8.25 for a storage or workgroup place. reflect() does not report it. Measured 2026-10-12 on Chromium headless shell 1194 (Tint): a storage or workgroup pointer parameter compiles with and without `requires unrestricted_pointer_parameters;`.',
     webgpu: typed('src/compiler/ts/reference-parameters.test.ts'),
     webgl2: na('Rule 8.25 gives an inout parameter, and Rule 8.8 gives no pointer values'),

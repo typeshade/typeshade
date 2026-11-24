@@ -1,6 +1,6 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import type { FuncDecl, ModuleDecl, StructDecl } from '../../../core/ir/nodes.js';
-import { lowerKernel } from '../../../core/passes/kernel-lower.js';
+import { lowerKernelPruned } from '../../../core/passes/kernel-prune.js';
 import type { LowerOptions } from '../../../core/passes/kernel-lower-ir.js';
 import type { KernelProof } from '../../../core/passes/parallel-loop.js';
 import type { ShaderType } from '../../../core/ir/types.js';
@@ -78,8 +78,8 @@ export function lowerKernelFor(
   m: ModuleDecl,
   proof: KernelProof,
   options: LowerOptions = {},
-): ReturnType<typeof lowerKernel> {
-  return lowerKernel(f, m, proof, {
+): ReturnType<typeof lowerKernelPruned> {
+  return lowerKernelPruned(f, m, proof, {
     ...options,
     ...(madeArrayOf(f)?.counted === true ? { exactTotal: true } : {}),
   });
