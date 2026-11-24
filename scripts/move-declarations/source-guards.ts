@@ -2,6 +2,7 @@ import { dirname } from 'node:path/posix';
 import type { MoveReport } from '../move-purity/check-move.js';
 import { activeUnitsOf } from '../move-purity/clean-files.js';
 import { describeFinding } from '../move-purity/finding.js';
+import { lineCitationRefusals } from '../move-purity/line-citations.js';
 import { locationReason } from '../move-purity/moved-unit-findings.js';
 import type { Side } from '../move-purity/side-program.js';
 import { refuse } from './refusal.js';
@@ -22,6 +23,11 @@ export function checkClean(side: Side, analysis: SourceAnalysis, selection: Sele
       );
     }
   }
+}
+
+export function checkNotCitedByLine(texts: ReadonlyMap<string, string>, source: string): void {
+  const found = lineCitationRefusals(texts, source);
+  if (found.length > 0) refuse(...found);
 }
 
 export function checkReportClean(report: MoveReport, source: string): void {

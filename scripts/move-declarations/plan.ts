@@ -18,6 +18,7 @@ import {
   checkBlockers,
   checkClean,
   checkLocations,
+  checkNotCitedByLine,
   checkReflow,
   checkReportClean,
 } from './source-guards.js';
@@ -74,6 +75,7 @@ function onlyOrderFindings(report: MoveReport): boolean {
 
 export async function planMove(workspace: Workspace, options: MoveOptions): Promise<MovePlan> {
   const { source, target } = checkPaths(workspace, options);
+  checkNotCitedByLine(workspace.base, source);
   const side = createSide(workspace.root, workspace.base);
   const analysis = analyzeReferences(side, source);
   const selection = selectUnits(analysis, options.names, options.closure);

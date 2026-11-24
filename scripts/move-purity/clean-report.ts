@@ -3,6 +3,7 @@ import { createKeyer } from './binding-keys.js';
 import { activeUnitsOf } from './clean-files.js';
 import { buildImportGraph } from './import-graph.js';
 import { createLinks } from './module-links.js';
+import { lineCitedPaths } from './line-citations.js';
 import { createSide } from './side-program.js';
 
 const SAMPLE_FILES = 3;
@@ -12,6 +13,8 @@ interface CleanFileRow {
   readonly units: number;
   readonly activeUnits: number;
   readonly inCycle: boolean;
+  readonly citedByLine: boolean;
+  readonly citingSegments: number;
 }
 
 interface CleanTotals {
@@ -57,6 +60,7 @@ function totalsOf(rows: readonly CleanFileRow[]): CleanTotals {
 export function cleanReport(root: string, texts: ReadonlyMap<string, string>): CleanReport {
   const side = createSide(root, texts);
   const keyer = createKeyer(side, (unit) => `${unit.path}#${unit.index}`);
+  const cited = lineCitedPaths(texts);
   const graph = buildImportGraph(side, createLinks(side, keyer));
   const files: CleanFileRow[] = [...texts.keys()]
     .filter(isReportedFile)
@@ -66,6 +70,8 @@ export function cleanReport(root: string, texts: ReadonlyMap<string, string>): C
       units: unitsOfPath(side, path).length,
       activeUnits: activeUnitsOf(side, path).length,
       inCycle: graph.componentSize(path) > 1,
+      citedByLine: cited.has(path),
+      citingSegments: cited.get(path)?.segments ?? 0,
     }));
   const byDirectory = new Map<string, CleanFileRow[]>();
   for (const row of files) {
@@ -103,5 +109,10 @@ export function formatCleanReport(report: CleanReport): string {
     const sample = cycle.files.slice(0, SAMPLE_FILES).join(', ');
     lines.push(`  ${cycle.size} files: ${sample}${cycle.size > SAMPLE_FILES ? ', ...' : ''}`);
   }
+  const blocked = report.files.filter((file) => isClean(file) && file.citedByLine);
+  lines.push(
+    `Clean files cited by line (a move is refused until the citations are symbol anchors): ${blocked.length}`,
+  );
+  for (const file of blocked) lines.push(`  ${file.path}: ${file.citingSegments} citing segments`);
   return lines.join('\n');
 }

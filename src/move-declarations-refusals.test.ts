@@ -18,6 +18,17 @@ describe('move-declarations refusals (docs/structure-refactoring-plan.md, S0 ite
     );
   });
 
+  it('refuses a source that evidence strings cite by line', async () => {
+    const rows = ['src', 'core', 'coverage', 'rows.ts'].join('/');
+    const source = ['src', 'a.ts'].join('/');
+    const files = {
+      [source]: PURE,
+      [rows]: `export const R = [{ evidence: '${source}:2' }];\n`,
+    };
+    const message = await refuseWith(files, 'src/b.ts', 'one');
+    expect(message).toContain(`cited by line path ${source} 1 citing segment`);
+  });
+
   it('refuses a target that exists, in the program or on disk', async () => {
     const files = { 'src/a.ts': PURE, 'src/b.ts': `export const B = 1;\n` };
     expect(await refuseWith(files, 'src/b.ts', 'one')).toContain('src/b.ts exists');
