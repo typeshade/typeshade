@@ -118,12 +118,9 @@ import { collectionKeyOf, keyTypeText, keysOf } from './key-types.js';
 import { abstractBuilderText, ctorFnName, methodFnName } from './lower/class-methods.js';
 import { pushedParams } from './lower/kernel-push.js';
 import { staticConstName } from './module-const.js';
-import {
-  compileTsProgram,
-  type TsCompilerDiagnostic,
-  type compileTsSource,
-} from './source-file.js';
+import { compileTsProgram, type TsCompilerDiagnostic } from './source-file.js';
 import { emittedStructDecls, type CollectedStruct } from './structs.js';
+import type { FaceCtx } from './host-face/context.js';
 export { type HostExport } from './host-face-contracts.js';
 export { hostTypeOf } from './host-types.js';
 
@@ -473,33 +470,6 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     ),
     files,
   };
-}
-
-interface FaceCtx {
-  readonly sf: ts.SourceFile;
-  readonly symbols: ReturnType<typeof compileTsSource>['symbols'];
-  readonly byName: ReadonlyMap<string, FuncDecl>;
-  readonly structs: ReadonlyMap<string, StructDecl>;
-  readonly collected: ReturnType<typeof compileTsSource>['structs'];
-  readonly constsByName: ReadonlyMap<string, ConstDecl>;
-  readonly bindingNames: ReadonlySet<string>;
-  readonly overrideNames: ReadonlySet<string>;
-  readonly privateNames: ReadonlySet<string>;
-  readonly reachProblem: (fn: string) => string | undefined;
-  readonly fuse?: { readonly origin: string };
-  readonly entry: EntryCtx;
-}
-
-interface EntryCtx {
-  readonly module: ModuleDecl;
-  readonly bindings: readonly BindingDecl[];
-  readonly reads: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly writes: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly reach: (entry: string) => BindingReach;
-  readonly callees: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly declared: ReadonlySet<string>;
-  readonly workgroupZero: Readonly<Record<string, unknown>>;
-  readonly guard?: { readonly group: number; readonly binding: number };
 }
 
 function guardOf(wgsl: string | undefined): { guard?: { group: number; binding: number } } {
