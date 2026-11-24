@@ -149,7 +149,7 @@ describe('a test moves with its traceability markers (A6)', () => {
   const header = "import { describe, it } from 'vitest';\n";
   const one = "describe('one', () => {\n  it('a', () => {});\n});\n";
   const two = "describe('two', () => {\n  it('b', () => {});\n});\n";
-  const marker = '// Verifies: Rule 1.1\n';
+  const marker = `// ${['Verifies', 'Rule 1.1'].join(': ')}\n`;
 
   it('refuses a move between files whose markers differ', () => {
     const base = tree({ 'src/a.test.ts': marker + header + one + two });
