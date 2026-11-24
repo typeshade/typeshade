@@ -129,7 +129,7 @@ class CpuTexture implements RhiTexture {
   ) {
     const kind = FORMATS[format];
     if (kind === undefined)
-      throw new TypeError(`The CPU backend has no texture format "${format}".`);
+      throw new TypeError(`Texture format "${format}" is not supported yet on the CPU tier.`);
     this.kind = kind;
     this.bytes = new Uint8Array(width * height * layers * kind.bytes);
   }
@@ -527,7 +527,7 @@ interface AttributeFormat {
 function attributeFormat(format: string): AttributeFormat {
   const m = /^(float|uint|sint|unorm|snorm)(8|16|32)(?:x([234]))?$/.exec(format);
   if (m === null || (m[1] === 'float' && m[2] === '8'))
-    throw new TypeError(`The CPU backend has no vertex format "${format}".`);
+    throw new TypeError(`Vertex format "${format}" is not supported yet on the CPU tier.`);
   return {
     kind: m[1] as AttributeFormat['kind'],
     bits: Number(m[2]) as 8 | 16 | 32,
@@ -642,7 +642,7 @@ function writeTexel(t: CpuTexture, i: number, c: readonly number[], mask = 0xf):
 
 function clearTexture(t: CpuTexture, value: readonly number[]): void {
   if (t.kind.store === 'opaque')
-    throw new TypeError(`The CPU backend cannot clear a "${t.format}" texture as a colour target.`);
+    throw new TypeError(`A "${t.format}" target clear is not supported yet on the CPU tier.`);
   const texels = t.width * t.height;
   for (let i = 0; i < texels; i++) writeTexel(t, i, value);
 }
