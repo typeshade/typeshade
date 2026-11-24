@@ -31,6 +31,7 @@ import { callArgs, type Inputs } from './fuse-chain/inputs.js';
 import { outcomeOf, type Outcome } from './fuse-chain/apart.js';
 import type { ModelGroup } from './fuse-chain/model.js';
 import type { Lowered, PlannedGroup, GroupFault, GroupStep, FusedRun } from './fuse-chain/types.js';
+export { readsAtCounter, forgetsReduction, forgetsLength } from './fuse-chain/wrong-faces.js';
 export type { Lowered, PlannedGroup, GroupFault, GroupStep, FusedRun } from './fuse-chain/types.js';
 export {
   modelGroups,
@@ -236,50 +237,6 @@ export function lowerChain(c: ChainCorpus): Lowered[] | { none: string } {
     out.push(r);
   }
   return out;
-}
-
-export function readsAtCounter(low: Lowered): Lowered {
-  const fuse = low.face.fuse!;
-  return {
-    ...low,
-    face: {
-      ...low.face,
-      fuse: {
-        ...fuse,
-        facts: fuse.facts.map((f) => ({
-          ...f,
-          arrays: f.arrays.map((a) =>
-            a.access === 'read' ? { param: a.param, access: a.access, atI: true } : a,
-          ),
-        })),
-      },
-    },
-  };
-}
-
-export function forgetsReduction(low: Lowered): Lowered {
-  const fuse = low.face.fuse!;
-  return {
-    ...low,
-    face: {
-      ...low.face,
-      fuse: {
-        ...fuse,
-        facts: fuse.facts.map(({ fold: _fold, ...f }) => ({ ...f, reduces: false })),
-      },
-    },
-  };
-}
-
-export function forgetsLength(low: Lowered): Lowered {
-  const fuse = low.face.fuse!;
-  return {
-    ...low,
-    face: {
-      ...low.face,
-      fuse: { ...fuse, facts: fuse.facts.map(({ bare: _bare, ...f }) => f) },
-    },
-  };
 }
 
 export function groupCallsOf(
