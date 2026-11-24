@@ -553,7 +553,6 @@
   "src/core/ir/module-assembly.test.ts": 18,
   "src/core/ir/mutable-node.test.ts": 6,
   "src/core/ir/node.ts": 291,
-  "src/core/ir/nodes.ts": 10,
   "src/core/ir/not.test.ts": 8,
   "src/core/ir/notation.test.ts": 3,
   "src/core/ir/opt-barrier.test.ts": 6,
