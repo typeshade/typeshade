@@ -147,8 +147,8 @@ export function mayBeOptional(inner: ShaderType): boolean {
 /** The structs a zero may need: the fields of a struct `inner` names. */
 export type StructLookup = (name: string) => StructDecl | undefined;
 
-/** The zero of `inner` as an expression, for the absent value's `value` field, spelled out so
- *  the CPU oracle and GLSL ES 3.00 start it where WGSL's zero constructor would. */
+// Why: the zero is spelled out as an expression so that the CPU oracle and GLSL ES 3.00 start the
+// value where WGSL's zero constructor would.
 export function zeroOfInner(inner: ShaderType, structs: StructLookup): Expr {
   switch (inner.kind) {
     case 'scalar': {
@@ -156,7 +156,7 @@ export function zeroOfInner(inner: ShaderType, structs: StructLookup): Expr {
       if (k === 'bool') return { op: 'lit', type: boolT, value: false };
       if (k === 'i32') return { op: 'lit', type: i32T, value: 0 };
       if (k === 'u32') return { op: 'lit', type: u32T, value: 0 };
-      // A key type is a u32 id (`keysOf`), so it took the integer arm above.
+      // Why: a key type is a u32 id (`keysOf`), so it took the integer arm above.
       return { op: 'lit', type: f32T, value: 0 };
     }
     case 'f64':
@@ -355,11 +355,7 @@ export function optionalWithin(
   return undefined;
 }
 
-/** The TS8002 sentence for an optional written where Rule 7.10 does not allow one (change
- *  0093): `position` names the place, "a binding". A `holder` is the struct or the array
- *  written there that holds the optional through `path`. The remedy names a `u32` flag, since
- *  WGSL forbids a `bool` in host-shareable memory; `remedy` words it for a position that has
- *  its own form, a kernel function's result (#792). */
+// Why: WGSL forbids a `bool` in host-shareable memory, so the remedy names a `u32` flag.
 export function refusedOptionalPosition(
   written: string,
   position: string,

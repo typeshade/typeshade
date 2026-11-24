@@ -54,7 +54,7 @@ import { KERNEL_TREE } from '../kernel-tree.js';
 import { layoutOf, calleesOf, closureOf } from '../manifest.js';
 import { compileModule } from '../oracle.js';
 import { fnWrites } from '../passes/effects.js';
-import { lowerKernel, type KernelPlan } from '../passes/kernel-lower.js';
+import { lowerKernelPruned as lowerKernel, type KernelPlan } from '../passes/kernel-prune.js';
 import { proveKernels } from '../passes/parallel-loop.js';
 import type { OptLevel } from '../passes/opt/optimize.js';
 import { VERSION } from '../version.js';

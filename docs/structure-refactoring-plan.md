@@ -621,7 +621,7 @@ A sample found that about half of the citations already point at the wrong line,
 Decision: an evidence segment may cite a declaration by symbol, so that a move does not shift it.
 The grammar is in `scripts/symbol-anchors/grammar.ts`. Forms: `path#Symbol`, `path#Class.method` (also `Interface.member`, `Enum.member`, and `CONST.key` for a top-level `const` with an object literal), and `path#Symbol~"needle"`, where the needle is a literal substring of the declaration text.
 Several anchors share one path and are joined by `|` (`path#A|B.c`). A `.test.ts` file takes one form only, a quoted title: `path#"title substring"`. A file that is not `.ts` keeps `path` or `path:line`.
-The resolver (`scripts/symbol-anchors/resolve.ts`) follows `export { X } from` and `export * from`. It does not guess when a file has become a directory.
+The resolver (`scripts/symbol-anchors/resolve.ts`) follows `export { X } from` and `export * from`. It does not guess a file when the original file is missing. An anchor follows a declaration that moved into the directory named for its file (for `a.ts`, the directory `a/`): when `path#Symbol` is neither declared in nor re-exported by `path`, the resolver looks for one top-level declaration in the `.ts` files of that directory, recursively, except test, `.d.ts`, `.shade.ts` and `.spec.ts` files. The order is the file, its re-exports, then the directory. A named re-export of the symbol ends the search, even when its target lacks the symbol. The directory is searched only for the cited path, never for a file reached through a re-export. Two parts that declare the name give `symbol-ambiguous`. The code is `scripts/symbol-anchors/module-directory.ts`.
 `scripts/move-purity/line-citations.ts` counts line citations only, so an anchor never blocks a move.
 
 | Phase | Content                                                                                    | Status           |
@@ -902,6 +902,9 @@ What a pass does not prove:
     `bun scripts/move-purity.ts --base "origin/$BASE" --require --title "$PR_TITLE" --json`, the command exits 0,
     and the JSON has `pure: true` and `declared` equal to that mode. Every other result is `none`.
     The job does not fail on a range that is not pure. The `move purity` step of `quality` reports that.
+
+    A draft pull request runs no gate (owner request, 2026-11-24: "CI랑 관계없이 로컬에서 먼저 처리한 다음, 머지 직전이 아니라면 CI는 넘기는 방법은 안될까요"). Work is verified locally.
+    CI runs once the pull request is marked ready for review, and on each push while it is ready.
 
     | Job                                                 | documents | `Move: comments` | `Move: pure`                 | code (and every push to `main`) |
     | --------------------------------------------------- | --------- | ---------------- | ---------------------------- | ------------------------------- |

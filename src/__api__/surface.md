@@ -1024,12 +1024,12 @@ src/core/backends/wgsl.ts#wgslBackend  const  Backend
 src/core/backends/wgsl.ts#wgslType  function  (t: ShaderType) => string
 src/core/build-info.ts#TypeShadeBuildInfo  interface  { revision: string; version: string }
 src/core/build-info.ts#buildInfo  const  TypeShadeBuildInfo
-src/core/compute/runner.ts#ComputeBackend  type  "cpu" | "webgl2" | "webgpu"
-src/core/compute/runner.ts#ComputeRunner  interface  { backend: "cpu" | "webgl2" | "webgpu"; dispose: () => void; rejected: readonly RejectedBackend[]; run: (input: Float32Array, invocations?: number) => Promise<Uint32Array> }
-src/core/compute/runner.ts#ComputeRunnerOptions  interface  { device?: GpuDeviceLike; gl?: WebGL2RenderingContext; prefer?: readonly ("cpu" | "webgpu" | "webgl2")[] }
-src/core/compute/runner.ts#GpuDeviceLike  interface  { createBindGroup: (...args: never[]) => unknown; createBuffer: (...args: never[]) => unknown; createCommandEncoder: (...args: never[]) => unknown; createComputePipeline: (...args: never[]) => unknown; createShaderModule: (...args: never[]) => unknown; queue: object }
-src/core/compute/runner.ts#RejectedBackend  interface  { backend: "cpu" | "webgl2" | "webgpu"; reason: string }
 src/core/compute/runner.ts#createComputeRunner  function  (m: ModuleDecl, opts?: ComputeRunnerOptions) => Promise<ComputeRunner>
+src/core/compute/runner/types.ts#ComputeBackend  type  "cpu" | "webgl2" | "webgpu"
+src/core/compute/runner/types.ts#ComputeRunner  interface  { backend: "cpu" | "webgl2" | "webgpu"; dispose: () => void; rejected: readonly RejectedBackend[]; run: (input: Float32Array, invocations?: number) => Promise<Uint32Array> }
+src/core/compute/runner/types.ts#ComputeRunnerOptions  interface  { device?: GpuDeviceLike; gl?: WebGL2RenderingContext; prefer?: readonly ("cpu" | "webgpu" | "webgl2")[] }
+src/core/compute/runner/types.ts#GpuDeviceLike  interface  { createBindGroup: (...args: never[]) => unknown; createBuffer: (...args: never[]) => unknown; createCommandEncoder: (...args: never[]) => unknown; createComputePipeline: (...args: never[]) => unknown; createShaderModule: (...args: never[]) => unknown; queue: object }
+src/core/compute/runner/types.ts#RejectedBackend  interface  { backend: "cpu" | "webgl2" | "webgpu"; reason: string }
 src/core/console.ts#CONSOLE_METHODS  const  ReadonlySet<ConsoleMethod>
 src/core/console.ts#ConsoleEvent  interface  { args: readonly (string | CpuValue)[]; invocation?: readonly number[]; method: ConsoleMethod; span?: SourceSpan }
 src/core/console.ts#ConsoleLog  interface  { binding: number; group: number; sites: readonly ConsoleSite[] }

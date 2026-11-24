@@ -36,12 +36,12 @@
     }
   },
   "typeshade/random": {
-    "bytes": 52857,
+    "bytes": 52771,
     "floor": 11500,
     "split": {
-      "initial": 51971,
+      "initial": 51885,
       "floor": 14300,
-      "total": 51971
+      "total": 51885
     }
   }
 }

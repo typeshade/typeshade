@@ -1,4 +1,4 @@
-import { gap, na, type Row, typed } from '../model.js';
+import { gap, type Row, typed } from '../model.js';
 
 export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
   {
@@ -129,26 +129,30 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicStoreMax`',
     covers: ['wgsl:builtinFunctions:atomicStoreMax'],
-    evidence: 'src/core/builtins/overlay.ts#NOT_WGSL.atomicStoreMax; docs/roadmap.md:304',
-    webgpu: gap(
+    evidence:
+      'src/core/intrinsics.ts#ATOMIC_INTRINSICS; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
+    note: 'a WGSL name of the `atomic_vec2u_min_max` language extension (spec section atomic-store-max, over `atomic<vec2<u32>>`); `core.def` also carries a `u64` overload of the name, which the overlay refuses as an absent type',
+    webgpu: gap(9, 'atomic_vec2u_min_max; roadmap After 1.0; no proposal names it', 640),
+    webgl2: gap(
       9,
-      'atomic_vec2u_min_max; roadmap After 1.0, docs/roadmap.md:304; no proposal names it',
+      'atomic_vec2u_min_max; no pass-program form for a vector atomic yet (Rule 11.8); roadmap After 1.0; no proposal names it',
       640,
     ),
-    webgl2: na('a vector atomic is not supported yet on any tier; the WebGPU row is the open work'),
   },
   {
     table: 'B',
     kind: 'WGSL built-in function',
     name: '`atomicStoreMin`',
     covers: ['wgsl:builtinFunctions:atomicStoreMin'],
-    evidence: 'src/core/builtins/overlay.ts#NOT_WGSL.atomicStoreMin; docs/roadmap.md:304',
-    webgpu: gap(
+    evidence:
+      'src/core/intrinsics.ts#ATOMIC_INTRINSICS; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
+    note: 'a WGSL name of the `atomic_vec2u_min_max` language extension (spec section atomic-store-min, over `atomic<vec2<u32>>`); `core.def` also carries a `u64` overload of the name, which the overlay refuses as an absent type',
+    webgpu: gap(9, 'atomic_vec2u_min_max; roadmap After 1.0; no proposal names it', 640),
+    webgl2: gap(
       9,
-      'atomic_vec2u_min_max; roadmap After 1.0, docs/roadmap.md:304; no proposal names it',
+      'atomic_vec2u_min_max; no pass-program form for a vector atomic yet (Rule 11.8); roadmap After 1.0; no proposal names it',
       640,
     ),
-    webgl2: na('a vector atomic is not supported yet on any tier; the WebGPU row is the open work'),
   },
   {
     table: 'B',

@@ -54,14 +54,9 @@ interface Span {
   readonly length: number;
 }
 
-/**
- * Whether two spans of one file are one node: the same span, or the same end with nothing but
- * `export`, optionally `default`, and whitespace and comments between the two starts. Two
- * programs map one node back to its file through different linked sources: the linker drops an imported declaration's
- * `export` and `default` with the whitespace after them, so a comment after them stays, and the
- * node maps from the token after it, where the file's own program reads it from `export`. Two
- * nested expressions are two places (`a + a` inside `b + (a + a)`).
- */
+// Why: the linker drops an imported declaration's `export` and `default` with the whitespace
+// after them, so a comment after them stays and the node maps from the token after it, where the
+// file's own program reads it from `export`.
 const samePlace = (a: Span, b: Span, textOf: (fileName: string) => string | undefined): boolean => {
   if (a.fileName !== b.fileName || a.start + a.length !== b.start + b.length) return false;
   if (a.start === b.start) return true;
@@ -117,13 +112,8 @@ const reports = (
     (m) => samePlace(m.site, site, textOf) && m.places.some((at) => samePlace(at, place, textOf)),
   );
 
-/**
- * The mistakes of each own program asked for, by what decides them: the file, the text of every
- * file its program reads with the imports between them, and the options. One compile of a file
- * as its own program serves every program above it, and a later compile whose files are the
- * same (an editor's next keystroke in the file that imports it) asks for none. The oldest entry
- * goes first past {@link OWN_PROGRAMS_HELD}.
- */
+// Why: one compile of a file as its own program serves every program above it, and an editor's
+// next keystroke in the importing file asks for none, so the key holds hashes and not texts.
 const OWN_PROGRAMS = new Map<string, Mistakes>();
 const OWN_PROGRAMS_HELD = 1024;
 /** The files whose own program is being compiled, outermost first. */
@@ -286,7 +276,7 @@ export function locateProgramErrors(input: {
       if (OWN_PROGRAMS.size > OWN_PROGRAMS_HELD)
         OWN_PROGRAMS.delete(OWN_PROGRAMS.keys().next().value!);
     } else {
-      // The most recent last, so the oldest goes first.
+      // Why: a hit moves the entry last, so the oldest goes first past OWN_PROGRAMS_HELD.
       OWN_PROGRAMS.delete(id);
       OWN_PROGRAMS.set(id, own);
     }

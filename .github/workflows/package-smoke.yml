@@ -2,6 +2,7 @@ name: package compatibility
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'src/**'
       - 'examples/**'
@@ -33,6 +34,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       move: ${{ steps.move.outputs.move || 'none' }}
+      draft: ${{ github.event.pull_request.draft == true && 'true' || 'false' }}
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v5
@@ -60,7 +62,7 @@ jobs:
   pack:
     name: build the consumer package
     needs: scope
-    if: needs.scope.outputs.move != 'comments'
+    if: needs.scope.outputs.draft != 'true' && needs.scope.outputs.move != 'comments'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
