@@ -65,17 +65,17 @@ Step C — move the declarations (`Move: pure`).
 
 ## The bundle budget
 
-A `Move:` range may not change `scripts/bundle-budget.json`. `CLAUDE.md` (Merging) approves in advance a budget pull request for the rise that a `Move: pure` range causes, within two limits. The orchestrating session opens and merges that pull request. One agent then measures, and one pull request at a time changes the file.
+A `Move:` range may not change `scripts/bundle-budget.json`. `CLAUDE.md` (Merging) approves in advance a budget pull request for the rise that a `Move: pure` range causes, within two limits. The orchestrating session measures the rise and merges that pull request. One agent then measures, and one pull request at a time changes the file.
 
 Do this when `bun scripts/bundle-boundary.ts` prints FAIL for a budget at the head of step C:
 
 1. Run the same command on `origin/main`. If it fails there, stop and report: your range is not the cause.
-2. Push the branch of step C. Do not open its pull request.
-3. Send the orchestrating session the branch, its head commit and the FAIL lines.
+2. Push the branch of step C, and open its pull request as a draft.
+3. Send the orchestrating session the pull request, its head commit and the FAIL lines.
 4. Go on with your next file.
 5. When the orchestrating session answers that the budget is merged, merge `origin/main` into the branch.
 6. Run the checks of "Before every push" again.
-7. Open the pull request of step C ready for review.
+7. Mark the pull request of step C ready for review, and merge it as this playbook says.
 
 The orchestrating session is the one that the opening prompt names. If the session has none, report the same facts in the final status.
 
