@@ -72,12 +72,9 @@ import {
   type GlTextureKind,
 } from '../rhi/webgl2.js';
 import type { GlDrawing } from './gl-draw/drawing.js';
+import { glslNameOf } from './gl-draw/glsl-name.js';
+export { glslNameOf } from './gl-draw/glsl-name.js';
 export { GlDrawing } from './gl-draw/drawing.js';
-
-export const glslNameOf = (b: {
-  readonly emitted: string;
-  readonly emittedGlsl?: string;
-}): string => b.emittedGlsl ?? b.emitted;
 
 export class GlTextureImpl implements Texture {
   #tex: RhiTexture;
