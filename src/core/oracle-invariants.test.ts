@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compile } from '../compiler/ts/compile.js';
 import { compileModule } from './oracle.js';
+import { ValidationError } from './passes/validate.js';
 import { fn, module, f32, f32T, u32T, i32T, abs, toU32, toI32 } from './ir/index.js';
 import type { ModuleDecl } from './ir/index.js';
 
@@ -166,7 +167,7 @@ describe('oracle: statements the CPU does not run', () => {
           { name: 'a', params: [], ret: { kind: 'void' }, body: [] },
         ],
       }),
-    ).toThrow();
+    ).toThrow(ValidationError);
   });
 });
 
