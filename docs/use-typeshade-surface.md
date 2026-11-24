@@ -766,7 +766,8 @@ pixels[i] = 1.;            // an element
 | `let` local | yes |
 | `declare const x: storage<T, "read_write">` | yes |
 | `const` local | no: `TS8005` |
-| `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
+| `declare const x: uniform<T>` / `storage<T, "read">` / `storage<readonly T[]>` | no: `TS8005` |
+| `declare const x: storage<T>` | yes: an entry that writes it makes it `read_write` (Rule 6.2, change 0114, Amendment A17) |
 | a function parameter | no: `TS8018` |
 | an object parameter that the function writes | yes: the caller's object (§70) |
 | anything that is not a name (`vec3(0.).x`) | no: `TS8018` |
@@ -3050,7 +3051,7 @@ arithmetic wraps at 32 bits. A result nobody binds is dropped behind WGSL's phon
 **What is refused, and told the fix.** An atomic is never read or assigned directly: `bins[i]`
 outside an atomic builtin, as a value or as an assignment target, is TS8003 naming
 `atomicLoad`, `atomicStore` and `atomicAdd`. Every atomic builtin needs read_write access, so a
-binding whose type does not say `"read_write"` is TS8005 naming the line to write. A value of
+binding declared `"read"` is TS8005 naming the line to write; a bare `storage<...>` binding that holds an atomic is `read_write` (Rule 6.2, change 0114, Amendment A17). A value of
 another type (`atomicAdd(bins[i], 1.5)`) is TS8003, a location that is not atomic is TS8003, the
 wrong number of arguments is TS8019. An atomic declared as a local, a parameter or a return
 type, or inside a `uniform<...>`, is TS8099 with where it may live; `atomic<f32>` is TS8002.
