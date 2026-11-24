@@ -479,7 +479,6 @@
   "src/core/fuse-entry.test.ts": 147,
   "src/core/fuse-entry.ts": 178,
   "src/core/fuse-group.test.ts": 78,
-  "src/core/fuse-group.ts": 152,
   "src/core/fuse-loading.test.ts": 2,
   "src/core/fuse-plan.test.ts": 28,
   "src/core/fuse-plan.ts": 95,

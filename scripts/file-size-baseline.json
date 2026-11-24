@@ -127,7 +127,6 @@
   "src/core/fuse-entry.test.ts": 1931,
   "src/core/fuse-entry.ts": 889,
   "src/core/fuse-group.test.ts": 1262,
-  "src/core/fuse-group.ts": 513,
   "src/core/fuse-plan.ts": 533,
   "src/core/fuse-record.ts": 714,
   "src/core/gl-compute.test.ts": 514,
