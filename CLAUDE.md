@@ -239,6 +239,16 @@ The owner's rule, given on 2026-11-17: "한 파일당 주석 포흠 400줄이 �
   `scripts/file-size-baseline.json` that grew. Never raise a number there.
 - To add code to a file of the baseline, first move one responsibility out of it, into a file
   of its own in a directory named for the module. Then run `bun run bake:file-size-baseline`.
+- 200 lines is a goal, not a limit, and no check enforces it. The owner said on 2026-11-24:
+  "강제가 아닙니다. 200줄 안에 들어갈 수 있는 구조가 가능하고, 그 방향이 적절한 방향이고 앞으로의
+  구조 및 안티 패턴이 없어지는 경우 처리하는걸 목표로하는게 좋아보입니다." Aim for a file of 200
+  lines or fewer when such a structure is possible, the direction is right, and the split removes
+  an anti-pattern. Do not split a responsibility only to reach the number.
+- A file holds one responsibility. One class has one file, with the types and helpers that only
+  it uses. A type that several files use goes into a types file of the module. A group of small
+  classes or types that form one concept (error classes, the members of a union) may share a file.
+  The owner raised this on 2026-11-24: "파일 안에 여러 타입 정의부터 클래스가 여러개 정의된다거나
+  하는 문제도 있을것 같아서요".
 
 ## Before pushing
 
