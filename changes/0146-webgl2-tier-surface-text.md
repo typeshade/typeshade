@@ -468,10 +468,12 @@ form is impossible where a rule says otherwise. Open question 1 of this proposal
   records match the delivered patch. No independent review of A1 has run yet.
 - Deviations: none open.
 
-### A2. The fourth OD-11 audit's passages (2026-11-24, status: draft)
+### A2. The fourth OD-11 audit's passages (2026-11-24, status: accepted)
 
-- Status: draft. [status] The rows of A2 are not part of the approved text until the owner approves
-  them. Rows 1 to 14 of A1 stay approved and are not edited.
+- Status: accepted. [decision, owner, 2026-11-24] The owner said "머지까지 직접 판단해주세요"
+  (decide up to the merge yourself), and the orchestrating agent merged pull request #1511 on its
+  green checks. A2 is part of the approved text from that merge. A2-Q1 was not answered and stays
+  open. Rows 1 to 14 of A1 stay approved and are not edited.
 - Baseline: `main` at `ab980642` for the audit. [fact] A1 was accepted by the merge of pull
   request #1502, commit `388f97fb`. A2 is drafted on `main` at `af0a3f8e`.
 - A2 adds no author-facing name, no diagnostic code, no export and no example. `exports`,
