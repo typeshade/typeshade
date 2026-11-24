@@ -181,7 +181,7 @@ The largest test files are `src/fuse.test.ts` (7,088), `src/runtime/runtime.test
 | 2    | Done        | Section 2 of this document, measured again on `d4c40db1`.                                              |
 | 3    | Already met | `src/layer-policy.test.ts`, `src/file-size-policy.test.ts`, `src/comment-policy.test.ts`.              |
 | 4    | Not started | Series S1 to S12 below. They wait for series S0 (decision D1).                                         |
-| 5    | Not started | Section 5, rule 1. The move-purity check of S0 item a enforces it. It is not built yet.                |
+| 5    | Not started | Section 5, rule 1. The move-purity check of S0 item a (`scripts/move-purity.ts`) enforces it.          |
 | 6    | Not started | Series S13 below.                                                                                      |
 
 Fact: the three policy tests are ratchets. A number in a baseline file only goes down.
@@ -239,15 +239,19 @@ Do these steps in order. A slice of S1 to S13 starts only after S0 items a and b
 9. Run `bun run bake:file-size-baseline`. The numbers go down and no number goes up.
 10. When a `KNOWN` edge of `src/layer-policy.test.ts` is gone, delete its line.
 11. Run `bun run bake:comment-baseline` only if a comment moved with the code.
-12. Run the move-purity check of S0 item a, and the module-surface check of S0 item f.
+12. Run the move-purity check of S0 item a (`bun run move:check --base origin/main --require`). It includes the module-surface check of S0 item f.
 13. Run the checks of section 8.
-14. Commit with `Change: none, internal move without behaviour change`. Add `Docs-Impact:` if the hook asks.
+14. Commit with `Change: none, internal move without behaviour change` and the trailer `Move: pure`. Add `Docs-Impact:` if the hook asks.
 15. Push, mark the pull request ready when its required checks are green, and record the slice (section 8).
 
 Proof that behaviour did not change:
 
-- The move-purity check passes. Only `import` declarations, `export ... from` declarations and an
-  added or removed `export` modifier differ. The multiset of test titles is equal.
+- The move-purity check passes. Section 8, item 9 states what a pass proves and what it leaves open.
+- Each moved declaration goes into a new file. A move into an existing file changes the exports of
+  that file, and the check refuses it.
+- A file that is in an import cycle, or that holds a declaration that runs code when the module
+  loads, is not touched by a slice. The check refuses it (P4).
+  Making such a file clean is an ordinary change and goes through review.
 - The emit goldens are byte-identical: `bunx vitest run examples/emit-goldens.test.ts examples/shade-examples.test.ts examples/shade-twins.test.ts`
   without `UPDATE_EMIT_GOLDENS`. Never run `bun run bake:goldens` in a slice.
 - `src/__api__/author-names.md` is unchanged. `src/author-names.test.ts` holds it.
@@ -287,7 +291,7 @@ Status of each row: not started. Under decision D2, each series moves its source
 
 | ID  | Status      | Files and responsibility                                                                                                                      | Exit condition                                                                  |
 | --- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| S0  | Not started | The tools and checks, items a to g below.                                                                                                     | Items a and b are merged; items c to g are merged or recorded as open.          |
+| S0  | Not started | The tools and checks, items a to h below.                                                                                                     | Items a and b are merged; items c to h are merged or recorded as open.          |
 | S1  | Not started | The 11 importing files of the 32 `KNOWN` edges. `core/host-draw.ts`, `core/host-entry-program.ts` and `core/host-runtime.ts` move up (D3).    | `KNOWN` is empty; `core` imports no other directory.                            |
 | S2  | Not started | `core/ir`: `node.ts` and 3 more files above the limit, then the 1 test file.                                                                  | No file of `core/ir` is in the baseline.                                        |
 | S3  | Not started | `core/backends`: `glsl.ts`, `wgsl.ts`, then their 4 test files.                                                                               | No file of `core/backends` is in the baseline.                                  |
@@ -306,15 +310,16 @@ Status of each row: not started. Under decision D2, each series moves its source
 
 Each item is its own pull request.
 
-| Item | Status   | Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ---- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| a    | Decision | `scripts/move-purity.ts` with a policy test. For a base and a head commit it compares the multiset of top-level declarations of `src/`, by a hash of their text from the TypeScript AST. Only `import` declarations, `export ... from` declarations and an added or removed `export` modifier may differ. It reports each declaration that changed, appeared or vanished. It also compares the multiset of test titles (the first-argument strings of `describe`, `it` and `test`). | <!-- doc-refs: skip — a tool that series S0 of this plan builds --> |
-| b    | Decision | `scripts/move-declarations.ts`. It takes a source file, a list of top-level symbol names and a target file. It moves the declarations verbatim with their leading comments. It fixes imports in both files and in the importers. It leaves a re-export in the source file when an importer outside the directory uses a moved symbol.                                                                                                                                               | <!-- doc-refs: skip — a tool that series S0 of this plan builds --> |
-| c    | Decision | A name policy test. No new file of `src/` is named `utils`, `helpers`, `common`, `misc`, `shared-stuff` or `part-N`, or has a bare numeric suffix. The two existing files (`src/compiler/ts/growing-programs/common.ts` and `src/compiler/ts/optional/helpers.ts`) are its baseline, which only shrinks.                                                                                                                                                                            |
-| d    | Decision | An import-cycle ratchet. The number of file-level import cycles has a baseline that only shrinks. A cycle is a strongly connected component of more than one file. Type-only imports are counted separately.                                                                                                                                                                                                                                                                        |
-| e    | Decision | A facade ratchet. A list names the facade files. A facade holds only re-exports. The list only shrinks after S13 begins. A file inside a module's directory never imports its own facade.                                                                                                                                                                                                                                                                                           |
-| f    | Decision | A module-surface check for a slice. The set of symbols that files outside a module's directory import from it is the same before and after the slice.                                                                                                                                                                                                                                                                                                                               |
-| g    | Proposal | An extension of `MAY_IMPORT` inside `core`, for example `core/ir` below `core/passes` below `core/backends`, with its own `KNOWN` list. The exact order is fixed by measurement, in its own pull request.                                                                                                                                                                                                                                                                           |
+| Item | Status                    | Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a    | Done in this pull request | `scripts/move-purity.ts` with a policy test. For a base and a head commit it compares the multiset of top-level declarations of `src/`, by a hash of their text from the TypeScript AST. Only `import` declarations, `export ... from` declarations and an added or removed `export` modifier may differ. It reports each declaration that changed, appeared or vanished. It also compares the multiset of test titles (the first-argument strings of `describe`, `it` and `test`). |                                                                     |
+| b    | Decision                  | `scripts/move-declarations.ts`. It takes a source file, a list of top-level symbol names and a target file. It moves the declarations verbatim with their leading comments. It fixes imports in both files and in the importers. It leaves a re-export in the source file when an importer outside the directory uses a moved symbol.                                                                                                                                               | <!-- doc-refs: skip — a tool that series S0 of this plan builds --> |
+| c    | Decision                  | A name policy test. No new file of `src/` is named `utils`, `helpers`, `common`, `misc`, `shared-stuff` or `part-N`, or has a bare numeric suffix. The two existing files (`src/compiler/ts/growing-programs/common.ts` and `src/compiler/ts/optional/helpers.ts`) are its baseline, which only shrinks.                                                                                                                                                                            |
+| d    | Decision                  | An import-cycle ratchet. The number of file-level import cycles has a baseline that only shrinks. A cycle is a strongly connected component of more than one file. Type-only imports are counted separately. The move-purity check already refuses a slice that makes a cycle or that touches a file of a cycle (P4).                                                                                                                                                               |
+| e    | Decision                  | A facade ratchet. A list names the facade files. A facade holds only re-exports. The list only shrinks after S13 begins. A file inside a module's directory never imports its own facade.                                                                                                                                                                                                                                                                                           |
+| f    | Part of item a            | A module-surface check for a slice. Item a carries it as rule 3 (P3). The set of symbols that files outside a module's directory import from it is the same before and after the slice.                                                                                                                                                                                                                                                                                             |
+| g    | Proposal                  | An extension of `MAY_IMPORT` inside `core`, for example `core/ir` below `core/passes` below `core/backends`, with its own `KNOWN` list. The exact order is fixed by measurement, in its own pull request.                                                                                                                                                                                                                                                                           |
+| h    | Placeholder               | Structure rules: no top-level effects outside named files, no import cycles, imports of a module only through its index, index holds re-exports only; each a ratchet. The orchestrator writes them in a later pull request.                                                                                                                                                                                                                                                         |                                                                     |
 
 Reasons for the order of S1 to S13 (Proposal):
 
@@ -324,6 +329,48 @@ Reasons for the order of S1 to S13 (Proposal):
 - S8 comes before S9 because `compiler/ts/lower` is imported by `compiler/ts`, and its files are fewer.
 - S10 comes after `compiler` because `language-service` imports `compiler`.
 - A test file moves in the next pull request after its source (decision D2). S11 and S12 hold the tests that span directories, and the root tests.
+
+Fact: the move-purity check refuses a move that a pure move cannot make.
+A review measured the 123 oversized non-test files.
+About 94% of their units and 86% of their lines are evaluation-free.
+34 files cannot reach 400 lines by pure moves alone.
+The causes are single units above 400 lines or large active units.
+`src/compiler/ts/lower/function.ts` has one function of about 1,900 lines.
+Each file of `src/core/coverage/` is one data unit.
+Test files rarely split purely, because their describes share file-level helpers.
+
+Decision D7: such a file needs an ordinary reviewed change (a decomposition) before a pure move, or instead of one.
+That change is outside D5.
+Reason: a pure move keeps each declaration text, so it cannot split one unit.
+
+Fact: a banned comment cannot travel with a pure move.
+The new file starts at 0 comment lines in `scripts/comment-baseline.json`, and the unit text must not change.
+Doc comments of public definitions, markers and `Why:` comments can travel.
+
+Decision D8: the comments of a directory go first, in their own ordinary pull request (`CLAUDE.md`, Comments).
+D5 does not cover that pull request.
+
+Decision D9: D5 requires the commit line `Move: pure` on the head that is merged.
+The title alone is not enough, because CI does not run again when a title is edited.
+The orchestrating agent reads the output of the `move purity` step on that head before it merges.
+
+Fact: three reviews of the move-purity check broke it through module evaluation.
+The breaks were import cycles with reads of uninitialised bindings, units that run or read at load, and import order.
+Measurement on `src/` at `HEAD` (617 non-test files, `bun scripts/move-purity.ts --clean-report`):
+5.7% of the 8,218 top-level units are active (465 units, in 137 files).
+14 import cycles hold 184 files, when type-only imports count as edges.
+One cycle holds 139 files, all of `src/compiler/ts`.
+When only value imports count, 10 cycles hold 80 files and the largest holds 46.
+With the strict classifier of P4 and value imports only, 418 of the 617 files are clean:
+139 files hold 494 active units, and 80 files are in cycles.
+
+Decision D10: the check does not model module evaluation for arbitrary code.
+A pure move is accepted only in clean files, where evaluation cannot matter (section 8, item 9, P4).
+Structure rules make more of the tree clean over time.
+Series S0 gains them as item h, and each rule is a ratchet.
+A slice is possible only in clean files.
+Cleaning a file or breaking a cycle is an ordinary reviewed change outside D5.
+Reason: a model of evaluation had three reviews that broke it, and a structure that carries the complexity has none.
 
 ### 6.2 Series S1, the direction of the move
 
@@ -413,7 +460,168 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
 6. `bun run gate:boundary`, when the slice touches `runtime`, `core/emit` or `fuse`.
 7. `bun run gate:compile`, when the slice touches emit or a backend. It needs Chromium.
 8. The emit goldens, without update (section 4).
-9. The move-purity check of S0 item a, over the base and the head commit of the pull request.
+9. The move-purity check of S0 item a, over the base and the head commit of the pull request:
+   `bun run move:check --base origin/main --require`.
+
+   Procedure for a slice:
+
+   1. Start the pull request title with `Move:`.
+   2. Add the line `Move: pure` to the message of at least one commit of the range.
+      The check judges the net difference between the merge base and the head.
+   3. CI runs the check when the title starts with `Move:` or any commit message line matches.
+   4. A commit message line that starts with `Move:` and is not exactly `Move: pure` fails the check.
+   5. Without a title and without the line, the check prints a notice and exits 0. It did not run.
+   6. The flag `--require` runs the check anyway. An empty range then exits 2.
+
+   Decision D5 applies only to a pull request whose merged head has the commit line `Move: pure`.
+   The title alone is not enough, because CI does not run again when a title is edited.
+   The orchestrating agent reads the output of the `move purity` step on that head before it merges.
+   A slice that changes the plan puts that change in its own pull request.
+
+   Promise. A range passes only when all of these hold:
+
+   - P1. The same declaration texts exist, in the same relative order.
+     A declaration is a top-level statement that is not a module link or a directive.
+   - P2. Every identifier in every declaration binds to the same declaration instance as before.
+     Two declarations with equal text in two files are two instances.
+     A global name (key `global:`) and a name from an import that does not resolve (key `import:`)
+     have different keys.
+     A name that the package imports by its own name resolves to the file of its `exports` entry.
+   - P3. Every file that exists on both sides exports the same names, bound to the same declarations.
+     The kind of an export is its meaning (type, value or both), not its syntax.
+     A type-only re-export of a class, an enum or a constant therefore fails.
+   - P4. Every `.ts` file that the range changes, adds or deletes is clean on each side where it exists.
+     A file is clean when both of these hold:
+     it is in no import cycle of value imports, and every top-level declaration of it is evaluation-free.
+     The check fails with `not a clean file path` and the first reason:
+     `import cycle: a -> b -> ... -> a` (one shortest cycle through the file, at most 6 nodes),
+     or `active unit at line N: <kind and text>` (the first one, and the count of the others).
+     A file whose only change is a link statement is a changed file too.
+     A move therefore cannot create a cycle, and a file of an existing cycle cannot take part in a pure move.
+     Evaluating a clean file does nothing observable, and no read in it can see an uninitialised binding.
+     An edge of the graph is what loads at run time.
+     A side-effect import is an edge.
+     An `import` with bindings is an edge only when TypeScript keeps it, that is, when at least one
+     binding is referenced in a value position of the file.
+     An `export ... from` is an edge when it re-exports at least one value, and `export *` is an edge.
+     The repository sets no `verbatimModuleSyntax`.
+     TypeScript, esbuild and Bun agree on these forms: a side-effect import loads the module,
+     an import with a binding that is used as a value loads it, and an import whose bindings are
+     unused or used only as types is dropped.
+     They disagree on `import {} from` and `export {} from` (Bun keeps them, tsc and esbuild drop them)
+     and on `export { Type } from` (Bun fails at load).
+     The check refuses the disputed forms (see the further refusals).
+     A test reads the `tsconfig` files and fails when such an option appears.
+     Cycles (P4) and order (P5) use this one edge definition.
+     The classifier is an allow-list by syntax kind, in `scripts/move-purity/accepted-kinds.ts`.
+     A kind that is not in the list is active, and the reason is the kind name.
+     A `using` declaration, an `import x = ...` and an `import x = require(...)` are active.
+     The rules for an evaluation-free declaration are in `scripts/move-purity/evaluation-free.ts`.
+     Accepted statement kinds: `ClassDeclaration`, `EnumDeclaration`, `ExportAssignment`, `ExportDeclaration`, `FunctionDeclaration`, `InterfaceDeclaration`, `TypeAliasDeclaration`, `VariableStatement`.
+     Accepted expression kinds: `ArrayLiteralExpression`, `ArrowFunction`, `AsExpression`, `BigIntLiteral`, `BinaryExpression`, `CallExpression`, `ClassExpression`, `ConditionalExpression`, `FalseKeyword`, `FunctionExpression`, `Identifier`, `NewExpression`, `NoSubstitutionTemplateLiteral`, `NonNullExpression`, `NullKeyword`, `NumericLiteral`, `ObjectLiteralExpression`, `OmittedExpression`, `ParenthesizedExpression`, `PrefixUnaryExpression`, `PropertyAccessExpression`, `RegularExpressionLiteral`, `SatisfiesExpression`, `StringLiteral`, `TemplateExpression`, `TrueKeyword`, `TypeAssertionExpression`, `TypeOfExpression`, `VoidExpression`.
+     Accepted class member kinds: `Constructor`, `GetAccessor`, `IndexSignature`, `MethodDeclaration`, `PropertyDeclaration`, `SemicolonClassElement`, `SetAccessor`.
+     Accepted object member kinds: `GetAccessor`, `MethodDeclaration`, `PropertyAssignment`, `SetAccessor`, `ShorthandPropertyAssignment`.
+     A `new Map` or `new WeakMap` takes no argument, or one array of two-element array entries.
+     A `new Set` or `new WeakSet` takes no argument, or one array of elements.
+     An entry element is a primitive, a function, or a name of a function, a class or an enum.
+     No entry is an object, a spread or another name, because the constructor reads the entries.
+     `Object.freeze` takes one object or array literal.
+     A function, a type, an interface, a `declare` function or constant, a literal `const`, an
+     enum of literals, a class without decorators or static blocks, and an `Object.freeze` of a literal are free.
+     A call, a `let`, a destructuring, an element access and a `declare module` are not.
+     A property read is free only as an identifier chain from an enum or a namespace import.
+     Operands of operators and templates, and computed keys, must be primitive values.
+     A reference to an object in such a position is active.
+     In doubt, a declaration is active.
+   - P5. The evaluation order of the modules that exist on both sides is unchanged among the modules that are not clean.
+     From every module that exists on both sides, the depth-first order of its edges
+     in source order, taken over the modules that are not clean, must be equal in the base and the head.
+     A module is not clean when it has an active unit or is in an import cycle.
+     The order among clean modules cannot be observed, so it is not compared.
+     Every changed file is clean (P4), so a module that a slice edits is never one that is compared.
+     A module that is new in the head does not appear in the compared sequence.
+     The type-only flags and the import attributes of a link are kept.
+     A new file has no import without bindings.
+   - P6. The comments, the directive prologue, the preamble, the test titles and the file classes are kept.
+     The free comments of a file keep their order.
+     A unit that uses `import.meta` or `__filename`, or a relative path or `__dirname` across a
+     directory change, does not move.
+     A range that moves a test call fails with `test code moved` unless the CLI gets `--allow-test-moves`.
+     CI does not pass the flag.
+     With the flag, and only then, one exception holds for series S11 and S12. A top-level `describe`, `it` or `test` call may move
+     between two files that vitest runs, when both are clean test files.
+     A test file is clean when it has only evaluation-free declarations and such calls at the top level.
+     A `describe` call, `describe.each(...)(...)` included, is such a call only when its callback body
+     holds, recursively, only `it` and `test` calls, nested `describe` calls, the hooks `beforeEach`,
+     `afterEach`, `beforeAll` and `afterAll`, and evaluation-free declarations.
+     The table of `.each` must be evaluation-free, and the arguments of `runIf` and `skipIf` must be primitive values.
+     The callback of a suite call must be an inline arrow function or function expression (`suite callback is not inline`).
+     An options argument is a number or an object literal of primitive properties without accessors.
+     Other code in the body is `collection-time code in describe`.
+     The source and the target file must hold the same free comments that contain `Verifies:` or `Implements:`.
+     A hook, a `vi.*` call or any other active statement in the source or the target file refuses the move.
+     The source and the target file must also have the same `@vitest-` pragma comments.
+     Neither file may be named in a path list of a vitest project of `vitest.config.ts`.
+     A test file whose last test moves out changes the set of its dependencies, and the check refuses it.
+   - P7. Nothing else changed.
+     No document is free.
+     A Markdown document may only follow an exact file path that the range renamed.
+     It may write the path from the repository root or from its own directory.
+     Neither baseline may grow: the number of entries, each entry and the sum stay equal or fall.
+     A new file with banned comments is therefore not a pure move, as in `src/comment-policy.test.ts`.
+     `src/__api__/surface.md` may change paths only, and the `KNOWN` list may lose lines only.
+     A removed or renamed file may not stay named in a string of a declaration or in any tracked
+     text file that is not Markdown.
+     A mode change or a symlink is refused.
+     A path of the checks may not change (`a pure move may not change the checks path`): `scripts/move-purity/`,
+     `scripts/move-purity.ts`, `.github/`, `scripts/*-policy.ts`, `scripts/*-baseline.json` other than the two baselines,
+     `vitest.config.ts`, `tsconfig*.json`, `eslint.config.mjs` and `package.json`.
+   - Further refusals, each a finding of the check:
+     a changed or added file may not hold an import or an export with an empty binding list and a specifier
+     (`empty import or export from path`);
+     a changed or added file may not re-export a type without `type` (`type re-exported without type path`),
+     so a slice writes `export type { X } from` or `export { type X } from`;
+     a changed `.ts` file that git lists and whose text cannot be read fails (`unreadable file path`);
+     a decorator on a parameter of any function-like class member makes the class active;
+     a namespace import is keyed by its module, not by its export names;
+     a changed file may not gain an `export *` statement (`export * added`, so facades use named re-exports);
+     a changed file may not hold a non-`type` import that has no value reference
+     (`value import used only as a type path`, so a slice writes `import type`);
+     a unit moves only between files under the same top-level directory (`src/` to `src/`);
+     a changed, added or deleted `.shade.ts` file is refused, since the check does not model shaders
+     (`shade files do not take part in a pure move`);
+     a file whose repository path is written in `tsconfig*.json`, `eslint.config.mjs`, `vitest.config.ts`,
+     `package.json` or a `scripts/*.json` that is not a baseline may not gain or lose units
+     and may not be added or deleted (`path is named in <config>`).
+
+   Consequence of P4 and P5 for a slice. Both files of a split are clean.
+   The old file keeps its re-export or its import of the new file.
+   The new file does not import the old file, because that closes a cycle.
+   The link to the new file takes a position that keeps the order of the dependencies of the old file.
+   A slice that cannot meet these rules is not a pure move.
+   Structure work (series S0, row h) makes more of the tree clean over time.
+
+   Report mode. `bun scripts/move-purity.ts --clean-report [--json]` needs no range.
+   For `HEAD` it prints, for the non-test files of `src/` and for each directory two levels below `src/`:
+   the files, the clean files, the files with active units (and the units), the files in cycles,
+   and the list of cycles with their sizes.
+
+   Known gaps. The check does not cover these cases:
+
+   - A package entry (`exports` of `package.json`) that points to a deleted file.
+   - Glob-keyed configuration is not modelled: a new file under an ESLint `ignores` or a tsconfig `exclude` glob,
+     or under `!**/core/coverage` of the `files` of `package.json`.
+   - External packages are not in the graph.
+   - Test projects with `isolate: false` share module state.
+   - The program uses `noLib` and no ambient types. Global names bind by text.
+   - An import of an external package that changes how that package loads.
+   - A dynamic or computed access that the checker does not resolve to a declaration.
+   - A dynamic `import()` or `require` is not an edge of the cycle graph and of the order.
+   - The check does not load the modules. Nothing proves a load.
+   - The behaviour of the external packages is assumed identical on both sides.
+   - The order of the hooks of a `describe` across files in a project with `isolate: false` is not modelled.
+   - An unchanged file that gets another resolution of a specifier because a file appeared is not checked.
+   - The check reads the base and the head only. It does not read the commits between them.
 
 Document audit. It is separate from the functional checks:
 
@@ -429,7 +637,7 @@ Each pull request states the following:
 - The `KNOWN` edges removed, if any.
 - The result of the move-purity check: the declarations that changed, appeared or vanished, and the test titles that differ.
   A slice that the check refuses is not a pure move (decision D5).
-- The result of the module-surface check, and the import-cycle count before and after.
+- The result of the module-surface check (part of the move-purity check), and the import-cycle count before and after.
 - Each check that ran: the command, the date and the result.
 - Each check that did not run, marked "not run", with the reason.
 - Each path-only change to a line of `src/__api__/surface.md`, if any.
@@ -441,10 +649,23 @@ The record of the whole plan is the status column of section 6, updated in the p
 
 ### 9.1 Merge of a slice
 
-Decision D5: a pull request of S1 to S13 is merged by the orchestrating agent without a separate "merge" from the owner when both hold.
+Decision D5: a pull request of S1 to S13 with the title `Move:` and at least one commit with the line `Move: pure` is merged by the orchestrating agent without a separate "merge" from the owner when both hold.
 
 1. The move-purity check passes.
 2. Every required check is green on the current head of the pull request.
+
+Process rule of D5. A pull request runs its own copy of the workflow and of the checker.
+Before it merges under D5, the orchestrating agent runs the checker of `main` on the range of the pull request.
+Run these steps from the repository:
+
+1. `git worktree add <tmp> origin/main`
+2. `bun <tmp>/scripts/move-purity.ts --base origin/main --head <pr head> --require`
+3. Merge only when the output says `pure`.
+
+The option `--repo <path>` runs the checker from another checkout against that repository.
+
+Decision D11: moving tests is an ordinary reviewed change for now, in S11 and S12 too.
+The flag `--allow-test-moves` exists for local use, and CI does not pass it.
 
 Authority: the quotes in section 1.1. Reason: the owner delegated the design of this refactoring, and the check proves the move is pure.
 
