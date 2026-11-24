@@ -31,7 +31,7 @@ downstream:
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity and status           | Change proposal `0133`, `status: accepted`. The front matter is the lifecycle authority. `0133` was free on `origin/main` at the review baseline, in the changes directory and in the open pull requests.                                                                                                                               |
 | Date and attribution          | First drafted 2026-11-06 UTC by Codex, on pull request #1037 (draft, not merged). Rewritten 2026-11-24 UTC by a Claude agent for the orchestrating session. The date records authorship. The decision date is in the approval record.                                                                                                   |
-| Applicability / Effectivity   | `docs/language-design.md` Rules 11.7 and 11.8 and a new Rule 11.24; `docs/use-typeshade-surface.md` section 65; the package root exports; a new file of `src/core/cpu-codegen/`. The language and the shader vocabulary do not change. Release version unassigned (OD-6).                                                               |
+| Applicability / Effectivity   | `docs/language-design.md` Rule 11.8 and a new Rule 11.24; `docs/use-typeshade-surface.md` section 65; the exports of `typeshade/core/ir`; a new file of `src/core/cpu-codegen/`. The language and the shader vocabulary do not change. Release version unassigned (OD-6).                                                               |
 | Review baseline               | `typeshade/typeshade` `origin/main` at `be2e83de6ba5cdaddc2b8f19a74f98061bad78fe` (the merge of PR #1545). The old draft's baseline was `324251dfe7755f78041eb44a1bfe85e4294e12dd`. TypeAudio at `575b42baa13ee666cc050b25da1e63720dfbf6e4` and Web at `769f3e7818329e1cc936048afb56e8724f34a9d3` are the evidence the old draft cited. |
 | Review and revision authority | This revision supersedes pull request #1037. Pull request #1555 carries this revision. Git records revisions. Review and merge records are the decision evidence.                                                                                                                                                                       |
 
@@ -41,23 +41,21 @@ A host program can turn one kernel function of a `"use typeshade"` source into a
 The function runs on typed arrays that the caller owns and has already allocated.
 It writes those arrays before it returns, and it returns nothing.
 
-The change adds one function and one type to the package root.
+The change adds one function and one type to `typeshade/core/ir`, the subpath that Rule 11.19 names for engines and tools. The package root gains none.
 
 - `emitCpuKernel(source, options)` compiles `source` as `compile()` does. It returns a `CpuKernelArtifact`.
 - `options` is an inline object type, not an export. `entry` names the kernel function (Rule 8.22). `fileName`, `readDocument` and `resolveImport` mean what they mean in `CompileOptions`.
-- `CpuKernelArtifact` has three read-only fields.
+- `CpuKernelArtifact` has two read-only fields.
   - `code`: the text of an ES module. It has one static import, of `typeshade/runtime/internal`, and one export, the function, under the name of `entry`.
-  - `name`: that export name.
   - `parameters`: the kernel's parameters in order. Each is `{ name, type }`, with `type` spelled as the shader spells it: `f32`, `i32`, `u32`, `bool`, `array<f32>`, `array<i32>` or `array<u32>`.
 
 An array parameter is the caller's array, as Rule 8.23 says (change 0142). Its host value is the typed array of its element: `Float32Array`, `Int32Array` or `Uint32Array`.
 The function reads and writes that typed array in place. The author writes no qualifier (OD-5).
 
-The artifact computes what the CPU tier computes for a host call of the same function, bit for bit (Rule 11.7).
-It differs in three ways.
+The artifact computes what the CPU tier computes for a host call of the same function, bit for bit (Rule 11.7). It runs the kernel's loops in order, on one thread, as the CPU tier runs the function as written.
+It differs in two ways.
 
 - It is not a call. It joins no queue, and no microtask is needed before the arrays hold their values (Rule 11.8).
-- It runs the kernel's loops in order, on one thread, as the CPU tier runs the function as written.
 - It allocates nothing that the compiler can see in its closure.
 
 The emitter refuses a kernel whose closure it cannot show to be free of these:
@@ -70,18 +68,26 @@ The emitter refuses a kernel whose closure it cannot show to be free of these:
 
 The check covers the generated function and the builtin implementations it reaches.
 A form that the check cannot classify is refused.
-The refusal is a thrown `TypeShadeError` that names the kernel, the reason and the source location where one exists.
-It carries an existing code: `SD0020` for a program that `compile()` refuses, `SD0030` for a kernel the artifact does not support yet.
+A program that `compile()` refuses throws an `Error` whose message holds `compile()`'s diagnostics, formatted by `formatBuildErrors` as the Vite plugin does (`src/vite.ts`).
+A kernel the artifact does not support yet throws a `TypeShadeError` of the existing code `SD0030`. It names the kernel, the reason and the source location where one exists.
 No new code is added.
+Every refusal of the closure check says "not supported yet". Only a program error does not.
+The forms listed above are what this version emits. Rule 11.24 does not state them as limits of the language (OD-9, OD-10).
 
-Each refusal of the second kind is "not supported yet", never "impossible" (OD-9, OD-10, OD-11).
-These forms are refused at the first contract, and each is the compiler's work to admit later:
+Each refusal of the second kind is "not supported yet" (`SD0030`), never "impossible" (OD-9, OD-10, OD-11).
+These cases are refused at the first contract, and each is the compiler's work to admit later:
 
 - `push` onto an array, and an array the kernel makes and returns (OD-10);
 - a `Map` or a `Set`;
 - a texture or a barrier (Rule 11.7 gives the CPU tier texture memory; the artifact does not use it yet);
 - a vector, a matrix or a struct value, because the CPU tier holds one as a JavaScript array or object. The compiler may later rewrite such a value into scalars (OD-9), and the artifact then admits it with no change to its type;
 - a result: the function returns `void`;
+- a generator fallback: a function of `fallbacks` in `generateModuleJs` is a refusal;
+- an `f64` scalar parameter;
+- an `entry` that is not a kernel function (Rule 8.22);
+- a `@compute` entry;
+- a scalar written through `inout`;
+- a storage-texture parameter;
 - a call to a user function whose generated code allocates. A call whose generated code the check shows to be free of allocation is admitted.
 
 What an author writes does not change: no name, rule of the language, code, example or form (Rule 11.19 is untouched).
@@ -124,9 +130,10 @@ After: the host emits the artifact once, before playback.
 The worklet imports the emitted module and calls an ordinary function.
 
 ```ts
-import { emitCpuKernel } from "typeshade";
+import { emitCpuKernel } from "typeshade/core/ir";
 
 const artifact = emitCpuKernel(source, { entry: "gain", fileName: "gain.shade.ts" });
+// artifact.code exports `gain`; artifact.parameters lists `out` and `k`
 ```
 
 ```ts
@@ -152,7 +159,7 @@ It is not a contract the engine can rest on (TypeAudio `docs/records/02-worklet-
 The same ask records the workaround.
 TypeAudio's graph adapter imports the compiler's private generator, requests `f32`, rejects fallbacks, removes the generated `$.inout.values` publication, and scans the text for allocations.
 Each downstream that does this depends on generator details and on a builtin allowlist that it audits by hand.
-Pull request #961 of this repository (closed) is an earlier case of the same allocation in the CPU tier's generated code.
+Issue #961 (`docs/cpu-inout-benchmark.md`) is an earlier case of the same allocation in the CPU tier's generated code.
 
 Alternatives, with the reason each is not chosen:
 
@@ -169,18 +176,18 @@ Chosen: one ahead-of-time emitter. It keeps every kernel call as it is, takes th
 Each decision has the recommended option, which this proposal adopts.
 The check against `docs/owner-decisions.md` is in the last column.
 
-| Id  | Question                                   | Adopted option                                                                                                                                                                                                                             | Entries                                                                  |
-| --- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| D1  | What does the emitter take?                | The source text and `entry`, with the file options of `compile()`. Not an IR module.                                                                                                                                                       | OD-1 (the source is read by TypeShade's own compiler); Rule 11.19        |
-| D2  | How many exports?                          | Two: `emitCpuKernel` and `CpuKernelArtifact`. `CpuKernelOptions` is an inline type, not an export.                                                                                                                                         | OD-3 (the smallest surface)                                              |
-| D3  | Does the source mark the kernel?           | No. The host names the entry when it emits.                                                                                                                                                                                                | OD-3, OD-2 (no stage or attribute is added or changed)                   |
-| D4  | What does a refusal look like?             | A thrown `TypeShadeError` with `SD0020` or `SD0030`. Each reason says "not supported yet" where that is true. No new code.                                                                                                                 | OD-9, OD-10, OD-11                                                       |
-| D5  | Which forms does the first contract admit? | Whatever the closure check shows to be free of allocation: scalar and typed-array parameters, scalar locals, control flow, and calls it can clear. Widening is compiler work and needs no proposal while the two exports keep their shape. | OD-3, OD-9, OD-10                                                        |
-| D6  | Who validates the buffers?                 | The host. The function does not check the kind or the length of a typed array. `parameters` gives the host what it needs. A store past the end is dropped, as on every tier (Rule 8.22).                                                   | OD-5 (the array is the caller's object); OD-6 (no compatibility promise) |
-| D7  | What does the function return?             | `void`. A result is not supported yet. Adding one later reshapes `CpuKernelArtifact`, so it needs an amendment.                                                                                                                            | OD-9                                                                     |
-| D8  | Where does the contract live in the rules? | A new Rule 11.24, and one sentence in Rule 11.8. Rule 8.21 and Rule 11.7 stay as they are.                                                                                                                                                 | OD-1 (no change to the language's rules)                                 |
-| D9  | Does the artifact outlive its compiler?    | No. The `code` and the `typeshade/runtime/internal` of the same version are one deployment unit. Nothing promises a cross-version artifact.                                                                                                | OD-6                                                                     |
-| D10 | Is a fuse plan an artifact?                | No. A chain is several artifacts that the host calls in order. A synchronous fuse plan is not in this proposal, and ask F keeps it open.                                                                                                   | OD-3                                                                     |
+| Id  | Question                                   | Adopted option                                                                                                                                                                                                                             | Entries                                                                            |
+| --- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| D1  | What does the emitter take?                | The source text and `entry`, with the file options of `compile()`. Not an IR module.                                                                                                                                                       | OD-1 (the source is read by TypeShade's own compiler); Rule 11.19 (no IR as input) |
+| D2  | How many exports?                          | Two: `emitCpuKernel` and `CpuKernelArtifact`. `CpuKernelOptions` is an inline type, not an export.                                                                                                                                         | OD-3 (the smallest surface)                                                        |
+| D3  | Does the source mark the kernel?           | No. The host names the entry when it emits.                                                                                                                                                                                                | OD-3, OD-2 (no stage or attribute is added or changed)                             |
+| D4  | What does a refusal look like?             | A program error throws an `Error` that holds `compile()`'s diagnostics. Any other refusal throws a `TypeShadeError` of `SD0030`, "not supported yet". No new code.                                                                         | OD-9, OD-10, OD-11                                                                 |
+| D5  | Which forms does the first contract admit? | Whatever the closure check shows to be free of allocation: scalar and typed-array parameters, scalar locals, control flow, and calls it can clear. Widening is compiler work and needs no proposal while the two exports keep their shape. | OD-3, OD-9, OD-10                                                                  |
+| D6  | Who validates the buffers?                 | The host. The function does not check the kind or the length of a typed array. `parameters` gives the host what it needs.                                                                                                                  | OD-5 (the array is the caller's object); OD-6 (no compatibility promise)           |
+| D7  | What does the function return?             | `void`. A result is not supported yet. Adding one later reshapes `CpuKernelArtifact`, so it needs an amendment.                                                                                                                            | OD-9                                                                               |
+| D8  | Where does the contract live in the rules? | A new Rule 11.24, a host-API rule, and one sentence in Rule 11.8. Rules 8.21 and 11.7 stay as they are. The export is at `typeshade/core/ir` (Rule 11.19).                                                                                 | OD-3, Rule 11.19                                                                   |
+| D9  | Does the artifact outlive its compiler?    | No. The `code` and the `typeshade/runtime/internal` of the same version are one deployment unit. Nothing promises a cross-version artifact.                                                                                                | OD-6                                                                               |
+| D10 | Is a fuse plan an artifact?                | No. A chain is several artifacts that the host calls in order. A synchronous fuse plan is not in this proposal, and ask F keeps it open.                                                                                                   | OD-3                                                                               |
 
 ## Owner's decisions
 
@@ -190,7 +197,7 @@ It reverses none of them.
 - OD-1. The source is a `"use typeshade"` file that the compiler reads. The artifact is a host API over it. No TypeScript tool decides anything here.
 - OD-2. The proposal adds and changes no stage or attribute.
 - OD-3. The host's need is met by the compiler's work. The author writes nothing new. The only exports are a function and its result type.
-- OD-4. The before and after of the host example are in "What changes". The owner did not read them before this decision (see the approval record).
+- OD-4. The before and after of the host example are in "What changes". The owner delegated the decision on 2026-11-24 ("제대로 다시, 저의 의견이 사실 필요 없거든요"). The session reports the before and after example to the owner at the merge.
 - OD-5. An array parameter is the caller's object, with no qualifier.
 - OD-6. Nothing is released. The proposal promises no cross-version artifact and owes no warning release.
 - OD-9. The artifact need not look like the source. The compiler may rewrite a form to admit it. A refusal says "not supported yet".
@@ -211,7 +218,7 @@ No issue of this repository holds ask F. Pull request #1037 and this file are it
 - Rule 11.24 (new): the artifact's contract, its equality with the CPU tier and its refusals.
 - Rule 11.8: one sentence that says the artifact is not a kernel call and joins no queue.
 - Surface section 65: a subsection for the artifact, with the example above.
-- `emitCpuKernel` and `CpuKernelArtifact` at the package root: `src/__api__/surface.md` (`bun run bake:api-surface`) and their JSDoc, which the API reference and the editor show.
+- `emitCpuKernel` and `CpuKernelArtifact` at `typeshade/core/ir` (Rule 11.19): `src/__api__/surface.md` (`bun run bake:api-surface`) and their JSDoc, which the API reference and the editor show.
 - The emitter, in a new file of `src/core/cpu-codegen/`. `src/core/cpu-codegen.ts` has 2081 lines and is in the file-size baseline, so it does not grow (`CLAUDE.md`, File size). A file of `src/` has no comment (`CLAUDE.md`, Comments).
 - The closure check: a scan of the generated function and of the builtin implementations it reaches.
 - `reqs/`: a Doorstop item for Rule 11.24 (`bun run reqs:sync`), which a person reads and reviews.
@@ -226,7 +233,7 @@ This is an additive host API. Existing kernel calls, generated host modules and 
 The emitter reuses `generateModuleJs` with `precision: 'f32'`, and separates direct-buffer publication from the host-call wrapper.
 Cost recorded: the editor shows no diagnostic for a kernel that `compile()` accepts and the artifact refuses.
 `emitCpuKernel` is the check. The editor's shader vocabulary does not change.
-Cost recorded: a wrong typed-array kind or a short array gives wrong bits and no error (D6). The host validates first.
+Cost recorded: a wrong typed-array kind or a short array gives wrong bits and no error (D6). An out-of-bounds read of a typed array gives `undefined`, which computes as NaN. The host validates sizes first.
 Cost recorded: the artifact imports a subpath named `typeshade/runtime/internal`. A consumer's bundler resolves it.
 Duration and cost of the work: unknown. No estimate has a basis yet.
 
@@ -244,22 +251,33 @@ Timing reports show the compile and load cost apart from the cold and warm run. 
 
 ### Independent review record
 
-Not run. This revision has no review by an agent or a person that did not write it.
-`changes/README.md` (Independent review) requires one before the owner decides.
-The owner delegated the decision on 2026-11-24 (approval record below).
-The orchestrating session records here whether it ran a review or waived it, with the findings and each answer.
-Until then, this record is open.
+Reviewer: a Sonnet sub-agent that did not write this revision. Date: 2026-11-24 UTC. Baseline: `be2e83de6ba5cdaddc2b8f19a74f98061bad78fe`.
+Method: each claim of fact read against `main`; D1-D10 against OD-1 to OD-11; front matter against the text; TypeAudio `docs/compiler-asks.md` section F against the need.
+Result: accept with fixes. No entry of `docs/owner-decisions.md` is reversed.
+
+1. Error codes: `SD0020` is not the code of a `compile()` refusal. Fixed.
+2. Rule 11.7 is untouched, so the front matter and the applicability row do not list it. Fixed.
+3. The artifact differs from the CPU tier's host call in two ways, not three. Fixed.
+4. The list of cases the artifact does not support yet is complete (fallback, `f64` scalar, non-kernel entry, `@compute` entry, `inout` scalar, storage texture). Fixed.
+5. Every closure-check refusal says "not supported yet", and Rule 11.24 does not state the forms as limits of the language. Fixed.
+6. The `name` field is dropped (OD-3). Fixed.
+7. The exports move to `typeshade/core/ir` (Rule 11.19). Fixed.
+8. D8 cites OD-3 and Rule 11.19 and says Rule 11.24 is a host-API rule. Fixed.
+9. The evidence for the allocation is issue #961. Fixed.
+10. The clause on stores "as on every tier" is deleted, and the cost of an out-of-bounds read is recorded. Fixed.
+
+Findings 1-10 fixed in the next revision.
 
 ### Approval and plan record
 
 - Decision. [decision, owner, 2026-11-24] The owner said in the conversation, in Korean: "제대로 다시, 저의 의견이 사실 필요 없거든요" (do it properly again, my opinion is not actually needed). The owner thereby delegated the triage decisions to the orchestrating session. The session decided to accept the direction. Its ground: TypeAudio's rule says the compiler side decides how to meet a downstream need, and the compiler's work meets this one (OD-3).
-- Decisions D1 to D10. The orchestrating session adopted the recommended option of each (table in "Why"). The owner did not read the options or the before and after example before this record. This is a deviation from OD-4 and from `changes/README.md`. Its disposition is open: the owner can read the example in "What changes" before saying "merge".
+- Decisions D1 to D10. The orchestrating session adopted the recommended option of each (table in "Why"). The owner did not read the options or the before and after example before this record. The owner delegated the decision (OD-4 record above), so the session reports the example at the merge. The independent review ran (record above). The owner can read the example in "What changes" before saying "merge".
 - Merge. `CLAUDE.md` (Merging) keeps a new proposal for the owner's word "merge". The owner's delegation of 2026-11-24 is recorded here. It is not that word.
 - Pull request. #1555 carries this revision.
 - Supersedes. Pull request #1037 (draft). It carried the earlier draft of 2026-11-06 with `emitCpuKernel`, `CpuKernelArtifact` and `CpuKernelOptions`, at baseline `324251df`. This revision drops `CpuKernelOptions` as an export (D2). It also drops the old list of refused forms in favour of the closure check (D5).
-- Approved revision and scope. The revision of this file that the pull request merges. The scope is the front matter: Rules 11.8 and 11.24, surface section 65, and the two exports.
+- Approved revision and scope. The revision of this file that the pull request merges. The scope is the front matter: Rules 11.8 and 11.24, surface section 65, and the two exports of `typeshade/core/ir`.
 - Responsibilities and milestones. Not assigned. No schedule is agreed.
-- Open at acceptance: the independent review (above); the owner's reading of the example; the implementation; the downstream work below.
+- Open at acceptance: the owner's reading of the example, which the session reports at the merge; the implementation; the downstream work below.
 
 ### Configuration and validation record
 
