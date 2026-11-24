@@ -7,7 +7,7 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     name: '`isnan`',
     covers: ['glsl:builtinFunctions:8.3:isnan'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts#lowerCall~"unknownFunctionSentence(callee)" (the unknown-function refusal)',
     webgpu: na('WGSL has no such built-in (no NaN test)'),
     webgl2: gap(
       11,
@@ -22,7 +22,7 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     name: '`isinf`',
     covers: ['glsl:builtinFunctions:8.3:isinf'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts#lowerCall~"unknownFunctionSentence(callee)" (the unknown-function refusal)',
     webgpu: na('WGSL has no such built-in (no infinity test)'),
     webgl2: gap(
       11,

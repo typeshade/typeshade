@@ -32,7 +32,7 @@ export const INTROSPECTION_AND_EXTENSIONS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.isTexture',
     ],
     evidence:
-      'src/rhi/webgl2.ts (no object query outside the shader status checks); src/core/gl-compute.ts:111 (isProgram)',
+      'src/rhi/webgl2.ts (no object query outside the shader status checks); src/core/gl-compute.ts#compile~"isProgram" (isProgram)',
     note: 'introspection the manifest replaces (Rule 11.10)',
     webgpu: na('the manifest is the introspection (Rule 11.10)'),
     webgl2: na('the manifest is the introspection (Rule 11.10)'),
