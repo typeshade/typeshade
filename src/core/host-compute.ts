@@ -1,9 +1,7 @@
 // Implements: Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
 
 import {
-  checkBindings,
   configuredRuntime,
-  describe,
   flavored,
   isBuffer,
   isGuard,
@@ -12,9 +10,6 @@ import {
   onGpu,
   packed,
   recordDispatches,
-  residentable,
-  workgroupsOf,
-  type Checked,
   type ComputeEntry,
   type EntryBinding,
   type GeneratedCpu,
@@ -58,116 +53,24 @@ import { entryTierFit } from './host-compute/tier-fit.js';
 export { entryTierFit } from './host-compute/tier-fit.js';
 export type { EntryTierFit } from './host-compute/tier-fit.js';
 import { onGl } from './host-compute/gl-run.js';
+import {
+  checkArity,
+  residentsOf,
+  indirectOf,
+  checkEntryCall,
+  entryInputs,
+  type IndirectCount,
+  type CheckedEntry,
+} from './host-compute/checked-entry.js';
+export {
+  residentsOf,
+  indirectOf,
+  checkEntryCall,
+  entryInputs,
+} from './host-compute/checked-entry.js';
+export type { IndirectCount, CheckedEntry } from './host-compute/checked-entry.js';
 export { entryPrograms } from './host-compute/entry-programs.js';
 export type { EntryPrograms } from './host-compute/entry-programs.js';
-
-function checkArity(e: ComputeEntry, argc: number): void {
-  if (argc !== 2 && argc !== 3)
-    throw new TypeError(
-      `${e.name}() takes 2 or 3 arguments, (bindings, workgroups, options?); got ${argc}.`,
-    );
-}
-
-export function residentsOf(
-  e: ComputeEntry,
-  argc: number,
-  bindings: unknown,
-): Map<EntryBinding, ResidentArrayState> {
-  checkArity(e, argc);
-  const states = new Map<EntryBinding, ResidentArrayState>();
-  if (typeof bindings === 'object' && bindings !== null && !Array.isArray(bindings))
-    for (const b of e.bindings) {
-      const s = residentState((bindings as Record<string, unknown>)[b.name]);
-      if (s === undefined || !isBuffer(b)) continue;
-      if (!residentable(b))
-        throw new TypeError(
-          `${e.name}(): binding "${b.name}" (${b.s}) takes no Buffer: only a storage array with no size does.`,
-        );
-      const refusal = s.outside?.(`${e.name}(): binding "${b.name}"`);
-      if (refusal !== undefined) throw refusal;
-      const twin = [...states].find(([, t]) => t === s);
-      if (twin !== undefined)
-        throw new TypeError(
-          `${e.name}(): binding "${b.name}" is the same Buffer as binding "${twin[0].name}".`,
-        );
-      states.set(b, s);
-    }
-  return states;
-}
-
-export function indirectOf(e: ComputeEntry, workgroups: unknown): ResidentArrayState | undefined {
-  if (typeof workgroups !== 'object' || workgroups === null || !('indirect' in workgroups))
-    return undefined;
-  const s = residentState(workgroups.indirect);
-  const refusal = s?.outside?.(`${e.name}(): "workgroups.indirect"`);
-  if (refusal !== undefined) throw refusal;
-  return s;
-}
-
-export interface IndirectCount {
-  readonly state: ResidentArrayState;
-  readonly offset: number;
-}
-
-export interface CheckedEntry {
-  readonly owner?: CallOwner;
-  readonly recorded?: boolean;
-  readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
-  readonly checked: Checked;
-  readonly wg: readonly [number, number, number] | IndirectCount;
-}
-
-function countsOf(
-  e: ComputeEntry,
-  workgroups: unknown,
-  states: ReadonlyMap<EntryBinding, ResidentArrayState>,
-): readonly [number, number, number] | IndirectCount {
-  const wg = workgroupsOf(e, workgroups);
-  if (Array.isArray(wg)) return wg;
-  const { indirect, offset } = wg as { indirect: unknown; offset: number };
-  const at = `${e.name}(): "workgroups.indirect"`;
-  const s = indirectOf(e, workgroups);
-  if (s === undefined)
-    throw new TypeError(
-      `${at} is a Buffer<u32> that holds the workgroup counts; got ${describe(indirect)}.`,
-    );
-  if (s.destroyed)
-    throw new TypeError(`${at}: this Buffer was disposed; make a new one with array().`);
-  const view = s.view();
-  if (!(view instanceof Uint32Array))
-    throw new TypeError(`${at} is a Buffer<u32>; got a Buffer of ${describe(view)}.`);
-  if (offset + 3 > view.length)
-    throw new TypeError(
-      `${e.name}(): "workgroups.offset" is ${offset}, and the three counts from it need ${offset + 3} elements; the array holds ${view.length}.`,
-    );
-  for (const [b, t] of states)
-    if (t === s && (b.writes || b.rw === true))
-      throw new TypeError(
-        `${at} is also binding "${b.name}", which the entry ${b.writes ? 'writes' : 'binds read_write'}. WebGPU cannot read the counts from a buffer that the same dispatch writes, so pass another Buffer.`,
-      );
-  return { state: s, offset };
-}
-
-export function checkEntryCall(
-  e: ComputeEntry,
-  argc: number,
-  bindings: unknown,
-  workgroups: unknown,
-): CheckedEntry {
-  const states = residentsOf(e, argc, bindings);
-  let view = bindings;
-  if (typeof bindings === 'object' && bindings !== null && !Array.isArray(bindings)) {
-    const o: Record<string, unknown> = { ...(bindings as Record<string, unknown>) };
-    for (const [b, s] of states) o[b.name] = s.view();
-    view = o;
-  }
-  const residents = new Set([...states.keys()].map((b) => b.name));
-  return {
-    states,
-    checked: checkBindings(e, view, residents),
-    wg: countsOf(e, workgroups, states),
-  };
-}
 
 export const entryHost = {
   residentsOf,
@@ -177,20 +80,6 @@ export const entryHost = {
   runEntry,
   entryInputs,
 };
-
-export function entryInputs(
-  e: ComputeEntry,
-  c: CheckedEntry,
-  reads: IncomingReads,
-): ResidentArrayState[] {
-  const states = e.bindings.flatMap((b) => {
-    if (!isBuffer(b)) return [];
-    const s = c.states.get(b);
-    return s !== undefined && (reads === undefined || reads.includes(b.name)) ? [s] : [];
-  });
-  if ('state' in c.wg) states.push(c.wg.state);
-  return states;
-}
 
 export function callCompute(
   cpu: GeneratedCpu,
