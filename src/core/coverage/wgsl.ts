@@ -6,7 +6,7 @@
 // values, the attributes, the keywords, the enable extensions and the language extensions.
 // `reservedWords` is not a capability and has no row. Rules 11.14 to 11.18 of
 // docs/language-design.md define the statuses. This file gives each key one status per target.
-//
+// Rule 1.4 rests on the `diagnostic` rows of src/core/coverage/wgsl/attributes.ts and src/core/coverage/wgsl/keywords.ts.
 // HOW A ROW READS. `covers` names the one key. `evidence` gives the file:line in the repository that
 // grounds the statuses. `note` gives the reason of the row. A part of a capability that has no typed
 // spelling inside a typed, raw or planned cell is a sub-gap, written with `andGap`. A second status in
