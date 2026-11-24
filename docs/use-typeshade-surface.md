@@ -705,6 +705,7 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | A module const, a module `let`, a static field or an enum member whose initializer calls a function or builds a class of the module | The declaration's own sentence, once, naming it as written (`S.K`): `TS8003` for a constant, which is folded before any function exists, so the value is built inside the function that reads it; `TS8033` for a module variable. A read or a write of it, and a module `let` built from it, add nothing (§12, §24, §26) |
 | An optional value (`T \| undefined`, §76) read where a `T` is needed and nothing narrowed it: an operand, an argument, a `return` of a non-optional function, an index, a member read | `TS8003`, in TypeScript's TS18048, TS2532 and TS2538 place, which the editor shows alone: `"v" is "f32 \| undefined" here, and "*" takes an f32. Test it first, "if (v !== undefined)", or give the absent case a value, "v ?? 0.".` An optional as a condition, `v!`, `undefined` where nothing expects an optional, and `x === undefined` on a value that is always there are `TS8003` too, each naming the edit; `o?.m()`, `typeof v` and a call read twice in a loop condition are `TS8099` (Rule 7.10) |
 | `T \| null`, `T \| undefined` or `T \| null \| undefined` where no optional may stand: an enum member, a `Map` or `Record` value, or a struct or an array that holds one in a binding, a module variable or constant, an override, an entry point's parameter or result, or a kernel function's parameter or result | `TS8002`. `"f32 \| undefined" holds a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".`, and through a struct or an array `"U" holds "w: f32 \| undefined", a value and a flag saying whether it is there, which a local, a parameter, a function's result, a struct field or an array element may hold; a binding may not. Carry a u32 flag beside the value, "f32".` A kernel function's result names its own two forms: `…; a kernel function's result may not. Carry a u32 flag beside the value, "f32", in an array the function writes, or return a struct with a "found: u32" field beside it.` (#792) (change 0093; §28, §76) |
+| A loop that pushes onto the array a kernel function grows, whose start or bound reads a value the call does not know before it runs (the counter of a loop around it, an element of an array parameter, the length of the array itself), in a function that no count pass serves, where the proof accepts every loop and the function could otherwise run on a device (§65, change 0114, Amendment A17, R3-Q2) | `TS8070`, a warning, on the first such loop, in the compiler and in the editor: `"for (let j: u32 = 0; j < counts[at[i]]; j++)" pushes onto "out", and its start or bound reads a value the call does not know before it runs, so this function runs on the CPU, where the array grows as it is pushed to.` The function runs on the CPU tier, where the array grows as it is pushed to. |
 | An optional parameter `x?: T` on an entry point or on a kernel function, `x?: T = d`, or a required parameter after an optional one | `TS8020`, on the parameter (change 0093; §14, §76): `An entry's parameters come from the pipeline, not from a call, so "w" cannot be optional. Write "w: T".`; `A kernel function's parameters come from the host, not from a call, so "k" cannot be optional. Write "k: T".`; `"k?: T = d" gives "k" two fillers: a parameter is optional, or has a default, not both (TypeScript's TS1015). Write "k?: T" or "k: T = d".`; `"x" is required and follows the optional parameter "k": a required parameter cannot follow an optional one (TypeScript's TS1016). Write "x?: T", or move it before "k".` The editor shows each in TypeScript's TS1015 or TS1016 place |
 
 ---
@@ -9192,8 +9193,10 @@ pushes (a push under an `if` inside a loop counts as one). A loop under a top-le
 when the host finds the branch taken. A trip count reads only the operands a length reads (above),
 which an outer counter is not, except for a loop nested in a top-level loop of a function the call may run twice (below). The host counts the capacity exactly, with no
 wrap, and reserves that many elements. A capacity past 4294967295, or past what one host array of
-the element holds, throws a `RangeError` that names the function, the array and the capacity
-before anything runs, since a length past that limit is not supported yet. The pushes
+the element holds, in a function that Route 2 does not serve, runs the function as Route 3 below
+when the runtime's tier list holds the CPU tier (proposal 0114, Amendment A17, R3-Q1). Where the
+list holds no CPU tier, the call throws a `RangeError` that names the function, the array and the
+capacity before anything runs, since a length past that limit is not supported yet. The pushes
 append in the order a sequential run makes them (below), and the call resolves to a new array of
 exactly the elements pushed, in the made array's form. Pushes of a struct keep JavaScript's
 objects (Amendment A8, item 4): when every push pushes one `const` object declared at the top of
@@ -9216,11 +9219,11 @@ export function render(k: vec4, size: u32): f32[] {
 ```
 
 Not supported yet, each refused with `TS8099` and a sentence that names the loop or the form: a
-push outside every loop; a push in a loop under a top-level `if` whose condition reads another
-operand; a loop whose start or bound reads another operand (a range the device holds included, and the counter of a loop around it, unless the function qualifies for a count pass, below); an element a made array may not hold (above); pushes of
+push outside every loop; a loop at the top level whose start or bound reads another operand, a
+range the device holds included, unless the bound reads the length of the array itself (Route 3,
+below); an element a made array may not hold (above); pushes of
 a struct that the compiler cannot tell are one object or new ones (one object mixed with new
-ones, or one the body changes); a read or a write of an element before the first loop; and a
-write the compiler cannot prove below the length in a loop inside another loop or under a branch.
+ones, or one the body changes); and a read or a write of an element before the first loop.
 A loop nested in a top-level loop may start or end at the counter of a loop around it, or at an
 element of an array parameter, when the function qualifies for a count pass (proposal 0114,
 Amendment A12, form 2, Route 2): the proof of Rule 8.22 accepts every loop, the only write of the
@@ -9238,10 +9241,17 @@ reads the total; on every other tier it is the function's run on the CPU tier. A
 pushes onto the array or writes an element of it that can append takes Route 3 (proposal 0114,
 Amendment A12, section 1): a `while`, a `for` that is no count from a start to a bound by a
 constant whole step or whose body writes its counter, a loop inside such a loop, and a loop under a
-`switch` or under a branch inside a loop. A `do … while` stays refused by the front end
-(TS8099). The call reserves no capacity, runs the function once on
-the CPU tier, which appends in the order of a sequential run, and resolves to a new array of
-exactly the elements pushed. A length of 4294967295 or more throws the `RangeError` of the count
+`switch` or under a branch inside a loop; a loop nested in a top-level loop whose start or bound
+reads a value no route can size (the counter of a loop around it, an element of an array
+parameter) in a function that does not qualify for a count pass; a loop under a top-level `if`
+whose condition reads another operand; a top-level loop whose bound reads `out.length`; and a write
+the compiler cannot prove below the length in a loop inside another loop or under a branch. A
+`do … while` stays refused by the front end (TS8099). The call reserves no capacity, runs the
+function once on the CPU tier, which appends in the order of a sequential run, and resolves to a
+new array of exactly the elements pushed. Where the proof accepts every loop and the function
+could otherwise run on a device, the compiler warns (`TS8070`, §7) on the first loop whose start or
+bound it cannot read. A function that Route 1 sizes past the limit and Route 2 does not serve runs
+the same way at the call, when the runtime's tier list holds the CPU tier (above). A length of 4294967295 or more throws the `RangeError` of the count
 pass, and a host that cannot hold the elements pushed throws a `RangeError` that names the
 function, the array and the length it reached. No GPU tier runs it: the reason names the loop or
 the array, and growing an array during a run on WebGPU or WebGL2 is not supported yet (the heap

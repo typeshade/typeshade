@@ -1,5 +1,6 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
 import type { Expr, FuncDecl } from '../../../../core/ir/nodes.js';
+import { eachExpr } from '../../../../core/ir/visit.js';
 
 const ARITHMETIC: ReadonlySet<string> = new Set(['+', '-', '*', '/', '%']);
 const CASTS: ReadonlySet<string> = new Set(['u32', 'i32', 'f32']);
@@ -45,6 +46,21 @@ export function hostReadable(e: Expr, r: Readable): boolean {
     default:
       return false;
   }
+}
+
+export function readsGrownLength(bounds: readonly Expr[], param: string): boolean {
+  let found = false;
+  for (const bound of bounds)
+    eachExpr(bound, (x) => {
+      if (
+        x.op === 'call' &&
+        (x.fn === 'arrayLength' || x.fn === 'pushCount') &&
+        x.args[0]?.op === 'param' &&
+        x.args[0].name === param
+      )
+        found = true;
+    });
+  return found;
 }
 
 export function hostCondition(e: Expr, r: Readable): boolean {

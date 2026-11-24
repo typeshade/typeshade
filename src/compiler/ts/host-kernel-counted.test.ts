@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { hostFace } from './host-face.js';
-import { bothRefuse, bothTake } from '../../core/testing/both-halves.js';
+import { bothTake } from '../../core/testing/both-halves.js';
+import { warningsOf } from './growing-load.js';
 import { madeOf } from '../../core/kernel-made-face.js';
 import type { HostExport } from './host-face-contracts.js';
 import type { KernelFace } from '../../core/host-kernel.js';
@@ -150,40 +151,54 @@ describe('a push in a loop whose start reads the outer counter, Route 2 (change 
   });
 });
 
-describe('what stays refused as not supported yet, in both halves (change 0114, A12 form 2, Route 2)', () => {
+describe('what Route 2 does not count runs on the CPU tier, in both halves (change 0114, A12 form 2, Route 3)', () => {
   const nest = (inner: string): string =>
     `for (let i: u32 = 0; i < xs.length; i++) { for (let j: u32 = i + 1; j < xs.length; j++) { ${inner} } }`;
-  const sentence =
-    '"for (let j: u32 = i + 1; j < xs.length; j++)" pushes onto "out", and its start or bound ' +
-    'reads a value the call does not know before it runs. It reads the value parameters, their ' +
-    'components and fields, module constants, the length of an array parameter, number ' +
-    'literals, u32, i32 and f32 of these, and top-level consts of these, with +, -, *, /, %, ' +
-    'min and max; any other operand is not supported yet.';
+  const unread =
+    'typeshade TS8070: "for (let j: u32 = i + 1; j < xs.length; j++)" pushes onto "out", and ' +
+    'its start or bound reads a value the call does not know before it runs, so this function ' +
+    'runs on the CPU, where the array grows as it is pushed to.';
+  const routeOf = (source: string): KernelFace => {
+    const f = hostFace(source, { fileName: '/app/m.shade.ts', runtime: RUNTIME });
+    return faceOf(f.exports!, 'f');
+  };
 
-  it('takes a nest whose elements the proof shows in range, and refuses one it cannot', () => {
+  it('takes a nest whose elements the proof shows in range on Route 2, and the one it cannot on Route 3', () => {
     bothTake(grows(nest('out.push(xs[i] + xs[j]);')));
-    bothRefuse(grows(nest('out.push(xs[j + 1]);')), 'TS8099', sentence);
+    expect(madeOf(routeOf(grows(nest('out.push(xs[i] + xs[j]);'))))).toMatchObject({
+      counted: true,
+    });
+    const source = grows(nest('out.push(xs[j + 1]);'));
+    expect(warningsOf(source)).toEqual([unread]);
+    expect(madeOf(routeOf(source))).toMatchObject({ growing: true });
+    expect(madeOf(routeOf(source))).not.toHaveProperty('counted');
   });
 
-  it('refuses a nest that also reduces, scatters or stores', () => {
-    bothRefuse(
+  it('takes a nest that also reduces, scatters or stores, with the warnings of the proof', () => {
+    for (const source of [
       grows(`let total: f32 = 0.; ${nest('total += xs[j]; out.push(total);')}`),
-      'TS8099',
-      sentence,
-    );
-    bothRefuse(
       grows(nest('ys[j] = 1.; out.push(1.);'), 'xs: f32[], ys: f32[]'),
-      'TS8099',
-      sentence,
-    );
+    ]) {
+      const warnings = warningsOf(source);
+      expect(warnings.length).toBeGreaterThan(0);
+      for (const w of warnings) expect(w).toContain('TS8070');
+      expect(madeOf(routeOf(source))).toMatchObject({ growing: true });
+    }
   });
 
-  it('refuses a push as an expression and an element of the grown array', () => {
-    bothRefuse(grows(nest('const k = out.push(1.); out.push(f32(k));')), 'TS8099', sentence);
-    bothRefuse(grows(nest('out.push(1.);') + ' out[0] = 2.;'), 'TS8099', sentence);
+  it('takes a push as an expression and an element of the grown array', () => {
+    for (const source of [
+      grows(nest('const k = out.push(1.); out.push(f32(k));')),
+      grows(nest('out.push(1.);') + ' out[0] = 2.;'),
+    ]) {
+      expect(warningsOf(source).length).toBeGreaterThan(0);
+      expect(madeOf(routeOf(source))).toMatchObject({ growing: true });
+    }
   });
 
-  it('refuses a second grown array target and a store after the loops', () => {
-    bothRefuse(grows(nest('out.push(1.);') + ' xs[0] = 2.;'), 'TS8099', sentence);
+  it('takes a second grown array target and a store after the loops', () => {
+    const source = grows(nest('out.push(1.);') + ' xs[0] = 2.;');
+    expect(warningsOf(source).length).toBeGreaterThan(0);
+    expect(madeOf(routeOf(source))).toMatchObject({ growing: true });
   });
 });
