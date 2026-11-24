@@ -15,8 +15,8 @@
 // exactly representable in an 8-bit unorm texel, or is at least 0.03 of a step from a rounding
 // boundary, so each answer is exact.
 //
-// A case the CPU backend refuses names the refusal (`refusedOnCpu`, change 0120, item 4 and O6 (a)):
-// on that backend the case must throw an error that says it, and is then reported as skipped.
+// A case the CPU tier does not support yet names the refusal (`refusedOnCpu`, change 0120, item 4
+// and O6 (a)): on that backend the case must throw an error that says it, and is then reported as skipped.
 
 import { STAGE, type RhiBindLayoutEntry, type RhiDevice, type RhiTexture } from './rhi.js';
 
@@ -682,7 +682,7 @@ interface Out {
   {
     name: 'a texture sampled nearest, its row 0 at the top',
     covers: ['createSampler'],
-    refusedOnCpu: 'which the CPU tier cannot read (change 0120, O6 (a))',
+    refusedOnCpu: 'which the CPU tier does not support yet (Rule 8.24, Rule 11.7)',
     async run(device) {
       const texels = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255];
       const tex = device.createTexture({
@@ -770,7 +770,7 @@ ${FULL_SCREEN_SHADE}
   {
     name: 'a depth test: depth 0 to 1, less, written; the nearest of three triangles stays',
     covers: ['beginRenderPass'],
-    refusedOnCpu: 'it draws with no depth or stencil test (change 0120, item 4)',
+    refusedOnCpu: 'a depth or stencil test',
     async run(device) {
       const t = target(device, 4, 4);
       const depth = device.createTexture({
@@ -895,7 +895,7 @@ declare const u: uniform<U>;
   {
     name: 'the blend constant: a target blended as the constant alone',
     covers: ['setBlendConstant'],
-    refusedOnCpu: 'it draws with no blending (change 0120, item 4)',
+    refusedOnCpu: 'blending',
     async run(device) {
       const t = target(device, 4, 4);
       const { pipeline, layout } = await pipelineOf(device, UNIFORM_COLOUR, [UNIFORM_ENTRY], {
@@ -986,7 +986,7 @@ declare const u: uniform<U>;
   {
     name: 'a stencil reference: written where a draw passes, then tested equal',
     covers: ['setStencilReference'],
-    refusedOnCpu: 'it draws with no depth or stencil test (change 0120, item 4)',
+    refusedOnCpu: 'a depth or stencil test',
     async run(device) {
       const t = target(device, 4, 4);
       const ds = device.createTexture({
@@ -1201,7 +1201,7 @@ declare const d: storage<array<u32>, "read_write">;
   {
     name: 'interpolation: flat on a triangle strip, from the first vertex of each triangle',
     covers: ['draw'],
-    refusedOnCpu: 'it draws a triangle-list',
+    refusedOnCpu: 'topology',
     async run(device) {
       // The strip's second triangle starts at vertex 1.
       const got = await flatQuadFrame(device);

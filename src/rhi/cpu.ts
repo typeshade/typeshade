@@ -21,7 +21,7 @@
 // (`caps.immediate` is false, as on WebGPU). What the backend cannot do it refuses with a
 // `TypeError` that says so, where the object is made: a depth or stencil test, blending,
 // multisampling, a topology other than `triangle-list`, and an entry that reaches a texture, a
-// sampler, a derivative or a barrier (change 0120, item 4 and O6 (a)).
+// sampler, a derivative or a barrier are not supported yet on the CPU tier (Rule 11.7).
 
 import type { PackLayout } from '../core/manifest-types.js';
 import {
@@ -449,7 +449,7 @@ function stageOf(
   if (entry === undefined || entry.stage !== stage)
     throw new TypeError(`The CPU program has no ${stage} entry "${name}".`);
   if (entry.noCpu !== undefined)
-    throw new TypeError(`The CPU backend cannot run "${name}": ${entry.noCpu}.`);
+    throw new TypeError(`The CPU tier does not run "${name}" yet: ${entry.noCpu}.`);
   if (program.code.F[entry.fn] === undefined)
     throw new TypeError(`The CPU program has no code for "${name}".`);
   let code = program.code;
@@ -1025,17 +1025,15 @@ const LIMITS: Readonly<Record<string, number>> = Object.freeze({
   maxComputeWorkgroupsPerDimension: 65535,
 });
 
-/** What the CPU backend refuses of a render pipeline, as the end of a sentence, or nothing. */
+/** What the CPU tier does not support yet in a render pipeline, as a noun phrase, or nothing. */
 function refusalOf(desc: RhiRenderPipelineDesc): string | undefined {
-  if (desc.primitive.topology !== 'triangle-list')
-    return `it draws a triangle-list, and the pipeline's topology is "${desc.primitive.topology}"`;
-  if (desc.depthStencil !== undefined) return 'it draws with no depth or stencil test';
-  if (desc.multisample.count !== 1) return 'it draws with no multisampling';
+  if (desc.primitive.topology !== 'triangle-list') return `a "${desc.primitive.topology}" topology`;
+  if (desc.depthStencil !== undefined) return 'a depth or stencil test';
+  if (desc.multisample.count !== 1) return 'multisampling';
   for (const t of desc.fragment?.targets ?? []) {
-    if (t.blend !== undefined) return 'it draws with no blending';
+    if (t.blend !== undefined) return 'blending';
     const f = FORMATS[t.format];
-    if (f === undefined || f.channels.length === 0)
-      return `it draws into no "${t.format}" colour target`;
+    if (f === undefined || f.channels.length === 0) return `a "${t.format}" colour target`;
   }
   return undefined;
 }
@@ -1085,7 +1083,8 @@ class CpuDevice implements RhiDevice {
   }
 
   createTexture(desc: RhiTextureDesc): RhiTexture {
-    if ((desc.sampleCount ?? 1) !== 1) this.#fail('The CPU backend makes no multisampled texture.');
+    if ((desc.sampleCount ?? 1) !== 1)
+      this.#fail('A multisampled texture is not supported yet on the CPU tier (Rule 11.7).');
     return new CpuTexture(desc.size[0], desc.size[1], desc.size[2], desc.format);
   }
   writeTexture(
@@ -1139,7 +1138,7 @@ class CpuDevice implements RhiDevice {
     for (const e of entries)
       if (!('buffer' in e))
         this.#fail(
-          `The CPU backend binds buffers only; binding ${e.binding}${e.label !== undefined ? ` ("${e.label}")` : ''} is a texture or a sampler, which the CPU tier cannot read (change 0120, O6 (a)).`,
+          `The CPU backend binds buffers only; binding ${e.binding}${e.label !== undefined ? ` ("${e.label}")` : ''} is a texture or a sampler, which the CPU tier does not support yet (Rule 8.24, Rule 11.7).`,
         );
     return new CpuBindLayout(entries);
   }
@@ -1166,7 +1165,7 @@ class CpuDevice implements RhiDevice {
       const why = refusalOf(desc);
       if (why !== undefined)
         throw new TypeError(
-          `The CPU backend cannot make ${desc.label ?? 'the render pipeline'}: ${why} (change 0120, item 4).`,
+          `The CPU tier does not support ${why} yet in ${desc.label ?? 'the render pipeline'} (Rule 11.7).`,
         );
       const vertex = stageOf(desc.module, desc.vertex.entryPoint, 'vertex', desc.constants);
       const fragment =

@@ -352,7 +352,7 @@ describe('the parity matrix of proposal 0064 (PR-1 rows)', () => {
     const { gl } = glFake();
     const rt = await createRuntime({ device: gl });
     await expect(rt.load(manifest()).render({ multisample: { count: 4 } })).rejects.toThrow(
-      'The render pipeline of "fs" (typeshade-input.ts:8): the WebGL2 tier draws with one sample; a multisampled target is not here.',
+      'The render pipeline of "fs" (typeshade-input.ts:8): a multisampled target is not supported yet on the WebGL2 tier (Rule 10.5, Rule 11.11).',
     );
   });
 
