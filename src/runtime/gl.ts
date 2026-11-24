@@ -20,7 +20,7 @@
 // handles: the backend has no compute pass. The call layer's entry call outside a `fuse` scope
 // dispatches through this tier (`runFrame`, change 0120, M4).
 
-// Why: Rule 11.11 (docs/language-design.md); the reqs/ item of Rule 11.11 reads this keyword in this file.
+// Implements: Rule 11.11
 import { describe, byteSize, Misfit, pack, readInto, type Layout } from '../core/host-entry.js';
 import { runGlCompute } from '../core/gl-compute.js';
 import { deviceInfo, type DeviceInfo } from '../core/device-info.js';

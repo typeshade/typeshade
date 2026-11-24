@@ -920,7 +920,7 @@
   "src/runtime/device.ts": 108,
   "src/runtime/exported-binding.test.ts": 26,
   "src/runtime/gl-draw.test.ts": 68,
-  "src/runtime/gl-draw.ts": 128,
+  "src/runtime/gl-draw.ts": 127,
   "src/runtime/gl-names.test.ts": 31,
   "src/runtime/gl.ts": 56,
   "src/runtime/host-types.test.ts": 27,
