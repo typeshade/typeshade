@@ -1,7 +1,6 @@
 import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { entryNode } from '../compiler/ts/entry-locations.js';
-import { referenceOf } from '../compiler/ts/lower/references.js';
 import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import {
   abstractConstTableOf,
@@ -14,7 +13,6 @@ import {
 import { ioAttrOf, retIoAttrOf } from '../core/ir/entry-io.js';
 import type { FuncDecl } from '../core/ir/nodes.js';
 import type { ShaderType } from '../core/ir/types.js';
-import { wgslType } from '../core/backends/wgsl.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js';
 import { rangeForSpan, touchingNodeAtPosition, wordSpan } from './positions.js';
@@ -27,6 +25,12 @@ import { linkedFieldAt } from './hover/linked-field.js';
 import { ROLES, fieldLine, type FieldFacts } from './hover/field-line.js';
 import { shownNames } from './hover/shown-names.js';
 import { refusalCode } from './hover/refusal-code.js';
+import {
+  isReferenceParam,
+  referenceLine,
+  ownerOf,
+  declarationLine,
+} from './hover/declaration-line.js';
 export { spellShaderType } from './hover/spell-type.js';
 export type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
 
@@ -477,60 +481,6 @@ function writtenParams(
   if (kept.length !== types.length)
     return (fn.params ?? []).map((p, i) => `${p.name}: ${types[i]!}`);
   return kept.map((p, i) => `${(p.name as ts.Identifier).text}: ${types[i]!}`);
-}
-
-function isReferenceParam(sourceFile: ts.SourceFile, param: DeclaredSymbol): boolean {
-  let node: ts.Node | undefined = nodeAt(sourceFile, param.start);
-  while (node !== undefined && !ts.isParameter(node)) node = node.parent;
-  return (
-    node !== undefined &&
-    ts.isFunctionDeclaration(node.parent) &&
-    referenceOf(node, sourceFile) !== undefined
-  );
-}
-
-function referenceLine(param: DeclaredSymbol): string {
-  return (
-    `The caller's object: this function writes it. Assigning to a field or an element of ` +
-    `\`${param.name}\` changes the object the caller passed. WGSL takes it as a pointer, ` +
-    `\`ptr<function, ${wgslType(param.type)}>\` for a local; GLSL ES 3.00 as an \`inout\` parameter.`
-  );
-}
-
-function ownerOf(quickInfo: ts.QuickInfo): string | undefined {
-  const parts = quickInfo.displayParts ?? [];
-  const name = parts.map((p) => p.kind).lastIndexOf('propertyName');
-  const space = parts.findIndex((p) => p.kind === 'space');
-  if (name < 2 || space < 0 || space >= name || parts[name - 1]?.text !== '.') return undefined;
-  return ts.displayPartsToString(parts.slice(space + 1, name - 1));
-}
-
-function declarationLine(
-  symbol: DeclaredSymbol,
-  moduleVar: boolean,
-  struct: StructNames,
-  params: readonly string[],
-  owner: string | undefined,
-): string | undefined {
-  const type = spellShaderType(symbol.type, struct);
-  switch (symbol.kind) {
-    case 'local':
-      return `${symbol.mutable === false ? 'const' : 'let'} ${symbol.name}: ${type}`;
-    case 'param':
-      return `(parameter) ${symbol.name}: ${type}`;
-    case 'const':
-      return `const ${symbol.name}: ${type}`;
-    case 'override':
-      return `const ${symbol.name}: ${type}`;
-    case 'binding':
-      return `${moduleVar ? 'let' : 'const'} ${symbol.name}: ${type}`;
-    case 'function':
-      return `function ${symbol.name}(${params.join(', ')}): ${type}`;
-    case 'field':
-      return `(property) ${owner ?? struct(symbol.struct ?? '')}.${symbol.name}: ${type}`;
-    case 'struct':
-      return undefined;
-  }
 }
 
 function typesInWords(types: readonly ShaderType[], struct: StructNames): string {
