@@ -51,18 +51,19 @@ import type {
   RhiTexture,
   RhiTextureDesc,
   RhiTextureView,
-  RhiVertexBufferLayout,
 } from './rhi.js';
 import type { GL, GlTextureKind } from './webgl2/types.js';
 import { formatOf, type GlFormat } from './webgl2/format.js';
 import { GlState } from './webgl2/state.js';
-import { compareOf, drawStateOf, setState, type DrawState } from './webgl2/draw-state.js';
+import { compareOf, drawStateOf, setState } from './webgl2/draw-state.js';
 import { dataTexture } from './webgl2/data-texture.js';
 import { bindTexture } from './webgl2/bind-texture.js';
 import { blitScreen } from './webgl2/screen-blit.js';
 import { readTexels } from './webgl2/texel-readback.js';
 import { texelView } from './webgl2/texel-view.js';
 import { firstVertexLast } from './webgl2/first-vertex-last.js';
+import { GlPipeline, type Slot } from './webgl2/pipeline.js';
+export { glReadBindings } from './webgl2/pipeline.js';
 export { firstVertexLast } from './webgl2/first-vertex-last.js';
 export { DATA_WIDTH } from './webgl2/data-texture.js';
 export { GL_TOPOLOGY, GL_BLEND_FACTOR, GL_BLEND_OPERATION } from './webgl2/draw-state.js';
@@ -126,30 +127,6 @@ class GlGroup implements RhiBindGroup {
 
 class GlCanvas implements RhiCanvas {
   readonly __rhi = 'canvas' as const;
-}
-
-interface Slot {
-  readonly binding: number;
-  readonly kind: 'block' | 'texture' | 'data';
-  readonly unit: number;
-  readonly minimum?: number;
-  readonly sampler?: number;
-}
-
-class GlPipeline implements RhiRenderPipeline {
-  readonly __rhi = 'pipeline' as const;
-  constructor(
-    readonly program: WebGLProgram,
-    readonly slots: readonly (readonly Slot[])[],
-    readonly state: DrawState,
-    readonly vao: WebGLVertexArrayObject,
-    readonly buffers: readonly RhiVertexBufferLayout[],
-    readonly flat: boolean,
-  ) {}
-}
-
-export function glReadBindings(pipeline: RhiRenderPipeline): readonly (readonly number[])[] {
-  return (pipeline as GlPipeline).slots.map((group) => group.map((s) => s.binding));
 }
 
 const NO_COLOUR = `#version 300 es
