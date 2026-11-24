@@ -1,16 +1,22 @@
 import ts from 'typescript';
 import { writtenMemberName, emittedMemberName } from './class-names/member-names.js';
+import {
+  isStaticMember,
+  isReadonlyMember,
+  type KeywordAccess,
+} from './class-names/member-modifiers.js';
+export {
+  isStaticMember,
+  isReadonlyMember,
+  keywordAccessOf,
+} from './class-names/member-modifiers.js';
+export type { KeywordAccess } from './class-names/member-modifiers.js';
 export {
   writtenMemberName,
   isPrivateName,
   emittedMemberName,
   accessorFnName,
 } from './class-names/member-names.js';
-
-export const isStaticMember = (node: ts.Node): boolean =>
-  (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some(
-    (m) => m.kind === ts.SyntaxKind.StaticKeyword,
-  ) ?? false;
 
 export function enclosingClasses(node: ts.Node): ts.ClassLikeDeclaration[] {
   const out: ts.ClassLikeDeclaration[] = [];
@@ -63,11 +69,6 @@ export function returnsThis(body: ts.Block | undefined): boolean {
 export const holdsFunction = (member: ts.PropertyDeclaration): boolean =>
   member.initializer !== undefined &&
   (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer));
-
-export const isReadonlyMember = (node: ts.Node): boolean =>
-  (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some(
-    (m) => m.kind === ts.SyntaxKind.ReadonlyKeyword,
-  ) ?? false;
 
 export function staticThisMember(node: ts.Node): ts.ClassElement | undefined {
   for (let at: ts.Node | undefined = node.parent; at !== undefined; at = at.parent) {
@@ -322,15 +323,6 @@ export function shadowedStaticFields(cls: ts.ClassLikeDeclaration): Set<ts.Prope
     seen.add(emitted);
   }
   return out;
-}
-
-export type KeywordAccess = 'private' | 'protected';
-
-export function keywordAccessOf(node: ts.Node): KeywordAccess | undefined {
-  const mods = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
-  if (mods?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword)) return 'private';
-  if (mods?.some((m) => m.kind === ts.SyntaxKind.ProtectedKeyword)) return 'protected';
-  return undefined;
 }
 
 const CLASSES = new WeakMap<ts.SourceFile, ReadonlyMap<string, ts.ClassDeclaration[]>>();
