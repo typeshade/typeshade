@@ -49,7 +49,7 @@ unchanged, and the new text follows it on its own lines):
 A change that edits only documents (a `.md` file outside `src/`, or a Doorstop item under `reqs/`) must pass `bun run build`, `bun run test` and the traceability check, and needs no GPU gate, since no GPU gate reads a document; CI's `change scope` job tells the two apart on a pull request, and a push to `main` and a release run every gate (change `0055`).
 A pull request range that declares `Move: comments` and that `scripts/move-purity.ts` accepts removes comments and changes no token. Before the merge it must pass the source and policy checks, the unit shards of the pinned TypeScript version and the traceability check. It needs no compile gate, user journeys, TypeScript 5 or 6 unit shards, render gate, perf gate, package smoke or TypeNN build (change `0147`).
 A range that declares `Move: pure` and that the checker accepts moves declarations between clean files. Before the merge it must also pass the compile gate, the user journeys, one package smoke and the TypeNN build. It needs no TypeScript 5 or 6 unit shards, render gate or perf gate (change `0147`).
-Each skipped gate runs on `main` after the merge. A push to `main`, a manual dispatch and a release run every gate. A range that the checker refuses is an ordinary change.
+Each skipped gate runs on `main` after the merge, and a run on `main` is never cancelled by a later push. A push to `main`, a manual dispatch and a release run every gate. A range that the checker refuses is an ordinary change.
 ```
 
 The `rationale`, `Derives from` and `Enforced by` lines of Rule 13.4 stay as they are.
@@ -58,24 +58,35 @@ Example of what an author of a slice sees. A pull request titled `Move: comments
 the commit line `Move: comments` runs the first four rows of the table below before the merge.
 A pull request with no `Move:` line, or whose range the checker refuses, runs all of them.
 
-| Job or check                                                 | documents (`0055`) | `Move: comments` | `Move: pure`               | any other change |
-| ------------------------------------------------------------ | ------------------ | ---------------- | -------------------------- | ---------------- |
-| `change scope`                                               | runs               | runs             | runs                       | runs             |
-| `source and policy checks`                                   | runs               | runs             | runs                       | runs             |
-| pinned TypeScript unit shards, `typecheck + unit` (required) | runs               | runs             | runs                       | runs             |
-| `traceability (Doorstop)` (required)                         | runs               | runs             | runs                       | runs             |
-| TypeScript 5 and TypeScript 6 unit shards                    | skipped            | skipped          | skipped                    | runs             |
-| `compile gate (Tint + WebGL2)` (required)                    | skipped            | skipped          | runs                       | runs             |
-| `user journeys (packed tarball, WebGPU)` (required)          | skipped            | skipped          | runs                       | runs             |
-| `render gate`, `perf gate`                                   | skipped            | skipped          | skipped                    | runs             |
-| package smoke (`package-smoke.yml`)                          | not run            | skipped          | one smoke (Linux, Node 24) | five smokes      |
-| `TypeNN candidate (build + CPU)` (`downstream.yml`)          | not run            | skipped          | runs                       | runs             |
+| Job or check                                                                      | documents (`0055`) | `Move: comments` | `Move: pure`               | any other change |
+| --------------------------------------------------------------------------------- | ------------------ | ---------------- | -------------------------- | ---------------- |
+| `change scope`                                                                    | runs               | runs             | runs                       | runs             |
+| `source and policy checks`                                                        | runs               | runs             | runs                       | runs             |
+| pinned TypeScript unit shards, `typecheck + unit` (required)                      | runs               | runs             | runs                       | runs             |
+| `traceability (Doorstop)` (required)                                              | runs               | runs             | runs                       | runs             |
+| TypeScript 5 and TypeScript 6 unit shards                                         | skipped            | skipped          | skipped                    | runs             |
+| `compile gate (Tint + WebGL2)` (required)                                         | skipped            | skipped          | runs                       | runs             |
+| `user journeys (packed tarball, WebGPU)` (required)                               | skipped            | skipped          | runs                       | runs             |
+| `render gate`, `perf gate`                                                        | skipped            | skipped          | skipped                    | runs             |
+| package smoke (`package-smoke.yml`), when its path filter matches                 | not run            | skipped          | one smoke (Linux, Node 24) | five smokes      |
+| `TypeNN candidate (build + CPU)` (`downstream.yml`), when its path filter matches | not run            | skipped          | runs                       | runs             |
+
+The path filter of `downstream.yml` is `src/**`, `package.json`, `bun.lock`, `.node-version` and
+two `.github/` paths. The filter of `package-smoke.yml` adds `examples/**`, `scripts/**`,
+`tsconfig*.json` and `.bun-version`. A range outside a filter does not start that workflow at all.
 
 The `change scope` job sets the output `move` (`none`, `comments` or `pure`). The local action of
 the implementation runs `bun scripts/move-purity.ts --base "origin/$BASE" --require --title "$TITLE" --json`.
 The output is `comments` or `pure` only when the command exits 0, the JSON has `pure: true`, and
 its `declared` field equals that mode. Every other result is `none`. The job never fails on a range
 that is not pure. The `move purity` step of `quality` reports that failure.
+
+**A run on `main` is never cancelled.** `ci.yml`, `package-smoke.yml` and `downstream.yml` each set
+`concurrency` with `cancel-in-progress: true`. Two quick merges then cancel the run of the first
+commit on `main`, and a gate skipped before its merge may never report for that commit. The change
+sets `cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}` in the three workflows. A pull
+request run is still cancelled by a newer push to its branch. This is part of this change, since
+the exceptions rely on the run on `main` (decision of the orchestrating agent, 2026-11-24).
 
 A skipped required check reports success to the ruleset, as it does for a documents-only pull
 request under `0055`. The required checks keep their names.
@@ -100,9 +111,14 @@ approval of this text: approval does not yet apply.
   The basis of each per-slice figure is the plan's item 10 and not a new run by this proposal.
 
 **Why not ignore CI.** The skipped jobs would then never report, and the required checks would
-wait for ever (`0055`, "Alternatives considered"). The unit suite also reads the text of other
-files, and a comment removal has already broken a test that way (the plan, section 8, item 5).
-So the unit shards of the pinned TypeScript version and the traceability check stay in every scope.
+wait for ever (`0055`, "Alternatives considered"). A comment removal has already broken a test
+that reads the text of another file (the plan, section 8, item 5). So the unit shards of the
+pinned TypeScript version and the traceability check stay in every scope. On a pull request,
+`ci-unit.yml` passes `--base "origin/$BASE"` to `scripts/affected-tests.ts`, so these shards run
+a selection of the suite and not the whole suite. Inference: the selection catches a test that
+reads the text of a changed file only when `affected-tests.ts` selects that test. This proposal
+did not measure that. On a push to `main`, `ci-unit.yml` passes no `--base`, so the full suite
+runs there (inference from the workflow, not a measured run).
 
 **Alternatives considered.**
 
@@ -116,19 +132,30 @@ So the unit shards of the pinned TypeScript version and the traceability check s
 **Risks and limits.** These are facts of the design, not defects that a later change can remove.
 
 1. A pull request runs its own copy of the workflow, the action and the checker. A range could
-   lie to skip gates. The checker refuses a range that touches `.github/` or the checker itself.
-   Before a merge, the merging agent runs the checker of `main` on the range
-   (`CLAUDE.md`, Merging; the plan, section 9.1).
+   lie to skip gates. The checker refuses a range that touches `.github/` or the checker itself,
+   but a pull request that edits them runs its edited checker. The in-pull-request refusal is
+   therefore no safeguard against such a pull request. The controls are two: the merging agent
+   runs the checker of `main` on the range before a merge (`CLAUDE.md`, Merging; the plan, section
+   9.1), and review. `.github/CODEOWNERS` lists `/.github/` and `*` for the owner, so a change to
+   a workflow needs the owner's review. `scripts/move-purity.ts` is covered by `*` only.
 2. A skipped gate first runs after the merge, on the push to `main`. A failure there marks a
    commit of `main` red. It is not a failure of the pull request.
 3. Nobody is alerted to a red `main` beyond the GitHub defaults: the account that merged and the
-   watchers of Actions. No workflow opens an issue or reverts the commit.
+   watchers of Actions. No workflow opens an issue or reverts the commit. Never cancelling a run on
+   `main` makes the result exist, but a person or an agent must still read it. The orchestrating
+   agent reads the run on `main` after each slice merge.
 4. The render gate does not run for a pure move before the merge. A pure move can still change
    pixels if the checker has a gap. Its known gaps are listed in the plan, section 8, item 9.
+   A pure pull request can also merge on a stale base. A semantic conflict with a newer commit of
+   `main` then shows only on `main`, after the merge.
 5. The TypeScript 5 and 6 shards do not run for a slice before the merge. They run on `main`.
-6. The unit shards of the pinned TypeScript version run in every scope. A comment removal can
-   still fail a test that reads the text of a file, and it fails the pull request.
-7. The proposal gives no figure for how often a skipped gate fails on `main`. That rate is unknown.
+6. The unit shards of the pinned TypeScript version run in every scope, but on a pull request they
+   run the selection of `affected-tests.ts` and not the whole suite. Inference: a comment removal
+   can still fail a selected test that reads the text of a file, and that fails the pull request.
+   A test that is not selected fails on `main` after the merge, where the full suite runs.
+7. The `CLAUDE.md` pre-approval of `Move: pure` and `Move: comments` pull requests (Merging) now
+   rests on fewer green checks before the merge. The pre-approval text is not changed here.
+8. The proposal gives no figure for how often a skipped gate fails on `main`. That rate is unknown.
    The series of slices will show it. The owner can withdraw the exceptions if it is high.
 
 ## Owner's decisions
@@ -163,6 +190,7 @@ Files of the implementation, commit `29f61c82` on `local/ci-scope`, not merged:
 - `.github/actions/change-scope/action.yml` (new): the local action that runs the checker.
 - `.github/workflows/ci.yml`: the `move` output of `change scope`, and the `if` of the jobs it gates.
 - `.github/workflows/package-smoke.yml` and `.github/workflows/downstream.yml`: a `scope` job.
+  Commit `29f61c82` does not yet change `concurrency`.
 - `scripts/move-purity.ts`: the JSON field `declared`.
 - `src/move-comments-cli.test.ts` and `src/move-purity-cli.test.ts`: tests of that field.
 - `AGENTS.md` and `README.md`: the scopes, the limits and the shorter local list of a slice.
@@ -170,6 +198,8 @@ Files of the implementation, commit `29f61c82` on `local/ci-scope`, not merged:
 
 Files this proposal adds to that list:
 
+- `.github/workflows/ci.yml`, `package-smoke.yml` and `downstream.yml`: `cancel-in-progress:
+${{ github.ref != 'refs/heads/main' }}`, so a run on `main` is never cancelled.
 - `docs/language-design.md`, Rule 13.4: the text above, in the implementing pull request.
 - `reqs/rules/RULE-1304.md`: regenerated by `bun run reqs:sync`. The rule text changes, so the
   item's `reviewed` hash no longer matches. `python scripts/doorstop-check.py -C` then flags it.
@@ -193,6 +223,7 @@ Required evidence for the implementation:
   smoke and the TypeNN build.
 - A range that the checker refuses, which runs every job.
 - A push to `main` that runs every job.
+- Two pushes to `main` in quick succession, with the run of the first one not cancelled.
 - `bun run reqs:sync` and `python scripts/doorstop-check.py -C` with the flagged item read by a person.
 
 ### Draft impact estimate
@@ -208,9 +239,36 @@ whether the render gate may stay skipped for a `Move: pure` range before the mer
 
 ### Independent review record
 
-Not yet done. This record does not yet apply. A reviewer that did not write this proposal
-reviews it against `changes/README.md` (Independent review), and the findings and answers are
-recorded here before the owner decides.
+Date: 2026-11-24. Revision reviewed: commit `12ae17d3`. Reviewer: a separate agent that did not
+write the proposal. The author verified each finding against the files of commit `29f61c82` and
+`origin/main` before answering.
+
+Findings that should be fixed:
+
+1. The pinned unit shards run a selection on a pull request (`ci-unit.yml`, `affected-tests.ts
+--base`), not the whole suite. Answer: fixed. "Why" and risk 6 say so, label the catch of a
+   text-reading test as an inference, and say that the full suite runs on `main`. The proposed
+   Rule 13.4 text claims only the named shards, so it is unchanged.
+2. `concurrency` with `cancel-in-progress: true` in the three workflows can cancel a run on `main`,
+   so a skipped gate may never report. Answer: fixed. The change sets `cancel-in-progress: ${{
+github.ref != 'refs/heads/main' }}` in the three workflows. It is in "What changes", "What it
+   touches" and the required evidence. Risk 3 keeps that a person or an agent reads the run.
+3. The in-pull-request refusal of `.github/` and checker paths is no safeguard against a pull
+   request that edits them. Answer: fixed in risk 1. Finding: `.github/CODEOWNERS` does list
+   `/.github/`, so the reviewer's doubt about a missing entry does not hold. `scripts/move-purity.ts`
+   has only the `*` entry.
+4. The smoke and TypeNN rows of the table ignore the path filters. Answer: fixed. The rows say
+   "when its path filter matches" and the filters are listed.
+
+Notes:
+
+5. The job table matches `ci.yml` of `29f61c82`. Kept.
+6. The reviewer found no way to obtain `comments` or `pure` while the checker passes and behaviour
+   changes, other than the lie of risk 1. Kept.
+7. The required checks report in every scope through the skipped-job rule. Confirmed. Kept.
+8. A pure pull request can merge on a stale base. Answer: fixed in risk 4.
+9. The `CLAUDE.md` pre-approval rests on fewer checks. Answer: fixed as risk 7. Not changed here.
+10. The estimate figures come from the plan. Answer: kept, as labelled in "Why".
 
 ### Approval and plan record
 
