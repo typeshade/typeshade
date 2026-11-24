@@ -99,7 +99,6 @@
   "src/compiler/ts/entry-io-attributes.test.ts": 55,
   "src/compiler/ts/entry-io.test.ts": 20,
   "src/compiler/ts/entry-locations.test.ts": 16,
-  "src/compiler/ts/entry-locations.ts": 69,
   "src/compiler/ts/entry-results.test.ts": 24,
   "src/compiler/ts/enum.test.ts": 10,
   "src/compiler/ts/eval-entry.ts": 2,
