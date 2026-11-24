@@ -3,9 +3,9 @@
     "bytes": 178698,
     "floor": 17600,
     "split": {
-      "initial": 52026,
+      "initial": 52043,
       "floor": 18000,
-      "total": 180807
+      "total": 180784
     }
   },
   "typeshade/emit": {
@@ -30,9 +30,9 @@
     "bytes": 71164,
     "floor": 19000,
     "split": {
-      "initial": 70142,
+      "initial": 70143,
       "floor": 21700,
-      "total": 70142
+      "total": 70143
     }
   },
   "typeshade/random": {

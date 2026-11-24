@@ -230,9 +230,9 @@ describe('builtin breadth: the coarse and fine derivatives', () => {
       'dpdxCoarse(uv.x) + dpdyFine(uv.y)) + fwidthCoarse(uv.x)), fwidthFine(uv).x',
     );
     expect(r.glsl?.fragment).toContain('dFdx(uv.x) + dFdy(uv.y)) + fwidth(uv.x)), fwidth(uv).x');
-    // GPU-only on the CPU, as the plain three are; a stub under gpuStubs, which `eval` turns on.
+    // Not supported yet on the CPU tier, as the plain three are; a stub under gpuStubs, which `eval` turns on.
     expect(() => compileModule(r.module).fns['fs']!([0, 0])).toThrow(
-      "'dpdxCoarse' is GPU-only and not computable here",
+      "'dpdxCoarse' is not supported yet on the CPU tier (Rule 8.24)",
     );
     expect(r.eval('fs', [[0.5, 0.5]])).toEqual([0, 0, 0, 1]);
     expect(

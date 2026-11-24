@@ -323,7 +323,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         if (real !== undefined) return real;
         if (!ctx.gpuStubs) {
           throw new Error(
-            `typeshade/cpu: '${e.fn}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
+            `typeshade/cpu: '${e.fn}' is not supported yet on the CPU tier (Rule 8.24); pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
           );
         }
         return stub(...args);

@@ -29,7 +29,7 @@ export interface CompileResult {
    * error has only `TS8030` (`SYNTAX`) entries; a backend that threw on a program the front end
    * accepted adds one `TS8015` (`BACKEND`) entry anchored on the file's first statement: an
    * `error` when the WGSL emitter threw, a `warning` when only the GLSL emitter threw on a
-   * vertex+fragment module (a storage binding the GLSL emulation cannot spell), and one
+   * vertex+fragment module (a binding whose GLSL lowering is not supported yet, Rule 10.5), and one
    * `warning` for each compute entry of such a module that has no WebGL2 pass program. A
    * program with no `error` entry compiled.
    */
@@ -55,8 +55,8 @@ export interface CompileResult {
    * entry beside the render entries is not in them: it runs on WebGL2 as its pass program
    * (change 0054), and the programs hold what the render entries reach. A module the
    * GLSL backend refuses gets `undefined` here while `wgsl` is still present: silently for a
-   * compute-only module, which GLSL ES 3.00 has no stage for, and with the throw recorded as a
-   * `BACKEND` warning for a module with a `@vertex` or `@fragment` entry.
+   * compute-only module, which has no vertex or fragment program (Rule 11.8, Rule 11.11), and with
+   * the throw recorded as a `BACKEND` warning for a module with a `@vertex` or `@fragment` entry.
    */
   readonly glsl?: { readonly vertex: string; readonly fragment: string };
   /**
@@ -171,7 +171,7 @@ export interface CompileOptions {
  * literal the target cannot spell, an IR the emitter rejects) is reported as one `BACKEND`
  * error diagnostic rather than an exception, and `wgsl` and `glsl` are again `undefined`.
  * GLSL is attempted for every module whose WGSL exists; when the GLSL emitter throws on a
- * module with a render entry (a binding the GLSL emulation cannot spell) the module has still
+ * module with a render entry (a binding whose GLSL lowering is not supported yet, Rule 10.5) the module has still
  * compiled: `wgsl` stays, `glsl` is `undefined`, and the throw is one `BACKEND` diagnostic with
  * category `warning`. A compute entry beside a render entry runs on WebGL2 as its pass program
  * (change 0054, Rule 10.3), so `glsl` holds what the render entries reach, and a compute entry

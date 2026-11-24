@@ -3,9 +3,12 @@ id: '0146'
 title: The surface document and three rule texts say what the WebGL2 tier runs, and name its real gaps as not supported yet
 status: accepted
 rules:
+  - '8.20'
   - '8.24'
+  - '8.29'
   - '10.3'
   - '10.5'
+  - '11.8'
   - '11.11'
   - '12.3'
 surface:
@@ -16,7 +19,9 @@ surface:
   - 20
   - 23
   - 24
+  - 26
   - 33
+  - 34
   - 36
   - 37
   - 46
@@ -24,6 +29,7 @@ surface:
   - 48
   - 53
   - 62
+  - 64
   - 65
   - 66
   - 67
@@ -310,6 +316,193 @@ docs:impact`, `bun scripts/changes.ts` and `python scripts/doorstop-check.py -C`
 This record does not yet apply. Delivery will require the checks of the section "What it
 touches", with the configuration and the result of each.
 
+### Status record, 2026-11-24 (handoff)
+
+This record lists the state of change 0146 and of the OD-11 audit at the handoff. The owner decided
+on 2026-11-24 that the audit stops after its fourth round of fixes. [decision, owner, 2026-11-24]
+The orchestrating session relayed it as "추천대로" (English: as recommended). The remaining items go
+to records. This section is that record. Labels: [fact] was observed, [inference] is the agent's
+reading, [proposal] is planned work, [decision] is the owner's.
+
+Configuration of this record: `main` at `af0a3f8e`. Every commit named below was checked with
+`git cat-file -t` after `git fetch`, and each is an ancestor of `af0a3f8e`. A pull request marked
+open is not on that baseline.
+
+#### Status of the change
+
+| Item                        | Status      | Identifier                                                                                  |
+| --------------------------- | ----------- | ------------------------------------------------------------------------------------------- |
+| Proposal 0146               | accepted    | #1441, merge commit `19055f00`                                                              |
+| Amendment A1                | accepted    | #1502, merge commit `388f97fb`. A1-Q1 and A1-Q2 are open.                                   |
+| Amendment A2                | in progress | Drafted. The A2 pull request has no number in this record yet.                              |
+| The implementing patch      | in progress | Held for the owner's Doorstop review. It is not a pull request. Base `main` at `ab980642`.  |
+| Round 4 wording fixes       | in progress | Open pull requests #1506, #1507 and #1508                                                   |
+| Open question 1 of the text | open        | Which builtin gets a pass-program form. Not answered. The §48 text claims nothing about it. |
+
+#### The audit rounds
+
+1. [fact] Round 2 confirmed 81 findings. Round 3 confirmed 85. Round 4 confirmed 59.
+2. [fact] Round 1 is not counted in this record. Its fix pull requests are in the table below.
+3. [fact] The owner stopped the audit after the fixes of round 4. No round 5 is planned.
+4. [inference] The counts (81, 85, 59) did not fall to zero. The owner chose to stop and record the rest.
+
+| Pull request | Merge commit | Content                                          | Status               |
+| ------------ | ------------ | ------------------------------------------------ | -------------------- |
+| #1469        | `dc13cce9`   | Wording fixes, core (branch `od11-wording-core`) | merged               |
+| #1470        | `56994478`   | Wording fixes, runtime                           | merged               |
+| #1471        | `e96fd47d`   | Wording fixes, examples and scripts              | merged               |
+| #1499        | `ab980642`   | Round 3 fixes, core (`od11-r3-core`)             | merged               |
+| #1500        | `59bb57fb`   | Round 3 fixes, rest (`od11-r3-rest`)             | merged               |
+| #1501        | `93ade56a`   | Round 3 fixes, docs (`od11-r3-docs`)             | merged               |
+| #1506        | none yet     | Round 4 fixes, wording                           | open, merge on green |
+| #1507        | none yet     | Round 4 fixes, wording                           | open, merge on green |
+| #1508        | none yet     | Round 4 fixes, wording                           | open, merge on green |
+
+[proposal] Merge #1506, #1507 and #1508 as soon as each required check is green, with no conflict
+and no open review thread. CLAUDE.md (Merging) approves this: each is a wording fix that needs no
+proposal. Mark each ready for review when its checks are green.
+
+[fact] The normative passages of round 3 are not in the pull requests above. A1 (#1502)
+declares them. The held patch edits them.
+
+#### The held implementing patch
+
+1. [fact] The patch is held for the owner's Doorstop review. Its base is `main` at `ab980642`.
+2. [fact] The items to review, with `doorstop review`: RULE-1003, RULE-1005, RULE-1111, SURF-020,
+   SURF-023, SURF-033, SURF-048, SURF-066 and SURF-074.
+3. [fact] The items to clear, with `doorstop clear`: SURF-023, SURF-024, SURF-025, SURF-033,
+   SURF-067 and SURF-069.
+4. [fact] SURF-023 and SURF-033 are on both lists. The person reads each, reviews it, then clears
+   its suspect links.
+5. [procedure] A person does steps 2 and 3 after `bun run reqs:sync`. An agent does not run
+   `doorstop review` or `doorstop clear`.
+6. [proposal] Merge the A2 pull request first. Then rebase the patch, run `bun run reqs:sync`,
+   and start the review.
+7. [fact, report of the A2 author] The A2 draft names a third question for the owner, A1-Q3. A1-Q3
+   is not on `main`. It asks whether the §33 sentence "the CPU oracle has no texture memory"
+   is true, since Rule 11.7 says `textureStore` computes over a `CpuTexture`. §33 is not edited.
+
+#### Open items that the fix rounds skipped
+
+Each row names the place, the reason the fix round skipped it, and the next action. A line number
+was read on `main` at `af0a3f8e` where this record says so. Otherwise the number is as the fix
+worker reported it, on its own base, and is not re-checked.
+
+##### Group 1. Reclassifications from `n/a` to `gap`
+
+[fact] A wording pull request must not change a status. Each finding below asks to change one.
+Appendix C (A1 row 14) says that a missing platform capability is not a reason for `n/a`
+by itself. A1-Q2 holds the decision.
+
+| Row (file and line, read on `af0a3f8e`)                                                      | Status now                      | Reason skipped                                                 | Next action                                    |
+| -------------------------------------------------------------------------------------------- | ------------------------------- | -------------------------------------------------------------- | ---------------------------------------------- |
+| `global_invocation_index`, `src/core/coverage/wgsl.ts:2485`, WebGL2 cell at 2495             | `n/a`                           | A status change, not a wording change (round 3, findings 8, 9) | The owner decides. Then one record per change. |
+| `workgroup_index`, `src/core/coverage/wgsl.ts:2671`, WebGL2 cell at 2681                     | `n/a`                           | Same                                                           | Same                                           |
+| `linear_indexing`, `src/core/coverage/wgsl.ts:3302`, WebGL2 cell at 3311                     | `n/a`                           | Same                                                           | Same                                           |
+| `immediate_address_space`, `src/core/coverage/wgsl.ts:3293`, WebGL2 cell at 3297             | `n/a`                           | Round 3 findings 8, 9. Round 4 findings 5, 8, 20.              | Same                                           |
+| `texture_external`, `src/core/coverage/wgsl.ts:2128`, WebGL2 cell at 2137                    | `n/a`                           | Round 3 findings 8, 9. Round 4 findings 5, 8, 20.              | Same                                           |
+| `frexp`, `src/core/coverage/wgsl.ts:723`, WebGL2 cell at 732 (text says "not supported yet") | `n/a`                           | Round 4 finding 9: the status is `n/a`, the text says a gap    | Same, and decide if a rule must cover gap rows |
+| `GPURenderCommandsMixin.drawIndirect()`, `src/core/coverage/webgpu-objects.ts:585`           | `n/a`, text "not supported yet" | Round 4 finding 9, indirect draw                               | Same                                           |
+| `GPURenderCommandsMixin.drawIndexedIndirect()`, `src/core/coverage/webgpu-objects.ts:598`    | `n/a`, text "not supported yet" | Round 4 finding 9, indirect draw                               | Same                                           |
+| `primitive_index`, `src/core/coverage/wgsl.ts:2573`, WebGL2 cell at 2577                     | `n/a`                           | Round 3 (docs group): the coverage status is `n/a`             | Same. Then fix `AUTHORING.md:2433` to match.   |
+
+[fact] The AUTHORING.md `primitiveIndex` row at `AUTHORING.md:2433` got only a Rule 10.3 cite in
+round 3. The row says "unsupported, fails closed". It stays until the status is decided.
+
+##### Group 2. Generated files whose origin must change
+
+[fact] The fix goes in the origin file. Then the bake regenerates the copy. An edit of the copy
+drifts from the bake.
+
+| Generated file                                   | Text                                                                               | Origin                                                             | Next action                                                                |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `src/algorithms/view.ts` (41 copies)             | "runs on the GPU ... where there is WebGPU, and on the CPU otherwise" omits WebGL2 | `src/compiler/ts/host-view.ts:735` and `:736` (read on `af0a3f8e`) | Edit the origin, run the bake that `AGENTS.md#tests` lists, read the diff. |
+| `src/random/view.ts` (2 matches on `af0a3f8e`)   | The same text                                                                      | The same lines                                                     | The same bake                                                              |
+| `src/algorithms/face.ts:1027` (line as reported) | The `noWebgl2` reason `loop 1 writes "bins" other than at i`                       | `src/core/passes/kernel-lower-gl.ts:117` (read on `af0a3f8e`)      | Edit the origin, then bake                                                 |
+
+[inference] The origin edits change code in `src/compiler` and `src/core`. The commit needs
+`Change: none` with a reason or a proposal that declares them. A reviewer decides which.
+
+##### Group 3. `src/core/debug` GPU-only texts
+
+[fact] No audit finding named these texts. The fix rounds left them. Tests assert the old text of `interp.ts:407`.
+
+| Place (read on `af0a3f8e`)                             | Text                                         | Tests that assert it                                                     |
+| ------------------------------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------ |
+| `src/core/debug/interp.ts:407`                         | "is GPU-only and not computable here"        | `src/core/debug/watch.test.ts:385` and `src/core/debug/step.test.ts:496` |
+| `src/core/debug/interp.ts:902`                         | "raw passthrough is GPU-only"                | not checked                                                              |
+| `src/core/debug/session.ts:87`, `:155`, `:211`, `:256` | Comments that name the "GPU-only intrinsics" | none (comments)                                                          |
+
+Next action: [proposal] A later audit reads `src/core/debug`. It changes the text and the two
+tests in one commit. The words "GPU-only" are true of a texture read or a derivative. The open
+question is whether they read as a reason (OD-11).
+
+##### Group 4. Rows and texts outside the scope of a fix pull request
+
+| Place                                                                                                                                                                                                                                      | Reason skipped                                                                                                                                             | Next action                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `AUTHORING.md:2429`, the `multiview` row, WebGPU column "unsupported, fails closed"                                                                                                                                                        | The finding is about the WebGPU column. A rewording needs a classification decision.                                                                       | The owner decides the classification. Then the docs fix follows.                            |
+| `src/core/coverage/webgl2-host.ts`: no typed form rows                                                                                                                                                                                     | No finding named them (round 4)                                                                                                                            | A later audit reads the file.                                                               |
+| `docs/use-typeshade-surface.md:7950`, "A compute kernel has no GLSL ES 3.00 form" (the worker read it at 7943)                                                                                                                             | Outside the declared scope of the round 4 core group. A1 row 9 edits §62, which is another passage.                                                        | Check it against A2. If A2 does not cover it, add it to A2.                                 |
+| `docs/language-design.md:1036` (Rule 8.20), `:1133`, `:1192`; `docs/use-typeshade-surface.md:3358`, `:8561`; `scripts/class-arm.ts:15`                                                                                                     | The phrase "a builtin only a GPU computes". A1 row 12 edits the Rule 8.24 CPU clause, now at `:1133`. A1 did not edit Rule 8.20.                           | A later audit reads Rule 8.20 and its neighbours. The A2 draft puts the open part in A1-Q3. |
+| `src/core/gl-compute.ts:923`, the `TS8015` text "whose format WebGL2 cannot render to"                                                                                                                                                     | The implementing pull request owns it (plan step 3, Rule 10.5).                                                                                            | Change it in the implementing pull request. Assert both halves (Rule 12.7).                 |
+| `src/core/host-kernel.ts:1772` (comment) and `src/compiler/ts/host-kernel-texture.test.ts:153` (test title), "the CPU tier cannot read"                                                                                                    | Round 3 skipped the texts in `src/core`. On `af0a3f8e` the phrase is gone from `src/rhi/cpu.ts` and `src/rhi/rhi-conformance.ts` and remains in these two. | A later audit reads them.                                                                   |
+| `src/fuse.test.ts:5490`, the test title "cannot run on the CPU tier"                                                                                                                                                                       | The finding was optional. A title change renames the test.                                                                                                 | Leave it, or rename it with its test.                                                       |
+| `docs/use-typeshade-surface.md` (the `blend_src` passages near `:245`) and surface §52; `docs/language-design.md`                                                                                                                          | Outside the paths of the round 3 core group.                                                                                                               | A later audit reads them.                                                                   |
+| `textureBarrier`, `workgroupUniformLoad`, `atomicCompareExchangeWeak` texts                                                                                                                                                                | Open question 1 of 0146. The texts say "not supported yet" (Rule 10.5) without the pass-program clause.                                                    | The owner answers open question 1.                                                          |
+| The labelled-statement refusal "not supported yet: the IR has no label"                                                                                                                                                                    | No rule records that deferral. A rule edit was out of scope.                                                                                               | The owner decides if a rule covers it. Until then the text cites no rule.                   |
+| `src/core/intrinsics.ts`, the Rule 10.3 cite (`:171` and `:894` as reported)                                                                                                                                                               | The fix cites Rule 10.5, which names atomics and barriers. Rule 10.3 stays for the `@interpolate 'sample'` text and `blendSrc`.                            | None. The reviewer may ask again.                                                           |
+| `src/compiler/ts/host-kernel-gl-length.test.ts:5`, a comment                                                                                                                                                                               | It quotes a refusal text of an older baseline inside a measurement record. It is history.                                                                  | None.                                                                                       |
+| `journeys/_host-import/src/kernels.shade.ts:4`                                                                                                                                                                                             | It cites Rule 8.24. It is not a finding. Journeys assert line numbers in that file.                                                                        | None. Change it only with its journey.                                                      |
+| `changes/0064-render-state.md` lines 282 and 1062; `changes/0057`, `changes/0072`, `changes/0118` text                                                                                                                                     | Historical records. The fix rules do not edit them.                                                                                                        | None.                                                                                       |
+| `A1` table rows 2 and 3 and row 9, rule citations                                                                                                                                                                                          | The audit cites Rule 12.6 and Rule 13.3 for §18 and Rule 10.5 for §62. Rows 3 and 9 cite Rule 1.2 and Rule 10.3.                                           | The implementing pull request settles the difference.                                       |
+| Kept wording from the fix workers: "WGSL only" kept as "on WGSL"; no "software lowering ... is planned" claim for `packed4x8Dot`; Rule 10.3 only on the `clipDistances`, `dualSourceBlending`, `bgra8unormStorage` and `packed4x8Dot` rows | The wording tests allow three sentences per hover doc. No record states the plan. The exact gap rule per row was not verifiable.                           | A later audit finds the exact rule for each row.                                            |
+
+##### Group 5. Comments in top-level example modules that M4.3c moves
+
+[fact] Change 0145, milestone M4.3c, moves these modules to `examples/gallery/<id>/`. [proposal] Fix
+each comment in the moved body, not before the move. The same list is in the record of 0145
+(Status record, 2026-11-24).
+
+The fix workers listed these places. Each line is on `main` at `af0a3f8e`.
+
+| Place                                                         | Text                                                                                                                                                | Rounds that found it                    |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `examples/compute-sync.shade.ts:12` (and the blurb at line 6) | "GLSL ES 3.00 has no compute stage, so `compile()` emits no GLSL text"                                                                              | 3                                       |
+| `examples/array-length.shade.ts:6`                            | "a runtime-sized `read_write` storage array has no GLSL spelling"                                                                                   | 3, 4                                    |
+| `examples/msaa-resolve.shade.ts:6` and `:18`                  | "WGSL-only: GLSL ES 3.00 has no `sampler2DMS`"                                                                                                      | 3, 4                                    |
+| `examples/cube-array-gather.shade.ts:6` and `:17`             | "GLSL ES 3.00 has none of them, measured on a WebGL2 driver, so each derives ..."                                                                   | 3, 4                                    |
+| `examples/clip-planes.shade.ts:25`                            | "an extension WebGL2 does not expose, so the capability has no row"                                                                                 | 3                                       |
+| `examples/shadow-compare.shade.ts:29`                         | "on GLSL the combined sampler's type is decided by the read ..." (same sentence at `src/compiler/ts/depth-textures.test.ts:213` and in surface §34) | 3                                       |
+| `examples/compute-reduction.ts:9`                             | "ES 3.00 has no compute stage, so the GLSL backend emits no text for this module"                                                                   | 4 (owned by M4.3c)                      |
+| `examples/workgroup-tile-2d.shade.ts:23`                      | "GLSL ES 3.00 has no compute stage, so like `workgroup-scratch` ..."                                                                                | read for this record, no round named it |
+
+[fact] The fix workers also named `examples/packed-bytes.shade.ts`, `examples/storage-texture.shade.ts`
+and `examples/subgroup-reduce.shade.ts` among the modules that M4.3c moves. No line of those three
+is in the skipped lists. [proposal] The M4.3c follow-up reads their bodies for the same pattern.
+The wording is the one that each worker proposed: "not supported yet" with the rule, and the API
+fact kept in a parenthesis (Rule 10.5, Rule 10.3, Rule 11.8).
+
+#### What remains, in order
+
+1. [proposal] Merge #1506, #1507 and #1508 on green checks.
+2. [proposal] Merge the A2 pull request after the owner's "merge", since it widens the declared scope.
+3. [proposal] Rebase the held patch on `main`, run `bun run reqs:sync`, and hand the review and
+   clear lists to the owner.
+4. [decision needed, owner] A1-Q1, A1-Q2 and open question 1 of this proposal.
+5. [proposal] Decide each row of Group 1 in its own record. Open the origin edits of Group 2.
+6. [proposal] Fix the comments of Group 5 in the bodies of the moved modules (0145, M4.3c).
+
+#### Verification and audit record of this section
+
+- Ran on 2026-11-24 on `af0a3f8e`: `git cat-file -t` for each commit named above (all `commit`),
+  `git merge-base --is-ancestor` for each (all ancestors), and `grep` for each line number marked
+  "read on `af0a3f8e`".
+- Not run: the four required checks of CI, `python scripts/doorstop-check.py -C`, `doorstop
+review` and `doorstop clear`. This section changes no code and no rule.
+- The line numbers marked "as reported" come from the fix workers' reports. They are not re-checked.
+- Deviations: none open from this section.
+
 ## What it owes downstream
 
 - `typeshade.github.io`: search the English and Korean pages for "no atomics", "no workgroup
@@ -461,3 +654,138 @@ form is impossible where a rule says otherwise. Open question 1 of this proposal
 - Document audit: the table above is compared with the held patch. The documents and the
   records match the delivered patch. No independent review of A1 has run yet.
 - Deviations: none open.
+
+### A2. The fourth OD-11 audit's passages (2026-11-24, status: accepted)
+
+- Status: accepted. [decision, owner, 2026-11-24] The owner said "머지까지 직접 판단해주세요"
+  (decide up to the merge yourself), and the orchestrating agent merged pull request #1511 on its
+  green checks. A2 is part of the approved text from that merge. A2-Q1 was not answered and stays
+  open. Rows 1 to 14 of A1 stay approved and are not edited.
+- Baseline: `main` at `ab980642` for the audit. [fact] A1 was accepted by the merge of pull
+  request #1502, commit `388f97fb`. A2 is drafted on `main` at `af0a3f8e`.
+- A2 adds no author-facing name, no diagnostic code, no export and no example. `exports`,
+  `exports-removed`, `codes`, `examples` and `names` stay empty. [fact] No refusal changes. Only
+  the reason of each one changes.
+
+#### Why A2 exists
+
+1. [fact] The fourth OD-11 audit (2026-11-24) read `docs/language-design.md` and
+   `docs/use-typeshade-surface.md` on `main` at `ab980642`. It confirmed 14 passages.
+2. [fact] Ten of the 14 passages are covered by A1 rows already. A2 adds no row for them. They are
+   the Rule 12.3 rationale (A1 row 13), §62 (row 9), §18 (row 3), §53 line 7399 and line 7397
+   (row 8), §36 (row 5), §37 (row 6), §47 (row 7), the Rule 8.24 CPU clause (row 12) and the §2
+   line 240 comment (row 1).
+3. [fact] Four passages are new. They are rows A2-1 to A2-4 below.
+4. [fact] The first draft of these rows widened the accepted A1 in place. That was a deviation:
+   A1 is accepted, and a change does only what its record declares. [decision, agent] A1 stays as
+   merged. A2 carries the four rows.
+5. [decision, owner] The owner decided on 2026-11-24 ("추천대로"), as relayed by the orchestrating
+   session (`session_017fz53SGjwDwHVKa9RHKiEm`): the OD-11 audit stops after the fixes of the
+   fourth round. There is no fifth audit. The owner gave no wording approval for the rows. [status]
+   The rows stay a draft.
+
+#### What A2 declares
+
+[fact] The same term use as A1 applies: "the GLSL backend", "the WebGL2 tier", "the WebGPU tier"
+and "the CPU tier".
+
+| #    | Place                                                             | Current text (short)                                                                                                                                                                    | New wording, and the rule it cites                                                                                                                                                                                                                                                                                       |
+| ---- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A2-1 | Rule 8.20, text and rationale; mirror `RULE-0820`                 | "no builtin only a GPU computes (a derivative, a barrier, an atomic, an implicit-LOD texture sample)"; "the CPU tier, which has no device, so what it reaches must be computable there" | "no builtin that a host call does not run yet (...: not supported yet on the CPU tier of a host call, Rule 8.24, Rule 11.7)". The rationale says a function that reaches a binding, a workgroup variable or such a builtin "is not supported yet as a host call", and the host face lists what it reaches as the reason. |
+| A2-2 | Rule 8.29, rationale; mirror `RULE-0829`; Surface §26 and §64     | "a builtin only a GPU computes has no host call" (§64: "no builtin only a GPU computes")                                                                                                | "a builtin that a host call does not run yet has no host call yet" (Rule 8.20). §64 adds "(Rule 11.7)". The conditions of Rule 8.20 do not change.                                                                                                                                                                       |
+| A2-3 | Rule 11.8, the entry-call constants paragraph; mirror `RULE-1108` | "WebGL2 pins ordinary constants in its prebuilt program and refuses non-default workgroup shapes or workgroup-array lengths"                                                            | "WebGL2 pins ordinary constants in its prebuilt program. A non-default workgroup shape or workgroup-array length is not supported yet on the WebGL2 tier (change 0084)." The prebuilt program is a fact, and it is no longer the reason.                                                                                 |
+| A2-4 | Surface §34, "The CPU twins yield 1"                              | "The oracle has no texture memory"                                                                                                                                                      | "The CPU tier does not read a depth texture yet (not supported yet on the CPU tier, Rule 11.7)." Rule 11.7 keeps the stub contract for every texture builtin but the 2D load, store and size over a `CpuTexture`. The rest of the paragraph stays.                                                                       |
+
+1. [fact] The audit entry of the Rule 8.20 text and the entry of its rationale give row A2-1. The
+   Rule 8.20 text entry also names Rule 8.29, §26 and §64 (row A2-2).
+2. [fact] `docs/language-design.md` Rule 8.20 said "no builtin only a GPU computes". The third
+   audit named it only as a neighbour of A1 row 12, so A1 left it. The fourth audit named it, and
+   A2 edits it in rows A2-1 and A2-2.
+3. [fact] The audit and A1 rows 3 and 9 cite different rules. The audit cites Rule 12.6 and
+   Rule 13.3 for §18, and Rule 10.5 for §62. A1 row 3 cites Rule 1.2, and row 9 cites Rule 10.3.
+   A2 leaves rows 3 and 9 as approved. [proposal] The implementing pull request resolves the
+   difference.
+4. [fact] §33 has the sentence "The CPU oracle has no texture memory". §33 is a declared section.
+   Rule 11.7 says `textureStore` computes over a `CpuTexture`, so the sentence may be wrong. A2
+   does not edit it. See A2-Q1.
+5. [fact] §67 ("a barrier still has no CPU tier"; "supports only the declared default workgroup
+   shape") and the Rule 8.24 text ("needs a GPU tier") are neighbours of A1 row 12 and row A2-3. The
+   audit did not name §67. The OD-11 audit stops (decision of the owner above), so no later audit
+   reads it. [proposal] The implementing pull request reads §67 and reports what it finds. It
+   edits §67 only if a later amendment declares it.
+
+#### The lists A2 adds to the front matter
+
+1. `rules:` gains `'8.20'`, `'8.29'` and `'11.8'`.
+2. `surface:` gains 26, 34 and 64.
+3. [fact] The rows add no name, code, export or example.
+4. [fact] `scripts/changes.ts` reads the declared lists from proposals that are `accepted` on the
+   base branch. It has no state for an amendment in draft. The lists count from the merge of the A2
+   pull request. The owner merges it.
+
+#### The reqs items
+
+1. [fact] `bun run reqs:sync` on `main` at `388f97fb` with the held patch changes three RULE items:
+   RULE-0820, RULE-0829 and RULE-1108.
+2. [fact] It adds one SURF item, SURF-034, because §34 had no item. SURF-034 links RULE-1107.
+   SURF-026 and SURF-064 do not change.
+3. [fact] RULE-0820 and RULE-0829 change. So the link of SURF-026 to RULE-0829 becomes suspect. So
+   do the links of SURF-064, SURF-065, SURF-067, SURF-069, SURF-071 and SURF-072. These are the
+   SURF items that link RULE-0820 or RULE-1108, as `grep` finds them.
+4. [procedure] In the implementing pull request:
+   1. Run `bun run reqs:sync`.
+   2. Ask a person to read each item and run `doorstop review` for RULE-0820, RULE-0829,
+      RULE-1108 and SURF-034.
+   3. Ask the person to run `doorstop clear` for the suspect links.
+5. [fact] An agent does not run `doorstop review` or `doorstop clear`.
+
+#### The code comments
+
+[fact] Four code comments carry the old wording. `grep` finds them on `main` at `af0a3f8e`. No test
+asserts them. A2 edits none of them (A2 edits only this proposal).
+
+1. `src/compiler/ts/host-face.ts` lines 666 to 667: "it reaches a texture or a call only a GPU
+   computes".
+2. `src/compiler/ts/host-face.ts` lines 1702 to 1703: "no builtin only a GPU computes".
+3. `scripts/class-arm.ts` line 15: "no builtin only a GPU computes".
+4. `src/compiler/ts/depth-textures.test.ts` line 269: "The oracle has no texture memory".
+
+[procedure] The implementing pull request rewords each comment to the wording of rows A2-1 and
+A2-4, in the same commit as the documents.
+
+#### Held patch
+
+1. [fact] The held patch is `p0146a1.patch` (A1 rows 1 to 14 plus the A2 rows). It was made on
+   `main` at `388f97fb`. It touches 2 documents and 16 files of `reqs/`.
+2. [fact] `git apply --check` of the patch on `origin/main` at `af0a3f8e`, in a scratch detached
+   worktree, ran on 2026-11-24. It passed. The patch changes 18 files, with 148 insertions and
+   66 deletions.
+3. [fact] `bun run reqs:sync`, `prettier --check` and `bun run docs:refs` passed on the patch, on
+   `main` at `388f97fb`.
+4. [fact] The patch is not part of this pull request. The implementing pull request applies it.
+
+#### Questions for the owner
+
+1. A2-Q1. Rule 8.20 and §33. No rule says a derivative or an atomic is not computed by a host call
+   on the CPU tier. Rule 8.24 and §25 say a barrier is refused on the CPU tier through the entry
+   call, and `dispatch` of the oracle runs it. Rule 11.7 says `textureStore` computes over a
+   `CpuTexture`, but §33 says "the CPU oracle has no texture memory".
+   - [recommendation] Row A2-1 cites Rule 8.24 and Rule 11.7 for the whole parenthesis. Keep it.
+     The implementing pull request measures each of the four builtins on the CPU tier of a host
+     call and states which ones run. Leave §33 as it is until then.
+   - [answer, owner] Not given. The owner's decision of 2026-11-24 ("추천대로") is about the audit
+     round. It is not an answer to this question. The question stays open.
+
+[fact] Rows A2-2 to A2-4 need no question. Each says "not supported yet" with a rule, and none says
+a form is impossible where a rule says otherwise. Open questions 1 and 2 of A1 are not changed.
+
+#### Verification and audit record
+
+- Not run: the four required checks of CI. A2 changes no code.
+- Ran on 2026-11-24 on the held patch, on `main` at `388f97fb`: `bun run reqs:sync`,
+  `prettier --check docs reqs` and `bun run docs:refs` (0 dead references).
+- Ran on 2026-11-24 on `main` at `af0a3f8e`: `git apply --check` of the held patch (passed).
+- Document audit: the table above is compared with the audit entries. The code-comment lines are
+  checked against the tree at `af0a3f8e`. No independent review of A2 has run yet.
+- Deviations: one closed. The first draft widened the accepted A1 in place. A2 replaces it, and A1
+  is unchanged. No deviation is open.

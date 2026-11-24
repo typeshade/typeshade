@@ -667,7 +667,7 @@ describe('the parity matrix of proposal 0064 (PR-2 rows)', () => {
     });
     // The fake exposes no EXT_polygon_offset_clamp, so the clamp is refused, with the extension named.
     expect(await refusalOf(state)).toBe(
-      'The render pipeline of "fs" (typeshade-input.ts:8) sets depth.bias.clamp to 0.5; the WebGL2 tier takes a non-zero clamp only through EXT_polygon_offset_clamp, and this context lacks it.',
+      'The render pipeline of "fs" (typeshade-input.ts:8) sets depth.bias.clamp to 0.5; a non-zero clamp is not supported yet on the WebGL2 tier without EXT_polygon_offset_clamp (Rule 11.11), and this context lacks it.',
     );
     const bound = {
       depth: { format: 'depth32float', bias: { constant: -2, slopeScale: 3 } },

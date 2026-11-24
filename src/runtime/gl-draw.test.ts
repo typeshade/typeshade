@@ -1090,7 +1090,7 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
     const { calls, program } = await setup(false);
     const takes = 'takes a bias on depth24plus, depth32float and depth24plus-stencil8 only.';
     const clamp =
-      'takes a non-zero clamp only through EXT_polygon_offset_clamp, and this context lacks it.';
+      'a non-zero clamp is not supported yet on the WebGL2 tier without EXT_polygon_offset_clamp (Rule 11.11), and this context lacks it.';
     const refusals: [object, string][] = [
       [
         { depth: { format: 'depth16unorm', bias: { constant: 1 } } },
@@ -1106,11 +1106,11 @@ describe('stencil, depth bias and the sample mask on WebGL2 (proposal 0064, PR-2
       ],
       [
         { depth: { format: 'depth32float', bias: { clamp: -0.5 } } },
-        `${sets} depth.bias.clamp to -0.5; the WebGL2 tier ${clamp}`,
+        `${sets} depth.bias.clamp to -0.5; ${clamp}`,
       ],
       [
         { depth: { format: 'depth32float', bias: { clamp: 0.5 } } },
-        `${sets} depth.bias.clamp to 0.5; the WebGL2 tier ${clamp}`,
+        `${sets} depth.bias.clamp to 0.5; ${clamp}`,
       ],
     ];
     for (const [state, sentence] of refusals) {

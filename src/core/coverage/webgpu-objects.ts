@@ -360,7 +360,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'WebGL2 has no typed query; the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -1056,7 +1056,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     covers: ['GPUCommandEncoder.copyBufferToTexture'],
     evidence: 'src/runtime/runtime.ts:195-199',
     webgpu: andGap(raw('Frame.encoder'), 6, 'no typed copy from a buffer into a texture', 637),
-    webgl2: gap(6, 'a buffer copy into a texture: WebGL2 has no typed form', 637),
+    webgl2: gap(6, 'buffer to texture: not supported yet on the WebGL2 tier (Rule 11.11)', 637),
   },
   {
     table: 'A',
@@ -1121,7 +1121,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'WebGL2 has no typed query; the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -1418,7 +1418,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'WebGL2 has no typed query; the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -1437,7 +1437,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'WebGL2 has no typed query; the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -1459,7 +1459,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'WebGL2 has no typed query; the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -1513,7 +1513,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     webgpu: planned('0050', 'Texture.write(bytes)'),
     webgl2: gap(
       6,
-      'a host write of bytes into a texture: WebGL2 has no typed form; 0050 leaves the WebGL2 tier unchanged (changes/0050-texture-write.md:331)',
+      'a host write of bytes into a texture: not supported yet on the WebGL2 tier; the typed form is not written (Rule 11.11); 0050 leaves the WebGL2 tier unchanged (changes/0050-texture-write.md:331)',
       637,
     ),
   },
@@ -1633,7 +1633,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'WebGL2 has no typed query; the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none',
       635,
     ),
   },
@@ -1655,7 +1655,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'WebGL2 has no typed query; the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none',
       635,
     ),
   },
@@ -2263,7 +2263,7 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     webgpu: planned('0050'),
     webgl2: gap(
       6,
-      'the mip level count of a texture: WebGL2 has no typed form; 0050 leaves the WebGL2 tier unchanged (changes/0050-texture-write.md:331)',
+      'the mip level count of a texture: not supported yet on the WebGL2 tier; the typed form is not written (Rule 11.11); 0050 leaves the WebGL2 tier unchanged (changes/0050-texture-write.md:331)',
       637,
     ),
   },
