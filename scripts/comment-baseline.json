@@ -265,7 +265,7 @@
   "src/compiler/ts/open-for.test.ts": 20,
   "src/compiler/ts/operators-statements.test.ts": 99,
   "src/compiler/ts/optional-values.test.ts": 75,
-  "src/compiler/ts/optional.ts": 99,
+  "src/compiler/ts/optional.ts": 91,
   "src/compiler/ts/overloads.test.ts": 10,
   "src/compiler/ts/overrides.ts": 49,
   "src/compiler/ts/pack.test.ts": 4,
