@@ -122,6 +122,7 @@ import { compileTsProgram, type TsCompilerDiagnostic } from './source-file.js';
 import { emittedStructDecls, type CollectedStruct } from './structs.js';
 import type { FaceCtx } from './host-face/context.js';
 import { gpuOnlyCall, barrierIn } from './host-face/reach.js';
+import { guardOf, guardBinding } from './host-face/guard.js';
 export { type HostExport } from './host-face-contracts.js';
 export { hostTypeOf } from './host-types.js';
 
@@ -432,16 +433,6 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     ),
     files,
   };
-}
-
-function guardOf(wgsl: string | undefined): { guard?: { group: number; binding: number } } {
-  const m =
-    wgsl === undefined ? null : /@group\((\d+)\)\s*@binding\((\d+)\)\s*var\s+_fp64\b/.exec(wgsl);
-  return m === null ? {} : { guard: { group: Number(m[1]), binding: Number(m[2]) } };
-}
-
-function guardBinding(at: { group: number; binding: number }): DrawBinding {
-  return { name: '_fp64', ...at, space: 'texture', s: 'texture_2d<f32>', guard: true };
 }
 
 function entryBindings(
