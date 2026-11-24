@@ -98,6 +98,7 @@
     "bake:api-surface": "bun scripts/bake-api-surface.ts",
     "bake:comment-baseline": "bun scripts/bake-comment-baseline.ts",
     "comments:remove": "bun scripts/remove-comments.ts",
+    "evidence:convert": "bun scripts/convert-evidence.ts",
     "bake:file-size-baseline": "bun scripts/bake-file-size-baseline.ts",
     "bake:author-names": "bun scripts/bake-author-names.ts",
     "bake:libm": "bun scripts/bake-libm.ts",

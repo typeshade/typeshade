@@ -624,12 +624,17 @@ Several anchors share one path and are joined by `|` (`path#A|B.c`). A `.test.ts
 The resolver (`scripts/symbol-anchors/resolve.ts`) follows `export { X } from` and `export * from`. It does not guess when a file has become a directory.
 `scripts/move-purity/line-citations.ts` counts line citations only, so an anchor never blocks a move.
 
-| Phase | Content                                                                                    | Status      |
-| ----- | ------------------------------------------------------------------------------------------ | ----------- |
-| P1    | The resolver and a checker that accepts both forms. No row changes.                        | In progress |
-| P2    | A converter that turns each line citation into an anchor and writes a review queue.        | Not started |
-| P3    | Migrate the rows in batches. A person reads each batch of the queue.                       | Not started |
-| P4    | `checkEvidence` refuses a line citation into a `src/` product file. Test files keep lines. | Not started |
+| Phase | Content                                                                                    | Status           |
+| ----- | ------------------------------------------------------------------------------------------ | ---------------- |
+| P1    | The resolver and a checker that accepts both forms. No row changes.                        | In progress      |
+| P2    | A converter that turns each line citation into an anchor and writes a review queue.        | Done when merged |
+| P3    | Migrate the rows in batches. A person reads each batch of the queue.                       | Not started      |
+| P4    | `checkEvidence` refuses a line citation into a `src/` product file. Test files keep lines. | Not started      |
+
+Fact: `scripts/convert-evidence.ts` (`bun run evidence:convert`) is phase P2. `--report` measured 1,791 line-cited segments in `src/core/coverage/*.ts` at `f35c3859` on 2026-11-24 (the 1,809 above were counted on `e735e635`).
+Counts by class: `exact` 598, `inside-large` 638, `between` 164, `out-of-bounds` 0, `test-file` 17, `non-ts` 351, `outside-src` 23 (a non-test `.ts` file outside `src/`; this class is not in the P2 brief).
+Of the 598 `exact` segments, 192 have `no-row-word-nearby` and go to the review queue. `--write --only exact` would rewrite 406 segments in 6 coverage files.
+The review queue holds 994 segments. A write on a copy of the tree rewrote the 406 segments, `checkEvidence` accepted the result, and a second run changed nothing. No row of the tree changed in P2.
 
 ## 7. Parallel work and conflicts
 
