@@ -1,28 +1,3 @@
-// The CPU backend of the render hardware interface (change 0120, D1 and milestone M3): a software
-// `RhiDevice`. Buffers and textures are bytes in host memory. A program is a module's CPU tier
-// code (Rule 11.7), a `CpuProgram` (`cpu-program.ts`), in place of the shader text the GPU
-// backends take.
-//
-// - A compute dispatch runs the entry's code for each invocation of each workgroup, `z`, then
-//   `y`, then `x`, the local invocations in the same order inside each workgroup, with the
-//   workgroup variables zeroed for each workgroup, as the call layer's CPU tier does
-//   (`core/host-entry.ts`, `onCpu`). The bytes of each buffer bound to it are turned into the
-//   value the code reads by the binding's name, by its layout, and the value of each storage
-//   buffer it may write is turned back into the bytes after the dispatch.
-// - A render pass runs the vertex entry's code for each vertex of a `triangle-list` draw, indexed
-//   or not, instanced or not, rasterizes each triangle (`cpu-raster.ts`), and runs the fragment
-//   entry's code for each covered pixel, a `discard` writing nothing. A colour converts to its
-//   target's format as WebGPU converts it: an 8-bit unorm channel is the colour clamped to 0..1,
-//   times 255, rounded.
-// - A canvas is a host's `2d` context; a pass into its texture is shown with `putImageData` when
-//   the submit that drew it ends.
-//
-// The encoder records each command and the submit runs them, in order, before it returns
-// (`caps.immediate` is false, as on WebGPU). What the backend cannot do it refuses with a
-// `TypeError` that says so, where the object is made: a depth or stencil test, blending,
-// multisampling, a topology other than `triangle-list`, and an entry that reaches a texture, a
-// sampler, a derivative or a barrier are not supported yet on the CPU tier (Rule 11.7).
-
 import type { PackLayout } from '../core/manifest-types.js';
 import {
   isCpuProgram,
@@ -98,7 +73,6 @@ const FORMATS: Readonly<Record<string, Format>> = {
   rgba32uint: { bytes: 16, channels: [0, 1, 2, 3], store: 'u32' },
   r32sint: { bytes: 4, channels: [0], store: 'i32' },
   rgba32sint: { bytes: 16, channels: [0, 1, 2, 3], store: 'i32' },
-  // Stored, read and written as bytes, never drawn into or cleared as colour.
   rgba16float: { bytes: 8, channels: [], store: 'opaque' },
   depth16unorm: { bytes: 4, channels: [], store: 'depth' },
   depth24plus: { bytes: 4, channels: [], store: 'depth' },
@@ -327,11 +301,6 @@ function boundOf(groups: ReadonlyMap<number, CpuBindGroup>): Bound {
   return out;
 }
 
-/** The CPU tier's value a buffer holds in place of its bytes, by buffer: what the call layer binds
- *  for an entry call (change 0120, M4). The call layer's CPU tier hands the code the value
- *  `toCpu` makes of the host's value, a double where the host gave one, and takes back what the
- *  code left, with no bytes between (Rule 11.7): bytes would hold an `f64` as two `f32`s and a
- *  plain array's numbers as `f32`s, which the CPU tier never rounds them to. */
 const hostValues = new WeakMap<object, { value: unknown }>();
 
 export function holdValue(buffer: RhiBuffer, slot: { value: unknown } | undefined): void {
@@ -402,7 +371,6 @@ function invoke(stage: Stage, args: readonly unknown[], invocation?: readonly nu
   return F[stage.entry.fn]!(...args);
 }
 
-/** The program's entry `name`, made ready to run, or the reason it cannot be. */
 function stageOf(
   module: RhiShaderModule,
   name: string,
