@@ -187,7 +187,7 @@
   "src/compiler/ts/local-numeric-inference.ts": 7,
   "src/compiler/ts/local-places.test.ts": 21,
   "src/compiler/ts/loop-bound.test.ts": 1,
-  "src/compiler/ts/loop-bound.ts": 237,
+  "src/compiler/ts/loop-bound.ts": 236,
   "src/compiler/ts/loop-shapes.test.ts": 131,
   "src/compiler/ts/lower/array-methods.ts": 89,
   "src/compiler/ts/lower/atomics.ts": 38,

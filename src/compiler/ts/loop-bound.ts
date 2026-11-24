@@ -1,6 +1,6 @@
 // Counted `for`, open `while` (Rule 7.5): an integer induction variable, a constant step, a
 // bound the body does not move; exact trip counts when the whole header is constant.
-//
+// Implements: Rule 7.5
 // Implements: Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import { logicalTypeKey as typeKey } from './optional.js';
