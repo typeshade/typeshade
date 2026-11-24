@@ -31,16 +31,16 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0109, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record. Pull request #890 implements items 1 to 5; see Configuration and validation record. The owner approved Amendment 1 (item 6, decision D5) on 2026-11-02 (UTC); see its row and the two records. Pull request #993 implements Amendment 1; see Configuration and validation record. Amendment 2 (item 7, decision D6) is proposed by pull request #1023; its approval is pending, see its row. Downstream adoption is tracked apart.                                                                                                                                                              |
-| Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler whose units are classes in `.shade.ts` files. The owner asked whether a class defined in a `"use typeshade"` file can be imported on the CPU side, built with `new` and used as an ordinary class, with the GPU running the same code ("cpu side에서 import해서 가져온 다음에 new 해서 사용하면 gpu side에서 실행되는거라던가"), and said that if not, the host face should be advanced now ("지금 고도화 해야할 것 같은데"). The agent reported that a class crosses to the host as a type only. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded.                                                                 |
-| Applicability / effectivity   | Rules 8.20 and 8.21 of `docs/language-design.md` and their items in `reqs/`; `docs/use-typeshade-surface.md` §64; `src/compiler/ts/host-face.ts` (the export collection, `viewText` and the generated module); `src/core/host-values.ts`; `src/compiler/ts/host-face.test.ts`; `journeys/_host-import`. The compiler's lowering, the GPU tiers, the oracle, the exports of the package, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                                                                                                                                                                                                                                       |
-| Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Review and revision authority | Pull request [#872](https://github.com/typeshade/typeshade/pull/872) (branch `claude/proposal-0109-host-classes`). Git records the revisions of this file. The review and merge of that pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Amendment 1                   | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction, on the branch `claude/0109-amend-resident-instances`, from issue [#945](https://github.com/typeshade/typeshade/issues/945) (found in typeshade/typeaudio pull request #5, recorded there as ask N). It adds item 6 and decision D5: a `Resident` made from instances reads back as instances. Items 1 to 5, decisions D1 to D4, their approval and their record do not change. Pull request [#960](https://github.com/typeshade/typeshade/pull/960) (branch `claude/0109-amend-resident-instances`); the owner approved the amendment on 2026-11-02 (UTC), and the merge of that pull request records the decision.                                                                                     |
-| Amendment 2                   | Authored 2026-11-03 (UTC) by a Claude Code agent at the owner's direction, on the branch `claude/0109-amend-private-names`, from issue [#971](https://github.com/typeshade/typeshade/issues/971) (found while fixing #951, pull request #963). It adds item 7 and decision D6: the view declares a private name as itself, `#x`, and a host instance keeps the field under the key `"#x"`, so that a public accessor or method of one name is reached on the host as in the shader. Items 1 to 6, decisions D1 to D5, their approval and their records do not change. Pull request [#1023](https://github.com/typeshade/typeshade/pull/1023) (branch `claude/0109-amend-private-names`); the owner's approval is pending, and the merge of that pull request records the decision. |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and status           | Proposal 0109, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record. Pull request #890 implements items 1 to 5; see Configuration and validation record. The owner approved Amendment 1 (item 6, decision D5) on 2026-11-02 (UTC); see its row and the two records. Pull request #993 implements Amendment 1; see Configuration and validation record. The owner approved Amendment 2 (item 7, decision D6) on 2026-11-03 (UTC); the merge of pull request #1023 as `11a97d9a` records it. Pull request #1028 implements Amendment 2; see Configuration and validation record. Downstream adoption is tracked apart.                                                                                    |
+| Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler whose units are classes in `.shade.ts` files. The owner asked whether a class defined in a `"use typeshade"` file can be imported on the CPU side, built with `new` and used as an ordinary class, with the GPU running the same code ("cpu side에서 import해서 가져온 다음에 new 해서 사용하면 gpu side에서 실행되는거라던가"), and said that if not, the host face should be advanced now ("지금 고도화 해야할 것 같은데"). The agent reported that a class crosses to the host as a type only. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded.                                                                                                    |
+| Applicability / effectivity   | Rules 8.20 and 8.21 of `docs/language-design.md` and their items in `reqs/`; `docs/use-typeshade-surface.md` §64; `src/compiler/ts/host-face.ts` (the export collection, `viewText` and the generated module); `src/core/host-values.ts`; `src/compiler/ts/host-face.test.ts`; `journeys/_host-import`. The compiler's lowering, the GPU tiers, the oracle, the exports of the package, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                                                                                                                                                                                                                                                                          |
+| Review baseline               | `main` at `c9efde0f79df0e6b10883b87c8af21d0c72dfbc9` (the merge of pull request #870), read on 2026-11-02.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Review and revision authority | Pull request [#872](https://github.com/typeshade/typeshade/pull/872) (branch `claude/proposal-0109-host-classes`). Git records the revisions of this file. The review and merge of that pull request with `status: accepted` record the decision. This file does not name the hash of the commit that contains it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Amendment 1                   | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction, on the branch `claude/0109-amend-resident-instances`, from issue [#945](https://github.com/typeshade/typeshade/issues/945) (found in typeshade/typeaudio pull request #5, recorded there as ask N). It adds item 6 and decision D5: a `Resident` made from instances reads back as instances. Items 1 to 5, decisions D1 to D4, their approval and their record do not change. Pull request [#960](https://github.com/typeshade/typeshade/pull/960) (branch `claude/0109-amend-resident-instances`); the owner approved the amendment on 2026-11-02 (UTC), and the merge of that pull request records the decision.                                                                                                                        |
+| Amendment 2                   | Authored 2026-11-03 (UTC) by a Claude Code agent at the owner's direction, on the branch `claude/0109-amend-private-names`, from issue [#971](https://github.com/typeshade/typeshade/issues/971) (found while fixing #951, pull request #963). It adds item 7 and decision D6: the view declares a private name as itself, `#x`, and a host instance keeps the field under the key `"#x"`, so that a public accessor or method of one name is reached on the host as in the shader. Items 1 to 6, decisions D1 to D5, their approval and their records do not change. Pull request [#1023](https://github.com/typeshade/typeshade/pull/1023) (branch `claude/0109-amend-private-names`); the owner approved the amendment on 2026-11-03 (UTC), and the merge of that pull request as `11a97d9a` records the decision. |
 
 ## What changes
 
@@ -406,11 +406,13 @@ is the one this record is part of, with item 6, Rule 11.8 and §65 in scope. The
 an agent of this repository implements item 6 in pull requests whose commits say
 `Change: 0109`. No milestone date is assigned. No duration or cost estimate is established.
 
-**Amendment 2.** Pending. The owner decides D6 in the Claude Code session; the recommendation is
-the first way, as drafted. The merge of
-[#1023](https://github.com/typeshade/typeshade/pull/1023) records the decision. Responsibilities: an agent of this repository implements item 7 in pull requests whose
-commits say `Change: 0109`. No milestone date is assigned. No duration or cost estimate is
-established.
+**Amendment 2.** The owner (Seungup) approved the amendment in the Claude Code session on
+2026-11-03 (UTC). D6 is accepted as drafted: the view declares a private name as `#x`, and the host
+instance keeps the field under the key `"#x"`. The approved revision is the one this record is part
+of, with item 7, Rule 8.21, surface §26 and surface §64 in scope. The merge of
+[#1023](https://github.com/typeshade/typeshade/pull/1023) as `11a97d9a` records the decision.
+Responsibilities: an agent of this repository implements item 7 in pull requests whose commits
+say `Change: 0109`. No milestone date is assigned. No duration or cost estimate is established.
 
 ### Configuration and validation record
 
@@ -660,8 +662,105 @@ the sentence on a `Resident` of instances; the editor's host reference says that
 instances reads back as instances. This implementation also meets item 2 of typeaudio's ask F (no
 `structuredClone` in `resident()` and `dev.array()`), which typeaudio records when its pin moves.
 
-**Amendment 2.** Not started. The record of item 7 and decision D6 follows here when it is
-implemented, in the order of the record above.
+**Amendment 2.** The record of item 7 and decision D6 follows, in the order of the record above.
+
+**Accepted revision.** The text merged by pull request
+[#1023](https://github.com/typeshade/typeshade/pull/1023) as `11a97d9a` on `main`, with D6 accepted
+as drafted (Approval and plan record, Amendment 2).
+
+**Implementation.** Pull request #1028 (branch `claude/0109-a2-private-names`, from `main` at
+`11a97d9a`) was drafted on 2026-11-03 and was not merged. A second pull request supersedes it and
+carries the same work onto `main` at `be2e83de`: the branch
+`claude/typeshade-issues-prs-triage-5tga0o-971`, by a Claude Code agent at the owner's direction. It
+fixes issue #971, and its commit says `Change: 0109`. Since #1028 was drafted, `main` split
+`host-face.ts` and the host view, and banned comments in `src/`, so the work was written again, not
+cherry-picked: no comment was added to a file of `src/`, no number of the size baseline went up, and
+the tests live in new files.
+
+**Delivered configuration.**
+
+- `src/compiler/ts/host-face.ts`: `classFace` names a field a private name declares by its host key,
+  `#x`, and gives it no keyword; `classView` of `src/compiler/ts/host-view.ts` prints it as itself
+  with its comment. `keyedStructs` (`src/compiler/ts/host-face/private-keys.ts`) makes the module's
+  structs with those fields renamed, and each host type and each byte layout of the call layer that
+  takes a host value is built from them: a helper's types, the arrays of a kernel function, the
+  bindings of an entry and the uniform of a WebGL2 pass program (`glTier`, `keyedUniforms`). A
+  layout that takes a value of the CPU tier keeps the field's name: the arguments of a kernel
+  function by value and the records of a Map or a Set, and the physical layout of a kernel
+  function's private input projection, which `projectInputLayout` matches to the logical layout by
+  the field. `FaceCtx.cpuStructs` gives the zero struct of a constructor. A key that is no
+  identifier is a quoted name in a type (`propName` of `src/compiler/ts/host-face-shared.ts`).
+- `src/compiler/ts/host-docs.ts`: the comment of a field with a private name goes by `#x`.
+- `src/core/host-key.ts` (new): `shaderField`, the field of a host key, and `missingField`, the
+  sentence of the check. `src/core/host-values.ts` (`toShader`, `fromShader`, `fromShaderIn` and the
+  writes of `callMember`) and `src/core/host-entry.ts` (`pack`, `toCpu` and `fromCpu`) read the host
+  key and write the field, and the other way round. `src/core/host-input-projection.ts` (new) holds
+  the private input projection that `host-entry.ts` held (`projectInputLayout`,
+  `ProjectedInputView`), so that `host-entry.ts` does not grow past its size baseline.
+- `docs/language-design.md` Rule 8.21 (three sentences, "Derives from" and "Enforced by");
+  `reqs/rules/RULE-0821.md` and `reqs/surface/SURF-026.md` reviewed; `SURF-064.md`, `SURF-067.md`,
+  `SURF-069.md`, `SURF-075.md` and `SURF-076.md` cleared after reading each section against the new
+  Rule 8.21 (only §26 and §64 change).
+- `docs/use-typeshade-surface.md` §26 (the private names), §64 (a paragraph on a private name with a
+  listing of the source and of the view, and the plain-object sentences), `src/AGENTS.md`,
+  `CHANGELOG.md`, `scripts/bundle-budget.json`, `scripts/comment-baseline.json`.
+- Tests: `src/compiler/ts/host-private-class.test.ts`, `src/compiler/ts/host-private-names.test.ts`,
+  `src/compiler/ts/host-private-shader.test.ts` and `src/core/host-private-key.test.ts` (all new),
+  and the expected view text of `src/compiler/ts/host-face.test.ts`.
+
+**Functional validation**, Bun 1.4.4, Node 22.23.5, TypeScript 5.6.3, Vitest 5.0.5, base `be2e83de`:
+
+- VALIDATION_FUNCTIONAL
+
+**Document validation**: `bun run docs:refs`, `bun run docs:impact`, `bun run reqs:sync` with nothing
+left to write, `python3 scripts/doorstop-check.py -C -e -F` with no item flagged after `RULE-0821`
+and `SURF-026` were reviewed and the links of `SURF-064`, `SURF-067`, `SURF-069`, `SURF-075` and
+`SURF-076` were cleared; VALIDATION_DOCUMENT.
+
+**Deviations**, each with its disposition:
+
+1. The Implementation paragraph of the approved text names the conversions of `host-values.ts` and
+   `readInto` and `fromCpu` in `host-entry.ts`. The delivery also changes `pack` and `toCpu` of
+   `host-entry.ts`, and `projectInputLayout`, which moved to `host-input-projection.ts`; and
+   `host-face.ts` writes the key into each layout of the call layer that takes a host value. Without
+   them an instance could not be taken by a kernel function or an entry, or its field would be
+   uploaded as 0 (the Validation asks for the instance to be taken). Closed: the approved text's
+   Validation decides it.
+2. What it touches says that §64's listing and its sentence on a private field say `#x: u32;` where
+   they said `private x: u32;`. §64 at `11a97d9a` had neither a listing nor a sentence with a
+   private field. The delivery adds both, as a paragraph and two listings. Open: an amendment may
+   say that §64 gains them.
+3. The delivery adds one sentence that the proposal does not state, in §64 and in the changelog:
+   TypeScript reads `#n` in a view for a `target` of ES2015 or later, and reports TS18028 below it
+   (observed with TypeScript 5.6.3 and `target: ES5` while #1028 was drafted). Open: the owner may
+   keep or drop the sentence.
+4. The Implementation paragraph does not name the manifest. Rule 11.10 builds it from the IR alone,
+   so it still names the field `x` and not `#x`, and the delivery leaves it so. See Pending work.
+5. The check refuses a plain object by the key it lacks. An object that a host writes with the
+   string key `"#x"` is taken, since the check reads the fields a struct declares and ignores the
+   prototype (Rule 8.21). `tsc` refuses such an object where the class is the type, because the
+   private name gives the class a brand. Open: an amendment may say it in Rule 8.21 if the owner
+   wants it refused at run time too.
+6. The tests are in new files, not in `host-face.test.ts`, `host-class.test.ts` and
+   `ambient-parity.test.ts`, whose size baselines allow no growth. Closed: this is a change of place
+   only; the rows of the editor's half are in `host-private-shader.test.ts`.
+
+**Pending work.** The program runtime reads a binding by the manifest's layout, which names the
+field `x` (Rule 11.10). On the merged tree an instance of a class with a private field `#x` that is
+given to `rt.dispatch` or `rt.draw` as a binding value is therefore packed by the name `x`. Two
+cases were observed with `pack` over the manifest's layout of a binding of such a class, on 2026-11-03:
+a class with no accessor of the name `x` gives `the field is missing` at `[0].x`; a class with
+`get x()` gives the value the accessor returns and not the field's (the field held 5, the accessor
+returned 10, and the packed word was 10). The first case worked before this amendment, since the
+instance held the field as the own property `x`. In the second, no instance could be built before
+it (issue #971). Rule 8.21 says that a buffer binding of the
+program runtime takes the same host value, so the gap is in this amendment's reach but outside what
+the proposal declares (the manifest, Rule 11.10, surface §69). The next action is the owner's
+decision: key the manifest for the module of a host face and amend Rule 11.10 and §69 to say it, or
+make the runtime's pack read an own property `#x` first. The downstream work that Amendment 2 adds to
+What it owes downstream is not started: the site's pages that copy §26 and §64, in English and in
+Korean, the editor's host reference and fixture, and typeaudio's unit class and its
+`compiler-changes.md`.
 
 ## What it owes downstream
 

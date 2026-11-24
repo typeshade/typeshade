@@ -1,11 +1,11 @@
 {
   "typeshade/runtime": {
-    "bytes": 178698,
+    "bytes": 178861,
     "floor": 17600,
     "split": {
-      "initial": 52043,
+      "initial": 52180,
       "floor": 18000,
-      "total": 180803
+      "total": 181023
     }
   },
   "typeshade/emit": {
@@ -18,30 +18,30 @@
     }
   },
   "typeshade/fuse": {
-    "bytes": 123067,
+    "bytes": 123212,
     "floor": 35700,
     "split": {
-      "initial": 17604,
+      "initial": 17763,
       "floor": 6700,
-      "total": 123652
+      "total": 123962
     }
   },
   "typeshade/algorithms": {
-    "bytes": 71164,
+    "bytes": 71246,
     "floor": 19000,
     "split": {
-      "initial": 70143,
+      "initial": 70266,
       "floor": 21700,
-      "total": 70143
+      "total": 70266
     }
   },
   "typeshade/random": {
-    "bytes": 52741,
+    "bytes": 52857,
     "floor": 11500,
     "split": {
-      "initial": 51835,
+      "initial": 51971,
       "floor": 14300,
-      "total": 51835
+      "total": 51971
     }
   }
 }

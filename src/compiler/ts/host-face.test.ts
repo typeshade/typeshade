@@ -1453,19 +1453,19 @@ export class Counter {
 }
 `;
     // Both readers of the shader take the program (Rule 12.7), and it is the compiler that writes
-    // the view. `#n` is the field `n` of the struct (Rule 8.12), which the view declares `private
-    // n` (§26): its line carries the author's blocks, with their tags, as the line of a field
+    // the view. `#n` is the field `n` of the struct (Rule 8.12), which the view declares `#n`
+    // (§26): its line carries the author's blocks, with their tags, as the line of a field
     // written `private` or public does. A static field is a constant of the module and has no line.
     const f = faceOf(source);
     expect(f.view).toContain(`export declare class Counter {
   constructor();
   /** The count so far. */
-  private n: u32;
+  #n: u32;
   /**
    * The step of each tick.
    * @defaultValue 1
    */
-  private step: u32;
+  #step: u32;
   /** The tag, written with the keyword. */
   private tag: u32;
   /** The total, public. */
@@ -1475,17 +1475,15 @@ export class Counter {
 }
 `);
     expect(f.view).not.toMatch(/ticks/);
-    // The editor's hover over the member in a host program shows the comment too, and the line is
-    // private to `tsc`, which refuses the access.
-    const host = `import { Counter } from './m.shade.ts';
+    const keyword = `import { Counter } from './m.shade.ts';
 const c = new Counter();
-const v = c.n;
+const v = c.tag;
 export { v };
 `;
-    const read = hover(f.view!, host, 'n;');
-    expect(read.documentation).toBe('The count so far.');
+    const read = hover(f.view!, keyword, 'tag;');
+    expect(read.documentation).toBe('The tag, written with the keyword.');
     expect(read.errors).toEqual([
-      "Property 'n' is private and only accessible within class 'Counter'.",
+      "Property 'tag' is private and only accessible within class 'Counter'.",
     ]);
   });
 
@@ -1527,9 +1525,9 @@ export class Derived extends Base {
     expect(f.view).toContain(`export declare class Shown {
   constructor();
   /** The level of the hidden class. */
-  private level: f32;
+  #level: f32;
   /** Its own field. */
-  private own: f32;
+  #own: f32;
   s: f32;
   /** Reads the level. */
   peek(): f32;
@@ -1537,14 +1535,14 @@ export class Derived extends Base {
 export declare class Base {
   constructor();
   /** The base's count. */
-  private count: f32;
+  #count: f32;
   /** Reads the count. */
   total(): f32;
 }
 export declare class Derived extends Base {
   constructor();
   /** Its own, private. */
-  private mine: f32;
+  #mine: f32;
 }
 `);
   });

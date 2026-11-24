@@ -2690,6 +2690,28 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **The host view declares a private name as itself, and an instance holds the field under the
+  key `"#n"` (change 0109, Amendment 2; Rule 8.21, surface §26 and §64; #971).** A class that
+  pairs a private field with an accessor or a method of its name, `#n: u32` beside `get n(): u32`,
+  is the ordinary pairing of §26, and `compile()` and the language service took it. The host view
+  declared the field `private n: u32;` beside `get n(): u32;`, which `tsc` read as TS2300, so a host
+  file that imported the module did not type-check. The generated class assigned the field as the
+  own property `n` of the instance, and `new Counter()` threw a `TypeError` against the getter on
+  the prototype; a setter there would have been called instead. The view now declares the field as
+  itself, `#n: u32;`, with its comment, and a host cannot name it. An instance holds the field as
+  its own property under the string key `"#n"`, so `c.n` reaches the accessor. Every conversion of
+  a host value reads and writes that key: the parameter and the result of a helper, a constant, an
+  element of a kernel function's array, a binding of an entry (the uniform of a WebGL2 pass
+  program among them) and an element of a `Resident`. A plain object of the fields has no such
+  key, and the call refuses it with a `TypeError` that names the key and says to build the value
+  with `new`. A field written with the keyword (`private n`) is declared as before, and the
+  emitted WGSL and GLSL do not change. TypeScript reads `#n` in a view for a `target` of ES2015 or
+  later. The manifest is built from the IR alone (Rule 11.10) and still names the field `n`, so
+  the program runtime packs a binding by that name; the record of change 0109 lists what that
+  means for an instance as a binding value of the program runtime. The runtime bundle grew by 163
+  gzip bytes (split initial +137, aggregate +220), `typeshade/fuse` by 145 (split initial +159,
+  aggregate +310), `typeshade/algorithms` by 82 and `typeshade/random` by 116, measured with Bun
+  1.4.4 against `be2e83de`; the budgets moved by those bytes.
 - **An entry binds only what its emitted program reads** (#1337, a regression from #839). Since
   #839 the default emit specializes a call at module scope, so `shade(uv, false)` loses the
   branch that reads a texture. The manifest still listed that texture for the entry, from the

@@ -59,6 +59,8 @@ import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { addsTo, colourOf } from './host-face/entry-shapes.js';
+import { keyedStructs, keyedUniforms, privateFieldsOf } from './host-face/private-keys.js';
+import { shaderField } from '../../core/host-key.js';
 import { grownChecked, lowerKernelFor, madeFace } from './host-face/made.js';
 import { exportsOf, type ExportRef } from './host-face/exports.js';
 import { wgslLoweredOf } from './source-file/wgsl-lowered.js';
@@ -316,7 +318,8 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     vars: [...r.vars],
     enables: [...r.enables],
   };
-  const structs = new Map(structDecls.map((s) => [s.name, s]));
+  const cpuStructs = new Map(structDecls.map((s) => [s.name, s]));
+  const structs = keyedStructs(cpuStructs, privateFieldsOf(r.structs));
   const declared = new Set(m.funcs.map((f) => f.name));
   const byName = new Map(m.funcs.map((f) => [f.name, f]));
   const callees = new Map(m.funcs.map((f) => [f.name, calleesOf(f, declared)]));
@@ -363,6 +366,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
         symbols: faceSymbols,
         byName,
         structs,
+        cpuStructs,
         collected: r.structs,
         constsByName,
         bindingNames,
@@ -532,6 +536,7 @@ interface FaceCtx {
   readonly symbols: ReturnType<typeof compileTsSource>['symbols'];
   readonly byName: ReadonlyMap<string, FuncDecl>;
   readonly structs: ReadonlyMap<string, StructDecl>;
+  readonly cpuStructs: ReadonlyMap<string, StructDecl>;
   readonly collected: ReturnType<typeof compileTsSource>['structs'];
   readonly constsByName: ReadonlyMap<string, ConstDecl>;
   readonly bindingNames: ReadonlySet<string>;
@@ -775,7 +780,7 @@ function wgslEntryPoint(f: FuncDecl, c: FaceCtx): { entryPoint?: string } {
 /** A `@compute` entry's pass program for the WebGL2 tier (change 0054), or why it has none. */
 function glTier(f: FuncDecl, c: FaceCtx): { gl: GlComputeProgram } | { noGl: string } {
   try {
-    return { gl: buildGlCompute(c.entry.module, f.name) };
+    return { gl: keyedUniforms(buildGlCompute(c.entry.module, f.name), c.entry.bindings, c) };
   } catch (e) {
     return { noGl: e instanceof Error ? e.message : String(e) };
   }
@@ -1887,17 +1892,12 @@ function classFace(
     return { kind: 'shape', name, reason: t.none, fields };
   }
   const type = t as HostType & { k: 'struct' };
-  const fields = type.f.map(([field, ft]): ClassField => {
-    // A private name `#x` is the field `x` (Rule 8.12), and the view keeps it private.
-    const written = struct.privateFields?.get(field)?.written ?? field;
+  const fields = type.f.map(([key, ft]): ClassField => {
+    const written = struct.privateFields?.get(shaderField(key))?.written ?? shaderField(key);
     const at = memberDeclarationInChain(decl, written, false);
-    const access = isPrivateName(written)
-      ? 'private'
-      : at === undefined
-        ? undefined
-        : keywordAccessOf(at);
+    const access = isPrivateName(written) || at === undefined ? undefined : keywordAccessOf(at);
     return {
-      name: field,
+      name: key,
       type: ft,
       ...(access !== undefined ? { access } : {}),
       readonly: at !== undefined && isReadonlyMember(at),
@@ -1922,7 +1922,7 @@ function classFace(
     // constructor function: `new` builds the zero struct, as the module's own `new` does.
     ctor =
       written === undefined && !c.byName.has(fn)
-        ? { zero: zeroOf({ kind: 'struct', name: local }, c.structs) }
+        ? { zero: zeroOf({ kind: 'struct', name: local }, c.cpuStructs) }
         : memberCall(fn, written, false, false, c);
   }
   return {
