@@ -70,9 +70,8 @@ export interface ScratchBuffers {
   readonly none?: never;
 }
 
-/** The `Buffer` of element `E` that `scope.scratch()` returns; `unknown` before the program
- *  runtime's types load, so that a use of it is a type error, not a `never` that passes every
- *  check (the review of #1257, N1). */
+// Why: `unknown`, not `never`, before the program runtime's types load, so that a use of the
+// handle is a type error and not a `never` that passes every check (the review of #1257, N1).
 export type ScratchBuffer<E extends string> = ScratchBuffers extends { readonly [K in E]: infer B }
   ? B
   : unknown;

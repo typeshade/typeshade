@@ -1,5 +1,7 @@
 // Convert shader types into host value layouts, shared by analysis and declaration generation.
 import type { HostType } from '../../core/host-values.js';
+import type { Layout } from '../../core/host-entry.js';
+import { layoutOf } from '../../core/manifest.js';
 import type { StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { authorTypeText } from './context.js';
@@ -11,6 +13,26 @@ import { optionalInner } from './optional.js';
 const GPU_HALF = 'an entry takes it as a binding instead (Rule 8.24)';
 
 const ITEM_15 = 'roadmap item 15 adds it';
+
+const JAGGED_ARRAY_REASON =
+  'a jagged array, an array of arrays with no inner size, is not supported yet (issue #1560)';
+
+function isJaggedArray(t: ShaderType): boolean {
+  return (
+    t.kind === 'array' &&
+    t.size === undefined &&
+    t.elem.kind === 'array' &&
+    t.elem.size === undefined
+  );
+}
+
+export function kernelArrayLayout(
+  t: ShaderType,
+  structs: ReadonlyMap<string, StructDecl>,
+): Layout | { readonly none: string } {
+  if (isJaggedArray(t)) return { none: JAGGED_ARRAY_REASON };
+  return layoutOf(t, 'std430', structs, authorTypeText);
+}
 
 // ─── host types (Rule 8.21) ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +66,7 @@ export function hostTypeOf(
         s: t.elem === 'f64' ? `mat${t.cols}x${t.rows}<f64>` : `mat${t.cols}x${t.rows}`,
       };
     case 'array': {
+      if (isJaggedArray(t)) return { none: JAGGED_ARRAY_REASON };
       if (t.size === undefined)
         return { none: `a runtime-sized array has no host value yet; ${ITEM_15}` };
       const e = hostTypeOf(t.elem, structs);

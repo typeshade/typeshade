@@ -1,22 +1,9 @@
-// ═══ The host face of a shader module (Rules 8.20, 8.21, 11.7; surface §64) ═══
-//
-// A host file imports a `.shade.ts` and calls what it exports. This file computes what that host
-// sees, from one compile of the module. It delegates type conversion to host-types.ts,
-// declarations to host-view.ts and executable wrappers to host-module.ts:
-//
-//   - which exports a host can call (Rule 8.20), and why each other one cannot be;
-//   - the host type of each parameter, result, constant and struct (Rule 8.21);
-//   - the HOST VIEW, `name.shade.typeshade.ts`, the TypeScript that `tsc` and the editor read
-//     for the import in place of the shader source;
-//   - the GENERATED MODULE, the JavaScript a bundler reads for the import: the CPU tier's code
-//     for the callable functions at `f32` precision (Rule 11.7), each wrapped in a function that
-//     checks and converts its arguments and copies its result out, and a JavaScript class for
-//     each exported class (change 0109), whose constructor and methods are such calls.
-//
-// The IR does not keep the source's export list. A generic function exists only as its instances
-// and a function that takes a function only per use, a class method is `P_len` and an enum is
-// the constants `Mode_A` and `Mode_B`. So the face is read off the source's `export`s and the
-// lowering's symbol table, and the IR is consulted for what each callable function reaches.
+// Why: the IR does not keep the source's export list. A generic function exists only as its
+// instances and a function that takes a function only per use, a class method is `P_len` and an
+// enum is the constants `Mode_A` and `Mode_B`. So the face is read off the source's `export`s and
+// the lowering's symbol table, and the IR is consulted for what each callable function reaches.
+// Rule 6.1, Rule 8.22, Rule 8.23, Rule 8.24 and Rule 11.10 (docs/language-design.md) name this file;
+// the reqs/ items of these rules read these keywords in it.
 
 import ts from 'typescript';
 import { emitGlslModule } from '../../core/backends/glsl.js';
@@ -116,7 +103,7 @@ import {
 import { REASON } from './host-face-shared.js';
 import { moduleText } from './host-module.js';
 import { hostResourceOf, type ResourceClassFacts } from './host-resource.js';
-import { hostTypeOf } from './host-types.js';
+import { hostTypeOf, kernelArrayLayout } from './host-types.js';
 import {
   bindingsTypes,
   isBufferBinding,
@@ -190,33 +177,22 @@ export interface HostFace {
   readonly files: readonly string[];
 }
 
-/** A binding the module exports, before the classes are known (`resourceFaces`). */
 interface BindingRef {
   readonly kind: 'binding';
   readonly name: string;
-  /** The binding's name in the module. */
   readonly binding: string;
 }
 
-/** An export as `HostFace.exports` reports it: a class as its struct, and a class whose struct
- *  has no host value as an export of a type alone. */
 function reported(e: FaceExport): HostExport {
   if (e.kind === 'class') return { kind: 'struct', name: e.name, type: e.type };
   if (e.kind === 'shape') return { kind: 'never', name: e.name, reason: e.reason, typeOnly: true };
-  // An exported binding that is a host resource is reported as one, as the view and the module
-  // carry it (Amendment A5, D6; Rule 12.7).
   return e;
 }
-
-// ─── the source's exports ────────────────────────────────────────────────────────────────────
 
 const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean =>
   (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some((m) => m.kind === kind) ??
   false;
 
-// ─── what a function reaches ─────────────────────────────────────────────────────────────────
-
-/** The first GPU-only builtin `f`'s own body calls, if any. */
 function gpuOnlyCall(f: FuncDecl, declared: ReadonlySet<string>): string | undefined {
   let found: string | undefined;
   const visit = (x: Expr): void => {
@@ -228,9 +204,6 @@ function gpuOnlyCall(f: FuncDecl, declared: ReadonlySet<string>): string | undef
   return found;
 }
 
-// ─── an entry a host calls (Rule 8.24) ──────────────────────────────────────────────────────
-
-/** The builtins a `@compute` entry's parameters can take, which the call fills in. */
 const COMPUTE_BUILTINS = new Set([
   'global_invocation_id',
   'local_invocation_id',
@@ -239,7 +212,6 @@ const COMPUTE_BUILTINS = new Set([
   'num_workgroups',
 ]);
 
-/** A binding's type as its author spells it, for a refusal: `Sim`, `array<Particle>`. */
 function spell(t: ShaderType): string {
   if (t.kind === 'struct') return t.name;
   if (t.kind === 'array')
@@ -248,7 +220,6 @@ function spell(t: ShaderType): string {
   return authorTypeText(t);
 }
 
-/** The first barrier `fn` reaches, as `workgroupBarrier() at file:line`, if any. */
 function barrierIn(
   closure: ReadonlySet<string>,
   byName: ReadonlyMap<string, FuncDecl>,
@@ -277,8 +248,6 @@ function barrierIn(
   return undefined;
 }
 
-// ─── the face ────────────────────────────────────────────────────────────────────────────────
-
 /**
  * Compute the host face of one shader module: which exports a host can call (Rule 8.20), their
  * host types (Rule 8.21), the host view `tsc` reads, and the generated module a bundler reads,
@@ -301,8 +270,6 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   if (r.diagnostics.some((d) => d.category === 'error')) {
     return { diagnostics: r.diagnostics, files };
   }
-  // A module that imports is read where it was lowered: the linked source holds the entry's
-  // exports, its re-exports among them, under the names the module emits (Rule 3.9).
   const faceSource = linked?.sourceFile ?? r.sourceFile;
   const faceSymbols = linked?.symbols ?? r.symbols;
 
@@ -330,7 +297,6 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   const privateNames = new Set((m.vars ?? []).map((v) => v.name));
   const constsByName = new Map<string, ConstDecl>(m.consts.map((c) => [c.name, c]));
 
-  /** Why the function `fn` cannot be called from host code, or undefined when it can. */
   const reachProblem = (fn: string): string | undefined => {
     for (const g of closureOf(fn, callees)) {
       const f = byName.get(g)!;
@@ -348,7 +314,6 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   const lowered = r.wgsl !== undefined ? wgslLoweredOf(r) : undefined;
   let emittedReach: ((entry: string) => BindingReach) | undefined;
   const faces: (FaceExport | BindingRef)[] = [];
-  // The author's JSDoc of each export, which the view carries (change 0108).
   const docs = new Map<string, ExportDocs>();
   const declaredAt = topLevelDeclarations(faceSource);
   for (const ref of exportsOf(faceSource)) {
@@ -390,12 +355,8 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     );
   }
 
-  // An exported binding is a host resource of the class its type names (change 0138, R10), which
-  // is known once every class has its face.
   const exports = resourceFaces(faces, m.bindings);
 
-  // The CPU tier's code, for the functions the callable ones reach and nothing else, so an
-  // entry point's GPU-only body is never generated and never shipped.
   const keep = new Set<string>();
   for (const e of exports) {
     if (e.kind === 'function') for (const g of closureOf(e.fn, callees)) keep.add(g);
@@ -421,21 +382,16 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       if (!generated(e.fn)) return { kind: 'never', name: e.name, reason: REASON.fallback };
       return e;
     }
-    // A member whose code the CPU tier cannot generate is declared never, as a function is.
     if (e.kind === 'class') return generatedClass(e, generated);
     if (e.kind !== 'compute' && e.kind !== 'fragment') return e;
     if (e.entry.noCpu !== undefined) return e;
-    // An entry whose code the CPU tier cannot generate still runs on the GPU.
     for (const g of closureOf(e.entry.fn, callees))
       if (fallbacks.has(g))
         return { ...e, entry: { ...e.entry, noCpu: REASON.fallback } } as FaceExport;
     return e;
   });
 
-  // In `vite dev`, the WGSL records the console calls the GPU entries reach (change 0014), and
-  // each entry that reaches one carries the log the runtime decodes the buffer with.
   let wgsl = r.wgsl ?? '';
-  // The module the WGSL was emitted from, which the `'integer'` flavor is emitted from too.
   let emitted: ModuleDecl = m;
   let log: ConsoleLog | undefined;
   let logged = final;
@@ -443,7 +399,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     const recorded = consoleBuffer(m);
     if (recorded.log !== undefined) {
       log = recorded.log;
-      // The recorded module shares the plan of `m`: its entries keep the names the host calls.
+      // Why: the recorded module takes the plan of `m`, so its entries keep the host's names.
       emitted = inheritSpellings(recorded.module, m);
       wgsl = emitModule(emitted);
       const rm = recorded.module;
@@ -465,15 +421,10 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     }
   }
 
-  // A module that emulates `f64` carries its WGSL under the `'integer'` flavor too, for an owner
-  // whose flavor it is (change 0073); the `'float'` text declares the guard exactly then.
   const wgslInteger =
     guardOf(wgsl).guard !== undefined ? emitModule(emitted, { fp64Flavor: 'integer' }) : undefined;
 
   const stem = options.fileName.replace(/\\/g, '/').split('/').pop()!;
-  // The front end already validated and emitted this module with the default options.
-  // Reuse that text, not the console-recorded or integer-fp64 variant above.
-  // The one compiled program manifest (Rule 11.10), shared by both host generators.
   const pack = buildManifest(
     m,
     {
@@ -488,9 +439,6 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       ? { ...e, entry: { ...e.entry, overrides: pack.overrides } }
       : e,
   );
-  // A struct a signature writes goes by the name the view declares for it (change 0116, decision
-  // D7), which is known once every export has its face: an entry's bindings object is written
-  // again with the names.
   const naming: Naming = { named: structNames(logged, false), structs };
   const bindingType = (n: string): ShaderType | undefined => typeOfBinding(m.bindings, n);
   logged = logged.map((e) =>
@@ -538,14 +486,11 @@ interface FaceCtx {
   readonly overrideNames: ReadonlySet<string>;
   readonly privateNames: ReadonlySet<string>;
   readonly reachProblem: (fn: string) => string | undefined;
-  /** Present unless `fuse: false`: where a kernel function's fuse record says it comes from. */
   readonly fuse?: { readonly origin: string };
-  /** What an entry's face reads (Rule 8.24). */
   readonly entry: EntryCtx;
 }
 
 interface EntryCtx {
-  /** The module, which the GLSL backend emits a fragment entry's program from. */
   readonly module: ModuleDecl;
   readonly bindings: readonly BindingDecl[];
   readonly reads: ReadonlyMap<string, ReadonlySet<string>>;
@@ -554,26 +499,19 @@ interface EntryCtx {
   readonly callees: ReadonlyMap<string, ReadonlySet<string>>;
   readonly declared: ReadonlySet<string>;
   readonly workgroupZero: Readonly<Record<string, unknown>>;
-  /** Where the `_fp64` guard is, when the module emulates `f64`: the runtime binds it. */
   readonly guard?: { readonly group: number; readonly binding: number };
 }
 
-/** The `_fp64` guard binding the WGSL of a module that emulates `f64` declares, if any. */
 function guardOf(wgsl: string | undefined): { guard?: { group: number; binding: number } } {
   const m =
     wgsl === undefined ? null : /@group\((\d+)\)\s*@binding\((\d+)\)\s*var\s+_fp64\b/.exec(wgsl);
   return m === null ? {} : { guard: { group: Number(m[1]), binding: Number(m[2]) } };
 }
 
-/** The guard as a binding of an entry: a texture the runtime supplies (Rule 8.24). */
 function guardBinding(at: { group: number; binding: number }): DrawBinding {
   return { name: '_fp64', ...at, space: 'texture', s: 'texture_2d<f32>', guard: true };
 }
 
-/** The bindings an entry reaches through its calls, each with its host value's layout and
- *  TypeScript type (Rule 8.21), or why one has no host value. The types write a struct by its
- *  fields; `hostFace` writes them again with the names of the structs once every export has its
- *  face (`bindingsTypes`, change 0116, decision D7). */
 function entryBindings(
   f: FuncDecl,
   c: FaceCtx,
@@ -581,11 +519,8 @@ function entryBindings(
   | {
       bindings: DrawBinding[];
       types: string[];
-      /** A full-screen draw's bindings, which take a `Buffer` of a storage array too. */
       draw: string[];
-      /** A compute entry's bindings as a call on a resource takes them (`bindingsTypes`). */
       queued: string[];
-      /** And as a call on a resource that waits takes them (Amendment A11, Q7). */
       waiting: string[];
       closure: ReadonlySet<string>;
     }
@@ -596,7 +531,6 @@ function entryBindings(
   const bindings: DrawBinding[] = [];
   for (const b of x.bindings) {
     if (!touched.has(b.name)) continue;
-    // The GLSL spelling of the binding, when the GLSL writer respells it (Proposal 0070, C8).
     const glsl = spellingsOf(x.module).glsl.bindings.get(b.name);
     const at = {
       name: b.name,
@@ -633,13 +567,9 @@ function entryBindings(
   return { bindings, ...bindingsTypes(bindings, (n) => typeOfBinding(x.bindings, n)), closure };
 }
 
-/** The type of the binding `name` of `bindings`, as the module declares it. */
 const typeOfBinding = (bindings: readonly BindingDecl[], name: string): ShaderType | undefined =>
   bindings.find((b) => b.name === name)?.type;
 
-/** An entry export whose bindings object writes a struct by the name `naming` gives it (change
- *  0116, decision D7): its `bindingsType`, and its `queuedType` where it has one, written again
- *  from its bindings. */
 function namedBindings(
   e: HostExport & { kind: 'compute' | 'fragment' },
   typeOf: (name: string) => ShaderType | undefined,
@@ -656,15 +586,12 @@ function namedBindings(
   };
 }
 
-/** A storage texture's access as a bind group layout spells it (change 0077). */
 const STORAGE_ACCESS = {
   read: 'read-only',
   write: 'write-only',
   read_write: 'read-write',
 } as const;
 
-/** Why the CPU tier cannot run `closure`, when it cannot: it reaches a texture or a call the CPU
- *  tier does not run yet. */
 const CPU_HANDLES: ReadonlySet<ShaderType['kind']> = new Set([
   'texture',
   'storage-texture',
@@ -678,7 +605,6 @@ function noCpuTier(
   bindings: readonly DrawBinding[],
   c: FaceCtx,
 ): string | undefined {
-  // The guard is the GPU's alone: the CPU tier computes an `f64` as a double.
   const handle = bindings.find(
     (b) => (b.space === 'texture' || b.space === 'sampler') && !('guard' in b),
   );
@@ -698,8 +624,6 @@ function noCpuTier(
   return undefined;
 }
 
-/** The face of a `@compute` entry (Rule 8.24): the bindings it reaches, each with its byte
- *  layout and host type, its workgroup shape and builtins, and the barrier it reaches, if any. */
 function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const x = c.entry;
   for (const p of f.params)
@@ -754,8 +678,6 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ...gl,
     },
     bindingsType: objectType(types),
-    // With every written binding a storage array with no size, a call may take it as a `Buffer`
-    // and not block (change 0138, R2), or as its plain value and wait (Amendment A11, Q7).
     ...(bindings.some((b) => isBufferBinding(b) && b.writes) &&
     bindings.every(
       (b) => !isBufferBinding(b) || !b.writes || (b.layout.k === 'a' && b.layout.n === null),
@@ -765,14 +687,11 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   };
 }
 
-/** The entry's WGSL name when the WGSL spells it differently from the authored name (Proposal
- *  0070): the host passes it as `entryPoint`. Nothing is written for an entry spelled alike. */
 function wgslEntryPoint(f: FuncDecl, c: FaceCtx): { entryPoint?: string } {
   const emitted = spellingsOf(c.entry.module).wgsl.entries.get(f.name);
   return emitted === undefined ? {} : { entryPoint: emitted };
 }
 
-/** A `@compute` entry's pass program for the WebGL2 tier (change 0054), or why it has none. */
 function glTier(f: FuncDecl, c: FaceCtx): { gl: GlComputeProgram } | { noGl: string } {
   try {
     return { gl: buildGlCompute(c.entry.module, f.name) };
@@ -781,11 +700,8 @@ function glTier(f: FuncDecl, c: FaceCtx): { gl: GlComputeProgram } | { noGl: str
   }
 }
 
-/** The builtins a full-screen draw fills in for a `@fragment` entry. */
 const FRAGMENT_BUILTINS = new Set(['position', 'front_facing']);
 
-/** The face of a full-screen `@fragment` entry (Rule 8.24): the bindings it reaches, where its
- *  colour is, and what the WebGL2 and CPU tiers need to draw it, or why they cannot. */
 function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const x = c.entry;
   for (const p of f.params)
@@ -819,16 +735,12 @@ function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   };
 }
 
-/** The face of a kernel function (Rule 8.22; host values and parameters follow Rules 8.21 and 8.23): each value parameter's host type, each
- *  array's layout, and what its call dispatches when its loops lower, or why they do not. */
 function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const m = c.entry.module;
   const written = fnWrites(m).get(f.name) ?? new Set<string>();
-  // The arrays a loop pushes onto, which a call may pass with a held length (change 0094).
   const pushedArrays = pushedParams(f.body);
   const params: KernelParam[] = [];
   for (const p of f.params) {
-    // A texture is the caller's, bound by reference (Rule 8.23, change 0077).
     if (p.type.kind === 'texture' || p.type.kind === 'storage-texture') {
       const t = p.type;
       params.push({
@@ -841,7 +753,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       });
       continue;
     }
-    // A Map or a Set is the caller's, passed by reference (Rule 8.23, change 0080).
     if (p.type.kind === 'collection') {
       const keys = keysOf(collectionKeyOf(p.type));
       const value = p.type.value === undefined ? undefined : hostTypeOf(p.type.value, c.structs);
@@ -864,9 +775,8 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       continue;
     }
     if (p.type.kind === 'array' && p.type.size === undefined) {
-      const layout = layoutOf(p.type, 'std430', c.structs, authorTypeText);
+      const layout = kernelArrayLayout(p.type, c.structs);
       if ('none' in layout) return never(name, `parameter "${p.name}": ${layout.none}`);
-      // An `array<K>` takes a `Buffer<K>` of the same key (change 0138, Amendment A12, B2-2).
       const keys = p.type.elem.kind === 'scalar' ? keysOf(p.type.elem) : undefined;
       params.push({
         name: p.name,
@@ -896,8 +806,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   let wgslSubgroupInteger: string | undefined;
   try {
     wgsl = emitModule(plan.module);
-    // A function of a module that emulates `f64` carries its WGSL under the `'integer'` flavor
-    // too, for an owner whose flavor it is (change 0073).
     wgslInteger =
       guardOf(wgsl).guard !== undefined
         ? emitModule(plan.module, { fp64Flavor: 'integer' })
@@ -911,9 +819,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ranges: [],
     };
   }
-  // The subgroup variant (change 0119), under each flavor the function has a text for. A text
-  // of it that does not emit is a defect of the variant, not of the function: the function keeps
-  // its tree text and runs on the GPU, with no variant.
   if (plan.subgroupModule !== undefined) {
     try {
       wgslSubgroup = emitModule(plan.subgroupModule);
@@ -936,22 +841,18 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const partNames = new Set([
     ...plan.loops.flatMap((l) => (l.reduce?.vars ?? []).map((v) => v.binding)),
     ...plan.loops.flatMap((l) => (l.push !== undefined ? [l.push.binding] : [])),
-    // The length words, which the call binds itself (change 0094).
     ...(plan.words ?? []).map((w) => w.binding),
-    // The trip buffer of a range the device holds, which the call makes (change 0094).
     ...(plan.trips !== undefined ? [plan.trips.write, plan.trips.read] : []),
   ]);
   const handle = (t: ShaderType): boolean => t.kind === 'texture' || t.kind === 'storage-texture';
   const arrays = plan.module.bindings.filter(
     (b) => b.name !== plan.argsBinding && !partNames.has(b.name) && !handle(b.type),
   );
-  // The face keeps each array's authored name (Rule 3.3): the host binds and checks by it.
   const authored = new Map([...plan.bindingNames].map(([name, emitted]) => [emitted, name]));
   const loops: KernelLoop[] = [];
   for (const plain of plan.loops) {
     const l = dispatched(plain);
     if (l.push !== undefined) {
-      // The counts, the offsets and the total of a loop that pushes (change 0078).
       const b = plan.module.bindings.find((x) => x.name === l.push!.binding)!;
       const layout = layoutOf(b.type, 'std430', structs, authorTypeText);
       if ('none' in layout)
@@ -1009,7 +910,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     }
     loops.push({ ...(l as Omit<typeof l, 'push'>), reduce: { entry: l.reduce.entry, vars } });
   }
-  // The records of each Map or Set a loop adds to (change 0080), which the call binds itself.
   const recordNames = new Set((plan.collections ?? []).map((c) => c.records));
   const collections: NonNullable<NonNullable<KernelFace['gpu']>['collections']>[number][] = [];
   for (const c of plan.collections ?? []) {
@@ -1033,7 +933,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       perIteration: c.perIteration,
     });
   }
-  // The keys and values of each Map or Set the loops read (change 0080).
   const binding = (name: string): EntryBinding | { none: string } => {
     const b = arrays.find((x) => x.name === name)!;
     const layout = layoutOf(b.type, 'std430', structs, authorTypeText);
@@ -1072,8 +971,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const collected = params.find((p) => p.k === 'collection');
   const textured = params.some((p) => p.k === 'texture');
   const pushing = plan.loops.findIndex((l) => l.push !== undefined);
-  // The WebGL2 tier draws a texture loop in a later part of change 0077, and runs no loop that
-  // pushes (change 0078).
   const gl: ReturnType<typeof kernelGl> = textured
     ? { noWebgl2: 'it takes a texture, which the WebGL2 tier does not bind yet (change 0077)' }
     : collected !== undefined
@@ -1085,8 +982,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
             noWebgl2: `loop ${pushing + 1} pushes onto an array, which is not supported yet on the WebGL2 tier (Rule 11.8, change 0078)`,
           }
         : kernelGl(f, m, proof!, params);
-  // Facts retain the full layout. Only an ordinary non-resident call selects this private face.
-  // A range the device holds reads the arrays in their full layout too (change 0094).
   const projectedModule =
     collected === undefined && pushing < 0 && plan.trips === undefined
       ? projectKernelInputs(plan, f)
@@ -1138,14 +1033,9 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
               };
             }),
         };
-  // The length words of the module (change 0094), and the second WGSL text, which a call that
-  // passes a held length runs: the same loops and bindings, with a length word for every array a
-  // loop pushes onto. A function whose arrays all have one already needs no second text, and a
-  // call with a held length of a function that takes a Map or a Set runs on the CPU tier.
   const words = wordBindings(plan, structs);
   if ('none' in words)
     return { kind: 'kernel', name, face: { ...face, noGpu: words.none }, ranges: [] };
-  // The trip buffer's two bindings (change 0094, part 1).
   const trips =
     plan.trips === undefined
       ? undefined
@@ -1163,9 +1053,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     face: {
       ...face,
       ...('noWebgl2' in gl ? { noWebgl2: gl.noWebgl2 } : { gl }),
-      // A loop that pushes is a group of its own in a fuse plan, as a texture call is, and so is a
-      // call that stores into an array after its loops, or whose range the device holds (change
-      // 0094).
       ...(c.fuse !== undefined &&
       !textured &&
       pushing < 0 &&
@@ -1240,8 +1127,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   };
 }
 
-/** The `array<u32>` binding `name` of a lowered kernel function as the call binds it: a word of
- *  the trip buffer (change 0094), read-write or read-only. */
 function wordBinding(
   plan: KernelPlan,
   structs: ReadonlyMap<string, StructDecl>,
@@ -1263,8 +1148,6 @@ function wordBinding(
   };
 }
 
-/** The length words of a lowered kernel function (change 0094), each with its binding as the
- *  call binds it, or why one has no layout. */
 function wordBindings(
   plan: KernelPlan,
   structs: ReadonlyMap<string, StructDecl>,
@@ -1293,12 +1176,6 @@ function wordBindings(
   return out;
 }
 
-/**
- * The second WGSL text of kernel function `f` (change 0094), which a call that passes a held
- * length runs: `f` lowered with a length word for every array a loop pushes onto, its uniform, its
- * words and its `_fp64` guard, which follows the words. Undefined when it does not lower or emit,
- * and a call with a held length then runs on the CPU tier.
- */
 function heldVariant(
   f: FuncDecl,
   m: ModuleDecl,
@@ -1357,8 +1234,6 @@ function heldVariant(
   };
 }
 
-/** The plan's loop as the call layer dispatches it, without what only the fuse record carries
- *  (change 0058): `fuse: false` omits the record without changing the dispatched loops. */
 function dispatched({
   iterates: _iterates,
   iteration: _iteration,
@@ -1368,12 +1243,6 @@ function dispatched({
   return loop;
 }
 
-/**
- * The default fusion facts on the face of kernel function `f`, which lowered to
- * `plan` (change 0058): the facts of each loop, in the author's words, and the lowered module cut
- * to what its loop entries reach, as portable IR. The planner of `typeshade/fuse` matches the
- * facts and builds the fused entry from the IR; it analyzes no IR and calls no compiler.
- */
 function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: string): KernelFuse {
   const arrayParams = f.params
     .filter((p) => p.type.kind === 'array' && p.type.size === undefined)
@@ -1412,15 +1281,6 @@ function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: s
   return { origin, facts, ir: toPortable(reachedBy(plan.module), VERSION) };
 }
 
-/**
- * The array parameters the iteration of loop `l` names without an index, each with the first
- * place that does, in the author's words: `t.length` measures `t` and reads none of its
- * elements, so the proof's facts of the elements do not see it (`readsOf` leaves a measured
- * operand out). The planner reads this to keep such an array a buffer: a fused entry that held
- * it as a local would have nothing to measure. The iteration is the statements the fused entry
- * takes from the lowered function that holds it, the statements before the loop among them.
- * `core/testing/fuse-chain.ts` builds a face from IR with it, as this file does from a source.
- */
 export function bareArrays(
   f: FuncDecl,
   plan: KernelPlan,
@@ -1451,12 +1311,6 @@ export function bareArrays(
   });
 }
 
-/** The lowered module without the helpers its entries do not reach, and without the spans of the
- *  ones it keeps: they say where a function was written, which no emitted byte depends on
- *  (`core/ir/span.ts`). `lowerKernel` keeps every helper of the source module, so a face would
- *  carry every helper of its file; a helper has no identity but its name, and the planner shares
- *  one by its origin and name. The declarations beside the functions (consts, structs, bindings,
- *  variables) are as small as the face's WGSL already holds, and stay. */
 function reachedBy(m: ModuleDecl): ModuleDecl {
   const helpers = new Set(m.funcs.filter((g) => g.stage === undefined).map((g) => g.name));
   const callees = new Map(m.funcs.map((g) => [g.name, calleesOf(g, helpers)]));
@@ -1471,8 +1325,6 @@ function reachedBy(m: ModuleDecl): ModuleDecl {
   };
 }
 
-/** What the WebGL2 tier draws for kernel function `f`: each loop's fragment program, or why it
- *  does not run there (Rule 11.8). */
 function kernelGl(
   f: FuncDecl,
   m: ModuleDecl,
@@ -1523,7 +1375,6 @@ function kernelGl(
 const never = (name: string, reason: string, typeOnly?: true): HostExport =>
   typeOnly ? { kind: 'never', name, reason, typeOnly } : { kind: 'never', name, reason };
 
-/** A function-typed annotation, written out or through a type alias of one. */
 function isFunctionType(t: ts.TypeNode | undefined, sf: ts.SourceFile): boolean {
   if (t === undefined) return false;
   if (ts.isFunctionTypeNode(t)) return true;
@@ -1540,9 +1391,6 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
   const { name, decl } = ref;
   if (decl === undefined) return never(name, ref.missing ?? REASON.unknown);
 
-  // A function: a declaration, or a `const` that holds an arrow function or a function
-  // expression. A refused stage call (changes 0130 and 0140) never reaches here: its module
-  // has an error, and a module with one has no face.
   const init = ts.isVariableDeclaration(decl) ? decl.initializer : undefined;
   const fnNode = ts.isFunctionDeclaration(decl)
     ? decl
@@ -1579,9 +1427,6 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
     if ('none' in result) return never(name, `its result: ${result.none}`);
     const problem = c.reachProblem(f.name);
     if (problem !== undefined) return never(name, problem);
-    // A host call passes values (Rule 8.21), and a parameter the function writes names the
-    // caller's object, which a host call does not write back yet (change 0142, Table 2, stage 2).
-    // It is said last, so a function with another reason is refused with that reason.
     const written = f.params.find((p) => p.mode === 'inout');
     if (written !== undefined) return never(name, REASON.reference(written.name));
     return { kind: 'function', name, fn: f.name, params, result };
@@ -1619,8 +1464,6 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
     if (decl.typeParameters !== undefined && decl.typeParameters.length > 0)
       return never(name, REASON.generic_type, typeOnly);
     const local = decl.name!.text;
-    // A class is a value (change 0109), a class of static functions alone too, which the module
-    // keeps as a namespace until something builds one (Rule 8.9).
     if (ts.isClassDeclaration(decl)) {
       const cls = c.collected.find((x) => x.decl.name === local);
       return cls === undefined ? never(name, REASON.notStruct) : classFace(name, decl, cls, c);
@@ -1636,24 +1479,11 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
   return never(name, REASON.unknown);
 }
 
-// ─── an exported binding (change 0138, R10) ──────────────────────────────────────────────────
-
-/**
- * Each exported binding as a host resource (change 0138, R10; Rule 6.1), or as `never` with the
- * reason it is none yet. A resource is laid out by an exported class's layouts, the ones
- * `uniform()` and `zeros()` read: a `uniform<T>` of a class is a `Uniform<T>`, and a
- * `storage<array<T, N>>` of one a `Buffer<T>` of `N` elements. A `storage<array<T>>` of one, with
- * no size, is a `Buffer<T>` whose length the host sets with `resize` or `set` (Amendment A3). A
- * storage array whose size is an override, a scalar, a vector, a struct no class declares, one
- * `storage<T>`, a texture and a sampler have no resource of their own yet.
- */
 function resourceFaces(
   faces: readonly (FaceExport | BindingRef)[],
   bindings: readonly BindingDecl[],
 ): FaceExport[] {
   const classes = faces.filter((e): e is ClassExport => e.kind === 'class');
-  // The facts of the exported class of struct `name`, which `hostResourceOf` judges with the
-  // criteria the front end's TS8079 uses too (`host-resource.ts`).
   const classOf = (name: string, layout: 'u' | 's'): ResourceClassFacts | undefined => {
     const cls = classes.find((e) => e.type.s === name);
     if (cls === undefined) return undefined;
@@ -1677,9 +1507,6 @@ function resourceFaces(
   });
 }
 
-// ─── an exported class (change 0109) ─────────────────────────────────────────────────────────
-
-/** `cls` and the classes it extends, nearest first, as far as the file declares them. */
 function classChain(cls: ts.ClassDeclaration): ts.ClassDeclaration[] {
   const out: ts.ClassDeclaration[] = [];
   let at: ts.ClassDeclaration | undefined = cls;
@@ -1690,18 +1517,10 @@ function classChain(cls: ts.ClassDeclaration): ts.ClassDeclaration[] {
   return out;
 }
 
-/** Whether a member is generic in the sense of Rule 8.20: its type parameters are its own, and
- *  not those of a static whose `this` parameter names the class a call builds (Rule 8.13). */
 const isGenericMember = (f: ts.SignatureDeclaration): boolean =>
   (f.typeParameters?.length ?? 0) > 0 &&
   !f.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === 'this');
 
-/**
- * The call a member of an exported class runs, or why a host cannot call it (Rule 8.20, D3): the
- * function must exist, take no function and no reference, have a host value for each parameter
- * and for its result, and reach no binding, no workgroup variable and no builtin that a host
- * call does not run yet. `instance`: its first parameter is the object (`self_`) the call passes.
- */
 function memberCall(
   fn: string,
   node: ts.SignatureDeclaration | undefined,
@@ -1727,13 +1546,11 @@ function memberCall(
   const problem = c.reachProblem(f.name);
   if (problem !== undefined) return { reason: problem };
   const object = instance ? f.params[0] : undefined;
-  // A body that returns `this` as its own class hands back the object it ran on.
   const own =
     object?.type.kind === 'struct' && f.ret.kind === 'struct' && f.ret.name === object.type.name;
   return { fn: f.name, params, result, writes: object?.mode === 'inout', self: self && own };
 }
 
-/** Whether the struct `x` extends `struct`, directly or through the classes between. */
 function extendsStruct(
   x: CollectedStruct,
   struct: string,
@@ -1747,8 +1564,6 @@ function extendsStruct(
   return false;
 }
 
-/** The first concrete struct that extends `struct`, whose functions run an abstract class's
- *  bodies (Rule 8.9): an abstract class has none of its own. */
 function concreteBelow(struct: string, c: FaceCtx): string | undefined {
   const byName = new Map(c.collected.map((x) => [x.decl.name, x]));
   return c.collected.find(
@@ -1756,9 +1571,6 @@ function concreteBelow(struct: string, c: FaceCtx): string | undefined {
   )?.decl.name;
 }
 
-/** The name a host imports for the first exported class that extends `struct`, is not abstract
- *  and is a class in the view: the class a static builder of `struct` is called through, since
- *  that static is lowered for the classes that extend `struct` alone (Rule 8.13). */
 function exportedBelow(struct: string, c: FaceCtx): string | undefined {
   const byName = new Map(c.collected.map((x) => [x.decl.name, x]));
   for (const ref of exportsOf(c.sf)) {
@@ -1774,12 +1586,6 @@ function exportedBelow(struct: string, c: FaceCtx): string | undefined {
   return undefined;
 }
 
-/** The members of an exported class a host reaches: each public method, field that holds a
- *  function (Rule 8.16), accessor and static function of the class and of the classes it
- *  extends, the nearest declaration of each name first, as TypeScript resolves it. A private or
- *  protected member is the class's own (Rules 8.12 and 8.15). Each runs the function lowered for
- *  this class (`Circle_area`, an inherited body lowered again for it), so a call dispatches as
- *  TypeScript does; an abstract class runs the functions of a class below it, for their types. */
 function classMembers(
   name: string,
   decl: ts.ClassDeclaration,
@@ -1798,20 +1604,14 @@ function classMembers(
       const isStatic = isStaticMember(m);
       const accessor = ts.isGetAccessorDeclaration(m) || ts.isSetAccessorDeclaration(m);
       const holder = ts.isPropertyDeclaration(m) && holdsFunction(m) && !isStatic;
-      // A field is the struct's, and a static field a constant of the module.
       if (!ts.isMethodDeclaration(m) && !accessor && !holder) continue;
       const abstract = hasModifier(m, ts.SyntaxKind.AbstractKeyword);
-      // An overload signature: the declaration with the body is the member.
       if (ts.isMethodDeclaration(m) && m.body === undefined && !abstract) continue;
       const key = `${isStatic ? 'static ' : ''}${written}`;
       if (seen.has(key)) continue;
       seen.add(key);
       if (isPrivateName(written) || keywordAccessOf(m) !== undefined) continue;
-      // An abstract member is a body a class below supplies; only an abstract class declares it.
       if (abstract && struct.abstract !== true) continue;
-      // A static is lowered for each class that has it (Rule 8.13); an instance member of an
-      // abstract class only for the classes below it. With none, `owner` is undefined, and the
-      // member is declared `never` with the reason of an abstract class (`REASON.abstractMember`).
       const owner = isStatic ? own : below;
       const isAbstract = abstract && struct.abstract === true;
       if (accessor) {
@@ -1843,10 +1643,6 @@ function classMembers(
       }
       const fn = holder ? (m.initializer as ts.ArrowFunction | ts.FunctionExpression) : m;
       const self = !isStatic && ts.isMethodDeclaration(m) && returnsThis(m.body);
-      // A static of an abstract class that builds its value with `new this()` under the `this`
-      // parameter of change 0020 has no function of its own: it is lowered for each class that
-      // extends the abstract one (Rule 8.13). The reason is what the compiler says of a call
-      // through the abstract class (`abstractBuilderText`), with the class a host calls it through.
       const builder = isStatic && struct.abstract === true && buildsCallerClass(m);
       const call = builder
         ? { reason: abstractBuilderText(name, written, exportedBelow(own, c)) }
@@ -1865,9 +1661,6 @@ function classMembers(
   return out;
 }
 
-/** The face of an exported class (change 0109): a value whose constructor, methods, accessors
- *  and static functions are admitted member by member (Rule 8.20, D3), or, when a field of its
- *  struct has no host value (Rule 8.21), a type alone with the reason (D4). */
 function classFace(
   name: string,
   decl: ts.ClassDeclaration,
@@ -1888,7 +1681,6 @@ function classFace(
   }
   const type = t as HostType & { k: 'struct' };
   const fields = type.f.map(([field, ft]): ClassField => {
-    // A private name `#x` is the field `x` (Rule 8.12), and the view keeps it private.
     const written = struct.privateFields?.get(field)?.written ?? field;
     const at = memberDeclarationInChain(decl, written, false);
     const access = isPrivateName(written)
@@ -1913,13 +1705,10 @@ function classFace(
   const abstract = struct.abstract === true;
   let ctor: ClassExport['ctor'];
   if (!abstract) {
-    // The constructor the class runs: its own, or the nearest a class above it declares.
     const written = classChain(decl)
       .flatMap((k) => k.members.filter(ts.isConstructorDeclaration))
       .find((k) => k.body !== undefined);
     const fn = ctorFnName(local);
-    // A class with no constructor, no field initializer and no `new` in the module has no
-    // constructor function: `new` builds the zero struct, as the module's own `new` does.
     ctor =
       written === undefined && !c.byName.has(fn)
         ? { zero: zeroOf({ kind: 'struct', name: local }, c.structs) }
@@ -1938,9 +1727,6 @@ function classFace(
   };
 }
 
-/** The layouts of struct `name` as a host resource (change 0138): as one uniform (std140) and as
- *  an array with no size in storage (std430), each from the layouts a binding of that type has
- *  (Rule 6.8), or the reason it has none. */
 function resourceLayouts(name: string, structs: ReadonlyMap<string, StructDecl>): ClassLayouts {
   const t: ShaderType = { kind: 'struct', name };
   const u = layoutOf(t, 'std140', structs, authorTypeText);
@@ -1951,9 +1737,6 @@ function resourceLayouts(name: string, structs: ReadonlyMap<string, StructDecl>)
   };
 }
 
-/** Every call the generated class makes: its constructor's and each member's that a host can
- *  call. An abstract class makes its static ones alone, since its instance members' functions
- *  are those of a class below it. */
 function classCalls(e: ClassExport): MemberCall[] {
   const out: MemberCall[] = [];
   if (e.ctor !== undefined && 'fn' in e.ctor) out.push(e.ctor);
@@ -1965,7 +1748,6 @@ function classCalls(e: ClassExport): MemberCall[] {
   return out;
 }
 
-/** `e` with each call whose code the CPU tier cannot generate refused, as a function's is. */
 function generatedClass(e: ClassExport, generated: (fn: string) => boolean): ClassExport {
   const ok = <T extends MemberCall | Refused>(call: T): T | Refused =>
     'fn' in call && !generated(call.fn) ? { reason: REASON.fallback } : call;
@@ -1987,15 +1769,10 @@ function generatedClass(e: ClassExport, generated: (fn: string) => boolean): Cla
   return { ...e, ...(ctor !== undefined ? { ctor } : {}), members };
 }
 
-/** Where the host view of the shader module at `path` goes: beside it, `name.shade.typeshade.ts`,
- *  which `moduleSuffixes: [".typeshade", ""]` resolves `./name.shade.ts` to. */
 export const hostViewPath = (path: string): string => path.replace(/\.ts$/, '.typeshade.ts');
 
-/** Whether `path` names a shader module a host may import (Rule 3.8): `*.shade.ts`. */
 export const isShaderModulePath = (path: string): boolean => path.endsWith('.shade.ts');
 
-/** The build error a module with an error diagnostic fails with: each one at its file, line and
- *  column, with its code. */
 export function formatBuildErrors(diagnostics: readonly TsCompilerDiagnostic[]): string {
   return diagnostics
     .filter((d) => d.category === 'error')

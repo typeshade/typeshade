@@ -26,6 +26,7 @@
 
 import { isTypeshadeSource } from './compiler/ts/source-file.js';
 import { portableOrigin } from './vite-origin.js';
+import { shaderCacheKeyGenerator, type VitestPluginContext } from './vite-cache-key.js';
 import {
   formatBuildErrors,
   hostFace,
@@ -139,7 +140,7 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
   let root: string | undefined;
   /** Whether this build's WGSL records the console. */
   const records = (): boolean => when === 'always' || (when === 'dev' && dev);
-  return {
+  const plugin: TypeshadeVitePlugin & { configureVitest(context: VitestPluginContext): void } = {
     name: 'typeshade',
     enforce: 'pre',
     // The op library and fuse share modules with the program runtime. Generated code or a late
@@ -156,6 +157,13 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
     configResolved(config) {
       dev = config.command === 'serve';
       root = config.root;
+    },
+    configureVitest(context) {
+      context.defineCacheKeyGenerator(
+        shaderCacheKeyGenerator(
+          JSON.stringify([records(), options.ir === true, options.fuse, namespace, root]),
+        ),
+      );
     },
     buildStart() {
       if (!dev && when === 'always')
@@ -216,4 +224,5 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
       return { code: face.code, map: null };
     },
   };
+  return plugin;
 }

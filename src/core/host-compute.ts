@@ -1,4 +1,4 @@
-// ═══ A `@compute` entry's call: its order, its tiers and its resident bindings ═══
+// Implements: Rule 8.24, Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
 // ═══ (Rules 8.24 and 11.8, surface §67, change 0016)                          ═══
 //
 // `entry(bindings, workgroups)` runs in the order the host made it, after every kernel call and

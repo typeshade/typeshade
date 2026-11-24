@@ -4,6 +4,7 @@ name: downstream
 # TypeNN consumes a source archive, so use the same installation boundary here.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'src/**'
       - 'package.json'
@@ -40,6 +41,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       move: ${{ steps.move.outputs.move || 'none' }}
+      draft: ${{ github.event.pull_request.draft == true && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -56,7 +58,7 @@ jobs:
   typenn:
     name: TypeNN candidate (build + CPU)
     needs: scope
-    if: needs.scope.outputs.move != 'comments'
+    if: needs.scope.outputs.draft != 'true' && needs.scope.outputs.move != 'comments'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
