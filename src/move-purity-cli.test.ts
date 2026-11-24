@@ -125,8 +125,11 @@ describe('the move-purity command over a git range', () => {
     expect(run()).toBe(0);
     expect(output.join('\n')).toContain('declares no pure move');
     output = [];
-    expect(run('--title', 'Move: split a')).toBe(1);
+    expect(run('--require')).toBe(1);
     expect(output.join('\n')).toContain('NOT pure');
+    output = [];
+    expect(run('--title', 'Move: split a')).toBe(1);
+    expect(output.join('\n')).toContain('a Move: pull request declares pure or comments');
     output = [];
     expect(run('--title', 'Fix a bug')).toBe(0);
   });

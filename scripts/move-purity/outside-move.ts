@@ -5,7 +5,7 @@ import { renamingOnlyMarkdown } from './markdown.js';
 export const SIZE_BASELINE = 'scripts/file-size-baseline.json';
 export const COMMENT_BASELINE = 'scripts/comment-baseline.json';
 const SURFACE_PATH = 'src/__api__/surface.md';
-const FORBIDDEN_PATHS: readonly string[] = ['docs/owner-decisions.md', 'CLAUDE.md'];
+export const FORBIDDEN_PATHS: readonly string[] = ['docs/owner-decisions.md', 'CLAUDE.md'];
 
 export interface OutsideEntry {
   readonly path: string;
@@ -35,7 +35,7 @@ const CHECKS_PATTERNS: readonly RegExp[] = [
   /^package\.json$/,
 ];
 
-function isChecksPath(path: string): boolean {
+export function isChecksPath(path: string): boolean {
   if (path === SIZE_BASELINE || path === COMMENT_BASELINE) return false;
   if (/^scripts\/[^/]*-baseline\.json$/.test(path)) return true;
   return CHECKS_PATTERNS.some((pattern) => pattern.test(path));
@@ -90,7 +90,7 @@ const parse = (text: string | undefined): ts.SourceFile | undefined =>
     ? undefined
     : ts.createSourceFile(LAYER_POLICY_PATH, text, ts.ScriptTarget.Latest, true);
 
-function modeProblem(entry: DiffEntry): string | undefined {
+export function modeProblem(entry: DiffEntry): string | undefined {
   if (entry.oldMode === '120000' || entry.newMode === '120000') return 'a symbolic link';
   if (entry.oldMode !== '000000' && entry.newMode !== '000000' && entry.oldMode !== entry.newMode) {
     return `a mode change ${entry.oldMode} -> ${entry.newMode}`;

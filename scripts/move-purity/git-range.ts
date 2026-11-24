@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { MOVE_DECLARATIONS, declaredKinds, malformedLines } from './move-kinds.js';
 import type { DiffEntry } from './outside-move.js';
 
 const MAX_BUFFER = 1024 * 1024 * 1024;
@@ -31,19 +32,20 @@ export function commitCount(root: string, from: string, to: string): number {
   return Number(git(root, ['rev-list', '--count', `${from}..${to}`]).trim());
 }
 
-export const PURE_MOVE_LINE = /^Move:\s*pure\.?\s*$/i;
+export const PURE_MOVE_LINE = MOVE_DECLARATIONS.pure;
 
-export function declaresPureMove(root: string, from: string, to: string): boolean {
+export function commitLines(root: string, from: string, to: string): string[] {
   return git(root, ['log', '--format=%B', `${from}..${to}`])
     .split('\n')
-    .some((line) => PURE_MOVE_LINE.test(line.replace(/\r$/, '')));
+    .map((line) => line.replace(/\r$/, ''));
+}
+
+export function declaresPureMove(root: string, from: string, to: string): boolean {
+  return declaredKinds(commitLines(root, from, to)).includes('pure');
 }
 
 export function malformedMoveLines(root: string, from: string, to: string): string[] {
-  return git(root, ['log', '--format=%B', `${from}..${to}`])
-    .split('\n')
-    .map((line) => line.replace(/\r$/, ''))
-    .filter((line) => /^\s*>?\s*move\s*:/i.test(line) && !PURE_MOVE_LINE.test(line));
+  return malformedLines(commitLines(root, from, to));
 }
 
 export function trackedPaths(root: string, ref: string): string[] {

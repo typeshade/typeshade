@@ -32,6 +32,8 @@ function declaredNames(node: ts.Node): string[] {
 
 const NECESSARY = /^(?:\/\/|\/\*)\s*Why:/;
 
+export const isAllowedText = (body: string): boolean => MARKER.test(body) || NECESSARY.test(body);
+
 export const NECESSARY_SHARE = 0.01;
 
 export interface CommentLines {
@@ -43,7 +45,20 @@ export function bannedCommentLines(path: string, text: string, publicKeys: Set<s
   return commentLines(path, text, publicKeys).banned;
 }
 
-export function commentLines(path: string, text: string, publicKeys: Set<string>): CommentLines {
+export type CommentClass = 'banned' | 'public' | 'marker' | 'necessary';
+
+export interface ClassifiedComment {
+  readonly pos: number;
+  readonly end: number;
+  readonly kind: CommentClass;
+  readonly lines: number;
+}
+
+export function classifyComments(
+  path: string,
+  text: string,
+  publicKeys: Set<string>,
+): ClassifiedComment[] {
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
   const allowed = new Set<number>();
   const visit = (node: ts.Node, isPublic: boolean): void => {
@@ -60,8 +75,7 @@ export function commentLines(path: string, text: string, publicKeys: Set<string>
   visit(source, false);
 
   const seen = new Set<number>();
-  let banned = 0;
-  let necessary = 0;
+  const found: ClassifiedComment[] = [];
   const lineOf = (pos: number): number => source.getLineAndCharacterOfPosition(pos).line;
   const count = (ranges: readonly ts.CommentRange[] | undefined): void => {
     let necessaryUntilLine: number | undefined;
@@ -69,17 +83,25 @@ export function commentLines(path: string, text: string, publicKeys: Set<string>
       if (seen.has(range.pos)) continue;
       seen.add(range.pos);
       const body = text.slice(range.pos, range.end);
-      if (allowed.has(range.pos) || MARKER.test(body)) continue;
       const lines = body.split('\n').length;
+      const at = { pos: range.pos, end: range.end, lines };
+      if (allowed.has(range.pos)) {
+        found.push({ ...at, kind: 'public' });
+        continue;
+      }
+      if (MARKER.test(body)) {
+        found.push({ ...at, kind: 'marker' });
+        continue;
+      }
       const continues =
         range.kind === ts.SyntaxKind.SingleLineCommentTrivia &&
         necessaryUntilLine !== undefined &&
         lineOf(range.pos) === necessaryUntilLine + 1;
       if (NECESSARY.test(body) || continues) {
-        necessary += lines;
+        found.push({ ...at, kind: 'necessary' });
         necessaryUntilLine = lineOf(range.end);
       } else {
-        banned += lines;
+        found.push({ ...at, kind: 'banned' });
       }
     }
   };
@@ -89,14 +111,28 @@ export function commentLines(path: string, text: string, publicKeys: Set<string>
     ts.forEachChild(node, scan);
   };
   scan(source);
+  return found;
+}
+
+export function commentLines(path: string, text: string, publicKeys: Set<string>): CommentLines {
+  let banned = 0;
+  let necessary = 0;
+  for (const comment of classifyComments(path, text, publicKeys)) {
+    if (comment.kind === 'banned') banned += comment.lines;
+    if (comment.kind === 'necessary') necessary += comment.lines;
+  }
   return { banned, necessary };
+}
+
+export function isPolicedText(path: string, text: string): boolean {
+  return path.endsWith('.ts') && !path.endsWith('.shade.ts') && !GENERATED.test(text.slice(0, 600));
 }
 
 export function policedFiles(root: string): string[] {
   return execFileSync('git', ['ls-files', '-z', '--', 'src'], { cwd: root, encoding: 'utf8' })
     .split('\0')
-    .filter((path) => path.endsWith('.ts') && !path.endsWith('.shade.ts'))
-    .filter((path) => !GENERATED.test(readFileSync(join(root, path), 'utf8').slice(0, 600)))
+    .filter((path) => path.endsWith('.ts'))
+    .filter((path) => isPolicedText(path, readFileSync(join(root, path), 'utf8')))
     .sort();
 }
 
