@@ -1,0 +1,8 @@
+{
+  "title": "Class-based 3D SDF ray tracer",
+  "blurb": "A 3D signed-distance-field renderer built with an abstract SdfShape base class and concrete Sphere, Box, Torus and Plane subclasses. The shared base owns materials and finite-difference normals; each subclass supplies its distance field, while Scene performs sphere tracing and Renderer handles lighting, reflections and sampling.",
+  "group": "works",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

@@ -1,0 +1,9 @@
+{
+  "title": "Tunnel (source twin)",
+  "blurb": "`tunnel.ts` written in the source language: polar coordinates with 1/r for the receding wall, twisted by an angle that grows with depth.",
+  "group": "works",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true,
+  "twinOf": "tunnel"
+}

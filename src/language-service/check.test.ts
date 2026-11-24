@@ -230,7 +230,7 @@ export function f(): f32 {
     // of change 0013's proof on purpose.
     for (const d of report.diagnostics)
       expect(`${d.severity} ${d.code}${d.code === 'TS8070' ? ` ${d.file}` : ''}`).toMatch(
-        /^warning (TS8015|TS8070 examples\/loop-on-cpu\.shade\.ts)$/,
+        /^warning (TS8015|TS8070 examples\/gallery\/loop-on-cpu\/loop-on-cpu\.shade\.ts)$/,
       );
     expect(report.diagnostics.filter((d) => d.code === 'TS8070')).toHaveLength(6);
   });

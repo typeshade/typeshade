@@ -13,6 +13,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { exampleFile } from './_example-file.js';
 import { hostFace } from '../src/compiler/ts/host-face.js';
 import { compile } from '../src/compiler/ts/compile.js';
 import { compileModule } from '../src/core/oracle.js';
@@ -76,7 +77,7 @@ describe('the loop examples compute one answer on the CPU tier and the oracle (c
   for (const [example, calls] of Object.entries(CALLS)) {
     it(example, async () => {
       const file = `${example}.shade.ts`;
-      const source = readFileSync(resolve(__dirname, file), 'utf8');
+      const source = readFileSync(exampleFile(example), 'utf8');
       const { m, faces } = await loadHost(source, file);
       const { module } = compile(source, { fileName: file });
       const oracle = compileModule(module, { precision: 'f32' });
