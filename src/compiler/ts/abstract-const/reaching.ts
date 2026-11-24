@@ -1,18 +1,12 @@
 import ts from 'typescript';
 import type { Reading } from './reading.js';
 
-/** What the flow walk needs from the reading walk: the node of each store a variable has, and
- *  the declaration an identifier names. */
 export interface FlowSources {
   storeSites(d: ts.VariableDeclaration): readonly ts.Node[];
   declarationOf(id: ts.Identifier): ts.Node | undefined;
-  /** The stores that put the value `key` in `d`, or `undefined` where none is known. */
   keySites(d: ts.VariableDeclaration, key: string): ReadonlySet<ts.Node> | undefined;
 }
 
-/** The stores that can be the last store of each variable of a set at a place, together: one
- *  entry for each way to reach the place. An entry holds one store node for each variable, in
- *  the order of the set, or `undefined` before the variable has a store. */
 export type JointStores = readonly (readonly (ts.Node | undefined)[])[];
 
 class Unsupported extends Error {}
@@ -24,7 +18,6 @@ const isStatementNode = (n: ts.Node): boolean =>
 const isAssignment = (k: ts.SyntaxKind): boolean =>
   k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment;
 
-/** The statement a node stands in. */
 export function statementOf(node: ts.Node): ts.Node | undefined {
   for (let n: ts.Node | undefined = node; n !== undefined; n = n.parent) {
     if (isStatementNode(n) && !ts.isBlock(n)) return n;
@@ -32,8 +25,6 @@ export function statementOf(node: ts.Node): ts.Node | undefined {
   return undefined;
 }
 
-/** The store a statement is, as a node: a declaration with an initializer, an assignment or a
- *  `++` or `--` of one identifier. */
 function storeOf(s: ts.Node): { site: ts.Node; id: ts.Identifier }[] {
   if (ts.isVariableStatement(s)) {
     return s.declarationList.declarations.flatMap((d) =>
@@ -57,11 +48,6 @@ function storeOf(s: ts.Node): { site: ts.Node; id: ts.Identifier }[] {
 
 const cache = new WeakMap<ts.Node, Map<string, JointStores | undefined>>();
 
-/** The stores that reach `at` together, for each way to reach it, by a walk of the structured
- *  statements of the function that declares `decls`: blocks, `if`, loops and `return`. A loop
- *  runs until its entry stores stop growing. `undefined` where the walk cannot say: a `break`,
- *  a `continue`, a `switch`, a `try`, a store inside an expression or a closure, or a variable
- *  that is not a `let` of one function. A caller then keeps every pairing. */
 export function jointStoresAt(
   decls: readonly ts.VariableDeclaration[],
   at: ts.Node,
@@ -190,10 +176,6 @@ function walk(
   return [...(recorded as Map<string, Entry>).values()];
 }
 
-/** Whether two values, read together at `at`, can both be the value of their variables on one
- *  path (issue 1308, Amendment A9 of change 0134): each pick of one is a store of its variable
- *  that reaches `at` together with a store that gives the other. Where the walk cannot say, the
- *  answer is yes, and the pair stays. */
 export function coexist(a: Reading, b: Reading, at: ts.Node, src: FlowSources): boolean {
   for (const [da, ka] of a.picks) {
     for (const [db, kb] of b.picks) {
@@ -212,9 +194,6 @@ export function coexist(a: Reading, b: Reading, at: ts.Node, src: FlowSources): 
   return true;
 }
 
-/** The values of the variable `d` that a read of it inside a store can have: those of the
- *  stores of `d` that reach the read. A value stored later in the function is not one the store
- *  reads. All values stay where the walk cannot say. */
 export function reachingReadings(
   xs: Reading[],
   d: ts.VariableDeclaration,
@@ -234,8 +213,6 @@ export function reachingReadings(
   return kept.length > 0 ? kept : xs;
 }
 
-/** `x` as the value `key` of `d`, given by the store at `at`: the store is kept for
- *  {@link FlowSources.keySites}. */
 export function pickedAt(
   sites: Map<ts.Node, Map<string, Set<ts.Node>>>,
   d: ts.VariableDeclaration,

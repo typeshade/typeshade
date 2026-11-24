@@ -5,7 +5,7 @@
   "src/capability-sources.test.ts": 964,
   "src/changes.test.ts": 506,
   "src/compiler/ts/abstract-const.test.ts": 1511,
-  "src/compiler/ts/abstract-const.ts": 4436,
+  "src/compiler/ts/abstract-const.ts": 4434,
   "src/compiler/ts/array-methods.test.ts": 614,
   "src/compiler/ts/atomics.test.ts": 529,
   "src/compiler/ts/barriers.test.ts": 946,

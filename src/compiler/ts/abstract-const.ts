@@ -2958,7 +2958,6 @@ interface ReadingMemo {
   /** The member a property access or an element of an object pattern names
    *  ({@link memberOfAccess}, {@link memberOfBinding}); `null` where it names no one member. */
   readonly members: Map<ts.Node, MemberDecl | 'value' | null>;
-  /** The stores that gave a variable each of its values ({@link FlowSources}). */
   readonly sites: Map<ts.Node, Map<string, Set<ts.Node>>>;
   taint?: FileTaint;
 }
@@ -2982,7 +2981,6 @@ function readingMemo(sourceFile: ts.SourceFile): ReadingMemo {
   return memo;
 }
 
-/** What the flow walk reads of this file ({@link FlowSources}). */
 const flowSources = (sf: ts.SourceFile): flow.FlowSources =>
   flow.flowSourcesOf(
     (d) => storesOf(d, sf),
