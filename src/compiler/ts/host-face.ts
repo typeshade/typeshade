@@ -116,7 +116,7 @@ import {
 import { REASON } from './host-face-shared.js';
 import { moduleText } from './host-module.js';
 import { hostResourceOf, type ResourceClassFacts } from './host-resource.js';
-import { hostTypeOf } from './host-types.js';
+import { hostTypeOf, kernelArrayLayout } from './host-types.js';
 import {
   bindingsTypes,
   isBufferBinding,
@@ -864,7 +864,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       continue;
     }
     if (p.type.kind === 'array' && p.type.size === undefined) {
-      const layout = layoutOf(p.type, 'std430', c.structs, authorTypeText);
+      const layout = kernelArrayLayout(p.type, c.structs);
       if ('none' in layout) return never(name, `parameter "${p.name}": ${layout.none}`);
       // An `array<K>` takes a `Buffer<K>` of the same key (change 0138, Amendment A12, B2-2).
       const keys = p.type.elem.kind === 'scalar' ? keysOf(p.type.elem) : undefined;
