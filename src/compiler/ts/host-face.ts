@@ -30,7 +30,6 @@ import type {
   PushWord,
 } from '../../core/host-kernel.js';
 import type { HostType } from '../../core/host-values.js';
-import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js';
 import type {
   BindingDecl,
   ConstDecl,
@@ -61,7 +60,6 @@ import {
 import { callArgAccess } from '../../core/passes/access.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
-import { buildGlCompute, type GlComputeProgram } from '../../core/passes/gl-compute.js';
 import {
   lowerKernelGl,
   type KernelLoopPlan,
@@ -124,6 +122,7 @@ import type { FaceCtx } from './host-face/context.js';
 import { gpuOnlyCall, barrierIn } from './host-face/reach.js';
 import { guardOf, guardBinding } from './host-face/guard.js';
 import { spell } from './host-face/spell.js';
+import { noCpuTier, wgslEntryPoint, glTier } from './host-face/entry-tier.js';
 export { type HostExport } from './host-face-contracts.js';
 export { hostTypeOf } from './host-types.js';
 
@@ -508,38 +507,6 @@ const STORAGE_ACCESS = {
   read_write: 'read-write',
 } as const;
 
-const CPU_HANDLES: ReadonlySet<ShaderType['kind']> = new Set([
-  'texture',
-  'storage-texture',
-  'depth-texture',
-  'sampler',
-  'sampler-comparison',
-]);
-
-function noCpuTier(
-  closure: ReadonlySet<string>,
-  bindings: readonly DrawBinding[],
-  c: FaceCtx,
-): string | undefined {
-  const handle = bindings.find(
-    (b) => (b.space === 'texture' || b.space === 'sampler') && !('guard' in b),
-  );
-  if (handle !== undefined)
-    return `it reaches the ${handle.s} "${handle.name}", which is not supported yet on the CPU tier (Rule 8.24)`;
-  for (const g of closure)
-    for (const n of [...(c.entry.reads.get(g) ?? []), ...(c.entry.writes.get(g) ?? [])]) {
-      const b = c.entry.bindings.find((x) => x.name === n);
-      if (b !== undefined && CPU_HANDLES.has(b.type.kind))
-        return `it reaches the ${spell(b.type)} "${b.name}", which is not supported yet on the CPU tier (Rule 8.24)`;
-    }
-  for (const g of closure) {
-    const gpu = gpuOnlyCall(c.byName.get(g)!, c.entry.declared);
-    if (gpu !== undefined && !isAtomicIntrinsic(gpu) && !isBarrierIntrinsic(gpu))
-      return `it reaches ${gpu}(), which is not supported yet on the CPU tier (Rule 8.24)`;
-  }
-  return undefined;
-}
-
 function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const x = c.entry;
   for (const p of f.params)
@@ -601,19 +568,6 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ? { queuedType: objectType(queued), waitingType: objectType(waiting) }
       : {}),
   };
-}
-
-function wgslEntryPoint(f: FuncDecl, c: FaceCtx): { entryPoint?: string } {
-  const emitted = spellingsOf(c.entry.module).wgsl.entries.get(f.name);
-  return emitted === undefined ? {} : { entryPoint: emitted };
-}
-
-function glTier(f: FuncDecl, c: FaceCtx): { gl: GlComputeProgram } | { noGl: string } {
-  try {
-    return { gl: buildGlCompute(c.entry.module, f.name) };
-  } catch (e) {
-    return { noGl: e instanceof Error ? e.message : String(e) };
-  }
 }
 
 const FRAGMENT_BUILTINS = new Set(['position', 'front_facing']);
