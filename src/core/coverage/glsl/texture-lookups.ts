@@ -6,7 +6,8 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`textureSize`',
     covers: ['glsl:builtinFunctions:8.8:textureSize'],
-    evidence: 'src/compiler/ts/foreign-names.ts:76; src/compiler/ts/math-alias.ts:210',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.textureSize; src/compiler/ts/math-alias.ts#TEXTURE_BUILTIN_NAMES',
     note: 'textureDimensions',
     webgpu: typed('src/compiler/ts/texture-dims.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -16,7 +17,8 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`texture`',
     covers: ['glsl:builtinFunctions:8.8:texture'],
-    evidence: 'src/compiler/ts/foreign-names.ts:71; src/compiler/ts/math-alias.ts:200',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.texture; src/compiler/ts/math-alias.ts#TEXTURE_BUILTIN_NAMES',
     note: 'textureSample / textureSampleCompare',
     webgpu: typed('src/core/backends/glsl.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -44,7 +46,8 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`textureLod`',
     covers: ['glsl:builtinFunctions:8.8:textureLod'],
-    evidence: 'src/compiler/ts/foreign-names.ts:73; src/compiler/ts/math-alias.ts:201',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.textureLod; src/compiler/ts/math-alias.ts#TEXTURE_BUILTIN_NAMES',
     note: 'textureSampleLevel',
     webgpu: typed('src/core/backends/glsl.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -72,7 +75,8 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`texelFetch`',
     covers: ['glsl:builtinFunctions:8.8:texelFetch'],
-    evidence: 'src/compiler/ts/foreign-names.ts:75; src/compiler/ts/math-alias.ts:206',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.texelFetch; src/compiler/ts/math-alias.ts:206',
     note: 'textureLoad',
     webgpu: typed('src/core/backends/glsl.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -83,7 +87,7 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     name: '`texelFetchOffset`',
     covers: ['glsl:builtinFunctions:8.8:texelFetchOffset'],
     evidence:
-      'src/compiler/ts/foreign-names.ts:75 (texelFetch maps to textureLoad, the spelling the offset form uses)',
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.texelFetch (texelFetch maps to textureLoad, the spelling the offset form uses)',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test reads the offset form textureLoad(t, coord + offset, level), the portable spelling (measured with compile(), 2026-10-12: it compiles on both targets); roadmap 0.4 item 13c names the offsets (docs/roadmap.md:229)',
@@ -164,7 +168,8 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`textureGrad`',
     covers: ['glsl:builtinFunctions:8.8:textureGrad'],
-    evidence: 'src/compiler/ts/foreign-names.ts:74; src/compiler/ts/math-alias.ts:203',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.textureGrad; src/compiler/ts/math-alias.ts#TEXTURE_BUILTIN_NAMES',
     note: 'textureSampleGrad',
     webgpu: typed('src/compiler/ts/texture-dims.test.ts'),
     webgl2: typed('src/compiler/ts/texture-dims.test.ts'),

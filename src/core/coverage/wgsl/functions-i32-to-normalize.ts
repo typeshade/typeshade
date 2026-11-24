@@ -16,7 +16,7 @@ export const FUNCTIONS_I32_TO_NORMALIZE_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`insertBits`',
     covers: ['wgsl:builtinFunctions:insertBits'],
-    evidence: 'src/core/intrinsics.ts:427; src/core/builtins/overlay.ts:105',
+    evidence: 'src/core/intrinsics.ts:427; src/core/builtins/overlay.ts#DERIVATIVES_BITS_PACKING',
     note: 'INTRINSICS row with a GLSL spelling',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),

@@ -73,7 +73,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.beginOcclusionQuery()`',
     covers: ['GPURenderPassEncoder.beginOcclusionQuery'],
     evidence:
-      'src/runtime/runtime.ts:172-176; src/runtime/program.ts:440-443; src/runtime/gl.ts:469-472',
+      'src/runtime/runtime.ts#StencilAspect|RenderPass; src/runtime/program.ts#RenderPipeline.vertex|RenderPipeline.fragment; src/runtime/gl.ts:469-472',
     webgpu: andGap(
       raw(
         'RenderPipeline.draw(pass, …)',
@@ -95,7 +95,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.endOcclusionQuery()`',
     covers: ['GPURenderPassEncoder.endOcclusionQuery'],
     evidence:
-      'src/runtime/runtime.ts:172-176; src/runtime/program.ts:440-443; src/runtime/gl.ts:469-472',
+      'src/runtime/runtime.ts#StencilAspect|RenderPass; src/runtime/program.ts#RenderPipeline.vertex|RenderPipeline.fragment; src/runtime/gl.ts:469-472',
     webgpu: andGap(
       raw(
         'RenderPipeline.draw(pass, …)',
@@ -116,7 +116,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderPassEncoder.executeBundles()`',
     covers: ['GPURenderPassEncoder.executeBundles'],
-    evidence: 'src/runtime/runtime.ts:172-176',
+    evidence: 'src/runtime/runtime.ts#StencilAspect|RenderPass',
     webgpu: raw('RenderPass.raw'),
     webgl2: na('WebGPU render bundles; WebGL2 has no bundle object'),
   },
@@ -134,7 +134,8 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPURenderPipeline`',
     covers: ['GPURenderPipeline'],
-    evidence: 'src/runtime/program.ts:437-444; src/rhi/webgl2.ts:571',
+    evidence:
+      'src/runtime/program.ts#ComputePipeline|RenderPipeline.vertex|RenderPipeline.fragment; src/rhi/webgl2.ts:571',
     webgpu: typed('src/runtime/runtime.test.ts', 'RenderPipeline'),
     webgl2: typed('scripts/compile-gate.ts', 'RenderPipeline'),
   },
@@ -143,7 +144,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUSampler`',
     covers: ['GPUSampler'],
-    evidence: 'src/runtime/resources.ts:85-88; src/runtime/gl-draw.ts:284',
+    evidence: 'src/runtime/resources.ts#Sampler; src/runtime/gl-draw.ts:284',
     webgpu: typed(
       'journeys/engine/engine.mjs',
       'Sampler, made by rt.sampler(); also: Sampler.sampler is the GPUSampler (raw)',

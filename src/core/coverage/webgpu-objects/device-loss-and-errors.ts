@@ -7,7 +7,7 @@ export const DEVICE_LOSS_AND_ERRORS_ROWS: readonly Row[] = [
     name: '`GPUDevice.lost`',
     covers: ['GPUDevice.lost'],
     evidence:
-      'src/runtime/runtime.ts:230-238; src/core/host-entry.ts:703-706; src/rhi/webgl2.ts:1601-1605',
+      'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/host-entry.ts:703-706; src/rhi/webgl2.ts:1601-1605',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -32,7 +32,7 @@ export const DEVICE_LOSS_AND_ERRORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.pushErrorScope()`',
     covers: ['GPUDevice.pushErrorScope'],
-    evidence: 'src/runtime/runtime.ts:453',
+    evidence: 'src/runtime/runtime.ts#RuntimeImpl.submit',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test makes a frame fail validation; Frame.submit() pushes the scope; the out-of-memory and internal filters have no typed spelling; the runtime pushes only a validation scope (src/runtime/runtime.ts:453)',
@@ -58,7 +58,7 @@ export const DEVICE_LOSS_AND_ERRORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.onuncapturederror`',
     covers: ['GPUDevice.onuncapturederror'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: andGap(
       raw('Runtime.device', 'rt.device'),
       8,

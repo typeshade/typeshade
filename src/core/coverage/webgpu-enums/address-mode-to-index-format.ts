@@ -6,7 +6,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUAddressMode`',
     covers: ['GPUAddressMode'],
-    evidence: 'src/runtime/resources.ts:75-91',
+    evidence: 'src/runtime/resources.ts#SamplerOptions|Sampler|ADDRESS',
     note: '3 members. clamp, repeat, mirror',
     webgpu: typed('scripts/user-journey.ts'),
     webgl2: typed('scripts/user-journey.ts'),
@@ -28,7 +28,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUBlendFactor`',
     covers: ['GPUBlendFactor'],
-    evidence: 'src/runtime/program.ts:68-77; src/runtime/program.ts:1532',
+    evidence: 'src/runtime/program.ts#Bindings; src/runtime/program.ts:1532',
     note: '17 members. passed through; src1 factors need @blend_src; constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant',
     webgpu: gap(
       15,
@@ -46,7 +46,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUBlendOperation`',
     covers: ['GPUBlendOperation'],
-    evidence: 'src/runtime/program.ts:68-77; src/runtime/gl-draw.ts:583',
+    evidence: 'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts:583',
     note: '5 members.',
     webgpu: gap(
       15,
@@ -126,7 +126,8 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUCompareFunction`',
     covers: ['GPUCompareFunction'],
-    evidence: 'src/runtime/program.ts:278-284; src/runtime/resources.ts:80-90',
+    evidence:
+      'src/runtime/program.ts:278-284; src/runtime/resources.ts#SamplerOptions.compare|Sampler|ADDRESS',
     note: '8 members. depth compare and sampler compare',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
@@ -168,7 +169,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUDeviceLostReason`',
     covers: ['GPUDeviceLostReason'],
-    evidence: 'src/core/host-entry.ts:704; src/runtime/runtime.ts:230-238',
+    evidence: 'src/core/host-entry.ts:704; src/runtime/runtime.ts#SubmitResult|Runtime.info',
     note: '2 members. see GPUDevice.lost',
     webgpu: andGap(
       raw(
@@ -188,7 +189,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUErrorFilter`',
     covers: ['GPUErrorFilter'],
-    evidence: 'src/runtime/runtime.ts:451; src/rhi/webgpu.ts:438-440',
+    evidence: 'src/runtime/runtime.ts#RuntimeImpl.submit; src/rhi/webgpu.ts:438-440',
     note: '3 members. validation only',
     webgpu: gap(
       15,
@@ -203,7 +204,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     name: '`GPUFeatureName`',
     covers: ['GPUFeatureName'],
     evidence:
-      'src/core/backends/wgsl.ts:216-272; src/core/ir/nodes.ts:732-770; src/compiler/ts/builtin-check.ts:226-227; docs/language-design.md:314; node_modules/@webgpu/types/dist/index.d.ts:1472-1483',
+      'src/core/backends/wgsl.ts:216-272; src/core/ir/nodes.ts#Capability|ALL_CAPABILITIES; src/compiler/ts/builtin-check.ts#WGSL_ATTRIBUTES_ELSEWHERE; docs/language-design.md:314; node_modules/@webgpu/types/dist/index.d.ts:1472-1483',
     note: '25 members. grouped: shader-f16 refused (Rule 4.7); subgroups typed directive, functions sub-gap; clip-distances, dual-source-blending, primitive-index, bgra8unorm-storage typed; float32-filterable, float32-blendable declarable with no "use typeshade" spelling (sub-gap, surface §50); depth-clip-control, depth32float-stencil8, timestamp-query, indirect-first-instance, texture-compression-bc/etc2/astc (+sliced-3d), rg11b10ufloat-renderable, texture-component-swizzle, texture-compression-unaligned, texture-formats-tier1, texture-formats-tier2: sub-gap; core-features-and-limits n/a. rg11b10ufloat-renderable as a render target: not measured',
     webgpu: andGap(
       typed(
@@ -225,7 +226,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUFilterMode`',
     covers: ['GPUFilterMode'],
-    evidence: 'src/runtime/resources.ts:75-91',
+    evidence: 'src/runtime/resources.ts#SamplerOptions|Sampler|ADDRESS',
     note: '2 members.',
     webgpu: gap(
       15,
@@ -261,7 +262,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUIndexFormat`',
     covers: ['GPUIndexFormat'],
-    evidence: 'src/runtime/program.ts:349-359',
+    evidence: 'src/runtime/program.ts#Geometry',
     note: '2 members.',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('scripts/compile-gate.ts'),

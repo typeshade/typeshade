@@ -86,7 +86,7 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.deleteBuffer',
     ],
     evidence:
-      'src/core/resident.ts:53-72; src/rhi/webgl2.ts (bufferData); changes/0048-partial-buffer-write.md',
+      'src/core/resident.ts#residentBrand|ElementView; src/rhi/webgl2.ts (bufferData); changes/0048-partial-buffer-write.md',
     note: 'Buffer: upload once, read back, dispose; a partial write is 0048 (draft); bufferSubData has no caller in src/',
     webgpu: typed('journeys/overrides/journey.mjs', 'also: planned (0048, sub-range write)'),
     webgl2: typed('journeys/overrides/journey.mjs', 'also: planned (0048, sub-range write)'),
@@ -97,7 +97,7 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
     name: '`copyBufferSubData`',
     covers: ['webgl:WebGL2RenderingContextBase.copyBufferSubData'],
     evidence:
-      'node_modules/typescript/lib/lib.dom.d.ts:23588; src/runtime/runtime.ts:198-200 (Frame.encoder, the host encoder)',
+      'node_modules/typescript/lib/lib.dom.d.ts:23588; src/runtime/runtime.ts#Frame (Frame.encoder, the host encoder)',
     note: 'a buffer-to-buffer copy: on WebGPU the host copies in its own encoder; WebGL2 has no typed form for it',
     webgpu: andGap(
       raw('Frame.encoder', 'the host copies between buffers in its own encoder'),
@@ -138,7 +138,7 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Primitive topology of `drawArrays`: `POINTS`, `LINES`, `LINE_STRIP`, `TRIANGLES`, `TRIANGLE_STRIP`',
     covers: ['webgl:WebGLRenderingContextBase.drawArrays'],
-    evidence: 'src/rhi/webgl2.ts:445-453',
+    evidence: 'src/rhi/webgl2.ts#firstVertexLast',
     note: "WebGPU's five topologies map",
     webgpu: typed('scripts/compile-gate.ts', 'the five topologies'),
     webgl2: typed('scripts/compile-gate.ts', 'the five topologies'),
@@ -151,7 +151,8 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.LINE_LOOP',
       'webgl:WebGLRenderingContextBase.TRIANGLE_FAN',
     ],
-    evidence: 'src/rhi/webgl2.ts:446-451 (the five topologies the runtime maps, not these two)',
+    evidence:
+      'src/rhi/webgl2.ts#firstVertexLast (the five topologies the runtime maps, not these two)',
     note: 'declared on WebGLRenderingContextBase (WebGL 1.0); flagged WebGL2-only by changes/0059-capability-coverage.md:221-226, item 4',
     webgpu: na('no WebGPU form: GPUPrimitiveTopology has no line-loop or triangle-fan value'),
     webgl2: gap(

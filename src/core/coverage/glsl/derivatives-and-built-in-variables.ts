@@ -6,7 +6,8 @@ export const DERIVATIVES_AND_BUILT_IN_VARIABLES_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`dFdx`',
     covers: ['glsl:builtinFunctions:8.9:dFdx'],
-    evidence: 'src/compiler/ts/foreign-names.ts:58; src/compiler/ts/math-alias.ts:245',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.dFdx; src/compiler/ts/math-alias.ts:245',
     note: 'dpdx',
     webgpu: typed('src/compiler/ts/builtins.test.ts'),
     webgl2: typed('src/compiler/ts/builtins.test.ts'),
@@ -16,7 +17,8 @@ export const DERIVATIVES_AND_BUILT_IN_VARIABLES_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`dFdy`',
     covers: ['glsl:builtinFunctions:8.9:dFdy'],
-    evidence: 'src/compiler/ts/foreign-names.ts:59; src/compiler/ts/math-alias.ts:246',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.dFdy; src/compiler/ts/math-alias.ts:246',
     note: 'dpdy',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -64,7 +66,7 @@ export const DERIVATIVES_AND_BUILT_IN_VARIABLES_ROWS: readonly Row[] = [
     kind: 'GLSL built-in variable',
     name: '`gl_Position`',
     covers: ['glsl:builtinVariables:7.1:gl_Position'],
-    evidence: 'src/core/backends/glsl.ts:529',
+    evidence: 'src/core/backends/glsl.ts#BUILTIN_IN.front_facing',
     note: '@builtin("position") output (WGSL)',
     webgpu: typed('src/compiler/ts/entry-io.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -75,7 +77,7 @@ export const DERIVATIVES_AND_BUILT_IN_VARIABLES_ROWS: readonly Row[] = [
     name: '`gl_PointSize`',
     covers: ['glsl:builtinVariables:7.1:gl_PointSize'],
     evidence:
-      'src/core/backends/glsl.ts:528-531 (BUILTIN_OUT has no point_size); docs/HISTORY.md:122',
+      'src/core/backends/glsl.ts#BUILTIN_IN (BUILTIN_OUT has no point_size); docs/HISTORY.md:122',
     webgpu: na('WebGPU draws points one pixel wide; WGSL has no point-size built-in'),
     webgl2: gap(
       11,
@@ -132,7 +134,7 @@ export const DERIVATIVES_AND_BUILT_IN_VARIABLES_ROWS: readonly Row[] = [
     kind: 'GLSL built-in variable',
     name: '`gl_FragDepth`',
     covers: ['glsl:builtinVariables:7.2:gl_FragDepth'],
-    evidence: 'src/core/backends/glsl.ts:530',
+    evidence: 'src/core/backends/glsl.ts#BUILTIN_IN',
     note: '@builtin("frag_depth") output (WGSL)',
     webgpu: gap(
       15,

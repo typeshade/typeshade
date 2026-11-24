@@ -26,7 +26,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     name: '`GPUQuerySet.type`',
     covers: ['GPUQuerySet.type'],
     evidence:
-      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts:230-238; src/runtime/gl.ts:469-472',
+      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts#SubmitResult|Runtime.info; src/runtime/gl.ts:469-472',
     webgpu: andGap(
       raw('Runtime.device', 'the host reads the type of a query set it made on the runtime device'),
       4,
@@ -67,7 +67,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     name: '`GPUQueue.submit()`',
     covers: ['GPUQueue.submit'],
     evidence:
-      'src/runtime/runtime.ts:419-432, 500-510; src/rhi/webgpu.ts:433-436; src/runtime/gl.ts:459-464',
+      'src/runtime/runtime.ts:419-432, 500-510; src/rhi/webgpu.ts:433-436; src/runtime/gl.ts#packWords',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },
@@ -76,7 +76,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUQueue.onSubmittedWorkDone()`',
     covers: ['GPUQueue.onSubmittedWorkDone'],
-    evidence: 'src/runtime/runtime.ts:206-224; src/runtime/gl.ts:469-478',
+    evidence: 'src/runtime/runtime.ts#Frame; src/runtime/gl.ts:469-478',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Frame.submit() resolves after the queue ran the frame',
@@ -92,7 +92,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     name: '`GPUQueue.writeBuffer()`',
     covers: ['GPUQueue.writeBuffer'],
     evidence:
-      'src/core/resident.ts:68; changes/0048-partial-buffer-write.md:35; src/runtime/gl-draw.ts:886',
+      'src/core/resident.ts#ElementView.get; changes/0048-partial-buffer-write.md:35; src/runtime/gl-draw.ts:886',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Buffer.set(value); also: planned (0048, sub-range write)',
@@ -121,7 +121,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     name: '`GPUQueue.copyExternalImageToTexture()`',
     covers: ['GPUQueue.copyExternalImageToTexture'],
     evidence:
-      'changes/0050-texture-write.md:64; changes/0050-texture-write.md:147; changes/0050-texture-write.md:331; docs/language-design.md:857; src/core/gl-image.ts:54-74',
+      'changes/0050-texture-write.md:64; changes/0050-texture-write.md:147; changes/0050-texture-write.md:331; docs/language-design.md:857; src/core/gl-image.ts#uploadImage',
     webgpu: planned('0050', 'the call layer uploads an image source at a call today (Rule 8.21)'),
     webgl2: gap(
       6,
@@ -134,7 +134,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPURenderBundle`',
     covers: ['GPURenderBundle'],
-    evidence: 'src/runtime/runtime.ts:172-176',
+    evidence: 'src/runtime/runtime.ts#StencilAspect|RenderPass',
     webgpu: raw('RenderPass.raw', 'RenderPass.raw.executeBundles'),
     webgl2: na('WebGPU render bundles; WebGL2 has no bundle object'),
   },
@@ -143,7 +143,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderBundleEncoder.finish()`',
     covers: ['GPURenderBundleEncoder.finish'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: raw('Runtime.device', 'made on rt.device'),
     webgl2: na('WebGPU render bundles; WebGL2 has no bundle object'),
   },

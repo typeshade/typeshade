@@ -6,7 +6,7 @@ export const COMPUTE_PASS_AND_EXTERNAL_COPY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUComputePassDescriptor.timestampWrites`',
     covers: ['GPUComputePassDescriptor.timestampWrites'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts:429-434',
+    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts#ComputePipeline',
     webgpu: andGap(
       raw(
         'ComputePipeline.dispatch(target, …)',
@@ -27,7 +27,7 @@ export const COMPUTE_PASS_AND_EXTERNAL_COPY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUComputePassTimestampWrites.querySet`',
     covers: ['GPUComputePassTimestampWrites.querySet'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts:429-434',
+    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts#ComputePipeline',
     webgpu: andGap(
       raw(
         'ComputePipeline.dispatch(target, …)',
@@ -48,7 +48,7 @@ export const COMPUTE_PASS_AND_EXTERNAL_COPY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUComputePassTimestampWrites.beginningOfPassWriteIndex`',
     covers: ['GPUComputePassTimestampWrites.beginningOfPassWriteIndex'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts:429-434',
+    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts#ComputePipeline',
     webgpu: andGap(
       raw(
         'ComputePipeline.dispatch(target, …)',
@@ -69,7 +69,7 @@ export const COMPUTE_PASS_AND_EXTERNAL_COPY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUComputePassTimestampWrites.endOfPassWriteIndex`',
     covers: ['GPUComputePassTimestampWrites.endOfPassWriteIndex'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts:429-434',
+    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts#ComputePipeline',
     webgpu: andGap(
       raw(
         'ComputePipeline.dispatch(target, …)',

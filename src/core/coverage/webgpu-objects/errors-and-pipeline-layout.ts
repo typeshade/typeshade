@@ -7,7 +7,7 @@ export const ERRORS_AND_PIPELINE_LAYOUT_ROWS: readonly Row[] = [
     name: '`GPUDeviceLostInfo.reason`',
     covers: ['GPUDeviceLostInfo.reason'],
     evidence:
-      'src/runtime/runtime.ts:230-238; src/core/host-entry.ts:704; src/runtime/runtime.ts:769',
+      'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/host-entry.ts:704; src/runtime/runtime.ts#checkDeviceLimits',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -26,7 +26,7 @@ export const ERRORS_AND_PIPELINE_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDeviceLostInfo.message`',
     covers: ['GPUDeviceLostInfo.message'],
-    evidence: 'src/runtime/runtime.ts:230-238; src/core/host-entry.ts:704',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/host-entry.ts:704',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -71,7 +71,7 @@ export const ERRORS_AND_PIPELINE_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUInternalError`',
     covers: ['GPUInternalError'],
-    evidence: 'src/runtime/runtime.ts:453',
+    evidence: 'src/runtime/runtime.ts#RuntimeImpl.submit',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -88,7 +88,7 @@ export const ERRORS_AND_PIPELINE_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUOutOfMemoryError`',
     covers: ['GPUOutOfMemoryError'],
-    evidence: 'src/runtime/runtime.ts:453',
+    evidence: 'src/runtime/runtime.ts#RuntimeImpl.submit',
     webgpu: andGap(
       raw(
         'Runtime.device',

@@ -66,7 +66,7 @@ export const COMMAND_MIXINS_ROWS: readonly Row[] = [
     name: '`GPURenderCommandsMixin.setPipeline()`',
     covers: ['GPURenderCommandsMixin.setPipeline'],
     evidence:
-      'src/runtime/program.ts:1942, 2009; src/runtime/runtime.ts:175-176; src/runtime/gl-draw.ts:693',
+      'src/runtime/program.ts:1942, 2009; src/runtime/runtime.ts#RenderPass; src/runtime/gl-draw.ts:693',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'draw(pipeline, bindings, geometry) sets the pipeline; the draw rows name what it lacks',
@@ -90,7 +90,7 @@ export const COMMAND_MIXINS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.setVertexBuffer()`',
     covers: ['GPURenderCommandsMixin.setVertexBuffer'],
-    evidence: 'src/runtime/program.ts:331-361; src/rhi/webgl2.ts:1082',
+    evidence: 'src/runtime/program.ts:331-361; src/rhi/webgl2.ts#GlRenderPass.setBindGroup',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'Geometry.vertices: one buffer'),
       2,
@@ -147,7 +147,7 @@ export const COMMAND_MIXINS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.drawIndirect()`',
     covers: ['GPURenderCommandsMixin.drawIndirect'],
-    evidence: 'src/runtime/runtime.ts:172-176',
+    evidence: 'src/runtime/runtime.ts#StencilAspect|RenderPass',
     webgpu: gap(
       5,
       'the runtime pipeline is internal, so a host cannot issue an indirect draw of a runtime program; a non-zero firstInstance in the indirect buffer also needs the feature indirect-first-instance',
@@ -160,7 +160,7 @@ export const COMMAND_MIXINS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderCommandsMixin.drawIndexedIndirect()`',
     covers: ['GPURenderCommandsMixin.drawIndexedIndirect'],
-    evidence: 'src/runtime/runtime.ts:172-176',
+    evidence: 'src/runtime/runtime.ts#StencilAspect|RenderPass',
     webgpu: gap(
       5,
       'the runtime pipeline is internal, so a host cannot issue an indirect draw of a runtime program; a non-zero firstInstance in the indirect buffer also needs the feature indirect-first-instance',

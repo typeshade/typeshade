@@ -24,7 +24,7 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBuffer.size`',
     covers: ['GPUBuffer.size'],
-    evidence: 'src/core/resident.ts:53-72',
+    evidence: 'src/core/resident.ts#residentBrand|ElementView',
     webgpu: raw(
       'GPUBuffer',
       'the host reads the size of its own GPUBuffer; the typed Buffer returns no size',
@@ -38,7 +38,7 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBuffer.usage`',
     covers: ['GPUBuffer.usage'],
-    evidence: 'src/core/resident.ts:53-72',
+    evidence: 'src/core/resident.ts#residentBrand|ElementView',
     webgpu: raw(
       'GPUBuffer',
       'the host reads the usage of its own GPUBuffer; the typed Buffer returns no usage',
@@ -115,7 +115,7 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.canvas`',
     covers: ['GPUCanvasContext.canvas'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-170; src/runtime/runtime.ts:526-530; src/rhi/webgpu.ts:346-348',
+      'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:105-170; src/runtime/runtime.ts:526-530; src/rhi/webgpu.ts:346-348',
     webgpu: raw(
       'createRuntime({ device })',
       'the host holds the canvas of its own context; PassTargets.color reads only getCurrentTexture (src/runtime/runtime.ts:530)',
@@ -130,7 +130,7 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.configure()`',
     covers: ['GPUCanvasContext.configure'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:728-731',
+      'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:728-731',
     webgpu: raw(
       'createRuntime({ device })',
       'the call layer configures a context it makes, with the preferred format and an opaque alpha mode (src/core/host-draw.ts:728-731); the host configures its own context with the device it passes in',
@@ -145,7 +145,7 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.unconfigure()`',
     covers: ['GPUCanvasContext.unconfigure'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:731',
+      'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:731',
     webgpu: raw(
       'createRuntime({ device })',
       'the host unconfigures its own context; the call layer never does (src/core/host-draw.ts:731)',
@@ -160,7 +160,7 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.getConfiguration()`',
     covers: ['GPUCanvasContext.getConfiguration'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:731',
+      'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:731',
     webgpu: raw(
       'createRuntime({ device })',
       'the host reads the configuration of its own context; the call layer never does (src/core/host-draw.ts:731)',
@@ -175,7 +175,7 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.getCurrentTexture()`',
     covers: ['GPUCanvasContext.getCurrentTexture'],
     evidence:
-      'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:105-170; src/runtime/runtime.ts:526-530; src/rhi/webgpu.ts:346-348',
+      'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:105-170; src/runtime/runtime.ts#FrameImpl.submit; src/rhi/webgpu.ts:346-348',
     webgpu: raw(
       'createRuntime({ device })',
       'a context the host configured, as a PassTargets.color entry (src/runtime/runtime.ts:530)',

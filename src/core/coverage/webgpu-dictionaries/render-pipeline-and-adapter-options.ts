@@ -68,7 +68,7 @@ export const RENDER_PIPELINE_AND_ADAPTER_OPTIONS_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURequestAdapterOptions.featureLevel`',
     covers: ['GPURequestAdapterOptions.featureLevel'],
-    evidence: 'src/runtime/runtime.ts:644; src/runtime/runtime.ts:51-58',
+    evidence: 'src/runtime/runtime.ts:644; src/runtime/runtime.ts#RuntimeOptions',
     webgpu: andGap(
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,
@@ -102,7 +102,7 @@ export const RENDER_PIPELINE_AND_ADAPTER_OPTIONS_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURequestAdapterOptions.forceFallbackAdapter`',
     covers: ['GPURequestAdapterOptions.forceFallbackAdapter'],
-    evidence: 'src/runtime/runtime.ts:644; src/runtime/runtime.ts:51-58',
+    evidence: 'src/runtime/runtime.ts:644; src/runtime/runtime.ts#RuntimeOptions',
     webgpu: andGap(
       raw('createRuntime({ device })', 'the host requests its own adapter and passes the device'),
       8,

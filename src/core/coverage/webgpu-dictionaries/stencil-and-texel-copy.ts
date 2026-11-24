@@ -115,7 +115,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTexelCopyBufferInfo.buffer`',
     covers: ['GPUTexelCopyBufferInfo.buffer'],
-    evidence: 'src/runtime/runtime.ts:195-199; src/rhi/webgl2.ts:738, 753',
+    evidence: 'src/runtime/runtime.ts#RenderPass|Frame; src/rhi/webgl2.ts#depthToColour',
     webgpu: raw('Frame.encoder', 'Frame.encoder copies; Texture.read() is the typed readback'),
     webgl2: gap(
       6,
@@ -129,7 +129,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     name: '`GPUTexelCopyBufferLayout.offset`',
     covers: ['GPUTexelCopyBufferLayout.offset'],
     evidence:
-      'src/runtime/resources.ts:35-70, 262-274; src/rhi/webgpu.ts:312-336; src/rhi/webgl2.ts:753',
+      'src/runtime/resources.ts:35-70, 262-274; src/rhi/webgpu.ts:312-336; src/rhi/webgl2.ts#depthToColour',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets or reads an offset on read() (src/rhi/webgpu.ts:322-326); rows tightly packed on read(); also: write is planned (0050)',
@@ -147,7 +147,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     name: '`GPUTexelCopyBufferLayout.bytesPerRow`',
     covers: ['GPUTexelCopyBufferLayout.bytesPerRow'],
     evidence:
-      'src/runtime/resources.ts:35-70, 262-274; src/rhi/webgpu.ts:312-336; src/rhi/webgl2.ts:753',
+      'src/runtime/resources.ts:35-70, 262-274; src/rhi/webgpu.ts:312-336; src/rhi/webgl2.ts#depthToColour',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'rows tightly packed on read(); also: write is planned (0050)',
@@ -164,7 +164,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     name: '`GPUTexelCopyBufferLayout.rowsPerImage`',
     covers: ['GPUTexelCopyBufferLayout.rowsPerImage'],
     evidence:
-      'src/runtime/resources.ts:35-70, 262-274; src/rhi/webgpu.ts:312-336; src/rhi/webgl2.ts:753',
+      'src/runtime/resources.ts:35-70, 262-274; src/rhi/webgpu.ts:312-336; src/rhi/webgl2.ts#depthToColour',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the one-layer read sets no rowsPerImage (src/runtime/resources.ts:286); rows tightly packed on read(); also: write is planned (0050)',
@@ -181,7 +181,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTexelCopyTextureInfo.texture`',
     covers: ['GPUTexelCopyTextureInfo.texture'],
-    evidence: 'src/runtime/resources.ts:286; src/rhi/webgl2.ts:753',
+    evidence: 'src/runtime/resources.ts#TextureImpl.destroy; src/rhi/webgl2.ts#depthToColour',
     webgpu: andGap(
       typed('journeys/plasma/journey.mjs', 'read() copies level 0 of layer 0'),
       6,
@@ -200,7 +200,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTexelCopyTextureInfo.mipLevel`',
     covers: ['GPUTexelCopyTextureInfo.mipLevel'],
-    evidence: 'src/runtime/resources.ts:286; src/rhi/webgl2.ts:753',
+    evidence: 'src/runtime/resources.ts#TextureImpl.destroy; src/rhi/webgl2.ts#depthToColour',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets or reads a mip level (src/runtime/resources.ts:286); read() copies level 0 of layer 0; a read of another mip level has no typed spelling',
@@ -217,7 +217,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTexelCopyTextureInfo.origin`',
     covers: ['GPUTexelCopyTextureInfo.origin'],
-    evidence: 'src/runtime/resources.ts:286; src/rhi/webgl2.ts:753',
+    evidence: 'src/runtime/resources.ts#TextureImpl.destroy; src/rhi/webgl2.ts#depthToColour',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the read copy takes the default origin (src/runtime/resources.ts:286); read() copies level 0 of layer 0; a read at another origin has no typed spelling',
@@ -235,7 +235,7 @@ export const STENCIL_AND_TEXEL_COPY_ROWS: readonly Row[] = [
     name: '`GPUTexelCopyTextureInfo.aspect`',
     covers: ['GPUTexelCopyTextureInfo.aspect'],
     evidence:
-      'src/runtime/resources.ts:286; src/runtime/gl-draw.ts:253; src/rhi/webgl2.ts:714-716, 753',
+      'src/runtime/resources.ts#TextureImpl.destroy; src/runtime/gl-draw.ts#GlTextureImpl.readFloats; src/rhi/webgl2.ts#BLIT_VS|depthToColour',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'read() copies level 0 of layer 0'),
       6,

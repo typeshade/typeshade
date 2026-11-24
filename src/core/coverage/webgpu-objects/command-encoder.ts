@@ -7,7 +7,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     name: '`GPUCommandBuffer`',
     covers: ['GPUCommandBuffer'],
     evidence:
-      'src/runtime/runtime.ts:206-224; src/runtime/runtime.ts:419-431; src/runtime/gl.ts:124-127',
+      'src/runtime/runtime.ts#Frame; src/runtime/runtime.ts#RuntimeImpl.takeConsole; src/runtime/gl.ts:124-127',
     webgpu: typed('src/runtime/runtime.test.ts', 'Frame.submit() and rt.submit(encoders)'),
     webgl2: refused(
       'Rule 11.11',
@@ -38,7 +38,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.copyBufferToBuffer()`',
     covers: ['GPUCommandEncoder.copyBufferToBuffer'],
-    evidence: 'src/runtime/runtime.ts:195-199; src/runtime/gl.ts:437',
+    evidence: 'src/runtime/runtime.ts#RenderPass|Frame; src/runtime/gl.ts:437',
     webgpu: andGap(raw('Frame.encoder'), 6, 'no typed buffer-to-buffer copy', 637),
     webgl2: gap(6, 'a buffer copy; WebGL2 copyBufferSubData has no typed form', 637),
   },
@@ -47,7 +47,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.copyBufferToTexture()`',
     covers: ['GPUCommandEncoder.copyBufferToTexture'],
-    evidence: 'src/runtime/runtime.ts:195-199',
+    evidence: 'src/runtime/runtime.ts#RenderPass|Frame',
     webgpu: andGap(raw('Frame.encoder'), 6, 'no typed copy from a buffer into a texture', 637),
     webgl2: gap(6, 'buffer to texture: not supported yet on the WebGL2 tier (Rule 11.11)', 637),
   },
@@ -56,7 +56,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.copyTextureToBuffer()`',
     covers: ['GPUCommandEncoder.copyTextureToBuffer'],
-    evidence: 'src/runtime/resources.ts:286; src/rhi/webgl2.ts:753',
+    evidence: 'src/runtime/resources.ts#TextureImpl.destroy; src/rhi/webgl2.ts#depthToColour',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'Texture.read() copies level 0 of layer 0'),
       6,
@@ -75,7 +75,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.copyTextureToTexture()`',
     covers: ['GPUCommandEncoder.copyTextureToTexture'],
-    evidence: 'src/runtime/runtime.ts:195-199',
+    evidence: 'src/runtime/runtime.ts#RenderPass|Frame',
     webgpu: andGap(raw('Frame.encoder'), 6, 'no typed texture-to-texture copy', 637),
     webgl2: gap(6, 'WebGL2 copyTexSubImage2D has no typed form', 637),
   },
@@ -84,7 +84,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.clearBuffer()`',
     covers: ['GPUCommandEncoder.clearBuffer'],
-    evidence: 'src/runtime/runtime.ts:195-199',
+    evidence: 'src/runtime/runtime.ts#RenderPass|Frame',
     webgpu: andGap(
       raw('Frame.encoder'),
       6,
@@ -102,7 +102,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.resolveQuerySet()`',
     covers: ['GPUCommandEncoder.resolveQuerySet'],
-    evidence: 'src/runtime/runtime.ts:195-199; src/runtime/gl.ts:469-472',
+    evidence: 'src/runtime/runtime.ts#RenderPass|Frame; src/runtime/gl.ts:469-472',
     webgpu: andGap(
       raw(
         'Frame.encoder',
@@ -123,7 +123,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.finish()`',
     covers: ['GPUCommandEncoder.finish'],
-    evidence: 'src/runtime/runtime.ts:419-431; src/runtime/gl.ts:124-127',
+    evidence: 'src/runtime/runtime.ts#RuntimeImpl.takeConsole; src/runtime/gl.ts:124-127',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       "rt.submit(encoders) finishes the host's encoders",

@@ -18,7 +18,7 @@ export const VECTOR_RELATIONAL_ROWS: readonly Row[] = [
     name: '`lessThanEqual`',
     covers: ['glsl:builtinFunctions:8.7:lessThanEqual'],
     evidence:
-      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:651; src/compiler/ts/lower/operator-kinds.ts:38-45',
+      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:651; src/compiler/ts/lower/operator-kinds.ts#FAMILY',
     note: '`<=`',
     webgpu: gap(
       15,
@@ -44,7 +44,7 @@ export const VECTOR_RELATIONAL_ROWS: readonly Row[] = [
     name: '`greaterThanEqual`',
     covers: ['glsl:builtinFunctions:8.7:greaterThanEqual'],
     evidence:
-      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:653; src/compiler/ts/lower/operator-kinds.ts:38-45',
+      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:653; src/compiler/ts/lower/operator-kinds.ts#FAMILY',
     note: '`>=`',
     webgpu: gap(
       15,
@@ -59,7 +59,7 @@ export const VECTOR_RELATIONAL_ROWS: readonly Row[] = [
     name: '`equal`',
     covers: ['glsl:builtinFunctions:8.7:equal'],
     evidence:
-      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:654; src/compiler/ts/lower/operator-kinds.ts:38-45',
+      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:654; src/compiler/ts/lower/operator-kinds.ts#FAMILY',
     note: '`==`',
     webgpu: typed('src/compiler/ts/bool-vectors.test.ts'),
     webgl2: typed('src/compiler/ts/bool-vectors.test.ts'),
@@ -70,7 +70,7 @@ export const VECTOR_RELATIONAL_ROWS: readonly Row[] = [
     name: '`notEqual`',
     covers: ['glsl:builtinFunctions:8.7:notEqual'],
     evidence:
-      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:655; src/compiler/ts/lower/operator-kinds.ts:38-45',
+      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:655; src/compiler/ts/lower/operator-kinds.ts#FAMILY',
     note: '`!=`',
     webgpu: typed('src/compiler/ts/operators-statements.test.ts'),
     webgl2: typed('src/compiler/ts/bool-vectors.test.ts'),
@@ -90,7 +90,7 @@ export const VECTOR_RELATIONAL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`all`',
     covers: ['glsl:builtinFunctions:8.7:all'],
-    evidence: 'src/core/intrinsics.ts:1107',
+    evidence: 'src/core/intrinsics.ts#INTRINSIC_HELPERS',
     note: 'same WGSL name',
     webgpu: typed('src/compiler/ts/builtins.test.ts'),
     webgl2: typed('src/compiler/ts/builtins.test.ts'),

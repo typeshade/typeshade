@@ -99,7 +99,7 @@ export const PRIMITIVE_STAGE_AND_QUERY_SET_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUProgrammableStage.entryPoint`',
     covers: ['GPUProgrammableStage.entryPoint'],
-    evidence: 'src/runtime/program.ts:1649-1657; src/runtime/gl-draw.ts:413-424',
+    evidence: 'src/runtime/program.ts:1649-1657; src/runtime/gl-draw.ts#GlRenderPrograms.render',
     webgpu: typed(
       'journeys/mnist/journey.mjs',
       'module, entryPoint and constants from the manifest and RenderState.constants (change 0028)',
@@ -129,7 +129,7 @@ export const PRIMITIVE_STAGE_AND_QUERY_SET_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUQuerySetDescriptor.type`',
     covers: ['GPUQuerySetDescriptor.type'],
-    evidence: 'src/runtime/runtime.ts:644-654; src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts:644-654; src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: andGap(
       raw(
         'Runtime.device',

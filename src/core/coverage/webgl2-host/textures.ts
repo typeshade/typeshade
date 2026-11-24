@@ -115,7 +115,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
     name: '`framebufferTextureLayer` (a layer of a 3D or array texture as a colour target)',
     covers: ['webgl:WebGL2RenderingContextBase.framebufferTextureLayer'],
     evidence:
-      'src/runtime/gl-draw.ts:162-165 (the WebGL2 tier makes 2D textures of one layer); src/runtime/gl-draw.ts:1108-1136 (a colour target is a runtime Texture or the canvas context)',
+      'src/runtime/gl-draw.ts#GlTextureImpl.constructor (the WebGL2 tier makes 2D textures of one layer); src/runtime/gl-draw.ts:1108-1136 (a colour target is a runtime Texture or the canvas context)',
     note: 'the runtime binds each colour target as a 2D texture; on WebGPU a layer is the depthSlice member of table A',
     webgpu: andGap(
       raw(
@@ -178,7 +178,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
     name: '`EXT_texture_norm16` (16-bit unorm and snorm colour formats)',
     covers: ['webgl:EXT_texture_norm16'],
     evidence:
-      'src/rhi/webgl2.ts:92 (NAMED admits the names); src/rhi/webgl2.ts:103-227 (formatOf: no 16-bit unorm or snorm case)',
+      'src/rhi/webgl2.ts#GlFormat.type (NAMED admits the names); src/rhi/webgl2.ts:103-227 (formatOf: no 16-bit unorm or snorm case)',
     note: 'the runtime does not turn EXT_texture_norm16 on (src/rhi/webgl2.ts:256-261); the sampling route is read, not measured on a WebGL2 context',
     webgpu: andGap(
       typed(

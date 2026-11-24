@@ -20,7 +20,7 @@ export const BUILT_IN_VALUES_ROWS: readonly Row[] = [
     kind: 'WGSL built-in value',
     name: '`frag_depth`',
     covers: ['wgsl:builtinValues:frag_depth'],
-    evidence: 'src/core/backends/glsl.ts:530',
+    evidence: 'src/core/backends/glsl.ts#BUILTIN_IN',
     webgpu: gap(
       15,
       'also: typed in code; no test reads it on this target (Rule 11.18): no test prints @builtin(frag_depth) in WGSL',
@@ -141,7 +141,7 @@ export const BUILT_IN_VALUES_ROWS: readonly Row[] = [
     kind: 'WGSL built-in value',
     name: '`position`',
     covers: ['wgsl:builtinValues:position'],
-    evidence: 'src/core/backends/glsl.ts:514; src/core/backends/glsl.ts:526-531',
+    evidence: 'src/core/backends/glsl.ts:514; src/core/backends/glsl.ts#BUILTIN_IN',
     note: 'row flip handled by the runtime (Rule 8.24)',
     webgpu: typed('src/compiler/ts/entry-io.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
