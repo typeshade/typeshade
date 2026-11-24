@@ -47,7 +47,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     name: '`GPUBlendOperation`',
     covers: ['GPUBlendOperation'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts#checkState~"GL_BLEND_OPERATION"; src/rhi/webgl2.ts#setState~"blendEquationSeparate"',
+      'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts#checkState~"GL_BLEND_OPERATION"; src/rhi/webgl2.ts#GL_BLEND_OPERATION|setState~"blendEquationSeparate"',
     note: '5 members.',
     webgpu: gap(
       15,

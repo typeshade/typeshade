@@ -77,7 +77,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.stencilOpSeparate',
     ],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/rhi/webgpu.ts#WebGpuEncoder.copyBufferToBuffer|depthStencilOf (depthStencilOf); src/rhi/webgl2.ts#setState~"stencilFuncSeparate"',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/rhi/webgpu.ts#WebGpuEncoder.copyBufferToBuffer|depthStencilOf (depthStencilOf); src/rhi/webgl2.ts#setState~"stencilFuncSeparate"|setState~"stencilOpSeparate"|setState~"stencilMaskSeparate"',
     note: 'the stencil test, its functions, operations and masks are set by each draw of a pipeline with depth.stencil',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -94,7 +94,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
     name: '`WEBGL_stencil_texturing`',
     covers: ['webgl:WEBGL_stencil_texturing'],
     evidence:
-      'src/rhi/webgl2.ts#GlRenderPass.constructor~"stencilClearValue" (a stencil attachment is cleared to 0 and never tested); src/runtime/resources.ts#Texture (a depth or stencil format other than depth32float rejects a read)',
+      'src/rhi/webgl2.ts#GlState.constructor~"EXT_color_buffer_float"|depthToColour (the extensions the runtime turns on do not include WEBGL_stencil_texturing, and a depth texture is read through an r32float copy); src/runtime/resources.ts#Texture (a depth or stencil format other than depth32float rejects a read)',
     note: 'the stencil aspect of a depth-stencil texture as a sampled texture; the same capability as the stencil-only aspect of GPUTextureAspect in table A',
     webgpu: gap(
       6,
@@ -118,7 +118,7 @@ export const DEPTH_STENCIL_AND_BLENDING_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.blendFuncSeparate',
     ],
     evidence:
-      'src/rhi/webgl2.ts#setState~"blendEquationSeparate" (blendFuncSeparate, blendEquationSeparate); src/runtime/program.ts#Bindings',
+      'src/rhi/webgl2.ts#setState~"blendFuncSeparate"|setState~"blendEquationSeparate" (blendFuncSeparate, blendEquationSeparate); src/runtime/program.ts#Bindings',
     note: 'TargetState.blend; min and max are core in WebGL2 (ES 3.00), the form EXT_blend_minmax adds in WebGL 1.0; the switch that turns blending on is in Capability switches',
     webgpu: gap(
       15,

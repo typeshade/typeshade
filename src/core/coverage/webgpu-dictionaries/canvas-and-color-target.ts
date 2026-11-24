@@ -120,7 +120,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUColorDict.r`',
     covers: ['GPUColorDict.r'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferfv"|blitScreen',
+      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferfv"',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },
@@ -130,7 +130,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUColorDict.g`',
     covers: ['GPUColorDict.g'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferfv"|blitScreen',
+      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferfv"',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },
@@ -140,7 +140,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUColorDict.b`',
     covers: ['GPUColorDict.b'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferfv"|blitScreen',
+      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferfv"',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },
@@ -150,7 +150,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUColorDict.a`',
     covers: ['GPUColorDict.a'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferfv"|blitScreen',
+      'src/runtime/runtime.ts:105-170; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferfv"',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'PassTargets clear is an [r, g, b, a] tuple'),
   },

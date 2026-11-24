@@ -75,7 +75,7 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUPrimitiveTopology`',
     covers: ['GPUPrimitiveTopology'],
-    evidence: 'src/runtime/program.ts:301-307; src/rhi/webgl2.ts#GL_TOPOLOGY|firstVertexLast',
+    evidence: 'src/runtime/program.ts:301-307; src/rhi/webgl2.ts#GL_TOPOLOGY',
     note: '5 members. all five; strips with indices need stripIndexFormat (sub-gap)',
     webgpu: andGap(
       typed('scripts/compile-gate.ts'),

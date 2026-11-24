@@ -20,7 +20,8 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.beginRenderPass()`',
     covers: ['GPUCommandEncoder.beginRenderPass'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl.ts#GlFrameImpl.pass',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/runtime/gl.ts#GlFrameImpl.pass; src/runtime/gl-draw.ts#recordPass~"beginRenderPass"',
     webgpu: typed('src/runtime/runtime.test.ts', 'Frame.pass()'),
     webgl2: typed('scripts/compile-gate.ts', 'Frame.pass()'),
   },
@@ -58,7 +59,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     name: '`GPUCommandEncoder.copyTextureToBuffer()`',
     covers: ['GPUCommandEncoder.copyTextureToBuffer'],
     evidence:
-      'src/runtime/resources.ts#TextureImpl.destroy; src/rhi/webgl2.ts#GlDevice.readTexture|readTexels~"readPixels"',
+      'src/runtime/resources.ts#TextureImpl.destroy; src/rhi/webgl2.ts#GlDevice.readTexture|readTexels~"gl.readPixels("',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'Texture.read() copies level 0 of layer 0'),
       6,

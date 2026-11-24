@@ -7,7 +7,7 @@ export const RENDER_PIPELINE_AND_ADAPTER_OPTIONS_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.vertex`',
     covers: ['GPURenderPipelineDescriptor.vertex'],
     evidence:
-      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts#GlRenderPrograms~"vertex: {"; src/rhi/webgl2.ts#GlDevice~"desc.vertex.buffers"',
+      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts#GlRenderPrograms~"vertex: {"; src/rhi/webgl2.ts#GlDevice~"toGlClip((desc.module"|GlDevice~"desc.vertex.buffers"',
     webgpu: typed('src/runtime/runtime.test.ts', 'program.render(state)'),
     webgl2: typed('scripts/compile-gate.ts', 'program.render(state)'),
   },
@@ -45,7 +45,7 @@ export const RENDER_PIPELINE_AND_ADAPTER_OPTIONS_ROWS: readonly Row[] = [
     name: '`GPURenderPipelineDescriptor.multisample`',
     covers: ['GPURenderPipelineDescriptor.multisample'],
     evidence:
-      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts#GlRenderPrograms~"multisample: plan.multisample"; src/rhi/webgl2.ts#GlDevice.createTexture~"sampleCount"',
+      'src/runtime/program.ts:752-965, 1592-1598; src/runtime/gl-draw.ts#GlRenderPrograms~"multisample: plan.multisample"; src/rhi/webgl2.ts#GlDevice.createTexture~"sampleCount"|drawStateOf (drawStateOf reads no multisample member)',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test creates a multisampled render pipeline on WebGPU (src/runtime/program.ts:1217); program.render(state)',

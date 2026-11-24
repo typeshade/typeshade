@@ -89,7 +89,7 @@ export const TRANSFORM_FEEDBACK_QUERIES_AND_SYNC_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.flush',
     ],
     evidence:
-      'src/core/gl-compute.ts:272-275 (fenceSync, clientWaitSync in gpuDone); src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit (the frame runs its draws after submit returns); src/runtime/resources.ts',
+      'src/core/gl-compute.ts:272-275 (fenceSync, clientWaitSync in gpuDone); src/runtime/gl.ts#GlFrameImpl.submit (the frame runs its draws after submit returns); src/runtime/gl-draw.ts#GlTextureImpl~"kernelQueue.run" (read queues its readback and returns a promise); src/runtime/resources.ts',
     note: 'the promise of submit() and read() is the typed form; the runtime polls clientWaitSync and calls neither waitSync nor getSyncParameter',
     webgpu: typed('src/runtime/runtime.test.ts', 'onSubmittedWorkDone through submit()'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'through submit and read'),

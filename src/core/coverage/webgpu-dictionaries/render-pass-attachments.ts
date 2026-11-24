@@ -64,7 +64,7 @@ export const RENDER_PASS_ATTACHMENTS_ROWS: readonly Row[] = [
     name: '`GPURenderPassColorAttachment.resolveTarget`',
     covers: ['GPURenderPassColorAttachment.resolveTarget'],
     evidence:
-      'src/runtime/runtime.ts:467-498; src/runtime/program.ts#ComputePipeline.dispatch|RenderPipeline.vertex|RenderPipeline.fragment; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
+      'src/runtime/runtime.ts:467-498; src/runtime/program.ts#ComputePipeline.dispatch|RenderPipeline.vertex|RenderPipeline.fragment; src/runtime/gl-draw.ts#GlRenderPrograms~"a multisampled target is not supported"|GlTextureImpl.constructor~"sampleCount"',
     webgpu: andGap(
       raw('RenderPipeline.draw(pass, …)', 'the host records its own pass with a resolve target'),
       3,
@@ -83,7 +83,7 @@ export const RENDER_PASS_ATTACHMENTS_ROWS: readonly Row[] = [
     name: '`GPURenderPassColorAttachment.clearValue`',
     covers: ['GPURenderPassColorAttachment.clearValue'],
     evidence:
-      'src/runtime/runtime.ts:105-170, 467-498; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferfv"|blitScreen',
+      'src/runtime/runtime.ts:105-170, 467-498; src/runtime/gl-draw.ts#recordPass~"clearValue"; src/rhi/webgl2.ts#GlRenderPass.constructor~"clearBufferfv"',
     webgpu: typed('journeys/hdr-target/journey.mjs', 'view, clear, load'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'view, clear, load'),
   },
@@ -119,7 +119,7 @@ export const RENDER_PASS_ATTACHMENTS_ROWS: readonly Row[] = [
     name: '`GPURenderPassDepthStencilAttachment.view`',
     covers: ['GPURenderPassDepthStencilAttachment.view'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/program.ts#depthStencilAttachmentOf; src/rhi/webgl2.ts#GlRenderPass.constructor~"DEPTH_STENCIL_ATTACHMENT"; src/rhi/webgl2.ts#GlRenderPass.constructor~"DEPTH_ATTACHMENT"; src/runtime/gl-draw.ts#recordPass~"depthStencilAttachmentOf"',
+      'src/runtime/runtime.ts:105-170; src/runtime/program.ts#depthStencilAttachmentOf; src/rhi/webgl2.ts#GlRenderPass.constructor~"depthTex.native"; src/rhi/webgl2.ts#GlRenderPass.constructor~"DEPTH_ATTACHMENT"; src/runtime/gl-draw.ts#recordPass~"depthStencilAttachmentOf"',
     webgpu: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
     webgl2: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
   },
@@ -129,7 +129,7 @@ export const RENDER_PASS_ATTACHMENTS_ROWS: readonly Row[] = [
     name: '`GPURenderPassDepthStencilAttachment.depthClearValue`',
     covers: ['GPURenderPassDepthStencilAttachment.depthClearValue'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/program.ts#depthStencilAttachmentOf; src/rhi/webgl2.ts#GlRenderPass.constructor~"depthClearValue"; src/runtime/gl-draw.ts#recordPass~"depthStencilAttachmentOf"; src/rhi/webgl2.ts#blitScreen',
+      'src/runtime/runtime.ts:105-170; src/runtime/program.ts#depthStencilAttachmentOf; src/rhi/webgl2.ts#GlRenderPass.constructor~"depthClearValue"; src/runtime/gl-draw.ts#recordPass~"depthStencilAttachmentOf"',
     webgpu: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
     webgl2: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
   },
@@ -139,7 +139,7 @@ export const RENDER_PASS_ATTACHMENTS_ROWS: readonly Row[] = [
     name: '`GPURenderPassDepthStencilAttachment.depthLoadOp`',
     covers: ['GPURenderPassDepthStencilAttachment.depthLoadOp'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/program.ts#depthStencilAttachmentOf; src/rhi/webgl2.ts#GlRenderPass.constructor~"depthLoadOp"; src/rhi/webgl2.ts#blitScreen',
+      'src/runtime/runtime.ts:105-170; src/runtime/program.ts#depthStencilAttachmentOf; src/rhi/webgl2.ts#GlRenderPass.constructor~"depthLoadOp"',
     webgpu: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
     webgl2: typed('scripts/compile-gate.ts', 'depth target, clear, load'),
   },

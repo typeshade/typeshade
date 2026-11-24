@@ -59,7 +59,7 @@ export const DEPTH_STENCIL_STATE_ROWS: readonly Row[] = [
     name: '`GPUDepthStencilState.stencilBack`',
     covers: ['GPUDepthStencilState.stencilBack'],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/rhi/webgl2.ts#drawStateOf~"stencil.back"|setState~"stencilOpSeparate"',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.stencil); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilOf); src/rhi/webgl2.ts#drawStateOf~"stencil.back"|setState~"stencilOpSeparate(gl.BACK"',
     webgpu: typed(
       'journeys/pipeline-state',
       'RenderState.depth.stencil.back; also src/runtime/runtime.test.ts',

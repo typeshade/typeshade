@@ -139,7 +139,7 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Primitive topology of `drawArrays`: `POINTS`, `LINES`, `LINE_STRIP`, `TRIANGLES`, `TRIANGLE_STRIP`',
     covers: ['webgl:WebGLRenderingContextBase.drawArrays'],
-    evidence: 'src/rhi/webgl2.ts#GL_TOPOLOGY',
+    evidence: 'src/rhi/webgl2.ts#GL_TOPOLOGY|GlRenderPass~"drawArraysInstanced"',
     note: "WebGPU's five topologies map",
     webgpu: typed('scripts/compile-gate.ts', 'the five topologies'),
     webgl2: typed('scripts/compile-gate.ts', 'the five topologies'),

@@ -118,7 +118,8 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUComputePassEncoder.end()`',
     covers: ['GPUComputePassEncoder.end'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl.ts#GlFrameImpl.submit',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/runtime/gl.ts#GlFrameImpl.submit|GlFrameImpl.runNow',
     webgpu: typed('journeys/mesh-raycast/journey.mjs'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },

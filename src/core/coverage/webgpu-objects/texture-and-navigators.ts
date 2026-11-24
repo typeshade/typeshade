@@ -134,7 +134,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     name: '`GPUTexture.format`',
     covers: ['GPUTexture.format'],
     evidence:
-      'src/runtime/resources.ts#TextureOptions.format; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/runtime/resources.ts#layoutOf; src/runtime/gl-draw.ts#GlTextureImpl.constructor; changes/0050-texture-write.md:387',
+      'src/runtime/resources.ts#TextureOptions.format; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/runtime/resources.ts#layoutOf; changes/0050-texture-write.md:387',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',

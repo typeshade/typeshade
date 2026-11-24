@@ -99,7 +99,8 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createRenderPipeline()`',
     covers: ['GPUDevice.createRenderPipeline'],
-    evidence: 'src/runtime/program.ts#ProgramImpl.render; src/runtime/gl.ts#GlProgramImpl.render',
+    evidence:
+      'src/runtime/program.ts#ProgramImpl.render; src/runtime/gl.ts#GlProgramImpl.render; src/runtime/gl-draw.ts#GlRenderPrograms~"createRenderPipeline"',
     webgpu: typed('src/runtime/runtime.test.ts', 'the async form is used'),
     webgl2: typed(
       'scripts/compile-gate.ts',

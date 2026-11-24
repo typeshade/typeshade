@@ -20,8 +20,7 @@ export const VERTEX_STATE_AND_BASES_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUVertexAttribute.format`',
     covers: ['GPUVertexAttribute.format'],
-    evidence:
-      'src/core/vertex-layout.ts:23-88; src/rhi/webgl2.ts#GlRenderPass~"vertexAttribPointer"',
+    evidence: 'src/core/vertex-layout.ts:23-88; src/rhi/webgl2.ts#GlRenderPass~"a.format.split"',
     webgpu: andGap(
       typed(
         'src/compiler/ts/vertex-layout.test.ts',
@@ -100,8 +99,7 @@ export const VERTEX_STATE_AND_BASES_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUVertexBufferLayout.attributes`',
     covers: ['GPUVertexBufferLayout.attributes'],
-    evidence:
-      'src/core/vertex-layout.ts:23-80; src/rhi/webgl2.ts#GlRenderPass~"vertexAttribPointer"',
+    evidence: 'src/core/vertex-layout.ts:23-80; src/rhi/webgl2.ts#GlRenderPass~"layout.attributes"',
     webgpu: typed('src/compiler/ts/vertex-layout.test.ts', 'one buffer, stepMode vertex'),
     webgl2: typed('scripts/compile-gate.ts', 'one buffer, stepMode vertex'),
   },

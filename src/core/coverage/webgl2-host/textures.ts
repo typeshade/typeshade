@@ -20,7 +20,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextOverloads.texSubImage2D',
     ],
     evidence:
-      'src/rhi/webgl2.ts#bindTexture~"activeTexture"|dataTexture~"texSubImage2D"|GlDevice.writeTexture~"texSubImage2D"|GlDevice.createTexture; src/runtime/gl-draw.ts#GlDrawing.guard (the _fp64 guard texture, written once); changes/0050-texture-write.md',
+      'src/rhi/webgl2.ts#bindTexture~"activeTexture"|dataTexture~"texSubImage2D"|GlDevice.writeTexture~"texSubImage2D"|GlDevice.createTexture; src/runtime/gl-draw.ts#GlTextureImpl~"createTexture"; src/runtime/gl-draw.ts#GlDrawing.guard~"writeTexture" (the _fp64 guard texture, written once); changes/0050-texture-write.md',
     note: 'rt.texture() makes a 2D texture in any WebGPU-named format WebGL2 has; an upload from the host and mipmaps are 0050 on WebGPU only; copies between textures and texParameter (LOD, compare) have no typed form. The sRGB formats (EXT_sRGB is core in WebGL2; `specOf` of `src/rhi/webgl2.ts`) and the cube faces are covered by this row; the WebGL2 route to a cube texture is in the Textures 3D / array row',
     webgpu: andGap(
       typed(
@@ -178,7 +178,7 @@ export const TEXTURES_ROWS: readonly Row[] = [
     name: '`EXT_texture_norm16` (16-bit unorm and snorm colour formats)',
     covers: ['webgl:EXT_texture_norm16'],
     evidence:
-      'src/rhi/webgl2.ts#GlFormat.type (NAMED admits the names); src/rhi/webgl2.ts#specOf (specOf: no 16-bit unorm or snorm case)',
+      'src/rhi/webgl2.ts#NAMED (NAMED admits the names); src/rhi/webgl2.ts#specOf (specOf: no 16-bit unorm or snorm case)',
     note: 'the runtime does not turn EXT_texture_norm16 on (`GlState` constructor of `src/rhi/webgl2.ts`); the sampling route is read, not measured on a WebGL2 context',
     webgpu: andGap(
       typed(

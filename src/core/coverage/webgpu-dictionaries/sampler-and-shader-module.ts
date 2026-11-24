@@ -101,7 +101,7 @@ export const SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPUSamplerDescriptor.mipmapFilter`',
     covers: ['GPUSamplerDescriptor.mipmapFilter'],
     evidence:
-      'src/runtime/resources.ts#SamplerOptions|Sampler|ADDRESS|SamplerImpl; src/rhi/webgl2.ts#GlDevice.createSampler~"TEXTURE_MIN_FILTER"; changes/0050-texture-write.md:323-325, 331',
+      'src/runtime/resources.ts#SamplerOptions|Sampler|ADDRESS|SamplerImpl; src/rhi/webgl2.ts#GlDevice.createSampler (createSampler never reads mipmapFilter); changes/0050-texture-write.md:323-325, 331',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): rt.texture makes one level, so the mip filter cannot change a frame (src/runtime/resources.ts:308); filter, address (one word for U, V and W), compare; one filter for mag, min and mip; separate filters have no spelling (src/runtime/resources.ts:303-308)',

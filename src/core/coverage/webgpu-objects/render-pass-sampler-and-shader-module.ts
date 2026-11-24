@@ -39,7 +39,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     name: '`GPURenderPassEncoder.setBlendConstant()`',
     covers: ['GPURenderPassEncoder.setBlendConstant'],
     evidence:
-      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts#GlPass.setBlendConstant (the blendColor call)',
+      'src/runtime/runtime.ts:172-191; src/runtime/gl-draw.ts#GlPass.setBlendConstant; src/rhi/webgl2.ts#GlRenderPass.setBlendConstant (the blendColor call)',
     webgpu: typed(
       'journeys/render-state',
       'RenderPass.setBlendConstant; also src/runtime/runtime.test.ts',
@@ -123,7 +123,7 @@ export const RENDER_PASS_SAMPLER_AND_SHADER_MODULE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPURenderPassEncoder.end()`',
     covers: ['GPURenderPassEncoder.end'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl.ts#GlFrameImpl.pass',
+    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl-draw.ts#recordPass~"p.end()"',
     webgpu: typed('src/runtime/runtime.test.ts', 'Frame.pass()'),
     webgl2: typed('scripts/compile-gate.ts', 'Frame.pass()'),
   },

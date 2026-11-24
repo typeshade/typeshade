@@ -66,7 +66,7 @@ export const INTROSPECTION_AND_EXTENSIONS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.drawingBufferColorSpace',
     ],
     evidence:
-      'src/rhi/webgl2.ts#GlState.screen|GlDevice.currentTexture (the pass draws into the drawing buffer); docs/use-typeshade-surface.md:7960 (a colour target is the runtime context for its canvas)',
+      'src/rhi/webgl2.ts#GlDevice.fromNative~"gl.canvas" (the one read of gl.canvas); docs/use-typeshade-surface.md:7960 (a colour target is the runtime context for its canvas)',
     note: "colour space is the host's; the host makes its canvas and its context",
     webgpu: raw(
       'createRuntime({ device })',

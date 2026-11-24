@@ -112,7 +112,7 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     name: '`GPUTextureDescriptor.format`',
     covers: ['GPUTextureDescriptor.format'],
     evidence:
-      'src/runtime/resources.ts:17-32, 220-233; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/rhi/webgl2.ts#GlDevice.createTexture~"formatOf"; src/rhi/webgl2.ts#formatOf|textureKindOf; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
+      'src/runtime/resources.ts:17-32, 220-233; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/rhi/webgl2.ts#GlDevice.createTexture~"formatOf"; src/rhi/webgl2.ts#formatOf|textureKindOf',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',
