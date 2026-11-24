@@ -49,15 +49,15 @@ import {
   type RhiColorTarget,
   type RhiDevice,
   type RhiRenderPass,
-  type RhiSampler,
   type RhiTexture,
 } from '../rhi/rhi.js';
 import { GL_BLEND_FACTOR, GL_BLEND_OPERATION, GL_TOPOLOGY, glReadBindings } from '../rhi/webgl2.js';
 import type { GlDrawing } from './gl-draw/drawing.js';
 import { glslNameOf } from './gl-draw/glsl-name.js';
 import { GlTextureImpl } from './gl-draw/texture.js';
-import { GlSamplerImpl } from './gl-draw/sampler.js';
 import type { Slot, Built, DrawRun } from './gl-draw/pipeline-types.js';
+import { textureOf, samplerOf } from './gl-draw/draw-handles.js';
+export { textureOf, samplerOf } from './gl-draw/draw-handles.js';
 export { GlSamplerImpl } from './gl-draw/sampler.js';
 export { GlTextureImpl } from './gl-draw/texture.js';
 export { glslNameOf } from './gl-draw/glsl-name.js';
@@ -630,24 +630,6 @@ function packed(layout: Layout, v: unknown, name: string, where: string): Uint8A
     if (err instanceof Misfit) throw new TypeError(`${where}: ${err.path} ${err.problem}.`);
     throw err;
   }
-}
-
-export function textureOf(rhi: RhiDevice, v: unknown, where: string): RhiTexture {
-  if (v instanceof GlTextureImpl) return v.handle;
-  const host = typeof v === 'object' && v !== null ? rhi.fromNative('texture', v) : undefined;
-  if (host !== undefined) return host;
-  throw new TypeError(
-    `${where} takes a Texture of the runtime or a WebGLTexture; got ${describe(v)}.`,
-  );
-}
-
-export function samplerOf(rhi: RhiDevice, v: unknown, where: string): RhiSampler {
-  if (v instanceof GlSamplerImpl) return v.handle;
-  const host = typeof v === 'object' && v !== null ? rhi.fromNative('sampler', v) : undefined;
-  if (host !== undefined) return host;
-  throw new TypeError(
-    `${where} takes a Sampler of the runtime or a WebGLSampler; got ${describe(v)}.`,
-  );
 }
 
 export class GlPass implements RenderPass, PassFit {
