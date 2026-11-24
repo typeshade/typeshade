@@ -1,0 +1,73 @@
+name: change scope (move)
+description: >-
+  Reads the move declaration of a pull request range and runs scripts/move-purity.ts on it.
+  The output `move` is `comments` or `pure` only when the checker exits 0 and its JSON says the
+  range is declared in that mode and is pure. Every other case is `none`. The action never fails
+  on a range that is not pure: the `move purity` step of the `quality` job reports that failure.
+
+inputs:
+  event:
+    description: The event name (`github.event_name`). Only `pull_request` can give a move scope.
+    required: true
+  base:
+    description: The base branch of the pull request (`github.base_ref`).
+    required: true
+  title:
+    description: The pull request title.
+    required: false
+    default: ''
+
+outputs:
+  move:
+    description: none, comments or pure.
+    value: ${{ steps.check.outputs.move || 'none' }}
+
+runs:
+  using: composite
+  steps:
+    # A range with no commit line that looks like a declaration and no `Move:` title is `none`.
+    # The install and the checker then do not run, so an ordinary pull request pays nothing.
+    - id: gate
+      shell: bash
+      env:
+        EVENT: ${{ inputs.event }}
+        BASE: ${{ inputs.base }}
+        TITLE: ${{ inputs.title }}
+      run: |
+        run=false
+        if [ "$EVENT" = pull_request ]; then
+          if git log --format=%B "origin/$BASE..HEAD" > "$RUNNER_TEMP/move-messages"; then
+            if grep -Eiq '^[[:space:]>]*move[[:space:]]*:' "$RUNNER_TEMP/move-messages"; then run=true; fi
+          fi
+          if printf '%s\n' "$TITLE" | grep -Eiq '^[[:space:]]*move[[:space:]]*:'; then run=true; fi
+        fi
+        echo "run=$run" >> "$GITHUB_OUTPUT"
+
+    - if: steps.gate.outputs.run == 'true'
+      uses: oven-sh/setup-bun@v2
+      continue-on-error: true
+      with:
+        bun-version-file: .bun-version
+
+    - if: steps.gate.outputs.run == 'true'
+      shell: bash
+      continue-on-error: true
+      run: bun install --frozen-lockfile
+
+    - id: check
+      if: steps.gate.outputs.run == 'true'
+      shell: bash
+      env:
+        BASE: ${{ inputs.base }}
+        TITLE: ${{ inputs.title }}
+      run: |
+        move=none
+        report="$RUNNER_TEMP/move-purity.json"
+        if bun scripts/move-purity.ts --base "origin/$BASE" --require --title "$TITLE" --json > "$report" 2> "$RUNNER_TEMP/move-purity.err"; then
+          kind=$(jq -r 'if .pure == true then (.declared // "") else "" end' "$report" 2>/dev/null || true)
+          case "$kind" in
+            comments | pure) move=$kind ;;
+          esac
+        fi
+        echo "move=$move" >> "$GITHUB_OUTPUT"
+        echo "Move scope: $move" >> "$GITHUB_STEP_SUMMARY"

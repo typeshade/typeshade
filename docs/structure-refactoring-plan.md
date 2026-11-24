@@ -644,16 +644,21 @@ Fact: `src/compiler/ts/abstract-const.ts` is the largest file of `src/`. S9 wait
 
 ## 8. Verification and the per-slice record
 
-Functional verification. Run each check that the slice can reach, from `AGENTS.md#tests`:
+Functional verification. A slice (a range that declares `Move: comments` or `Move: pure`) runs these checks locally.
+Items 2, 5, 6, 7 and 8 are CI work for a slice (item 10). Do not run them locally:
+the affected set took 11 minutes for one comment-removal slice, and CI runs the pinned unit shards on every slice.
 
 1. `bun install --frozen-lockfile`
-2. `bun run build`
+2. CI runs `bun run build`. Locally run `bunx tsc --noEmit -p tsconfig.json`.
 3. `bun run lint`
 4. `bun run format:check`
-5. `bun run test`, or the affected set: `bun scripts/affected-tests.ts --base origin/main --run`
-6. `bun run gate:boundary`, when the slice touches `runtime`, `core/emit` or `fuse`.
-7. `bun run gate:compile`, when the slice touches emit or a backend. It needs Chromium.
-8. The emit goldens, without update (section 4).
+5. The tests that read the text of other files, not the affected set:
+   `bunx vitest run src/core/spec-conformance 'src/*-policy.test.ts' src/self-contained.test.ts src/doc-references.test.ts`.
+   Reason: removing comments from `src/runtime/gl-draw.ts` broke `src/core/spec-conformance/capability-coverage.test.ts`,
+   because data rows cite that file by line number. A later slice that moves code can break a row the same way.
+6. CI runs `bun run gate:boundary` (the `runtime bundle boundary` step of `quality`).
+7. CI runs `bun run gate:compile` for `Move: pure`, and not for `Move: comments`.
+8. CI runs the emit goldens inside the unit shards.
 9. The move-purity check of S0 item a, over the base and the head commit of the pull request:
    `bun run move:check --base origin/main --require`.
 
@@ -842,6 +847,49 @@ What a pass does not prove:
 - The checks of the pure mode (evaluation order, import graph, test titles) do not run. They have nothing to read: no declaration moved.
 - The helper `scripts/remove-comments.ts` runs this comparison on its own result, so it proves the same thing and no more.
 
+10. What CI runs for a slice. Reason: the owner said on 2026-11-24 "CI 무시하는게 좋아보여요. 지금 보니까 코드 변경이 없는데도 너무 무거운 작업을 진행하는건 비용효율적이지 않습니다" (CI looks worth ignoring; running such heavy jobs when no code changes is not cost-effective).
+    The owner answered the proposal of a lighter path with "좋은 방향으로 그러면" (then go in a good direction).
+
+    The `change scope` job of `.github/workflows/ci.yml` reads the `move` output of `.github/actions/change-scope/action.yml`.
+    The output is `comments` or `pure` only when the job runs
+    `bun scripts/move-purity.ts --base "origin/$BASE" --require --title "$PR_TITLE" --json`, the command exits 0,
+    and the JSON has `pure: true` and `declared` equal to that mode. Every other result is `none`.
+    The job does not fail on a range that is not pure. The `move purity` step of `quality` reports that.
+
+    | Job                                                 | documents | `Move: comments` | `Move: pure`                 | code (and every push to `main`) |
+    | --------------------------------------------------- | --------- | ---------------- | ---------------------------- | ------------------------------- |
+    | `change scope`                                      | runs      | runs             | runs                         | runs                            |
+    | `source and policy checks`                          | runs      | runs             | runs                         | runs                            |
+    | `pinned TypeScript unit shards` (3)                 | runs      | runs             | runs                         | runs                            |
+    | `typecheck + unit` (required)                       | runs      | runs             | runs                         | runs                            |
+    | `traceability (Doorstop)` (required)                | runs      | runs             | runs                         | runs                            |
+    | `TypeScript 5 unit shards` (3) and its check        | skipped   | skipped          | skipped                      | runs                            |
+    | `TypeScript 6 unit shards` (3) and its check        | skipped   | skipped          | skipped                      | runs                            |
+    | `compile gate (Tint + WebGL2)` (required)           | skipped   | skipped          | runs                         | runs                            |
+    | `user journeys (packed tarball, WebGPU)` (required) | skipped   | skipped          | runs                         | runs                            |
+    | `render gate (WebGPU + pixel golden)`               | skipped   | skipped          | skipped                      | runs                            |
+    | `perf gate (instrument, SwiftShader)`               | skipped   | skipped          | skipped                      | runs                            |
+    | `package-smoke.yml`: build, then smoke              | not run   | skipped          | one smoke, Linux and Node 24 | five smokes                     |
+    | `downstream.yml`: `TypeNN candidate (build + CPU)`  | not run   | skipped          | runs                         | runs                            |
+
+    A skipped required check reports success to the ruleset, as it does for a documents-only pull request.
+    `package-smoke.yml` and `downstream.yml` cannot read a job of `ci.yml`.
+    Each has its own `scope` job that calls the same action. Their path filters keep documents-only pull requests out.
+
+    Limits:
+
+    - A skipped gate runs on the push to `main` after the merge (`on.push.branches: [main]` of each workflow).
+      A run on `main` is never cancelled by a later push: `concurrency` of the three workflows sets
+      `cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}`.
+      Rule 13.4 and change `0147` record this exception.
+      A failure there marks the commit on `main` red and notifies the account that merged and the watchers of Actions.
+      No workflow opens an issue or reverts the commit.
+    - A pull request runs its own copy of the workflow, the action and the checker. A range could lie to skip gates.
+      A range that edits `.github/` or `scripts/move-purity/` is not pure, but the orchestrating agent still runs
+      the checker of `main` before a merge (section 9.1, decision D5).
+    - The unit shards of the pinned TypeScript version run in every scope. Before the merge they run the selection of `scripts/affected-tests.ts`, not the whole suite.
+      A comment removal can still break a test that reads the text of a file. If the selection misses that test, it fails on `main`, where the full suite runs.
+
 Document audit. It is separate from the functional checks:
 
 1. `bun run docs:impact`
@@ -893,9 +941,9 @@ Authority: the quotes in section 1.1. Reason: the owner delegated the design of 
 Fact: a slice that the move-purity check refuses is not a pure move. The agent handles it as an ordinary change.
 An ordinary change follows `CLAUDE.md`, Merging, and waits for the owner where that section says so.
 
-Fact: this plan does not edit `CLAUDE.md`, Merging. That section lists the pull requests that need no "merge" from the owner.
-A pure move is not among them. Until the section is revised, D5 rests on the quoted authority alone.
-A revision of that section is a separate pull request that the owner merges.
+Fact: `CLAUDE.md`, Merging, lists the pull requests that need no "merge" from the owner.
+Since pull request #1529 (`d14bebb4`) that list names a pull request that declares `Move: pure` or `Move: comments` and that `scripts/move-purity.ts` accepts.
+D5 therefore rests on `CLAUDE.md`, Merging, and the owner's approval of 2026-11-24 ("승인") recorded there.
 
 ### 9.2 Dispositions of the first four open items
 
@@ -908,11 +956,11 @@ A revision of that section is a separate pull request that the owner merges.
 
 ### 9.3 Open items
 
-| No. | Item                                                                    | Reason                                                                  | Next action                                                                         |
-| --- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 5   | The exact order of `core/ir`, `core/passes` and `core/backends` (S0 g). | The import graph of `core` is not measured yet.                         | Measure it in the pull request of S0 item g. Record the order and its `KNOWN` list. |
-| 6   | The import cycles around the three `host-*` files (D3).                 | No one measured them. The S0 item d check does not exist yet.           | Build S0 item d. Run it before the S1 move.                                         |
-| 7   | A revision of `CLAUDE.md`, Merging, for pure moves (D5).                | The section does not list a pure move. The owner merges a change to it. | Draft the revision in its own pull request. The owner merges it.                    |
-| 8   | The conflict of S9 with #1493, #1498 and the waiting patches.           | Section 7.1: these edit files that the series would move.               | Check the open pull requests before S9 starts. Start it when they merge.            |
+| No. | Item                                                                    | Reason                                                               | Next action                                                                         |
+| --- | ----------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 5   | The exact order of `core/ir`, `core/passes` and `core/backends` (S0 g). | The import graph of `core` is not measured yet.                      | Measure it in the pull request of S0 item g. Record the order and its `KNOWN` list. |
+| 6   | The import cycles around the three `host-*` files (D3).                 | No one measured them. The S0 item d check does not exist yet.        | Build S0 item d. Run it before the S1 move.                                         |
+| 7   | A revision of `CLAUDE.md`, Merging, for pure moves (D5).                | Done in pull request #1529 (`d14bebb4`): the section lists the move. | None. Closed.                                                                       |
+| 8   | The conflict of S9 with #1493, #1498 and the waiting patches.           | Section 7.1: these edit files that the series would move.            | Check the open pull requests before S9 starts. Start it when they merge.            |
 
 Fact: nothing in this plan reverses an entry of `docs/owner-decisions.md`.

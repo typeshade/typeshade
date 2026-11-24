@@ -2,6 +2,11 @@ name: ci
 
 # Verifies: Rule 13.4 (docs/language-design.md; traced in reqs/).
 
+# A run on main is never cancelled by a later push (`concurrency` below); a pull request run is
+# cancelled by a newer push to its branch. A pull request that declares `Move: comments` or
+# `Move: pure` and passes scripts/move-purity.ts runs fewer jobs before the merge (change `0147`,
+# Rule 13.4 of docs/language-design.md); the skipped jobs run on main after the merge.
+#
 # TypeShade's gate. The jobs below, on every push to main and every pull request:
 #
 #   quality       ESLint, format, runtime bundle boundary and pull-request document/policy
@@ -46,6 +51,13 @@ name: ci
 #                 TypeScript-version workers/checks, `compile-gate`, `user-journeys` and `render-gate`, which
 #                 read none. A skipped job reports success, so a required check is not left
 #                 waiting. A push to main, a dispatch and a release run every job.
+#   move scope    a pull request that is code and whose range declares `Move: comments` or
+#                 `Move: pure` and passes scripts/move-purity.ts (the `move` output of `scope`)
+#                 skips more. `comments` runs `quality`, `unit-pinned`, `check` and `traceability`.
+#                 `pure` adds `compile-gate` and `user-journeys`. Both skip the TypeScript-version
+#                 workers/checks, `render-gate` and `perf-gate`. The same skipped-job rule keeps
+#                 the required checks green. package-smoke.yml and downstream.yml read the same
+#                 classification through .github/actions/change-scope.
 #
 # The browser is installed with the PROJECT-LOCAL playwright bin, never `bunx playwright`:
 # bunx fetches the standalone package at whatever version is newest, installs THAT
@@ -67,7 +79,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # LINT.IfChange(jobs)
 jobs:
@@ -79,9 +91,10 @@ jobs:
   scope:
     name: change scope
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      move: ${{ steps.move.outputs.move || 'none' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -110,6 +123,18 @@ jobs:
           done < "$RUNNER_TEMP/ci-changed-files"
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "Code changed: $code" >> "$GITHUB_STEP_SUMMARY"
+      # `move` is comments or pure only when scripts/move-purity.ts of this checkout says the range
+      # declares that mode and is pure. This step never fails on a range that is not pure: the
+      # `move purity` step of `quality` reports that. A pull request runs its own copy of this
+      # action and of the checker, so decision D5 has the orchestrating agent run the checker of
+      # `main` before a merge (docs/structure-refactoring-plan.md, section 9.1).
+      - id: move
+        if: github.event_name == 'pull_request' && steps.diff.outputs.code == 'true'
+        uses: ./.github/actions/change-scope
+        with:
+          event: ${{ github.event_name }}
+          base: ${{ github.base_ref }}
+          title: ${{ github.event.pull_request.title }}
 
   # Keep source checks parallel with unit shards. Builds stay in each unit worker because
   # tests inspect emitted files as well as source (src/publish-manifest.test.ts).
@@ -169,7 +194,7 @@ jobs:
   unit-typescript5:
     name: TypeScript 5 unit shards
     needs: scope
-    if: needs.scope.outputs.code == 'true'
+    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     uses: ./.github/workflows/ci-unit.yml
     with:
       typescript: &typescript5 '5.9.3'
@@ -178,7 +203,7 @@ jobs:
   unit-typescript6:
     name: TypeScript 6 unit shards
     needs: scope
-    if: needs.scope.outputs.code == 'true'
+    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     uses: ./.github/workflows/ci-unit.yml
     with:
       typescript: &typescript6 '6.0.3'
@@ -206,7 +231,7 @@ jobs:
   typescript5:
     name: typecheck + unit (TypeScript ${{ matrix.typescript }})
     needs: [scope, unit-typescript5]
-    if: always() && needs.scope.outputs.code == 'true'
+    if: always() && needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -224,7 +249,7 @@ jobs:
   typescript6:
     name: typecheck + unit (TypeScript ${{ matrix.typescript }})
     needs: [scope, unit-typescript6]
-    if: always() && needs.scope.outputs.code == 'true'
+    if: always() && needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -293,7 +318,7 @@ jobs:
   compile-gate:
     name: compile gate (Tint + WebGL2)
     needs: scope
-    if: needs.scope.outputs.code == 'true'
+    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move != 'comments'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -313,7 +338,7 @@ jobs:
   user-journeys:
     name: user journeys (packed tarball, WebGPU)
     needs: scope
-    if: needs.scope.outputs.code == 'true'
+    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move != 'comments'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -332,7 +357,7 @@ jobs:
   perf-gate:
     name: perf gate (instrument, SwiftShader)
     needs: scope
-    if: needs.scope.outputs.code == 'true'
+    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -362,7 +387,7 @@ jobs:
   render-gate:
     name: render gate (WebGPU + pixel golden)
     needs: scope
-    if: needs.scope.outputs.code == 'true'
+    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

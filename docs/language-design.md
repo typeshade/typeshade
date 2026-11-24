@@ -1790,6 +1790,9 @@ A _gate_ is a command CI runs that fails the change when the change breaks it, a
 
 **Rule 13.4.** Every change must pass the mechanical gates: `bun run build`; `bun run test`, with `surface-names.test.ts`, `intrinsic-coverage.test.ts`, `capability-reachability.test.ts`, `determinism.test.ts`, `api-surface.test.ts`, `emit-reflection-conformance.test.ts`, and the emit goldens among them; `bun run gate:compile`; the docs snippet test `src/compiler/ts/doc-snippets.test.ts`, which compiles every snippet of the surface document.
 A change that edits only documents (a `.md` file outside `src/`, or a Doorstop item under `reqs/`) must pass `bun run build`, `bun run test` and the traceability check, and needs no GPU gate, since no GPU gate reads a document; CI's `change scope` job tells the two apart on a pull request, and a push to `main` and a release run every gate (change `0055`).
+A pull request range that declares `Move: comments` and that `scripts/move-purity.ts` accepts removes comments and changes no token. Before the merge it must pass the source and policy checks, the unit shards of the pinned TypeScript version and the traceability check. It needs no compile gate, user journeys, TypeScript 5 or 6 unit shards, render gate, perf gate, package smoke or TypeNN build (change `0147`).
+A range that declares `Move: pure` and that the checker accepts moves declarations between clean files. Before the merge it must also pass the compile gate, the user journeys, one package smoke and the TypeNN build. It needs no TypeScript 5 or 6 unit shards, render gate or perf gate (change `0147`).
+Each skipped gate runs on `main` after the merge, and a run on `main` is never cancelled by a later push. A push to `main`, a manual dispatch and a release run every gate. A range that the checker refuses is an ordinary change.
 
 - Rationale: a rule with a gate is enforced; a rule without one is Appendix B.
 - Derives from: `AGENTS.md` and `.github/workflows/ci.yml`.
