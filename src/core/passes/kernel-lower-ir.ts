@@ -1,4 +1,4 @@
-import type { Expr, ModuleDecl, Stmt } from '../ir/nodes.js';
+import type { Expr, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
 import { u32T } from '../ir/types.js';
 import { mapChildren, mapStmtExpr } from '../ir/visit.js';
@@ -16,6 +16,7 @@ import {
   toAtomics,
   type DeferredScatter,
 } from './kernel-lower-ir/scatter.js';
+export { declaredNames, spellArrayBindings } from './kernel-lower-ir/names.js';
 export { ATOMIC_OF, atomicArray } from './kernel-lower-ir/scatter.js';
 export {
   mapStmt,
@@ -60,56 +61,6 @@ export function entryRewrite(
     return mapChildren(e, rewrite);
   };
   return rewrite;
-}
-
-export function declaredNames(m: ModuleDecl): Set<string> {
-  const names = new Set<string>([
-    ...m.consts.map((c) => c.name),
-    ...m.bindings.map((b) => b.name),
-    ...(m.overrides ?? []).map((o) => o.name),
-    ...(m.vars ?? []).map((v) => v.name),
-    ...m.structs.flatMap((s) => [s.name, ...s.fields.map((x) => x.name)]),
-    ...m.funcs.map((x) => x.name),
-  ]);
-  const collect = (body: readonly Stmt[]): void => {
-    for (const st of body) {
-      if (st.s === 'let' || st.s === 'var') names.add(st.name);
-      mapStmtExpr(
-        st,
-        (e) => e,
-        (child) => {
-          collect([child]);
-          return child;
-        },
-      );
-    }
-  };
-  for (const fn of m.funcs) {
-    fn.params.forEach((p) => names.add(p.name));
-    collect(fn.body);
-  }
-  return names;
-}
-
-export function spellArrayBindings(
-  params: readonly string[],
-  declared: ReadonlySet<string>,
-  reserved: (name: string) => boolean,
-): ReadonlyMap<string, string> {
-  const used = new Set(declared);
-  const out = new Map<string, string>();
-  for (const name of params) {
-    if (!reserved(name)) continue;
-    for (let i = 0; ; i++) {
-      const candidate = i === 0 ? `${name}_` : `${name}_${i}`;
-      if (!reserved(candidate) && !used.has(candidate)) {
-        used.add(candidate);
-        out.set(name, candidate);
-        break;
-      }
-    }
-  }
-  return out;
 }
 
 interface Lane {
