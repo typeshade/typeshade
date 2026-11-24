@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Host: collect into a Set and a Map",
-  "blurb": "Four kernel functions that take JavaScript's own `Set` and `Map` (change 0080), and the host that calls them. `labels` adds each nonzero label once, `latest` keeps the last value set for each key, `lookup` reads the map where `has` guards `get`, and `present` adds in one loop and reads in the next. The host passes `new Set()` and `new Map()`, and when each promise resolves they hold the entries a sequential run leaves: each key once, in the order first added, the value set last. On WebGPU each add or set pushes a record the call applies in order, and a lookup is a binary search of the keys the call uploads; WebGL2 runs none.",
+  "blurb": "Four kernel functions that take JavaScript's own `Set` and `Map` (change 0080), and the host that calls them. `labels` adds each nonzero label once, `latest` keeps the last value set for each key, `lookup` reads the map where `has` guards `get`, and `present` adds in one loop and reads in the next. The host passes `new Set()` and `new Map()`, and when each promise resolves they hold the entries a sequential run leaves: each key once, in the order first added, the value set last. On WebGPU each add or set pushes a record the call applies in order, and a lookup is a binary search of the keys the call uploads; a kernel function that takes a `Set` or a `Map` is not supported yet on the WebGL2 tier (Rule 11.8).",
   "renderable": false,
   "reason": "no entry point"
 }

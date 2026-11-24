@@ -5,6 +5,10 @@ import { eachExpr, eachStmtExpr, mapStmtExpr } from '../../../../core/ir/visit.j
 import { mapExpr } from '../../../../core/passes/opt/ir-transform.js';
 import { storeAfterLoops } from '../../../../core/passes/kernel-stores.js';
 
+function arrayOf(stub: FuncDecl, param: string): ShaderType {
+  return stub.params.find((p) => p.name === param)!.type;
+}
+
 const U32: ShaderType = { kind: 'scalar', scalar: 'u32' };
 
 function namesIn(body: readonly Stmt[]): Set<string> {
@@ -32,10 +36,17 @@ export function freeParamName(stub: FuncDecl, wanted: string): string {
   return name;
 }
 
-export function lengthFromHost(stub: FuncDecl, param: string): string {
+export function lengthFromHost(stub: FuncDecl, param: string, grown: boolean): string {
   const name = freeParamName(stub, `${param}_length`);
   const arrays = new Set([param]);
-  const count: Expr = { op: 'param', type: U32, name };
+  const count: Expr = grown
+    ? {
+        op: 'call',
+        type: U32,
+        fn: 'pushCount',
+        args: [{ op: 'param', type: arrayOf(stub, param), name: param }],
+      }
+    : { op: 'param', type: U32, name };
   const swap = (e: Expr): Expr =>
     mapExpr(e, (x) =>
       x.op === 'call' &&

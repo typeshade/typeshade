@@ -1404,9 +1404,9 @@ the owner chose, as the pull request or the issue records it. Each program below
   - Example: `let h = 1 << 30; return f32(abs(h + h));` was -2147483648 on `main` at `7513a9af`.
     It is refused with
     `The compiler cannot prove that the u32 bits and the TypeScript value of "h + h" agree, so the "abs" does not say which value it means.`
-  - Status: implemented by #1358. Open deviation, issue #1388:
-    `let h = 1 << 30; return f32(abs(i32(f32(h + h))));` names the edit `i32(h + h)`, and the
-    edited program gives -2147483648, where TypeScript gives 2147483648.
+  - Status: implemented by #1358. Deviation, issue #1388, closed by #1473:
+    `let h = 1 << 30; return f32(abs(i32(f32(h + h))));` named the edit `i32(h + h)`, and the
+    edited program gave -2147483648, where TypeScript gives 2147483648. It names no edit.
 - [decision, owner, 2026-11-18] (d) The `i32` minimum under `abs` (pull request #1358). Where the
   compiler proves that the `i32` argument of `abs` is the `i32` minimum, the program is refused
   with no edit. A value known only at run time (`abs(ii)`) keeps WGSL's rule.
@@ -1414,10 +1414,10 @@ the owner chose, as the pull request or the issue records it. Each program below
     `7513a9af` (TypeScript 2147483648). It is refused with no edit.
   - Cost recorded: `abs(ii)` with `ii` the `i32` minimum gives -2147483648, where TypeScript
     gives 2147483648.
-  - Status: implemented by #1358. Open deviation, issue #1388: a binding
+  - Status: implemented by #1358. Deviation, issue #1388, closed by #1473: a binding
     (`let k = i32(h + h); abs(k)`), a constant fold (`abs(i32(-2147483647 - 1))`) and a nested
-    conversion (`abs(i32(u32(h + h)))`) still compile to -2147483648. The edit named for
-    `abs(i32(f32(h + h)))` gives a wrong value (decision (c) above).
+    conversion (`abs(i32(u32(h + h)))`) compiled to -2147483648. They are refused with no edit.
+    The edit named for `abs(i32(f32(h + h)))` is withheld (decision (c) above).
 - [decision, owner, 2026-11-18] The numbers of a refusal sentence (pull request #1354), recorded
   as "A refusal sentence states the two readings as numbers only when the variable or expression
   involves no variable that is reassigned after its declaration. Every other case uses the
@@ -1451,12 +1451,11 @@ the owner chose, as the pull request or the issue records it. Each program below
   masked-value rule can accept a wrong value.
 - [decision, owner, 2026-11-18] Fix the typed `i32` positions, issue #1380, after #1354, #1356
   and #1358 merge.
-- Disposition: made part of the approved text by this amendment, except seven items that stay
+- Disposition: made part of the approved text by this amendment, except five items that stay
   open:
   - one decision that is not implemented: decision (e) (issue #1399);
-  - six open deviations: decision (a) (issue #1380), decision (c) (issue #1388), decision (d)
-    (issue #1388), the numbers of a refusal sentence (issue #1386), the decisions on #1320
-    (issue #1403), and the decision on #1363 (issue #1380).
+  - four open deviations: decision (a) (issue #1380), the numbers of a refusal sentence (issue
+    #1386), the decisions on #1320 (issue #1403), and the decision on #1363 (issue #1380).
 - Affects: the front matter gains Rule 7.4 and surface §22. The decision "TypeScript 값으로"
   makes two sentences false for these quotients: Rule 7.4's rationale and surface §22 say that a
   divisor that is zero at run time gives WGSL's answer, `x / 0 = x`, on every target.

@@ -266,7 +266,7 @@ describe('a flat value on a context without WEBGL_provoking_vertex', () => {
     for (const topology of ['line-list', 'line-strip'])
       await expect(pipelineOf(device, 'flat out float v;', topology)).rejects.toThrow(
         new TypeError(
-          `the pipeline of the test: a flat interstage value on a ${topology} needs WEBGL_provoking_vertex on WebGL2, and this context lacks it. WebGPU takes a flat value from the first vertex of a line and GLSL ES 3.00 from the last, and a line turned round covers other pixels at its ends.`,
+          `the pipeline of the test: a flat interstage value on a ${topology} is not supported yet on the WebGL2 tier without WEBGL_provoking_vertex (Rule 11.11), and this context lacks it. WebGPU takes a flat value from the first vertex of a line and GLSL ES 3.00 from the last, and a line turned round covers other pixels at its ends.`,
         ),
       );
     // A line with no flat value has no first vertex to take.

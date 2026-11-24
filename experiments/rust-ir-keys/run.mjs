@@ -86,7 +86,7 @@ for (const file of [
   'journeys/loop-fuse/ops.shade.ts',
   'journeys/mnist/batch.shade.ts',
   'examples/path-tracer.shade.ts',
-  'examples/fp64-mandelbrot-de-twin.shade.ts',
+  'examples/gallery/fp64-mandelbrot-de-twin/fp64-mandelbrot-de-twin.shade.ts',
 ]) {
   const fileName = join(root, file),
     source = readFileSync(fileName, 'utf8');

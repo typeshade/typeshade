@@ -1,0 +1,9 @@
+{
+  "title": "fp64 Julia set (source twin)",
+  "blurb": "`fp64-julia.ts` written in the source language: the seed is fixed and the pixel becomes z₀, so the `if`/`else` split runs the same escape loop over an `f64` on one side and a plain `f32` on the other. The double half spells nothing the emulation does not already carry, a `vec2f64` lane read, `f64(dx)` widening the pixel offset, and the seed lifted to full doubles beside it (§39), and the double half lowers to `df64_sqr` for each square, one `df64_mul` for `zx * zy` with its doubling an exact `* 2.0` on the two words, and `df64_add` / `df64_sub` around them, against plain f32 ops. The escape test reads an f32 |z|² on both halves: the double half narrows its words for it, since 48 bits move a value across 16 only from within an f32 rounding of it, and the f32 half carries its squares beside it, so no square is computed twice a trip. Both loops leave with a `break` at the first escaped z.",
+  "group": "precision",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true,
+  "twinOf": "fp64-julia"
+}

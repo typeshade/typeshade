@@ -76,6 +76,7 @@ import { SHADE_EXT, SHADE_FILES } from './_example-file.js';
 export {
   exampleFile,
   exampleSource,
+  GALLERY_DIR,
   HOSTS_DIR,
   PATH_DIR,
   SHADE_EXT,
@@ -199,9 +200,11 @@ function shadeExample(spec: ShadeSpec): ShaderExample {
   };
 }
 
-/** Where a pass's file lives: a `.shade.ts` path under `examples/passes/`, which the corpus
- *  scan does not read, the way it does not read `lib/`. */
-const PASS_FILE = /^passes\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.shade\.ts$/;
+/** Where a pass's file lives: a `.shade.ts` path under `examples/passes/`, or in the directory of
+ *  the example that draws it (`gallery/<id>/`). The corpus scan reads neither as an example, the
+ *  way it does not read `lib/`. */
+const PASS_FILE =
+  /^(?:passes|gallery\/[A-Za-z0-9_-]+)\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.shade\.ts$/;
 
 /** A pass's name is the name of the bindings that read it, so it is an identifier. */
 const PASS_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -212,10 +215,13 @@ function compilePass(
   file: string,
   pass: { readonly name: string; readonly file: string },
 ): ShaderPass {
-  if (!PASS_FILE.test(pass.file))
+  if (
+    !PASS_FILE.test(pass.file) ||
+    (pass.file.startsWith('gallery/') && !pass.file.startsWith(`${dirname(file)}/`))
+  )
     throw new Error(
       `typeshade: ${file}'s pass "${pass.name}" names ${JSON.stringify(pass.file)}, and a pass ` +
-        `file is a .shade.ts path under passes/`,
+        `file is a .shade.ts path under passes/ or in the example's own gallery directory`,
     );
   const source = readHere(pass.file);
   if (source === undefined)

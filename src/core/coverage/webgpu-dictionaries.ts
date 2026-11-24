@@ -1069,7 +1069,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: refused(
       'Rule 11.11',
       'omit multisample (one sample, the default)',
-      'the WebGL2 tier draws with one sample; a multisampled target is refused (src/runtime/gl-draw.ts:436-438)',
+      'the WebGL2 tier draws with one sample for now; a multisampled target is not supported yet (src/runtime/gl-draw.ts:436-438)',
     ),
   },
   {
@@ -1463,8 +1463,8 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     ),
     webgl2: refused(
       'Rule 11.11',
-      'none: the WebGL2 tier has no multisampled target',
-      'the WebGL2 tier draws with one sample; a multisampled target is refused (src/runtime/gl-draw.ts:436-438); one sample is the default: omit resolveTarget',
+      'none: a multisampled target is not supported yet on the WebGL2 tier',
+      'the WebGL2 tier draws with one sample for now; a multisampled target is not supported yet (src/runtime/gl-draw.ts:436-438); one sample is the default: omit resolveTarget',
     ),
   },
   {
@@ -2504,7 +2504,7 @@ export const WEBGPU_DICTIONARY_ROWS: readonly Row[] = [
     webgl2: refused(
       'Rule 11.11',
       'omit sampleCount (one sample)',
-      'the WebGL2 tier has no multisampled texture (src/runtime/gl-draw.ts:165-168)',
+      'a multisampled texture is not supported yet on the WebGL2 tier (src/runtime/gl-draw.ts:165-168)',
     ),
   },
   {

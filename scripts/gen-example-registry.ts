@@ -1,7 +1,9 @@
-import { writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { format, resolveConfig } from 'prettier';
+import { GALLERY_DIR, SHADE_EXT } from '../examples/_example-file.js';
+import { readManifest } from '../examples/_manifest.js';
 import { CURATED_ORDER } from '../examples/_order.js';
 import { discoverExamples } from '../examples/_scan.js';
 import { renderHostRegistry, REGISTRY as HOSTS_INDEX } from '../examples/hosts/_registry.js';
@@ -63,7 +65,26 @@ ${names}
   return format(text, { ...(await resolveConfig(ROOT_INDEX)), filepath: ROOT_INDEX });
 }
 
+/** The ids of the gallery directories (change 0145, amendment A2), each checked: it holds the
+ *  module `<id>.shade.ts` and an `example.json` that passes the schema, with a group that
+ *  `groups.json` lists. No index is written from them yet, so this is the generator's read.
+ *  @throws naming the directory and what it lacks. */
+export function checkGallery(): readonly string[] {
+  const dirs = readdirSync(join(EXAMPLES_DIR, GALLERY_DIR), { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort();
+  for (const id of dirs) {
+    const dir = join(EXAMPLES_DIR, GALLERY_DIR, id);
+    if (!existsSync(join(dir, `${id}${SHADE_EXT}`)))
+      throw new Error(`typeshade: examples/${GALLERY_DIR}/${id}/ holds no ${id}${SHADE_EXT}`);
+    readManifest(dir, id);
+  }
+  return dirs;
+}
+
 export async function renderAllIndexes(): Promise<ReadonlyMap<string, string>> {
+  checkGallery();
   return new Map([
     [ROOT_INDEX, await renderRootIndex()],
     [HOSTS_INDEX, await renderHostRegistry()],
