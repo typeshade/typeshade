@@ -35,11 +35,14 @@ is declared `const`, and a storage binding says in its TYPE how the shader may t
 **The access mode is inferred** (Rule 6.2, change 0114, S3). A `storage<T>` binding that some
 entry writes (an assignment, a mutating method, an atomic builtin, or a write through a function or
 a reference parameter) is `var<storage, read_write>`, and every other one is `var<storage, read>`.
+A write in a function that no entry reaches does not count: it draws no `TS8005`, and a function
+that no entry reaches and that writes such a binding is not emitted (change 0114, Amendment A17).
 `storage<readonly T[]>` promises that nothing writes the binding, and a write is refused. A
 second type argument is still accepted: `"read_write"` keeps `var<storage, read_write>` and
 `"read"` keeps `var<storage, read>`, the two words being WGSL's own enumerants, written as string
 literal types the way a storage texture writes its own (§33). Change 0114, decision D3, removes
-the `"read_write"` argument in S4 and does not name `"read"`. A uniform buffer is read-only in
+the `"read_write"` argument in S4 and does not name `"read"`. A vertex entry that reads a
+binding declared `"read_write"` is refused, written or not (§7, change 0114, Amendment A17). A uniform buffer is read-only in
 WGSL, so `uniform<T>` takes one type argument and has no mode to ask for.
 
 ```ts
@@ -75,9 +78,9 @@ no `access` field at all.
 | Declaration | Space | Access | Emitted |
 |-------------|-------|--------|---------|
 | `declare const x: uniform<T>` | uniform | read | `var<uniform> x: T;` |
-| `declare const x: storage<T>` | storage | inferred | `var<storage, read> x: T;` when no entry writes `x`, else `var<storage, read_write> x: T;` |
+| `declare const x: storage<T>` | storage | inferred | `var<storage, read> x: T;` when no entry writes `x`, else `var<storage, read_write> x: T;`. A write in a function that no entry reaches does not count: it draws no `TS8005`, and a function that no entry reaches and that writes such a binding is not emitted (Rule 6.2, change 0114, Amendment A17) |
 | `declare const x: storage<T, "read">` | storage | read | `var<storage, read> x: T;`; a write is `TS8005` |
-| `declare const x: storage<T, "read_write">` | storage | read_write | `var<storage, read_write> x: T;` |
+| `declare const x: storage<T, "read_write">` | storage | read_write | `var<storage, read_write> x: T;`; a vertex entry that reads `x` is `TS8099`, written or not (Rule 6.2, change 0114, Amendment A17) |
 | `declare const x: storage<f32[]>`, `storage<Array<f32>>` | storage | inferred | as `storage<array<f32>>` (§20, change 0114) |
 | `declare const x: storage<readonly f32[]>`, `storage<ReadonlyArray<f32>>` | storage | read | `readonly` promises that nothing writes `x`, and a write is `TS8005` (§20, change 0114) |
 | `declare const x: T` | illegal | space required | `TS8099` |
@@ -659,8 +662,9 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | an access word outside `"read"` and `"read_write"` | `TS8002`. `storage<T, Access> Access is "read" or "read_write"; got "write". A storage BUFFER has no write-only mode; that is a storage texture's, texture_storage_2d<Format, "write">.` Collected as `read_write` (§1); TS2344 in the editor |
 | a second type argument on a `uniform<T>` | `TS8002`. `uniform<T> takes one type argument. A uniform buffer is read-only, so it has no access mode to write.` TS2314 in the editor |
 | the retired `{ access }` option on the call form | `TS8099`, naming the type-argument spelling to write (§1). Reported and ignored: the mode comes from the type argument |
-| assign to a read resource: a `uniform<T>`, a `storage<T, "read">` or a `storage<readonly T[]>` (a `storage<T>` that no `"read"` or `readonly` promises is inferred `read_write` by the write, Rule 6.2) | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a swizzle that repeats a component `v.xx` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
+| assign to a read resource: a `uniform<T>`, a `storage<T, "read">` or a `storage<readonly T[]>` (a `storage<T>` that no `"read"` or `readonly` promises is inferred `read_write` by a write that some entry reaches, and a write in a function that no entry reaches is accepted, Rule 6.2) | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a swizzle that repeats a component `v.xx` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
 | a storage binding the module writes that a vertex entry reads | `TS8099` at the vertex entry, one sentence: `WebGPU allows no writable storage buffer in the vertex stage, and the module writes "pos" that the vertex entry "vs" reads: give the vertex stage a separate binding, or declare "pos" readonly and write nothing to it.` (§1, Rule 6.2) |
+| a storage binding declared `"read_write"` that a vertex entry reads, and that no other entry writes | `TS8099` at the vertex entry, one sentence: `WebGPU allows no writable storage buffer in the vertex stage, and "xs" is declared "read_write" while the vertex entry "vs" reads it: remove the "read_write" argument from "xs", or give the vertex stage a separate binding.` (§1, Rule 6.2) |
 | a storage binding a vertex entry writes itself | `TS8099` at the vertex entry, one sentence: `WebGPU allows no writable storage buffer in the vertex stage, and the vertex entry "vs" writes "xs": write it from a compute or fragment entry, or give the vertex stage a separate binding.` (§1, Rule 6.2) |
 | two resources share `@binding` | name both |
 | a decorator on a declaration: a binding, an override, a `const` or `let` at any depth, an enum, an interface, a type alias, a namespace, a function declared in another function's body, or a `static` field | `TS8028`, one per decorator, saying what it is: `@group` and `@binding` are WGSL's and not applied, since `reflect()` reports the group and slot each binding gets (§1); `@id` is not applied, since the host sets an override by its name; `@size` and `@align` are named as a struct field's (§51); an attribute the compiler reads elsewhere by what it marks (`"@fragment" does not apply to a local function: it marks an entry function. Remove it.`); a name WGSL does not have either is `Unknown attribute`. The editor shows this sentence alone, without TypeScript's TS1206, or its TS2304 on a name the ambient library does not declare |
@@ -762,7 +766,8 @@ pixels[i] = 1.;            // an element
 | `let` local | yes |
 | `declare const x: storage<T, "read_write">` | yes |
 | `const` local | no: `TS8005` |
-| `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
+| `declare const x: uniform<T>` / `storage<T, "read">` / `storage<readonly T[]>` | no: `TS8005` |
+| `declare const x: storage<T>` | yes: an entry that writes it makes it `read_write` (Rule 6.2, change 0114, Amendment A17) |
 | a function parameter | no: `TS8018` |
 | an object parameter that the function writes | yes: the caller's object (§70) |
 | anything that is not a name (`vec3(0.).x`) | no: `TS8018` |
@@ -1435,7 +1440,7 @@ A quotient of written integers that is no integer (`(5 | 0) / 2`) is read trunca
 where a position states an integer type (`let j: i32 = (5 | 0) / 2` is 2), and exactly by a
 comparison beside a peer that states no type or an `f32` (`(5 | 0) / 2 > 2` is true). A
 comparison beside a typed `i32` or `u32` (`(5 | 0) / 2 > ii`) is refused with a verified edit,
-as is any other position. In an integer position the quotient over operands of one integer type is the integer division of that type, and `i32()` and `u32()` convert it as TypeScript does: `u32((-7|0) / 2)` is 4294967293. Operands of two integer types are still divided through an `f32` (an open deviation, #1403). Only those two convert it across integer types, so `let j: u32 = a / 2` over `i32` operands stays refused with its edit. A divisor that is zero at run time gives TypeScript's 0 there, not WGSL's `x / 0 = x` (the owner's decisions of 2026-11-17, Amendment A8). A tree over a written number only a `u32` holds is that
+as is any other position. In an integer position the quotient over operands of one integer type is the integer division of that type, and `i32()` and `u32()` convert it as TypeScript does: `u32((-7|0) / 2)` is 4294967293. A quotient of an inferred `i32` and an inferred `u32` operand is refused where `u32()` or `i32()` reads it (Amendment A8 of change 0134). A read through a binding or arithmetic names an edit that gives a wrong value (an open deviation, #1467). Only those two convert it across integer types, so `let j: u32 = a / 2` over `i32` operands stays refused with its edit. A divisor that is zero at run time gives TypeScript's 0 there, not WGSL's `x / 0 = x` (the owner's decisions of 2026-11-17, Amendment A8). A tree over a written number only a `u32` holds is that
 `u32`'s bits (`3000000000 | 0` is 3000000000). Beside a typed `u32`, `+ - * & | ^ << ~` read the
 bits, which agree with TypeScript's -1294967296 modulo 2^32. Every operation where the two
 differ (`/`, `%`, a comparison, `max`, `min`, `clamp`, `abs`, `sign`, `f32()`, `>>` by a
@@ -2963,8 +2968,9 @@ quotient (§13), a divisor that is zero at run time gives TypeScript's value ins
 owner's decision of 2026-11-17, Amendment A8 of change 0134). `x % 0` is 0 in both cases. With
 `function gg() { return 5 | 0; }`, `let a = (-7|0); let z = gg() - 5; let j: i32 = a / z;`
 makes `j` 0. The zero test is a generated helper, `_opt_div0_i32_i32_` or `_opt_div0_u32_u32_`.
-It evaluates each operand once and in order, so a divisor that is a call runs once. Operands of
-two integer types are still divided through an `f32` (an open deviation, #1403).
+It evaluates each operand once and in order, so a divisor that is a call runs once. A quotient of
+an inferred `i32` and an inferred `u32` operand is refused where `u32()` or `i32()` reads it, and the
+edit named for a read through a binding or arithmetic is an open deviation (#1467).
 
 **A `clamp` whose constant bounds cross is refused.** WGSL makes `clamp(e, low, high)` with
 `low` above `high` a shader-creation error when both bounds are constant, and GLSL ES 3.00 leaves
@@ -3046,7 +3052,7 @@ arithmetic wraps at 32 bits. A result nobody binds is dropped behind WGSL's phon
 **What is refused, and told the fix.** An atomic is never read or assigned directly: `bins[i]`
 outside an atomic builtin, as a value or as an assignment target, is TS8003 naming
 `atomicLoad`, `atomicStore` and `atomicAdd`. Every atomic builtin needs read_write access, so a
-binding whose type does not say `"read_write"` is TS8005 naming the line to write. A value of
+binding declared `"read"` is TS8005 naming the line to write; a bare `storage<...>` binding that holds an atomic is `read_write` (Rule 6.2, change 0114, Amendment A17). A value of
 another type (`atomicAdd(bins[i], 1.5)`) is TS8003, a location that is not atomic is TS8003, the
 wrong number of arguments is TS8019. An atomic declared as a local, a parameter or a return
 type, or inside a `uniform<...>`, is TS8099 with where it may live; `atomic<f32>` is TS8002.
@@ -9213,7 +9219,11 @@ element of an array parameter, when the function qualifies for a count pass (pro
 Amendment A12, form 2, Route 2): the proof of Rule 8.22 accepts every loop, the only write of the
 function is the push onto this array, every push is a statement, the body reads no element of the
 array, an element of an array parameter is read only at the counter of a loop up to that array's
-length, and only the return follows the loops. The call runs the function once to count the pushes
+length, or at the counter of the top-level loop that holds the read when no element is read in that
+loop's start or bound and the function has a GPU plan, and only the return follows the loops. For
+the second form the call checks the array against the indices the loop reads before it runs the
+function, and an array too short for them is a `TypeError`, not a read past its end. A read of a
+loop whose range the device holds is not checked, so that loop does not take the second form. The call runs the function once to count the pushes
 (a `u32` that stops at 4294967295), reserves exactly that many elements and runs it again. A count
 of 4294967295 or more throws a `RangeError` before the second run, and a second run that pushes
 another count throws an `Error`. On WebGPU the first run dispatches only the count and scan steps and
@@ -9229,6 +9239,20 @@ pass, and a host that cannot hold the elements pushed throws a `RangeError` that
 function, the array and the length it reached. No GPU tier runs it: the reason names the loop or
 the array, and growing an array during a run on WebGPU or WebGL2 is not supported yet (the heap
 OD-10 names). The host value, the tiers and the other refusals are those of the made array above.
+
+```ts
+export function repeated(xs: f32[], counts: u32[]): f32[] {
+  const out: f32[] = [];
+  for (let i: u32 = 0; i < xs.length; i++) {
+    for (let j: u32 = 0; j < counts[i]; j++) {
+      out.push(xs[i]);
+    }
+  }
+  return out;
+}
+// counts[i] is checked at the call: a counts shorter than xs throws before anything runs.
+// TypeError: repeated(): parameter "counts" holds 1 elements, and loop 1 reads it at indices 0 to 2.
+```
 
 An element of the array reads and writes as in JavaScript (proposal 0114, Amendment A12): a read
 needs an index below the length, a write an index at most the length, and a write at the length
@@ -9399,8 +9423,8 @@ returns nothing and does not block, and a `Buffer` it writes keeps the values un
 
 **Where it runs.** When the proof accepts every loop of the function, each loop is one dispatch
 on WebGPU, one invocation per iteration, in order; the call reads back what each loop wrote
-before the next. Before anything runs it checks each array against the indices a loop writes at
-`a*i + c`, and refuses one too short (`render(): parameter "out" holds 10 elements, and loop 1
+before the next. Before anything runs it checks each array against the indices a loop writes or
+reads at `a*i + c`, and refuses one too short (`render(): parameter "out" holds 10 elements, and loop 1
 writes it at indices 0 to 4095.`). Otherwise, and wherever there is no WebGPU, the whole function
 runs on the CPU tier (Rule 11.7), and the view's comment says why. The device is the call layer's:
 the one `configure({ limits, features })` asks for (change 0051), and `callDevice()` reports it.

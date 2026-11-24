@@ -2,6 +2,7 @@
 import type { Expr, FuncDecl, Stmt } from '../ir/nodes.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
 import { rangeOf } from './kernel-lower-ir.js';
+import { deviceRangeLoops } from './kernel-stores.js';
 import type { LoopVerdict, LoopWrite } from './parallel-loop.js';
 
 type ForStmt = Stmt & { s: 'for' };
@@ -70,7 +71,14 @@ function countsUpToLength(loop: ForStmt, name: string, array: string): boolean {
   return (unsigned || (c.start !== undefined && c.start >= 0)) && !assigns(loop.body, name);
 }
 
-function readsInRange(fn: FuncDecl): boolean {
+function readsAtOwnCounter(fn: FuncDecl, loops: readonly ForStmt[], name: string): boolean {
+  const own = [...loops].reverse().find((l) => l.counted?.name === name);
+  if (own === undefined || own !== loops[0] || !plainCount(own)) return false;
+  const top = fn.body.filter((st) => st.s === 'for');
+  return !deviceRangeLoops(fn).has(top.indexOf(own));
+}
+
+function readsInRange(fn: FuncDecl, widen: boolean): boolean {
   const arrays = new Set(
     fn.params
       .filter((p) => p.type.kind === 'array' && p.type.size === undefined)
@@ -81,7 +89,9 @@ function readsInRange(fn: FuncDecl): boolean {
     if (x.op !== 'index' || x.base.op !== 'param' || !arrays.has(x.base.name)) return;
     const array = x.base.name;
     const k = x.idx;
-    if (k.op !== 'varref' || !loops.some((l) => countsUpToLength(l, k.name, array))) proven = false;
+    if (k.op !== 'varref') proven = false;
+    else if (loops.some((l) => countsUpToLength(l, k.name, array))) return;
+    else if (!widen || !readsAtOwnCounter(fn, loops, k.name)) proven = false;
   });
   return proven;
 }
@@ -166,7 +176,11 @@ function plainTopLevel(body: readonly Stmt[]): boolean {
   );
 }
 
-export function countable(verdicts: readonly LoopVerdict[], fn: FuncDecl): boolean {
+export function countable(
+  verdicts: readonly LoopVerdict[],
+  fn: FuncDecl,
+  widen: () => boolean = () => false,
+): boolean {
   if (verdicts.length === 0) return false;
   const grown = new Set<string>();
   for (const v of verdicts) {
@@ -187,6 +201,6 @@ export function countable(verdicts: readonly LoopVerdict[], fn: FuncDecl): boole
     plainTopLevel(fn.body) &&
     onlyReturnAfterLoops(fn.body) &&
     grownOnlyPushed(fn, name!) &&
-    readsInRange(fn)
+    (readsInRange(fn, false) || (readsInRange(fn, true) && widen()))
   );
 }
