@@ -43,7 +43,6 @@ import {
   packLayout,
   type Pack,
   type PackBinding,
-  type PackConsole,
   type PackDataTexture,
   type PackEntry,
   type PackGlCompute,
@@ -51,7 +50,7 @@ import {
   type PackGlVertex,
   type PackIo,
 } from './manifest-types.js';
-import { consoleBuffer } from './passes/console-buffer.js';
+import { consoleBuffer, hasConsoleCall } from './passes/console-buffer.js';
 import { buildGlCompute } from './passes/gl-compute.js';
 import type { Fp64Flavor } from './passes/fp64-lower.js';
 import type { OptLevel } from './passes/opt/index.js';
@@ -80,8 +79,9 @@ export {
 
 /** Everything `packModule()` adds on request. */
 export interface PackOptions {
-  /** Add the recorded variant, `console`: the WGSL that records the `console.*` calls. */
-  readonly console?: boolean;
+  /** Retain reachable console calls as an optional variant. `true` enables it by default;
+   *  `false` leaves it off; `'never'` omits it. */
+  readonly console?: boolean | 'never';
   /** Add the program as portable IR, `ir`, which the load-time emitter (`typeshade/emit`) emits
    *  again without the front end. About three times the WGSL gzipped, so on request only. */
   readonly ir?: boolean;
@@ -790,16 +790,16 @@ export function buildManifest(
       );
   }
 
-  let recorded: PackConsole | undefined;
-  if (options.console === true) {
-    const r2 = consoleBuffer(m);
+  let recorded: Partial<Pack> = {};
+  const r2 = options.console !== 'never' && hasConsoleCall(m) ? consoleBuffer(m) : undefined;
+  if (r2?.log !== undefined) {
     inheritSpellings(r2.module, m);
-    if (r2.log !== undefined)
-      recorded = {
-        wgsl: emitWgsl(r2.module, plan),
-        log: r2.log,
-        bindings: packBindings(r2.module, reflect(r2.module, { fp64Flavor }).bindGroups),
-      };
+    const console = {
+      wgsl: emitWgsl(r2.module, plan),
+      log: r2.log,
+      bindings: packBindings(r2.module, reflect(r2.module, { fp64Flavor }).bindGroups),
+    };
+    recorded = options.console === true ? { console } : { variants: { console } };
   }
 
   return {
@@ -828,7 +828,7 @@ export function buildManifest(
       default: o.default,
     })),
     features: [...hostFeaturesFor(wgslBackend, r.requiredFeatures)],
-    ...(recorded !== undefined ? { console: recorded } : {}),
+    ...recorded,
     ...(Object.keys(draws).length > 0 ||
     Object.keys(vertices).length > 0 ||
     Object.keys(computes).length > 0

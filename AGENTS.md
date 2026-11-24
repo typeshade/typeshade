@@ -212,6 +212,8 @@ tier runs. Where no fallback exists, write "not supported yet" and cite the rule
   service, the README's `tsconfig.shade.json` <!-- doc-refs: skip — the file a user writes, not one in this tree -->, WebGPU and the CPU oracle against the journey's
   own JavaScript reference. A change that improves what a user can write adds its journey
   (`journeys/README.md`).
+  Its console compatibility arm executes the historical schema-2 reader from Git. The CI
+  user-journey job fetches full history so that immutable baseline is present.
 - `bun run gate:perf` (after `build`): what the compiled kernels cost on a WebGPU device, measured
   (`scripts/perf-gate.ts`, `docs/performance.md`): a corpus of kernel chains (`chain`, `reduce`,
   `tonemap`, `batch`, `branch`) run through the Vite plugin's module and `fuse` over `Buffer`s, each
