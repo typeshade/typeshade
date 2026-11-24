@@ -7,6 +7,8 @@ import { bin, u } from '../kernel-workgroup.js';
 import { EFFECTFUL_INTRINSICS } from './effects.js';
 import { combineOf as writeCombine, type LoopReduction } from './parallel-loop.js';
 import type { ForStmt, KernelLoopPlan, LoopCtx } from './kernel-lower-ir/types.js';
+import { boolT, kRef, liveRef } from './kernel-lower-ir/refs.js';
+export { boolT, kRef, liveRef } from './kernel-lower-ir/refs.js';
 export type {
   ForStmt,
   KernelLoopPlan,
@@ -91,12 +93,6 @@ export function spellArrayBindings(
   }
   return out;
 }
-
-export const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
-
-export const kRef: Expr = { op: 'varref', type: u32T, name: '_k' };
-
-export const liveRef: Expr = { op: 'varref', type: boolT, name: '_live' };
 
 interface Lane {
   readonly k: Expr;
