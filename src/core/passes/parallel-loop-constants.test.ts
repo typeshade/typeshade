@@ -67,3 +67,35 @@ describe('one index at every write, whose coefficient of the counter is loop-inv
     expect(verdict(body)).toBe('R3 shared');
   });
 });
+
+describe('a CPU-tier f32 scatter is proved only for += into the array', () => {
+  const scatter = (writes: string): string => `"use typeshade";
+export function scat(g: array<f32>, idx: array<u32>, x: array<f32>) {
+  for (let i: u32 = 0; i < x.length; i++) {
+    ${writes}
+  }
+}
+`;
+  const refusals = (writes: string): string[] => {
+    const r = compile(scatter(writes), { fileName: 'm.shade.ts' });
+    expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
+    return [{}, { cpuScatterF32: true }].map((opts) => {
+      const v = proveKernels(r.module, opts)[0]!.loops[0]!;
+      return v.ok ? 'ok' : v.refusal.rule;
+    });
+  };
+
+  it('accepts += only at the CPU tier', () => {
+    expect(refusals('g[idx[i]] += x[i];')).toEqual(['R3', 'ok']);
+  });
+
+  it.each([
+    ['-=', 'g[idx[i]] -= x[i];'],
+    ['*=', 'g[idx[i]] *= x[i];'],
+    ['+= mixed with -=', 'g[idx[i]] += x[i]; g[idx[i]] -= x[i];'],
+    ['+= mixed with *=', 'g[idx[i]] += x[i]; g[idx[i]] *= x[i];'],
+    ['*= mixed with +=', 'g[idx[i]] *= x[i]; g[idx[i]] += x[i];'],
+  ])('refuses %s at both tiers', (_name, writes) => {
+    expect(refusals(writes)).toEqual(['R3', 'R3']);
+  });
+});
