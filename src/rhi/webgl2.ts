@@ -11,11 +11,9 @@
 // keeps WebGPU's row order with no copy turned over; only a pass into the canvas is turned over,
 // once, as it is copied to the screen.
 //
-// Buffers. WebGL2 runs no shader that writes a buffer here: a storage buffer is a data texture its
-// programs only read (change 0046), as X-GIS's `storage-data-texture.ts` makes one, with the
-// element type the buffer carries (`elem`). So each buffer keeps its bytes on the host, and the GL
-// object a command reads (an array buffer, a uniform block, a data texture) is made from them when
-// the command runs. A read of a buffer is a copy of those bytes.
+// Buffers. A storage buffer is a data texture the draw programs read (change 0046), as X-GIS's
+// `storage-data-texture.ts` makes one, with the element type the buffer carries
+// (`elem`). Each buffer keeps its bytes on the host.
 //
 // Immediate. WebGL2 has no command buffer, so the encoder runs each command when it is recorded
 // (`caps.immediate`), as X-GIS's WebGL2 encoder does. A pass is begun, drawn and ended at its
@@ -1467,7 +1465,9 @@ class GlDevice implements RhiDevice {
     if ((desc.dimension ?? '2d') !== '2d' || desc.size[2] !== 1)
       throw new TypeError('The WebGL2 backend makes 2D textures of one layer.');
     if ((desc.sampleCount ?? 1) !== 1)
-      throw new TypeError('The WebGL2 backend makes no multisampled texture.');
+      throw new TypeError(
+        'A multisampled texture is not supported yet on the WebGL2 tier (Rule 10.5, Rule 11.11).',
+      );
     const fmt = formatOf(gl, desc.format);
     if (fmt === undefined) throw new TypeError(`${desc.format} is not supported yet on WebGL2.`);
     const [w, h] = desc.size;

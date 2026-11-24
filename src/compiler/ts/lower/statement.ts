@@ -533,9 +533,9 @@ function lowerStatementKind(
       diagnostics,
       sourceFile,
       node,
-      `A labelled statement is not supported: neither WGSL nor GLSL ES 3.00 has a label, so ` +
-        `"${node.label.text}:" has nothing to name it for. Restructure with a flag, or hoist ` +
-        `the inner loop into a function and return from it.`,
+      `A labelled statement is not supported yet: the IR has no label, so the compiler does ` +
+        `not lower "${node.label.text}:". Restructure with a flag, or hoist the inner loop ` +
+        `into a function and return from it.`,
       TS_CODES.UNSUPPORTED,
     );
     return undefined;

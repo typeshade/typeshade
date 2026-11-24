@@ -154,7 +154,7 @@ describe('the CPU tier runs an entry whose emitted program drops a read (#1337)'
     if (fs?.kind !== 'fragment') return;
     expect(fs.entry.bindings.map((b) => b.name)).toEqual([]);
     expect(fs.entry.noCpu).toBe(
-      'it reaches the texture_2d<f32> "tex", which the CPU tier cannot read',
+      'it reaches the texture_2d<f32> "tex", which is not supported yet on the CPU tier (Rule 8.24)',
     );
   });
 

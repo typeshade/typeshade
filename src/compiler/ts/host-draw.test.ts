@@ -168,7 +168,7 @@ declare const k: uniform<f32>;
     const sampled = fragmentOf(f.exports, 'sampled').entry;
     expect(sampled.gl?.samplers).toEqual({ tex: 'smp' });
     expect(sampled.noCpu).toBe(
-      'it reaches the texture_2d<f32> "tex", which the CPU tier cannot read',
+      'it reaches the texture_2d<f32> "tex", which is not supported yet on the CPU tier (Rule 8.24)',
     );
     const helper = face(`"use typeshade";
 declare const tex: texture_2d<f32>;
@@ -180,7 +180,7 @@ function pick(t: texture_2d<f32>, s: sampler, uv: vec2): vec4 { return textureSa
       /^the GLSL backend refuses it: .*standalone sampler/,
     );
     expect(fragmentOf(f.exports, 'derivative').entry.noCpu).toBe(
-      'it reaches dpdx(), which only a GPU computes',
+      'it reaches dpdx(), which is not supported yet on the CPU tier (Rule 8.24)',
     );
   });
 
@@ -514,7 +514,7 @@ declare const smp: sampler;
     );
     // A sampled texture has no CPU tier, and nothing else draws into this canvas.
     await expect(show(c, { tex: new FakeImageData(1, 1) })).rejects.toThrow(
-      'show(): nothing can draw it into this canvas: there is no WebGPU; no webgl2 context; no CPU tier (it reaches the texture_2d<f32> "tex", which the CPU tier cannot read).',
+      'show(): nothing can draw it into this canvas: there is no WebGPU; no webgl2 context; not supported yet on the CPU tier (Rule 8.24): it reaches the texture_2d<f32> "tex", which is not supported yet on the CPU tier (Rule 8.24).',
     );
   });
 });

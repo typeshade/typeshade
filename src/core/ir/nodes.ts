@@ -456,8 +456,8 @@ export interface StructField {
   readonly interpolate?: string;
   /** Structured `@blend_src(0|1)` on a fragment output (§53): the two colours a dual-source
    *  blend mixes, which both sit at `@location(0)`. It derives the `dualSourceBlending`
-   *  capability, and GLSL ES 3.00 has no second source, so a module carrying one fails
-   *  closed there. */
+   *  capability. The GLSL writer does not spell a second source yet, so a module that carries
+   *  one fails closed there: not supported yet by the GLSL backend (Rule 10.3). */
   readonly blendSrc?: number;
   /** The byte size WGSL's `@size(n)` gives this field, when the field's own type is smaller.
    *  Set by the uniform-layout pass (§51) and by nothing else: it is how the wrapper struct

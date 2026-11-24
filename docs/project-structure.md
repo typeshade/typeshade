@@ -2,6 +2,7 @@
 
 Review date: 2026-11-16. Extraction baseline: `5df77cb5`; completed integration: `ad05431a`.
 The [execution plan](refactoring-plan.md) records branch and merge status.
+The [second-phase structure plan](structure-refactoring-plan.md) records the next structural work.
 The tree below shows responsibility groups, not a claim that every file received a manual audit.
 Tests live beside their implementation unless they exercise a package-wide contract.
 
