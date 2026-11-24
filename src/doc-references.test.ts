@@ -27,7 +27,9 @@ import {
 import {
   changedRules,
   declaredNames,
+  impactOf,
   isProposal,
+  memberNames,
   isRecord,
   isWaived,
   nameMentions,
@@ -141,6 +143,68 @@ describe('the impact reader', () => {
         ]),
       ].sort(),
     ).toEqual(['Bar', 'Foo', 'PI', 'constExpr', 'f64FromParts']);
+  });
+
+  it('reads the names a class, an interface and an object type declare as members', () => {
+    const names = memberNames(
+      [
+        'export class Runtime implements Base, Other {',
+        '  readonly size = 1;',
+        '  private async draw(canvas: C, time: number): Promise<void> {',
+        '    helper(canvas);',
+        '    const inner = { notMember() {} };',
+        '  }',
+        '  get ready(): boolean { return true; }',
+        '  static create<T>(x: T): Runtime { return new Runtime(); }',
+        '}',
+        'export interface Device {',
+        '  frame(',
+        '    a: number,',
+        '  ): void;',
+        '  label?: string',
+        '  opts: { nested: number };',
+        '}',
+        'type Shape = { area(): number, readonly sides: number };',
+        'function free() { callOnly(1); }',
+        'const literal = { fromLiteral() {} };',
+        '// comment() { in a comment }',
+        "const text = 'string() {';",
+      ].join('\n'),
+    );
+    expect([...names].sort()).toEqual([
+      'area',
+      'create',
+      'draw',
+      'frame',
+      'label',
+      'nested',
+      'opts',
+      'ready',
+      'sides',
+      'size',
+    ]);
+  });
+
+  it('a removed export a member still declares is no must-fix; one nothing declares is', () => {
+    // `draw` was an exported function in `host.ts`; the runtime still declares `draw()` as a
+    // member, so the sentences name that member. `goneEverywhere` is declared nowhere in the tree.
+    const diff = (name: string): Parameters<typeof impactOf>[0] => ({
+      base: 'HEAD',
+      staged: false,
+      deleted: [],
+      renamed: [],
+      modified: ['examples/hosts/host-draw/host.ts'],
+      added: [],
+      touched: new Map(),
+      removedLines: new Map([
+        ['examples/hosts/host-draw/host.ts', [`export function ${name}(a) {`]],
+      ]),
+      removedAt: new Map(),
+    });
+    const subjects = (name: string): string[] => impactOf(diff(name)).map((i) => i.subject);
+    expect(subjects('draw').filter((s) => s.includes('`draw`'))).toEqual([]);
+    expect(memberNames('class A { goneEverywhere() {} }').has('goneEverywhere')).toBe(true);
+    expect(memberNames('function f() { goneEverywhere(1); }').has('goneEverywhere')).toBe(false);
   });
 
   it('takes a proposal for a record: a removed name it mentions is no must-fix', () => {

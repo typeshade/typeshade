@@ -175,6 +175,56 @@ export function declaredNames(lines: readonly string[]): Set<string> {
   return out;
 }
 
+/** The text with comments dropped and the inside of a string or template emptied, lines kept. */
+function withoutCommentsAndStrings(text: string): string {
+  return text.replace(
+    /\/\*[\s\S]*?\*\/|\/\/[^\n]*|'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\[\s\S])*`/g,
+    (m) => (m.startsWith('/') ? m.replace(/[^\n]/g, ' ') : m[0]! + m[0]!),
+  );
+}
+
+const MEMBER =
+  /^\s*(?:(?:public|private|protected|static|readonly|abstract|override|declare|async|accessor)\s+)*(?:(?:get|set)\s+)?\*?\s*([A-Za-z_$][\w$]*)\s*[?!]?\s*(?:[(<:=;]|$)/;
+
+/**
+ * The names a class, an interface or an object type declares as a member (a method, a property, a
+ * getter or a setter), in one TypeScript source. A method body, an object literal and a block are
+ * not read: a call such as `draw(a)` in a body declares nothing.
+ */
+export function memberNames(text: string): Set<string> {
+  const out = new Set<string>();
+  const stack: { type: boolean; parens: number }[] = [];
+  let top = { type: false, parens: 0 };
+  let seg = '';
+  const flush = (): void => {
+    const m = top.type ? MEMBER.exec(seg) : null;
+    if (m) out.add(m[1]!);
+    seg = '';
+  };
+  for (const ch of withoutCommentsAndStrings(text)) {
+    if (ch === '(' || ch === '[') top.parens++;
+    else if (ch === ')' || ch === ']') top.parens = Math.max(0, top.parens - 1);
+    if (ch === '{') {
+      const type =
+        top.parens === 0 &&
+        (/\b(?:class|interface)\b/.test(seg) ||
+          /\btype\s+[A-Za-z_$][\w$]*[^;]*=\s*$/.test(seg) ||
+          (top.type && /[:&|]\s*$/.test(seg)));
+      flush();
+      stack.push(top);
+      top = { type, parens: 0 };
+    } else if (ch === '}') {
+      flush();
+      top = stack.pop() ?? { type: false, parens: 0 };
+      seg = '';
+    } else if (ch === ';' || (top.type && top.parens === 0 && (ch === ',' || ch === '\n'))) {
+      flush();
+    } else seg += ch;
+  }
+  flush();
+  return out;
+}
+
 /** The export names `src/__api__/surface.md` lists, and each definition's shape line by name. */
 export function surface(text: string): { names: Set<string>; shapes: Map<string, string> } {
   const names = new Set<string>();
@@ -380,10 +430,12 @@ export function impactOf(diff: Diff): Impact[] {
       removed.set(name, `export \`${name}\` removed from the public surface`);
   }
   if (removed.size) {
-    const headSources = sourceFiles()
+    const headFiles = sourceFiles()
       .filter((f) => !f.endsWith('.test.ts'))
-      .map((f) => atHead(diff, f))
-      .join('\n');
+      .map((f) => atHead(diff, f));
+    const headSources = headFiles.join('\n');
+    const members = new Set<string>();
+    for (const text of headFiles) for (const name of memberNames(text)) members.add(name);
     for (const [name, subject] of removed) {
       // Still declared somewhere, or re-exported under the name: moved, not gone. (The bake is
       // not consulted here: a stale `surface.md` must not hide a removal it has not caught up with.)
@@ -391,6 +443,9 @@ export function impactOf(diff: Diff): Impact[] {
         `(?:(?:export|declare)[^\\n]*?\\b(?:function\\*?|const|let|var|class|interface|type|enum|namespace)\\s+${escape(name)}\\b)|(?:export\\s*\\{[^}]*\\b${escape(name)}\\b)`,
       );
       if (kept.test(headSources)) continue;
+      // A class, an interface or an object type that still declares the name as a member: the
+      // sentences name that member, not the removed export (`draw()` of the runtime).
+      if (members.has(name)) continue;
       // A builtin the ambient library now generates from `core.def` (0017,
       // `builtin-signatures.ts`) has no `declare function` line in any source file, and is
       // declared all the same: the library the editor reads is the one to ask.
