@@ -4,7 +4,9 @@
 // suite holds what every such example owes, with no hand-written reference for it:
 //
 //   C4. Each example that lists `cpu` runs twice on the CPU tier. The two results are equal, every
-//       number is finite, and its `check.ts` passes where one exists.
+//       number is finite, each listed extra resolves with its defaults, and its `check.ts` passes
+//       where one exists (it reads the result of `run` and the tier; the extras' results are not
+//       passed to it).
 //   C5. Where an oracle case names the bindings of its `host.ts`, the CPU `run()` is held to the
 //       `f64` oracle of the same IR (`_oracle.ts`), exact where the determinism report of the
 //       module lists no operation, within `PIXEL` and `RELATIVE` otherwise.
@@ -18,7 +20,14 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { compareParts, nonFinite } from './_compare.js';
-import { cpuRunnables, runCheck, runnables, runOnCpu, type Runnable } from './_driver.js';
+import {
+  cpuRunnables,
+  runCheck,
+  runExtras,
+  runnables,
+  runOnCpu,
+  type Runnable,
+} from './_driver.js';
 import { exampleSource } from './_example-file.js';
 import { expectedOf, oracleOutputs, type OracleCase } from './_oracle.js';
 import { ORACLE_CASES as HOST_CASES } from './hosts/_oracle-cases.js';
@@ -73,8 +82,21 @@ describe('C4: each example runs twice on the CPU tier, equal and finite', () => 
     const ran = first as Exclude<typeof first, string>;
     expect(Object.keys(ran).length).toBeGreaterThan(0);
     expect(nonFinite(ran)).toEqual([]);
+    expect(await runExtras(entry)).toEqual(entry.extras);
     if (entry.check !== undefined) expect(await runCheck(entry.check, ran, 'cpu')).toBeUndefined();
   });
+
+  it.each(entries.filter((e) => e.extras.length > 0).map((e) => [key(e), e] as const))(
+    '%s: host.ts exports each listed extra, and no other export than run',
+    async (_name, entry) => {
+      const host = (await import(/* @vite-ignore */ join(entry.dir, 'host.ts'))) as Record<
+        string,
+        unknown
+      >;
+      expect(Object.keys(host).sort()).toEqual(['run', ...entry.extras].sort());
+      for (const x of entry.extras) expect(typeof host[x], x).toBe('function');
+    },
+  );
 
   it('runCheck() reports a failing check and a file with no check (the instrument is not blind)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'typeshade-check-'));
