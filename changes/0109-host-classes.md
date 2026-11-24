@@ -33,7 +33,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0109, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record. Pull request #890 implements items 1 to 5; see Configuration and validation record. The owner approved Amendment 1 (item 6, decision D5) on 2026-11-02 (UTC); see its row and the two records. Pull request #993 implements Amendment 1; see Configuration and validation record. The owner approved Amendment 2 (item 7, decision D6) on 2026-11-03 (UTC); the merge of pull request #1023 as `11a97d9a` records it. Pull request #1028 implements Amendment 2; see Configuration and validation record. Downstream adoption is tracked apart.                                                                                    |
+| Identity and status           | Proposal 0109, `status: implemented`. The front matter is the identity and lifecycle authority. The owner approved the proposal on 2026-11-02 (UTC); see Approval and plan record. Pull request #890 implements items 1 to 5; see Configuration and validation record. The owner approved Amendment 1 (item 6, decision D5) on 2026-11-02 (UTC); see its row and the two records. Pull request #993 implements Amendment 1; see Configuration and validation record. The owner approved Amendment 2 (item 7, decision D6) on 2026-11-03 (UTC); the merge of pull request #1023 as `11a97d9a` records it. Pull request #1565, which supersedes the draft #1028, implements Amendment 2; see Configuration and validation record. Downstream adoption is tracked apart.                                                 |
 | Date and attribution          | Authored 2026-11-02 (UTC) by a Claude Code agent at the owner's direction. The date is the authorship date. It is not an approval date. Git authorship of the containing commit is not an approval signature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Request source                | The owner (Seungup), in a Claude Code session on 2026-11-02, in Korean, while designing an audio library on the compiler whose units are classes in `.shade.ts` files. The owner asked whether a class defined in a `"use typeshade"` file can be imported on the CPU side, built with `new` and used as an ordinary class, with the GPU running the same code ("cpu side에서 import해서 가져온 다음에 new 해서 사용하면 gpu side에서 실행되는거라던가"), and said that if not, the host face should be advanced now ("지금 고도화 해야할 것 같은데"). The agent reported that a class crosses to the host as a type only. The owner approved the drafting of this proposal ("승인"). No GitHub issue is recorded.                                                                                                    |
 | Applicability / effectivity   | Rules 8.20 and 8.21 of `docs/language-design.md` and their items in `reqs/`; `docs/use-typeshade-surface.md` §64; `src/compiler/ts/host-face.ts` (the export collection, `viewText` and the generated module); `src/core/host-values.ts`; `src/compiler/ts/host-face.test.ts`; `journeys/_host-import`. The compiler's lowering, the GPU tiers, the oracle, the exports of the package, the diagnostic codes and the examples do not change. No release version is assigned.                                                                                                                                                                                                                                                                                                                                          |
@@ -669,7 +669,7 @@ instances reads back as instances. This implementation also meets item 2 of type
 as drafted (Approval and plan record, Amendment 2).
 
 **Implementation.** Pull request #1028 (branch `claude/0109-a2-private-names`, from `main` at
-`11a97d9a`) was drafted on 2026-11-03 and was not merged. A second pull request supersedes it and
+`11a97d9a`) was drafted on 2026-11-03 and was not merged. Pull request #1565 supersedes it and
 carries the same work onto `main` at `be2e83de`: the branch
 `claude/typeshade-issues-prs-triage-5tga0o-971`, by a Claude Code agent at the owner's direction. It
 fixes issue #971, and its commit says `Change: 0109`. Since #1028 was drafted, `main` split
@@ -710,12 +710,31 @@ the tests live in new files.
 
 **Functional validation**, Bun 1.4.4, Node 22.23.5, TypeScript 5.6.3, Vitest 5.0.5, base `be2e83de`:
 
-- VALIDATION_FUNCTIONAL
+- On 2026-11-24 (UTC), on the tree of the implementing commit: `bunx tsc --noEmit` over
+  `tsconfig.json` and `tsconfig.tests.json`, `bun run build`, `bun run lint` and
+  `bun run format:check` exit 0.
+- 58 test files and 1,226 tests passed over `src/compiler/ts/host*`, `src/core/host*`,
+  `src/runtime/host*`, `src/compiler/ts/kernel-project.test.ts`,
+  `src/language-service/ambient-parity.test.ts` and `src/language-service/host-face*`, among them
+  the four new files (35 tests of the amendment).
+- 9 files and 107 tests passed (1 skipped): `comment-policy`, `file-size-policy`,
+  `both-halves-policy`, `reqs`, `doc-references`, `changes`, `api-surface`, `layer-policy` and
+  `publish-manifest`.
+- `bun run gate:boundary`: exit 0 after the caps moved. Measured in gzip bytes against the caps of
+  `main` at `be2e83de`: `typeshade/runtime` 178,861 (+163; split initial 52,180, +137; aggregate
+  181,023, +220), `typeshade/fuse` 123,212 (+145; split initial 17,763, +159; aggregate 123,962,
+  +310), `typeshade/algorithms` 71,246 (+82), `typeshade/random` 52,857 (+116); `typeshade/emit`
+  is below its cap.
+- Not run: `env -u NODE_OPTIONS bun run test` over the whole suite, which ended with a JavaScript
+  heap out of memory in this container; CI runs it. `gate:compile`, `gate:differential`,
+  `gate:render`, `gate:perf` and `gate:journeys`: the change emits no shader text and changes no
+  lowering; CI runs them. The TypeScript 5.9 and 6.0 legs: CI runs them.
 
 **Document validation**: `bun run docs:refs`, `bun run docs:impact`, `bun run reqs:sync` with nothing
 left to write, `python3 scripts/doorstop-check.py -C -e -F` with no item flagged after `RULE-0821`
 and `SURF-026` were reviewed and the links of `SURF-064`, `SURF-067`, `SURF-069`, `SURF-075` and
-`SURF-076` were cleared; VALIDATION_DOCUMENT.
+`SURF-076` were cleared; `bun run docs:refs` gave 0 dead references; `bun scripts/changes.ts --base origin/main` and
+`bun scripts/ifchange.ts --base origin/main` exit 0; `bun run precommit` passed on the commit.
 
 **Deviations**, each with its disposition:
 
