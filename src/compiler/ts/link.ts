@@ -29,6 +29,7 @@ import type {
   Edit,
   Piece,
 } from './link/types.js';
+import { stemOf, shownPath } from './link/generated-names.js';
 export type {
   ImportHooks,
   LinkedFile,
@@ -51,19 +52,6 @@ export function hasModuleReference(sourceFile: ts.SourceFile): boolean {
 const ENTRY_DECORATORS = new Set(['vertex', 'fragment', 'compute']);
 
 const isRefused = (d: TsCompilerDiagnostic): boolean => d.code === TS_CODES.IMPORT;
-
-function wordOf(text: string): string {
-  const word = text.replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+/, '');
-  if (word === '') return 'module';
-  return /^[0-9]/.test(word) ? `m${word}` : word;
-}
-
-function stemOf(file: Pick<ProgramFile, 'name' | 'pkg'>): string {
-  const base = file.name
-    .slice(file.name.lastIndexOf('/') + 1)
-    .replace(/(\.shade)?\.[mc]?tsx?$/, '');
-  return file.pkg === undefined ? wordOf(base) : `${wordOf(file.pkg)}_${wordOf(base)}`;
-}
 
 function beginsWithDirective(fileName: string, text: string): boolean {
   const probe = ts.createSourceFile(
@@ -91,11 +79,6 @@ function pureAliasSpecifier(sf: ts.SourceFile): string | undefined {
     ts.isStringLiteral(star.moduleSpecifier)
     ? star.moduleSpecifier.text
     : undefined;
-}
-
-function shownPath(file: string): string {
-  const at = file.indexOf('node_modules/');
-  return at > 0 && file[at - 1] !== '/' ? file : at >= 0 ? file.slice(at) : file;
 }
 
 function topStatementOf(node: ts.Node): ts.Statement | undefined {
