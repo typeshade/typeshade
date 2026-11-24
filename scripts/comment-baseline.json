@@ -423,7 +423,6 @@
   "src/core/debug/dispatch.ts": 61,
   "src/core/debug/file-name.test.ts": 16,
   "src/core/debug/file-name.ts": 46,
-  "src/core/debug/interp.ts": 255,
   "src/core/debug/phased.test.ts": 16,
   "src/core/debug/phased.ts": 33,
   "src/core/debug/session.ts": 64,
