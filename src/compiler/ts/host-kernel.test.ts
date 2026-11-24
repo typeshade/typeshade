@@ -1474,8 +1474,8 @@ export function scale(xs: array<f64>, k: f64) {
           funcs: plan.module.funcs.filter((x) => (kept as readonly string[]).includes(x.name)),
         }),
       );
-      // And the face's own WGSL, which holds them all, is that and the cut helpers.
-      expect(face.gpu!.wgsl).toContain('fn neverCalled(');
+      // And the face's own WGSL cuts them too (#1093).
+      expect(face.gpu!.wgsl).not.toContain('fn neverCalled(');
       expect(emitModule(restored)).not.toContain('fn neverCalled(');
     }
   });
