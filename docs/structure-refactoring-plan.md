@@ -903,6 +903,9 @@ What a pass does not prove:
     and the JSON has `pure: true` and `declared` equal to that mode. Every other result is `none`.
     The job does not fail on a range that is not pure. The `move purity` step of `quality` reports that.
 
+    A draft pull request runs no gate (owner request, 2026-11-24: "CI랑 관계없이 로컬에서 먼저 처리한 다음, 머지 직전이 아니라면 CI는 넘기는 방법은 안될까요"). Work is verified locally.
+    CI runs once the pull request is marked ready for review, and on each push while it is ready.
+
     | Job                                                 | documents | `Move: comments` | `Move: pure`                 | code (and every push to `main`) |
     | --------------------------------------------------- | --------- | ---------------- | ---------------------------- | ------------------------------- |
     | `change scope`                                      | runs      | runs             | runs                         | runs                            |

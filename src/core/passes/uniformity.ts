@@ -1271,11 +1271,9 @@ function walkFunction(
             // here too and the binding is simply never read: `classify`'s varref arm answers
             // those by ADDRESS SPACE before it looks at the environment, which is what makes
             // the write side irrelevant to them.
-            const prior = s.target.op === 'varref' ? undefined : cur.env.get(root);
-            cur = {
-              ...cur,
-              env: bind(cur, root, prior === undefined ? whole : joinKnown(prior, whole)),
-            };
+            const old =
+              s.s === 'assign' && s.target.op === 'varref' ? undefined : cur.env.get(root);
+            cur = { ...cur, env: bind(cur, root, old ? joinKnown(old, whole) : whole) };
           }
           break;
         }

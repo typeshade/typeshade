@@ -184,8 +184,6 @@ export function familyOf(kind: string, name: string): Family | undefined {
 export const NOT_WGSL: Readonly<Record<string, string>> = {
   addSat: 'a Dawn-internal saturating add, not a WGSL builtin',
   mulSat: 'a Dawn-internal saturating multiply, not a WGSL builtin',
-  atomicStoreMax: 'a Dawn-internal atomic, not a WGSL builtin',
-  atomicStoreMin: 'a Dawn-internal atomic, not a WGSL builtin',
   bufferArrayView: "Dawn's experimental buffer views, not WGSL",
   bufferLength: "Dawn's experimental buffer views, not WGSL",
   bufferView: "Dawn's experimental buffer views, not WGSL",

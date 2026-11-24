@@ -15,7 +15,7 @@ export const VERTEX_INPUT_BUFFERS_AND_DRAWS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.vertexAttribPointer',
     ],
     evidence:
-      'src/core/vertex-layout.ts:23-80; src/rhi/webgl2.ts#GlRenderPass~"enableVertexAttribArray" (enableVertexAttribArray, vertexAttribPointer, vertexAttribIPointer); src/core/gl-compute.ts:445, 579, 807 (createVertexArray, bindVertexArray, deleteVertexArray)',
+      'src/core/vertex-layout.ts#vertexLayoutOfEntry~"offset += fmt.size"|PREFIX; src/rhi/webgl2.ts#GlRenderPass~"enableVertexAttribArray" (enableVertexAttribArray, vertexAttribPointer, vertexAttribIPointer); src/core/gl-compute.ts#runGlCompute~"createVertexArray"|runGlCompute~"bindVertexArray"|runGlCompute~"deleteVertexArray" (createVertexArray, bindVertexArray, deleteVertexArray)',
     note: 'one tightly packed buffer of f32/i32/u32 attributes (Rule 6.8); a divisor (per-instance attribute), normalized 8/16-bit attributes and a second buffer have no typed form',
     webgpu: andGap(
       typed('scripts/compile-gate.ts'),

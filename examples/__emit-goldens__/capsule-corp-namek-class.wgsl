@@ -907,7 +907,7 @@ fn Terrain_brush(a: vec2<f32>, m: vec2<f32>, b: vec2<f32>, width: f32, taper: f3
   let d1 = length((a + (ma * h1)));
   let d2 = length((m + (bm * h2)));
   let along = select((0.5 + (0.5 * h2)), (0.5 * h1), (d1 < d2));
-  return (min(d1, d2) - (width * mix(1.0, (0.3 + (0.7 * sqrt(sin((PI * along))))), taper)));
+  return (min(d1, d2) - (width * mix(1.0, (0.3 + (0.7 * sqrt(max(sin((PI * along)), 0.0)))), taper)));
 }
 
 fn Terrain_dirtStrokes(x: vec2<f32>, eye: vec2<f32>, jacobian: mat2x2<f32>, lw: f32) -> f32 {

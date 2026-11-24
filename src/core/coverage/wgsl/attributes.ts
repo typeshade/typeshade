@@ -154,7 +154,8 @@ export const ATTRIBUTES_ROWS: readonly Row[] = [
     kind: 'WGSL attribute',
     name: '`@must_use`',
     covers: ['wgsl:attributes:must_use'],
-    evidence: 'docs/use-typeshade-surface.md:5910-5912; src/compiler/ts/codes.ts:72',
+    evidence:
+      'docs/use-typeshade-surface.md:5910-5912; src/compiler/ts/codes.ts#TS_CODES.ATTRIBUTE_NAME',
     webgpu: gap(
       12,
       'refused today with no rule number: TS8028 (surface §50: an emit decision)',

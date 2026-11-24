@@ -66,12 +66,12 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     name: '`GPUBufferBindingType`',
     covers: ['GPUBufferBindingType'],
     evidence:
-      'src/runtime/program.ts:1334-1338; src/runtime/gl.ts#GlComputePipelineImpl~"b.space"; src/core/reflect.ts:903',
+      'src/runtime/program.ts:1334-1338; src/runtime/gl.ts#GlComputePipelineImpl~"b.space"; src/core/reflect.ts#resourceKind~"\'storage-buffer\'"',
     note: '3 members.',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed(
       'scripts/compile-gate.ts',
-      'WebGL2 has no bind group layout; the binding kind follows the declared address space: uniform, or words for storage (`GlComputePipelineImpl` of `src/runtime/gl.ts`; src/core/reflect.ts:903)',
+      'WebGL2 has no bind group layout; the binding kind follows the declared address space: uniform, or words for storage (`GlComputePipelineImpl` of `src/runtime/gl.ts`; `resourceKind` of `src/core/reflect.ts`)',
     ),
   },
   {
@@ -138,13 +138,14 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUCompilationMessageType`',
     covers: ['GPUCompilationMessageType'],
-    evidence: 'docs/language-design.md:36, 1391-1395; src/core/gl-compute.ts:131',
+    evidence:
+      'docs/language-design.md:36, 1391-1395; src/core/gl-compute.ts#compile~"getShaderInfoLog"',
     note: '3 members.',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string with no message type (src/core/gl-compute.ts:131)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string with no message type (`compile` of `src/core/gl-compute.ts`)',
     ),
   },
   {
@@ -205,7 +206,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     name: '`GPUFeatureName`',
     covers: ['GPUFeatureName'],
     evidence:
-      'src/core/backends/wgsl.ts:216-272; src/core/ir/nodes.ts#Capability|ALL_CAPABILITIES; src/compiler/ts/builtin-check.ts#WGSL_ATTRIBUTES_ELSEWHERE; docs/language-design.md:314; node_modules/@webgpu/types/dist/index.d.ts:1472-1483',
+      'src/core/backends/wgsl.ts#WGSL_CAP_PROFILE.f16|WGSL_CAP_PROFILE.subgroups|WGSL_CAP_PROFILE.clipDistances|WGSL_CAP_PROFILE.primitiveIndex|WGSL_CAP_PROFILE.dualSourceBlending|WGSL_CAP_PROFILE.bgra8unormStorage|WGSL_CAP_PROFILE.float32Blend|WGSL_CAP_PROFILE.float32Filterable; src/core/ir/nodes.ts#Capability|ALL_CAPABILITIES; src/compiler/ts/builtin-check.ts#WGSL_ATTRIBUTES_ELSEWHERE; docs/language-design.md:314; node_modules/@webgpu/types/dist/index.d.ts:1472-1483',
     note: '25 members. grouped: shader-f16 refused (Rule 4.7); subgroups typed directive, functions sub-gap; clip-distances, dual-source-blending, primitive-index, bgra8unorm-storage typed; float32-filterable, float32-blendable declarable with no "use typeshade" spelling (sub-gap, surface §50); depth-clip-control, depth32float-stencil8, timestamp-query, indirect-first-instance, texture-compression-bc/etc2/astc (+sliced-3d), rg11b10ufloat-renderable, texture-component-swizzle, texture-compression-unaligned, texture-formats-tier1, texture-formats-tier2: sub-gap; core-features-and-limits n/a. rg11b10ufloat-renderable as a render target: not measured',
     webgpu: andGap(
       typed(

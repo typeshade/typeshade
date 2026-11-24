@@ -40,7 +40,8 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.copyBufferToBuffer()`',
     covers: ['GPUCommandEncoder.copyBufferToBuffer'],
-    evidence: 'src/runtime/runtime.ts#RenderPass|Frame; src/runtime/gl.ts:437',
+    evidence:
+      'src/runtime/runtime.ts#RenderPass|Frame; src/rhi/webgl2.ts#GlEncoder.copyBufferToBuffer',
     webgpu: andGap(raw('Frame.encoder'), 6, 'no typed buffer-to-buffer copy', 637),
     webgl2: gap(6, 'a buffer copy; WebGL2 copyBufferSubData has no typed form', 637),
   },
@@ -144,12 +145,13 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationInfo.messages`',
     covers: ['GPUCompilationInfo.messages'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
+    evidence:
+      'docs/language-design.md:1391-1395; src/core/gl-compute.ts#compile~"getShaderInfoLog"',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string, not a list of messages (src/core/gl-compute.ts:131)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string, not a list of messages (`compile` of `src/core/gl-compute.ts`)',
     ),
   },
 ];

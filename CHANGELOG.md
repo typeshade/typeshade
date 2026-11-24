@@ -337,6 +337,11 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **The `typescript` peer range starts at the lowest version CI checks** (#922). It reads
+  `>=5.6.3 <7`, where it read `>=5.0.0 <7`. TypeScript 5.0.4 crashed with `Maximum call stack size
+exceeded` while checking `src/core/sot.ts` and `src/core/ir/builder.ts`, and no CI leg ran below
+  5.6.3. Nothing is released yet (`docs/owner-decisions.md` OD-6).
+
 - **The optimizer cleans up more of the emit** (#1360, #1366, #1378, #1381, #1387, #1397, #1407,
   #1413). The emit need not mirror the source (OD-9), and each pass keeps every result the same.
   - `splitLocalArrays` (`src/core/passes/opt/sroa.ts`, #1360) splits a local fixed-size array that
