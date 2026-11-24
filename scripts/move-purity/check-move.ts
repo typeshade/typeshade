@@ -1,3 +1,5 @@
+import { compareComments } from './compare-comments.js';
+import type { FileComment } from './comments.js';
 import { compareTitles } from './compare-titles.js';
 import { compareUnits, type UnitDiff } from './compare-units.js';
 import { checkOutside, isComparedSource, type OutsideEntry } from './outside-move.js';
@@ -8,6 +10,7 @@ export interface MoveReport {
   readonly changedPaths: number;
   readonly units: UnitDiff;
   readonly titles: { readonly vanished: Title[]; readonly appeared: Title[] };
+  readonly comments: { readonly vanished: FileComment[]; readonly appeared: FileComment[] };
   readonly outside: OutsideEntry[];
   readonly knownEdgesRemoved: string[];
   readonly surfacePathChanges: number;
@@ -29,11 +32,15 @@ export function checkMove(
   const sources = paths.filter(isComparedSource);
   const units = compareUnits(base, head, sources);
   const titles = compareTitles(base, head, sources);
+  const comments = compareComments(base, head, sources);
   const { outside, knownEdgesRemoved, surfacePathChanges } = checkOutside(base, head, paths);
   const pure =
     units.vanished.length === 0 &&
     units.appeared.length === 0 &&
     units.changed.length === 0 &&
+    units.reordered.length === 0 &&
+    comments.vanished.length === 0 &&
+    comments.appeared.length === 0 &&
     titles.vanished.length === 0 &&
     titles.appeared.length === 0 &&
     outside.length === 0;
@@ -42,6 +49,7 @@ export function checkMove(
     changedPaths: paths.length,
     units,
     titles,
+    comments,
     outside,
     knownEdgesRemoved,
     surfacePathChanges,

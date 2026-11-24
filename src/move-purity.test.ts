@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { checkMove, checkRange, formatReport } from '../scripts/move-purity.js';
+import { fileComments } from '../scripts/move-purity/comments.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -240,6 +241,108 @@ describe('the move-purity check (docs/structure-refactoring-plan.md, S0 item a)'
       const base = tree({ 'scripts/comment-baseline.json': '{"src/a.ts": 3}' });
       const head = tree({ 'scripts/comment-baseline.json': '{"src/a.ts": 3, "src/b.ts": 1}' });
       expect(checkMove(base, head).pure).toBe(false);
+    });
+  });
+
+  describe('the order of declarations', () => {
+    const a = 'const A = 1;\n';
+    const b = 'const B = 2;\n';
+    const c = 'const C = 3;\n';
+    const d = 'const D = 4;\n';
+
+    it('refuses two declarations swapped inside a file', () => {
+      const report = checkMove(tree({ 'src/a.ts': a + b }), tree({ 'src/a.ts': b + a }));
+      expect(report.pure).toBe(false);
+      expect(report.units.reordered.map((u) => u.names)).toEqual([['B']]);
+    });
+
+    it('refuses two moved declarations swapped in the target', () => {
+      const base = tree({ 'src/a.ts': a + b + c });
+      const head = tree({ 'src/a.ts': c, 'src/b.ts': b + a });
+      const report = checkMove(base, head);
+      expect(report.pure).toBe(false);
+      expect(report.units.reordered).toEqual([{ path: 'src/b.ts', line: 1, names: ['B'] }]);
+    });
+
+    it('accepts moved declarations interleaved in order with existing ones', () => {
+      const base = tree({ 'src/a.ts': a + b + c, 'src/b.ts': d });
+      const head = tree({ 'src/a.ts': c, 'src/b.ts': a + d + b });
+      expect(checkMove(base, head).pure).toBe(true);
+    });
+
+    it('orders units of different sources only within each source', () => {
+      const base = tree({ 'src/a.ts': a + b, 'src/b.ts': c + d });
+      const head = tree({ 'src/t.ts': c + a + d + b });
+      expect(checkMove(base, head).pure).toBe(true);
+    });
+  });
+
+  describe('free comments', () => {
+    it('refuses a header comment that was deleted', () => {
+      const base = tree({ 'src/a.ts': `// header\nimport { x } from './x.js';\n${BETA}` });
+      const head = tree({ 'src/a.ts': `import { x } from './x.js';\n${BETA}` });
+      const report = checkMove(base, head);
+      expect(report.pure).toBe(false);
+      expect(report.comments.vanished.map((c) => c.text)).toEqual(['// header']);
+    });
+
+    it('refuses an edited comment above an import', () => {
+      const base = tree({ 'src/a.ts': `// one\nimport { x } from './x.js';\n${BETA}` });
+      const head = tree({ 'src/a.ts': `// two\nimport { x } from './x.js';\n${BETA}` });
+      const report = checkMove(base, head);
+      expect(report.pure).toBe(false);
+      expect(report.comments.appeared.map((c) => c.text)).toEqual(['// two']);
+    });
+
+    it('refuses a comment at the end of a file and one before a closing brace', () => {
+      const base = tree({ 'src/a.ts': `function f() {\n  // inner\n}\n// tail\n` });
+      const head = tree({ 'src/a.ts': `function f() {\n  // inner\n}\n` });
+      expect(checkMove(base, head).comments.vanished.map((c) => c.text)).toEqual(['// tail']);
+      const inner = tree({ 'src/a.ts': `function f() {\n}\n// tail\n` });
+      expect(checkMove(base, inner).pure).toBe(false);
+    });
+
+    it('does not count a comment marker inside a string or a template literal', () => {
+      const text = "const U = 'http://x';\nconst T = `a // ${1} /* b */`;\n// real\n";
+      expect(fileComments('src/a.ts', text).map((c) => c.text)).toEqual(['// real']);
+    });
+  });
+
+  describe('the baselines, entry by entry', () => {
+    const path = 'scripts/file-size-baseline.json';
+    const run = (before: object, after: object) =>
+      checkMove(tree({ [path]: JSON.stringify(before) }), tree({ [path]: JSON.stringify(after) }));
+
+    it('refuses an entry that grew while the sum went down', () => {
+      expect(
+        run({ 'src/a.ts': 300, 'src/b.ts': 500 }, { 'src/a.ts': 350, 'src/b.ts': 100 }).pure,
+      ).toBe(false);
+    });
+
+    it('accepts an entry replaced by a new path with the same number', () => {
+      expect(run({ 'src/a.ts': 500 }, { 'src/b.ts': 500 }).pure).toBe(true);
+    });
+
+    it('refuses a baseline with more entries', () => {
+      expect(run({ 'src/a.ts': 500 }, { 'src/a.ts': 300, 'src/b.ts': 100 }).pure).toBe(false);
+    });
+  });
+
+  describe('files outside src/', () => {
+    const source = "import { a } from '../src/a.js';\nconst NAME = 'one';\n";
+
+    it('accepts a script with only an import path changed', () => {
+      const head = source.replace('../src/a.js', '../src/a/part.js');
+      expect(checkMove(tree({ 'scripts/x.ts': source }), tree({ 'scripts/x.ts': head })).pure).toBe(
+        true,
+      );
+    });
+
+    it('refuses a script with a string literal changed', () => {
+      const head = source.replace("'one'", "'two'");
+      expect(checkMove(tree({ 'scripts/x.ts': source }), tree({ 'scripts/x.ts': head })).pure).toBe(
+        false,
+      );
     });
   });
 

@@ -5,6 +5,7 @@ export interface Unit {
   readonly hash: string;
   readonly path: string;
   readonly line: number;
+  readonly index: number;
   readonly names: readonly string[];
   readonly exported: boolean;
 }
@@ -46,6 +47,7 @@ function unitOf(
   statement: ts.Statement,
   from: number,
   to: number,
+  index: number,
 ): Unit {
   const keyword = plainExportKeyword(statement);
   let body = text.slice(from, to);
@@ -60,6 +62,7 @@ function unitOf(
     hash: createHash('sha256').update(identity).digest('hex'),
     path: source.fileName,
     line: source.getLineAndCharacterOfPosition(statement.getStart(source)).line + 1,
+    index,
     names: declaredNames(statement),
     exported: keyword !== undefined,
   };
@@ -73,7 +76,8 @@ export function declarationUnits(path: string, rawText: string): Unit[] {
   for (const statement of source.statements) {
     const trailing = ts.getTrailingCommentRanges(text, statement.end);
     const to = trailing?.length ? trailing[trailing.length - 1]!.end : statement.end;
-    if (!isModuleLink(statement)) units.push(unitOf(source, text, statement, from, to));
+    if (!isModuleLink(statement))
+      units.push(unitOf(source, text, statement, from, to, units.length));
     from = to;
   }
   return units;

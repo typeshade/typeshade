@@ -17,13 +17,22 @@ export interface OutsideResult {
 
 const DOCUMENT_PREFIXES = ['docs/', 'changes/'];
 
-export const isComparedSource = (path: string): boolean =>
-  path.startsWith('src/') && path.endsWith('.ts');
+export const isComparedSource = (path: string): boolean => path.endsWith('.ts');
 
-function sumOf(text: string | undefined): number {
-  if (text === undefined) return 0;
-  const record = JSON.parse(text) as Record<string, number>;
-  return Object.values(record).reduce((a, b) => a + b, 0);
+function entriesOf(text: string | undefined): Record<string, number> {
+  return text === undefined ? {} : (JSON.parse(text) as Record<string, number>);
+}
+
+const sumOf = (record: Record<string, number>): number =>
+  Object.values(record).reduce((a, b) => a + b, 0);
+
+function baselineGrowth(base: string | undefined, head: string | undefined): string | undefined {
+  const before = entriesOf(base);
+  const after = entriesOf(head);
+  if (sumOf(after) > sumOf(before)) return 'the sum of its numbers grew';
+  if (Object.keys(after).length > Object.keys(before).length) return 'it has more entries';
+  const grown = Object.keys(after).find((key) => key in before && after[key]! > before[key]!);
+  return grown === undefined ? undefined : `the entry ${grown} grew`;
 }
 
 const surfaceKey = (line: string): string => line.replace(/^src\/[^#\s]+#/, '');
@@ -60,9 +69,8 @@ export function checkOutside(
   let surfacePathChanges = 0;
   for (const path of paths) {
     if (path === SIZE_BASELINE || path === COMMENT_BASELINE) {
-      if (sumOf(head.get(path)) > sumOf(base.get(path))) {
-        outside.push({ path, reason: 'the baseline grew: the sum of its numbers is higher' });
-      }
+      const growth = baselineGrowth(base.get(path), head.get(path));
+      if (growth !== undefined) outside.push({ path, reason: `the baseline grew: ${growth}` });
     } else if (path === SURFACE_PATH) {
       const { same, changed } = surfaceCheck(base.get(path), head.get(path));
       surfacePathChanges = changed;

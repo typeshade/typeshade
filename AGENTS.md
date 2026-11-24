@@ -222,7 +222,8 @@ tier runs. Where no fallback exists, write "not supported yet" and cite the rule
 - CI's traceability job: `python scripts/doorstop-check.py -C -e -F` over `reqs/`, a proof step
   that blanks one rule's `reviewed:` stamp in a copy of the checkout and expects that run to fail,
   and the traceability matrix as an artifact (`reqs/README.md`). On a pull request, the `quality` job
-  also runs `docs:impact --check`, `ifchange.ts` and `changes.ts` against the base.
+  also runs `docs:impact --check`, `ifchange.ts`, `changes.ts` and `move-purity.ts` against the base.
+  The last one checks only a range with a commit that carries the trailer `Move: pure`.
 - CI's `typecheck + unit (TypeScript X)` checks aggregate the `unit-typescript5` and
   `unit-typescript6` workers separately. Each worker runs `bun run build` and its partition of
   the tests that can load TypeScript, replaced by the newest 5.x (5.9.3) or 6.0 (6.0.3).

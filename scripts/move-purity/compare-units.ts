@@ -1,5 +1,6 @@
 import { groupBy, matchGroups } from './multiset.js';
 import { declarationUnits, normalizeLineEndings, type Unit } from './units.js';
+import { orderViolations } from './order.js';
 import { LAYER_POLICY_PATH, withoutKnownEdges } from './known-edges.js';
 
 export interface UnitRef {
@@ -23,6 +24,7 @@ export interface UnitDiff {
   readonly appeared: UnitRef[];
   readonly changed: ChangedUnit[];
   readonly moved: MovedUnit[];
+  readonly reordered: UnitRef[];
   readonly exportsAdded: UnitRef[];
   readonly exportsRemoved: UnitRef[];
 }
@@ -65,9 +67,11 @@ export function compareUnits(
   const exportsRemoved: UnitRef[] = [];
   const vanished: UnitRef[] = [];
   const appeared: UnitRef[] = [];
+  const pairs: [Unit, Unit][] = [];
   for (const hash of new Set([...baseGroups.keys(), ...headGroups.keys()])) {
     const match = matchGroups(baseGroups.get(hash) ?? [], headGroups.get(hash) ?? []);
     for (const [from, to] of match.moved) moved.push({ from: refOf(from), to: refOf(to) });
+    pairs.push(...match.kept, ...match.moved);
     for (const [from, to] of [...match.kept, ...match.moved]) {
       if (to.exported && !from.exported) exportsAdded.push(refOf(to));
       if (from.exported && !to.exported) exportsRemoved.push(refOf(from));
@@ -81,6 +85,7 @@ export function compareUnits(
     appeared: paired.appeared,
     changed: paired.changed,
     moved,
+    reordered: orderViolations(pairs).map(refOf),
     exportsAdded,
     exportsRemoved,
   };

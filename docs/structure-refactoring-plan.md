@@ -419,6 +419,9 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
    CI runs the check on a pull request when a commit of its range carries that trailer.
    Without the trailer the check prints one line and exits 0. The flag `--require` runs it anyway.
 
+Fact: when the check passes, each changed `.ts` file has the same declarations in the same relative order, the same comments and the same test titles. Only `import` lines, `export ... from` lines and `export` keywords differ.
+Known gaps: an import redirected to another symbol of the same name is not caught, and an added `export` is only reported (S0 item f covers it).
+
 Document audit. It is separate from the functional checks:
 
 1. `bun run docs:impact`
