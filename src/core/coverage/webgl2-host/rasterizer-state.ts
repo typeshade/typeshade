@@ -28,7 +28,7 @@ export const RASTERIZER_STATE_ROWS: readonly Row[] = [
     name: '`WEBGL_provoking_vertex`',
     covers: ['webgl:WEBGL_provoking_vertex'],
     evidence:
-      'src/core/passes/varying-interpolate.ts:138-153 (flat defaults to `first`); src/rhi/webgl2.ts (firstVertexLast, provokingVertexWEBGL)',
+      'src/core/passes/varying-interpolate.ts#DEFAULT_SAMPLING.flat (flat defaults to `first`); src/rhi/webgl2.ts (firstVertexLast, provokingVertexWEBGL)',
     note: "measured: ES 3.00 takes the last vertex for a flat varying and WGSL's @interpolate(flat, first) the first; the WebGL2 backend takes the first with the extension, and without it draws each triangle with its first vertex last and refuses a line that carries a flat value",
     webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts', "first is WGSL's default"),
     webgl2: typed(

@@ -53,7 +53,7 @@ export const STATEMENTS_AND_PREPROCESSOR_ROWS: readonly Row[] = [
     name: '`do…while`',
     covers: ['glsl:statements:6.3:do'],
     evidence:
-      'src/compiler/ts/lower/statement.ts:269-280; src/compiler/ts/codes.ts:263 (TS8099); docs/roadmap.md:209 (roadmap T13)',
+      'src/compiler/ts/lower/statement.ts:269-280; src/compiler/ts/codes.ts#TS_CODES.UNSUPPORTED (TS8099); docs/roadmap.md:209 (roadmap T13)',
     webgpu: gap(
       12,
       'refused today with no rule number: refused as TS8099; GLSL ES 3.00 has do…while and WGSL does not, so the refusal names the portable while (measured with compile(), 2026-10-12); roadmap T13 names it (docs/roadmap.md:209)',
@@ -130,8 +130,8 @@ export const STATEMENTS_AND_PREPROCESSOR_ROWS: readonly Row[] = [
       'glsl:preprocessor:3.5:#endif',
     ],
     evidence:
-      'src/core/variant-family.ts:304; src/core/variant-family.ts:310 (#endif of the ladder); src/core/variant-family.ts:350 (the #if and #elif heads); src/core/backends/glsl.ts:2329 (the #endif after an #ifndef default)',
-    note: 'also: typed through the host export variantFamily().emitGuarded, which writes this ladder for a host that owns the define (src/core/variant-family.ts:140-166); test src/core/variant-family.test.ts:123-125 reads the ladder',
+      'src/core/variant-family.ts#variantFamily~"[...preamble, \'\', ...ladder"; src/core/variant-family.ts#variantFamily~"source: [...ladder" (#endif of the ladder); src/core/variant-family.ts#buildGuarded~"i === 0 ?" (the #if and #elif heads); src/core/backends/glsl.ts:2329 (the #endif after an #ifndef default)',
+    note: 'also: typed through the host export variantFamily().emitGuarded, which writes this ladder for a host that owns the define (`guardCondition` of `src/core/variant-family.ts`); test src/core/variant-family.test.ts:123-125 reads the ladder',
     webgpu: na('WGSL has no preprocessor'),
     webgl2: na(
       'the author of a "use typeshade" program writes no directive; the ladder comes only from a host export, variantFamily().emitGuarded',
@@ -154,7 +154,7 @@ export const STATEMENTS_AND_PREPROCESSOR_ROWS: readonly Row[] = [
     name: '`#ifdef`, `#else`',
     covers: ['glsl:preprocessor:3.5:#ifdef', 'glsl:preprocessor:3.5:#else'],
     evidence:
-      'src/core/backends/glsl.ts:2300-2329 (the directives the writer emits); src/core/variant-family.ts:9 (a comment, the one non-test mention of #ifdef)',
+      'src/core/backends/glsl.ts:2300-2329 (the directives the writer emits); src/core/variant-family.ts#buildGuarded~"i === 0 ?" (the ladder uses #if and #elif)',
     webgpu: na('WGSL has no preprocessor'),
     webgl2: na(
       'emitted nowhere in non-test source; the author of a "use typeshade" program writes no directive',
@@ -180,8 +180,8 @@ export const STATEMENTS_AND_PREPROCESSOR_ROWS: readonly Row[] = [
     name: '`defined`',
     covers: ['glsl:preprocessor:3.5:defined'],
     evidence:
-      'src/core/variant-family.ts#guardCondition (guardCondition writes the defined test and its negation); src/core/variant-family.ts:350 (the ladder head that carries it)',
-    note: 'also: typed through the host export variantFamily().emitGuarded (src/core/variant-family.ts:140-166); test src/core/variant-family.test.ts reads the operator through selectGuardedArm',
+      'src/core/variant-family.ts#guardCondition (guardCondition writes the defined test and its negation); src/core/variant-family.ts#buildGuarded~"guardCondition(v.axes" (the ladder head that carries it)',
+    note: 'also: typed through the host export variantFamily().emitGuarded (`guardCondition` of `src/core/variant-family.ts`); test src/core/variant-family.test.ts reads the operator through selectGuardedArm',
     webgpu: na('WGSL has no preprocessor'),
     webgl2: na(
       'the author of a "use typeshade" program writes no directive, so the operator has no author spelling; the writer emits no #if expression (src/core/backends/glsl.ts:2300-2329), and the host export variantFamily().emitGuarded writes defined(X)',

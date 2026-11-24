@@ -26,7 +26,7 @@ export const FUNCTIONS_TEXTURE_STORE_TO_WORKGROUP_UNIFORM_LOAD_ROWS: readonly Ro
     kind: 'WGSL built-in function',
     name: '`trunc`',
     covers: ['wgsl:builtinFunctions:trunc'],
-    evidence: 'src/core/intrinsics.ts:1136; src/core/builtins/overlay.ts:84',
+    evidence: 'src/core/intrinsics.ts:1136; src/core/builtins/overlay.ts#MATH~"\'trunc\'"',
     note: 'the same spelling in WGSL and GLSL ES 3.00; no INTRINSICS entry',
     webgpu: typed('src/core/intrinsic-coverage.test.ts'),
     webgl2: typed('src/core/intrinsic-coverage.test.ts'),
@@ -96,7 +96,7 @@ export const FUNCTIONS_TEXTURE_STORE_TO_WORKGROUP_UNIFORM_LOAD_ROWS: readonly Ro
     kind: 'WGSL built-in function',
     name: '`unpack4xI8`',
     covers: ['wgsl:builtinFunctions:unpack4xI8'],
-    evidence: 'src/core/backends/wgsl.ts:229-236',
+    evidence: 'src/core/backends/wgsl.ts#WGSL_CAP_PROFILE.packed4x8Dot',
     note: 'packed4x8Dot capability; GLSL ES 3.00 can spell it with bit arithmetic',
     webgpu: typed('src/compiler/ts/packed-4x8.test.ts'),
     webgl2: gap(
@@ -110,7 +110,7 @@ export const FUNCTIONS_TEXTURE_STORE_TO_WORKGROUP_UNIFORM_LOAD_ROWS: readonly Ro
     kind: 'WGSL built-in function',
     name: '`unpack4xU8`',
     covers: ['wgsl:builtinFunctions:unpack4xU8'],
-    evidence: 'src/core/backends/wgsl.ts:229-236',
+    evidence: 'src/core/backends/wgsl.ts#WGSL_CAP_PROFILE.packed4x8Dot',
     note: 'packed4x8Dot capability; GLSL ES 3.00 can spell it with bit arithmetic',
     webgpu: typed('src/compiler/ts/packed-4x8.test.ts'),
     webgl2: gap(

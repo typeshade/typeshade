@@ -129,7 +129,7 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicStoreMax`',
     covers: ['wgsl:builtinFunctions:atomicStoreMax'],
-    evidence: 'src/core/builtins/overlay.ts:159; docs/roadmap.md:304',
+    evidence: 'src/core/builtins/overlay.ts#NOT_WGSL.atomicStoreMax; docs/roadmap.md:304',
     webgpu: gap(
       9,
       'atomic_vec2u_min_max; roadmap After 1.0, docs/roadmap.md:304; no proposal names it',
@@ -142,7 +142,7 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicStoreMin`',
     covers: ['wgsl:builtinFunctions:atomicStoreMin'],
-    evidence: 'src/core/builtins/overlay.ts:160; docs/roadmap.md:304',
+    evidence: 'src/core/builtins/overlay.ts#NOT_WGSL.atomicStoreMin; docs/roadmap.md:304',
     webgpu: gap(
       9,
       'atomic_vec2u_min_max; roadmap After 1.0, docs/roadmap.md:304; no proposal names it',
