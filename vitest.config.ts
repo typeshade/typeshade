@@ -59,6 +59,8 @@ const MOCKS = [
   'src/compiler/ts/host-kernel-made-gl.test.ts',
   'src/core/host-kernel-counted.test.ts',
   'src/core/host-kernel-growing.test.ts',
+  'src/compiler/ts/host-face-fallback.test.ts',
+  'src/compiler/ts/host-face-subgroup.test.ts',
   'src/runtime/gl-compute-host.test.ts',
   'src/runtime/gl-compute-textures.test.ts',
 ];

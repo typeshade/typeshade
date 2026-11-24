@@ -1,9 +1,7 @@
 // ═══ The host face of a shader module (Rules 8.20, 8.21, 11.7; surface §64) ═══
-//
 // A host file imports a `.shade.ts` and calls what it exports. This file computes what that host
 // sees, from one compile of the module. It delegates type conversion to host-types.ts,
 // declarations to host-view.ts and executable wrappers to host-module.ts:
-//
 //   - which exports a host can call (Rule 8.20), and why each other one cannot be;
 //   - the host type of each parameter, result, constant and struct (Rule 8.21);
 //   - the HOST VIEW, `name.shade.typeshade.ts`, the TypeScript that `tsc` and the editor read
@@ -12,11 +10,13 @@
 //     for the callable functions at `f32` precision (Rule 11.7), each wrapped in a function that
 //     checks and converts its arguments and copies its result out, and a JavaScript class for
 //     each exported class (change 0109), whose constructor and methods are such calls.
-//
-// The IR does not keep the source's export list. A generic function exists only as its instances
-// and a function that takes a function only per use, a class method is `P_len` and an enum is
-// the constants `Mode_A` and `Mode_B`. So the face is read off the source's `export`s and the
-// lowering's symbol table, and the IR is consulted for what each callable function reaches.
+
+// Why: the IR does not keep the source's export list. A generic function exists only as its
+// instances and a function that takes a function only per use, a class method is `P_len` and an
+// enum is the constants `Mode_A` and `Mode_B`. So the face is read off the source's `export`s and
+// the lowering's symbol table, and the IR is consulted for what each callable function reaches.
+// Rule 6.1, Rule 8.22, Rule 8.23, Rule 8.24 and Rule 11.10 (docs/language-design.md) name this file;
+// the reqs/ items of these rules read these keywords in it.
 
 import ts from 'typescript';
 import { emitGlslModule } from '../../core/backends/glsl.js';
@@ -443,7 +443,7 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
     const recorded = consoleBuffer(m);
     if (recorded.log !== undefined) {
       log = recorded.log;
-      // The recorded module shares the plan of `m`: its entries keep the names the host calls.
+      // Why: the recorded module takes the plan of `m`, so its entries keep the host's names.
       emitted = inheritSpellings(recorded.module, m);
       wgsl = emitModule(emitted);
       const rm = recorded.module;
