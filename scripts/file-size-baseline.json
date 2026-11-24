@@ -49,7 +49,7 @@
   "src/compiler/ts/link.test.ts": 1901,
   "src/compiler/ts/link.ts": 1364,
   "src/compiler/ts/lit-coerce.ts": 1014,
-  "src/compiler/ts/loop-bound.ts": 1004,
+  "src/compiler/ts/loop-bound.ts": 769,
   "src/compiler/ts/loop-shapes.test.ts": 834,
   "src/compiler/ts/lower/array-methods.ts": 1053,
   "src/compiler/ts/lower/class-access.ts": 1075,
