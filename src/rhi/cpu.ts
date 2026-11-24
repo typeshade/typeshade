@@ -42,18 +42,7 @@ import type {
   RhiTextureView,
 } from './rhi.js';
 import { FORMATS, type Format } from './cpu/format.js';
-
-class CpuBuffer implements RhiBuffer {
-  readonly __rhi = 'buffer';
-  readonly bytes: Uint8Array;
-  destroyed = false;
-  constructor(
-    readonly size: number,
-    readonly usage: readonly string[],
-  ) {
-    this.bytes = new Uint8Array(size);
-  }
-}
+import { CpuBuffer } from './cpu/buffer.js';
 
 class CpuTexture implements RhiTexture {
   readonly __rhi = 'texture';
