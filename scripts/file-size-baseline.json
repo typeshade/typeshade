@@ -74,7 +74,6 @@
   "src/compiler/ts/new-expression.test.ts": 845,
   "src/compiler/ts/operators-statements.test.ts": 820,
   "src/compiler/ts/optional-values.test.ts": 1858,
-  "src/compiler/ts/optional.ts": 484,
   "src/compiler/ts/program-refusals.ts": 531,
   "src/compiler/ts/reference-parameters.test.ts": 571,
   "src/compiler/ts/remedy-lines.test.ts": 798,
