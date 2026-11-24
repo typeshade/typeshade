@@ -75,7 +75,8 @@ export function stay(): number {
   it('recomputes relative specifiers for a deeper directory', async () => {
     const result = await plan(SPLIT, 'src/a.ts', 'src/a/deep/ops.ts', 'one,two,Pair');
     purely(SPLIT, result);
-    expect(result.targetImports).toEqual([`import { helper } from '../../lib.js';`]);
+    const climbed = ['..', '..', 'lib.js'].join('/');
+    expect(result.targetImports).toEqual([`import { helper } from '${climbed}';`]);
     expect(result.texts.source).toContain(`from './a/deep/ops.js';`);
   });
 
