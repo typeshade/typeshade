@@ -4,12 +4,8 @@
 // through it. Its programs are the GLSL ES 3.00 programs the manifest carries (`gl.vertices`,
 // `gl.draws`); it builds none, so like the rest of the runtime it imports no compiler.
 //
-// WebGPU's conventions, kept (change 0054). A vertex program's position is flipped in y and its
-// depth moved from WebGPU's 0..w to GL's -w..w, so a texture's row 0 is the top row a WebGPU pass
-// draws, a fragment's `position` is WebGPU's, and a depth value is the one WebGPU stores. The flip
-// turns the winding round, so `frontFace: 'ccw'` is GL's clockwise. A texture written or read back
-// keeps WebGPU's row order with no copy turned over; only a pass into the canvas is turned over,
-// once, as it is copied to the screen.
+// Why: the position is flipped in y and its depth moved from 0..w to -w..w so that a texture's rows,
+// a fragment's `position` and a stored depth are WebGPU's; only the compile gate holds this on a real context.
 //
 // Buffers. A storage buffer is a data texture the draw programs read (change 0046), as X-GIS's
 // `storage-data-texture.ts` makes one, with the element type the buffer carries
@@ -81,7 +77,7 @@ interface FormatSpec {
   readonly type: string;
   readonly channels: number;
   readonly kind: GlTextureKind;
-  /** Blue first: WebGL2 has no BGRA texture, so the texels are RGBA and a read swaps them. */
+  /** Why: WebGL2 has no BGRA texture, so the texels are RGBA and a read swaps them. */
   readonly bgra?: boolean;
 }
 
@@ -246,9 +242,8 @@ class GlState {
   readonly blitFbo: WebGLFramebuffer;
   /** Where a texture paired with no sampler is read from: nearest, clamped. */
   readonly nearest: WebGLSampler;
-  /** The context's `MAX_COLOR_ATTACHMENTS`, read once: a pass detaches the attachments below it
-   *  that it does not use. An attachment at or above it is `INVALID_ENUM`, an error that stays on
-   *  the context until the next `getError()`, which may be another layer's. */
+  /** Why: an attachment at or above `MAX_COLOR_ATTACHMENTS` is `INVALID_ENUM`, an error that stays
+   *  on the context until the next `getError()`, which may be another layer's. */
   readonly maxColorAttachments: number;
   /** `EXT_polygon_offset_clamp`, requested once, or null when the context lacks it (A1). */
   readonly polygonOffsetClamp: PolygonOffsetClamp | null;
@@ -577,7 +572,7 @@ function stencilOpOf(gl: GL, op: RhiStencilOperation): number {
  *  or a blend operation this backend has no name for before it asks for the pipeline. */
 function drawStateOf(gl: GL, desc: RhiRenderPipelineDesc): DrawState {
   const g = gl as unknown as Record<string, number>;
-  // WebGL2 has one blend state and one write mask for every target: the first target's.
+  // Why: WebGL2 has one blend state and one write mask for every target, so the first target's are used.
   const first = desc.fragment?.targets[0];
   const blend = first?.blend as { color?: BlendComponent; alpha?: BlendComponent } | undefined;
   const factor = (f: string | undefined, d: string): number => g[GL_BLEND_FACTOR[f ?? d]!]!;
@@ -772,7 +767,7 @@ async function readTexels(
   let source = tex;
   let scratch: WebGLTexture | undefined;
   if (fmt.kind === 'depth') {
-    // WebGL2 reads no depth back: a pass copies it into an r32float texture first.
+    // Why: WebGL2 reads no depth back, so a pass copies it into an r32float texture first.
     scratch = depthToColour(s, tex, w, h);
     source = scratch;
   }
@@ -1142,7 +1137,7 @@ class GlRenderPass implements RhiRenderPass {
     });
     if (index !== undefined) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index.buffer.native!);
     setState(gl, p.state, this.#reference, this.s.polygonOffsetClamp);
-    // A flat value comes from the first vertex of its primitive, as on WebGPU.
+    // Why: WebGPU takes a flat value from the first vertex of a primitive and GLSL ES 3.00 from the last.
     const ext = this.s.provokingVertex;
     const mode = p.state.mode;
     if (p.flat && ext !== null && this.#provoking === undefined) {
@@ -1255,7 +1250,7 @@ class GlRenderPass implements RhiRenderPass {
 const NO_COMPUTE =
   'The WebGL2 backend has no compute pass: a dispatch on WebGL2 runs as the pass program of change 0054 (caps.compute is fragment-emulated).';
 
-/** The encoder: WebGL2 has no command buffer, so each command runs as it is recorded. */
+/** Why: WebGL2 has no command buffer, so each command runs as it is recorded. */
 class GlEncoder implements RhiCommandEncoder {
   constructor(private readonly device: GlDevice) {}
 
@@ -1691,8 +1686,7 @@ class GlDevice implements RhiDevice {
     return Promise.resolve();
   }
 
-  /** WebGL2 has no error scopes: the first error of what follows is the context's own, which
-   *  `popValidationScope` takes. */
+  /** Why: WebGL2 has no error scopes, so `popValidationScope` takes the context's own first error. */
   pushValidationScope(): void {}
 
   popValidationScope(): Promise<string | null> {
