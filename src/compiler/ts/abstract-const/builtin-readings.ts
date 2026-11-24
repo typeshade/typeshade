@@ -15,6 +15,7 @@ export function builtinReadingsOf(
   tainted: () => boolean,
   readsOnlyHere: () => boolean,
   w: { steps: number },
+  together: (a: Reading, b: Reading) => boolean = () => true,
 ): Reading[] {
   const read = args.some((a) => a.some((x) => x.tree || x.unknown === true));
   if (args.some((a) => a.length === 0)) return read && tainted() ? [UNPROVEN] : [];
@@ -43,6 +44,7 @@ export function builtinReadingsOf(
   }
   const out: Reading[] = [];
   for (const c of combos) {
+    if (c.some((x, i) => c.slice(i + 1).some((y) => !together(x, y)))) continue;
     let picks: (readonly [ts.Node, string])[] | undefined = [];
     for (const x of c) picks = picks === undefined ? undefined : mergedPicks(picks, x.picks);
     if (picks === undefined) {

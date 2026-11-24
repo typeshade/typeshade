@@ -82,6 +82,9 @@ export const ARITH: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.PercentToken,
 ]);
 
+export const isShift = (k: ts.SyntaxKind): boolean =>
+  k === ts.SyntaxKind.LessThanLessThanToken || k === ts.SyntaxKind.GreaterThanGreaterThanToken;
+
 export const BITWISE: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.AmpersandToken,
   ts.SyntaxKind.BarToken,

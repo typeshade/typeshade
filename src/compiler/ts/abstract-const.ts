@@ -54,6 +54,7 @@ import {
   maskValue,
   wrapList,
   BITWISE,
+  isShift,
   bitOperands,
   isTreeSource,
   COMPOUND_BASE,
@@ -106,6 +107,7 @@ import {
   type Reading,
 } from './abstract-const/reading.js';
 import { builtinReadingsOf } from './abstract-const/builtin-readings.js';
+import * as flow from './abstract-const/reaching.js';
 import { heldWraps, readsNegativeAsWgsl } from './abstract-const/held-use.js';
 import { divisionEdits as buildDivisionEdits } from './remedies/candidates.js';
 import { NO_DIVISION } from './remedies/contracts.js';
@@ -1651,13 +1653,7 @@ function constantBitRoot(e: ts.Expression): boolean {
   }
   if (!ts.isBinaryExpression(n)) return false;
   const k = n.operatorToken.kind;
-  const bit =
-    k === ts.SyntaxKind.BarToken ||
-    k === ts.SyntaxKind.AmpersandToken ||
-    k === ts.SyntaxKind.CaretToken ||
-    k === ts.SyntaxKind.LessThanLessThanToken ||
-    k === ts.SyntaxKind.GreaterThanGreaterThanToken;
-  return bit && constNumber(n) !== undefined;
+  return BITWISE.has(k) && constNumber(n) !== undefined;
 }
 
 /** The type the author wrote on `decl`, not one the editor's projection wrote. */
@@ -2935,14 +2931,15 @@ function readsOnly(node: ts.Node, sourceFile: ts.SourceFile): boolean {
 /** What is stored in a variable: its initializer, a plain assignment, a compound assignment
  *  of an operator that carries two readings, or another store the walk cannot read. */
 type Store =
-  | { readonly kind: 'value'; readonly expr: ts.Expression }
+  | { readonly kind: 'value'; readonly expr: ts.Expression; readonly at: ts.Node }
   | {
       readonly kind: 'compound';
+      readonly at: ts.Node;
       readonly id: ts.Identifier;
       readonly op: ts.BinaryOperator;
       readonly expr: ts.Expression;
     }
-  | { readonly kind: 'opaque'; readonly expr?: ts.Expression };
+  | { readonly kind: 'opaque'; readonly expr?: ts.Expression; readonly at: ts.Node };
 
 /** The per-file facts of the walk. Kept per source file: an incremental parse may reuse a node
  *  in a new file whose other declarations changed, so a node's values hold only for the file
@@ -2961,6 +2958,8 @@ interface ReadingMemo {
   /** The member a property access or an element of an object pattern names
    *  ({@link memberOfAccess}, {@link memberOfBinding}); `null` where it names no one member. */
   readonly members: Map<ts.Node, MemberDecl | 'value' | null>;
+  /** The stores that gave a variable each of its values ({@link FlowSources}). */
+  readonly sites: Map<ts.Node, Map<string, Set<ts.Node>>>;
   taint?: FileTaint;
 }
 const readingMemos = new WeakMap<ts.SourceFile, ReadingMemo>();
@@ -2976,11 +2975,20 @@ function readingMemo(sourceFile: ts.SourceFile): ReadingMemo {
       pure: new Map(),
       owners: new Map(),
       members: new Map(),
+      sites: new Map(),
     };
     readingMemos.set(sourceFile, memo);
   }
   return memo;
 }
+
+/** What the flow walk reads of this file ({@link FlowSources}). */
+const flowSources = (sf: ts.SourceFile): flow.FlowSources =>
+  flow.flowSourcesOf(
+    (d) => storesOf(d, sf),
+    (id) => declarationAt(id, sf),
+    readingMemo(sf).sites,
+  );
 
 /** {@link walkDeclarationOf} of the identifier `id`, found once. */
 function declarationAt(id: ts.Identifier, sourceFile: ts.SourceFile): WalkDeclaration | undefined {
@@ -3004,9 +3012,9 @@ function storesOf(d: ts.VariableDeclaration, sourceFile: ts.SourceFile): Store[]
   if (known !== undefined) return known;
   const stores: Store[] = [];
   const name = (d.name as ts.Identifier).text;
-  if (d.initializer !== undefined) stores.push({ kind: 'value', expr: d.initializer });
+  if (d.initializer !== undefined) stores.push({ kind: 'value', expr: d.initializer, at: d });
   else if (d.parent.parent !== undefined && ts.isForOfStatement(d.parent.parent)) {
-    stores.push({ kind: 'opaque', expr: d.parent.parent.expression });
+    stores.push({ kind: 'opaque', expr: d.parent.parent.expression, at: d });
   }
   for (const id of identifiersNamed(sourceFile, name)) {
     if (id === d.name || declarationAt(id, sourceFile) !== d) continue;
@@ -3021,23 +3029,25 @@ function storesOf(d: ts.VariableDeclaration, sourceFile: ts.SourceFile): Store[]
           ? ts.SyntaxKind.PlusToken
           : ts.SyntaxKind.MinusToken;
       const counter = ts.isForStatement(p.parent) && p.parent.incrementor === p;
-      stores.push(counter ? { kind: 'opaque' } : { kind: 'compound', id, op, expr: ONE });
+      stores.push(
+        counter ? { kind: 'opaque', at: p } : { kind: 'compound', id, op, expr: ONE, at: p },
+      );
       continue;
     }
     const pattern = destructuringSource(up);
-    if (pattern !== undefined) stores.push({ kind: 'opaque', expr: pattern });
+    if (pattern !== undefined) stores.push({ kind: 'opaque', expr: pattern, at: up });
     if (!ts.isBinaryExpression(p) || p.left !== up) continue;
     const k = p.operatorToken.kind;
     if (k === ts.SyntaxKind.EqualsToken) {
-      stores.push({ kind: 'value', expr: p.right });
+      stores.push({ kind: 'value', expr: p.right, at: p });
       continue;
     }
     if (k < ts.SyntaxKind.FirstAssignment || k > ts.SyntaxKind.LastAssignment) continue;
     const base = COMPOUND_BASE.get(k);
     stores.push(
       base === undefined
-        ? { kind: 'opaque', expr: p.right }
-        : { kind: 'compound', id, op: base, expr: p.right },
+        ? { kind: 'opaque', expr: p.right, at: p }
+        : { kind: 'compound', id, op: base, expr: p.right, at: p },
     );
   }
   memo.set(d, stores);
@@ -3640,9 +3650,11 @@ function storedReadings(
   sourceFile: ts.SourceFile,
   w: ReadingWalk,
 ): Reading[] {
+  const picked = (x: Reading, key: string): Reading =>
+    flow.pickedAt(readingMemo(sourceFile).sites, d, s.at, x, key);
   if (s.kind === 'opaque') {
     const tree = s.expr !== undefined && taintedNode(s.expr, sourceFile);
-    return [{ ...(tree ? UNPROVEN : UNKNOWN), picks: [[d, tree ? '!' : '?']] }];
+    return [picked(tree ? UNPROVEN : UNKNOWN, tree ? '!' : '?')];
   }
   const before = w.bootstrap;
   w.bootstrap = false;
@@ -3653,8 +3665,8 @@ function storedReadings(
   const first = w.bootstrap;
   w.bootstrap = before;
   // A store that reads the variable in its first round, before it has a value, adds none yet.
-  if (xs.length === 0) return first ? [] : [{ ...UNKNOWN, picks: [[d, '?']] }];
-  return xs.map((x) => ({ ...x, picks: [[d, readingValue(x)] as const] }));
+  if (xs.length === 0) return first ? [] : [picked(UNKNOWN, '?')];
+  return xs.map((x) => picked(x, readingValue(x)));
 }
 
 /** The builtins whose result is a function of their arguments' values, read both ways. */
@@ -3744,7 +3756,7 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
     }
     if (!ts.isVariableDeclaration(d) || !ts.isIdentifier(d.name)) return [];
     if (writtenTypeText(d, sourceFile) !== undefined) return [];
-    return variableReadings(d, sourceFile, w);
+    return flow.reachingReadings(variableReadings(d, sourceFile, w), d, n, flowSources(sourceFile));
   }
   if (ts.isConditionalExpression(n)) {
     // An arm beside a typed `i32` takes TypeScript's value.
@@ -3767,7 +3779,8 @@ function readingsAt(n: ts.Expression, sourceFile: ts.SourceFile, w: ReadingWalk)
       if (VALUE_BUILTINS.has(callee)) {
         const args = n.arguments.map((a) => readingsOfNode(a, sourceFile, w));
         const pure = () => readsOnly(n, sourceFile);
-        return builtinReadingsOf(callee, args, () => taintedNode(n, sourceFile), pure, w);
+        const together = (x: Reading, y: Reading) => flow.coexist(x, y, n, flowSources(sourceFile));
+        return builtinReadingsOf(callee, args, () => taintedNode(n, sourceFile), pure, w, together);
       }
       // Another builtin carries its arguments' origin (Amendment A3): over a tree its result
       // is unproven, and over a typed value it is typed.
@@ -3868,12 +3881,7 @@ function binaryReadingsOf(
   sourceFile: ts.SourceFile,
   w: ReadingWalk,
 ): Reading[] | undefined {
-  const bit =
-    k === ts.SyntaxKind.BarToken ||
-    k === ts.SyntaxKind.AmpersandToken ||
-    k === ts.SyntaxKind.CaretToken ||
-    k === ts.SyntaxKind.LessThanLessThanToken ||
-    k === ts.SyntaxKind.GreaterThanGreaterThanToken;
+  const bit = BITWISE.has(k);
   const arith =
     k === ts.SyntaxKind.PlusToken ||
     k === ts.SyntaxKind.MinusToken ||
@@ -3985,6 +3993,7 @@ function binaryReadingsOf(
   const out: Reading[] = [];
   for (const a of as) {
     for (const b of bs) {
+      if (!flow.coexist(a, b, node, flowSources(sourceFile))) continue;
       let picks = mergedPicks(a.picks, b.picks);
       if (picks === undefined) {
         // Two values of one variable: one read where nothing stores between the reads.
@@ -4098,10 +4107,7 @@ export function kindlessSource(node: ts.Expression, depth = 0): boolean {
   if (ts.isBinaryExpression(n)) {
     const k = n.operatorToken.kind;
     // A shift's type is its left operand's, whatever its amount is (`gg() << vi`).
-    if (
-      k === ts.SyntaxKind.LessThanLessThanToken ||
-      k === ts.SyntaxKind.GreaterThanGreaterThanToken
-    ) {
+    if (isShift(k)) {
       return kindlessSource(n.left, depth + 1);
     }
     const op =
@@ -4315,10 +4321,7 @@ export function provenTyped(node: ts.Expression, depth = 0): boolean {
   }
   if (ts.isBinaryExpression(n)) {
     const k = n.operatorToken.kind;
-    if (
-      k === ts.SyntaxKind.LessThanLessThanToken ||
-      k === ts.SyntaxKind.GreaterThanGreaterThanToken
-    ) {
+    if (isShift(k)) {
       return provenTyped(n.left, depth + 1);
     }
     return provenTyped(n.left, depth + 1) || provenTyped(n.right, depth + 1);
@@ -4400,10 +4403,7 @@ function inferredInteger(node: ts.Expression, depth: number): boolean {
   }
   if (ts.isBinaryExpression(n)) {
     const k = n.operatorToken.kind;
-    if (
-      k === ts.SyntaxKind.LessThanLessThanToken ||
-      k === ts.SyntaxKind.GreaterThanGreaterThanToken
-    ) {
+    if (isShift(k)) {
       return inferredInteger(n.left, depth + 1);
     }
     const op =
