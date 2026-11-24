@@ -39,8 +39,9 @@ downstream:
 ## What changes
 
 **Proposal.** A runtime-sized array of records takes, as its host value, the flat typed array of
-its layout. A record is a struct of 4-byte scalars and vectors of them, or an `array<T, N>` of a
-4-byte scalar. The layout is the one `reflect()` reports for the type: each field at its offset,
+its layout. A record is a struct, or an `array<T, N>`, whose fields are 4-byte scalars, a `bool`, vectors and
+matrices of them, nested `array<T, N>` and nested structs, and key-type and `Record` fields as
+their u32 ids (part 1). The layout is the one `reflect()` reports for the type: each field at its offset,
 each element at the array's stride, padding included. The author declares nothing and learns
 nothing new: the source that compiles today keeps its meaning (Rule 1.1, change 0100).
 
@@ -87,18 +88,24 @@ declare const ys: storage<f32[], "read_write">;
 - **Which arrays.** An array with no size whose element is a struct or an `array<T, N>`, as an
   entry's `storage<S[]>` binding (read or `read_write`) and as a kernel function's parameter.
   Every field of the struct is an `f32`, `i32` or `u32`, a vector or a matrix of them, an
-  `array<T, N>` of them, or a struct of such fields. Part 5 lists the exclusions.
+  `array<T, N>` of them, or a struct of such fields. A `bool` field is one u32 word, 0 or 1. A
+  key-type field and a `Record` field reach a binding as u32 ids today (Rule 8.21, surface §64),
+  and the record holds them as their id words. Part 5 lists the exclusions.
 - **The value.** A typed array whose byte length is a whole number of elements at the stride that
   `reflect()` reports for the array. Element `i` starts at byte `i * stride`. Each field is at its
   byte offset in the element, and each padding word is skipped. Decision D1 says which typed
-  arrays are accepted. Decision D2 says that the stride includes the padding.
+  arrays are accepted. Decision D2 says that the stride includes the padding. The view's
+  `byteOffset` and `byteLength` are honoured, so a `subarray` works. Read-back copies bytes, so a
+  `u32` word with a NaN bit pattern survives in a `Float32Array`.
 - **A `Buffer`.** Rule 11.8 makes a `Buffer` the one kind of GPU array (change 0138, Q-I). This
   proposal does not change what makes a `Buffer` of records (decision D8).
 - **The checks.** The call refuses, with a `TypeError` that names the entry or the function, the
   binding or the parameter and its type, before anything runs:
-  - a byte length that is not a whole number of elements, in the words that `runtimeCount` uses
-    today for an array of vectors: `column(): binding "pts" (array<P3>): got 10 numbers, which is
-not a whole number of 3-number elements.`;
+  - a byte length that is not a whole number of elements. The sentence for a record is new. It
+    follows the form of `runtimeCount` (`src/core/host-entry.ts`), which says "got 10 numbers,
+    which is not a whole number of 3-component elements" for an array of vectors:
+    `column(): binding "pts" (array<P3>): got 10 numbers, which is not a whole number of
+3-number elements.`;
   - an empty typed array, as today: `got an empty array, which WebGPU cannot bind`;
   - a typed array of a kind that D1 does not accept, with the kinds it accepts.
 - **The array of objects.** The array of objects (or of arrays) stays accepted beside the typed
@@ -163,8 +170,9 @@ OD-10):
 - a struct with an `f64` field or a `vecNf64` field: the GPU holds a double as two `f32`s (§39),
   and the compiler does not yet map one logical number to that pair inside a record (decision D7);
 - a struct with an `atomic<T>` field, for the same reason: not supported yet;
-- a struct with a `T | undefined` field or a key-type field: neither reaches a binding today
-  (changes 0081, 0093), and the call keeps refusing them with their own reason;
+- a struct with a `T | undefined` field: it reaches no binding today (changes 0088, 0093), and
+  the call keeps refusing it with its own reason. A key-type field and a `Record` field are not
+  excluded: they are u32 id words (part 1);
 - a sized `storage<S>` and a `uniform<S>`: one record is a host value of its own (§64), not an
   array.
 
@@ -195,8 +203,12 @@ DataView`, and so does the call that passes `[[1, 2], [3]]`. The cause is not di
 1. The compiler lowers a jagged array with no author-written form and no new host value: the host
    passes an array of typed arrays, as the host view already says, and the call packs the rows.
 2. The `TS8002` sentence of §51 changes to "not supported yet".
-3. A kernel function's `u32[][]` parameter is refused as "not supported yet" until then, in place of
-   the raw `RangeError`. That is a bug fix that needs no proposal.
+3. Until then, `hostTypeOf` declares a kernel function's `u32[][]` parameter `never` with a "not
+   supported yet" reason, as Rule 8.20 does for other host values, and the call throws a
+   `TypeError`, in place of the raw `RangeError`. No new code and no §51 or §65 text change.
+
+Issue #1560 holds the jagged array that this change moves out (decision D5). Issue #1557 holds
+the interim fix, a bug fix that needs no proposal.
 
 ## Why
 
@@ -297,8 +309,9 @@ record keeps the padding of its layout.
   an exported class's array a `Buffer<S>`. Decision D8 leaves that surface as it is.
 - **0142 (objects are references, accepted).** A kernel function's array parameter is the caller's
   array, written in place. Part 1 and part 4 follow it.
-- **0080, 0081, 0088 and 0093.** A key-type field, a `Record` and an optional field have no flat
-  form. Part 5 excludes them and keeps their own reasons.
+- **0080, 0081, 0088 and 0093.** A key-type field and a `Record` are u32 ids, so a record holds
+  them as id words (part 1). An optional field has no flat form. Part 5 excludes it and keeps its
+  own reason.
 - **0094 (device-resident counts, accepted).** A pushed array may come as `{ array, length, offset? }`.
   Under this proposal `array` may be a typed array of records.
 
@@ -362,7 +375,8 @@ entry. Where an option would reverse an entry, the other option is chosen, and t
 
 **D1. Which typed arrays a record takes.**
 
-- (a) `Float32Array`, `Int32Array` or `Uint32Array`, for any record. The typed array is a container
+- (a) The record's own scalar array (`Float32Array` for an all-`f32` record, `Int32Array`,
+  `Uint32Array`), and for a mixed record any of the three. The typed array is a container
   of 4-byte words. Each field is read with its own type at its offset, whatever the array's kind,
   so a `u32` field in a `Float32Array` is the bits of that word, as WebGPU binds them. Cost: one
   `DataView` read per field on the CPU tier. A host that writes a `u32` field through a
@@ -375,7 +389,7 @@ entry. Where an option would reverse an entry, the other option is chosen, and t
 
 **Answer: (a).** The bytes are the layout on every tier, and one copy binds them. The host view
 names the struct's own scalar array when the record has one scalar type, and the union of the
-three when it is mixed. Entries: OD-3 (no author-side conversion), OD-9 (the bytes need not match
+three when it is mixed. The runtime accepts the same arrays. Entries: OD-3 (no author-side conversion), OD-9 (the bytes need not match
 the CPU tier's objects). No entry is reversed.
 
 **D2. Whether the stride includes the padding.**
@@ -436,12 +450,12 @@ reads against OD-9 is fixed in the change that owns it, not here. Entries: OD-3,
 **D6. A kernel function's `u32[][]` parameter.**
 
 - (a) Keep it as it is. Cost: it compiles, and the call fails with a raw `RangeError` (part 6).
-- (b) Refuse it with a "not supported yet" diagnostic until the lowering of D5 exists. Cost: a
-  new refusal needs both halves, `compile()` and the language service, and a Tint measure
-  (Rule 13.3), though no WGSL is emitted for a kernel function.
+- (b) Refuse it as "not supported yet" until the lowering of D5 exists: `hostTypeOf` declares the
+  parameter `never` with that reason (as Rule 8.20 does), and the call throws a `TypeError`. Cost:
+  none in the language. No new code, and no §51 or §65 text change.
 - (c) Lower it with D5's work. Cost: that work.
 
-**Answer: (b), as a bug fix with no proposal, and (c) later.** OD-9 and OD-10 allow a refusal only
+**Answer: (b), as a bug fix with no proposal (issue #1557), and (c) later (issue #1560).** OD-9 and OD-10 allow a refusal only
 as "not supported yet". A raw `RangeError` is neither. This proposal does not carry the fix. It
 records the need in part 6. No entry is reversed.
 
@@ -533,7 +547,7 @@ An implementing pull request that changes how an author writes a host call needs
    an empty typed array, a kind that D1 refuses, an excluded record ("not supported yet").
 3. The differential against the oracle (`scripts/gpu-differential.ts`) for a typed array of
    records: the same bytes in, the same bytes out, on WebGPU and on the CPU tier, read and written,
-   with padding, a mixed record and a nested struct.
+   with padding, a mixed record and a nested struct. The comparison reads the non-padding words only.
 4. WebGL2 through `lanesOf` for a read-only record array, held to the CPU tier.
 5. The compile gate (Tint and WebGL2) for the new example.
 6. A packed journey that calls the example with a `Float32Array` on WebGPU.
@@ -544,11 +558,21 @@ An implementing pull request that changes how an author writes a host call needs
 
 ### Independent review record
 
-Not run. No reviewer that did not write this revision has reviewed it. `changes/README.md`
-(Independent review) requires one before the owner decides. Deviation, open: the orchestrating
-session accepted the proposal on 2026-11-24 without that review. Next action: a reviewer other
-than the author runs the review against the questions of `changes/README.md` and records the
-findings and answers in this section, in this pull request, before it merges.
+Independent review, 2026-11-24 (UTC), by a Claude Code sub-agent that did not write this revision.
+Configuration: PR #1556 head `5bd4547c`, TypeShade `main` `be2e83de`, Bun and vitest. Method: each
+named file and symbol read on `be2e83de`, the "Today" column re-probed with hostFace()/compile()
+and the generated module (all five cells of the "Why" table and the jagged `RangeError` and
+TS8002 results reproduced), each of D1-D8 checked against OD-1 to OD-11, and the front matter
+checked against "What it touches". Verdict: accept with fixes. (1) A typed array of records is a
+flat array at the `reflect()` stride, padding words included. (2) The compiler cannot decide
+which host value the author holds, so the work is in the runtime; no language form is added
+(OD-3). (3) No conflict with a rule or principle; D1-D8 reverse no OD entry. (4) The
+before/after example was probed and is correct. (5) Removed: the per-record object allocation
+and the hand stride arithmetic. Findings F1-F9: quoted sentence; key and Record fields; record
+definition; bool; D1 and the host view; D6 form; part 6 open work; delegation wording; padding in
+the differential.
+
+Answers: F1-F9 fixed in the next revision.
 
 ### Approval and plan record
 
@@ -556,10 +580,12 @@ findings and answers in this section, in this pull request, before it merges.
   under the owner's delegation of the same day. The owner's words, in the conversation, in Korean:
   "제대로 다시, 저의 의견이 사실 필요 없거든요" (English: do it properly again; my opinion is not
   actually needed). The session based the acceptance on OD-3, OD-9 and OD-10 (see Owner's
-  decisions) and answered decisions D1 to D8 as "Decisions" records.
+  decisions) and answered decisions D1 to D8 as "Decisions" records. The orchestrating session made
+  D1 to D8 and the acceptance under that delegation. At merge it shows the owner the before and
+  after example in the conversation (OD-4).
 - Scope approved: the rule and surface text of "What changes", parts 1 to 5, the exclusion of part
   6, and decisions D1 to D8. The approved revision is the one that the merge of this pull request
-  records. The merge and the owner's "merge" are not yet recorded.
+  records. The merge and the owner's "merge" are not yet recorded. Issue #1560 (the jagged array) and issue #1557 (the interim fix) carry the work that D5 and D6 move out.
 - Responsibilities and milestones: stages S1 to S3 in order. No implementer, date, duration or
   cost is assigned.
 
