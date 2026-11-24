@@ -8,9 +8,9 @@
 // another's slot, is the next step of #82; without one each invocation touches only its own
 // slot.
 //
-// GLSL ES 3.00 has no compute stage, so `compile()` emits WGSL and no GLSL text for this
-// module. The WebGL2 tier still runs the entry, as a pass program with its workgroup memory as
-// words (Rule 11.8, change 0054).
+// The GLSL lowering of the compute family is not supported yet (Rule 10.3, Rule 10.5), so
+// `compile()` emits WGSL and no GLSL text for this module. The WebGL2 tier still runs the
+// entry, as a pass program with its workgroup memory as words (Rule 11.8, change 0054).
 
 declare const src: storage<array<f32>>;
 declare const dst: storage<array<f32>, "read_write">;

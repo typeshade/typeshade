@@ -7,7 +7,7 @@
   "tiers": ["webgpu", "webgl2"],
   "host": "run",
   "tierNotes": {
-    "cpu": "The CPU tier refuses an entry that reaches a barrier (Rule 8.24)."
+    "cpu": "An entry that reaches a barrier is not supported yet on the CPU tier (Rule 8.24)."
   },
   "renderable": false,
   "reason": "missing capabilities: storageBuffer, compute"
