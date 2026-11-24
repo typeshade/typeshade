@@ -58,6 +58,8 @@ import {
   type TableId,
 } from '../src/core/coverage/index.js';
 import { ALL_CAPABILITIES } from '../src/core/ir/nodes.js';
+import { ANCHOR_MARK, parseAnchors } from './symbol-anchors/grammar.js';
+import { AnchorResolver } from './symbol-anchors/resolve.js';
 import { PINNED, readSources, type SourceMember } from './capability-sources.js';
 import { ROOT, definedRules } from './doc-refs.js';
 
@@ -618,7 +620,13 @@ function linesOf(root: string, file: string, counts: LineCounts): number {
 }
 
 /** The messages of one segment of an evidence string (see `checkEvidence`). */
-function checkSegment(row: Row, segment: string, ctx: Context, counts: LineCounts): string[] {
+function checkSegment(
+  row: Row,
+  segment: string,
+  ctx: Context,
+  counts: LineCounts,
+  anchors: AnchorResolver,
+): string[] {
   const label = evidenceLabel(row);
   const path = SEGMENT_PATH.exec(segment)?.[0] ?? '';
   if (!path.includes('/') && !path.includes('.')) {
@@ -629,6 +637,11 @@ function checkSegment(row: Row, segment: string, ctx: Context, counts: LineCount
   let rest = segment.slice(path.length);
   const listed = LINE_LIST.exec(rest);
   if (listed) rest = rest.slice(listed[0].length);
+  const anchored =
+    !listed && rest.startsWith(ANCHOR_MARK) ? parseAnchors(rest.slice(1)) : undefined;
+  if (anchored?.ok === false)
+    return [`${label} has a defective anchor in "${segment}": ${anchored.message}`];
+  if (anchored) rest = rest.slice(1 + anchored.length);
   const comment = COMMENT.exec(rest);
   if (comment) rest = rest.slice(comment[0].length);
   if (rest !== '') {
@@ -647,6 +660,14 @@ function checkSegment(row: Row, segment: string, ctx: Context, counts: LineCount
   if (!existsSync(full)) return [`${label} names ${path}, which does not exist`];
   if (statSync(full).isDirectory())
     return [`${label} names ${path}, which is a directory; cite a file`];
+  if (anchored) {
+    return anchored.anchors.flatMap((anchor) => {
+      const found = anchors.resolve(path, anchor);
+      return found.ok
+        ? []
+        : [`${label} cites ${path}#${anchor.text}, which does not resolve: ${found.message}`];
+    });
+  }
   if (!listed) return [];
   const count = linesOf(ctx.root, path, counts);
   const out: string[] = [];
@@ -665,18 +686,22 @@ function checkSegment(row: Row, segment: string, ctx: Context, counts: LineCount
  *  A segment is a path, then optionally `:` and a line list (`N` or `N-M`, joined by `', '`), then
  *  optionally one parenthetical comment, and nothing after the comment. A number after the comment is
  *  a defect: the lines go after the path. Every line of the list is checked against the file's length,
- *  and a path with no line list names the whole file. An issue is never evidence: it belongs to the
+ *  and a path with no line list names the whole file. In place of the line list a segment may hold
+ *  symbol anchors, `path#Symbol|Class.member~"needle"` (`scripts/symbol-anchors/grammar.ts`): each
+ *  must resolve to a declaration (`scripts/symbol-anchors/resolve.ts`), and a segment holds a line
+ *  list or anchors, never both. An issue is never evidence: it belongs to the
  *  cell. A directory is not a file, so it is not evidence. Node module paths count. A path is
  *  repository-relative: `pathDefect` refuses an absolute path and a `..` segment. A comment cannot
  *  hold `'; '`, because the separator cuts it into two segments: write the comment without it. */
 export function checkEvidence(rows: readonly Row[], ctx: Context): string[] {
   const out: string[] = [];
   const counts: LineCounts = new Map();
+  const anchors = new AnchorResolver(ctx.root);
   for (const row of rows) {
     if (ISSUE_TOKEN.test(row.evidence))
       out.push(`${evidenceLabel(row)} names an issue; an issue belongs to the cell`);
     for (const segment of row.evidence.split(SEGMENT_SEPARATOR)) {
-      out.push(...checkSegment(row, segment, ctx, counts));
+      out.push(...checkSegment(row, segment, ctx, counts, anchors));
     }
   }
   return out;

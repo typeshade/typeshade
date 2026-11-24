@@ -148,7 +148,7 @@ export interface Row {
   readonly name: string;
   /** The source keys the row covers. Never empty. Each key is covered by exactly one row. */
   readonly covers: readonly string[];
-  /** `file:line` in this tree, joined by `; `. Never empty. */
+  /** `file:line` or `file#Symbol` in this tree, joined by `; `. Never empty. */
   readonly evidence: string;
   /** The note column of the classification. */
   readonly note?: string;
