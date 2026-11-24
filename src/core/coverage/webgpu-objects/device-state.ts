@@ -1,0 +1,95 @@
+import { andGap, gap, na, planned, raw, type Row, typed } from '../model.js';
+
+export const DEVICE_STATE_ROWS: readonly Row[] = [
+  {
+    table: 'A',
+    kind: 'WebGPU interface member',
+    name: '`GPUDevice.addEventListener()`',
+    covers: ['GPUDevice.addEventListener'],
+    evidence: 'src/runtime/runtime.ts:230-238',
+    webgpu: andGap(
+      raw('Runtime.device', 'rt.device'),
+      8,
+      'no typed surface reports a device event',
+      639,
+    ),
+    webgl2: na('the GPUDevice object; WebGL2 has no GPUDevice'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU interface member',
+    name: '`GPUDevice.removeEventListener()`',
+    covers: ['GPUDevice.removeEventListener'],
+    evidence: 'src/runtime/runtime.ts:230-238',
+    webgpu: andGap(
+      raw('Runtime.device', 'rt.device'),
+      8,
+      'no typed surface reports a device event',
+      639,
+    ),
+    webgl2: na('the GPUDevice object; WebGL2 has no GPUDevice'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU interface member',
+    name: '`GPUDevice.features`',
+    covers: ['GPUDevice.features'],
+    evidence: 'src/runtime/runtime.ts:644-654',
+    webgpu: andGap(
+      typed('src/runtime/runtime.test.ts', 'requested from programs (Rule 10.2)'),
+      6,
+      'float32-filterable and float32-blendable have no "use typeshade" spelling (surface §50); depth32float-stencil8, texture-compression-bc, texture-compression-bc-sliced-3d, texture-compression-etc2, texture-compression-astc, texture-compression-astc-sliced-3d, rg11b10ufloat-renderable, texture-component-swizzle and texture-compression-unaligned have no typed spelling; no adapter reachable from this repository reports texture-formats-tier1, and both Chromium builds refuse every tiered format at every storage access mode (docs/use-typeshade-surface.md:5377-5381); texture-formats-tier2 is not measured. Roadmap 13b names the tier-1 formats as shipped (docs/roadmap.md:228). §14 asks whether read_write storage formats are a host-feature capability or refused (docs/language-design.md:1504), and the surface text places them in the same position (docs/use-typeshade-surface.md:5377-5381). Other parts of this enum: depth-clip-control (group 1); timestamp-query (group 4); indirect-first-instance (group 5); the subgroup functions (group 13, docs/language-design.md:1506; docs/roadmap.md:306); subgroup-size-control (group 12, docs/language-design.md:1506; docs/roadmap.md:306); atomic-vec2u-min-max (group 9, docs/roadmap.md:304)',
+      637,
+    ),
+    webgl2: na('the WebGPU device features; WebGL2 extensions are rows of table D'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU interface member',
+    name: '`GPUDevice.limits`',
+    covers: ['GPUDevice.limits'],
+    evidence: 'changes/0051-device-limits.md:43; changes/0051-device-limits.md:415-416',
+    webgpu: planned('0051'),
+    webgl2: gap(
+      8,
+      '0051 excludes WebGL2 (changes/0051-device-limits.md:415-416); #541 asks for the WebGL2 tier',
+      541,
+    ),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU interface member',
+    name: '`GPUDevice.adapterInfo`',
+    covers: ['GPUDevice.adapterInfo'],
+    evidence: 'src/runtime/runtime.ts:230-238',
+    webgpu: andGap(raw('Runtime.device'), 8, 'no typed surface reports adapter info', 639),
+    webgl2: na('the GPUDevice object; WebGL2 has no GPUDevice'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU interface member',
+    name: '`GPUDevice.queue`',
+    covers: ['GPUDevice.queue'],
+    evidence:
+      'src/runtime/runtime.ts:419-432; src/rhi/webgpu.ts:270-272, 433-436; src/runtime/gl.ts:459-464',
+    webgpu: typed('src/runtime/runtime.test.ts'),
+    webgl2: typed('journeys/mesh-raycast/journey.mjs'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU interface member',
+    name: '`GPUDevice.destroy()`',
+    covers: ['GPUDevice.destroy'],
+    evidence: 'src/runtime/runtime.ts:257-258; src/rhi/webgl2.ts:1601-1605',
+    webgpu: gap(
+      15,
+      "typed in code; no test reads it on this target (Rule 11.18): no test observes the device destroyed or a host device left alone; rt.destroy() releases what the runtime made and never the host's device",
+      645,
+    ),
+    webgl2: gap(
+      15,
+      "typed in code; no test reads it on this target (Rule 11.18): no test calls isContextLost after rt.destroy(); rt.destroy() releases what the runtime made and never the host's device",
+      645,
+    ),
+  },
+];

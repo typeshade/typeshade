@@ -404,7 +404,7 @@
   "src/core/coverage/webgpu-dictionaries.ts": 25,
   "src/core/coverage/webgpu-enums.ts": 21,
   "src/core/coverage/webgpu-objects.ts": 40,
-  "src/core/coverage/wgsl.ts": 32,
+  "src/core/coverage/wgsl.ts": 21,
   "src/core/cpu-aliasing.test.ts": 12,
   "src/core/cpu-codegen-runtime.ts": 38,
   "src/core/cpu-codegen.test.ts": 158,
