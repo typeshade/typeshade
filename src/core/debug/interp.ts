@@ -39,6 +39,7 @@ import { treeCombine, type LoopReduction, type TreeLoop } from '../passes/parall
 import type { StepFrame, StepCtx, Step, Signal } from './interp/types.js';
 import { rootName, whole, markStub } from './interp/stub-marks.js';
 import { setSlot, setColumn } from './interp/memory-writes.js';
+import { declaredTypes } from './interp/declared-types.js';
 export type {
   StepFrame,
   StepEvent,
@@ -663,40 +664,6 @@ export function makeCtx(
     }
   }
   return ctx;
-}
-
-function declaredTypes(decl: FuncDecl): ReadonlyMap<string, ShaderType> {
-  const out = new Map<string, ShaderType>();
-  for (const p of decl.params) out.set(p.name, p.type);
-  const walk = (body: readonly Stmt[]): void => {
-    for (const s of body) {
-      switch (s.s) {
-        case 'let':
-          out.set(s.name, s.expr.type);
-          break;
-        case 'var':
-          out.set(s.name, s.type);
-          break;
-        case 'if':
-          for (const arm of s.arms) walk(arm.body);
-          if (s.elseBody) walk(s.elseBody);
-          break;
-        case 'for':
-          walk([s.init]);
-          walk([s.update]);
-          walk(s.body);
-          break;
-        case 'switch':
-          for (const c of s.cases) walk(c.body);
-          if (s.defaultBody) walk(s.defaultBody);
-          break;
-        default:
-          break;
-      }
-    }
-  };
-  walk(decl.body);
-  return out;
 }
 
 export function drain<T>(g: Step<T>): T {
