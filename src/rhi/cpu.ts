@@ -1,12 +1,4 @@
-import {
-  isCpuProgram,
-  type CpuBinding,
-  type CpuCode,
-  type CpuEntry,
-  type CpuIo,
-  type CpuIoField,
-  type CpuProgram,
-} from './cpu-program.js';
+import { isCpuProgram, type CpuBinding, type CpuCode, type CpuProgram } from './cpu-program.js';
 import {
   rasterizeTriangle,
   type RasterState,
@@ -45,14 +37,8 @@ import { CpuBuffer } from './cpu/buffer.js';
 import { CpuTexture, isContext2d, CpuCanvas, present } from './cpu/canvas.js';
 import { CpuView, CpuSampler, CpuModule, CpuBindLayout, CpuBindGroup } from './cpu/handles.js';
 import { decode, encode } from './cpu/codec.js';
+import { argOf, fieldsOf, stageOf, type Stage } from './cpu/stage.js';
 export { decode, encode } from './cpu/codec.js';
-
-interface Stage {
-  readonly program: CpuProgram;
-  readonly code: CpuCode;
-  readonly entry: CpuEntry;
-  readonly name: string;
-}
 
 class CpuComputePipeline implements RhiComputePipeline {
   readonly __rhi = 'computepipeline';
@@ -144,49 +130,11 @@ function writeBack(
   }
 }
 
-function argOf(io: CpuIo, value: (f: CpuIoField) => unknown): unknown {
-  if (io.kind === 'field') return value(io.field);
-  const out: Record<string, unknown> = {};
-  for (const f of io.fields) out[f.name] = value(f);
-  return out;
-}
-
-function fieldsOf(io: CpuIo, result: unknown): [CpuIoField, unknown][] {
-  if (io.kind === 'field') return [[io.field, result]];
-  const o = result as Readonly<Record<string, unknown>>;
-  return io.fields.map((f) => [f, o[f.name]]);
-}
-
 function invoke(stage: Stage, args: readonly unknown[], invocation?: readonly number[]): unknown {
   const F = stage.code.F as Readonly<Record<string, ((...a: unknown[]) => unknown) | undefined>>;
   F['$initPrivates']?.();
   stage.code.$.invocation = invocation;
   return F[stage.entry.fn]!(...args);
-}
-
-function stageOf(
-  module: RhiShaderModule,
-  name: string,
-  stage: CpuEntry['stage'],
-  constants: Readonly<Record<string, number>> | undefined,
-): Stage {
-  const program = (module as CpuModule).program;
-  const entry = program.entries[name];
-  if (entry === undefined || entry.stage !== stage)
-    throw new TypeError(`The CPU program has no ${stage} entry "${name}".`);
-  if (entry.noCpu !== undefined)
-    throw new TypeError(`The CPU tier does not run "${name}" yet: ${entry.noCpu}.`);
-  if (program.code.F[entry.fn] === undefined)
-    throw new TypeError(`The CPU program has no code for "${name}".`);
-  let code = program.code;
-  if (constants !== undefined && Object.keys(constants).length > 0) {
-    if (code.specialize === undefined)
-      throw new TypeError(
-        `The CPU program of "${name}" declares no override, and the pipeline sets ${Object.keys(constants).join(', ')}.`,
-      );
-    code = code.specialize(constants);
-  }
-  return { program, code, entry, name };
 }
 
 const fresh = (v: unknown): unknown =>
