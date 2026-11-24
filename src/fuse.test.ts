@@ -4604,8 +4604,8 @@ describe('the tier of each group, and why a group ran on a later tier than its p
       expect(reason).toBe(
         'it runs on the CPU, loop 1 reduces, which the WebGL2 tier does not support yet (Rule 11.8)',
       );
-      // `add` draws on WebGL2. `total` reduces, which WebGL2 has no program for, so the CPU tier
-      // runs it, and its group says so with that reason.
+      // `add` draws on WebGL2. `total` reduces, which the WebGL2 tier does not support yet
+      // (Rule 11.8), so the CPU tier runs it, and its group says so with that reason.
       expect(report).toEqual({
         webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
         tier: 'webgl2',
@@ -5238,7 +5238,7 @@ describe('a fuse report gives gpuTime to each WebGPU group, when the device meas
 // ─── proposal 0069: an entry call in a scope ────────────────────────────────────────────────
 // A tiled entry: each 16 by 16 workgroup stages a tile of `a` and of `b` in workgroup memory and
 // sums each tile in the order of `k`, as the naive kernel `naive` sums its products in order.
-// It reaches `workgroupBarrier()`, so it has no CPU tier: a call on a host with no GPU refuses it.
+// It reaches `workgroupBarrier()`: the CPU tier does not support it yet (Rule 11.8).
 const TILED = `"use typeshade";
 declare const a: storage<array<f32>>;
 declare const b: storage<array<f32>>;
@@ -6591,8 +6591,8 @@ describe('stores after the loops in a fuse scope (change 0094, Rule 11.13)', () 
       void m.sumInto!(ys, sums);
     });
     // The plan settles the tier `runChecked` runs the call on: the stores bind three storage
-    // buffers on a device that allows two, WebGL2 has no program for a loop that reduces, and the
-    // CPU tier runs it.
+    // buffers on a device that allows two, a loop that reduces is not supported yet on the WebGL2
+    // tier (Rule 11.8), and the CPU tier runs it.
     expect(report).toEqual({
       webgpuScratch: { allocations: 0, allocatedBytes: 0, reuses: 0, reusedBytes: 0 },
       tier: 'webgpu',

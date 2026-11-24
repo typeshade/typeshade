@@ -448,7 +448,7 @@ export class GlRenderPrograms {
     const prefix = `The render pipeline of "${(fs ?? vs).name}"${at(fs ?? vs)}`;
     if (plan.multisample.count !== 1)
       throw new TypeError(
-        `${prefix}: the WebGL2 tier draws with one sample; a multisampled target is not here.`,
+        `${prefix}: a multisampled target is not supported yet on the WebGL2 tier (Rule 10.5, Rule 11.11).`,
       );
     if (plan.depth !== undefined)
       refuseBias(prefix, plan.depth, rhi.caps.hasFeature('EXT_polygon_offset_clamp'));
