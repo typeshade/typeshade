@@ -33,7 +33,7 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
   'host-draw': async (surface) => {
     const { size, times } = INPUTS.draw;
     const canvas = surface.canvas(size, size);
-    await draw(canvas, times);
+    for (const time of times) await draw(canvas, time);
     return { pixels: await surface.pixels(canvas) };
   },
   'string-keys-record': async () => {
@@ -61,12 +61,7 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
     return { height: [height], pixels: await surface.pixels(canvas) };
   },
   'loop-fuse': async () => {
-    const { a, b, c } = INPUTS.fuse;
-    const { chain, split, reduce } = await fused(
-      Float32Array.from(a),
-      Float32Array.from(b),
-      Float32Array.from(c),
-    );
+    const { chain, split, reduce } = await fused();
     reports['chain'] = chain.report;
     reports['split'] = split.report;
     reports['reduce'] = reduce.report;
