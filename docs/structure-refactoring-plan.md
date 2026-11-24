@@ -250,7 +250,7 @@ Do these steps in order. A slice of S1 to S13 starts only after S0 items a and b
 10. When a `KNOWN` edge of `src/layer-policy.test.ts` is gone, delete its line.
 11. Run `bun run bake:comment-baseline` only if a comment moved with the code. After step 0 the units carry no banned comment, so it is normally not needed.
 12. Run the move-purity check of S0 item a (`bun run move:check --base origin/main --require`). It includes the module-surface check of S0 item f.
-13. Run the checks of section 8.
+13. Run the checks of section 8. If the bundle check of item 6 fails for a budget, follow decision D14 before step 15.
 14. Commit with `Change: none, internal move without behaviour change` and the trailer `Move: pure`. Add `Docs-Impact:` if the hook asks.
 15. Push, mark the pull request ready when its required checks are green, and record the slice (section 8).
 
@@ -676,7 +676,7 @@ Fact: `src/compiler/ts/abstract-const.ts` is the largest file of `src/`. S9 wait
 ## 8. Verification and the per-slice record
 
 Functional verification. A slice (a range that declares `Move: comments` or `Move: pure`) runs these checks locally.
-Items 2, 5, 6, 7 and 8 are CI work for a slice (item 10). Do not run them locally:
+Items 2, 5, 7 and 8 are CI work for a slice (item 10), and item 6 with one exception. Do not run them locally:
 the affected set took 11 minutes for one comment-removal slice, and CI runs the pinned unit shards on every slice.
 
 1. `bun install --frozen-lockfile`
@@ -688,6 +688,7 @@ the affected set took 11 minutes for one comment-removal slice, and CI runs the 
    Reason: removing comments from `src/runtime/gl-draw.ts` broke `src/core/spec-conformance/capability-coverage.test.ts`,
    because data rows cite that file by line number. A later slice that moves code can break a row the same way.
 6. CI runs `bun run gate:boundary` (the `runtime bundle boundary` step of `quality`).
+   Exception: a slice that splits a file of a bundle runs `bun scripts/bundle-boundary.ts` locally before step C is pushed (decision D14).
 7. CI runs `bun run gate:compile` for `Move: pure`, and not for `Move: comments`.
 8. CI runs the emit goldens inside the unit shards.
 9. The move-purity check of S0 item a, over the base and the head commit of the pull request:
@@ -983,6 +984,20 @@ Run these steps from the repository:
 The option `--repo <path>` runs the checker from another checkout against that repository.
 
 Decision D13 (section 6.5) adds a condition for a pull request with the line `Move: comments`: a reviewing sub-agent reads the removed review candidates first.
+
+Decision D14: a rise of a budget of `scripts/bundle-budget.json` that a `Move: pure` range causes merges without a separate "merge" from the owner.
+The rise goes in a pull request of its own, since a `Move: pure` range cannot change that file.
+The conditions and the two limits are in `CLAUDE.md`, Merging: 0.2% for one pull request, and 1% above the number at `c4a12d3f`.
+The orchestrating session measures the rise and merges the budget pull request (`docs/structure-slice-playbook.md`, The bundle budget).
+Authority: the owner's answer of 2026-11-24 ("추천") to the rule that the conversation recommended.
+
+Fact, measured on 2026-11-24 with `bun scripts/bundle-boundary.ts`: `src/runtime/runtime.ts` loads `src/runtime/gl.ts` with a dynamic `import()`, and the check builds one chunk.
+Bun then gives a module below that import a lazy-init wrapper when the module holds top-level state or imports a wrapped module.
+A wrapper costs 10 to 25 gzip bytes of `typeshade/runtime`. The split build did not grow.
+The split of `src/rhi/webgl2.ts` (#1578) raised the single-file size from 178,681 to 178,749 bytes, over the budget of 178,698 by 51.
+A local branch with seventeen new files from `src/runtime/gl.ts` and `src/runtime/gl-draw.ts` measured 178,897 on `48df2cc9`, a rise of 216.
+
+Cost of D14: a budget set to the measured size has no headroom. The next rise from any cause needs a budget pull request or the owner.
 
 Decision D11: moving tests is an ordinary reviewed change for now, in S11 and S12 too.
 The flag `--allow-test-moves` exists for local use, and CI does not pass it.
