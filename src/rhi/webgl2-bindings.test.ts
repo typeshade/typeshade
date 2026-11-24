@@ -157,7 +157,7 @@ describe('a draw binds what the pass holds to the units of the pipeline', () => 
     run(2);
     const padded = uploads.filter((u) => u.length === 48);
     expect(padded).toHaveLength(1);
-    expect(Array.from(padded[0]!.slice(0, 10))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 0, 0]);
+    expect(Array.from(padded[0]!).slice(0, 10)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 0, 0]);
     expect(calls.filter((c) => c.startsWith('bindBufferBase(UNIFORM_BUFFER,0,'))).toHaveLength(2);
     device.writeBuffer(buffer, 0, new Uint8Array([9]));
     run(1);
