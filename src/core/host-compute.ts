@@ -1,4 +1,4 @@
-// Implements: Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
+// Implements: Rule 8.24, Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
 
 import { isBuffer, type ComputeEntry, type GeneratedCpu } from './host-entry.js';
 import { specializeEntry } from './host-overrides.js';
