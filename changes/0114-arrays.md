@@ -1890,6 +1890,7 @@ Deviations of #1481.
 - [fact] This amendment is written on `main` at `62930920`. It follows A18.
 - [fact] It records the status and the deviations of the pull requests that merged after A18 was written, and one earlier bug fix.
 - [fact] The sources are the bodies of #1490, #1494, #1495 and #1505 and the code on `main`. Where a body and the code differ, the code is reported.
+- [fact] The measurements in (e) come from runs that the author of this amendment made in a cloud container on 2026-11-23 and 2026-11-24. Their scripts are not in the repository.
 - [fact] No earlier amendment changes. Out-of-date status lines are listed at the end.
 - [fact] A "bug fix" below is a pull request with `Change: none`. It implements no sentence of this change.
 - [fact] "Route 3 S4" is the journey slice of A17 (b) and A18 (c). "0114 section S4" is the section "S4. Removals" of this change.
@@ -1905,11 +1906,11 @@ Deviations of #1481.
 Deviations of #1490.
 
 1. [fact] A write at the length outside every loop, after a loop that wrote at the length, throws a `RangeError` for n >= 1. JavaScript returns n + 1 elements. The throw is loud, not silent.
-   [fact] The error text is `writes index 1 of out, whose length is 0 there`.
+   [fact] The `RangeError` reports a write at index 1 of `out`, whose length is 0 there (the body of #1490).
    [fact] A18 (d) records the defect as open. No commit after `91cd7047` changes `length.ts` or the test file, and no test pins the case.
    Disposition: open. [proposal] Next action: a bug-fix pull request with a test that reads both halves.
 2. [fact] Not run locally: `bun run gate:compile` and the journeys.
-   Disposition: closed. [fact] CI ran `compile gate (Tint + WebGL2)` and `user journeys (packed tarball, WebGPU)` green on head `063d7305` on 2026-11-24.
+   Disposition: closed. [fact] CI ran `compile gate (Tint + WebGL2)` and `user journeys (packed tarball, WebGPU)` green on head `063d7305` on 2026-11-23 (UTC). The compile gate completed on 2026-11-24T00:04Z.
 
 **(b) #1494 (merge commit `f0506551`).**
 
@@ -2007,21 +2008,26 @@ Open items of #1479 (A18 (c)) that S3 was to close.
 - [proposal] The document audit covers Rule 8.22 (the push sentence), Rule 8.23 and its "Enforced by", and surface sections 63 and 65.
 - [fact] A19 records these Route 3 open items, each with a disposition and a next action.
 
-1. Engine limit. [fact, Node 22 (V8, patch version not recorded), 2026-11-23] An append loop throws `RangeError: Invalid array length` after 112813858 elements (about 2^26.7).
-   [fact] 2^25 appends took 720 ms and 1.1 GB RSS. 2^26 appends took 1114 ms and 1.7 GB RSS. 2^27 appends throw.
+1. Engine limit. [fact, observed, Node 22 (V8), 2026-11-23] An append loop (`a[a.length] = x`, one process) throws `RangeError: Invalid array length` after 112813858 elements (about 2^26.7).
+   [fact, observed, Node 22 (V8), 2026-11-23] 2^25 appends took 720 ms and 1.1 GB RSS. 2^26 appends took 1114 ms and 1.7 GB RSS. 2^27 appends throw the same `RangeError`.
+   [fact] The Node patch version is not recorded.
    [assumption] Chromium and Firefox are not run. A browser host is V8-class.
    [inference] The limit is the heap, not the number 4294967295. Route 2 holds up to 4294967294 elements, so a program can succeed on Route 2 and fail on Route 3 on V8.
    [inference] The limit is a cost of A12 Q2 (A) and of the change 0144 handover.
    [proposal] A typed array that doubles may later replace the JavaScript array (A1 item 12, OD-9).
-   [fact] A grown array holds a boxed number (8 bytes) or an object. The result is a second copy.
+   [fact, observed, Bun 1.4.4 only, 2026-11-23] 2^25 `f32` pushes took 754 ms and 510 MB peak RSS with a JavaScript array. A typed array that doubles took 216 ms and 269 MB.
+   [fact, observed, Bun 1.4.4 only, 2026-11-23] 2^23 `vec4` elements as JavaScript arrays took 689 ms and 744 MB. JavaScriptCore is not a browser engine.
+   [fact] On Bun 1.4.4, `a.length = 4294967295; a[4294967295] = 1` does not throw. The 4294967295 check belongs to the program, not the engine. The author of this amendment ran it on 2026-11-24.
+   [inference] A grown array holds a boxed number (8 bytes) or an object. The result is a second copy.
    Disposition: open. [proposal] Next action: change 0144, stages A1 to A3 (the store moves into the arena).
    [proposal] The move needs a growing region on the CPU tier, or a second run. That is a later amendment of change 0144.
+   [fact] Change 0144, section 5 (Exclusions), keeps a push in a loop inside a loop refused for its own reason. Change 0042 (Memory) says that the region does not compact or grow while a call runs (decision C2).
 2. Boundary at exactly 4294967295. [fact] Route 1 accepts it (`checkedCapacity` throws only above it).
    [fact] Route 2 throws at a total of 4294967295 or more (`countedTotal`, `src/core/host-kernel-made/capacity.ts`).
    [fact] Route 3 throws at a push that makes the length 4294967295 (`placed`, `src/core/pushed-index.ts`).
    Disposition: open. [proposal] Next action: change 0144, stage A3.
 3. Engine abort. [assumption] Heap exhaustion may abort the process, and no `catch` sees it. Not run.
-   Disposition: open. [proposal] Next action: a push to failure on each engine, recorded with engine and date.
+   Disposition: open. [proposal] Next action: a scalar push and a `vec4` push to failure on Bun and on Node (V8), each recorded with the engine, its version and the date.
 4. No push budget. [fact] A runaway loop such as `for (let j: u32 = 0; j < out.length; j++) { out.push(1.); }` runs as written until the limit or memory.
    Disposition: open. [proposal] Next action: the owner decides whether a budget is wanted.
 5. No device run of a grown array. [fact] No WebGPU exists in the container. The journey is the only GPU contact.
@@ -2029,7 +2035,7 @@ Open items of #1479 (A18 (c)) that S3 was to close.
    [fact] #1505 merged with the existing journey cases `inside`, `insideCpu` and `evens` green. No case runs a Route 3 call on a runtime listing `['webgpu', 'cpu']`.
 6. The `for` and `while` pair. [fact] `while (i < xs[0])` takes Route 3. The counted `for` with the same bound stays `TS8099` until change 0144, stage A3 (A18 (c), #1481 deviation 5).
    Disposition: open. [proposal] Next action: change 0144, stage A3.
-7. The discarded GPU plan of a growing function. [fact] The plan is built and dropped. This is a cost of the design.
+7. The discarded GPU plan of a growing function. [fact] The plan is built and dropped. This is a cost of the Route 3 growing store that A17 (b) approves.
    Disposition: open. [proposal] Next action: measure the cost when a program shows it.
 8. An inner pushing `while` of a Route-2 function takes Route 3 until S5 (A17 (b), R3-Q3).
    Disposition: open, as A17 (b) approves. [proposal] Next action: Route 3 S5, see (f).
@@ -2046,7 +2052,8 @@ Open items of #1479 (A18 (c)) that S3 was to close.
 - [fact] A17 R3-Q3 keeps it on Route 3 "until S5".
 - [proposal] S5 delivers these changes. `loopIn` defers an uncounted loop at depth 1 or more.
 - [proposal] `countable` drops its scoped rule. The count and scan entries run a body with an inner `while` on WebGPU.
-- [proposal] Tests: `bothHalves`; the count entries through the compile gate (Tint); a WebGPU journey with the CPU result as oracle; a differential-gate inner-`while` case; a measurement of the extra read.
+- [proposal] Tests: `bothHalves` and the count entries through the compile gate (Tint).
+- [proposal] Also: a WebGPU journey with the CPU result as oracle; a differential-gate inner-`while` case; a measurement of the extra read.
 - [fact] S5 needs a WebGPU device. The container has none.
 - [proposal] Approval class: S5 changes the tier an author's program takes. It shows the owner a before and after, and waits for "merge".
 
@@ -2079,11 +2086,23 @@ Open items of #1479 (A18 (c)) that S3 was to close.
 - A12, Status line: "S5d slice 3: not started" (the A12 Status bullet). Route 3 S0 to S3 are done (#1479, #1481, #1505). S4 and S5 are not started.
 - A12, section 7 (slice table), row "S5d slice 3": Route 3 stages S0 to S5 are named in A17 (b) and A18 (c). S0 to S3 are done.
 - A13, A14 and A16 Status lines, "S5d slice 3 (Route 3, form 3) not started": Route 3 S0 to S3 are done. S4 and S5 are not started.
-- A12, section 1 item 3 (`repeated` on Route 2): done by #1495.
+- A12, section 1 item 3: the case of an inner loop whose header reads an element is done by #1495. The inner `while` case stays on Route 3 until Route 3 S5.
+- A18 (c), deviation 4 of #1479: "run them before stage S3 of Route 3". S3 is done (#1505) and the measurements did not run. The next action is (e) item 3.
 
 - Affects: no front matter, rule number or code changes. This amendment edits `changes/0114-arrays.md` only.
 - Status: `status: accepted` does not change. Route 3: S0 to S3 done (#1479, #1481, #1505); S4 and S5 not started. A16 D1 closed (#1495). S3 decisions (1) to (3) done (#1494). 0114 section S4 not started.
-- Open items: #1474 deviations 1, 3 and 4; #1476 deviations 5 to 7; #1479 deviation 4; #1480 deviation 2; #1481 deviations 1, 3, 4 and 5; #1490 deviation 1; #1494 deviation 2; #1495 deviations 1 to 4 (1 `guarded`, 2 plan check, 3 SwiftShader, 4 `xs = []`); #1505 deviations 1 to 3; the Route 3 items of (e); `do ... while`; Route 3 S4 and S5; 0114 section S4.
+- Open items:
+  - #1474 deviations 1, 3 and 4.
+  - #1476 deviations 5 to 7.
+  - #1479 deviation 4.
+  - #1480 deviation 2.
+  - #1481 deviations 1, 3, 4 and 5.
+  - #1490 deviation 1.
+  - #1494 deviation 2.
+  - #1495 deviations 1 to 4 (1 `guarded`, 2 plan check, 3 SwiftShader, 4 `xs = []`).
+  - #1505 deviations 1 to 3.
+  - The Route 3 items of (e).
+  - `do ... while`; Route 3 S4 and S5; 0114 section S4.
 
 ## What it owes downstream
 
