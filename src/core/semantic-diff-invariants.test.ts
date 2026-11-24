@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { externRef, f32T, fn, module } from './ir/index.js';
+import { externRef, f32, f32T, fn, module } from './ir/index.js';
 import type { Expr, FuncDecl, ModuleDecl, Stmt, StructDecl } from './ir/index.js';
 import { isSemanticallyEqual, semanticDiff } from './semantic-diff.js';
 import type { EmitPlugin } from './emit.js';
@@ -38,8 +38,8 @@ describe('semanticDiff — canonical naming reaches nested bodies', () => {
   });
 });
 
-const computeWith = (workgroupSize: number | readonly number[]): ModuleDecl =>
-  module({ funcs: [fn('cs', {}, () => {}, { stage: 'compute', workgroupSize })] });
+const computeWith = (workgroupSize: number | readonly [number, number?, number?]): ModuleDecl =>
+  module({ funcs: [fn('cs', {}, () => f32(1), { stage: 'compute', workgroupSize })] });
 
 describe('semanticDiff — the workgroup shape is spelled with only the extents that differ from 1', () => {
   it.each([
@@ -47,7 +47,7 @@ describe('semanticDiff — the workgroup shape is spelled with only the extents 
     [[8, 8], 'wg=8x8 '],
     [[4, 1, 2], 'wg=4x1x2 '],
   ] as const)('workgroup %j reads %s', (size, spelling) => {
-    const d = semanticDiff(computeWith(1), computeWith(size as number | readonly number[]));
+    const d = semanticDiff(computeWith(1), computeWith(size));
     expect(d.interface.join('\n')).toContain(`+entry cs stage=compute ${spelling}`);
   });
 

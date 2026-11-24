@@ -140,7 +140,7 @@ describe('callMember', () => {
   const calls: string[] = [];
   const cpuTier = (inout: CpuValue[]) => ({
     F: {
-      $initPrivates: () => void calls.push('init'),
+      $initPrivates: () => cpu(void calls.push('init')),
       bump: (...a: CpuValue[]) => {
         calls.push(`bump ${JSON.stringify(a)}`);
         return cpu({ x: (a[0] as unknown as { x: number }).x + (a[1] as unknown as number) });
