@@ -1221,8 +1221,8 @@ const FUSE_TIERS = {
   }),
   webgl2: (run) => ({
     groups: run.calls.map((c) => [c]),
-    // A call WebGL2 has no program for runs on the CPU tier, and its group says why (change
-    // 0118): `webgl2.why` and `webgl2.tiers`.
+    // A call the WebGL2 tier does not support yet (Rule 11.8) runs on the CPU tier, and its group
+    // says why (change 0118): `webgl2.why` and `webgl2.tiers`.
     why:
       run.webgl2.why ??
       run.calls.map((_, i) => (i === 0 ? undefined : 'WebGL2 runs the calls apart')),

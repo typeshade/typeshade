@@ -66,8 +66,8 @@ function reduction(n, folds) {
       submissions: 1,
       buffers: 3,
     },
-    // On WebGL2 `add` and `mul` draw, and `total` has no program there: it runs on the CPU tier,
-    // and its group says why in the words the call layer gives WebGL2 (change 0118).
+    // On WebGL2 `add` and `mul` draw. `total` reduces, which the WebGL2 tier does not support yet
+    // (Rule 11.8), so it runs on the CPU tier, and its group says why in the words the call layer gives WebGL2 (change 0118).
     webgl2: {
       dispatches: 2,
       groupDispatches: [1, 1, 0],
