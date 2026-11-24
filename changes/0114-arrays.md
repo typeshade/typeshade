@@ -1872,7 +1872,7 @@ Deviations of #1481.
 - Status: `status: accepted` does not change. S2c: done (#1474, #1477, #1480). S3: done (#1476);
   decisions (1) to (3) in progress (#1494). Route 3: S0 and S1 done (#1479); S2 done (#1481); S3
   to S5 not started; A16 D1 in progress (#1495). Open items: #1474 deviations 1, 3 and 4; #1476
-  deviations 4 to 7; #1479 deviations 2 to 4; #1481 deviations 1, 3, 4 and 5; the defect that
+  deviations 4 to 7; #1479 deviations 2 to 4; #1480 deviation 2; #1481 deviations 1, 3, 4 and 5; the defect that
   #1490 left; `do ... while`.
 
 ## What it owes downstream
