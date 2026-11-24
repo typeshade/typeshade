@@ -1943,13 +1943,13 @@ The counts below cover all four tables. A sub-gap is not counted here; the gap r
 | A     | WebGPU | 175   | 106 | 0       | 49      | 79  | 21  | 430  |
 | A     | WebGL2 | 108   | 13  | 9       | 0       | 125 | 175 | 430  |
 | B     | WebGPU | 240   | 0   | 12      | 0       | 39  | 3   | 294  |
-| B     | WebGL2 | 204   | 0   | 18      | 0       | 39  | 33  | 294  |
+| B     | WebGL2 | 204   | 0   | 18      | 0       | 41  | 31  | 294  |
 | C     | WebGPU | 96    | 0   | 0       | 1       | 23  | 14  | 134  |
 | C     | WebGL2 | 98    | 0   | 0       | 0       | 27  | 9   | 134  |
 | D     | WebGPU | 28    | 12  | 0       | 2       | 15  | 22  | 79   |
 | D     | WebGL2 | 24    | 11  | 4       | 0       | 29  | 11  | 79   |
 | all   | WebGPU | 539   | 118 | 12      | 52      | 156 | 60  | 937  |
-| all   | WebGL2 | 434   | 24  | 31      | 0       | 220 | 228 | 937  |
+| all   | WebGL2 | 434   | 24  | 31      | 0       | 222 | 226 | 937  |
 
 17 capabilities are flagged WebGL2-only. Each enters the surface by the door it names (Rule 11.16).
 

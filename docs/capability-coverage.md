@@ -22,13 +22,13 @@ Each count is one status of one target. The rows column counts the rows of the t
 | A | WebGPU | 175 | 106 | 0 | 49 | 79 | 21 | 430 |
 | A | WebGL2 | 108 | 13 | 9 | 0 | 125 | 175 | 430 |
 | B | WebGPU | 240 | 0 | 12 | 0 | 39 | 3 | 294 |
-| B | WebGL2 | 204 | 0 | 18 | 0 | 39 | 33 | 294 |
+| B | WebGL2 | 204 | 0 | 18 | 0 | 41 | 31 | 294 |
 | C | WebGPU | 96 | 0 | 0 | 1 | 23 | 14 | 134 |
 | C | WebGL2 | 98 | 0 | 0 | 0 | 27 | 9 | 134 |
 | D | WebGPU | 28 | 12 | 0 | 2 | 15 | 22 | 79 |
 | D | WebGL2 | 24 | 11 | 4 | 0 | 29 | 11 | 79 |
 | all | WebGPU | 539 | 118 | 12 | 52 | 156 | 60 | 937 |
-| all | WebGL2 | 434 | 24 | 31 | 0 | 220 | 228 | 937 |
+| all | WebGL2 | 434 | 24 | 31 | 0 | 222 | 226 | 937 |
 
 ## Table A: WebGPU host API
 
@@ -490,8 +490,8 @@ Each count is one status of one target. The rows column counts the rows of the t
 | WGSL built-in function | `atomicMin` | `src/core/spec-conformance/fixtures/wgsl-names.json §builtin-functions` | src/core/intrinsics.ts:92; src/core/builtins/overlay.ts#ATOMICS_BARRIERS | gap (group 15, #645); also: typed in code; no test reads it on this target (Rule 11.18): no WGSL assertion or Tint run reaches atomicMin; roadmap 4, docs/roadmap.md:180 | gap (group 15, #645); also: typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test or gate case calls atomicMin; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054 | INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3) |
 | WGSL built-in function | `atomicOr` | `src/core/spec-conformance/fixtures/wgsl-names.json §builtin-functions` | src/core/intrinsics.ts#ATOMIC_INTRINSICS; src/core/builtins/overlay.ts#ATOMICS_BARRIERS | typed (`src/compiler/ts/host-kernel.test.ts`) | gap (group 15, #645); also: typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test or gate case calls atomicOr; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054 | INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3) |
 | WGSL built-in function | `atomicStore` | `src/core/spec-conformance/fixtures/wgsl-names.json §builtin-functions` | src/core/intrinsics.ts:89; src/core/builtins/overlay.ts#ATOMICS_BARRIERS | typed (`src/compiler/ts/atomics.test.ts`) | typed (`scripts/gpu-differential.ts`); compute entry only, change 0054 | INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3) |
-| WGSL built-in function | `atomicStoreMax` | `src/core/spec-conformance/fixtures/wgsl-names.json §builtin-functions` | src/core/builtins/overlay.ts#NOT_WGSL.atomicStoreMax; docs/roadmap.md:304 | gap (group 9, #640); atomic_vec2u_min_max; roadmap After 1.0, docs/roadmap.md:304; no proposal names it | n/a (a vector atomic is not supported yet on any tier; the WebGPU row is the open work) |  |
-| WGSL built-in function | `atomicStoreMin` | `src/core/spec-conformance/fixtures/wgsl-names.json §builtin-functions` | src/core/builtins/overlay.ts#NOT_WGSL.atomicStoreMin; docs/roadmap.md:304 | gap (group 9, #640); atomic_vec2u_min_max; roadmap After 1.0, docs/roadmap.md:304; no proposal names it | n/a (a vector atomic is not supported yet on any tier; the WebGPU row is the open work) |  |
+| WGSL built-in function | `atomicStoreMax` | `src/core/spec-conformance/fixtures/wgsl-names.json §builtin-functions` | src/core/intrinsics.ts#ATOMIC_INTRINSICS; src/core/builtins/overlay.ts#ATOMICS_BARRIERS | gap (group 9, #640); atomic_vec2u_min_max; roadmap After 1.0; no proposal names it | gap (group 9, #640); atomic_vec2u_min_max; no pass-program form for a vector atomic yet (Rule 11.8); roadmap After 1.0; no proposal names it | a WGSL name of the `atomic_vec2u_min_max` language extension (spec section atomic-store-max, over `atomic<vec2<u32>>`); `core.def` also carries a `u64` overload of the name, which the overlay refuses as an absent type |
+| WGSL built-in function | `atomicStoreMin` | `src/core/spec-conformance/fixtures/wgsl-names.json §builtin-functions` | src/core/intrinsics.ts#ATOMIC_INTRINSICS; src/core/builtins/overlay.ts#ATOMICS_BARRIERS | gap (group 9, #640); atomic_vec2u_min_max; roadmap After 1.0; no proposal names it | gap (group 9, #640); atomic_vec2u_min_max; no pass-program form for a vector atomic yet (Rule 11.8); roadmap After 1.0; no proposal names it | a WGSL name of the `atomic_vec2u_min_max` language extension (spec section atomic-store-min, over `atomic<vec2<u32>>`); `core.def` also carries a `u64` overload of the name, which the overlay refuses as an absent type |
 | WGSL built-in function | `atomicSub` | `src/core/spec-conformance/fixtures/wgsl-names.json §builtin-functions` | src/core/intrinsics.ts:91; src/core/builtins/overlay.ts#ATOMICS_BARRIERS | typed (`src/compiler/ts/atomics.test.ts`) | gap (group 15, #645); also: typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test or gate case calls atomicSub; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054 | INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3) |
 | WGSL built-in function | `atomicXor` | `src/core/spec-conformance/fixtures/wgsl-names.json §builtin-functions` | src/core/intrinsics.ts#ATOMIC_INTRINSICS.atomicLoad; src/core/builtins/overlay.ts#ATOMICS_BARRIERS | typed (`src/compiler/ts/atomics.test.ts`) | gap (group 15, #645); also: typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test or gate case calls atomicXor; roadmap 4, docs/roadmap.md:180; compute entry only, change 0054 | INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3) |
 | WGSL built-in function | `bitcast` | `src/core/spec-conformance/fixtures/wgsl-names.json §builtin-functions` | src/core/intrinsics.ts:647; src/core/builtins/overlay.ts#DERIVATIVES_BITS_PACKING; src/compiler/ts/lower/expression-call.ts:1391 | typed (`src/compiler/ts/builtin-breadth.test.ts`); gap inside: group 9 (#640): the signed forms bitcast\<i32> and bitcast\<vecN\<i32>> are refused (TS8003); roadmap 8a, docs/roadmap.md:185 | typed (`src/compiler/ts/builtin-breadth.test.ts`); gap inside: group 9 (#640): the signed forms bitcast\<i32> and bitcast\<vecN\<i32>> are refused (TS8003); roadmap 8a, docs/roadmap.md:185 | INTRINSICS row with a GLSL spelling; scalar and vector forms (0044, 0045) |
@@ -1349,10 +1349,12 @@ Gap cells: WebGPU 3, WebGL2 41. Sub-gaps: WebGPU 28, WebGL2 14. Issues named: #5
 
 ### Group 9: WGSL spellings the compiler refuses or lacks
 
-Gap cells: WebGPU 27, WebGL2 18. Sub-gaps: WebGPU 10, WebGL2 8. Issues named: #133, #162, #640.
+Gap cells: WebGPU 27, WebGL2 20. Sub-gaps: WebGPU 10, WebGL2 8. Issues named: #133, #162, #640.
 
 - WebGPU, `atomicStoreMax`: gap (#640)
+- WebGL2, `atomicStoreMax`: gap (#640)
 - WebGPU, `atomicStoreMin`: gap (#640)
+- WebGL2, `atomicStoreMin`: gap (#640)
 - WebGPU, `bitcast`: inside typed (#640)
 - WebGL2, `bitcast`: inside typed (#640)
 - WebGPU, `bufferArrayView`: gap (#162)
