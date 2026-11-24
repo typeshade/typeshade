@@ -412,7 +412,13 @@ export function isWaived(m: Mention): boolean {
   return marked(below);
 }
 
-export function impactOf(diff: Diff): Impact[] {
+export function impactOf(
+  diff: Diff,
+  read: {
+    sourceAtHead?: (file: string) => string;
+    ambientLibrary?: () => string;
+  } = {},
+): Impact[] {
   const impacts: Impact[] = [];
   const untouched = (m: Mention): boolean => !diff.touched.get(m.file)?.has(m.line);
 
@@ -432,7 +438,7 @@ export function impactOf(diff: Diff): Impact[] {
   if (removed.size) {
     const headFiles = sourceFiles()
       .filter((f) => !f.endsWith('.test.ts'))
-      .map((f) => atHead(diff, f));
+      .map((f) => (read.sourceAtHead ?? ((file) => atHead(diff, file)))(f));
     const headSources = headFiles.join('\n');
     const members = new Set<string>();
     for (const text of headFiles) for (const name of memberNames(text)) members.add(name);
@@ -449,7 +455,12 @@ export function impactOf(diff: Diff): Impact[] {
       // A builtin the ambient library now generates from `core.def` (0017,
       // `builtin-signatures.ts`) has no `declare function` line in any source file, and is
       // declared all the same: the library the editor reads is the one to ask.
-      if (new RegExp(`^declare function ${escape(name)}\\b`, 'm').test(shadeDts())) continue;
+      if (
+        new RegExp(`^declare function ${escape(name)}\\b`, 'm').test(
+          (read.ambientLibrary ?? shadeDts)(),
+        )
+      )
+        continue;
       if (name.length < 3) continue;
       const mentions = nameMentions(name).filter(
         (m) => untouched(m) && !isRecord(m.file) && !isWaived(m),

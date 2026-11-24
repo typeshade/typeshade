@@ -186,9 +186,9 @@ describe('the impact reader', () => {
   });
 
   it('a removed export a member still declares is no must-fix; one nothing declares is', () => {
-    // `draw` was an exported function in `host.ts`; the runtime still declares `draw()` as a
-    // member, so the sentences name that member. `goneEverywhere` is declared nowhere in the tree.
-    const diff = (name: string): Parameters<typeof impactOf>[0] => ({
+    // `draw` is named by sentences of the surface (Rule 11.17). The diff removes `export function
+    // draw`; the head sources are injected, so only what they declare decides.
+    const diff: Parameters<typeof impactOf>[0] = {
       base: 'HEAD',
       staged: false,
       deleted: [],
@@ -196,15 +196,17 @@ describe('the impact reader', () => {
       modified: ['examples/hosts/host-draw/host.ts'],
       added: [],
       touched: new Map(),
-      removedLines: new Map([
-        ['examples/hosts/host-draw/host.ts', [`export function ${name}(a) {`]],
-      ]),
+      removedLines: new Map([['examples/hosts/host-draw/host.ts', ['export function draw(a) {']]]),
       removedAt: new Map(),
-    });
-    const subjects = (name: string): string[] => impactOf(diff(name)).map((i) => i.subject);
-    expect(subjects('draw').filter((s) => s.includes('`draw`'))).toEqual([]);
-    expect(memberNames('class A { goneEverywhere() {} }').has('goneEverywhere')).toBe(true);
-    expect(memberNames('function f() { goneEverywhere(1); }').has('goneEverywhere')).toBe(false);
+    };
+    const drawSubjects = (head: string): string[] =>
+      impactOf(diff, { sourceAtHead: () => head, ambientLibrary: () => '' })
+        .filter((i) => i.severity === 'must-fix')
+        .map((i) => i.subject)
+        .filter((s) => s.includes('`draw`'));
+    expect(drawSubjects('export class Runtime {\n  draw(canvas: C): void {}\n}')).toEqual([]);
+    expect(drawSubjects('export interface Device {\n  draw(canvas: C): void;\n}')).toEqual([]);
+    expect(drawSubjects('export function other() { draw(1); }')).toHaveLength(1);
   });
 
   it('takes a proposal for a record: a removed name it mentions is no must-fix', () => {
