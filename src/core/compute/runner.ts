@@ -1,5 +1,5 @@
-import { workgroupSizeOf, type ModuleDecl, type FuncDecl, type BindingDecl } from '../ir/index.js';
-import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js';
+import { planKernel, type KernelPlan } from './runner/kernel-plan.js';
+import { workgroupSizeOf, type ModuleDecl } from '../ir/index.js';
 import { compileModuleJs } from '../cpu-codegen.js';
 import { emitGlslModule } from '../backends/glsl.js';
 import { glslDataTextureOf, type GlslDataTexture } from '../glsl-data-texture.js';
@@ -83,29 +83,6 @@ const GPU_MAP_READ = 0x0001;
 const DEFAULT_PREFER: readonly ComputeBackend[] = TIERS;
 
 const MAX_W = 2048;
-
-interface KernelPlan {
-  readonly entry: FuncDecl;
-  readonly readBindings: readonly BindingDecl[];
-  readonly outBinding: BindingDecl;
-  readonly dispatchUniform: BindingDecl;
-}
-
-function planKernel(m: ModuleDecl): KernelPlan {
-  const entry = m.funcs.find(isPortableComputeEntry);
-  if (!entry)
-    throw new Error(
-      "createComputeRunner: no `portable: true` compute entry in this module. Declare the kernel `fn(…, { stage: 'compute', portable: true })` — the declaration is what routes the WebGL2 lowering and what gets the tier checked on both writers (X-GIS #1812).",
-    );
-  const tier = analyzePortableKernel(m, entry);
-  if (!tier.ok) throw new Error(`createComputeRunner: ${tier.violations.join('; ')}`);
-  return {
-    entry,
-    readBindings: m.bindings.filter((b) => b.space === 'storage' && b.access === 'read'),
-    outBinding: tier.outBinding,
-    dispatchUniform: tier.dispatchUniform,
-  };
-}
 
 function createCpuRunner(
   m: ModuleDecl,
