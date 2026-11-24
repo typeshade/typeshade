@@ -81,6 +81,17 @@ const webgl2Parts = (): string[] => {
 const named = (source: string, among: readonly string[] = NATIVE): string[] =>
   among.filter((name) => new RegExp(`\\.${name}\\b`).test(source));
 
+const glDrawCode = (): string => {
+  const folder = new URL('./gl-draw/', import.meta.url);
+  const parts = existsSync(folder)
+    ? readdirSync(folder)
+        .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
+        .sort()
+        .map((name) => code(`./gl-draw/${name}`))
+    : [];
+  return [code('./gl-draw.ts'), ...parts].join('\n');
+};
+
 describe('the program runtime on the RHI', () => {
   for (const file of ['runtime.ts', 'program.ts', 'resources.ts'])
     it(`src/runtime/${file} names no native WebGPU member`, () => {
@@ -96,7 +107,7 @@ describe('the program runtime on the RHI', () => {
 
   for (const file of ['gl.ts', 'gl-draw.ts'])
     it(`src/runtime/${file} names no native WebGL2 member`, () => {
-      const source = code(`./${file}`);
+      const source = file === 'gl-draw.ts' ? glDrawCode() : code(`./${file}`);
       expect(source).toContain('rhi');
       expect(named(source, NATIVE_GL)).toEqual([]);
     });
