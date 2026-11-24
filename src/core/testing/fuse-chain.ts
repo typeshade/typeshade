@@ -97,9 +97,8 @@ function spell(t: ShaderType): string {
   return authorTypeText(t);
 }
 
-/** The lowered module without the helpers its entries do not reach, and without the spans:
- *  `reachedBy` of `host-face.ts`. A helper has no identity but its name, and the planner shares
- *  one by its origin and name. */
+// Why: this is `reachedBy` of `compiler/ts/host-face.ts`, written again over IR: the generator
+// makes no source, and the planner shares a helper by its origin and name.
 function reachedBy(m: ModuleDecl): ModuleDecl {
   const helpers = new Set(m.funcs.filter((g) => g.stage === undefined).map((g) => g.name));
   const callees = new Map(m.funcs.map((g) => [g.name, calleesOf(g, helpers)]));
@@ -114,13 +113,8 @@ function reachedBy(m: ModuleDecl): ModuleDecl {
   };
 }
 
-/**
- * The face of kernel function `fn` of `m` under `typeshade({ fuse: true })`, or why it has none.
- * It follows `kernelFace` and `fuseRecord` of `compiler/ts/host-face.ts` for a function whose
- * loops lower, as `random-chain.test.ts` holds: the parameters, what the WebGPU tier dispatches
- * (the partials of a loop that reduces among it), and the fuse record, which is the facts of each
- * loop in the author's words and the lowered module cut to what its entries reach, as portable IR.
- */
+// Why: this follows `kernelFace` and `fuseRecord` of `compiler/ts/host-face.ts`, because the
+// generator writes IR and no source, so `hostFace` cannot make the face.
 export function lowerFace(m: ModuleDecl, fn: string, origin: string): Lowered | { none: string } {
   const f = m.funcs.find((x) => x.name === fn);
   if (f === undefined) return { none: `no function "${fn}"` };
