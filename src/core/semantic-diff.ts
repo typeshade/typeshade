@@ -1,40 +1,3 @@
-// ═══ Shader DSL — semantic diff over IR + reflection (X-GIS #1714) ═══
-//
-// Compares two modules at the layer a REVIEWER cares about — interface, resources,
-// constants, control-flow shape — instead of at the byte layer, where constant
-// folding, CSE, auto-vars, declaration order and generated temp names dominate the
-// diff and a semantic regression is indistinguishable from a formatting change.
-//
-// Input is a ModuleDecl, never emitted text: the whole point is to compare ABOVE the
-// noise the backends and optimizer passes introduce. Byte-level comparison already
-// has an owner (examples/emit-goldens.test.ts).
-//
-// NO `target` OPTION, deliberately. X-GIS #1714 proposed one, for a cross-backend arm
-// asserting "the GLSL emit and the WGSL emit agree". That arm is vacuous as written:
-// reflect() takes a ModuleDecl and never a backend (reflect.ts), so both sides of
-// that comparison are the same value and it can never go red. The real cross-backend
-// question — does each backend's emitted SOURCE agree with the reflection describing
-// it — needs to read emitted text and is tracked separately on that issue.
-//
-// `ignore` carries 'names' and 'declOrder' and NOT the proposed 'temporaries'. An
-// optimizer-introduced temporary is either just a local name (already covered by
-// 'names') or a real change to the statement tree — and a knob that discards the
-// latter would hide exactly the regressions this exists to catch. A flag that cannot
-// distinguish the states it claims to control is the §12 "assertion that failed
-// either way" at the API layer, so it is absent rather than accepted-and-ignored.
-//
-// `transforms` (X-GIS #1806) classifies BY CONSTRUCTION, never by pattern. A consumer's
-// dev↔prod comparison is dominated by the transforms its own build declares
-// (`inline()` rewrites call sites and duplicates literals), and X-GIS #1806's ask is that
-// those stop spending the same regression budget as a backend or interface error —
-// WITHOUT a blind ignore. So the declared plugin list — the same array the production
-// emit call takes — is applied to the reference side step by step, and a diff line is
-// reclassified as `explained` only when the actual pass output accounts for it;
-// whatever survives every declared transform stays in the four fail-able buckets. The
-// rejected alternative was a category matcher ("this difference looks like inlining"):
-// a resemblance test cannot distinguish an intentional inline from a regression that
-// happens to resemble one, which is the 'temporaries' knob above wearing a new name.
-
 import { typeKey, type ShaderType } from './ir/types.js';
 import {
   stageOf,
@@ -123,15 +86,6 @@ export const isSemanticallyEqual = (d: SemanticDiff): boolean =>
   d.constants.length === 0 &&
   d.controlFlow.length === 0;
 
-// ── canonical naming ──────────────────────────────────────────────────────────
-//
-// Mirrors mangleModule's partition exactly (mangle.ts's header states the ABI
-// boundary this derives from): helper fns, non-binding structs, module consts and
-// function-scoped names are internal and get positional canonical ids; everything
-// else keeps its authored spelling. Positional ids are safe against mangling because
-// mangle preserves declaration order, so the i-th internal decl on each side is the
-// same decl.
-
 interface Canon {
   readonly fns: ReadonlyMap<string, string>;
   readonly structs: ReadonlyMap<string, string>;
@@ -146,8 +100,6 @@ const EMPTY_CANON: Canon = {
   locals: new Map(),
 };
 
-/** Names DECLARED by a body — the `let`/`var` binding sites, in source order.
- *  Mirrors mangle's own collector; a Set so a shadowed spelling counts once. */
 function declaredNames(body: readonly Stmt[], acc: Set<string>): void {
   for (const s of body) {
     if (s.s === 'let' || s.s === 'var') acc.add(s.name);
@@ -193,8 +145,6 @@ function buildCanon(m: ModuleDecl): Canon {
   return { fns, structs, consts, locals };
 }
 
-/** Canonicalize struct names inside a type, then spell it through `typeKey` — the
- *  single authority for type spelling, so this never becomes a second one. */
 const typeSig = (t: ShaderType, c: Canon): string => typeKey(canonType(t, c));
 
 function canonType(t: ShaderType, c: Canon): ShaderType {
@@ -209,9 +159,6 @@ function canonType(t: ShaderType, c: Canon): ShaderType {
   return t;
 }
 
-/** `reflect()` hands back type strings already spelled by `typeKey`, so a nested
- *  non-binding struct appears there as `struct:<name>`. Rewrite that one token rather
- *  than re-deriving the layout. */
 const subStructs = (s: string, c: Canon): string =>
   c.structs.size === 0
     ? s
@@ -220,14 +167,11 @@ const subStructs = (s: string, c: Canon): string =>
         return to === undefined ? all : `struct:${to}`;
       });
 
-// ── fact extraction ───────────────────────────────────────────────────────────
-
 function interfaceFacts(m: ModuleDecl, c: Canon): string[] {
   const r = reflect(m);
   const out: string[] = [];
   for (const e of r.entries) {
     const inputs = e.inputs.map((i) => subStructs(i, c)).join(',');
-    // `[64, 1, 1]` reads `wg=64`, as it did before the shape carried y and z.
     const wg = e.workgroupShape?.join('x').replace(/(x1)+$/, '') ?? '-';
     const wgOverrides = e.workgroupSizeOverrides?.map((name) => name ?? '-').join(',');
     out.push(
@@ -268,7 +212,6 @@ function resourceFacts(m: ModuleDecl, c: Canon): string[] {
   return out;
 }
 
-/** Literal VALUES, as a multiset — the control-flow skeleton elides them. */
 function literalFacts(m: ModuleDecl, c: Canon): string[] {
   const out: string[] = [];
   const walkE = (e: Expr): void => {
@@ -293,11 +236,6 @@ const constFact = (k: ConstDecl, c: Canon): string =>
   `wgsl=${k.wgslValue} cpu=${k.cpuValue}` +
   (k.valueExpr === undefined ? '' : ` expr=${exprSig(k.valueExpr, c, new Map())}`);
 
-// ── control-flow skeleton ─────────────────────────────────────────────────────
-
-/** Direct sub-expressions of `e`. One place knows the Expr shape, mirroring
- *  collect-refs' single-exhaustive-switch discipline: a new op that carries children
- *  and is not added here shows up as a leaf rather than being silently half-walked. */
 function subExprs(e: Expr): readonly Expr[] {
   switch (e.op) {
     case 'call':
@@ -318,13 +256,10 @@ function subExprs(e: Expr): readonly Expr[] {
     case 'matchExpr':
       return [e.scrutinee, ...e.cases.map(([, v]) => v), e.default];
     default:
-      return []; // lit / constref / overrideref / param / varref
+      return [];
   }
 }
 
-/** Structural spelling of an expression: op kinds, operators, types and ABI names.
- *  A literal's VALUE is elided (`lit`) — values live in the `constants` bucket, so a
- *  changed number and a changed shape land in different buckets. */
 function exprSig(e: Expr, c: Canon, locals: ReadonlyMap<string, string>): string {
   const t = typeSig(e.type, c);
   const kids = (): string =>
@@ -338,8 +273,6 @@ function exprSig(e: Expr, c: Canon, locals: ReadonlyMap<string, string>): string
       return `(const ${c.consts.get(e.name) ?? e.name}:${t})`;
     case 'overrideref':
       return `(override ${e.name}:${t})`;
-    // X-GIS #1713 — a host-provided global's name is ABI (the host's prelude spells it), so it is
-    // compared even under `ignore: ['names']`, same as an override.
     case 'externref':
       return `(extern ${e.name}:${t})`;
     case 'param':
@@ -388,12 +321,10 @@ function stmtSig(s: Stmt, c: Canon, locals: ReadonlyMap<string, string>): string
     case 'raw':
       return `raw wgsl=${s.wgsl === undefined ? 'n' : 'y'} glsl=${s.glsl === undefined ? 'n' : 'y'}`;
     default:
-      return s.s; // break / continue / discard
+      return s.s;
   }
 }
 
-/** One line per statement, addressed by its path in the tree, so a diff names the
- *  statement that moved rather than reporting one giant per-function blob. */
 function bodyLines(
   body: readonly Stmt[],
   path: string,
@@ -443,10 +374,6 @@ function controlFlowFacts(m: ModuleDecl, c: Canon): string[] {
   return out;
 }
 
-// ── diffing ───────────────────────────────────────────────────────────────────
-
-/** Multiset difference. With order significant each line is index-tagged first, so a
- *  pure reordering shows up as a pair of moves rather than silently cancelling. */
 function diffFacts(a: readonly string[], b: readonly string[], ignoreOrder: boolean): string[] {
   const key = (xs: readonly string[]): string[] =>
     ignoreOrder ? [...xs].sort() : xs.map((x, i) => `@${i} ${x}`);
@@ -463,7 +390,6 @@ function diffFacts(a: readonly string[], b: readonly string[], ignoreOrder: bool
   return out.sort();
 }
 
-/** All four fact sets of one module, extracted under one canon build. */
 interface ModuleFacts {
   readonly interface: readonly string[];
   readonly resources: readonly string[];
@@ -490,9 +416,6 @@ const diffAllFacts = (fa: ModuleFacts, fb: ModuleFacts, order: boolean): Semanti
   controlFlow: diffFacts(fa.controlFlow, fb.controlFlow, order),
 });
 
-/** Multiset of lines present in `prev` and gone from `next` — the differences one
- *  transform step resolved. Lines a step INTRODUCES are not attributed to it; they
- *  flow into later steps and, if never resolved, into the final buckets. */
 function resolvedLines(prev: readonly string[], next: readonly string[]): string[] {
   const counts = new Map<string, number>();
   for (const l of prev) counts.set(l, (counts.get(l) ?? 0) + 1);
