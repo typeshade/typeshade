@@ -148,9 +148,9 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
     // The depth twin rides the same capability (roadmap 0.4 item 13).
     if ((b.type.kind === 'texture' || b.type.kind === 'depth-texture') && b.type.dim === '2d-ms')
       caps.add('msaaTextureLoad');
-    // A storage texture is WebGPU-only (roadmap 0.4 item 10): the capability is what fails a
-    // module closed on that target rather than letting it reach `glslType` and throw from
-    // inside the emit.
+    // A storage texture has no GLSL lowering yet for a draw (Rule 10.5); a @compute entry reaches
+    // it through its pass program (Rule 11.8). The capability fails a module closed on the GLSL
+    // writer rather than letting it reach `glslType` and throw from inside the emit.
     if (b.type.kind === 'storage-texture') caps.add('storageTexture');
     // `bgra8unorm` is the one storage format that is not core (#147). Measured on two Chromium
     // builds: a device with nothing requested refuses the bind group layout, a device that
@@ -159,7 +159,7 @@ export function requiredCaps(m: ModuleDecl): Capability[] {
     // learns which feature to ask for.
     if (b.type.kind === 'storage-texture' && b.type.format === 'bgra8unorm')
       caps.add('bgra8unormStorage');
-    // A 1d or a cube-array texture is WebGPU-only too (roadmap 0.4 item 12).
+    // A 1d or a cube-array texture is not supported yet on the WebGL2 tier (Rule 10.5).
     // The depth cube array rides the same capability as the colour one.
     if (b.type.kind === 'texture' && b.type.dim === '1d') caps.add('texture1d');
     if (

@@ -330,14 +330,14 @@ function subgroupSpellings(): Record<string, Spelling> {
   return out;
 }
 
-/** A builtin WGSL spells natively and GLSL ES 3.00 has no form of at all. The GLSL column
+/** A builtin WGSL spells natively and the GLSL backend does not lower yet. The GLSL column
  *  throws rather than inventing one, which is the same shape the storage-texture rows use: a
  *  module reaching it has already slipped past the capability gate, and a throw from the writer
  *  is better than emitted source no driver accepts. */
 const wgslOnly = (name: string): Spelling => ({
   wgsl: (a) => `${name}(${join(a)})`,
   glsl: () => {
-    throw new Error(`glsl-es300: ${name} has no GLSL ES 3.00 form`);
+    throw new Error(`glsl-es300: ${name} is not supported yet on the WebGL2 tier`);
   },
 });
 

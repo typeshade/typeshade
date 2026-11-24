@@ -26,7 +26,7 @@ const base = {
 } as unknown as MadeArray;
 
 const term = {} as GrownTerm;
-const deferred = { message: 'a message', node: {} as never };
+const unread = { what: 'a loop', node: {} as never };
 
 describe('the route of a function that grows an array is decided in one place (change 0114, A12)', () => {
   it('gives Route 1 first: a capacity with no open loop stays as it was', () => {
@@ -38,25 +38,35 @@ describe('the route of a function that grows an array is decided in one place (c
     for (const made of [
       { ...base, capacity: [term] },
       { ...base, open: true as const },
-      { ...base, deferred },
+      { ...base, unread },
     ]) {
       const route = routeOf(made as MadeArray, true);
-      expect('made' in route && route.made.counted).toBe(true);
-      expect('made' in route && route.made.growing).toBeUndefined();
-      expect('made' in route && 'open' in route.made).toBe(false);
-      expect('made' in route && 'deferred' in route.made).toBe(false);
+      expect(route.made.counted).toBe(true);
+      expect(route.made.growing).toBeUndefined();
+      expect(route.made).not.toHaveProperty('open');
+      expect(route.made).not.toHaveProperty('unread');
+      expect(route.unread).toBeUndefined();
     }
   });
 
   it('gives Route 3 last: an open function that is not countable grows', () => {
     const route = routeOf({ ...base, open: true }, false);
     expect(route).toMatchObject({ made: { growing: true } });
-    expect('made' in route && route.made.counted).toBeUndefined();
-    expect('made' in route && route.made.capacity).toBeUndefined();
+    expect(route.made.counted).toBeUndefined();
+    expect(route.made.capacity).toBeUndefined();
+    expect(route.unread).toBeUndefined();
   });
 
-  it('keeps the refusal of a nested header that nothing can read, until Route 3 reads it', () => {
-    expect(routeOf({ ...base, deferred, open: true }, false)).toEqual({ refused: deferred });
+  it('gives Route 3 to a nested header that nothing can read, and hands the loop on for the warning', () => {
+    for (const made of [
+      { ...base, unread },
+      { ...base, unread, open: true as const },
+    ]) {
+      const route = routeOf(made as MadeArray, false);
+      expect(route.made).toMatchObject({ growing: true });
+      expect(route.made).not.toHaveProperty('unread');
+      expect(route.unread).toBe(unread);
+    }
   });
 
   it('never sets counted and growing on one function, for every program of the forms', () => {

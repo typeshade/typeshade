@@ -7,8 +7,8 @@
 // `items[_pl0].pos.x`, with the index evaluated once, where `p` was declared, into `_pl0`, unless
 // it gives one value wherever it is evaluated (change 0105, item 3). A call
 // handed `p` is then handed the place, which Rule 8.28 already passes by pointer on WGSL and by
-// name on GLSL ES 3.00 for a module-scope place. On WebGL2 a storage element read whole has no
-// lane, so `const p = items[i]` was refused there; read field by field, it compiles.
+// name on GLSL ES 3.00 for a module-scope place. The data-texture lowering does not read a whole
+// storage element yet (WebGL2 tier), so `const p = items[i]` was refused; by field, it compiles.
 //
 // The local stays a copy when any of these holds over the statements after its declaration in
 // its block (the only ones that can read it):

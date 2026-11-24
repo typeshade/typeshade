@@ -173,7 +173,7 @@ describe('X-GIS #763 O — oracle backend parity', () => {
       ],
     };
     const strict = compileModule(module({ funcs: [decl] }));
-    expect(() => strict.fns['o3']!(0, 0, [0.5, 0.5])).toThrow(/GPU-only/);
+    expect(() => strict.fns['o3']!(0, 0, [0.5, 0.5])).toThrow(/not supported yet on the CPU/);
     const loose = compileModule(module({ funcs: [decl] }), { gpuStubs: true });
     expect(loose.fns['o3']!(0, 0, [0.5, 0.5])).toEqual([0, 0, 0, 1]);
   });
@@ -203,7 +203,7 @@ describe('X-GIS #763 O — oracle backend parity', () => {
     for (const [fnId, args] of cases) {
       const decl = arrayCall(fnId, args);
       const strict = compileModule(module({ funcs: [decl] }));
-      expect(() => strict.fns['o3a']!(0, 0, [0.5, 0.5]), fnId).toThrow(/GPU-only/);
+      expect(() => strict.fns['o3a']!(0, 0, [0.5, 0.5]), fnId).toThrow(/not supported yet/);
       const loose = compileModule(module({ funcs: [decl] }), { gpuStubs: true });
       expect(loose.fns['o3a']!(0, 0, [0.5, 0.5]), fnId).toEqual([0, 0, 0, 1]);
     }
@@ -220,7 +220,7 @@ describe('X-GIS #763 O — oracle backend parity', () => {
       ] as unknown as Stmt[],
     };
     const strict = compileModule(module({ funcs: [decl] }));
-    expect(() => strict.fns['o3n']!(0)).toThrow(/GPU-only/);
+    expect(() => strict.fns['o3n']!(0)).toThrow(/not supported yet on the CPU/);
     const loose = compileModule(module({ funcs: [decl] }), { gpuStubs: true });
     // 1 layer, not 0 — the same finite-placeholder rule as textureDimensions' 1×1.
     expect(loose.fns['o3n']!(0)).toBe(1);
@@ -398,7 +398,7 @@ describe('O3b/O5b — the GPU stub contract, for every stub', () => {
   it('O3b: every GPU stub THROWS in strict mode — a plausible-wrong value is the worst failure', () => {
     for (const id of ORACLE_GPU_STUB_NAMES) {
       const strict = compileModule(module({ funcs: [probeDecl(id)] }));
-      expect(() => strict.fns['probe']!([1, 2]), id).toThrow(/GPU-only/);
+      expect(() => strict.fns['probe']!([1, 2]), id).toThrow(/not supported yet on the CPU/);
     }
   });
 

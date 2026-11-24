@@ -10,7 +10,7 @@ import {
   madeLoweringOf,
   nodesSaidOnce,
   setMadeArray,
-  type DeferredRefusal,
+  type UnreadLoop,
   type GrownTerm,
   type MadeLowering,
   type MadeShare,
@@ -62,7 +62,7 @@ function readable(
       readonly r: Readable;
       readonly length?: Expr;
       readonly capacity?: readonly GrownTerm[];
-      readonly deferred?: DeferredRefusal;
+      readonly unread?: UnreadLoop;
       readonly open?: true;
     }
   | undefined {
@@ -72,11 +72,11 @@ function readable(
     if (capacity === undefined) return undefined;
     return {
       r,
-      ...(capacity.open === true || capacity.deferred !== undefined
+      ...(capacity.open === true || capacity.unread !== undefined
         ? {}
         : { capacity: capacity.terms }),
       ...(capacity.open === true ? { open: true as const } : {}),
-      ...(capacity.deferred !== undefined ? { deferred: capacity.deferred } : {}),
+      ...(capacity.unread !== undefined ? { unread: capacity.unread } : {}),
     };
   }
   if (!hostReadable(made.length, r)) {
@@ -166,7 +166,7 @@ export function settleMadeArray(
     element: made.element,
     ...(read.length !== undefined ? { length: read.length } : {}),
     ...(read.capacity !== undefined ? { capacity: read.capacity } : {}),
-    ...(read.deferred !== undefined ? { deferred: read.deferred } : {}),
+    ...(read.unread !== undefined ? { unread: read.unread } : {}),
     ...(read.open === true ? { open: true as const } : {}),
     ...(made.fill !== undefined ? { fill: made.fill } : {}),
     ...(made.grown === true ? { grown: true as const } : {}),

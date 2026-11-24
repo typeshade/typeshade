@@ -12,7 +12,7 @@ import { filled, madeArray, NO_CLASSES, renamed, type Made } from './host-kernel
 import { callMadeOnResource, writesPlainArray } from './host-kernel-made/on-resource.js';
 import { countedCapacity, saturating } from './host-kernel-made/counted.js';
 import { PastLimit } from './host-kernel-made/capacity.js';
-import { callGrowing } from './host-kernel-made/growing.js';
+import { callGrowing, cpuTierListed, onCpuTier } from './host-kernel-made/growing.js';
 
 function sharedObject(
   k: KernelFace,
@@ -157,6 +157,11 @@ export function callMadeKernel(
           result(k, made, making, args, marks, pushed, exact),
         );
       })
+      .catch((e: unknown) =>
+        e instanceof PastLimit && made.grown === true && made.counted !== true && cpuTierListed()
+          ? callGrowing(cpu, onCpuTier(k, made), made, args, reads)
+          : Promise.reject(e),
+      )
       .catch((e: unknown) => Promise.reject(explained(e, k, made)));
   } catch (e) {
     return Promise.reject(e instanceof RangeError ? explained(e, k, made) : e);
