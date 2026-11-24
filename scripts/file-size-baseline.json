@@ -226,7 +226,7 @@
   "src/language-service/service.test.ts": 715,
   "src/language-service/service.ts": 605,
   "src/rhi/rhi-conformance.ts": 1415,
-  "src/rhi/webgl2.ts": 1138,
+  "src/rhi/webgl2.ts": 1118,
   "src/rhi/webgpu.test.ts": 425,
   "src/rhi/webgpu.ts": 495,
   "src/runtime/buffer-kinds.test.ts": 804,

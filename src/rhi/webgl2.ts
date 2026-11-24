@@ -60,6 +60,7 @@ import { compareOf, drawStateOf, setState, type DrawState } from './webgl2/draw-
 import { dataTexture } from './webgl2/data-texture.js';
 import { bindTexture } from './webgl2/bind-texture.js';
 import { depthToColour } from './webgl2/depth-readback.js';
+import { blitScreen } from './webgl2/screen-blit.js';
 export { DATA_WIDTH } from './webgl2/data-texture.js';
 export { GL_TOPOLOGY, GL_BLEND_FACTOR, GL_BLEND_OPERATION } from './webgl2/draw-state.js';
 export { textureKindOf } from './webgl2/format.js';
@@ -373,27 +374,6 @@ interface Attachment {
   readonly tex: WebGLTexture | 'screen';
   readonly kind: GlTextureKind;
   readonly a: RhiColorAttachment;
-}
-
-function blitScreen(s: GlState, attachment: number, way: 'in' | 'out'): void {
-  const gl = s.gl;
-  const { w, h } = s.screen();
-  const fbo = s.fbo;
-  if (way === 'out') {
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbo);
-    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
-    gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachment);
-  } else {
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbo);
-    gl.readBuffer(gl.BACK);
-    const only = Array.from({ length: attachment + 1 }, (_, k) =>
-      k === attachment ? gl.COLOR_ATTACHMENT0 + attachment : gl.NONE,
-    );
-    gl.drawBuffers(only);
-  }
-  gl.blitFramebuffer(0, 0, w, h, 0, h, w, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 }
 
 class GlRenderPass implements RhiRenderPass {
