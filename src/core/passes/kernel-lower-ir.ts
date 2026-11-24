@@ -6,7 +6,7 @@ import { treeIdentity } from '../kernel-tree.js';
 import { bin, u } from '../kernel-workgroup.js';
 import { EFFECTFUL_INTRINSICS } from './effects.js';
 import { type LoopReduction } from './parallel-loop.js';
-import type { ForStmt, KernelLoopPlan, LoopCtx } from './kernel-lower-ir/types.js';
+import type { LoopCtx } from './kernel-lower-ir/types.js';
 import { boolT, kRef } from './kernel-lower-ir/refs.js';
 import { mapStmt, typeKey, placeRoot } from './kernel-lower-ir/walk.js';
 import {
@@ -16,6 +16,7 @@ import {
   toAtomics,
   type DeferredScatter,
 } from './kernel-lower-ir/scatter.js';
+export { rangeOf } from './kernel-lower-ir/loop-range.js';
 export { declaredNames, spellArrayBindings } from './kernel-lower-ir/names.js';
 export { ATOMIC_OF, atomicArray } from './kernel-lower-ir/scatter.js';
 export {
@@ -311,27 +312,4 @@ function ownContinuesReturn(body: readonly Stmt[], ret?: Expr): Stmt[] {
     }
   };
   return body.map(visit);
-}
-
-export function rangeOf(
-  loop: ForStmt,
-): { start: Expr; bound: Expr; cop: KernelLoopPlan['cop']; type: ShaderType } | undefined {
-  const c = loop.counted;
-  if (c === undefined || loop.init.s !== 'var' || loop.init.init === undefined) return undefined;
-  const cond = loop.cond;
-  if (cond.op !== 'compare') return undefined;
-  const flip = { '<': '>', '<=': '>=', '>': '<', '>=': '<=' } as const;
-  const isCounter = (e: Expr): boolean =>
-    (e.op === 'varref' || e.op === 'param') && e.name === c.name;
-  let cop: KernelLoopPlan['cop'];
-  let bound: Expr;
-  if (isCounter(cond.a) && cond.cop in flip) {
-    cop = cond.cop as KernelLoopPlan['cop'];
-    bound = cond.b;
-  } else if (isCounter(cond.b) && cond.cop in flip) {
-    cop = flip[cond.cop as keyof typeof flip];
-    bound = cond.a;
-  } else return undefined;
-  if ((cop === '<' || cop === '<=') !== c.step > 0) return undefined;
-  return { start: loop.init.init, bound, cop, type: loop.init.type };
 }
