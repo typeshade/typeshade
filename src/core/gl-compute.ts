@@ -14,34 +14,11 @@ import { renderable, imageIn, imageOut } from './gl-compute/storage-textures.js'
 import { readBack, type Rect, type PackBuffer } from './gl-compute/read-back.js';
 import { NO_FRAGMENTS, scatterSources } from './gl-compute/scatter-program.js';
 import { GUARD, declaresGuard, guardTexture } from './gl-compute/fp64-guard.js';
+import type { GlComputeInput, GlComputeReport } from './gl-compute/types.js';
+export type { GlComputeInput, GlComputeReport } from './gl-compute/types.js';
 export { compile } from './gl-compute/program-cache.js';
 
 export { gpuDone };
-
-export interface GlComputeInput {
-  readonly workgroups: readonly [number, number, number];
-  readonly memory: Readonly<Record<string, Uint32Array>>;
-  readonly uniforms?: Readonly<Record<string, unknown>>;
-  readonly textures?: Readonly<
-    Record<string, { readonly texture: WebGLTexture; readonly sampler?: WebGLSampler | null }>
-  >;
-  readonly storageTextures?: Readonly<
-    Record<
-      string,
-      {
-        readonly texture: WebGLTexture;
-        readonly width: number;
-        readonly height: number;
-        readonly layers?: number;
-      }
-    >
-  >;
-}
-
-export interface GlComputeReport {
-  readonly passes: number;
-  readonly barrierPhases: number;
-}
 
 interface Inv extends PassInvocation {
   readonly index: number;

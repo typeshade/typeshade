@@ -131,7 +131,7 @@
   "src/core/fuse-plan.ts": 533,
   "src/core/fuse-record.ts": 714,
   "src/core/gl-compute.test.ts": 514,
-  "src/core/gl-compute.ts": 521,
+  "src/core/gl-compute.ts": 498,
   "src/core/host-compute.ts": 767,
   "src/core/host-draw.ts": 886,
   "src/core/host-entry-program.ts": 501,
