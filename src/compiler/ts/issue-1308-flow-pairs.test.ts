@@ -235,4 +235,95 @@ describe('a flow-aware walk pairs only values that occur together (issue 1308, A
     expect(valuesAt(program(`let a = (0xF0000000|0);\n  a = 5;\n  ${copy}`))).toEqual(at(4, 4, 4));
     expect(valuesAt(program(`let a = 0xF0000000;\n  a = 5;\n  ${copy}`))).toEqual(at(4, 4, 4));
   });
+
+  it('takes a copy of one variable that is modified or copied again, after four stores', () => {
+    const copy = (store: string, read: string): string =>
+      program(`let a = (0xF0000000|0);\n  ${store}\n  let r = a;\n  ${read}`);
+    const shapes: readonly (readonly [string, readonly number[][]])[] = [
+      [
+        'a = 5;',
+        [
+          [5, 5, 5],
+          [5, 5, 5],
+          [4, 4, 4],
+          [4, 4, 4],
+        ],
+      ],
+      [
+        'if (vi > 3) { a = 5; } else { a = 6; }',
+        [
+          [5, 6, 5],
+          [5, 6, 5],
+          [4, 5, 4],
+          [4, 7, 4],
+        ],
+      ],
+      [
+        'a = 5; a = 7;',
+        [
+          [7, 7, 7],
+          [7, 7, 7],
+          [6, 6, 6],
+          [6, 6, 6],
+        ],
+      ],
+      [
+        'if (vi > 3) { return 1.0; }\n  a = 5;',
+        [
+          [1, 5, 1],
+          [1, 5, 1],
+          [1, 4, 1],
+          [1, 4, 1],
+        ],
+      ],
+    ];
+    const reads = [
+      'r += 1;\n  return f32(r - 1);',
+      'r++;\n  return f32(r - 1);',
+      'let s = r;\n  return f32(s - 1);',
+      'return f32(r ^ 1);',
+    ];
+    for (const [store, expected] of shapes) {
+      reads.forEach((read, i) => {
+        expect(valuesAt(copy(store, read))).toEqual(at(...expected[i]!));
+      });
+    }
+  });
+
+  it('takes a copy that is assigned again or copied twice, and keeps its u32 neighbours', () => {
+    const i32 = (read: string): string =>
+      program(`let a = (0xF0000000|0);\n  a = 5;\n  let r = a;\n  ${read}`);
+    expect(valuesAt(i32('let s = r;\n  r = 3;\n  return f32(s - 1);'))).toEqual(at(4, 4, 4));
+    expect(valuesAt(i32('let s = r;\n  let q = s;\n  return f32(q - 1);'))).toEqual(at(4, 4, 4));
+    expect(valuesAt(i32('r = r + 1;\n  return f32(r - 1);'))).toEqual(at(5, 5, 5));
+    expect(valuesAt(i32('r -= 1;\n  return f32(r - 1);'))).toEqual(at(3, 3, 3));
+    const u32 = (read: string): string =>
+      program(`let a = 0xF0000000;\n  a = 5;\n  let r = a;\n  ${read}`);
+    expect(valuesAt(u32('r += 1;\n  return f32(r - 1);'))).toEqual(at(5, 5, 5));
+    expect(valuesAt(u32('r++;\n  return f32(r - 1);'))).toEqual(at(5, 5, 5));
+    expect(valuesAt(u32('let s = r;\n  return f32(s - 1);'))).toEqual(at(4, 4, 4));
+  });
+
+  it('takes a copy that is modified or copied again in a pair, and refuses it when a pair occurs', () => {
+    const pair = (store: string, read: string): string => program(`${H}${store}\n  ${read}`);
+    const cases: readonly (readonly [string, number[]])[] = [
+      ['let r = a;\n  r += 1;\n  return f32(r - c);', [1, 1, 1]],
+      ['let r = a;\n  r++;\n  return f32(r - c);', [1, 1, 1]],
+      ['let r = a;\n  let s = r;\n  return f32(s - c);', [0, 0, 0]],
+      ['let r = a;\n  let s = c;\n  let q = r;\n  return f32(q - s);', [0, 0, 0]],
+    ];
+    for (const [read, values] of cases) {
+      expect(valuesAt(pair('a = 5;\n  c = 5;', read))).toEqual(at(...values));
+    }
+    bothRefuse(
+      pair('if (vi > 3) { a = 5; c = 5; }', 'let r = a;\n  r += 1;\n  return f32(r - c);'),
+      'TS8003',
+      refusal('r - c'),
+    );
+    bothRefuse(
+      pair('c = 5;', 'let r = a;\n  r += 1;\n  return f32(r - c);'),
+      'TS8003',
+      refusal('r - c'),
+    );
+  });
 });
