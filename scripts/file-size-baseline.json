@@ -173,7 +173,7 @@
   "src/core/passes/inline-linear.test.ts": 517,
   "src/core/passes/inline-linear.ts": 509,
   "src/core/passes/kernel-lower-ir.ts": 654,
-  "src/core/passes/kernel-lower.ts": 1737,
+  "src/core/passes/kernel-lower.ts": 1634,
   "src/core/passes/memory-words.ts": 638,
   "src/core/passes/opt/dce.test.ts": 743,
   "src/core/passes/opt/gvn.test.ts": 1202,
