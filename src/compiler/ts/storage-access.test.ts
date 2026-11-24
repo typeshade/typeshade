@@ -261,3 +261,26 @@ describe('a storage binding declared with let is refused, so no accepted program
     );
   });
 });
+
+describe('a bare binding that an entry writes through a reference parameter is read_write', () => {
+  const cell = 'class Cell { v: f32; }\nfunction bump(p: Cell): void { p.v += 1.; }\n';
+
+  it('infers read_write when a compute entry hands the element to the writing function', () => {
+    const source = compute('declare const xs: storage<array<Cell>>;', 'bump(xs[gid.x]);', cell);
+    expect(accessOf(source)).toBe('read_write');
+    expect(bothTake(source).result.wgsl).toContain('var<storage, read_write> xs');
+  });
+
+  it('infers read_write when the program has no entry and a function writes it', () => {
+    const source = `"use typeshade";\n${cell}declare const xs: storage<array<Cell>>;\nexport function r(): f32 { bump(xs[0]); return 0.; }`;
+    expect(accessOf(source)).toBe('read_write');
+  });
+
+  it('keeps an explicit read binding read-only and refuses the write in both halves', () => {
+    bothRefuse(
+      compute('declare const xs: storage<array<Cell>, "read">;', 'bump(xs[gid.x]);', cell),
+      'TS8073',
+      '"bump" writes its parameter "p", the caller\'s object (p: Cell), and "xs" is a read-only resource. Write "declare const xs: storage<array<Cell>, "read_write">" to write to it.',
+    );
+  });
+});

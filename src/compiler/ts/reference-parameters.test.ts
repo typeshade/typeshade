@@ -294,14 +294,14 @@ export function run(): f32 { let x = new Cell(); g(x); return x.v; }
 describe('what an object parameter that its function writes may not take', () => {
   const pre = `class Cell { v: f32; }
 class Ob { a: Cell; b: Cell; }
-declare const src: storage<array<Cell>>;
 function swapV(a: Cell, b: Cell): void { const t = a.v; a.v = b.v; b.v = t; }
 function bump(p: Cell): void { p.v += 1.; }
 `;
   const cases: readonly (readonly [string, string, string])[] = [
     [
       'a read-only binding',
-      `export function r(): f32 { bump(src[0]); return 0.; }`,
+      `declare const src: storage<array<Cell>, "read">;
+export function r(): f32 { bump(src[0]); return 0.; }`,
       'TS8073 "bump" writes its parameter "p", the caller\'s object (p: Cell), and "src" is a read-only resource. Write "declare const src: storage<array<Cell>, "read_write">" to write to it.',
     ],
     [
