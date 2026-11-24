@@ -340,9 +340,9 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 - **Bundle budgets follow the file splits of the structure refactoring.** No behaviour changes.
   A split adds modules, and the single-file build of a bundle carries a lazy-init wrapper for a
   module below a dynamic import. Measured budgets (`scripts/bundle-budget.json`, gzip bytes)
-  since `c4a12d3f`: `typeshade/runtime` single file 178698 to 178749, split initial 52043 to
+  since `c4a12d3f`: `typeshade/runtime` single file 178698 to 178820, split initial 52043 to
   52044, split total 180803 to 180817. Budget pull requests: #1580. Pull requests of the moves:
-  #1578.
+  #1578, #1593.
 - **The `typescript` peer range starts at the lowest version CI checks** (#922). It reads
   `>=5.6.3 <7`, where it read `>=5.0.0 <7`. TypeScript 5.0.4 crashed with `Maximum call stack size
 exceeded` while checking `src/core/sot.ts` and `src/core/ir/builder.ts`, and no CI leg ran below
