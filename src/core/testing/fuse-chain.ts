@@ -1,7 +1,7 @@
 import { emitModule, lowerWgsl } from '../backends/wgsl.js';
 import type { CpuValue } from '../cpu-runtime.js';
 import { fusedFor, uniformFor, type Fused } from '../fuse-entry.js';
-import { assignSlots, groupCalls, type Group, type GroupCall } from '../fuse-group.js';
+import { assignSlots, type GroupCall } from '../fuse-group.js';
 import type { EntryBinding, Layout } from '../host-entry.js';
 import type {
   FuseArray,
@@ -31,6 +31,7 @@ import { callArgs, type Inputs } from './fuse-chain/inputs.js';
 import { outcomeOf, type Outcome } from './fuse-chain/apart.js';
 import type { ModelGroup } from './fuse-chain/model.js';
 import type { Lowered, PlannedGroup, GroupFault, GroupStep, FusedRun } from './fuse-chain/types.js';
+export { groupCallsOf, planChain } from './fuse-chain/grouping.js';
 export { readsAtCounter, forgetsReduction, forgetsLength } from './fuse-chain/wrong-faces.js';
 export type { Lowered, PlannedGroup, GroupFault, GroupStep, FusedRun } from './fuse-chain/types.js';
 export {
@@ -237,31 +238,6 @@ export function lowerChain(c: ChainCorpus): Lowered[] | { none: string } {
     out.push(r);
   }
   return out;
-}
-
-export function groupCallsOf(
-  c: ChainCorpus,
-  lows: readonly Lowered[],
-  inputs: Inputs,
-): GroupCall[] {
-  const byId = new Map(c.arrays.map((a) => [a.id, a]));
-  return c.calls.map((call, j) => {
-    const low = lows[j]!;
-    const first = scheduleKernelPlan(low.m, call.fn, low.plan, callArgs(c, j, inputs)).steps[0];
-    return {
-      k: low.face,
-      arrays: call.args.map((a) => ('array' in a ? byId.get(a.array) : undefined)),
-      range:
-        first === undefined
-          ? { start: 0, n: 0 }
-          : { start: first.args['_start'] as number, n: first.args['_n'] as number },
-      tier: 'webgpu',
-    };
-  });
-}
-
-export function planChain(c: ChainCorpus, calls: readonly GroupCall[], limit: number): Group[] {
-  return groupCalls(calls, limit, new Set(c.arrays.filter((a) => a.scratch)));
 }
 
 export function fuseGroup(
