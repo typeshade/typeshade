@@ -7,7 +7,7 @@
 // call. The WebGL2 tier's dispatch still runs through the call layer's executor
 // (`core/gl-compute.ts`), which change 0120's milestone M4 moves.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 /** The members only a native `GPUDevice`, its queue, an encoder or a buffer has. */
@@ -68,9 +68,29 @@ const code = (file: string): string =>
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/\/\/.*$/gm, '');
 
+const webgl2Parts = (): string[] => {
+  const directory = new URL('../rhi/webgl2/', import.meta.url);
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory)
+    .filter((file) => file.endsWith('.ts'))
+    .sort()
+    .map((file) => code(`../rhi/webgl2/${file}`));
+};
+
 /** The members of `among` that `source` calls or reads. */
 const named = (source: string, among: readonly string[] = NATIVE): string[] =>
   among.filter((name) => new RegExp(`\\.${name}\\b`).test(source));
+
+const glDrawCode = (): string => {
+  const folder = new URL('./gl-draw/', import.meta.url);
+  const parts = existsSync(folder)
+    ? readdirSync(folder)
+        .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
+        .sort()
+        .map((name) => code(`./gl-draw/${name}`))
+    : [];
+  return [code('./gl-draw.ts'), ...parts].join('\n');
+};
 
 describe('the program runtime on the RHI', () => {
   for (const file of ['runtime.ts', 'program.ts', 'resources.ts'])
@@ -87,13 +107,14 @@ describe('the program runtime on the RHI', () => {
 
   for (const file of ['gl.ts', 'gl-draw.ts'])
     it(`src/runtime/${file} names no native WebGL2 member`, () => {
-      const source = code(`./${file}`);
+      const source = file === 'gl-draw.ts' ? glDrawCode() : code(`./${file}`);
       expect(source).toContain('rhi');
       expect(named(source, NATIVE_GL)).toEqual([]);
     });
 
   it('finds a native WebGL2 member where the code names one', () => {
     // The instrument's known positive: the WebGL2 backend names every one of them.
-    expect(named(code('../rhi/webgl2.ts'), NATIVE_GL)).toEqual(NATIVE_GL);
+    const backend = [code('../rhi/webgl2.ts'), ...webgl2Parts()].join('\n');
+    expect(named(backend, NATIVE_GL)).toEqual(NATIVE_GL);
   });
 });

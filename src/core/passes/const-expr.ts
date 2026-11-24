@@ -1,90 +1,14 @@
-// === A constant expression the target refuses is given its value at run time (#368) ===
-//
-// WGSL evaluates a const-expression when it creates the shader, and makes some of them a
-// shader-creation error: a value its rules leave undefined for constants, although the same
-// operation on a value the shader computes has an answer. An operand becomes a constant in two
-// ways a program the front end accepts can reach:
-//
-//   - the optimizer makes one: `x - x`, `x ^ x` and `x * 0` fold to 0 on integers, a `select`
-//     on a literal folds to one arm, and const-prop moves a local's literal into its uses;
-//   - the author writes one with constants, a literal or a module `const`, where the front end
-//     refuses a divisor it proves zero and a shift amount past 31 (Rule 7.4), and a `clamp`
-//     whose bounds cross and an `f32` value past the range (Rule 12.6, #373, #374). An `i32`
-//     literal is spelled with no suffix, so WGSL reads it as an abstract integer, and an
-//     operation on two of them is refused when its value does not fit the `i32` it meets.
-//
-// Measured on Tint (Chromium, SwiftShader), each in a `@compute` entry over a storage array
-// `data`, with `x` and `y` read from it, and `V` a module `const` of `vec2<f32>`:
-//
-//   data[1] = (7u / 0u);            integer division by zero is invalid
-//   data[1] = (x / 0);              integer division by zero is invalid
-//   data[1] = (7u % 0u);            integer division by zero is invalid
-//   data[1] = (y << 33u);           shift left value must be less than the bit width of the
-//                                   lhs, which is 32
-//   data[1] = (y >> 40u);           shift right value must be less than the bit width of the
-//                                   lhs, which is 32
-//   (x + (S << 31u)), S: i32 = 3    shift left operation results in sign change
-//   (x + (S << 31u)), S: u32 = 3    '3 << 31' cannot be represented as 'u32'
-//   (x + (3 << 31u))                value 6442450944 cannot be represented as 'i32'
-//   (x + (2147483647 + 1))          value 2147483648 cannot be represented as 'i32'
-//   (x + (-2147483648 / -1))        value 2147483648 cannot be represented as 'i32'
-//   (x + (-(-2147483648)))          value 2147483648 cannot be represented as 'i32'
-//   (x + (M / -1)), M: i32 = MIN    '-2147483648 / -1' cannot be represented as 'i32'
-//   (x + (M % -1)), M: i32 = MIN    '-2147483648 % -1' cannot be represented as 'i32'
-//   (x + u32(-1))                   value -1 cannot be represented as 'u32'
-//   (x / u32(-0.25))                integer division by zero is invalid
-//   (x / u32(-1.0))                 integer division by zero is invalid
-//   (x % u32(-3.0))                 integer division by zero is invalid
-//   (x % u32(K)), K: f32 = 0.5      integer division by zero is invalid
-//   (x / u32(K)), K: f32 = -1       integer division by zero is invalid
-//   (x / u32(V.x)), V.x = -1        integer division by zero is invalid
-//   (x / vec2<u32>(V).x), V.x = -1  integer division by zero is invalid
-//   (x / sign(i32(0.125)))          integer division by zero is invalid
-//   (x << u32(4294967296.0))        shift left value must be less than the bit width of the
-//                                   lhs, which is 32
-//   (x << u32(V.x)), V.x = 2^32     shift left value must be less than the bit width of the
-//                                   lhs, which is 32
-//   clamp(x, 5u, 2u)                clamp called with 'low' (5) greater than 'high' (2)
-//
-// and their neighbours, which Tint accepts: `S * 1000000000` and `S + 1` over a concrete `i32`
-// constant wrap, as do `-M` and `(-2147483648 % -1)`; `u32(N)` for an `i32` constant `N = -1`;
-// `S << 31u` for `S: i32 = -1` and for `S: u32 = 1`; `y / 0.0` on an `f32` the shader computes;
-// `x / u32(K)` for `K: f32 = 1.5`; `x + u32(-1.0)` and `x << u32(-1.0)`; `x / u32(4294967296.0)`,
-// `x / i32(4294967296.0)` and `x / i32(-1.0)`; `x / u32(V.y)` and `x / vec2<u32>(V).y`;
-// `x / sign(i32(2.5))`.
-//
-// Each program above has an answer when the operand is not a constant: an integer `x / 0` is
-// `x` and `x % 0` is 0, a shift amount is taken modulo 32, integer arithmetic wraps, `u32(e)`
-// keeps the bits of an `i32`, and an integer `clamp` is `min(max(e, low), high)`. The CPU
-// oracle computes exactly that (`intDiv` and `intRem` in `scalar-arith.ts`, `clampVal` in
-// `cpu-runtime.ts`), and so does a GPU the moment the operand is not constant. This pass writes that answer where WGSL
-// would refuse to compute it: the zero of a divisor becomes a 1 (`x / 1` is `x`, `x % 1` is 0),
-// a shift amount keeps its low five bits, an operation over constants that Tint refuses for a
-// value its type cannot hold becomes the wrapped value, and a `clamp` whose constant bounds
-// cross becomes `min(max(e, low), high)`, which is one of the two answers WGSL allows a float
-// `clamp` and the only one it allows an integer one. It changes no value the target computes;
-// it spells the value so that the target will compute it.
-//
-// A float constant converted to an integer is one of those operands. WGSL saturates the
-// conversion, so `u32(-1.0)` is a constant 0 and `i32(4294967296.0)` is a constant 2147483647. A
-// divisor or a shift amount made this way is a constant Tint refuses (#578). Tint converts by the
-// operand it is given, so the pass takes the value Tint takes (`floatToInt` has the measured
-// values), and settles the divisor or the amount from it. An integer `sign` of such a value is a
-// constant as well: `sign(i32(0.125))` is 0.
-//
-// It runs after every optimizer tier, O0 included, because an author's constants reach O0 and
-// the optimizer's reach every tier above it. It is neutral: GLSL ES 3.00 leaves a division by
-// zero, a shift past the width and a `clamp` with crossed bounds undefined, so both targets
-// get the WGSL answer. ANGLE (Chromium, SwiftShader) compiled `uint a = (7u / 0u);` in a
-// fragment program with `WARNING: 0:14: '/' : Divide by zero error during constant folding`
-// and a value of its own choosing, and `(S << 31u)` and `clamp(k, 5u, 2u)` with no word; the
-// settled program compiles with none. It rewrites only what WGSL would refuse, so a module that
-// compiled before emits the same bytes. What it cannot evaluate it leaves alone: a float
-// operation over constants (its rounding is the target's), an element of a constant array, an
-// integer builtin other than `abs`, `sign`, `min`, `max`, `clamp` and `~`, and any operand that is
-// not a const-expression (a `let` is not one, whatever it holds). Tint still evaluates the
-// first two when it creates the shader, so `x / u32(f32(0u) - 1.0)` and `x / u32(A[0])` for
-// `const A = array(-1., 2.)` are refused, and nothing here settles them yet.
+/* Why: WGSL evaluates a const-expression when it creates the shader and makes some of them an
+error (#368): an integer division by zero, a shift amount past 31, a shift left, sum, difference,
+product, division or negation of abstract integers whose value its type cannot hold, `u32(-1)`,
+and a `clamp` with crossed bounds. Measured on Tint (Chromium, SwiftShader); the same operation
+on a value the shader computes has an answer, which the CPU oracle computes. ANGLE (the GLSL
+path) compiled `uint a = (7u / 0u);` with `WARNING: '/' : Divide by zero error during constant
+folding` and a value of its own choosing, so both targets get the WGSL answer. A float constant
+converted to an integer saturates, and Tint saturates a literal at the ends of the integer range
+but a named `f32` at the largest `f32` inside it (#578). Tint also evaluates a float operation
+and an element of a constant array, so `x / u32(f32(0u) - 1.0)` and `x / u32(A[0])` for
+`const A = array(-1., 2.)` are refused, and this pass does not settle them. */
 
 import type { BinOp, Expr, ModuleDecl, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
@@ -95,13 +19,8 @@ import { exprHasEffect, fnWrites, type FnWrites } from './effects.js';
 import { mapExpr } from './opt/ir-transform.js';
 import { intElemOf, wrapInt } from './opt/expr-utils.js';
 
-/** A constant's value, one number per component; a scalar has one. */
 type Components = readonly number[];
 
-/** What evaluation reads: the module's constants by name, and each node's value once asked.
- *  The pass asks for an operand's value at every operation above it, so without the memo a deep
- *  expression would be walked once per level. The IR is immutable, so a node's value cannot change;
- *  the constants' own initializers are evaluated without one, while the table still fills. */
 interface Env {
   readonly consts: ReadonlyMap<string, Components>;
   readonly memo?: WeakMap<Expr, Components | null>;
@@ -111,19 +30,13 @@ const SWIZZLE = 'xyzwrgba';
 const I32_MIN = -2147483648;
 const I32_MAX = 2147483647;
 const U32_MAX = 4294967295;
-/** The largest `f32` inside each integer's range: where an `f32` operand saturates, and where the
- *  conversion of a run-time float clamps (`f32ToI32Sat` and `f32ToU32Sat` in `cpu-runtime.ts`). */
 const I32_MAX_F32 = 2147483520;
 const U32_MAX_F32 = 4294967040;
 
-/** The element of a scalar or vector type, or undefined for any other kind. */
 function elemOf(t: ShaderType): string | undefined {
   return t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined;
 }
 
-/** `f` over two component lists, a one-component list standing for its value in every
- *  component, as WGSL broadcasts a scalar against a vector. Undefined when the lengths meet no
- *  other way. */
 function zip(
   a: Components,
   b: Components,
@@ -136,7 +49,6 @@ function zip(
   );
 }
 
-/** An integer builtin over constants, as the target computes it, or undefined. */
 function builtinValue(
   fn: string,
   args: readonly Components[],
@@ -148,8 +60,6 @@ function builtinValue(
       return args.length === 1 ? a!.map((v) => wrapInt(Math.abs(v), int)) : undefined;
     case 'sign':
       return args.length === 1 ? a!.map((v) => wrapInt(Math.sign(v), int)) : undefined;
-    // The complement, the IR's `~` intrinsic: `u32(~min((9 | 0), 5))` reached the target as
-    // `u32(~5)`, the abstract `-6`, which Tint refused as no `u32` (issue 1261).
     case '~':
       return args.length === 1 ? a!.map((v) => wrapInt(~v, int)) : undefined;
     case 'min':
@@ -165,15 +75,6 @@ function builtinValue(
   }
 }
 
-/**
- * The value of `e` where `e` is a const-expression this evaluates, one number per component,
- * else undefined: a literal, a module constant, a vector built from those, a component of one,
- * a `select` on a literal, an integer operation over those, and an integer `abs`, `sign`, `min`,
- * `max`, `clamp` or conversion of them, a float constant's or an `f32` vector's included. An
- * integer is evaluated as the target computes it at run time: it wraps, `x / 0` is `x` and a
- * shift takes its amount modulo 32 (`scalarBin`, the oracle's). A float is taken only as it is
- * written, since the rounding of its arithmetic is the target's.
- */
 function constValue(e: Expr, env: Env): Components | undefined {
   const hit = env.memo?.get(e);
   if (hit !== undefined) return hit ?? undefined;
@@ -182,7 +83,6 @@ function constValue(e: Expr, env: Env): Components | undefined {
   return v;
 }
 
-/** {@link constValue} of one node, its operands through the memo. */
 function evaluate(e: Expr, env: Env): Components | undefined {
   const int = intElemOf(e.type);
   switch (e.op) {
@@ -193,14 +93,11 @@ function evaluate(e: Expr, env: Env): Components | undefined {
       return env.consts.get(e.name);
     case 'construct': {
       if (e.type.kind !== 'vec') return undefined;
-      // `vecN<i32>(v)` and `vecN<u32>(v)` of an `f32` vector convert each component as `i32(f)`
-      // and `u32(f)` do.
       const from = e.args.length === 1 ? e.args[0]!.type : undefined;
       if (int !== undefined && from?.kind === 'vec' && from.elem === 'f32' && from.n === e.type.n)
         return convertedVector(e.args[0]!, int, env);
       const parts: number[] = [];
       for (const a of e.args) {
-        // A constructor over another element type converts, which is not evaluated here.
         if (elemOf(a.type) !== e.type.elem) return undefined;
         const v = constValue(a, env);
         if (v === undefined) return undefined;
@@ -234,7 +131,6 @@ function evaluate(e: Expr, env: Env): Components | undefined {
       return v === undefined ? undefined : [v];
     }
     case 'select': {
-      // A const-expression only when every argument is one, the arm not taken included.
       if (e.cond.op !== 'lit' || typeof e.cond.value !== 'boolean') return undefined;
       const t = constValue(e.ifTrue, env);
       const f = t && constValue(e.ifFalse, env);
@@ -254,7 +150,6 @@ function evaluate(e: Expr, env: Env): Components | undefined {
         if (v === undefined) return undefined;
         args.push(v);
       }
-      // `i32(e)` and `u32(e)` keep the bits of the other integer type.
       if ((e.fn === 'i32' || e.fn === 'u32') && args.length === 1 && e.type.kind === 'scalar')
         return args[0]!.length === 1 ? [wrapInt(args[0]![0]!, int)] : undefined;
       return builtinValue(e.fn, args, int);
@@ -264,29 +159,9 @@ function evaluate(e: Expr, env: Env): Components | undefined {
   }
 }
 
-/** The integer that WGSL's `i32(v)` or `u32(v)` gives for the float `v`, or undefined where this
- *  cannot say: `v` truncated toward zero, and held to the range of `int` where it falls outside.
- *  WGSL saturates the conversion, and Tint evaluates it when it creates the shader. Measured on
- *  Tint with `const_assert` (Chromium, SwiftShader), the end it saturates at depends on the
- *  operand:
- *
- *    u32(-1.0) is 0, u32(4294967296.0) is 4294967295, i32(4294967296.0) is 2147483647 and
- *    i32(-4294967296.0) is -2147483648;
- *    u32(K) is 4294967040 and i32(K) is 2147483520, for K: f32 = 4294967296.0.
- *
- *  A literal is an abstract float to WGSL, which converts the value as written and saturates at
- *  the ends of the integer's range. A named `f32` constant, or a component of a vector constant,
- *  is an `f32`, which saturates at the largest `f32` inside the range, as the conversion of a
- *  run-time float does. It is taken only where its `f32` value and the value as written convert
- *  alike: `u32(0.1)` is 0 in either reading, and `u32(2.99999999)` is 2 or 3.
- *
- *  The oracle clamps every float at the largest `f32` inside the range (`f32ToU32Sat`), so it and
- *  Tint differ for a literal above that: `u32(4294967296.0)` is 4294967040 there. The front end
- *  refuses such a literal (`lowerScalarCast`), and an IR that holds one follows Tint here. */
 function floatToInt(v: number, int: 'i32' | 'u32', literal: boolean): number | undefined {
   if (!Number.isFinite(v)) return undefined;
   const lo = int === 'i32' ? I32_MIN : 0;
-  // `+ 0` makes the -0 that `Math.trunc(-0.25)` gives a 0.
   const held = (x: number, hi: number): number => Math.min(hi, Math.max(lo, Math.trunc(x) + 0));
   if (literal) return held(v, int === 'i32' ? I32_MAX : U32_MAX);
   const hi = int === 'i32' ? I32_MAX_F32 : U32_MAX_F32;
@@ -294,7 +169,6 @@ function floatToInt(v: number, int: 'i32' | 'u32', literal: boolean): number | u
   return held(Math.fround(v), hi) === t ? t : undefined;
 }
 
-/** `i32(f)` or `u32(f)` of a float constant `arg`, as {@link floatToInt} converts it. */
 function truncated(arg: Expr, int: 'i32' | 'u32', env: Env): Components | undefined {
   const v = constValue(arg, env);
   if (v === undefined || v.length !== 1) return undefined;
@@ -303,8 +177,6 @@ function truncated(arg: Expr, int: 'i32' | 'u32', env: Env): Components | undefi
   return t === undefined ? undefined : [t];
 }
 
-/** `vecN<i32>(v)` or `vecN<u32>(v)` of an `f32` vector constant `arg`: each component converted
- *  as {@link floatToInt} converts one. A vector holds `f32` components, so none is a literal. */
 function convertedVector(arg: Expr, int: 'i32' | 'u32', env: Env): Components | undefined {
   const v = constValue(arg, env);
   if (v === undefined) return undefined;
@@ -317,8 +189,6 @@ function convertedVector(arg: Expr, int: 'i32' | 'u32', env: Env): Components | 
   return out;
 }
 
-/** `values` spelled as a constant of type `t`: a literal, or a vector constructor of literals
- *  (a vector-typed literal has no spelling on either target). */
 function spell(values: Components, t: ShaderType): Expr {
   if (t.kind !== 'vec') return { op: 'lit', type: t, value: values[0]! };
   const elem: ShaderType = { kind: 'scalar', scalar: t.elem };
@@ -333,10 +203,6 @@ function spell(values: Components, t: ShaderType): Expr {
   };
 }
 
-/** Whether WGSL reads `e` as an abstract integer: an `i32` literal, which both backends spell
- *  with no suffix, or a negation or an operation over those alone. A module constant, a `u32`
- *  literal and a constructor are concrete. The value of an abstract one must fit the `i32` it
- *  becomes; a concrete `+`, `-` or `*` wraps instead, which Tint accepts. */
 function isAbstract(e: Expr): boolean {
   if (e.type.kind !== 'scalar' || e.type.scalar !== 'i32') return false;
   switch (e.op) {
@@ -345,19 +211,14 @@ function isAbstract(e: Expr): boolean {
     case 'unop':
       return isAbstract(e.a);
     case 'binop':
-      // A shift's type is its left operand's; its amount is a `u32` either way.
       return isAbstract(e.a) && (e.bop === '<<' || e.bop === '>>' || isAbstract(e.b));
     case 'call':
-      // `~5` is the IR's `~` intrinsic over an abstract integer, and abstract itself.
       return e.fn === '~' && e.args.length === 1 && isAbstract(e.args[0]!);
     default:
       return false;
   }
 }
 
-/** Whether WGSL refuses `e`, an integer operation over the constants `a` and `b`: a shift left
- *  or a division whose exact value `int` cannot hold, `i32`'s most negative value `% -1` over a
- *  concrete operand, and an abstract `+`, `-` or `*` whose value does not fit an `i32`. */
 function refusedOverConstants(
   e: Extract<Expr, { op: 'binop' }>,
   a: Components,
@@ -392,8 +253,6 @@ function refusedOverConstants(
   return refused !== undefined && refused.includes(1);
 }
 
-/** `b`, the right operand of an integer `bop`, without the constant WGSL refuses there: each
- *  zero of a divisor is a 1, and each shift amount keeps its low five bits. */
 function settleRight(bop: BinOp, b: Expr, env: Env): Expr {
   if (intElemOf(b.type) === undefined) return b;
   const v = constValue(b, env);
@@ -411,12 +270,9 @@ function settleRight(bop: BinOp, b: Expr, env: Env): Expr {
   return b;
 }
 
-/** The rewrite of one node whose children are already settled. `writes` is computed the first
- *  time a dropped operand needs it. */
 function settleNode(e: Expr, env: Env, writes: () => FnWrites): Expr {
   const int = intElemOf(e.type);
   if (int === undefined) {
-    // A `clamp` whose constant bounds cross, on floats as on integers.
     if (e.op === 'call' && e.fn === 'clamp') return settleClamp(e, env);
     return e;
   }
@@ -426,7 +282,6 @@ function settleNode(e: Expr, env: Env, writes: () => FnWrites): Expr {
       if (b !== e.b && (e.bop === '/' || e.bop === '%')) {
         const d = constValue(b, env);
         if (d !== undefined && d.every((x) => x === 1)) {
-          // `a / 1` is `a`, and `a % 1` is 0 unless `a` has an effect to keep.
           if (e.bop === '/' && typeKey(e.a.type) === typeKey(e.type)) return e.a;
           if (e.bop === '%' && !exprHasEffect(e.a, writes())) return spell([0], e.type);
         }
@@ -439,8 +294,6 @@ function settleNode(e: Expr, env: Env, writes: () => FnWrites): Expr {
       return v === undefined ? r : spell(v, r.type);
     }
     case 'unop': {
-      // `-(-2147483648)` over an abstract integer is the one negation an `i32` cannot hold; it
-      // wraps to itself, as the negation of a concrete one does.
       const a = isAbstract(e) ? constValue(e.a, env) : undefined;
       if (a === undefined || !a.includes(I32_MIN)) return e;
       return spell(
@@ -450,13 +303,8 @@ function settleNode(e: Expr, env: Env, writes: () => FnWrites): Expr {
     }
     case 'call': {
       if (e.fn === 'clamp') return settleClamp(e, env);
-      // `u32(-1)` over an abstract integer: the bits of the `i32`, as the conversion of a
-      // concrete one keeps them.
       if (e.fn !== 'u32' || e.declRef !== undefined || e.args.length !== 1) return e;
       const arg = e.args[0]!;
-      // `u32(select(-7, 3, c))` with a condition Tint evaluates as a constant: each arm converts
-      // on its own, as Tint folds the `select` first (the differential test of #1291, seed 1261
-      // #533 gave `u32(select(-7, -268435456, (0 >= KB)))`, which Tint refused).
       if (arg.op === 'select' && arg.type.kind === 'scalar') {
         const arm = (x: Expr): Expr => {
           if (!isAbstract(x)) return { op: 'call', type: e.type, fn: 'u32', args: [x] };
@@ -484,8 +332,6 @@ function settleNode(e: Expr, env: Env, writes: () => FnWrites): Expr {
   }
 }
 
-/** `clamp(e, low, high)` with constant bounds that cross in some component, as
- *  `min(max(e, low), high)`; any other call as it is. */
 function settleClamp(e: Extract<Expr, { op: 'call' }>, env: Env): Expr {
   if (e.declRef !== undefined || e.args.length !== 3) return e;
   const [x, low, high] = e.args as [Expr, Expr, Expr];
@@ -497,8 +343,6 @@ function settleClamp(e: Extract<Expr, { op: 'call' }>, env: Env): Expr {
   return { op: 'call', type: e.type, fn: 'min', args: [max, high] };
 }
 
-/** One statement, its expressions settled bottom-up; a compound `/=`, `%=`, `<<=` or `>>=`
- *  also gets its right operand settled as the operator's. */
 function settleStmt(s: Stmt, f: (e: Expr) => Expr, env: Env): Stmt {
   const r = mapStmtExpr(
     s,
@@ -510,20 +354,10 @@ function settleStmt(s: Stmt, f: (e: Expr) => Expr, env: Env): Stmt {
   return expr === r.expr ? r : { ...r, expr };
 }
 
-/**
- * Give each constant expression WGSL would refuse to evaluate the value it has at run time: a
- * zero of an integer divisor becomes a 1, a shift amount keeps its low five bits, an integer
- * operation over constants whose value its type cannot hold becomes the wrapped value, and a
- * `clamp` whose constant bounds cross becomes `min(max(e, low), high)`. See the head of this
- * file for what Tint refuses and why each answer is the one the target computes.
- *
- * Pure (module -> module); a module with nothing to settle is returned with equal contents.
- */
 export function settleConstExprs(m: ModuleDecl): ModuleDecl {
   const consts = new Map<string, Components>();
   let table: FnWrites | undefined;
   const writes = (): FnWrites => (table ??= fnWrites(m));
-  // In declaration order, so a constant reads only the ones before it.
   const early: Env = { consts };
   const settledConsts = m.consts.map((c) => {
     const valueExpr =

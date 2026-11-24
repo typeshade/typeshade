@@ -118,8 +118,6 @@ export interface LoopAccess {
   readonly at?: SourceSpan;
 }
 
-/** A comparison of the counter with a loop-invariant bound that holds where a read is: `i < bound`
- *  for `if (i < bound) { … xs[i] … }` (#997). */
 export interface LoopGuard {
   readonly cop: '<' | '<=' | '>' | '>=';
   readonly bound: Expr;
@@ -227,8 +225,6 @@ function ctxOf(m: ModuleDecl): Ctx {
 function proveKernel(f: FuncDecl, m: ModuleDecl, opts?: ProofOptions): KernelProof {
   const c = ctxOf(m);
   const loops: LoopVerdict[] = [];
-  // A `let` at the top of the body is a name the loops may read through, as a constant, when
-  // what it was made from cannot change after it (#398).
   const lets = new Map<string, Expr>();
   const mutable = mutableNames(f);
   const arrays = new Set(
@@ -254,8 +250,6 @@ function proveKernel(f: FuncDecl, m: ModuleDecl, opts?: ProofOptions): KernelPro
     if (shape !== undefined) return;
     const last = index === f.body.length - 1;
     if (st.s === 'return' && last) return;
-    // After the last loop, a store into an element of an array parameter, which the front end
-    // guards by the array's length (change 0094, `kernel-stores.ts`).
     if (index > lastLoop && storeAfterLoops(st, arrays) !== undefined) return;
     if (st.s === 'let' || st.s === 'var' || st.s === 'assign' || st.s === 'assignOp') {
       const written = st.s === 'assign' || st.s === 'assignOp' ? rootName(st.target) : undefined;
@@ -323,9 +317,6 @@ function proveLoop(
   const effect = callEffects(loop.body, c);
   if (effect !== undefined) return refuse(effect);
 
-  // What the body declares is per iteration; a `let` is read through as a constant when what it
-  // was made from cannot change after it: `const W2 = s * w` over a `let s` that is then set
-  // again is not `s * w` where the loop reads `s` (#398).
   const local = new Set<string>();
   const lets = new Map(outerLets);
   const mutable = mutableNames(f);
@@ -399,9 +390,6 @@ function proveLoop(
     const idx = indices as Expr[];
     const form = distinctForm(idx, i, lets, inner, local);
     if (form === undefined) {
-      // (f') CPU tier only (option C, change 0056): an `f32` parameter array combined with `+=`
-      // at an index the proof cannot show distinct. Every write is `root[k] += e`, so the target
-      // is an element of the parameter. The GPU-tier proof refuses it, as before.
       if (
         opts?.cpuScatterF32 === true &&
         scatterOp === '+' &&
@@ -783,11 +771,6 @@ function rootName(e: Expr): string | undefined {
 const FLIPPED = { '<': '>', '<=': '>=', '>': '<', '>=': '<=' } as const;
 const NEGATED = { '<': '>=', '<=': '>', '>': '<=', '>=': '<' } as const;
 
-/** The comparisons of the counter `i` with a loop-invariant bound that hold where `cond` holds
- *  (or where it does not, with `negate`): `i < n`, `4 > i`, and the conjunction of such. The
- *  negation of a conjunction is an or and says nothing, nor does a test of `i` by anything but
- *  `<`, `<=`, `>` or `>=`. A bound that names the counter or a name the body declares is not
- *  invariant: the call computes it before the loop runs. */
 function guardsOf(
   cond: Expr,
   i: string,
@@ -919,7 +902,6 @@ function distinctForm(
   const rows = idx.map((e) => rowMajor(e, i, lets, inner, local));
   if (rows.every((w) => w !== undefined) && allSame(rows as Expr[]))
     return { kind: 'row-major', width: rows[0]! };
-  // (b') one index, the same at every write, whose coefficient of `i` is loop-invariant.
   if (allSame(idx)) {
     const k = scaledCoefficient(idx[0]!, i, local);
     if (k !== undefined) return { kind: 'scaled', index: idx[0]!, coefficient: k };
@@ -998,9 +980,6 @@ function mutableNames(f: FuncDecl): Set<string> {
   return vars;
 }
 
-/** The coefficient `k` of `i*k` or `i*k + j` with `k` and `j` loop-invariant, in either order of the
- *  sum. The counter alone is `1*i`, so `j + i` has the coefficient 1, a literal of the counter's
- *  type (#983). */
 function scaledCoefficient(e: Expr, i: string, local: ReadonlySet<string>): Expr | undefined {
   const invariant = (x: Expr): boolean => !reads(x, i) && !readsAny(x, local);
   let x = transparent(e);

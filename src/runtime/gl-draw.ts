@@ -13,7 +13,7 @@ export { pinOverrides, glslOverrideNames } from '../core/gl-overrides.js';
 //
 // Order. A pass is recorded into a frame and runs at `submit()`, and a texture's `read()` runs
 // where it is called, each after every call, frame and read before it (`core/resident.ts`), so a
-// read reads what was submitted before it, as on WebGPU.
+// Implements: Rule 11.11
 
 import { byteSize, describe, Misfit, pack, type Layout } from '../core/host-entry.js';
 import {

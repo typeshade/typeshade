@@ -55,11 +55,14 @@ const shaderModulesUncached: Plugin = {
 const MOCKS = [
   'src/fuse.test.ts',
   'src/core/fuse-loading.test.ts',
+  'src/compiler/ts/host-entry-tiers.test.ts',
   'src/compiler/ts/host-kernel-made-gl.test.ts',
   'src/core/host-kernel-counted.test.ts',
   'src/core/host-kernel-growing.test.ts',
   'src/compiler/ts/host-face-fallback.test.ts',
   'src/compiler/ts/host-face-subgroup.test.ts',
+  'src/runtime/gl-compute-host.test.ts',
+  'src/runtime/gl-compute-textures.test.ts',
 ];
 
 // This file ran slower after other tests in the shared-worker measurements.
