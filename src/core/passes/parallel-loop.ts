@@ -1,35 +1,4 @@
 // Implements: Rule 8.22 (docs/language-design.md; traced in reqs/).
-// ═══ The independence proof of a kernel function's loops (Rule 8.22, change 0013) ═══
-//
-// A kernel function (`FuncDecl.kernel`) is an exported function that takes an array with no size
-// or a 2D storage texture (change 0077).
-// Each `for` at the top level of its body is a CANDIDATE loop: when every iteration touches only
-// what no other iteration touches, the iterations may run in any order, which is what a GPU
-// dispatch does with them. This pass decides that, syntactically, on the IR:
-//
-//   R1  the loop is counted (Rule 7.5, the `for`'s `counted` fact) with an additive step;
-//   R2  nothing leaves it early: no `return`, and no `break` that belongs to it;
-//   R3  every write lands on a name declared in the body, an outer array at an index distinct per
-//       iteration (`a*i + c`, `i*W + x` over a nested loop, or one index with a coefficient the
-//       call checks), a texture at `vec2(i % W, i / W)`, a reduction variable (`s op= e`), or an
-//       integer array combined with `op=` (a scatter reduction), or an array parameter the loop
-//       only `push`es onto (change 0078);
-//   R4  an array the loop writes is read only at an index it writes, a reduction variable is not
-//       read, the value an atomic returns is not read, and an array the loop pushes onto is not
-//       read at all, nor is the value `push` returns;
-//   R5  a function the body calls writes no module variable and no binding (its `inout`
-//       arguments are writes at the call, under R3);
-//   R6  no barrier, no workgroup memory and no `console` call.
-//
-// There is no solver and no alias analysis: the IR has no pointer values and no recursion, and
-// only bindings and `inout` arguments alias (an object a function writes is one, and the front end
-// refuses a call that hands one variable over twice, Rule 8.25). The pass returns FACTS in IR names and spans; the front
-// end, which still has the author's names and lines, turns a refusal into `TS8070`
-// (src/compiler/ts/kernel-loops.ts).
-//
-// An accepted loop also says how it reaches each array parameter, for the planner of
-// `typeshade/fuse` (change 0058, F3): whether every access is at exactly `i`, and the first one
-// that is not. These are facts and no refusal: a loop accepted before is accepted now.
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
@@ -43,7 +12,6 @@ import { lastLoopOf, storeAfterLoops } from './kernel-stores.js';
 
 type ForStmt = Stmt & { s: 'for' };
 
-/** Why a candidate loop runs on the CPU. `at` is the span of the statement that says so. */
 export type LoopRefusal =
   | { readonly rule: 'R1'; readonly why: 'while'; readonly at?: SourceSpan }
   | { readonly rule: 'R1'; readonly why: 'step'; readonly at?: SourceSpan }
@@ -97,14 +65,11 @@ export type LoopRefusal =
   | {
       readonly rule: 'R6';
       readonly why: 'console' | 'barrier' | 'workgroup';
-      /** The call or the variable. */
       readonly name: string;
       readonly at?: SourceSpan;
     };
 
-/** How an accepted loop writes one outer array or texture. */
 export type LoopWrite =
-  /** At `a*i + c`: `a` nonzero, the same for every write, with each `c` in `[0, |a|)` or one `c`. */
   | {
       readonly kind: 'affine';
       readonly name: string;
@@ -130,26 +95,17 @@ export type LoopWrite =
    *  0078). */
   | { readonly kind: 'append'; readonly name: string };
 
-/** Options of the proof. The default is the GPU-tier proof: an `f32` scatter is refused, so no
- *  lowering (`kernel-lower.ts`) and no `TS8070`-free verdict ever sees one. */
 export interface ProofOptions {
-  /** Accept an `f32` parameter array combined with `+=` at a computed index, as a `float` scatter.
-   *  Only the CPU tier (the oracle, the generated code, the stepper) takes this proof. */
   readonly cpuScatterF32?: boolean;
 }
 
-/** A variable an accepted loop combines, `s op= e`. */
 export interface LoopReduction {
   readonly name: string;
   readonly op: '+' | '*' | '&' | '|' | '^' | 'min' | 'max';
-  /** The variable's type. */
   readonly type: ShaderType;
 }
 
-/** One access of an outer array, in IR names and with the statement it is in: the front end words
- *  it in the author's names (`describeRead`, `src/compiler/ts/kernel-loops.ts`). */
 export interface LoopAccess {
-  /** The element, `t[i - 1]`, or the array itself when the access names no element. */
   readonly place: Expr;
   readonly at?: SourceSpan;
 }
@@ -161,18 +117,10 @@ export interface LoopGuard {
   readonly bound: Expr;
 }
 
-/** How an accepted loop reads one outer array parameter it does not write (change 0058, F3). */
 export interface LoopRead {
   readonly name: string;
-  /** Whether every read of it is at exactly `i`: the index form `a*i + c` with `a = 1`, `c = 0`. */
   readonly atI: boolean;
-  /** The first read that is not at `i`; absent when `atI`. */
   readonly first?: LoopAccess;
-  /** Each read at `a*i + c` with constants, which the call checks against the array's length
-   *  as it checks a write (#655). A read of another form is not among them. A read that stands
-   *  under comparisons of the counter with a bound carries them as `guards`, and the call checks
-   *  it over the iterations those keep (#997). The same form read under other guards, or under
-   *  none, is another entry. */
   readonly forms: readonly {
     readonly a: number;
     readonly c: number;
@@ -180,39 +128,25 @@ export interface LoopRead {
   }[];
 }
 
-/** How an accepted loop writes one outer array parameter, beside the form {@link LoopWrite} gives
- *  (change 0058, F3). */
 export interface LoopStore {
   readonly name: string;
-  /** Whether every write to it is at exactly `i`. */
   readonly atI: boolean;
-  /** Whether the loop also reads it, which R4 allows only at an index it writes. */
   readonly readBack: boolean;
-  /** The first write that is not at `i`; absent when `atI`. */
   readonly first?: LoopAccess;
 }
 
-/** The verdict on one candidate loop. */
 export type LoopVerdict =
   | {
       readonly ok: true;
       readonly loop: ForStmt;
       readonly writes: readonly LoopWrite[];
       readonly reductions: readonly LoopReduction[];
-      /** One per array parameter the loop reads and does not write, in the order first read. */
       readonly reads: readonly LoopRead[];
-      /** One per array parameter the loop writes, in the order of `writes`. */
       readonly stores: readonly LoopStore[];
     }
   | { readonly ok: false; readonly loop: ForStmt; readonly refusal: LoopRefusal };
 
-/** Why a kernel function's body is not the shape the kernel call runs: scalar statements, then
- *  the loops, then stores into elements of its array parameters and a `return` of scalars
- *  (change 0094). The whole function runs on the CPU. */
 export type ShapeRefusal =
-  /** A top-level statement that is not a loop writes an array or does something else only a
-   *  loop may: a store before the last loop, or anything but a plain scalar statement and a
-   *  guarded store after it. `what` is the array it writes, when it writes one. */
   | { readonly why: 'outside'; readonly what?: string; readonly at?: SourceSpan }
   /** A later loop reads `name`, which an earlier loop reduces. */
   | {
@@ -222,37 +156,21 @@ export type ShapeRefusal =
       readonly at?: SourceSpan;
     };
 
-/** The proof of one kernel function. */
 export interface KernelProof {
   readonly fn: string;
-  /** Absent when the body is the kernel call's shape. */
   readonly shape?: ShapeRefusal;
-  /** One per top-level loop, in order. */
   readonly loops: readonly LoopVerdict[];
 }
 
-/** Prove each kernel function of `m`. */
 export function proveKernels(m: ModuleDecl, opts?: ProofOptions): KernelProof[] {
   return m.funcs.filter((f) => f.kernel === true).map((f) => proveKernel(f, m, opts));
 }
 
-// ─── the tree order of a reduction (Rule 7.2) ────────────────────────────────────────────────
-
-/** One loop the CPU tier combines in the tree order: what it reduces, and which `f32` parameter
- *  arrays it scatter-adds into (option C, change 0056). */
 export interface TreeLoop {
   readonly reductions: readonly LoopReduction[];
-  /** The names of the `f32` parameter arrays the loop adds into at computed indices. */
   readonly scatters: readonly string[];
 }
 
-/**
- * The loops of `target` that the CPU tier and the oracle combine in the tree order
- * (`core/kernel-tree.ts`): each accepted loop of a kernel function that reduces or scatter-adds,
- * with what it does. The proof reads `source`, the module before the CPU backends round it; `target`
- * is that module after, whose functions keep their top-level loops in the same order. The CPU
- * tier takes the `f32` scatter form; the GPU-tier proof does not (see {@link ProofOptions}).
- */
 export function treeLoops(source: ModuleDecl, target: ModuleDecl): ReadonlyMap<Stmt, TreeLoop> {
   const out = new Map<Stmt, TreeLoop>();
   if (!source.funcs.some((f) => f.kernel === true)) return out;
@@ -271,8 +189,6 @@ export function treeLoops(source: ModuleDecl, target: ModuleDecl): ReadonlyMap<S
   return out;
 }
 
-/** `$ta op $tb` in `r`'s type, rounded to `f32` when `f32` is true and the type is `f32`: the
- *  step the tree combines two values with, and the variable with the tree's result. */
 export function treeCombine(r: LoopReduction, f32: boolean): Expr {
   const a: Expr = { op: 'varref', type: r.type, name: '$ta' };
   const b: Expr = { op: 'varref', type: r.type, name: '$tb' };
@@ -284,12 +200,9 @@ export function treeCombine(r: LoopReduction, f32: boolean): Expr {
   return f32 && elem === 'f32' ? { op: 'call', type: r.type, fn: '__fround', args: [e] } : e;
 }
 
-// ─── the module the proof reads ──────────────────────────────────────────────────────────────
-
 interface Ctx {
   readonly byName: ReadonlyMap<string, FuncDecl>;
   readonly writes: ReadonlyMap<string, ReadonlySet<string>>;
-  /** Module variables and bindings: what R5 forbids a callee to write. */
   readonly moduleNames: ReadonlySet<string>;
   readonly workgroup: ReadonlySet<string>;
 }
@@ -303,8 +216,6 @@ function ctxOf(m: ModuleDecl): Ctx {
   };
 }
 
-// ─── the kernel's body ───────────────────────────────────────────────────────────────────────
-
 function proveKernel(f: FuncDecl, m: ModuleDecl, opts?: ProofOptions): KernelProof {
   const c = ctxOf(m);
   const loops: LoopVerdict[] = [];
@@ -317,7 +228,6 @@ function proveKernel(f: FuncDecl, m: ModuleDecl, opts?: ProofOptions): KernelPro
   );
   const bindings = new Set(m.bindings.map((b) => b.name));
   let shape: ShapeRefusal | undefined;
-  // What each earlier loop reduces, for the loops after it.
   const reduced = new Map<string, SourceSpan | undefined>();
   const lastLoop = lastLoopOf(f.body);
   f.body.forEach((st, index) => {
@@ -334,7 +244,6 @@ function proveKernel(f: FuncDecl, m: ModuleDecl, opts?: ProofOptions): KernelPro
     }
     if (st.s === 'let' && !readsAny(st.expr, mutable)) lets.set(st.name, st.expr);
     if (shape !== undefined) return;
-    // What only a loop may do: write an array, or anything but a plain scalar statement.
     const last = index === f.body.length - 1;
     if (st.s === 'return' && last) return;
     // After the last loop, a store into an element of an array parameter, which the front end
@@ -351,7 +260,6 @@ function proveKernel(f: FuncDecl, m: ModuleDecl, opts?: ProofOptions): KernelPro
   return { fn: f.name, ...(shape !== undefined ? { shape } : {}), loops };
 }
 
-/** The first read of a name an earlier loop reduced, in `loop`. */
 function firstRead(
   loop: ForStmt,
   reduced: ReadonlyMap<string, SourceSpan | undefined>,
@@ -375,22 +283,14 @@ function firstRead(
   return found;
 }
 
-// ─── one loop ────────────────────────────────────────────────────────────────────────────────
-
 const REDUCE_BOPS = new Set(['+', '*', '&', '|', '^']);
 
-/** One write the body makes, before it is classified. */
 interface Write {
-  /** The written place: `s`, `out[i]`, `ps[i].pos`, or a texture. */
   readonly target: Expr;
   readonly root: string;
-  /** `s op= e` or `s = s op e`, with `e`; `min`/`max` as `s = min(s, e)`. */
   readonly combine?: { readonly op: LoopReduction['op']; readonly with: Expr };
-  /** An atomic builtin's location, which lowers as a scatter. */
   readonly atomic?: string;
-  /** A texture write's coordinate. */
   readonly texel?: Expr;
-  /** A `push` onto the array (change 0078). */
   readonly push?: true;
   readonly at?: SourceSpan;
 }
@@ -403,18 +303,15 @@ function proveLoop(
   opts?: ProofOptions,
 ): LoopVerdict {
   const refuse = (refusal: LoopRefusal): LoopVerdict => ({ ok: false, loop, refusal });
-  // R1: counted, and by adding a constant.
   if (loop.counted === undefined)
     return refuse({ rule: 'R1', why: 'while', at: sourceSpanOf(loop) });
   if (loop.counted.op !== 'add')
     return refuse({ rule: 'R1', why: 'step', at: sourceSpanOf(loop.update) ?? sourceSpanOf(loop) });
   const i = loop.counted.name;
 
-  // R2: nothing leaves the loop early.
   const early = earlyExit(loop.body);
   if (early !== undefined) return refuse(early);
 
-  // R6 and R5, over the body and every function it calls.
   const effect = callEffects(loop.body, c);
   if (effect !== undefined) return refuse(effect);
 
@@ -430,7 +327,6 @@ function proveLoop(
       if (!readsAny(st.expr, mutable)) lets.set(st.name, st.expr);
     } else if (st.s === 'var') local.add(st.name);
   });
-  // The counters of the loops nested in it, and their bounds, for the row-major form.
   const inner = new Map<string, Expr | undefined>();
   walk(loop.body, (st) => {
     if (st.s === 'for' && st.counted !== undefined) {
@@ -440,7 +336,6 @@ function proveLoop(
     }
   });
 
-  // R3: every write, classified.
   const writes = writesIn(loop.body, c);
   for (const w of writes) {
     if (w.root === i) return refuse({ rule: 'R3', why: 'carried', name: i, at: w.at });
@@ -452,14 +347,10 @@ function proveLoop(
   const reductions: LoopReduction[] = [];
   const out: LoopWrite[] = [];
   const writtenAt = new Map<string, Expr[]>();
-  // The coordinates each texture the loop writes is stored at (clause (d)), for R4.
   const texelAt = new Map<string, Expr[]>();
-  // The array parameters the loop pushes onto (clause (g)), for R4.
   const pushed = new Set<string>();
   for (const [root, ws] of byRoot) {
     const first = ws[0]!;
-    // (g) an array parameter the loop only pushes onto (change 0078): the pushes land in the order
-    // of the iterations on every tier, whichever iteration makes them.
     if (ws.some((w) => w.push === true)) {
       const other = ws.find((w) => w.push !== true);
       if (other !== undefined)
@@ -468,8 +359,6 @@ function proveLoop(
       pushed.add(root);
       continue;
     }
-    // (d) a texture at `vec2(i % W, i / W)`. A texture is a whole name whose type is no array, so
-    // this comes before the reduction clause, which would read every store to it as carried.
     if (ws.every((w) => w.texel !== undefined)) {
       const widths = ws.map((w) => texelWidth(w.texel!, i, lets, local));
       if (widths.some((x) => x === undefined) || !allSame(widths as Expr[]))
@@ -483,7 +372,6 @@ function proveLoop(
     }
     const whole = ws.every((w) => isName(w.target));
     if (whole && first.target.type.kind !== 'array') {
-      // (e) a reduction: every write combines with one op, and nothing else reads it.
       const op = first.combine?.op;
       if (op === undefined || ws.some((w) => w.combine?.op !== op || reads(w.combine.with, root)))
         return refuse({ rule: 'R3', why: 'carried', name: root, at: first.at });
@@ -493,7 +381,6 @@ function proveLoop(
     if (ws.some((w) => isName(w.target)))
       return refuse({ rule: 'R3', why: 'shared', target: first.target, at: first.at });
     const indices = ws.map((w) => elementIndex(w.target));
-    // (f) an integer array combined with one op anywhere, or through atomics.
     const scatterOp = scatterOf(ws);
     if (scatterOp !== undefined && isIntegerArray(first.target, root, f)) {
       out.push({ kind: 'scatter', name: root, op: scatterOp });
@@ -525,16 +412,12 @@ function proveLoop(
     writtenAt.set(root, idx);
   }
 
-  // R4: what the loop writes is read only where it writes it; a reduction is not read.
   const reducedNames = new Set(reductions.map((r) => r.name));
   const scattered = new Set(out.filter((w) => w.kind === 'scatter').map((w) => w.name));
   const combinedNames = new Set([
     ...reducedNames,
     ...out.filter((w) => w.kind === 'scatter' && w.float !== true).map((w) => w.name),
   ]);
-  // The index facts of change 0058 (F3). A read of an array the loop does not write is skipped
-  // below, so its fact is taken where it is skipped; a read of one it does write is held to the
-  // indices it writes, and is noted as read back.
   const arrayParams = new Set(
     f.params.filter((p) => p.type.kind === 'array' && p.type.size === undefined).map((p) => p.name),
   );
@@ -546,14 +429,11 @@ function proveLoop(
       forms: { a: number; c: number; guards?: readonly LoopGuard[] }[];
     }
   >();
-  // The comparisons of the counter with a bound that each statement of the body stands under (#997).
   const guardsAt = guardsByStatement(loop.body, i, lets, local);
   const readBack = new Set<string>();
   let bad: LoopRefusal | undefined;
   walk(loop.body, (st) => {
     if (bad !== undefined) return;
-    // A reduction or integer scatter's own statement reads the target it combines into. Keep the
-    // target's indices: a scatter key can itself read an element another iteration writes.
     const combined =
       (st.s === 'assign' || st.s === 'assignOp') && combinedNames.has(rootName(st.target) ?? '')
         ? combineOf(st).combine
@@ -562,13 +442,10 @@ function proveLoop(
       combined !== undefined && (st.s === 'assign' || st.s === 'assignOp')
         ? readsOf({ ...st, expr: combined.with })
         : readsOf(st);
-    // `a[k] op= e` reads the element it writes, which `readsOf` leaves to its combine.
     if (st.s === 'assignOp') {
       const written = rootName(st.target);
       if (written !== undefined && writtenAt.has(written)) readBack.add(written);
     }
-    // A texture the loop writes is read back only at a texel it writes (change 0077); its size
-    // is no texel, so `textureDimensions` reads it anywhere.
     exprsOf(st, (e) =>
       eachExpr(e, (x) => {
         if (bad !== undefined || x.op !== 'call' || x.fn === 'textureStore') return;
@@ -582,8 +459,6 @@ function proveLoop(
           bad = { rule: 'R4', why: 'reads-written', read: x, at: sourceSpanOf(st) };
       }),
     );
-    // The value a `push` returns is the count before it, which the iterations before it make,
-    // and so is the `.length` of a pushed array (`pushCount`, `lower/kernel-push.ts`).
     exprsOf(st, (e) =>
       eachExpr(e, (x) => {
         const counted = x.op === 'call' && x.fn === 'pushCount' ? x.args[0] : undefined;
@@ -611,7 +486,6 @@ function proveLoop(
         return;
       }
       if (reducedNames.has(root) || scattered.has(root)) {
-        // Named on the write, which the message is about: the read is what makes it carry.
         bad = {
           rule: 'R3',
           why: 'carried',
@@ -648,7 +522,6 @@ function proveLoop(
       }
       readBack.add(root);
     }
-    // The value an atomic returns depends on the order of the iterations.
     if (st.s !== 'call') {
       exprsOf(st, (e) =>
         eachExpr(e, (x) => {
@@ -663,8 +536,6 @@ function proveLoop(
     }
   });
   if (bad !== undefined) return refuse(bad);
-  // (`reads` is the file's helper for "does this expression name that variable", so the local is
-  // `readFacts`.)
   const readFacts: LoopRead[] = [...readAt].map(([name, r]) => ({ name, ...r }));
   const stores: LoopStore[] = [];
   for (const w of out) {
@@ -680,9 +551,6 @@ function proveLoop(
   return { ok: true, loop, writes: out, reductions, reads: readFacts, stores };
 }
 
-// ─── R2, R5, R6 ──────────────────────────────────────────────────────────────────────────────
-
-/** A `return`, or a `break` that belongs to the loop: not one inside a nested loop or switch. */
 function earlyExit(body: readonly Stmt[]): LoopRefusal | undefined {
   const visit = (sts: readonly Stmt[], nested: boolean): LoopRefusal | undefined => {
     for (const st of sts) {
@@ -727,8 +595,6 @@ function earlyExit(body: readonly Stmt[]): LoopRefusal | undefined {
   return visit(body, false);
 }
 
-/** R6 and R5: a console call, a barrier or workgroup memory in the body or in a function it
- *  calls, and a call whose callee writes a module variable or a binding. */
 function callEffects(body: readonly Stmt[], c: Ctx): LoopRefusal | undefined {
   let found: LoopRefusal | undefined;
   const seen = new Set<string>();
@@ -774,9 +640,6 @@ function callEffects(body: readonly Stmt[], c: Ctx): LoopRefusal | undefined {
   return found;
 }
 
-// ─── writes and reads ────────────────────────────────────────────────────────────────────────
-
-/** Every write in `body`: assignments, `inout` arguments, atomics and texture stores. */
 function writesIn(body: readonly Stmt[], c: Ctx): Write[] {
   const out: Write[] = [];
   walk(body, (st) => {
@@ -788,8 +651,6 @@ function writesIn(body: readonly Stmt[], c: Ctx): Write[] {
     exprsOf(st, (e) =>
       eachExpr(e, (x) => {
         if (x.op !== 'call') return;
-        // A builtin's written place (`access.ts`): an atomic's, or a texture a texel is stored in
-        // at the coordinate that follows it.
         let builtin = false;
         x.args.forEach((t, k) => {
           const access = callArgAccess(x, k);
@@ -820,8 +681,6 @@ function writesIn(body: readonly Stmt[], c: Ctx): Write[] {
   return out;
 }
 
-/** `s op= e`, `s = s op e`, `s = e op s` (for a commutative op) and `s = min(s, e)`: the op
- *  and `e`, which the lowering of a scatter reads too (`kernel-lower.ts`). */
 export function combineOf(st: Stmt & { s: 'assign' | 'assignOp' }): Pick<Write, 'combine'> {
   if (st.s === 'assignOp') {
     return REDUCE_BOPS.has(st.bop)
@@ -835,9 +694,6 @@ export function combineOf(st: Stmt & { s: 'assign' | 'assignOp' }): Pick<Write, 
     if (sameExpr(e.b, st.target))
       return { combine: { op: e.bop as LoopReduction['op'], with: e.a } };
   }
-  // The builtin `min` and `max`, and not a function the file declares under either name (Rule
-  // 9.5): a call through a declaration carries `declRef`, and folding it as `min` would reduce
-  // with an operator the function is not.
   if (
     e.op === 'call' &&
     e.declRef === undefined &&
@@ -851,19 +707,12 @@ export function combineOf(st: Stmt & { s: 'assign' | 'assignOp' }): Pick<Write, 
   return {};
 }
 
-/** What a statement reads: each array element, field and name it evaluates, outermost first,
- *  and not the place it assigns (an `assignOp` reads its target too, which its combine covers).
- *  A builtin's operand is read as `access.ts` says: an atomic's place and a stored texture are
- *  accesses R3 and the atomic check answer for, so only their indices are read here, and the
- *  array `arrayLength` measures has no element read at all (#345). */
 function readsOf(st: Stmt): Expr[] {
   const out: Expr[] = [];
   const add = (e: Expr): void => {
-    // The outermost place of each chain, which is what an index check reads.
     const visit = (x: Expr): void => {
       if (x.op === 'index' || x.op === 'member') {
         out.push(x);
-        // The indices inside are reads of their own.
         let b: Expr = x;
         while (b.op === 'index' || b.op === 'member') {
           if (b.op === 'index') visit(b.idx);
@@ -884,7 +733,6 @@ function readsOf(st: Stmt): Expr[] {
   };
   switch (st.s) {
     case 'assign':
-      // The target's own indices are read; the place is not.
       indicesOf(st.target).forEach(add);
       add(st.expr);
       break;
@@ -898,7 +746,6 @@ function readsOf(st: Stmt): Expr[] {
   return out;
 }
 
-/** The index expressions inside a place, `out[k].pos[j]` gives `k` and `j`. */
 function indicesOf(e: Expr): Expr[] {
   const out: Expr[] = [];
   let b: Expr = e;
@@ -909,8 +756,6 @@ function indicesOf(e: Expr): Expr[] {
   return out;
 }
 
-/** The index of the outer array element a place names: `k` for `a[k]`, `a[k].pos` and `a[k][j]`
- *  on an array of arrays; undefined when the place is not an element. */
 function elementIndex(e: Expr): Expr | undefined {
   let b: Expr = e;
   let last: Expr | undefined;
@@ -921,14 +766,11 @@ function elementIndex(e: Expr): Expr | undefined {
   return last;
 }
 
-/** The name at the root of a place: `out` for `out[i].pos`. */
 function rootName(e: Expr): string | undefined {
   let b: Expr = e;
   while (b.op === 'index' || b.op === 'member') b = b.base;
   return isName(b) ? b.name : undefined;
 }
-
-// ─── the guards a read stands under (#997) ───────────────────────────────────────────────────
 
 const FLIPPED = { '<': '>', '<=': '>=', '>': '<', '>=': '<=' } as const;
 const NEGATED = { '<': '>=', '<=': '>', '>': '<=', '>=': '<' } as const;
@@ -962,9 +804,6 @@ function guardsOf(
   return [];
 }
 
-/** The guards each statement of `body` stands under, nested statements included: the conditions
- *  of the `if` arms around it, and the negation of the earlier arms of its `else` chain when
- *  each of those is one comparison. A statement under none has no entry. */
 function guardsByStatement(
   body: readonly Stmt[],
   i: string,
@@ -976,7 +815,6 @@ function guardsByStatement(
     for (const st of stmts) {
       if (inherited.length > 0) out.set(st, inherited);
       if (st.s === 'if') {
-        // What the arms before the current one leave true: the negation of each condition.
         let earlier: LoopGuard[] = [];
         for (const arm of st.arms) {
           visit(arm.body, [...inherited, ...earlier, ...guardsOf(arm.cond, i, lets, local)]);
@@ -994,7 +832,6 @@ function guardsByStatement(
   return out;
 }
 
-/** Whether two lists hold the same comparisons, in the same order. */
 function sameGuards(a: readonly LoopGuard[], b: readonly LoopGuard[]): boolean {
   return (
     a.length === b.length &&
@@ -1002,9 +839,6 @@ function sameGuards(a: readonly LoopGuard[], b: readonly LoopGuard[]): boolean {
   );
 }
 
-// ─── the index forms of R3 ───────────────────────────────────────────────────────────────────
-
-/** `a*i + c` with constants, through casts and constant `let`s. */
 function affine(
   e: Expr,
   i: string,
@@ -1025,7 +859,6 @@ function affine(
       return bound === undefined ? undefined : r(bound);
     }
     case 'unop': {
-      // A unop is negation.
       const x = r(e.a);
       return x === undefined ? undefined : { a: -x.a, c: -x.c };
     }
@@ -1046,14 +879,11 @@ function affine(
   }
 }
 
-/** Whether `idx` is exactly the counter `i`: the form `a*i + c` with `a = 1` and `c = 0`, through
- *  casts and constant `let`s. An access that names no element has no index, and is not. */
 function isCounter(idx: Expr | undefined, i: string, lets: ReadonlyMap<string, Expr>): boolean {
   const form = idx === undefined ? undefined : affine(idx, i, lets);
   return form !== undefined && form.a === 1 && form.c === 0;
 }
 
-/** A cast (`u32(x)`, `i32(x)`) is transparent to an index. */
 function transparent(e: Expr): Expr {
   if (
     (e.op === 'call' || e.op === 'construct') &&
@@ -1066,13 +896,11 @@ function transparent(e: Expr): Expr {
   return e;
 }
 
-/** The index form of an array's writes, before it is given the array's name. */
 type IndexForm =
   | { readonly kind: 'affine'; readonly a: number; readonly c: readonly number[] }
   | { readonly kind: 'scaled'; readonly index: Expr; readonly coefficient: Expr }
   | { readonly kind: 'row-major'; readonly width: Expr };
 
-/** How the writes to one array are distinct per iteration, or undefined. */
 function distinctForm(
   idx: readonly Expr[],
   i: string,
@@ -1080,7 +908,6 @@ function distinctForm(
   inner: ReadonlyMap<string, Expr | undefined>,
   local: ReadonlySet<string>,
 ): IndexForm | undefined {
-  // (b) `a*i + c`.
   const forms = idx.map((e) => affine(e, i, lets));
   if (forms.every((f) => f !== undefined)) {
     const fs = forms as { a: number; c: number }[];
@@ -1093,7 +920,6 @@ function distinctForm(
     }
     return undefined;
   }
-  // (c) `i*W + x` over a nested loop of `x` from 0 to `< W`, with one `W` for the whole loop.
   const rows = idx.map((e) => rowMajor(e, i, lets, inner, local));
   if (rows.every((w) => w !== undefined) && allSame(rows as Expr[]))
     return { kind: 'row-major', width: rows[0]! };
@@ -1105,9 +931,6 @@ function distinctForm(
   return undefined;
 }
 
-/** `e` through casts and the constant `let`s it names, as {@link affine} reads an index: the
- *  index of `const at = y * w + x; out[at] = …` is `y * w + x`, and so is `row + x` over
- *  `const row = y * w` (#398). */
 function through(e: Expr, lets: ReadonlyMap<string, Expr>, depth = 0): Expr {
   const x = transparent(e);
   if (depth < 16 && isName(x) && lets.has(x.name))
@@ -1115,11 +938,6 @@ function through(e: Expr, lets: ReadonlyMap<string, Expr>, depth = 0): Expr {
   return x;
 }
 
-/** `W` for `i*W + x` (either order), with `x` a nested loop's counter bounded by `W`, and `W`
- *  one value for the whole loop. A width that reads `i`, a nested counter or anything the body
- *  declares gives each row its own width, and rows of different widths overlap:
- *  `out[y * (h - y) + x]` over `x < h - y` writes `out[3]` from rows 0 and 1 when `h` is 4
- *  (#398). */
 function rowMajor(
   e: Expr,
   i: string,
@@ -1155,8 +973,6 @@ function rowMajor(
   return undefined;
 }
 
-/** Whether `e` has one value for the whole loop over `i`: it reads neither `i` nor a name the
- *  body declares, a nested loop's counter included, other than a constant it reads through. */
 function loopInvariant(
   e: Expr,
   i: string,
@@ -1175,9 +991,6 @@ function loopInvariant(
   return ok;
 }
 
-/** The names a function may assign after they are declared: every `let` of the source (an IR
- *  `var`) but a counted loop's counter, which holds still for one iteration of its loop, the
- *  only place a constant made from it is read. */
 function mutableNames(f: FuncDecl): Set<string> {
   const counters = new Set<string>();
   const vars = new Set<string>();
@@ -1209,7 +1022,6 @@ function scaledCoefficient(e: Expr, i: string, local: ReadonlySet<string>): Expr
   return undefined;
 }
 
-/** `W` for a texture coordinate `vec2(i % W, i / W)`, with `W` one value for the whole loop. */
 function texelWidth(
   coord: Expr,
   i: string,
@@ -1228,8 +1040,6 @@ function texelWidth(
   return x.b;
 }
 
-/** The one op an integer scatter combines with, when every write is `a[k] op= e` with one op or
- *  an atomic of one kind. */
 function scatterOf(ws: readonly Write[]): string | undefined {
   const ops = ws.map((w) =>
     w.atomic !== undefined
@@ -1242,7 +1052,6 @@ function scatterOf(ws: readonly Write[]): string | undefined {
   return ops.every((o) => o === ops[0]) ? ops[0] : undefined;
 }
 
-/** An element of a parameter array of `f` that holds `f32`s: `root[k]`, with `root` a parameter. */
 function isF32ParamArray(target: Expr, root: string, f: FuncDecl): boolean {
   const p = f.params.find((x) => x.name === root);
   return (
@@ -1253,7 +1062,6 @@ function isF32ParamArray(target: Expr, root: string, f: FuncDecl): boolean {
   );
 }
 
-/** Whether `e` is `name[k]` for some `k`, with nothing under the index. */
 function isIndexOfName(e: Expr, name: string): boolean {
   return e.op === 'index' && isName(e.base) && e.base.name === name;
 }
@@ -1277,8 +1085,6 @@ function boundOf(loop: ForStmt): Expr | undefined {
   return isName(a) && a.name === loop.counted.name ? c.b : undefined;
 }
 
-// ─── expressions ─────────────────────────────────────────────────────────────────────────────
-
 type NameExpr = Expr & { op: 'varref' | 'param' };
 const isName = (e: Expr): e is NameExpr => e.op === 'varref' || e.op === 'param';
 
@@ -1298,7 +1104,6 @@ function readsAny(e: Expr, names: ReadonlySet<string>): boolean {
   return hit;
 }
 
-/** Structural equality of two expressions, through casts and constant `let`s. */
 function sameExpr(a: Expr, b: Expr, lets?: ReadonlyMap<string, Expr>, depth = 0): boolean {
   if (depth > 16) return false;
   const x = transparent(a);
@@ -1350,9 +1155,6 @@ function sameExpr(a: Expr, b: Expr, lets?: ReadonlyMap<string, Expr>, depth = 0)
 
 const allSame = (xs: readonly Expr[]): boolean => xs.every((x) => sameExpr(x, xs[0]!));
 
-// ─── statements ──────────────────────────────────────────────────────────────────────────────
-
-/** Visit every statement in `body`, nested ones included, in order. */
 function walk(body: readonly Stmt[], visit: (st: Stmt) => void): void {
   for (const st of body) {
     visit(st);
@@ -1376,7 +1178,6 @@ function walk(body: readonly Stmt[], visit: (st: Stmt) => void): void {
   }
 }
 
-/** The expressions a statement holds itself, not its nested statements'. */
 function exprsOf(st: Stmt, visit: (e: Expr) => void): void {
   switch (st.s) {
     case 'let':
