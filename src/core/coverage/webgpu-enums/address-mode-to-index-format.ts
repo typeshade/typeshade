@@ -37,7 +37,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (src/runtime/gl-draw.ts:545-575); src1 factors need @blend_src, which the GLSL writer refuses (Rule 10.3); constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant; also: refused (Rule 11.11): targets that blend or mask apart',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (`drawStateOf` of `src/rhi/webgl2.ts`); src1 factors need @blend_src, which the GLSL writer refuses (Rule 10.3); constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant; also: refused (Rule 11.11): targets that blend or mask apart',
       645,
     ),
   },
@@ -46,7 +46,8 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     kind: 'WebGPU enum',
     name: '`GPUBlendOperation`',
     covers: ['GPUBlendOperation'],
-    evidence: 'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts:583',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts#checkState~"GL_BLEND_OPERATION"; src/rhi/webgl2.ts#GL_BLEND_OPERATION|setState~"blendEquationSeparate"',
     note: '5 members.',
     webgpu: gap(
       15,
@@ -55,7 +56,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (src/runtime/gl-draw.ts:972-973); also: refused (Rule 11.11): targets that blend or mask apart',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.blend on the WebGL2 tier (`drawStateOf` of `src/rhi/webgl2.ts`); also: refused (Rule 11.11): targets that blend or mask apart',
       645,
     ),
   },
@@ -65,12 +66,12 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     name: '`GPUBufferBindingType`',
     covers: ['GPUBufferBindingType'],
     evidence:
-      'src/runtime/program.ts:1334-1338; src/runtime/gl.ts:378-380; src/core/reflect.ts:903',
+      'src/runtime/program.ts:1334-1338; src/runtime/gl.ts#GlComputePipelineImpl~"b.space"; src/core/reflect.ts:903',
     note: '3 members.',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed(
       'scripts/compile-gate.ts',
-      'WebGL2 has no bind group layout; the binding kind follows the declared address space: uniform, or words for storage (src/runtime/gl.ts:378-380; src/core/reflect.ts:903)',
+      'WebGL2 has no bind group layout; the binding kind follows the declared address space: uniform, or words for storage (`GlComputePipelineImpl` of `src/runtime/gl.ts`; src/core/reflect.ts:903)',
     ),
   },
   {
@@ -92,7 +93,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     name: '`GPUCanvasAlphaMode`',
     covers: ['GPUCanvasAlphaMode'],
     evidence:
-      'src/runtime/runtime.ts:526-530; src/rhi/webgpu.ts:346-348; src/runtime/gl-draw.ts:1094-1100; docs/language-design.md:906',
+      'src/runtime/runtime.ts:526-530; src/rhi/webgpu.ts:346-348; src/runtime/gl-draw.ts#recordPass~"currentTexture"; docs/language-design.md:906',
     note: '2 members. the host configures; the call layer draws opaque (Rule 8.24)',
     webgpu: raw(
       'createRuntime({ device })',
@@ -101,7 +102,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     webgl2: andGap(
       raw(
         'createRuntime({ device })',
-        'the host creates the WebGL2 context with its attributes and passes it in (src/runtime/runtime.ts:609-616); the pass takes the context as its canvas target (src/runtime/gl-draw.ts:1094-1100)',
+        'the host creates the WebGL2 context with its attributes and passes it in (src/runtime/runtime.ts:609-616); the pass takes the context as its canvas target (`recordPass` of `src/runtime/gl-draw.ts`)',
       ),
       8,
       'the context attributes alpha and premultipliedAlpha are set by the host (table D)',
@@ -160,7 +161,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode on the WebGL2 tier (src/rhi/webgl2.ts:647, 535)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode on the WebGL2 tier (`setState` and `drawStateOf` of `src/rhi/webgl2.ts`)',
       645,
     ),
   },
@@ -235,7 +236,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): every WebGL2 sampling case reads texel centres, where nearest and linear return the same texel (src/rhi/webgl2.ts:1424-1434)',
+      'typed in code; no test reads it on this target (Rule 11.18): every WebGL2 sampling case reads texel centres, where nearest and linear return the same texel (`createSampler` of `GlDevice` in `src/rhi/webgl2.ts`)',
       645,
     ),
   },
@@ -253,7 +254,7 @@ export const ADDRESS_MODE_TO_INDEX_FORMAT_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets frontFace on the WebGL2 tier (src/rhi/webgl2.ts:537)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets frontFace on the WebGL2 tier (`drawStateOf` of `src/rhi/webgl2.ts`)',
       645,
     ),
   },

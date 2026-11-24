@@ -7,7 +7,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     name: '`GPUCommandBuffer`',
     covers: ['GPUCommandBuffer'],
     evidence:
-      'src/runtime/runtime.ts#Frame; src/runtime/runtime.ts#RuntimeImpl.takeConsole; src/runtime/gl.ts:124-127',
+      'src/runtime/runtime.ts#Frame; src/runtime/runtime.ts#RuntimeImpl.takeConsole; src/runtime/gl.ts#GlFrameImpl.encoder|GlRuntimeImpl.submit',
     webgpu: typed('src/runtime/runtime.test.ts', 'Frame.submit() and rt.submit(encoders)'),
     webgl2: refused(
       'Rule 11.11',
@@ -20,7 +20,8 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.beginRenderPass()`',
     covers: ['GPUCommandEncoder.beginRenderPass'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl.ts:455-457',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/runtime/gl.ts#GlFrameImpl.pass; src/runtime/gl-draw.ts#recordPass~"beginRenderPass"',
     webgpu: typed('src/runtime/runtime.test.ts', 'Frame.pass()'),
     webgl2: typed('scripts/compile-gate.ts', 'Frame.pass()'),
   },
@@ -29,7 +30,8 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.beginComputePass()`',
     covers: ['GPUCommandEncoder.beginComputePass'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl.ts:447-453',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/runtime/gl.ts#GlFrameImpl.dispatch|GlComputePipelineImpl.dispatch',
     webgpu: typed('journeys/mesh-raycast/journey.mjs', 'Frame.dispatch()'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs', 'Frame.dispatch()'),
   },
@@ -56,7 +58,8 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.copyTextureToBuffer()`',
     covers: ['GPUCommandEncoder.copyTextureToBuffer'],
-    evidence: 'src/runtime/resources.ts#TextureImpl.destroy; src/rhi/webgl2.ts#depthToColour',
+    evidence:
+      'src/runtime/resources.ts#TextureImpl.destroy; src/rhi/webgl2.ts#GlDevice.readTexture|readTexels~"gl.readPixels("',
     webgpu: andGap(
       typed('src/runtime/runtime.test.ts', 'Texture.read() copies level 0 of layer 0'),
       6,
@@ -102,7 +105,8 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.resolveQuerySet()`',
     covers: ['GPUCommandEncoder.resolveQuerySet'],
-    evidence: 'src/runtime/runtime.ts#RenderPass|Frame; src/runtime/gl.ts:469-472',
+    evidence:
+      'src/runtime/runtime.ts#RenderPass|Frame; src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit',
     webgpu: andGap(
       raw(
         'Frame.encoder',
@@ -114,7 +118,7 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (`GlFrameImpl.record` and `GlFrameImpl.submit` of `src/runtime/gl.ts`), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -123,7 +127,8 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCommandEncoder.finish()`',
     covers: ['GPUCommandEncoder.finish'],
-    evidence: 'src/runtime/runtime.ts#RuntimeImpl.takeConsole; src/runtime/gl.ts:124-127',
+    evidence:
+      'src/runtime/runtime.ts#RuntimeImpl.takeConsole; src/runtime/gl.ts#GlFrameImpl.encoder|GlRuntimeImpl.submit',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       "rt.submit(encoders) finishes the host's encoders",

@@ -31,7 +31,7 @@ export const TRANSFORM_FEEDBACK_QUERIES_AND_SYNC_ROWS: readonly Row[] = [
     name: 'Timer queries: `EXT_disjoint_timer_query_webgl2` (timestamps, `TIME_ELAPSED`)',
     covers: ['webgl:EXT_disjoint_timer_query_webgl2'],
     evidence:
-      'src/rhi/webgl2.ts:923-1178 (the pass makes no query call); src/runtime/gl.ts:459-478 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
+      'src/rhi/webgl2.ts#GlRenderPass (the pass makes no query call); src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
     note: 'timestamps are not spellable on either tier; the query methods that a timer query also uses are in the occlusion row',
     webgpu: andGap(
       raw('Runtime.device', 'a host GPUQuerySet of type timestamp, made on the runtime device'),
@@ -58,7 +58,7 @@ export const TRANSFORM_FEEDBACK_QUERIES_AND_SYNC_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.getQueryParameter',
     ],
     evidence:
-      'src/rhi/webgl2.ts:923-1178 (the pass makes no query call); src/runtime/gl.ts:459-478 (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
+      'src/rhi/webgl2.ts#GlRenderPass (the pass makes no query call); src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit (the frame runs its draws after submit returns); src/core/resident.ts:267-278 (kernelQueue.run)',
     note: 'no typed occlusion query on either tier; the same methods carry the timer queries of the row above; issue 542 tracks timestamps only',
     webgpu: andGap(
       raw(
@@ -89,7 +89,7 @@ export const TRANSFORM_FEEDBACK_QUERIES_AND_SYNC_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.flush',
     ],
     evidence:
-      'src/core/gl-compute.ts:272-275 (fenceSync, clientWaitSync in gpuDone); src/runtime/gl.ts:459-478 (the frame runs its draws after submit returns); src/runtime/resources.ts',
+      'src/core/gl-compute.ts:272-275 (fenceSync, clientWaitSync in gpuDone); src/runtime/gl.ts#GlFrameImpl.submit (the frame runs its draws after submit returns); src/runtime/gl-draw.ts#GlTextureImpl~"kernelQueue.run" (read queues its readback and returns a promise); src/runtime/resources.ts',
     note: 'the promise of submit() and read() is the typed form; the runtime polls clientWaitSync and calls neither waitSync nor getSyncParameter',
     webgpu: typed('src/runtime/runtime.test.ts', 'onSubmittedWorkDone through submit()'),
     webgl2: typed('journeys/hdr-target/journey.mjs', 'through submit and read'),

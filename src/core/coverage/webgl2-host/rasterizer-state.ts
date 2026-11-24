@@ -18,7 +18,7 @@ export const RASTERIZER_STATE_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode or frontFace on the WebGL2 tier (src/rhi/webgl2.ts:647; src/runtime/gl-draw.ts:967)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets cullMode or frontFace on the WebGL2 tier (`setState` of `src/rhi/webgl2.ts`)',
       645,
     ),
   },
@@ -42,7 +42,7 @@ export const RASTERIZER_STATE_ROWS: readonly Row[] = [
     name: 'Scissor: `scissor` (`enable(SCISSOR_TEST)` is in Capability switches)',
     covers: ['webgl:WebGLRenderingContextBase.scissor'],
     evidence:
-      'src/runtime/gl-draw.ts:1156; src/rhi/webgl2.ts:979, 1154 (SCISSOR_TEST is disabled before a pass draws, and at its end)',
+      'src/runtime/gl-draw.ts#GlPass.setScissorRect; src/rhi/webgl2.ts#GlRenderPass.constructor~"SCISSOR_TEST"|GlRenderPass.setScissorRect|GlRenderPass.end~"SCISSOR_TEST" (SCISSOR_TEST is disabled before a pass draws, and at its end)',
     note: 'RenderPass.setScissorRect sets the scissor rectangle; the runtime disables the scissor test at each pass start and end',
     webgpu: typed(
       'journeys/render-state',
@@ -59,7 +59,7 @@ export const RASTERIZER_STATE_ROWS: readonly Row[] = [
     name: 'Viewport: `viewport`',
     covers: ['webgl:WebGLRenderingContextBase.viewport'],
     evidence:
-      'src/rhi/webgl2.ts:991 (the whole target at each pass start); src/runtime/gl-draw.ts:1062-1079 (GlPass.setViewport)',
+      'src/rhi/webgl2.ts#GlRenderPass.constructor~"gl.viewport"|GlRenderPass.setViewport (the whole target at each pass start); src/runtime/gl-draw.ts#GlPass.setViewport',
     note: 'RenderPass.setViewport sets a sub-viewport; the runtime sets the whole target at each WebGL2 pass start',
     webgpu: typed(
       'journeys/render-state',
@@ -78,7 +78,7 @@ export const RASTERIZER_STATE_ROWS: readonly Row[] = [
     name: 'Polygon offset: `polygonOffset`, `EXT_polygon_offset_clamp`',
     covers: ['webgl:EXT_polygon_offset_clamp', 'webgl:WebGLRenderingContextBase.polygonOffset'],
     evidence:
-      'src/runtime/program.ts#RenderState.depth (RenderState.depth.bias); src/rhi/webgpu.ts#WebGpuEncoder.copyBufferToBuffer|depthStencilOf (depthStencilOf); src/runtime/gl-draw.ts#GlSamplerImpl.sampler|BIASED_FORMATS|refuseBias (refuseBias); src/rhi/webgl2.ts:611-616 (setState, the polygon offset)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.bias); src/rhi/webgpu.ts#WebGpuEncoder.copyBufferToBuffer|depthStencilOf (depthStencilOf); src/runtime/gl-draw.ts#refuseBias|BIASED_FORMATS (refuseBias); src/rhi/webgl2.ts#setState~"polygonOffsetClampEXT" (setState, the polygon offset)',
     note: 'depthBias is pipeline state; each draw sets the polygon offset from its pipeline',
     webgpu: typed(
       'journeys/pipeline-state',
@@ -132,7 +132,7 @@ export const RASTERIZER_STATE_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.hint',
       'webgl:WebGLRenderingContextBase.isEnabled',
     ],
-    evidence: 'src/rhi/webgl2.ts:575-617 (the switch of each state)',
+    evidence: 'src/rhi/webgl2.ts#setState~"gl.disable" (the switch of each state)',
     note: 'a switch is a mechanism: each state it switches has its own row; dither has no portable meaning; rasterizer discard serves transform feedback; no use of DITHER or hint in src/runtime/',
     webgpu: na('WebGPU has no capability switch: each state is a descriptor field'),
     webgl2: na(

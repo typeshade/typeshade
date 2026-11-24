@@ -7,7 +7,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     name: '`GPUQuerySet.destroy()`',
     covers: ['GPUQuerySet.destroy'],
     evidence:
-      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts:230-238; src/runtime/gl.ts:469-472',
+      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts:230-238; src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit',
     webgpu: andGap(
       raw('Runtime.device', 'the host destroys a query set it made on the runtime device'),
       4,
@@ -16,7 +16,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (`GlFrameImpl.record` and `GlFrameImpl.submit` of `src/runtime/gl.ts`), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -26,7 +26,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     name: '`GPUQuerySet.type`',
     covers: ['GPUQuerySet.type'],
     evidence:
-      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts#SubmitResult|Runtime.info; src/runtime/gl.ts:469-472',
+      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts#SubmitResult|Runtime.info; src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit',
     webgpu: andGap(
       raw('Runtime.device', 'the host reads the type of a query set it made on the runtime device'),
       4,
@@ -35,7 +35,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (`GlFrameImpl.record` and `GlFrameImpl.submit` of `src/runtime/gl.ts`), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -45,7 +45,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     name: '`GPUQuerySet.count`',
     covers: ['GPUQuerySet.count'],
     evidence:
-      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts:230-238; src/runtime/gl.ts:469-472',
+      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts:230-238; src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -57,7 +57,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (`GlFrameImpl.record` and `GlFrameImpl.submit` of `src/runtime/gl.ts`), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },
@@ -67,7 +67,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     name: '`GPUQueue.submit()`',
     covers: ['GPUQueue.submit'],
     evidence:
-      'src/runtime/runtime.ts:419-432, 500-510; src/rhi/webgpu.ts:433-436; src/runtime/gl.ts#packWords',
+      'src/runtime/runtime.ts:419-432, 500-510; src/rhi/webgpu.ts:433-436; src/runtime/gl.ts#GlFrameImpl.submit',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },
@@ -76,7 +76,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUQueue.onSubmittedWorkDone()`',
     covers: ['GPUQueue.onSubmittedWorkDone'],
-    evidence: 'src/runtime/runtime.ts#Frame; src/runtime/gl.ts:469-478',
+    evidence: 'src/runtime/runtime.ts#Frame; src/runtime/gl.ts#GlFrameImpl.submit',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Frame.submit() resolves after the queue ran the frame',
@@ -92,7 +92,7 @@ export const QUERY_SET_QUEUE_AND_BUNDLES_ROWS: readonly Row[] = [
     name: '`GPUQueue.writeBuffer()`',
     covers: ['GPUQueue.writeBuffer'],
     evidence:
-      'src/core/resident.ts#ElementView.get; changes/0048-partial-buffer-write.md:35; src/runtime/gl-draw.ts:886',
+      'src/core/resident.ts#ElementView.get; changes/0048-partial-buffer-write.md:35; src/runtime/gl-draw.ts#GlDrawing.uploaded',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Buffer.set(value); also: planned (0048, sub-range write)',

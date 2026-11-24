@@ -113,7 +113,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.RED`',
     covers: ['GPUColorWrite.RED'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#drawStateOf~"writeMask ?? 15"|drawStateOf~"(mask & 1)"|setState~"colorMask"; src/runtime/gl-draw.ts#GlRenderPrograms~"plan.targets"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -121,7 +121,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; every WebGL2 draw sets the default mask 15, which sets RED (src/runtime/gl-draw.ts:975), and no test reads the bit decode (src/rhi/webgl2.ts:544)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; every WebGL2 draw sets the default mask 15, which sets RED (`drawStateOf` of `src/rhi/webgl2.ts`), and no test reads the bit decode (`drawStateOf` of `src/rhi/webgl2.ts`)',
       645,
     ),
   },
@@ -131,7 +131,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.GREEN`',
     covers: ['GPUColorWrite.GREEN'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#drawStateOf~"writeMask ?? 15"|drawStateOf~"(mask & 2)"|setState~"colorMask"; src/runtime/gl-draw.ts#GlRenderPrograms~"plan.targets"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -139,7 +139,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets a mask without GREEN; every WebGL2 draw sets the default mask 15, which sets GREEN (src/runtime/gl-draw.ts:975)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets a mask without GREEN; every WebGL2 draw sets the default mask 15, which sets GREEN (`drawStateOf` of `src/rhi/webgl2.ts`)',
       645,
     ),
   },
@@ -149,7 +149,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.BLUE`',
     covers: ['GPUColorWrite.BLUE'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#drawStateOf~"writeMask ?? 15"|drawStateOf~"(mask & 4)"|setState~"colorMask"; src/runtime/gl-draw.ts#GlRenderPrograms~"plan.targets"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -157,7 +157,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets a mask without BLUE; every WebGL2 draw sets the default mask 15, which sets BLUE (src/runtime/gl-draw.ts:975)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets a mask without BLUE; every WebGL2 draw sets the default mask 15, which sets BLUE (`drawStateOf` of `src/rhi/webgl2.ts`)',
       645,
     ),
   },
@@ -167,7 +167,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.ALPHA`',
     covers: ['GPUColorWrite.ALPHA'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#drawStateOf~"writeMask ?? 15"|drawStateOf~"(mask & 8)"|setState~"colorMask"; src/runtime/gl-draw.ts#GlRenderPrograms~"plan.targets"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -185,7 +185,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     name: '`GPUColorWrite.ALL`',
     covers: ['GPUColorWrite.ALL'],
     evidence:
-      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#drawStateOf~"writeMask ?? 15"|drawStateOf~"(mask & 1)"|setState~"colorMask"; src/runtime/gl-draw.ts#GlRenderPrograms~"plan.targets"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test passes writeMask; the runtime sets no mask on WebGPU unless the author passes one (src/runtime/program.ts:73-78, 502-519); the typed surface is TargetState.writeMask',
@@ -193,7 +193,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test sets all four bits, so a dropped ALPHA bit or a wrong mask decode fails no test (src/runtime/gl-draw.ts:975)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test sets all four bits, so a dropped ALPHA bit or a wrong mask decode fails no test (`drawStateOf` of `src/rhi/webgl2.ts`)',
       645,
     ),
   },

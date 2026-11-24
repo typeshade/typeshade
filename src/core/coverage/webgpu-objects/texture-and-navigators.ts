@@ -21,14 +21,14 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     name: '`GPUTexture.destroy()`',
     covers: ['GPUTexture.destroy'],
     evidence:
-      'src/runtime/resources.ts#Texture.destroy; src/runtime/gl-draw.ts:265-269; examples/hosts/host-program/host.ts:25',
+      'src/runtime/resources.ts#Texture.destroy; src/runtime/gl-draw.ts#GlTextureImpl.destroy; examples/hosts/host-program/host.ts:25',
     webgpu: typed(
       'scripts/user-journey.ts',
       'Texture.destroy(): the host-program example destroys its target (examples/hosts/host-program/host.ts:25)',
     ),
     webgl2: typed(
       'scripts/user-journey.ts',
-      'Texture.destroy(): the same example on WebGL2 queues deleteTexture (src/runtime/gl-draw.ts:265-269); the journey shows the call runs, not that the texture is deleted',
+      'Texture.destroy(): the same example on WebGL2 queues deleteTexture (`GlTextureImpl.destroy` of `src/runtime/gl-draw.ts`); the journey shows the call runs, not that the texture is deleted',
     ),
   },
   {
@@ -36,7 +36,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.width`',
     covers: ['GPUTexture.width'],
-    evidence: 'src/runtime/resources.ts#Texture.width; src/runtime/gl-draw.ts:204-206',
+    evidence: 'src/runtime/resources.ts#Texture.width; src/runtime/gl-draw.ts#GlTextureImpl.width',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Texture.width; also: Texture.texture is the GPUTexture (raw)',
@@ -51,7 +51,8 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.height`',
     covers: ['GPUTexture.height'],
-    evidence: 'src/runtime/resources.ts#Texture.height; src/runtime/gl-draw.ts:207-209',
+    evidence:
+      'src/runtime/resources.ts#Texture.height; src/runtime/gl-draw.ts#GlTextureImpl.height',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Texture.height; also: Texture.texture is the GPUTexture (raw)',
@@ -75,7 +76,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     ),
     webgl2: typed(
       'src/runtime/runtime.test.ts',
-      'one layer, size: [width, height]; also: refused (Rule 11.11) for more than one layer or a 3d texture (src/runtime/gl-draw.ts:161-164); the input key GPUExtent3DDict.depthOrArrayLayers takes the same refusal (Rule 11.11)',
+      'one layer, size: [width, height]; also: refused (Rule 11.11) for more than one layer or a 3d texture (`GlTextureImpl` constructor of `src/runtime/gl-draw.ts`); the input key GPUExtent3DDict.depthOrArrayLayers takes the same refusal (Rule 11.11)',
     ),
   },
   {
@@ -124,7 +125,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     ),
     webgl2: typed(
       'src/runtime/runtime.test.ts',
-      '2d textures of one layer; also: refused (Rule 10.5) for 1d; refused (Rule 11.11) for 3d and for more than one layer (src/runtime/gl-draw.ts:161-164)',
+      '2d textures of one layer; also: refused (Rule 10.5) for 1d; refused (Rule 11.11) for 3d and for more than one layer (`GlTextureImpl` constructor of `src/runtime/gl-draw.ts`)',
     ),
   },
   {
@@ -133,7 +134,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     name: '`GPUTexture.format`',
     covers: ['GPUTexture.format'],
     evidence:
-      'src/runtime/resources.ts#TextureOptions.format; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/runtime/resources.ts#layoutOf; src/runtime/gl-draw.ts#GlTextureImpl.constructor; changes/0050-texture-write.md:387',
+      'src/runtime/resources.ts#TextureOptions.format; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/runtime/resources.ts#layoutOf; changes/0050-texture-write.md:387',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',
@@ -149,7 +150,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
         'Texture: format, width, height, resize, read, readFloats, destroy',
       ),
       6,
-      'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (src/runtime/gl-draw.ts:172); depth16unorm cannot be copied by read() (src/runtime/resources.ts:153-155); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (src/runtime/gl-draw.ts:172) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
+      'stencil8, depth24plus-stencil8 and depth32float-stencil8 have no stencil state, and texture() refuses stencil8 (`GlTextureImpl` constructor of `src/runtime/gl-draw.ts`); depth16unorm cannot be copied by read() (src/runtime/resources.ts:153-155); BC, ETC2, EAC and ASTC (52 names) have no upload path (changes/0050-texture-write.md:387); r16, rg16 and rgba16 in unorm and snorm (6 names) and rgb9e5ufloat are refused by texture() (`GlTextureImpl` constructor of `src/runtime/gl-draw.ts`) and are not measured; roadmap row 13b names the tier-1 formats (docs/roadmap.md:228), and the surface text lists the 16-bit snorm names among them (docs/use-typeshade-surface.md:5377-5381)',
       637,
     ),
   },

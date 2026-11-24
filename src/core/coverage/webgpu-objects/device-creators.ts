@@ -7,7 +7,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     name: '`GPUDevice.createBuffer()`',
     covers: ['GPUDevice.createBuffer'],
     evidence:
-      'src/runtime/program.ts:1393; src/core/host-entry.ts:638; src/runtime/gl-draw.ts:884; src/runtime/gl-draw.ts#fresh; src/core/host-entry.ts:646',
+      'src/runtime/program.ts:1393; src/core/host-entry.ts:638; src/runtime/gl-draw.ts#GlDrawing.uploaded; src/runtime/gl-draw.ts#fresh; src/core/host-entry.ts:646',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
   },
@@ -17,7 +17,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     name: '`GPUDevice.createTexture()`',
     covers: ['GPUDevice.createTexture'],
     evidence:
-      'src/runtime/resources.ts:220-233; src/runtime/gl.ts:112-114; src/rhi/webgl2.ts:1325-1337',
+      'src/runtime/resources.ts:220-233; src/runtime/gl.ts#GlRuntimeImpl.texture; src/rhi/webgl2.ts#GlDevice.createTexture',
     webgpu: typed('journeys/engine/engine.mjs', 'rt.texture()'),
     webgl2: typed('scripts/compile-gate.ts', 'rt.texture()'),
   },
@@ -27,7 +27,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     name: '`GPUDevice.createSampler()`',
     covers: ['GPUDevice.createSampler'],
     evidence:
-      'src/runtime/resources.ts#SamplerImpl; src/rhi/webgpu.ts:350-352; src/runtime/gl.ts:116-118; src/runtime/gl-draw.ts#GlSamplerImpl',
+      'src/runtime/resources.ts#SamplerImpl; src/rhi/webgpu.ts:350-352; src/runtime/gl.ts#GlRuntimeImpl.sampler; src/runtime/gl-draw.ts#GlSamplerImpl',
     webgpu: typed('journeys/engine/engine.mjs', 'rt.sampler()'),
     webgl2: typed('scripts/compile-gate.ts', 'rt.sampler()'),
   },
@@ -87,7 +87,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createComputePipeline()`',
     covers: ['GPUDevice.createComputePipeline'],
-    evidence: 'src/runtime/program.ts:1578; src/runtime/gl.ts:148-157',
+    evidence: 'src/runtime/program.ts:1578; src/runtime/gl.ts#GlProgramImpl.compute',
     webgpu: typed('src/runtime/runtime.test.ts', 'the async form is used'),
     webgl2: typed(
       'journeys/mesh-raycast/journey.mjs',
@@ -99,7 +99,8 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createRenderPipeline()`',
     covers: ['GPUDevice.createRenderPipeline'],
-    evidence: 'src/runtime/program.ts#ProgramImpl.render; src/runtime/gl.ts:195-203',
+    evidence:
+      'src/runtime/program.ts#ProgramImpl.render; src/runtime/gl.ts#GlProgramImpl.render; src/runtime/gl-draw.ts#GlRenderPrograms~"createRenderPipeline"',
     webgpu: typed('src/runtime/runtime.test.ts', 'the async form is used'),
     webgl2: typed(
       'scripts/compile-gate.ts',
@@ -133,7 +134,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createCommandEncoder()`',
     covers: ['GPUDevice.createCommandEncoder'],
-    evidence: 'src/runtime/runtime.ts#RuntimeImpl.load; src/runtime/gl.ts:437',
+    evidence: 'src/runtime/runtime.ts#RuntimeImpl.load; src/runtime/gl.ts#GlFrameImpl.encoder',
     webgpu: typed('src/runtime/runtime.test.ts', 'rt.frame()'),
     webgl2: refused('Rule 11.11', 'rt.frame()', 'the WebGL2 tier refuses a GPUCommandEncoder'),
   },
@@ -152,7 +153,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     name: '`GPUDevice.createQuerySet()`',
     covers: ['GPUDevice.createQuerySet'],
     evidence:
-      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts#SubmitResult|Runtime.info; src/runtime/gl.ts:469-472',
+      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts#SubmitResult|Runtime.info; src/runtime/gl.ts#GlFrameImpl.record|GlFrameImpl.submit',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -164,7 +165,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       4,
-      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (src/runtime/gl.ts:469-472), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
+      'a typed query is not supported yet on the WebGL2 tier (Rule 11.11); the frame runs its draws after submit() returns (`GlFrameImpl.record` and `GlFrameImpl.submit` of `src/runtime/gl.ts`), so a query the host begins earlier wraps none; issue 542 tracks timestamps only',
       542,
     ),
   },

@@ -6,7 +6,8 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBlendComponent.operation`',
     covers: ['GPUBlendComponent.operation'],
-    evidence: 'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts:563-574, 972',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts#checkState~"GL_BLEND_OPERATION"|GlRenderPrograms~"plan.targets"; src/rhi/webgl2.ts#setState~"blendEquationSeparate"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a blend on WebGPU; TargetState.blend is GPUBlendState passed through and checked',
@@ -14,7 +15,7 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a blend; BLEND_OP runs only with the default state (src/rhi/webgl2.ts:456-470; src/runtime/gl-draw.ts:968); TargetState.blend is GPUBlendState passed through and checked; one blend state for every target; a blend per target has no spelling; also: refused (Rule 11.11): targets that blend or mask apart',
+      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a blend; BLEND_OP runs only with the default state (`setState` of `src/rhi/webgl2.ts`; `checkState` of `src/runtime/gl-draw.ts`); TargetState.blend is GPUBlendState passed through and checked; one blend state for every target; a blend per target has no spelling; also: refused (Rule 11.11): targets that blend or mask apart',
       645,
     ),
   },
@@ -23,7 +24,8 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBlendComponent.srcFactor`',
     covers: ['GPUBlendComponent.srcFactor'],
-    evidence: 'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts:563-574, 972',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts#checkState~"GL_BLEND_FACTOR"|GlRenderPrograms~"plan.targets"; src/rhi/webgl2.ts#setState~"blendFuncSeparate"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a blend factor; TargetState.blend is GPUBlendState passed through and checked; constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant (src/runtime/program.ts:73-79)',
@@ -31,7 +33,7 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a blend factor; BLEND_FACTOR runs only with the default state (src/runtime/gl-draw.ts:563-574); TargetState.blend is GPUBlendState passed through and checked; src1 factors need @blend_src, which the GLSL writer refuses (Rule 10.3); constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant (src/runtime/program.ts:73-79)',
+      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a blend factor; BLEND_FACTOR runs only with the default state (`checkState` of `src/runtime/gl-draw.ts`); TargetState.blend is GPUBlendState passed through and checked; src1 factors need @blend_src, which the GLSL writer refuses (Rule 10.3); constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant (src/runtime/program.ts:73-79)',
       645,
     ),
   },
@@ -40,7 +42,8 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBlendComponent.dstFactor`',
     covers: ['GPUBlendComponent.dstFactor'],
-    evidence: 'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts:563-574, 972',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts#checkState~"GL_BLEND_FACTOR"|GlRenderPrograms~"plan.targets"; src/rhi/webgl2.ts#setState~"blendFuncSeparate"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a blend factor; TargetState.blend is GPUBlendState passed through and checked; constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant (src/runtime/program.ts:73-79)',
@@ -48,7 +51,7 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a blend factor; BLEND_FACTOR runs only with the default state (src/runtime/gl-draw.ts:563-574); TargetState.blend is GPUBlendState passed through and checked; src1 factors need @blend_src, which the GLSL writer refuses (Rule 10.3); constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant (src/runtime/program.ts:73-79)',
+      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a blend factor; BLEND_FACTOR runs only with the default state (`checkState` of `src/runtime/gl-draw.ts`); TargetState.blend is GPUBlendState passed through and checked; src1 factors need @blend_src, which the GLSL writer refuses (Rule 10.3); constant factors read the blend constant, set by RenderPass.setBlendConstant or RenderState.blendConstant (src/runtime/program.ts:73-79)',
       645,
     ),
   },
@@ -57,7 +60,8 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBlendState.color`',
     covers: ['GPUBlendState.color'],
-    evidence: 'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts:972',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts#checkState~"blend.color"|GlRenderPrograms~"plan.targets"; src/rhi/webgl2.ts#setState~"blendFuncSeparate"|setState~"blendEquationSeparate"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets a colour blend on WebGPU; TargetState.blend is GPUBlendState passed through and checked',
@@ -65,7 +69,7 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a colour blend; blendFuncSeparate runs only with the default state (src/runtime/gl-draw.ts:972); TargetState.blend is GPUBlendState passed through and checked; one blend state for every target; a blend per target has no spelling; also: refused (Rule 11.11): targets that blend or mask apart',
+      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets a colour blend; blendFuncSeparate runs only with the default state (`setState` of `src/rhi/webgl2.ts`); TargetState.blend is GPUBlendState passed through and checked; one blend state for every target; a blend per target has no spelling; also: refused (Rule 11.11): targets that blend or mask apart',
       645,
     ),
   },
@@ -74,7 +78,8 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUBlendState.alpha`',
     covers: ['GPUBlendState.alpha'],
-    evidence: 'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts:972',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/runtime/gl-draw.ts#checkState~"blend.alpha"|GlRenderPrograms~"plan.targets"; src/rhi/webgl2.ts#setState~"blendFuncSeparate"|setState~"blendEquationSeparate"',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets an alpha blend on WebGPU; TargetState.blend is GPUBlendState passed through and checked',
@@ -82,7 +87,7 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets an alpha blend; blendFuncSeparate runs only with the default state (src/runtime/gl-draw.ts:972); TargetState.blend is GPUBlendState passed through and checked; one blend state for every target; a blend per target has no spelling; also: refused (Rule 11.11): targets that blend or mask apart',
+      'typed in code; no test reads it on this target (Rule 11.18): no WebGL2 test sets an alpha blend; blendFuncSeparate runs only with the default state (`setState` of `src/rhi/webgl2.ts`); TargetState.blend is GPUBlendState passed through and checked; one blend state for every target; a blend per target has no spelling; also: refused (Rule 11.11): targets that blend or mask apart',
       645,
     ),
   },
@@ -92,7 +97,7 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     name: '`GPUBufferBinding.buffer`',
     covers: ['GPUBufferBinding.buffer'],
     evidence:
-      'src/runtime/program.ts:1785-1843; src/rhi/webgpu.ts:362-379; src/runtime/gl-draw.ts:742; src/rhi/webgl2.ts:1264',
+      'src/runtime/program.ts:1785-1843; src/rhi/webgpu.ts:362-379; src/runtime/gl-draw.ts#GlRenderPipelineImpl~"buffer: host"; src/rhi/webgl2.ts#GlDevice.fromNative~"WebGLBuffer"',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',
@@ -172,7 +177,7 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     name: '`GPUBufferDescriptor.size`',
     covers: ['GPUBufferDescriptor.size'],
     evidence:
-      'src/core/resident.ts:216; src/runtime/program.ts:1393, 2102; src/rhi/webgpu.ts#WebGpuDevice.constructor; src/runtime/gl-draw.ts:886, 923',
+      'src/core/resident.ts:216; src/runtime/program.ts:1393, 2102; src/rhi/webgpu.ts#WebGpuDevice.constructor; src/runtime/gl-draw.ts#fresh|GlDrawing.uploaded',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'array() and plain host values make the buffers (Rules 8.21, 11.8)',
@@ -188,13 +193,13 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
     name: '`GPUBufferDescriptor.usage`',
     covers: ['GPUBufferDescriptor.usage'],
     evidence:
-      'src/core/resident.ts:216; src/runtime/program.ts:1393, 2102; src/rhi/webgpu.ts#WebGpuDevice.constructor; src/runtime/gl-draw.ts:886, 923',
+      'src/core/resident.ts:216; src/runtime/program.ts:1393, 2102; src/rhi/webgpu.ts#WebGpuDevice.constructor; src/runtime/gl-draw.ts#fresh~"usage"|GlRenderPipelineImpl~"usage"',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'array() and plain host values make the buffers (Rules 8.21, 11.8)',
     ),
     webgl2: na(
-      'WebGL2 has no buffer usage flags; the runtime passes its own usage hint (src/runtime/gl-draw.ts:886, 923)',
+      'WebGL2 has no buffer usage flags; the runtime passes its own usage hint (`fresh` and `GlDrawing.uploaded` of `src/runtime/gl-draw.ts`)',
     ),
   },
   {

@@ -64,7 +64,7 @@ export const CONTEXT_AND_EXTENSION_DISCOVERY_ROWS: readonly Row[] = [
       'webgl:WEBGL_lose_context.loseContext',
       'webgl:WEBGL_lose_context.restoreContext',
     ],
-    evidence: 'src/rhi/webgl2.ts:1601-1605 (destroy loses the context the runtime made)',
+    evidence: 'src/rhi/webgl2.ts#GlDevice.destroy (destroy loses the context the runtime made)',
     note: 'rt.destroy() loses the context it made; no typed loss handling on either tier',
     webgpu: andGap(
       raw('Runtime.device', 'GPUDevice.lost, reached through the device'),
@@ -87,7 +87,8 @@ export const CONTEXT_AND_EXTENSION_DISCOVERY_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.getExtension',
       'webgl:WebGLRenderingContextBase.getSupportedExtensions',
     ],
-    evidence: 'src/rhi/webgl2.ts:256-261 (turns on three extensions)',
+    evidence:
+      'src/rhi/webgl2.ts#GlState.constructor~"EXT_color_buffer_float" (turns on three extensions)',
     note: "the runtime turns on EXT_color_buffer_float, EXT_color_buffer_half_float and OES_texture_float_linear; every other extension is the host's",
     webgpu: typed(
       'src/compiler/ts/builtin-values.test.ts',

@@ -7,7 +7,7 @@ export const DEVICE_LOSS_AND_ERRORS_ROWS: readonly Row[] = [
     name: '`GPUDevice.lost`',
     covers: ['GPUDevice.lost'],
     evidence:
-      'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/host-entry.ts:703-706; src/rhi/webgl2.ts:1601-1605',
+      'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/host-entry.ts:703-706; src/rhi/webgl2.ts#GlDevice.destroy',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -20,7 +20,7 @@ export const DEVICE_LOSS_AND_ERRORS_ROWS: readonly Row[] = [
     webgl2: andGap(
       raw(
         'Runtime.device',
-        'isContextLost is a member of the context Runtime.device is; the runtime loses the context it made with WEBGL_lose_context (src/rhi/webgl2.ts:1601-1605)',
+        'isContextLost is a member of the context Runtime.device is; the runtime loses the context it made with WEBGL_lose_context (`GlDevice.destroy` of `src/rhi/webgl2.ts`)',
       ),
       8,
       'no typed surface reports the loss to the host',

@@ -85,7 +85,7 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     name: '`GPUComputePassEncoder.setPipeline()`',
     covers: ['GPUComputePassEncoder.setPipeline'],
     evidence:
-      'src/runtime/program.ts#ComputePipeline.entry|ComputePipeline.workgroupShape; src/runtime/gl.ts:447-453',
+      'src/runtime/program.ts#ComputePipeline.entry|ComputePipeline.workgroupShape; src/runtime/gl.ts#GlComputePipelineImpl.dispatch',
     webgpu: typed('journeys/mesh-raycast/journey.mjs'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },
@@ -95,7 +95,7 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     name: '`GPUComputePassEncoder.dispatchWorkgroups()`',
     covers: ['GPUComputePassEncoder.dispatchWorkgroups'],
     evidence:
-      'src/runtime/program.ts#ComputePipeline.entry|ComputePipeline.workgroupShape; src/runtime/gl.ts#Given',
+      'src/runtime/program.ts#ComputePipeline.entry|ComputePipeline.workgroupShape; src/runtime/gl.ts#GlComputePipelineImpl.dispatch',
     webgpu: typed('journeys/mesh-raycast/journey.mjs', 'ComputePipeline.dispatch'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs', 'ComputePipeline.dispatch'),
   },
@@ -118,7 +118,8 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUComputePassEncoder.end()`',
     covers: ['GPUComputePassEncoder.end'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/gl.ts:440-445',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/runtime/gl.ts#GlFrameImpl.submit|GlFrameImpl.runNow',
     webgpu: typed('journeys/mesh-raycast/journey.mjs'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },
@@ -128,7 +129,7 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     name: '`GPUComputePipeline`',
     covers: ['GPUComputePipeline'],
     evidence:
-      'src/runtime/program.ts#ComputePipeline.entry|ComputePipeline.workgroupShape; src/runtime/gl.ts#GlProgramImpl.render',
+      'src/runtime/program.ts#ComputePipeline.entry|ComputePipeline.workgroupShape; src/runtime/gl.ts#GlProgramImpl.compute|GlComputePipelineImpl',
     webgpu: typed('src/runtime/runtime.test.ts', 'ComputePipeline'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs', 'ComputePipeline'),
   },

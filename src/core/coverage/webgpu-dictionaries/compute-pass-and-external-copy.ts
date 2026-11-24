@@ -91,7 +91,7 @@ export const COMPUTE_PASS_AND_EXTERNAL_COPY_ROWS: readonly Row[] = [
     name: '`GPUComputePipelineDescriptor.compute`',
     covers: ['GPUComputePipelineDescriptor.compute'],
     evidence:
-      'src/runtime/program.ts:395-417, 1571-1578; src/rhi/webgpu.ts:385-396; src/runtime/gl.ts:148-179',
+      'src/runtime/program.ts:395-417, 1571-1578; src/rhi/webgpu.ts:385-396; src/runtime/gl.ts#GlProgramImpl.compute',
     webgpu: typed('src/runtime/runtime.test.ts', 'program.compute(entry, { constants })'),
     webgl2: typed('src/runtime/runtime.test.ts', 'program.compute(entry, { constants })'),
   },

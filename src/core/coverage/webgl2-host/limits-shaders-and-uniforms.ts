@@ -11,7 +11,7 @@ export const LIMITS_SHADERS_AND_UNIFORMS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.getShaderPrecisionFormat',
     ],
     evidence:
-      'changes/0051-device-limits.md:415-416 (WebGL2 left out); src/rhi/webgl2.ts#GlState.constructor (the pass reads MAX_COLOR_ATTACHMENTS once for its own use, with no author-facing form)',
+      'changes/0051-device-limits.md:415-416 (WebGL2 left out); src/rhi/webgl2.ts#GlState.constructor~"MAX_COLOR_ATTACHMENTS" (the pass reads MAX_COLOR_ATTACHMENTS once for its own use, with no author-facing form)',
     note: 'rt.limits is drafted for WebGPU',
     webgpu: planned('0051', 'rt.limits is drafted for WebGPU'),
     webgl2: gap(
@@ -40,7 +40,7 @@ export const LIMITS_SHADERS_AND_UNIFORMS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.useProgram',
     ],
     evidence:
-      'src/core/gl-compute.ts:99-131 (compile: shaders, link and the info log of a failure); src/core/compute/runner.ts#compileGlProgram (compile and link status); src/rhi/webgl2.ts#GlDevice.createTexture (a render pipeline, among them the draws of the call layer)',
+      'src/core/gl-compute.ts:99-131 (compile: shaders, link and the info log of a failure); src/core/compute/runner.ts#compileGlProgram (compile and link status); src/rhi/webgl2.ts#GlDevice~"compile(gl, vertex" (a render pipeline, among them the draws of the call layer)',
     note: "from the manifest's GLSL (Rule 11.11); a driver refusal is an Error with the info log (src/core/gl-compute.ts:99-131)",
     webgpu: typed('scripts/compile-gate.ts', 'shader module from the manifest'),
     webgl2: typed('scripts/compile-gate.ts', 'from the manifest GLSL'),
@@ -116,7 +116,7 @@ export const LIMITS_SHADERS_AND_UNIFORMS_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextOverloads.uniformMatrix4fv',
     ],
     evidence:
-      'src/rhi/webgl2.ts:1515 (uniform1i for sampler units); src/core/host-kernel-gl.ts:179 (uniform4uiv for the _dispatch uniform); src/core/gl-compute.ts:735 (uniform1ui)',
+      'src/rhi/webgl2.ts#GlDevice~"uniform1i" (uniform1i for sampler units); src/core/host-kernel-gl.ts:179 (uniform4uiv for the _dispatch uniform); src/core/gl-compute.ts:735 (uniform1ui)',
     note: 'a program has no default-block uniforms; everything is a block or a texture; the runtime sets uniforms itself, and the author writes none by location',
     webgpu: na('the writer uses blocks; Rule 6.8'),
     webgl2: na('the writer uses blocks; Rule 6.8'),

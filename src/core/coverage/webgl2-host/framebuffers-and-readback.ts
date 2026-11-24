@@ -14,7 +14,7 @@ export const FRAMEBUFFERS_AND_READBACK_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.deleteFramebuffer',
       'webgl:WebGLRenderingContextBase.framebufferTexture2D',
     ],
-    evidence: 'src/rhi/webgl2.ts:923-1178',
+    evidence: 'src/rhi/webgl2.ts#GlRenderPass.constructor~"drawBuffers"',
     note: 'Frame.pass(targets): colour targets, depth, clear and load',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
@@ -28,7 +28,7 @@ export const FRAMEBUFFERS_AND_READBACK_ROWS: readonly Row[] = [
       'webgl:WebGL2RenderingContextBase.invalidateSubFramebuffer',
     ],
     evidence:
-      'src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts:1198-1215 (depthStencilAttachmentOf); src/rhi/webgl2.ts:923-1178 (recordPass)',
+      'src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts:1198-1215 (depthStencilAttachmentOf); src/rhi/webgl2.ts#GlRenderPass.end~"storeOp" (a discarded attachment is cleared, and no invalidation call is made)',
     note: 'a hint: the contents after a pass may be dropped',
     webgpu: typed(
       'journeys/pass-attachments',
@@ -52,7 +52,7 @@ export const FRAMEBUFFERS_AND_READBACK_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.renderbufferStorage',
     ],
     evidence:
-      'src/runtime/gl-draw.ts:1103-1150 (the runtime attaches textures to its targets, not renderbuffers)',
+      'src/runtime/gl-draw.ts#recordPass~"createView" (the runtime attaches textures to its targets, not renderbuffers)',
     note: 'the runtime gives every render target as a texture; a renderbuffer is a storage choice a program cannot name',
     webgpu: na(
       'the runtime gives every render target as a texture; a renderbuffer is a storage choice a program cannot name',
@@ -67,7 +67,7 @@ export const FRAMEBUFFERS_AND_READBACK_ROWS: readonly Row[] = [
     name: 'Multisampled renderbuffers: `renderbufferStorageMultisample`',
     covers: ['webgl:WebGL2RenderingContextBase.renderbufferStorageMultisample'],
     evidence:
-      'src/runtime/gl-draw.ts#GlTextureImpl.constructor (no multisampled texture on the WebGL2 tier)',
+      'src/runtime/gl-draw.ts#GlTextureImpl.constructor~"sampleCount"|GlRenderPrograms~"a multisampled target is not supported" (no multisampled texture or target on the WebGL2 tier)',
     note: 'a multisampled draw on WebGL2 is refused; the platform has a multisampled renderbuffer path that the runtime does not take',
     webgpu: gap(
       15,
@@ -86,7 +86,7 @@ export const FRAMEBUFFERS_AND_READBACK_ROWS: readonly Row[] = [
     name: 'Blit (resolve): `blitFramebuffer`',
     covers: ['webgl:WebGL2RenderingContextBase.blitFramebuffer'],
     evidence:
-      'src/runtime/gl-draw.ts:166-169 (no multisampled texture on the WebGL2 tier); src/rhi/webgl2.ts:914 (blitFramebuffer makes the screen flip)',
+      'src/runtime/gl-draw.ts#GlTextureImpl.constructor~"sampleCount" (no multisampled texture on the WebGL2 tier); src/rhi/webgl2.ts#blitScreen~"blitFramebuffer" (blitFramebuffer makes the screen flip)',
     note: 'a resolve has no typed form on either tier',
     webgpu: andGap(
       raw('RenderPipeline.draw(pass, …)', 'the host makes its own pass with resolveTarget'),
@@ -130,7 +130,7 @@ export const FRAMEBUFFERS_AND_READBACK_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.clearStencil',
     ],
     evidence:
-      'src/rhi/webgl2.ts:923-1178 (recordPass); src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilAttachmentOf)',
+      'src/rhi/webgl2.ts#GlRenderPass.constructor~"stencilClearValue" (the stencil clear); src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilAttachmentOf)',
     note: 'PassTargets clear values',
     webgpu: typed(
       'journeys/pass-attachments',
