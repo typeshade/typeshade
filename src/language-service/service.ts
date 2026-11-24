@@ -41,6 +41,8 @@ import type {
   TypeshadeLanguageServiceTestOptions,
 } from './service/types.js';
 import { projected } from './service/projected.js';
+import { readers } from './service/import-hooks.js';
+export { importHooksOf } from './service/import-hooks.js';
 export type {
   TypeshadeLanguageService,
   AnalyzeSourceFile,
@@ -383,10 +385,4 @@ export function createTypeshadeLanguageServiceWith(
     resolveImport: (fromUri, specifier) => tsHost.resolveImportUri(fromUri, specifier),
   });
   return service;
-}
-
-const readers = new WeakMap<TypeshadeLanguageService, ImportHooks>();
-
-export function importHooksOf(service: TypeshadeLanguageService): ImportHooks {
-  return readers.get(service) ?? {};
 }
