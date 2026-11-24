@@ -59,6 +59,8 @@ const MOCKS = [
   'src/compiler/ts/host-kernel-made-gl.test.ts',
   'src/core/host-kernel-counted.test.ts',
   'src/core/host-kernel-growing.test.ts',
+  'src/runtime/gl-compute-host.test.ts',
+  'src/runtime/gl-compute-textures.test.ts',
 ];
 
 // This file ran slower after other tests in the shared-worker measurements.
