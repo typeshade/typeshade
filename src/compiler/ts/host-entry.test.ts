@@ -808,7 +808,7 @@ declare const ys: storage<array<f32>, "read_write">;
     const build = face(LOGS);
     expect(dev.view).toBe(build.view);
     expect(build.code).not.toContain('__ts_console');
-    expect(build.code).not.toContain('_Console');
+    expect(build.code).not.toMatch(/__ts_wgsl = ".*_Console/);
   });
 
   it('prints the calls on the CPU tier, in invocation order, each line saying where it ran (change 0025)', async () => {

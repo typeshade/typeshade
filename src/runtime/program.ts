@@ -1481,7 +1481,7 @@ export class ProgramImpl implements Program {
      *  the entries of one module share (change 0120, M4). */
     module?: RhiShaderModule,
   ) {
-    const recorded = recording ? manifest.console : undefined;
+    const recorded = recording ? (manifest.console ?? manifest.variants?.console) : undefined;
     this.#wgsl = recorded?.wgsl ?? manifest.wgsl;
     this.#bindings = new Map((recorded?.bindings ?? manifest.bindings).map((b) => [b.name, b]));
     this.#log = recorded?.log;

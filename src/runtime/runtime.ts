@@ -83,7 +83,7 @@ export interface RuntimeOptions<D extends object = object> {
    *  the portable IR it carries when a load asks for a variant the build did not write
    *  (`load(m, { console: true })`), under the options the manifest was packed under
    *  (`packModule(m, { emit })`). The runtime never imports it itself, so a host that does
-   *  not pass it ships no emitter. */
+   *  not pass it ships no emitter. Normal builds need none for console variants. */
   readonly emit?: (manifest: Pack, options: { readonly console?: boolean }) => Pack;
 }
 
@@ -94,9 +94,9 @@ type RuntimeTier = 'webgpu' | 'webgl2';
 
 /** How `rt.load()` loads a program. */
 export interface LoadOptions {
-  /** Record the entries' `console.*` calls. Default: when the manifest carries the recorded
-   *  variant, which a build that records puts there (`vite dev`). A manifest without it is
-   *  emitted again with it by the runtime's `emit`, when it carries its IR. */
+  /** Record the entries' `console.*` calls. Defaults to the legacy enabled `console` variant
+   *  (`vite dev`); an optional `variants.console` stays disabled until requested. Either needs
+   *  no emitter. Without one, the runtime's `emit` can use retained IR. */
   readonly console?: boolean;
 }
 
@@ -340,7 +340,7 @@ export class RuntimeImpl implements Runtime {
           `The program needs the "${f}" feature, which this device lacks; request it, or pass the program in createRuntime({ programs }).`,
         );
     const record = options.console ?? program.console !== undefined;
-    if (record && program.console === undefined) {
+    if (record && program.console === undefined && program.variants?.console === undefined) {
       if (this.#emit === undefined || program.ir === undefined)
         throw new TypeError(
           this.#emit === undefined

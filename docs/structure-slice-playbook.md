@@ -58,10 +58,26 @@ Step C — move the declarations (`Move: pure`).
 - Check the open pull requests for your file (`mcp__github__list_pull_requests`, then the files of any that might touch it). If another open pull request edits the file, skip to your next file and come back later; if it is still open when everything else is done, stop and list it.
 - `bun run precommit --message-file <file>` for each commit; if it lists review items, read each location and add a truthful `Docs-Impact:` line. Never write that line without reading.
 - `bunx tsc --noEmit -p tsconfig.json`, `bunx tsc -p tsconfig.tests.json --noEmit`, `bun run lint`, `bun run format:check`, `bun run docs:refs`. `tsconfig.json` does not include the test files. `bun run build` runs the second command, so a type error in a test fails every job that builds; #1584 was red for that on 2026-11-24.
-- `bun scripts/bundle-boundary.ts` before step C is pushed. A split of a file that a bundle contains can raise the gzip size of that bundle, and `scripts/bundle-budget.json` has little headroom. Measured on 2026-11-24: `src/runtime/runtime.ts` loads `src/runtime/gl.ts` with a dynamic `import()`, the check builds one chunk, and Bun then gives each module below that import a lazy-init wrapper of 10 to 25 gzip bytes; seventeen new files split from `src/runtime/gl.ts` and `src/runtime/gl-draw.ts` cost 216 bytes. A `Move:` range may not change `scripts/bundle-budget.json`, and a rise of a budget is the owner's to approve. If the check prints FAIL for a budget: keep step C local, record the bytes at `origin/main` and at your head, report them, and go on with your next file.
+- `bun scripts/bundle-boundary.ts` before step C is pushed. A split of a file that a bundle contains can raise the gzip size of that bundle (`docs/structure-refactoring-plan.md`, decision D14). If the check prints FAIL for a budget, follow "The bundle budget" below.
 - Tests: let the shell expand the glob — `bunx vitest run src/*.test.ts <the directory of your file> src/core/spec-conformance`. A quoted glob such as `'src/*-policy.test.ts'` selects NOTHING here. Three root test files fail in this container on a clean `main` and pass in CI: `src/affected-tests.test.ts`, `src/doc-test-selection.test.ts`, and `src/publish-manifest.test.ts` when there is no build output. Any other failure is yours.
 - Traps that broke CI before: in no tracked `.ts` file, fixtures included, write a literal traceability marker (the word Verifies or Implements, a colon, then "Rule N.M" — build such a string from parts) unless you mean to register it; a relative import specifier that climbs out of the package; a non-existent repository-looking path with an extension. A file that a rule of `docs/language-design.md` names in its "Enforced by" line must contain the text `Rule N.M` (`src/reqs.test.ts`); when the moves will leave only re-exports in it, step A puts the marker `// Implements: Rule N.M` in place of one of its comment lines, so the file does not grow. An evidence citation in `src/core/coverage/**` is a symbol anchor (`path#Symbol`), never `path:line`; if a moved declaration is cited there, the anchor follows it only through a re-export — run `bun run bake:capability-coverage` and, if it reports a defect, stop that move (a `Move:` range may not edit the coverage rows) and report.
 - Never raise a number in `scripts/comment-baseline.json` or `scripts/file-size-baseline.json`. Never skip, disable or weaken a test. Never push to `main`.
+
+## The bundle budget
+
+A `Move:` range may not change `scripts/bundle-budget.json`. `CLAUDE.md` (Merging) approves in advance a budget pull request for the rise that a `Move: pure` range causes, within two limits. The orchestrating session measures the rise and merges that pull request. One agent then measures, and one pull request at a time changes the file.
+
+Do this when `bun scripts/bundle-boundary.ts` prints FAIL for a budget at the head of step C:
+
+1. Run the same command on `origin/main`. If it fails there, stop and report: your range is not the cause.
+2. Push the branch of step C, and open its pull request as a draft.
+3. Send the orchestrating session the pull request, its head commit and the FAIL lines.
+4. Go on with your next file.
+5. When the orchestrating session answers that the budget is merged, merge `origin/main` into the branch.
+6. Run the checks of "Before every push" again.
+7. Mark the pull request of step C ready for review, and merge it as this playbook says.
+
+The orchestrating session is the one that the opening prompt names. If the session has none, report the same facts in the final status.
 
 ## Merging — you close your own work
 

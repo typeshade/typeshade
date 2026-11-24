@@ -284,6 +284,37 @@ through the owner's account can too, so the rule is written here:
     the merge, the merging agent runs the checker of `main` on the range of the pull request and
     reads "pure". A pull request runs its own copy of the checker, so the run on `main` is the
     one that counts. The owner approved this on 2026-11-24: "승인".
+  - a pull request that raises a budget of `scripts/bundle-budget.json` because a `Move: pure`
+    range adds modules to a bundle. The owner approved this on 2026-11-24 with the word "추천".
+    A number here is `bytes`, `split.initial` or `split.total` of one bundle in that file. All
+    of these conditions hold:
+    - The session that orchestrates the structure refactoring measures the rise and merges it
+      (`docs/structure-slice-playbook.md`, The bundle budget).
+    - It changes only `scripts/bundle-budget.json` and the record of the rise in `CHANGELOG.md`.
+    - It covers one pull request of moves, which is open as a draft and has no conflict with
+      `origin/main`. Its body names that pull request, the commit of its head and the commit of
+      `origin/main` that was measured.
+    - Its body gives three numbers for each number that it changes: the number in the file on
+      `origin/main`, the number at the commit of the 1% limit below, and the measured number.
+    - `bun scripts/bundle-boundary.ts` passes on that commit of `origin/main`. If it fails
+      there, the rise has another cause.
+    - It changes a number only where that commit of `origin/main`, merged with the head of the
+      moves, is over the budget. A floor never changes.
+    - Each new number is the number that the check measures on that merge.
+    - Each new number is at most 0.2% above the number in the file on `origin/main`.
+    - Each new number is at most 1% above the number in the file at
+      `c4a12d3fa2d4847809eeba52a1278dbedee2346c`. A number that is absent there is not covered.
+    - The split adds no module that the rules of File size do not ask for. The body lists the
+      new modules, and says which shape of the split would avoid the rise or why none exists.
+    - Before the merge, the merging agent runs the checker of `main` on the range of the moves
+      and reads "pure".
+    - Before the merge, the merging agent measures again on the current `origin/main`. If a
+      number differs, the pull request takes the new number first.
+    - The pull request of the moves merges after it, when its own checks are green. If the
+      moves do not merge, the session that merged the rise opens a pull request that sets the
+      numbers back. That pull request is approved in advance too.
+
+    Past a limit, and for a rise from any other cause, the owner decides.
 
   Everything else waits for the owner to say "merge" in the conversation: a new proposal, and a
   change to a design rule, a public export, a surface section, a diagnostic code or the set of

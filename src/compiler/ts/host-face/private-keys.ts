@@ -5,6 +5,7 @@ import { layoutOf } from '../../../core/manifest.js';
 import { packLayout, type PackLayout } from '../../../core/manifest-types.js';
 import { authorTypeText } from '../context.js';
 import type { CollectedStruct } from '../structs.js';
+import { shaderField } from '../../../core/host-key.js';
 
 export function privateFieldsOf(
   collected: readonly CollectedStruct[],
@@ -55,4 +56,15 @@ export function keyedUniforms(
     return 'none' in layout ? u.layout : packLayout(layout);
   };
   return { ...gl, uniforms: gl.uniforms.map((u) => ({ ...u, layout: layoutOfUniform(u) })) };
+}
+
+export function writtenName(struct: CollectedStruct, key: string): string {
+  return struct.privateFields?.get(shaderField(key))?.written ?? shaderField(key);
+}
+
+export function keyedStructsOf(
+  structs: ReadonlyMap<string, StructDecl>,
+  collected: readonly CollectedStruct[],
+): ReadonlyMap<string, StructDecl> {
+  return keyedStructs(structs, privateFieldsOf(collected));
 }
