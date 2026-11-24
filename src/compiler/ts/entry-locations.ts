@@ -8,21 +8,10 @@ import { authorTypeText } from './context.js';
 import { makeDiagnostic, noteUse } from './diagnostic.js';
 import { refuseF64EntryIo, type F64IoPlace } from './lower/function-signature.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
-import { stageCallOf } from './stage-call.js';
 import { hasRefusedIoAttribute, type CollectedStruct } from './structs.js';
 import { isAttributed, take, type Param, type Demand } from './entry-locations/numbering.js';
-
-export function entryNode(
-  sourceFile: ts.SourceFile,
-  name: string,
-): ts.FunctionLikeDeclaration | undefined {
-  for (const st of sourceFile.statements) {
-    if (ts.isFunctionDeclaration(st) && st.name?.text === name && st.body !== undefined) return st;
-    const call = stageCallOf(st);
-    if (call?.declaration.name.text === name) return call.fn;
-  }
-  return undefined;
-}
+import { entryNode } from './entry-locations/entry-node.js';
+export { entryNode } from './entry-locations/entry-node.js';
 
 function fieldNode(sourceFile: ts.SourceFile, struct: string, field: string): ts.Node | undefined {
   let found: ts.Node | undefined;
