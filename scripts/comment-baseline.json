@@ -909,7 +909,7 @@
   "src/rhi/rhi-conformance.ts": 85,
   "src/rhi/rhi.ts": 117,
   "src/rhi/webgl2.test.ts": 16,
-  "src/rhi/webgl2.ts": 176,
+  "src/rhi/webgl2.ts": 144,
   "src/rhi/webgpu.test.ts": 10,
   "src/rhi/webgpu.ts": 36,
   "src/rule-citation.test.ts": 9,
