@@ -55,6 +55,7 @@ const shaderModulesUncached: Plugin = {
 const MOCKS = [
   'src/fuse.test.ts',
   'src/core/fuse-loading.test.ts',
+  'src/compiler/ts/host-entry-tiers.test.ts',
   'src/compiler/ts/host-kernel-made-gl.test.ts',
   'src/core/host-kernel-counted.test.ts',
   'src/core/host-kernel-growing.test.ts',
