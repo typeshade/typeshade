@@ -1,58 +1,5 @@
 // Implements: Rule 8.22, a kernel function's accepted loops lowered to compute entries (docs/language-design.md; traced in reqs/).
-// ═══ A kernel function's loops, lowered to the compute entries its call dispatches (0013) ═══
-//
-// The proof (`parallel-loop.ts`) says which of a kernel function's loops may run in any order.
-// This pass turns a function whose every loop it accepted into what the host call dispatches:
-//
-//   - one module, which every target but WGSL ignores, holding a `@compute` entry per loop, the
-//     functions the loops call, a uniform struct of the function's scalar parameters and each
-//     loop's start and trip count, and a storage binding per array parameter, read or
-//     read-write as the body uses it (Rule 8.23);
-//   - per loop, a range function the host runs on the CPU tier first: the statements before the
-//     loop, then the loop's start and bound, from which the call takes the trip count. Its arrays
-//     are read only by their `.length`, so the call hands it the lengths alone. A loop whose range
-//     reads an element, or the length of an array an earlier loop pushed onto, has a range the
-//     device holds (change 0094, part 1): a range entry of one invocation computes it into a trip
-//     buffer, the loop's entry reads its start and trip count there, and the call dispatches it
-//     indirectly. WebGL2 runs the same range function over the host copies of the arrays.
-//
-// Each invocation takes one iteration: `i = start + k * step` for the `k`th. It replays the
-// scalar statements before the loop, which write only its own locals (the body's shape, Rule
-// 8.22), and a `continue` of the loop's own becomes its `return`.
-//
-// A lane past the trip count does not return early (change 0096, Rule 8.22): a workgroup wholly
-// past the trip count returns as one, on a condition every invocation of it shares, and in the
-// workgroup that holds the last iteration a lane past the trip count runs iteration `n - 1`,
-// with its index clamped and every write of the iteration masked by its `_live` flag, so that
-// every lane of the workgroup runs the same control flow (`docs/hardware-notes.md`, A1). Where
-// the clamped lane would read what another lane of the dispatch writes, it skips the iteration
-// under the same flag instead (`laneSkips`, decision D2).
-//
-// A loop that reduces (`s += xs[i]`) runs at a workgroup of 256 in the tree order (Rule 7.2,
-// `core/kernel-tree.ts`): each invocation runs its iteration in a helper that starts the
-// variable from the identity and returns what it holds; the workgroup folds the 256 values by
-// the tree into one partial per workgroup, and a second entry folds the partials the same way,
-// one dispatch per level, until one is left. The call then runs the tail on the CPU tier: the
-// function's body with each loop replaced by combining its variables with what the GPU folded,
-// which gives the function's result.
-//
-// After its last loop a function may store into elements of its arrays (change 0094): the stores
-// run in a finish entry of one invocation, which the call dispatches after the loops. It replays
-// the scalar statements, combines what each loop reduced with what the GPU folded, as the tail
-// does, and runs the stores, each guarded by its array's length (`kernel-stores.ts`). A function
-// with no loop and such stores lowers to that entry alone (decision D7).
-//
-// A loop that pushes (change 0078) runs in three entries, a count, a scan in one workgroup of 256
-// and a store (`pushEntries`). An array that two loops push onto, or whose length the stores
-// after the loops read, has a length word (change 0094): one `u32` of a storage binding, at the
-// element a field of the uniform names. The first invocation of each scan starts the offsets at
-// it and writes the new length into it, and the entry that stores reads it. A call that passes a
-// held length runs the module lowered with `held`, in which every pushed array has its word;
-// without it, a function whose arrays need none lowers to the module it always did.
-//
-// A function this pass cannot lower runs on the CPU tier, and `noGpu` says why. A loop that
-// scatters or writes a texture, one that reaches a module binding or variable, a `bool`, and an
-// emulated `f64`, run on the CPU until the parts of change 0013 that add them.
+// Why: Rule 8.23 passes an array parameter to a loop's entry as a storage binding, read-write as the body uses it.
 
 import type {
   BindingDecl,
@@ -128,7 +75,6 @@ import { WGSL_RESERVED } from '../reserved-words.js';
 
 export { KERNEL_WORKGROUP };
 
-/** Lower kernel function `f` of `m`, whose loops `proof` judged, or say why it runs on the CPU. */
 export function lowerKernel(
   f: FuncDecl,
   m: ModuleDecl,
@@ -137,23 +83,18 @@ export function lowerKernel(
 ): KernelPlan | { readonly noGpu: string } {
   if (proof.shape !== undefined)
     return { noGpu: "its body is not the kernel call's shape (TS8070)" };
-  // The stores after the last loop (change 0094), which the front end guards by each array's
-  // length (`kernel-stores.ts`); in a function with no loop, every store (decision D7).
   const arrayNames = new Set(f.params.filter((p) => isRuntimeArray(p.type)).map((p) => p.name));
   const lastLoop = lastLoopOf(f.body);
   const stores = f.body.flatMap((st, i) => {
     const found = i > lastLoop ? storeAfterLoops(st, arrayNames) : undefined;
     return found !== undefined ? [found] : [];
   });
-  // A Map or a Set (change 0080): each add or set pushes a record, which the call applies.
   const collection = f.params.find((p) => p.type.kind === 'collection');
   if (collection !== undefined && stores.length > 0)
     return {
       noGpu: `it takes the ${collection.type.kind === 'collection' && collection.type.value === undefined ? 'Set' : 'Map'} "${collection.name}" and stores into an array after its loops`,
     };
-  // A loop whose range the device holds (change 0094, part 1).
   const device = deviceRangeLoops(f);
-  // A Map or a Set is uploaded, and its records sized, from trip counts the host knows.
   if (collection !== undefined && device.size > 0)
     return {
       noGpu: `it takes the ${collection.type.kind === 'collection' && collection.type.value === undefined ? 'Set' : 'Map'} "${collection.name}", and loop ${[...device][0]! + 1} reads its trip count from an array`,
@@ -168,26 +109,14 @@ export function lowerKernel(
       if (why !== undefined) return { noGpu: `it reduces "${r.name}", ${why}` };
     }
   }
-  // A loop that pushes (change 0078) runs on WebGPU in three steps: count, scan, store. The
-  // first step runs the iteration only to count, so it may write nothing the iteration reads.
   for (const [j, v] of proof.loops.entries()) {
     const why = v.ok ? pushGap(v, j) : undefined;
     if (why !== undefined) return { noGpu: why };
   }
-  // The loops that push onto each array, in order (change 0078). A second loop appends after the
-  // first: both start at the array's length word, which each one's scan step advances (change
-  // 0094, which closes deviation 3 of change 0078).
   const pushers = new Map<string, number[]>();
   for (const [j, v] of proof.loops.entries())
     for (const w of v.ok ? v.writes : [])
       if (w.kind === 'append') pushers.set(w.name, [...(pushers.get(w.name) ?? []), j]);
-  // The length of a pushed array (`pushCount`) is known once its loops have run: the result reads
-  // it, and so may a statement after the last loop, which the entry that stores after the loops
-  // reads from the array's length word (change 0094). A loop, or a statement before the last
-  // loop, would read it before the call knows it.
-  // A statement before a later loop, or that loop's header, may read it too, when every loop that
-  // pushes onto the array comes before the statement: the later loop's range is then the device's,
-  // and its range entry reads the array's length word (change 0094, part 1).
   if (earlyPushCount(f.body, pushers))
     return {
       noGpu:
@@ -196,7 +125,6 @@ export function lowerKernel(
   const textures = f.params.filter((p) => isTextureParam(p.type));
   const scalars = f.params.filter((p) => !isRuntimeArray(p.type) && !isTextureParam(p.type));
   const arrays = f.params.filter((p) => isRuntimeArray(p.type));
-  // A kernel call binds a texture_2d<f32> it reads and a 2D storage texture (change 0077).
   for (const p of textures)
     if (
       !(p.type.kind === 'texture' && p.type.dim === '2d' && p.type.elem === 'f32') &&
@@ -206,9 +134,6 @@ export function lowerKernel(
         noGpu: `parameter "${p.name}" is a texture a kernel call does not bind: it binds a texture_2d<f32> and a 2D storage texture`,
       };
   const textureNames = new Set(textures.map((p) => p.name));
-  // An integer array a loop scatters into (`bins[k] += 1`) is `array<atomic<T>>` in the
-  // module, and each such write an atomic, which is exact in any order. Each write keeps its own
-  // operator: two loops may scatter into one array with `&` and `|`.
   const scatter = new Set<string>();
   for (const v of proof.loops)
     if (v.ok)
@@ -235,8 +160,6 @@ export function lowerKernel(
     const why = notStorage((p.type as { elem: ShaderType }).elem, m);
     if (why !== undefined) return { noGpu: `parameter "${p.name}" holds ${why}` };
   }
-  // What the loops reach beyond their own parameters: a module binding or variable is not
-  // something the call passes.
   const reads = fnReads(m);
   const writes = fnWrites(m);
   const moduleNames = new Set([
@@ -257,13 +180,9 @@ export function lowerKernel(
     return {
       noGpu: `the module already declares "${argsBinding}", the name the call's uniform takes`,
     };
-  // The length word of each pushed array that needs one (change 0094): every pushed array for a
-  // call that passes a held length; otherwise an array two loops push onto, and one whose length
-  // a statement after the last loop reads when the entry that stores after the loops replays it.
   const afterLoops = f.body.slice(lastLoop + 1).filter((st) => st.s !== 'return');
   const lengthsRead = new Set([
     ...(stores.length > 0 ? pushCountsIn(afterLoops) : []),
-    // A length a later loop's range reads (change 0094, part 1).
     ...pushCountsBetween(f.body),
   ]);
   const declared = declaredNames(m);
@@ -285,8 +204,6 @@ export function lowerKernel(
     wordOf.set(name, word);
   }
 
-  // The trip buffer (change 0094, part 1): the range entries write it, and the loops' entries
-  // read it, under two bindings of one buffer.
   let trips: { readonly write: string; readonly read: string } | undefined;
   if (device.size > 0) {
     trips = { write: `${f.name}_trips`, read: `${f.name}_tripsIn` };
@@ -309,7 +226,6 @@ export function lowerKernel(
   );
   const plans: KernelLoopPlan[] = [];
   const entries: FuncDecl[] = [];
-  // The subgroup variant of each entry that has one (change 0119), by the entry it stands for.
   const variantOf = new Map<FuncDecl, FuncDecl>();
   const ranges: FuncDecl[] = [];
   const extraStructs: StructDecl[] = [];
@@ -318,8 +234,6 @@ export function lowerKernel(
   const prelude: Stmt[] = [];
   let loopIndex = 0;
   let counterType: ShaderType | undefined;
-  // A statement after a loop that reduces, reading what it reduces: the loops after it would
-  // replay it before the GPU has folded the variable.
   const reduced = new Set<string>();
   let readsReduced: string | undefined;
   for (const st of f.body) {
@@ -341,12 +255,7 @@ export function lowerKernel(
     if (counterType !== undefined && typeKey(counterType) !== typeKey(header.type))
       return { noGpu: 'its loops count with counters of two types' };
     counterType = header.type;
-    // A range that reads only the arrays' `.length` is the host's: the call hands the range
-    // function the lengths. One that reads an element, or a pushed array's length, is the
-    // device's (change 0094, part 1): a range entry computes it, and the call dispatches the
-    // loop indirectly from the counts the entry writes.
     const onDevice = device.has(j);
-    // The CPU tier has no texture memory yet, so what the call computes there names none.
     const before = firstName(
       [
         ...prelude,
@@ -388,14 +297,11 @@ export function lowerKernel(
     }
     const written = new Set<string>();
     if (v.ok) for (const w of v.writes) written.add(w.name);
-    // A loop whose range the device holds is checked by no host: its writes past an array's end
-    // are dropped on every tier, by the guard the front end gave them (decision D2).
     const checks: KernelLoopPlan['checks'][number][] = [];
     if (v.ok && !onDevice)
       for (const w of v.writes)
         if (w.kind === 'affine' && arrays.some((p) => p.name === w.name))
           for (const c of w.c) checks.push({ param: w.name, a: w.a, c });
-    // Each texture the loop stores into, with the function that gives its row width `W`.
     const texels: NonNullable<KernelLoopPlan['texels']>[number][] = [];
     if (v.ok)
       for (const w of v.writes) {
@@ -415,8 +321,6 @@ export function lowerKernel(
         ranges.push(width);
         texels.push({ param: w.name, width: width.name });
       }
-    // Each array the loop writes at `i*k + b` or at `i*W + x`, with the functions that give `k`
-    // and `b`, or `W`, which the call checks against the array's length (#775).
     const strides: NonNullable<KernelLoopPlan['strides']>[number][] = [];
     const rows: NonNullable<KernelLoopPlan['rows']>[number][] = [];
     const rangeFn = (suffix: string, e: Expr): FuncDecl => {
@@ -446,10 +350,6 @@ export function lowerKernel(
           rows.push({ param: w.name, width: rangeFn('row', w.width).name });
         }
       }
-    // The reads of an array the loop does not write, checked at the call over the iterations where
-    // the comparisons of the counter they stand under hold (#997). A bound the host cannot compute,
-    // one that reads an element of an array or a texture, is left out: the read is then checked
-    // over the iterations the other comparisons keep, or over the whole loop.
     if (v.ok && !onDevice) {
       const arrayNames = new Set(arrays.map((p) => p.name));
       let guardCount = 0;
@@ -502,7 +402,6 @@ export function lowerKernel(
       words: wordOf,
       ...(onDevice ? { trips: { binding: trips!.read, at: TRIP_WORDS * j } } : {}),
     };
-    // The range entry of a loop whose range the device holds (change 0094, part 1).
     let rangeEntry: FuncDecl | undefined;
     if (onDevice) {
       rangeEntry = rangeEntryFor(loopCtx, header, trips!.write);
@@ -514,7 +413,6 @@ export function lowerKernel(
       step: counted.step,
       writes: [...written].filter((n) => arrays.some((p) => p.name === n)),
       checks,
-      // Absent when the loop stores into no texture, so a face without one is the face it was.
       ...(texels.length > 0 ? { texels } : {}),
       ...(strides.length > 0 ? { strides } : {}),
       ...(rows.length > 0 ? { rows } : {}),
@@ -549,9 +447,6 @@ export function lowerKernel(
     if (reductions.length === 0) {
       const { entry, iteration } = entryFor(loopCtx);
       entries.push(entry);
-      // The subgroup variant of a loop that scatters (change 0119): the writes are deferred to
-      // the end of the iteration, which a `continue` (a return of the entry) would skip, and a
-      // write inside an inner loop may happen more than once a lane, so neither gets one.
       const folds =
         loopCtx.scatter.size > 0 && !continues && scattersAtMostOnce(st.body, loopCtx.scatter);
       if (folds) variantOf.set(entry, entryFor({ ...loopCtx, subgroupScatter: true }).entry);
@@ -568,8 +463,6 @@ export function lowerKernel(
     }
     const lowered = reductionEntries(loopCtx, reductions);
     entries.push(...lowered.funcs);
-    // The subgroup variant of a loop that reduces (change 0119): every variable it reduces folds
-    // to one value in every order, so the bits stay the tree's.
     const folds = reductions.every(subgroupFoldable);
     if (folds) {
       const variant = reductionEntries({ ...loopCtx, subgroup: true }, reductions);
@@ -590,7 +483,6 @@ export function lowerKernel(
     });
   }
 
-  // The tail: the body with each loop replaced by combining what it reduced, and its return.
   let tail: FuncDecl | undefined;
   if (f.ret.kind !== 'void') {
     const folded: { name: string; type: ShaderType }[] = [];
@@ -599,7 +491,6 @@ export function lowerKernel(
     const body: Stmt[] = [];
     for (const st of f.body) {
       if (st.s !== 'for') {
-        // A store after the loops is the finish entry's (change 0094): the result reads none.
         if (storeAfterLoops(st, arrayNames) === undefined) body.push(st);
         continue;
       }
@@ -609,7 +500,6 @@ export function lowerKernel(
         folded.push(t);
         body.push(combineInto(r, { op: 'param', type: r.type, name: t.name }));
       }
-      // The count a loop pushed, which the call reads back (change 0078).
       const pushed = v.ok ? v.writes.find((w) => w.kind === 'append')?.name : undefined;
       if (pushed !== undefined) {
         const t = { name: `_t${k - 1}_push_${pushed}`, type: u32T };
@@ -617,7 +507,6 @@ export function lowerKernel(
         pushCounts.set(pushed, t.name);
       }
     }
-    // `out.length` of a pushed array reads the count the loop pushed.
     const counted = (e: Expr): Expr => {
       const x = mapChildren(e, counted);
       const p = x.op === 'call' && x.fn === 'pushCount' ? x.args[0] : undefined;
@@ -649,11 +538,6 @@ export function lowerKernel(
     ranges.push(tail);
   }
 
-  // The stores after the loops (change 0094): one entry of one invocation, which the call
-  // dispatches after the loops' dispatches, replays the function's scalar statements in order,
-  // combines each variable a loop reduced with what the GPU folded, as the tail does, and runs
-  // the stores, each guarded by its array's length. The CPU-tier function of the same body is
-  // what WebGL2 runs over the host's arrays after its draws.
   let finish: KernelPlan['finish'];
   const atFields: { name: string; type: ShaderType }[] = [];
   if (stores.length > 0) {
@@ -683,8 +567,6 @@ export function lowerKernel(
       if (e.op === 'param' && scalarSet.has(e.name)) return field(e.name, e.type);
       if (e.op === 'param' && arraySet.has(e.name))
         return { op: 'varref', type: e.type, name: bindingNames.get(e.name) ?? e.name };
-      // The length of a pushed array is its length word, which the loops' scan steps advanced
-      // (change 0094).
       const pushed = e.op === 'call' && e.fn === 'pushCount' ? e.args[0] : undefined;
       if (pushed?.op === 'param') {
         const word = wordOf.get(pushed.name)!;
@@ -762,20 +644,15 @@ export function lowerKernel(
     name: argsStruct,
     fields: [
       ...scalars.map((p) => ({ name: p.name, type: p.type })),
-      // A function with no loop (change 0094, decision D7) counts nothing: its `_start` is a
-      // `u32` the finish entry never reads.
       { name: '_start', type: counterType ?? u32T },
       { name: '_n', type: u32T },
-      // Where a level of partials starts, and where the next is written.
       ...(partBindings.length > 0
         ? [
             { name: '_in', type: u32T },
             { name: '_out', type: u32T },
           ]
         : []),
-      // Where the finish entry reads what each loop that reduces folded (change 0094).
       ...atFields,
-      // The element of each length word's binding the word is at (change 0094).
       ...words.map((w) => ({ name: w.field, type: u32T })),
     ],
   };
@@ -804,7 +681,6 @@ export function lowerKernel(
       access: 'read_write',
       type: { kind: 'array', elem: p.type },
     })),
-    // Each texture parameter is a handle binding of its own type (change 0077).
     ...textures.map((p, k): BindingDecl => ({
       group: 0,
       binding: arrays.length + 1 + partBindings.length + k,
@@ -812,8 +688,6 @@ export function lowerKernel(
       space: 'uniform',
       type: p.type,
     })),
-    // The trip buffer's two bindings (change 0094, part 1), before the length words, so that the
-    // second WGSL text of a call that passes a held length binds them where the first does.
     ...(trips !== undefined
       ? [
           {
@@ -834,8 +708,6 @@ export function lowerKernel(
           } satisfies BindingDecl,
         ]
       : []),
-    // Each length word's binding (change 0094), after every other, so that a module with words
-    // binds the others where the module without them does.
     ...words.map((w, k): BindingDecl => ({
       group: 0,
       binding:
@@ -869,8 +741,6 @@ export function lowerKernel(
     if (every.some((e) => stillPlain(e.body, bindingNames.get(name) ?? name)))
       return { noGpu: `it scatters into "${name}" at a place other than an element` };
   }
-  // The subgroup variant (change 0119): the same module with each entry that has a variant
-  // replaced by it. Its calls of the subgroup functions derive `enable subgroups;`.
   const subgroupModule: ModuleDecl | undefined =
     variantOf.size === 0
       ? undefined
@@ -890,17 +760,8 @@ export function lowerKernel(
   };
 }
 
-/** The words of the trip buffer each loop whose range the device holds has (change 0094): the
- *  start's bits, the trip count, and the workgroup count `[x, y, 1]` of its entry, then three
- *  words of room. */
 export const TRIP_WORDS = 8;
 
-/** Why loop `j`, whose range the device holds, cannot run on WebGPU in this lowering (change 0094,
- *  part 1), or undefined. A loop that pushes or reduces needs scratch the call sizes from its trip
- *  count; a texture's rows are checked against the trip count on the host (change 0077); the GPU
- *  runs only an assignment over such a count, since a call that writes through a reference may
- *  sit inside an expression, where no guard reaches it; and each invocation replays the
- *  statements before the loop, so the loop may not write what they read. */
 function deviceGap(
   v: Extract<KernelProof['loops'][number], { ok: true }>,
   j: number,
@@ -926,14 +787,6 @@ function deviceGap(
   return undefined;
 }
 
-/**
- * The range entry of loop `c.j`, whose range the device holds (change 0094, part 1): one
- * invocation that runs the statements before the loop over the bound arrays, computes the start
- * and the trip count as the call's `tripsOf` does, and writes them, and the workgroup count of
- * the loop's entry, into the trip buffer `out` at `c.trips.at`. A count past 65,535 workgroups
- * spills into `y`, as the call's `grid` does, and a trip count of 0 gives `y = 0`, which
- * dispatches no workgroup.
- */
 function rangeEntryFor(
   c: LoopCtx,
   header: { start: Expr; bound: Expr; cop: KernelLoopPlan['cop']; type: ShaderType },
@@ -1030,13 +883,6 @@ function rangeEntryFor(
   return computeEntry(`${c.f.name}_range${c.j}`, body, false, 1);
 }
 
-/** Whether a lane past the trip count must skip the iteration rather than run iteration `n - 1`
- *  beside the lane that runs it (change 0096, decision D2): where that iteration reads an
- *  element it also writes, the clamped lane would read what the other lane writes in the same
- *  dispatch, a data race. The cases: the loop reads back an element of an array it writes
- *  (R4), it loads a texel of a texture it stores (R4), or it writes through an object argument
- *  of a call (Rule 8.25), whose store is in the callee. A fused group with an edge is the
- *  fourth, decided in `fuse-entry.ts`. */
 function laneSkips(
   v: Extract<KernelProof['loops'][number], { ok: true }>,
   body: readonly Stmt[],
@@ -1062,9 +908,6 @@ function laneSkips(
   return found;
 }
 
-/** A map loop's entry, and the index in its body where the iteration starts: after the
- *  statements that index the invocation, return a workgroup wholly past the trip count and set
- *  the lane's flag (change 0096). */
 function entryFor(c: LoopCtx): { entry: FuncDecl; iteration: number } {
   const n = c.trips === undefined ? argsOf(c)('_n', u32T) : tripWord(c, 1);
   const scaffold = laneScaffold(c.wg, n);
@@ -1084,12 +927,6 @@ function entryFor(c: LoopCtx): { entry: FuncDecl; iteration: number } {
   };
 }
 
-// ─── a loop that reduces ─────────────────────────────────────────────────────────────────────
-
-/** The functions, the struct and the workgroup memory a reduction loop lowers to: a helper that
- *  runs iteration `_k` from the identity and returns the variables, the loop's entry that folds
- *  what its workgroup's helpers returned into one partial each, and the entry that folds a level
- *  of partials (`_n` of them from `_in`, written from `_out`). */
 function reductionEntries(
   c: LoopCtx,
   reductions: readonly LoopReduction[],
@@ -1100,7 +937,6 @@ function reductionEntries(
   vars: (LoopReduction & { binding: string })[];
   entry: string;
   reduceEntry: string;
-  /** The helper that runs one iteration. */
   iterate: string;
 } {
   const base = `${c.f.name}_loop${c.j}`;
@@ -1122,9 +958,6 @@ function reductionEntries(
     type: structT,
     args: reductions.map((r) => ({ op: 'varref', type: r.type, name: r.name })),
   };
-  // The helper reads `_k` and the lane's `_live` as its parameters (change 0096): a lane past
-  // the trip count runs iteration `_n - 1` through it with every write masked, and its entry
-  // gives the tree the identity instead of what the helper returns.
   const liveParam: Expr = { op: 'param', type: boolT, name: '_live' };
   const iterate = iterationOf(
     c,
@@ -1172,7 +1005,6 @@ function reductionEntries(
     expr: { op: 'call', type: { kind: 'void' }, fn: 'workgroupBarrier', args: [] },
   };
   const inRange: Expr = { op: 'compare', type: boolT, cop: '<', a: kRef, b: field('_n', u32T) };
-  // The tree: at stride 128, then 64, down to 1, slot `t` becomes `slot[t] op slot[t + s]`.
   const tree: Stmt[] = [barrier];
   for (let stride = KERNEL_TREE >> 1; stride > 0; stride >>= 1) {
     tree.push({
@@ -1188,9 +1020,6 @@ function reductionEntries(
         },
       ],
     });
-    // At stride 1 only lane 0 writes, and the store below reads that slot on lane 0
-    // too. No invocation consumes another invocation's result after this last step.
-    // Keep every earlier barrier: the next stride reads values other lanes wrote.
     if (stride > 1) tree.push(barrier);
   }
   const group = bin('+', x(wid), bin('*', y(wid), x(nwg)));
@@ -1212,8 +1041,6 @@ function reductionEntries(
     args: [k, liveRef],
     declRef: helper,
   });
-  // A lane past the trip count runs iteration `_n - 1` and gives the tree the identity (change
-  // 0096); where the lane skips (decision D2), it runs nothing, as every lane did before.
   const ranRef: Expr = { op: 'varref', type: structT, name: '_ran' };
   const iteration: Stmt[] = c.skip
     ? [
@@ -1229,11 +1056,6 @@ function reductionEntries(
           arms: [{ cond: liveRef, body: [{ s: 'assign', target: sumsRef, expr: ranRef }] }],
         },
       ];
-  // The subgroup variant (change 0119): each lane's value folds over its subgroup with the
-  // subgroup function of the operator, lane 0 of each subgroup writes the fold to the slot of its
-  // `subgroup_id`, and after one barrier lane 0 of the workgroup combines the `num_subgroups`
-  // slots into slot 0, which `store` reads as it reads the tree's. The operators are those for
-  // which every order gives one value, so the bits are the tree's.
   const subgroupFold = (value: (r: LoopReduction) => Expr): Stmt[] => {
     const sgi: Expr = { op: 'param', type: u32T, name: '_sgi' };
     const sgid: Expr = { op: 'param', type: u32T, name: '_sgid' };
@@ -1382,9 +1204,6 @@ function reductionEntries(
   };
 }
 
-/** Whether `r` gives one value in every order, so its subgroup fold writes the tree's bits: an
- *  integer operator on `u32` or `i32`, or `min` and `max` on those or on `f32`; a scalar or a
- *  vector of one. An `f32` sum or product, an emulated double and a `bool` stay on the tree. */
 function subgroupFoldable(r: LoopReduction): boolean {
   const t = r.type;
   const elem = t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined;
@@ -1393,8 +1212,6 @@ function subgroupFoldable(r: LoopReduction): boolean {
   return false;
 }
 
-/** Whether every write into an array of `scatter` in `body` happens at most once a lane: none is
- *  inside a loop of the body. A `switch` or an `if` around one is a predicate of the slots. */
 function scattersAtMostOnce(body: readonly Stmt[], scatter: ReadonlySet<string>): boolean {
   const writesInto = (sts: readonly Stmt[]): boolean => {
     let found = false;
@@ -1433,21 +1250,17 @@ function scattersAtMostOnce(body: readonly Stmt[], scatter: ReadonlySet<string>)
   return ok;
 }
 
-/** `a op b` in `r`'s type. */
 function combineOf(r: LoopReduction, a: Expr, b: Expr): Expr {
   return r.op === 'min' || r.op === 'max'
     ? { op: 'call', type: r.type, fn: r.op, args: [a, b] }
     : { op: 'binop', type: r.type, bop: r.op, a, b };
 }
 
-/** `s = s op t`, in the tail. */
 function combineInto(r: LoopReduction, t: Expr): Stmt {
   const target: Expr = { op: 'varref', type: r.type, name: r.name };
   return { s: 'assign', target, expr: combineOf(r, target, t) };
 }
 
-/** The identity of `r`'s operator in its type, spelled exactly: `-0` and the largest finite
- *  `f32` through their bits. */
 function identityOf(r: LoopReduction): Expr {
   const t = r.type;
   if (t.kind === 'f64' || t.kind === 'vec64') {
@@ -1471,12 +1284,9 @@ function identityOf(r: LoopReduction): Expr {
   return t.kind === 'vec' ? { op: 'construct', type: t, args: new Array<Expr>(t.n).fill(e) } : e;
 }
 
-/** The largest finite f32, the emulated double's `min` identity on the GPU. */
 const F32_MAX_VALUE = 3.4028234663852886e38;
 
-/** Why a reduction variable of type `t` cannot be folded on the GPU, or undefined. */
 function notReducible(t: ShaderType): string | undefined {
-  // An emulated double folds by the same tree, its combine the emulation's own.
   if (t.kind === 'f64' || t.kind === 'vec64') return undefined;
   const scalar = t.kind === 'scalar' ? t.scalar : t.kind === 'vec' ? t.elem : undefined;
   if (scalar === undefined) return `a ${t.kind}, which the GPU does not fold`;
@@ -1485,7 +1295,6 @@ function notReducible(t: ShaderType): string | undefined {
   return `an ${scalar}, which the call does not fold on the GPU`;
 }
 
-/** The first of `names` that `sts` read. */
 function firstName(sts: readonly Stmt[], names: ReadonlySet<string>): string | undefined {
   if (names.size === 0) return undefined;
   let found: string | undefined;
@@ -1505,8 +1314,6 @@ function firstName(sts: readonly Stmt[], names: ReadonlySet<string>): string | u
   return found;
 }
 
-/** Whether the loop's body has a `continue` of its own: the ones {@link ownContinuesReturn}
- *  turns into a `return`, found by the same walk. */
 function hasOwnContinue(body: readonly Stmt[]): boolean {
   return body.some((st) => {
     switch (st.s) {
@@ -1528,8 +1335,6 @@ function hasOwnContinue(body: readonly Stmt[]): boolean {
   });
 }
 
-/** Whether `sts` read the array `name` other than as an atomic's place or through its length,
- *  the two operands `access.ts` says read no element as a value (#348). */
 function readsOutsideAtomics(sts: readonly Stmt[], name: string): boolean {
   let found = false;
   const visit = (e: Expr): void => {
@@ -1541,7 +1346,6 @@ function readsOutsideAtomics(sts: readonly Stmt[], name: string): boolean {
     eachOperand(e, (c, access) => {
       if (access === 'value') visit(c);
       else if (isAtomicAccess(access)) {
-        // The place's own indices are still read.
         for (let b = c; b.op === 'index' || b.op === 'member'; b = b.base)
           if (b.op === 'index') visit(b.idx);
       }
@@ -1550,7 +1354,6 @@ function readsOutsideAtomics(sts: readonly Stmt[], name: string): boolean {
   for (const st of sts)
     mapStmt(st, (e) => {
       if (st.s === 'assign' || st.s === 'assignOp') {
-        // A write's target is not a read; `stillPlain` answers for it.
         if (e === st.target) return e;
       }
       visit(e);
@@ -1559,8 +1362,6 @@ function readsOutsideAtomics(sts: readonly Stmt[], name: string): boolean {
   return found;
 }
 
-/** Whether `sts` still write the array `name` as a plain place, which `toAtomics` did not turn
- *  into an atomic. */
 function stillPlain(sts: readonly Stmt[], name: string): boolean {
   let found = false;
   const walk = (st: Stmt): void => {
@@ -1583,9 +1384,6 @@ function rootOf(e: Expr): string | undefined {
   return b.op === 'varref' || b.op === 'param' ? b.name : undefined;
 }
 
-/** Whether `sts` read the arrays `names` only as `arrayLength(a)`: only through an operand
- *  `access.ts` says is measured and not read (#348). */
-/** Whether `t` is a texture a kernel function takes as a parameter (change 0077). */
 function isTextureParam(t: ShaderType): boolean {
   return t.kind === 'texture' || t.kind === 'storage-texture';
 }
@@ -1613,12 +1411,10 @@ function readsArraysByLengthOnly(sts: readonly Stmt[], names: readonly string[])
   return ok;
 }
 
-/** Why a scalar parameter cannot be a uniform field, or undefined. */
 function notUniform(t: ShaderType, m: ModuleDecl): string | undefined {
   return notShareable(t, m, new Set());
 }
 
-/** Why an array element cannot live in a storage buffer the call packs, or undefined. */
 function notStorage(t: ShaderType, m: ModuleDecl): string | undefined {
   return notShareable(t, m, new Set());
 }
@@ -1631,8 +1427,6 @@ function notShareable(t: ShaderType, m: ModuleDecl, seen: Set<string>): string |
       return t.elem === 'bool' ? 'a bool vector, which no buffer holds' : undefined;
     case 'mat':
       return t.elem === 'f64' ? 'a matrix of f64, which has no host value yet' : undefined;
-    // An emulated double: two f32s in the buffer, which the call splits and joins (0013's
-    // f64 split), and the module's `_fp64` guard, which the call binds.
     case 'f64':
     case 'vec64':
       return undefined;
@@ -1654,12 +1448,6 @@ function notShareable(t: ShaderType, m: ModuleDecl, seen: Set<string>): string |
   }
 }
 
-// ─── a loop that pushes (change 0078) ────────────────────────────────────────────────────────
-
-/** Why loop `j`, which the proof accepted, cannot run in the three steps of a push, or undefined
- *  when it can or pushes nothing. The first step runs the iteration only to count its pushes:
- *  it stores nothing, so an iteration that reads back what it wrote would read other values
- *  there, and a reduction or a scatter would combine twice. */
 function pushGap(
   v: Extract<KernelProof['loops'][number], { ok: true }>,
   j: number,
@@ -1681,10 +1469,6 @@ function pushGap(
   return undefined;
 }
 
-/** Whether `body` reads the length of an array it pushes onto (`pushCount`) before the call knows
- *  it: in a loop's body, or in a statement before the last loop or a loop's header while a loop
- *  at or after it pushes onto the array (changes 0078 and 0094). `pushers` holds the loops that
- *  push onto each array, by index. */
 function earlyPushCount(
   body: readonly Stmt[],
   pushers: ReadonlyMap<string, readonly number[]>,
@@ -1706,13 +1490,10 @@ function earlyPushCount(
   return false;
 }
 
-/** A loop's start and condition as statements a walk reads. */
 function headerStmts(loop: ForStmt): Stmt[] {
   return [loop.init, { s: 'call', expr: loop.cond } as Stmt];
 }
 
-/** The arrays whose pushed length a statement before the last loop, or a loop's header, reads
- *  (change 0094): a later loop's range reads it from the array's length word. */
 function pushCountsBetween(body: readonly Stmt[]): Set<string> {
   const last = lastLoopOf(body);
   return pushCountsIn(
@@ -1722,7 +1503,6 @@ function pushCountsBetween(body: readonly Stmt[]): Set<string> {
   );
 }
 
-/** The array parameters whose pushed count, `pushCount`, `sts` read anywhere (change 0094). */
 function pushCountsIn(sts: readonly Stmt[]): Set<string> {
   const found = new Set<string>();
   const visit = (e: Expr): void =>
@@ -1735,10 +1515,6 @@ function pushCountsIn(sts: readonly Stmt[]): Set<string> {
   return found;
 }
 
-// ─── A Map or a Set (change 0080) ────────────────────────────────────────────────────────────
-
-/** How many `add` or `set` calls on `name` one run of `sts` makes at most, or undefined when one
- *  is inside a nested loop, whose trips the call does not count. */
 function addsPerRun(sts: readonly Stmt[], name: string): number | undefined {
   const adds = (e: Expr): number => {
     let n = 0;
@@ -1780,7 +1556,6 @@ function addsPerRun(sts: readonly Stmt[], name: string): number | undefined {
   return nested ? undefined : total;
 }
 
-/** Whether `sts` read the Map or Set `name`: a `has`, a `get` or a `size`. */
 function readsCollection(sts: readonly Stmt[], name: string): boolean {
   let found = false;
   const visit = (e: Expr): void =>
@@ -1798,13 +1573,6 @@ function readsCollection(sts: readonly Stmt[], name: string): boolean {
   return found;
 }
 
-/**
- * Lower a kernel function that takes a Map or a Set (change 0080, part 2). Each loop that adds to
- * one pushes a record for each `add` or `set` onto an array of its own, as change 0078 lowers a
- * push: the records land in the order a sequential run makes them, and the call applies them to
- * the caller's Map or Set in that order. ECMAScript's own `add` and `set` then give the entries,
- * the value set last and the insertion order, on every tier the same.
- */
 function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly noGpu: string } {
   const loops = f.body.filter((st): st is ForStmt => st.s === 'for');
   const taken = declaredNames(m);
@@ -1823,14 +1591,11 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
     const what = `the ${t.value === undefined ? 'Set' : 'Map'} "${p.name}"`;
     const adding = loops.flatMap((l, j) => (addsPerRun(l.body, p.name) !== 0 ? [j] : []));
     const reading = loops.flatMap((l, j) => (readsCollection(l.body, p.name) ? [j] : []));
-    // A loop reads what the loops before it added: the call applies their records first. A loop
-    // that adds after one that reads would change what the earlier one read.
     if (reading.length > 0 && adding.some((a) => a >= reading[0]!))
       return {
         noGpu: `loop ${adding.find((a) => a >= reading[0]!)! + 1} adds to ${what}, which loop ${reading[0]! + 1} reads before it, and the call uploads a collection once`,
       };
     if (reading.length > 0) {
-      // The keys as order words with their count first, and a Map's values beside them.
       const fresh = (base: string): string => {
         let name = base;
         while (taken.has(name)) name = `_${name}`;
@@ -1864,7 +1629,6 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
       return {
         noGpu: `loop ${j + 1} adds to ${what} inside a nested loop, whose trips the call does not count`,
       };
-    // The record: the key, and for a Map the value with it.
     let records = `_${p.name}_records`;
     while (taken.has(records)) records = `_${records}`;
     taken.add(records);
@@ -1886,7 +1650,6 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
     params.push({ name: records, type: { kind: 'array', elem }, mode: 'inout' });
     collections.push({ param: p.name, records, loop: j, perIteration });
   }
-  // Each add or set, a push of its record.
   const byParam = new Map(collections.map((c) => [c.param, c]));
   const recordOf = (x: Expr & { op: 'call' }): Expr | undefined => {
     const target = x.args[0];
@@ -1901,7 +1664,6 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
         : { op: 'construct', type: elem, args: [x.args[1]!, x.args[2]!] };
     return { op: 'call', type: u32T, fn: 'push', args: [arr, value] };
   };
-  // Each has, get and size of a collection the loops read, a search of its keys.
   const lookupOf = (y: Expr & { op: 'call' }): Expr | undefined => {
     const target = y.args[0];
     const l = target?.op === 'param' ? finders.get(target.name) : undefined;
@@ -1945,15 +1707,11 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
     return y;
   };
   const stmt = (st: Stmt): Stmt => mapStmtExpr(st, rewrite, stmt);
-  // Only the loops are rewritten: the statements around them run on the CPU tier, which reads
-  // the collection itself.
   const lowered: FuncDecl = {
     ...f,
     params: [...f.params.filter((p) => p.type.kind !== 'collection'), ...params],
     body: f.body.map((st) => (st.s === 'for' ? stmt(st) : st)),
   };
-  // What is left of a collection outside the loops (a `size` the result reads) is the CPU
-  // tier's: the call hands the range functions and the tail the collection itself.
   const m2: ModuleDecl = {
     ...m,
     structs: [...m.structs, ...structs],
@@ -1964,8 +1722,6 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
   if (proof2.loops.some((l) => !l.ok)) return { noGpu: 'a loop of it runs on the CPU (TS8070)' };
   const plan = lowerKernel(lowered, m2, proof2);
   if ('noGpu' in plan) return plan;
-  // The range functions and the tail take the function's own parameters, the collections among
-  // them, and none of the record arrays, which only the loops write.
   const own = (fn: FuncDecl): FuncDecl => ({
     ...fn,
     params: [...f.params, ...fn.params.slice(lowered.params.length)],
@@ -1978,15 +1734,8 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
   };
 }
 
-/** What a search gives for a key the collection does not hold. */
 const NOT_FOUND = 0xffffffff;
 
-/**
- * The order word of a key (change 0080): one `u32` for each key, equal for two keys exactly when
- * SameValueZero calls them equal. A `u32` is itself, an `i32` its bits, and an `f32` its bits
- * with `-0` as `0` and every `NaN` as `0x7fc00000`. The call sorts the keys by it, and computes it
- * as `orderWord` in `core/host-kernel.ts` does.
- */
 function orderWordOf(k: Expr, key: 'u32' | 'i32' | 'f32'): Expr {
   if (key === 'u32') return k;
   if (key === 'i32') return { op: 'call', type: u32T, fn: 'u32', args: [k] };
@@ -2011,10 +1760,6 @@ function orderWordOf(k: Expr, key: 'u32' | 'i32' | 'f32'): Expr {
   };
 }
 
-/**
- * `fn <name>(k: K) -> u32`: the index of `k` among the sorted order words of `keys` (the count
- * at 0, the words after it), or {@link NOT_FOUND}. A binary search of at most 32 steps.
- */
 function findFunction(name: string, keys: string, key: 'u32' | 'i32' | 'f32'): FuncDecl {
   const keyT: ShaderType = { kind: 'scalar', scalar: key };
   const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' };
