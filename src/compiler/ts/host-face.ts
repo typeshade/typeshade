@@ -123,6 +123,7 @@ import { emittedStructDecls, type CollectedStruct } from './structs.js';
 import type { FaceCtx } from './host-face/context.js';
 import { gpuOnlyCall, barrierIn } from './host-face/reach.js';
 import { guardOf, guardBinding } from './host-face/guard.js';
+import { spell } from './host-face/spell.js';
 export { type HostExport } from './host-face-contracts.js';
 export { hostTypeOf } from './host-types.js';
 
@@ -199,14 +200,6 @@ const COMPUTE_BUILTINS = new Set([
   'workgroup_id',
   'num_workgroups',
 ]);
-
-function spell(t: ShaderType): string {
-  if (t.kind === 'struct') return t.name;
-  if (t.kind === 'array')
-    return t.size === undefined ? `array<${spell(t.elem)}>` : `array<${spell(t.elem)}, ${t.size}>`;
-  if (t.kind === 'atomic') return `atomic<${t.elem}>`;
-  return authorTypeText(t);
-}
 
 /**
  * Compute the host face of one shader module: which exports a host can call (Rule 8.20), their
