@@ -606,6 +606,21 @@ async function hostImport(
       pairsGpu.every((v, i) => Object.is(v, pairsCpu[i])),
     'pairSearch, a push in a nest that Route 2 counts first, returns on WebGPU the CPU tier bit for bit (change 0114, A12)',
   );
+  const repeatedGpu = web.loops?.['repeatedRuns'];
+  const repeatedCpu = web.loops?.['repeatedRunsCpu'];
+  check(
+    typeof repeatedGpu === 'object' &&
+      typeof repeatedCpu === 'object' &&
+      repeatedGpu.length > 0 &&
+      repeatedGpu.length === repeatedCpu.length &&
+      repeatedGpu.every((v, i) => Object.is(v, repeatedCpu[i])),
+    'repeatedRuns and byNRuns, a push whose inner bound reads counts[i], return on WebGPU the CPU tier bit for bit (change 0114, A17)',
+  );
+  check(
+    web.loops?.['repeatedShort'] ===
+      'TypeError: repeatedRuns(): parameter "counts" holds 1 elements, and loop 1 reads it at indices 0 to 2.',
+    `repeatedRuns with a counts that is too short throws the call's TypeError on WebGPU before anything runs (${String(web.loops?.['repeatedShort'])})`,
+  );
   const twiceGpu = web.loops?.['pairTwice'];
   const twiceCpu = web.loops?.['pairTwiceCpu'];
   check(

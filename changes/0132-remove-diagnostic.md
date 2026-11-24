@@ -657,7 +657,7 @@ Required validation evidence (at implementation):
 - The oracle: the outcome of decision 2, tested (either the new exception without `gpuStubs`,
   or the pre-rewrite IR on the oracle).
 - A device comparison beyond `bun run gate:render` (which renders only
-  `examples/rt-renderer-class.shade.ts` on SwiftShader and samples no texture): `sample-branch`
+  `examples/gallery/rt-renderer-class/rt-renderer-class.shade.ts` on SwiftShader and samples no texture): `sample-branch`
   and Namek rendered with the filtered module on `main` and with the rewrite, on at least one
   desktop GPU per vendor the gate has and one mobile GPU, with the per-pixel difference on
   non-straddling quads and the frame time of each. Recorded with device, browser, commit and

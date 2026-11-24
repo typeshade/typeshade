@@ -1,0 +1,9 @@
+{
+  "title": "Starfield (source twin)",
+  "blurb": "`starfield.ts` written in the source language: three parallax layers accumulated into one mutated `vec3` local across a `for` loop, each cell hashed for whether it holds a star.",
+  "group": "works",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true,
+  "twinOf": "starfield"
+}

@@ -91,6 +91,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import { spanOf, withSpan } from '../span.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
 import { checkEntryStageUses } from '../stage-restrictions.js';
+import { isInferredStorageAccess } from '../storage-access.js';
 import { type CollectedStruct } from '../structs.js';
 import {
   recordDeclaration,
@@ -2358,15 +2359,14 @@ export function functionScope(
       kind: 'binding',
       name: b.name,
       type: b.type,
-      mutable: b.access === 'read_write',
+      mutable: b.access === 'read_write' || isInferredStorageAccess(sourceFile, b.name),
       space: b.space,
     });
   }
   // An override reads as an `overrideref`, which no pass folds: its value arrives when the
   // pipeline is built, not when the module is compiled (#8 A7).
-  for (const o of overrides) {
+  for (const o of overrides)
     defineOnce({ kind: 'override', name: o.name, type: o.type, mutable: false });
-  }
   // A module variable (§24) reads and writes as a `varref`, like a binding; its space decides
   // what may hold an atomic and which stage may reach it.
   for (const v of vars) {

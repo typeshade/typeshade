@@ -22,7 +22,12 @@ function placed(xs: CpuValue[], index: number, limit: number, v: CpuValue | unde
   }
 }
 
-export function pushOnto(xs: CpuValue[], v: CpuValue): CpuValue {
+function copiedValue(v: CpuValue): CpuValue {
+  return Array.isArray(v) ? (v.map(copiedValue) as CpuValue) : v;
+}
+
+export function pushOnto(xs: CpuValue[], element: CpuValue): CpuValue {
+  const v = copiedValue(element);
   const n = pushedLength(xs);
   const limit = growingLimit(xs);
   if (limit !== undefined) {
