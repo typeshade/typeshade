@@ -6,9 +6,10 @@ import { EVALUATION_FREE_CALLS } from '../scripts/move-purity/evaluation-free.js
 const keep = 'const Z = 1;\n';
 const library = {
   'src/e.ts':
-    'export enum SOME_ENUM {\n  A,\n  B,\n}\nexport const shared = { a: 1 };\nexport class Base {}\nexport function helper(): number {\n  return 1;\n}\n',
+    'export enum SOME_ENUM {\n  A,\n  B,\n}\nexport const shared = { a: 1 };\nexport const FROZEN = Object.freeze({ a: 1 });\nexport class Base {}\nexport function helper(): number {\n  return 1;\n}\n',
 };
-const imports = "import { SOME_ENUM, shared, Base, helper } from './e.js';\n";
+const imports =
+  "import { SOME_ENUM, shared, FROZEN, Base, helper } from './e.js';\nimport * as ns from './e.js';\n";
 
 const moveOut = (unit: string): MoveReport =>
   checkMove(
@@ -16,7 +17,8 @@ const moveOut = (unit: string): MoveReport =>
     tree({ ...library, 'src/a.ts': imports + keep, 'src/b.ts': imports + unit }),
   );
 
-const kinds = (report: MoveReport): string[] => [...new Set(report.findings.map((f) => f.kind))];
+const refusals = (report: MoveReport): string[] =>
+  report.findings.filter((f) => f.kind === 'not a clean file path').map((f) => f.detail);
 
 describe('evaluation-free moves only (P4)', () => {
   const free: [string, string][] = [
@@ -44,12 +46,13 @@ describe('evaluation-free moves only (P4)', () => {
     ['an enum member read', 'const S = SOME_ENUM.A;\n'],
     ['a frozen literal', 'const F = Object.freeze({ a: 1, b: [1, 2] });\n'],
     ['a reference to a function and to a mutable object', 'const R = [helper, shared];\n'],
+    ['a member of a namespace import', 'const R = ns.helper;\n'],
   ];
 
   it.each(free)('accepts %s', (_name, unit) => {
     const body = unit.includes('A_NUMBER') ? 'const A_NUMBER = 1;\n' + unit : unit;
     const report = moveOut(body);
-    expect(report.findings.filter((f) => f.kind === 'active unit moved')).toEqual([]);
+    expect(refusals(report)).toEqual([]);
   });
 
   it('accepts moving declared ambient functions and constants with no finding at all', () => {
@@ -66,12 +69,22 @@ describe('evaluation-free moves only (P4)', () => {
     ['a loop', 'for (;;) {\n  break;\n}\n'],
     ['an await', 'await load();\n'],
     ['a template with a call', 'const T = `a${make()}`;\n'],
+    ['a template that coerces an object', 'const T = `${shared}`;\n'],
+    ['an operator over an object', 'const T = shared + 1;\n'],
+    ['a comma expression before a namespace member', 'const T = (effect(), ns).helper;\n'],
+    ['an element access', "const T = shared['a'];\n"],
+    ['a computed key from an object', 'const T = { [shared]: 1 };\n'],
+    ['a typeof of a function', 'const T = typeof helper;\n'],
     ['a call in an object', 'const O = { a: make() };\n'],
     ['a spread in an object', 'const O = { ...shared };\n'],
     ['a spread in an array', 'const O = [...[1]];\n'],
     ['a let', 'let V = 1;\n'],
     ['a destructuring constant', 'const { a } = shared;\n'],
     ['a read through a mutable object', 'const V = shared.a;\n'],
+    ['a read of a frozen primitive object', 'const R = FROZEN.a + 1;\n'],
+    ['a read of an object constant by a template', 'const R = `${FROZEN.a}`;\n'],
+    ['a coercion of a frozen object', 'const R = `${FROZEN}`;\n'],
+    ['a read of an enum member through an object', 'const R = shared[SOME_ENUM.A];\n'],
     ['an unresolved name', 'const V = unknownName;\n'],
     ['an enum with a call initializer', 'enum E {\n  A = make(),\n}\n'],
     ['Object.freeze of an identifier', 'const V = Object.freeze(shared);\n'],
@@ -90,18 +103,20 @@ describe('evaluation-free moves only (P4)', () => {
 
   it.each(active)('refuses %s with its reason', (_name, unit) => {
     const report = moveOut(unit);
-    const moved = report.findings.filter((f) => f.kind === 'active unit moved');
-    expect(moved).toHaveLength(1);
-    expect(moved[0]!.detail).toMatch(/: [A-Za-z]+/);
-    expect(moved[0]!.detail.split(': ').slice(1).join(': ').length).toBeLessThanOrEqual(80);
+    const details = refusals(report);
+    expect(details).toHaveLength(2);
+    expect(details[0]).toMatch(/^base: active unit at line 3: [A-Za-z]+/);
+    expect(details[1]).toMatch(/^head: active unit at line 3: [A-Za-z]+/);
+    const reason = details[0]!.replace(/^base: active unit at line 3: /, '');
+    expect(reason.length).toBeLessThanOrEqual(60);
     expect(report.pure).toBe(false);
   });
 
-  it('accepts an active unit that stays where it is', () => {
-    const unit = 'register();\n';
+  it('accepts an active unit in a file that the range does not touch', () => {
+    const files = { 'src/n.ts': 'register();\n' };
     const report = checkMove(
-      tree({ 'src/a.ts': unit + keep }),
-      tree({ 'src/a.ts': unit + keep + '\n' }),
+      tree({ ...files, 'src/a.ts': keep + 'const Y = 2;\n' }),
+      tree({ ...files, 'src/a.ts': 'const Y = 2;\n', 'src/b.ts': keep }),
     );
     expect(report.pure).toBe(true);
   });
@@ -125,8 +140,8 @@ describe('evaluation-free moves only (P4)', () => {
     (entry) => {
       const snippet = snippets[entry]!;
       const literal = entry.startsWith('Symbol') ? "'a'" : "'a'";
-      expect(kinds(moveOut(snippet(literal)))).not.toContain('active unit moved');
-      expect(kinds(moveOut(snippet('make()')))).toContain('active unit moved');
+      expect(refusals(moveOut(snippet(literal)))).toEqual([]);
+      expect(refusals(moveOut(snippet('make()'))).length).toBeGreaterThan(0);
     },
   );
 });

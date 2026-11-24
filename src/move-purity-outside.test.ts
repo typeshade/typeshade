@@ -40,17 +40,28 @@ describe('the files outside the declarations (P7)', () => {
       expect(checkMove(base, head).outside.map((o) => o.path)).toEqual([GUIDE]);
     });
 
-    it('lets a document follow a renamed file and its directory', () => {
-      const lib = `${ALPHA}`;
+    it('lets a document follow a renamed file by its path or its directory-relative name', () => {
       const base = tree({
-        'src/old/a.ts': exported(lib),
-        [GUIDE]: 'See src/old/a.ts and src/old/ for details.\nPlain line.\n',
+        'src/core/a.ts': exported(ALPHA),
+        'src/AGENTS.md': 'See core/a.ts and src/core/a.ts.\n',
       });
       const head = tree({
-        'src/new/a.ts': exported(lib),
-        [GUIDE]: 'See src/new/a.ts and src/new/ for details.\nPlain line.\n',
+        'src/core/diag/a.ts': exported(ALPHA),
+        'src/AGENTS.md': 'See core/diag/a.ts and src/core/diag/a.ts.\n',
       });
       expect(checkMove(base, head).outside).toEqual([]);
+    });
+
+    it('does not follow a directory', () => {
+      const base = tree({
+        'src/old/a.ts': exported(ALPHA),
+        [GUIDE]: 'See src/old/a.ts and src/old/ for details.\n',
+      });
+      const head = tree({
+        'src/new/a.ts': exported(ALPHA),
+        [GUIDE]: 'See src/new/a.ts and src/new/ for details.\n',
+      });
+      expect(checkMove(base, head).outside.map((o) => o.path)).toEqual([GUIDE]);
     });
 
     it('refuses a prose edit and a path that no rename explains', () => {
@@ -137,6 +148,35 @@ describe('the files outside the declarations (P7)', () => {
         false,
       );
       expect(run({ 'src/a.ts': 5 }, { 'src/a.ts': 5, 'src/b.ts': 1 }).pure).toBe(false);
+    });
+  });
+
+  describe('references to a removed file in any tracked text (S7)', () => {
+    const hidden = ['.prettier', 'ignore'].join('');
+    const base = (text: string) =>
+      tree({ 'src/core/deprecation.ts': exported(ALPHA), [hidden]: text });
+    const head = (text: string) =>
+      tree({ 'src/core/diagnostics/deprecation.ts': exported(ALPHA), [hidden]: text });
+    const kinds = (text: string, after: string) =>
+      checkMove(base(text), head(after)).findings.map((f) => f.kind);
+
+    it('refuses a file that still names the old path', () => {
+      const same = 'src/core/deprecation.ts\n';
+      expect(kinds(same, same)).toContain('path reference to a removed file');
+    });
+
+    it('does not take the new path of a kept base name for a reference', () => {
+      const text = 'src/core/diagnostics/deprecation.ts\n';
+      expect(kinds(text, text)).toEqual([]);
+    });
+
+    it('refuses a base name behind a slash or a quote when the name changed', () => {
+      const moved = tree({
+        'src/core/renamed.ts': exported(ALPHA),
+        [hidden]: 'x/deprecation.ts\n',
+      });
+      const found = checkMove(base('x/deprecation.ts\n'), moved).findings.map((f) => f.kind);
+      expect(found).toContain('path reference to a removed file');
     });
   });
 });

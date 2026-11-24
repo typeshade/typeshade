@@ -1,7 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { isConfigurationText } from './path-references.js';
 import type { DiffEntry } from './outside-move.js';
-import { COMMENT_BASELINE, SIZE_BASELINE, SURFACE_PATH, isComparedSource } from './outside-move.js';
 
 const MAX_BUFFER = 1024 * 1024 * 1024;
 
@@ -54,14 +52,6 @@ export function trackedPaths(root: string, ref: string): string[] {
     .filter((path) => path.length > 0);
 }
 
-const NEEDS_TEXT = new Set([SIZE_BASELINE, COMMENT_BASELINE, SURFACE_PATH]);
-
-export const needsText = (path: string): boolean =>
-  isComparedSource(path) ||
-  path.endsWith('.md') ||
-  NEEDS_TEXT.has(path) ||
-  isConfigurationText(path);
-
 export function readTexts(
   root: string,
   ref: string,
@@ -83,7 +73,8 @@ export function readTexts(
     at = end + 1;
     if (header[1] === 'missing') continue;
     const size = Number(header[2]);
-    texts.set(path, out.subarray(at, at + size).toString('utf8'));
+    const content = out.subarray(at, at + size);
+    if (!content.includes(0)) texts.set(path, content.toString('utf8'));
     at += size + 1;
   }
   return texts;

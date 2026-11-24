@@ -2,8 +2,10 @@ import type { Links } from './module-links.js';
 import type { Side } from './side-program.js';
 
 export interface ImportGraph {
-  componentOf(path: string): number | undefined;
+  componentSize(path: string): number;
+  cycleThrough(path: string): string[] | undefined;
   orderFrom(root: string): string[];
+  cycles(): string[][];
 }
 
 export function buildImportGraph(side: Side, links: Links): ImportGraph {
@@ -62,5 +64,43 @@ export function buildImportGraph(side: Side, links: Links): ImportGraph {
     if (edges.has(root)) visit(root);
     return order;
   };
-  return { componentOf: (path) => component.get(path), orderFrom };
+  const sizes = new Map<number, number>();
+  for (const id of component.values()) sizes.set(id, (sizes.get(id) ?? 0) + 1);
+  const componentSize = (path: string): number => sizes.get(component.get(path) ?? -1) ?? 0;
+  const cycleThrough = (path: string): string[] | undefined => {
+    if (componentSize(path) < 2) return undefined;
+    const id = component.get(path);
+    const parent = new Map<string, string>();
+    const queue = [path];
+    for (let head = 0; head < queue.length; head += 1) {
+      const current = queue[head]!;
+      for (const next of edges.get(current) ?? []) {
+        if (component.get(next) !== id) continue;
+        if (next === path) {
+          const route = [current];
+          while (route[0] !== path) route.unshift(parent.get(route[0]!)!);
+          return [...route, path];
+        }
+        if (!parent.has(next) && next !== path) {
+          parent.set(next, current);
+          queue.push(next);
+        }
+      }
+    }
+    return undefined;
+  };
+  const cycles = (): string[][] => {
+    const members = new Map<number, string[]>();
+    for (const [path, id] of component) members.set(id, [...(members.get(id) ?? []), path]);
+    return [...members.values()]
+      .filter((files) => files.length > 1)
+      .map((files) => files.sort())
+      .sort((a, b) => b.length - a.length || a[0]!.localeCompare(b[0]!));
+  };
+  return {
+    cycles,
+    componentSize,
+    cycleThrough,
+    orderFrom,
+  };
 }

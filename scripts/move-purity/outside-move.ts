@@ -1,6 +1,6 @@
 import ts from 'typescript';
 import { LAYER_POLICY_PATH, knownEdges } from './known-edges.js';
-import { renamedPaths, renamingOnlyMarkdown } from './markdown.js';
+import { renamingOnlyMarkdown } from './markdown.js';
 
 export const SIZE_BASELINE = 'scripts/file-size-baseline.json';
 export const COMMENT_BASELINE = 'scripts/comment-baseline.json';
@@ -92,7 +92,6 @@ export function checkOutside(
   entries: readonly DiffEntry[],
   renames: ReadonlyMap<string, string>,
 ): OutsideResult {
-  const renamed = renamedPaths(renames);
   const outside: OutsideEntry[] = [];
   const knownEdgesRemoved: string[] = [];
   let surfacePathChanges = 0;
@@ -120,7 +119,7 @@ export function checkOutside(
     } else if (isComparedSource(path)) {
       continue;
     } else if (path.endsWith('.md')) {
-      if (!renamingOnlyMarkdown(base.get(path), head.get(path), renamed)) {
+      if (!renamingOnlyMarkdown(path, base.get(path), head.get(path), renames)) {
         outside.push({ path, reason: 'a document may only follow a renamed path' });
       }
     } else {

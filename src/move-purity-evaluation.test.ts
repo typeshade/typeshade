@@ -4,45 +4,7 @@ import { checkMove, type MoveReport } from '../scripts/move-purity.js';
 
 const kinds = (report: MoveReport): string[] => [...new Set(report.findings.map((f) => f.kind))];
 
-describe('reads never cross an import cycle (A1)', () => {
-  const constant = 'export const K = 5;\n';
-  const reader = 'export const D = K + 1;\n';
-
-  it('refuses a split whose new file reads a constant of the file that re-exports it', () => {
-    const base = tree({ 'src/a.ts': constant + reader });
-    const head = tree({
-      'src/a.ts': `export { D } from './b.js';\n${constant}`,
-      'src/b.ts': `import { K } from './a.js';\n${reader}`,
-    });
-    expect(kinds(checkMove(base, head))).toContain('evaluation read across an import cycle');
-  });
-
-  it('accepts the same split when the new file reads a function', () => {
-    const func = 'export function K(): number {\n  return 5;\n}\n';
-    const user = 'export const D = [K];\n';
-    const base = tree({ 'src/a.ts': func + user });
-    const head = tree({
-      'src/a.ts': `export { D } from './b.js';\n${func}`,
-      'src/b.ts': `import { K } from './a.js';\n${user}`,
-    });
-    const report = checkMove(base, head);
-    expect(report.findings).toEqual([]);
-    expect(report.pure).toBe(true);
-  });
-
-  it('refuses a moved class that extends a class of the same cycle', () => {
-    const parent = 'export class P {}\n';
-    const child = 'export class C extends P {}\n';
-    const base = tree({ 'src/a.ts': parent + child });
-    const head = tree({
-      'src/a.ts': `export { C } from './b.js';\n${parent}`,
-      'src/b.ts': `import { P } from './a.js';\n${child}`,
-    });
-    expect(kinds(checkMove(base, head))).toContain('evaluation read across an import cycle');
-  });
-});
-
-describe('effectful evaluation order is unchanged (A2, A3)', () => {
+describe('the evaluation order of existing modules is unchanged (S1)', () => {
   const effectful = (name: string): string => `export const ${name} = 1;\nregister('${name}');\n`;
   const plain = (name: string): string => `export const ${name} = 1;\n`;
   const importer = (first: string, second: string): string =>
@@ -59,11 +21,11 @@ describe('effectful evaluation order is unchanged (A2, A3)', () => {
     );
   });
 
-  it('accepts the same swap when neither target is effectful', () => {
+  it('refuses the same swap when neither target has an effect', () => {
     const files = { 'src/p.ts': plain('p'), 'src/q.ts': plain('q') };
     const base = tree({ ...files, 'src/a.ts': importer('p', 'q') });
     const head = tree({ ...files, 'src/a.ts': importer('q', 'p') });
-    expect(checkMove(base, head).pure).toBe(true);
+    expect(kinds(checkMove(base, head))).toEqual(['evaluation order from']);
   });
 
   const second = 'export function useTwo(): number {\n  return two;\n}\n';
@@ -82,11 +44,11 @@ describe('effectful evaluation order is unchanged (A2, A3)', () => {
     return checkMove(base, head);
   };
 
-  it('refuses a new file whose import pulls an effectful module ahead of another', () => {
+  it('refuses a new file whose import pulls a module ahead of another', () => {
     expect(kinds(split(true))).toContain('evaluation order from');
   });
 
-  it('accepts the split when the re-export comes after the older import', () => {
+  it('accepts the split when the link to the new file comes last', () => {
     const report = split(false);
     expect(report.findings).toEqual([]);
     expect(report.pure).toBe(true);
@@ -95,7 +57,7 @@ describe('effectful evaluation order is unchanged (A2, A3)', () => {
 
 describe('string paths to a removed file (A4)', () => {
   const consumer = (path: string, text: string): string =>
-    `import { addOne } from '${path}';\nexport const two = addOne(1);\nexport const NAME = '${text}';\n`;
+    `import { addOne } from '${path}';\nexport function two(): number {\n  return addOne(1);\n}\nexport const NAME = '${text}';\n`;
 
   it('refuses a rename that leaves its path in a string of a unit', () => {
     const base = tree({ 'src/a.ts': exported(ALPHA), 'src/c.ts': consumer('./a.js', './a.js') });

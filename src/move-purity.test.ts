@@ -105,7 +105,7 @@ describe('the move-purity check (docs/structure-refactoring-plan.md, S0 item a)'
 
   it('accepts a whole-file rename with the importers updated', () => {
     const consumer = (path: string): string =>
-      `import { addOne } from '${path}';\nexport const two = addOne(1);\n`;
+      `import { addOne } from '${path}';\nexport function two(): number {\n  return addOne(1);\n}\n`;
     const base = tree({ 'src/a.ts': exported(ALPHA), 'src/c.ts': consumer('./a.js') });
     const head = tree({ 'src/b.ts': exported(ALPHA), 'src/c.ts': consumer('./b.js') });
     const report = checkMove(base, head);

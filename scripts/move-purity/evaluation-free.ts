@@ -1,4 +1,18 @@
 import ts from 'typescript';
+import {
+  OPERATORS_WITH_EFFECTS,
+  calleeName,
+  describeNode,
+  isAssignment,
+  isGlobalName,
+  resolvedDeclaration,
+  unwrap,
+  type EvaluationContext,
+  type State,
+} from './evaluation-state.js';
+import { isPrimitiveLiteral } from './primitive-values.js';
+
+export { describeNode, type EvaluationContext };
 
 export const EVALUATION_FREE_CALLS: readonly string[] = [
   'Object.freeze',
@@ -10,67 +24,7 @@ export const EVALUATION_FREE_CALLS: readonly string[] = [
   'Symbol.for',
 ];
 
-export interface EvaluationContext {
-  readonly checker: ts.TypeChecker;
-  isTracked(fileName: string): boolean;
-}
-
-export interface Evaluation {
-  readonly reason: string | undefined;
-  readonly reads: ts.Declaration[];
-}
-
-interface State {
-  readonly ctx: EvaluationContext;
-  readonly reads: ts.Declaration[];
-  readonly visiting: Set<ts.Node>;
-}
-
-const REASON_LIMIT = 60;
-
-export function describeNode(node: ts.Node): string {
-  const text = node.getText().replace(/\s+/g, ' ');
-  return `${ts.SyntaxKind[node.kind]} ${text.slice(0, REASON_LIMIT)}`;
-}
-
 const NAMES_WITHOUT_DECLARATION = new Set(['undefined', 'NaN', 'Infinity']);
-
-const unwrap = (expression: ts.Expression): ts.Expression => {
-  let current = expression;
-  while (
-    ts.isParenthesizedExpression(current) ||
-    ts.isAsExpression(current) ||
-    ts.isSatisfiesExpression(current) ||
-    ts.isNonNullExpression(current)
-  ) {
-    current = current.expression;
-  }
-  return current;
-};
-
-function calleeName(expression: ts.Expression): string | undefined {
-  if (ts.isIdentifier(expression)) return expression.text;
-  if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.name)) {
-    const owner = calleeName(expression.expression);
-    return owner === undefined ? undefined : `${owner}.${expression.name.text}`;
-  }
-  return undefined;
-}
-
-function rootIdentifier(expression: ts.Expression): ts.Identifier | undefined {
-  if (ts.isIdentifier(expression)) return expression;
-  return ts.isPropertyAccessExpression(expression)
-    ? rootIdentifier(expression.expression)
-    : undefined;
-}
-
-function resolvedDeclaration(symbol: ts.Symbol, st: State): ts.Declaration | undefined {
-  let current = symbol;
-  for (let step = 0; step < 32 && current.flags & ts.SymbolFlags.Alias; step += 1) {
-    current = st.ctx.checker.getAliasedSymbol(current);
-  }
-  return current.declarations?.[0];
-}
 
 function isFreeConst(declaration: ts.VariableDeclaration, st: State): boolean {
   const list = declaration.parent;
@@ -78,51 +32,143 @@ function isFreeConst(declaration: ts.VariableDeclaration, st: State): boolean {
   if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) return false;
   if (st.visiting.has(declaration)) return false;
   st.visiting.add(declaration);
-  const reason = expressionReason(declaration.initializer, { ...st, reads: [] });
+  const reason = expressionReason(declaration.initializer, st);
   st.visiting.delete(declaration);
   return reason === undefined;
+}
+
+function declarationReason(
+  declaration: ts.Declaration,
+  node: ts.Node,
+  st: State,
+): string | undefined {
+  if (ts.isFunctionDeclaration(declaration)) return undefined;
+  if (ts.isClassDeclaration(declaration) || ts.isEnumDeclaration(declaration)) return undefined;
+  if (ts.isEnumMember(declaration)) return undefined;
+  if (ts.isVariableDeclaration(declaration) && isFreeConst(declaration, st)) return undefined;
+  return `reference to ${ts.SyntaxKind[declaration.kind]} ${describeNode(node)}`;
+}
+
+function chainRoot(node: ts.PropertyAccessExpression): ts.Identifier | undefined {
+  let current: ts.Expression = node;
+  while (ts.isPropertyAccessExpression(current)) {
+    if (current.questionDotToken !== undefined || !ts.isIdentifier(current.name)) return undefined;
+    current = current.expression;
+  }
+  return ts.isIdentifier(current) ? current : undefined;
+}
+
+const PRIMITIVE_OPERATORS = [
+  ts.SyntaxKind.PlusToken,
+  ts.SyntaxKind.MinusToken,
+  ts.SyntaxKind.ExclamationToken,
+  ts.SyntaxKind.TildeToken,
+];
+
+function propertyReason(node: ts.PropertyAccessExpression, st: State): string | undefined {
+  const { checker } = st.ctx;
+  const root = chainRoot(node);
+  if (!root) return `not a plain property chain ${describeNode(node)}`;
+  const rootSymbol = checker.getSymbolAtLocation(root);
+  const rootDeclaration = rootSymbol && resolvedDeclaration(rootSymbol, st);
+  if (!rootDeclaration) return `unresolved ${describeNode(node)}`;
+  const finalSymbol = checker.getSymbolAtLocation(node.name);
+  const finalDeclaration = finalSymbol && resolvedDeclaration(finalSymbol, st);
+  if (ts.isEnumDeclaration(rootDeclaration)) return undefined;
+  if (ts.isSourceFile(rootDeclaration) && finalDeclaration) {
+    return declarationReason(finalDeclaration, node, st);
+  }
+  return `reference to ${ts.SyntaxKind[rootDeclaration.kind]} ${describeNode(node)}`;
 }
 
 function referenceReason(
   node: ts.Identifier | ts.PropertyAccessExpression,
   st: State,
 ): string | undefined {
+  if (ts.isPropertyAccessExpression(node)) return propertyReason(node, st);
   const { checker } = st.ctx;
-  const target = ts.isIdentifier(node) ? node : node.name;
-  const parent = target.parent;
+  const parent = node.parent;
   const symbol =
-    ts.isShorthandPropertyAssignment(parent) && parent.name === target
+    ts.isShorthandPropertyAssignment(parent) && parent.name === node
       ? checker.getShorthandAssignmentValueSymbol(parent)
-      : checker.getSymbolAtLocation(target);
+      : checker.getSymbolAtLocation(node);
   const declaration = symbol && resolvedDeclaration(symbol, st);
   if (!declaration) {
-    const free = ts.isIdentifier(node) && NAMES_WITHOUT_DECLARATION.has(node.text);
-    return free ? undefined : `unresolved ${describeNode(node)}`;
+    return NAMES_WITHOUT_DECLARATION.has(node.text)
+      ? undefined
+      : `unresolved ${describeNode(node)}`;
   }
-  if (ts.isFunctionDeclaration(declaration)) return undefined;
-  if (ts.isClassDeclaration(declaration) || ts.isEnumDeclaration(declaration)) {
-    st.reads.push(declaration);
+  return declarationReason(declaration, node, st);
+}
+
+function primitiveReason(expression: ts.Expression, st: State): string | undefined {
+  if (isPrimitiveLiteral(expression)) return undefined;
+  if (ts.isBigIntLiteral(expression)) return undefined;
+  if (ts.isTemplateExpression(expression)) {
+    for (const span of expression.templateSpans) {
+      const reason = primitiveReason(span.expression, st);
+      if (reason !== undefined) return reason;
+    }
     return undefined;
   }
-  if (ts.isEnumMember(declaration)) {
-    st.reads.push(declaration.parent);
-    return undefined;
+  if (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isSatisfiesExpression(expression) ||
+    ts.isNonNullExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isTypeOfExpression(expression) ||
+    ts.isVoidExpression(expression)
+  ) {
+    return primitiveReason(expression.expression, st);
   }
-  if (ts.isVariableDeclaration(declaration) && isFreeConst(declaration, st)) {
-    st.reads.push(declaration);
-    return undefined;
+  if (ts.isPrefixUnaryExpression(expression)) {
+    return PRIMITIVE_OPERATORS.includes(expression.operator)
+      ? primitiveReason(expression.operand, st)
+      : describeNode(expression);
   }
-  return `reference to ${ts.SyntaxKind[declaration.kind]} ${describeNode(node)}`;
+  if (ts.isBinaryExpression(expression)) {
+    const kind = expression.operatorToken.kind;
+    if (isAssignment(kind) || OPERATORS_WITH_EFFECTS.has(kind)) return describeNode(expression);
+    return primitiveReason(expression.left, st) ?? primitiveReason(expression.right, st);
+  }
+  if (ts.isConditionalExpression(expression)) {
+    return (
+      primitiveReason(expression.condition, st) ??
+      primitiveReason(expression.whenTrue, st) ??
+      primitiveReason(expression.whenFalse, st)
+    );
+  }
+  if (ts.isIdentifier(expression) || ts.isPropertyAccessExpression(expression)) {
+    return primitiveReferenceReason(expression, st);
+  }
+  return describeNode(expression);
+}
+
+function primitiveReferenceReason(
+  node: ts.Identifier | ts.PropertyAccessExpression,
+  st: State,
+): string | undefined {
+  const reason = referenceReason(node, st);
+  if (reason !== undefined) return reason;
+  const { checker } = st.ctx;
+  const target = ts.isIdentifier(node) ? node : node.name;
+  const symbol = checker.getSymbolAtLocation(target);
+  const declaration = symbol && resolvedDeclaration(symbol, st);
+  if (!declaration) return undefined;
+  if (ts.isEnumMember(declaration)) return undefined;
+  if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+    if (st.visiting.has(declaration)) return describeNode(node);
+    st.visiting.add(declaration);
+    const inner = primitiveReason(declaration.initializer, st);
+    st.visiting.delete(declaration);
+    return inner;
+  }
+  return `not a primitive ${describeNode(node)}`;
 }
 
 const isLiteralArgument = (node: ts.Expression): boolean =>
   ts.isStringLiteral(node) || ts.isNumericLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node);
-
-function isGlobalName(call: ts.CallExpression | ts.NewExpression, st: State): boolean {
-  const root = rootIdentifier(call.expression);
-  const symbol = root && st.ctx.checker.getSymbolAtLocation(root);
-  return (symbol?.declarations ?? []).every((d) => !st.ctx.isTracked(d.getSourceFile().fileName));
-}
 
 function callReason(call: ts.CallExpression | ts.NewExpression, st: State): string | undefined {
   const name = calleeName(call.expression);
@@ -153,7 +199,7 @@ function callReason(call: ts.CallExpression | ts.NewExpression, st: State): stri
 
 function nameReason(name: ts.PropertyName | undefined, st: State): string | undefined {
   return name !== undefined && ts.isComputedPropertyName(name)
-    ? expressionReason(name.expression, st)
+    ? primitiveReason(name.expression, st)
     : undefined;
 }
 
@@ -178,7 +224,7 @@ function memberReason(member: ts.ClassElement, st: State): string | undefined {
   return undefined;
 }
 
-function classReason(node: ts.ClassLikeDeclaration, st: State): string | undefined {
+export function classReason(node: ts.ClassLikeDeclaration, st: State): string | undefined {
   if (hasDecorators(node)) return describeNode(node);
   for (const clause of node.heritageClauses ?? []) {
     if (clause.token !== ts.SyntaxKind.ExtendsKeyword) continue;
@@ -211,14 +257,6 @@ function objectReason(literal: ts.ObjectLiteralExpression, st: State): string | 
   return undefined;
 }
 
-const OPERATORS_WITH_EFFECTS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.InKeyword,
-  ts.SyntaxKind.InstanceOfKeyword,
-]);
-
-const isAssignment = (kind: ts.SyntaxKind): boolean =>
-  kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
-
 export function expressionReason(expression: ts.Expression, st: State): string | undefined {
   if (
     ts.isNumericLiteral(expression) ||
@@ -240,7 +278,7 @@ export function expressionReason(expression: ts.Expression, st: State): string |
   }
   if (ts.isTemplateExpression(expression)) {
     for (const span of expression.templateSpans) {
-      const reason = expressionReason(span.expression, st);
+      const reason = primitiveReason(span.expression, st);
       if (reason !== undefined) return reason;
     }
     return undefined;
@@ -262,11 +300,12 @@ export function expressionReason(expression: ts.Expression, st: State): string |
     ts.isAsExpression(expression) ||
     ts.isSatisfiesExpression(expression) ||
     ts.isNonNullExpression(expression) ||
-    ts.isTypeAssertionExpression(expression) ||
-    ts.isTypeOfExpression(expression) ||
-    ts.isVoidExpression(expression)
+    ts.isTypeAssertionExpression(expression)
   ) {
     return expressionReason(expression.expression, st);
+  }
+  if (ts.isTypeOfExpression(expression) || ts.isVoidExpression(expression)) {
+    return primitiveReason(expression.expression, st);
   }
   if (ts.isPrefixUnaryExpression(expression)) {
     const pure = [
@@ -275,16 +314,16 @@ export function expressionReason(expression: ts.Expression, st: State): string |
       ts.SyntaxKind.ExclamationToken,
       ts.SyntaxKind.TildeToken,
     ].includes(expression.operator);
-    return pure ? expressionReason(expression.operand, st) : describeNode(expression);
+    return pure ? primitiveReason(expression.operand, st) : describeNode(expression);
   }
   if (ts.isBinaryExpression(expression)) {
     const kind = expression.operatorToken.kind;
     if (isAssignment(kind) || OPERATORS_WITH_EFFECTS.has(kind)) return describeNode(expression);
-    return expressionReason(expression.left, st) ?? expressionReason(expression.right, st);
+    return primitiveReason(expression.left, st) ?? primitiveReason(expression.right, st);
   }
   if (ts.isConditionalExpression(expression)) {
     return (
-      expressionReason(expression.condition, st) ??
+      primitiveReason(expression.condition, st) ??
       expressionReason(expression.whenTrue, st) ??
       expressionReason(expression.whenFalse, st)
     );
@@ -296,83 +335,4 @@ export function expressionReason(expression: ts.Expression, st: State): string |
     return callReason(expression, st);
   }
   return describeNode(expression);
-}
-
-function enumInitializerReason(expression: ts.Expression, st: State): string | undefined {
-  const { checker } = st.ctx;
-  if (
-    ts.isNumericLiteral(expression) ||
-    ts.isStringLiteral(expression) ||
-    ts.isNoSubstitutionTemplateLiteral(expression) ||
-    ts.isBigIntLiteral(expression)
-  ) {
-    return undefined;
-  }
-  if (ts.isParenthesizedExpression(expression))
-    return enumInitializerReason(expression.expression, st);
-  if (ts.isPrefixUnaryExpression(expression)) {
-    return enumInitializerReason(expression.operand, st);
-  }
-  if (ts.isBinaryExpression(expression) && !isAssignment(expression.operatorToken.kind)) {
-    return (
-      enumInitializerReason(expression.left, st) ?? enumInitializerReason(expression.right, st)
-    );
-  }
-  if (
-    ts.isIdentifier(expression) ||
-    ts.isPropertyAccessExpression(expression) ||
-    ts.isElementAccessExpression(expression)
-  ) {
-    const target = ts.isPropertyAccessExpression(expression) ? expression.name : expression;
-    const symbol = checker.getSymbolAtLocation(target);
-    const declaration = symbol && resolvedDeclaration(symbol, st);
-    if (declaration && ts.isEnumMember(declaration)) return undefined;
-  }
-  return describeNode(expression);
-}
-
-const isAmbient = (statement: ts.Statement): boolean =>
-  ts.canHaveModifiers(statement) &&
-  (ts.getModifiers(statement)?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false);
-
-function statementReason(statement: ts.Statement, st: State): string | undefined {
-  if (ts.isModuleDeclaration(statement)) return describeNode(statement);
-  if (isAmbient(statement)) return undefined;
-  if (
-    ts.isFunctionDeclaration(statement) ||
-    ts.isTypeAliasDeclaration(statement) ||
-    ts.isInterfaceDeclaration(statement) ||
-    ts.isExportDeclaration(statement) ||
-    ts.isImportEqualsDeclaration(statement)
-  ) {
-    return undefined;
-  }
-  if (ts.isEnumDeclaration(statement)) {
-    for (const member of statement.members) {
-      const reason = member.initializer && enumInitializerReason(member.initializer, st);
-      if (reason) return reason;
-    }
-    return undefined;
-  }
-  if (ts.isClassDeclaration(statement)) return classReason(statement, st);
-  if (ts.isVariableStatement(statement)) {
-    const list = statement.declarationList;
-    if (!(list.flags & ts.NodeFlags.Const)) return describeNode(statement);
-    for (const declaration of list.declarations) {
-      if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) {
-        return describeNode(declaration);
-      }
-      const reason = expressionReason(declaration.initializer, st);
-      if (reason !== undefined) return reason;
-    }
-    return undefined;
-  }
-  if (ts.isExportAssignment(statement)) return expressionReason(statement.expression, st);
-  return describeNode(statement);
-}
-
-export function evaluateUnit(statement: ts.Statement, ctx: EvaluationContext): Evaluation {
-  const st: State = { ctx, reads: [], visiting: new Set() };
-  const reason = statementReason(statement, st);
-  return { reason, reads: st.reads };
 }

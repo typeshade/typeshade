@@ -1,4 +1,5 @@
 import { checkMove, type MoveReport } from './move-purity/check-move.js';
+import { cleanReport, formatCleanReport } from './move-purity/clean-report.js';
 import { formatReport } from './move-purity/format-report.js';
 import {
   commitCount,
@@ -7,7 +8,6 @@ import {
   diffPaths,
   malformedMoveLines,
   mergeBase,
-  needsText,
   readTexts,
   trackedPaths,
 } from './move-purity/git-range.js';
@@ -22,18 +22,10 @@ export interface RangeResult {
 
 export function checkRange(root: string, baseRef: string, headRef: string): RangeResult {
   const base = mergeBase(root, baseRef, headRef);
-  const paths = diffPaths(root, base, headRef);
-  const baseTracked = trackedPaths(root, base);
-  const headTracked = trackedPaths(root, headRef);
-  const wanted = (tracked: string[]): string[] => tracked.filter(needsText);
   const report = checkMove(
-    readTexts(root, base, wanted(baseTracked)),
-    readTexts(root, headRef, wanted(headTracked)),
-    {
-      paths,
-      entries: diffEntries(root, base, headRef),
-      root,
-    },
+    readTexts(root, base, trackedPaths(root, base)),
+    readTexts(root, headRef, trackedPaths(root, headRef)),
+    { paths: diffPaths(root, base, headRef), entries: diffEntries(root, base, headRef), root },
   );
   return { report, commits: commitCount(root, base, headRef) };
 }
@@ -43,11 +35,23 @@ function flagValue(args: string[], flag: string): string | undefined {
   return at >= 0 ? args[at + 1] : undefined;
 }
 
+function runCleanReport(args: string[], root: string): number {
+  const paths = trackedPaths(root, 'HEAD').filter(
+    (path) => path.endsWith('.ts') || path === 'package.json',
+  );
+  const report = cleanReport(root, readTexts(root, 'HEAD', paths));
+  console.log(
+    args.includes('--json') ? JSON.stringify(report, null, 2) : formatCleanReport(report),
+  );
+  return 0;
+}
+
 export function runCli(args: string[], root: string): number {
+  if (args.includes('--clean-report')) return runCleanReport(args, root);
   const baseRef = flagValue(args, '--base');
   if (baseRef === undefined) {
     console.error(
-      'Usage: bun scripts/move-purity.ts --base <ref> [--head <ref>] [--require] [--title <text>] [--json]',
+      'Usage: bun scripts/move-purity.ts --base <ref> [--head <ref>] [--require] [--title <text>] [--json]\n       bun scripts/move-purity.ts --clean-report [--json]',
     );
     return 2;
   }

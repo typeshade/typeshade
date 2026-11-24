@@ -1,7 +1,5 @@
 import { dirname } from 'node:path/posix';
 import ts from 'typescript';
-import { contextOf } from './evaluation-context.js';
-import { evaluateUnit } from './evaluation-free.js';
 import { fileClassOf } from './file-class.js';
 import { finding, type Finding } from './finding.js';
 import type { Side } from './side-program.js';
@@ -54,9 +52,9 @@ export function movedUnitFindings(
   moved: readonly (readonly [Unit, Unit])[],
   base: Side,
   head: Side,
+  listed: ReadonlySet<string>,
 ): Finding[] {
   const findings: Finding[] = [];
-  const ctx = contextOf(head);
   for (const [from, to] of moved) {
     if (from.path === to.path) continue;
     const at = (kind: string, detail = ''): void => {
@@ -66,10 +64,7 @@ export function movedUnitFindings(
       at('file class changed', ` ${fileClassOf(from.path)} -> ${fileClassOf(to.path)}`);
     }
     if (fileClassOf(to.path) === 'test' && isTestCall(to.node)) {
-      findings.push(...testMoveFindings(from, to, base, head));
-    } else {
-      const reason = evaluateUnit(to.node, ctx).reason;
-      if (reason !== undefined) at('active unit moved', `: ${reason}`);
+      findings.push(...testMoveFindings(from, to, base, head, listed));
     }
     const location = locationReason(to.node, dirname(from.path) !== dirname(to.path));
     if (location !== undefined) at('location-dependent unit moved', `: ${location}`);

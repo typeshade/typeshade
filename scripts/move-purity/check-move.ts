@@ -7,8 +7,9 @@ import { surfaceFindings } from './export-surface.js';
 import { filePairs } from './file-pairs.js';
 import type { Finding } from './finding.js';
 import { freeCommentFindings, preambleFindings } from './free-comments.js';
+import { VITEST_CONFIG_PATH, listedPaths } from './vitest-config.js';
 import { linkFindings } from './module-evaluation.js';
-import { cycleReadFindings } from './cycle-reads.js';
+import { cleanFileFindings } from './clean-files.js';
 import { evaluationOrderFindings } from './evaluation-order.js';
 import { pathReferenceFindings } from './path-references.js';
 import { unresolvedImportFindings } from './unresolved-imports.js';
@@ -101,8 +102,24 @@ export function checkMove(
     const order = evaluationOrderFindings(baseSide, headSide, baseLinks, headLinks, files);
     findings.push(
       ...reboundFindings([...match.kept, ...match.moved], baseKeyer, headKeyer),
-      ...movedUnitFindings(match.moved, baseSide, headSide),
-      ...cycleReadFindings(match.moved, headSide, order.headGraph),
+      ...movedUnitFindings(
+        match.moved,
+        baseSide,
+        headSide,
+        listedPaths(base.get(VITEST_CONFIG_PATH), head.get(VITEST_CONFIG_PATH)),
+      ),
+      ...cleanFileFindings({
+        side: baseSide,
+        graph: order.baseGraph,
+        paths: sources,
+        label: 'base',
+      }),
+      ...cleanFileFindings({
+        side: headSide,
+        graph: order.headGraph,
+        paths: sources,
+        label: 'head',
+      }),
       ...order.findings,
       ...surfaceFindings(baseSide, headSide, baseKeyer, headKeyer),
       ...linkFindings({ baseLinks, headLinks, files }),

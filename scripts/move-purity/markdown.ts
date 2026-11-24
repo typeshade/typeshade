@@ -1,37 +1,34 @@
+import { dirname, join, relative } from 'node:path/posix';
+
 const TOKEN = /[\w@./-]+/g;
 
-export function renamedPaths(renames: ReadonlyMap<string, string>): Map<string, string> {
-  const paths = new Map(renames);
-  for (const [from, to] of renames) {
-    const fromName = from.slice(from.lastIndexOf('/') + 1);
-    const toName = to.slice(to.lastIndexOf('/') + 1);
-    if (fromName === toName && from.includes('/') && to.includes('/')) {
-      paths.set(from.slice(0, from.lastIndexOf('/')), to.slice(0, to.lastIndexOf('/')));
-    }
-  }
-  return paths;
-}
-
-function followRenames(line: string, renames: ReadonlyMap<string, string>): string {
+function followRenames(
+  line: string,
+  renames: ReadonlyMap<string, string>,
+  documentDirectory: string,
+): string {
   return line.replace(TOKEN, (token) => {
     const trimmed = token.replace(/\.+$/, '');
-    const bare = trimmed.replace(/\/$/, '');
-    const target = renames.get(trimmed) ?? renames.get(bare);
-    if (target === undefined) return token;
-    const slash = trimmed.length > bare.length && !renames.has(trimmed) ? '/' : '';
-    return target + slash + token.slice(trimmed.length);
+    const tail = token.slice(trimmed.length);
+    const direct = renames.get(trimmed);
+    if (direct !== undefined) return direct + tail;
+    const beside = renames.get(join(documentDirectory, trimmed));
+    if (beside !== undefined) return relative(documentDirectory, beside) + tail;
+    return token;
   });
 }
 
 export function renamingOnlyMarkdown(
+  documentPath: string,
   base: string | undefined,
   head: string | undefined,
   renames: ReadonlyMap<string, string>,
 ): boolean {
+  const directory = dirname(documentPath);
   const counts = new Map<string, number>();
   const add = (text: string | undefined, step: number, follow: boolean): void => {
     for (const line of (text ?? '').split('\n')) {
-      const key = follow ? followRenames(line, renames) : line;
+      const key = follow ? followRenames(line, renames, directory) : line;
       counts.set(key, (counts.get(key) ?? 0) + step);
     }
   };

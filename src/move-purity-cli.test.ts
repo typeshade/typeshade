@@ -130,4 +130,14 @@ describe('the move-purity command over a git range', () => {
     output = [];
     expect(run('--title', 'Fix a bug')).toBe(0);
   });
+
+  it('prints the clean-file report of HEAD without a range', () => {
+    expect(runCli(['--clean-report', '--json'], root)).toBe(0);
+    const report = JSON.parse(output.join('\n'));
+    expect(report.total.files).toBe(2);
+    expect(report.total.clean).toBe(2);
+    output = [];
+    expect(runCli(['--clean-report'], root)).toBe(0);
+    expect(output.join('\n')).toContain('Import cycles: 0');
+  });
 });

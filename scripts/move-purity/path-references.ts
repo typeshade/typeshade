@@ -7,19 +7,27 @@ import { analyzeSource } from './units.js';
 
 const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const boundary = (name: string): RegExp => new RegExp(`(^|[^\\w.-])${escape(name)}`);
+const FULL_PATH_BOUNDARY = '(^|[^\\w.-])';
 
-export const namesOf = (path: string): string[] => {
+export interface RemovedPath {
+  readonly path: string;
+  readonly renamedTo: string | undefined;
+}
+
+const BASELINES = new Set(['scripts/file-size-baseline.json', 'scripts/comment-baseline.json']);
+
+export const patternsFor = ({ path, renamedTo }: RemovedPath): RegExp[] => {
   const stem = basename(path).replace(/\.ts$/, '');
-  return [`${stem}.ts`, `${stem}.js`, path];
+  const keepsName = renamedTo !== undefined && basename(renamedTo) === basename(path);
+  const lead = keepsName ? `['"\`]` : `[/'"\`]`;
+  return [
+    new RegExp(`${FULL_PATH_BOUNDARY}${escape(path)}`),
+    ...[`${stem}.ts`, `${stem}.js`].map((name) => new RegExp(`(?:^|${lead})${escape(name)}`)),
+  ];
 };
 
-export const isConfigurationText = (path: string): boolean =>
-  path === 'package.json' ||
-  /^tsconfig[^/]*\.json$/.test(path) ||
-  path.endsWith('.mjs') ||
-  path.endsWith('.yml') ||
-  (path.startsWith('scripts/') && path.endsWith('.json'));
+export const isScannedText = (path: string): boolean =>
+  !path.endsWith('.md') && !path.endsWith('.ts') && !BASELINES.has(path);
 
 function isSpecifier(literal: ts.Node): boolean {
   const parent = literal.parent;
@@ -56,25 +64,31 @@ export function pathReferenceFindings(
   files: FilePairs,
 ): Finding[] {
   const findings: Finding[] = [];
-  const removed = [...files.deletedFiles, ...files.renames.keys()];
+  const removed: RemovedPath[] = [
+    ...files.deletedFiles.map((path) => ({ path, renamedTo: undefined })),
+    ...[...files.renames].map(([path, renamedTo]) => ({ path, renamedTo })),
+  ];
   for (const gone of removed) {
-    const patterns = namesOf(gone).map((name) => ({ name, pattern: boundary(name) }));
-    const mentions = (text: string): boolean => patterns.some(({ pattern }) => pattern.test(text));
+    const patterns = patternsFor(gone);
+    const mentions = (text: string): boolean => {
+      const own = gone.renamedTo === undefined ? text : text.split(gone.renamedTo).join('');
+      return patterns.some((pattern) => pattern.test(own));
+    };
+    const stem = basename(gone.path).replace(/\.ts$/, '');
     for (const [path, text] of texts) {
-      if (!path.endsWith('.ts') && !isConfigurationText(path)) continue;
-      if (!patterns.some(({ name }) => text.includes(name))) continue;
+      if (!(path.endsWith('.ts') || isScannedText(path)) || !text.includes(stem)) continue;
       if (!path.endsWith('.ts')) {
-        if (mentions(text)) findings.push(finding('path reference to a removed file', path, gone));
+        if (mentions(text))
+          findings.push(finding('path reference to a removed file', path, gone.path));
         continue;
       }
       const source = head.sourceOf(path);
       if (!source) continue;
       for (const unit of analyzeSource(source, path).units) {
         for (const literal of literalsOf(unit.node)) {
-          const value = (literal as ts.StringLiteralLike).text;
-          if (mentions(value)) {
+          if (mentions((literal as ts.StringLiteralLike).text)) {
             const line = source.getLineAndCharacterOfPosition(literal.getStart(source)).line + 1;
-            findings.push(finding('path reference to a removed file', path, gone, line));
+            findings.push(finding('path reference to a removed file', path, gone.path, line));
           }
         }
       }

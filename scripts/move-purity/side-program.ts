@@ -1,5 +1,6 @@
 import { dirname } from 'node:path/posix';
 import ts from 'typescript';
+import { packageEntries } from './package-entries.js';
 
 export interface Side {
   readonly root: string;
@@ -41,8 +42,14 @@ function directoriesOf(files: Iterable<string>, root: string): Set<string> {
 export function createSide(
   root: string,
   texts: ReadonlyMap<string, string>,
-  options: ts.CompilerOptions = PROGRAM_OPTIONS,
+  baseOptions: ts.CompilerOptions = PROGRAM_OPTIONS,
 ): Side {
+  const entries = packageEntries(texts);
+  const options: ts.CompilerOptions = {
+    ...baseOptions,
+    baseUrl: root,
+    paths: Object.fromEntries([...entries].map(([specifier, file]) => [specifier, [file]])),
+  };
   const files = new Map<string, string>();
   for (const [path, text] of texts) if (path.endsWith('.ts')) files.set(`${root}/${path}`, text);
   const directories = directoriesOf(files.keys(), root);

@@ -28,14 +28,14 @@ describe('tests that move between test files (series S11 and S12)', () => {
     const hook = 'beforeEach(() => {});\n';
     const base = tree({ 'src/a.test.ts': header + hook + one + two });
     const head = tree({ 'src/a.test.ts': header + hook + one, 'src/b.test.ts': header + two });
-    expect(kinds(checkMove(base, head))).toEqual(['test moved across file-level setup']);
+    expect(kinds(checkMove(base, head))).toEqual(['not a clean file path']);
   });
 
   it('refuses a test moved into a file with a top-level mock', () => {
     const mock = "vi.mock('x');\n";
     const base = tree({ 'src/a.test.ts': header + one + two, 'src/b.test.ts': header + mock });
     const head = tree({ 'src/a.test.ts': header + one, 'src/b.test.ts': header + mock + two });
-    expect(kinds(checkMove(base, head))).toEqual(['test moved across file-level setup']);
+    expect(kinds(checkMove(base, head))).toEqual(['not a clean file path']);
   });
 
   it('refuses a test moved between files whose vitest pragmas differ', () => {
@@ -67,7 +67,7 @@ describe('tests that move between test files (series S11 and S12)', () => {
     const hook = 'beforeEach(() => {});\n';
     const base = tree({ 'src/a.test.ts': header + hook + one });
     const head = tree({ 'src/a.test.ts': header + one, 'src/b.test.ts': header + hook });
-    expect(kinds(checkMove(base, head))).toContain('active unit moved');
+    expect(kinds(checkMove(base, head))).toContain('not a clean file path');
   });
 });
 
