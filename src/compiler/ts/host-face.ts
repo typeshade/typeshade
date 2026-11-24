@@ -10,7 +10,7 @@ import { emitGlslModule } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import type { ConsoleLog } from '../../core/console.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
-import { GPU_STUBS, zeroOf } from '../../core/cpu-runtime.js';
+import { zeroOf } from '../../core/cpu-runtime.js';
 import {
   type ComputeEntry,
   type DrawBinding,
@@ -21,30 +21,23 @@ import {
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
 import type {
   FuseArray,
-  FuseBare,
   FuseLoop,
   KernelFace,
   KernelFuse,
   KernelLoop,
   KernelParam,
-  PushWord,
 } from '../../core/host-kernel.js';
 import type { HostType } from '../../core/host-values.js';
-import { isAtomicIntrinsic, isBarrierIntrinsic } from '../../core/intrinsics.js';
 import type {
   BindingDecl,
   ConstDecl,
-  Expr,
   FuncDecl,
   ModuleDecl,
-  Stmt,
   StructDecl,
 } from '../../core/ir/nodes.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
 import { toPortable } from '../../core/ir/portable.js';
-import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { addsTo, colourOf } from './host-face/entry-shapes.js';
 import { grownChecked, lowerKernelFor, madeFace } from './host-face/made.js';
 import { exportsOf, type ExportRef } from './host-face/exports.js';
@@ -58,15 +51,9 @@ import {
   reachOf,
   type BindingReach,
 } from '../../core/manifest/reach.js';
-import { callArgAccess } from '../../core/passes/access.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
-import { buildGlCompute, type GlComputeProgram } from '../../core/passes/gl-compute.js';
-import {
-  lowerKernelGl,
-  type KernelLoopPlan,
-  type KernelPlan,
-} from '../../core/passes/kernel-lower.js';
+import { lowerKernelGl, type KernelPlan } from '../../core/passes/kernel-lower.js';
 import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
 import { typeLayout } from '../../core/reflect.js';
@@ -74,18 +61,10 @@ import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
 import { VERSION } from '../../core/version.js';
 import type { ClassLayouts } from '../../runtime/resource.js';
 import {
-  accessorFnName,
-  baseClassOf,
-  buildsCallerClass,
-  emittedMemberName,
-  holdsFunction,
   isPrivateName,
   isReadonlyMember,
-  isStaticMember,
   keywordAccessOf,
   memberDeclarationInChain,
-  returnsThis,
-  writtenMemberName,
 } from './class-names.js';
 import { authorTypeText } from './context.js';
 import { hostContentReads } from './host-content-access.js';
@@ -94,15 +73,11 @@ import { topLevelDeclarations } from './host-exports.js';
 import {
   type ClassExport,
   type ClassField,
-  type ClassMember,
   type FaceExport,
   type HostExport,
-  type MemberCall,
-  type Refused,
 } from './host-face-contracts.js';
 import { REASON } from './host-face-shared.js';
 import { moduleText } from './host-module.js';
-import { hostResourceOf, type ResourceClassFacts } from './host-resource.js';
 import { hostTypeOf, kernelArrayLayout } from './host-types.js';
 import {
   bindingsTypes,
@@ -115,15 +90,26 @@ import {
 } from './host-view.js';
 import { describeRead } from './kernel-loops.js';
 import { collectionKeyOf, keyTypeText, keysOf } from './key-types.js';
-import { abstractBuilderText, ctorFnName, methodFnName } from './lower/class-methods.js';
+import { ctorFnName } from './lower/class-methods.js';
 import { pushedParams } from './lower/kernel-push.js';
 import { staticConstName } from './module-const.js';
-import {
-  compileTsProgram,
-  type TsCompilerDiagnostic,
-  type compileTsSource,
-} from './source-file.js';
+import { compileTsProgram, type TsCompilerDiagnostic } from './source-file.js';
 import { emittedStructDecls, type CollectedStruct } from './structs.js';
+import type { FaceCtx } from './host-face/context.js';
+import { gpuOnlyCall, barrierIn } from './host-face/reach.js';
+import { guardOf, guardBinding } from './host-face/guard.js';
+import { spell } from './host-face/spell.js';
+import { noCpuTier, wgslEntryPoint, glTier } from './host-face/entry-tier.js';
+import { wordBinding, wordBindings, heldVariant } from './host-face/kernel-words.js';
+import { dispatched, bareArrays, reachedBy } from './host-face/kernel-facts.js';
+import { isFunctionType } from './host-face/type-nodes.js';
+import { classChain, memberCall, classMembers } from './host-face/class-members.js';
+import { classCalls, generatedClass } from './host-face/class-calls.js';
+import { never } from './host-face/never-export.js';
+import type { BindingRef } from './host-face/binding-ref.js';
+import { resourceFaces } from './host-face/resource-faces.js';
+export { hostViewPath, isShaderModulePath, formatBuildErrors } from './host-face/build-paths.js';
+export { bareArrays } from './host-face/kernel-facts.js';
 export { type HostExport } from './host-face-contracts.js';
 export { hostTypeOf } from './host-types.js';
 
@@ -177,31 +163,10 @@ export interface HostFace {
   readonly files: readonly string[];
 }
 
-interface BindingRef {
-  readonly kind: 'binding';
-  readonly name: string;
-  readonly binding: string;
-}
-
 function reported(e: FaceExport): HostExport {
   if (e.kind === 'class') return { kind: 'struct', name: e.name, type: e.type };
   if (e.kind === 'shape') return { kind: 'never', name: e.name, reason: e.reason, typeOnly: true };
   return e;
-}
-
-const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean =>
-  (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some((m) => m.kind === kind) ??
-  false;
-
-function gpuOnlyCall(f: FuncDecl, declared: ReadonlySet<string>): string | undefined {
-  let found: string | undefined;
-  const visit = (x: Expr): void => {
-    if (found !== undefined || x.op !== 'call' || declared.has(x.fn)) return;
-    if (isBarrierIntrinsic(x.fn) || isAtomicIntrinsic(x.fn) || GPU_STUBS[x.fn] !== undefined)
-      found = x.fn;
-  };
-  for (const s of f.body) eachStmtExpr(s, (e) => eachExpr(e, visit));
-  return found;
 }
 
 const COMPUTE_BUILTINS = new Set([
@@ -211,42 +176,6 @@ const COMPUTE_BUILTINS = new Set([
   'workgroup_id',
   'num_workgroups',
 ]);
-
-function spell(t: ShaderType): string {
-  if (t.kind === 'struct') return t.name;
-  if (t.kind === 'array')
-    return t.size === undefined ? `array<${spell(t.elem)}>` : `array<${spell(t.elem)}, ${t.size}>`;
-  if (t.kind === 'atomic') return `atomic<${t.elem}>`;
-  return authorTypeText(t);
-}
-
-function barrierIn(
-  closure: ReadonlySet<string>,
-  byName: ReadonlyMap<string, FuncDecl>,
-  declared: ReadonlySet<string>,
-): string | undefined {
-  for (const g of closure) {
-    let found: string | undefined;
-    const visitStmt = (st: Stmt): void => {
-      if (found !== undefined) return;
-      eachStmtExpr(
-        st,
-        (e) =>
-          eachExpr(e, (x) => {
-            if (found !== undefined || x.op !== 'call' || declared.has(x.fn)) return;
-            if (!isBarrierIntrinsic(x.fn)) return;
-            const span = sourceSpanOf(st) ?? sourceSpanOf(x);
-            const file = span?.file.replace(/\\/g, '/').split('/').pop();
-            found = span ? `${x.fn}() at ${file}:${span.line + 1}` : `${x.fn}() in ${g}`;
-          }),
-        visitStmt,
-      );
-    };
-    for (const st of byName.get(g)!.body) visitStmt(st);
-    if (found !== undefined) return found;
-  }
-  return undefined;
-}
 
 /**
  * Compute the host face of one shader module: which exports a host can call (Rule 8.20), their
@@ -475,43 +404,6 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
   };
 }
 
-interface FaceCtx {
-  readonly sf: ts.SourceFile;
-  readonly symbols: ReturnType<typeof compileTsSource>['symbols'];
-  readonly byName: ReadonlyMap<string, FuncDecl>;
-  readonly structs: ReadonlyMap<string, StructDecl>;
-  readonly collected: ReturnType<typeof compileTsSource>['structs'];
-  readonly constsByName: ReadonlyMap<string, ConstDecl>;
-  readonly bindingNames: ReadonlySet<string>;
-  readonly overrideNames: ReadonlySet<string>;
-  readonly privateNames: ReadonlySet<string>;
-  readonly reachProblem: (fn: string) => string | undefined;
-  readonly fuse?: { readonly origin: string };
-  readonly entry: EntryCtx;
-}
-
-interface EntryCtx {
-  readonly module: ModuleDecl;
-  readonly bindings: readonly BindingDecl[];
-  readonly reads: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly writes: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly reach: (entry: string) => BindingReach;
-  readonly callees: ReadonlyMap<string, ReadonlySet<string>>;
-  readonly declared: ReadonlySet<string>;
-  readonly workgroupZero: Readonly<Record<string, unknown>>;
-  readonly guard?: { readonly group: number; readonly binding: number };
-}
-
-function guardOf(wgsl: string | undefined): { guard?: { group: number; binding: number } } {
-  const m =
-    wgsl === undefined ? null : /@group\((\d+)\)\s*@binding\((\d+)\)\s*var\s+_fp64\b/.exec(wgsl);
-  return m === null ? {} : { guard: { group: Number(m[1]), binding: Number(m[2]) } };
-}
-
-function guardBinding(at: { group: number; binding: number }): DrawBinding {
-  return { name: '_fp64', ...at, space: 'texture', s: 'texture_2d<f32>', guard: true };
-}
-
 function entryBindings(
   f: FuncDecl,
   c: FaceCtx,
@@ -592,38 +484,6 @@ const STORAGE_ACCESS = {
   read_write: 'read-write',
 } as const;
 
-const CPU_HANDLES: ReadonlySet<ShaderType['kind']> = new Set([
-  'texture',
-  'storage-texture',
-  'depth-texture',
-  'sampler',
-  'sampler-comparison',
-]);
-
-function noCpuTier(
-  closure: ReadonlySet<string>,
-  bindings: readonly DrawBinding[],
-  c: FaceCtx,
-): string | undefined {
-  const handle = bindings.find(
-    (b) => (b.space === 'texture' || b.space === 'sampler') && !('guard' in b),
-  );
-  if (handle !== undefined)
-    return `it reaches the ${handle.s} "${handle.name}", which is not supported yet on the CPU tier (Rule 8.24)`;
-  for (const g of closure)
-    for (const n of [...(c.entry.reads.get(g) ?? []), ...(c.entry.writes.get(g) ?? [])]) {
-      const b = c.entry.bindings.find((x) => x.name === n);
-      if (b !== undefined && CPU_HANDLES.has(b.type.kind))
-        return `it reaches the ${spell(b.type)} "${b.name}", which is not supported yet on the CPU tier (Rule 8.24)`;
-    }
-  for (const g of closure) {
-    const gpu = gpuOnlyCall(c.byName.get(g)!, c.entry.declared);
-    if (gpu !== undefined && !isAtomicIntrinsic(gpu) && !isBarrierIntrinsic(gpu))
-      return `it reaches ${gpu}(), which is not supported yet on the CPU tier (Rule 8.24)`;
-  }
-  return undefined;
-}
-
 function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const x = c.entry;
   for (const p of f.params)
@@ -685,19 +545,6 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       ? { queuedType: objectType(queued), waitingType: objectType(waiting) }
       : {}),
   };
-}
-
-function wgslEntryPoint(f: FuncDecl, c: FaceCtx): { entryPoint?: string } {
-  const emitted = spellingsOf(c.entry.module).wgsl.entries.get(f.name);
-  return emitted === undefined ? {} : { entryPoint: emitted };
-}
-
-function glTier(f: FuncDecl, c: FaceCtx): { gl: GlComputeProgram } | { noGl: string } {
-  try {
-    return { gl: buildGlCompute(c.entry.module, f.name) };
-  } catch (e) {
-    return { noGl: e instanceof Error ? e.message : String(e) };
-  }
 }
 
 const FRAGMENT_BUILTINS = new Set(['position', 'front_facing']);
@@ -1127,122 +974,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   };
 }
 
-function wordBinding(
-  plan: KernelPlan,
-  structs: ReadonlyMap<string, StructDecl>,
-  name: string,
-  rw: boolean,
-): EntryBinding {
-  const b = plan.module.bindings.find((x) => x.name === name)!;
-  const layout = layoutOf(b.type, 'std430', structs, authorTypeText);
-  if ('none' in layout) throw new Error(layout.none);
-  return {
-    name: b.name,
-    group: b.group,
-    binding: b.binding,
-    space: 'storage',
-    writes: rw,
-    ...(rw ? { rw: true as const } : {}),
-    layout,
-    s: spell(b.type),
-  };
-}
-
-function wordBindings(
-  plan: KernelPlan,
-  structs: ReadonlyMap<string, StructDecl>,
-): PushWord[] | { none: string } {
-  const out: PushWord[] = [];
-  for (const w of plan.words ?? []) {
-    const b = plan.module.bindings.find((x) => x.name === w.binding)!;
-    const layout = layoutOf(b.type, 'std430', structs, authorTypeText);
-    if ('none' in layout) return layout;
-    out.push({
-      param: w.param,
-      field: w.field,
-      binding: {
-        name: b.name,
-        group: b.group,
-        binding: b.binding,
-        space: 'storage',
-        writes: true,
-        rw: true,
-        layout,
-        s: spell(b.type),
-      },
-      loops: w.loops,
-    });
-  }
-  return out;
-}
-
-function heldVariant(
-  f: FuncDecl,
-  m: ModuleDecl,
-  proof: KernelProof,
-): NonNullable<NonNullable<KernelFace['gpu']>['held']> | undefined {
-  const plan = lowerKernelFor(f, m, proof, { held: true });
-  if ('noGpu' in plan) return undefined;
-  let wgsl: string;
-  let wgslInteger: string | undefined;
-  let wgslSubgroup: string | undefined;
-  let wgslSubgroupInteger: string | undefined;
-  try {
-    wgsl = emitModule(plan.module);
-    wgslInteger =
-      guardOf(wgsl).guard !== undefined
-        ? emitModule(plan.module, { fp64Flavor: 'integer' })
-        : undefined;
-  } catch {
-    return undefined;
-  }
-  if (plan.subgroupModule !== undefined) {
-    try {
-      wgslSubgroup = emitModule(plan.subgroupModule);
-      if (wgslInteger !== undefined)
-        wgslSubgroupInteger = emitModule(plan.subgroupModule, { fp64Flavor: 'integer' });
-    } catch {
-      wgslSubgroup = undefined;
-      wgslSubgroupInteger = undefined;
-    }
-  }
-  const structs = new Map(plan.module.structs.map((x) => [x.name, x]));
-  const args = layoutOf(
-    { kind: 'struct', name: plan.argsStruct },
-    'std140',
-    structs,
-    authorTypeText,
-  );
-  const words = wordBindings(plan, structs);
-  if ('none' in args || 'none' in words) return undefined;
-  return {
-    wgsl,
-    ...(wgslInteger !== undefined ? { wgslInteger } : {}),
-    ...(wgslSubgroup !== undefined ? { wgslSubgroup } : {}),
-    ...(wgslSubgroupInteger !== undefined ? { wgslSubgroupInteger } : {}),
-    args: {
-      name: plan.argsBinding,
-      group: 0,
-      binding: 0,
-      space: 'uniform',
-      writes: false,
-      layout: args,
-      s: plan.argsStruct,
-    },
-    words,
-    ...guardOf(wgsl),
-  };
-}
-
-function dispatched({
-  iterates: _iterates,
-  iteration: _iteration,
-  continues: _continues,
-  ...loop
-}: KernelLoopPlan): Omit<KernelLoopPlan, 'iterates' | 'iteration' | 'continues'> {
-  return loop;
-}
-
 function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: string): KernelFuse {
   const arrayParams = f.params
     .filter((p) => p.type.kind === 'array' && p.type.size === undefined)
@@ -1279,50 +1010,6 @@ function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: s
     };
   });
   return { origin, facts, ir: toPortable(reachedBy(plan.module), VERSION) };
-}
-
-export function bareArrays(
-  f: FuncDecl,
-  plan: KernelPlan,
-  l: KernelLoopPlan,
-  params: readonly string[],
-): FuseBare[] {
-  const found = new Map<string, { place: Expr; at: SourceSpan | undefined }>();
-  const walk = (st: Stmt): void =>
-    eachStmtExpr(
-      st,
-      (e) =>
-        eachExpr(e, (x) => {
-          if (x.op !== 'call' || callArgAccess(x, 0) !== 'length') return;
-          const named = x.args[0];
-          if (named?.op !== 'varref' && named?.op !== 'param') return;
-          if (params.includes(named.name) && !found.has(named.name))
-            found.set(named.name, { place: x, at: sourceSpanOf(st) });
-        }),
-      walk,
-    );
-  plan.module.funcs
-    .find((g) => g.name === l.iterates)
-    ?.body.slice(l.iteration)
-    .forEach(walk);
-  return params.flatMap((param) => {
-    const first = describeRead(f, { first: found.get(param) });
-    return first === undefined ? [] : [{ param, first }];
-  });
-}
-
-function reachedBy(m: ModuleDecl): ModuleDecl {
-  const helpers = new Set(m.funcs.filter((g) => g.stage === undefined).map((g) => g.name));
-  const callees = new Map(m.funcs.map((g) => [g.name, calleesOf(g, helpers)]));
-  const keep = new Set<string>();
-  for (const g of m.funcs)
-    if (g.stage !== undefined) for (const name of closureOf(g.name, callees)) keep.add(name);
-  return {
-    ...m,
-    funcs: m.funcs
-      .filter((g) => keep.has(g.name))
-      .map(({ span: _span, nameSpan: _nameSpan, ...g }): FuncDecl => g),
-  };
 }
 
 function kernelGl(
@@ -1370,21 +1057,6 @@ function kernelGl(
     });
   }
   return { loops };
-}
-
-const never = (name: string, reason: string, typeOnly?: true): HostExport =>
-  typeOnly ? { kind: 'never', name, reason, typeOnly } : { kind: 'never', name, reason };
-
-function isFunctionType(t: ts.TypeNode | undefined, sf: ts.SourceFile): boolean {
-  if (t === undefined) return false;
-  if (ts.isFunctionTypeNode(t)) return true;
-  if (ts.isParenthesizedTypeNode(t)) return isFunctionType(t.type, sf);
-  if (ts.isTypeReferenceNode(t) && ts.isIdentifier(t.typeName)) {
-    const name = t.typeName.text;
-    for (const s of sf.statements)
-      if (ts.isTypeAliasDeclaration(s) && s.name.text === name) return isFunctionType(s.type, sf);
-  }
-  return false;
 }
 
 function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
@@ -1479,188 +1151,6 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
   return never(name, REASON.unknown);
 }
 
-function resourceFaces(
-  faces: readonly (FaceExport | BindingRef)[],
-  bindings: readonly BindingDecl[],
-): FaceExport[] {
-  const classes = faces.filter((e): e is ClassExport => e.kind === 'class');
-  const classOf = (name: string, layout: 'u' | 's'): ResourceClassFacts | undefined => {
-    const cls = classes.find((e) => e.type.s === name);
-    if (cls === undefined) return undefined;
-    const why = layout === 'u' ? cls.layouts.un : cls.layouts.sn;
-    return {
-      name: cls.name,
-      abstract: cls.abstract,
-      ...(why !== undefined ? { layoutProblem: why } : {}),
-    };
-  };
-  return faces.map((e): FaceExport => {
-    if (e.kind !== 'binding') return e;
-    const b = bindings.find((x) => x.name === e.binding);
-    if (b === undefined || b.type === undefined) return never(e.name, REASON.bindingExport);
-    const r = hostResourceOf(b, classOf);
-    if (r.kind === 'other') return never(e.name, REASON.bindingExport);
-    if (r.kind === 'none') return never(e.name, REASON.bindingNoResource(r.why));
-    return r.length === undefined
-      ? { kind: 'resource', name: e.name, cls: r.cls }
-      : { kind: 'resource', name: e.name, cls: r.cls, length: r.length };
-  });
-}
-
-function classChain(cls: ts.ClassDeclaration): ts.ClassDeclaration[] {
-  const out: ts.ClassDeclaration[] = [];
-  let at: ts.ClassDeclaration | undefined = cls;
-  while (at !== undefined && !out.includes(at)) {
-    out.push(at);
-    at = baseClassOf(at);
-  }
-  return out;
-}
-
-const isGenericMember = (f: ts.SignatureDeclaration): boolean =>
-  (f.typeParameters?.length ?? 0) > 0 &&
-  !f.parameters.some((p) => ts.isIdentifier(p.name) && p.name.text === 'this');
-
-function memberCall(
-  fn: string,
-  node: ts.SignatureDeclaration | undefined,
-  instance: boolean,
-  self: boolean,
-  c: FaceCtx,
-): MemberCall | Refused {
-  if (node !== undefined && isGenericMember(node)) return { reason: REASON.generic };
-  if (node?.parameters.some((p) => isFunctionType(p.type, c.sf)))
-    return { reason: REASON.takesFunction };
-  const f = c.byName.get(fn);
-  if (f === undefined) return { reason: REASON.notLowered };
-  const params: { name: string; type: HostType }[] = [];
-  for (const p of instance ? f.params.slice(1) : f.params) {
-    if (p.mode === 'inout') return { reason: REASON.reference(p.name) };
-    const t = hostTypeOf(p.type, c.structs);
-    if ('none' in t) return { reason: `parameter "${p.name}": ${t.none}` };
-    if (t.k === 'void') return { reason: `parameter "${p.name}" is void` };
-    params.push({ name: p.name, type: t });
-  }
-  const result = hostTypeOf(f.ret, c.structs);
-  if ('none' in result) return { reason: `its result: ${result.none}` };
-  const problem = c.reachProblem(f.name);
-  if (problem !== undefined) return { reason: problem };
-  const object = instance ? f.params[0] : undefined;
-  const own =
-    object?.type.kind === 'struct' && f.ret.kind === 'struct' && f.ret.name === object.type.name;
-  return { fn: f.name, params, result, writes: object?.mode === 'inout', self: self && own };
-}
-
-function extendsStruct(
-  x: CollectedStruct,
-  struct: string,
-  byName: ReadonlyMap<string, CollectedStruct>,
-): boolean {
-  const seen = new Set<string>();
-  for (let at = x.bases?.[0]; at !== undefined && !seen.has(at); at = byName.get(at)?.bases?.[0]) {
-    if (at === struct) return true;
-    seen.add(at);
-  }
-  return false;
-}
-
-function concreteBelow(struct: string, c: FaceCtx): string | undefined {
-  const byName = new Map(c.collected.map((x) => [x.decl.name, x]));
-  return c.collected.find(
-    (x) => x.abstract !== true && x.namespace !== true && extendsStruct(x, struct, byName),
-  )?.decl.name;
-}
-
-function exportedBelow(struct: string, c: FaceCtx): string | undefined {
-  const byName = new Map(c.collected.map((x) => [x.decl.name, x]));
-  for (const ref of exportsOf(c.sf)) {
-    const decl = ref.decl;
-    if (decl === undefined || !ts.isClassDeclaration(decl) || decl.name === undefined) continue;
-    if ((decl.typeParameters?.length ?? 0) > 0) continue;
-    const x = byName.get(decl.name.text);
-    if (x === undefined || x.abstract === true || x.namespace === true) continue;
-    if (!extendsStruct(x, struct, byName)) continue;
-    if ('none' in hostTypeOf({ kind: 'struct', name: x.decl.name }, c.structs)) continue;
-    return ref.name;
-  }
-  return undefined;
-}
-
-function classMembers(
-  name: string,
-  decl: ts.ClassDeclaration,
-  struct: CollectedStruct,
-  c: FaceCtx,
-): ClassMember[] {
-  const own = struct.decl.name;
-  const below = struct.abstract === true ? concreteBelow(own, c) : own;
-  const out: ClassMember[] = [];
-  const seen = new Set<string>();
-  for (const cls of classChain(decl)) {
-    for (const m of cls.members) {
-      if (m.name === undefined) continue;
-      const written = writtenMemberName(m.name);
-      if (written === undefined) continue;
-      const isStatic = isStaticMember(m);
-      const accessor = ts.isGetAccessorDeclaration(m) || ts.isSetAccessorDeclaration(m);
-      const holder = ts.isPropertyDeclaration(m) && holdsFunction(m) && !isStatic;
-      if (!ts.isMethodDeclaration(m) && !accessor && !holder) continue;
-      const abstract = hasModifier(m, ts.SyntaxKind.AbstractKeyword);
-      if (ts.isMethodDeclaration(m) && m.body === undefined && !abstract) continue;
-      const key = `${isStatic ? 'static ' : ''}${written}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (isPrivateName(written) || keywordAccessOf(m) !== undefined) continue;
-      if (abstract && struct.abstract !== true) continue;
-      const owner = isStatic ? own : below;
-      const isAbstract = abstract && struct.abstract === true;
-      if (accessor) {
-        const halves = cls.members.filter(
-          (x): x is ts.AccessorDeclaration =>
-            (ts.isGetAccessorDeclaration(x) || ts.isSetAccessorDeclaration(x)) &&
-            isStaticMember(x) === isStatic &&
-            writtenMemberName(x.name) === written,
-        );
-        const parts: { get?: MemberCall; set?: MemberCall } = {};
-        let reason: string | undefined;
-        for (const h of halves) {
-          const half = ts.isGetAccessorDeclaration(h) ? 'get' : 'set';
-          const call =
-            owner === undefined
-              ? { reason: REASON.abstractMember(name, written) }
-              : memberCall(accessorFnName(owner, half, written), h, !isStatic, false, c);
-          if ('reason' in call) reason ??= call.reason;
-          else parts[half] = call;
-        }
-        out.push({
-          kind: 'accessor',
-          name: written,
-          static: isStatic,
-          abstract: isAbstract,
-          ...(reason === undefined ? parts : { reason }),
-        });
-        continue;
-      }
-      const fn = holder ? (m.initializer as ts.ArrowFunction | ts.FunctionExpression) : m;
-      const self = !isStatic && ts.isMethodDeclaration(m) && returnsThis(m.body);
-      const builder = isStatic && struct.abstract === true && buildsCallerClass(m);
-      const call = builder
-        ? { reason: abstractBuilderText(name, written, exportedBelow(own, c)) }
-        : owner === undefined
-          ? { reason: REASON.abstractMember(name, written) }
-          : memberCall(
-              methodFnName(owner, emittedMemberName(written)),
-              fn as ts.SignatureDeclaration,
-              !isStatic,
-              self,
-              c,
-            );
-      out.push({ kind: 'method', name: written, static: isStatic, abstract: isAbstract, call });
-    }
-  }
-  return out;
-}
-
 function classFace(
   name: string,
   decl: ts.ClassDeclaration,
@@ -1735,49 +1225,4 @@ function resourceLayouts(name: string, structs: ReadonlyMap<string, StructDecl>)
     ...('none' in u ? { un: u.none } : { u }),
     ...('none' in s ? { sn: s.none } : { s: s as Layout & { k: 'a' } }),
   };
-}
-
-function classCalls(e: ClassExport): MemberCall[] {
-  const out: MemberCall[] = [];
-  if (e.ctor !== undefined && 'fn' in e.ctor) out.push(e.ctor);
-  for (const m of e.members) {
-    if (e.abstract && !m.static) continue;
-    if (m.kind === 'method' && 'fn' in m.call) out.push(m.call);
-    if (m.kind === 'accessor') for (const h of [m.get, m.set]) if (h !== undefined) out.push(h);
-  }
-  return out;
-}
-
-function generatedClass(e: ClassExport, generated: (fn: string) => boolean): ClassExport {
-  const ok = <T extends MemberCall | Refused>(call: T): T | Refused =>
-    'fn' in call && !generated(call.fn) ? { reason: REASON.fallback } : call;
-  const members = e.members.map((m): ClassMember => {
-    if (m.kind === 'method') return { ...m, call: ok(m.call) };
-    const halves = [m.get, m.set].filter((h): h is MemberCall => h !== undefined);
-    const lost = halves.find((h) => !generated(h.fn));
-    return lost === undefined
-      ? m
-      : {
-          kind: 'accessor',
-          name: m.name,
-          static: m.static,
-          abstract: m.abstract,
-          reason: REASON.fallback,
-        };
-  });
-  const ctor = e.ctor === undefined || !('fn' in e.ctor) ? e.ctor : ok(e.ctor);
-  return { ...e, ...(ctor !== undefined ? { ctor } : {}), members };
-}
-
-export const hostViewPath = (path: string): string => path.replace(/\.ts$/, '.typeshade.ts');
-
-export const isShaderModulePath = (path: string): boolean => path.endsWith('.shade.ts');
-
-export function formatBuildErrors(diagnostics: readonly TsCompilerDiagnostic[]): string {
-  return diagnostics
-    .filter((d) => d.category === 'error')
-    .map((d) =>
-      `${d.fileName}:${d.line}:${d.character} ${d.code ?? ''} ${d.message}`.replace(/  +/, ' '),
-    )
-    .join('\n');
 }
