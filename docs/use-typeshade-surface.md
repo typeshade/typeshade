@@ -35,11 +35,14 @@ is declared `const`, and a storage binding says in its TYPE how the shader may t
 **The access mode is inferred** (Rule 6.2, change 0114, S3). A `storage<T>` binding that some
 entry writes (an assignment, a mutating method, an atomic builtin, or a write through a function or
 a reference parameter) is `var<storage, read_write>`, and every other one is `var<storage, read>`.
+A write in a function that no entry reaches does not count: it draws no `TS8005`, and a function
+that no entry reaches and that writes such a binding is not emitted (change 0114, Amendment A17).
 `storage<readonly T[]>` promises that nothing writes the binding, and a write is refused. A
 second type argument is still accepted: `"read_write"` keeps `var<storage, read_write>` and
 `"read"` keeps `var<storage, read>`, the two words being WGSL's own enumerants, written as string
 literal types the way a storage texture writes its own (§33). Change 0114, decision D3, removes
-the `"read_write"` argument in S4 and does not name `"read"`. A uniform buffer is read-only in
+the `"read_write"` argument in S4 and does not name `"read"`. A vertex entry that reads a
+binding declared `"read_write"` is refused, written or not (§7, change 0114, Amendment A17). A uniform buffer is read-only in
 WGSL, so `uniform<T>` takes one type argument and has no mode to ask for.
 
 ```ts
@@ -75,9 +78,9 @@ no `access` field at all.
 | Declaration | Space | Access | Emitted |
 |-------------|-------|--------|---------|
 | `declare const x: uniform<T>` | uniform | read | `var<uniform> x: T;` |
-| `declare const x: storage<T>` | storage | inferred | `var<storage, read> x: T;` when no entry writes `x`, else `var<storage, read_write> x: T;` |
+| `declare const x: storage<T>` | storage | inferred | `var<storage, read> x: T;` when no entry writes `x`, else `var<storage, read_write> x: T;`. A write in a function that no entry reaches does not count: it draws no `TS8005`, and a function that no entry reaches and that writes such a binding is not emitted (Rule 6.2, change 0114, Amendment A17) |
 | `declare const x: storage<T, "read">` | storage | read | `var<storage, read> x: T;`; a write is `TS8005` |
-| `declare const x: storage<T, "read_write">` | storage | read_write | `var<storage, read_write> x: T;` |
+| `declare const x: storage<T, "read_write">` | storage | read_write | `var<storage, read_write> x: T;`; a vertex entry that reads `x` is `TS8099`, written or not (Rule 6.2, change 0114, Amendment A17) |
 | `declare const x: storage<f32[]>`, `storage<Array<f32>>` | storage | inferred | as `storage<array<f32>>` (§20, change 0114) |
 | `declare const x: storage<readonly f32[]>`, `storage<ReadonlyArray<f32>>` | storage | read | `readonly` promises that nothing writes `x`, and a write is `TS8005` (§20, change 0114) |
 | `declare const x: T` | illegal | space required | `TS8099` |
@@ -659,8 +662,9 @@ Do not start Execution Graph or class methods before 2–4 are green. (Class met
 | an access word outside `"read"` and `"read_write"` | `TS8002`. `storage<T, Access> Access is "read" or "read_write"; got "write". A storage BUFFER has no write-only mode; that is a storage texture's, texture_storage_2d<Format, "write">.` Collected as `read_write` (§1); TS2344 in the editor |
 | a second type argument on a `uniform<T>` | `TS8002`. `uniform<T> takes one type argument. A uniform buffer is read-only, so it has no access mode to write.` TS2314 in the editor |
 | the retired `{ access }` option on the call form | `TS8099`, naming the type-argument spelling to write (§1). Reported and ignored: the mode comes from the type argument |
-| assign to a read resource: a `uniform<T>`, a `storage<T, "read">` or a `storage<readonly T[]>` (a `storage<T>` that no `"read"` or `readonly` promises is inferred `read_write` by the write, Rule 6.2) | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a swizzle that repeats a component `v.xx` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
+| assign to a read resource: a `uniform<T>`, a `storage<T, "read">` or a `storage<readonly T[]>` (a `storage<T>` that no `"read"` or `readonly` promises is inferred `read_write` by a write that some entry reaches, and a write in a function that no entry reaches is accepted, Rule 6.2) | `TS8005`, whose sentence names the `storage<T, "read_write">` line to write when the target is a storage binding, the compiler READ its declared type (a recovered type names no line: the line would drop what it could not read) and the target is a place on some mode (`md[0]` on an `f64` matrix, `src.length`, an emulated-double lane `dv[0].x` and a swizzle that repeats a component `v.xx` are each the same refusal on either mode, and name no line). TS2542 on an index and TS2540 on a field in the editor, before `compile()` is called (§1) |
 | a storage binding the module writes that a vertex entry reads | `TS8099` at the vertex entry, one sentence: `WebGPU allows no writable storage buffer in the vertex stage, and the module writes "pos" that the vertex entry "vs" reads: give the vertex stage a separate binding, or declare "pos" readonly and write nothing to it.` (§1, Rule 6.2) |
+| a storage binding declared `"read_write"` that a vertex entry reads, and that no other entry writes | `TS8099` at the vertex entry, one sentence: `WebGPU allows no writable storage buffer in the vertex stage, and "xs" is declared "read_write" while the vertex entry "vs" reads it: remove the "read_write" argument from "xs", or give the vertex stage a separate binding.` (§1, Rule 6.2) |
 | a storage binding a vertex entry writes itself | `TS8099` at the vertex entry, one sentence: `WebGPU allows no writable storage buffer in the vertex stage, and the vertex entry "vs" writes "xs": write it from a compute or fragment entry, or give the vertex stage a separate binding.` (§1, Rule 6.2) |
 | two resources share `@binding` | name both |
 | a decorator on a declaration: a binding, an override, a `const` or `let` at any depth, an enum, an interface, a type alias, a namespace, a function declared in another function's body, or a `static` field | `TS8028`, one per decorator, saying what it is: `@group` and `@binding` are WGSL's and not applied, since `reflect()` reports the group and slot each binding gets (§1); `@id` is not applied, since the host sets an override by its name; `@size` and `@align` are named as a struct field's (§51); an attribute the compiler reads elsewhere by what it marks (`"@fragment" does not apply to a local function: it marks an entry function. Remove it.`); a name WGSL does not have either is `Unknown attribute`. The editor shows this sentence alone, without TypeScript's TS1206, or its TS2304 on a name the ambient library does not declare |
@@ -762,7 +766,8 @@ pixels[i] = 1.;            // an element
 | `let` local | yes |
 | `declare const x: storage<T, "read_write">` | yes |
 | `const` local | no: `TS8005` |
-| `declare const x: uniform<T>` / `storage<T>` | no: `TS8005` |
+| `declare const x: uniform<T>` / `storage<T, "read">` / `storage<readonly T[]>` | no: `TS8005` |
+| `declare const x: storage<T>` | yes: an entry that writes it makes it `read_write` (Rule 6.2, change 0114, Amendment A17) |
 | a function parameter | no: `TS8018` |
 | an object parameter that the function writes | yes: the caller's object (§70) |
 | anything that is not a name (`vec3(0.).x`) | no: `TS8018` |
@@ -3047,7 +3052,7 @@ arithmetic wraps at 32 bits. A result nobody binds is dropped behind WGSL's phon
 **What is refused, and told the fix.** An atomic is never read or assigned directly: `bins[i]`
 outside an atomic builtin, as a value or as an assignment target, is TS8003 naming
 `atomicLoad`, `atomicStore` and `atomicAdd`. Every atomic builtin needs read_write access, so a
-binding whose type does not say `"read_write"` is TS8005 naming the line to write. A value of
+binding declared `"read"` is TS8005 naming the line to write; a bare `storage<...>` binding that holds an atomic is `read_write` (Rule 6.2, change 0114, Amendment A17). A value of
 another type (`atomicAdd(bins[i], 1.5)`) is TS8003, a location that is not atomic is TS8003, the
 wrong number of arguments is TS8019. An atomic declared as a local, a parameter or a return
 type, or inside a `uniform<...>`, is TS8099 with where it may live; `atomic<f32>` is TS8002.
