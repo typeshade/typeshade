@@ -6,9 +6,10 @@ import { optimizeAt, type OptLevel } from '../../core/passes/opt/optimize.js';
 const LEVELS: readonly OptLevel[] = ['O0', 'O1', 'O2'];
 
 const program = (body: string): string =>
-  `"use typeshade";\nconst K = 1 | 2;\nexport function t(f: f32, i: i32): f32 {\n  ${body}\n}\n`;
+  `"use typeshade";\nconst K = 1 | 2;\nexport function t(f: f32, i: i32, u: u32, g: f32): f32 {\n  ${body}\n}\n`;
 
-const valuesAt = (source: string, args: readonly unknown[]): unknown[] => {
+const valuesAt = (source: string, [f, i]: readonly [number, number]): unknown[] => {
+  const args = [f, i, 4, 0.25];
   const { result } = bothTake(source);
   return LEVELS.map((level) => {
     const cpu = compileModule(optimizeAt(result.module, level), { precision: 'f32' });
@@ -82,6 +83,76 @@ const CASES: readonly { body: string; tree: string; edited: string }[] = [
     tree: 'K',
     edited: 'return f + (f > 1.0 ? f32(K) : f);',
   },
+  {
+    body: 'return f > 1.0 ? abs(K) : f;',
+    tree: 'abs(K)',
+    edited: 'return f > 1.0 ? f32(abs(K)) : f;',
+  },
+  {
+    body: 'return f > 1.0 ? 0xFFFFFFFF & 7 : f;',
+    tree: '0xFFFFFFFF & 7',
+    edited: 'return f > 1.0 ? f32(0xFFFFFFFF & 7) : f;',
+  },
+  {
+    body: 'return f > 1.0 ? ~~5 : f;',
+    tree: '~~5',
+    edited: 'return f > 1.0 ? f32(~~5) : f;',
+  },
+  {
+    body: 'return f > 1.0 ? (1 << 31) : f;',
+    tree: '1 << 31',
+    edited: 'return f > 1.0 ? (f32(1 << 31)) : f;',
+  },
+  {
+    body: 'return f > 1.0 ? (K | 1) : 1.5;',
+    tree: 'K | 1',
+    edited: 'return f > 1.0 ? (f32(K | 1)) : 1.5;',
+  },
+  {
+    body: 'return f > 1.0 ? ((K | 4)) : f;',
+    tree: 'K | 4',
+    edited: 'return f > 1.0 ? ((f32(K | 4))) : f;',
+  },
+  {
+    body: 'return f > 1.0 ? K : f + 0;',
+    tree: 'K',
+    edited: 'return f > 1.0 ? f32(K) : f + 0;',
+  },
+  {
+    body: 'return f > 1.0 ? (K) : f;',
+    tree: 'K',
+    edited: 'return f > 1.0 ? (f32(K)) : f;',
+  },
+  {
+    body: 'return f * (f > 1.0 ? K : f);',
+    tree: 'K',
+    edited: 'return f * (f > 1.0 ? f32(K) : f);',
+  },
+  {
+    body: 'return f > 1.0 ? K : sqrt(f);',
+    tree: 'K',
+    edited: 'return f > 1.0 ? f32(K) : sqrt(f);',
+  },
+  {
+    body: 'return f > 1.0 ? K : (f as number);',
+    tree: 'K',
+    edited: 'return f > 1.0 ? f32(K) : (f as number);',
+  },
+  {
+    body: 'return f > 1.0 ? K : f32(1 | 2);',
+    tree: 'K',
+    edited: 'return f > 1.0 ? f32(K) : f32(1 | 2);',
+  },
+  {
+    body: 'return f32(f > 1.0 ? 1|2 : f);',
+    tree: '1|2',
+    edited: 'return f32(f > 1.0 ? f32(1|2) : f);',
+  },
+  {
+    body: 'return f > 1.0 ? f : (f > 2.0 ? K : 3);',
+    tree: 'f > 2.0 ? K : 3',
+    edited: 'return f > 1.0 ? f : (f32(f > 2.0 ? K : 3));',
+  },
 ];
 
 describe('an arm of ?: and of select names the tree and its edit (issue 1301, Rule 5.1)', () => {
@@ -107,6 +178,18 @@ describe('an arm of ?: and of select names the tree and its edit (issue 1301, Ru
 
   it('a tree of a value with two readings names no edit', () => {
     bothRefuse(program('return f > 1.0 ? (0x80000000 | 0) : f;'), 'TS8003', bare('0x80000000 | 0'));
+    bothRefuse(program('return f > 1.0 ? 0xFFFFFFFF | 0 : f;'), 'TS8003', bare('0xFFFFFFFF | 0'));
+    bothRefuse(
+      program('return select(f, 0xFFFFFFFF | 0, f > 1.0);'),
+      'TS8003',
+      bare('0xFFFFFFFF | 0'),
+    );
+  });
+
+  it("a shifted tree gives TypeScript's 32-bit value", () => {
+    const shifted = program('return f > 1.0 ? f32(1 << 31) : f;');
+    expect(valuesAt(shifted, [2, 0])).toEqual(LEVELS.map(() => -2147483648));
+    expect(valuesAt(shifted, [0.5, 0])).toEqual(LEVELS.map(() => 0.5));
   });
 
   it('an arm that is no tree keeps the plain mismatch', () => {
