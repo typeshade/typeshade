@@ -47,7 +47,7 @@ describe('a session over a compute entry', () => {
 
 describe('a stepped call with an inout argument that names a place', () => {
   const void_ = { kind: 'void' } as const;
-  const arrayT = { kind: 'array', elem: f32T, n: 2 } as const;
+  const arrayT = { kind: 'array', elem: f32T, size: 2 } as const;
   const matrixT = matT(2, 2);
   const index = (
     base: string,
