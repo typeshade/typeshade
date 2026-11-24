@@ -1,14 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { compile } from '../compiler/ts/compile.js';
+import { bothTake } from './testing/both-halves.js';
 import { compileModule } from './oracle.js';
 import { externRef, f32T, fn, module } from './ir/index.js';
 import type { Expr, ModuleDecl, ShaderType, Stmt } from './ir/index.js';
 
-const moduleOf = (body: string): ModuleDecl => {
-  const r = compile(`"use typeshade";\n${body}\n`);
-  expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-  return r.module;
-};
+const moduleOf = (body: string): ModuleDecl =>
+  bothTake(`"use typeshade";\n${body}\n`).result.module;
 
 describe('oracle: an inout argument that is an element is written back to the place it named', () => {
   it('the element named before the call receives the value, though the callee moves the index', () => {

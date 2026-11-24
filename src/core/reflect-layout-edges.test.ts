@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { wgslLayout, reflect } from './reflect.js';
 import { emitGlslModule } from './backends/glsl.js';
+import { twoRowStd140Reason } from './std140.js';
 import { uniformStruct } from './sot.js';
 import { fn, module, vec4 } from './ir/index.js';
 import {
@@ -193,7 +194,9 @@ describe('the GLSL uniform block is laid out by the reflect layout engine', () =
     expect(emitGlslModule(blockOf(matT(3, 3)), 'fragment')).toContain('layout(std140) uniform U');
   });
 
-  it('refuses a two-row matrix field with the engine own reason', () => {
-    expect(() => emitGlslModule(blockOf(matT(2, 2)), 'fragment')).toThrow(/wgslLayout/);
+  it('refuses a two-row matrix field with the reason of the layout engine', () => {
+    expect(() => emitGlslModule(blockOf(matT(2, 2)), 'fragment')).toThrow(
+      `wgslLayout: ${twoRowStd140Reason(2)}`,
+    );
   });
 });

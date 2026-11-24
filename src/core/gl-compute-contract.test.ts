@@ -103,7 +103,9 @@ describe('the WebGL2 compute executor on a context that records its calls', () =
   it('asks no render check of a storage texture the entry only reads', async () => {
     const stub = stubGl();
     stub.framebufferComplete = false;
-    await runGlCompute(stub.gl, storageEntry('read'), storageInput()).catch(() => undefined);
+    await expect(runGlCompute(stub.gl, storageEntry('read'), storageInput())).rejects.toThrow(
+      'typeshade/webgl2: a read-back fence failed (was the context lost?)',
+    );
     expect(stub.calls.some((c) => c[0] === 'checkFramebufferStatus')).toBe(false);
     expect(stub.calls.some((c) => c[0] === 'drawArrays')).toBe(true);
   });
@@ -119,10 +121,12 @@ declare const out: storage<array<f32>, "read_write">;
 `).module,
       'main',
     );
-    await runGlCompute(stub.gl, plain, {
-      workgroups: [1, 1, 1],
-      memory: { out: new Uint32Array(4) },
-    }).catch(() => undefined);
+    await expect(
+      runGlCompute(stub.gl, plain, {
+        workgroups: [1, 1, 1],
+        memory: { out: new Uint32Array(4) },
+      }),
+    ).rejects.toThrow('typeshade/webgl2: a read-back fence failed (was the context lost?)');
     const controls = stub.calls.filter(
       (c) => c[0] === 'bufferData' && c[2] instanceof Uint32Array && c[2].length >= 8,
     );
