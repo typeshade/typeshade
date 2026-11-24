@@ -212,4 +212,27 @@ describe('a flow-aware walk pairs only values that occur together (issue 1308, A
       bothRefuse(u32, 'TS8003', refusal('a - c'));
     }
   });
+
+  it('refuses a read of one variable the same way inside and outside a statement that stores', () => {
+    const i32 = (body: string): string => program(`let a = (0xF0000000|0);\n  a = 5;\n  ${body}`);
+    const cases: readonly (readonly [string, string])[] = [
+      ['let r = a - 1;\n  return f32(r);', 'r'],
+      ['let r = f32(a - 1);\n  return r;', 'a - 1'],
+      ['let x = a - 1, y = a - 2;\n  return f32(x + y);', 'x + y'],
+      ['return f32(a - 1);', 'a - 1'],
+      ['let r = a - 1;\n  return f32(a - 1);', 'a - 1'],
+    ];
+    for (const [body, expression] of cases) {
+      bothRefuse(i32(body), 'TS8003', refusal(expression));
+    }
+  });
+
+  it('takes a pair read inside a statement that stores, and keeps its u32 neighbours', () => {
+    expect(
+      valuesAt(sum('if (vi > 3) { a = 5; c = 5; }', 'let r = a - c;\n  return f32(r);')),
+    ).toEqual(at(0, 0, 0));
+    const copy = 'let r = a;\n  return f32(r - 1);';
+    expect(valuesAt(program(`let a = (0xF0000000|0);\n  a = 5;\n  ${copy}`))).toEqual(at(4, 4, 4));
+    expect(valuesAt(program(`let a = 0xF0000000;\n  a = 5;\n  ${copy}`))).toEqual(at(4, 4, 4));
+  });
 });

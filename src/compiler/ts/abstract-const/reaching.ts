@@ -194,6 +194,21 @@ export function coexist(a: Reading, b: Reading, at: ts.Node, src: FlowSources): 
   return true;
 }
 
+function feedsStore(at: ts.Node, statement: ts.Node): boolean {
+  let n: ts.Node = at;
+  while (ts.isParenthesizedExpression(n.parent)) n = n.parent;
+  const p = n.parent;
+  const stored =
+    (ts.isVariableDeclaration(p) && p.initializer === n) ||
+    (ts.isBinaryExpression(p) &&
+      p.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      p.right === n) ||
+    (ts.isBinaryExpression(p) && isAssignment(p.operatorToken.kind) && p.left === n) ||
+    ((ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p)) &&
+      (p.operator === ts.SyntaxKind.PlusPlusToken || p.operator === ts.SyntaxKind.MinusMinusToken));
+  return stored && storeOf(statement).length > 0;
+}
+
 export function reachingReadings(
   xs: Reading[],
   d: ts.VariableDeclaration,
@@ -201,7 +216,7 @@ export function reachingReadings(
   src: FlowSources,
 ): Reading[] {
   const statement = statementOf(at);
-  if (statement === undefined || storeOf(statement).length === 0) return xs;
+  if (statement === undefined || !feedsStore(at, statement)) return xs;
   const joint = jointStoresAt([d], at, src);
   if (joint === undefined) return xs;
   const reaching = new Set(joint.map(([x]) => x));
