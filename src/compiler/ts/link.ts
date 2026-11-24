@@ -1,35 +1,6 @@
-// === Linking a "use typeshade" program: a file and the shader files it imports (Rule 3.9) ===
-//
-// A shader file may import what another one exports (surface §68, proposal 0022). The file a
-// compile starts from, the entry, and every shader file it imports, directly or through another,
-// are one program, and the program emits one module. The front end lowers ONE source file, and
-// every construct it knows (classes, enums, namespaces, generics, constants, bindings, closures)
-// is written against one file's scope, so the program is linked into one source before it is
-// lowered, the way a bundler hoists modules into one scope:
-//
-//   1. Follow the entry's imports through `resolveImport` and `readDocument`, parsing each shader
-//      file once: a file of the program's own by a relative path, or a package's, found in
-//      `node_modules` and read through its `package.json` (proposal 0024), one copy of a package
-//      version however many paths reach it. An import that is not followed is TS8072, on the
-//      import.
-//   2. Resolve every name each file writes with TypeScript's own checker over those files, so a
-//      local, a parameter or a member that shadows a top-level name is never taken for it.
-//   3. Keep the entry's declarations and what they reach in the other files. A pure root alias
-//      keeps its terminal target whole (0126); other imported files remain selective.
-//   4. Give each kept declaration the name the module emits: the written one, unless another
-//      declaration already emits it or another file calls a builtin by it; then `stem_name`. An
-//      entry point and a binding are never renamed: the host knows them by name.
-//   5. Write the program as one source: `"use typeshade";`, each imported file in dependency
-//      order with its imports, its exports and its directive removed and its names rewritten,
-//      then the entry.
-//
-// The single-file front end lowers that source as it lowers any file, and every position it
-// reports is mapped back to the file and the offset the author wrote (`LinkedProgram.map`).
-//
 // Implements: Rule 3.9, Rule 3.2 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
-import { declaresEntry, stageCallOf } from './stage-call.js';
 import { GLSL_ES300_RESERVED, WGSL_RESERVED } from '../../core/reserved-words.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
@@ -45,350 +16,41 @@ import {
   type Resolution,
 } from './specifier.js';
 import { unknownNameSentence } from './unknown-names.js';
-
-/** How a compile reads the files a shader module imports (Rule 3.9): the two hooks
- *  `CompileOptions`, `CompileTsSourceOptions` and the language service's host share, under the
- *  same names and with the same meaning. */
-export interface ImportHooks {
-  /** The text of the file `fileName` names, or `undefined` when there is none. A compile with no
-   *  `readDocument` reads nothing, and an import in it is TS8072. */
-  readonly readDocument?: (fileName: string) => string | undefined;
-  /** The file a specifier written in `fromFile` names, or `undefined` when it names none.
-   *  Defaults to `resolveSpecifier` over `readDocument`, the rule the language service applies
-   *  too: a relative path, or a package found in `node_modules` (`src/compiler/ts/specifier.ts`). */
-  readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
-}
-
-/** Whether `sourceFile` names another module at its top level, which is what sends a compile
- *  through the linker. A file that names none is compiled exactly as it always was. */
-export function hasModuleReference(sourceFile: ts.SourceFile): boolean {
-  return sourceFile.statements.some(
-    (s) =>
-      ts.isImportDeclaration(s) ||
-      (ts.isExportDeclaration(s) && s.moduleSpecifier !== undefined) ||
-      (ts.isImportEqualsDeclaration(s) && ts.isExternalModuleReference(s.moduleReference)),
-  );
-}
-
-/** One file of a program, as the linker read it. */
-export interface LinkedFile {
-  readonly name: string;
-  /** The linker's own parse of the file's text. */
-  readonly sourceFile: ts.SourceFile;
-  /** Whether any of its declarations is in the module. */
-  readonly kept: boolean;
-}
-
-/** One name the entry exports, and what the module emits for it. */
-export interface LinkedExport {
-  /** The name a host imports it by. */
-  readonly name: string;
-  /** The name the module emits it under. */
-  readonly emitted: string;
-  /** The file that declares it. */
-  readonly file: string;
-}
-
-/** A position of the linked source, mapped back to the file and the offsets the author wrote. */
-export interface MappedSpan {
-  readonly file: LinkedFile;
-  readonly start: number;
-  readonly end: number;
-}
-
-/** A linked program, ready for the single-file front end. */
-export interface LinkedProgram {
-  /** A file of the program did not parse: its parse errors are in `diagnostics`, and nothing is
-   *  lowered, as `compileTsSource` lowers nothing for a file with a parse error. */
-  readonly fatal: boolean;
-  /** What the linker found, TS8072 first among them, each in its own file's coordinates. */
-  readonly diagnostics: readonly TsCompilerDiagnostic[];
-  /** The name the linked source is parsed under. No author file has it, so a span or a
-   *  diagnostic still carrying it is one `map` has not seen. */
-  readonly fileName: string;
-  /** The program as one `"use typeshade"` source. */
-  readonly source: string;
-  /** Every file the program read, the entry first, then in the order they were read. */
-  readonly files: readonly LinkedFile[];
-  /** The entry's exports, its re-exports included. */
-  readonly exports: readonly LinkedExport[];
-  /** The file and offsets `[start, end)` of `source` were written at, or `undefined` for a span
-   *  of text the linker wrote itself with nothing to point at. */
-  map(start: number, end: number): MappedSpan | undefined;
-  /** Each use of a name whose import was refused. The import's TS8072 is the diagnostic for that
-   *  mistake, so an unknown-name diagnostic at one of these, or one that spans it and names it
-   *  (`new g()`), is dropped (Rule 12.4). */
-  readonly silenced: readonly SilencedUse[];
-}
-
-/** A use of a name whose import was refused, in its own file's offsets. */
-export interface SilencedUse {
-  readonly file: string;
-  readonly start: number;
-  readonly end: number;
-  readonly name: string;
-}
-
-/** A root the linker keeps whole: the entry, and for `compileTsSources` every file it is handed. */
-export interface LinkRoot {
-  readonly fileName: string;
-  readonly text: string;
-}
-
-/** A file of the program while it is being linked. */
-interface ProgramFile {
-  readonly name: string;
-  readonly sf: ts.SourceFile;
-  readonly root: boolean;
-  /** The name of the package the file belongs to, for a file under `node_modules`. */
-  readonly pkg: string | undefined;
-  /** The files its imports and re-exports name, in source order. */
-  readonly imports: ProgramFile[];
-}
-
-/** One top-level statement that declares something: the unit a declaration is kept or left out
- *  by. A `const` statement with two declarators is one unit, kept whole. */
-interface Unit {
-  readonly file: ProgramFile;
-  readonly stmt: ts.Statement;
-  /** The name identifiers it declares at the top level. */
-  readonly names: readonly ts.Identifier[];
-  /** An entry point (`@vertex`, `@fragment`, `@compute`), a binding or an override, whose name
-   *  the pipeline, `reflect()` or the host reads, and which the linker never changes. */
-  readonly fixedName: 'entry point' | 'binding' | 'override' | undefined;
-  /** The units its code names. */
-  readonly refs: Set<Unit>;
-}
-
-/** An edit to one file's text. */
-interface Edit {
-  readonly start: number;
-  readonly end: number;
-  readonly text: string;
-}
-
-/** A run of the linked source: copied from a file, or written by the linker in place of a range
- *  of one (`anchor`), or written with no range behind it at all. */
-interface Piece {
-  readonly at: number;
-  readonly length: number;
-  readonly file: ProgramFile | undefined;
-  /** For a copy, where the run starts in `file`. */
-  readonly from: number;
-  /** For a written run, the range of `file` it stands for. */
-  readonly anchor?: { readonly start: number; readonly end: number };
-}
-
-const ENTRY_DECORATORS = new Set(['vertex', 'fragment', 'compute']);
+import type {
+  ImportHooks,
+  LinkedFile,
+  MappedSpan,
+  LinkedProgram,
+  SilencedUse,
+  LinkRoot,
+  ProgramFile,
+  Unit,
+  Edit,
+  Piece,
+} from './link/types.js';
+import { stemOf, shownPath } from './link/generated-names.js';
+import {
+  topStatementOf,
+  isTopLevelDeclaration,
+  declaredNames,
+  hasModifier,
+  fixedNameOf,
+} from './link/statements.js';
+import { isUse, identifiersIn } from './link/identifiers.js';
+import { beginsWithDirective, pureAliasSpecifier } from './link/module-syntax.js';
+export { hasModuleReference } from './link/module-syntax.js';
+export type {
+  ImportHooks,
+  LinkedFile,
+  LinkedExport,
+  MappedSpan,
+  LinkedProgram,
+  SilencedUse,
+  LinkRoot,
+} from './link/types.js';
 
 const isRefused = (d: TsCompilerDiagnostic): boolean => d.code === TS_CODES.IMPORT;
 
-/** `text` made a name: each character a name cannot hold written `_`, with no `_` to begin. */
-function wordOf(text: string): string {
-  const word = text.replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+/, '');
-  if (word === '') return 'module';
-  return /^[0-9]/.test(word) ? `m${word}` : word;
-}
-
-/** The `stem` of a declaration's generated name (Rule 3.2): the file name without its directory
- *  and its `.shade.ts` or `.ts` ending, made a name, and for a package's file the package's name
- *  before it, `shade_noise_noise`, so the WGSL says where a renamed declaration came from. */
-function stemOf(file: Pick<ProgramFile, 'name' | 'pkg'>): string {
-  const base = file.name
-    .slice(file.name.lastIndexOf('/') + 1)
-    .replace(/(\.shade)?\.[mc]?tsx?$/, '');
-  return file.pkg === undefined ? wordOf(base) : `${wordOf(file.pkg)}_${wordOf(base)}`;
-}
-
-/** Whether `text` begins with the directive (Rule 3.1). */
-function beginsWithDirective(fileName: string, text: string): boolean {
-  const probe = ts.createSourceFile(
-    fileName,
-    text,
-    ts.ScriptTarget.Latest,
-    false,
-    ts.ScriptKind.TS,
-  );
-  return findUseTypeshadeDirective(probe) !== undefined;
-}
-
-/** Only this requested-root form preserves a whole target (0126). Comments are not statements;
- *  an extra empty statement, type-only star, namespace export or attributes makes it ordinary. */
-function pureAliasSpecifier(sf: ts.SourceFile): string | undefined {
-  const [directive, star] = sf.statements;
-  return sf.statements.length === 2 &&
-    directive !== undefined &&
-    isUseTypeshadeDirective(directive) &&
-    star !== undefined &&
-    ts.isExportDeclaration(star) &&
-    !star.isTypeOnly &&
-    star.exportClause === undefined &&
-    star.attributes === undefined &&
-    star.assertClause === undefined &&
-    star.moduleSpecifier !== undefined &&
-    ts.isStringLiteral(star.moduleSpecifier)
-    ? star.moduleSpecifier.text
-    : undefined;
-}
-
-/** A package's file as a sentence names it: from the first `node_modules/` of its path, which is
- *  where the project installed it, `node_modules/shade-noise/dist/index.js`. */
-function shownPath(file: string): string {
-  const at = file.indexOf('node_modules/');
-  return at > 0 && file[at - 1] !== '/' ? file : at >= 0 ? file.slice(at) : file;
-}
-
-/** The statement at the top of `sourceFile` that holds `node`, or `undefined`. */
-function topStatementOf(node: ts.Node): ts.Statement | undefined {
-  let n: ts.Node = node;
-  while (n.parent !== undefined && !ts.isSourceFile(n.parent)) n = n.parent;
-  return n.parent !== undefined && ts.isSourceFile(n.parent) ? (n as ts.Statement) : undefined;
-}
-
-/** Whether `decl` is itself a top-level declaration: a statement at the top of its file, or a
- *  declarator of one, and not something declared inside it (a member, a namespace's function). */
-function isTopLevelDeclaration(decl: ts.Node): boolean {
-  if (ts.isVariableDeclaration(decl) || ts.isBindingElement(decl)) {
-    const stmt = topStatementOf(decl);
-    return stmt !== undefined && ts.isVariableStatement(stmt);
-  }
-  return decl.parent !== undefined && ts.isSourceFile(decl.parent);
-}
-
-/** The name identifiers a top-level statement declares. */
-function declaredNames(stmt: ts.Statement): ts.Identifier[] {
-  if (
-    (ts.isFunctionDeclaration(stmt) ||
-      ts.isClassDeclaration(stmt) ||
-      ts.isInterfaceDeclaration(stmt) ||
-      ts.isTypeAliasDeclaration(stmt) ||
-      ts.isEnumDeclaration(stmt) ||
-      ts.isModuleDeclaration(stmt)) &&
-    stmt.name !== undefined &&
-    ts.isIdentifier(stmt.name)
-  ) {
-    return [stmt.name];
-  }
-  if (ts.isVariableStatement(stmt)) {
-    const out: ts.Identifier[] = [];
-    const visit = (name: ts.BindingName): void => {
-      if (ts.isIdentifier(name)) out.push(name);
-      else for (const e of name.elements) if (!ts.isOmittedExpression(e)) visit(e.name);
-    };
-    for (const d of stmt.declarationList.declarations) visit(d.name);
-    return out;
-  }
-  return [];
-}
-
-const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean =>
-  ts.canHaveModifiers(node) && (ts.getModifiers(node)?.some((m) => m.kind === kind) ?? false);
-
-/** What a top-level statement's name means to a host, when the linker must leave it alone. */
-function fixedNameOf(stmt: ts.Statement): Unit['fixedName'] {
-  if (ts.isFunctionDeclaration(stmt)) {
-    // Why: a decorator on a function declaration is not TypeScript's grammar, so the parser
-    // leaves it among the modifiers rather than where `getDecorators` looks.
-    for (const m of stmt.modifiers ?? []) {
-      if (!ts.isDecorator(m)) continue;
-      const e = ts.isCallExpression(m.expression) ? m.expression.expression : m.expression;
-      if (ts.isIdentifier(e) && ENTRY_DECORATORS.has(e.text)) return 'entry point';
-    }
-    return undefined;
-  }
-  if (!ts.isVariableStatement(stmt)) return undefined;
-  // A refused stage call (changes 0130 and 0140) is still read as what it stood for, so its
-  // refusal is the one diagnostic for it (Rule 12.4): an entry, or under `workgroup_size` a
-  // kernel function, which a host calls by its name too.
-  const stage = stageCallOf(stmt);
-  if (stage !== undefined) return declaresEntry(stage.callee) ? 'entry point' : undefined;
-  const declared = hasModifier(stmt, ts.SyntaxKind.DeclareKeyword);
-  for (const d of stmt.declarationList.declarations) {
-    const t = d.type;
-    if (
-      t !== undefined &&
-      ts.isTypeReferenceNode(t) &&
-      ts.isIdentifier(t.typeName) &&
-      t.typeName.text === 'override'
-    ) {
-      return 'override';
-    }
-    // `const gain = uniform<f32>(3)`, the call spelling of a binding (`bindings.ts`).
-    const init = d.initializer;
-    if (
-      init !== undefined &&
-      ts.isCallExpression(init) &&
-      ts.isIdentifier(init.expression) &&
-      (init.expression.text === 'uniform' || init.expression.text === 'storage')
-    ) {
-      return 'binding';
-    }
-    // `declare const brand: unique symbol` is a brand's key, which declares no value.
-    const brand =
-      t !== undefined && ts.isTypeOperatorNode(t) && t.operator === ts.SyntaxKind.UniqueKeyword;
-    if (declared && t !== undefined && !brand) return 'binding';
-  }
-  return undefined;
-}
-
-/**
- * Whether the identifier `id` is a use of a name, as opposed to the name of a declaration or a
- * member, a label, or a property looked up on something else.
- */
-function isUse(id: ts.Identifier): boolean {
-  const p = id.parent;
-  if (p === undefined) return false;
-  if (ts.isPropertyAccessExpression(p)) return p.name !== id;
-  if (ts.isQualifiedName(p)) return p.right !== id;
-  if (ts.isShorthandPropertyAssignment(p)) return true;
-  if (ts.isBindingElement(p)) return p.name !== id && p.propertyName !== id;
-  if (
-    ts.isPropertyAssignment(p) ||
-    ts.isPropertyDeclaration(p) ||
-    ts.isPropertySignature(p) ||
-    ts.isMethodDeclaration(p) ||
-    ts.isMethodSignature(p) ||
-    ts.isGetAccessorDeclaration(p) ||
-    ts.isSetAccessorDeclaration(p) ||
-    ts.isEnumMember(p) ||
-    ts.isParameter(p) ||
-    ts.isVariableDeclaration(p) ||
-    ts.isFunctionDeclaration(p) ||
-    ts.isFunctionExpression(p) ||
-    ts.isClassDeclaration(p) ||
-    ts.isClassExpression(p) ||
-    ts.isInterfaceDeclaration(p) ||
-    ts.isTypeAliasDeclaration(p) ||
-    ts.isEnumDeclaration(p) ||
-    ts.isModuleDeclaration(p) ||
-    ts.isTypeParameterDeclaration(p) ||
-    ts.isImportSpecifier(p) ||
-    ts.isExportSpecifier(p) ||
-    ts.isNamespaceImport(p) ||
-    ts.isNamespaceExport(p) ||
-    ts.isImportClause(p) ||
-    ts.isImportEqualsDeclaration(p) ||
-    ts.isLabeledStatement(p) ||
-    ts.isBreakOrContinueStatement(p)
-  ) {
-    return (p as { name?: ts.Node }).name !== id;
-  }
-  return true;
-}
-
-/** Every identifier under `node`, in source order. */
-function identifiersIn(node: ts.Node, out: ts.Identifier[] = []): ts.Identifier[] {
-  if (ts.isIdentifier(node)) out.push(node);
-  ts.forEachChild(node, (child) => void identifiersIn(child, out));
-  return out;
-}
-
-/**
- * The relative path the refusal of a specifier that names no package suggests for it: its last
- * segment, named once as a shader file. A scope's `@` or an import map's `#`, its extension
- * (`.ts`, `.js`, `.mjs` and the like) and a `.shade` are left off before `.shade.ts` goes on, so
- * `"/lib/noise.shade.ts"` suggests `"./noise.shade.ts"`, not `"./noise.shade.ts.shade.ts"`.
- */
 function suggestedFile(specifier: string): string {
   const last = specifier.split('/').filter(Boolean).pop() ?? specifier;
   const stem = last
@@ -398,8 +60,6 @@ function suggestedFile(specifier: string): string {
   return `./${stem}.shade.ts`;
 }
 
-/** Link `roots[0]`, the entry, with the shader files it imports; see the head of this file. The
- *  other roots, which `compileTsSources` passes, are kept whole like the entry. */
 export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): LinkedProgram {
   const diagnostics: TsCompilerDiagnostic[] = [];
   const refuse = (sf: ts.SourceFile, node: ts.Node, message: string): void => {
@@ -407,18 +67,12 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   };
   let fatal = false;
 
-  // ── 1. The files ───────────────────────────────────────────────────────────────────────
   const files = new Map<string, ProgramFile>();
   const order: ProgramFile[] = [];
-  /** `from \0 specifier` → the file it names, for TypeScript's module resolution below. */
   const resolved = new Map<string, string>();
-  /** Import and re-export declarations the linker did not follow. */
   const refusedImports = new Set<ts.Node>();
-  /** A target that was read and refused once is refused again without a second read. */
   const notShader = new Set<string>();
 
-  /** `readDocument`, each `package.json` read once per link: the rule reads one for each
-   *  package import and again for the package a file belongs to. */
   const manifests = new Map<string, string | undefined>();
   const readDocument = hooks.readDocument;
   const read =
@@ -431,8 +85,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
           if (!manifests.has(fileName)) manifests.set(fileName, readDocument(fileName));
           return manifests.get(fileName);
         };
-  /** A package's file, by the name, version and path `packageKey` gives it: one copy of one
-   *  version, whichever path read it first. */
   const byPackageKey = new Map<string, ProgramFile>();
 
   const parse = (
@@ -453,8 +105,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     return file;
   };
 
-  /** A file of the package a `no-main` refusal can suggest: what its `main` names, else an
-   *  `index.shade.ts` at its root or in `src/`, when it is a shader module. */
   const suggestedModule = (r: Extract<Resolution, { kind: 'no-main' }>): string | undefined => {
     const candidates = [
       ...(r.main === undefined ? [] : [r.main]),
@@ -475,7 +125,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     return undefined;
   };
 
-  /** Why `specifier` names no file: surface §68's table of refusals. */
   const refusal = (specifier: string, r: Exclude<Resolution, { kind: 'file' }>): string => {
     switch (r.kind) {
       case 'import-map':
@@ -512,8 +161,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     }
   };
 
-  /** The file `specifier` names from `from`, read and parsed on first sight, or `undefined`
-   *  with the reason reported on `at`. */
   const follow = (
     from: ProgramFile,
     at: ts.Node,
@@ -533,7 +180,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     } else {
       target = hooks.resolveImport(from.name, specifier);
       if (target === undefined) {
-        // The host's own rule found nothing: the reason is the one rule's, when it has one.
         const resolution = resolveSpecifier(from.name, specifier, read);
         return fail(
           resolution.kind === 'file'
@@ -542,8 +188,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
         );
       }
     }
-    // Both native roots and custom resolvers meet TypeScript's canonical file-name
-    // spelling before identity lookup; a cycle must find its already-parsed root.
     target = normalizeSourcePath(target);
     const pkg = packageOf(target, read);
     const key = pkg === undefined ? undefined : packageKey(pkg);
@@ -646,8 +290,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   for (const file of [...order]) if (file.root) visit(file);
 
   const entry = order[0]!;
-  // Follow only the requested root's alias chain, using identities already resolved by the
-  // loader. Do not replace the entry, promote ordinary imports, or change package provenance.
   const whole = new Set(order.filter((f) => f.root));
   let aliasTarget: ProgramFile | undefined;
   let alias = entry;
@@ -664,10 +306,9 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     }
     const name = resolved.get(`${alias.name}\0${specifier}`);
     const target = name === undefined ? undefined : files.get(name);
-    if (target === undefined) break; // The loader already reported the failed edge.
+    if (target === undefined) break;
     alias = target;
   }
-  // An alias-only cycle has no terminal target and keeps ordinary linking.
   const linkedFileName = `${entry.name}.linked.ts`;
   const linkedFiles = (kept: ReadonlySet<ProgramFile>): LinkedFile[] =>
     order.map((f) => ({ name: f.name, sourceFile: f.sf, kept: kept.has(f) }));
@@ -684,7 +325,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     };
   }
 
-  // ── 2. TypeScript's checker over the files ─────────────────────────────────────────────
   const byName = new Map<string, ts.SourceFile>();
   for (const f of order) byName.set(f.name, f.sf);
   const lookup = (name: string): ts.SourceFile | undefined =>
@@ -732,8 +372,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   for (const f of order) fileOfSf.set(program.getSourceFile(f.name) ?? f.sf, f);
   for (const f of order) fileOfSf.set(f.sf, f);
 
-  /** The symbol an alias stands for, through every re-export, or `undefined` for an alias whose
-   *  module was not followed or that names nothing the module exports. */
   const resolveAlias = (symbol: ts.Symbol): ts.Symbol | undefined => {
     if ((symbol.flags & ts.SymbolFlags.Alias) === 0) return symbol;
     const target = checker.getAliasedSymbol(symbol);
@@ -742,11 +380,9 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     if (!fileOfSf.has(decl.getSourceFile())) return undefined;
     return target;
   };
-  /** Whether `symbol` is a module: a namespace import's `ns`, or `export * as ns`. */
   const isModuleSymbol = (symbol: ts.Symbol): boolean =>
     symbol.declarations?.some((d) => ts.isSourceFile(d)) ?? false;
 
-  // ── 3. The units, what each names, and what the module keeps ────────────────────────────
   const units: Unit[] = [];
   const unitOfStatement = new Map<ts.Statement, Unit>();
   for (const f of order) {
@@ -758,9 +394,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       unitOfStatement.set(stmt, unit);
     }
   }
-  // A function's overload signatures and its implementation are statements of one function
-  // (#1195): the front end reads them together, so the module keeps all of them or none. Each
-  // names the others, and whatever reaches one reaches the one that has the body.
   const overloadsOf = new Map<Unit, readonly Unit[]>();
   {
     const groups = new Map<string, Unit[]>();
@@ -776,7 +409,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       }
     }
   }
-  /** The unit that declares `symbol` at the top of a file of the program, if any. */
   const unitsOf = (symbol: ts.Symbol): Unit[] => {
     const out: Unit[] = [];
     for (const d of symbol.declarations ?? []) {
@@ -786,8 +418,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     }
     return out;
   };
-  /** The top-level name `symbol` is declared under, when it is declared at the top of a file of
-   *  the program: its unit and its name there. */
   const topNameOf = (symbol: ts.Symbol): { unit: Unit; name: string } | undefined => {
     for (const d of symbol.declarations ?? []) {
       if (!isTopLevelDeclaration(d)) continue;
@@ -801,12 +431,10 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     return undefined;
   };
 
-  /** Uses whose import was refused. */
   const silenced: SilencedUse[] = [];
   const silence = (f: ProgramFile, id: ts.Identifier): void => {
     silenced.push({ file: f.name, start: id.getStart(f.sf), end: id.getEnd(), name: id.text });
   };
-  /** Import bindings whose module was not followed, or whose name it does not export. */
   const deadAliases = new Set<ts.Symbol>();
   for (const f of order) {
     for (const s of f.sf.statements) {
@@ -828,7 +456,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     }
   }
 
-  // A named import or re-export of a name the module does not export.
   const exportedNames = (moduleSpecifier: ts.Expression): string[] => {
     const moduleSymbol = checker.getSymbolAtLocation(moduleSpecifier);
     if (moduleSymbol === undefined) return [];
@@ -886,8 +513,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     }
   }
 
-  /** Whether `id` is the size of an array type: `N` in `array<f32, N>`, the one place where a
-   *  type names a value (#1194). */
   const isArraySize = (id: ts.Identifier): boolean => {
     const size = id.parent;
     const arrayType = size.parent;
@@ -898,13 +523,7 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       arrayType.typeArguments?.[1] === size
     );
   };
-  /** Per file, the values its module scope holds by name: its own top-level declarations and
-   *  its import bindings. */
   const moduleValues = new Map<ProgramFile, Map<string, ts.Symbol>>();
-  /** Whether the alias `symbol` reaches its target only through a type-only import or export:
-   *  `import type { N }`, `import { type N }`, `export type { N } from`, or `export type * from`
-   *  on the way. That imports no value, so it sizes no array: the owner's decision of
-   *  2026-11-10 on pull request #1200. */
   const importsTypeOnly = (symbol: ts.Symbol, seen = new Set<ts.Symbol>()): boolean => {
     if ((symbol.flags & ts.SymbolFlags.Alias) === 0 || seen.has(symbol)) return false;
     seen.add(symbol);
@@ -928,11 +547,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     const name = (spec.propertyName ?? spec.name).text;
     return module !== undefined && exportedTypeOnly(module, name, seen) === true;
   };
-  /** How `module` exports `name`: `true` when every way it does is type-only, `false` when one
-   *  way is a value, as TypeScript reads a value use; `undefined` when it does not export it.
-   *  A way that comes back to a module already on the walk is a cycle, which TypeScript refuses
-   *  (TS2303, TS2308) and which brings no value: it counts as type-only, so the verdict does not
-   *  depend on the module the walk starts from. */
   const exportedTypeOnly = (
     module: ts.Symbol,
     name: string,
@@ -955,13 +569,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     }
     return typeOnly;
   };
-  /** The top-level value an array's size names in `f`: its unit and its name there.
-   *  TypeScript's checker reads the name as a type, so it does not answer. The front end reads
-   *  the name as the module's override of that name (`sizeOverrides` in `module-vars.ts`),
-   *  whatever a function declares under it. So the linker reads the value that the file's
-   *  module scope holds. A parameter or a local does not hide it, and a type of the same name
-   *  does not stand for it. `'refused'` is a name whose import was refused. `undefined` is a
-   *  name the file's module scope gives no value, a type-only import among them. */
   const sizeValueOf = (
     f: ProgramFile,
     id: ts.Identifier,
@@ -979,7 +586,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     const symbol = resolveAlias(local);
     if (symbol === undefined) return 'refused';
     for (const d of symbol.declarations ?? []) {
-      // `type N = f32` beside `const N` declares one symbol, and the size is the value.
       if (ts.isInterfaceDeclaration(d) || ts.isTypeAliasDeclaration(d)) continue;
       const stmt = topStatementOf(d);
       const unit = stmt === undefined ? undefined : unitOfStatement.get(stmt);
@@ -991,21 +597,15 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     return undefined;
   };
 
-  /** Every name every file writes, which a generated name must not take. */
   const written = new Set<string>();
-  /** Per statement, the names it uses and TypeScript resolves to nothing: a builtin, or a
-   *  mistake. Only what the module keeps counts, once that is known. */
   const globalsOf = new Map<ts.Statement, Map<string, ts.Identifier[]>>();
-  /** A use that resolves to a top-level declaration, with the name it is declared under. */
   interface Use {
     readonly id: ts.Identifier;
-    /** The whole `ns.name` when the use reads a name through a module namespace. */
     readonly span?: ts.Node;
     readonly unit: Unit;
     readonly name: string;
   }
   const usesOf = new Map<ProgramFile, Use[]>();
-  /** Each array size that names no value of its own file's module scope. */
   const unresolvedSizes: { readonly file: ProgramFile; readonly id: ts.Identifier }[] = [];
   for (const f of order) {
     const uses: Use[] = [];
@@ -1036,9 +636,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
             from?.refs.add(size.unit);
             continue;
           }
-          // No value of this file's: a mistake, a type, a namespace or a type-only import. It
-          // must not read another file's declaration of the name, so it is written under a name
-          // nothing declares, and the front end says what one file says of it (TS8002).
           unresolvedSizes.push({ file: f, id });
           continue;
         }
@@ -1064,7 +661,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
           symbol = target;
         }
         if (isModuleSymbol(symbol)) {
-          // A namespace import is read one name at a time: `noise.fbm`, or `noise.Light` as a type.
           const member =
             ts.isPropertyAccessExpression(p) && p.expression === id
               ? p.name
@@ -1095,19 +691,15 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
           from?.refs.add(top.unit);
           continue;
         }
-        // A member of a top-level declaration (`Ns.f`, `Cls.K`, an enum member): the unit that
-        // declares it is still what the code needs.
         for (const u of unitsOf(symbol)) from?.refs.add(u);
       }
     }
   }
 
-  // The entry's exports: its own, its export lists, and what it re-exports.
   interface ExportRef {
     readonly name: string;
     readonly unit: Unit;
     readonly declared: string;
-    /** Where the export is written in the entry, which a synthesized export list points at. */
     readonly at: ts.Node;
   }
   const entryExports: ExportRef[] = [];
@@ -1122,7 +714,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     if (ts.isExportDeclaration(s)) {
       if (refusedImports.has(s)) continue;
       if (s.exportClause === undefined) {
-        // `export * from "./x"`: every name the module exports.
         const moduleSymbol =
           s.moduleSpecifier === undefined
             ? undefined
@@ -1157,9 +748,7 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   while (work.length > 0) for (const r of work.pop()!.refs) keep(r);
   const keptFiles = new Set<ProgramFile>();
   for (const u of kept) keptFiles.add(u.file);
-  // A target with only directives or invalid unnamed statements still needs direct validation.
   for (const f of whole) keptFiles.add(f);
-  /** Per kept file, the names its kept code uses and TypeScript resolves to nothing. */
   const globals = new Map<ProgramFile, Map<string, ts.Identifier[]>>();
   for (const f of keptFiles) {
     const g = new Map<string, ts.Identifier[]>();
@@ -1172,7 +761,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     globals.set(f, g);
   }
 
-  // ── 4. The names the module emits ──────────────────────────────────────────────────────
   const emitted = new Map<string, string>();
   const key = (f: ProgramFile, name: string): string => `${f.name}\0${name}`;
   const taken = new Set<string>();
@@ -1191,14 +779,8 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       candidate = `${base}_${i}`;
     }
   };
-  /** Who emits each name, for the message of a name two bindings or entry points share. */
   const owner = new Map<string, ProgramFile>();
-  /** A binding, an entry point or an override whose name another already holds: refused, and
-   *  left out of the linked source, so the one-file checks do not report it a second time. */
   const dropped = new Set<Unit>();
-  // The entry, then each file in the order it was read, which is import order. A type alias
-  // emits nothing, so it names itself last: one never takes the name an override, a binding or
-  // an entry point of another file holds.
   for (const aliases of [false, true])
     for (const f of order) {
       if (!keptFiles.has(f)) continue;
@@ -1234,7 +816,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
               );
               dropped.add(u);
             } else {
-              // Another file names it without importing it, which would read this declaration.
               for (const [other, g] of globals) {
                 if (other === f) continue;
                 for (const use of g.get(id.text) ?? []) {
@@ -1263,15 +844,10 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     }
   const emittedName = (unit: Unit, name: string): string =>
     emitted.get(key(unit.file, name)) ?? name;
-  // A use of a declaration the module refused and left out reads nothing, or another file's
-  // declaration of the name. The refusal is the one diagnostic for it (Rule 12.4).
   for (const [f, uses] of usesOf) {
     for (const use of uses) if (dropped.has(use.unit)) silence(f, use.id);
   }
 
-  // ── 5. The linked source ───────────────────────────────────────────────────────────────
-  /** Units of an imported file that keep their `export`: what the entry re-exports under the
-   *  name the module emits. Every other export list item is written at the end. */
   const keepsExport = new Set<Unit>();
   const exportList: { readonly text: string; readonly at: ts.Node }[] = [];
   for (const e of entryExports) {
@@ -1289,13 +865,11 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       hasModifier(e.unit.stmt, ts.SyntaxKind.ExportKeyword) &&
       !hasModifier(e.unit.stmt, ts.SyntaxKind.DefaultKeyword)
     ) {
-      // Every signature of an overloaded function keeps it, as TypeScript requires.
       for (const u of overloadsOf.get(e.unit) ?? [e.unit]) keepsExport.add(u);
     } else {
       exportList.push({ text: `export { ${name} as ${e.name} };`, at: e.at });
     }
   }
-  /** Entry units whose `export` goes, because the name the host reads is written at the end. */
   const dropsExport = new Set<Unit>();
   for (const e of entryExports) {
     if (e.unit.file !== entry) continue;
@@ -1304,8 +878,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     }
   }
 
-  /** Whether the linked source carries `stmt`: not an import, an export the linker writes
-   *  itself, a directive it writes once, or a declaration the module leaves out. */
   const carries = (f: ProgramFile, stmt: ts.Statement): boolean => {
     if (
       isUseTypeshadeDirective(stmt) ||
@@ -1320,12 +892,8 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     return unit === undefined || (kept.has(unit) && !dropped.has(unit));
   };
 
-  /** The edits inside the statements `f` keeps: a renamed name, an `export` that goes, a name
-   *  read through a module namespace. */
   const editsOf = (f: ProgramFile): Edit[] => {
     const edits: Edit[] = [];
-    // Linking must not make a local collide with a declaration from another file (#430).
-    // Rename by declaration identity so captures, shadowing and property keys stay distinct.
     const localNames = new Map<ts.Symbol, string>();
     const ownNames = new Set(
       units.filter((u) => u.file === f).flatMap((u) => u.names.map((n) => n.text)),
@@ -1402,7 +970,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
         stmt.exportClause &&
         ts.isNamedExports(stmt.exportClause)
       ) {
-        // The entry's own export list: a local renamed by the module keeps the exported name.
         for (const e of stmt.exportClause.elements) {
           const local = checker.getExportSpecifierLocalTargetSymbol(e);
           const top = local === undefined ? undefined : topNameOf(local);
@@ -1468,7 +1035,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
   };
   const editsByFile = new Map<ProgramFile, Edit[]>();
   for (const f of keptFiles) editsByFile.set(f, editsOf(f));
-  /** Writes one statement of `f`, with the edits that fall inside it. */
   const writeStatement = (f: ProgramFile, stmt: ts.Statement): void => {
     const start = stmt.getStart(f.sf);
     const end = stmt.getEnd();
@@ -1488,9 +1054,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     start: entryDirective?.getStart(entry.sf) ?? 0,
     end: entryDirective?.getEnd() ?? 0,
   });
-  // The bindings first, the entry's before any other file's and each file's in its own order:
-  // a `declare` binding with no slot takes the next one in the order it is read, so an import
-  // never moves a slot of the entry's own (surface §68).
   const isBinding = (stmt: ts.Statement): boolean =>
     unitOfStatement.get(stmt)?.fixedName === 'binding';
   for (const f of order) {
@@ -1499,8 +1062,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
       if (isBinding(stmt) && carries(f, stmt)) writeStatement(f, stmt);
     }
   }
-  // Then every other statement, the files a file imports above it, so a constant another
-  // file's initializer reads is declared first; the entry last.
   const placed = new Set<ProgramFile>();
   const place = (f: ProgramFile): void => {
     if (placed.has(f)) return;
@@ -1544,7 +1105,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     let to = from;
     if (end > start) {
       const last = pieceAt(end - 1);
-      // A span that runs past its file ends where that file's run does.
       to =
         last !== undefined && last.file === first.file
           ? endOf(last, end)
@@ -1553,8 +1113,6 @@ export function linkProgram(roots: readonly LinkRoot[], hooks: ImportHooks): Lin
     return { file: linkedOf.get(first.file)!, start: from, end: Math.max(from, to) };
   };
 
-  // Refusals first, in the order the files were read: an import that is not followed is the
-  // mistake the rest of the list follows from.
   diagnostics.sort((a, b) => Number(isRefused(b)) - Number(isRefused(a)));
 
   return {

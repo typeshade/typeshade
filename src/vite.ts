@@ -198,7 +198,11 @@ export function typeshade(options: TypeshadeViteOptions = {}): TypeshadeVitePlug
         fileName: path,
         ...(origin !== undefined ? { origin } : {}),
         readDocument,
-        ...(records() ? { console: 'gpu' as const } : {}),
+        ...(records()
+          ? { console: 'gpu' as const }
+          : when === 'never'
+            ? { console: 'never' as const }
+            : {}),
         ...(options.ir === true ? { ir: true } : {}),
         ...(options.fuse !== undefined ? { fuse: options.fuse } : {}),
       });

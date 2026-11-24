@@ -28,10 +28,14 @@ export function selectBindings(
   return recorder === undefined ? { visibility } : { visibility, recorder };
 }
 
-/** Whether a program can record: it carries its recorded variant (`console`), or its IR and the
- *  host gives an emitter (change 0051, "A program that can record"). */
+/** Whether a program can record: it carries an enabled or optional recorded variant, or its IR
+ *  and the host gives an emitter (change 0051, "A program that can record"). */
 export function canRecord(program: Pack, emit: boolean): boolean {
-  return program.console !== undefined || (emit && program.ir !== undefined);
+  return (
+    program.console !== undefined ||
+    program.variants?.console !== undefined ||
+    (emit && program.ir !== undefined)
+  );
 }
 
 /** The bindings a program's entries are laid out with: its own, and for a program that records
@@ -40,6 +44,9 @@ export function canRecord(program: Pack, emit: boolean): boolean {
  *  the highest binding of group 0 in the module, the guard `fp64Lower` injects one past that.
  *  The guard is not counted in the highest binding, since the pass runs before it is injected. */
 export function bindingsOf(program: Pack, records: boolean): Map<string, PackBinding> {
+  const recorded = program.console ?? program.variants?.console;
+  if (records && recorded?.bindings !== undefined)
+    return new Map(recorded.bindings.map((b) => [b.name, b]));
   const bindings = new Map(program.bindings.map((b) => [b.name, b]));
   if (!records || bindings.has('_console')) return bindings;
   let top = -1;

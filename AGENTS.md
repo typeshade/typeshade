@@ -138,7 +138,8 @@ tier runs. Where no fallback exists, write "not supported yet" and cite the rule
   Every asset is scanned for `new Function`, `Function` and `eval`. A split import must be a
   literal path to an included local JavaScript asset; remote, computed and missing targets fail.
   Planted faults prove the scan reads each asset to its end (Rules 11.7 and 11.13). CI's
-  `typecheck + unit` job runs it.
+  `typecheck + unit` job runs it. A rise of a budget waits for the owner, except the rise that a
+  `Move: pure` split causes (`CLAUDE.md`, Merging).
 - `bun run gate:compile`: every registered example emitted and compiled, a function declared
   under every name a writer renames (change 0029), and a divisor or shift amount that is a float
   constant converted to an integer, which Tint refuses unless the writer settles it (#578), and an
@@ -212,6 +213,8 @@ tier runs. Where no fallback exists, write "not supported yet" and cite the rule
   service, the README's `tsconfig.shade.json` <!-- doc-refs: skip — the file a user writes, not one in this tree -->, WebGPU and the CPU oracle against the journey's
   own JavaScript reference. A change that improves what a user can write adds its journey
   (`journeys/README.md`).
+  Its console compatibility arm executes the historical schema-2 reader from Git. The CI
+  user-journey job fetches full history so that immutable baseline is present.
 - `bun run gate:perf` (after `build`): what the compiled kernels cost on a WebGPU device, measured
   (`scripts/perf-gate.ts`, `docs/performance.md`): a corpus of kernel chains (`chain`, `reduce`,
   `tonemap`, `batch`, `branch`) run through the Vite plugin's module and `fuse` over `Buffer`s, each
