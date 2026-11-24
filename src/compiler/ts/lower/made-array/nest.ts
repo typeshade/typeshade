@@ -7,9 +7,15 @@ import { plainCount } from '../../../../core/passes/countable.js';
 import { rangeOf, type ForStmt } from '../../../../core/passes/kernel-lower-ir.js';
 import type { TsCompilerDiagnostic } from '../../source-file.js';
 import { TS_CODES } from '../../codes.js';
-import { diagnosticAtSpan, makeDiagnostic } from '../../diagnostic.js';
-import type { DeferredRefusal, GrownLoop, GrownTerm, MadeLowering } from './registry.js';
-import { hostCondition, hostReadable, notKnown, type Readable } from './readable.js';
+import { makeDiagnostic } from '../../diagnostic.js';
+import type { GrownLoop, GrownTerm, MadeLowering, UnreadLoop } from './registry.js';
+import {
+  hostCondition,
+  hostReadable,
+  notKnown,
+  readsGrownLength,
+  type Readable,
+} from './readable.js';
 
 export function loopText(loop: ts.IterationStatement, sourceFile: ts.SourceFile): string {
   if (ts.isDoStatement(loop)) return `do … while (${loop.expression.getText(sourceFile)})`;
@@ -92,7 +98,7 @@ export interface NestEnv {
   readonly sourceFile: ts.SourceFile;
   readonly diagnostics: TsCompilerDiagnostic[];
   readonly writesIn: (loop: ForStmt) => number;
-  readonly defer: (refusal: DeferredRefusal) => void;
+  readonly defer: (loop: UnreadLoop) => void;
   readonly open: () => void;
 }
 
@@ -106,12 +112,8 @@ export function nestTerms(env: NestEnv, body: readonly Stmt[]): readonly GrownTe
     places.push(p);
     return p;
   };
-  const refuse = (message: string, at: ts.Node, span?: Stmt['span']): void => {
-    diagnostics.push(
-      span === undefined
-        ? makeDiagnostic(sourceFile, at, message, TS_CODES.UNSUPPORTED)
-        : diagnosticAtSpan(sourceFile, span, at, message, TS_CODES.UNSUPPORTED, 'error'),
-    );
+  const refuse = (message: string, at: ts.Node): void => {
+    diagnostics.push(makeDiagnostic(sourceFile, at, message, TS_CODES.UNSUPPORTED));
     ok = false;
   };
   const loopIn = (st: ForStmt, loops: readonly GrownLoop[], at: Place): Place | undefined => {
@@ -128,12 +130,18 @@ export function nestTerms(env: NestEnv, body: readonly Stmt[]): readonly GrownTe
         : `${shown} writes an element of "${name}" that can append to it`;
     const range = rangeOf(st)!;
     if (!hostReadable(range.start, r) || !hostReadable(range.bound, r)) {
-      const message = notKnown(`${adds}, and its start or bound`);
+      const what = `${adds}, and its start or bound`;
+      const unread = { what, node: node ?? made.decl };
       if (loops.length === 0) {
-        refuse(message, node ?? made.decl);
+        if (!readsGrownLength([range.start, range.bound], made.param)) {
+          refuse(notKnown(what), unread.node);
+          return undefined;
+        }
+        env.open();
+        env.defer(unread);
         return undefined;
       }
-      env.defer({ message, node: node ?? made.decl });
+      env.defer(unread);
     }
     const own = place([...loops, factor], at.when);
     own.pushes += loops.length === 0 ? env.writesIn(st) : 0;
@@ -188,14 +196,7 @@ export function nestTerms(env: NestEnv, body: readonly Stmt[]): readonly GrownTe
     for (const [i, arm] of arms.entries()) {
       if (i > last && !elseHolds) break;
       if (!hostCondition(arm.cond, r)) {
-        const node = nodeAt(root, st.span?.start, sourceFile, ts.isIfStatement);
-        const text =
-          node === undefined ? 'a branch' : `"if (${node.expression.getText(sourceFile)})"`;
-        refuse(
-          notKnown(`${text} decides whether a loop pushes onto "${name}", and its condition`),
-          node ?? made.decl,
-          st.span,
-        );
+        env.open();
         return;
       }
       const when = allOf(at.when, before, arm.cond);

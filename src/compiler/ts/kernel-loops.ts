@@ -75,20 +75,26 @@ export function kernelLoopDiagnostics(
     const w = new Wording(sourceFile, names);
     const made = madeArrayOf(f);
     if (made?.grown === true) {
-      const widen = (): boolean =>
-        made.deferred !== undefined && !('noGpu' in lowerKernel(f, m, proof, { exactTotal: true }));
+      const hasGpuPlan = (): boolean =>
+        !('noGpu' in lowerKernel(f, m, proof, { exactTotal: true }));
+      const widen = (): boolean => made.unread !== undefined && hasGpuPlan();
       const route = routeOf(made, proof.shape === undefined && countable(proof.loops, f, widen));
-      if ('refused' in route) {
+      if (
+        route.unread !== undefined &&
+        proof.shape === undefined &&
+        proof.loops.every((v) => v.ok) &&
+        hasGpuPlan()
+      )
         out.push(
           makeDiagnostic(
             sourceFile,
-            route.refused.node,
-            route.refused.message,
-            TS_CODES.UNSUPPORTED,
+            route.unread.node,
+            `${route.unread.what} reads a value the call does not know before it runs, so this ` +
+              `function runs on the CPU, where the array grows as it is pushed to.`,
+            TS_CODES.KERNEL_LOOP_ON_CPU,
+            'warning',
           ),
         );
-        continue;
-      }
       setMadeArray(f, route.made);
     }
     if (proof.shape !== undefined) {

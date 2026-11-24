@@ -1,6 +1,7 @@
 // Verifies: Rule 8.23 (docs/language-design.md; traced in reqs/).
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { configure } from '../../runtime.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -19,6 +20,9 @@ import {
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 const dirs: string[] = [];
+afterEach(() => {
+  configure({});
+});
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
@@ -288,8 +292,9 @@ describe('a push in a nested loop or under a top-level branch (change 0114, A12 
     refused('guarded', [[3, 2 ** 31]], 3 * 2 ** 31);
   });
 
-  it('throws the RangeError of Route 1 at the call for a nest that is not counted', async () => {
+  it('throws the RangeError of Route 1 at the call for a nest that is not counted, where no CPU tier is listed', async () => {
     const m = await load();
+    configure({ prefer: ['webgpu'] });
     await expect(m['guarded']!(3, 2 ** 31)).rejects.toThrow(pastLimit('guarded', 3 * 2 ** 31));
   });
 

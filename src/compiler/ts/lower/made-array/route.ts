@@ -1,12 +1,15 @@
 // Implements: Rule 8.23 (docs/language-design.md; traced in reqs/).
-import type { DeferredRefusal, MadeArray } from './registry.js';
+import type { MadeArray, UnreadLoop } from './registry.js';
 
-export type MadeRoute = { readonly made: MadeArray } | { readonly refused: DeferredRefusal };
+export interface MadeRoute {
+  readonly made: MadeArray;
+  readonly unread?: UnreadLoop;
+}
 
 export function routeOf(made: MadeArray, countable: boolean): MadeRoute {
-  const { deferred, open, ...rest } = made;
+  const { unread, open, ...rest } = made;
   if (countable) return { made: { ...rest, counted: true } };
-  if (deferred !== undefined) return { refused: deferred };
-  if (open === true) return { made: { ...rest, growing: true } };
+  if (open === true || unread !== undefined)
+    return { made: { ...rest, growing: true }, ...(unread !== undefined ? { unread } : {}) };
   return { made };
 }

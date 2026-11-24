@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { bothHalves } from '../../core/testing/both-halves.js';
 import { hostFace } from './host-face.js';
 import type { GeneratedCpu } from '../../core/host-entry.js';
 import type { KernelFace } from '../../core/host-kernel.js';
@@ -50,4 +51,15 @@ export async function load(source: string): Promise<Loaded> {
     made: (name) => madeOf(face[name]!)!,
     dispose: () => rmSync(dir, { recursive: true, force: true }),
   };
+}
+
+export function warningsOf(source: string): readonly string[] {
+  const halves = bothHalves(source);
+  if (halves.compiler.length > 0) throw new Error(halves.compiler.join('\n'));
+  const warnings = halves.result.diagnostics
+    .filter((d) => d.category === 'warning')
+    .map((d) => `typeshade ${d.code}: ${d.message}`);
+  if (JSON.stringify(halves.editor) !== JSON.stringify(warnings))
+    throw new Error(`the halves differ:\n${warnings.join('\n')}\n--\n${halves.editor.join('\n')}`);
+  return warnings;
 }
