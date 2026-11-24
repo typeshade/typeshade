@@ -859,7 +859,6 @@
   "src/language-service/compiled-output-diagnostics.test.ts": 3,
   "src/language-service/compiled-output-parity.test.ts": 23,
   "src/language-service/completions.test.ts": 25,
-  "src/language-service/completions.ts": 94,
   "src/language-service/diagnostics.test.ts": 213,
   "src/language-service/diagnostics.ts": 757,
   "src/language-service/docs.test.ts": 31,

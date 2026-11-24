@@ -210,7 +210,6 @@
   "src/language-service/ambient-parity.test.ts": 1111,
   "src/language-service/ambient.test.ts": 1639,
   "src/language-service/ambient.ts": 1718,
-  "src/language-service/completions.ts": 433,
   "src/language-service/diagnostics.test.ts": 1512,
   "src/language-service/diagnostics.ts": 3227,
   "src/language-service/docs.ts": 577,
