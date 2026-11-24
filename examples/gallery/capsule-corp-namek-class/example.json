@@ -1,0 +1,8 @@
+{
+  "title": "Class-based Capsule Corp. spaceship on Namek",
+  "blurb": "A class-based conversion of a Dragon Ball Z Capsule Corp. spaceship scene: the ship, landing gear, trees, terrain, lettering, materials, cel shading and camera are organized as TypeShade classes around a shared SDF scene.",
+  "group": "works",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

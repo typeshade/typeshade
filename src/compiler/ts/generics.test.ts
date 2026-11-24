@@ -9,7 +9,7 @@
 //
 // Every spelling below type-checks under `tsc` with the ambient lib as well as compiling here —
 // the lesson T8 taught, checked through `src/language-service/ambient.test.ts` on
-// `examples/generic-helpers.shade.ts`. What tsc will NOT take is arithmetic on an unconstrained
+// `examples/gallery/generic-helpers/generic-helpers.shade.ts`. What tsc will NOT take is arithmetic on an unconstrained
 // type parameter (`a + a` is "Operator '+' cannot be applied to types 'T' and 'T'"), which is
 // TypeScript's limit and not this compiler's: a generic here composes calls, selects, indexes
 // and field reads.

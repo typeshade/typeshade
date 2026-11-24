@@ -877,7 +877,7 @@ interface Flow {
    *  condition is ACCEPTED above both a `fwidth` and a `textureSample`: the invocation is
    *  demoted to a helper rather than ended, so it goes on contributing the neighbour a
    *  derivative differences against — which is why `discard` beside `fwidth` is the ordinary
-   *  antialiased-cutout idiom and `examples/cutout.shade.ts` compiles on Tint. A `break` or
+   *  antialiased-cutout idiom and `examples/gallery/cutout/cutout.shade.ts` compiles on Tint. A `break` or
    *  `continue` is not here either: it leaves a loop or a case, not the function, and
    *  {@link Flow.broke} carries it. */
   diverged: Known | undefined;

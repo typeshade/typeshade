@@ -1,0 +1,9 @@
+{
+  "title": "Compare-exchange, uniform load, texture barrier",
+  "blurb": "The three synchronisation builtins WGSL has and this surface lacked (§48): `atomicCompareExchangeWeak`, whose result struct WGSL gives no writable name so it is bound by inference and read field by field; `workgroupUniformLoad`, a read of workgroup memory between two barriers that every invocation must reach; and `textureBarrier`. `compile()` emits WGSL and no GLSL text for it: that is not supported yet by the GLSL backend (Rule 10.5). So this one is `renderable: false` and the gate runs its Tint half alone.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "storageBuffer, compute"
+}

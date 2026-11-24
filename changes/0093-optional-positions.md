@@ -367,7 +367,7 @@ validation step 7 measures one case.
 - **Surface §76** changes its position table, adds the struct field, the array element, the
   member-path narrowing, the optional parameter and the new sentences, and changes "What it does
   not change".
-- **Example `optional-fields`** (`examples/optional-fields.shade.ts`): a struct with an
+- **Example `optional-fields`** (`examples/gallery/optional-fields/optional-fields.shade.ts`): a struct with an
   optional field built in a function and read through `??`, `?.` and a narrowed member path; an
   `array<f32 | undefined, N>` filled on some indices and folded in a loop; a helper with
   `limit?: f32` called with and without it. It goes through the compile gate on Tint and WebGL2
@@ -518,7 +518,7 @@ field), `src/compiler/ts/lower/param-defaults.ts` (the absent filler), with edit
 `local-functions.ts`, `expression.ts`, `expression-prop.ts`, `expression-call.ts`,
 `expression-misc.ts`, `index-select.ts` and `statement.ts`, the editor's
 `src/language-service/diagnostics.ts` (the TS1015 and TS1016 pairs),
-`examples/optional-fields.shade.ts` with its emit goldens, `src/compiler/ts/optional-values.test.ts`
+`examples/gallery/optional-fields/optional-fields.shade.ts` with its emit goldens, `src/compiler/ts/optional-values.test.ts`
 (the section "change 0093"), rows in `src/language-service/ambient-parity.test.ts`, the tests
 `type-structs`, `type-alias`, `type-spelling`, `default-args`, `loop-shapes`, `remedy-lines`,
 `lower/function.test.ts` and `diagnostics.test.ts` where a sentence changed, and the documents

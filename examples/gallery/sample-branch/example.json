@@ -1,0 +1,8 @@
+{
+  "title": "A sample under a branch, and the compiler rewrites it",
+  "blurb": "WGSL requires `textureSample` to be called from UNIFORM control flow (§54): the implicit level of detail is a difference between neighbouring invocations, and one that did not run has no value to difference against. A sample inside an `if` on a varying is a shader-creation error — Tint: `'textureSample' must only be called from uniform control flow`. The author writes the sample where it is, and the compiler rewrites it: it computes the coordinate again before the `if`, takes `dpdx` and `dpdy` of it there, in uniform control flow, and samples inside the branch with `textureSampleGrad` and those gradients (Rule 8.5). The emitted WGSL carries no `diagnostic(...)` directive. Beside it, a sample under a `uniform` condition, which the compiler leaves as written, because every invocation takes the same side of it.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

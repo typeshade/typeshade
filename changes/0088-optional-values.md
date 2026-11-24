@@ -361,7 +361,7 @@ validation step 7 measures them.
 - **Surface §64** adds the optional value to the helper parameter types with no host value.
 - **Surface §76 (new)**, "Optional values: `T | undefined`", explains the feature with its
   lowering on each target. The number is fixed by decision D9.
-- **Example `optional-values`** (`examples/optional-values.shade.ts`) puts a function result,
+- **Example `optional-values`** (`examples/gallery/optional-values/optional-values.shade.ts`) puts a function result,
   a local, a callback result, `??`, `?.` and the narrowing forms through the compile gate on
   Tint and WebGL2.
 - **Code TS8002** keeps its number; its union sentence changes as stated. **Code TS8003** gains
@@ -473,7 +473,7 @@ merge of #765) and merged with `main` at `fc234dbc`. Its head at the time of thi
 `host-face.ts`, `definite.ts`, `context.ts`, `structs.ts`, `bindings.ts`, `module-vars.ts`,
 `module-const.ts`, the lowerers under `src/compiler/ts/lower/`, `src/core/passes/lint/rules/all-paths-return.ts`
 (its predicate exported), the editor's `src/language-service/diagnostics.ts`, `hover.ts` and
-`projection.ts`, `examples/optional-values.shade.ts` with its emit goldens,
+`projection.ts`, `examples/gallery/optional-values/optional-values.shade.ts` with its emit goldens,
 `journeys/optional-values/`, `src/compiler/ts/optional-values.test.ts`, rows in
 `src/language-service/ambient-parity.test.ts`, and the documents this proposal names (Rules
 7.2, 7.8, 7.10, 8.18, 8.19, 8.21 and 12.7; surface §7, §28, §49, §64 and §76; `AUTHORING.md`;

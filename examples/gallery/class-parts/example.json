@@ -1,0 +1,8 @@
+{
+  "title": "Objects inside objects, a const that holds one, a field that holds a function, and an interface as a contract",
+  "blurb": "`ring.advance(dt)` moves the ring by calling `step` on the `Mover` it holds, so `advance` changes its own object and takes it by reference, whichever class `step` belongs to (Rule 8.10). `const ring = new Ring()` is written through as TypeScript writes it, since nothing else holds what `new` built (Rule 6.10). `Ring.cover` is a field that holds an arrow function, a method under the field's name (Rule 8.16), and `coverOf<T extends Mark>` takes the interface `Mark` as the contract both classes implement, one function for each (Rule 6.9). Renders a ring and a dot.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

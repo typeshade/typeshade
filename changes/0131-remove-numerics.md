@@ -213,7 +213,7 @@ Decision (2026-11-09): A, with D rejected (decisions 0 and 1 below).
   no analysis exists to measure.
 - #965's gain is unlikely to come back through the analysis of item 8. Fact: in Namek's tick on
   #965's branch, `fk = (f32(k) - mid) / mid` with `mid = 0.5 * f32(n - 1)` is `0 / 0`, a NaN, at
-  `n = 1` (`examples/capsule-corp-namek-class.shade.ts` on `feat/namek-numerics`). So
+  `n = 1` (`examples/gallery/capsule-corp-namek-class/capsule-corp-namek-class.shade.ts` on `feat/namek-numerics`). So
   `curl * sin(… fk)` is NaN there, and the fold to `0` is not exact. `seed` is a parameter, and
   its finiteness depends on the caller's data. Inference: no sound analysis admits these folds.
 - WGSL's Finite Math Assumption (§15.7.2) lets a driver make some of these folds already. Then

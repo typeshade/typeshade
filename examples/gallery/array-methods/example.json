@@ -1,0 +1,8 @@
+{
+  "title": "An array's methods",
+  "blurb": "Three lights in an `array<Light, 3>`, lit with the methods a TypeScript author reaches for first (Rule 8.18, surface §63). `lights.map(...)` measures how far the pixel is from each light, `d.reduce(...)` keeps the nearest, `lights.forEach(...)` adds each glow into `col` through a pointer, and `lights.some(...)` and `d.every(...)` test the pixel against them all. Each call is a call of a counted loop made for the array's type and the function handed over: `array_map_fs_f`, `array_forEach_fs_f_2`. Renders three glows, a ring around the nearest light, and a lighter disc inside each.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}
