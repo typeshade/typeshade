@@ -118,9 +118,10 @@ softening them.
   interpolation of varyings across a triangle, or depth and blend state are outside what any
   CPU evaluation can tell you. A CPU pass is not evidence of GPU correctness; the repository
   already says so, and a debugger does not change it.
-- **Derivatives and texture reads have no single-invocation meaning.** `dpdx`, `dpdy`,
-  `fwidth` are defined over a 2×2 quad of neighbouring fragments; `textureSample` reads memory
-  that a CPU run does not have. Today `GPU_STUBS` (`src/core/cpu-runtime.ts`) returns `0` and
+- **Derivatives and sampled texture reads are not supported yet on the CPU tier.**
+  `dpdx`, `dpdy` and `fwidth` are defined over a 2×2 quad of neighbouring fragments, and a
+  single invocation has no quad. A sampled read needs a filter that the CPU tier does not have
+  yet. Today `GPU_STUBS` (`src/core/cpu-runtime.ts`) returns `0` and
   opaque black for these, and only when `gpuStubs: true` is passed; otherwise the call throws.
   The one exception is a texture of the CPU tier's memory (change 0077, `src/core/cpu-texture.ts`)
   bound with `setBinding`: `textureLoad`, `textureDimensions` and `textureStore` read and write it.
@@ -382,7 +383,9 @@ Neither approach changes what the CPU can compute, so both need the same policy.
   existing stub value and marks it in the variables view as a stand-in rather than a computed
   value, so no one mistakes `0` for a result; quad evaluation becomes an opt-in
   `derivatives: "quad"` when someone has a derivative bug to chase. This is §5 decision 4.
-- **Texture sampling.** There is no texture memory in a CPU run. When this was written the
+- **Texture sampling.** The CPU tier has a texture memory (Rule 11.7, change 0077), and the
+  debugger does not take a texture value yet: texture sampling is not supported yet in the
+  debugger. When this was written the
   `"use typeshade"` type map (`src/compiler/ts/type-map.ts`) had no `texture` or `sampler`
   spelling at all, so no `"use typeshade"` shader could declare one, and that decided the
   milestone: textures are **unsupported in this milestone**. The spellings have since landed

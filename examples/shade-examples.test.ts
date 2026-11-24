@@ -204,14 +204,14 @@ describe('"use typeshade" examples — the renderable flag is checked, not trust
     }
   });
 
-  it('every non-renderable example is one the GLSL backend genuinely cannot serve', () => {
+  it('every non-renderable example is one the GLSL backend does not serve yet', () => {
     const opaque = shadeExamples.filter((e) => !e.renderable);
     expect(opaque.length).toBeGreaterThan(0);
     for (const ex of opaque) {
       // Two shapes of refusal, and the flag is honest under either: the backend THROWS for a
-      // construct it has no GLSL ES 3.00 form for (a loose scalar uniform has no std140
-      // block), or it emits a stage with no `main()` because the module declares no entry
-      // point. What must never happen is a clean, linkable pair hiding behind the flag —
+      // construct it does not lower yet (a loose scalar uniform: the emit writes only std140
+      // blocks), or it emits a stage with no `main()` because the module declares no render
+      // entry (a @compute entry runs as its pass program, Rule 11.8). What must never happen is a clean, linkable pair hiding behind the flag —
       // that would be an example opting out of the compile gate for free.
       const refused = (stage: 'vertex' | 'fragment'): boolean => {
         try {
@@ -436,7 +436,7 @@ describe('"use typeshade" examples — the goldens and the refusals are both exa
   });
 
   it('refuses every non-renderable example FOR THE REASON its registration states', () => {
-    // The 'genuinely cannot serve' arm above accepts ANY refusal, so an example that lost
+    // The 'does not serve yet' arm above accepts ANY refusal, so an example that lost
     // its GLSL form for a new
     // reason — a capability it did not need before — keeps a flag that now means something
     // else. Naming the reason in the registry is what turns the flag into a claim.
