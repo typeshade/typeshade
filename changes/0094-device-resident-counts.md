@@ -720,6 +720,86 @@ with the new journey; `bun run gate:boundary` with the measured growth; `bun run
 `bun run docs:refs`, `bun run reqs:sync` and `python scripts/doorstop-check.py -C -e -F`, with
 the changed rules reviewed. Downstream pins are tracked apart. These are requirements, not results.
 
+## Amendments
+
+An amendment changes the accepted text. Its pull request is proposal-only, and its merge is its
+acceptance. Git holds the earlier text. The decided text above stays in place, and an amendment
+record sits under it.
+
+### A1. D6's cap and the host-held length are withdrawn; stages 4 and 5 are not delivered (2026-11-24)
+
+**Why.**
+
+- [fact] Decision D6 above makes the author write the cap of a loop that pushes or reduces over a
+  range the device holds as `min(d, c)`, with `c` a value the host knows. Part 2 makes the host pass
+  an array that a loop pushes onto as `{ array, length, offset? }`, with `length` a
+  `Resident<Uint32Array>`.
+- [fact] Owner decision OD-10 (`docs/owner-decisions.md`, 2026-11-18, after this proposal's
+  acceptance on 2026-10-26) says where an array lives and how much room it takes is the compiler's
+  work. Where compile time cannot decide it, the compiler uses a heap it manages at run time.
+- [fact] OD-3 says the compiler's work is not pushed onto the author.
+- [inference, agent] An author-written cap and an author-supplied length put the room of an array
+  on the author. Both conflict with OD-10 and OD-3. Under `CLAUDE.md` ("The owner's decisions"),
+  the entry holds and this proposal is the document to fix.
+- [decision, owner, 2026-11-24] The owner delegated the triage of the stage 4 and stage 5 pull
+  requests to the orchestrating session: "제대로 다시, 저의 의견이 사실 필요 없거든요". The session
+  closed #806 and #810 as not planned on 2026-11-24, with the reasons above.
+
+**What is withdrawn.**
+
+1. Decision D6 (Approval and plan record, and "Unresolved decisions"): the cap `min(d, c)` in the
+   bound of a loop that pushes or reduces over a range the device holds. No author writes it.
+2. Part 2, "A push after a held length": the host-held length `{ array, length, offset? }`, with
+   decision D1 (its spelling), decision D5 (its refusal on a parameter that no loop pushes onto) and
+   the host view's held-length shape. The rows of "Before and after" that depend on them are
+   withdrawn with them.
+3. Open deviation 1 of stage 4 (the widening of what `c` may be) is closed, unadopted, with #806.
+
+**What is not delivered.**
+
+- Stage 4 as written is not delivered: #806 is closed as not planned.
+- Stage 5 as written is not delivered: #810 is closed as not planned. It was stacked on #806. The
+  example `kernel-device-counts` and its journey are written for the form the compiler decides, once
+  #984 is done. The `examples` entry of the front matter stays for that example, which does not
+  exist on `main` yet.
+
+**What continues.**
+
+- The need continues as issue #984: a loop that pushes onto an array over a range the device holds
+  runs the whole function on the CPU tier today (surface section 65). It continues under change
+  0114's push routes (stage S5, `changes/0114-arrays.md`), where the compiler sizes and places the
+  pushed array (OD-10).
+- A reduction or a push over a device range needs no cap from the author. The compiler decides the
+  room at compile time where it can, and uses a run-time heap where it cannot (OD-10). A form the
+  compiler does not implement yet is refused as "not supported yet" (OD-10).
+- Rule 11.8, section 65 and Rule 8.23 change for this need in the proposal or pull request that
+  implements #984, not in this amendment.
+
+**What stays in force.** Stages 2 and 3 are on `main` and are not withdrawn:
+
+- Stage 2, "Decisions of stage 2": the stores after the loops that read the length of a pushed
+  array (S2-1), the storage buffers of the entry that stores (S2-2), the `u32` length (S2-3) and a
+  loop that runs no iteration (S2-4). Where S2-3 and S2-4 name a held length, they stay as the
+  record of what was delivered, and the held length is withdrawn by item 2 above.
+- Stage 3, "Decisions of stage 3": part 1, a trip count the device holds, with S3-1 to S3-9 and its
+  two closed deviations.
+- Part 3, stores after the loops, with decisions D2, D3, D4 and D7 and the clarification of D2.
+- Decision D8 (the speed of a push's scan) stays open. Its measurement belonged to stage 4 and is
+  not delivered.
+
+**Downstream.** The downstream entries of the front matter that name the held length or the cap
+are withdrawn to that extent. The rest stays: the trip count read from an array, the stores after
+the loops, the new group reasons on the fuse page and the record of 0094 when the pin moves.
+
+**Deviations.** This amendment changes no code, rule, surface section, diagnostic code or example.
+It records one deviation from the approved text: the approved text asks for D6 and part 2, and the
+delivered work will not include them. Disposition: made part of the approved text by this
+amendment.
+
+**Verification.** The document checks of the pull request (`scripts/changes.ts`,
+`src/changes.test.ts`, `bun run docs:refs`, `bun run docs:impact`, prettier). The functional gates
+did not run: no code changed.
+
 ## What it owes downstream
 
 This draft did not search the site or the editor repository. The work below is expected work; a
