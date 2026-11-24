@@ -34,7 +34,6 @@ import type {
   RhiBufferUsage,
   RhiCanvas,
   RhiCaps,
-  RhiColorAttachment,
   RhiCommandEncoder,
   RhiCompareFunction,
   RhiComputePass,
@@ -55,10 +54,18 @@ import type {
   RhiTextureView,
   RhiVertexBufferLayout,
 } from './rhi.js';
-
-type GL = WebGL2RenderingContext;
-
-export type GlTextureKind = 'float' | 'uint' | 'sint' | 'depth';
+import type {
+  GL,
+  GlTextureKind,
+  PolygonOffsetClamp,
+  Slot,
+  DrawFace,
+  DrawState,
+  ProvokingVertex,
+  BlendComponent,
+  Attachment,
+} from './webgl2/types.js';
+export type { GlTextureKind } from './webgl2/types.js';
 
 interface FormatSpec {
   readonly internal: string;
@@ -210,10 +217,6 @@ function formatOf(gl: GL, name: string): GlFormat | undefined {
   };
 }
 
-interface PolygonOffsetClamp {
-  polygonOffsetClampEXT(factor: number, units: number, clamp: number): void;
-}
-
 class GlState {
   readonly fbo: WebGLFramebuffer;
   readonly blitFbo: WebGLFramebuffer;
@@ -322,41 +325,6 @@ class GlCanvas implements RhiCanvas {
   readonly __rhi = 'canvas' as const;
 }
 
-interface Slot {
-  readonly binding: number;
-  readonly kind: 'block' | 'texture' | 'data';
-  readonly unit: number;
-  readonly minimum?: number;
-  readonly sampler?: number;
-}
-
-interface DrawFace {
-  readonly func: number;
-  readonly fail: number;
-  readonly zfail: number;
-  readonly zpass: number;
-}
-
-interface DrawState {
-  readonly mode: number;
-  readonly depth?: { readonly func: number; readonly write: boolean };
-  readonly cull?: number;
-  readonly frontFace: number;
-  readonly blend?: {
-    readonly src: [number, number];
-    readonly dst: [number, number];
-    readonly op: [number, number];
-  };
-  readonly mask: readonly [boolean, boolean, boolean, boolean];
-  readonly stencil?: {
-    readonly front: DrawFace;
-    readonly back: DrawFace;
-    readonly readMask: number;
-    readonly writeMask: number;
-  };
-  readonly offset?: { readonly factor: number; readonly units: number; readonly clamp: number };
-}
-
 class GlPipeline implements RhiRenderPipeline {
   readonly __rhi = 'pipeline' as const;
   constructor(
@@ -367,12 +335,6 @@ class GlPipeline implements RhiRenderPipeline {
     readonly buffers: readonly RhiVertexBufferLayout[],
     readonly flat: boolean,
   ) {}
-}
-
-interface ProvokingVertex {
-  readonly FIRST_VERTEX_CONVENTION_WEBGL: number;
-  readonly PROVOKING_VERTEX_WEBGL: number;
-  provokingVertexWEBGL(mode: number): void;
 }
 
 export function firstVertexLast(
@@ -458,12 +420,6 @@ export const GL_BLEND_OPERATION: Readonly<Record<string, string>> = {
   min: 'MIN',
   max: 'MAX',
 };
-
-interface BlendComponent {
-  readonly srcFactor?: string;
-  readonly dstFactor?: string;
-  readonly operation?: string;
-}
 
 function compareOf(gl: GL, c: RhiCompareFunction): number {
   const table: Record<RhiCompareFunction, number> = {
@@ -840,12 +796,6 @@ function texelView(gl: GL, type: number, data: ArrayBufferView): ArrayBufferView
 }
 
 const pad = (v: readonly number[]): number[] => [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0, v[3] ?? 0];
-
-interface Attachment {
-  readonly tex: WebGLTexture | 'screen';
-  readonly kind: GlTextureKind;
-  readonly a: RhiColorAttachment;
-}
 
 function blitScreen(s: GlState, attachment: number, way: 'in' | 'out'): void {
   const gl = s.gl;
