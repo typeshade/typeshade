@@ -56,7 +56,7 @@ export const GEOMETRIC_AND_MATRIX_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`faceforward`',
     covers: ['glsl:builtinFunctions:8.5:faceforward'],
-    evidence: 'src/compiler/ts/math-alias.ts:126',
+    evidence: 'src/compiler/ts/math-alias.ts#BREADTH_BUILTINS',
     note: 'faceForward',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),

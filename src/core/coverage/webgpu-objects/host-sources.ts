@@ -6,7 +6,7 @@ export const HOST_SOURCES_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`HTMLCanvasElement.getContext()`',
     covers: ['HTMLCanvasElement.getContext'],
-    evidence: 'src/runtime/runtime.ts:51-58; src/core/host-draw.ts:315-331',
+    evidence: 'src/runtime/runtime.ts#RuntimeOptions; src/core/host-draw.ts:315-331',
     webgpu: typed(
       'scripts/compile-gate.ts',
       'the call layer calls getContext("webgpu") on a canvas a host call passes (src/core/host-draw.ts:315-316; Rule 8.24)',
@@ -22,7 +22,7 @@ export const HOST_SOURCES_ROWS: readonly Row[] = [
     name: '`OffscreenCanvas.getContext()`',
     covers: ['OffscreenCanvas.getContext'],
     evidence:
-      'src/runtime/runtime.ts:51-58; docs/language-design.md:905; src/core/host-draw.ts:184; src/core/host-draw.ts:315-331',
+      'src/runtime/runtime.ts#RuntimeOptions; docs/language-design.md:905; src/core/host-draw.ts#hostResidents; src/core/host-draw.ts:315-331',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test draws into an OffscreenCanvas on WebGPU; the call layer takes an OffscreenCanvas as a draw target and calls getContext("webgpu") on it (src/core/host-draw.ts:184, 315-316; Rule 8.24)',
@@ -57,7 +57,7 @@ export const HOST_SOURCES_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`__GPUDeviceEventMap.uncapturederror`',
     covers: ['__GPUDeviceEventMap.uncapturederror'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: andGap(
       raw('Runtime.device', 'rt.device is the GPUDevice; the runtime listens to no event'),
       8,

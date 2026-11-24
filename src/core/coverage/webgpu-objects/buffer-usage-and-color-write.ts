@@ -6,7 +6,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.MAP_READ`',
     covers: ['GPUBufferUsage.MAP_READ'],
-    evidence: 'src/rhi/webgpu.ts:105; src/rhi/webgpu.ts:317-320',
+    evidence: 'src/rhi/webgpu.ts#Adapter; src/rhi/webgpu.ts:317-320',
     webgpu: typed('src/runtime/runtime.test.ts', 'chosen by the runtime for each buffer'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -15,7 +15,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.MAP_WRITE`',
     covers: ['GPUBufferUsage.MAP_WRITE'],
-    evidence: 'src/core/resident.ts:153; src/core/host-entry.ts:633-634',
+    evidence: 'src/core/resident.ts#ResidentArrayState.version; src/core/host-entry.ts:633-634',
     webgpu: raw('GPUBuffer', 'a host GPUBuffer made with this usage can be mapped for writing'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -42,7 +42,8 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.INDEX`',
     covers: ['GPUBufferUsage.INDEX'],
-    evidence: 'src/rhi/webgpu.ts:108; src/core/host-entry.ts:633-634; src/runtime/program.ts:1393',
+    evidence:
+      'src/rhi/webgpu.ts#BUFFER; src/core/host-entry.ts:633-634; src/runtime/program.ts:1393',
     webgpu: typed('scripts/compile-gate.ts', 'chosen by the runtime for each buffer'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -51,7 +52,8 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.VERTEX`',
     covers: ['GPUBufferUsage.VERTEX'],
-    evidence: 'src/rhi/webgpu.ts:109; src/core/host-entry.ts:633-634; src/runtime/program.ts:1393',
+    evidence:
+      'src/rhi/webgpu.ts#BUFFER.MAP_READ; src/core/host-entry.ts:633-634; src/runtime/program.ts:1393',
     webgpu: typed('journeys/engine/engine.mjs', 'chosen by the runtime for each buffer'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -60,7 +62,8 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.UNIFORM`',
     covers: ['GPUBufferUsage.UNIFORM'],
-    evidence: 'src/rhi/webgpu.ts:110; src/core/host-entry.ts:633-634; src/runtime/program.ts:1393',
+    evidence:
+      'src/rhi/webgpu.ts#BUFFER.COPY_SRC; src/core/host-entry.ts:633-634; src/runtime/program.ts:1393',
     webgpu: typed('journeys/engine/engine.mjs', 'chosen by the runtime for each buffer'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -69,7 +72,8 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUBufferUsage.STORAGE`',
     covers: ['GPUBufferUsage.STORAGE'],
-    evidence: 'src/rhi/webgpu.ts:111; src/core/host-entry.ts:633-634; src/runtime/program.ts:1393',
+    evidence:
+      'src/rhi/webgpu.ts#BUFFER.COPY_DST; src/core/host-entry.ts:633-634; src/runtime/program.ts:1393',
     webgpu: typed('journeys/mesh-raycast/journey.mjs', 'chosen by the runtime for each buffer'),
     webgl2: na('WebGPU-only concept: WebGL2 has no GPUBufferUsage flags'),
   },
@@ -91,7 +95,7 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     name: '`GPUBufferUsage.QUERY_RESOLVE`',
     covers: ['GPUBufferUsage.QUERY_RESOLVE'],
     evidence:
-      'src/rhi/webgpu.ts:104-112; src/runtime/runtime.ts:195-199; src/runtime/runtime.ts:230-238',
+      'src/rhi/webgpu.ts:104-112; src/runtime/runtime.ts#RenderPass|Frame; src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: andGap(
       raw(
         'Runtime.device',
@@ -108,7 +112,8 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUColorWrite.RED`',
     covers: ['GPUColorWrite.RED'],
-    evidence: 'src/runtime/program.ts:68-77; src/rhi/webgl2.ts:519-520; src/runtime/gl-draw.ts:975',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -125,7 +130,8 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUColorWrite.GREEN`',
     covers: ['GPUColorWrite.GREEN'],
-    evidence: 'src/runtime/program.ts:68-77; src/rhi/webgl2.ts:519-520; src/runtime/gl-draw.ts:975',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -142,7 +148,8 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUColorWrite.BLUE`',
     covers: ['GPUColorWrite.BLUE'],
-    evidence: 'src/runtime/program.ts:68-77; src/rhi/webgl2.ts:519-520; src/runtime/gl-draw.ts:975',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -159,7 +166,8 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUColorWrite.ALPHA`',
     covers: ['GPUColorWrite.ALPHA'],
-    evidence: 'src/runtime/program.ts:68-77; src/rhi/webgl2.ts:519-520; src/runtime/gl-draw.ts:975',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test sets TargetState.writeMask or names GPUColorWrite; the runtime passes the target object through unchanged (src/runtime/program.ts:502-519); the typed surface is TargetState.writeMask',
@@ -176,7 +184,8 @@ export const BUFFER_USAGE_AND_COLOR_WRITE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUColorWrite.ALL`',
     covers: ['GPUColorWrite.ALL'],
-    evidence: 'src/runtime/program.ts:68-77; src/rhi/webgl2.ts:519-520; src/runtime/gl-draw.ts:975',
+    evidence:
+      'src/runtime/program.ts#Bindings; src/rhi/webgl2.ts#GL_BLEND_FACTOR; src/runtime/gl-draw.ts:975',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test passes writeMask; the runtime sets no mask on WebGPU unless the author passes one (src/runtime/program.ts:73-78, 502-519); the typed surface is TargetState.writeMask',

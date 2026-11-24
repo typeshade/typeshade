@@ -47,7 +47,7 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     name: '`GPUTextureDescriptor.size`',
     covers: ['GPUTextureDescriptor.size'],
     evidence:
-      'src/runtime/resources.ts:17-32, 218-231; src/rhi/webgpu.ts:286-298; src/runtime/gl-draw.ts:161-168; src/rhi/webgl2.ts:1336',
+      'src/runtime/resources.ts:17-32, 218-231; src/rhi/webgpu.ts:286-298; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/rhi/webgl2.ts:1336',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'size, format, dimension (2d, 3d), sampleCount and storage usage',
@@ -75,7 +75,8 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureDescriptor.sampleCount`',
     covers: ['GPUTextureDescriptor.sampleCount'],
-    evidence: 'src/runtime/resources.ts:17-32, 220-233; src/runtime/gl-draw.ts:165-168',
+    evidence:
+      'src/runtime/resources.ts:17-32, 220-233; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): the only rt.texture call with a sampleCount is the WebGL2 refusal (src/runtime/runtime.test.ts:1884); roadmap 13 names the multisampled load (docs/roadmap.md:226); size, format, dimension (2d, 3d), sampleCount and storage usage',
@@ -92,7 +93,8 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureDescriptor.dimension`',
     covers: ['GPUTextureDescriptor.dimension'],
-    evidence: 'src/runtime/resources.ts:23; src/runtime/gl-draw.ts:161-168',
+    evidence:
+      'src/runtime/resources.ts#TextureOptions.dimension; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no rt.texture call on WebGPU gives a dimension (src/runtime/resources.ts:227); 2d and 3d; the runtime makes no 1d texture (src/runtime/resources.ts:23); texture_1d is shipped as a WGSL spelling (roadmap 12, docs/roadmap.md:225); roadmap 13c names storage 1d textures (docs/roadmap.md:229)',
@@ -110,7 +112,7 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     name: '`GPUTextureDescriptor.format`',
     covers: ['GPUTextureDescriptor.format'],
     evidence:
-      'src/runtime/resources.ts:17-32, 220-233; src/runtime/gl-draw.ts:161-168; src/rhi/webgl2.ts:1336; src/rhi/webgl2.ts:70-71, 211; src/runtime/gl-draw.ts:170-172',
+      'src/runtime/resources.ts:17-32, 220-233; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/rhi/webgl2.ts:1336; src/rhi/webgl2.ts:70-71, 211; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',
@@ -135,7 +137,7 @@ export const TEXTURE_DESCRIPTOR_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUTextureDescriptor.usage`',
     covers: ['GPUTextureDescriptor.usage'],
-    evidence: 'src/runtime/resources.ts:220-233; src/runtime/gl-draw.ts:161-169',
+    evidence: 'src/runtime/resources.ts:220-233; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
     webgpu: typed(
       'journeys/hdr-target/journey.mjs',
       'the usages the runtime sets: render attachment, texture binding, copy when one sample, storage when storage is true (src/runtime/resources.ts:221-223)',

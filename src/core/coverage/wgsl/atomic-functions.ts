@@ -6,7 +6,7 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicAdd`',
     covers: ['wgsl:builtinFunctions:atomicAdd'],
-    evidence: 'src/core/intrinsics.ts:90; src/core/builtins/overlay.ts:127',
+    evidence: 'src/core/intrinsics.ts:90; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: typed('src/compiler/ts/atomics.test.ts'),
     webgl2: typed('src/core/passes/gl-compute.test.ts', 'compute entry only, change 0054'),
@@ -16,7 +16,8 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicAnd`',
     covers: ['wgsl:builtinFunctions:atomicAnd'],
-    evidence: 'src/core/intrinsics.ts:94; src/core/builtins/overlay.ts:128',
+    evidence:
+      'src/core/intrinsics.ts#ATOMIC_INTRINSICS; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: typed('src/compiler/ts/host-kernel.test.ts'),
     webgl2: gap(
@@ -30,7 +31,8 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicCompareExchangeWeak`',
     covers: ['wgsl:builtinFunctions:atomicCompareExchangeWeak'],
-    evidence: 'src/core/intrinsics.ts:105; src/core/builtins/overlay.ts:129',
+    evidence:
+      'src/core/intrinsics.ts#ATOMIC_INTRINSICS.atomicExchange; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: typed('src/compiler/ts/atomics.test.ts'),
     webgl2: typed('scripts/gpu-differential.ts', 'compute entry only, change 0054'),
@@ -40,7 +42,8 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicExchange`',
     covers: ['wgsl:builtinFunctions:atomicExchange'],
-    evidence: 'src/core/intrinsics.ts:97; src/core/builtins/overlay.ts:130',
+    evidence:
+      'src/core/intrinsics.ts#ATOMIC_INTRINSICS.atomicStore; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: gap(
       15,
@@ -58,7 +61,7 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicLoad`',
     covers: ['wgsl:builtinFunctions:atomicLoad'],
-    evidence: 'src/core/intrinsics.ts:88; src/core/builtins/overlay.ts:131',
+    evidence: 'src/core/intrinsics.ts:88; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: typed('src/compiler/ts/atomics.test.ts'),
     webgl2: gap(
@@ -72,7 +75,8 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicMax`',
     covers: ['wgsl:builtinFunctions:atomicMax'],
-    evidence: 'src/core/intrinsics.ts:93; src/core/builtins/overlay.ts:132',
+    evidence:
+      'src/core/intrinsics.ts#ATOMIC_INTRINSICS; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: typed('src/compiler/ts/atomics.test.ts'),
     webgl2: typed('scripts/gpu-differential.ts', 'compute entry only, change 0054'),
@@ -82,7 +86,7 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicMin`',
     covers: ['wgsl:builtinFunctions:atomicMin'],
-    evidence: 'src/core/intrinsics.ts:92; src/core/builtins/overlay.ts:133',
+    evidence: 'src/core/intrinsics.ts:92; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: gap(
       15,
@@ -100,7 +104,8 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicOr`',
     covers: ['wgsl:builtinFunctions:atomicOr'],
-    evidence: 'src/core/intrinsics.ts:95; src/core/builtins/overlay.ts:134',
+    evidence:
+      'src/core/intrinsics.ts#ATOMIC_INTRINSICS; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: typed('src/compiler/ts/host-kernel.test.ts'),
     webgl2: gap(
@@ -114,7 +119,7 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicStore`',
     covers: ['wgsl:builtinFunctions:atomicStore'],
-    evidence: 'src/core/intrinsics.ts:89; src/core/builtins/overlay.ts:135',
+    evidence: 'src/core/intrinsics.ts:89; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: typed('src/compiler/ts/atomics.test.ts'),
     webgl2: typed('scripts/gpu-differential.ts', 'compute entry only, change 0054'),
@@ -150,7 +155,7 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicSub`',
     covers: ['wgsl:builtinFunctions:atomicSub'],
-    evidence: 'src/core/intrinsics.ts:91; src/core/builtins/overlay.ts:136',
+    evidence: 'src/core/intrinsics.ts:91; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: typed('src/compiler/ts/atomics.test.ts'),
     webgl2: gap(
@@ -164,7 +169,8 @@ export const ATOMIC_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`atomicXor`',
     covers: ['wgsl:builtinFunctions:atomicXor'],
-    evidence: 'src/core/intrinsics.ts:96; src/core/builtins/overlay.ts:137',
+    evidence:
+      'src/core/intrinsics.ts#ATOMIC_INTRINSICS.atomicLoad; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: typed('src/compiler/ts/atomics.test.ts'),
     webgl2: gap(

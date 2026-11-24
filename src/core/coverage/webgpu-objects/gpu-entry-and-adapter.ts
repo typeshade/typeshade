@@ -45,7 +45,7 @@ export const GPU_ENTRY_AND_ADAPTER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPU.wgslLanguageFeatures`',
     covers: ['GPU.wgslLanguageFeatures'],
-    evidence: 'src/core/passes/required-caps.ts:90-107',
+    evidence: 'src/core/passes/required-caps.ts#requiredLanguageFeatures',
     webgpu: typed(
       'src/compiler/ts/storage-textures.test.ts',
       'reflect().requiredLanguageFeatures (Rule 10.2); the host checks the set',
@@ -83,7 +83,7 @@ export const GPU_ENTRY_AND_ADAPTER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUAdapter.info`',
     covers: ['GPUAdapter.info'],
-    evidence: 'src/runtime/runtime.ts:51-58; src/runtime/runtime.ts:644',
+    evidence: 'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:644',
     webgpu: andGap(
       raw(
         'createRuntime({ device })',
@@ -110,7 +110,7 @@ export const GPU_ENTRY_AND_ADAPTER_ROWS: readonly Row[] = [
     name: '`GPUAdapterInfo.vendor`',
     covers: ['GPUAdapterInfo.vendor'],
     evidence:
-      'src/runtime/runtime.ts:230-238; src/core/spec-conformance/fixtures/webgl-extensions.json:572',
+      'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/spec-conformance/fixtures/webgl-extensions.json:572',
     webgpu: andGap(
       raw('Runtime.device', 'rt.device.adapterInfo'),
       8,
@@ -133,7 +133,7 @@ export const GPU_ENTRY_AND_ADAPTER_ROWS: readonly Row[] = [
     name: '`GPUAdapterInfo.architecture`',
     covers: ['GPUAdapterInfo.architecture'],
     evidence:
-      'src/runtime/runtime.ts:230-238; src/core/spec-conformance/fixtures/webgl-extensions.json:572',
+      'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/spec-conformance/fixtures/webgl-extensions.json:572',
     webgpu: andGap(
       raw('Runtime.device', 'rt.device.adapterInfo'),
       8,
@@ -150,7 +150,7 @@ export const GPU_ENTRY_AND_ADAPTER_ROWS: readonly Row[] = [
     name: '`GPUAdapterInfo.device`',
     covers: ['GPUAdapterInfo.device'],
     evidence:
-      'src/runtime/runtime.ts:230-238; src/core/spec-conformance/fixtures/webgl-extensions.json:572',
+      'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/spec-conformance/fixtures/webgl-extensions.json:572',
     webgpu: andGap(
       raw('Runtime.device', 'rt.device.adapterInfo'),
       8,
@@ -173,7 +173,7 @@ export const GPU_ENTRY_AND_ADAPTER_ROWS: readonly Row[] = [
     name: '`GPUAdapterInfo.description`',
     covers: ['GPUAdapterInfo.description'],
     evidence:
-      'src/runtime/runtime.ts:230-238; src/core/spec-conformance/fixtures/webgl-extensions.json:572',
+      'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/spec-conformance/fixtures/webgl-extensions.json:572',
     webgpu: andGap(
       raw('Runtime.device', 'rt.device.adapterInfo'),
       8,
@@ -189,7 +189,7 @@ export const GPU_ENTRY_AND_ADAPTER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUAdapterInfo.subgroupMinSize`',
     covers: ['GPUAdapterInfo.subgroupMinSize'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: andGap(
       raw('Runtime.device', 'rt.device.adapterInfo'),
       13,
@@ -203,7 +203,7 @@ export const GPU_ENTRY_AND_ADAPTER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUAdapterInfo.subgroupMaxSize`',
     covers: ['GPUAdapterInfo.subgroupMaxSize'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: andGap(
       raw('Runtime.device', 'rt.device.adapterInfo'),
       13,
@@ -218,7 +218,7 @@ export const GPU_ENTRY_AND_ADAPTER_ROWS: readonly Row[] = [
     name: '`GPUAdapterInfo.isFallbackAdapter`',
     covers: ['GPUAdapterInfo.isFallbackAdapter'],
     evidence:
-      'src/runtime/runtime.ts:230-238; src/core/spec-conformance/fixtures/webgl-extensions.json:572',
+      'src/runtime/runtime.ts#SubmitResult|Runtime.info; src/core/spec-conformance/fixtures/webgl-extensions.json:572',
     webgpu: andGap(
       raw('Runtime.device', 'rt.device.adapterInfo'),
       8,

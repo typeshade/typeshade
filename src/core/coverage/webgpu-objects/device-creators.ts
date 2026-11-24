@@ -7,7 +7,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     name: '`GPUDevice.createBuffer()`',
     covers: ['GPUDevice.createBuffer'],
     evidence:
-      'src/runtime/program.ts:1393; src/core/host-entry.ts:638; src/runtime/gl-draw.ts:884; src/runtime/gl-draw.ts:919; src/core/host-entry.ts:646',
+      'src/runtime/program.ts:1393; src/core/host-entry.ts:638; src/runtime/gl-draw.ts:884; src/runtime/gl-draw.ts#fresh; src/core/host-entry.ts:646',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
   },
@@ -27,7 +27,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     name: '`GPUDevice.createSampler()`',
     covers: ['GPUDevice.createSampler'],
     evidence:
-      'src/runtime/resources.ts:291-313; src/rhi/webgpu.ts:350-352; src/runtime/gl.ts:116-118; src/runtime/gl-draw.ts:295',
+      'src/runtime/resources.ts#SamplerImpl; src/rhi/webgpu.ts:350-352; src/runtime/gl.ts:116-118; src/runtime/gl-draw.ts#GlSamplerImpl',
     webgpu: typed('journeys/engine/engine.mjs', 'rt.sampler()'),
     webgl2: typed('scripts/compile-gate.ts', 'rt.sampler()'),
   },
@@ -76,7 +76,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createShaderModule()`',
     covers: ['GPUDevice.createShaderModule'],
-    evidence: 'src/runtime/program.ts:1480',
+    evidence: 'src/runtime/program.ts#ProgramImpl.constructor',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no shader module object; a program compiles its source with createShader',
@@ -99,7 +99,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createRenderPipeline()`',
     covers: ['GPUDevice.createRenderPipeline'],
-    evidence: 'src/runtime/program.ts:1649; src/runtime/gl.ts:195-203',
+    evidence: 'src/runtime/program.ts#ProgramImpl.render; src/runtime/gl.ts:195-203',
     webgpu: typed('src/runtime/runtime.test.ts', 'the async form is used'),
     webgl2: typed(
       'scripts/compile-gate.ts',
@@ -122,7 +122,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createRenderPipelineAsync()`',
     covers: ['GPUDevice.createRenderPipelineAsync'],
-    evidence: 'src/runtime/program.ts:1649',
+    evidence: 'src/runtime/program.ts#ProgramImpl.render',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no asynchronous pipeline creation; a WebGL2 program is linked when it is made',
@@ -133,7 +133,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createCommandEncoder()`',
     covers: ['GPUDevice.createCommandEncoder'],
-    evidence: 'src/runtime/runtime.ts:345; src/runtime/gl.ts:437',
+    evidence: 'src/runtime/runtime.ts#RuntimeImpl.load; src/runtime/gl.ts:437',
     webgpu: typed('src/runtime/runtime.test.ts', 'rt.frame()'),
     webgl2: refused('Rule 11.11', 'rt.frame()', 'the WebGL2 tier refuses a GPUCommandEncoder'),
   },
@@ -142,7 +142,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.createRenderBundleEncoder()`',
     covers: ['GPUDevice.createRenderBundleEncoder'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: raw('Runtime.device', 'rt.device'),
     webgl2: na('WebGPU render bundles; WebGL2 has no bundle object'),
   },
@@ -152,7 +152,7 @@ export const DEVICE_CREATORS_ROWS: readonly Row[] = [
     name: '`GPUDevice.createQuerySet()`',
     covers: ['GPUDevice.createQuerySet'],
     evidence:
-      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts:230-238; src/runtime/gl.ts:469-472',
+      'src/runtime/runtime.ts:192-205; src/runtime/runtime.ts#SubmitResult|Runtime.info; src/runtime/gl.ts:469-472',
     webgpu: andGap(
       raw(
         'Runtime.device',

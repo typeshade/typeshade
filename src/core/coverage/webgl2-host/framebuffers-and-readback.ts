@@ -66,7 +66,8 @@ export const FRAMEBUFFERS_AND_READBACK_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: 'Multisampled renderbuffers: `renderbufferStorageMultisample`',
     covers: ['webgl:WebGL2RenderingContextBase.renderbufferStorageMultisample'],
-    evidence: 'src/runtime/gl-draw.ts:168 (no multisampled texture on the WebGL2 tier)',
+    evidence:
+      'src/runtime/gl-draw.ts#GlTextureImpl.constructor (no multisampled texture on the WebGL2 tier)',
     note: 'a multisampled draw on WebGL2 is refused; the platform has a multisampled renderbuffer path that the runtime does not take',
     webgpu: gap(
       15,
@@ -104,7 +105,7 @@ export const FRAMEBUFFERS_AND_READBACK_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`readPixels` (synchronous readback), `PIXEL_PACK_BUFFER`',
     covers: ['webgl:WebGL2RenderingContextOverloads.readPixels'],
-    evidence: 'src/rhi/webgl2.ts (readPixels); src/runtime/resources.ts:35-70',
+    evidence: 'src/rhi/webgl2.ts (readPixels); src/runtime/resources.ts#Texture',
     note: 'Texture.read() and readFloats() on both tiers',
     webgpu: typed('src/runtime/runtime.test.ts'),
     webgl2: andGap(
@@ -129,7 +130,7 @@ export const FRAMEBUFFERS_AND_READBACK_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.clearStencil',
     ],
     evidence:
-      'src/rhi/webgl2.ts:923-1178 (recordPass); src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts:1197-1215 (depthStencilAttachmentOf)',
+      'src/rhi/webgl2.ts:923-1178 (recordPass); src/runtime/runtime.ts:467-498 (FrameImpl.pass); src/runtime/program.ts#depthStencilAttachmentOf (depthStencilAttachmentOf)',
     note: 'PassTargets clear values',
     webgpu: typed(
       'journeys/pass-attachments',

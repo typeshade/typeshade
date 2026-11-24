@@ -41,7 +41,7 @@ export const DEVICE_EXTENT_FRAGMENT_AND_MULTISAMPLE_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUExtent3DDict.width`',
     covers: ['GPUExtent3DDict.width'],
-    evidence: 'src/runtime/resources.ts:17-32; src/rhi/webgl2.ts:1336',
+    evidence: 'src/runtime/resources.ts#TextureOptions; src/rhi/webgl2.ts:1336',
     webgpu: typed('src/runtime/runtime.test.ts', 'TextureOptions.size'),
     webgl2: typed('journeys/emit-options/journey.mjs', 'TextureOptions.size'),
   },
@@ -50,7 +50,7 @@ export const DEVICE_EXTENT_FRAGMENT_AND_MULTISAMPLE_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUExtent3DDict.height`',
     covers: ['GPUExtent3DDict.height'],
-    evidence: 'src/runtime/resources.ts:17-32; src/rhi/webgl2.ts:1336',
+    evidence: 'src/runtime/resources.ts#TextureOptions; src/rhi/webgl2.ts:1336',
     webgpu: typed('src/runtime/runtime.test.ts', 'TextureOptions.size'),
     webgl2: typed('journeys/emit-options/journey.mjs', 'TextureOptions.size'),
   },
@@ -59,7 +59,8 @@ export const DEVICE_EXTENT_FRAGMENT_AND_MULTISAMPLE_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUExtent3DDict.depthOrArrayLayers`',
     covers: ['GPUExtent3DDict.depthOrArrayLayers'],
-    evidence: 'src/runtime/resources.ts:17-32; src/runtime/gl-draw.ts:161-164',
+    evidence:
+      'src/runtime/resources.ts#TextureOptions; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGPU rt.texture call gives a third size entry (src/runtime/resources.ts:224-230); TextureOptions.size',
@@ -129,7 +130,7 @@ export const DEVICE_EXTENT_FRAGMENT_AND_MULTISAMPLE_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUMultisampleState.count`',
     covers: ['GPUMultisampleState.count'],
-    evidence: 'src/runtime/program.ts:308-310; src/runtime/gl-draw.ts:436-438',
+    evidence: 'src/runtime/program.ts:308-310; src/runtime/gl-draw.ts#GlRenderPrograms.render',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no WebGPU pipeline or texture with a count above 1 is created in the tree (src/rhi/webgpu.ts:222-231); count only; the WebGL2 tier draws with one sample',
@@ -147,7 +148,7 @@ export const DEVICE_EXTENT_FRAGMENT_AND_MULTISAMPLE_ROWS: readonly Row[] = [
     name: '`GPUMultisampleState.mask`',
     covers: ['GPUMultisampleState.mask'],
     evidence:
-      'src/runtime/program.ts:314 (RenderState.multisample.mask); src/rhi/webgpu.ts:222-231 (multisampleOf); src/runtime/gl-draw.ts:688 (the draw a sample mask drops)',
+      'src/runtime/program.ts:314 (RenderState.multisample.mask); src/rhi/webgpu.ts#depthStencilOf|multisampleOf (multisampleOf); src/runtime/gl-draw.ts:688 (the draw a sample mask drops)',
     webgpu: andGap(
       typed(
         'journeys/pipeline-state',

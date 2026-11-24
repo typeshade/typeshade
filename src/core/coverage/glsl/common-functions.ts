@@ -46,7 +46,7 @@ export const COMMON_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`round`',
     covers: ['glsl:builtinFunctions:8.3:round'],
-    evidence: 'src/compiler/ts/math-alias.ts:28',
+    evidence: 'src/compiler/ts/math-alias.ts#MATH_FN_ALIAS.round',
     note: 'same WGSL name',
     webgpu: typed('src/core/intrinsic-coverage.test.ts'),
     webgl2: typed('src/core/intrinsic-coverage.test.ts'),

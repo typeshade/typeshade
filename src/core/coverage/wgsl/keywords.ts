@@ -136,7 +136,7 @@ export const KEYWORDS_ROWS: readonly Row[] = [
     name: '`else`',
     covers: ['wgsl:keywords:else'],
     evidence:
-      'src/compiler/ts/lower/statement.ts:215; src/compiler/ts/lower/statement.ts:2063-2092',
+      'src/compiler/ts/lower/statement.ts#lowerStatements; src/compiler/ts/lower/statement.ts:2063-2092',
     webgpu: typed('src/core/ir/condexpr-arms.test.ts'),
     webgl2: typed('src/core/backends/glsl-legalize.test.ts'),
   },
@@ -218,7 +218,8 @@ export const KEYWORDS_ROWS: readonly Row[] = [
     kind: 'WGSL keyword',
     name: '`requires`',
     covers: ['wgsl:keywords:requires'],
-    evidence: 'docs/language-design.md:1125; src/core/passes/required-caps.ts:90-107',
+    evidence:
+      'docs/language-design.md:1125; src/core/passes/required-caps.ts#requiredLanguageFeatures',
     note: 'only readonly_and_readwrite_storage_textures is directed',
     webgpu: typed('src/compiler/ts/storage-textures.test.ts', 'emitted by the compiler, Rule 10.1'),
     webgl2: na('no GLSL form of the directive'),

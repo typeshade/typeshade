@@ -67,7 +67,7 @@ export const TEXTURE_SAMPLE_FUNCTIONS_ROWS: readonly Row[] = [
     name: '`textureSampleCompare`',
     covers: ['wgsl:builtinFunctions:textureSampleCompare'],
     evidence:
-      'src/core/intrinsics.ts:765; src/core/spec-conformance/coredef-texture-overloads.test.ts:263',
+      'src/core/intrinsics.ts#INTRINSICS.textureLoad; src/core/spec-conformance/coredef-texture-overloads.test.ts:263',
     note: 'INTRINSICS row with a GLSL spelling',
     webgpu: andGap(
       typed('src/compiler/ts/depth-textures.test.ts'),

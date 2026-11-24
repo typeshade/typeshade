@@ -66,7 +66,7 @@ export const LANGUAGE_EXTENSIONS_ROWS: readonly Row[] = [
     kind: 'WGSL language extension',
     name: '`packed_4x8_integer_dot_product`',
     covers: ['wgsl:languageExtensions:packed_4x8_integer_dot_product'],
-    evidence: 'src/core/passes/required-caps.ts:103-107',
+    evidence: 'src/core/passes/required-caps.ts#requiredLanguageFeatures',
     webgpu: typed('src/compiler/ts/packed-4x8.test.ts', 'reported, not directed'),
     webgl2: gap(
       10,
@@ -92,7 +92,7 @@ export const LANGUAGE_EXTENSIONS_ROWS: readonly Row[] = [
     name: '`readonly_and_readwrite_storage_textures`',
     covers: ['wgsl:languageExtensions:readonly_and_readwrite_storage_textures'],
     evidence:
-      'src/core/passes/required-caps.ts:90-102; src/core/passes/gl-compute.ts:312; docs/language-design.md:1153',
+      'src/core/passes/required-caps.ts#requiredLanguageFeatures; src/core/passes/gl-compute.ts:312; docs/language-design.md:1153',
     webgpu: andGap(
       typed('src/compiler/ts/storage-textures.test.ts', 'requires emitted'),
       6,
@@ -160,7 +160,8 @@ export const LANGUAGE_EXTENSIONS_ROWS: readonly Row[] = [
     kind: 'WGSL language extension',
     name: '`texture_formats_tier1`',
     covers: ['wgsl:languageExtensions:texture_formats_tier1'],
-    evidence: 'src/core/ir/types.ts:75-100; docs/use-typeshade-surface.md:5377-5382',
+    evidence:
+      'src/core/ir/types.ts#ALL_STORAGE_TEXTURE_FORMATS|StorageTextureAccess; docs/use-typeshade-surface.md:5377-5382',
     webgpu: gap(
       6,
       'tier-1 storage formats beyond the 17 of ALL_STORAGE_TEXTURE_FORMATS are refused (TS8002 for r8unorm, rg8unorm, rgb10a2unorm, rg16float); roadmap 13b, docs/roadmap.md:228, lists them in a shipped row',

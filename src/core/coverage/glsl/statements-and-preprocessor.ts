@@ -180,7 +180,7 @@ export const STATEMENTS_AND_PREPROCESSOR_ROWS: readonly Row[] = [
     name: '`defined`',
     covers: ['glsl:preprocessor:3.5:defined'],
     evidence:
-      'src/core/variant-family.ts:140-166 (guardCondition writes the defined test and its negation); src/core/variant-family.ts:350 (the ladder head that carries it)',
+      'src/core/variant-family.ts#guardCondition (guardCondition writes the defined test and its negation); src/core/variant-family.ts:350 (the ladder head that carries it)',
     note: 'also: typed through the host export variantFamily().emitGuarded (src/core/variant-family.ts:140-166); test src/core/variant-family.test.ts reads the operator through selectGuardedArm',
     webgpu: na('WGSL has no preprocessor'),
     webgl2: na(

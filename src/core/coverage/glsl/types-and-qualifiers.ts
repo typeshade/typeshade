@@ -145,7 +145,8 @@ export const TYPES_AND_QUALIFIERS_ROWS: readonly Row[] = [
     kind: 'GLSL qualifier',
     name: '`centroid`',
     covers: ['glsl:qualifiers:4.3.4:centroid in', 'glsl:qualifiers:4.3.6:centroid out'],
-    evidence: 'docs/use-typeshade-surface.md:6290 (§53 table); src/core/backends/glsl.ts:826-849',
+    evidence:
+      'docs/use-typeshade-surface.md:6290 (§53 table); src/core/backends/glsl.ts#glslEs300Backend.modulePreamble|glslInterpolation',
     webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts'),
     webgl2: typed('src/compiler/ts/entry-io-attributes.test.ts'),
   },
@@ -202,7 +203,8 @@ export const TYPES_AND_QUALIFIERS_ROWS: readonly Row[] = [
     kind: 'GLSL qualifier',
     name: '`smooth`',
     covers: ['glsl:qualifiers:4.3.9:smooth'],
-    evidence: 'docs/use-typeshade-surface.md:6290 (§53 table); src/core/backends/glsl.ts:848',
+    evidence:
+      'docs/use-typeshade-surface.md:6290 (§53 table); src/core/backends/glsl.ts#glslInterpolation',
     webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts', 'the default'),
     webgl2: typed('src/compiler/ts/entry-io-attributes.test.ts'),
   },
@@ -211,7 +213,8 @@ export const TYPES_AND_QUALIFIERS_ROWS: readonly Row[] = [
     kind: 'GLSL qualifier',
     name: '`flat`',
     covers: ['glsl:qualifiers:4.3.9:flat'],
-    evidence: 'docs/use-typeshade-surface.md:6289 (§53 table); src/core/backends/glsl.ts:848',
+    evidence:
+      'docs/use-typeshade-surface.md:6289 (§53 table); src/core/backends/glsl.ts#glslInterpolation',
     note: 'Rule 6.7',
     webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -237,7 +240,7 @@ export const TYPES_AND_QUALIFIERS_ROWS: readonly Row[] = [
       'glsl:qualifiers:4.5.4:precision',
     ],
     evidence:
-      'src/core/backends/glsl.ts:1998-2024 (floatPrecision); src/core/backends/glsl.ts:2244-2262 (precision header)',
+      'src/core/backends/glsl.ts#GlslEmitOptions.emulateCompute|GlslEmitOptions.overrideValues (floatPrecision); src/core/backends/glsl.ts:2244-2262 (precision header)',
     webgpu: na('WGSL has one precision'),
     webgl2: gap(
       12,

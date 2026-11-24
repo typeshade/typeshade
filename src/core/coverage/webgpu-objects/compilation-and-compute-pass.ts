@@ -84,7 +84,8 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUComputePassEncoder.setPipeline()`',
     covers: ['GPUComputePassEncoder.setPipeline'],
-    evidence: 'src/runtime/program.ts:425-434; src/runtime/gl.ts:447-453',
+    evidence:
+      'src/runtime/program.ts#ComputePipeline.entry|ComputePipeline.workgroupShape; src/runtime/gl.ts:447-453',
     webgpu: typed('journeys/mesh-raycast/journey.mjs'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs'),
   },
@@ -93,7 +94,8 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUComputePassEncoder.dispatchWorkgroups()`',
     covers: ['GPUComputePassEncoder.dispatchWorkgroups'],
-    evidence: 'src/runtime/program.ts:425-434; src/runtime/gl.ts:238-241',
+    evidence:
+      'src/runtime/program.ts#ComputePipeline.entry|ComputePipeline.workgroupShape; src/runtime/gl.ts#Given',
     webgpu: typed('journeys/mesh-raycast/journey.mjs', 'ComputePipeline.dispatch'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs', 'ComputePipeline.dispatch'),
   },
@@ -125,7 +127,8 @@ export const COMPILATION_AND_COMPUTE_PASS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface',
     name: '`GPUComputePipeline`',
     covers: ['GPUComputePipeline'],
-    evidence: 'src/runtime/program.ts:425-434; src/runtime/gl.ts:226',
+    evidence:
+      'src/runtime/program.ts#ComputePipeline.entry|ComputePipeline.workgroupShape; src/runtime/gl.ts#GlProgramImpl.render',
     webgpu: typed('src/runtime/runtime.test.ts', 'ComputePipeline'),
     webgl2: typed('journeys/mesh-raycast/journey.mjs', 'ComputePipeline'),
   },

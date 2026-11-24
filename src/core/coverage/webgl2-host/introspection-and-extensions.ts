@@ -46,7 +46,7 @@ export const INTROSPECTION_AND_EXTENSIONS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.drawingBufferWidth',
     ],
     evidence:
-      "docs/use-typeshade-surface.md:7961 (the pass draws into a texture of the drawing buffer's size); src/runtime/gl-draw.ts:1094-1096, 1094-1095",
+      "docs/use-typeshade-surface.md:7961 (the pass draws into a texture of the drawing buffer's size); src/runtime/gl-draw.ts#GlPass.setViewport",
     note: 'the host sets the canvas size and configures its canvas context',
     webgpu: raw(
       'createRuntime({ device })',
@@ -87,7 +87,7 @@ export const INTROSPECTION_AND_EXTENSIONS_ROWS: readonly Row[] = [
     kind: 'WebGL2 capability',
     name: '`EXT_texture_mirror_clamp_to_edge`',
     covers: ['webgl:EXT_texture_mirror_clamp_to_edge'],
-    evidence: 'src/runtime/resources.ts:74-91',
+    evidence: 'src/runtime/resources.ts#SamplerOptions|Sampler|ADDRESS',
     note: 'WebGPU has no mirror-clamp mode',
     webgpu: na('WebGPU has no mirror-clamp mode'),
     webgl2: gap(11, 'WebGL2-only, no portable meaning; no door yet (Rule 11.16)', 642),

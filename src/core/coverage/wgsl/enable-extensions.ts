@@ -53,7 +53,7 @@ export const ENABLE_EXTENSIONS_ROWS: readonly Row[] = [
     kind: 'WGSL enable extension',
     name: '`subgroup_size_control`',
     covers: ['wgsl:enableExtensions:subgroup_size_control'],
-    evidence: 'src/compiler/ts/builtin-check.ts:226-228',
+    evidence: 'src/compiler/ts/builtin-check.ts#WGSL_ATTRIBUTES_ELSEWHERE',
     webgpu: gap(
       12,
       'refused today with no rule number: src/compiler/ts/builtin-check.ts:226-228 (the attribute @subgroup_size is not applied); §14 row, docs/language-design.md:1506; roadmap After 1.0, docs/roadmap.md:306',

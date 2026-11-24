@@ -6,7 +6,7 @@ export const QUAD_TO_STEP_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`quadBroadcast`',
     covers: ['wgsl:builtinFunctions:quadBroadcast'],
-    evidence: 'src/core/builtins/overlay.ts:202-203',
+    evidence: 'src/core/builtins/overlay.ts#extensionOf',
     note: 'also: the subgroup functions are typed (change 0117); the quad four are not',
     webgpu: gap(
       13,
@@ -20,7 +20,7 @@ export const QUAD_TO_STEP_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`quadSwapDiagonal`',
     covers: ['wgsl:builtinFunctions:quadSwapDiagonal'],
-    evidence: 'src/core/builtins/overlay.ts:202-203',
+    evidence: 'src/core/builtins/overlay.ts#extensionOf',
     note: 'also: the subgroup functions are typed (change 0117); the quad four are not',
     webgpu: gap(
       13,
@@ -34,7 +34,7 @@ export const QUAD_TO_STEP_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`quadSwapX`',
     covers: ['wgsl:builtinFunctions:quadSwapX'],
-    evidence: 'src/core/builtins/overlay.ts:202-203',
+    evidence: 'src/core/builtins/overlay.ts#extensionOf',
     note: 'also: the subgroup functions are typed (change 0117); the quad four are not',
     webgpu: gap(
       13,
@@ -48,7 +48,7 @@ export const QUAD_TO_STEP_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`quadSwapY`',
     covers: ['wgsl:builtinFunctions:quadSwapY'],
-    evidence: 'src/core/builtins/overlay.ts:202-203',
+    evidence: 'src/core/builtins/overlay.ts#extensionOf',
     note: 'also: the subgroup functions are typed (change 0117); the quad four are not',
     webgpu: gap(
       13,
@@ -62,7 +62,7 @@ export const QUAD_TO_STEP_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`quantizeToF16`',
     covers: ['wgsl:builtinFunctions:quantizeToF16'],
-    evidence: 'src/core/intrinsics.ts:585; src/core/builtins/overlay.ts:115',
+    evidence: 'src/core/intrinsics.ts:585; src/core/builtins/overlay.ts#DERIVATIVES_BITS_PACKING',
     note: 'INTRINSICS row with a GLSL spelling',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -102,7 +102,7 @@ export const QUAD_TO_STEP_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`reverseBits`',
     covers: ['wgsl:builtinFunctions:reverseBits'],
-    evidence: 'src/core/intrinsics.ts:407; src/core/builtins/overlay.ts:116',
+    evidence: 'src/core/intrinsics.ts:407; src/core/builtins/overlay.ts#DERIVATIVES_BITS_PACKING',
     note: 'INTRINSICS row with a GLSL spelling',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),

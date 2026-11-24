@@ -16,7 +16,7 @@ export const RENDER_PASS_DESCRIPTOR_AND_LAYOUT_ROWS: readonly Row[] = [
     name: '`GPURenderPassDescriptor.depthStencilAttachment`',
     covers: ['GPURenderPassDescriptor.depthStencilAttachment'],
     evidence:
-      'src/runtime/runtime.ts:105-129; src/runtime/program.ts:1197-1215; src/rhi/webgl2.ts:923-1178',
+      'src/runtime/runtime.ts#PassTargets; src/runtime/program.ts#depthStencilAttachmentOf; src/rhi/webgl2.ts:923-1178',
     webgpu: typed('scripts/compile-gate.ts', 'Frame.pass(targets, record)'),
     webgl2: typed('scripts/compile-gate.ts', 'Frame.pass(targets, record)'),
   },
@@ -25,7 +25,8 @@ export const RENDER_PASS_DESCRIPTOR_AND_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDescriptor.occlusionQuerySet`',
     covers: ['GPURenderPassDescriptor.occlusionQuerySet'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts:436-443',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/runtime/program.ts#ComputePipeline.dispatch|RenderPipeline.vertex|RenderPipeline.fragment',
     webgpu: andGap(
       raw(
         'RenderPipeline.draw(pass, …)',
@@ -42,7 +43,8 @@ export const RENDER_PASS_DESCRIPTOR_AND_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassDescriptor.timestampWrites`',
     covers: ['GPURenderPassDescriptor.timestampWrites'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts:436-443',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/runtime/program.ts#ComputePipeline.dispatch|RenderPipeline.vertex|RenderPipeline.fragment',
     webgpu: andGap(
       raw(
         'RenderPipeline.draw(pass, …)',
@@ -72,7 +74,7 @@ export const RENDER_PASS_DESCRIPTOR_AND_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassLayout.colorFormats`',
     covers: ['GPURenderPassLayout.colorFormats'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: raw('Runtime.device', 'render bundles only'),
     webgl2: na('a render bundle has no WebGL2 form'),
   },
@@ -81,7 +83,7 @@ export const RENDER_PASS_DESCRIPTOR_AND_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassLayout.depthStencilFormat`',
     covers: ['GPURenderPassLayout.depthStencilFormat'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: raw('Runtime.device', 'render bundles only'),
     webgl2: na('a render bundle has no WebGL2 form'),
   },
@@ -90,7 +92,7 @@ export const RENDER_PASS_DESCRIPTOR_AND_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassLayout.sampleCount`',
     covers: ['GPURenderPassLayout.sampleCount'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: raw('Runtime.device', 'render bundles only'),
     webgl2: na('a render bundle has no WebGL2 form'),
   },
@@ -99,7 +101,8 @@ export const RENDER_PASS_DESCRIPTOR_AND_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassTimestampWrites.querySet`',
     covers: ['GPURenderPassTimestampWrites.querySet'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts:436-443',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/runtime/program.ts#ComputePipeline.dispatch|RenderPipeline.vertex|RenderPipeline.fragment',
     webgpu: andGap(
       raw(
         'RenderPipeline.draw(pass, …)',
@@ -120,7 +123,8 @@ export const RENDER_PASS_DESCRIPTOR_AND_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassTimestampWrites.beginningOfPassWriteIndex`',
     covers: ['GPURenderPassTimestampWrites.beginningOfPassWriteIndex'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts:436-443',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/runtime/program.ts#ComputePipeline.dispatch|RenderPipeline.vertex|RenderPipeline.fragment',
     webgpu: andGap(
       raw(
         'RenderPipeline.draw(pass, …)',
@@ -141,7 +145,8 @@ export const RENDER_PASS_DESCRIPTOR_AND_LAYOUT_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPURenderPassTimestampWrites.endOfPassWriteIndex`',
     covers: ['GPURenderPassTimestampWrites.endOfPassWriteIndex'],
-    evidence: 'src/runtime/runtime.ts:195-224; src/runtime/program.ts:436-443',
+    evidence:
+      'src/runtime/runtime.ts:195-224; src/runtime/program.ts#ComputePipeline.dispatch|RenderPipeline.vertex|RenderPipeline.fragment',
     webgpu: andGap(
       raw(
         'RenderPipeline.draw(pass, …)',

@@ -6,7 +6,7 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`storageBarrier`',
     covers: ['wgsl:builtinFunctions:storageBarrier'],
-    evidence: 'src/core/intrinsics.ts:818; src/core/builtins/overlay.ts:138',
+    evidence: 'src/core/intrinsics.ts:818; src/core/builtins/overlay.ts#ATOMICS_BARRIERS',
     note: 'INTRINSICS row with a GLSL spelling; on WebGL2 inside a compute entry through the pass program (Rule 10.5 lifted for #137-#139); also: in a draw it fails closed (Rule 10.3)',
     webgpu: typed('src/compiler/ts/barriers.test.ts'),
     webgl2: gap(

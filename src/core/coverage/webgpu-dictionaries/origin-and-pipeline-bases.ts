@@ -76,7 +76,8 @@ export const ORIGIN_AND_PIPELINE_BASES_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUPipelineDescriptorBase.layout`',
     covers: ['GPUPipelineDescriptorBase.layout'],
-    evidence: 'src/runtime/program.ts:1549, 1572, 1647; src/rhi/webgpu.ts:381-383',
+    evidence:
+      'src/runtime/program.ts:1549, 1572, 1647; src/rhi/webgpu.ts#WebGpuDevice.createBindGroup',
     webgpu: typed('scripts/compile-gate.ts', 'explicit layout from the manifest'),
     webgl2: na('WebGL2 has no pipeline layout; its bindings are set by name'),
   },
@@ -99,7 +100,8 @@ export const ORIGIN_AND_PIPELINE_BASES_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUPipelineLayoutDescriptor.bindGroupLayouts`',
     covers: ['GPUPipelineLayoutDescriptor.bindGroupLayouts'],
-    evidence: 'src/runtime/program.ts:1549, 1572, 1647; src/rhi/webgpu.ts:381-383',
+    evidence:
+      'src/runtime/program.ts:1549, 1572, 1647; src/rhi/webgpu.ts#WebGpuDevice.createBindGroup',
     webgpu: andGap(
       typed('journeys/overrides/journey.mjs', 'one group per manifest group'),
       7,
@@ -113,7 +115,8 @@ export const ORIGIN_AND_PIPELINE_BASES_ROWS: readonly Row[] = [
     kind: 'WebGPU dictionary member',
     name: '`GPUPipelineLayoutDescriptor.immediateSize`',
     covers: ['GPUPipelineLayoutDescriptor.immediateSize'],
-    evidence: 'src/runtime/program.ts:1549, 1572, 1647; src/rhi/webgpu.ts:381-383',
+    evidence:
+      'src/runtime/program.ts:1549, 1572, 1647; src/rhi/webgpu.ts#WebGpuDevice.createBindGroup',
     webgpu: gap(
       7,
       'the layout names no immediate data (src/runtime/program.ts:1550); immediates have no spelling',

@@ -6,7 +6,7 @@ export const DEVICE_STATE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.addEventListener()`',
     covers: ['GPUDevice.addEventListener'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: andGap(
       raw('Runtime.device', 'rt.device'),
       8,
@@ -20,7 +20,7 @@ export const DEVICE_STATE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.removeEventListener()`',
     covers: ['GPUDevice.removeEventListener'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: andGap(
       raw('Runtime.device', 'rt.device'),
       8,
@@ -61,7 +61,7 @@ export const DEVICE_STATE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.adapterInfo`',
     covers: ['GPUDevice.adapterInfo'],
-    evidence: 'src/runtime/runtime.ts:230-238',
+    evidence: 'src/runtime/runtime.ts#SubmitResult|Runtime.info',
     webgpu: andGap(raw('Runtime.device'), 8, 'no typed surface reports adapter info', 639),
     webgl2: na('the GPUDevice object; WebGL2 has no GPUDevice'),
   },
@@ -80,7 +80,7 @@ export const DEVICE_STATE_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUDevice.destroy()`',
     covers: ['GPUDevice.destroy'],
-    evidence: 'src/runtime/runtime.ts:257-258; src/rhi/webgl2.ts:1601-1605',
+    evidence: 'src/runtime/runtime.ts#Runtime; src/rhi/webgl2.ts:1601-1605',
     webgpu: gap(
       15,
       "typed in code; no test reads it on this target (Rule 11.18): no test observes the device destroyed or a host device left alone; rt.destroy() releases what the runtime made and never the host's device",

@@ -177,7 +177,7 @@ export const ATTRIBUTES_ROWS: readonly Row[] = [
     kind: 'WGSL attribute',
     name: '`@subgroup_size`',
     covers: ['wgsl:attributes:subgroup_size'],
-    evidence: 'src/compiler/ts/builtin-check.ts:226-228',
+    evidence: 'src/compiler/ts/builtin-check.ts#WGSL_ATTRIBUTES_ELSEWHERE',
     note: 'subgroup_size_control extension',
     webgpu: gap(
       12,

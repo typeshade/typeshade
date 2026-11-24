@@ -37,7 +37,7 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     name: '`floatBitsToInt`',
     covers: ['glsl:builtinFunctions:8.3:floatBitsToInt'],
     evidence:
-      'src/compiler/ts/foreign-names.ts:90; src/compiler/ts/lower/expression-call.ts:1342-1349, 1395 (the bitcast targets and the TS8003 site); docs/roadmap.md:185 (roadmap 0.2 item 8a)',
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.floatBitsToInt; src/compiler/ts/lower/expression-call.ts:1342-1349, 1395 (the bitcast targets and the TS8003 site); docs/roadmap.md:185 (roadmap 0.2 item 8a)',
     note: 'bitcast<i32>',
     webgpu: gap(
       9,
@@ -56,7 +56,7 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     name: '`floatBitsToUint`',
     covers: ['glsl:builtinFunctions:8.3:floatBitsToUint'],
     evidence:
-      'src/compiler/ts/foreign-names.ts:89; src/compiler/ts/lower/expression-call.ts:1342-1349',
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.floatBitsToUint; src/compiler/ts/lower/expression-call.ts:1342-1349',
     note: 'bitcast<u32>',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -67,7 +67,7 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     name: '`intBitsToFloat`',
     covers: ['glsl:builtinFunctions:8.3:intBitsToFloat'],
     evidence:
-      'src/compiler/ts/foreign-names.ts:92; src/compiler/ts/lower/expression-call.ts:1342-1349, 1404-1407 (the bitcast targets and the TS8003 site); docs/roadmap.md:185 (roadmap 0.2 item 8a)',
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.intBitsToFloat; src/compiler/ts/lower/expression-call.ts:1342-1349, 1404-1407 (the bitcast targets and the TS8003 site); docs/roadmap.md:185 (roadmap 0.2 item 8a)',
     note: 'bitcast<f32>',
     webgpu: gap(
       9,
@@ -86,7 +86,7 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     name: '`uintBitsToFloat`',
     covers: ['glsl:builtinFunctions:8.3:uintBitsToFloat'],
     evidence:
-      'src/compiler/ts/foreign-names.ts:91; src/compiler/ts/lower/expression-call.ts:1342-1349',
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.uintBitsToFloat; src/compiler/ts/lower/expression-call.ts:1342-1349',
     note: 'bitcast<f32>',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -96,7 +96,8 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`packSnorm2x16`',
     covers: ['glsl:builtinFunctions:8.4:packSnorm2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:103; src/compiler/ts/math-alias.ts:179',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.packSnorm2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'pack2x16snorm',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -106,7 +107,8 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`unpackSnorm2x16`',
     covers: ['glsl:builtinFunctions:8.4:unpackSnorm2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:104; src/compiler/ts/math-alias.ts:182',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.unpackSnorm2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'unpack2x16snorm',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('examples/shade-examples.test.ts'),
@@ -116,7 +118,8 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`packUnorm2x16`',
     covers: ['glsl:builtinFunctions:8.4:packUnorm2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:101; src/compiler/ts/math-alias.ts:178',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.packUnorm2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'pack2x16unorm',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -126,7 +129,8 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`unpackUnorm2x16`',
     covers: ['glsl:builtinFunctions:8.4:unpackUnorm2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:102; src/compiler/ts/math-alias.ts:181',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.unpackUnorm2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'unpack2x16unorm',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('examples/shade-examples.test.ts'),
@@ -136,7 +140,8 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`packHalf2x16`',
     covers: ['glsl:builtinFunctions:8.4:packHalf2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:99; src/compiler/ts/math-alias.ts:177',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.packHalf2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'pack2x16float',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -146,7 +151,8 @@ export const FLOAT_BITS_AND_PACKING_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`unpackHalf2x16`',
     covers: ['glsl:builtinFunctions:8.4:unpackHalf2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:100; src/compiler/ts/math-alias.ts:180',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.unpackHalf2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'unpack2x16float',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('examples/shade-examples.test.ts'),

@@ -78,7 +78,7 @@ export const RASTERIZER_STATE_ROWS: readonly Row[] = [
     name: 'Polygon offset: `polygonOffset`, `EXT_polygon_offset_clamp`',
     covers: ['webgl:EXT_polygon_offset_clamp', 'webgl:WebGLRenderingContextBase.polygonOffset'],
     evidence:
-      'src/runtime/program.ts:290 (RenderState.depth.bias); src/rhi/webgpu.ts:199-218 (depthStencilOf); src/runtime/gl-draw.ts:330-350 (refuseBias); src/rhi/webgl2.ts:611-616 (setState, the polygon offset)',
+      'src/runtime/program.ts#RenderState.depth (RenderState.depth.bias); src/rhi/webgpu.ts#WebGpuEncoder.copyBufferToBuffer|depthStencilOf (depthStencilOf); src/runtime/gl-draw.ts#GlSamplerImpl.sampler|BIASED_FORMATS|refuseBias (refuseBias); src/rhi/webgl2.ts:611-616 (setState, the polygon offset)',
     note: 'depthBias is pipeline state; each draw sets the polygon offset from its pipeline',
     webgpu: typed(
       'journeys/pipeline-state',

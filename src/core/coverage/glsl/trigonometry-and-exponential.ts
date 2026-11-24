@@ -157,7 +157,7 @@ export const TRIGONOMETRY_AND_EXPONENTIAL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`exp`',
     covers: ['glsl:builtinFunctions:8.2:exp'],
-    evidence: 'src/core/intrinsics.ts:1127',
+    evidence: 'src/core/intrinsics.ts#spellIntrinsic',
     note: 'same WGSL name',
     webgpu: typed('src/core/intrinsic-coverage.test.ts'),
     webgl2: typed('src/core/intrinsic-coverage.test.ts'),
@@ -207,7 +207,8 @@ export const TRIGONOMETRY_AND_EXPONENTIAL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`inversesqrt`',
     covers: ['glsl:builtinFunctions:8.2:inversesqrt'],
-    evidence: 'src/compiler/ts/foreign-names.ts:55; src/core/ir/node.ts:1541',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.inversesqrt; src/core/ir/node.ts#inverseSqrt',
     note: 'spelled inverseSqrt (FOREIGN_NAMES remedy)',
     webgpu: typed('src/core/ir/stdlib-builtins.test.ts'),
     webgl2: typed('scripts/compile-gate.ts'),

@@ -6,7 +6,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.createView()`',
     covers: ['GPUTexture.createView'],
-    evidence: 'src/runtime/resources.ts:37',
+    evidence: 'src/runtime/resources.ts#Texture.texture',
     webgpu: andGap(
       raw('Texture.texture', 'Texture.texture.createView()'),
       6,
@@ -21,7 +21,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     name: '`GPUTexture.destroy()`',
     covers: ['GPUTexture.destroy'],
     evidence:
-      'src/runtime/resources.ts:71; src/runtime/gl-draw.ts:265-269; examples/hosts/host-program/host.ts:25',
+      'src/runtime/resources.ts#Texture.destroy; src/runtime/gl-draw.ts:265-269; examples/hosts/host-program/host.ts:25',
     webgpu: typed(
       'scripts/user-journey.ts',
       'Texture.destroy(): the host-program example destroys its target (examples/hosts/host-program/host.ts:25)',
@@ -36,7 +36,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.width`',
     covers: ['GPUTexture.width'],
-    evidence: 'src/runtime/resources.ts:39; src/runtime/gl-draw.ts:204-206',
+    evidence: 'src/runtime/resources.ts#Texture.width; src/runtime/gl-draw.ts:204-206',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Texture.width; also: Texture.texture is the GPUTexture (raw)',
@@ -51,7 +51,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.height`',
     covers: ['GPUTexture.height'],
-    evidence: 'src/runtime/resources.ts:40; src/runtime/gl-draw.ts:207-209',
+    evidence: 'src/runtime/resources.ts#Texture.height; src/runtime/gl-draw.ts:207-209',
     webgpu: typed(
       'src/runtime/runtime.test.ts',
       'Texture.height; also: Texture.texture is the GPUTexture (raw)',
@@ -66,7 +66,8 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.depthOrArrayLayers`',
     covers: ['GPUTexture.depthOrArrayLayers'],
-    evidence: 'src/runtime/resources.ts:17-32; src/runtime/gl-draw.ts:161-164',
+    evidence:
+      'src/runtime/resources.ts#TextureOptions; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test passes a three-value size to rt.texture on WebGPU; the typed surface is TextureOptions.size[2]',
@@ -96,7 +97,8 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUTexture.sampleCount`',
     covers: ['GPUTexture.sampleCount'],
-    evidence: 'src/runtime/resources.ts:24-25; src/runtime/gl-draw.ts:165-167',
+    evidence:
+      'src/runtime/resources.ts#TextureOptions; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test passes sampleCount to rt.texture on WebGPU; the typed surface is TextureOptions.sampleCount (src/runtime/resources.ts:25, 220); roadmap 13 names the multisampled texture type texture_2d_ms (docs/roadmap.md:226)',
@@ -114,7 +116,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     name: '`GPUTexture.dimension`',
     covers: ['GPUTexture.dimension'],
     evidence:
-      'src/runtime/resources.ts:23; src/runtime/resources.ts:227; src/runtime/gl-draw.ts:161-164',
+      'src/runtime/resources.ts#TextureOptions.dimension; src/runtime/resources.ts:227; src/runtime/gl-draw.ts#GlTextureImpl.constructor',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test passes dimension to rt.texture; TextureOptions.dimension (src/runtime/resources.ts:23, 227): the typed Texture creates a texture of this dimension; the runtime makes no 1d texture (src/runtime/resources.ts:23); texture_1d is shipped as a WGSL spelling (roadmap 12, docs/roadmap.md:225); roadmap 13c names storage 1d textures (docs/roadmap.md:229)',
@@ -131,7 +133,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     name: '`GPUTexture.format`',
     covers: ['GPUTexture.format'],
     evidence:
-      'src/runtime/resources.ts:20; src/runtime/gl-draw.ts:181; src/runtime/resources.ts:153-155; src/runtime/gl-draw.ts:172; changes/0050-texture-write.md:387',
+      'src/runtime/resources.ts#TextureOptions.format; src/runtime/gl-draw.ts#GlTextureImpl.constructor; src/runtime/resources.ts#layoutOf; src/runtime/gl-draw.ts#GlTextureImpl.constructor; changes/0050-texture-write.md:387',
     webgpu: andGap(
       typed(
         'src/runtime/runtime.test.ts',
@@ -186,7 +188,7 @@ export const TEXTURE_AND_NAVIGATORS_ROWS: readonly Row[] = [
     name: '`GPUTextureView`',
     covers: ['GPUTextureView'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/runtime/program.ts:1839-1840; src/runtime/runtime.ts:520-535',
+      'src/runtime/runtime.ts:105-170; src/runtime/program.ts:1839-1840; src/runtime/runtime.ts#FrameImpl.submit',
     webgpu: andGap(
       raw('GPUTextureView', 'a view the host made binds and attaches'),
       6,
