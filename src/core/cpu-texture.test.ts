@@ -62,7 +62,7 @@ describe('a CPU texture', () => {
 
   it('names the formats it holds when it does not hold one', () => {
     expect(cpuFormatGap('rgba16float')).toMatch(
-      /^the CPU tier holds no rgba16float texture; it holds rgba8unorm, /,
+      /^a rgba16float texture is not supported yet on the CPU tier \(Rule 11\.7\); the CPU tier holds rgba8unorm, /,
     );
     expect(cpuFormatGap('r32float')).toBeUndefined();
   });
@@ -110,7 +110,7 @@ export function readImage(x: i32, y: i32): vec4 { return textureLoad(image, vec2
   it('keeps the stub contract for a binding that is not a CPU texture', () => {
     const cpu = compileModule(result.module, { precision: 'f32' });
     cpu.setBinding('cache', 0);
-    expect(() => cpu.fns.readCache!(0, 0)).toThrow(/GPU-only/);
+    expect(() => cpu.fns.readCache!(0, 0)).toThrow(/not supported yet on the CPU tier/);
     const stubbed = compileModule(result.module, { precision: 'f32', gpuStubs: true });
     stubbed.setBinding('cache', 0);
     expect(stubbed.fns.readCache!(0, 0)).toEqual([0, 0, 0, 1]);

@@ -269,19 +269,19 @@ declare const out: storage<array<f32>, "read_write">;
         'declare const img: texture_1d<f32>;',
         'out[0] = textureLoad(img, 0, 0).x;',
         'texture_1d<f32>',
-        'which GLSL ES 3.00 has no sampler for (Rule 10.5 defers its lowering)',
+        'which is not supported yet on the WebGL2 tier (Rule 10.5)',
       ],
       [
         'declare const img: texture_cube_array<f32>;\ndeclare const smp: sampler;',
         'out[0] = textureSampleLevel(img, smp, vec3f(1.), 0, 0.).x;',
         'texture_cube_array<f32>',
-        'which GLSL ES 3.00 has no sampler for (Rule 10.5 defers its lowering)',
+        'which is not supported yet on the WebGL2 tier (Rule 10.5)',
       ],
       [
         'declare const img: texture_multisampled_2d<f32>;',
         'out[0] = textureLoad(img, vec2i(0), 0).x;',
         'texture_multisampled_2d<f32>',
-        'which GLSL ES 3.00 has no sampler for (Rule 10.5 defers its lowering)',
+        'which is not supported yet on the WebGL2 tier (Rule 10.5)',
       ],
     ] as const) {
       const m = compile(`"use typeshade";

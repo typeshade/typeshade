@@ -108,7 +108,7 @@ const unreachable = (source: string): string =>
 function rewritten(source: string) {
   const c = compiled(source);
   expect(c.wgsl).toMatch(/textureSampleGrad\(|let hoist_d_h\d+ = dpdx\(/);
-  // A module with a read_write storage binding has no GLSL ES 3.00 text (no storage buffers).
+  // A module with a read_write storage binding has no GLSL ES 3.00 text yet (Rule 10.5 defers its lowering).
   if (c.glsl !== undefined) expect(c.glsl.fragment).toMatch(/textureGrad\(|hoist_d_h\d+ = dFdx\(/);
   return c;
 }

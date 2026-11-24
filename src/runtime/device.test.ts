@@ -1346,7 +1346,7 @@ describe('textures (change 0077)', () => {
     expect([memory.width, memory.height, memory.format]).toEqual([2, 3, 'r32float']);
     expect([...(await memory.readFloats())]).toEqual([0, 0, 0, 0, 0, 0]);
     expect(() => cpu.texture({ size: [2, 2], format: 'rgba16float' })).toThrow(
-      'the CPU tier holds no rgba16float texture',
+      'a rgba16float texture is not supported yet on the CPU tier (Rule 11.7)',
     );
     await cpu.dispose();
   });

@@ -654,7 +654,7 @@ export async function runEntry(
     return;
   }
   // What the entry itself needs is the refusal the author can act on.
-  if (noCpu !== undefined) throw new TypeError(`${e.name}() needs WebGPU: ${noCpu}.`);
+  if (noCpu !== undefined) throw new TypeError(`${e.name}() has no tier: ${why.join('; ')}.`);
   throw new Error(`${e.name}(): no tier it may use can run it (${why.join('; ')}).`);
 }
 
