@@ -12,8 +12,8 @@
 // public method, getter or setter of a base class of the same file. A member is admissible under
 // the conditions a host call has (Rule 8.20): it is not generic, it takes no function, each
 // parameter and the result have a host value, and it reaches no binding, no workgroup variable and
-// no builtin only a GPU computes. The arm does not decide these conditions itself: for each member
-// it writes a probe module with one exported function that calls the member, and the member is
+// no builtin that a host call does not run yet. The arm does not decide them itself: for each
+// member it writes a probe module with one function that calls the member, and the member is
 // admissible when `hostFace` makes that function callable. Otherwise the probe's reason is the
 // member's reason. A generic member and a member that takes a function have no probe to write, so
 // their reasons are read from the host face of a module that holds one function of each kind. A
