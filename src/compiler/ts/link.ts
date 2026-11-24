@@ -37,6 +37,8 @@ import {
   fixedNameOf,
 } from './link/statements.js';
 import { isUse, identifiersIn } from './link/identifiers.js';
+import { beginsWithDirective, pureAliasSpecifier } from './link/module-syntax.js';
+export { hasModuleReference } from './link/module-syntax.js';
 export type {
   ImportHooks,
   LinkedFile,
@@ -47,44 +49,7 @@ export type {
   LinkRoot,
 } from './link/types.js';
 
-export function hasModuleReference(sourceFile: ts.SourceFile): boolean {
-  return sourceFile.statements.some(
-    (s) =>
-      ts.isImportDeclaration(s) ||
-      (ts.isExportDeclaration(s) && s.moduleSpecifier !== undefined) ||
-      (ts.isImportEqualsDeclaration(s) && ts.isExternalModuleReference(s.moduleReference)),
-  );
-}
-
 const isRefused = (d: TsCompilerDiagnostic): boolean => d.code === TS_CODES.IMPORT;
-
-function beginsWithDirective(fileName: string, text: string): boolean {
-  const probe = ts.createSourceFile(
-    fileName,
-    text,
-    ts.ScriptTarget.Latest,
-    false,
-    ts.ScriptKind.TS,
-  );
-  return findUseTypeshadeDirective(probe) !== undefined;
-}
-
-function pureAliasSpecifier(sf: ts.SourceFile): string | undefined {
-  const [directive, star] = sf.statements;
-  return sf.statements.length === 2 &&
-    directive !== undefined &&
-    isUseTypeshadeDirective(directive) &&
-    star !== undefined &&
-    ts.isExportDeclaration(star) &&
-    !star.isTypeOnly &&
-    star.exportClause === undefined &&
-    star.attributes === undefined &&
-    star.assertClause === undefined &&
-    star.moduleSpecifier !== undefined &&
-    ts.isStringLiteral(star.moduleSpecifier)
-    ? star.moduleSpecifier.text
-    : undefined;
-}
 
 function suggestedFile(specifier: string): string {
   const last = specifier.split('/').filter(Boolean).pop() ?? specifier;
