@@ -1,9 +1,3 @@
-// The WebGL2 backend of the render hardware interface (change 0120, D1, milestone M2): an
-// `RhiDevice` over a `WebGL2RenderingContext`. It is the one file of the program runtime that
-// calls the context; the runtime's WebGL2 tier (`runtime/gl.ts`, `runtime/gl-draw.ts`) records
-// through it. Its programs are the GLSL ES 3.00 programs the manifest carries (`gl.vertices`,
-// `gl.draws`); it builds none, so like the rest of the runtime it imports no compiler.
-//
 // Why: the position is flipped in y and its depth moved from 0..w to -w..w so that a texture's rows,
 // a fragment's `position` and a stored depth are WebGPU's; only the compile gate holds this on a real context.
 //
@@ -64,24 +58,17 @@ import type {
 
 type GL = WebGL2RenderingContext;
 
-// ─── formats ─────────────────────────────────────────────────────────────────────────────────
-
-/** How a texel is cleared and read: a float or normalized colour, an integer one, or depth. */
 export type GlTextureKind = 'float' | 'uint' | 'sint' | 'depth';
 
-/** A `GPUTextureFormat` on WebGL2, by the names of its constants: its sized internal format, the
- *  format and type `texImage2D` and `readPixels` speak, its channels and its kind. */
 interface FormatSpec {
   readonly internal: string;
   readonly format: string;
   readonly type: string;
   readonly channels: number;
   readonly kind: GlTextureKind;
-  /** Why: WebGL2 has no BGRA texture, so the texels are RGBA and a read swaps them. */
   readonly bgra?: boolean;
 }
 
-/** A format as the context's numbers. */
 interface GlFormat {
   readonly internal: number;
   readonly format: number;
@@ -101,7 +88,6 @@ const depthSpec = (internal: string, format: string, type: string): FormatSpec =
   kind: 'depth',
 });
 
-/** The constants of the format `name`, or undefined for a format WebGL2 has no texture of. */
 function specOf(name: string): FormatSpec | undefined {
   switch (name) {
     case 'depth16unorm':
@@ -204,19 +190,15 @@ function specOf(name: string): FormatSpec | undefined {
   return undefined;
 }
 
-/** How a texel of `format` is cleared and read on WebGL2, or undefined for a format WebGL2 has no
- *  texture of. */
 export function textureKindOf(format: string): GlTextureKind | undefined {
   return specOf(format)?.kind;
 }
 
-/** `name` on `gl`, or undefined for a format WebGL2 has no texture of. */
 function formatOf(gl: GL, name: string): GlFormat | undefined {
   const spec = specOf(name);
   if (spec === undefined) return undefined;
   const g = gl as unknown as Record<string, number | undefined>;
   const internal = g[spec.internal];
-  // A context that lacks an integer format makes no texture of it.
   if (internal === undefined && (spec.kind === 'uint' || spec.kind === 'sint')) return undefined;
   return {
     internal: internal!,
@@ -228,35 +210,21 @@ function formatOf(gl: GL, name: string): GlFormat | undefined {
   };
 }
 
-// ─── the state of one context ────────────────────────────────────────────────────────────────
-
-/** `EXT_polygon_offset_clamp`: `polygonOffsetClampEXT(factor, units, clamp)`. */
 interface PolygonOffsetClamp {
   polygonOffsetClampEXT(factor: number, units: number, clamp: number): void;
 }
 
-/** What every texture, pipeline and pass of one device shares on its context, made on the first
- *  texture, pipeline or pass. */
 class GlState {
   readonly fbo: WebGLFramebuffer;
   readonly blitFbo: WebGLFramebuffer;
-  /** Where a texture paired with no sampler is read from: nearest, clamped. */
   readonly nearest: WebGLSampler;
-  /** Why: an attachment at or above `MAX_COLOR_ATTACHMENTS` is `INVALID_ENUM`, an error that stays
-   *  on the context until the next `getError()`, which may be another layer's. */
   readonly maxColorAttachments: number;
-  /** `EXT_polygon_offset_clamp`, requested once, or null when the context lacks it (A1). */
   readonly polygonOffsetClamp: PolygonOffsetClamp | null;
-  /** `WEBGL_provoking_vertex`, requested once, or null when the context lacks it. */
   readonly provokingVertex: ProvokingVertex | null;
-  /** The extensions the context gave when they were asked for. */
   readonly extensions = new Set<string>();
   #screen: { tex: WebGLTexture; w: number; h: number } | undefined;
 
   constructor(readonly gl: GL) {
-    // A float target (`rgba16float`, `r32float`) and a filtered `f32` texture each need the
-    // extension that allows them; one the context lacks leaves such a texture incomplete, and
-    // its draw is refused by WebGL2 where WebGPU would refuse its format.
     for (const ext of [
       'EXT_color_buffer_float',
       'EXT_color_buffer_half_float',
@@ -279,8 +247,6 @@ class GlState {
     gl.samplerParameteri(this.nearest, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
-  /** The texture a pass into the canvas draws into, the drawing buffer's size, turned over onto
-   *  the screen once the pass is done. */
   screen(): { tex: WebGLTexture; w: number; h: number } {
     const gl = this.gl;
     const w = gl.drawingBufferWidth;
@@ -297,21 +263,12 @@ class GlState {
   }
 }
 
-// ─── handles ─────────────────────────────────────────────────────────────────────────────────
-
-/** A buffer: its bytes on the host, and the GL objects made from them. A host's own
- *  `WebGLBuffer` has no bytes here; it is bound as it is. */
 class GlBuffer implements RhiBuffer {
   readonly __rhi = 'buffer' as const;
-  /** Whether the GL buffer and the data texture still hold older bytes than `bytes`. */
   staleBuffer = true;
   staleTexture = true;
-  /** The block size the uniform buffer was last padded to. */
   padded = -1;
-  /** The data texture a program reads a storage buffer from. */
   texture: WebGLTexture | undefined;
-  /** The element buffer that names each triangle of this index buffer's with its first vertex
-   *  last, and the draw it was made for (`key`, empty once the bytes have changed). */
   first: { readonly native: WebGLBuffer; key: string; count: number } | undefined;
 
   constructor(
@@ -320,13 +277,10 @@ class GlBuffer implements RhiBuffer {
     readonly elem: 'f32' | 'i32' | 'u32',
     readonly bytes: Uint8Array | undefined,
     readonly native: WebGLBuffer | undefined,
-    /** Whether the device made `native`, and deletes it with the buffer. */
     readonly owned: boolean,
   ) {}
 }
 
-/** A texture: one the device made, a host's own (no format known), or the canvas's (`screen`),
- *  which the pass that attaches it draws into and turns over onto the screen. */
 class GlTexture implements RhiTexture {
   readonly __rhi = 'texture' as const;
   constructor(
@@ -368,19 +322,14 @@ class GlCanvas implements RhiCanvas {
   readonly __rhi = 'canvas' as const;
 }
 
-/** One binding a linked program reads, and where: a uniform block's binding point, or the texture
- *  unit of a texture or a data texture. */
 interface Slot {
   readonly binding: number;
   readonly kind: 'block' | 'texture' | 'data';
   readonly unit: number;
-  /** The linked block's size, which its buffer is padded to. */
   readonly minimum?: number;
-  /** The binding of the sampler a texture is read with. */
   readonly sampler?: number;
 }
 
-/** The GL stencil test of one face: its function and its three operations. */
 interface DrawFace {
   readonly func: number;
   readonly fail: number;
@@ -388,7 +337,6 @@ interface DrawFace {
   readonly zpass: number;
 }
 
-/** What a pipeline sets before each draw. */
 interface DrawState {
   readonly mode: number;
   readonly depth?: { readonly func: number; readonly write: boolean };
@@ -406,8 +354,6 @@ interface DrawState {
     readonly readMask: number;
     readonly writeMask: number;
   };
-  /** The polygon offset: `polygonOffset(factor, units)`, or `polygonOffsetClampEXT` with a non-zero
-   *  clamp. Absent when the constant and the slope are 0. */
   readonly offset?: { readonly factor: number; readonly units: number; readonly clamp: number };
 }
 
@@ -415,29 +361,20 @@ class GlPipeline implements RhiRenderPipeline {
   readonly __rhi = 'pipeline' as const;
   constructor(
     readonly program: WebGLProgram,
-    /** The slots of each bind group, by group index. */
     readonly slots: readonly (readonly Slot[])[],
     readonly state: DrawState,
     readonly vao: WebGLVertexArrayObject,
     readonly buffers: readonly RhiVertexBufferLayout[],
-    /** Whether the vertex program declares a `flat` output: its draws take the first vertex. */
     readonly flat: boolean,
   ) {}
 }
 
-/** `WEBGL_provoking_vertex` as a context gives it. */
 interface ProvokingVertex {
   readonly FIRST_VERTEX_CONVENTION_WEBGL: number;
   readonly PROVOKING_VERTEX_WEBGL: number;
   provokingVertexWEBGL(mode: number): void;
 }
 
-/** The indices of a triangle list that draws the triangles of a draw of `count` vertices, each
- *  with its first vertex last, where GLSL ES 3.00 takes a `flat` value. The triangles are the
- *  draw's own, wound the same way: a list's `a b c` is `b c a`, and a strip's triangle `i` is
- *  `i+1 i+2 i`, or `i+2 i+1 i` when `i` is odd. `source` is the draw's index buffer, absent for a
- *  draw with none, and `restart` the index that starts a new primitive in it, as WebGL2 reads it
- *  in every topology. */
 export function firstVertexLast(
   count: number,
   strip: boolean,
@@ -446,7 +383,6 @@ export function firstVertexLast(
 ): Uint32Array {
   const out = new Uint32Array(strip ? Math.max(0, count - 2) * 3 : count - (count % 3));
   let n = 0;
-  // The vertices since the start or the last restart, and the two before this one.
   let k = 0;
   let a = 0;
   let b = 0;
@@ -469,21 +405,15 @@ export function firstVertexLast(
   return out.subarray(0, n);
 }
 
-/** The bindings of each group a WebGL2 pipeline's program reads, in the order of their units. A
- *  uniform block the driver found inactive is not among them: no draw binds it (0127). */
 export function glReadBindings(pipeline: RhiRenderPipeline): readonly (readonly number[])[] {
   return (pipeline as GlPipeline).slots.map((group) => group.map((s) => s.binding));
 }
 
-// ─── pipelines ───────────────────────────────────────────────────────────────────────────────
-
-/** The trivial fragment program of a depth-only pipeline. */
 const NO_COLOUR = `#version 300 es
 precision highp float;
 void main() {}
 `;
 
-/** `vertex` with its position turned to GL's: y flipped, depth from 0..w to -w..w. */
 function toGlClip(vertex: string): string {
   const renamed = vertex.replace(/\bvoid main\(\)/, 'void _ts_main()');
   return `${renamed}
@@ -495,7 +425,6 @@ void main() {
 `;
 }
 
-/** The GL mode of each WebGPU topology this backend draws. */
 export const GL_TOPOLOGY: Readonly<
   Record<string, 'TRIANGLES' | 'TRIANGLE_STRIP' | 'LINES' | 'LINE_STRIP' | 'POINTS'>
 > = {
@@ -506,7 +435,6 @@ export const GL_TOPOLOGY: Readonly<
   'point-list': 'POINTS',
 };
 
-/** The GL factor of each WebGPU blend factor this backend takes. */
 export const GL_BLEND_FACTOR: Readonly<Record<string, string>> = {
   zero: 'ZERO',
   one: 'ONE',
@@ -523,7 +451,6 @@ export const GL_BLEND_FACTOR: Readonly<Record<string, string>> = {
   'one-minus-constant': 'ONE_MINUS_CONSTANT_COLOR',
 };
 
-/** The GL equation of each WebGPU blend operation. */
 export const GL_BLEND_OPERATION: Readonly<Record<string, string>> = {
   add: 'FUNC_ADD',
   subtract: 'FUNC_SUBTRACT',
@@ -552,8 +479,6 @@ function compareOf(gl: GL, c: RhiCompareFunction): number {
   return table[c];
 }
 
-/** The GL operation of a stencil operation. `increment-clamp` is INCR and `decrement-clamp` is
- *  DECR; the wrap forms are their own. */
 function stencilOpOf(gl: GL, op: RhiStencilOperation): number {
   const table: Record<RhiStencilOperation, number> = {
     keep: gl.KEEP,
@@ -568,8 +493,6 @@ function stencilOpOf(gl: GL, op: RhiStencilOperation): number {
   return table[op];
 }
 
-/** What a pipeline of `desc` sets before each draw. The runtime refuses a topology, a blend factor
- *  or a blend operation this backend has no name for before it asks for the pipeline. */
 function drawStateOf(gl: GL, desc: RhiRenderPipelineDesc): DrawState {
   const g = gl as unknown as Record<string, number>;
   // Why: WebGL2 has one blend state and one write mask for every target, so the first target's are used.
@@ -606,12 +529,10 @@ function drawStateOf(gl: GL, desc: RhiRenderPipelineDesc): DrawState {
           },
         }
       : {}),
-    // WebGPU's depthBiasSlopeScale is GL's factor, and depthBias is units.
     ...(bias !== undefined && (bias.constant !== 0 || bias.slopeScale !== 0)
       ? { offset: { factor: bias.slopeScale, units: bias.constant, clamp: bias.clamp } }
       : {}),
     ...(cull === 'none' ? {} : { cull: cull === 'front' ? gl.FRONT : gl.BACK }),
-    // The flip in y turns the winding round.
     frontFace: desc.primitive.frontFace === 'ccw' ? gl.CW : gl.CCW,
     ...(blend !== undefined
       ? {
@@ -670,13 +591,8 @@ function setState(
   }
 }
 
-// ─── data textures ───────────────────────────────────────────────────────────────────────────
-
-/** The widest row a data texture takes. A program reads word `i` at `(i % 2048, i / 2048)`. */
 export const DATA_WIDTH = 2048;
 
-/** A storage buffer's bytes as the data texture GLSL ES 3.00 reads it from: its words, one a
- *  texel of the buffer's element type, in rows of {@link DATA_WIDTH}. */
 function dataTexture(gl: GL, elem: 'f32' | 'i32' | 'u32', bytes: Uint8Array): WebGLTexture {
   const words = Math.max(1, Math.ceil(bytes.byteLength / 4));
   const w = Math.min(words, DATA_WIDTH);
@@ -704,8 +620,6 @@ function bindTexture(gl: GL, unit: number, tex: WebGLTexture, sampler: WebGLSamp
   gl.bindSampler(unit, sampler);
 }
 
-// ─── reading texels back ─────────────────────────────────────────────────────────────────────
-
 const BLIT_VS = `#version 300 es
 void main() {
   vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
@@ -722,7 +636,6 @@ void main() {
 }
 `;
 
-/** An r32float copy of the depth texture `tex`, texel for texel. */
 function depthToColour(s: GlState, tex: WebGLTexture, w: number, h: number): WebGLTexture {
   const gl = s.gl;
   const out = gl.createTexture()!;
@@ -753,7 +666,6 @@ function depthToColour(s: GlState, tex: WebGLTexture, w: number, h: number): Web
   return out;
 }
 
-/** Read `tex` back as the bytes of `format`, `bytes` to a texel, as WebGPU's copy gives them. */
 async function readTexels(
   s: GlState,
   tex: WebGLTexture,
@@ -771,8 +683,6 @@ async function readTexels(
     scratch = depthToColour(s, tex, w, h);
     source = scratch;
   }
-  // `readPixels` takes each class in one format and type: RGBA bytes, RGBA floats, RGBA
-  // integers, or the packed 10-10-10-2 word.
   const cls: 'bytes' | 'float' | 'uint' | 'sint' | 'packed' =
     fmt.kind === 'depth'
       ? 'float'
@@ -819,7 +729,6 @@ async function readTexels(
   return texelBytes(raw, cls, format, fmt, texels, bytes);
 }
 
-/** The RGBA read of `texels` texels as the bytes WebGPU's copy of `format` gives. */
 function texelBytes(
   raw: ArrayBuffer,
   cls: 'bytes' | 'float' | 'uint' | 'sint' | 'packed',
@@ -886,14 +795,11 @@ function texelBytes(
   return out;
 }
 
-/** A number a half float holds, as the half float's bits. */
 function halfBits(v: number): number {
   const sign = Object.is(v, -0) || v < 0 ? 0x8000 : 0;
   return sign | smallBits(Math.abs(v), 10);
 }
 
-/** A non-negative number an unsigned float of a 5-bit exponent and `m` mantissa bits holds, as
- *  its bits. */
 function smallBits(v: number, m: number): number {
   if (Number.isNaN(v)) return (31 << m) | 1;
   if (v === Infinity) return 31 << m;
@@ -908,7 +814,6 @@ function smallBits(v: number, m: number): number {
   return ((e + 15) << m) | f;
 }
 
-/** The typed array of `data`'s bytes that `texSubImage2D` takes for the GL type `type`. */
 function texelView(gl: GL, type: number, data: ArrayBufferView): ArrayBufferView {
   const at = [data.buffer, data.byteOffset] as const;
   const n = (size: number): number => Math.floor(data.byteLength / size);
@@ -934,19 +839,14 @@ function texelView(gl: GL, type: number, data: ArrayBufferView): ArrayBufferView
   }
 }
 
-// ─── passes ──────────────────────────────────────────────────────────────────────────────────
-
 const pad = (v: readonly number[]): number[] => [v[0] ?? 0, v[1] ?? 0, v[2] ?? 0, v[3] ?? 0];
 
-/** One colour attachment of a pass: a texture, or the canvas's. */
 interface Attachment {
   readonly tex: WebGLTexture | 'screen';
   readonly kind: GlTextureKind;
   readonly a: RhiColorAttachment;
 }
 
-/** Copy the canvas's texture onto the screen (`out`), or the screen into it (`in`), turned over
- *  in y: the texture's row 0 is the top, and the screen's is the bottom. */
 function blitScreen(s: GlState, attachment: number, way: 'in' | 'out'): void {
   const gl = s.gl;
   const { w, h } = s.screen();
@@ -959,7 +859,6 @@ function blitScreen(s: GlState, attachment: number, way: 'in' | 'out'): void {
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbo);
     gl.readBuffer(gl.BACK);
-    // Only the canvas's attachment takes the copy.
     const only = Array.from({ length: attachment + 1 }, (_, k) =>
       k === attachment ? gl.COLOR_ATTACHMENT0 + attachment : gl.NONE,
     );
@@ -969,11 +868,6 @@ function blitScreen(s: GlState, attachment: number, way: 'in' | 'out'): void {
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 }
 
-/** A render pass on WebGL2, run as it is recorded (proposal 0064, PR-1, the pass procedure). It
- *  begins when it is made: the attachments, the host state it gives back at its end, the pass
- *  state of its start and the clears. Each call then runs in order, and `end()` is the tail: the
- *  masks made full, the discards cleared, the canvas turned over onto the screen, the host state
- *  given back. */
 class GlRenderPass implements RhiRenderPass {
   readonly #gl: GL;
   readonly #colour: Attachment[];
@@ -985,8 +879,6 @@ class GlRenderPass implements RhiRenderPass {
   readonly #vertices: (GlBuffer | undefined)[] = [];
   #index: { buffer: GlBuffer; type: number } | undefined;
   #reference = 0;
-  /** The host's provoking vertex convention, read at the pass's first draw of a flat value with
-   *  `WEBGL_provoking_vertex`, which the pass gives back at its end. */
   #provoking: number | undefined;
 
   constructor(
@@ -1032,19 +924,15 @@ class GlRenderPass implements RhiRenderPass {
         depthTex.native!,
         0,
       );
-    // The scissor is off for the blit and the clears: a scissor still on would clip them (E4).
     gl.disable(gl.SCISSOR_TEST);
-    // A pass that loads the canvas starts from what the screen shows, turned over.
     this.#colour.forEach((c, i) => {
       if (c.tex === 'screen' && c.a.loadOp === 'load') blitScreen(s, i, 'in');
     });
-    // The host's viewport, depth range and blend constant, which the pass gives back at its end.
     this.#host = {
       viewport: Array.from(gl.getParameter(gl.VIEWPORT) as Int32Array),
       range: Array.from(gl.getParameter(gl.DEPTH_RANGE) as Float32Array),
       blend: Array.from(gl.getParameter(gl.BLEND_COLOR) as Float32Array),
     };
-    // The pass state of its start: the whole target, the depth range 0 to 1, a blend constant of 0.
     gl.viewport(0, 0, w, h);
     gl.depthRange(0, 1);
     gl.blendColor(0, 0, 0, 0);
@@ -1059,8 +947,6 @@ class GlRenderPass implements RhiRenderPass {
       else if (c.kind === 'sint') gl.clearBufferiv(gl.COLOR, i, new Int32Array(v));
       else gl.clearBufferfv(gl.COLOR, i, new Float32Array(v));
     });
-    // The depth, then the stencil apart from it. A read-only aspect has no load, so it is never
-    // cleared.
     if (d?.depthLoadOp === 'clear')
       gl.clearBufferfv(gl.DEPTH, 0, new Float32Array([d.depthClearValue ?? 1]));
     if (this.#stencil && d?.stencilLoadOp === 'clear')
@@ -1153,7 +1039,6 @@ class GlRenderPass implements RhiRenderPass {
     gl.bindVertexArray(null);
   }
 
-  /** Bind what `group` holds to the units of `slots`. */
   #bind(slots: readonly Slot[], group: GlGroup | undefined): void {
     const gl = this.#gl;
     for (const slot of slots) {
@@ -1209,7 +1094,6 @@ class GlRenderPass implements RhiRenderPass {
     this.#gl.blendColor(color[0], color[1], color[2], color[3]);
   }
 
-  /** No call: each stencil draw passes the reference to its own `stencilFuncSeparate`. */
   setStencilReference(reference: number): void {
     this.#reference = reference;
   }
@@ -1223,8 +1107,6 @@ class GlRenderPass implements RhiRenderPass {
     gl.colorMask(true, true, true, true);
     gl.depthMask(true);
     gl.stencilMask(0xffffffff);
-    // A discarded attachment is cleared to 0 at the end, by the clear of its kind: colour by index,
-    // then depth, then stencil. No invalidation call is made.
     this.#colour.forEach((c, i) => {
       if (c.a.storeOp !== 'discard') return;
       if (c.kind === 'uint') gl.clearBufferuiv(gl.COLOR, i, new Uint32Array(4));
@@ -1246,11 +1128,9 @@ class GlRenderPass implements RhiRenderPass {
   }
 }
 
-/** Why the backend makes no compute pass or pipeline. */
 const NO_COMPUTE =
   'The WebGL2 backend has no compute pass: a dispatch on WebGL2 runs as the pass program of change 0054 (caps.compute is fragment-emulated).';
 
-/** Why: WebGL2 has no command buffer, so each command runs as it is recorded. */
 class GlEncoder implements RhiCommandEncoder {
   constructor(private readonly device: GlDevice) {}
 
@@ -1280,8 +1160,6 @@ class GlEncoder implements RhiCommandEncoder {
   }
 }
 
-// ─── the device ──────────────────────────────────────────────────────────────────────────────
-
 const isA = (name: string, o: object): boolean => {
   const c = (globalThis as Record<string, unknown>)[name];
   return typeof c === 'function' && o instanceof (c as new () => object);
@@ -1293,13 +1171,9 @@ class GlDevice implements RhiDevice {
   #state: GlState | undefined;
   #limits: Readonly<Record<string, number>> | undefined;
   readonly #canvas = new GlCanvas();
-  /** The element buffers of {@link GlDevice.firstVertexLast} for a draw with no index buffer: a
-   *  list's, then a strip's. */
   readonly #plain: ({ native: WebGLBuffer; count: number } | undefined)[] = [];
-  /** The element buffer of {@link GlDevice.firstVertexLast} for a host's own index buffer. */
   #hosts: WebGLBuffer | undefined;
   readonly #views = new WeakMap<GlTexture, GlView>();
-  /** The handle of each native object: the ones the device made, and a host's it was given. */
   readonly #handles = new WeakMap<object, RhiBuffer | RhiTexture | RhiSampler>();
 
   constructor(readonly native: GL) {
@@ -1315,7 +1189,6 @@ class GlDevice implements RhiDevice {
     };
   }
 
-  /** The state of the context, made on first use. */
   state(): GlState {
     return (this.#state ??= new GlState(this.native));
   }
@@ -1329,7 +1202,6 @@ class GlDevice implements RhiDevice {
     return this.#limits;
   }
 
-  /** Bring a vertex or index buffer's GL object up to its bytes, through `target`. */
   upload(b: GlBuffer, target: number): void {
     if (b.bytes === undefined || !b.staleBuffer) return;
     const gl = this.native;
@@ -1339,11 +1211,6 @@ class GlDevice implements RhiDevice {
     b.staleBuffer = false;
   }
 
-  /** The element buffer that draws the triangles of a draw of `count` vertices, each with its
-   *  first vertex last ({@link firstVertexLast}), and the number of its indices. Called with the
-   *  pipeline's vertex array bound. A draw with no index buffer shares one buffer for each of the
-   *  two topologies, which grows; an index buffer the device made keeps its own until its bytes
-   *  change; a host's own buffer is read back for each draw into one buffer. */
   firstVertexLast(
     strip: boolean,
     count: number,
@@ -1370,7 +1237,6 @@ class GlDevice implements RhiDevice {
     const width = wide ? 4 : 2;
     const restart = wide ? 0xffffffff : 0xffff;
     if (b.bytes === undefined) {
-      // A host's own buffer may change with no word to the device: read back for each draw.
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, b.native!);
       const size = gl.getBufferParameter(gl.ELEMENT_ARRAY_BUFFER, gl.BUFFER_SIZE) as number;
       const n = Math.min(count, Math.floor(size / width));
@@ -1394,7 +1260,6 @@ class GlDevice implements RhiDevice {
     return first;
   }
 
-  /** The data texture of a storage buffer, made again when its bytes have changed. */
   dataTextureOf(b: GlBuffer): WebGLTexture {
     if (b.bytes === undefined)
       throw new TypeError(
@@ -1426,7 +1291,6 @@ class GlDevice implements RhiDevice {
       ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
       : new Uint8Array(data);
     if (b.bytes === undefined) {
-      // A host's own buffer: written where it is.
       const gl = this.native;
       gl.bindBuffer(gl.COPY_WRITE_BUFFER, b.native!);
       gl.bufferSubData(gl.COPY_WRITE_BUFFER, byteOffset, bytes);
@@ -1489,7 +1353,6 @@ class GlDevice implements RhiDevice {
       throw new TypeError('writeTexture on WebGL2 writes a texture the device made.');
     let bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     if (fmt.bgra === true) {
-      // WebGL2 has no BGRA texture: the texels go up as RGBA.
       bytes = bytes.slice();
       for (let i = 0; i + 3 < bytes.length; i += 4) {
         const b = bytes[i]!;
@@ -1539,8 +1402,6 @@ class GlDevice implements RhiDevice {
     return v;
   }
 
-  /** The canvas's texture, the drawing buffer's size now. The pass that attaches it draws into a
-   *  texture of its own and turns it over onto the screen at its end. */
   currentTexture(_canvas: RhiCanvas): RhiTexture {
     const gl = this.native;
     return new GlTexture(
@@ -1559,7 +1420,6 @@ class GlDevice implements RhiDevice {
     const filter = (f: string): number => (f === 'nearest' ? gl.NEAREST : gl.LINEAR);
     const wrap = (a: string): number =>
       a === 'repeat' ? gl.REPEAT : a === 'mirror-repeat' ? gl.MIRRORED_REPEAT : gl.CLAMP_TO_EDGE;
-    // A texture of this backend has one level, so the minification takes no mipmap filter.
     gl.samplerParameteri(s, gl.TEXTURE_MIN_FILTER, filter(desc.minFilter));
     gl.samplerParameteri(s, gl.TEXTURE_MAG_FILTER, filter(desc.magFilter));
     gl.samplerParameteri(s, gl.TEXTURE_WRAP_S, wrap(desc.addressModeU));
@@ -1602,7 +1462,6 @@ class GlDevice implements RhiDevice {
     }
   }
 
-  /** Link the pipeline's program, give each binding its unit, and make its vertex array. */
   #pipeline(desc: RhiRenderPipelineDesc): GlPipeline {
     const gl = this.native;
     this.state();
@@ -1630,10 +1489,6 @@ class GlDevice implements RhiDevice {
     );
   }
 
-  /** Each binding the program reads, at its block binding point or texture unit, set on `program`
-   *  once: the units are the same for every draw of the pipeline. The blocks take the binding
-   *  points in the order of the layout's entries, and the textures and the data textures the units,
-   *  after them, in the same order. */
   #slots(program: WebGLProgram, layouts: readonly GlLayout[]): Slot[][] {
     const gl = this.native;
     const slots: Slot[][] = layouts.map(() => []);
@@ -1644,7 +1499,6 @@ class GlDevice implements RhiDevice {
       for (const e of layout.entries) {
         if ('buffer' in e && e.buffer.type === 'uniform') {
           const index = gl.getUniformBlockIndex(program, e.name ?? '');
-          // Inactive after driver optimization: no size query and no binding point needed.
           if (index === gl.INVALID_INDEX) continue;
           const minimum: unknown = gl.getActiveUniformBlockParameter(
             program,
@@ -1681,12 +1535,10 @@ class GlDevice implements RhiDevice {
     return new GlEncoder(this);
   }
 
-  /** The commands ran as they were recorded: nothing is left to hand over. */
   submit(_encoders: readonly RhiCommandEncoder[]): Promise<void> {
     return Promise.resolve();
   }
 
-  /** Why: WebGL2 has no error scopes, so `popValidationScope` takes the context's own first error. */
   pushValidationScope(): void {}
 
   popValidationScope(): Promise<string | null> {
@@ -1729,7 +1581,6 @@ class GlDevice implements RhiDevice {
         return object === gl || object === gl.canvas ? found(this.#canvas) : undefined;
       }
       default:
-        // WebGL2 has no native encoder or pass.
         return undefined;
     }
   }
@@ -1747,7 +1598,6 @@ class GlDevice implements RhiDevice {
     return h;
   }
 
-  /** Lose the context: the runtime calls it only for a context it made itself. */
   destroy(): void {
     (
       this.native.getExtension('WEBGL_lose_context') as { loseContext(): void } | null
@@ -1755,8 +1605,6 @@ class GlDevice implements RhiDevice {
   }
 }
 
-/** The RHI device over a `WebGL2RenderingContext`. Its handles and its context state are its own,
- *  so a runtime makes one device for its context and keeps it. */
 export function webgl2Device(gl: WebGL2RenderingContext): RhiDevice {
   return new GlDevice(gl);
 }
