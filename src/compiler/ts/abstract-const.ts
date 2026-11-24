@@ -1525,7 +1525,7 @@ export function reportAbstractDivisions(
     if (d.code !== TS_CODES.TYPE_MISMATCH && d.code !== TS_CODES.MATH_ARGUMENT) continue;
     const at = nodeSpanning(sourceFile, d.start, d.start + d.length);
     if (at === undefined || programFileOf(at) !== 0) continue;
-    const trees = floatPositionOperands(at).filter(isTreeOperand);
+    const trees = floatPositionOperands(at, d.message).filter(isTreeOperand);
     if (trees.length !== 1) continue;
     const tree = skipParenNodes(trees[0]!);
     const text = writtenText(tree).replace(/\s+/g, ' ');
@@ -1623,7 +1623,7 @@ const VALUE_EDIT =
 
 /** The sentences of a type error between an integer and an `f32`. */
 const FLOAT_MISMATCH =
-  /(?:cannot \S+ (?:i32|u32) and f32|cannot \S+ f32 and (?:i32|u32)|cannot let\/const \S+ f32 and (?:i32|u32)|return type mismatch: declared f32, got (?:i32|u32)|Vector constructor element type mismatch: expected f32|takes an f32[^;]*; got (?:i32|u32)|the first is (?:i32|u32), this one f32|the first is f32, this one (?:i32|u32)|Argument \d+ of "[^"]+" type mismatch)/;
+  /(?:cannot \S+ (?:i32|u32) and f32|cannot \S+ f32 and (?:i32|u32)|cannot let\/const \S+ f32 and (?:i32|u32)|return type mismatch: declared f32, got (?:i32|u32)|Vector constructor element type mismatch: expected f32|takes an f32[^;]*; got (?:i32|u32)|the first is (?:i32|u32), this one f32|the first is f32, this one (?:i32|u32)|Argument \d+ of "[^"]+" type mismatch|(?:Ternary|select) arm type mismatch: (?:(?:i32|u32) vs f32|f32 vs (?:i32|u32)))/;
 
 /** Whether `e` is a tree of written integers, or a read of a constant or a binding with no
  *  written type that holds one and that nothing assigns again. */
