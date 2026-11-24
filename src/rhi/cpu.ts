@@ -44,34 +44,7 @@ import type {
 import { FORMATS } from './cpu/format.js';
 import { CpuBuffer } from './cpu/buffer.js';
 import { CpuTexture, isContext2d, CpuCanvas, present } from './cpu/canvas.js';
-
-class CpuView implements RhiTextureView {
-  readonly __rhi = 'view';
-  constructor(readonly texture: CpuTexture) {}
-}
-
-class CpuSampler implements RhiSampler {
-  readonly __rhi = 'sampler';
-  constructor(readonly desc: RhiSamplerDesc) {}
-}
-
-class CpuModule implements RhiShaderModule {
-  readonly __rhi = 'module';
-  constructor(readonly program: CpuProgram) {}
-}
-
-class CpuBindLayout implements RhiBindGroupLayout {
-  readonly __rhi = 'bindlayout';
-  constructor(readonly entries: readonly RhiBindLayoutEntry[]) {}
-}
-
-class CpuBindGroup implements RhiBindGroup {
-  readonly __rhi = 'bindgroup';
-  constructor(
-    readonly layout: CpuBindLayout,
-    readonly entries: readonly RhiBindEntry[],
-  ) {}
-}
+import { CpuView, CpuSampler, CpuModule, CpuBindLayout, CpuBindGroup } from './cpu/handles.js';
 
 interface Stage {
   readonly program: CpuProgram;
