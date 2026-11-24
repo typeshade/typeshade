@@ -97,7 +97,7 @@ export const COMMON_FUNCTIONS_ROWS: readonly Row[] = [
     name: '`modf`',
     covers: ['glsl:builtinFunctions:8.3:modf'],
     evidence:
-      'docs/language-design.md:1505 (§14 row on frexp and modf); docs/roadmap.md:184 (roadmap 0.2 item 8); src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498',
+      'docs/language-design.md:1505 (§14 row on frexp and modf); docs/roadmap.md:184 (roadmap 0.2 item 8); src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts#lowerCall~"unknownFunctionSentence(callee)"',
     webgpu: gap(
       9,
       'WGSL modf returns a struct; roadmap 0.2 item 8 names modf as not shipped (docs/roadmap.md:184); §14 lists whether modf gets the implicit result struct as undecided (docs/language-design.md:1505); refused today as TS8004 (measured with compile(), 2026-10-12)',

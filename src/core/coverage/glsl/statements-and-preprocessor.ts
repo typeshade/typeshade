@@ -154,7 +154,7 @@ export const STATEMENTS_AND_PREPROCESSOR_ROWS: readonly Row[] = [
     name: '`#ifdef`, `#else`',
     covers: ['glsl:preprocessor:3.5:#ifdef', 'glsl:preprocessor:3.5:#else'],
     evidence:
-      'src/core/backends/glsl.ts:2300-2329 (the directives the writer emits); src/core/variant-family.ts:9 (a comment, the one non-test mention of #ifdef)',
+      'src/core/backends/glsl.ts:2300-2329 (the directives the writer emits); src/core/variant-family.ts#buildGuarded~"i === 0 ?" (the ladder uses #if and #elif)',
     webgpu: na('WGSL has no preprocessor'),
     webgl2: na(
       'emitted nowhere in non-test source; the author of a "use typeshade" program writes no directive',

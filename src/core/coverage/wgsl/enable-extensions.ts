@@ -67,7 +67,7 @@ export const ENABLE_EXTENSIONS_ROWS: readonly Row[] = [
     name: '`subgroups`',
     covers: ['wgsl:enableExtensions:subgroups'],
     evidence:
-      'docs/use-typeshade-surface.md:5855-5858; src/compiler/ts/enables.ts#collectEnables~"ENABLE_PREFIX.length"',
+      'docs/use-typeshade-surface.md:5855-5858; src/compiler/ts/enables.ts#extensionTable~"support.directive"|collectEnables~"table.get(name)"; src/core/backends/wgsl.ts#WGSL_CAP_PROFILE.subgroups',
     note: 'change 0117: derived by the 21 subgroup functions and the four built-in values, or spelled as the string directive',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(

@@ -7,7 +7,7 @@ export const VECTOR_RELATIONAL_ROWS: readonly Row[] = [
     name: '`lessThan`',
     covers: ['glsl:builtinFunctions:8.7:lessThan'],
     evidence:
-      "docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:650; src/compiler/ts/lower/operator-kinds.ts#FAMILY~\"'<': 'ordering'\"",
+      "docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:650; src/compiler/ts/lower/operator-kinds.ts#FAMILY~\"'<': 'ordering'\"|operatorKindRefusal~\"t.kind === 'vec') return undefined;\"",
     note: 'the `<` operator on vectors (Rule 7.1)',
     webgpu: typed('src/compiler/ts/bool-vectors.test.ts'),
     webgl2: typed('src/compiler/ts/bool-vectors.test.ts'),
@@ -33,7 +33,7 @@ export const VECTOR_RELATIONAL_ROWS: readonly Row[] = [
     name: '`greaterThan`',
     covers: ['glsl:builtinFunctions:8.7:greaterThan'],
     evidence:
-      "docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:652; src/compiler/ts/lower/operator-kinds.ts#FAMILY~\"'>': 'ordering'\"",
+      "docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:652; src/compiler/ts/lower/operator-kinds.ts#FAMILY~\"'>': 'ordering'\"|operatorKindRefusal~\"t.kind === 'vec') return undefined;\"",
     note: '`>`',
     webgpu: typed('examples/shade-examples.test.ts'),
     webgl2: typed('src/compiler/ts/bool-vectors.test.ts'),
