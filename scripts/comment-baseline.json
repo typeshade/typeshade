@@ -764,7 +764,6 @@
   "src/core/reflect-binding-stages.test.ts": 28,
   "src/core/reflect-entry-io.test.ts": 32,
   "src/core/reflect.test.ts": 79,
-  "src/core/reflect.ts": 136,
   "src/core/registry.test.ts": 12,
   "src/core/registry.ts": 25,
   "src/core/reserved-words.ts": 107,
