@@ -2,6 +2,11 @@ name: ci
 
 # Verifies: Rule 13.4 (docs/language-design.md; traced in reqs/).
 
+# A DRAFT pull request runs no gate: only `change scope` runs, and every other job is skipped
+# (the `draft` output of `scope`). Work is verified locally. CI runs when the pull request is
+# marked ready for review (`ready_for_review`) and on every push while it is ready. GitHub cannot
+# merge a draft, so no merge rests on the skipped checks of a draft.
+#
 # A run on main is never cancelled by a later push (`concurrency` below); a pull request run is
 # cancelled by a newer push to its branch. A pull request that declares `Move: comments` or
 # `Move: pure` and passes scripts/move-purity.ts runs fewer jobs before the merge (change `0147`,
@@ -69,6 +74,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
   # `.github/workflows/publish.yml` calls this workflow, so the gates a release runs are
   # literally the jobs below rather than a second copy that can drift into a weaker one.
@@ -95,6 +101,7 @@ jobs:
     outputs:
       code: ${{ steps.diff.outputs.code }}
       move: ${{ steps.move.outputs.move || 'none' }}
+      draft: ${{ github.event.pull_request.draft == true && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -141,6 +148,7 @@ jobs:
   quality:
     name: source and policy checks
     needs: scope
+    if: needs.scope.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -185,6 +193,7 @@ jobs:
   unit-pinned:
     name: pinned TypeScript unit shards
     needs: scope
+    if: needs.scope.outputs.draft != 'true'
     uses: ./.github/workflows/ci-unit.yml
     with:
       documents: ${{ needs.scope.outputs.code != 'true' }}
@@ -194,7 +203,7 @@ jobs:
   unit-typescript5:
     name: TypeScript 5 unit shards
     needs: scope
-    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
+    if: needs.scope.outputs.draft != 'true' && needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     uses: ./.github/workflows/ci-unit.yml
     with:
       typescript: &typescript5 '5.9.3'
@@ -203,7 +212,7 @@ jobs:
   unit-typescript6:
     name: TypeScript 6 unit shards
     needs: scope
-    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
+    if: needs.scope.outputs.draft != 'true' && needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     uses: ./.github/workflows/ci-unit.yml
     with:
       typescript: &typescript6 '6.0.3'
@@ -214,7 +223,7 @@ jobs:
   check:
     name: typecheck + unit
     needs: [scope, quality, unit-pinned]
-    if: always()
+    if: always() && needs.scope.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -231,7 +240,7 @@ jobs:
   typescript5:
     name: typecheck + unit (TypeScript ${{ matrix.typescript }})
     needs: [scope, unit-typescript5]
-    if: always() && needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
+    if: always() && needs.scope.outputs.draft != 'true' && needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -249,7 +258,7 @@ jobs:
   typescript6:
     name: typecheck + unit (TypeScript ${{ matrix.typescript }})
     needs: [scope, unit-typescript6]
-    if: always() && needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
+    if: always() && needs.scope.outputs.draft != 'true' && needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -266,6 +275,8 @@ jobs:
 
   traceability:
     name: traceability (Doorstop)
+    needs: scope
+    if: always() && needs.scope.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -318,7 +329,7 @@ jobs:
   compile-gate:
     name: compile gate (Tint + WebGL2)
     needs: scope
-    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move != 'comments'
+    if: needs.scope.outputs.draft != 'true' && needs.scope.outputs.code == 'true' && needs.scope.outputs.move != 'comments'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -338,7 +349,7 @@ jobs:
   user-journeys:
     name: user journeys (packed tarball, WebGPU)
     needs: scope
-    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move != 'comments'
+    if: needs.scope.outputs.draft != 'true' && needs.scope.outputs.code == 'true' && needs.scope.outputs.move != 'comments'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -357,7 +368,7 @@ jobs:
   perf-gate:
     name: perf gate (instrument, SwiftShader)
     needs: scope
-    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
+    if: needs.scope.outputs.draft != 'true' && needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -387,7 +398,7 @@ jobs:
   render-gate:
     name: render gate (WebGPU + pixel golden)
     needs: scope
-    if: needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
+    if: needs.scope.outputs.draft != 'true' && needs.scope.outputs.code == 'true' && needs.scope.outputs.move == 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

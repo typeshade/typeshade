@@ -324,7 +324,7 @@ Agents must also read [AGENTS.md](./AGENTS.md) and [CLAUDE.md](./CLAUDE.md).
 
 Releases are cut by creating a GitHub release; [`RELEASING.md`](./RELEASING.md) is the checklist and [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) does the work.
 
-The compile gate hands emitted shader code to the real target compilers and browser contexts used by the project. [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs the build, tests and compile gate on pushes and pull requests; a pull request that changes only documents runs the build, the tests and the traceability check; a pull request whose range declares `Move: comments` or `Move: pure` and passes `scripts/move-purity.ts` skips the TypeScript 5 and 6 unit suites and the render and perf gates, and a `Move: comments` range also skips the compile gate and the user journeys (`AGENTS.md`, Tests).
+The compile gate hands emitted shader code to the real target compilers and browser contexts used by the project. [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs the build, tests and compile gate on pushes to `main` and on pull requests that are ready for review (a draft pull request runs no gate); a pull request that changes only documents runs the build, the tests and the traceability check; a pull request whose range declares `Move: comments` or `Move: pure` and passes `scripts/move-purity.ts` skips the TypeScript 5 and 6 unit suites and the render and perf gates, and a `Move: comments` range also skips the compile gate and the user journeys (`AGENTS.md`, Tests).
 
 ## Contributing
 
