@@ -298,7 +298,7 @@ export interface RenderState {
       readonly constant?: number;
       /** depthBiasSlopeScale. A finite number. The WebGL2 tier gives the same offset as WebGPU, on the formats that take a constant bias. */
       readonly slopeScale?: number;
-      /** depthBiasClamp. A finite number. The WebGL2 tier takes a non-zero value through `EXT_polygon_offset_clamp`, and refuses it when the context lacks that extension. */
+      /** depthBiasClamp. A finite number. The WebGL2 tier takes a non-zero value through `EXT_polygon_offset_clamp`. A non-zero value without that extension is not supported yet on the WebGL2 tier (Rule 11.11). */
       readonly clamp?: number;
     };
     /** stencilFront, stencilBack, stencilReadMask and stencilWriteMask of depthStencil. Needs a format with a stencil aspect. The reference comes from pass.setStencilReference, which is 0 at each pass start, or from this pipeline's reference. Lines and points use the front face. */

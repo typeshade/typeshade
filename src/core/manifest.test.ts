@@ -397,7 +397,7 @@ describe('a manifest packed under emit options (change 0028)', () => {
    *  reads the `_fp64` guard for, each with a `console.*` call: a manifest with the guard and the
    *  recorded variant, whose `_console` buffer the guard is one slot past. One is a compute entry,
    *  and one a full-screen fragment entry, which has a WebGL2 draw that declares the guard. A
-   *  module with a compute entry has no GLSL, so the two are apart. */
+   *  module with only a compute entry has no vertex or fragment GLSL (Rule 11.8), so the two are apart. */
   const F64_KERNEL = compiled(`"use typeshade";
 class Zoom { cx: f64; scale: f64; }
 declare const zoom: uniform<Zoom>;

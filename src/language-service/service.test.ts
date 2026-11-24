@@ -378,8 +378,8 @@ describe('getCompiledOutput', () => {
     expect(service.getCompiledOutput('nope.ts', 'wgsl')).toBeUndefined();
   });
 
-  // GLSL ES 3.00 has no compute stage. Its refusal is not news for a module without a render
-  // entry (Rule 12.3); the WGSL output and cached document diagnostics remain available.
+  // The GLSL backend emits render stages only; a @compute entry runs on WebGL2 as its pass program
+  // (Rule 11.8, Rule 8.24). The empty GLSL pane is not news (Rule 12.3); WGSL and diagnostics remain.
   it('leaves a compute-only GLSL pane empty without a backend diagnostic', () => {
     const service = createTypeshadeLanguageService();
     const text =

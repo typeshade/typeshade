@@ -1885,6 +1885,225 @@ Deviations of #1481.
   deviations 4 to 7; #1479 deviations 2 to 4; #1480 deviation 2; #1481 deviations 1, 3, 4 and 5; the defect that
   #1490 left; `do ... while`.
 
+### A19. Status and deviations of #1490, #1494, #1495 and #1505, the Route 3 S4 and S5 design, and the deferred items (2026-11-24)
+
+- [fact] This amendment is written on `main` at `62930920`. It follows A18.
+- [fact] It records the status and the deviations of the pull requests that merged after A18 was written, and one earlier bug fix.
+- [fact] The sources are the bodies of #1490, #1494, #1495 and #1505 and the code on `main`. Where a body and the code differ, the code is reported.
+- [fact] The measurements in (e) come from runs that the author of this amendment made in a cloud container on 2026-11-23 and 2026-11-24. Their scripts are not in the repository.
+- [fact] No earlier amendment changes. Out-of-date status lines are listed at the end.
+- [fact] A "bug fix" below is a pull request with `Change: none`. It implements no sentence of this change.
+- [fact] "Route 3 S4" is the journey slice of A17 (b) and A18 (c). "0114 section S4" is the section "S4. Removals" of this change.
+
+**(a) #1490, a bug fix (merge commit `91cd7047`).**
+
+- [fact] A made array with no `push` counted `.length` as 0 after a write at the length (Rule 8.23).
+- [fact] `lengthFromHost` in `src/compiler/ts/lower/made-array/length.ts` now reads `pushCount` for a grown array.
+- [fact] The test is `src/compiler/ts/host-kernel-grown-length.test.ts`. It runs both halves on the same source and compares each run with a JavaScript run.
+- [fact] The earlier tests of a write at the length also pushed, and the push rewrote the length. This is the half that the tests missed.
+- [fact] A loop that writes at the length is refused for the GPU (`TS8070`), so the function runs on the CPU tier. The test asserts that `face.gpu` is undefined.
+
+Deviations of #1490.
+
+1. [fact] A write at the length outside every loop, after a loop that wrote at the length, throws a `RangeError` for n >= 1. JavaScript returns n + 1 elements. The throw is loud, not silent.
+   [fact] The `RangeError` reports a write at index 1 of `out`, whose length is 0 there (the body of #1490).
+   [fact] A18 (d) records the defect as open. No commit after `91cd7047` changes `length.ts` or the test file, and no test pins the case.
+   Disposition: open. [proposal] Next action: a bug-fix pull request with a test that reads both halves.
+2. [fact] Not run locally: `bun run gate:compile` and the journeys.
+   Disposition: closed. [fact] CI ran `compile gate (Tint + WebGL2)` and `user journeys (packed tarball, WebGPU)` green on head `063d7305` on 2026-11-23 (UTC). The compile gate completed on 2026-11-24T00:04Z.
+
+**(b) #1494 (merge commit `f0506551`).**
+
+- [fact] #1494 is done. It implements decisions (1), (2) and (3) of A17 (a).
+- [fact] Decision (1): surface sections 9 and 23 no longer call a bare `storage<T>` read-only.
+- [fact] Decision (2): a write to a bare binding in a function that no entry reaches draws no `TS8005`.
+- [fact] `dropDeadStorageWriters` removes an unreachable function that writes a binding left `read`.
+- [fact] Decision (3): a declared `"read_write"` binding read by a vertex entry is refused with `TS8099` in both halves.
+- [fact] #1494 closes deviations 1, 2 and 3 of #1476 (A18 (b)). Disposition of each: closed.
+- [fact] Deviation 4 of #1476 is closed. Surface section 7 lists the vertex-write sentence (`docs/use-typeshade-surface.md`, the `TS8099` rows for a vertex entry).
+- [inference] Deviations 5 to 7 of #1476 are not named in the body of #1494. They stay open as A18 (b) records them, with the next action recorded there.
+
+Deviations of #1494.
+
+1. [fact] The amendment text of the pull request was taken out, because A17 already records the decisions. Disposition: closed.
+2. [fact] Surface section 23 does not name an atomic behind a `readonly` binding, since no test covers it.
+   Disposition: open. [proposal] Next action: a test, then a sentence, when the owner wants the case stated.
+3. [fact] Not run: `bun run gate:journeys` and the full suite in one run.
+   Disposition: closed. [fact] CI ran `user journeys (packed tarball, WebGPU)` and every unit shard green on head `94a30e74` on 2026-11-24.
+
+**(c) #1495 (merge commit `482fbb05`).**
+
+- [fact] #1495 is done. It implements R3-Q3 (A) of A17 (b) and closes deviation D1 of A16.
+- [fact] `countable` in `src/core/passes/countable.ts` accepts an element read of an array parameter at the counter of the top-level loop that holds it.
+- [fact] The call checks the read against the array length before it runs (Rule 8.21).
+- [fact] `repeated` takes Route 2 and runs on WebGPU. A `counts` that is shorter than `xs` is a `TypeError` on every tier.
+- [fact] The program goes from refused to accepted. The pull request waited for the owner's "merge".
+
+Deviations of #1495.
+
+1. [fact] `guarded` stays on Route 3. It is not moved to Route 2.
+   [fact] Its inner loop is under `if (i < counts.length)`, so it is open (Route 3), not deferred.
+   Disposition: open. [proposal] Next action: the owner decides whether `guarded` stays on Route 3.
+2. [fact] A function with no GPU plan keeps `TS8099`. A17 (b) did not say that a plan check was needed. `hasGpuPlan` in `src/compiler/ts/kernel-loops.ts` is the check on `main`.
+   Disposition: open. [proposal] Next action: the owner decides whether the plan check is the approved text.
+3. [fact] WebGPU is checked on SwiftShader only. Disposition: open. [proposal] Next action: a run on a hardware device.
+4. [fact] `xs = []` cannot be bound on WebGPU. Disposition: open. [proposal] Next action: a test that binds `xs = []` on WebGPU, then a bug-fix pull request.
+5. [fact] The differential gate did not run locally.
+   Disposition: closed. [fact] CI's `compile gate (Tint + WebGL2)` runs `bun run gate:differential` and was green on head `75b9fbe7` on 2026-11-24.
+6. [fact] The amendment text of the pull request was taken out, because A17 records the decisions. Disposition: closed.
+
+**(d) #1505, Route 3 S3 (merge commit `62930920`).**
+
+- [fact] #1505 is done. It implements shapes 5 to 8 of Route 3 (A17 (b)), with R3-Q1 (B) and R3-Q2 (A) of A17 (b).
+- [fact] Shape 5: a nested loop whose start or bound reads a value no route can size.
+- [fact] Shape 6: a loop under a top-level `if` that Route 1 cannot read.
+- [fact] Shape 7: a top-level loop whose bound reads `out.length` and that ends.
+- [fact] Shape 8: an element write not proved below the length, inside a loop or a branch.
+- [fact] R3-Q1 (B): a call whose capacity passes 4294967295, or whose allocation throws, runs on the CPU tier when the runtime lists it.
+- [fact] `onCpuTier` in `src/core/host-kernel-made/growing.ts` builds that face. With no CPU tier the call throws the `pastLimit` sentence.
+- [fact] R3-Q2 (A): a `TS8070` warning on the first loop whose header the compiler cannot read, in both halves (`kernelLoopDiagnostics`). It adds no diagnostic code.
+- [fact] `counted` and `growing` are never both set.
+
+Deviations of #1505.
+
+1. [fact] The CPU face of an R3-Q1 call has a `noGpu` sentence without "not supported yet". The sentence is in `onCpuTier` on `main`: `its capacity for "..." is more than the host can reserve, and only the CPU tier grows an array while it runs`.
+   [fact] The growing reason (`growingReason` in `src/compiler/ts/host-face/made.ts`) has the wording.
+   [inference] OD-10 and OD-11 ask for "not supported yet" where a form is not implemented.
+   Disposition: open. [proposal] Next action: add the wording and a test of the full text.
+2. [fact] Some refusal tests check the code but not the full text (Rule 12.5). Disposition: open. [proposal] Next action: a bug-fix pull request that adds the text.
+3. [fact] `hasGpuPlan` lowers a grown function up to twice. This is a compile-time cost. Disposition: open. [proposal] Next action: measure the compile time if a program shows a cost.
+4. [fact] `repeated` is not an S3 case, since #1495 moved it to Route 2. Disposition: closed.
+5. [fact] `nestedWrite` and `appendPast` (`growing-programs/open.ts`) are acceptance tests now.
+   [fact] The unguarded `out[j + 1]` source has a compile-only both-halves test, since it never ends. Disposition: closed.
+6. [fact] `src/affected-tests.test.ts` (5) and `src/doc-test-selection.test.ts` (4) fail locally on `main` `b700bcb3`. They read git state. CI passes.
+   [fact] This amendment did not re-run them on `62930920`.
+   Disposition: closed for 0114. They are not a defect of this change.
+7. [fact] Not run: one combined vitest run outside the compiler, the language service and the passes; `gate:differential`; `gate:perf`.
+   Disposition: closed. [fact] CI ran every unit shard, `compile gate (Tint + WebGL2)` (with `gate:differential`) and `perf gate (instrument, SwiftShader)` green on head `15017b75` on 2026-11-24.
+8. [fact] An earlier run was interrupted by a container restart and resumed from the worktree. Disposition: closed.
+
+Open items of #1479 (A18 (c)) that S3 was to close.
+
+- Deviation 2 (markers): closed. [fact] `host-kernel-growing.test.ts` and the other growing tests carry `Verifies: Rule 8.23` since #1481 (merge `31394a93`).
+- [fact] `host-kernel-growing-open.test.ts` carries the marker since #1505.
+- Deviation 3 (vector element, Route 1 equivalence): closed. [fact] `host-kernel-growing-run.test.ts` compares `vectors` with `vectorsCounted` since #1481 (merge `31394a93`). The #1505 body does not state it.
+- Deviation 4 (push-to-failure measurements): open. [fact] No test or body of #1505 records a run. Only injected-limit tests exist.
+  [proposal] Next action: see (e), the record of the engine limit.
+
+**(e) The Route 3 S4 design, kept so that it survives.**
+
+- [fact] Route 3 S4 is not started. (g) records the deferral.
+- [proposal] S4 delivers one WebGPU journey case in `journeys/_host-import`.
+- [proposal] A Route 3 program on a runtime listing `['webgpu', 'cpu']` gives the reference result.
+- [proposal] `explain` names the growing reason of the case.
+- [proposal] The case is `ragged` (`growing-programs/open.ts`). It stays on Route 3 after #1495, and its face carries the growing reason (`growingReason`).
+- [fact] `guarded`, `halving` and `appendAt` stay on Route 3. Their face reason is the proof reason (`TS8070`), not the growing reason (`host-kernel-growing-open.test.ts`).
+- [fact] `repeated` takes Route 2 since #1495. It is not the case.
+- [fact] #1481 added `evens` (Route 3, CPU tier) and its WebGPU-only refusal with `TS8070`.
+- [fact] The growing reason is this sentence: `it grows "out" with push in a loop whose number of pushes the call cannot know before it runs, and only the CPU tier grows an array while it runs; a run that grows an array on WebGPU or WebGL2 is not supported yet`.
+- [fact] `cpuOnly` sets `noGpu` from the first reason that exists. First is the proof or `lowerKernel` reason. Second is the growing reason. Third is the access-check reason.
+- [fact] A18 (c), deviation 4 of #1481 asks the owner to approve this order.
+- [proposal] S4 records "growing an array during a run on a device tier" as open work. It rests on OD-10 and OD-11.
+- [proposal] The blocker for WebGPU is change 0144, stage A3. A WebGL2 fallback is compiler work, not a limit of the design. A16 D5 (WebGL2) is related and open.
+- [proposal] The document audit covers Rule 8.22 (the push sentence), Rule 8.23 and its "Enforced by", and surface sections 63 and 65.
+- [fact] A19 records these Route 3 open items, each with a disposition and a next action.
+
+1. Engine limit. [fact, observed, Node 22 (V8), 2026-11-23] An append loop (`a[a.length] = x`, one process) throws `RangeError: Invalid array length` after 112813858 elements (about 2^26.7).
+   [fact, observed, Node 22 (V8), 2026-11-23] 2^25 appends took 720 ms and 1.1 GB RSS. 2^26 appends took 1114 ms and 1.7 GB RSS. 2^27 appends throw the same `RangeError`.
+   [fact] The Node patch version is not recorded.
+   [assumption] Chromium and Firefox are not run. A browser host is V8-class.
+   [inference] The limit is the heap, not the number 4294967295. Route 2 holds up to 4294967294 elements, so a program can succeed on Route 2 and fail on Route 3 on V8.
+   [inference] The limit is a cost of A12 Q2 (A) and of the change 0144 handover.
+   [proposal] A typed array that doubles may later replace the JavaScript array (A1 item 12, OD-9).
+   [fact, observed, Bun 1.4.4 only, 2026-11-23] 2^25 `f32` pushes took 754 ms and 510 MB peak RSS with a JavaScript array. A typed array that doubles took 216 ms and 269 MB.
+   [fact, observed, Bun 1.4.4 only, 2026-11-23] 2^23 `vec4` elements as JavaScript arrays took 689 ms and 744 MB. JavaScriptCore is not a browser engine.
+   [fact] On Bun 1.4.4, `a.length = 4294967295; a[4294967295] = 1` does not throw. The 4294967295 check belongs to the program, not the engine. The author of this amendment ran it on 2026-11-24.
+   [inference] A grown array holds a boxed number (8 bytes) or an object. The result is a second copy.
+   Disposition: open. [proposal] Next action: change 0144, stages A1 to A3 (the store moves into the arena).
+   [proposal] The move needs a growing region on the CPU tier, or a second run. That is a later amendment of change 0144.
+   [fact] Change 0144, section 5 (Exclusions), keeps a push in a loop inside a loop refused for its own reason. Change 0042 (Memory) says that the region does not compact or grow while a call runs (decision C2).
+2. Boundary at exactly 4294967295. [fact] Route 1 accepts it (`checkedCapacity` throws only above it).
+   [fact] Route 2 throws at a total of 4294967295 or more (`countedTotal`, `src/core/host-kernel-made/capacity.ts`).
+   [fact] Route 3 throws at a push that makes the length 4294967295 (`placed`, `src/core/pushed-index.ts`).
+   Disposition: open. [proposal] Next action: change 0144, stage A3.
+3. Engine abort. [assumption] Heap exhaustion may abort the process, and no `catch` sees it. Not run.
+   Disposition: open. [proposal] Next action: a scalar push and a `vec4` push to failure on Bun and on Node (V8), each recorded with the engine, its version and the date.
+4. No push budget. [fact] A runaway loop such as `for (let j: u32 = 0; j < out.length; j++) { out.push(1.); }` runs as written until the limit or memory.
+   Disposition: open. [proposal] Next action: the owner decides whether a budget is wanted.
+5. No device run of a grown array. [fact] No WebGPU exists in the container. The journey is the only GPU contact.
+   Disposition: open. [proposal] Next action: the S4 journey.
+   [fact] #1505 merged with the existing journey cases `inside`, `insideCpu` and `evens` green. No case runs a Route 3 call on a runtime listing `['webgpu', 'cpu']`.
+6. The `for` and `while` pair. [fact] `while (i < xs[0])` takes Route 3. The counted `for` with the same bound stays `TS8099` until change 0144, stage A3 (A18 (c), #1481 deviation 5).
+   Disposition: open. [proposal] Next action: change 0144, stage A3.
+7. The discarded GPU plan of a growing function. [fact] The plan is built and dropped. This is a cost of the Route 3 growing store that A17 (b) approves.
+   Disposition: open. [proposal] Next action: measure the cost when a program shows it.
+8. An inner pushing `while` of a Route-2 function takes Route 3 until S5 (A17 (b), R3-Q3).
+   Disposition: open, as A17 (b) approves. [proposal] Next action: Route 3 S5, see (f).
+
+- [proposal] S4 touches `journeys/_host-import/`, `docs/language-design.md`, `docs/use-typeshade-surface.md`, `changes/0114-arrays.md` and `reqs/`. A person runs `doorstop review`.
+- [proposal] The checks are the journey, `bun run test`, the compile gate and `bun run changes:check`. The differential gate is not needed, since no WGSL changes.
+- [fact] The journey cannot run in the container, since it has no WebGPU. CI runs it. It is the only CI contact of S4.
+- [proposal] Approval class: S4 changes documents and tests only. It adds no author-facing name and changes no example.
+
+**(f) The optional S5 design.**
+
+- [fact] Route 3 S5 is not started. It is optional and comes after S4.
+- [proposal] An inner pushing `while` of a Route-2 function takes Route 2, as A12 section 1, item 3 says.
+- [fact] A17 R3-Q3 keeps it on Route 3 "until S5".
+- [proposal] S5 delivers these changes. `loopIn` defers an uncounted loop at depth 1 or more.
+- [proposal] `countable` drops its scoped rule. The count and scan entries run a body with an inner `while` on WebGPU.
+- [proposal] Tests: `bothHalves` and the count entries through the compile gate (Tint).
+- [proposal] Also: a WebGPU journey with the CPU result as oracle; a differential-gate inner-`while` case; a measurement of the extra read.
+- [fact] S5 needs a WebGPU device. The container has none.
+- [proposal] Approval class: S5 changes the tier an author's program takes. It shows the owner a before and after, and waits for "merge".
+
+**(g) Deferred items and their status.**
+
+- [decision, owner, 2026-11-24] "추천대로" ("as you recommend"). The recommendation: this work stops at the merge of #1505. Route 3 S4 and the pushing `do ... while` wait until after the second-phase structure refactoring (`docs/structure-refactoring-plan.md`, added by #1503).
+- [fact] Another session relayed the owner's words to the author of this amendment.
+- Route 3 S4: not started. Deferred as above. [proposal] Next action: start after the second-phase structure refactoring (`docs/structure-refactoring-plan.md`, added by #1503).
+- A pushing `do ... while` (A17 (c)): not started. Same deferral. `TS8099` stays an open deviation (A18 (c), #1481 deviation 1).
+- Route 3 S5: not started. Optional. [proposal] Next action: decide after Route 3 S4.
+- 0114 section S4 (section "S4. Removals", decision D3): not started. It changes how examples are written. The owner sees a before and after first (`CLAUDE.md`, Merging).
+- The A18 "Next action (proposal)" items wait for the owner:
+  - #1474 deviation 1: spell the example in the conflict sentence.
+  - #1474 deviation 3: widen `s += a[i]` and the `let` form.
+  - #1474 deviation 4: state the module-scope `as const` case in A3.
+  - #1476 deviation 5: the explicit `"read"` argument after 0114 section S4.
+  - #1481 deviation 3: the remedy wording of a push outside a loop.
+  - #1481 deviation 4: the reason order of `cpuOnly`.
+- [proposal] Added here for the owner: #1495 deviation 1 (`guarded` on Route 3) and deviation 2 (the plan check).
+
+**Earlier status lines that are out of date.**
+
+- A18 (b), second bullet: "The implementing pull request is #1494. It is open, in draft, and not merged." #1494 is merged (`f0506551`). Deviations 1 to 3 of #1476 are closed.
+- A18, "Open pull requests": #1494 and #1495 are merged. #1495 closes A16 D1. No pull request of this change is open.
+- A18, last Status bullet: "decisions (1) to (3) in progress (#1494)", "S3 to S5 not started" and "A16 D1 in progress (#1495)". #1494 and #1495 are done. Route 3 S3 is done (#1505). S4 and S5 are not started.
+- A18, "Earlier status lines": the A17 (a) and A17 Status lines it corrected said "open, in draft". They are done as above.
+- A17 (a), Status line: "the implementing pull request for (2) and (3) is not started". #1494 is merged.
+- A17, last Status line: "A16 D1 closing pull request not started; S0 to S5 not started". #1495 closed A16 D1. Route 3 S0 to S3 are done.
+- A16, D1 (`repeated` refused with `TS8099`): closed by #1495.
+- A12, Status line: "S5d slice 3: not started" (the A12 Status bullet). Route 3 S0 to S3 are done (#1479, #1481, #1505). S4 and S5 are not started.
+- A12, section 7 (slice table), row "S5d slice 3": Route 3 stages S0 to S5 are named in A17 (b) and A18 (c). S0 to S3 are done.
+- A13, A14 and A16 Status lines, "S5d slice 3 (Route 3, form 3) not started": Route 3 S0 to S3 are done. S4 and S5 are not started.
+- A12, section 1 item 3: the case of an inner loop whose header reads an element is done by #1495. The inner `while` case stays on Route 3 until Route 3 S5.
+- A18 (c), deviation 4 of #1479: "run them before stage S3 of Route 3". S3 is done (#1505) and the measurements did not run. The next action is (e) item 3.
+
+- Affects: no front matter, rule number or code changes. This amendment edits `changes/0114-arrays.md` only.
+- Status: `status: accepted` does not change. Route 3: S0 to S3 done (#1479, #1481, #1505); S4 and S5 not started. A16 D1 closed (#1495). S3 decisions (1) to (3) done (#1494). 0114 section S4 not started.
+- Open items:
+  - #1474 deviations 1, 3 and 4.
+  - #1476 deviations 5 to 7.
+  - #1479 deviation 4.
+  - #1480 deviation 2.
+  - #1481 deviations 1, 3, 4 and 5.
+  - #1490 deviation 1.
+  - #1494 deviation 2.
+  - #1495 deviations 1 to 4 (1 `guarded`, 2 plan check, 3 SwiftShader, 4 `xs = []`).
+  - #1505 deviations 1 to 3.
+  - The Route 3 items of (e).
+  - `do ... while`; Route 3 S4 and S5; 0114 section S4.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`

@@ -5325,13 +5325,13 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
       fuse(() => {
         void t.tiled(bindings(), [1, 1]);
       }),
-    ).rejects.toThrow(/tiled\(\) needs WebGPU: .*not supported yet on the CPU tier \(Rule 8\.24\)/);
+    ).rejects.toThrow(/tiled\(\) has no tier: .*not supported yet on the CPU tier \(Rule 8\.24\)/);
     // Outside a scope a call on a Buffer is recorded, and its failure is thrown at the next read()
     // (change 0138, R2).
     const outside = bindings();
     void t.tiled(outside, [1, 1]);
     await expect(outside.c.read()).rejects.toThrow(
-      /tiled\(\) needs WebGPU: .*not supported yet on the CPU tier \(Rule 8\.24\)/,
+      /tiled\(\) has no tier: .*not supported yet on the CPU tier \(Rule 8\.24\)/,
     );
   });
 
@@ -5487,7 +5487,7 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
     expect(gpu.flow.filter((c) => c === 'submit')).toEqual(['submit']);
   });
 
-  it('fails the plan when the entry cannot run on the CPU tier: every Resident of the plan holds the error, and a later scope clears it', async () => {
+  it('fails the plan when the entry is not supported yet on the CPU tier (Rule 11.8): every Resident of the plan holds the error, and a later scope clears it', async () => {
     const generatedTiled = hostFace(TILED, { fileName: '/app/tiled.shade.ts', runtime: RUNTIME });
     const t = (await loadCode(generatedTiled.code!, 'tiled3')) as Record<string, Call>;
     const m = await load();
@@ -5497,16 +5497,16 @@ describe('an entry call in a fuse scope (proposal 0069)', () => {
         void m.bump(x);
         void t.tiled({ a: zeros(256), b: zeros(256), c, n: 16 }, [1, 1]);
       }),
-    ).rejects.toThrow(/tiled\(\) needs WebGPU/);
-    await expect(c.read()).rejects.toThrow(/tiled\(\) needs WebGPU/);
+    ).rejects.toThrow(/tiled\(\) has no tier/);
+    await expect(c.read()).rejects.toThrow(/tiled\(\) has no tier/);
     // The kernel call's array holds the error too: a failed plan trusts none of its arrays.
-    await expect(x.read()).rejects.toThrow(/tiled\(\) needs WebGPU/);
+    await expect(x.read()).rejects.toThrow(/tiled\(\) has no tier/);
     // A read/write call cannot recover failed contents (0129).
     await expect(
       fuse(() => {
         void m.bump(x);
       }),
-    ).rejects.toThrow(/tiled\(\) needs WebGPU/);
+    ).rejects.toThrow(/tiled\(\) has no tier/);
     // A later write-only entry recovers the handle; a subsequent reader can run.
     await fuse(() => {
       void m.fill({ sink: x }, 1);

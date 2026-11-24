@@ -204,7 +204,7 @@ export function createCodegenRuntime(opts?: CodegenRuntimeOptions): CodegenRunti
       if (real !== undefined) return real;
       if (!(opts?.gpuStubs ?? false))
         throw new Error(
-          `typeshade/cpu: '${name}' is GPU-only and not computable here — pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
+          `typeshade/cpu: '${name}' is not supported yet on the CPU tier (Rule 8.24); pass compileModule(m, { gpuStubs: true }) to accept placeholder values (X-GIS #763 O3)`,
         );
       return GPU_STUBS[name]!(...args);
     },
