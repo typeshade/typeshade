@@ -1,4 +1,5 @@
 import { groupBy, matchGroups } from './multiset.js';
+import { isRunnableTest } from './runnable-tests.js';
 import { testTitles, type Title } from './titles.js';
 
 export interface TitleDiff {
@@ -6,12 +7,10 @@ export interface TitleDiff {
   readonly appeared: Title[];
 }
 
-const isTestFile = (path: string): boolean => path.endsWith('.test.ts');
-
 function titlesOf(files: ReadonlyMap<string, string>, paths: readonly string[]): Title[] {
   return paths.flatMap((path) => {
     const text = files.get(path);
-    return text === undefined || !isTestFile(path) ? [] : testTitles(path, text);
+    return text === undefined || !isRunnableTest(path) ? [] : testTitles(path, text);
   });
 }
 

@@ -1,0 +1,214 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { BETA, tree } from './core/testing/move-purity-fixtures.js';
+import { checkMove, type MoveReport } from '../scripts/move-purity.js';
+import { RUNNABLE_TEST_ROOTS } from '../scripts/move-purity/runnable-tests.js';
+
+const kinds = (report: MoveReport): string[] =>
+  [...new Set(report.findings.map((f) => f.kind))].sort();
+
+describe('binding identity (P2)', () => {
+  const x = 'export function f(): number {\n  return 1;\n}\n';
+  const y = 'export function f(): number {\n  return 2;\n}\n';
+  const g = 'export function g(): number {\n  return f();\n}\n';
+
+  it('refuses an import redirected to a same-named symbol of another module', () => {
+    const base = tree({
+      'src/x.ts': x,
+      'src/y.ts': y,
+      'src/a.ts': `import { f } from './x.js';\n${g}`,
+    });
+    const head = tree({
+      'src/x.ts': x,
+      'src/y.ts': y,
+      'src/a.ts': `import { f } from './y.js';\n${g}`,
+    });
+    const report = checkMove(base, head);
+    expect(report.pure).toBe(false);
+    expect(kinds(report)).toContain('rebound');
+    expect(report.findings.find((f) => f.kind === 'rebound')?.detail).toMatch(/^g: f base /);
+  });
+
+  it('refuses a unit moved into a file that has its own declaration of the same name', () => {
+    const helper = (n: number): string => `function helper(): number {\n  return ${n};\n}\n`;
+    const user = 'export function g(): number {\n  return helper();\n}\n';
+    const base = tree({ 'src/a.ts': helper(1) + user, 'src/b.ts': `${helper(2)}export {};\n` });
+    const head = tree({ 'src/a.ts': helper(1), 'src/b.ts': `${helper(2)}export {};\n${user}` });
+    const report = checkMove(base, head);
+    expect(kinds(report)).toContain('rebound');
+  });
+
+  it('accepts a consumer whose import reaches the same declaration through a facade', () => {
+    const consumer = `import { f } from './x.js';\n${g}`;
+    const base = tree({ 'src/x.ts': x, 'src/a.ts': consumer });
+    const head = tree({
+      'src/x.ts': `export { f } from './x/part.js';\n`,
+      'src/x/part.ts': x,
+      'src/a.ts': consumer,
+    });
+    expect(checkMove(base, head).findings).toEqual([]);
+  });
+});
+
+describe('the export surface (P3)', () => {
+  const x = 'export const f = 1;\n';
+  const y = 'export const f = 2;\n';
+
+  it('refuses a re-export redirected to another module', () => {
+    const base = tree({
+      'src/x.ts': x,
+      'src/y.ts': y,
+      'src/a.ts': `export { f } from './x.js';\n`,
+    });
+    const head = tree({
+      'src/x.ts': x,
+      'src/y.ts': y,
+      'src/a.ts': `export { f } from './y.js';\n`,
+    });
+    const report = checkMove(base, head);
+    expect(kinds(report)).toContain('surface');
+    expect(report.findings.find((f) => f.kind === 'surface')?.path).toBe('src/a.ts');
+  });
+
+  it('refuses an export that vanished from a file that stays', () => {
+    const base = tree({ 'src/x.ts': x + 'export const g = 2;\n' });
+    const head = tree({ 'src/x.ts': x, 'src/y.ts': 'export const g = 2;\n' });
+    expect(kinds(checkMove(base, head))).toContain('surface');
+  });
+
+  it('refuses an export whose type-only flag changed', () => {
+    const t = 'export class C {}\n';
+    const base = tree({ 'src/t.ts': t, 'src/a.ts': `export { C } from './t.js';\n` });
+    const head = tree({ 'src/t.ts': t, 'src/a.ts': `export type { C } from './t.js';\n` });
+    expect(kinds(checkMove(base, head))).toContain('surface');
+  });
+
+  it('refuses a facade re-export that left out one name', () => {
+    const lib = 'export const a = 1;\nexport const b = 2;\n';
+    const base = tree({ 'src/a.ts': lib });
+    const head = tree({ 'src/a.ts': `export { a } from './a/part.js';\n`, 'src/a/part.ts': lib });
+    expect(kinds(checkMove(base, head))).toContain('surface');
+  });
+});
+
+describe('module evaluation (P5)', () => {
+  const setup = 'export {};\n';
+
+  it('refuses a side-effect import removed from a file that stays', () => {
+    const base = tree({ 'src/setup.ts': setup, 'src/a.ts': `import './setup.js';\n${BETA}` });
+    const head = tree({ 'src/setup.ts': setup, 'src/a.ts': BETA });
+    expect(kinds(checkMove(base, head))).toContain('side-effect imports changed');
+  });
+
+  it('refuses two side-effect imports that swapped places', () => {
+    const files = { 'src/s.ts': setup, 'src/t.ts': setup };
+    const base = tree({ ...files, 'src/a.ts': `import './s.js';\nimport './t.js';\n${BETA}` });
+    const head = tree({ ...files, 'src/a.ts': `import './t.js';\nimport './s.js';\n${BETA}` });
+    expect(kinds(checkMove(base, head))).toContain('side-effect imports changed');
+  });
+
+  it('refuses a side-effect import in a new file', () => {
+    const base = tree({ 'src/setup.ts': setup, 'src/a.ts': BETA });
+    const head = tree({
+      'src/setup.ts': setup,
+      'src/a.ts': 'const LIMIT = 4;\n',
+      'src/b.ts': `import './setup.js';\n${BETA.slice(BETA.indexOf('function'))}`,
+    });
+    expect(kinds(checkMove(base, head))).toContain('side-effect import in a new file');
+  });
+
+  it('refuses an import whose type-only flag changed', () => {
+    const t = 'export type T = number;\n';
+    const user = 'export const v: T = 1;\n';
+    const base = tree({ 'src/t.ts': t, 'src/a.ts': `import type { T } from './t.js';\n${user}` });
+    const head = tree({ 'src/t.ts': t, 'src/a.ts': `import { T } from './t.js';\n${user}` });
+    expect(kinds(checkMove(base, head))).toContain('type-only flag changed');
+  });
+
+  it('refuses a value import that no unit used and that was removed', () => {
+    const lib = 'export const w = 1;\n';
+    const base = tree({ 'src/x.ts': lib, 'src/a.ts': `import { w } from './x.js';\n${BETA}` });
+    const head = tree({ 'src/x.ts': lib, 'src/a.ts': BETA });
+    expect(kinds(checkMove(base, head))).toContain('value import removed');
+  });
+
+  it('refuses a value import added to a file that stays without a moved unit that needs it', () => {
+    const lib = 'export const w = 1;\n';
+    const base = tree({ 'src/x.ts': lib, 'src/a.ts': BETA });
+    const head = tree({ 'src/x.ts': lib, 'src/a.ts': `import { w } from './x.js';\n${BETA}` });
+    expect(kinds(checkMove(base, head))).toContain('value import added');
+  });
+
+  it('accepts the import of a unit that moved away, and the re-export that replaces it', () => {
+    const lib = 'export const w = 1;\n';
+    const useW = 'export function useW(): number {\n  return w;\n}\n';
+    const keep = 'export const keep = 1;\n';
+    const base = tree({
+      'src/x.ts': lib,
+      'src/a.ts': `import { w } from './x.js';\n${useW}${keep}`,
+    });
+    const head = tree({
+      'src/x.ts': lib,
+      'src/a.ts': `export { useW } from './b.js';\n${keep}`,
+      'src/b.ts': `import { w } from './x.js';\n${useW}`,
+    });
+    const report = checkMove(base, head);
+    expect(report.findings).toEqual([]);
+    expect(report.pure).toBe(true);
+  });
+});
+
+describe('location-dependent units', () => {
+  const cases: [string, string][] = [
+    ['import.meta', 'export function here(): string {\n  return import.meta.url;\n}\n'],
+    ['__dirname', 'export function here(): string {\n  return __dirname;\n}\n'],
+    ['a dynamic import', "export function here() {\n  return import('./x.js');\n}\n"],
+    ['require', "export function here() {\n  return require('x');\n}\n"],
+    ['a relative path literal', "export function here(): string {\n  return './data/a.json';\n}\n"],
+  ];
+
+  it.each(cases)('refuses %s in a unit that changed directory', (_name, unit) => {
+    const base = tree({ 'src/a/x.ts': unit });
+    const report = checkMove(base, tree({ 'src/b/x.ts': unit }));
+    expect(kinds(report)).toContain('location-dependent unit moved');
+  });
+
+  it.each(cases)('accepts %s in a unit that stays in its directory', (_name, unit) => {
+    const report = checkMove(tree({ 'src/a/x.ts': unit }), tree({ 'src/a/y.ts': unit }));
+    expect(kinds(report)).not.toContain('location-dependent unit moved');
+  });
+});
+
+describe('the preamble and the file class (P6)', () => {
+  it('refuses a shebang or a byte order mark that changed', () => {
+    const base = tree({ 'src/a.ts': '#!/usr/bin/env node\nconst A = 1;\n' });
+    expect(kinds(checkMove(base, tree({ 'src/a.ts': 'const A = 1;\n' })))).toEqual(['preamble']);
+    const marked = tree({ 'src/a.ts': '﻿#!/usr/bin/env node\nconst A = 1;\n' });
+    expect(kinds(checkMove(base, marked))).toEqual(['preamble']);
+  });
+
+  it('refuses a unit moved between a source, a test and a shade file', () => {
+    const unit = 'function f() {}\n';
+    for (const target of ['src/a.test.ts', 'src/a.shade.ts', 'src/a.d.ts']) {
+      const report = checkMove(tree({ 'src/a.ts': unit }), tree({ [target]: unit }));
+      expect(kinds(report)).toContain('file class changed');
+    }
+  });
+
+  it('counts the titles of a test file that vitest runs and not the others', () => {
+    const text = `describe('a', () => {\n  it('works', () => {});\n});\n`;
+    const report = checkMove(tree({ 'src/a.test.ts': text }), tree({ 'scripts/a.test.ts': text }));
+    expect(report.titles.vanished.map((t) => t.title).sort()).toEqual(['a', 'works']);
+  });
+
+  it('keeps the runnable test roots equal to the include globs of vitest.config.ts', () => {
+    const config = readFileSync(
+      fileURLToPath(new URL('../vitest.config.ts', import.meta.url)),
+      'utf8',
+    );
+    const globs = RUNNABLE_TEST_ROOTS.map((root) => `'${root}**/*.test.ts'`).join(', ');
+    expect(config).toContain(`include: [${globs}]`);
+    expect(config).toContain("'**/node_modules/**'");
+  });
+});

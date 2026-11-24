@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { isComparedSource, COMMENT_BASELINE, SIZE_BASELINE, SURFACE_PATH } from './outside-move.js';
-import { LAYER_POLICY_PATH } from './known-edges.js';
+import type { DiffEntry } from './outside-move.js';
+import { COMMENT_BASELINE, SIZE_BASELINE, SURFACE_PATH, isComparedSource } from './outside-move.js';
 
 const MAX_BUFFER = 1024 * 1024 * 1024;
 
@@ -18,18 +18,38 @@ export function diffPaths(root: string, from: string, to: string): string[] {
     .filter((path) => path.length > 0);
 }
 
-export function declaresPureMove(root: string, from: string, to: string): boolean {
-  const values = git(root, [
-    'log',
-    '--format=%(trailers:key=Move,valueonly,separator=%x0a)',
-    `${from}..${to}`,
-  ]);
-  return values.split('\n').some((value) => value.trim().toLowerCase() === 'pure');
+export function diffEntries(root: string, from: string, to: string): DiffEntry[] {
+  const tokens = git(root, ['diff', '--raw', '--no-renames', '-z', from, to]).split('\0');
+  const entries: DiffEntry[] = [];
+  for (let at = 0; at + 1 < tokens.length; at += 2) {
+    const [oldMode, newMode] = tokens[at]!.slice(1).split(' ');
+    entries.push({ path: tokens[at + 1]!, oldMode: oldMode!, newMode: newMode! });
+  }
+  return entries;
 }
 
-const NEEDS_TEXT = new Set([SIZE_BASELINE, COMMENT_BASELINE, SURFACE_PATH, LAYER_POLICY_PATH]);
+export function commitCount(root: string, from: string, to: string): number {
+  return Number(git(root, ['rev-list', '--count', `${from}..${to}`]).trim());
+}
 
-export const needsText = (path: string): boolean => isComparedSource(path) || NEEDS_TEXT.has(path);
+export const PURE_MOVE_LINE = /^Move:\s*pure\.?\s*$/i;
+
+export function declaresPureMove(root: string, from: string, to: string): boolean {
+  return git(root, ['log', '--format=%B', `${from}..${to}`])
+    .split('\n')
+    .some((line) => PURE_MOVE_LINE.test(line.replace(/\r$/, '')));
+}
+
+export function trackedPaths(root: string, ref: string): string[] {
+  return git(root, ['ls-tree', '-r', '--name-only', '-z', ref])
+    .split('\0')
+    .filter((path) => path.length > 0);
+}
+
+const NEEDS_TEXT = new Set([SIZE_BASELINE, COMMENT_BASELINE, SURFACE_PATH]);
+
+export const needsText = (path: string): boolean =>
+  isComparedSource(path) || path.endsWith('.md') || NEEDS_TEXT.has(path);
 
 export function readTexts(
   root: string,

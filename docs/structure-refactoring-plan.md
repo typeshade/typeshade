@@ -239,15 +239,18 @@ Do these steps in order. A slice of S1 to S13 starts only after S0 items a and b
 9. Run `bun run bake:file-size-baseline`. The numbers go down and no number goes up.
 10. When a `KNOWN` edge of `src/layer-policy.test.ts` is gone, delete its line.
 11. Run `bun run bake:comment-baseline` only if a comment moved with the code.
-12. Run the move-purity check of S0 item a (`bun run move:check --base origin/main --require`), and the module-surface check of S0 item f.
+12. Run the move-purity check of S0 item a (`bun run move:check --base origin/main --require`). It includes the module-surface check of S0 item f.
 13. Run the checks of section 8.
 14. Commit with `Change: none, internal move without behaviour change` and the trailer `Move: pure`. Add `Docs-Impact:` if the hook asks.
 15. Push, mark the pull request ready when its required checks are green, and record the slice (section 8).
 
 Proof that behaviour did not change:
 
-- The move-purity check passes. Only `import` declarations, `export ... from` declarations and an
-  added or removed `export` modifier differ. The multiset of test titles is equal.
+- The move-purity check passes. Section 8, item 9 states what a pass proves and what it leaves open.
+- Each moved declaration goes into a new file. A move into an existing file changes the exports of
+  that file, and the check refuses it.
+- A declaration that runs code when the module loads is not moved in a slice. The check refuses it.
+  That slice is an ordinary change and goes through review.
 - The emit goldens are byte-identical: `bunx vitest run examples/emit-goldens.test.ts examples/shade-examples.test.ts examples/shade-twins.test.ts`
   without `UPDATE_EMIT_GOLDENS`. Never run `bun run bake:goldens` in a slice.
 - `src/__api__/author-names.md` is unchanged. `src/author-names.test.ts` holds it.
@@ -313,7 +316,7 @@ Each item is its own pull request.
 | c    | Decision                  | A name policy test. No new file of `src/` is named `utils`, `helpers`, `common`, `misc`, `shared-stuff` or `part-N`, or has a bare numeric suffix. The two existing files (`src/compiler/ts/growing-programs/common.ts` and `src/compiler/ts/optional/helpers.ts`) are its baseline, which only shrinks.                                                                                                                                                                            |
 | d    | Decision                  | An import-cycle ratchet. The number of file-level import cycles has a baseline that only shrinks. A cycle is a strongly connected component of more than one file. Type-only imports are counted separately.                                                                                                                                                                                                                                                                        |
 | e    | Decision                  | A facade ratchet. A list names the facade files. A facade holds only re-exports. The list only shrinks after S13 begins. A file inside a module's directory never imports its own facade.                                                                                                                                                                                                                                                                                           |
-| f    | Decision                  | A module-surface check for a slice. The set of symbols that files outside a module's directory import from it is the same before and after the slice.                                                                                                                                                                                                                                                                                                                               |
+| f    | Part of item a            | A module-surface check for a slice. Item a carries it as rule 3 (P3). The set of symbols that files outside a module's directory import from it is the same before and after the slice.                                                                                                                                                                                                                                                                                             |
 | g    | Proposal                  | An extension of `MAY_IMPORT` inside `core`, for example `core/ir` below `core/passes` below `core/backends`, with its own `KNOWN` list. The exact order is fixed by measurement, in its own pull request.                                                                                                                                                                                                                                                                           |
 
 Reasons for the order of S1 to S13 (Proposal):
@@ -415,12 +418,41 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
 8. The emit goldens, without update (section 4).
 9. The move-purity check of S0 item a, over the base and the head commit of the pull request:
    `bun run move:check --base origin/main --require`.
-   A commit of the slice carries the trailer `Move: pure`.
-   CI runs the check on a pull request when a commit of its range carries that trailer.
-   Without the trailer the check prints one line and exits 0. The flag `--require` runs it anyway.
 
-Fact: when the check passes, each changed `.ts` file has the same declarations in the same relative order, the same comments, the same test titles and the same directive prologue (`"use typeshade"`), which a moved declaration keeps. Only `import` lines, `export ... from` lines and `export` keywords differ.
-Known gaps: an import redirected to another symbol of the same name is not caught, and an added `export` is only reported (S0 item f covers it).
+   Procedure for the trailer:
+
+   1. Add the line `Move: pure` to the message of a commit of the slice.
+   2. CI runs the check on a pull request when any line of any commit message in the range matches.
+   3. Without that line, the check prints a notice and exits 0. It did not run.
+   4. The flag `--require` runs the check anyway. An empty range then exits 2.
+
+   Promise. A range passes only when all of these hold:
+
+   - P1. The same declaration texts exist, in the same relative order.
+     A declaration is a top-level statement that is not a module link or a directive.
+   - P2. Every identifier in every declaration binds to the same declaration as before.
+   - P3. Every file that exists on both sides exports the same names, bound to the same declarations.
+   - P4. Only inert declarations change files.
+     An inert declaration runs no code when the module loads (rule list in `scripts/move-purity/inert.ts`).
+   - P5. Nothing that loads and runs at module evaluation is reduced or redirected.
+     The side-effect imports, the type-only flags and the value imports of a file are kept.
+   - P6. The comments, the directive prologue, the preamble, the test titles and the file classes are kept.
+   - P7. Nothing else changed.
+     Only the two baselines (not growing), `src/__api__/surface.md` (paths only),
+     the `KNOWN` list (removals only) and documents (paths only) may differ.
+
+   Consequence of P4. A slice that must move an active statement is not a pure move.
+   It goes through ordinary review. A top-level `describe` or `it` call is an active statement.
+   A slice that moves test files is therefore an ordinary change, with the title multiset as evidence.
+
+   Known gaps. The check does not cover these cases:
+
+   - Two declarations with identical text in two files. A redirect between them is not seen.
+   - The order in which modules load, when a unit moves to a file that loads at another time.
+   - A package entry (`exports` of `package.json`) that points to a deleted file.
+   - The program uses `noLib` and no ambient types. Global names bind by text.
+   - Comments in a moved declaration that were edited together with a rename of its text.
+   - A dynamic or computed access that the checker does not resolve to a declaration.
 
 Document audit. It is separate from the functional checks:
 
@@ -436,7 +468,7 @@ Each pull request states the following:
 - The `KNOWN` edges removed, if any.
 - The result of the move-purity check: the declarations that changed, appeared or vanished, and the test titles that differ.
   A slice that the check refuses is not a pure move (decision D5).
-- The result of the module-surface check, and the import-cycle count before and after.
+- The result of the module-surface check (part of the move-purity check), and the import-cycle count before and after.
 - Each check that ran: the command, the date and the result.
 - Each check that did not run, marked "not run", with the reason.
 - Each path-only change to a line of `src/__api__/surface.md`, if any.

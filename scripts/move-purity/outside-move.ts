@@ -1,12 +1,25 @@
+import ts from 'typescript';
 import { LAYER_POLICY_PATH, knownEdges } from './known-edges.js';
+import { pathOnlyMarkdown } from './markdown.js';
 
 export const SIZE_BASELINE = 'scripts/file-size-baseline.json';
 export const COMMENT_BASELINE = 'scripts/comment-baseline.json';
 export const SURFACE_PATH = 'src/__api__/surface.md';
+export const FREE_DOCUMENTS: readonly string[] = [
+  'docs/structure-refactoring-plan.md',
+  'docs/project-structure.md',
+];
+export const FORBIDDEN_PATHS: readonly string[] = ['docs/owner-decisions.md', 'CLAUDE.md'];
 
 export interface OutsideEntry {
   readonly path: string;
   readonly reason: string;
+}
+
+export interface DiffEntry {
+  readonly path: string;
+  readonly oldMode: string;
+  readonly newMode: string;
 }
 
 export interface OutsideResult {
@@ -14,8 +27,6 @@ export interface OutsideResult {
   readonly knownEdgesRemoved: string[];
   readonly surfacePathChanges: number;
 }
-
-const DOCUMENT_PREFIXES = ['docs/', 'changes/'];
 
 export const isComparedSource = (path: string): boolean => path.endsWith('.ts');
 
@@ -59,16 +70,37 @@ function surfaceCheck(base: string | undefined, head: string | undefined) {
   return { same, changed };
 }
 
+const parse = (text: string | undefined): ts.SourceFile | undefined =>
+  text === undefined
+    ? undefined
+    : ts.createSourceFile(LAYER_POLICY_PATH, text, ts.ScriptTarget.Latest, true);
+
+function modeProblem(entry: DiffEntry): string | undefined {
+  if (entry.oldMode === '120000' || entry.newMode === '120000') return 'a symbolic link';
+  if (entry.oldMode !== '000000' && entry.newMode !== '000000' && entry.oldMode !== entry.newMode) {
+    return `a mode change ${entry.oldMode} -> ${entry.newMode}`;
+  }
+  return undefined;
+}
+
 export function checkOutside(
   base: ReadonlyMap<string, string>,
   head: ReadonlyMap<string, string>,
   paths: readonly string[],
+  entries: readonly DiffEntry[],
+  tracked: ReadonlySet<string>,
 ): OutsideResult {
   const outside: OutsideEntry[] = [];
   const knownEdgesRemoved: string[] = [];
   let surfacePathChanges = 0;
+  for (const entry of entries) {
+    const problem = modeProblem(entry);
+    if (problem !== undefined) outside.push({ path: entry.path, reason: problem });
+  }
   for (const path of paths) {
-    if (path === SIZE_BASELINE || path === COMMENT_BASELINE) {
+    if (FORBIDDEN_PATHS.includes(path)) {
+      outside.push({ path, reason: 'a pure move never changes this file' });
+    } else if (path === SIZE_BASELINE || path === COMMENT_BASELINE) {
       const growth = baselineGrowth(base.get(path), head.get(path));
       if (growth !== undefined) outside.push({ path, reason: `the baseline grew: ${growth}` });
     } else if (path === SURFACE_PATH) {
@@ -76,16 +108,19 @@ export function checkOutside(
       surfacePathChanges = changed;
       if (!same) outside.push({ path, reason: 'a line changed more than its path' });
     } else if (path === LAYER_POLICY_PATH) {
-      const before = knownEdges(base.get(path));
-      const after = knownEdges(head.get(path));
+      const before = knownEdges(parse(base.get(path)));
+      const after = knownEdges(parse(head.get(path)));
       for (const edge of before) if (!after.has(edge)) knownEdgesRemoved.push(edge);
       for (const edge of after) {
         if (!before.has(edge)) outside.push({ path, reason: `KNOWN edge added: ${edge}` });
       }
-    } else if (
-      !isComparedSource(path) &&
-      !DOCUMENT_PREFIXES.some((prefix) => path.startsWith(prefix))
-    ) {
+    } else if (isComparedSource(path) || FREE_DOCUMENTS.includes(path)) {
+      continue;
+    } else if (path.endsWith('.md')) {
+      if (!pathOnlyMarkdown(base.get(path), head.get(path), tracked)) {
+        outside.push({ path, reason: 'a document may change repository paths only' });
+      }
+    } else {
       outside.push({ path, reason: 'a pure move may not change this file' });
     }
   }

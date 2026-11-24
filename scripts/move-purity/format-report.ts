@@ -1,10 +1,9 @@
 import type { MoveReport } from './check-move.js';
 import type { UnitRef } from './compare-units.js';
+import { describeFinding } from './findings.js';
 
 const named = (ref: UnitRef): string =>
   `${ref.path}:${ref.line} ${ref.names.join(', ') || '(unnamed)'}`;
-
-const firstLine = (text: string): string => text.split('\n')[0]!;
 
 export function formatReport(report: MoveReport): string {
   const { units, titles } = report;
@@ -12,7 +11,7 @@ export function formatReport(report: MoveReport): string {
     `Move purity: ${report.pure ? 'pure' : 'NOT pure'}. ${report.changedPaths} changed paths.`,
     `Units: ${units.changed.length} changed, ${units.appeared.length} appeared, ` +
       `${units.vanished.length} vanished, ${units.moved.length} moved, ${units.reordered.length} reordered.`,
-    `Comments: ${report.comments.appeared.length} appeared, ${report.comments.vanished.length} vanished.`,
+    `Findings: ${report.findings.length} (bindings, surface, inert moves, module evaluation, comments, preamble).`,
     `Test titles: ${titles.appeared.length} appeared, ${titles.vanished.length} vanished.`,
     `Directives: ${report.directives.length} differ.`,
     `Outside the move: ${report.outside.length}.`,
@@ -29,10 +28,7 @@ export function formatReport(report: MoveReport): string {
     );
   }
   for (const ref of units.reordered) lines.push(`reordered ${named(ref)}`);
-  for (const c of report.comments.appeared)
-    lines.push(`comment appeared ${c.path}:${c.line} ${firstLine(c.text)}`);
-  for (const c of report.comments.vanished)
-    lines.push(`comment vanished ${c.path}:${c.line} ${firstLine(c.text)}`);
+  for (const f of report.findings) lines.push(describeFinding(f));
   for (const ref of units.appeared) lines.push(`appeared ${named(ref)}`);
   for (const ref of units.vanished) lines.push(`vanished ${named(ref)}`);
   for (const t of titles.appeared) lines.push(`title appeared ${t.path}:${t.line} ${t.title}`);

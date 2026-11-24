@@ -1,4 +1,5 @@
 import type { MovedUnit } from './compare-units.js';
+import type { Side } from './side-program.js';
 import { analyzeSource } from './units.js';
 
 export interface DirectiveViolation {
@@ -9,14 +10,14 @@ export interface DirectiveViolation {
 
 const same = (a: readonly string[], b: readonly string[]): boolean => a.join('\0') === b.join('\0');
 
-const listOf = (files: ReadonlyMap<string, string>, path: string): string[] | undefined => {
-  const text = files.get(path);
-  return text === undefined ? undefined : analyzeSource(path, text).directives;
+const listOf = (side: Side, path: string): string[] | undefined => {
+  const source = side.sourceOf(path);
+  return source ? analyzeSource(source, path).directives : undefined;
 };
 
 export function directiveViolations(
-  base: ReadonlyMap<string, string>,
-  head: ReadonlyMap<string, string>,
+  base: Side,
+  head: Side,
   paths: readonly string[],
   moved: readonly MovedUnit[],
 ): DirectiveViolation[] {
@@ -43,12 +44,14 @@ export function directiveViolations(
   }
   for (const path of paths) {
     const after = listOf(head, path);
-    if (base.has(path) || after === undefined || after.length === 0 || movedInto.has(path))
+    if (base.sourceOf(path) || after === undefined || after.length === 0 || movedInto.has(path)) {
       continue;
-    const others = paths.filter((other) => other !== path);
-    const known = others.some((other) =>
-      [listOf(base, other), listOf(head, other)].some((l) => l !== undefined && same(l, after)),
-    );
+    }
+    const known = paths
+      .filter((other) => other !== path)
+      .some((other) =>
+        [listOf(base, other), listOf(head, other)].some((l) => l !== undefined && same(l, after)),
+      );
     if (!known) report(path, [], after);
   }
   return violations;

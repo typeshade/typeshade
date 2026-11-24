@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { ALPHA, BETA, USE_TYPESHADE, exported, tree } from './core/testing/move-purity-fixtures.js';
 import { checkMove, formatReport } from '../scripts/move-purity.js';
 
-const tree = (files: Record<string, string>): Map<string, string> => new Map(Object.entries(files));
-
-const ALPHA = `/** Adds one. */\nfunction addOne(x: number): number {\n  return x + 1;\n}\n`;
-const BETA = `const LIMIT = 4;\n\nfunction clamp(x: number): number {\n  return Math.min(x, LIMIT);\n}\n`;
-
 describe('directive prologues', () => {
-  const use = '"use typeshade";\n';
+  const use = USE_TYPESHADE;
 
   it('accepts a split whose new file carries the directive', () => {
     const base = tree({ 'src/a.ts': use + ALPHA + BETA });
@@ -37,23 +33,23 @@ describe('directive prologues', () => {
   });
 
   it('refuses a directive removed from a file that stays', () => {
-    const base = tree({ 'src/a.ts': use + BETA });
-    const head = tree({ 'src/a.ts': BETA });
-    expect(checkMove(base, head).pure).toBe(false);
+    const report = checkMove(tree({ 'src/a.ts': use + BETA }), tree({ 'src/a.ts': BETA }));
+    expect(report.pure).toBe(false);
   });
 
   it('refuses units moved from a directive file into an existing file without it', () => {
-    const base = tree({ 'src/a.ts': use + ALPHA + BETA, 'src/b.ts': 'const X = 1;\n' });
-    const head = tree({ 'src/a.ts': use + BETA, 'src/b.ts': 'const X = 1;\n' + ALPHA });
+    const x = 'const X = 1;\n';
+    const base = tree({ 'src/a.ts': use + ALPHA + BETA, 'src/b.ts': x });
+    const head = tree({ 'src/a.ts': use + BETA, 'src/b.ts': x + ALPHA });
     expect(checkMove(base, head).pure).toBe(false);
   });
 
   it('accepts a new facade only with a directive list that a changed file has', () => {
-    const base = tree({ 'src/a.ts': use + ALPHA });
+    const base = tree({ 'src/a.ts': use + exported(ALPHA) });
     const facade = `${use}export { addOne } from './a/part.js';\n`;
-    const part = tree({ 'src/a.ts': facade, 'src/a/part.ts': use + 'export ' + ALPHA });
+    const part = tree({ 'src/a.ts': facade, 'src/a/part.ts': use + exported(ALPHA) });
     expect(checkMove(base, part).pure).toBe(true);
-    const bare = tree({ 'src/a.ts': facade, 'src/a/part.ts': 'export ' + ALPHA });
+    const bare = tree({ 'src/a.ts': facade, 'src/a/part.ts': exported(ALPHA) });
     expect(checkMove(base, bare).pure).toBe(false);
   });
 });

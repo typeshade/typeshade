@@ -1,7 +1,7 @@
 import { groupBy, matchGroups } from './multiset.js';
-import { analyzeSource, normalizeLineEndings, type Unit } from './units.js';
 import { orderViolations } from './order.js';
-import { LAYER_POLICY_PATH, withoutKnownEdges } from './known-edges.js';
+import type { Side } from './side-program.js';
+import { analyzeSource, type Unit } from './units.js';
 
 export interface UnitRef {
   readonly path: string;
@@ -29,18 +29,21 @@ export interface UnitDiff {
   readonly exportsRemoved: UnitRef[];
 }
 
-const refOf = (unit: Unit): UnitRef => ({ path: unit.path, line: unit.line, names: unit.names });
+export interface UnitMatch {
+  readonly diff: UnitDiff;
+  readonly kept: [Unit, Unit][];
+  readonly moved: [Unit, Unit][];
+}
 
-function unitsOf(files: ReadonlyMap<string, string>, paths: readonly string[]): Unit[] {
-  const units: Unit[] = [];
-  for (const path of paths) {
-    const text = files.get(path);
-    if (text === undefined) continue;
-    const prepared =
-      path === LAYER_POLICY_PATH ? withoutKnownEdges(normalizeLineEndings(text)) : text;
-    units.push(...analyzeSource(path, prepared).units);
-  }
-  return units;
+export const refOf = (unit: Unit): UnitRef => ({
+  path: unit.path,
+  line: unit.line,
+  names: unit.names,
+});
+
+export function unitsOfPath(side: Side, path: string): Unit[] {
+  const source = side.sourceOf(path);
+  return source ? analyzeSource(source, path).units : [];
 }
 
 function pairByName(vanished: UnitRef[], appeared: UnitRef[]) {
@@ -55,23 +58,25 @@ function pairByName(vanished: UnitRef[], appeared: UnitRef[]) {
   return { changed, vanished: stillVanished, appeared: stillAppeared };
 }
 
-export function compareUnits(
-  base: ReadonlyMap<string, string>,
-  head: ReadonlyMap<string, string>,
-  paths: readonly string[],
-): UnitDiff {
-  const baseGroups = groupBy(unitsOf(base, paths), (u) => u.hash);
-  const headGroups = groupBy(unitsOf(head, paths), (u) => u.hash);
-  const moved: MovedUnit[] = [];
+export function matchUnits(base: Side, head: Side, paths: readonly string[]): UnitMatch {
+  const baseGroups = groupBy(
+    paths.flatMap((p) => unitsOfPath(base, p)),
+    (u) => u.hash,
+  );
+  const headGroups = groupBy(
+    paths.flatMap((p) => unitsOfPath(head, p)),
+    (u) => u.hash,
+  );
+  const kept: [Unit, Unit][] = [];
+  const moved: [Unit, Unit][] = [];
   const exportsAdded: UnitRef[] = [];
   const exportsRemoved: UnitRef[] = [];
   const vanished: UnitRef[] = [];
   const appeared: UnitRef[] = [];
-  const pairs: [Unit, Unit][] = [];
   for (const hash of new Set([...baseGroups.keys(), ...headGroups.keys()])) {
     const match = matchGroups(baseGroups.get(hash) ?? [], headGroups.get(hash) ?? []);
-    for (const [from, to] of match.moved) moved.push({ from: refOf(from), to: refOf(to) });
-    pairs.push(...match.kept, ...match.moved);
+    kept.push(...match.kept);
+    moved.push(...match.moved);
     for (const [from, to] of [...match.kept, ...match.moved]) {
       if (to.exported && !from.exported) exportsAdded.push(refOf(to));
       if (from.exported && !to.exported) exportsRemoved.push(refOf(from));
@@ -80,13 +85,14 @@ export function compareUnits(
     appeared.push(...match.appeared.map(refOf));
   }
   const paired = pairByName(vanished, appeared);
-  return {
+  const diff: UnitDiff = {
     vanished: paired.vanished,
     appeared: paired.appeared,
     changed: paired.changed,
-    moved,
-    reordered: orderViolations(pairs).map(refOf),
+    moved: moved.map(([from, to]) => ({ from: refOf(from), to: refOf(to) })),
+    reordered: orderViolations([...kept, ...moved]).map(refOf),
     exportsAdded,
     exportsRemoved,
   };
+  return { diff, kept, moved };
 }

@@ -5,22 +5,26 @@ export interface FileComment {
   readonly text: string;
   readonly path: string;
   readonly line: number;
+  readonly pos: number;
 }
 
 const isJSDocNode = (node: ts.Node): boolean =>
   node.kind >= ts.SyntaxKind.FirstJSDocNode && node.kind <= ts.SyntaxKind.LastJSDocNode;
 
-export function fileComments(path: string, rawText: string): FileComment[] {
-  const text = normalizeLineEndings(rawText);
-  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+export function fileComments(source: ts.SourceFile, path: string): FileComment[] {
+  const text = source.text;
   const seen = new Set<number>();
   const comments: FileComment[] = [];
   const take = (ranges: readonly ts.CommentRange[] | undefined): void => {
     for (const range of ranges ?? []) {
       if (seen.has(range.pos)) continue;
       seen.add(range.pos);
-      const line = source.getLineAndCharacterOfPosition(range.pos).line + 1;
-      comments.push({ text: text.slice(range.pos, range.end), path, line });
+      comments.push({
+        text: normalizeLineEndings(text.slice(range.pos, range.end)),
+        path,
+        line: source.getLineAndCharacterOfPosition(range.pos).line + 1,
+        pos: range.pos,
+      });
     }
   };
   const visit = (node: ts.Node): void => {
