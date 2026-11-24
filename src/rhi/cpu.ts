@@ -40,6 +40,7 @@ import { argOf, fieldsOf, stageOf, type Stage } from './cpu/stage.js';
 import { boundOf, bindTo, writeBack } from './cpu/binding.js';
 import { CpuComputePipeline, CpuRenderPipeline } from './cpu/pipelines.js';
 import { attributeFormat, attributeValue, type Attribute } from './cpu/vertex-fetch.js';
+import { writeTexel, clearTexture, clearDepth } from './cpu/texel.js';
 export { holdValue } from './cpu/binding.js';
 export { decode, encode } from './cpu/codec.js';
 
@@ -98,48 +99,6 @@ function dispatch(
     s.code.$.invocation = undefined;
   }
   writeBack(back);
-}
-
-const unorm8 = (v: number): number =>
-  Number.isNaN(v) ? 0 : Math.round(Math.min(1, Math.max(0, v)) * 255);
-
-function writeTexel(t: CpuTexture, i: number, c: readonly number[], mask = 0xf): void {
-  const f = t.kind;
-  const at = i * f.bytes;
-  const dv = new DataView(t.bytes.buffer);
-  f.channels.forEach((ch, k) => {
-    if ((mask & (1 << ch)) === 0) return;
-    const v = c[ch] ?? (ch === 3 ? 1 : 0);
-    switch (f.store) {
-      case 'unorm8':
-        t.bytes[at + k] = unorm8(v);
-        return;
-      case 'u8':
-        t.bytes[at + k] = v & 0xff;
-        return;
-      case 'f32':
-        dv.setFloat32(at + 4 * k, v, true);
-        return;
-      case 'u32':
-        dv.setUint32(at + 4 * k, v >>> 0, true);
-        return;
-      case 'i32':
-        dv.setInt32(at + 4 * k, v | 0, true);
-        return;
-    }
-  });
-}
-
-function clearTexture(t: CpuTexture, value: readonly number[]): void {
-  if (t.kind.store === 'opaque')
-    throw new TypeError(`A "${t.format}" target clear is not supported yet on the CPU tier.`);
-  const texels = t.width * t.height;
-  for (let i = 0; i < texels; i++) writeTexel(t, i, value);
-}
-
-function clearDepth(t: CpuTexture, depth: number): void {
-  const f = new Float32Array(t.bytes.buffer, 0, t.width * t.height);
-  f.fill(depth);
 }
 
 interface PassState {
