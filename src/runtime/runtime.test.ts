@@ -2555,7 +2555,7 @@ declare const img: texture_storage_2d<"rgba8snorm", "write">;
       'load({ console: true }): recording console calls is not supported yet on the WebGL2 tier of the program runtime (Rule 11.9).',
     );
     await expect(program.render({ multisample: { count: 4 } })).rejects.toThrow(
-      'The render pipeline of "fs" (typeshade-input.ts:18): the WebGL2 tier draws with one sample; a multisampled target is not here.',
+      'The render pipeline of "fs" (typeshade-input.ts:18): a multisampled target is not supported yet on the WebGL2 tier (Rule 10.5, Rule 11.11).',
     );
   });
 
@@ -2580,7 +2580,7 @@ declare const verts: storage<array<vec4>>;
 `);
     const pv = pulled.gl?.vertices?.['vs'];
     expect(pv !== undefined && 'vertex' in pv && pv.data).toEqual(['verts']);
-    // A storage array a fragment entry writes has no GLSL ES 3.00 form.
+    // A storage array a fragment entry writes is not supported yet on the WebGL2 tier (Rule 10.5).
     const writes = manifest(`"use typeshade";
 declare const hits: storage<array<u32>, "read_write">;
 @vertex export function vs(vi: builtin<"vertex_index">): vec4 { return vec4(0.); }

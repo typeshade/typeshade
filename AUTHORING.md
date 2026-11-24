@@ -1617,10 +1617,10 @@ for (let i = 0; i < gpuOut.length; i++) {
 }
 ```
 
-### Calls with no CPU meaning
+### Calls the CPU tier does not run yet
 
-Some calls throw when a call reaches them. The GPU-only intrinsics have nothing to compute
-from: the texture reads `textureSample`, `textureSampleLevel`, `textureLoad` and their array,
+Some calls throw when a call reaches them. They are not supported yet on the CPU tier.
+They are the texture reads `textureSample`, `textureSampleLevel`, `textureLoad` and their array,
 bias, grad, gather and depth-comparison forms, `textureStore`, the queries
 `textureDimensions` and `textureNumLayers`, and the derivatives `dpdx`, `dpdy` and `fwidth`
 with their coarse and fine forms. The full set is exported as `ORACLE_GPU_STUB_NAMES`. A
@@ -1630,8 +1630,8 @@ reads ([`docs/ir-builder.md`](docs/ir-builder.md)).
 A texture of the CPU tier's memory is the exception. `device.texture()` makes one on a device with
 no WebGPU device (change 0077). Bound with `setBinding`, it is read by `textureLoad` and
 `textureDimensions` and written by `textureStore`, in `compileModule` and in `compileModuleJs`
-alike, with or without `gpuStubs`. A sampled read (`textureSample` and its forms) keeps the stub
-contract, because filtering is no part of that memory.
+alike, with or without `gpuStubs`. A sampled read (`textureSample` and its forms) is not supported yet on the CPU tier
+(Rule 11.7). It keeps the stub contract.
 
 Compiling with `{ gpuStubs: true }` turns those intrinsics into placeholder values: opaque
 black for a texture read, zero for a derivative, a 1 by 1 size for `textureDimensions` and
@@ -1767,7 +1767,7 @@ It sizes the dispatch with `Math.ceil(n / width)` and checks bounds in the shade
 elements include a partly occupied last workgroup. On WebGPU its entry group reports
 `workgroupShapes: [[32, 1, 1]]`, one dispatch and one submission. A later `output.read()` is a
 separate readback. WebGL2 keeps the default width of 64 while still selecting ordinary constants.
-The CPU tier uses the selected shape and constants, but cannot execute a barrier.
+The CPU tier uses the selected shape and constants. A barrier is not supported yet on the CPU tier (Rule 8.24).
 
 Repeated normalized constants reuse the pipeline on the same device, entry and fp64 flavor.
 Choose among a small set of measured sizes rather than creating a new pipeline for every input
@@ -1897,7 +1897,7 @@ A call stands apart from the one before it, and runs as a dispatch of its own, w
 neighbour (`t[i - 1]`, `t[i ^ 1]`), writes at another index (`out[2 * i]`), writes what the call
 before it reads, runs over another count, or has a second loop, a `continue` or a scatter. It
 stands apart too when the group would bind more storage buffers than the device allows, when the
-module has no fusion facts (`fuse: false`, or older generated code), and on WebGL2 and the CPU tier, which never fuse. The
+module has no fusion facts (`fuse: false`, or older generated code), and on WebGL2 and the CPU tier, which run the calls apart. The
 arrays and the results are the same either way: fusing changes the dispatches and nothing else.
 
 The report says which calls fused and why the others did not, in your names. `report.groups`
@@ -2427,13 +2427,13 @@ A capability can need either half, both halves, or neither.
 | `float32Blend`       | host feature `EXT_float_blend`                                  | host feature `float32-blendable`                                         |
 | `float32Filterable`  | host feature `OES_texture_float_linear`                         | host feature `float32-filterable`                                        |
 | `multiview`          | directive `GL_OVR_multiview2` and host feature `OVR_multiview2` | unsupported, fails closed                                                |
-| `f16`                | unsupported, fails closed                                       | directive `f16` and host feature `shader-f16`                            |
+| `f16`                | not authorable yet (Rule 4.7), fails closed (Rule 10.3)         | directive `f16` and host feature `shader-f16`                            |
 | `subgroups`          | one invocation per subgroup (Rule 11.21), nothing to request    | directive `subgroups` and host feature `subgroups`                       |
-| `clipDistances`      | unsupported, fails closed                                       | directive `clip_distances` and host feature `clip-distances`             |
-| `primitiveIndex`     | unsupported, fails closed                                       | directive `primitive_index` and host feature `primitive-index`           |
-| `dualSourceBlending` | unsupported, fails closed                                       | directive `dual_source_blending` and host feature `dual-source-blending` |
-| `bgra8unormStorage`  | unsupported, fails closed                                       | host feature `bgra8unorm-storage`, derived                               |
-| `packed4x8Dot`       | unsupported, fails closed                                       | core, derived; a language feature to check                               |
+| `clipDistances`      | not supported yet, fails closed (Rule 10.3)                     | directive `clip_distances` and host feature `clip-distances`             |
+| `primitiveIndex`     | unsupported, fails closed (Rule 10.3)                           | directive `primitive_index` and host feature `primitive-index`           |
+| `dualSourceBlending` | not supported yet, fails closed (Rule 10.3)                     | directive `dual_source_blending` and host feature `dual-source-blending` |
+| `bgra8unormStorage`  | not supported yet, fails closed (Rule 10.3)                     | host feature `bgra8unorm-storage`, derived                               |
+| `packed4x8Dot`       | not supported yet, fails closed (Rule 10.3)                     | core, derived; a language feature to check                               |
 
 The bottom six rows are the ones nothing declares by hand. Writing
 `builtin<"clip_distances", T>`, `builtin<"primitive_index">`, `builtin<"subgroup_id">`
@@ -3258,7 +3258,7 @@ spellings, and several of the rules behind them exist to make WebGL2 output more
 A file that uses a form the GLSL backend does not support yet, a scalar uniform, a `"read_write"`
 storage binding in a draw or `{ interpolate: "linear" }`, still compiles: `compile()` keeps the WGSL, leaves
 `glsl` undefined and says why in a `TS8015` warning. The reverse has no spelling. A GLSL
-construct the language does not model, `gl_PointSize` for one, cannot be written in a
+construct the language has no spelling for yet, `gl_PointSize` for one, is not supported yet in a
 `"use typeshade"` file. An engine that must emit one builds that statement with the IR
 builder's raw statements, which [`docs/ir-builder.md`](docs/ir-builder.md) describes, with
 what a raw statement costs the rest of the module.

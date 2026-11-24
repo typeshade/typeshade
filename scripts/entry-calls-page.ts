@@ -97,9 +97,9 @@ export interface EntryCase {
   readonly kind: 'compute' | 'fragment';
   readonly name: string;
   readonly bindings: readonly DrawBinding[];
-  /** Why the CPU tier cannot run it (a barrier or a texture), when it cannot. */
+  /** Why the CPU tier does not run it yet (a barrier or a texture; Rule 8.24), when it does not. */
   readonly noCpu?: string;
-  /** Why the WebGL2 tier cannot draw it, when it cannot (a fragment entry). */
+  /** Why the WebGL2 tier does not draw it yet, when it does not (a fragment entry). */
   readonly noGl?: string;
   readonly call: (...args: unknown[]) => Promise<void>;
   /** The module's manifest, its default export, which the program runtime loads. */

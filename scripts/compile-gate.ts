@@ -13,9 +13,11 @@
 //                    on a real WebGL2 context — ANGLE's translator. The `renderable` examples
 //                    only — that registry flag is this package's single authority on "has a
 //                    GLSL ES 3.00 form", and 6 of 43 clear it false today for four different
-//                    reasons (no compute stage in GLSL ES 3.00, twice — the EDSL kernel and its
-//                    source twin; a helper module with no entry point, twice; a host-side one; a
-//                    loose scalar uniform, which GLSL ES 3.00 has no std140 block for). Those
+//                    reasons (a compute-only module, twice, the EDSL kernel and its source twin:
+//                    its GLSL text is not supported yet (Rule 10.5), and the WebGL2 tier runs the
+//                    entry as a pass program (Rule 11.8); a helper module with no entry point,
+//                    twice; a host-side one; a loose scalar uniform, not supported yet in a GLSL
+//                    draw (Rule 10.5)). Those
 //                    print `—`, never `ok`, so the count stays honest.
 //
 // THE ENTRY-CALL LEG (change 0016, Rule 8.24). After the compilers, the same page calls every
@@ -220,7 +222,7 @@ interface PipelineSpec {
 interface Job {
   readonly id: string;
   readonly wgsl: string;
-  /** Both stages, or `null` for an example with no GLSL ES 3.00 form (compute-only). */
+  /** Both stages, or `null` for a compute-only example: no GLSL text is emitted yet (Rule 10.5). */
   readonly glsl: { readonly vertex: string; readonly fragment: string } | null;
   /** The render pipeline to create from `wgsl`, or `null` with the reason in `pipelineSkip`. */
   readonly pipeline: PipelineSpec | null;
@@ -259,7 +261,7 @@ interface Verdict {
   readonly id: string;
   /** Compiler messages of type `error`; empty means the compiler accepted the program. */
   readonly wgslErrors: readonly string[];
-  /** `null` when the example has no GLSL form; else the compile + link errors. */
+  /** `null` when the example has no GLSL text yet; else the compile + link errors. */
   readonly glslErrors: readonly string[] | null;
   /** `null` when there is no render pair to build; else the pipeline-creation errors. */
   readonly pipelineErrors: readonly string[] | null;

@@ -327,8 +327,8 @@ async function hostImport(
   }
 
   // The GPU half (change 0016, Rule 8.24): the browser bundle of src/gpu.ts calls compute entries
-  // in a page with WebGPU. `blockSum` reaches a barrier, which has no CPU tier, so it answers only
-  // where WebGPU ran it. `markGroups` runs over a count `planGroups` wrote (change 0075), on WebGPU
+  // in a page with WebGPU. `blockSum` reaches a barrier, which the CPU tier of the call layer does not
+  // support yet (Rule 8.24), so it answers only where WebGPU ran it. `markGroups` runs over a count `planGroups` wrote (change 0075), on WebGPU
   // and again on the CPU tier.
   sh('npx', ['vite', 'build', '--config', 'vite.web.config.ts', '--logLevel', 'warn'], app);
   sh('npx', ['vite', 'build', '--config', 'vite.auto.config.ts', '--logLevel', 'warn'], app);
