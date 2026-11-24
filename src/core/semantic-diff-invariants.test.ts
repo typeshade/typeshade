@@ -38,7 +38,7 @@ describe('semanticDiff — canonical naming reaches nested bodies', () => {
   });
 });
 
-const computeWith = (workgroupSize: number | readonly number[]): ModuleDecl =>
+const computeWith = (workgroupSize: number | readonly [number, number?, number?]): ModuleDecl =>
   module({ funcs: [fn('cs', {}, () => {}, { stage: 'compute', workgroupSize })] });
 
 describe('semanticDiff — the workgroup shape is spelled with only the extents that differ from 1', () => {
@@ -47,7 +47,7 @@ describe('semanticDiff — the workgroup shape is spelled with only the extents 
     [[8, 8], 'wg=8x8 '],
     [[4, 1, 2], 'wg=4x1x2 '],
   ] as const)('workgroup %j reads %s', (size, spelling) => {
-    const d = semanticDiff(computeWith(1), computeWith(size as number | readonly number[]));
+    const d = semanticDiff(computeWith(1), computeWith(size));
     expect(d.interface.join('\n')).toContain(`+entry cs stage=compute ${spelling}`);
   });
 
