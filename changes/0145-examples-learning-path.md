@@ -46,7 +46,6 @@ surface:
   - 54
   - 62
   - 66
-  - 67
   - 76
   - 77
 exports: []
@@ -1663,28 +1662,23 @@ After:
 
 #### Why A4 exists
 
-1. [fact] `docs/use-typeshade-surface.md` §67, line 10090 on the baseline, says:
-   "`examples/hosts/host-compute/host.ts` contains the complete default, direct-specialized and
-   device-plan runs."
-2. [fact] M4.8 moves the direct-specialized and device-plan runs to `check.ts` beside `host.ts`, as far as
-   A4-R1 says. The sentence is then false.
-3. [fact] §67 is not in the `surface:` list of 0145. `bun run precommit` refuses an edit of §67 under `Change: 0145`.
-4. [fact] The slice text of M4.8 does not give three details: the result shapes, what `check.ts` holds
-   and what replaces `draw`. A4 states a reading for each.
+1. [fact] The slice row of M4.8 is silent on three details: the result shapes, what `check.ts` holds and
+   what replaces `draw`. In one place it reads against decision O4 (`runSpecialized` as an export).
+2. [decision] A4 records the readings that M4.8 takes in these cases (A4-R1 to A4-R5), the owner's
+   answers (A4-Q1 to A4-Q4) and the deviations D-10 and D-11.
+3. [fact] After the answer to A4-Q2, `examples/hosts/host-compute/host.ts` keeps `run()` and the extra
+   `runSpecialized()`. `docs/use-typeshade-surface.md` §67 (line 10090) says that this file "contains the
+   complete default, direct-specialized and device-plan runs". The sentence stays true.
 
 #### What A4 declares
 
-1. [decision] The front matter `surface:` gains `67`. [fact] `scripts/changes.ts` has no state for an
-   amendment, so the list counts from the merge of this pull request (A2 and A3, same rule).
-2. [decision] M4.8 edits one sentence of §67: the one in "Why A4 exists", item 1. It changes no other word of §67.
-3. [fact] `reqs/surface/SURF-067.md` carries §67. M4.8 runs `bun run reqs:sync` and reads the item that it flags.
-   A person runs `doorstop review SURF-067`. An agent does not.
-4. [fact] The stale line references `examples/hosts/host-program/host.ts:28` are in
+1. [fact] M4.8 does not edit §67 and A4 does not declare it. The front matter `surface:` list does not gain `67`.
+2. [decision] M4.8 replaces `draw` (A4-R5) once the doc-impact fix (branch `claude/doc-impact-member-names`)
+   is on `main`. [fact] That fix removes the false must-fix mentions of `draw()`. A4 does not declare it.
+3. [fact] The stale line references `examples/hosts/host-program/host.ts:28` are in
    `src/core/coverage/webgpu-objects.ts` (lines 2200 and 2203) and in the baked
    `docs/capability-coverage.md` (line 197). M4.8 changes the line number there. [inference] No
    criterion of `changes/README.md` reaches those files. `bun scripts/changes.ts` confirms this on the M4.8 diff.
-5. [decision] M4.8 replaces `draw` (A4-R5) once the doc-impact fix (branch `claude/doc-impact-member-names`)
-   is on `main`. [fact] That fix removes the false must-fix mentions of `draw()`. A4 does not declare it.
 
 #### The readings M4.8 delivers
 
@@ -1705,6 +1699,8 @@ Each reading fills a gap in the slice text. [decision] The owner accepted each o
 3. [fact] A2 says of `loop-fuse`: "Today's shape." The existing `run(a, b, c)` has no default
    inputs. A4-R3 adds them. The result shape does not change.
 4. [fact] `check.ts` is the harness's file (host form, item 5). It exports `check(result, tier)`.
+   [fact] `check.ts` keeps this signature (A2, item 5). M4.8 calls the `runSpecialized` of the host from
+   `check.ts`. The driver also runs each listed extra on the CPU tier.
 5. [fact] `draw` in `host-draw/host.ts` is not a form name. The form calls the one-frame function `run`.
 
 #### What the site and M4.9 then owe
@@ -1724,6 +1720,7 @@ Each answer is "[answer, owner, 2026-11-24]".
 
 1. **A4-Q1. Does the owner accept `67` in `surface:`, for the one sentence?**
    [Answer, owner, 2026-11-24: "모두 추천안대로 (Recommended)". Yes.]
+   [fact] After the answer to A4-Q2, the §67 sentence stays true. M4.8 does not edit §67 and A4 does not declare it.
 2. **A4-Q2. Does the owner accept A4-R1 as first drafted: `specialized()` in `check.ts`, not an extra?**
    [Answer, owner, 2026-11-24: "Extra로 유지 (Recommended)". No. `runSpecialized` stays an extra, as O4 and the A2 table say. A4-R1 is rewritten.]
 3. **A4-Q3. Does the owner accept A4-R3 and A4-R4 as written?**
@@ -1738,15 +1735,14 @@ Each answer is "[answer, owner, 2026-11-24]".
 | D-10. A2 lists `runSpecialized` as an extra. The first A4-R1 moved it out.                                              | Closed. The owner answered "Extra로 유지 (Recommended)" on 2026-11-24. A4-R1 keeps it as an extra, as the A2 table says. |
 | D-11. A2 item 1 gives `run(canvas, options?)`. A4-R5 keeps the `time` parameter of the original item 2 for `host-draw`. | Closed. Accepted by the owner's answer to A4-Q4 (2026-11-24).                                                            |
 
-| Item                                                         | Reason                                           | Next action                                          |
-| ------------------------------------------------------------ | ------------------------------------------------ | ---------------------------------------------------- |
-| The `doorstop review` of `SURF-067`.                         | A person reads the item. An agent does not.      | A person runs it after `bun run reqs:sync`, in M4.8. |
-| The doc-impact fix, branch `claude/doc-impact-member-names`. | M4.8 replaces `draw` only after it is on `main`. | Merge that branch, then start the `draw` change.     |
+| Item                                                         | Reason                                           | Next action                                      |
+| ------------------------------------------------------------ | ------------------------------------------------ | ------------------------------------------------ |
+| The doc-impact fix, branch `claude/doc-impact-member-names`. | M4.8 replaces `draw` only after it is on `main`. | Merge that branch, then start the `draw` change. |
 
 #### What A4 touches
 
-- `surface`: §67. [decision] It joins the front matter.
-- `docs/use-typeshade-surface.md`: one sentence of §67, in M4.8. `reqs/surface/SURF-067.md`: the item that `bun run reqs:sync` changes.
+- `surface`: no change. [fact] A4 does not declare §67.
+- `docs/use-typeshade-surface.md` and `reqs/`: no change.
 - `examples`: no id is added or removed. `downstream`: see "What the site and M4.9 then owe".
 
 ## What it owes downstream
