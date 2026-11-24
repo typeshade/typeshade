@@ -3,7 +3,7 @@ import { join, posix } from 'node:path';
 import ts from 'typescript';
 import { isMergeable, membersOf, testCalls, topLevel, type Declarations } from './declarations.js';
 import { isTestPath, type Anchor } from './grammar.js';
-import { declaredInModuleDirectory } from './module-directory.js';
+import { declaredInModuleDirectory, namesExport } from './module-directory.js';
 
 export type FailureKind =
   | 'file-missing'
@@ -73,6 +73,7 @@ export class AnchorResolver {
     }
     const followed = this.followReexports(source, file, symbol, depth);
     if (!('ok' in followed) || followed.kind !== 'symbol-not-found' || depth > 0) return followed;
+    if (namesExport(source, symbol)) return followed;
     return this.inModuleDirectory(file, symbol) ?? followed;
   }
 

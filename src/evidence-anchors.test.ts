@@ -96,6 +96,19 @@ write(
   file(MOD_DIR, 'tools.ts'),
   `class Hidden {\n  run(): number {\n    return 42;\n  }\n}\nconst TABLE = { key: 1 };\nconst twin = 1;\nconst shown = 'directory copy';\n`,
 );
+write(
+  file(MOD_DIR, 'x.d.ts'),
+  `export declare const onlyDts: number;\nexport declare const clash: number;\n`,
+);
+write(file(MOD_DIR, 'y.shade.ts'), `const onlyShade = 1;\nconst clash = 1;\n`);
+write(file(MOD_DIR, 'z.spec.ts'), `const onlySpec = 1;\n`);
+write(file(MOD_DIR, 'star.ts'), `const clash = 2;\n`);
+const BROKEN = file('src', 'broken.ts');
+write(BROKEN, `export { Gone } from '${spec('missing-target')}';\n`);
+write(file('src', 'missing-target.ts'), `export const other = 1;\n`);
+write(file('src', 'broken', 'p.ts'), `export const Gone = 1;\n`);
+const GATE = file('src', 'gate.ts');
+write(GATE, `export * from '${spec('mod')}';\n`);
 write(file(MOD_DIR, 'deep', 'nested.ts'), `function nestedOnly(): void {}\nconst twin = 2;\n`);
 write(file(MOD_DIR, 'tools.test.ts'), `const onlyInTest = 1;\n`);
 
@@ -234,6 +247,23 @@ describe('the anchor resolver', () => {
 
   it('ignores a test file of the directory', () => {
     expect(resolve(MOD, 'onlyInTest')).toMatchObject({ ok: false, kind: 'symbol-not-found' });
+  });
+
+  it('ignores declaration, shade and spec files of the directory', () => {
+    for (const name of ['onlyDts', 'onlyShade', 'onlySpec']) {
+      expect(resolve(MOD, name)).toMatchObject({ ok: false, kind: 'symbol-not-found' });
+    }
+    const found = resolve(MOD, 'clash');
+    expect(found).toMatchObject({ ok: true, file: file(MOD_DIR, 'star.ts'), startLine: 1 });
+  });
+
+  it('keeps a named re-export whose target lacks the symbol from the directory', () => {
+    expect(resolve(BROKEN, 'Gone')).toMatchObject({ ok: false, kind: 'symbol-not-found' });
+  });
+
+  it('does not search the directory of a file reached through a re-export', () => {
+    expect(resolve(GATE, 'hidden')).toMatchObject({ ok: false, kind: 'symbol-not-found' });
+    expect(resolve(GATE, 'shown')).toMatchObject({ ok: true, file: file(MOD_DIR, 'shown.ts') });
   });
 
   it('prefers the file itself, then a re-export, over the directory', () => {

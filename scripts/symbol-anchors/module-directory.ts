@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import type ts from 'typescript';
+import ts from 'typescript';
 import { topLevel } from './declarations.js';
 import { isTestPath } from './grammar.js';
 
@@ -16,12 +16,19 @@ export function moduleDirectoryOf(root: string, file: string): string | undefine
   return existsSync(full) && statSync(full).isDirectory() ? directory : undefined;
 }
 
+const NON_PART_SUFFIXES = ['.d.ts', '.shade.ts', '.spec.ts'];
+
+const isPartPath = (path: string): boolean =>
+  path.endsWith('.ts') &&
+  !isTestPath(path) &&
+  !NON_PART_SUFFIXES.some((suffix) => path.endsWith(suffix));
+
 function partFiles(root: string, directory: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
     const path = `${directory}/${entry.name}`;
     if (entry.isDirectory()) out.push(...partFiles(root, path));
-    else if (entry.isFile() && path.endsWith('.ts') && !isTestPath(path)) out.push(path);
+    else if (entry.isFile() && isPartPath(path)) out.push(path);
   }
   return out.sort();
 }
@@ -41,4 +48,15 @@ export function declaredInModuleDirectory(
     if (source !== undefined && nodes !== undefined) hits.push({ file: part, source, nodes });
   }
   return hits;
+}
+
+export function namesExport(source: ts.SourceFile, symbol: string): boolean {
+  return source.statements.some(
+    (statement) =>
+      ts.isExportDeclaration(statement) &&
+      statement.moduleSpecifier !== undefined &&
+      statement.exportClause !== undefined &&
+      ts.isNamedExports(statement.exportClause) &&
+      statement.exportClause.elements.some((element) => element.name.text === symbol),
+  );
 }
