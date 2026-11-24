@@ -904,7 +904,6 @@
   "src/rhi/cpu-program.ts": 47,
   "src/rhi/cpu-raster.ts": 66,
   "src/rhi/cpu.test.ts": 23,
-  "src/rhi/cpu.ts": 31,
   "src/rhi/rhi-conformance.test.ts": 10,
   "src/rhi/rhi-conformance.ts": 85,
   "src/rhi/rhi.ts": 117,
