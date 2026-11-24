@@ -326,4 +326,36 @@ describe('a flow-aware walk pairs only values that occur together (issue 1308, A
       refusal('r - c'),
     );
   });
+
+  it('keeps the refusal of a compound division or remainder of one variable with nothing to pair', () => {
+    const lone = (body: string): string =>
+      `"use typeshade";\nconst K = 1 | 2;\nexport function t(f: f32, i: i32, u: u32, g: f32): f32 {\n  ${body}\n}\n`;
+    const a7 = (operator: string): string =>
+      'The compiler cannot prove that the u32 bits and the TypeScript value of "x" agree, ' +
+      `so the "${operator}" does not say which value it means.`;
+    const cases: readonly (readonly [string, string])[] = [
+      ['/=', 'let x = 0.0;\n  x /= K;\n  return x;'],
+      ['/=', 'let x = 0.0;\n  let y = 1;\n  x /= K;\n  return x;'],
+      ['/=', 'let x = 0.0;\n  let y = x;\n  x /= K;\n  return x;'],
+      ['%=', 'let x = 0.0;\n  x %= K;\n  return x;'],
+      ['%=', 'let x = 0.0;\n  let y = 1;\n  x %= K;\n  return x;'],
+    ];
+    for (const [operator, body] of cases) bothRefuse(lone(body), 'TS8003', a7(operator));
+  });
+
+  it('drops the refusal of a read of a copy, and keeps another refusal of the program', () => {
+    const copy = (header: string, modify: string, result: string): string =>
+      `"use typeshade";\nconst K = 1 | 2;\nexport function t(f: f32, i: i32, u: u32, g: f32): f32 {\n  ${header}\n  x = 6;\n  let y = x;\n  ${modify}\n  ${result}\n}\n`;
+    bothRefuse(
+      copy('let x = (0xF0000000|0);', 'y += K;', 'return f32(y - 1);'),
+      'TS8003',
+      'Type mismatch: cannot += u32 and i32 — WGSL has no implicit integer conversion. ' +
+        'Cast one side: u32(…) or i32(…), e.g. a + u32(b).',
+    );
+    bothRefuse(
+      copy('let x = 0xF0000000;', 'y <<= 1;', 'return f32(y);'),
+      'TS8003',
+      'Bitwise "<<=" needs an i32 or u32 target, got f32.',
+    );
+  });
 });

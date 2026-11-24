@@ -46,7 +46,53 @@ function storeOf(s: ts.Node): { site: ts.Node; id: ts.Identifier }[] {
   return target !== undefined && ts.isIdentifier(target) ? [{ site: e, id: target }] : [];
 }
 
+function functionOf(n: ts.Node): ts.Node | undefined {
+  for (let p: ts.Node | undefined = n.parent; p !== undefined; p = p.parent) {
+    if (ts.isFunctionLike(p)) return p;
+  }
+  return undefined;
+}
+
 const cache = new WeakMap<ts.Node, Map<string, JointStores | undefined>>();
+const pairSites = new WeakMap<ts.Node, boolean>();
+
+const isTrackedLet = (d: ts.Node): d is ts.VariableDeclaration =>
+  ts.isVariableDeclaration(d) &&
+  (d.parent.flags & ts.NodeFlags.Let) !== 0 &&
+  ts.isVariableStatement(d.parent.parent);
+
+function hasPairSite(fn: ts.Node, src: FlowSources): boolean {
+  const known = pairSites.get(fn);
+  if (known !== undefined) return known;
+  const declarationsIn = (e: ts.Node): ts.Node[] => {
+    const out = new Set<ts.Node>();
+    const visit = (n: ts.Node): void => {
+      const d = ts.isIdentifier(n) ? src.declarationOf(n) : undefined;
+      if (d !== undefined && isTrackedLet(d)) out.add(d);
+      ts.forEachChild(n, visit);
+    };
+    visit(e);
+    return [...out];
+  };
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    const operands =
+      ts.isBinaryExpression(n) && !isAssignment(n.operatorToken.kind)
+        ? [n.left, n.right]
+        : ts.isCallExpression(n)
+          ? [...n.arguments]
+          : [];
+    const sets = operands.map(declarationsIn);
+    found = sets.some((a, i) =>
+      sets.slice(i + 1).some((b) => a.some((x) => b.some((y) => x !== y))),
+    );
+    if (!found) ts.forEachChild(n, visit);
+  };
+  visit(fn);
+  pairSites.set(fn, found);
+  return found;
+}
 
 export function jointStoresAt(
   decls: readonly ts.VariableDeclaration[],
@@ -55,12 +101,6 @@ export function jointStoresAt(
 ): JointStores | undefined {
   const first = decls[0];
   if (first === undefined) return undefined;
-  const functionOf = (n: ts.Node): ts.Node | undefined => {
-    for (let p: ts.Node | undefined = n.parent; p !== undefined; p = p.parent) {
-      if (ts.isFunctionLike(p)) return p;
-    }
-    return undefined;
-  };
   const fn = functionOf(first);
   const target = statementOf(at);
   if (fn === undefined || target === undefined || functionOf(at) !== fn) return undefined;
@@ -194,19 +234,24 @@ export function coexist(a: Reading, b: Reading, at: ts.Node, src: FlowSources): 
   return true;
 }
 
-function feedsStore(at: ts.Node, statement: ts.Node): boolean {
+function feedOf(at: ts.Node, statement: ts.Node): 'copy' | 'self' | undefined {
   let n: ts.Node = at;
   while (ts.isParenthesizedExpression(n.parent)) n = n.parent;
   const p = n.parent;
-  const stored =
+  if (storeOf(statement).length === 0) return undefined;
+  if (
     (ts.isVariableDeclaration(p) && p.initializer === n) ||
     (ts.isBinaryExpression(p) &&
       p.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      p.right === n) ||
+      p.right === n)
+  ) {
+    return 'copy';
+  }
+  const self =
     (ts.isBinaryExpression(p) && isAssignment(p.operatorToken.kind) && p.left === n) ||
     ((ts.isPrefixUnaryExpression(p) || ts.isPostfixUnaryExpression(p)) &&
       (p.operator === ts.SyntaxKind.PlusPlusToken || p.operator === ts.SyntaxKind.MinusMinusToken));
-  return stored && storeOf(statement).length > 0;
+  return self ? 'self' : undefined;
 }
 
 export function reachingReadings(
@@ -216,7 +261,10 @@ export function reachingReadings(
   src: FlowSources,
 ): Reading[] {
   const statement = statementOf(at);
-  if (statement === undefined || !feedsStore(at, statement)) return xs;
+  const feed = statement === undefined ? undefined : feedOf(at, statement);
+  if (feed === undefined) return xs;
+  const fn = functionOf(d);
+  if (feed === 'self' && (fn === undefined || !hasPairSite(fn, src))) return xs;
   const joint = jointStoresAt([d], at, src);
   if (joint === undefined) return xs;
   const reaching = new Set(joint.map(([x]) => x));
