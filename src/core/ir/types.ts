@@ -1,11 +1,3 @@
-// ═══ Shader DSL — IR types ═══
-//
-// ShaderType (the runtime type descriptor), the branded type constants, the
-// type-level key machinery (KeyOf/ElemKey/ScalarKey) that powers the
-// compile-time type-safety gate, and the type predicates/helpers. No Node
-// dependency — this is the leaf of the core/ir import DAG
-// (types ← nodes ← node ← builder).
-
 /** The four native scalar kinds: the ones WGSL and GLSL ES 3.00 both represent directly in
  *  hardware, and the set a `ShaderType` of `kind: 'scalar'` can carry. When a binary operator
  *  mixes two of them, the result follows the native promotion order `f32` > `i32` > `u32`.
@@ -319,9 +311,6 @@ export type ShaderType =
     }
   | { readonly kind: 'void' };
 
-// `as const satisfies` keeps each constant's LITERAL type (so KeyOf<typeof f32T>
-// resolves to the precise key 'f32' / 'vec2<f32>' …) while still checking it is
-// a valid ShaderType — the basis for the compile-time type-safety gate (AC4).
 /** The `f32` scalar type, the DSL's default numeric type: what a bare numeric literal lifts to
  *  (`lift(3)` is a `Node<'f32'>`) and what most builtins (`sin`, `mix`, `length`, …) return. Use
  *  it to type an `fn` parameter, a `resource` or uniform field, or a struct field that must
@@ -835,7 +824,6 @@ export const arrayT = <E extends ShaderType, S extends number | undefined = unde
   size: size as S,
 });
 
-// Type-level key of a ShaderType literal — the phantom carried by Node<K>.
 /** Turns a `ShaderType` literal into the precise string key that {@link Node} carries as its
  *  compile-time phantom: `KeyOf<typeof vec3fT>` resolves to `'vec3<f32>'`, so a `vec2` and
  *  `vec3` operand mismatch fails `tsc` before the runtime `SD0002` check in {@link typeKey} and
@@ -864,10 +852,6 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
             }
           ? `mat${C}x${R}<${E}>`
           : // X-GIS #2456 — struct / array / void arms. typeKey has emitted `struct:Name`,
-            // `array<K,N>` and `void` since forever; KeyOf had no arm for any of them, so
-            // every struct-typed and array-typed node fell through to the `string` fallback
-            // — the phantom key that swallowed `construct`, `arrayLit` and both struct
-            // declarators' `.construct` (D4.1 in docs/plans/2026-09-01-…).
             T extends { kind: 'struct'; name: infer N extends string }
             ? `struct:${N}`
             : T extends { kind: 'array'; elem: infer E; size: infer S }
@@ -879,26 +863,14 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
                 : T extends { kind: 'void' }
                   ? 'void'
                   : // X-GIS #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
-                    // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
-                    // to `string`, so a texture/sampler argument swap type-checked.
                     T extends { kind: 'texture'; dim: '2d-ms'; elem: infer E extends string }
                     ? `texture_multisampled_2d<${E}>`
                     : // X-GIS #1651 — arm ORDER is immaterial here: the dims are exact literals, so
-                      // `{ dim: '2d-array' }` never extends `{ dim: '2d' }` regardless of which
-                      // arm comes first. The real hazard is a MISSING arm — it drops an array
-                      // resource() node through to the `string` fallback, where it matches no
-                      // authoring overload at all (the failure is a confusing "no overload
-                      // matches", not a key mismatch).
-                      // X-GIS #1703 — `elem` is INFERRED, not hardcoded to f32: a texture2duT resource
-                      // must land on `texture_2d<u32>`, and a hardcoded `<f32>` would silently
-                      // hand an integer texture the FLOAT key, where textureSample's overload
-                      // accepts it and naga rejects the emitted WGSL.
                       T extends { kind: 'texture'; dim: '2d-array'; elem: infer E extends string }
                       ? `texture_2d_array<${E}>`
                       : T extends { kind: 'texture'; dim: '2d'; elem: infer E extends string }
                         ? `texture_2d<${E}>`
                         : // Roadmap 0.4 item 12 — the cube and 3d arms, so a resource() of one lands
-                          // on its own key rather than the `string` fallback.
                           T extends { kind: 'texture'; dim: 'cube'; elem: infer E extends string }
                           ? `texture_cube<${E}>`
                           : T extends { kind: 'texture'; dim: '3d'; elem: infer E extends string }
@@ -917,10 +889,6 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K;
 
-// Drop a `,<digits>` suffix from the LAST comma-separated position of an array key's inner
-// text, which is where the size lives. Written as a right-recursion rather than a single
-// `${infer E},${infer N}` match because TS takes the FIRST comma for such a pattern, and an
-// element key may contain one: `array<array<f32,2>,3>` would otherwise yield `array<f32`.
 type DropArraySize<S extends string> = S extends `${infer A},${infer B}`
   ? B extends `${number}`
     ? A
@@ -989,11 +957,6 @@ export function typeKey(t: ShaderType): string {
         ? `array<${typeKey(t.elem)},${t.sizeOverride ?? t.size}>`
         : `array<${typeKey(t.elem)}>`;
     case 'texture':
-      // Every dim is spelled EXPLICITLY — a `texture_${t.dim}<…>` template would emit
-      // the invalid `texture_2d-array<f32>` for the array arm (and '2d-ms' already
-      // needed its own spelling). Must stay byte-identical to KeyOf's arms above.
-      // Exhaustive switch: a NEW dim fails compilation here instead of silently
-      // falling open to the 2d spelling.
       switch (t.dim) {
         case '2d-ms':
           return `texture_multisampled_2d<${t.elem}>`;
@@ -1010,23 +973,15 @@ export function typeKey(t: ShaderType): string {
         case 'cube-array':
           return `texture_cube_array<${t.elem}>`;
         default:
-          // Exhaustiveness on the whole ARM, not on `t.dim` (X-GIS #1703): the texture type
-          // is now a two-arm union, so once every dim is handled `t` itself is `never`
-          // and `t.dim` no longer exists to check. A new dim (or a new arm) still
-          // fails compilation right here.
           return t satisfies never;
       }
     case 'storage-texture':
-      // Spelled as WGSL spells it, so the key a host or a golden reads is the declaration's
-      // own text. `dim` is written out for the same reason `texture` writes it out.
       return t.dim === '2d-array'
         ? `texture_storage_2d_array<${t.format}, ${t.access}>`
         : `texture_storage_2d<${t.format}, ${t.access}>`;
     case 'atomic':
       return `atomic<${t.elem}>`;
     case 'depth-texture':
-      // Spelled as WGSL spells it, so the key a host or a golden reads is the declaration's
-      // own text; `dim` is written out for the reason the sampled texture writes it out.
       switch (t.dim) {
         case '2d':
           return 'texture_depth_2d';

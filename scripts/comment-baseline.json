@@ -573,7 +573,6 @@
   "src/core/ir/sugar.test.ts": 4,
   "src/core/ir/swizzle.test.ts": 6,
   "src/core/ir/typed-lift.test.ts": 3,
-  "src/core/ir/types.ts": 44,
   "src/core/ir/visit.test.ts": 17,
   "src/core/ir/visit.ts": 54,
   "src/core/ir/workgroup.ts": 9,
