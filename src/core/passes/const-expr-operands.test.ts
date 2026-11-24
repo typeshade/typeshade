@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BinOp, ConstDecl, Expr, ModuleDecl, ShaderType, Stmt } from '../ir/index.js';
-import { arrayT, boolT, f32T, i32T, u32T, vec2iT, vec2uT, vec3uT } from '../ir/index.js';
+import { arrayT, boolT, f32T, i32T, u32T, vec2fT, vec2iT, vec2uT, vec3uT } from '../ir/index.js';
 import { settleConstExprs } from './const-expr.js';
 
 const lit = (type: ShaderType, value: number): Expr => ({ op: 'lit', type, value });
@@ -245,5 +245,74 @@ describe('a module with nothing to settle is returned with equal contents', () =
       funcs: [{ name: 'k', params: [{ name: 'x', type: u32T }], ret: u32T, body }],
     };
     expect(settleConstExprs(m)).toEqual(m);
+  });
+});
+
+describe('the operands of an integer operation are read as the target computes them', () => {
+  const MIN = i(-2147483648);
+  const vecOf = (type: ShaderType, ...args: Expr[]): Expr => ({ op: 'construct', type, args });
+  const settleVec = (e: Expr): Expr =>
+    (settleBody(vec2uT, [{ s: 'return', expr: e }], [], vec2uT)[0] as { expr: Expr }).expr;
+
+  it('an abstract sum of abstract shifts past the type wraps', () => {
+    const shifted = bin('<<', i(1), u(30));
+    expect(settleSigned(bin('+', XI, bin('+', shifted, shifted)))).toEqual(
+      bin('+', XI, i(-2147483648)),
+    );
+  });
+
+  it('a clamp whose bounds cross in one component only becomes min of max', () => {
+    const low = vec2u(5, 1);
+    const high = vec2u(3, 9);
+    const x = param('x', vec2uT);
+    const e = call('clamp', vec2uT, x, low, high);
+    expect(settleVec(e)).toEqual(call('min', vec2uT, call('max', vec2uT, x, low), high));
+  });
+
+  it('a clamp whose bounds cross in no component is kept', () => {
+    const e = call('clamp', vec2uT, param('x', vec2uT), vec2u(1, 1), vec2u(3, 9));
+    expect(settleVec(e)).toEqual(e);
+  });
+
+  it('an element of a vector constant is a constant divisor', () => {
+    const element: Expr = { op: 'index', type: u32T, base: vec2u(0, 2), idx: u(0) };
+    expect(settle(bin('/', X, element))).toEqual(X);
+  });
+
+  it('an integer difference is a constant divisor of a division and a remainder', () => {
+    expect(settle(bin('/', X, bin('-', u(3), u(3))))).toEqual(X);
+    expect(settle(bin('%', X, bin('-', u(3), u(3))))).toEqual(u(0));
+  });
+
+  it('sign of a negative constant is -1, which refuses the most negative i32 as dividend', () => {
+    expect(settleSigned(bin('/', MIN, call('sign', i32T, i(-5))))).toEqual(MIN);
+  });
+
+  it('abs of the most negative i32 wraps to itself, and its sign is -1', () => {
+    const divisor = call('sign', i32T, call('abs', i32T, MIN));
+    expect(settleSigned(bin('/', MIN, divisor))).toEqual(MIN);
+  });
+
+  it('a negated float literal converts as written', () => {
+    const negated: Expr = { op: 'unop', type: f32T, a: f(0.9999999999) };
+    const divisor = call('sign', i32T, toI(negated));
+    expect(settleSigned(bin('/', XI, divisor))).toEqual(XI);
+  });
+
+  it('a lane of an f32 vector constant at 2^32 converts to the largest f32 inside the range', () => {
+    const lanes = vecOf(vec2fT, f(4294967296), f(0));
+    const amounts = vecOf(vec2uT, lanes);
+    const x = param('x', vec2uT);
+    const e: Expr = { op: 'binop', type: vec2uT, bop: '<<', a: x, b: amounts };
+    expect(settleVec(e)).toEqual({ ...e, b: vec2u(0, 0) });
+  });
+
+  it('a remainder by a scalar zero settles to a zero in every component', () => {
+    expect(settleVec(bin('%', param('x', vec2uT), u(0)))).toEqual(vec2u(0, 0));
+  });
+
+  it('a vector constructor of one scalar broadcasts it as a divisor', () => {
+    const x = param('x', vec2uT);
+    expect(settleVec(bin('/', x, vecOf(vec2uT, u(0))))).toEqual(x);
   });
 });
