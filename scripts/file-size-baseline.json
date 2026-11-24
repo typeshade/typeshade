@@ -108,7 +108,7 @@
   "src/core/backends/glsl-legalize.test.ts": 825,
   "src/core/backends/glsl.test.ts": 1821,
   "src/core/backends/glsl.ts": 2866,
-  "src/core/backends/wgsl.ts": 632,
+  "src/core/backends/wgsl.ts": 606,
   "src/core/builtins/coredef.ts": 721,
   "src/core/compute/runner.test.ts": 597,
   "src/core/compute/runner.ts": 698,

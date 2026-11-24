@@ -383,7 +383,7 @@
   "src/core/backends/wgsl-ptr.ts": 86,
   "src/core/backends/wgsl-return-into.ts": 55,
   "src/core/backends/wgsl-spelling.test.ts": 15,
-  "src/core/backends/wgsl.ts": 203,
+  "src/core/backends/wgsl.ts": 170,
   "src/core/builtin-ids.ts": 18,
   "src/core/builtin-type.test.ts": 7,
   "src/core/builtins/coredef-types.ts": 9,

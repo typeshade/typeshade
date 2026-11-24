@@ -227,21 +227,11 @@ const WGSL_CAP_PROFILE = {
   storageBuffer: {},
   compute: {},
   msaaTextureLoad: {},
-  // A storage texture needs no device feature at the sixteen core formats (roadmap 0.4 item
-  // 10) — measured against a real adapter, which built a bind group layout for each of them
-  // with nothing requested. The seventeenth, `bgra8unorm`, is the row below.
+  /* Why: a real adapter builds a bind group layout for each of the sixteen core storage formats with nothing requested. */
   storageTexture: {},
-  // `bgra8unorm` storage, derived from the binding's own format (#147). Measured: the layout
-  // is refused on a device with nothing requested and built on one that asked for this
-  // feature, and Tint compiles the module in both cases.
+  /* Why: a real adapter refuses the `bgra8unorm` storage layout unless the device asked for `bgra8unorm-storage`. */
   bgra8unormStorage: { hostFeature: 'bgra8unorm-storage' },
-  // The packed 4x8 integer family (#152). No directive and no device feature: measured on
-  // Tint, all eight compile bare, `enable packed_4x8_integer_dot_product;` is REFUSED as not
-  // an extension, and `requires packed_4x8_integer_dot_product;` is accepted and changes
-  // nothing. It is a WGSL LANGUAGE feature, which a host checks on
-  // `navigator.gpu.wgslLanguageFeatures` — `reflect().requiredLanguageFeatures` reports it.
-  // The row exists so the cap is SUPPORTED here; GLSL ES 3.00 has no row, so a module using
-  // one fails closed there with SD0030 instead of reaching a writer that cannot spell it.
+  /* Why: Tint compiles all eight packed 4x8 builtins bare and refuses `enable packed_4x8_integer_dot_product;` as not an extension. It is a WGSL language feature, checked on `navigator.gpu.wgslLanguageFeatures`. */
   packed4x8Dot: {},
   // A 1d texture, a cube-array texture and textureGather are core WGSL (roadmap 0.4 item 12):
   // the rows are empty, and GLSL ES 3.00 has none of the three, so its profile has no row.
@@ -251,26 +241,11 @@ const WGSL_CAP_PROFILE = {
   // Opt-in LANGUAGE features — a WGSL `enable` directive AND a device feature.
   f16: { directive: 'f16', hostFeature: 'shader-f16' },
   subgroups: { directive: 'subgroups', hostFeature: 'subgroups' },
-  // The two extension-gated BUILT-IN VALUES (§50). Neither is declared by hand in practice:
-  // `requiredCaps` derives the cap from `@builtin(clip_distances)` / `@builtin(primitive_index)`,
-  // because WGSL refuses the id itself without the enable — measured on Tint, `use of
-  // '@builtin(clip_distances)' requires enabling extension 'clip_distances'`. The same Tint
-  // refuses `enable clip_distances;` on a device that was not ASKED for the feature
-  // (`extension 'clip_distances' is not allowed in the current environment`), which is what
-  // `hostFeature` exists to prevent — the compile gate requests the corpus's features, and
-  // `examples/gallery/clip-planes/clip-planes.shade.ts` compiles there.
-  //
-  // `directive` is measured on both rows. `hostFeature` is measured for `clip-distances`,
-  // which the gate's adapter offers and a device accepts; `primitive-index` follows WGSL's
-  // underscore-to-hyphen convention for the same string and could NOT be confirmed, because
-  // that adapter does not have the feature at all. A host that finds `requestDevice`
-  // rejecting it should correct this one string.
+  /* Why: Tint refuses `@builtin(clip_distances)` without `enable clip_distances;`, and refuses the enable on a device not asked for the feature. */
   clipDistances: { directive: 'clip_distances', hostFeature: 'clip-distances' },
+  /* Why: `primitive-index` is unconfirmed, because the gate's adapter lacks the feature; a host whose `requestDevice` rejects it corrects this string. */
   primitiveIndex: { directive: 'primitive_index', hostFeature: 'primitive-index' },
-  // Dual-source blending (§53): `@blend_src` derives it, the same way the two built-in
-  // values above derive theirs. Refused by the gate's software adapter (`extension
-  // 'dual_source_blending' is not allowed in the current environment`), which is the adapter
-  // lacking the feature — `dual-source-blending` is what a host requests for it.
+  /* Why: the gate's software adapter refuses `dual_source_blending` as not allowed in the current environment; a host requests `dual-source-blending`. */
   dualSourceBlending: { directive: 'dual_source_blending', hostFeature: 'dual-source-blending' },
   // Opt-in DEVICE features (X-GIS #1670) — no WGSL directive exists for any of these; the
   // host activates them at requestDevice time (or they are core).
@@ -342,8 +317,7 @@ export const wgslBackend: Backend = {
     );
   },
   placeholderStmt: (tag) => `// __placeholder: ${tag}`,
-  // Measured against Tint: `max(1.0, 2.0);` is rejected as ignoring a `@must_use` result,
-  // `_ = max(1.0, 2.0);` and a user fn's bare `twice(x);` are accepted (issue #47).
+  /* Why: Tint rejects a bare `max(1.0, 2.0);` as ignoring a `@must_use` result, and accepts `_ = max(1.0, 2.0);`. */
   phonyAssign: '_ = ',
   // ── Module-decl surface (the WGSL spellings, lifted from the former free fns) ──
   emitConst: (c) =>
