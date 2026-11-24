@@ -41,6 +41,7 @@ import { boundOf, bindTo, writeBack } from './cpu/binding.js';
 import { CpuComputePipeline, CpuRenderPipeline } from './cpu/pipelines.js';
 import { attributeFormat, attributeValue, type Attribute } from './cpu/vertex-fetch.js';
 import { writeTexel, clearTexture, clearDepth } from './cpu/texel.js';
+import { LIMITS } from './cpu/limits.js';
 export { holdValue } from './cpu/binding.js';
 export { decode, encode } from './cpu/codec.js';
 
@@ -440,28 +441,6 @@ class CpuEncoder implements RhiCommandEncoder {
     });
   }
 }
-
-const LIMITS: Readonly<Record<string, number>> = Object.freeze({
-  maxTextureDimension1D: 8192,
-  maxTextureDimension2D: 8192,
-  maxTextureDimension3D: 2048,
-  maxTextureArrayLayers: 256,
-  maxBindGroups: 4,
-  maxBindingsPerBindGroup: 1000,
-  maxUniformBufferBindingSize: 65536,
-  maxStorageBufferBindingSize: 134217728,
-  maxBufferSize: 268435456,
-  maxVertexBuffers: 8,
-  maxVertexAttributes: 16,
-  maxVertexBufferArrayStride: 2048,
-  maxColorAttachments: 8,
-  maxComputeWorkgroupStorageSize: 16384,
-  maxComputeInvocationsPerWorkgroup: 256,
-  maxComputeWorkgroupSizeX: 256,
-  maxComputeWorkgroupSizeY: 256,
-  maxComputeWorkgroupSizeZ: 64,
-  maxComputeWorkgroupsPerDimension: 65535,
-});
 
 function refusalOf(desc: RhiRenderPipelineDesc): string | undefined {
   if (desc.primitive.topology !== 'triangle-list') return `a "${desc.primitive.topology}" topology`;
