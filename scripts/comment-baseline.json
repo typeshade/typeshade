@@ -84,7 +84,7 @@
   "src/compiler/ts/decorated-form.ts": 54,
   "src/compiler/ts/default-args.test.ts": 21,
   "src/compiler/ts/definite-assignment.test.ts": 18,
-  "src/compiler/ts/definite.ts": 37,
+  "src/compiler/ts/definite.ts": 26,
   "src/compiler/ts/deprecation-window.test.ts": 13,
   "src/compiler/ts/depth-textures.test.ts": 42,
   "src/compiler/ts/destructuring.test.ts": 9,

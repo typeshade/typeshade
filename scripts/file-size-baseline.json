@@ -21,7 +21,6 @@
   "src/compiler/ts/context.ts": 1425,
   "src/compiler/ts/convert-ctor.test.ts": 464,
   "src/compiler/ts/declared-builtin-names.test.ts": 720,
-  "src/compiler/ts/definite.ts": 402,
   "src/compiler/ts/entry-locations.test.ts": 519,
   "src/compiler/ts/entry-locations.ts": 445,
   "src/compiler/ts/f64-types.test.ts": 928,
