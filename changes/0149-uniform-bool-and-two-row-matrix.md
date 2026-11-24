@@ -1,5 +1,5 @@
 ---
-id: '0148'
+id: '0149'
 title: A bool and a two-row matrix in a uniform compile, and the compiler lays out their bytes
 status: draft
 rules:
@@ -18,16 +18,16 @@ examples: []
 names: []
 downstream:
   - repo: typeshade.github.io
-    what: The pages that quote surface §27, §40 and §51 (en and ko) say that a bool and a two-row matrix in a uniform are refused. Search them for TS8051, "two-row" and "numeric scalars only". Each page follows the new text. compiler-changes.md records 0148
+    what: The pages that quote surface §27, §40 and §51 (en and ko) say that a bool and a two-row matrix in a uniform are refused. Search them for TS8051, "two-row" and "numeric scalars only". Each page follows the new text. compiler-changes.md records 0149
   - repo: vscode-typeshade
-    what: The skill and any hover, completion or fixture text that names the TS8051 sentences for a bool or a two-row matrix follow the new text. Replace a fixture that expects those refusals with one of the refusals that remain. compiler-changes.md records 0148
+    what: The skill and any hover, completion or fixture text that names the TS8051 sentences for a bool or a two-row matrix follow the new text. Replace a fixture that expects those refusals with one of the refusals that remain. compiler-changes.md records 0149
 ---
 
 **Document control**
 
 | Field                         | Record                                                                                                                                                                                                                                             |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Proposal 0148, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                          |
+| Identity and status           | Proposal 0149, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                          |
 | Date and attribution          | 2026-11-24, UTC (the drafting date). An AI agent (Claude Code) drafted it for issue #1118. The orchestrating session decides each decision below, by the owner's delegation of 2026-11-24. This is attribution, not approval.                      |
 | Applicability / Effectivity   | `src/compiler/ts/bindings.ts`, `src/core/reflect.ts`, `src/core/std140.ts`, `src/core/manifest.ts`, `src/core/passes/uniform-layout.ts`, the WGSL and GLSL writers, `src/rhi/cpu.ts` and `src/runtime/resource.ts`. No release is assigned (OD-6). |
 | Review baseline               | `main` at `be2e83de6ba5cdaddc2b8f19a74f98061bad78fe`. Every "today" claim below was probed with `compile()` at this commit on 2026-11-24.                                                                                                          |
@@ -300,10 +300,10 @@ audit of the sections named above, and a record of each deviation.
 
 - **typeshade.github.io.** Search the pages for `TS8051`, "two-row" and "numeric scalars only".
   The pages that quote §27, §40 and §51 follow the new text, in en and ko. The pin pull request
-  records 0148 in `compiler-changes.md`.
+  records 0149 in `compiler-changes.md`.
 - **vscode-typeshade.** The skill, the hover text and any fixture that names the removed
   sentences follow the new text. A fixture that expects the bool or two-row refusal uses a
-  remaining refusal. The pin pull request records 0148.
+  remaining refusal. The pin pull request records 0149.
 - **radiance, typenn, typecv, typeaudio.** Searched for `TS8051` and "two-row matrix" in the
   local checkouts of typenn and typeaudio on 2026-11-24: no match. radiance and typecv were not
   searched. A workaround that writes `u32` or `mat2x4` there may be retired when the pin moves.
