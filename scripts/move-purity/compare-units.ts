@@ -1,5 +1,5 @@
 import { groupBy, matchGroups } from './multiset.js';
-import { declarationUnits, normalizeLineEndings, type Unit } from './units.js';
+import { analyzeSource, normalizeLineEndings, type Unit } from './units.js';
 import { orderViolations } from './order.js';
 import { LAYER_POLICY_PATH, withoutKnownEdges } from './known-edges.js';
 
@@ -38,7 +38,7 @@ function unitsOf(files: ReadonlyMap<string, string>, paths: readonly string[]): 
     if (text === undefined) continue;
     const prepared =
       path === LAYER_POLICY_PATH ? withoutKnownEdges(normalizeLineEndings(text)) : text;
-    units.push(...declarationUnits(path, prepared));
+    units.push(...analyzeSource(path, prepared).units);
   }
   return units;
 }

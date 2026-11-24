@@ -68,17 +68,32 @@ function unitOf(
   };
 }
 
-export function declarationUnits(path: string, rawText: string): Unit[] {
+export interface SourceAnalysis {
+  readonly units: Unit[];
+  readonly directives: string[];
+}
+
+const directiveOf = (statement: ts.Statement): string | undefined =>
+  ts.isExpressionStatement(statement) && ts.isStringLiteral(statement.expression)
+    ? statement.expression.text
+    : undefined;
+
+export function analyzeSource(path: string, rawText: string): SourceAnalysis {
   const text = normalizeLineEndings(rawText);
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
   const units: Unit[] = [];
+  const directives: string[] = [];
+  let inPrologue = true;
   let from = 0;
   for (const statement of source.statements) {
+    const directive = inPrologue ? directiveOf(statement) : undefined;
+    if (directive === undefined) inPrologue = false;
+    else directives.push(directive);
     const trailing = ts.getTrailingCommentRanges(text, statement.end);
     const to = trailing?.length ? trailing[trailing.length - 1]!.end : statement.end;
-    if (!isModuleLink(statement))
+    if (directive === undefined && !isModuleLink(statement))
       units.push(unitOf(source, text, statement, from, to, units.length));
     from = to;
   }
-  return units;
+  return { units, directives };
 }

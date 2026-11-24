@@ -14,6 +14,7 @@ export function formatReport(report: MoveReport): string {
       `${units.vanished.length} vanished, ${units.moved.length} moved, ${units.reordered.length} reordered.`,
     `Comments: ${report.comments.appeared.length} appeared, ${report.comments.vanished.length} vanished.`,
     `Test titles: ${titles.appeared.length} appeared, ${titles.vanished.length} vanished.`,
+    `Directives: ${report.directives.length} differ.`,
     `Outside the move: ${report.outside.length}.`,
     `Info: ${units.exportsAdded.length} export added, ${units.exportsRemoved.length} export removed, ` +
       `${report.knownEdgesRemoved.length} KNOWN edge removed, ` +
@@ -21,6 +22,11 @@ export function formatReport(report: MoveReport): string {
   ];
   for (const { base, head } of units.changed) {
     lines.push(`changed  ${named(base)} -> ${head.path}:${head.line}`);
+  }
+  for (const d of report.directives) {
+    lines.push(
+      `directive ${d.path}: expected ${JSON.stringify(d.expected)} got ${JSON.stringify(d.got)}`,
+    );
   }
   for (const ref of units.reordered) lines.push(`reordered ${named(ref)}`);
   for (const c of report.comments.appeared)
