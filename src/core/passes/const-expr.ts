@@ -1,14 +1,14 @@
-// Why: WGSL evaluates a const-expression when it creates the shader and makes some of them an
-// error (#368): an integer division by zero, a shift amount past 31, a shift left, sum, difference,
-// product, division or negation of abstract integers whose value its type cannot hold, `u32(-1)`,
-// and a `clamp` with crossed bounds. Measured on Tint (Chromium, SwiftShader); the same operation
-// on a value the shader computes has an answer, which the CPU oracle computes. ANGLE (the GLSL
-// path) compiled `uint a = (7u / 0u);` with `WARNING: '/' : Divide by zero error during constant
-// folding` and a value of its own choosing, so both targets get the WGSL answer. A float constant
-// converted to an integer saturates, and Tint saturates a literal at the ends of the integer range
-// but a named `f32` at the largest `f32` inside it (#578). Tint also evaluates a float operation
-// and an element of a constant array, so `x / u32(f32(0u) - 1.0)` and `x / u32(A[0])` for
-// `const A = array(-1., 2.)` are refused, and this pass does not settle them.
+/* Why: WGSL evaluates a const-expression when it creates the shader and makes some of them an
+error (#368): an integer division by zero, a shift amount past 31, a shift left, sum, difference,
+product, division or negation of abstract integers whose value its type cannot hold, `u32(-1)`,
+and a `clamp` with crossed bounds. Measured on Tint (Chromium, SwiftShader); the same operation
+on a value the shader computes has an answer, which the CPU oracle computes. ANGLE (the GLSL
+path) compiled `uint a = (7u / 0u);` with `WARNING: '/' : Divide by zero error during constant
+folding` and a value of its own choosing, so both targets get the WGSL answer. A float constant
+converted to an integer saturates, and Tint saturates a literal at the ends of the integer range
+but a named `f32` at the largest `f32` inside it (#578). Tint also evaluates a float operation
+and an element of a constant array, so `x / u32(f32(0u) - 1.0)` and `x / u32(A[0])` for
+`const A = array(-1., 2.)` are refused, and this pass does not settle them. */
 
 import type { BinOp, Expr, ModuleDecl, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
@@ -22,10 +22,6 @@ import { intElemOf, wrapInt } from './opt/expr-utils.js';
 /** A constant's value, one number per component; a scalar has one. */
 type Components = readonly number[];
 
-/** Why: the pass asks for an operand's value at every operation above it, so without the memo a
- *  deep expression would be walked once per level. The IR is immutable, so a node's value cannot
- *  change; the constants' own initializers are evaluated without one, while the table still
- *  fills. */
 interface Env {
   readonly consts: ReadonlyMap<string, Components>;
   readonly memo?: WeakMap<Expr, Components | null>;
@@ -210,7 +206,6 @@ function evaluate(e: Expr, env: Env): Components | undefined {
 function floatToInt(v: number, int: 'i32' | 'u32', literal: boolean): number | undefined {
   if (!Number.isFinite(v)) return undefined;
   const lo = int === 'i32' ? I32_MIN : 0;
-  // Why: `+ 0` makes the -0 that `Math.trunc(-0.25)` gives a 0.
   const held = (x: number, hi: number): number => Math.min(hi, Math.max(lo, Math.trunc(x) + 0));
   if (literal) return held(v, int === 'i32' ? I32_MAX : U32_MAX);
   const hi = int === 'i32' ? I32_MAX_F32 : U32_MAX_F32;
