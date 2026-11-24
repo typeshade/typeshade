@@ -72,8 +72,6 @@ export interface RhiCanvas {
 }
 
 // Why: WebGPU forces a `'map-read'` buffer to take only `'copy-dst'` beside it; no backend checks it.
-/** What a buffer is used for. `'map-read'` makes a buffer that `readBuffer` reads; such a buffer
- *  takes only `'copy-dst'` beside it. */
 export type RhiBufferUsage =
   'map-read' | 'copy-src' | 'copy-dst' | 'index' | 'vertex' | 'uniform' | 'storage' | 'indirect';
 
@@ -352,9 +350,6 @@ export interface RhiCaps {
    *  buffer), rather than at the submit. */
   readonly immediate: boolean;
   // Why: WebGL2 has no `GPUSupportedLimits`; `maxViewportDimension` is the smaller of `MAX_VIEWPORT_DIMS`, read once.
-  /** The device's limits by their names in WebGPU's `GPUSupportedLimits`, copied at the read. A
-   *  WebGL2 device has none of them; it gives `maxViewportDimension`, the smaller of its
-   *  `MAX_VIEWPORT_DIMS`, read once. */
   readonly limits: Readonly<Record<string, number>>;
   /** Whether the device has the WebGPU feature `name`; on WebGL2, the extension `name` (one the
    *  backend asks for, such as `EXT_polygon_offset_clamp`). */
@@ -378,9 +373,6 @@ export interface RhiNativeKinds {
 /** A device: the objects it makes, the commands it runs, and its capabilities. */
 export interface RhiDevice {
   // Why: this list is not `TIERS` (`../core/tiers.ts`) on purpose; a tier that is a code form of the software backend adds no backend (change 0042).
-  /** The RHI's backend. This list is not `TIERS` (`../core/tiers.ts`), the tiers a call may run
-   *  on, and it is written here on purpose: a tier that is a code form of the software backend
-   *  runs on the backend `'cpu'` and adds no backend (change 0042). */
   readonly backend: 'webgpu' | 'webgl2' | 'cpu';
   readonly caps: RhiCaps;
   /** The native device: a `GPUDevice` on WebGPU, a `WebGL2RenderingContext` on WebGL2, and none

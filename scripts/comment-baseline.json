@@ -907,7 +907,7 @@
   "src/rhi/cpu.ts": 31,
   "src/rhi/rhi-conformance.test.ts": 10,
   "src/rhi/rhi-conformance.ts": 85,
-  "src/rhi/rhi.ts": 117,
+  "src/rhi/rhi.ts": 94,
   "src/rhi/webgl2.test.ts": 16,
   "src/rhi/webgl2.ts": 176,
   "src/rhi/webgpu.test.ts": 10,
