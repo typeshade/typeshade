@@ -3,7 +3,7 @@
 /* @example
 {
   "title": "Host: dispatch a compute entry",
-  "blurb": "A `@compute(…)` entry and its host: `run()` uses the authored defaults, while `runSpecialized()` passes `{ constants }` to a direct call and to an entry inside `device.fuse()`. `WIDTH` selects the workgroup size and `GAIN` scales the output. The host calculates the group count from the selected width, keeps the plan's arrays resident, reads the result and returns the dispatch report (Rule 8.24). WebGPU and the CPU tier use 32 lanes; WebGL2 keeps the default 64 lanes and still selects `GAIN`.",
+  "blurb": "A `@compute(…)` entry and its host: `run()` uses the authored defaults. The check in `check.ts` passes `{ constants }` to a direct call and to an entry inside `device.fuse()`. `WIDTH` selects the workgroup size and `GAIN` scales the output. The check calculates the group count from the selected width, keeps the plan's arrays resident, reads the result and holds the dispatch report to what each tier does (Rule 8.24). WebGPU and the CPU tier use 32 lanes; WebGL2 keeps the default 64 lanes and still selects `GAIN`.",
   "renderable": false,
   "reason": "missing capabilities: storageBuffer, compute"
 }

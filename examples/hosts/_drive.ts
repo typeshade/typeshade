@@ -8,7 +8,8 @@
 // `host.ts` files, not this one.
 
 import { run as draw } from './host-draw/host.js';
-import { run as compute, runSpecialized } from './host-compute/host.js';
+import { run as compute } from './host-compute/host.js';
+import { specialized } from './host-compute/check.js';
 import { run as kernel } from './host-kernel/host.js';
 import { run as residentChain } from './host-resident/host.js';
 import { run as helper } from './host-helper/host.js';
@@ -41,8 +42,8 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
     return { pixels: [...pixels], selected: [selected] };
   },
   'host-compute': async () => {
-    const ys = await compute(INPUTS.compute.n);
-    const { direct, values, report } = await runSpecialized(INPUTS.compute.n);
+    const { values: ys } = await compute(INPUTS.compute.n);
+    const { direct, values, report } = await specialized(INPUTS.compute.n);
     reports['entry-overrides'] = report;
     return { ys: [...ys], direct: [...direct], planned: [...values] };
   },
@@ -95,7 +96,8 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
   },
   'host-program': async () => {
     const { size, times } = INPUTS.program;
-    return { pixels: [...(await program(size, size, times))] };
+    const { image } = await program(size, size, times);
+    return { pixels: [...image.rgba] };
   },
 };
 

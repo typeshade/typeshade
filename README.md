@@ -110,9 +110,10 @@ Every `"use typeshade"` block in this README, `AUTHORING.md`, `docs/` and `examp
 
 For a complete compute-entry host, see
 [`host-compute/host.ts`](examples/hosts/host-compute/host.ts) and its
-[shader](examples/hosts/host-compute/host-compute.shade.ts). The example covers default calls,
-`entry(bindings, groups, { constants })`, and workgroup selection inside `device.fuse()`.
-Its output is checked on WebGPU, WebGL2 and the CPU tier; the host calculates the group count
+[shader](examples/hosts/host-compute/host-compute.shade.ts). `host.ts` is the default call. The
+check harness's [`check.ts`](examples/hosts/host-compute/check.ts) covers
+`entry(bindings, groups, { constants })` and workgroup selection inside `device.fuse()`.
+Its output is checked on WebGPU, WebGL2 and the CPU tier; the check calculates the group count
 for the selected width and reads its `Buffer` output after the plan.
 
 ## Checking shaders from the command line
