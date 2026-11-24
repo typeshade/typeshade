@@ -158,4 +158,67 @@ describe('neighbours of the decision (issue 1353)', () => {
       ['u32', 'let k = 5;\n  k -= 8;\n  let j = k;\n  j -= 1;\n  return u32(j);', 0],
     ]);
   });
+
+  it('an f32 the author typed, stored into a chosen let, wraps with the let', () => {
+    rows([
+      ['u32', 'let k = 5;\n  k -= 8;\n  k += f;\n  return u32(k);', 4294967295],
+      [
+        'u32',
+        'let k = 5;\n  k -= 8;\n  if (f > 1.0) {\n    k = f - 10.0;\n  }\n  return u32(k);',
+        4294967288,
+      ],
+      ['u32', 'let k = 5;\n  k = f - 10.0;\n  return u32(k);', 4294967288],
+      ['u32', 'let k = 5;\n  k = k + f;\n  k -= 8;\n  return u32(k);', 4294967295],
+      [
+        'u32',
+        'let m = 5;\n  m += f;\n  let k = 5;\n  k = m;\n  k -= 8;\n  return u32(k);',
+        4294967295,
+      ],
+      ['u32', 'let k = 5;\n  k -= 8;\n  let r = u32(k);\n  k += f;\n  return r;', 4294967293],
+      ['i32', 'let k = 5;\n  k *= 1e10;\n  k += f;\n  return i32(k);', -1539608576],
+      ['i32', 'let k = 5;\n  k -= 8;\n  k += f;\n  return i32(k);', -1],
+      ['u32', 'let k = 5;\n  k += f;\n  return u32(k);', 6],
+    ]);
+  });
+
+  it('an expression that reads the author f32 itself keeps the saturating conversion', () => {
+    rows([
+      ['u32', 'let k = 5;\n  k -= 8;\n  return u32(k + f);', 0],
+      ['u32', 'return u32(f - 10.0);', 0],
+      ['u32', 'let k = 5;\n  k -= 8;\n  let v: f32 = k;\n  return u32(v);', 0],
+    ]);
+  });
+
+  it('a float written as a number into a chosen let still wraps', () => {
+    rows([
+      ['u32', 'let k = 5;\n  k -= 8;\n  k += 0.5;\n  return u32(k);', 4294967294],
+      ['u32', 'let k = 5;\n  k -= 8;\n  k = k * 2.0;\n  return u32(k);', 4294967290],
+    ]);
+  });
+
+  it('a result that wraps changes the program around it', () => {
+    const k = 'let k = 5;\n  k -= 8;\n  ';
+    rows([
+      ['u32', `${k}return u32(k) - u32(1);`, 4294967292],
+      ['u32', `${k}let r = u32(k);\n  return r;`, 4294967293],
+      ['u32', `${k}return u32(k) | 0;`, 4294967293],
+      ['u32', `${k}return u32(k) * 2;`, 4294967290],
+      ['u32', `${k}return u32(k) + u32(k);`, 4294967290],
+      ['u32', `${k}return u32(k) < 5 ? 1 : 0;`, 0],
+      ['u32', `${k}return u32(k - 5.5);`, 4294967288],
+    ]);
+  });
+
+  it('chosen lets that no copy sits between wrap, and a copy chain saturates', () => {
+    rows([
+      ['u32', 'let k = -3;\n  return u32(k);', 4294967293],
+      ['u32', 'let a = 3;\n  let b = 5;\n  return u32(a - b);', 4294967294],
+      ['u32', 'let a = 3;\n  let b = 5;\n  let c = a - b;\n  return u32(c);', 0],
+      ['u32', 'let k = 5;\n  k -= 8.5;\n  return u32(k);', 4294967293],
+      ['u32', 'let k = 3;\n  while (k > -5) {\n    k -= 1;\n  }\n  return u32(k);', 4294967291],
+      ['i32', 'let k = 5;\n  k = k * 3000000000;\n  return i32(k);', 2115098624],
+      ['u32', 'let k = 5;\n  k -= 8;\n  return u32(k * 1e10);', 64770048],
+      ['i32', 'let k = 5;\n  k *= -1e10;\n  return i32(k);', 1539608576],
+    ]);
+  });
 });
