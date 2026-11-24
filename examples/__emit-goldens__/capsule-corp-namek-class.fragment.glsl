@@ -714,7 +714,7 @@ float Terrain_brush(vec2 a, vec2 m, vec2 b, float width, float taper) {
   float d1 = length((a + (ma * h1)));
   float d2 = length((m + (bm * h2)));
   float along = mix((0.5 + (0.5 * h2)), (0.5 * h1), (d1 < d2));
-  return (min(d1, d2) - (width * mix(1.0, (0.3 + (0.7 * sqrt(sin((PI * along))))), taper)));
+  return (min(d1, d2) - (width * mix(1.0, (0.3 + (0.7 * sqrt(max(sin((PI * along)), 0.0)))), taper)));
 }
 
 float Terrain_dirtStrokes(vec2 x, vec2 eye, mat2 jacobian, float lw) {
