@@ -212,7 +212,6 @@
   "src/language-service/projection.test.ts": 520,
   "src/language-service/projection.ts": 528,
   "src/language-service/service.test.ts": 715,
-  "src/language-service/service.ts": 434,
   "src/rhi/rhi-conformance.ts": 1415,
   "src/rhi/webgl2.ts": 845,
   "src/rhi/webgpu.test.ts": 425,
