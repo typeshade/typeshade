@@ -186,8 +186,6 @@ describe('the impact reader', () => {
   });
 
   it('a removed export a member still declares is no must-fix; one nothing declares is', () => {
-    // `draw` is named by sentences of the surface (Rule 11.17). The diff removes `export function
-    // draw`; the head sources are injected, so only what they declare decides.
     const diff: Parameters<typeof impactOf>[0] = {
       base: 'HEAD',
       staged: false,
