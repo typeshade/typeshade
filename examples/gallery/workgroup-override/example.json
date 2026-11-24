@@ -1,0 +1,9 @@
+{
+  "title": "Workgroup size override",
+  "blurb": "One `override<u32>` sets the compute entry's workgroup size and the outer length of its shared scratch array. The host selects 64 or 256 from the input length when it creates the pipeline.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}

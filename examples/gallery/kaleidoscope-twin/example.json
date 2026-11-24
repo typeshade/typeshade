@@ -1,0 +1,9 @@
+{
+  "title": "Kaleidoscope (source twin)",
+  "blurb": "`kaleidoscope.ts` written in the source language: the polar mirror fold through `mod`, the portable floor-mod, so the negative angles `atan2` produces wrap identically on both targets.",
+  "group": "works",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true,
+  "twinOf": "kaleidoscope"
+}

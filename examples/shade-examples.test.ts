@@ -256,16 +256,13 @@ describe('"use typeshade" examples — passes (change 0026)', () => {
     expect(withPasses.map((e) => e.id).sort()).toEqual(['feedback-trail', 'separable-blur']);
   });
 
-  it('every file under passes/ is a pass of exactly one example, and every pass has its file', () => {
+  it('every support file under gallery/ but the noise library is a pass of exactly one example, and every pass has its file', () => {
     const passFiles = [
-      ...readdirSync(join(HERE, 'passes'), { recursive: true })
-        .map(String)
-        .filter((f) => f.endsWith(SHADE_EXT))
-        .map((f) => `passes/${f.replaceAll('\\', '/')}`),
       ...readdirSync(join(HERE, GALLERY_DIR), { recursive: true })
         .map((f) => String(f).replaceAll('\\', '/').split('/'))
         .filter(([dir, file]) => file?.endsWith(SHADE_EXT) && file !== `${dir}${SHADE_EXT}`)
-        .map((parts) => `${GALLERY_DIR}/${parts.join('/')}`),
+        .map((parts) => `${GALLERY_DIR}/${parts.join('/')}`)
+        .filter((f) => f !== `${GALLERY_DIR}/imported-noise/noise${SHADE_EXT}`),
     ].sort();
     const named = withPasses.flatMap((e) => (e.passes ?? []).map((p) => p.file)).sort();
     expect(named).toEqual(passFiles);

@@ -104,7 +104,7 @@ the compiler already knows, which is what #217 removed for a local.
   - the README's "Not covered" line;
   - `examples/inferred-returns.shade.ts`, which returns a product directly and drops its #162
     note;
-  - `examples/path-tracer.shade.ts`, whose #162 note has been untrue for its locals since #217,
+  - `examples/gallery/path-tracer/path-tracer.shade.ts`, whose #162 note has been untrue for its locals since #217,
     and whose runtime-bound note has been untrue since #209.
 - **Tests.** `src/language-service/projection.test.ts` pins the program above to no diagnostic.
   It also pins hover, completion, references, rename and semantic tokens across an inserted

@@ -46,7 +46,6 @@ import { loweredTypeOf } from './symbols.js';
 import {
   constantTree,
   ARITH,
-  i32Argument,
   reachedBy,
   COUNTING_BUILTINS,
   ONE,
@@ -82,6 +81,7 @@ import {
 } from './abstract-const/syntax-lookup.js';
 import { groupExecutions } from './abstract-const/trip-count.js';
 import { absOfI32Minimum, readingsSentenceOf } from './abstract-const/readings-sentence.js';
+import { provesI32Minimum } from './abstract-const/i32-minimum.js';
 import {
   READING_DEPTH,
   READING_ROUNDS,
@@ -101,7 +101,6 @@ import {
   pastInt32,
   provenDiffering,
   markReassigned,
-  provenI32Minimum,
   readingValue,
   sameReadings,
   type Reading,
@@ -1479,10 +1478,11 @@ export function reportAbstractDivisions(
         const declared = r.target || constant !== undefined;
         const elsewhere =
           constant !== undefined && programFileOf(constant) !== programFileOf(r.node);
-        const shown: ReadingsRefusal = declared ? { ...r, target: true } : r;
-        const wgslAbs = absOfI32Minimum(r, readingsFrom(r.node));
+        const wgslAbs = absOfI32Minimum(r, readingsFrom(r.node), READS);
         const change = (t: 'u32' | 'i32'): SourceChange | undefined =>
-          elsewhere || r.readings.noEdit === true || (t === 'i32' && wgslAbs)
+          elsewhere ||
+          r.readings.noEdit === true ||
+          (wgslAbs && (t === 'i32' || r.operator === 'f32()'))
             ? undefined
             : declared
               ? declarationChange(text, r.node, t)
@@ -1493,7 +1493,7 @@ export function reportAbstractDivisions(
             r.node,
             type === 'none' || (type === null && elsewhere)
               ? readingsSentenceOf(r, '').trimEnd()
-              : readingsSentenceOf(r, readingsRemedy(shown, type)),
+              : readingsSentenceOf(r, readingsRemedy(declared ? { ...r, target: true } : r, type)),
             TS_CODES.TYPE_MISMATCH,
           );
           const i = diagnostics.indexOf(r.diagnostic);
@@ -2219,12 +2219,12 @@ export interface TwoReadings {
 export function besideI32Readings(arg: ts.Expression, callee: string): TwoReadings | undefined {
   const own = twoReadingsOf(arg);
   if (own?.unproven === true || callee !== 'abs') return own?.unproven === true ? own : undefined;
-  const inner = i32Argument(arg);
-  const xs = inner === undefined ? [] : readingsFrom(inner);
-  return xs.length > 0 && xs.every(provenI32Minimum)
+  return provesI32Minimum(arg, READS)
     ? { u32: NaN, ts: NaN, unproven: true, noEdit: true }
     : undefined;
 }
+
+const READS = { readingsFrom, constNumber, declarationOf, writtenTypeText, reassignedAnywhere };
 
 /** The two readings a plain assignment `a = rhs` gives its target: those of `rhs`, or of a
  *  part that `+ - * & | ^ <<`, a minus, a `~`, `?:` or `select` carry (`a = a + T`). The
