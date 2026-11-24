@@ -106,6 +106,7 @@ import { dispatched, bareArrays, reachedBy } from './host-face/kernel-facts.js';
 import { isFunctionType } from './host-face/type-nodes.js';
 import { classChain, memberCall, classMembers } from './host-face/class-members.js';
 import { classCalls, generatedClass } from './host-face/class-calls.js';
+export { hostViewPath, isShaderModulePath, formatBuildErrors } from './host-face/build-paths.js';
 export { bareArrays } from './host-face/kernel-facts.js';
 export { type HostExport } from './host-face-contracts.js';
 export { hostTypeOf } from './host-types.js';
@@ -1259,17 +1260,4 @@ function resourceLayouts(name: string, structs: ReadonlyMap<string, StructDecl>)
     ...('none' in u ? { un: u.none } : { u }),
     ...('none' in s ? { sn: s.none } : { s: s as Layout & { k: 'a' } }),
   };
-}
-
-export const hostViewPath = (path: string): string => path.replace(/\.ts$/, '.typeshade.ts');
-
-export const isShaderModulePath = (path: string): boolean => path.endsWith('.shade.ts');
-
-export function formatBuildErrors(diagnostics: readonly TsCompilerDiagnostic[]): string {
-  return diagnostics
-    .filter((d) => d.category === 'error')
-    .map((d) =>
-      `${d.fileName}:${d.line}:${d.character} ${d.code ?? ''} ${d.message}`.replace(/  +/, ' '),
-    )
-    .join('\n');
 }
