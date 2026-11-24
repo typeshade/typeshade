@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { isPolicedText, publicDefinitions } from './comment-policy.js';
+import { lineCitationRefusals, workingCoverageTexts } from './move-purity/line-citations.js';
 import { parseArguments } from './remove-comments/arguments.js';
 import { removeFileComments, type FileResult } from './remove-comments/remove-file.js';
 import { formatCandidates, formatResult, jsonOf } from './remove-comments/report.js';
@@ -19,6 +20,7 @@ export async function runCli(args: string[], cwd: string): Promise<number> {
   const root = parsed.repo ?? cwd;
   const surface = join(root, SURFACE_PATH);
   const keys = publicDefinitions(existsSync(surface) ? readFileSync(surface, 'utf8') : '');
+  const coverage = workingCoverageTexts(root);
   const results: FileResult[] = [];
   let failed = false;
   for (const given of parsed.paths) {
@@ -27,6 +29,12 @@ export async function runCli(args: string[], cwd: string): Promise<number> {
     const text = existsSync(full) ? readFileSync(full, 'utf8') : undefined;
     if (!path.startsWith('src/') || text === undefined || !isPolicedText(path, text)) {
       console.error(`${path}: not a policed .ts file of src/`);
+      failed = true;
+      continue;
+    }
+    const cited = lineCitationRefusals(coverage, path);
+    if (cited.length > 0) {
+      for (const line of cited) console.error(`${path}: ${line}`);
       failed = true;
       continue;
     }

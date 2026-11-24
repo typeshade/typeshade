@@ -479,6 +479,12 @@ The 41 files hold 36,054 lines.
 | `src/rhi`              | `cpu.ts`, `rhi.ts`, `webgl2.ts` (3)                                                                                                                                       |
 | `src/runtime`          | `gl-draw.ts`, `gl.ts` (2)                                                                                                                                                 |
 
+Blocked: 9 of the 41 files are cited by line in `src/core/coverage/`, so the move-purity guard refuses a move of them (section 8, item 9, line citations).
+They stay blocked until their citations become symbol anchors: `src/core/gl-compute.ts` (17 citing segments), `src/core/reflect.ts` (2),
+`src/core/backends/wgsl.ts` (12), `src/core/compute/runner.ts` (1), `src/core/ir/nodes.ts` (1), `src/core/ir/types.ts` (2),
+`src/rhi/webgl2.ts` (131), `src/runtime/gl-draw.ts` (93) and `src/runtime/gl.ts` (34).
+Measured with `bun scripts/move-purity.ts --clean-report` on `fda5e901`, 2026-11-24.
+
 Fact: the 10 + 9 + 1 + 1 + 1 + 2 + 2 + 5 + 2 + 3 + 3 + 2 rows add up to 41.
 The other 82 oversized non-test files are in a cycle (34) or hold an active unit and no cycle (48).
 Some of the 41 are large: `src/core/passes/kernel-lower.ts` has 2,094 lines and `src/compiler/ts/host-face.ts` has 2,006 lines.
@@ -804,8 +810,22 @@ the affected set took 11 minutes for one comment-removal slice, and CI runs the 
    For `HEAD` it prints, for the non-test files of `src/` and for each directory two levels below `src/`:
    the files, the clean files, the files with active units (and the units), the files in cycles,
    and the list of cycles with their sizes.
+   It also lists each clean file that evidence rows cite by line, with the number of citing segments.
+   The JSON rows of `files` carry `citedByLine` and `citingSegments`.
+
+   Line citations. Rows of `src/core/coverage/*.ts` cite evidence as `path:line` or `path:line-line`.
+   A move shifts these lines, and a citation goes stale without a failure, or the test
+   "every evidence citation resolves" fails when the line passes the end of the file.
+   The checker reads the evidence strings on the head side. It refuses the range, with the finding
+   `cited by line path`, when a changed, deleted or renamed `.ts` path is cited by line.
+   The finding names the file, the number of citing segments and one row location.
+   A new file that no row cites is not refused. `scripts/move-declarations.ts` refuses a cited source
+   before it plans, with the same text. The guard applies under `--require` too.
 
    Known gaps. The check does not cover these cases:
+
+   - Another file can depend on the line numbers of a moved file. The guard reads only the evidence
+     strings of `src/core/coverage/`. A line number kept in another file or document is not found. The check does not cover these cases:
 
    - A package entry (`exports` of `package.json`) that points to a deleted file.
    - Glob-keyed configuration is not modelled: a new file under an ESLint `ignores` or a tsconfig `exclude` glob,
@@ -833,6 +853,8 @@ What a pass proves:
   A line break that a comment held and that cut a restricted production (`return` and its value) is a changed tree, so it fails.
 - The directive prologue, the shebang and the byte order mark are the same.
 - Each comment of the head exists in the base, in the same order, with the same text and at the same place among the code leaves.
+- No changed `.ts` file is cited by line in an evidence string of `src/core/coverage/` (item 9, line citations).
+  `scripts/remove-comments.ts` refuses such a file with the same text.
   So no comment was added, reworded or moved. The indentation of the lines of a block comment is not compared.
 - Each removed comment is one that `scripts/comment-policy.ts` counts as banned.
   A marker, a `Why:` comment, the doc comment of a definition of `src/__api__/surface.md` and the protected comments

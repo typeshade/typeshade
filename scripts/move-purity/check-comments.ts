@@ -1,6 +1,7 @@
 import { isPolicedText, publicDefinitions } from '../comment-policy.js';
 import { compareCommentFiles, type FileCommentReport } from './comment-removal.js';
 import { finding, type Finding } from './finding.js';
+import { lineCitationFindings } from './line-citations.js';
 import {
   COMMENT_BASELINE,
   FORBIDDEN_PATHS,
@@ -83,7 +84,7 @@ export function checkCommentRemoval(
   options: CommentOptions,
 ): CommentReport {
   const outside = entryProblems(options.entries);
-  const findings: Finding[] = [];
+  const findings: Finding[] = lineCitationFindings(head, options.paths);
   const files: FileCommentReport[] = [];
   const keys = publicDefinitions(base.get(SURFACE_PATH) ?? '');
   const before = baselineOf(base.get(COMMENT_BASELINE));

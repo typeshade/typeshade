@@ -26,6 +26,7 @@ import { createSide } from './side-program.js';
 import type { Title } from './titles.js';
 import { movedUnitFindings } from './moved-unit-findings.js';
 import { reboundFindings } from './rebound-findings.js';
+import { lineCitationFindings } from './line-citations.js';
 
 export interface MoveReport {
   readonly pure: boolean;
@@ -77,7 +78,7 @@ export function checkMove(
   let titles = { vanished: [] as Title[], appeared: [] as Title[] };
   let directives: DirectiveViolation[] = [];
   let renames: ReadonlyMap<string, string> = new Map();
-  const findings: Finding[] = [];
+  const findings: Finding[] = lineCitationFindings(head, paths);
   for (const entry of options.entries ?? []) {
     const lacksHead = entry.newMode !== '000000' && !head.has(entry.path);
     const lacksBase = entry.oldMode !== '000000' && !base.has(entry.path);
