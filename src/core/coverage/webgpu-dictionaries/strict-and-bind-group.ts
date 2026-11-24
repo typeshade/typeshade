@@ -1,0 +1,192 @@
+import { gap, na, raw, type Row, typed } from '../model.js';
+
+export const STRICT_AND_BIND_GROUP_ROWS: readonly Row[] = [
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUOrigin2DDictStrict.z`',
+    covers: ['GPUOrigin2DDictStrict.z'],
+    evidence: 'node_modules/@webgpu/types/dist/index.d.ts:49',
+    webgpu: na('types-package helper, not an API surface'),
+    webgl2: na('types-package helper, not an API surface'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUExtent3DDictStrict.depth`',
+    covers: ['GPUExtent3DDictStrict.depth'],
+    evidence: 'node_modules/@webgpu/types/dist/index.d.ts:58',
+    webgpu: na('types-package helper'),
+    webgl2: na('types-package helper'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUCanvasConfigurationOut.viewFormats`',
+    covers: ['GPUCanvasConfigurationOut.viewFormats'],
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/runtime.ts:51-58',
+    webgpu: raw(
+      'createRuntime({ device })',
+      'PassTargets.color takes the context the host configured',
+    ),
+    webgl2: na('WebGL2 has no canvas configuration; its context attributes are table D'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUCanvasConfigurationOut.toneMapping`',
+    covers: ['GPUCanvasConfigurationOut.toneMapping'],
+    evidence: 'src/runtime/runtime.ts:105-170; src/runtime/runtime.ts:51-58',
+    webgpu: raw(
+      'createRuntime({ device })',
+      'PassTargets.color takes the context the host configured',
+    ),
+    webgl2: na('WebGL2 has no canvas configuration; its context attributes are table D'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupDescriptor.layout`',
+    covers: ['GPUBindGroupDescriptor.layout'],
+    evidence:
+      'src/runtime/runtime.ts:349-365; src/runtime/program.ts:1746-1783; src/rhi/webgpu.ts:362-379',
+    webgpu: typed(
+      'journeys/overrides/journey.mjs',
+      'built by name from the manifest (Rule 11.11); never written by the host',
+    ),
+    webgl2: na('WebGL2 has no bind group object; its bindings are set by name'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupDescriptor.entries`',
+    covers: ['GPUBindGroupDescriptor.entries'],
+    evidence:
+      'src/runtime/runtime.ts:349-365; src/runtime/program.ts:1746-1783; src/rhi/webgpu.ts:362-379',
+    webgpu: typed(
+      'src/runtime/runtime.test.ts',
+      'built by name from the manifest (Rule 11.11); never written by the host',
+    ),
+    webgl2: na('WebGL2 has no bind group object; its bindings are set by name'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupEntry.binding`',
+    covers: ['GPUBindGroupEntry.binding'],
+    evidence:
+      'src/runtime/program.ts:1746-1843; src/rhi/webgpu.ts:362-379; src/runtime/gl-draw.ts:742; src/rhi/webgl2.ts:622, 629',
+    webgpu: typed(
+      'src/runtime/runtime.test.ts',
+      'bindings by name; also: raw (a host GPUBuffer, GPUSampler or GPUTextureView bound as is; a host GPUTexture through its default view)',
+    ),
+    webgl2: na('WebGL2 has no bind group object; its bindings are set by name'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupEntry.resource`',
+    covers: ['GPUBindGroupEntry.resource'],
+    evidence:
+      'src/runtime/program.ts:1746-1843; src/rhi/webgpu.ts:362-379; src/runtime/gl-draw.ts:742; src/rhi/webgl2.ts:622, 629',
+    webgpu: typed(
+      'src/runtime/runtime.test.ts',
+      'bindings by name; also: raw (a host GPUBuffer, GPUSampler or GPUTextureView bound as is; a host GPUTexture through its default view)',
+    ),
+    webgl2: na('WebGL2 has no bind group object; its bindings are set by name'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupLayoutDescriptor.entries`',
+    covers: ['GPUBindGroupLayoutDescriptor.entries'],
+    evidence: 'src/runtime/program.ts:1541-1545; src/rhi/webgpu.ts:358-360',
+    webgpu: typed('src/runtime/runtime.test.ts', 'from the manifest, never layout: auto'),
+    webgl2: na('WebGL2 has no bind group layout; its bindings are set by name'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupLayoutEntry.binding`',
+    covers: ['GPUBindGroupLayoutEntry.binding'],
+    evidence: 'src/runtime/program.ts:1328-1381',
+    webgpu: typed(
+      'src/runtime/runtime.test.ts',
+      'visibility from the stages that reach the binding; sampleType from the calls (Rule 11.10)',
+    ),
+    webgl2: na('WebGL2 has no bind group layout; its bindings are set by name'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupLayoutEntry.visibility`',
+    covers: ['GPUBindGroupLayoutEntry.visibility'],
+    evidence: 'src/runtime/program.ts:1328-1381',
+    webgpu: typed(
+      'src/runtime/runtime.test.ts',
+      'visibility from the stages that reach the binding; sampleType from the calls (Rule 11.10)',
+    ),
+    webgl2: na('WebGL2 has no bind group layout; its bindings are set by name'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupLayoutEntry.buffer`',
+    covers: ['GPUBindGroupLayoutEntry.buffer'],
+    evidence: 'src/runtime/program.ts:1328-1381',
+    webgpu: typed(
+      'src/runtime/runtime.test.ts',
+      'visibility from the stages that reach the binding; sampleType from the calls (Rule 11.10)',
+    ),
+    webgl2: na('WebGL2 has no bind group layout; its bindings are set by name'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupLayoutEntry.sampler`',
+    covers: ['GPUBindGroupLayoutEntry.sampler'],
+    evidence: 'src/runtime/program.ts:1328-1381',
+    webgpu: typed(
+      'src/runtime/runtime.test.ts',
+      'visibility from the stages that reach the binding; sampleType from the calls (Rule 11.10)',
+    ),
+    webgl2: na('WebGL2 has no bind group layout; its bindings are set by name'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupLayoutEntry.texture`',
+    covers: ['GPUBindGroupLayoutEntry.texture'],
+    evidence: 'src/runtime/program.ts:1328-1381',
+    webgpu: typed(
+      'src/runtime/runtime.test.ts',
+      'visibility from the stages that reach the binding; sampleType from the calls (Rule 11.10)',
+    ),
+    webgl2: na('WebGL2 has no bind group layout; its bindings are set by name'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupLayoutEntry.storageTexture`',
+    covers: ['GPUBindGroupLayoutEntry.storageTexture'],
+    evidence: 'src/runtime/program.ts:1328-1381',
+    webgpu: typed(
+      'scripts/compile-gate.ts',
+      'visibility from the stages that reach the binding; sampleType from the calls (Rule 11.10)',
+    ),
+    webgl2: na('WebGL2 has no bind group layout; its bindings are set by name'),
+  },
+  {
+    table: 'A',
+    kind: 'WebGPU dictionary member',
+    name: '`GPUBindGroupLayoutEntry.externalTexture`',
+    covers: ['GPUBindGroupLayoutEntry.externalTexture'],
+    evidence: 'src/runtime/program.ts:1328-1381',
+    webgpu: gap(
+      12,
+      'no manifest binding is an external texture; refused today with no rule number: texture_external is not spelled (docs/language-design.md:1539; roadmap 0.4 item 13c, docs/roadmap.md:229)',
+      162,
+    ),
+    webgl2: na('WebGL2 has no external texture object'),
+  },
+];

@@ -6,10 +6,10 @@
 // is baked.
 //
 // WHAT THIS DIRECTORY IS. The hand-maintained classification of the table: one row per source key
-// or group of source keys, written in six data files (webgpu-objects.ts, webgpu-dictionaries.ts,
-// webgpu-enums.ts, wgsl.ts, glsl.ts, webgl2-host.ts) and joined by index.ts. This file holds the
-// types, the escape hatches of Rule 11.17, the gap groups and the builders the rows use. It imports
-// nothing.
+// or group of source keys, written in the section files of six directories (webgpu-objects/,
+// webgpu-dictionaries/, webgpu-enums/, wgsl/, glsl/, webgl2-host/), each joined by the file of its
+// name, and joined by index.ts. This file holds the types, the escape hatches of Rule 11.17, the gap
+// groups and the builders the rows use. It imports nothing.
 //
 // HOW IT REACHES THE DOCUMENTS. scripts/bake-capability-coverage.ts reads these rows, checks them
 // against the sources of Appendix C and writes two generated texts: docs/capability-coverage.md,

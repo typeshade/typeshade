@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import ts from 'typescript';
 import { describeFinding, finding, type Finding } from './finding.js';
 
@@ -93,8 +93,9 @@ export function workingCoverageTexts(root: string): Map<string, string> {
   const dir = join(root, COVERAGE_DIR);
   const texts = new Map<string, string>();
   if (!existsSync(dir)) return texts;
-  for (const name of readdirSync(dir)) {
-    const path = `${COVERAGE_DIR}${name}`;
+  for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const path = `${COVERAGE_DIR}${relative(dir, join(entry.parentPath, entry.name)).split(sep).join('/')}`;
     if (isCoveragePath(path)) texts.set(path, readFileSync(join(root, path), 'utf8'));
   }
   return texts;

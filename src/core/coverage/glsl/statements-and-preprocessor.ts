@@ -1,0 +1,206 @@
+import { gap, na, type Row, typed } from '../model.js';
+
+export const STATEMENTS_AND_PREPROCESSOR_ROWS: readonly Row[] = [
+  {
+    table: 'C',
+    kind: 'GLSL statement',
+    name: '`if`, `if`/`else`',
+    covers: ['glsl:statements:6.2:if', 'glsl:statements:6.2:if-else'],
+    evidence: 'src/compiler/ts/lower/statement.ts:215, 2063-2090; src/core/emit.ts:312',
+    note: 'an else if chain lowers into one if node with several arms (src/compiler/ts/lower/statement.ts:2085-2090)',
+    webgpu: typed('examples/shade-examples.test.ts'),
+    webgl2: typed('src/core/backends/glsl-legalize.test.ts'),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL statement',
+    name: '`switch`/`case` with fall-through',
+    covers: ['glsl:statements:6.2:switch', 'glsl:statements:6.2:case'],
+    evidence:
+      'docs/language-design.md:553-557; src/compiler/ts/lower/control.ts:705-760; src/core/emit.ts:334',
+    webgpu: typed(
+      'src/compiler/ts/ts-syntax.test.ts',
+      'also: fall-through between case bodies is refused (Rule 7.3, TS8017)',
+    ),
+    webgl2: typed(
+      'src/core/backends/glsl.test.ts',
+      'also: fall-through between case bodies is refused (Rule 7.3, TS8017)',
+    ),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL statement',
+    name: '`default`',
+    covers: ['glsl:statements:6.2:default'],
+    evidence: 'src/compiler/ts/lower/control.ts:754-790; src/core/emit.ts:355-356',
+    note: 'also: a case selector written above default with no body is refused (TS8017, src/compiler/ts/lower/control.ts:754-770)',
+    webgpu: typed('src/compiler/ts/operators-statements.test.ts'),
+    webgl2: typed('examples/shade-examples.test.ts'),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL statement',
+    name: '`for`, `while`',
+    covers: ['glsl:statements:6.3:for', 'glsl:statements:6.3:while'],
+    evidence: 'src/compiler/ts/lower/control.ts:42, 458; src/core/emit.ts:325',
+    note: 'a while loop lowers into the one top-tested for node (src/compiler/ts/lower/control.ts:458)',
+    webgpu: typed('src/compiler/ts/block-scope.test.ts'),
+    webgl2: typed('src/compiler/ts/runtime-loop-bound.test.ts'),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL statement',
+    name: '`do…while`',
+    covers: ['glsl:statements:6.3:do'],
+    evidence:
+      'src/compiler/ts/lower/statement.ts:269-280; src/compiler/ts/codes.ts:263 (TS8099); docs/roadmap.md:209 (roadmap T13)',
+    webgpu: gap(
+      12,
+      'refused today with no rule number: refused as TS8099; GLSL ES 3.00 has do…while and WGSL does not, so the refusal names the portable while (measured with compile(), 2026-10-12); roadmap T13 names it (docs/roadmap.md:209)',
+      160,
+    ),
+    webgl2: gap(
+      12,
+      'refused today with no rule number: the same TS8099 refusal stops compile() before the GLSL writer runs; roadmap T13 names it (docs/roadmap.md:209)',
+      160,
+    ),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL statement',
+    name: '`continue`',
+    covers: ['glsl:statements:6.4:continue'],
+    evidence: 'src/compiler/ts/lower/statement.ts:238-250; src/core/emit.ts:300',
+    webgpu: typed('examples/shade-examples.test.ts'),
+    webgl2: typed('examples/shade-examples.test.ts'),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL statement',
+    name: '`break`',
+    covers: ['glsl:statements:6.4:break'],
+    evidence: 'src/compiler/ts/lower/statement.ts:220-237; src/core/emit.ts:298',
+    note: 'a trailing break of a case is dropped by lowerSwitch (src/compiler/ts/lower/statement.ts:223)',
+    webgpu: typed('src/core/ir/loop-count.test.ts'),
+    webgl2: typed('examples/shade-examples.test.ts'),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL statement',
+    name: '`return`',
+    covers: ['glsl:statements:6.4:return'],
+    evidence: 'src/compiler/ts/lower/statement.ts:178-214; src/core/emit.ts:296-297',
+    webgpu: typed('src/compiler/ts/operators-statements.test.ts'),
+    webgl2: typed('src/compiler/ts/convert-ctor.test.ts'),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL statement',
+    name: '`discard`',
+    covers: ['glsl:statements:6.4:discard'],
+    evidence: 'docs/language-design.md:579-585; src/core/emit.ts:302',
+    note: 'Rule 7.7',
+    webgpu: typed('src/compiler/ts/builtins.test.ts'),
+    webgl2: typed('src/compiler/ts/builtins.test.ts'),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL preprocessor',
+    name: '`#version`, `#extension`, `#pragma`, `#define`',
+    covers: [
+      'glsl:preprocessor:3.4:#version',
+      'glsl:preprocessor:3.5:#extension',
+      'glsl:preprocessor:3.5:#pragma',
+      'glsl:preprocessor:3.5:#define',
+    ],
+    evidence:
+      'src/core/backends/glsl.ts:2300 (#version 300 es); src/core/backends/glsl.ts:795-818 (#extension); src/core/backends/glsl.ts:2328-2329 (#define)',
+    webgpu: na('WGSL has no preprocessor'),
+    webgl2: na(
+      'the writer emits #version, #extension and #define (src/core/backends/glsl.ts:2300-2329) and no #pragma; the author of a "use typeshade" program writes no directive, and an override or a constant is the portable form',
+    ),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL preprocessor',
+    name: '`#if`, `#elif`, `#endif`',
+    covers: [
+      'glsl:preprocessor:3.5:#if',
+      'glsl:preprocessor:3.5:#elif',
+      'glsl:preprocessor:3.5:#endif',
+    ],
+    evidence:
+      'src/core/variant-family.ts:304; src/core/variant-family.ts:310 (#endif of the ladder); src/core/variant-family.ts:350 (the #if and #elif heads); src/core/backends/glsl.ts:2329 (the #endif after an #ifndef default)',
+    note: 'also: typed through the host export variantFamily().emitGuarded, which writes this ladder for a host that owns the define (src/core/variant-family.ts:140-166); test src/core/variant-family.test.ts:123-125 reads the ladder',
+    webgpu: na('WGSL has no preprocessor'),
+    webgl2: na(
+      'the author of a "use typeshade" program writes no directive; the ladder comes only from a host export, variantFamily().emitGuarded',
+    ),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL preprocessor',
+    name: '`#ifndef`',
+    covers: ['glsl:preprocessor:3.5:#ifndef'],
+    evidence: 'src/core/backends/glsl.ts:2328-2329 (#ifndef around an override default)',
+    webgpu: na('WGSL has no preprocessor'),
+    webgl2: na(
+      'the writer emits #ifndef around an override default (src/core/backends/glsl.ts:2329); the author writes no directive, and an override is the portable form',
+    ),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL preprocessor',
+    name: '`#ifdef`, `#else`',
+    covers: ['glsl:preprocessor:3.5:#ifdef', 'glsl:preprocessor:3.5:#else'],
+    evidence:
+      'src/core/backends/glsl.ts:2300-2329 (the directives the writer emits); src/core/variant-family.ts:9 (a comment, the one non-test mention of #ifdef)',
+    webgpu: na('WGSL has no preprocessor'),
+    webgl2: na(
+      'emitted nowhere in non-test source; the author of a "use typeshade" program writes no directive',
+    ),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL preprocessor',
+    name: '`#`, `#undef`, `#error`, `#line`',
+    covers: [
+      'glsl:preprocessor:3.5:#',
+      'glsl:preprocessor:3.5:#undef',
+      'glsl:preprocessor:3.5:#error',
+      'glsl:preprocessor:3.5:#line',
+    ],
+    evidence: 'src/core/backends/glsl.ts:2300-2329 (the directives the writer emits)',
+    webgpu: na('WGSL has no preprocessor'),
+    webgl2: na('the writer emits none of these, and TypeScript source has no directive'),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL preprocessor',
+    name: '`defined`',
+    covers: ['glsl:preprocessor:3.5:defined'],
+    evidence:
+      'src/core/variant-family.ts:140-166 (guardCondition writes the defined test and its negation); src/core/variant-family.ts:350 (the ladder head that carries it)',
+    note: 'also: typed through the host export variantFamily().emitGuarded (src/core/variant-family.ts:140-166); test src/core/variant-family.test.ts reads the operator through selectGuardedArm',
+    webgpu: na('WGSL has no preprocessor'),
+    webgl2: na(
+      'the author of a "use typeshade" program writes no directive, so the operator has no author spelling; the writer emits no #if expression (src/core/backends/glsl.ts:2300-2329), and the host export variantFamily().emitGuarded writes defined(X)',
+    ),
+  },
+  {
+    table: 'C',
+    kind: 'GLSL preprocessor',
+    name: '`__LINE__`, `__FILE__`, `__VERSION__`, `GL_ES`',
+    covers: [
+      'glsl:preprocessor:3.5:__LINE__',
+      'glsl:preprocessor:3.5:__FILE__',
+      'glsl:preprocessor:3.5:__VERSION__',
+      'glsl:preprocessor:3.5:GL_ES',
+    ],
+    evidence: 'src/core/backends/glsl.ts:2300-2329 (the writer names none of them)',
+    webgpu: na('WGSL has no preprocessor macro'),
+    webgl2: na(
+      'predefined macros of the ES preprocessor; TypeScript has no macro and the writer names none of them',
+    ),
+  },
+];
