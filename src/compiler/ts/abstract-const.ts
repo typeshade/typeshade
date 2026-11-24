@@ -1525,7 +1525,7 @@ export function reportAbstractDivisions(
     if (d.code !== TS_CODES.TYPE_MISMATCH && d.code !== TS_CODES.MATH_ARGUMENT) continue;
     const at = nodeSpanning(sourceFile, d.start, d.start + d.length);
     if (at === undefined || programFileOf(at) !== 0) continue;
-    const trees = floatPositionOperands(at).filter(isTreeOperand);
+    const trees = floatPositionOperands(at, d.message).filter(isTreeOperand);
     if (trees.length !== 1) continue;
     const tree = skipParenNodes(trees[0]!);
     const text = writtenText(tree).replace(/\s+/g, ' ');
