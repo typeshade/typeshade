@@ -663,8 +663,8 @@ const STORAGE_ACCESS = {
   read_write: 'read-write',
 } as const;
 
-/** Why the CPU tier cannot run `closure`, when it cannot: it reaches a texture or a call only a
- *  GPU computes. */
+/** Why the CPU tier cannot run `closure`, when it cannot: it reaches a texture or a call the CPU
+ *  tier does not run yet. */
 const CPU_HANDLES: ReadonlySet<ShaderType['kind']> = new Set([
   'texture',
   'storage-texture',
@@ -1699,8 +1699,8 @@ const isGenericMember = (f: ts.SignatureDeclaration): boolean =>
 /**
  * The call a member of an exported class runs, or why a host cannot call it (Rule 8.20, D3): the
  * function must exist, take no function and no reference, have a host value for each parameter
- * and for its result, and reach no binding, no workgroup variable and no builtin only a GPU
- * computes. `instance` says its first parameter is the object (`self_`), which the call passes.
+ * and for its result, and reach no binding, no workgroup variable and no builtin that a host
+ * call does not run yet. `instance`: its first parameter is the object (`self_`) the call passes.
  */
 function memberCall(
   fn: string,

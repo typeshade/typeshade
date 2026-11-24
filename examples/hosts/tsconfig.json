@@ -18,6 +18,6 @@
     // The two lines the setup adds (surface §64).
     "moduleSuffixes": [".typeshade", ""]
   },
-  "include": ["*/host.ts", "_drive.ts"],
+  "include": ["*/host.ts", "*/check.ts", "_drive.ts"],
   "exclude": ["**/*.shade.ts"]
 }

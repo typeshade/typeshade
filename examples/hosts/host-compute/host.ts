@@ -1,22 +1,20 @@
-// Dispatch a `@compute` entry and read what it wrote (surface §67, Rule 8.24).
-//
-// The import is the shader module itself: the Vite plugin turns `scale` into a function that
-// takes the entry's bindings by name, as plain values, and the number of workgroups.
+// Dispatch a `@compute` entry: bindings by name and a workgroup count (surface §67, Rule 8.24).
+// The import is the shader module itself: the Vite plugin turns `scale` into a function.
 import { createDevice, type FuseReport } from 'typeshade/runtime';
 import 'typeshade/fuse';
 import { scale } from './host-compute.shade.ts';
 
 /** Scale `n` numbers by 2.5 on the GPU, and return them. */
-export async function run(n = 259): Promise<Float32Array> {
+export async function run(n = 259): Promise<{ values: Float32Array }> {
   const xs = Float32Array.from({ length: n }, (_, i) => i);
   const ys = new Float32Array(n);
   // WIDTH defaults to 64, GAIN to 1. When the promise resolves, `ys` holds
   // what the entry wrote.
   await scale({ k: 2.5, xs, ys }, Math.ceil(n / 64));
-  return ys;
+  return { values: ys };
 }
 
-/** Select ordinary constants in a direct call, then a workgroup size in a device plan. */
+/** An extra: select ordinary constants in a direct call, then a workgroup size in a device plan. */
 export async function runSpecialized(n = 259): Promise<{
   direct: Float32Array;
   values: Float32Array;

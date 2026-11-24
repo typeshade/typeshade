@@ -466,19 +466,19 @@ each comment in the moved body, not before the move. The same list is in the rec
 
 The fix workers listed these places. Each line is on `main` at `af0a3f8e`.
 
-| Place                                                         | Text                                                                                                                                                | Rounds that found it                    |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `examples/compute-sync.shade.ts:12` (and the blurb at line 6) | "GLSL ES 3.00 has no compute stage, so `compile()` emits no GLSL text"                                                                              | 3                                       |
-| `examples/array-length.shade.ts:6`                            | "a runtime-sized `read_write` storage array has no GLSL spelling"                                                                                   | 3, 4                                    |
-| `examples/msaa-resolve.shade.ts:6` and `:18`                  | "WGSL-only: GLSL ES 3.00 has no `sampler2DMS`"                                                                                                      | 3, 4                                    |
-| `examples/cube-array-gather.shade.ts:6` and `:17`             | "GLSL ES 3.00 has none of them, measured on a WebGL2 driver, so each derives ..."                                                                   | 3, 4                                    |
-| `examples/clip-planes.shade.ts:25`                            | "an extension WebGL2 does not expose, so the capability has no row"                                                                                 | 3                                       |
-| `examples/shadow-compare.shade.ts:29`                         | "on GLSL the combined sampler's type is decided by the read ..." (same sentence at `src/compiler/ts/depth-textures.test.ts:213` and in surface §34) | 3                                       |
-| `examples/compute-reduction.ts:9`                             | "ES 3.00 has no compute stage, so the GLSL backend emits no text for this module"                                                                   | 4 (owned by M4.3c)                      |
-| `examples/workgroup-tile-2d.shade.ts:23`                      | "GLSL ES 3.00 has no compute stage, so like `workgroup-scratch` ..."                                                                                | read for this record, no round named it |
+| Place                                                                              | Text                                                                                                                                                | Rounds that found it                    |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `examples/gallery/compute-sync/compute-sync.shade.ts:12` (and the blurb at line 6) | "GLSL ES 3.00 has no compute stage, so `compile()` emits no GLSL text"                                                                              | 3                                       |
+| `examples/gallery/array-length/array-length.shade.ts:6`                            | "a runtime-sized `read_write` storage array has no GLSL spelling"                                                                                   | 3, 4                                    |
+| `examples/gallery/msaa-resolve/msaa-resolve.shade.ts:6` and `:18`                  | "WGSL-only: GLSL ES 3.00 has no `sampler2DMS`"                                                                                                      | 3, 4                                    |
+| `examples/gallery/cube-array-gather/cube-array-gather.shade.ts:6` and `:17`        | "GLSL ES 3.00 has none of them, measured on a WebGL2 driver, so each derives ..."                                                                   | 3, 4                                    |
+| `examples/gallery/clip-planes/clip-planes.shade.ts:25`                             | "an extension WebGL2 does not expose, so the capability has no row"                                                                                 | 3                                       |
+| `examples/gallery/shadow-compare/shadow-compare.shade.ts:29`                       | "on GLSL the combined sampler's type is decided by the read ..." (same sentence at `src/compiler/ts/depth-textures.test.ts:213` and in surface §34) | 3                                       |
+| `examples/compute-reduction.ts:9`                                                  | "ES 3.00 has no compute stage, so the GLSL backend emits no text for this module"                                                                   | 4 (owned by M4.3c)                      |
+| `examples/gallery/workgroup-tile-2d/workgroup-tile-2d.shade.ts:23`                 | "GLSL ES 3.00 has no compute stage, so like `workgroup-scratch` ..."                                                                                | read for this record, no round named it |
 
-[fact] The fix workers also named `examples/packed-bytes.shade.ts`, `examples/storage-texture.shade.ts`
-and `examples/subgroup-reduce.shade.ts` among the modules that M4.3c moves. No line of those three
+[fact] The fix workers also named `examples/gallery/packed-bytes/packed-bytes.shade.ts`, `examples/gallery/storage-texture/storage-texture.shade.ts`
+and `examples/gallery/subgroup-reduce/subgroup-reduce.shade.ts` among the modules that M4.3c moves. No line of those three
 is in the skipped lists. [proposal] The M4.3c follow-up reads their bodies for the same pattern.
 The wording is the one that each worker proposed: "not supported yet" with the rule, and the API
 fact kept in a parenthesis (Rule 10.5, Rule 10.3, Rule 11.8).
@@ -502,6 +502,25 @@ fact kept in a parenthesis (Rule 10.5, Rule 10.3, Rule 11.8).
 review` and `doorstop clear`. This section changes no code and no rule.
 - The line numbers marked "as reported" come from the fix workers' reports. They are not re-checked.
 - Deviations: none open from this section.
+
+#### Implementation record, 2026-11-24
+
+1. [fact] The held patch of "The held implementing patch" was applied on `main` at `bd860eba`.
+   One file conflicted, `reqs/surface/SURF-074.md` (its links block). The resolution keeps the
+   RULE-0822 stamp of `main` and adds the RULE-1108 link of the patch.
+2. [fact] The owner delegated the Doorstop review of this change to the agent in the conversation
+   on 2026-11-24. This replaces step 5 of "The held implementing patch" for this change. The agent
+   read each item, then ran `doorstop review` and `doorstop clear` on the lists of steps 2 and 3.
+3. [deviation, closed] Surface §69 said "A `TypeError` names what WebGL2 has no form of". The
+   sentence repeats the old text of Rule 11.11, and the table above does not name it. The new
+   Rule 11.11 puts the refusals in two groups, so the sentence no longer agreed with the rule. It
+   now says that the `TypeError` names what the WebGL2 tier does not support yet, or what only
+   WebGPU has (Rule 11.11). Disposition: closed, since the surface follows the rule.
+4. [fact] `scripts/bundle-budget.json`: the split total of `typeshade/runtime` changes from 180784
+   to 180803, the measured value. The longer refusal text in `src/core/gl-compute.ts` adds the
+   bytes. The patch's change to `typeshade/emit` is dropped: emit measures 124610 and passes.
+5. [open] §67 says "does not support a storage binding in a draw yet (OD-11)", as the table
+   declares. It cites no rule. [proposal] A later amendment adds the rule that governs the call.
 
 ## What it owes downstream
 
@@ -634,13 +653,12 @@ docs:refs` pass on it.
    barriers. Row 7 cites only Rule 10.3, the fail-closed shape.
    - [recommendation] Keep row 7 as it is. Open a separate proposal if the family should join
      Rule 10.5, because the first sentence of Rule 10.5 is the maintainer's.
-   - [answer, owner] Not given. The owner approved the merge of A1 on 2026-11-24 without an
-     answer. The question stays open.
+   - [answer, owner, 2026-11-24] "Rule 10.3 유지 (Recommended)"
 2. Appendix C row 14. The old text made "the platform has no such capability" a sufficient reason
    for `n/a`. Some `n/a` rows in `src/core/coverage/` may give only that reason.
    - [recommendation] The implementing pull request lists each such row and its target. It
      changes no status in A1. The owner decides each status change in its own record.
-   - [answer, owner] Not given. The question stays open.
+   - [answer, owner, 2026-11-24] "추천 절차대로 (Recommended)"
 
 [fact] Rows 1 to 13 need no question. Each says "not supported yet" with a rule, and none says a
 form is impossible where a rule says otherwise. Open question 1 of this proposal is not changed.
@@ -773,8 +791,12 @@ A2-4, in the same commit as the documents.
    - [recommendation] Row A2-1 cites Rule 8.24 and Rule 11.7 for the whole parenthesis. Keep it.
      The implementing pull request measures each of the four builtins on the CPU tier of a host
      call and states which ones run. Leave §33 as it is until then.
-   - [answer, owner] Not given. The owner's decision of 2026-11-24 ("추천대로") is about the audit
-     round. It is not an answer to this question. The question stays open.
+   - [answer, owner, 2026-11-24] "추천 절차대로 (Recommended)"
+   - [answer, owner, 2026-11-24] after the measurement: "이유별로 나눔 (Recommended)". Measurement
+     summary: an exported function's host call (Rule 8.20) refuses `dpdx` and `workgroupBarrier`
+     by name ("not supported yet on the CPU tier"), and refuses `atomicAdd` and `textureSample`
+     because they reach a binding. An `@compute` entry call (Rule 8.24) runs `atomicAdd` on the CPU
+     tier. The Rule 8.20 parenthesis splits by reason.
 
 [fact] Rows A2-2 to A2-4 need no question. Each says "not supported yet" with a rule, and none says
 a form is impossible where a rule says otherwise. Open questions 1 and 2 of A1 are not changed.
@@ -789,3 +811,217 @@ a form is impossible where a rule says otherwise. Open questions 1 and 2 of A1 a
   checked against the tree at `af0a3f8e`. No independent review of A2 has run yet.
 - Deviations: one closed. The first draft widened the accepted A1 in place. A2 replaces it, and A1
   is unchanged. No deviation is open.
+
+#### Implementation record of A1 and A2, 2026-11-24
+
+1. [fact] Base: `main` at `7af32059` (pull request #1519, the implementation of 0146, is merged).
+   The branch is `claude/0146-a1a2-impl`. The staged work was saved as a patch, the branch was
+   reset onto `origin/main`, and the patch was applied with `git apply --3way --index`. It applied
+   with no conflict. The earlier base was `claude/0146-impl` at `a6976654`, which merged `main` at
+   `989e6bde`. The conflicts of items 2 and 3 were resolved on that earlier base.
+2. [fact] Conflicts: three hunks, all in `docs/use-typeshade-surface.md`, and all from the
+   path-only moves of change 0145 M4.3c (an example moved from `examples/` into `examples/gallery/`).
+   Each hunk kept the A1 sentence and took the new example path.
+   - Section "Not supported yet on the WebGL2 tier, and not an extension" (§47, row 7 text). The
+     A1 text replaced the old text. The path is `examples/gallery/packed-bytes/packed-bytes.shade.ts`.
+   - The paragraph "A target the module never reaches is not asked". The path is
+     `examples/gallery/array-length/array-length.shade.ts`.
+   - The paragraph on `subgroup-reduce`. The path is
+     `examples/gallery/subgroup-reduce/subgroup-reduce.shade.ts`.
+3. [fact] §47: the pointer "(open question 1 of amendment A1)" is removed, since the owner
+   answered A1-Q1. The rest of row 7's text is kept.
+4. [fact] The held patch carried docs only. `bun run reqs:sync` regenerated the `reqs/` items, which
+   are part of this change.
+
+##### A2-Q1 measurement
+
+[fact] Date 2026-11-24, `claude/0146-a1a2-impl` on `a6976654` with the A1 and A2 docs staged,
+vitest 5.0.5 on Node, no WebGPU device (so the CPU tier runs). Each source is a `"use typeshade"`
+module compiled by `hostFace` and called through the generated host module. "Function" is an
+exported function (Rule 8.20). "Entry" is a `@compute` entry call (Rule 8.24).
+
+| builtin            | form     | result on the CPU tier of a host call                                                                                                                                                                               |
+| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dpdx`             | function | refused, `TypeError` (no TS code): "d cannot be called from host code: it reaches dpdx, which is not supported yet on the CPU tier; call the entry that uses it (Rule 8.24)"                                        |
+| `dpdx`             | entry    | not a host call: `TS8099` (compiler and `hostFace` agree) "\"dpdx\" is only valid in a fragment shader; \"cs\" is a compute entry."                                                                                 |
+| `workgroupBarrier` | function | refused, `TypeError`: "b cannot be called from host code: it reaches workgroupBarrier, which is not supported yet on the CPU tier; call the entry that uses it (Rule 8.24)"                                         |
+| `workgroupBarrier` | entry    | refused, `TypeError`: "cs() has no tier: webgpu: there is no WebGPU device; webgl2: there is no WebGL2 context; cpu: it reaches workgroupBarrier() at m.shade.ts:3, not supported yet on the CPU tier (Rule 8.24)." |
+| `atomicAdd`        | function | refused, `TypeError`, by the binding: "a cannot be called from host code: it reaches a resource binding, which a helper call passes none of; call the entry that uses it (Rule 8.24)"                               |
+| `atomicAdd`        | entry    | RUNS. `atomicAdd(c[g.x], 1)` over `storage<array<atomic<u32>>, "read_write">` with 4 invocations leaves `[1,1,1,1]`. `host-entry.test.ts` runs the atomic-histogram example the same way.                           |
+| `textureSample`    | function | refused, `TypeError`, by the binding: "f cannot be called from host code: it reaches a resource binding, which a helper call passes none of; call the entry that uses it (Rule 8.24)"                               |
+| `textureSample`    | entry    | not a host call: `TS8099` "\"textureSample\" is only valid in a fragment shader; \"cs\" is a compute entry."                                                                                                        |
+
+1. [fact] Rule 8.20 (a function call): all four are refused. Two are refused by name (`dpdx`,
+   `workgroupBarrier`). The atomic and the texture sample are refused first by the resource
+   binding they must reach.
+2. [fact] Rule 8.24 (the entry call): `atomicAdd` runs on the CPU tier. `workgroupBarrier` is
+   refused. `dpdx` and `textureSample` cannot be in a compute entry (`TS8099`).
+3. [inference] Row A2-1 says "an atomic ... not supported yet on the CPU tier of a host call,
+   Rule 8.24, Rule 11.7". For the entry call of Rule 8.24 that is false for the atomic. For a
+   function call of Rule 8.20 it is true, but the reason is the binding.
+4. [fact] The surface §33 sentence "The CPU oracle has no texture memory" was not measured here.
+   A `textureSample` is refused by the binding in a function and by `TS8099` in a compute entry,
+   so no host call reaches it. Rule 11.7 says `textureStore` computes over a `CpuTexture`.
+5. [decision, owner, 2026-11-24] The measurement disagreed with the wording of row A2-1. The owner
+   answered "이유별로 나눔 (Recommended)". The Rule 8.20 parenthesis and the four code comments
+   follow the measured facts (see the rows below).
+6. [fact] No test is kept. The refusals are `TypeError` texts with no `TS8xxx` code, and the
+   existing tests already pin them: `host-face.test.ts` (`dpdx`, texture), `host-entry.test.ts`
+   (barrier, atomic histogram) and `host-override-calls.test.ts` (barrier). The scratch test was
+   removed. This record is the evidence.
+
+##### A1-Q2 listing
+
+[fact] The list below is every `n/a` cell in `src/core/coverage/` (288 cells) whose reason text
+says only that a platform has no such capability, with no rule, section, proposal or change
+cited. It has 167 cells: 142 on `webgl2` and 25 on `webgpu`. It is grouped by target and reason
+text, and each cell gives `file:line` of its `na(` call and the row's item. No status is changed.
+[inference] The list is a judgment from the reason text. Rows that cite a rule or a section
+(for example `Rule 6.8`, `Rule 11.11`, `surface §50`) are not on it. Rows whose reason is a
+debugging aid, a hint, a label or a mechanism the runtime replaces are not on it.
+
+- [fact] webgpu, "WGSL has no such built-in (no NaN test)" (1): `glsl.ts:415` '`isnan`'
+- [fact] webgpu, "WGSL has no such built-in (no infinity test)" (1): `glsl.ts:430` '`isinf`'
+- [fact] webgpu, "WebGPU draws points one pixel wide; WGSL has no point-size built-in" (1): `glsl.ts:1085` '`gl_PointSize`'
+- [fact] webgpu, "WebGPU has no point sprite coordinate" (1): `glsl.ts:1128` '`gl_PointCoord`'
+- [fact] webgpu, "WGSL has no preprocessor" (6): `glsl.ts:1565` '`#version`, `#extension`, `#pragma`, `#define`'; `glsl.ts:1582` '`#if`, `#elif`, `#endif`'; `glsl.ts:1593` '`#ifndef`'; `glsl.ts:1605` '`#ifdef`, `#else`'; `glsl.ts:1621` '`#`, `#undef`, `#error`, `#line`'; `glsl.ts:1632` '`defined`'
+- [fact] webgl2, "the writer emits none of these, and TypeScript source has no directive" (1): `glsl.ts:1622` '`#`, `#undef`, `#error`, `#line`'
+- [fact] webgpu, "WGSL has no preprocessor macro" (1): `glsl.ts:1648` '`__LINE__`, `__FILE__`, `__VERSION__`, `GL_ES`'
+- [fact] webgl2, "predefined macros of the ES preprocessor; TypeScript has no macro and the writer names none of them" (1): `glsl.ts:1649` '`__LINE__`, `__FILE__`, `__VERSION__`, `GL_ES`'
+- [fact] webgpu, "no WebGPU form: the canvas texture is new each frame" (1): `webgl2-host.ts:72` '`preserveDrawingBuffer`'
+- [fact] webgpu, "no WebGPU form: a shader module has no attach step, and its errors come at creation" (1): `webgl2-host.ts:184` 'Shader detach and program validation: `detachShader`, `validateProgram`'
+- [fact] webgpu, "no WebGPU form: GPUPrimitiveTopology has no line-loop or triangle-fan value" (1): `webgl2-host.ts:440` '`LINE_LOOP`, `TRIANGLE_FAN` (drawArrays topologies)'
+- [fact] webgpu, "no WebGPU form: WebGPU has no line width" (1): `webgl2-host.ts:455` '`lineWidth`'
+- [fact] webgpu, "no WebGPU form: WebGPU has no luminance or alpha-only texture format" (1): `webgl2-host.ts:511` '`LUMINANCE`, `ALPHA`, `LUMINANCE_ALPHA` (texture formats)'
+- [fact] webgpu, "no WebGPU form: WebGPU has no unpacked three-component texture format; rgb9e5ufloat and rg11b10ufloat are packed" (1): `webgl2-host.ts:537` '`RGB`, `RGB8`, `SRGB8`, `RGB565`, `RGB8_SNORM`, `RGB16F`, `RGB32F`, `RGB8I`, `RGB8UI`, `RGB16I`, `RGB16UI`, `RGB32I`, `RGB32UI` (three-component texture formats)'
+- [fact] webgpu, "no WebGPU form: the clip volume is fixed, with depth from 0 to 1" (1): `webgl2-host.ts:947` '`EXT_clip_control`'
+- [fact] webgpu, "WebGPU has no capability switch: each state is a descriptor field" (1): `webgl2-host.ts:1243` 'Capability switches: `enable`, `disable`, `isEnabled`, `hint` (`enable(DITHER)`, `enable(RASTERIZER_DISCARD)`, and the switch of each state above)'
+- [fact] webgl2, "an implementation mechanism: each state it switches has its own row; dither has no portable meaning" (1): `webgl2-host.ts:1244` 'Capability switches: `enable`, `disable`, `isEnabled`, `hint` (`enable(DITHER)`, `enable(RASTERIZER_DISCARD)`, and the switch of each state above)'
+- [fact] webgpu, "no WebGPU form: vertex output is captured through a compute pass" (1): `webgl2-host.ts:1266` 'Transform feedback: `createTransformFeedback`, `bindTransformFeedback`, `transformFeedbackVaryings`, `beginTransformFeedback`, `endTransformFeedback`, `pauseTransformFeedback`, `resumeTransformFeedback`, `getTransformFeedbackVarying`, `deleteTransformFeedback`'
+- [fact] webgpu, "WebGPU has no multiview" (1): `webgl2-host.ts:1349` '`OVR_multiview2`'
+- [fact] webgpu, "WebGPU has no mirror-clamp mode" (1): `webgl2-host.ts:1479` '`EXT_texture_mirror_clamp_to_edge`'
+- [fact] webgpu, "no WebGPU form: GPUBlendOperation has add, subtract, reverse-subtract, min and max" (1): `webgl2-host.ts:1606` '`WEBGL_blend_equation_advanced_coherent` (advanced blend equations, draft)'
+- [fact] webgpu, "no WebGPU form: GPUPrimitiveState has no polygon mode" (1): `webgl2-host.ts:1620` '`WEBGL_polygon_mode` (POINT and LINE fill modes)'
+- [fact] webgpu, "no WebGPU form: WebGPU has no pixel local storage" (1): `webgl2-host.ts:1632` '`WEBGL_shader_pixel_local_storage` (draft)'
+- [fact] webgl2, "WebGL2 has no bind group object; its bindings are set by name" (4): `webgpu-dictionaries.ts:83` '`GPUBindGroupDescriptor.layout`'; `webgpu-dictionaries.ts:96` '`GPUBindGroupDescriptor.entries`'; `webgpu-dictionaries.ts:109` '`GPUBindGroupEntry.binding`'; `webgpu-dictionaries.ts:122` '`GPUBindGroupEntry.resource`'
+- [fact] webgl2, "WebGL2 has no bind group layout; its bindings are set by name" (11): `webgpu-dictionaries.ts:131` '`GPUBindGroupLayoutDescriptor.entries`'; `webgpu-dictionaries.ts:143` '`GPUBindGroupLayoutEntry.binding`'; `webgpu-dictionaries.ts:155` '`GPUBindGroupLayoutEntry.visibility`'; `webgpu-dictionaries.ts:167` '`GPUBindGroupLayoutEntry.buffer`'; `webgpu-dictionaries.ts:179` '`GPUBindGroupLayoutEntry.sampler`'; `webgpu-dictionaries.ts:191` '`GPUBindGroupLayoutEntry.texture`'; `webgpu-dictionaries.ts:203` '`GPUBindGroupLayoutEntry.storageTexture`'; `webgpu-dictionaries.ts:381` '`GPUBufferBindingLayout.minBindingSize`'; `webgpu-dictionaries.ts:2268` '`GPUStorageTextureBindingLayout.format`'; `webgpu-dictionaries.ts:2462` '`GPUTextureBindingLayout.multisampled`'; `webgpu-dictionaries.ts:2901` '`GPUPipelineBase.getBindGroupLayout()`'
+- [fact] webgl2, "WebGL2 has no external texture object" (4): `webgpu-dictionaries.ts:216` '`GPUBindGroupLayoutEntry.externalTexture`'; `webgpu-dictionaries.ts:1016` '`GPUExternalTextureBindingLayout`'; `webgpu-dictionaries.ts:1029` '`GPUExternalTextureDescriptor.source`'; `webgpu-dictionaries.ts:1042` '`GPUExternalTextureDescriptor.colorSpace`'
+- [fact] webgl2, "WebGL2 has no bind group layout; its bindings are set by name. The binding kind itself is typed: see GPUBufferBindingType." (1): `webgpu-dictionaries.ts:357` '`GPUBufferBindingLayout.type`'
+- [fact] webgl2, "WebGL2 has no mapping at creation; a buffer is written with bufferSubData" (1): `webgpu-dictionaries.ts:421` '`GPUBufferDescriptor.mappedAtCreation`'
+- [fact] webgl2, "WebGL2 has no tone mapping of a context" (1): `webgpu-dictionaries.ts:534` '`GPUCanvasToneMapping.mode`'
+- [fact] webgl2, "WebGL2 has no pipeline layout; its bindings are set by name" (2): `webgpu-dictionaries.ts:1187` '`GPUPipelineDescriptorBase.layout`'; `webgpu-dictionaries.ts:1215` '`GPUPipelineLayoutDescriptor.bindGroupLayouts`'
+- [fact] webgl2, "WebGL2 has no async pipeline creation and no GPUPipelineError" (1): `webgpu-dictionaries.ts:1201` '`GPUPipelineErrorInit.reason`'
+- [fact] webgl2, "WebGL2 has no immediate data; a uniform is set by its program" (1): `webgpu-dictionaries.ts:1228` '`GPUPipelineLayoutDescriptor.immediateSize`'
+- [fact] webgl2, "WebGL2 sets the index type in each drawElements call" (1): `webgpu-dictionaries.ts:1258` '`GPUPrimitiveState.stripIndexFormat`'
+- [fact] webgl2, "a render bundle has no WebGL2 form" (5): `webgpu-dictionaries.ts:1407` '`GPURenderBundleEncoderDescriptor.depthReadOnly`'; `webgpu-dictionaries.ts:1421` '`GPURenderBundleEncoderDescriptor.stencilReadOnly`'; `webgpu-dictionaries.ts:1715` '`GPURenderPassLayout.colorFormats`'; `webgpu-dictionaries.ts:1724` '`GPURenderPassLayout.depthStencilFormat`'; `webgpu-dictionaries.ts:1733` '`GPURenderPassLayout.sampleCount`'
+- [fact] webgl2, "WebGL2 requests no adapter" (2): `webgpu-dictionaries.ts:1872` '`GPURequestAdapterOptions.featureLevel`'; `webgpu-dictionaries.ts:1906` '`GPURequestAdapterOptions.forceFallbackAdapter`'
+- [fact] webgl2, "WebGL2 has no bind group layout; its bindings are set by name. The binding kind itself is typed: see GPUSamplerBindingType." (1): `webgpu-dictionaries.ts:1943` '`GPUSamplerBindingLayout.type`'
+- [fact] webgl2, "a hint; WebGL2 has no shader module" (2): `webgpu-dictionaries.ts:2147` '`GPUShaderModuleCompilationHint.entryPoint`'; `webgpu-dictionaries.ts:2156` '`GPUShaderModuleCompilationHint.layout`'
+- [fact] webgl2, "a hint; WebGL2 has no shader module hint" (1): `webgpu-dictionaries.ts:2174` '`GPUShaderModuleDescriptor.compilationHints`'
+- [fact] webgl2, "WebGL2 has no bind group layout; its bindings are set by name. The binding kind itself is typed: see GPUStorageTextureAccess." (1): `webgpu-dictionaries.ts:2252` '`GPUStorageTextureBindingLayout.access`'
+- [fact] webgl2, "WebGL2 has no bind group layout; its bindings are set by name. The binding kind itself is typed: see GPUTextureViewDimension." (2): `webgpu-dictionaries.ts:2281` '`GPUStorageTextureBindingLayout.viewDimension`'; `webgpu-dictionaries.ts:2448` '`GPUTextureBindingLayout.viewDimension`'
+- [fact] webgl2, "WebGL2 has no bind group layout; its bindings are set by name. The binding kind itself is typed: see GPUTextureSampleType." (1): `webgpu-dictionaries.ts:2434` '`GPUTextureBindingLayout.sampleType`'
+- [fact] webgl2, "WebGL2 views a texture only in its own format" (1): `webgpu-dictionaries.ts:2582` '`GPUTextureDescriptor.viewFormats`'
+- [fact] webgl2, "WebGL2 binds a texture by its target, not by a view dimension" (1): `webgpu-dictionaries.ts:2599` '`GPUTextureDescriptor.textureBindingViewDimension`'
+- [fact] webgl2, "WebGL2 has no texture views" (9): `webgpu-dictionaries.ts:2617` '`GPUTextureViewDescriptor.format`'; `webgpu-dictionaries.ts:2635` '`GPUTextureViewDescriptor.dimension`'; `webgpu-dictionaries.ts:2653` '`GPUTextureViewDescriptor.usage`'; `webgpu-dictionaries.ts:2671` '`GPUTextureViewDescriptor.aspect`'; `webgpu-dictionaries.ts:2689` '`GPUTextureViewDescriptor.baseMipLevel`'; `webgpu-dictionaries.ts:2707` '`GPUTextureViewDescriptor.mipLevelCount`'; `webgpu-dictionaries.ts:2725` '`GPUTextureViewDescriptor.baseArrayLayer`'; `webgpu-dictionaries.ts:2743` '`GPUTextureViewDescriptor.arrayLayerCount`'; `webgpu-dictionaries.ts:2761` '`GPUTextureViewDescriptor.swizzle`'
+- [fact] webgl2, "WebGL2 has no uncaptured-error event" (1): `webgpu-dictionaries.ts:2775` '`GPUUncapturedErrorEventInit.error`'
+- [fact] webgl2, "WebGL2 has no GPUBuffer mapping state" (1): `webgpu-enums.ts:109` '`GPUBufferMapState`'
+- [fact] webgl2, "a WebGPU canvas option; WebGL2 canvases have no tone mapping" (1): `webgpu-enums.ts:144` '`GPUCanvasToneMappingMode`'
+- [fact] webgl2, "a WebGPU error scope; WebGL2 has no error scope to filter" (1): `webgpu-enums.ts:220` '`GPUErrorFilter`'
+- [fact] webgl2, "a WebGPU device event; the WebGL2 tier has no uncapturederror event" (3): `webgpu-objects.ts:107` '`__GPUDeviceEventMap.uncapturederror`'; `webgpu-objects.ts:431` '`GPUDevice.onuncapturederror`'; `webgpu-objects.ts:2386` '`GPUUncapturedErrorEvent.error`'
+- [fact] webgl2, "the GPUDevice object; WebGL2 has no GPUDevice" (3): `webgpu-objects.ts:121` '`GPUDevice.addEventListener()`'; `webgpu-objects.ts:135` '`GPUDevice.removeEventListener()`'; `webgpu-objects.ts:171` '`GPUDevice.adapterInfo`'
+- [fact] webgl2, "the WebGPU external texture import; WebGL2 has no external texture object" (1): `webgpu-objects.ts:241` '`GPUDevice.importExternalTexture()`'
+- [fact] webgl2, "WebGPU-only concept: WebGL2 has no bind group layout object" (2): `webgpu-objects.ts:250` '`GPUDevice.createBindGroupLayout()`'; `webgpu-objects.ts:844` '`GPUBindGroupLayout`'
+- [fact] webgl2, "WebGPU-only concept: WebGL2 has no pipeline layout object" (2): `webgpu-objects.ts:259` '`GPUDevice.createPipelineLayout()`'; `webgpu-objects.ts:1404` '`GPUPipelineLayout`'
+- [fact] webgl2, "WebGPU-only concept: WebGL2 has no bind group object" (3): `webgpu-objects.ts:268` '`GPUDevice.createBindGroup()`'; `webgpu-objects.ts:445` '`GPUBindingCommandsMixin.setBindGroup()`'; `webgpu-objects.ts:835` '`GPUBindGroup`'
+- [fact] webgl2, "WebGPU-only concept: WebGL2 has no shader module object; a program compiles its source with createShader" (1): `webgpu-objects.ts:277` '`GPUDevice.createShaderModule()`'
+- [fact] webgl2, "WebGPU-only concept: WebGL2 has no asynchronous pipeline creation; a WebGL2 program is linked when it is made" (2): `webgpu-objects.ts:312` '`GPUDevice.createComputePipelineAsync()`'; `webgpu-objects.ts:323` '`GPUDevice.createRenderPipelineAsync()`'
+- [fact] webgl2, "WebGPU render bundles; WebGL2 has no bundle object" (4): `webgpu-objects.ts:343` '`GPUDevice.createRenderBundleEncoder()`'; `webgpu-objects.ts:1541` '`GPURenderBundle`'; `webgpu-objects.ts:1550` '`GPURenderBundleEncoder.finish()`'; `webgpu-objects.ts:1669` '`GPURenderPassEncoder.executeBundles()`'
+- [fact] webgl2, "WebGPU error scopes; WebGL2 has no error scope" (2): `webgpu-objects.ts:404` '`GPUDevice.pushErrorScope()`'; `webgpu-objects.ts:417` '`GPUDevice.popErrorScope()`'
+- [fact] webgl2, "WebGPU immediate data; WebGL2 has no immediate data" (1): `webgpu-objects.ts:454` '`GPUBindingCommandsMixin.setImmediates()`'
+- [fact] webgl2, "a WebGPU debug label; WebGL2 has no debug group command" (3): `webgpu-objects.ts:472` '`GPUDebugCommandsMixin.pushDebugGroup()`'; `webgpu-objects.ts:481` '`GPUDebugCommandsMixin.popDebugGroup()`'; `webgpu-objects.ts:490` '`GPUDebugCommandsMixin.insertDebugMarker()`'
+- [fact] webgl2, "navigator.gpu is the WebGPU entry point; WebGL2 has none" (3): `webgpu-objects.ts:607` '`NavigatorGPU.gpu`'; `webgpu-objects.ts:2408` '`Navigator`'; `webgpu-objects.ts:2421` '`WorkerNavigator`'
+- [fact] webgl2, "the WebGPU canvas format query; WebGL2 has no GPU object" (1): `webgpu-objects.ts:637` '`GPU.getPreferredCanvasFormat()`'
+- [fact] webgl2, "the WGSL language features; the WebGL2 tier has no WGSL" (1): `webgpu-objects.ts:649` '`GPU.wgslLanguageFeatures`'
+- [fact] webgl2, "the WebGPU adapter; WebGL2 has no adapter object" (1): `webgpu-objects.ts:692` '`GPUAdapter.info`'
+- [fact] webgl2, "WebGL2 reports no adapter architecture; WEBGL_debug_renderer_info gives the vendor and renderer strings only" (1): `webgpu-objects.ts:739` '`GPUAdapterInfo.architecture`'
+- [fact] webgl2, "WebGL2 reports no adapter description; WEBGL_debug_renderer_info gives the vendor and renderer strings only" (1): `webgpu-objects.ts:779` '`GPUAdapterInfo.description`'
+- [fact] webgl2, "WebGL2 has no fallback adapter; WEBGL_debug_renderer_info gives the vendor and renderer strings only" (1): `webgpu-objects.ts:824` '`GPUAdapterInfo.isFallbackAdapter`'
+- [fact] webgl2, "a WebGLBuffer has no size or usage member; the runtime sizes its buffers from the host value" (2): `webgpu-objects.ts:856` '`GPUBuffer.size`'; `webgpu-objects.ts:870` '`GPUBuffer.usage`'
+- [fact] webgl2, "WebGL2 has no buffer mapping to end" (1): `webgpu-objects.ts:920` '`GPUBuffer.unmap()`'
+- [fact] webgl2, "WebGPU-only concept: WebGL2 has no GPUCanvasContext; a WebGL2 context is made with its attributes (WebGLContextAttributes)" (5): `webgpu-objects.ts:947` '`GPUCanvasContext.canvas`'; `webgpu-objects.ts:962` '`GPUCanvasContext.configure()`'; `webgpu-objects.ts:977` '`GPUCanvasContext.unconfigure()`'; `webgpu-objects.ts:992` '`GPUCanvasContext.getConfiguration()`'; `webgpu-objects.ts:1007` '`GPUCanvasContext.getCurrentTexture()`'
+- [fact] webgl2, "the WebGPU error object; WebGL2 has no error scope" (1): `webgpu-objects.ts:1335` '`GPUError.message`'
+- [fact] webgl2, "WebGPU external texture; WebGL2 has no external texture object" (1): `webgpu-objects.ts:1348` '`GPUExternalTexture`'
+- [fact] webgl2, "the WebGPU internal error; WebGL2 has no error scope" (1): `webgpu-objects.ts:1365` '`GPUInternalError`'
+- [fact] webgl2, "the WebGPU out-of-memory error; WebGL2 has no error scope" (1): `webgpu-objects.ts:1382` '`GPUOutOfMemoryError`'
+- [fact] webgl2, "WebGL2 has no shader module object; a program reads its compile status with getShaderParameter and getShaderInfoLog" (1): `webgpu-objects.ts:1708` '`GPUShaderModule.getCompilationInfo()`'
+- [fact] webgl2, "a GPUTextureView; WebGL2 has no texture view object" (1): `webgpu-objects.ts:2192` '`GPUTexture.createView()`'
+- [fact] webgl2, "WebGPU-only concept: WebGL2 has no texture usage flags" (1): `webgpu-objects.ts:2340` '`GPUTexture.usage`'
+- [fact] webgl2, "WebGL2 has no texture view object" (2): `webgpu-objects.ts:2357` '`GPUTexture.textureBindingViewDimension`'; `webgpu-objects.ts:2372` '`GPUTextureView`'
+- [fact] webgl2, "the WebGPU validation error; WebGL2 has no error scope" (1): `webgpu-objects.ts:2399` '`GPUValidationError`'
+- [fact] webgl2, "WebGPU-only concept: WebGL2 has no GPUBufferUsage flags" (10): `webgpu-objects.ts:2430` '`GPUBufferUsage.MAP_READ`'; `webgpu-objects.ts:2439` '`GPUBufferUsage.MAP_WRITE`'; `webgpu-objects.ts:2448` '`GPUBufferUsage.COPY_SRC`'; `webgpu-objects.ts:2457` '`GPUBufferUsage.COPY_DST`'; `webgpu-objects.ts:2466` '`GPUBufferUsage.INDEX`'; `webgpu-objects.ts:2475` '`GPUBufferUsage.VERTEX`'; `webgpu-objects.ts:2484` '`GPUBufferUsage.UNIFORM`'; `webgpu-objects.ts:2493` '`GPUBufferUsage.STORAGE`'; `webgpu-objects.ts:2505` '`GPUBufferUsage.INDIRECT`'; `webgpu-objects.ts:2523` '`GPUBufferUsage.QUERY_RESOLVE`'
+- [fact] webgl2, "WebGL2 has no write mapping; a buffer is written with bufferSubData (the runtime uploads with bufferData, src/runtime/gl-draw.ts:886)" (1): `webgpu-objects.ts:2630` '`GPUMapMode.WRITE`'
+- [fact] webgl2, "WebGPU-only concept: WebGL2 has no GPUShaderStage flags" (3): `webgpu-objects.ts:2641` '`GPUShaderStage.VERTEX`'; `webgpu-objects.ts:2650` '`GPUShaderStage.FRAGMENT`'; `webgpu-objects.ts:2659` '`GPUShaderStage.COMPUTE`'
+- [fact] webgl2, "WebGPU-only concept: WebGL2 has no GPUTextureUsage flags" (6): `webgpu-objects.ts:2668` '`GPUTextureUsage.COPY_SRC`'; `webgpu-objects.ts:2677` '`GPUTextureUsage.COPY_DST`'; `webgpu-objects.ts:2686` '`GPUTextureUsage.TEXTURE_BINDING`'; `webgpu-objects.ts:2695` '`GPUTextureUsage.STORAGE_BINDING`'; `webgpu-objects.ts:2704` '`GPUTextureUsage.RENDER_ATTACHMENT`'; `webgpu-objects.ts:2713` '`GPUTextureUsage.TRANSIENT_ATTACHMENT`'
+- [fact] webgl2, "WebGL2 has no external texture type; samplerExternalOES comes from an extension" (1): `wgsl.ts:2137` '`texture_external`'
+- [fact] webgl2, "GLSL ES 3.00 has no gl_PrimitiveID" (2): `wgsl.ts:2577` '`primitive_index`'; `wgsl.ts:3226` '`primitive_index`'
+- [fact] webgl2, "no GLSL form" (1): `wgsl.ts:2764` '`@diagnostic`'
+- [fact] webgl2, "no GLSL form; a GLSL #extension is the writer's" (1): `wgsl.ts:3040` '`enable`'
+- [fact] webgl2, "no GLSL form of the directive" (1): `wgsl.ts:3114` '`requires`'
+- [fact] webgl2, "WebGL2 has no immediate address space" (1): `wgsl.ts:3297` '`immediate_address_space`'
+- [fact] webgl2, "no WebGL2 form of the extension; the writer lays out uniform blocks as std140" (1): `wgsl.ts:3438` '`uniform_buffer_standard_layout`'
+
+[proposal] The owner decides each status change in its own record (A1 row 14 of Appendix C).
+
+##### Rule 8.20 text as delivered
+
+[fact] Rule 8.20 of `docs/language-design.md` ends: "and reaches, through the calls of its body,
+no binding, no workgroup variable and no builtin that a host call does not run yet (a derivative or
+a barrier: not supported yet on the CPU tier of a host call, Rule 8.24, Rule 11.7; an atomic and an
+implicit-LOD texture sample reach a binding or a workgroup variable, which the first two clauses
+already exclude)". The rationale of Rule 8.20, Rule 8.29 and surface §26, §34 and §64 carry no
+list of the four builtins, so the owner's answer does not change them further. Row A2-2 rewords
+them as declared.
+
+##### Deviations of this step
+
+| #    | Place                     | Approved text (A2)                                                                                          | Delivered                                                                                                                                                                                           | Disposition                                |
+| ---- | ------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| A2-1 | Rule 8.20 parenthesis     | "a derivative, a barrier, an atomic, an implicit-LOD texture sample: not supported yet on the CPU tier ..." | The parenthesis splits by reason (above), as the measurement shows.                                                                                                                                 | closed by the owner's answer of 2026-11-24 |
+| D-1  | Rule 8.24, the CPU clause | The applied text cites "(Rule 8.24)" inside Rule 8.24 for the barrier and for the texture case.             | Both self-citations are removed. The sentences stay.                                                                                                                                                | closed (editorial, no change of meaning)   |
+| D-2  | Rule 8.24, the CPU clause | The applied text has the sentence "It runs on WebGPU or WebGL2 (Rule 11.8)."                                | The sentence is removed: the earlier sentence of the paragraph says it and names the WebGL2 pass program. "Where there is neither" becomes "Where there is no WebGPU device and no WebGL2 context". | closed (editorial, no change of meaning)   |
+
+##### The code comments
+
+[fact] The four comments are reworded to the new wording, with no added line. No test asserts them.
+
+1. `src/compiler/ts/host-face.ts` lines 666 to 667: "it reaches a texture or a call the CPU tier
+   does not run yet".
+2. `src/compiler/ts/host-face.ts` lines 1702 to 1703: "no builtin that a host call does not run
+   yet".
+3. `scripts/class-arm.ts` lines 15 to 16: the same words. The sentence is shortened by two words so
+   that the block keeps its line count.
+4. `src/compiler/ts/depth-textures.test.ts` lines 269 to 271: "The CPU tier does not read a depth
+   texture yet." The three lines are re-wrapped.
+
+##### Doorstop review
+
+[fact] The owner delegated the Doorstop review of A1 and A2 to the agent on 2026-11-24. The agent
+does the review under that delegation. After reading each item and its section, it ran
+`doorstop review` on RULE-0820, RULE-0824, RULE-0829, RULE-1108, RULE-1203, SURF-012, SURF-018,
+SURF-024, SURF-025, SURF-034, SURF-036, SURF-037, SURF-047, SURF-053, SURF-062 and SURF-077, and
+`doorstop clear` on SURF-020, SURF-023, SURF-025, SURF-026, SURF-048, SURF-062, SURF-064, SURF-065,
+SURF-067, SURF-069, SURF-071, SURF-072, SURF-074 and SURF-077. `python3 scripts/doorstop-check.py
+-C -e -F` then exits 0.
+
+##### Open items of this step
+
+1. [open] Surface §67, line 10250, says "An entry that reaches a barrier needs a GPU tier,
+   WebGPU or WebGL2". It repeats the old text of Rule 8.24. A1 and A2 do not declare §67 (A2,
+   "What A2 declares", item 5). [proposal] A later amendment declares the sentence and rewords it
+   as Rule 8.24 now says.
+2. [open] `journeys/README.md` line 107 says that `gpuStubs` stands in for "a builtin only a GPU
+   computes". A2 does not list it. [proposal] The same later change rewords it.
+3. [open] §77 cites Rule 11.3 for "the gallery draws a render pair", as row 10 declares. Rule 11.3
+   is about the registration of an example and `renderable: false`, so the citation is weak. Kept
+   as the approved text.

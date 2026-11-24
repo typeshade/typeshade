@@ -1,0 +1,8 @@
+{
+  "title": "A builder chain, super on accessors, and statics a subclass inherits",
+  "blurb": "`a.at(p).tinted(c)` runs each call on `a`, in order, because a method whose every `return` is `return this` hands back its own object, and `new Disc().at(p).sized(r)` holds what `new` built in a temporary (Rule 8.10). `Capped.unit()` runs the `unit` that `Disc` declares with `this` as `Capped`, so `new this()` builds a `Capped` and `this.SIZE` reads `Capped.SIZE`; the size then goes through `Capped`'s setter, which clamps it and hands it to the base's through `super.size` (Rules 8.11, 8.13). The radius is `protected` and the centre `private` (Rule 8.15). Renders three discs.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

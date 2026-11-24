@@ -33,7 +33,7 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
   'host-draw': async (surface) => {
     const { size, times } = INPUTS.draw;
     const canvas = surface.canvas(size, size);
-    await draw(canvas, times);
+    for (const time of times) await draw(canvas, time);
     return { pixels: await surface.pixels(canvas) };
   },
   'string-keys-record': async () => {
@@ -41,7 +41,7 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
     return { pixels: [...pixels], selected: [selected] };
   },
   'host-compute': async () => {
-    const ys = await compute(INPUTS.compute.n);
+    const { values: ys } = await compute(INPUTS.compute.n);
     const { direct, values, report } = await runSpecialized(INPUTS.compute.n);
     reports['entry-overrides'] = report;
     return { ys: [...ys], direct: [...direct], planned: [...values] };
@@ -61,12 +61,7 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
     return { height: [height], pixels: await surface.pixels(canvas) };
   },
   'loop-fuse': async () => {
-    const { a, b, c } = INPUTS.fuse;
-    const { chain, split, reduce } = await fused(
-      Float32Array.from(a),
-      Float32Array.from(b),
-      Float32Array.from(c),
-    );
+    const { chain, split, reduce } = await fused();
     reports['chain'] = chain.report;
     reports['split'] = split.report;
     reports['reduce'] = reduce.report;
@@ -95,7 +90,8 @@ const RUNS: Readonly<Record<string, (surface: Surface) => Promise<Outputs>>> = {
   },
   'host-program': async () => {
     const { size, times } = INPUTS.program;
-    return { pixels: [...(await program(size, size, times))] };
+    const { image } = await program(size, size, times);
+    return { pixels: [...image.rgba] };
   },
 };
 

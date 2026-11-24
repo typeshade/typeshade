@@ -263,7 +263,7 @@ declare const out: storage<array<f32>, "read_write">;
         'declare const img: texture_storage_2d<"rgba8snorm", "write">;',
         'textureStore(img, vec2i(0), vec4f(1.));',
         'texture_storage_2d<rgba8snorm, write>',
-        'whose format WebGL2 cannot render to',
+        'a format that is not supported yet on the WebGL2 tier (Rule 10.5)',
       ],
       [
         'declare const img: texture_1d<f32>;',
@@ -423,7 +423,7 @@ function put(t: texture_storage_2d<"r32float", "write">, i: i32) {
       }
     }
     expect(built.length).toBeGreaterThanOrEqual(9);
-    expect(built).toContain('storage-texture.shade.ts:paint');
+    expect(built).toContain('gallery/storage-texture/storage-texture.shade.ts:paint');
   });
 });
 

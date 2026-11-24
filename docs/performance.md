@@ -162,7 +162,7 @@ A kernel function that reduces folds each workgroup's 256 values by the workgrou
 barriers per workgroup, then one dispatch per level of partials (`src/core/kernel-tree.ts`,
 Rule 7.2). WGSL's `subgroups` extension folds a subgroup's lanes in one instruction with no
 barrier. Change 0117 gives an author the subgroup functions to write by hand (surface §77,
-`examples/subgroup-reduce.shade.ts`), and #536 asked for them with this use in view: a subgroup
+`examples/gallery/subgroup-reduce/subgroup-reduce.shade.ts`), and #536 asked for them with this use in view: a subgroup
 fold before `atomicAdd`. A fold the compiler emits on its own is not part of that change, so
 before a proposal spends a design on one, `bun run bench:subgroup-reduce`
 (`scripts/bench-subgroup-reduce.ts`) measures what it would buy on the device it runs on. It is a

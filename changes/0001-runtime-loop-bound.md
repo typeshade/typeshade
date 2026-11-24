@@ -37,7 +37,7 @@ over a buffer. Tint and ANGLE both accept such loops (#203).
 ## What it touches
 
 - Rule 7.5 and surface §17 say what a `for` and a `while` may be.
-- `examples/loops-over-data.shade.ts` holds all three loops, compiled by the gate.
+- `examples/gallery/loops-over-data/loops-over-data.shade.ts` holds all three loops, compiled by the gate.
 
 ## What it owes downstream
 

@@ -1,12 +1,6 @@
-// Run a chain of kernel calls as one plan (change 0058).
-//
-// Inside `fuse()`, a kernel call is recorded, not run. When the body returns, the scope runs the
-// recorded calls together: on WebGPU, calls that each read only what the call before wrote at
-// the same index become one dispatch, in one submission. A call that reduces can be the last
-// call of such a group, and the calls before it run as a prologue of each of its iterations. The
-// promise resolves to a report of what ran. The module must be built with
-// `typeshade({ fuse: true })` in `vite.config.ts`; without it, every call runs on its own, and
-// the report says why.
+// Run a chain of kernel calls as one plan (change 0058). Inside `fuse()` a call is recorded, not
+// run; the scope then runs the recorded calls together, and its report says what ran. Build the
+// module with `typeshade({ fuse: true })`: without it every call runs on its own.
 import { array } from 'typeshade/runtime';
 import { fuse, type FuseReport } from 'typeshade/fuse';
 import { add, mul, pairsum, relu, total } from './loop-fuse.shade.ts';
@@ -28,9 +22,9 @@ export interface Summed {
  * `(a + b) * c` in a third.
  */
 export async function run(
-  a: Float32Array,
-  b: Float32Array,
-  c: Float32Array,
+  a = Float32Array.from({ length: 1000 }, (_, i) => (i % 7) - 3),
+  b = Float32Array.from({ length: 1000 }, (_, i) => ((i % 5) - 2) * 0.5),
+  c = Float32Array.from({ length: 1000 }, (_, i) => ((i % 3) - 1) * 0.25),
 ): Promise<{ chain: Fused; split: Fused; reduce: Summed }> {
   const n = a.length;
   // The calls in a scope take `Buffer`s: the inputs, and `out`, which the host reads.

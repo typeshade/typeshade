@@ -139,10 +139,14 @@ describe('each example.json in the tree', () => {
   });
 });
 
-describe('the scan reads a header where a directory has no example.json', () => {
-  it('registers a top-level module from its @example block', () => {
-    const top = shadeExamples.find((e) => dirname(e.file) === '.')!;
-    expect(top.title.length).toBeGreaterThan(0);
-    expect(exampleSource(top.id)).toContain('@example');
+describe('after the last move of M4.3 (change 0145, amendment A2)', () => {
+  it('leaves no top-level module, and every gallery module has an example.json and no header', () => {
+    expect(shadeExamples.filter((e) => dirname(e.file) === '.').map((e) => e.id)).toEqual([]);
+    const gallery = shadeExamples.filter((x) => dirname(x.file).startsWith('gallery/'));
+    expect(gallery.length).toBeGreaterThan(90);
+    for (const e of gallery) {
+      expect(existsSync(join(HERE, dirname(e.file), 'example.json')), e.id).toBe(true);
+      expect(exampleSource(e.id), e.id).not.toContain('@example');
+    }
   });
 });

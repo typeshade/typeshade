@@ -1579,7 +1579,7 @@ Rule 4.3, the `Enforced by` line, `docs/language-design.md` line 356.
 Before:
 
 ```text
-- Enforced by: `examples/tuple-and-brand.shade.ts` on both halves of the gate.
+- Enforced by: `examples/gallery/tuple-and-brand/tuple-and-brand.shade.ts` on both halves of the gate.
 ```
 
 After:
@@ -1649,6 +1649,102 @@ After:
 - `examples`: four ids join the list (item 6 of "What A3 declares"). No example is added to or
   removed from the tree.
 - `downstream`: no change. The site and the editor read rule numbers, not these paths.
+
+### A4. The readings of M4.8: the special hosts (2026-11-24, status: accepted 2026-11-24, the owner answered A4-Q1 to A4-Q4 in the conversation)
+
+- Status: accepted. [fact] The owner answered A4-Q1 to A4-Q4 on 2026-11-24. A4 is part of the approved text
+  when its pull request is merged. No code and no example changes with that pull request.
+- Baseline: `main` at `7af32059`. [fact] A first implementation of M4.8 is commit `78dbc51d` on branch
+  `claude/0145-m4-8-special-hosts`. It is not pushed and not merged. M4.8 follows A4, not that commit.
+- A4 adds no rule, no author-facing name, no diagnostic code and no export. `rules`, `exports`,
+  `exports-removed`, `codes` and `names` do not change. `draw` and `runSpecialized` are exports of
+  example files, not of the package: `src/__api__/surface.md` does not list them.
+
+#### Why A4 exists
+
+1. [fact] The slice row of M4.8 is silent on three details: the result shapes, what `check.ts` holds and
+   what replaces `draw`. In one place it reads against decision O4 (`runSpecialized` as an export).
+2. [decision] A4 records the readings that M4.8 takes in these cases (A4-R1 to A4-R5), the owner's
+   answers (A4-Q1 to A4-Q4) and the deviations D-10 and D-11.
+3. [fact] After the answer to A4-Q2, `examples/hosts/host-compute/host.ts` keeps `run()` and the extra
+   `runSpecialized()`. `docs/use-typeshade-surface.md` §67 (line 10090) says that this file "contains the
+   complete default, direct-specialized and device-plan runs". The sentence stays true.
+
+#### What A4 declares
+
+1. [fact] M4.8 does not edit §67 and A4 does not declare it. The front matter `surface:` list does not gain `67`.
+2. [decision] M4.8 replaces `draw` (A4-R5) once the doc-impact fix (branch `claude/doc-impact-member-names`)
+   is on `main`. [fact] That fix removes the false must-fix mentions of `draw()`. A4 does not declare it.
+3. [fact] The stale line references `examples/hosts/host-program/host.ts:28` are in
+   `src/core/coverage/webgpu-objects.ts` (lines 2200 and 2203) and in the baked
+   `docs/capability-coverage.md` (line 197). M4.8 changes the line number there. [inference] No
+   criterion of `changes/README.md` reaches those files. `bun scripts/changes.ts` confirms this on the M4.8 diff.
+
+#### The readings M4.8 delivers
+
+Each reading fills a gap in the slice text. [decision] The owner accepted each one.
+
+| Id    | Host           | Reading                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A4-R1 | `host-compute` | `host.ts` exports `run()`, which returns `{ values }`, and the extra `runSpecialized()`, which returns `{ direct, values, report }`. The manifest lists it in `extras`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| A4-R2 | `host-compute` | The driver (`examples/_driver.ts`) calls each listed extra on the CPU tier and requires it to resolve. `runCheck(file, result, tier)` calls `check(result, tier)`. `check.ts` calls `runSpecialized()` from the `host.ts` of the same directory and holds its `direct` and `values` to `result['direct']` and `result['planned']`. It checks `report.tier` on every tier. On WebGPU it also checks one dispatch and one submission. On WebGPU and WebGL2 it checks the entry group's workgroup shape: `[[scale], [[width,1,1]]]`, with width 32 on WebGPU and 64 on WebGL2. `examples/hosts/_drive.ts` runs `run()` and `runSpecialized(INPUTS.compute.n)` for the journeys and reports `direct` and `planned`. |
+| A4-R3 | `loop-fuse`    | `run()` takes default inputs, so the harness calls `run()`. It still returns `{ chain, split, reduce }`, each with its `report`. `check.ts` calls `run()` again and checks each report.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| A4-R4 | `host-program` | `run()` returns `{ image: { width, height, rgba } }`. The program runtime stays (`waitsFor: "0138 milestone 5"`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| A4-R5 | `host-draw`    | `draw` is replaced by `run(canvas, time = 0)`: one frame. This keeps the `time` parameter of item 2 of "The host.ts form". A2 changed item 1 to `run(canvas, options?)`, and D-11 records the difference. `animate(canvas)` stays and calls `run(canvas, time)` each frame. The `times` list of today's `run` goes.                                                                                                                                                                                                                                                                                                                                                                                             |
+
+1. [fact] A2 (host form, item 4 and the host-form table) lists `runSpecialized` as an extra of `host-compute`.
+   The owner chose "run() + extras" as O4.
+2. [decision] The slice row says "Remove ... runSpecialized as exports". M4.8 reads this as: `runSpecialized`
+   stays exported as an extra, per O4 and the A2 table. Only `draw` leaves.
+3. [fact] A2 says of `loop-fuse`: "Today's shape." The existing `run(a, b, c)` has no default
+   inputs. A4-R3 adds them. The result shape does not change.
+4. [fact] `check.ts` is the harness's file (host form, item 5). It exports `check(result, tier)`.
+   [fact] `check.ts` keeps this signature (A2, item 5). `check.ts` calls the `runSpecialized` of the host (A4-R2).
+   The driver also runs each listed extra on the CPU tier and requires it to resolve.
+5. [fact] `draw` in `host-draw/host.ts` is not a form name. The form calls the one-frame function `run`.
+
+#### What the site and M4.9 then owe
+
+1. [proposal] The site repository (`typeshade/web`, the `downstream` entry of 0145): the Playground reads
+   `image` from `host-program` (A4-R4). It keeps the `runSpecialized` button for `host-compute` (A4-R1).
+   It calls `animate` for `host-draw`, and `run(canvas)` for the check (A4-R5).
+2. [proposal] The site's host example pages for `host-compute`, `loop-fuse`, `host-program` and `host-draw`
+   follow the new `host.ts` text. The site does not show `check.ts`.
+3. [proposal] M4.9 reads `check.ts` through the registry for each entry that has one. The driver
+   (`examples/_driver.ts`, `runCheck(file, result, tier)`) calls `check(result, tier)`. For `host-compute`, `check.ts`
+   calls `runSpecialized()` itself and checks `report.tier` on every tier, as A4-R2 says. M4.9 does not read `HOST_ORDER`.
+4. [fact] `compiler-changes.md` already records 0145. A4 adds no id to it.
+
+#### Questions for the owner
+
+Each answer is "[answer, owner, 2026-11-24]".
+
+1. **A4-Q1. Does the owner accept `67` in `surface:`, for the one sentence?**
+   [Answer, owner, 2026-11-24: "모두 추천안대로 (Recommended)". Yes.]
+   [fact] The answer to A4-Q2 made A4-Q1 moot. The §67 sentence stays true, so `67` is not added to `surface:`.
+2. **A4-Q2. Does the owner accept A4-R1 as first drafted: `specialized()` in `check.ts`, not an extra?**
+   [Answer, owner, 2026-11-24: "Extra로 유지 (Recommended)". No. `runSpecialized` stays an extra, as O4 and the A2 table say. A4-R1 is rewritten.]
+3. **A4-Q3. Does the owner accept A4-R3 and A4-R4 as written?**
+   [Answer, owner, 2026-11-24: "모두 추천안대로 (Recommended)". Yes.]
+4. **A4-Q4. Does the owner accept A4-R5: `run(canvas, time = 0)` and `animate(canvas)` for `host-draw`?**
+   [Answer, owner, 2026-11-24: "모두 추천안대로 (Recommended)". Yes.]
+
+#### Deviations and open items
+
+| Deviation                                                                                                               | Disposition                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| D-10. A2 lists `runSpecialized` as an extra. The first A4-R1 moved it out.                                              | Closed. The owner answered "Extra로 유지 (Recommended)" on 2026-11-24. A4-R1 keeps it as an extra, as the A2 table says. |
+| D-11. A2 item 1 gives `run(canvas, options?)`. A4-R5 keeps the `time` parameter of the original item 2 for `host-draw`. | Closed. Accepted by the owner's answer to A4-Q4 (2026-11-24).                                                            |
+
+| Item                                                         | Reason                                           | Next action                                      |
+| ------------------------------------------------------------ | ------------------------------------------------ | ------------------------------------------------ |
+| The doc-impact fix, branch `claude/doc-impact-member-names`. | M4.8 replaces `draw` only after it is on `main`. | Merge that branch, then start the `draw` change. |
+
+#### What A4 touches
+
+- `surface`: no change. [fact] A4 does not declare §67.
+- `docs/use-typeshade-surface.md` and `reqs/`: no change.
+- `examples`: no id is added or removed. `downstream`: see "What the site and M4.9 then owe".
 
 ## What it owes downstream
 

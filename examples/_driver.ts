@@ -4,7 +4,9 @@
 // registry is every `example.json` under `path/` and `gallery/`, and the host examples of
 // `hosts/`, which have no manifest yet and are listed by `hosts/_order.ts`. Each group keeps one
 // `_drive.ts` that holds the inputs of its examples; this driver picks the group's file for an
-// entry, runs it, and runs the optional `check.ts` of the example.
+// entry, runs it, calls each export its `extras` names, and runs the optional `check.ts` of the
+// example with the result of `run` and the tier. The driver does not pass the extras' results to
+// `check.ts`; a `check.ts` that needs one calls the export itself.
 //
 // The CPU tier has no canvas in Node. `cpuSurface` is a canvas whose only context is `2d`, and
 // `withCpuCanvas` installs it as `OffscreenCanvas` for the length of a call.
@@ -29,6 +31,9 @@ export interface Runnable {
   /** The group directory, such as `path`. */
   readonly group: string;
   readonly tiers: readonly Tier[];
+  /** The names of its `extras`: exports of `host.ts` other than `run`. `runExtras` calls each one with
+   *  its defaults on the CPU tier. */
+  readonly extras: readonly string[];
   /** The example's directory, absolute. */
   readonly dir: string;
   /** The absolute path of its `check.ts`, when it has one. */
@@ -54,7 +59,8 @@ export function runnables(): Runnable[] {
       if (manifest !== undefined && manifest.host !== 'run') continue;
       const tiers = manifest?.tiers ?? legacy?.tiers ?? ['webgpu', 'webgl2', 'cpu'];
       const check = join(dir, 'check.ts');
-      out.push({ id, group, tiers, dir, ...(existsSync(check) ? { check } : {}) });
+      const extras = manifest?.extras ?? legacy?.extras ?? [];
+      out.push({ id, group, tiers, extras, dir, ...(existsSync(check) ? { check } : {}) });
     }
   }
   return out;
@@ -113,6 +119,26 @@ export async function runOnCpu(entry: Runnable): Promise<Outputs | string> {
   return withCpuCanvas(async () => {
     const ran = await (await driveOf(entry.group))(cpuSurface, [entry.id]);
     return ran[entry.id] ?? `${entry.id}: the driver gave nothing`;
+  });
+}
+
+/** Call each extra of `entry` with its defaults on the CPU tier, and wait for it to resolve.
+ *  A rejection is thrown. The results are not kept.
+ *  @returns the names of the extras it ran. */
+export async function runExtras(entry: Runnable): Promise<string[]> {
+  const host = (await import(/* @vite-ignore */ join(entry.dir, 'host.ts'))) as Record<
+    string,
+    unknown
+  >;
+  return withCpuCanvas(async () => {
+    const ran: string[] = [];
+    for (const name of entry.extras) {
+      const fn = host[name];
+      if (typeof fn !== 'function') throw new Error(`${entry.id}: host.ts exports no ${name}`);
+      await (fn as () => unknown)();
+      ran.push(name);
+    }
+    return ran;
   });
 }
 

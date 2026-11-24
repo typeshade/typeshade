@@ -9,15 +9,12 @@
 // picture depends on.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { exampleSource } from './_example-file.js';
 import { compile } from '../src/index.js';
 import { compileModule } from '../src/core/oracle.js';
 import { compileModuleJs } from '../src/core/cpu-codegen.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const { diagnostics, module } = compile(readFileSync(join(HERE, 'normal-matrix.shade.ts'), 'utf8'));
+const { diagnostics, module } = compile(exampleSource('normal-matrix'));
 
 describe('normal-matrix computes what its shapes say', () => {
   it('compiles with no diagnostics', () => {
