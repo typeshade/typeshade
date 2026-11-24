@@ -114,6 +114,7 @@ import { spell } from './host-face/spell.js';
 import { noCpuTier, wgslEntryPoint, glTier } from './host-face/entry-tier.js';
 import { wordBinding, wordBindings, heldVariant } from './host-face/kernel-words.js';
 import { dispatched, bareArrays, reachedBy } from './host-face/kernel-facts.js';
+import { isFunctionType } from './host-face/type-nodes.js';
 export { bareArrays } from './host-face/kernel-facts.js';
 export { type HostExport } from './host-face-contracts.js';
 export { hostTypeOf } from './host-types.js';
@@ -1076,18 +1077,6 @@ function kernelGl(
 
 const never = (name: string, reason: string, typeOnly?: true): HostExport =>
   typeOnly ? { kind: 'never', name, reason, typeOnly } : { kind: 'never', name, reason };
-
-function isFunctionType(t: ts.TypeNode | undefined, sf: ts.SourceFile): boolean {
-  if (t === undefined) return false;
-  if (ts.isFunctionTypeNode(t)) return true;
-  if (ts.isParenthesizedTypeNode(t)) return isFunctionType(t.type, sf);
-  if (ts.isTypeReferenceNode(t) && ts.isIdentifier(t.typeName)) {
-    const name = t.typeName.text;
-    for (const s of sf.statements)
-      if (ts.isTypeAliasDeclaration(s) && s.name.text === name) return isFunctionType(s.type, sf);
-  }
-  return false;
-}
 
 function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
   const { name, decl } = ref;
