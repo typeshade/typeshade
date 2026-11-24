@@ -31,15 +31,12 @@ import { makeDiagnostic } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
 import { writesUndefinedUnion } from './optional.js';
 
-/** A variable the walk follows: a local declared with no initializer. */
 interface Tracked {
   readonly name: string;
 }
 
-/** The variables assigned on every path that reaches a point, or `null` where no path does. */
 type State = ReadonlySet<Tracked> | null;
 
-/** The paths a `break` or a `continue` hands to the statement it leaves. */
 interface Target {
   readonly label: string | undefined;
   readonly loop: boolean;
@@ -50,7 +47,6 @@ interface Target {
 const join = (a: State, b: State): State => {
   if (a === null) return b;
   if (b === null) return a;
-  // A variable is assigned after a join when every path assigned it.
   const out = new Set<Tracked>();
   for (const t of a) if (b.has(t)) out.add(t);
   return out;
@@ -66,7 +62,6 @@ const add = (s: State, t: Tracked): State => {
   return out;
 };
 
-/** Refuse each read of a local before it is assigned, in every function `sourceFile` holds. */
 export function checkDefiniteAssignment(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -110,7 +105,6 @@ export function checkDefiniteAssignment(
       );
     };
 
-    /** The variable `e` assigns when it stands where a value is written, if one is followed. */
     const assignedBy = (e: ts.Expression): Tracked | null => {
       let x = e;
       while (ts.isParenthesizedExpression(x)) x = x.expression;
@@ -188,7 +182,6 @@ export function checkDefiniteAssignment(
         }
         return after;
       }
-      // Every other expression reads its operands in source order.
       let after: State = s;
       ts.forEachChild(e, (child) => {
         if (ts.isToken(child) && !ts.isIdentifier(child)) return;
@@ -202,8 +195,6 @@ export function checkDefiniteAssignment(
       for (const d of list.declarations) {
         if (d.initializer !== undefined) after = expr(d.initializer, after);
         if (ts.isIdentifier(d.name)) {
-          // A `let` of an optional type with no initializer starts absent (Rule 7.10), and
-          // TypeScript reports no TS2454 for a type that contains `undefined`.
           if (
             d.initializer === undefined &&
             (list.flags & ts.NodeFlags.Const) === 0 &&
@@ -305,7 +296,6 @@ export function checkDefiniteAssignment(
         const head = expr(st.expression, s);
         return loop(label, (t) => {
           const end = stmt(st.statement, head);
-          // A second pass: what the body carries comes back to its own returns.
           stmt(st.statement, join(head, end));
           return { exit: joinAll([head, end, ...t.continues]) };
         }).exit;
@@ -374,7 +364,6 @@ export function checkDefiniteAssignment(
         return joinAll([fall, ...t.breaks, hasDefault ? null : head]);
       }
       if (ts.isFunctionDeclaration(st) || ts.isClassDeclaration(st)) return s;
-      // Every other statement (an empty one, a type, an interface) reads nothing.
       return s;
     };
 
