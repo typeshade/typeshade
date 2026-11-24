@@ -1,59 +1,7 @@
-// ═══ A compute dispatch on WebGL2 (change 0054) ═══
-//
-// WebGL2 has no compute stage. `passes/gl-compute.ts` builds a split entry's pass program; this
-// file runs it, a pass at a time, in the order `phase-schedule.ts` gives (change 0054, "The
-// execution model", as amended three times):
-//
-//   - Memory is textures. Each memory root is an `R32UI` 2D array texture of 32-bit words, as
-//     std430 lays the binding out; a workgroup root holds one copy per workgroup, side by side.
-//     A layer holds `width × layerRows` words (the program's `layout`), so a root of any size is
-//     as many layers as it needs: no size goes to another tier.
-//   - A pass runs each invocation once, as a point with the rasterizer off. Transform feedback
-//     captures its record (state, write log, request), a batch of layers at a time, and the
-//     records go into the chunk's record texture through a pixel unpack buffer: one invocation a
-//     row, so the state stays on the GPU between passes. A dispatch larger than one record
-//     texture is more chunks.
-//   - The scatter draws one point for each log entry, in invocation index order, straight into
-//     each layer the pass wrote. It reads the log from the records, never the memory, so it
-//     needs no second copy of a root and copies nothing. Points drawn later win, so the last
-//     invocation to write a word wins.
-//   - The host reads the first texels of each record: the resume point, the log's count and
-//     keys, the request. It decides who runs next (the barrier hold), performs each atomic
-//     request in invocation index order on the memory it reads back, writes the memory again
-//     (the resolve pass), and writes each invocation's control texel: whether it runs, and what
-//     its atomic operation returned. A pass where every invocation runs and none waits on a
-//     result uploads no control texel, and the first pass uploads no record.
-//   - A read-back does not hold the page: each lands in a pixel pack buffer behind one fence,
-//     and the host yields until the GPU has passed it (`readBack`), so `runGlCompute` is async.
-//   - The pass program and the scatter are linked once per context and kept, so a later
-//     dispatch of the same entry links nothing. `scripts/gl-compute-bench.ts` measures the cost.
-//
-//   - A storage texture (change 0054, fifth amendment) is a memory root like any other. Before
-//     the first pass a draw fills it from the texture, a word a fragment; after the last, unless
-//     the entry only reads it, a draw puts it back, a texel a fragment, and the context converts
-//     each `vec4` to the texture's format as WebGPU's `textureStore` does.
-//   - The pass program of an entry that emulates `f64` reads the `_fp64` guard, which the host
-//     never passes (Rule 8.21): the dispatch binds a 1 × 1 texture of 1.0 to it, on a unit of its
-//     own (#966).
-//   - WebGL2 runs no draw it refuses: it records an error and leaves the target as it was. A
-//     refused pass would leave every record unchanged, and the pass loop would wait on them for
-//     ever, so the dispatch reads the context's error after each group of draws and rejects with
-//     it, naming the entry (Rule 11.8, #966).
-//
-// The CPU model of this executor is `testing/gl-model.ts`; `scripts/gpu-differential.ts` holds
-// the two to the same words. The model has no texture, sampled or storage, as the CPU tier has
-// none: the differential skips an entry that binds one, and the compile gate's program cases
-// (`scripts/compute-case.ts`) hold those entries to WebGPU instead. It imports no compiler.
-
 import type { GlComputeLayout, GlComputeProgram } from './passes/gl-compute.js';
 
-/** The control uniform's flags (`GL_FIRST_PASS`, `GL_ALL_RUN` in `passes/gl-compute.ts`, which
- *  this file does not import: it imports no compiler). */
 const FIRST_PASS = 1;
 const ALL_RUN = 2;
-/** The `_fp64` guard's name (`FP64_GUARD_NAME` in `fp64/df64-lib.ts`, which this file does not
- *  import: that file builds the emulation's IR, which the runtime does not carry). A module that
- *  emulates `f64` reads one texel of 1.0 from it. */
 const GUARD = '_fp64';
 import { atomicStep } from './scalar-arith.js';
 import { runPassesAsync, type PassInvocation } from './phase-schedule.js';
@@ -63,24 +11,13 @@ import { gpuDone } from './gl-fence.js';
 
 export { gpuDone };
 
-/** What a dispatch takes besides the program. */
 export interface GlComputeInput {
   readonly workgroups: readonly [number, number, number];
-  /** Each storage root's words, by binding name. The dispatch writes them back in place. */
   readonly memory: Readonly<Record<string, Uint32Array>>;
-  /** Each uniform binding's host value, by name, packed by its std140 layout. */
   readonly uniforms?: Readonly<Record<string, unknown>>;
-  /** Each sampled texture the program reads (`PackGlCompute['textures']`), by binding name: the
-   *  texture, made for the target its dimension takes (`TEXTURE_2D`, `TEXTURE_2D_ARRAY`,
-   *  `TEXTURE_3D` or `TEXTURE_CUBE_MAP`), and the sampler object its paired sampler binding is,
-   *  if any; a depth texture's compares. The dispatch only reads them. */
   readonly textures?: Readonly<
     Record<string, { readonly texture: WebGLTexture; readonly sampler?: WebGLSampler | null }>
   >;
-  /** Each storage texture the program reaches (`PackGlCompute['storageTextures']`), by binding
-   *  name: a texture of its format, made for `TEXTURE_2D` (or `TEXTURE_2D_ARRAY` for an array),
-   *  and its size, which WebGL2 cannot ask a texture. The dispatch reads it in before the first
-   *  pass and, unless it is `read`, draws what the entry left back into it after the last. */
   readonly storageTextures?: Readonly<
     Record<
       string,
@@ -94,7 +31,6 @@ export interface GlComputeInput {
   >;
 }
 
-/** What a dispatch did. */
 export interface GlComputeReport {
   readonly passes: number;
   readonly barrierPhases: number;
@@ -104,12 +40,8 @@ interface Inv extends PassInvocation {
   readonly index: number;
 }
 
-/** Each context's linked programs, by their two sources: a dispatch links its pass program and
- *  its scatter once per context, and every later dispatch of the same entry reuses them. */
 const linked = new WeakMap<WebGL2RenderingContext, Map<string, WebGLProgram>>();
 
-/** Link `vs` and `fs` on `gl`, once per context and pair: the program runtime's draws link
- *  theirs here too. `what` names the program in an error. */
 export function compile(
   gl: WebGL2RenderingContext,
   vs: string,
@@ -121,7 +53,6 @@ export function compile(
   if (cache === undefined) linked.set(gl, (cache = new Map()));
   const key = `${vs}\0${fs}\0${varyings.join(',')}`;
   const hit = cache.get(key);
-  // A context that was lost and restored keeps its object but not its programs.
   if (hit !== undefined && gl.isProgram(hit)) return hit;
   const shaders: WebGLShader[] = [];
   const shader = (type: number, src: string): WebGLShader => {
@@ -150,21 +81,16 @@ export function compile(
     keep = true;
     return p;
   } finally {
-    // Linked programs own their executable; attached shader objects are temporary.
-    // A failed program never enters the cache and releases its attachments too.
     if (keep) for (const s of shaders) gl.detachShader(p, s);
     else gl.deleteProgram(p);
     for (const s of shaders) gl.deleteShader(s);
   }
 }
 
-/** The layers of invocations one transform feedback draw takes: its buffer's size. */
 const BATCH_LAYERS = 64;
 
-/** The most words one root can hold: a log key keeps the root in its top four bits. */
 const MAX_ROOT_WORDS = 1 << 28;
 
-/** How `count` words lie in layers of `layout`: the texture's rows and its layers. */
 function shape(
   count: number,
   { width, layerRows }: GlComputeLayout,
@@ -174,14 +100,12 @@ function shape(
   return { h: layers > 1 ? layerRows : rows, layers };
 }
 
-/** A layered texture: its rows and its layers. */
 interface Layered {
   readonly tex: WebGLTexture;
   readonly h: number;
   readonly layers: number;
 }
 
-/** An `R32UI` 2D array texture of `words`, laid out as `layout` says. */
 function wordTexture(
   gl: WebGL2RenderingContext,
   words: Uint32Array,
@@ -216,17 +140,12 @@ function wordTexture(
   return { tex, h, layers };
 }
 
-/** The fragment stage the pass program links with: transform feedback takes the record and
- *  nothing is rasterized. */
 const NO_FRAGMENTS = `#version 300 es
 precision highp float;
 out vec4 c;
 void main() { c = vec4(0.0); }
 `;
 
-/** The scatter program of `p`: one point for each of the first `u_slots` log slots of each
- *  invocation from `u_base` on, placed in the layer `u_layer` of its root or nowhere. It reads
- *  the log from the record texture of the chunk `u_base` starts. */
 function scatterSources(p: GlComputeProgram): { vs: string; fs: string } {
   const { width: W, layerRows: LH } = p.layout;
   const vs = `#version 300 es
@@ -272,7 +191,6 @@ void main() { o = uvec4(v, 0u, 0u, 0u); }
   return { vs, fs };
 }
 
-/** One rectangle of one layer of an `R32UI` or `RGBA32UI` array texture, to read back. */
 interface Rect {
   readonly tex: WebGLTexture;
   readonly layer: number;
@@ -281,16 +199,11 @@ interface Rect {
   readonly h: number;
 }
 
-/** A dispatch's pixel pack buffer, kept across its read-backs and grown when one needs more. */
 interface PackBuffer {
   readonly buffer: WebGLBuffer;
   bytes: number;
 }
 
-/** Read `rects` back without holding the page (change 0054, item 7): each `readPixels` lands
- *  in one pixel pack buffer, one fence follows them, and the words are taken once the GPU has
- *  passed the fence. Until then the host yields to the page. The words come in `rects` order,
- *  four a texel, each rectangle row by row. */
 async function readBack(
   gl: WebGL2RenderingContext,
   fbo: WebGLFramebuffer,
@@ -321,14 +234,10 @@ async function readBack(
   return out;
 }
 
-/** Whether the pass program `vertex` declares the `_fp64` guard, as the GLSL writer declares it:
- *  `uniform highp sampler2D _fp64;`. */
 function declaresGuard(vertex: string): boolean {
   return new RegExp(`^uniform (?:\\w+ )*sampler2D ${GUARD};$`, 'm').test(vertex);
 }
 
-/** `t` made the `_fp64` guard: one `RGBA8` texel of white, which a `sampler2D` reads as 1.0, as
- *  the draw paths make it. One level and a `NEAREST` filter, so `texelFetch` finds it complete. */
 function guardTexture(gl: WebGL2RenderingContext, t: WebGLTexture): WebGLTexture {
   gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 1, 1);
@@ -349,9 +258,6 @@ function guardTexture(gl: WebGL2RenderingContext, t: WebGLTexture): WebGLTexture
   return t;
 }
 
-/** Throw when the draws `gl` was just given were refused: WebGL2 records an error and draws
- *  nothing, so the dispatch would go on from records and memory the draw never wrote. `what`
- *  names the program, with its entry, so the call's `Error` says why it cannot run (Rule 11.8). */
 function drawn(gl: WebGL2RenderingContext, what: string): void {
   const code = gl.getError();
   if (code === gl.NO_ERROR) return;
@@ -369,7 +275,6 @@ function drawn(gl: WebGL2RenderingContext, what: string): void {
   );
 }
 
-/** A chunk of invocations: the record texture of its invocations, one a row. */
 interface Chunk {
   readonly base: number;
   readonly count: number;
@@ -377,7 +282,6 @@ interface Chunk {
   readonly layers: number;
 }
 
-/** Run `p` over `input.workgroups` on `gl`. */
 export async function runGlCompute(
   gl: WebGL2RenderingContext,
   p: GlComputeProgram,
@@ -391,8 +295,6 @@ export async function runGlCompute(
   const n = perGroup * groups;
   const maxLayers = gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) as number;
 
-  // A storage texture is a root of four words a texel, which the dispatch fills from the
-  // texture itself; its size is a uniform of the program.
   const images = (p.storageTextures ?? []).map((t) => {
     const given = input.storageTextures?.[t.name];
     if (given === undefined)
@@ -406,7 +308,6 @@ export async function runGlCompute(
   });
   const uniformValues: Record<string, unknown> = { ...input.uniforms };
   for (const t of images) uniformValues[t.size] = { s: [t.width, t.height, t.layers, 0] };
-  // Memory: one layered word texture per root.
   const words = p.roots.map((r) => {
     if (r.space === 'workgroup') return new Uint32Array(r.fixed * groups);
     const image = images.find((t) => t.name === r.name);
@@ -421,14 +322,11 @@ export async function runGlCompute(
         `typeshade/webgl2: '${r.name}' holds ${String(words[k]!.length)} words, more than the ${String(MAX_ROOT_WORDS)} a write log key can name`,
       );
   });
-  // The sampled textures go on the units after the memory roots, the invocations and the
-  // records. A vertex stage has fewer units than a fragment stage on some contexts.
   const sampled = (p.textures ?? []).map((t) => {
     const given = input.textures?.[t.name];
     if (given === undefined) throw new Error(`typeshade/webgl2: no texture for '${t.name}'`);
     return { ...given, target: targetOf(gl, t.dim) };
   });
-  // The `_fp64` guard of an entry that emulates `f64` takes a unit of its own.
   const guarded = declaresGuard(p.vertex);
   const reads = p.roots.length + 2 + sampled.length + (guarded ? 1 : 0);
   const units = gl.getParameter(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS) as number;
@@ -436,8 +334,6 @@ export async function runGlCompute(
     throw new Error(
       `typeshade/webgl2: the pass program reads ${String(reads)} textures, more than the ${String(units)} a vertex stage of this context binds`,
     );
-  // Register ownership at creation, before uploads/packing/linking can throw. A
-  // partially filled map has not returned its array yet, but still owns its objects.
   const resources: (() => void)[] = [];
   const own = <T>(value: T, release: (value: T) => void): T => {
     resources.push(() => release(value));
@@ -452,12 +348,8 @@ export async function runGlCompute(
       wordTexture(gl, w, p.layout, `'${p.roots[k]!.name}'`, createTexture),
     );
 
-    // Records: an `RGBA32UI` 2D array texture per chunk, one invocation a row, `LH` rows a layer.
-    // A chunk holds as many invocations as the context's layers allow; a larger dispatch is more
-    // chunks, so no number of invocations goes to another tier.
     const recWidth = p.slices * p.sliceTexels;
     const perChunk = LH * maxLayers;
-    // Each runtime-sized root's element count, which the first pass reads from the uniform.
     const lens = new Uint32Array(16);
     p.roots.forEach((r, k) => {
       if (r.space === 'storage') lens[k] = (words[k]!.length - r.fixed) / r.stride;
@@ -473,13 +365,10 @@ export async function runGlCompute(
       gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA32UI, recWidth, rows, layers);
       gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-      // The first pass starts every record from its initial values, so nothing is uploaded.
       chunks.push({ base, count, tex, layers });
     }
     pcs.fill(record0(p));
 
-    // Each invocation's control texel, which the host writes: whether it runs this pass, and the
-    // value its last atomic operation returned.
     const invShape = shape(n, { width: W, layerRows: LH });
     const control = new Uint32Array(W * invShape.h * invShape.layers * 4);
     const invTex = createTexture();
@@ -489,9 +378,6 @@ export async function runGlCompute(
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     const guard = guarded ? guardTexture(gl, createTexture()) : undefined;
 
-    // Transform feedback: one buffer per slice of the record, for a batch of `BATCH_LAYERS`
-    // layers of invocations at a time. Each invocation reads and writes only its own row, so a
-    // batch's records replace their rows before the next batch draws.
     const most = Math.min(n, perChunk);
     const perBatch = Math.min(most, LH * BATCH_LAYERS);
     const tfo = own(gl.createTransformFeedback()!, (t) => gl.deleteTransformFeedback(t));
@@ -525,16 +411,11 @@ export async function runGlCompute(
       return buffer;
     });
 
-    // What the host reads of each record: its resume point, its log's count, its request and the
-    // keys of the log slots some invocation filled. They lead the record, so a read is the first
-    // few texels of every row.
     const counts = new Uint32Array(n);
     const requests = new Uint32Array(Object.keys(p.requests).length > 0 ? n * 3 : 0);
     let slots = 0;
     let keys = new Uint32Array(0);
     const active = new Uint8Array(n);
-    /** Read record texels `[t0, t1)` of every invocation; `take(i, data, at)` reads invocation
-     *  `i`'s words at `at` in `data`. */
     const readTexels = async (
       t0: number,
       t1: number,
@@ -561,7 +442,6 @@ export async function runGlCompute(
         for (let row = 0; row < r.h; row++, at += per) take(firsts[k]! + row, data, at);
       });
     };
-    // The first texels of a record: the resume point, the count, the request and three keys.
     const head = Math.ceil((p.keysAt + 3) / 4);
     const early = new Uint32Array(n * 3);
     const readRecords = async (): Promise<void> => {
@@ -620,11 +500,8 @@ export async function runGlCompute(
         data,
       );
     };
-    // The roots a scatter or a resolve has written: only those are read back at the end.
     const dirty = new Set<number>();
 
-    // The resolve pass reads a root back once, performs every request of the pass on it, and
-    // writes it once, before the next pass reads it.
     const resolving = new Map<number, Uint32Array>();
     const flush = (): void => {
       for (const [r, m] of resolving) {
@@ -647,7 +524,6 @@ export async function runGlCompute(
     let pending = false;
 
     gl.bindVertexArray(vao);
-    // Each storage texture is drawn into its root first, and the texture must take a draw back.
     for (const t of images) {
       if (t.access !== 'read') renderable(gl, fbo, t);
       imageIn(gl, fbo, p, t, memory[t.root]!);
@@ -661,8 +537,6 @@ export async function runGlCompute(
       barrierAt: (pc) => p.barriers[pc] ?? { fn: 'barrier', line: 'a line without a span' },
       async pass(runnable) {
         flush();
-        // Who runs this pass. Where every invocation runs and none has an atomic result waiting,
-        // a flag says so and no control texel is uploaded.
         const allRun = runnable.length === n && !pending;
         counts.fill(0);
         if (allRun) active.fill(1);
@@ -692,11 +566,7 @@ export async function runGlCompute(
         const passFlags = (first ? FIRST_PASS : 0) | (allRun ? ALL_RUN : 0);
         first = false;
 
-        // The pass program: each chunk's invocations as points, every slice of their records
-        // into its transform feedback buffer, then the records into the chunk's texture.
         gl.useProgram(pass);
-        // The scatter left a memory layer attached; the pass reads memory, so it draws with no
-        // framebuffer of ours bound, or WebGL calls it a feedback loop.
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.enable(gl.RASTERIZER_DISCARD);
         gl.uniformBlockBinding(pass, gl.getUniformBlockIndex(pass, '_PhCtl'), 1);
@@ -712,9 +582,6 @@ export async function runGlCompute(
         const recUnit = unit++;
         gl.uniform1i(gl.getUniformLocation(pass, '_phx_rec'), recUnit);
         if (guard !== undefined) {
-          // Left unbound, the guard's `sampler2D` would read unit 0, where a memory root's
-          // `usampler2DArray` is, and WebGL2 refuses a draw that reads one unit as two types.
-          // A sampler object on its unit would filter it in place of its own `NEAREST`.
           gl.activeTexture(gl.TEXTURE0 + unit);
           gl.bindTexture(gl.TEXTURE_2D, guard);
           gl.bindSampler(unit, null);
@@ -749,7 +616,6 @@ export async function runGlCompute(
                 gl.endTransformFeedback();
                 gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
               }
-              // Every slice has read the batch's old records before any is replaced.
               gl.bindTexture(gl.TEXTURE_2D_ARRAY, c.tex);
               for (let g = 0; g < p.slices; g++) {
                 gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, tfBuffers[g]!);
@@ -776,10 +642,6 @@ export async function runGlCompute(
         } finally {
           gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
           gl.disable(gl.RASTERIZER_DISCARD);
-          // A sampler left on a unit would filter the integer textures the scatter and the next
-          // pass bind there, and an integer texture with a linear filter reads as zero; on a
-          // context that lives past this dispatch it would filter the host's own textures. So it
-          // comes off even when the pass throws.
           for (let u = firstSampled; u < unit; u++) {
             gl.bindSampler(u, null);
             gl.activeTexture(gl.TEXTURE0 + u);
@@ -788,8 +650,6 @@ export async function runGlCompute(
         }
         await readRecords();
 
-        // The layers each root was written in this pass, each with the first and the last
-        // invocation that wrote in it: the scatter draws that range and no more.
         const written = p.roots.map(() => new Map<number, [number, number]>());
         for (const inv of runnable) {
           const i = inv.index;
@@ -807,7 +667,6 @@ export async function runGlCompute(
           }
         }
 
-        // The scatter, root by root, layer by layer and chunk by chunk, straight into memory.
         gl.useProgram(scatterProgram);
         gl.activeTexture(gl.TEXTURE0);
         gl.uniform1i(gl.getUniformLocation(scatterProgram, 'u_rec'), 0);
@@ -863,25 +722,18 @@ export async function runGlCompute(
     });
 
     flush();
-    // Each storage texture the entry may write takes back what its root holds.
     for (const t of images) if (t.access !== 'read') imageOut(gl, fbo, p, t, memory[t.root]!);
-    // Hand the storage roots back.
     for (const [k, r] of p.roots.entries())
       if (r.space === 'storage' && dirty.has(k) && !images.some((t) => t.root === k))
         words[k]!.set(await readMemory(k));
     return report;
   } finally {
-    // What the dispatch made goes, whether it finished or threw: the context outlives it.
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     for (let i = resources.length - 1; i >= 0; i--) resources[i]!();
   }
 }
 
-// ─── storage textures (change 0054, fifth amendment) ─────────────────────────────────────────
-
-/** A storage texture of a dispatch: what the program says of it, what the host gave, and the
- *  index of its memory root. */
 type Image = NonNullable<GlComputeProgram['storageTextures']>[number] & {
   readonly texture: WebGLTexture;
   readonly width: number;
@@ -890,7 +742,6 @@ type Image = NonNullable<GlComputeProgram['storageTextures']>[number] & {
   readonly root: number;
 };
 
-/** The full-screen triangle the image passes draw. */
 const TRIANGLE_VS = `#version 300 es
 void main() {
   vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
@@ -898,10 +749,8 @@ void main() {
 }
 `;
 
-/** The GLSL prefix of a texel kind: `float` reads through `sampler…` into a `vec4`. */
 const PREFIX = { float: '', uint: 'u', sint: 'i' } as const;
 
-/** Attach layer `layer` of `t` to `fbo`'s first colour attachment. */
 function attach(gl: WebGL2RenderingContext, fbo: WebGLFramebuffer, t: Image, layer: number): void {
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
   if (t.dim === '2d-array')
@@ -910,9 +759,6 @@ function attach(gl: WebGL2RenderingContext, fbo: WebGLFramebuffer, t: Image, lay
   gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
 }
 
-/** Refuse a storage texture the dispatch would write and this context cannot draw into, before
- *  any pass runs: `rgba8snorm` on every context, a float format where the context has no
- *  `EXT_color_buffer_float`. */
 function renderable(gl: WebGL2RenderingContext, fbo: WebGLFramebuffer, t: Image): void {
   if (/float$/.test(t.format)) gl.getExtension('EXT_color_buffer_float');
   attach(gl, fbo, t, 0);
@@ -928,7 +774,6 @@ function renderable(gl: WebGL2RenderingContext, fbo: WebGLFramebuffer, t: Image)
     );
 }
 
-/** The state an image pass draws under: no blend, test or mask of a draw before it. */
 function plainState(gl: WebGL2RenderingContext): void {
   for (const cap of [gl.BLEND, gl.DEPTH_TEST, gl.STENCIL_TEST, gl.SCISSOR_TEST, gl.CULL_FACE])
     gl.disable(cap);
@@ -936,8 +781,6 @@ function plainState(gl: WebGL2RenderingContext): void {
   gl.colorMask(true, true, true, true);
 }
 
-/** Fill the root `mem` from the texels of `t`: one fragment a word, layer by layer of the root,
- *  each word the bits of one channel of one texel, texels in row order and layer after layer. */
 function imageIn(
   gl: WebGL2RenderingContext,
   fbo: WebGLFramebuffer,
@@ -1004,8 +847,6 @@ void main() {
   }
 }
 
-/** Draw the root `mem` back into `t`: one fragment a texel, its four words its `vec4`, which the
- *  context converts to the texture's format as WebGPU's `textureStore` does. */
 function imageOut(
   gl: WebGL2RenderingContext,
   fbo: WebGLFramebuffer,
@@ -1060,7 +901,6 @@ void main() {
   }
 }
 
-/** The texture target a sampled texture of dimension `dim` is bound to. */
 function targetOf(gl: WebGL2RenderingContext, dim: '2d-array' | '3d' | 'cube' | undefined): number {
   return dim === '2d-array'
     ? gl.TEXTURE_2D_ARRAY
@@ -1071,7 +911,6 @@ function targetOf(gl: WebGL2RenderingContext, dim: '2d-array' | '3d' | 'cube' | 
         : gl.TEXTURE_2D;
 }
 
-/** The resume point every record starts at. */
 function record0(p: GlComputeProgram): number {
   return p.init.find(([at]) => at === p.pcWord)?.[1][0] ?? 0;
 }

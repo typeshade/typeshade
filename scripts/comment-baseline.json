@@ -489,7 +489,6 @@
   "src/core/fuse-scope.ts": 28,
   "src/core/g2-canary.test.ts": 11,
   "src/core/gl-compute.test.ts": 27,
-  "src/core/gl-compute.ts": 159,
   "src/core/gl-context.ts": 9,
   "src/core/gl-fence.ts": 19,
   "src/core/gl-image.ts": 12,
