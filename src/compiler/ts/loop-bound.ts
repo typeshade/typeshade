@@ -10,6 +10,7 @@ import { TS_CODES, type TsCode } from './codes.js';
 import { shiftAmountOutOfRange } from './lit-coerce.js';
 import { collectMutatedRoots, intElemOf, wrapInt } from '../../core/passes/opt/expr-utils.js';
 import { foldConstNumber, foldConstBool } from './loop-bound/fold-const.js';
+import { isInduct, readCond } from './loop-bound/exit-compare.js';
 export { foldConstNumber, foldConstBool, foldConstValue } from './loop-bound/fold-const.js';
 
 function cmpHolds(cop: CmpOp, v: number, bound: number): boolean {
@@ -27,42 +28,6 @@ function cmpHolds(cop: CmpOp, v: number, bound: number): boolean {
     case '!=':
       return v !== bound;
   }
-}
-
-function flipCmp(cop: CmpOp): CmpOp {
-  if (cop === '<') return '>';
-  if (cop === '>') return '<';
-  if (cop === '<=') return '>=';
-  if (cop === '>=') return '<=';
-  return cop;
-}
-
-const isInduct = (e: Expr, name: string): boolean =>
-  (e.op === 'varref' || e.op === 'param') && e.name === name;
-
-interface ExitCompare {
-  readonly cop: CmpOp;
-  readonly bound: Expr;
-  readonly value: number | undefined;
-}
-
-function readCond(cond: Expr, name: string, scope: LoweringScope): ExitCompare | undefined {
-  if (cond.op !== 'compare') return undefined;
-  if (isInduct(cond.a, name) && !mentions(cond.b, name)) {
-    return { cop: cond.cop, bound: cond.b, value: foldConstNumber(cond.b, scope) };
-  }
-  if (isInduct(cond.b, name) && !mentions(cond.a, name)) {
-    return { cop: flipCmp(cond.cop), bound: cond.a, value: foldConstNumber(cond.a, scope) };
-  }
-  return undefined;
-}
-
-function mentions(e: Expr, name: string): boolean {
-  let hit = false;
-  eachExpr(e, (x) => {
-    if ((x.op === 'varref' || x.op === 'param') && x.name === name) hit = true;
-  });
-  return hit;
 }
 
 type Step =
