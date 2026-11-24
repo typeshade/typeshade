@@ -139,8 +139,14 @@ describe('the files outside the declarations (P7)', () => {
     const run = (before: object, after: object) =>
       checkMove(tree({ [path]: JSON.stringify(before) }), tree({ [path]: JSON.stringify(after) }));
 
-    it('accepts a new entry when the sum does not grow', () => {
-      expect(run({ 'src/a.ts': 5 }, { 'src/a.ts': 2, 'src/b.ts': 3 }).pure).toBe(true);
+    it('refuses a new entry even when the sum does not grow', () => {
+      const report = run({ 'src/a.ts': 5 }, { 'src/a.ts': 2, 'src/b.ts': 3 });
+      expect(report.pure).toBe(false);
+      expect(report.outside[0]?.reason).toBe('the baseline grew: it has more entries');
+    });
+
+    it('accepts an entry that shrank or went away', () => {
+      expect(run({ 'src/a.ts': 5, 'src/b.ts': 3 }, { 'src/a.ts': 2 }).pure).toBe(true);
     });
 
     it('refuses an entry that grew and a sum that grew', () => {

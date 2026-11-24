@@ -11,6 +11,7 @@ import { VITEST_CONFIG_PATH, listedPaths } from './vitest-config.js';
 import { linkFindings } from './module-evaluation.js';
 import { cleanFileFindings } from './clean-files.js';
 import { configPathFindings } from './config-paths.js';
+import { typeReexportFindings } from './type-exports.js';
 import { evaluationOrderFindings } from './evaluation-order.js';
 import { pathReferenceFindings } from './path-references.js';
 import { unresolvedImportFindings } from './unresolved-imports.js';
@@ -42,6 +43,7 @@ interface CheckOptions {
   readonly paths?: readonly string[];
   readonly entries?: readonly DiffEntry[];
   readonly root?: string;
+  readonly allowTestMoves?: boolean;
 }
 
 const FIXTURE_ROOT = '/move-purity-fixture';
@@ -76,6 +78,13 @@ export function checkMove(
   let directives: DirectiveViolation[] = [];
   let renames: ReadonlyMap<string, string> = new Map();
   const findings: Finding[] = [];
+  for (const entry of options.entries ?? []) {
+    const lacksHead = entry.newMode !== '000000' && !head.has(entry.path);
+    const lacksBase = entry.oldMode !== '000000' && !base.has(entry.path);
+    if (isComparedSource(entry.path) && (lacksHead || lacksBase)) {
+      findings.push(finding('unreadable file path', entry.path, ''));
+    }
+  }
   if (sources.length > 0) {
     const root = options.root ?? FIXTURE_ROOT;
     const baseSide = createSide(root, base);
@@ -88,11 +97,17 @@ export function checkMove(
       headIds.set(to.node, `${from.path}#${from.index}`);
     }
     const baseKeyer = createKeyer(baseSide, (unit) => `${unit.path}#${unit.index}`);
+    const headFileId = (path: string): string => {
+      const from = [...renames].find(([, to]) => to === path)?.[0];
+      if (from !== undefined) return from;
+      return changedSet.has(path) && baseSide.sourceOf(path) === undefined ? `new:${path}` : path;
+    };
     const headKeyer = createKeyer(
       headSide,
       (unit) =>
         headIds.get(unit.node) ??
         `${changedSet.has(unit.path) ? 'new:' : ''}${unit.path}#${unit.index}`,
+      headFileId,
     );
     titles = compareTitles(base, head, sources);
     directives = directiveViolations(baseSide, headSide, sources, match.diff.moved);
@@ -108,6 +123,7 @@ export function checkMove(
         baseSide,
         headSide,
         listedPaths(base.get(VITEST_CONFIG_PATH), head.get(VITEST_CONFIG_PATH)),
+        options.allowTestMoves === true,
       ),
       ...cleanFileFindings({
         side: baseSide,
@@ -122,6 +138,10 @@ export function checkMove(
         label: 'head',
       }),
       ...order.findings,
+      ...typeReexportFindings(headSide, [
+        ...files.pairs.map((pair) => pair.head),
+        ...files.newFiles,
+      ]),
       ...sources
         .filter((path) => path.endsWith('.shade.ts'))
         .map((path) => finding('shade files do not take part in a pure move', path, '')),

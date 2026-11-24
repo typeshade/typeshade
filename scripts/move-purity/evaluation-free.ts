@@ -107,7 +107,7 @@ function referenceReason(
   return declarationReason(declaration, node, st);
 }
 
-function primitiveReason(expression: ts.Expression, st: State): string | undefined {
+export function primitiveReason(expression: ts.Expression, st: State): string | undefined {
   if (!isAccepted(ACCEPTED_EXPRESSION_KINDS, expression)) return describeNode(expression);
   if (isPrimitiveLiteral(expression)) return undefined;
   if (ts.isBigIntLiteral(expression)) return undefined;
@@ -249,7 +249,7 @@ function memberReason(member: ts.ClassElement, st: State): string | undefined {
   if (!isAccepted(ACCEPTED_CLASS_MEMBER_KINDS, member) || hasDecorators(member)) {
     return describeNode(member);
   }
-  if (ts.isConstructorDeclaration(member) && member.parameters.some(hasDecorators)) {
+  if (ts.isFunctionLike(member) && member.parameters.some(hasDecorators)) {
     return describeNode(member);
   }
   const named = nameReason(member.name as ts.PropertyName | undefined, st);

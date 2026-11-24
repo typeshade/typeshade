@@ -466,7 +466,8 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
    Procedure for a slice:
 
    1. Start the pull request title with `Move:`.
-   2. Add the line `Move: pure` to the message of each commit of the slice.
+   2. Add the line `Move: pure` to the message of at least one commit of the range.
+      The check judges the net difference between the merge base and the head.
    3. CI runs the check when the title starts with `Move:` or any commit message line matches.
    4. A commit message line that starts with `Move:` and is not exactly `Move: pure` fails the check.
    5. Without a title and without the line, the check prints a notice and exits 0. It did not run.
@@ -503,7 +504,13 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
      An `import` with bindings is an edge only when TypeScript keeps it, that is, when at least one
      binding is referenced in a value position of the file.
      An `export ... from` is an edge when it re-exports at least one value, and `export *` is an edge.
-     The repository sets no `verbatimModuleSyntax`, so TypeScript, esbuild and Bun drop the other imports.
+     The repository sets no `verbatimModuleSyntax`.
+     TypeScript, esbuild and Bun agree on these forms: a side-effect import loads the module,
+     an import with a binding that is used as a value loads it, and an import whose bindings are
+     unused or used only as types is dropped.
+     They disagree on `import {} from` and `export {} from` (Bun keeps them, tsc and esbuild drop them)
+     and on `export { Type } from` (Bun fails at load).
+     The check refuses the disputed forms (see the further refusals).
      A test reads the `tsconfig` files and fails when such an option appears.
      Cycles (P4) and order (P5) use this one edge definition.
      The classifier is an allow-list by syntax kind, in `scripts/move-purity/accepted-kinds.ts`.
@@ -539,13 +546,17 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
      The free comments of a file keep their order.
      A unit that uses `import.meta` or `__filename`, or a relative path or `__dirname` across a
      directory change, does not move.
-     One exception holds for series S11 and S12. A top-level `describe`, `it` or `test` call may move
+     A range that moves a test call fails with `test code moved` unless the CLI gets `--allow-test-moves`.
+     CI does not pass the flag.
+     With the flag, and only then, one exception holds for series S11 and S12. A top-level `describe`, `it` or `test` call may move
      between two files that vitest runs, when both are clean test files.
      A test file is clean when it has only evaluation-free declarations and such calls at the top level.
      A `describe` call, `describe.each(...)(...)` included, is such a call only when its callback body
      holds, recursively, only `it` and `test` calls, nested `describe` calls, the hooks `beforeEach`,
      `afterEach`, `beforeAll` and `afterAll`, and evaluation-free declarations.
-     The table of `.each` must be evaluation-free.
+     The table of `.each` must be evaluation-free, and the arguments of `runIf` and `skipIf` must be primitive values.
+     The callback of a suite call must be an inline arrow function or function expression (`suite callback is not inline`).
+     An options argument is a number or an object literal of primitive properties without accessors.
      Other code in the body is `collection-time code in describe`.
      The source and the target file must hold the same free comments that contain `Verifies:` or `Implements:`.
      A hook, a `vi.*` call or any other active statement in the source or the target file refuses the move.
@@ -556,12 +567,23 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
      No document is free.
      A Markdown document may only follow an exact file path that the range renamed.
      It may write the path from the repository root or from its own directory.
-     The baselines may not grow (a new entry of the comment baseline may appear).
+     Neither baseline may grow: the number of entries, each entry and the sum stay equal or fall.
+     A new file with banned comments is therefore not a pure move, as in `src/comment-policy.test.ts`.
      `src/__api__/surface.md` may change paths only, and the `KNOWN` list may lose lines only.
      A removed or renamed file may not stay named in a string of a declaration or in any tracked
      text file that is not Markdown.
      A mode change or a symlink is refused.
+     A path of the checks may not change (`a pure move may not change the checks path`): `scripts/move-purity/`,
+     `scripts/move-purity.ts`, `.github/`, `scripts/*-policy.ts`, `scripts/*-baseline.json` other than the two baselines,
+     `vitest.config.ts`, `tsconfig*.json`, `eslint.config.mjs` and `package.json`.
    - Further refusals, each a finding of the check:
+     a changed or added file may not hold an import or an export with an empty binding list and a specifier
+     (`empty import or export from path`);
+     a changed or added file may not re-export a type without `type` (`type re-exported without type path`),
+     so a slice writes `export type { X } from` or `export { type X } from`;
+     a changed `.ts` file that git lists and whose text cannot be read fails (`unreadable file path`);
+     a decorator on a parameter of any function-like class member makes the class active;
+     a namespace import is keyed by its module, not by its export names;
      a changed file may not gain an `export *` statement (`export * added`, so facades use named re-exports);
      a changed file may not hold a non-`type` import that has no value reference
      (`value import used only as a type path`, so a slice writes `import type`);
@@ -587,6 +609,10 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
    Known gaps. The check does not cover these cases:
 
    - A package entry (`exports` of `package.json`) that points to a deleted file.
+   - Glob-keyed configuration is not modelled: a new file under an ESLint `ignores` or a tsconfig `exclude` glob,
+     or under `!**/core/coverage` of the `files` of `package.json`.
+   - External packages are not in the graph.
+   - Test projects with `isolate: false` share module state.
    - The program uses `noLib` and no ambient types. Global names bind by text.
    - An import of an external package that changes how that package loads.
    - A dynamic or computed access that the checker does not resolve to a declaration.
@@ -623,10 +649,23 @@ The record of the whole plan is the status column of section 6, updated in the p
 
 ### 9.1 Merge of a slice
 
-Decision D5: a pull request of S1 to S13 with the title `Move:` and the commit lines `Move: pure` is merged by the orchestrating agent without a separate "merge" from the owner when both hold.
+Decision D5: a pull request of S1 to S13 with the title `Move:` and at least one commit with the line `Move: pure` is merged by the orchestrating agent without a separate "merge" from the owner when both hold.
 
 1. The move-purity check passes.
 2. Every required check is green on the current head of the pull request.
+
+Process rule of D5. A pull request runs its own copy of the workflow and of the checker.
+Before it merges under D5, the orchestrating agent runs the checker of `main` on the range of the pull request.
+Run these steps from the repository:
+
+1. `git worktree add <tmp> origin/main`
+2. `bun <tmp>/scripts/move-purity.ts --base origin/main --head <pr head> --require`
+3. Merge only when the output says `pure`.
+
+The option `--repo <path>` runs the checker from another checkout against that repository.
+
+Decision D11: moving tests is an ordinary reviewed change for now, in S11 and S12 too.
+The flag `--allow-test-moves` exists for local use, and CI does not pass it.
 
 Authority: the quotes in section 1.1. Reason: the owner delegated the design of this refactoring, and the check proves the move is pure.
 

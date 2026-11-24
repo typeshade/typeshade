@@ -47,6 +47,9 @@ export function linkFindings({ baseLinks, headLinks, files }: EvaluationInput): 
   }
   for (const path of [...files.pairs.map((pair) => pair.head), ...files.newFiles]) {
     for (const link of headLinks.of(path)) {
+      if (link.names.size === 0 && !link.sideEffect) {
+        findings.push(finding('empty import or export from path', path, link.specifier));
+      }
       if (link.droppedAsType) {
         findings.push(finding('value import used only as a type path', path, link.specifier));
       }

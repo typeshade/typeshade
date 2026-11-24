@@ -58,16 +58,17 @@ export function readTexts(
   paths: readonly string[],
 ): Map<string, string> {
   const texts = new Map<string, string>();
-  if (paths.length === 0) return texts;
+  const readable = paths.filter((path) => !path.includes('\n'));
+  if (readable.length === 0) return texts;
   const result = spawnSync('git', ['cat-file', '--batch'], {
     cwd: root,
-    input: paths.map((path) => `${ref}:${path}\n`).join(''),
+    input: readable.map((path) => `${ref}:${path}\n`).join(''),
     maxBuffer: MAX_BUFFER,
   });
   if (result.status !== 0) throw new Error(`git cat-file failed: ${result.stderr.toString()}`);
   const out = result.stdout;
   let at = 0;
-  for (const path of paths) {
+  for (const path of readable) {
     const end = out.indexOf(0x0a, at);
     const header = out.subarray(at, end).toString('utf8').split(' ');
     at = end + 1;

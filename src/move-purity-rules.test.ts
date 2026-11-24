@@ -15,6 +15,7 @@ import { cleanReport } from '../scripts/move-purity/clean-report.js';
 import { createSide } from '../scripts/move-purity/side-program.js';
 import { KNOWN_PATH_LISTS, pathLists } from '../scripts/move-purity/vitest-config.js';
 
+const ALLOW = { allowTestMoves: true };
 const kinds = (report: MoveReport): string[] => [...new Set(report.findings.map((f) => f.kind))];
 const root = (name: string): string => fileURLToPath(new URL(`../${name}`, import.meta.url));
 
@@ -154,7 +155,9 @@ describe('a test moves with its traceability markers (A6)', () => {
   it('refuses a move between files whose markers differ', () => {
     const base = tree({ 'src/a.test.ts': marker + header + one + two });
     const head = tree({ 'src/a.test.ts': marker + header + one, 'src/b.test.ts': header + two });
-    expect(kinds(checkMove(base, head))).toContain('test moved across a traceability marker');
+    expect(kinds(checkMove(base, head, ALLOW))).toContain(
+      'test moved across a traceability marker',
+    );
   });
 
   it('accepts a move between files that already carry the same markers', () => {
@@ -167,7 +170,28 @@ describe('a test moves with its traceability markers (A6)', () => {
       'src/a.test.ts': marker + header + one,
       'src/b.test.ts': marker + header + three + two,
     });
-    expect(checkMove(base, head).pure).toBe(true);
+    expect(checkMove(base, head, ALLOW).pure).toBe(true);
+  });
+});
+
+describe('test code does not move without the flag', () => {
+  const header = "import { describe, it } from 'vitest';\n";
+  const one = "describe('one', () => {\n  it('a', () => {});\n});\n";
+  const two = "describe('two', () => {\n  it('b', () => {});\n});\n";
+  const base = tree({ 'src/a.test.ts': header + one + two });
+  const head = tree({ 'src/a.test.ts': header + one, 'src/b.test.ts': header + two });
+
+  it('refuses a moved test call and names it', () => {
+    const found = checkMove(base, head).findings.find((f) => f.kind === 'test code moved');
+    expect(found).toMatchObject({
+      path: 'src/b.test.ts',
+      line: 2,
+      detail: 'two (pure moves of tests need --allow-test-moves)',
+    });
+  });
+
+  it('accepts the same range with the flag', () => {
+    expect(checkMove(base, head, ALLOW).pure).toBe(true);
   });
 });
 
@@ -231,7 +255,9 @@ describe('the reasons a range is refused, by text', () => {
         'src/a.test.ts': header + one,
         'src/b.test.ts': header + two,
       });
-      expect(kinds(checkMove(base, head))).toContain('test moved across a vitest project path');
+      expect(kinds(checkMove(base, head, ALLOW))).toContain(
+        'test moved across a vitest project path',
+      );
     },
   );
 

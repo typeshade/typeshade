@@ -7,6 +7,13 @@ import { testMoveFindings } from './test-moves.js';
 import { isTestCall } from './test-calls.js';
 import type { Unit } from './units.js';
 
+function titleOf(node: ts.Statement): string {
+  const call = ts.isExpressionStatement(node) ? node.expression : undefined;
+  const first = call !== undefined && ts.isCallExpression(call) ? call.arguments[0] : undefined;
+  if (first === undefined) return '(untitled)';
+  return ts.isStringLiteralLike(first) ? first.text : first.getText(node.getSourceFile());
+}
+
 const nameOf = (unit: Unit): string => unit.names.join(', ') || '(unnamed)';
 
 const isRelative = (text: string): boolean => /^\.\.?\//.test(text);
@@ -54,6 +61,7 @@ export function movedUnitFindings(
   base: Side,
   head: Side,
   listed: ReadonlySet<string>,
+  allowTestMoves: boolean,
 ): Finding[] {
   const findings: Finding[] = [];
   for (const [from, to] of moved) {
@@ -68,7 +76,11 @@ export function movedUnitFindings(
       at('file class changed', ` ${fileClassOf(from.path)} -> ${fileClassOf(to.path)}`);
     }
     if (fileClassOf(to.path) === 'test' && isTestCall(to.node)) {
-      findings.push(...testMoveFindings(from, to, base, head, listed));
+      if (allowTestMoves) findings.push(...testMoveFindings(from, to, base, head, listed));
+      else {
+        const detail = `${titleOf(to.node)} (pure moves of tests need --allow-test-moves)`;
+        findings.push(finding('test code moved', to.path, detail, to.line));
+      }
     }
     const location = locationReason(to.node, dirname(from.path) !== dirname(to.path));
     if (location !== undefined) at('location-dependent unit moved', `: ${location}`);

@@ -41,7 +41,11 @@ function isTypeOnlyExport(declaration: ts.Declaration | undefined): boolean {
   return false;
 }
 
-export function createKeyer(side: Side, instanceId: (unit: Unit) => string): Keyer {
+export function createKeyer(
+  side: Side,
+  instanceId: (unit: Unit) => string,
+  fileId: (path: string) => string = (path) => path,
+): Keyer {
   const { checker } = side;
   const resolve = (symbol: ts.Symbol): ts.Symbol => {
     let current = symbol;
@@ -99,8 +103,10 @@ export function createKeyer(side: Side, instanceId: (unit: Unit) => string): Key
       return resolved.name === 'unknown' ? `unresolved:${text}` : `nodecl:${resolved.name}`;
     }
     if (ts.isSourceFile(declaration)) {
-      const names = checker.getExportsOfModule(resolved).map((e) => e.name);
-      return `module:${names.sort().join(',')}`;
+      const path = side.pathOf(declaration.fileName);
+      return path === undefined
+        ? `ext:${externalName(declaration.fileName)}`
+        : `module:${fileId(path)}`;
     }
     return keyOfDeclaration(declaration, resolved.name, self);
   };

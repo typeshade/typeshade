@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import { activeReason } from './evaluate-unit.js';
-import { expressionReason } from './evaluation-free.js';
+import { expressionReason, primitiveReason } from './evaluation-free.js';
+import { isPrimitiveLiteral } from './primitive-values.js';
 import { describeNode, type EvaluationContext, type State } from './evaluation-state.js';
 import { isSuiteCallee } from './titles.js';
 
@@ -22,8 +23,11 @@ function rootName(callee: ts.Expression): string | undefined {
 
 function tableReasons(callee: ts.Expression, st: State): string | undefined {
   if (ts.isCallExpression(callee)) {
+    const condition =
+      ts.isPropertyAccessExpression(callee.expression) &&
+      ['runIf', 'skipIf'].includes(callee.expression.name.text);
     for (const argument of callee.arguments) {
-      const reason = expressionReason(argument, st);
+      const reason = condition ? primitiveReason(argument, st) : expressionReason(argument, st);
       if (reason !== undefined) return reason;
     }
     return tableReasons(callee.expression, st);
@@ -55,18 +59,41 @@ function bodyReason(body: ts.ConciseBody, st: State): string | undefined {
   return undefined;
 }
 
+const isOptions = (node: ts.Expression): boolean =>
+  ts.isNumericLiteral(node) ||
+  (ts.isObjectLiteralExpression(node) &&
+    node.properties.every(
+      (property) =>
+        ts.isPropertyAssignment(property) &&
+        !ts.isComputedPropertyName(property.name) &&
+        isPrimitiveLiteral(property.initializer),
+    ));
+
+const isTodo = (callee: ts.Expression): boolean =>
+  ts.isPropertyAccessExpression(callee) &&
+  (callee.name.text === 'todo' || isTodo(callee.expression));
+
 function callReason(call: ts.CallExpression, st: State): string | undefined {
   const table = tableReasons(call.expression, st);
   if (table !== undefined) return table;
   const isDescribe = rootName(call.expression) === 'describe';
-  for (const argument of call.arguments) {
+  const [title, ...rest] = call.arguments;
+  if (title !== undefined) {
+    const reason = expressionReason(title, st);
+    if (reason !== undefined) return reason;
+  }
+  let callbacks = 0;
+  for (const argument of rest) {
     if (isFunction(argument)) {
+      callbacks += 1;
       const reason = isDescribe ? bodyReason(argument.body, st) : undefined;
       if (reason !== undefined) return reason;
-      continue;
+    } else if (!isOptions(argument)) {
+      return `suite callback is not inline: ${describeNode(argument)}`;
     }
-    const reason = expressionReason(argument, st);
-    if (reason !== undefined) return reason;
+  }
+  if (callbacks !== 1 && !isTodo(call.expression)) {
+    return `suite callback is not inline: ${describeNode(call)}`;
   }
   return undefined;
 }

@@ -140,4 +140,21 @@ describe('the move-purity command over a git range', () => {
     expect(runCli(['--clean-report'], root)).toBe(0);
     expect(output.join('\n')).toContain('Import cycles: 0');
   });
+
+  it('reads the range of another checkout when it runs from a different directory', () => {
+    commit(SPLIT, 'Split a\n\nMove: pure\n');
+    const elsewhere = mkdtempSync(join(tmpdir(), 'move-purity-elsewhere-'));
+    try {
+      expect(runCli(['--repo', root, '--base', 'main', '--head', 'feature'], elsewhere)).toBe(0);
+      expect(output.join('\n')).toContain('Move purity: pure');
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it('fails on a changed source file whose text cannot be read', () => {
+    commit({ 'src/a.ts': `${exported(ALPHA)}// \u0000\n` }, 'Move: pure\n');
+    expect(run()).toBe(1);
+    expect(output.join('\n')).toContain('unreadable file path src/a.ts');
+  });
 });

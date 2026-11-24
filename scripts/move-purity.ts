@@ -20,12 +20,22 @@ export interface RangeResult {
   readonly commits: number;
 }
 
-export function checkRange(root: string, baseRef: string, headRef: string): RangeResult {
+export function checkRange(
+  root: string,
+  baseRef: string,
+  headRef: string,
+  allowTestMoves = false,
+): RangeResult {
   const base = mergeBase(root, baseRef, headRef);
   const report = checkMove(
     readTexts(root, base, trackedPaths(root, base)),
     readTexts(root, headRef, trackedPaths(root, headRef)),
-    { paths: diffPaths(root, base, headRef), entries: diffEntries(root, base, headRef), root },
+    {
+      paths: diffPaths(root, base, headRef),
+      entries: diffEntries(root, base, headRef),
+      root,
+      allowTestMoves,
+    },
   );
   return { report, commits: commitCount(root, base, headRef) };
 }
@@ -46,12 +56,13 @@ function runCleanReport(args: string[], root: string): number {
   return 0;
 }
 
-export function runCli(args: string[], root: string): number {
+export function runCli(args: string[], cwd: string): number {
+  const root = flagValue(args, '--repo') ?? cwd;
   if (args.includes('--clean-report')) return runCleanReport(args, root);
   const baseRef = flagValue(args, '--base');
   if (baseRef === undefined) {
     console.error(
-      'Usage: bun scripts/move-purity.ts --base <ref> [--head <ref>] [--require] [--title <text>] [--json]\n       bun scripts/move-purity.ts --clean-report [--json]',
+      'Usage: bun scripts/move-purity.ts --base <ref> [--head <ref>] [--require] [--title <text>] [--allow-test-moves] [--repo <path>] [--json]\n       bun scripts/move-purity.ts --clean-report [--json]',
     );
     return 2;
   }
@@ -71,7 +82,12 @@ export function runCli(args: string[], root: string): number {
     console.log(process.env.GITHUB_ACTIONS ? `::notice::${message}` : message);
     return 0;
   }
-  const { report, commits } = checkRange(root, baseRef, headRef);
+  const { report, commits } = checkRange(
+    root,
+    baseRef,
+    headRef,
+    args.includes('--allow-test-moves'),
+  );
   if (required && (commits === 0 || report.changedPaths === 0)) {
     console.log(
       `The range ${base}..${headRef} has ${commits} commits and ${report.changedPaths} changed paths: nothing to check.`,

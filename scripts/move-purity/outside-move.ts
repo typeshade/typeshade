@@ -24,6 +24,23 @@ interface OutsideResult {
   readonly surfacePathChanges: number;
 }
 
+const CHECKS_PATTERNS: readonly RegExp[] = [
+  /^scripts\/move-purity\//,
+  /^scripts\/move-purity\.ts$/,
+  /^\.github\//,
+  /^scripts\/[^/]*-policy\.ts$/,
+  /^vitest\.config\.ts$/,
+  /^tsconfig[^/]*\.json$/,
+  /^eslint\.config\.mjs$/,
+  /^package\.json$/,
+];
+
+function isChecksPath(path: string): boolean {
+  if (path === SIZE_BASELINE || path === COMMENT_BASELINE) return false;
+  if (/^scripts\/[^/]*-baseline\.json$/.test(path)) return true;
+  return CHECKS_PATTERNS.some((pattern) => pattern.test(path));
+}
+
 export const isComparedSource = (path: string): boolean => path.endsWith('.ts');
 
 function entriesOf(text: string | undefined): Record<string, number> {
@@ -33,15 +50,11 @@ function entriesOf(text: string | undefined): Record<string, number> {
 const sumOf = (record: Record<string, number>): number =>
   Object.values(record).reduce((a, b) => a + b, 0);
 
-function baselineGrowth(
-  base: string | undefined,
-  head: string | undefined,
-  newEntriesAllowed: boolean,
-): string | undefined {
+function baselineGrowth(base: string | undefined, head: string | undefined): string | undefined {
   const before = entriesOf(base);
   const after = entriesOf(head);
   if (sumOf(after) > sumOf(before)) return 'the sum of its numbers grew';
-  if (!newEntriesAllowed && Object.keys(after).length > Object.keys(before).length) {
+  if (Object.keys(after).length > Object.keys(before).length) {
     return 'it has more entries';
   }
   const grown = Object.keys(after).find((key) => key in before && after[key]! > before[key]!);
@@ -100,10 +113,12 @@ export function checkOutside(
     if (problem !== undefined) outside.push({ path: entry.path, reason: problem });
   }
   for (const path of paths) {
-    if (FORBIDDEN_PATHS.includes(path)) {
+    if (isChecksPath(path)) {
+      outside.push({ path, reason: 'a pure move may not change the checks path' });
+    } else if (FORBIDDEN_PATHS.includes(path)) {
       outside.push({ path, reason: 'a pure move never changes this file' });
     } else if (path === SIZE_BASELINE || path === COMMENT_BASELINE) {
-      const growth = baselineGrowth(base.get(path), head.get(path), path === COMMENT_BASELINE);
+      const growth = baselineGrowth(base.get(path), head.get(path));
       if (growth !== undefined) outside.push({ path, reason: `the baseline grew: ${growth}` });
     } else if (path === SURFACE_PATH) {
       const { same, changed } = surfaceCheck(base.get(path), head.get(path));

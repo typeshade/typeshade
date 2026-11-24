@@ -168,6 +168,7 @@ describe('the move-purity check (docs/structure-refactoring-plan.md, S0 item a)'
     const report = checkMove(
       tree({ 'src/a.test.ts': one + two }),
       tree({ 'src/a.test.ts': one, 'src/b.test.ts': two }),
+      { allowTestMoves: true },
     );
     expect(report.titles).toEqual({ vanished: [], appeared: [] });
     expect(report.pure).toBe(true);
