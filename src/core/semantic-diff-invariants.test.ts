@@ -122,3 +122,43 @@ describe('semanticDiff — a transform step attributes only the lines it resolve
     expect(d.constants.some((l) => l.startsWith('-const k#1 '))).toBe(true);
   });
 });
+
+const constsInOrder = (names: readonly string[]): ModuleDecl => ({
+  consts: names.map((name) => ({
+    name,
+    type: f32T,
+    wgslValue: name.length,
+    cpuValue: name.length,
+  })),
+  structs: [],
+  bindings: [],
+  funcs: [],
+});
+
+const letOf = (name: string, value: number): Stmt => ({
+  s: 'let',
+  name,
+  expr: { op: 'lit', type: f32T, value },
+});
+
+describe('semanticDiff — a pure reordering is a pair of moves while order is significant', () => {
+  it('two reordered declarations differ as a removed and an added line, and are equal without order', () => {
+    const a = constsInOrder(['p', 'qq']);
+    const b = constsInOrder(['qq', 'p']);
+    const significant = semanticDiff(a, b, { ignore: [] });
+    expect(isSemanticallyEqual(significant)).toBe(false);
+    expect(significant.constants.some((l) => l.startsWith('-@'))).toBe(true);
+    expect(significant.constants.some((l) => l.startsWith('+@'))).toBe(true);
+    expect(isSemanticallyEqual(semanticDiff(a, b, { ignore: ['declOrder'] }))).toBe(true);
+  });
+
+  it('two reordered statements differ as a removed and an added line, and are equal without order', () => {
+    const a = helperWith([letOf('x', 1), letOf('y', 2)]);
+    const b = helperWith([letOf('y', 2), letOf('x', 1)]);
+    const significant = semanticDiff(a, b, { ignore: ['names'] });
+    expect(isSemanticallyEqual(significant)).toBe(false);
+    expect(significant.constants.some((l) => l.startsWith('-@'))).toBe(true);
+    expect(significant.constants.some((l) => l.startsWith('+@'))).toBe(true);
+    expect(isSemanticallyEqual(semanticDiff(a, b, { ignore: ['names', 'declOrder'] }))).toBe(true);
+  });
+});
