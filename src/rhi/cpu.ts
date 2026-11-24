@@ -67,8 +67,6 @@ import type {
   RhiTextureView,
 } from './rhi.js';
 
-// ─── the handles ─────────────────────────────────────────────────────────────────────────────
-
 class CpuBuffer implements RhiBuffer {
   readonly __rhi = 'buffer';
   readonly bytes: Uint8Array;
@@ -81,11 +79,8 @@ class CpuBuffer implements RhiBuffer {
   }
 }
 
-/** How a texture format's texels are stored and written. */
 interface Format {
-  /** Bytes a texel. */
   readonly bytes: number;
-  /** The channels a colour writes, in the order the bytes store them, and how each is stored. */
   readonly channels: readonly number[];
   readonly store: 'unorm8' | 'f32' | 'u32' | 'i32' | 'u8' | 'depth' | 'opaque';
 }
@@ -105,8 +100,6 @@ const FORMATS: Readonly<Record<string, Format>> = {
   rgba32sint: { bytes: 16, channels: [0, 1, 2, 3], store: 'i32' },
   // Stored, read and written as bytes, never drawn into or cleared as colour.
   rgba16float: { bytes: 8, channels: [], store: 'opaque' },
-  // A depth texel is its depth as an `f32`; the stencil aspect is not kept, since no pipeline
-  // of this backend tests it.
   depth16unorm: { bytes: 4, channels: [], store: 'depth' },
   depth24plus: { bytes: 4, channels: [], store: 'depth' },
   depth32float: { bytes: 4, channels: [], store: 'depth' },
@@ -124,7 +117,6 @@ class CpuTexture implements RhiTexture {
     readonly height: number,
     readonly layers: number,
     readonly format: string,
-    /** The canvas whose texture this is, shown when a submit that drew it ends. */
     readonly canvas?: CpuCanvas,
   ) {
     const kind = FORMATS[format];
@@ -163,8 +155,6 @@ class CpuBindGroup implements RhiBindGroup {
   ) {}
 }
 
-/** An entry made ready to run: its program, its code (specialized by the pipeline's constants)
- *  and its interface. */
 interface Stage {
   readonly program: CpuProgram;
   readonly code: CpuCode;
@@ -189,7 +179,6 @@ class CpuRenderPipeline implements RhiRenderPipeline {
   ) {}
 }
 
-/** The part of a `CanvasRenderingContext2D` the backend draws with. */
 interface Context2d {
   readonly canvas: { readonly width: number; readonly height: number };
   createImageData(width: number, height: number): { readonly data: Uint8ClampedArray };
@@ -211,9 +200,6 @@ class CpuCanvas implements RhiCanvas {
   constructor(readonly context: Context2d) {}
 }
 
-// ─── bytes and the CPU tier's values ─────────────────────────────────────────────────────────
-
-/** A number of `type` at `at`: an `f64` is two `f32`s, `hi` then `lo`. */
 function readNumber(dv: DataView, at: number, type: string, lo = 4): number {
   switch (type) {
     case 'f32':
@@ -246,10 +232,6 @@ function writeNumber(dv: DataView, at: number, type: string, x: number, lo = 4):
   }
 }
 
-/** The CPU tier's value of the bytes at `at` by `layout`, as the call layer's `toCpu` makes it
- *  from a host value: a scalar a number, a vector or a matrix (column by column) an array of
- *  numbers, an array an array, a struct an object by field name. An array with no size runs to
- *  `end`. */
 export function decode(dv: DataView, at: number, layout: PackLayout, end: number): unknown {
   switch (layout.kind) {
     case 'scalar':
@@ -281,8 +263,6 @@ export function decode(dv: DataView, at: number, layout: PackLayout, end: number
   }
 }
 
-/** Write the CPU tier's value `v` back into the bytes at `at` by `layout`: {@link decode}'s
- *  inverse. An array writes the elements `v` holds that fit before `end`. */
 export function encode(
   dv: DataView,
   at: number,
@@ -324,9 +304,6 @@ export function encode(
   }
 }
 
-// ─── the bound resources ─────────────────────────────────────────────────────────────────────
-
-/** Each bound buffer by `group:binding`, with the layout entry that bound it. */
 type Bound = Map<
   string,
   { readonly buffer: CpuBuffer; readonly size: number; readonly writable: boolean }
@@ -357,18 +334,11 @@ function boundOf(groups: ReadonlyMap<number, CpuBindGroup>): Bound {
  *  plain array's numbers as `f32`s, which the CPU tier never rounds them to. */
 const hostValues = new WeakMap<object, { value: unknown }>();
 
-/**
- * Bind `slot` as what `buffer` holds, or bind its bytes again when `slot` is undefined. A dispatch
- * hands the code `slot.value` in place of the bytes, and a storage buffer it may write takes the
- * value the code left back into `slot.value`, with the bytes left as they were.
- */
 export function holdValue(buffer: RhiBuffer, slot: { value: unknown } | undefined): void {
   if (slot === undefined) hostValues.delete(buffer);
   else hostValues.set(buffer, slot);
 }
 
-/** Hand the bound buffers to the stages' code, each by its binding's name; returns the storage
- *  buffers to write back after the stages ran. */
 function bindTo(
   stages: readonly Stage[],
   bound: Bound,
@@ -412,9 +382,6 @@ function writeBack(
   }
 }
 
-// ─── entries ─────────────────────────────────────────────────────────────────────────────────
-
-/** The argument of one parameter: a field's value from `value`, or a struct of them. */
 function argOf(io: CpuIo, value: (f: CpuIoField) => unknown): unknown {
   if (io.kind === 'field') return value(io.field);
   const out: Record<string, unknown> = {};
@@ -422,14 +389,12 @@ function argOf(io: CpuIo, value: (f: CpuIoField) => unknown): unknown {
   return out;
 }
 
-/** Each field of a result, with its value. */
 function fieldsOf(io: CpuIo, result: unknown): [CpuIoField, unknown][] {
   if (io.kind === 'field') return [[io.field, result]];
   const o = result as Readonly<Record<string, unknown>>;
   return io.fields.map((f) => [f, o[f.name]]);
 }
 
-/** Call the entry once, its private variables started over. */
 function invoke(stage: Stage, args: readonly unknown[], invocation?: readonly number[]): unknown {
   const F = stage.code.F as Readonly<Record<string, ((...a: unknown[]) => unknown) | undefined>>;
   F['$initPrivates']?.();
@@ -463,11 +428,9 @@ function stageOf(
   return { program, code, entry, name };
 }
 
-/** A copy of a workgroup variable's zero value, for one workgroup. */
 const fresh = (v: unknown): unknown =>
   v === undefined ? v : (JSON.parse(JSON.stringify(v)) as unknown);
 
-/** Run every invocation of `x` × `y` × `z` workgroups of the pipeline's entry. */
 function dispatch(
   pipeline: CpuComputePipeline,
   groups: ReadonlyMap<number, CpuBindGroup>,
@@ -515,9 +478,6 @@ function dispatch(
   writeBack(back);
 }
 
-// ─── vertices ────────────────────────────────────────────────────────────────────────────────
-
-/** How one vertex attribute's components are stored. */
 interface AttributeFormat {
   readonly kind: 'float' | 'uint' | 'sint' | 'unorm' | 'snorm';
   readonly bits: 8 | 16 | 32;
@@ -535,7 +495,6 @@ function attributeFormat(format: string): AttributeFormat {
   };
 }
 
-/** An IEEE half-precision number. */
 function half(h: number): number {
   const e = (h >> 10) & 0x1f;
   const m = h & 0x3ff;
@@ -566,7 +525,6 @@ function readComponent(dv: DataView, at: number, f: AttributeFormat): number {
   }
 }
 
-/** A vertex attribute of the pipeline: where it is read and how. */
 interface Attribute {
   readonly slot: number;
   readonly stride: number;
@@ -574,8 +532,6 @@ interface Attribute {
   readonly format: AttributeFormat;
 }
 
-/** The value of attribute `a` at vertex `i`, as wide as the shader reads it: missing components
- *  are 0, and 1 for the fourth, as WebGPU fills them. */
 function attributeValue(
   a: Attribute,
   buffers: readonly (CpuBuffer | undefined)[],
@@ -605,14 +561,9 @@ function attributeValue(
   return width === 1 ? out[0] : out;
 }
 
-// ─── the render pass ─────────────────────────────────────────────────────────────────────────
-
-/** The 8-bit unorm byte of `v`, as WebGPU converts a colour to an `rgba8unorm` texel. */
 const unorm8 = (v: number): number =>
   Number.isNaN(v) ? 0 : Math.round(Math.min(1, Math.max(0, v)) * 255);
 
-/** Write colour `c` into texel `i` of `t`, the channels `mask` allows (WebGPU's `GPUColorWrite`
- *  bits: red 1, green 2, blue 4, alpha 8). */
 function writeTexel(t: CpuTexture, i: number, c: readonly number[], mask = 0xf): void {
   const f = t.kind;
   const at = i * f.bytes;
@@ -652,7 +603,6 @@ function clearDepth(t: CpuTexture, depth: number): void {
   f.fill(depth);
 }
 
-/** What a pass holds while its commands run. */
 interface PassState {
   readonly targets: readonly (CpuTexture | undefined)[];
   readonly width: number;
@@ -665,7 +615,6 @@ interface PassState {
   scissor: RasterState['scissor'];
 }
 
-/** The interstage values a vertex entry writes, in location order, and where each sits. */
 function varyingsOf(
   pipeline: CpuRenderPipeline,
 ): { location: number; varying: Varying; integer: boolean }[] {
@@ -725,7 +674,6 @@ function draw(
     frontFace: pipeline.desc.primitive.frontFace,
   };
   const targets = pipeline.desc.fragment?.targets ?? [];
-  // A fragment input by location: where its numbers sit among a vertex's.
   const byLocation = new Map(varyings.map((v) => [v.location, v]));
 
   const runVertex = (index: number, instance: number): RasterVertex => {
@@ -793,7 +741,6 @@ function draw(
       }),
     );
     const result = invoke(fs, args, [x, y, 0]);
-    // A fragment that discards returns nothing and writes nothing.
     if (result === undefined || fs.entry.out === undefined) return;
     for (const [f, v] of fieldsOf(fs.entry.out, result)) {
       if (f.builtin !== undefined) continue;
@@ -826,8 +773,6 @@ function draw(
   if (fs !== undefined) fs.code.$.invocation = undefined;
   writeBack(back);
 }
-
-// ─── the encoder ─────────────────────────────────────────────────────────────────────────────
 
 type Command = () => void;
 
@@ -923,7 +868,6 @@ class CpuComputePassImpl implements RhiComputePass {
     this.commands.push(() => {
       if (this.#pipeline === undefined)
         throw new TypeError('The dispatch has no pipeline: call setPipeline first.');
-      // The counts are read when the dispatch runs, so a command before it may write them.
       const b = buffer as CpuBuffer;
       if (byteOffset % 4 !== 0 || byteOffset + 12 > b.size)
         throw new TypeError(
@@ -999,10 +943,6 @@ class CpuEncoder implements RhiCommandEncoder {
   }
 }
 
-// ─── the device ──────────────────────────────────────────────────────────────────────────────
-
-/** The limits the CPU backend reports, by their names in WebGPU's `GPUSupportedLimits`: WebGPU's
- *  defaults, since a host that runs on the CPU tier wrote its program for those. */
 const LIMITS: Readonly<Record<string, number>> = Object.freeze({
   maxTextureDimension1D: 8192,
   maxTextureDimension2D: 8192,
@@ -1025,7 +965,6 @@ const LIMITS: Readonly<Record<string, number>> = Object.freeze({
   maxComputeWorkgroupsPerDimension: 65535,
 });
 
-/** What the CPU tier does not support yet in a render pipeline, as a noun phrase, or nothing. */
 function refusalOf(desc: RhiRenderPipelineDesc): string | undefined {
   if (desc.primitive.topology !== 'triangle-list') return `a "${desc.primitive.topology}" topology`;
   if (desc.depthStencil !== undefined) return 'a depth or stencil test';
@@ -1051,7 +990,6 @@ class CpuDevice implements RhiDevice {
   readonly #scopes: (string | null)[] = [];
   readonly #canvases = new WeakMap<object, CpuCanvas>();
 
-  /** Record an error in the innermost open validation scope, or throw it when none is open. */
   #fail(message: string): never {
     if (this.#scopes.length > 0 && this.#scopes[this.#scopes.length - 1] === null)
       this.#scopes[this.#scopes.length - 1] = message;
@@ -1229,14 +1167,12 @@ class CpuDevice implements RhiDevice {
     }
     return undefined;
   }
-  /** The CPU backend has no native objects: each handle is its own. */
   toNative(handle: object): object {
     return handle instanceof CpuCanvas ? handle.context : handle;
   }
   destroy(): void {}
 }
 
-/** Show the canvas's texture on its `2d` context. */
 function present(c: CpuCanvas): void {
   const t = c.texture;
   if (t === undefined) return;
@@ -1245,7 +1181,6 @@ function present(c: CpuCanvas): void {
   c.context.putImageData(image, 0, 0);
 }
 
-/** A software device: the CPU backend of the render hardware interface. */
 export function cpuDevice(): RhiDevice {
   return new CpuDevice();
 }
