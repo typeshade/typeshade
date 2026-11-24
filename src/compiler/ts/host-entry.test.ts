@@ -139,7 +139,7 @@ declare const out: storage<array<vec4>, "read_write">;
 `);
     const copy = entryOf(f.exports, 'copy');
     expect(copy.entry.noCpu).toBe(
-      'it reaches the texture_2d<f32> "tex", which the CPU tier cannot read',
+      'it reaches the texture_2d<f32> "tex", which is not supported yet on the CPU tier (Rule 8.24)',
     );
     expect(copy.bindingsType).toContain('readonly tex: ImageBitmap | ImageData | HTMLImageElement');
     const deep = f.exports.find((x) => x.name === 'deep')!;

@@ -66,8 +66,8 @@ export type CapProfile = Readonly<Partial<Record<Capability, CapSupport>>>;
  *  `covers(reqs)`, and on a miss calls `missing(reqs)` to name the capabilities the target
  *  cannot emit. The thrown {@link UnsupportedFeatureError} then reads "backend 'glsl-es300'
  *  cannot emit this module: missing capabilities: compute", with the whole module as context.
- *  This is why the GLSL ES 3.00 `capProfile` has no row for `storageBuffer`, `compute`, or
- *  `msaaTextureLoad`: the gate refuses the module before the writer sees it.
+ *  The GLSL ES 3.00 `capProfile` has no row for `storageBuffer`, `compute`, or `msaaTextureLoad`
+ *  yet (Rule 10.5): the gate refuses the module before the writer sees it.
  *
  *  Exported from `typeshade`.
  */
@@ -157,13 +157,13 @@ export function hostFeaturesFor(be: Backend, caps: readonly Capability[]): reado
  *  of the methods run, so a module that needs a capability the target lacks throws
  *  {@link UnsupportedFeatureError}, naming the missing capabilities, before the backend can
  *  emit source the driver would reject. The GLSL ES 3.00 profile has no row for
- *  `storageBuffer`, `compute` or `msaaTextureLoad`, because WebGL2 has neither compute shaders
- *  nor multisampled texture loads, while the WGSL profile gives the same three an empty row:
- *  core, nothing to declare or activate. A capability can also be core on one target and an
- *  extension on the other: `floatRenderTarget` is `{}` on WGSL and needs
- *  `EXT_color_buffer_float` activated on GLSL. A backend whose target cannot represent a
- *  declaration (GLSL has no syntax for a struct or binding at a bare emit site) throws the
- *  same error from that method.
+ *  `storageBuffer`, `compute` or `msaaTextureLoad`, because the GLSL emit does not lower them
+ *  yet (Rule 10.5), while the WGSL profile gives the same three an empty row:
+ *  core, nothing to declare or activate. A `@compute` entry still runs on WebGL2 as its pass
+ *  program (Rule 11.8). A capability can also be core on one target and an extension on the
+ *  other: `floatRenderTarget` is `{}` on WGSL and needs `EXT_color_buffer_float` activated on
+ *  GLSL. A backend whose target cannot represent a declaration (GLSL has no syntax for a
+ *  struct or binding at a bare emit site) throws the same error from that method.
  *
  *  Exported from `typeshade`.
  */

@@ -237,11 +237,11 @@ function planKernel(m: ModuleDecl): KernelPlan {
 // function. Measured at 9.5 M invocations/sec on an 8-arm match paint kernel (6.6x the
 // tree-walk interpreter, bit-identical to it by construction).
 //
-// This tier is STRICTLY MORE CAPABLE than WebGL2 — it has no gather-only restriction, no
-// 32-bit output ceiling, no scatter ban. The ladder is therefore NOT monotonic: a kernel
-// can be valid on cpu and webgpu but not webgl2. `planKernel` still gates on the tier
-// here, deliberately: a runner whose CPU arm accepted kernels its GPU arms reject would
-// pass in development and throw the first time it met a real device.
+// The CPU tier runs every kernel the portable tier accepts. This runner's WebGL2 arm lowers
+// only a gather-only kernel to a fragment program; a scatter kernel is not supported yet on
+// that arm (Rule 11.8). `planKernel` still gates on the tier here, deliberately: a runner
+// whose CPU arm accepted kernels its GPU arms reject would pass in development and throw the
+// first time it met a real device.
 function createCpuRunner(
   m: ModuleDecl,
   plan: KernelPlan,

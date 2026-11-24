@@ -22,7 +22,6 @@ import {
 import { foldConstNumber } from '../loop-bound.js';
 import { foldF64ModuleConst } from '../module-const-f64.js';
 import {
-  readKindlessExactly,
   reportIntLitRange,
   retargetIntLitCtx,
   pendingKindlessRefusal,
@@ -103,8 +102,9 @@ export function lowerScalarCastCall(
     }
   }
   if (name === 'i32' || name === 'u32') {
-    lowered = convertedQuotientArg(lowered, node.arguments[0]!, sourceFile, name);
-    readKindlessExactly(lowered);
+    const read = convertedQuotientArg(lowered, node.arguments[0]!, sourceFile, name);
+    if (read.wrapped !== undefined) return read.wrapped;
+    lowered = read.arg;
   }
   // A cast is a read of a constant of no fixed type: `u32(K)` converts the written number, as
   // `u32(3)` does, at its exact value (change 0134 item 2). `f32(K)` keeps the name: the

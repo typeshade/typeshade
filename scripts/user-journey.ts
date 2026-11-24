@@ -513,8 +513,10 @@ async function hostImport(
   const noCpu = drawn['tiled 2d'];
   check(
     typeof noCpu === 'string' &&
-      /TypeError: tiled\(\).*"image", which the CPU tier cannot read/.test(noCpu),
-    `a sampled texture has no CPU tier, and the draw says so (${String(noCpu)})`,
+      /TypeError: tiled\(\).*"image", which is not supported yet on the CPU tier \(Rule 8\.24\)/.test(
+        noCpu,
+      ),
+    `a sampled texture is not supported yet on the CPU tier, and the draw says so (${String(noCpu)})`,
   );
 
   // The particles and plasma journeys through the import (change 0016): `step` 20 frames on
