@@ -1458,8 +1458,6 @@ src/core/passes/stage-bindings.ts#reachFrom  function  (m: ModuleDecl, entries: 
 src/core/passes/validate.ts#ValidationError  class  { cause?: unknown; code: string; diagnostics: readonly Diagnostic[]; hint?: string; loc?: SourceLoc; message: string; name: string; stack?: string }
 src/core/passes/validate.ts#lintModule  function  (m: ModuleDecl, config?: LintConfig) => Diagnostic[]
 src/core/passes/validate.ts#validate  function  (m: ModuleDecl) => void
-src/core/reflect.ts#BindEntry  interface  { access?: "read" | "read_write"; binding: number; emitted: string; emittedGlsl?: string; glslDataTexture?: "r32f" | "r32i" | "r32ui"; glslSpelling?: "loose" | "std140-block"; group: number; name: string; owner: "host" | "module"; resourceKind: ResourceKind; sampleType?: "depth" | "float" | "sint" | "uint" | "unfilterable-float"; samplerComparison?: true; space: AddressSpace; stages: readonly ("compute" | "vertex" | "fragment")[]; storageAccess?: "read-only" | "read-write" | "write-only"; storageFormat?: StorageTextureFormat; structEmitted?: string; structName?: string; textureDepth?: true; textureDim?: "1d" | "2d" | "2d-array" | "2d-ms" | "3d" | "cube" | "cube-array"; textureElem?: TextureElem }
-src/core/reflect.ts#BindGroup  interface  { entries: readonly BindEntry[]; group: number }
 src/core/reflect.ts#EntryInfo  interface  { emitted: string; inputs: readonly string[]; io: EntryIo; name: string; output: string; portable?: true; stage: "compute" | "fragment" | "vertex"; workgroupShape?: WorkgroupShape; workgroupSize?: number; workgroupSizeOverrides?: readonly [string, string, string] }
 src/core/reflect.ts#EntryIo  interface  { inputs: readonly EntryIoField[]; outputs: readonly EntryIoField[] }
 src/core/reflect.ts#EntryIoField  interface  { builtin?: string; emitted: string; location?: number; name: string; type: string }
@@ -1467,10 +1465,12 @@ src/core/reflect.ts#ExternRequirement  interface  { glsl: string; name: string; 
 src/core/reflect.ts#OverrideInfo  interface  { default: boolean | number; emitted: string; emittedGlsl?: string; name: string; type: string }
 src/core/reflect.ts#ReflectOptions  interface  { console?: "cpu" | "gpu"; fp64Flavor?: Fp64Flavor }
 src/core/reflect.ts#Reflection  interface  { bindGroups: readonly BindGroup[]; entries: readonly EntryInfo[]; overrides: readonly OverrideInfo[]; requiredFeatures: readonly Capability[]; requiredLanguageFeatures: readonly LanguageFeature[]; requires: readonly ExternRequirement[]; storage: readonly StructLayout[]; uniforms: readonly StructLayout[]; vertex?: VertexLayout }
-src/core/reflect.ts#ResourceKind  type  "sampler" | "storage-buffer" | "storage-texture" | "texture" | "uniform-buffer"
 src/core/reflect.ts#VertexAttr  interface  { emitted: string; location: number; name: string; offset: number; type: string }
 src/core/reflect.ts#VertexLayout  interface  { arrayStride: number; attributes: readonly VertexAttr[] }
 src/core/reflect.ts#reflect  function  (m: ModuleDecl, opts?: ReflectOptions) => Reflection
+src/core/reflect/bind-entry.ts#BindEntry  interface  { access?: "read" | "read_write"; binding: number; emitted: string; emittedGlsl?: string; glslDataTexture?: "r32f" | "r32i" | "r32ui"; glslSpelling?: "loose" | "std140-block"; group: number; name: string; owner: "host" | "module"; resourceKind: ResourceKind; sampleType?: "depth" | "float" | "sint" | "uint" | "unfilterable-float"; samplerComparison?: true; space: AddressSpace; stages: readonly ("compute" | "vertex" | "fragment")[]; storageAccess?: "read-only" | "read-write" | "write-only"; storageFormat?: StorageTextureFormat; structEmitted?: string; structName?: string; textureDepth?: true; textureDim?: "1d" | "2d" | "2d-array" | "2d-ms" | "3d" | "cube" | "cube-array"; textureElem?: TextureElem }
+src/core/reflect/bind-entry.ts#BindGroup  interface  { entries: readonly BindEntry[]; group: number }
+src/core/reflect/bind-entry.ts#ResourceKind  type  "sampler" | "storage-buffer" | "storage-texture" | "texture" | "uniform-buffer"
 src/core/reflect/layout.ts#FieldLayout  interface  { align: number; emitted: string; name: string; offset: number; size: number; type: string }
 src/core/reflect/layout.ts#LayoutKind  type  "std140" | "std430"
 src/core/reflect/layout.ts#StructLayout  interface  { align: number; emitted: string; fields: readonly FieldLayout[]; name: string; size: number }
