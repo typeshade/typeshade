@@ -1323,25 +1323,7 @@ src/core/ir/nodes.ts#workgroupSizeOf  const  (f: Pick<FuncDecl, "attrs" | "workg
 src/core/ir/span.ts#SourceSpan  interface  { character: number; endCharacter: number; endLine: number; file: string; length: number; line: number; start: number }
 src/core/ir/span.ts#sourceSpanOf  function  (node: FuncDecl | Stmt | Expr) => SourceSpan
 src/core/ir/types.ts#arrayT  const  <E extends ShaderType, S extends number | undefined = undefined>(elem: E, size?: S) => { readonly kind: "array"; readonly elem: E; readonly size: S; }
-src/core/ir/types.ts#samplerComparisonT  const  { readonly kind: "sampler-comparison"; }
-src/core/ir/types.ts#samplerT  const  { readonly kind: "sampler"; }
 src/core/ir/types.ts#structT  const  <N extends string>(name: N) => { readonly kind: "struct"; readonly name: N; }
-src/core/ir/types.ts#texture1dfT  const  { readonly kind: "texture"; readonly dim: "1d"; readonly elem: "f32"; }
-src/core/ir/types.ts#texture2dArrayfT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "f32"; }
-src/core/ir/types.ts#texture2dArrayiT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "i32"; }
-src/core/ir/types.ts#texture2dArrayuT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "u32"; }
-src/core/ir/types.ts#texture2dMsfT  const  { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; }
-src/core/ir/types.ts#texture2dfT  const  { readonly kind: "texture"; readonly dim: "2d"; readonly elem: "f32"; }
-src/core/ir/types.ts#texture2diT  const  { readonly kind: "texture"; readonly dim: "2d"; readonly elem: "i32"; }
-src/core/ir/types.ts#texture2duT  const  { readonly kind: "texture"; readonly dim: "2d"; readonly elem: "u32"; }
-src/core/ir/types.ts#texture3dfT  const  { readonly kind: "texture"; readonly dim: "3d"; readonly elem: "f32"; }
-src/core/ir/types.ts#textureCubeArrayfT  const  { readonly kind: "texture"; readonly dim: "cube-array"; readonly elem: "f32"; }
-src/core/ir/types.ts#textureCubefT  const  { readonly kind: "texture"; readonly dim: "cube"; readonly elem: "f32"; }
-src/core/ir/types.ts#textureDepth2dArrayT  const  { readonly kind: "depth-texture"; readonly dim: "2d-array"; }
-src/core/ir/types.ts#textureDepth2dT  const  { readonly kind: "depth-texture"; readonly dim: "2d"; }
-src/core/ir/types.ts#textureDepthCubeArrayT  const  { readonly kind: "depth-texture"; readonly dim: "cube-array"; }
-src/core/ir/types.ts#textureDepthCubeT  const  { readonly kind: "depth-texture"; readonly dim: "cube"; }
-src/core/ir/types.ts#textureDepthMultisampled2dT  const  { readonly kind: "depth-texture"; readonly dim: "2d-ms"; }
 src/core/ir/types.ts#typeEq  function  (a: ShaderType, b: ShaderType) => boolean
 src/core/ir/types.ts#typeKey  function  (t: ShaderType) => string
 src/core/ir/types/cas-result.ts#CAS_RESULT_STRUCTS  const  readonly { readonly name: string; readonly fields: readonly { readonly name: string; readonly type: ShaderType; }[]; }[]
@@ -1383,6 +1365,24 @@ src/core/ir/types/storage-texture.ts#WRITE_ONLY_STORAGE_FORMATS  const  readonly
 src/core/ir/types/storage-texture.ts#storageFormatFeature  const  (format: StorageTextureFormat) => string
 src/core/ir/types/storage-texture.ts#storageTexel  const  (format: StorageTextureFormat) => TextureElem
 src/core/ir/types/storage-texture.ts#storageTextureLayoutAccess  const  (access: StorageTextureAccess) => "write-only" | "read-only" | "read-write"
+src/core/ir/types/texture-types.ts#samplerComparisonT  const  { readonly kind: "sampler-comparison"; }
+src/core/ir/types/texture-types.ts#samplerT  const  { readonly kind: "sampler"; }
+src/core/ir/types/texture-types.ts#texture1dfT  const  { readonly kind: "texture"; readonly dim: "1d"; readonly elem: "f32"; }
+src/core/ir/types/texture-types.ts#texture2dArrayfT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "f32"; }
+src/core/ir/types/texture-types.ts#texture2dArrayiT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "i32"; }
+src/core/ir/types/texture-types.ts#texture2dArrayuT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "u32"; }
+src/core/ir/types/texture-types.ts#texture2dMsfT  const  { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; }
+src/core/ir/types/texture-types.ts#texture2dfT  const  { readonly kind: "texture"; readonly dim: "2d"; readonly elem: "f32"; }
+src/core/ir/types/texture-types.ts#texture2diT  const  { readonly kind: "texture"; readonly dim: "2d"; readonly elem: "i32"; }
+src/core/ir/types/texture-types.ts#texture2duT  const  { readonly kind: "texture"; readonly dim: "2d"; readonly elem: "u32"; }
+src/core/ir/types/texture-types.ts#texture3dfT  const  { readonly kind: "texture"; readonly dim: "3d"; readonly elem: "f32"; }
+src/core/ir/types/texture-types.ts#textureCubeArrayfT  const  { readonly kind: "texture"; readonly dim: "cube-array"; readonly elem: "f32"; }
+src/core/ir/types/texture-types.ts#textureCubefT  const  { readonly kind: "texture"; readonly dim: "cube"; readonly elem: "f32"; }
+src/core/ir/types/texture-types.ts#textureDepth2dArrayT  const  { readonly kind: "depth-texture"; readonly dim: "2d-array"; }
+src/core/ir/types/texture-types.ts#textureDepth2dT  const  { readonly kind: "depth-texture"; readonly dim: "2d"; }
+src/core/ir/types/texture-types.ts#textureDepthCubeArrayT  const  { readonly kind: "depth-texture"; readonly dim: "cube-array"; }
+src/core/ir/types/texture-types.ts#textureDepthCubeT  const  { readonly kind: "depth-texture"; readonly dim: "cube"; }
+src/core/ir/types/texture-types.ts#textureDepthMultisampled2dT  const  { readonly kind: "depth-texture"; readonly dim: "2d-ms"; }
 src/core/ir/types/vector-types.ts#vec2bT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "bool"; }
 src/core/ir/types/vector-types.ts#vec2fT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "f32"; }
 src/core/ir/types/vector-types.ts#vec2iT  const  { readonly kind: "vec"; readonly n: 2; readonly elem: "i32"; }
