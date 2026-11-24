@@ -55,10 +55,8 @@ import type {
   RhiTextureView,
   RhiVertexBufferLayout,
 } from './rhi.js';
-
-type GL = WebGL2RenderingContext;
-
-export type GlTextureKind = 'float' | 'uint' | 'sint' | 'depth';
+import type { GL, GlTextureKind } from './webgl2/types.js';
+export type { GlTextureKind } from './webgl2/types.js';
 
 interface FormatSpec {
   readonly internal: string;
