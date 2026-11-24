@@ -137,8 +137,9 @@ tier runs. Where no fallback exists, write "not supported yet" and cite the rule
   and split builds, including initial shared chunks and aggregate bytes (change 0085).
   Every asset is scanned for `new Function`, `Function` and `eval`. A split import must be a
   literal path to an included local JavaScript asset; remote, computed and missing targets fail.
-  Planted faults prove the scan reads each asset to its end (Rules 11.7 and 11.13). CI's
-  `typecheck + unit` job runs it. A rise of a budget waits for the owner, except the rise that a
+  Planted faults prove the scan reads each asset to its end (Rules 11.7 and 11.13). CI runs it
+  in the `runtime bundle boundary` step of the `source and policy checks` job (`quality`). The
+  required check `typecheck + unit` needs that job and fails when it does not succeed. A rise of a budget waits for the owner, except the rise that a
   `Move: pure` split causes (`CLAUDE.md`, Merging).
 - `bun run gate:compile`: every registered example emitted and compiled, a function declared
   under every name a writer renames (change 0029), and a divisor or shift amount that is a float
