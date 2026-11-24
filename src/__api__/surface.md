@@ -1333,12 +1333,6 @@ src/core/ir/types.ts#boolT  const  { readonly kind: "scalar"; readonly scalar: "
 src/core/ir/types.ts#f32T  const  { readonly kind: "scalar"; readonly scalar: "f32"; }
 src/core/ir/types.ts#f64T  const  { readonly kind: "f64"; }
 src/core/ir/types.ts#i32T  const  { readonly kind: "scalar"; readonly scalar: "i32"; }
-src/core/ir/types.ts#isF64  const  (t: ShaderType) => t is { readonly kind: "f64"; }
-src/core/ir/types.ts#isMat  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly cols: 2 | 3 | 4; readonly rows: 2 | 3 | 4; readonly elem: "f32" | "f64"; }
-src/core/ir/types.ts#isMat64  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly cols: 2 | 3 | 4; readonly rows: 2 | 3 | 4; readonly elem: "f32" | "f64"; } & { elem: "f64"; }
-src/core/ir/types.ts#isScalar  const  (t: ShaderType) => t is { readonly kind: "scalar"; readonly scalar: Scalar; }
-src/core/ir/types.ts#isVec  const  (t: ShaderType) => t is { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; }
-src/core/ir/types.ts#isVec64  const  (t: ShaderType) => t is { readonly kind: "vec64"; readonly n: 2 | 3 | 4; }
 src/core/ir/types.ts#mat2f64T  const  { readonly kind: "mat"; readonly cols: 2; readonly rows: 2; readonly elem: "f64"; }
 src/core/ir/types.ts#mat3f64T  const  { readonly kind: "mat"; readonly cols: 3; readonly rows: 3; readonly elem: "f64"; }
 src/core/ir/types.ts#mat4f64T  const  { readonly kind: "mat"; readonly cols: 4; readonly rows: 4; readonly elem: "f64"; }
@@ -1384,6 +1378,12 @@ src/core/ir/types.ts#vec4uT  const  { readonly kind: "vec"; readonly n: 4; reado
 src/core/ir/types.ts#voidT  const  { readonly kind: "void"; }
 src/core/ir/types/cas-result.ts#CAS_RESULT_STRUCTS  const  readonly { readonly name: string; readonly fields: readonly { readonly name: string; readonly type: ShaderType; }[]; }[]
 src/core/ir/types/cas-result.ts#casResultT  const  (elem: "i32" | "u32") => ShaderType
+src/core/ir/types/predicates.ts#isF64  const  (t: ShaderType) => t is { readonly kind: "f64"; }
+src/core/ir/types/predicates.ts#isMat  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly cols: 2 | 3 | 4; readonly rows: 2 | 3 | 4; readonly elem: "f32" | "f64"; }
+src/core/ir/types/predicates.ts#isMat64  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly cols: 2 | 3 | 4; readonly rows: 2 | 3 | 4; readonly elem: "f32" | "f64"; } & { elem: "f64"; }
+src/core/ir/types/predicates.ts#isScalar  const  (t: ShaderType) => t is { readonly kind: "scalar"; readonly scalar: Scalar; }
+src/core/ir/types/predicates.ts#isVec  const  (t: ShaderType) => t is { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; }
+src/core/ir/types/predicates.ts#isVec64  const  (t: ShaderType) => t is { readonly kind: "vec64"; readonly n: 2 | 3 | 4; }
 src/core/ir/types/shader-type.ts#Scalar  type  "bool" | "f32" | "i32" | "u32"
 src/core/ir/types/shader-type.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32" | "bool"; } | { readonly kind: "mat"; readonly cols: 2 | 3 | 4; readonly rows: 2 | 3 | 4; readonly elem: "f32" | "f64"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; readonly sizeOverride?: string; } | { readonly kind: "atomic"; readonly elem: "i32" | "u32"; } | { readonly kind: "texture"; readonly dim: "2d-array" | "3d" | "cube" | "2d" | "1d" | "cube-array" | "2d-ms"; readonly elem: TextureElem; } | { readonly kind: "storage-texture"; readonly dim: "2d-array" | "2d"; readonly format: StorageTextureFormat; readonly access: StorageTextureAccess; } | { readonly kind: "depth-texture"; readonly dim: "2d-array" | "cube" | "2d" | "cube-array" | "2d-ms"; } | { readonly kind: "sampler"; } | { readonly kind: "sampler-comparison"; } | { readonly kind: "collection"; readonly key: "f32" | "i32" | "u32"; readonly value?: ShaderType; } | { readonly kind: "void"; }
 src/core/ir/types/storage-texture.ts#ALL_STORAGE_TEXTURE_FORMATS  const  readonly ["rgba8unorm", "rgba8snorm", "rgba8uint", "rgba8sint", "rgba16uint", "rgba16sint", "rgba16float", "r32uint", "r32sint", "r32float", "rg32uint", "rg32sint", "rg32float", "rgba32uint", "rgba32sint", "rgba32float", "bgra8unorm"]
