@@ -920,7 +920,7 @@ function renderable(gl: WebGL2RenderingContext, fbo: WebGLFramebuffer, t: Image)
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
   if (status !== gl.FRAMEBUFFER_COMPLETE)
     throw new Error(
-      `typeshade/webgl2: the storage texture '${t.name}' is ${t.format}, which this context cannot render to${
+      `typeshade/webgl2: the storage texture '${t.name}' is ${t.format}, which this WebGL2 context does not render to and the WebGL2 tier has no fallback for yet (Rule 10.5)${
         /float$/.test(t.format) && gl.getExtension('EXT_color_buffer_float') === null
           ? ' (it has no EXT_color_buffer_float)'
           : ''

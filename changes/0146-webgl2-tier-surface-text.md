@@ -503,6 +503,25 @@ review` and `doorstop clear`. This section changes no code and no rule.
 - The line numbers marked "as reported" come from the fix workers' reports. They are not re-checked.
 - Deviations: none open from this section.
 
+#### Implementation record, 2026-11-24
+
+1. [fact] The held patch of "The held implementing patch" was applied on `main` at `bd860eba`.
+   One file conflicted, `reqs/surface/SURF-074.md` (its links block). The resolution keeps the
+   RULE-0822 stamp of `main` and adds the RULE-1108 link of the patch.
+2. [fact] The owner delegated the Doorstop review of this change to the agent in the conversation
+   on 2026-11-24. This replaces step 5 of "The held implementing patch" for this change. The agent
+   read each item, then ran `doorstop review` and `doorstop clear` on the lists of steps 2 and 3.
+3. [deviation, closed] Surface §69 said "A `TypeError` names what WebGL2 has no form of". The
+   sentence repeats the old text of Rule 11.11, and the table above does not name it. The new
+   Rule 11.11 puts the refusals in two groups, so the sentence no longer agreed with the rule. It
+   now says that the `TypeError` names what the WebGL2 tier does not support yet, or what only
+   WebGPU has (Rule 11.11). Disposition: closed, since the surface follows the rule.
+4. [fact] `scripts/bundle-budget.json`: the split total of `typeshade/runtime` changes from 180784
+   to 180803, the measured value. The longer refusal text in `src/core/gl-compute.ts` adds the
+   bytes. The patch's change to `typeshade/emit` is dropped: emit measures 124610 and passes.
+5. [open] §67 says "does not support a storage binding in a draw yet (OD-11)", as the table
+   declares. It cites no rule. [proposal] A later amendment adds the rule that governs the call.
+
 ## What it owes downstream
 
 - `typeshade.github.io`: search the English and Korean pages for "no atomics", "no workgroup
