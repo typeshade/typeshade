@@ -6,6 +6,7 @@ import { tsCompletions } from './completions/typescript-entries.js';
 import { VEC_SNIPPETS, attributeItem, builtinItem, vecSnippetItem } from './completions/items.js';
 import { isBuiltinIdLiteral, isAttributeSlot, isExpressionSlot } from './completions/slots.js';
 import { slotAt } from './completions/slot-at.js';
+import { isInCommentAt, triviaStartAt } from './completions/comment-at.js';
 
 const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', readonly string[]>> = {
   vertex: ['vertex_index', 'instance_index'],
@@ -35,37 +36,6 @@ type CompletionContext =
   | { readonly kind: 'comment' }
   | { readonly kind: 'string'; readonly literal: ts.LiteralLikeNode }
   | { readonly kind: 'code'; readonly slot: ts.Node };
-
-function isInCommentAt(text: string, triviaStart: number, pos: number): boolean {
-  const ranges = [
-    ...(ts.getLeadingCommentRanges(text, triviaStart) ?? []),
-    ...(ts.getTrailingCommentRanges(text, triviaStart) ?? []),
-  ];
-  return ranges.some((r) => {
-    if (pos <= r.pos) return false;
-    if (r.kind === ts.SyntaxKind.SingleLineCommentTrivia) return pos <= r.end;
-    const closed = text.startsWith('*/', r.end - 2);
-    return closed ? pos < r.end : pos <= r.end;
-  });
-}
-
-function triviaStartAt(slot: ts.Node, sourceFile: ts.SourceFile, pos: number): number {
-  let start = slot.getFullStart();
-  let node = slot;
-  for (;;) {
-    let holder: ts.Node | undefined;
-    for (const child of node.getChildren(sourceFile)) {
-      if (ts.isJSDoc(child)) continue;
-      if (child.getEnd() <= pos) start = child.getEnd();
-      else if (child.getFullStart() <= pos) {
-        holder = child;
-        break;
-      }
-    }
-    if (holder === undefined) return start;
-    node = holder;
-  }
-}
 
 function contextAt(sourceFile: ts.SourceFile, offset: number): CompletionContext {
   const slot = slotAt(sourceFile, offset);
