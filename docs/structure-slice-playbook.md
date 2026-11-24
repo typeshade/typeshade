@@ -14,7 +14,25 @@ The opening prompt of the session lists them. Do them one at a time, smallest fi
 
 `CLAUDE.md`, File size: a file of `src/` has at most 400 lines; 200 lines is a goal, not a limit; a file holds one responsibility — one class per file with the types and helpers only it uses, a type that several files use in a types file of the module, functions grouped by responsibility. Split the file into `<dir>/<name>/<part>.ts`, each part named for what it holds (never `part-1`). The original path stays and re-exports what it exported, so no importer changes. Do not cut one class or one function to reach a number, and say in the pull request which parts stay above 200 and why.
 
-## The three steps, each its own pull request, in this order
+## Local first, few pull requests
+
+- Do the three steps of every file locally, one worktree for each file. Verify there. Push your
+  branches so that no work stays only in the container: a push without a pull request runs no CI,
+  and a draft pull request runs no CI gate.
+- Open few pull requests. One pull request carries one step for all your files: first the tests
+  of step A, then the comment removals of step B, then the moves of step C. A range that declares
+  `Move: comments` or `Move: pure` may span many files, and the checker judges the whole range.
+  Start step B's branch from `main` after step A is merged, and step C's after step B is merged,
+  so that each `Move:` range holds nothing but its own kind.
+- Keep a pull request a draft until its batch is complete and the local checks pass. Then mark it
+  ready for review: CI runs once.
+- Before a batch is marked ready, an agent that did not write it reviews every file of it against
+  this playbook: each removed comment and the test that holds it, the shape and the name of each
+  new file, the checker's verdict. On 2026-11-24 a first pass of a similar task had a quarter of
+  its results weak or wrong, and a review of a sample missed most of them: review all, not a sample.
+- If one file of a batch fails its review or a check, take that file out of the batch and go on.
+
+## The three steps, one pull request for each step, in this order
 
 Step A — tests for the invariants the comments state (an ordinary pull request).
 
@@ -32,7 +50,7 @@ Step C — move the declarations (`Move: pure`).
 
 1. Plan first: list the top-level units (`bun scripts/move-purity.ts --clean-report --json`, or the TypeScript AST), group them by the shape rule above, order the moves so that what others depend on moves first.
 2. Move ONLY with `bun scripts/move-declarations.ts --from <file> --to <new file> --move <A,B,...> [--closure] [--dry-run] [--bake]`. Run `--dry-run` first. Never retype, rename or edit a body. If the tool refuses, read the reason and change the grouping (two declarations that need each other move together); never work around a refusal by hand. A group the tool cannot move stays in the original file: say so.
-3. One commit per moved group, each with `Change: none, declarations move between files without behaviour change` and `Move: pure`; after each, `bun scripts/move-purity.ts --base HEAD~1 --head HEAD --require` prints "pure". One pull request per file (title starts with `Move:`), or several for a very large file.
+3. One commit per moved group, each with `Change: none, declarations move between files without behaviour change` and `Move: pure`; after each, `bun scripts/move-purity.ts --base HEAD~1 --head HEAD --require` prints "pure". The pull request title starts with `Move:`.
 4. A `Move:` range may change nothing else: no test, no document sentence, no other file. If `src/AGENTS.md` or another document describes the file's inside and is now inexact, fix it in a later documentation-only pull request (`Change: none, documentation only`).
 
 ## Before every push
@@ -46,7 +64,7 @@ Step C — move the declarations (`Move: pure`).
 
 ## Merging — you close your own work
 
-- A `Move: comments` or `Move: pure` pull request is approved in advance (`CLAUDE.md`, Merging). Before the merge, run the checker of `main` on the range and read "pure": `git worktree add --detach /tmp/mainwt origin/main && ln -s "$PWD/node_modules" /tmp/mainwt/node_modules && (cd /tmp/mainwt && bun scripts/move-purity.ts --repo <your checkout> --base origin/main --head <your branch> --require); git worktree remove --force /tmp/mainwt`. Merge (method `merge`) only when every required check is green on the current head (`typecheck + unit`, `traceability (Doorstop)`, `compile gate (Tint + WebGL2)`, `user journeys (packed tarball, WebGPU)`; a skipped one counts as passed — change 0147 skips the two GPU gates for `Move: comments`) and there is no conflict. A red check is fixed, never bypassed.
+- A `Move: comments` or `Move: pure` pull request is approved in advance (`CLAUDE.md`, Merging). Before the merge, run the checker of `main` on the range and read "pure": `git worktree add --detach /tmp/mainwt origin/main && ln -s "$PWD/node_modules" /tmp/mainwt/node_modules && (cd /tmp/mainwt && bun scripts/move-purity.ts --repo <your checkout> --base origin/main --head <your branch> --require); git worktree remove --force /tmp/mainwt`. Merge (method `merge`) only when every required check is green on the current head (`typecheck + unit`, `traceability (Doorstop)`, `compile gate (Tint + WebGL2)`, `user journeys (packed tarball, WebGPU)`; a skipped GPU gate counts as passed — change 0147 skips the two GPU gates for `Move: comments`; `typecheck + unit` and `traceability (Doorstop)` must show `success`, because `skipped` on those two means the checks of the draft) and there is no conflict. A red check is fixed, never bypassed.
 - A step A pull request (tests and `Why:` text only) and a documentation-only pull request: merge when every required check is green, under the owner's words quoted above. Record those words, as relayed by the orchestrating session with the date, in the pull request body.
 - After each merge, have a Haiku sub-agent read the workflow runs on `main` for the merge commit (the gates a `Move:` pull request skipped run there). If one is red because of your change, fix forward at once in a new pull request; if you cannot within one attempt, revert your merge with a pull request and report.
 - Conflicts: other sessions merge slices all day, and all of them edit the two baseline files. When your branch conflicts, merge `origin/main` into it (no rebase of pushed commits, no force-push), re-run the two bake commands rather than resolving a baseline by hand, re-run the checks, and for a `Move:` range re-run the checker of `main` (a merge commit in the range is fine if the checker still reads "pure"; if it does not, open a fresh branch from `main` and replay the moves with the tool).
@@ -60,6 +78,6 @@ Step C — move the declarations (`Move: pure`).
 
 ## Ways of working
 
-- Sub-agents: at most six at a time; Sonnet for tests and moves, Haiku for reading CI logs and check runs; stop each when its report is in; check its key facts yourself before you commit. Give every task its pull request early (draft first, ready when the required checks are green).
+- Sub-agents: at most six at a time; Sonnet for tests and moves, Haiku for reading CI logs and check runs; stop each when its report is in; check its key facts yourself before you commit. A workflow of agents is a good fit when the session offers one: one agent slices a file, a second reviews it, a third fixes what the review found.
 - Do not sleep or poll for CI: subscribe to your pull request and end the turn; the event wakes you. While one pull request waits, start the next step that does not depend on it (step A of the next file).
 - When all your files are done or stopped: unsubscribe from your pull requests, leave no scheduled check-in and no running process, and write one final status in Korean: per file, the pull requests merged with their `main` commits, lines before and after, the parts above 200 lines and why, anything stopped and why, and rows or notes you found wrong on the way (do not fix those). Then stop.

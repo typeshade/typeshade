@@ -252,8 +252,9 @@ The owner's rule, given on 2026-11-17: "한 파일당 주석 포흠 400줄이 �
 
 ## Before pushing
 
-Run the gates `AGENTS.md#tests` lists that the change can reach. CI runs the same ones, and a
-red check costs a round trip. The installed Git hooks run the documentation checks above;
+Run the gates `AGENTS.md#tests` lists that the change can reach, before you mark the pull request
+ready for review. A draft runs no CI gate, so no CI result stands in for them. CI runs the same
+gates on a ready pull request, and a red check costs a round trip. The installed Git hooks run the documentation checks above;
 the build, the lint, the format check and the tests are yours to run.
 
 ## Merging
@@ -264,7 +265,9 @@ and the required checks (`typecheck + unit`, `traceability (Doorstop)`, `compile
 through the owner's account can too, so the rule is written here:
 
 - Merge only when every required check is green on the pull request's current head. A red
-  check is fixed, never bypassed.
+  check is fixed, never bypassed. On a ready pull request `typecheck + unit` and
+  `traceability (Doorstop)` always run: if either shows `skipped`, the checks are those of the
+  draft, and they are not green.
 - Bypass only the review requirement, and only when the owner has said in the conversation to
   merge that pull request, or the pull request is one the owner has approved in advance (below).
   The owner cannot approve their own pull request, so their go-ahead is the review.
@@ -329,8 +332,11 @@ work, and keep yourself to orchestration).
 
 ## Waiting on a pull request
 
-- Mark a draft pull request ready for review as soon as its required checks are green, not at
-  merge time.
+- Keep a pull request a draft while you work. A draft runs no CI gate (the `draft` scope of
+  `.github/workflows/ci.yml`). The owner asked for this on 2026-11-24: "CI랑 관계없이 로컬에서 먼저
+  처리한 다음, 머지 직전이 아니라면 CI는 넘기는 방법은 안될까요".
+- Mark the pull request ready for review when the work is complete and the local checks pass. CI
+  then runs once on the head. After that, wait for the run that the ready event started.
 - Waiting on CI is not work: end the turn, and let the pull request's events wake the session.
   Never sleep inside a turn for a check.
 - A pull request that is green, has no conflict and waits only on the owner needs no check-in.
