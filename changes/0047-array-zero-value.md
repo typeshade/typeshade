@@ -20,13 +20,13 @@ downstream:
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                     |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Change proposal `0047`, `status: implemented`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                |
-| Date and attribution          | Written 2026-10-05, Asia/Seoul. Drafted by the repository's coding agent at the owner's direction ("#495 이슈도", after "이슈 처리 모두 승인합니다. 완료해주세요" in the same conversation), from issue [#495](https://github.com/typeshade/typeshade/issues/495), which typeshade/radiance raised.                                        |
-| Applicability / Effectivity   | `"use typeshade"` source; the front end (`src/compiler/ts/lower/expression-array.ts`, and `zeroExprOf` in `src/compiler/ts/lower/class-methods.ts`); the hover text (`src/language-service/docs.ts`); surface §44; `examples/packing-bitcast.shade.ts`; the site and the editor. No backend or oracle changes. Release version unassigned. |
-| Review baseline               | `origin/main` at `fd39ba3b54ae3f5570ebfb404f2350fb79b05984`.                                                                                                                                                                                                                                                                               |
-| Review and revision authority | [PR #496](https://github.com/typeshade/typeshade/pull/496) (the proposal), [PR #497](https://github.com/typeshade/typeshade/pull/497) (the implementation). Git records revisions; the pull requests' review and merge record the decision.                                                                                                |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Identity and status           | Change proposal `0047`, `status: implemented`. The front matter is the lifecycle authority.                                                                                                                                                                                                                                                                        |
+| Date and attribution          | Written 2026-10-05, Asia/Seoul. Drafted by the repository's coding agent at the owner's direction ("#495 이슈도", after "이슈 처리 모두 승인합니다. 완료해주세요" in the same conversation), from issue [#495](https://github.com/typeshade/typeshade/issues/495), which typeshade/radiance raised.                                                                |
+| Applicability / Effectivity   | `"use typeshade"` source; the front end (`src/compiler/ts/lower/expression-array.ts`, and `zeroExprOf` in `src/compiler/ts/lower/class-methods.ts`); the hover text (`src/language-service/docs.ts`); surface §44; `examples/gallery/packing-bitcast/packing-bitcast.shade.ts`; the site and the editor. No backend or oracle changes. Release version unassigned. |
+| Review baseline               | `origin/main` at `fd39ba3b54ae3f5570ebfb404f2350fb79b05984`.                                                                                                                                                                                                                                                                                                       |
+| Review and revision authority | [PR #496](https://github.com/typeshade/typeshade/pull/496) (the proposal), [PR #497](https://github.com/typeshade/typeshade/pull/497) (the implementation). Git records revisions; the pull requests' review and merge record the decision.                                                                                                                        |
 
 ## What changes
 
@@ -77,7 +77,7 @@ Rule 2.1 (a) takes author-facing names from WGSL's built-in functions, and `T()`
 - `surface: [44]`. "The constructors" gains the array zero form beside `vec3()`.
 - `rules: []`, `codes: []`, `exports: []`. `TS8019` and `TS8099` keep their numbers; the
   `TS8099` sentence for `array<T>()` changes.
-- `examples: []`. `examples/packing-bitcast.shade.ts` gains one zero-valued array, so the
+- `examples: []`. `examples/gallery/packing-bitcast/packing-bitcast.shade.ts` gains one zero-valued array, so the
   compile gate reads it on Tint and WebGL2; its goldens are read as a diff (Rule 11.4).
 
 Required functional evidence, from the tests #495 lists:
@@ -105,7 +105,7 @@ the repository's coding agent at the owner's direction. Git holds the merge comm
 the zero-argument branch of `lowerArrayCtor` and `zeroOfArrayElement` in
 `src/compiler/ts/lower/expression-array.ts` (its own helper, so `zeroExprOf`, which class
 constructors read, does not change); the `array` hover sentence; surface §44; the CHANGELOG; one
-zero-valued array in `examples/packing-bitcast.shade.ts`, whose goldens changed by the new
+zero-valued array in `examples/gallery/packing-bitcast/packing-bitcast.shade.ts`, whose goldens changed by the new
 lines only.
 
 **Functional validation**, 2026-10-05, the session's Linux container, bun 1.3.14, node 22.22.0:

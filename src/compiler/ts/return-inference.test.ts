@@ -583,7 +583,7 @@ export function run(k: f32): f32 {
   });
 });
 
-describe('examples/inferred-returns.shade.ts', () => {
+describe('examples/gallery/inferred-returns/inferred-returns.shade.ts', () => {
   it('renders the dots, the ring and the falloff on every CPU path', () => {
     const src = exampleSource('inferred-returns');
     const r = compile(src);

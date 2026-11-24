@@ -242,7 +242,7 @@ Each action names only what an author can already write: a statement moved above
 
 ### Example
 
-`examples/sample-branch.shade.ts` changes how an author writes an example, so the comparison is
+`examples/gallery/sample-branch/sample-branch.shade.ts` changes how an author writes an example, so the comparison is
 shown here (`CLAUDE.md`, Merging).
 
 Before (`main` at `79c76d48`, the entry):

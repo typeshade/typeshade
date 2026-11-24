@@ -320,7 +320,7 @@ decision concrete:
 - Observed results: `bun run build`, `bun run lint`, `bun run format:check`, `bun run test` and
   `bun run gate:compile` green on the head commit; `src/compiler/ts/subgroups.test.ts` holds both
   halves, the oracle, the determinism rows and the refusals to section 3's table on one program;
-  `examples/subgroup-reduce.shade.ts` compiles on the gate's Tint on a device that asked for
+  `examples/gallery/subgroup-reduce/subgroup-reduce.shade.ts` compiles on the gate's Tint on a device that asked for
   `subgroups`. The pull request's checks are the retained evidence.
 - Document audit: surface §50 and §77, Rule 11.21 and the decisions table of
   `docs/language-design.md`, AUTHORING.md's capability table and notes, `docs/roadmap.md`,

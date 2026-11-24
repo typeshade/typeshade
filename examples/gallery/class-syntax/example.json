@@ -1,0 +1,8 @@
+{
+  "title": "Getters, setters, private names and parameter properties",
+  "blurb": "A `class Ring` written the way TypeScript classes are: its centre and radius are parameter properties, its band width a private `#width` behind a getter and a setter that clamps it, its distance a private method, and `Ring.unit` a static getter. Each accessor half is a function of the module, `Ring_get_width` and `Ring_set_width`, and `b.width -= 0.1` reads through the one and writes through the other (§26, Rules 8.11 to 8.14). A static counter the file writes is a per-invocation variable. Renders two gold rings.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

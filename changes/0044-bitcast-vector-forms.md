@@ -106,7 +106,7 @@ lists only the two scalar forms, so the change moves that section.
 - `rules: []`. No rule paragraph changes. The change rests on Rules 9.2, 12.5 and 12.7 as they
   stand.
 - `codes: []`. `TS8003` keeps its number. Its text for an unknown target changes.
-- `examples: []`. `examples/packing-bitcast.shade.ts` gains one vector `bitcast`, so the compile
+- `examples: []`. `examples/gallery/packing-bitcast/packing-bitcast.shade.ts` gains one vector `bitcast`, so the compile
   gate reads one on Tint and on WebGL2. The set of examples does not change, and its emit
   golden is re-baked and read as a diff (Rule 11.4).
 - `exports: []`. The builder API does not change (Exclusions).
@@ -148,7 +148,7 @@ the repository's coding agent at the owner's direction. Git holds the merge comm
 six ids in `src/core/intrinsics.ts`; their oracle helpers in `src/core/cpu-runtime.ts`; the
 `BITCAST_ID` rows and the `TS8003` text in `src/compiler/ts/lower/expression-call.ts`; the
 constraint and `BitcastArg` in `src/language-service/ambient.ts`; `FUNCTION_DOCS.bitcast`;
-surface §44; the CHANGELOG entry; one vector `bitcast` in `examples/packing-bitcast.shade.ts`,
+surface §44; the CHANGELOG entry; one vector `bitcast` in `examples/gallery/packing-bitcast/packing-bitcast.shade.ts`,
 whose two goldens changed by the two new lines and a CSE of `vec2(1., 1.)`.
 
 **Functional validation**, 2026-10-05, the session's Linux container, bun 1.3.14, node 22.22.0:

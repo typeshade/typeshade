@@ -169,7 +169,7 @@ them.
   §63. It covers the five, what each lowers to, how the array is read, and the refusals, with
   snippets the doc-snippet suite compiles.
 - **Surface §14.** "A function that takes a function" points to §63 beside the folds.
-- **Example `examples/array-methods.shade.ts` (new, renderable).** It is in the compile gate,
+- **Example `examples/gallery/array-methods/array-methods.shade.ts` (new, renderable).** It is in the compile gate,
   with its goldens.
 - **The ambient library** (`src/language-service/ambient.ts`) declares the five on `array<T, N>`,
   and `TYPE_DOCS`' `array` entry mentions them. This changes no export: `SHADE_DTS` and

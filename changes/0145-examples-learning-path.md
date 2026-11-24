@@ -1580,7 +1580,7 @@ Rule 4.3, the `Enforced by` line, `docs/language-design.md` line 356.
 Before:
 
 ```text
-- Enforced by: `examples/tuple-and-brand.shade.ts` on both halves of the gate.
+- Enforced by: `examples/gallery/tuple-and-brand/tuple-and-brand.shade.ts` on both halves of the gate.
 ```
 
 After:

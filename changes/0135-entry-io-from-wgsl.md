@@ -351,7 +351,7 @@ code@1, size@2 }`) and nine fragment entries, each reading the struct its vertex
   `tsc --strict` check, `type location<A, B = never, C = {}> = A extends number ? B : A` read
   `location<f32, { interpolate: "flat" }>` as the options object, because `f32` is a `number` to
   TypeScript. Cost: an author states a number to state a sampling; 1 example line
-  (`examples/id-pick.shade.ts:33`) writes one.
+  (`examples/gallery/id-pick/id-pick.shade.ts:33`) writes one.
 
 **What an author learns after D2.1.** Today: write `location<n, T>` on every user-defined value,
 and keep the two sides of a link at one number and one name. After: write nothing, and know where a
@@ -720,7 +720,7 @@ at `b5ff3963`, with `main` at `2efdff61` merged; the checks below ran again afte
   and kept each only where `compile()` and `reflect()` gave the same result. One written location
   stays without an option, `FsIn.uv` in `examples/gallery/twin-structs/twin-structs.shade.ts`: `FsIn` is the type of a
   helper's parameter and no entry's, so only the written location puts `@location(0)` in its
-  struct. `examples/id-pick.shade.ts` keeps the one location that carries an option.
+  struct. `examples/gallery/id-pick/id-pick.shade.ts` keeps the one location that carries an option.
 - `CHANGELOG.md`, `AUTHORING.md`, `docs/language-service-api.md`, `AGENTS.md`, `src/AGENTS.md`.
 
 **Functional validation**, run on 2026-11-10 (UTC) on the delivered configuration; the pull

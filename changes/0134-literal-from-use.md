@@ -273,7 +273,7 @@ agree.
 
 ### Example
 
-Before (`examples/array-methods.shade.ts`, lines 32-36 on `main`):
+Before (`examples/gallery/array-methods/array-methods.shade.ts`, lines 32-36 on `main`):
 
 ```ts
 export const vs = vertex(function vs(vi: builtin<"vertex_index", u32>): VsOut {

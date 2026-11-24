@@ -525,7 +525,7 @@ share storage but are distinct types; each can widen to the three-state type. An
 receiver in `box?.value` gives undefined, while a present box preserves a null member.
 Uninitialized nullable class fields start null; fields admitting undefined start undefined.
 A local `let x: T | null` must be assigned before it is read. Only `?` fields can be omitted
-from object literals. See `examples/null-values.shade.ts` for all three states.
+from object literals. See `examples/gallery/null-values/null-values.shade.ts` for all three states.
 
 ### Number literals
 
@@ -2482,7 +2482,7 @@ Two notes before you trust a row.
   and `subgroup_size` is `1u`. Whether a given adapter HAS one of the
   four is what `reflect().requiredFeatures` is for, and a device only HAS an optional feature
   if `requestDevice` was asked for it — the compile gate does exactly that, deriving the list
-  from the corpus, which is how `examples/clip-planes.shade.ts` compiles on its Tint. Its
+  from the corpus, which is how `examples/gallery/clip-planes/clip-planes.shade.ts` compiles on its Tint. Its
   software adapter offers `clip-distances` and `subgroups` but not `primitive-index`, so that
   one row's host string is unconfirmed here.
 - An unsupported cell is a hard stop by design: the emit throws. To ask before you emit,
@@ -2811,7 +2811,7 @@ underflow: two f32 operations, none for `1.0`, and a sign change for `-1.0`. A s
 multiply, so that WGSL, which evaluates constants while it creates the shader and refuses one
 that overflows, never has to.
 
-One example in the gallery, `examples/fp64-lane-stripes.shade.ts`, runs one formula on both
+One example in the gallery, `examples/gallery/fp64-lane-stripes/fp64-lane-stripes.shade.ts`, runs one formula on both
 types side by side, and shows the f32 half collapsing to a flat field while the f64 half
 keeps its stripes.
 

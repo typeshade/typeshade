@@ -1,0 +1,8 @@
+{
+  "title": "Objects are passed as JavaScript passes them",
+  "blurb": "A function that writes a field or an element of its parameter changes the caller's object, with no mark on the parameter or at the call (§70): `advance` moves a struct in place, and `liftAll` bends an array's elements through a local function that captures the array. A number and a vector are values, as they are in JavaScript, so a function gives them back: `lift` and `project` return one value, and `order` returns two in a list that the caller takes apart with `[a, b] = order(a, b)`. WGSL spells the object parameter as a pointer, `advance(&r, t)`, and GLSL ES 3.00 as an `inout` parameter; the author writes neither.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

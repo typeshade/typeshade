@@ -1,0 +1,8 @@
+{
+  "title": "Loops over data",
+  "blurb": "The three loops a program over data writes, through Tint and a real WebGL2 context: a `for` whose bound is a uniform the host sets, a `while` that walks an explicit stack until it is empty (the BVH traversal shape), and a `while (true)` iteration that leaves at a `break` once it has converged, and a `for…of` over a constant array (Rule 7.5, #203).",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

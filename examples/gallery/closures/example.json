@@ -1,0 +1,8 @@
+{
+  "title": "Local functions that read and write the variables around them",
+  "blurb": "`ring` reads `p` and `width` from the fragment entry and adds to its `glow`, as a TypeScript closure does: each variable is a parameter the emitted function takes, and `glow`, which it writes, is passed by reference, so every call's write lands in the entry's variable (Rule 8.17). `rings` calls `ring`, so it takes `glow` by reference too and hands it on. `tone` is a function declaration called above its statement, as TypeScript hoists it. `Brush.strokes` declares an arrow function that writes `this`, so the method takes its brush by reference, and `near`, declared in a loop's body, reads that trip's `i`. Renders three rings, two dabs of paint and three white spots.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}
