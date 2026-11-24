@@ -629,8 +629,8 @@ function scatterFold(d: DeferredScatter): Stmt[] {
   ];
 }
 
-/** The most lanes a WGSL subgroup has: the fold's loop serves at least one key a turn, so it
- *  ends within this many turns. */
+/* Why: WGSL fixes the subgroup size at most 128 lanes, and the fold serves at least one key a
+ * turn, so its loop ends within this many turns. */
 const SUBGROUP_MAX = 128;
 
 /** The loop's body with each `continue` of its own, which ends this iteration, as a `return`,

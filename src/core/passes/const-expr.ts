@@ -1,90 +1,14 @@
-// === A constant expression the target refuses is given its value at run time (#368) ===
-//
-// WGSL evaluates a const-expression when it creates the shader, and makes some of them a
-// shader-creation error: a value its rules leave undefined for constants, although the same
-// operation on a value the shader computes has an answer. An operand becomes a constant in two
-// ways a program the front end accepts can reach:
-//
-//   - the optimizer makes one: `x - x`, `x ^ x` and `x * 0` fold to 0 on integers, a `select`
-//     on a literal folds to one arm, and const-prop moves a local's literal into its uses;
-//   - the author writes one with constants, a literal or a module `const`, where the front end
-//     refuses a divisor it proves zero and a shift amount past 31 (Rule 7.4), and a `clamp`
-//     whose bounds cross and an `f32` value past the range (Rule 12.6, #373, #374). An `i32`
-//     literal is spelled with no suffix, so WGSL reads it as an abstract integer, and an
-//     operation on two of them is refused when its value does not fit the `i32` it meets.
-//
-// Measured on Tint (Chromium, SwiftShader), each in a `@compute` entry over a storage array
-// `data`, with `x` and `y` read from it, and `V` a module `const` of `vec2<f32>`:
-//
-//   data[1] = (7u / 0u);            integer division by zero is invalid
-//   data[1] = (x / 0);              integer division by zero is invalid
-//   data[1] = (7u % 0u);            integer division by zero is invalid
-//   data[1] = (y << 33u);           shift left value must be less than the bit width of the
-//                                   lhs, which is 32
-//   data[1] = (y >> 40u);           shift right value must be less than the bit width of the
-//                                   lhs, which is 32
-//   (x + (S << 31u)), S: i32 = 3    shift left operation results in sign change
-//   (x + (S << 31u)), S: u32 = 3    '3 << 31' cannot be represented as 'u32'
-//   (x + (3 << 31u))                value 6442450944 cannot be represented as 'i32'
-//   (x + (2147483647 + 1))          value 2147483648 cannot be represented as 'i32'
-//   (x + (-2147483648 / -1))        value 2147483648 cannot be represented as 'i32'
-//   (x + (-(-2147483648)))          value 2147483648 cannot be represented as 'i32'
-//   (x + (M / -1)), M: i32 = MIN    '-2147483648 / -1' cannot be represented as 'i32'
-//   (x + (M % -1)), M: i32 = MIN    '-2147483648 % -1' cannot be represented as 'i32'
-//   (x + u32(-1))                   value -1 cannot be represented as 'u32'
-//   (x / u32(-0.25))                integer division by zero is invalid
-//   (x / u32(-1.0))                 integer division by zero is invalid
-//   (x % u32(-3.0))                 integer division by zero is invalid
-//   (x % u32(K)), K: f32 = 0.5      integer division by zero is invalid
-//   (x / u32(K)), K: f32 = -1       integer division by zero is invalid
-//   (x / u32(V.x)), V.x = -1        integer division by zero is invalid
-//   (x / vec2<u32>(V).x), V.x = -1  integer division by zero is invalid
-//   (x / sign(i32(0.125)))          integer division by zero is invalid
-//   (x << u32(4294967296.0))        shift left value must be less than the bit width of the
-//                                   lhs, which is 32
-//   (x << u32(V.x)), V.x = 2^32     shift left value must be less than the bit width of the
-//                                   lhs, which is 32
-//   clamp(x, 5u, 2u)                clamp called with 'low' (5) greater than 'high' (2)
-//
-// and their neighbours, which Tint accepts: `S * 1000000000` and `S + 1` over a concrete `i32`
-// constant wrap, as do `-M` and `(-2147483648 % -1)`; `u32(N)` for an `i32` constant `N = -1`;
-// `S << 31u` for `S: i32 = -1` and for `S: u32 = 1`; `y / 0.0` on an `f32` the shader computes;
-// `x / u32(K)` for `K: f32 = 1.5`; `x + u32(-1.0)` and `x << u32(-1.0)`; `x / u32(4294967296.0)`,
-// `x / i32(4294967296.0)` and `x / i32(-1.0)`; `x / u32(V.y)` and `x / vec2<u32>(V).y`;
-// `x / sign(i32(2.5))`.
-//
-// Each program above has an answer when the operand is not a constant: an integer `x / 0` is
-// `x` and `x % 0` is 0, a shift amount is taken modulo 32, integer arithmetic wraps, `u32(e)`
-// keeps the bits of an `i32`, and an integer `clamp` is `min(max(e, low), high)`. The CPU
-// oracle computes exactly that (`intDiv` and `intRem` in `scalar-arith.ts`, `clampVal` in
-// `cpu-runtime.ts`), and so does a GPU the moment the operand is not constant. This pass writes that answer where WGSL
-// would refuse to compute it: the zero of a divisor becomes a 1 (`x / 1` is `x`, `x % 1` is 0),
-// a shift amount keeps its low five bits, an operation over constants that Tint refuses for a
-// value its type cannot hold becomes the wrapped value, and a `clamp` whose constant bounds
-// cross becomes `min(max(e, low), high)`, which is one of the two answers WGSL allows a float
-// `clamp` and the only one it allows an integer one. It changes no value the target computes;
-// it spells the value so that the target will compute it.
-//
-// A float constant converted to an integer is one of those operands. WGSL saturates the
-// conversion, so `u32(-1.0)` is a constant 0 and `i32(4294967296.0)` is a constant 2147483647. A
-// divisor or a shift amount made this way is a constant Tint refuses (#578). Tint converts by the
-// operand it is given, so the pass takes the value Tint takes (`floatToInt` has the measured
-// values), and settles the divisor or the amount from it. An integer `sign` of such a value is a
-// constant as well: `sign(i32(0.125))` is 0.
-//
-// It runs after every optimizer tier, O0 included, because an author's constants reach O0 and
-// the optimizer's reach every tier above it. It is neutral: GLSL ES 3.00 leaves a division by
-// zero, a shift past the width and a `clamp` with crossed bounds undefined, so both targets
-// get the WGSL answer. ANGLE (Chromium, SwiftShader) compiled `uint a = (7u / 0u);` in a
-// fragment program with `WARNING: 0:14: '/' : Divide by zero error during constant folding`
-// and a value of its own choosing, and `(S << 31u)` and `clamp(k, 5u, 2u)` with no word; the
-// settled program compiles with none. It rewrites only what WGSL would refuse, so a module that
-// compiled before emits the same bytes. What it cannot evaluate it leaves alone: a float
-// operation over constants (its rounding is the target's), an element of a constant array, an
-// integer builtin other than `abs`, `sign`, `min`, `max`, `clamp` and `~`, and any operand that is
-// not a const-expression (a `let` is not one, whatever it holds). Tint still evaluates the
-// first two when it creates the shader, so `x / u32(f32(0u) - 1.0)` and `x / u32(A[0])` for
-// `const A = array(-1., 2.)` are refused, and nothing here settles them yet.
+/* Why: WGSL evaluates a const-expression when it creates the shader and makes some of them an
+error (#368): an integer division by zero, a shift amount past 31, a shift left, sum, difference,
+product, division or negation of abstract integers whose value its type cannot hold, `u32(-1)`,
+and a `clamp` with crossed bounds. Measured on Tint (Chromium, SwiftShader); the same operation
+on a value the shader computes has an answer, which the CPU oracle computes. ANGLE (the GLSL
+path) compiled `uint a = (7u / 0u);` with `WARNING: '/' : Divide by zero error during constant
+folding` and a value of its own choosing, so both targets get the WGSL answer. A float constant
+converted to an integer saturates, and Tint saturates a literal at the ends of the integer range
+but a named `f32` at the largest `f32` inside it (#578). Tint also evaluates a float operation
+and an element of a constant array, so `x / u32(f32(0u) - 1.0)` and `x / u32(A[0])` for
+`const A = array(-1., 2.)` are refused, and this pass does not settle them. */
 
 import type { BinOp, Expr, ModuleDecl, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
@@ -98,10 +22,6 @@ import { intElemOf, wrapInt } from './opt/expr-utils.js';
 /** A constant's value, one number per component; a scalar has one. */
 type Components = readonly number[];
 
-/** What evaluation reads: the module's constants by name, and each node's value once asked.
- *  The pass asks for an operand's value at every operation above it, so without the memo a deep
- *  expression would be walked once per level. The IR is immutable, so a node's value cannot change;
- *  the constants' own initializers are evaluated without one, while the table still fills. */
 interface Env {
   readonly consts: ReadonlyMap<string, Components>;
   readonly memo?: WeakMap<Expr, Components | null>;
@@ -286,7 +206,6 @@ function evaluate(e: Expr, env: Env): Components | undefined {
 function floatToInt(v: number, int: 'i32' | 'u32', literal: boolean): number | undefined {
   if (!Number.isFinite(v)) return undefined;
   const lo = int === 'i32' ? I32_MIN : 0;
-  // `+ 0` makes the -0 that `Math.trunc(-0.25)` gives a 0.
   const held = (x: number, hi: number): number => Math.min(hi, Math.max(lo, Math.trunc(x) + 0));
   if (literal) return held(v, int === 'i32' ? I32_MAX : U32_MAX);
   const hi = int === 'i32' ? I32_MAX_F32 : U32_MAX_F32;
