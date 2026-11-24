@@ -24,7 +24,7 @@ const require = createRequire(join(root, 'package.json'));
 const fixtures = [
   'journeys/loop-fuse/ops.shade.ts',
   'journeys/mnist/batch.shade.ts',
-  'examples/path-tracer.shade.ts',
+  'examples/gallery/path-tracer/path-tracer.shade.ts',
 ];
 const hash = (text) => createHash('sha256').update(text).digest('hex');
 const json = (file) => JSON.parse(readFileSync(file, 'utf8'));
