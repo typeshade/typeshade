@@ -2197,10 +2197,10 @@ export const WEBGPU_OBJECT_ROWS: readonly Row[] = [
     name: '`GPUTexture.destroy()`',
     covers: ['GPUTexture.destroy'],
     evidence:
-      'src/runtime/resources.ts:71; src/runtime/gl-draw.ts:265-269; examples/hosts/host-program/host.ts:28',
+      'src/runtime/resources.ts:71; src/runtime/gl-draw.ts:265-269; examples/hosts/host-program/host.ts:25',
     webgpu: typed(
       'scripts/user-journey.ts',
-      'Texture.destroy(): the host-program example destroys its target (examples/hosts/host-program/host.ts:28)',
+      'Texture.destroy(): the host-program example destroys its target (examples/hosts/host-program/host.ts:25)',
     ),
     webgl2: typed(
       'scripts/user-journey.ts',
