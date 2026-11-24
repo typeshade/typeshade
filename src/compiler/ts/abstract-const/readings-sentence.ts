@@ -1,4 +1,6 @@
 import ts from 'typescript';
+import { provenI32Minimum, type Reading } from './reading.js';
+import { reachesAbsOfI32, type MinimumReads } from './i32-minimum.js';
 import { skipParenNodes } from './written-syntax.js';
 
 export function readingsSentenceOf(
@@ -25,9 +27,16 @@ export function readingsSentenceOf(
 export const absOfI32Minimum = (
   r: {
     readonly operator: string;
+    readonly operation?: ts.Node;
     readonly readings: { readonly ts: number; readonly unproven?: boolean };
   },
-  all: readonly { readonly ts: number; readonly unproven?: boolean }[],
+  all: readonly Reading[],
+  reads: MinimumReads,
 ): boolean =>
-  r.operator === 'abs' &&
-  [r.readings, ...all].some((x) => x.unproven === true || (x.ts | 0) === -2147483648);
+  r.operator === 'abs'
+    ? [r.readings, ...all].some((x) => x.unproven === true || (x.ts | 0) === -2147483648)
+    : r.operator === 'f32()' &&
+      r.operation !== undefined &&
+      reachesAbsOfI32(r.operation, reads) &&
+      all.length > 0 &&
+      all.every(provenI32Minimum);
