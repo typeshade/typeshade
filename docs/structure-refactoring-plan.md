@@ -430,7 +430,8 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
 
    - P1. The same declaration texts exist, in the same relative order.
      A declaration is a top-level statement that is not a module link or a directive.
-   - P2. Every identifier in every declaration binds to the same declaration as before.
+   - P2. Every identifier in every declaration binds to the same declaration instance as before.
+     Two declarations with equal text in two files are two instances.
    - P3. Every file that exists on both sides exports the same names, bound to the same declarations.
    - P4. Only inert declarations change files.
      An inert declaration runs no code when the module loads (rule list in `scripts/move-purity/inert.ts`).
@@ -442,12 +443,15 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
      the `KNOWN` list (removals only) and documents (paths only) may differ.
 
    Consequence of P4. A slice that must move an active statement is not a pure move.
-   It goes through ordinary review. A top-level `describe` or `it` call is an active statement.
-   A slice that moves test files is therefore an ordinary change, with the title multiset as evidence.
+   It goes through ordinary review.
+   One exception holds for series S11 and S12. A top-level `describe`, `it` or `test` call may move
+   between two files that vitest runs, when both are plain test files.
+   A plain test file has only inert declarations and such calls at the top level.
+   A hook, a `vi.*` call or any other active statement in the source or the target file refuses the move.
+   The source and the target file must also have the same `@vitest-` pragma comments.
 
    Known gaps. The check does not cover these cases:
 
-   - Two declarations with identical text in two files. A redirect between them is not seen.
    - The order in which modules load, when a unit moves to a file that loads at another time.
    - A package entry (`exports` of `package.json`) that points to a deleted file.
    - The program uses `noLib` and no ambient types. Global names bind by text.

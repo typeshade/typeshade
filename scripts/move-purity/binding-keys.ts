@@ -41,7 +41,7 @@ function isTypeOnlyExport(declaration: ts.Declaration | undefined): boolean {
   return false;
 }
 
-export function createKeyer(side: Side): Keyer {
+export function createKeyer(side: Side, instanceId: (unit: Unit) => string): Keyer {
   const { checker } = side;
   const resolve = (symbol: ts.Symbol): ts.Symbol => {
     let current = symbol;
@@ -64,7 +64,7 @@ export function createKeyer(side: Side): Keyer {
     const path = side.pathOf(source.fileName);
     if (path === undefined) return `ext:${externalName(source.fileName)}:${name}`;
     const unit = analyzeSource(source, path).byNode.get(top);
-    return unit ? `${unit.hash}:${name}` : `file:${path}:${name}`;
+    return unit ? `${instanceId(unit)}:${name}` : `file:${path}:${name}`;
   };
 
   const keyOfSymbol = (symbol: ts.Symbol | undefined, text: string, self?: ts.Node): string => {

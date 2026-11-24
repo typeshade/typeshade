@@ -10,7 +10,7 @@ export interface Title {
 const SUITES = new Set(['describe', 'it', 'test']);
 const MEMBERS = new Set(['each', 'skip', 'only', 'todo', 'concurrent', 'fails', 'skipIf', 'runIf']);
 
-function isSuiteCallee(expression: ts.Expression): boolean {
+export function isSuiteCallee(expression: ts.Expression): boolean {
   if (ts.isCallExpression(expression)) return isSuiteCallee(expression.expression);
   if (ts.isIdentifier(expression)) return SUITES.has(expression.text);
   if (ts.isPropertyAccessExpression(expression)) {

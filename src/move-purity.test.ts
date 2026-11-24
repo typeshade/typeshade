@@ -162,7 +162,7 @@ describe('the move-purity check (docs/structure-refactoring-plan.md, S0 item a)'
     expect(report.titles.vanished.map((t) => t.title).sort()).toEqual(['e %s', 'o', 't']);
   });
 
-  it('refuses a test moved between test files, which is an active statement', () => {
+  it('keeps the titles of a test moved between plain test files', () => {
     const one = `describe('one', () => {\n  it('a', () => {});\n});\n`;
     const two = `describe('two', () => {\n  it('b', () => {});\n});\n`;
     const report = checkMove(
@@ -170,7 +170,7 @@ describe('the move-purity check (docs/structure-refactoring-plan.md, S0 item a)'
       tree({ 'src/a.test.ts': one, 'src/b.test.ts': two }),
     );
     expect(report.titles).toEqual({ vanished: [], appeared: [] });
-    expect(report.findings.map((f) => f.kind)).toEqual(['active unit moved']);
+    expect(report.pure).toBe(true);
   });
 
   describe('the order of declarations', () => {

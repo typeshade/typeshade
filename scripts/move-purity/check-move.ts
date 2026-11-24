@@ -1,3 +1,4 @@
+import type ts from 'typescript';
 import { createKeyer } from './binding-keys.js';
 import { compareTitles } from './compare-titles.js';
 import { matchUnits, type UnitDiff } from './compare-units.js';
@@ -80,16 +81,26 @@ export function checkMove(
     const root = options.root ?? FIXTURE_ROOT;
     const baseSide = createSide(root, base);
     const headSide = createSide(root, head);
-    const baseKeyer = createKeyer(baseSide);
-    const headKeyer = createKeyer(headSide);
     const match = matchUnits(baseSide, headSide, sources);
     units = match.diff;
+    const changedSet = new Set(sources);
+    const headIds = new Map<ts.Node, string>();
+    for (const [from, to] of [...match.kept, ...match.moved]) {
+      headIds.set(to.node, `${from.path}#${from.index}`);
+    }
+    const baseKeyer = createKeyer(baseSide, (unit) => `${unit.path}#${unit.index}`);
+    const headKeyer = createKeyer(
+      headSide,
+      (unit) =>
+        headIds.get(unit.node) ??
+        `${changedSet.has(unit.path) ? 'new:' : ''}${unit.path}#${unit.index}`,
+    );
     titles = compareTitles(base, head, sources);
     directives = directiveViolations(baseSide, headSide, sources, match.diff.moved);
     const files = filePairs(baseSide, headSide, sources, match.moved);
     findings.push(
       ...reboundFindings([...match.kept, ...match.moved], baseKeyer, headKeyer),
-      ...movedUnitFindings(match.moved),
+      ...movedUnitFindings(match.moved, baseSide, headSide),
       ...surfaceFindings(baseSide, headSide, baseKeyer, headKeyer),
       ...moduleEvaluationFindings({
         base: baseSide,
