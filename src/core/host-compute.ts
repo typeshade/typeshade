@@ -1,26 +1,4 @@
 // Implements: Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
-// ═══ (Rules 8.24 and 11.8, surface §67, change 0016)                          ═══
-//
-// `entry(bindings, workgroups)` runs in the order the host made it, after every kernel call and
-// entry call before it, as a kernel call does (`core/resident.ts`), so an entry and a kernel
-// function can share a `Resident` and see each other's writes.
-//
-// A runtime-sized storage array binding may be a `Resident` (0013's handle): on WebGPU it is
-// bound as the buffer it already has on the device and nothing is read back; on the CPU tier it
-// is the array the handle holds, brought up to date first. The tiers are tried in the order
-// `configure({ prefer })` sets: WebGPU, WebGL2, then the CPU tier. On WebGL2 the
-// entry runs as the pass program of change 0054 (`gl-compute.ts`), its storage as textures of
-// words, and a `Resident` is the array it holds, as on the CPU tier. A scratch array
-// of a `fuse` scope (change 0058) is no binding for an entry: the call is refused, and the
-// refusal names the array as scratch.
-//
-// The workgroup count may be one a kernel wrote (change 0075): `{ indirect, offset? }`, three
-// elements of a `Resident<Uint32Array>`. WebGPU dispatches it with `dispatchWorkgroupsIndirect`
-// and reads nothing back. The CPU tier and WebGL2 read the three elements from the host copy,
-// brought up to date, when the call runs. A count with a 0 in it, or one past the device's
-// `maxComputeWorkgroupsPerDimension`, runs nothing on every tier, as WebGPU's queue does.
-//
-// Like the rest of `typeshade/runtime` it imports no compiler.
 
 import {
   boxed,
@@ -83,26 +61,14 @@ import type { GlComputeProgram } from './passes/gl-compute.js';
 import type { Tier } from './tiers.js';
 import { uploadImage } from './gl-image.js';
 
-/**
- * How an entry call outside a `fuse` scope runs on each tier: as a program-runtime pipeline and
- * pass (change 0120, D2), through `core/host-entry-program.ts`, which the host face installs here
- * at its first call. This file holds only the slot, so `typeshade/fuse`, whose plan borrows this
- * file (`entryHost`), reaches no program runtime (`scripts/bundle-boundary.ts`). A call in the
- * plan of a scope runs as it did (`onGpu`, `onGl`, `onCpu`); the plans move in a later part of
- * milestone M4.
- */
 export interface EntryPrograms {
-  /** Dispatch on WebGPU and read each written binding back into the caller's value, a binding
-   *  in `checked.onDevice` bound as it is. */
   gpu(d: GpuDevice, e: ComputeEntry, checked: Checked, wg: Workgroups): Promise<void>;
-  /** Dispatch the entry's pass program on WebGL2, and read each written binding back. */
   gl(
     gl: WebGL2RenderingContext,
     e: ComputeEntry,
     checked: Checked,
     wg: readonly [number, number, number],
   ): Promise<void>;
-  /** Run every invocation on the CPU tier, and read each written binding back. */
   cpu(
     cpu: GeneratedCpu,
     e: ComputeEntry,
@@ -111,7 +77,6 @@ export interface EntryPrograms {
   ): Promise<void>;
 }
 
-/** The slot `core/host-entry-program.ts` fills. */
 export const entryPrograms: { run?: EntryPrograms } = {};
 
 function checkArity(e: ComputeEntry, argc: number): void {
@@ -121,13 +86,6 @@ function checkArity(e: ComputeEntry, argc: number): void {
     );
 }
 
-/**
- * The `Resident` each binding of a call of `e` stands for (Rule 8.24), after the number of
- * arguments and the refusals that need no value: a `Resident` for a binding it may not stand for,
- * a scratch array of a `fuse` scope, and one `Resident` for two bindings. Reads no element.
- *
- * @throws `TypeError` naming the entry and the binding.
- */
 export function residentsOf(
   e: ComputeEntry,
   argc: number,
@@ -143,9 +101,6 @@ export function residentsOf(
         throw new TypeError(
           `${e.name}(): binding "${b.name}" (${b.s}) takes no Buffer: only a storage array with no size does.`,
         );
-      // A scratch array of a `fuse` scope is for the kernel calls in the body of that scope
-      // (change 0058). It holds no host array, so the check of the value below would name
-      // "undefined": the handle says what it is.
       const refusal = s.outside?.(`${e.name}(): binding "${b.name}"`);
       if (refusal !== undefined) throw refusal;
       const twin = [...states].find(([, t]) => t === s);
@@ -158,14 +113,6 @@ export function residentsOf(
   return states;
 }
 
-/**
- * The `Resident` an indirect workgroup count names (change 0075), with the refusal that needs no
- * value: a scratch array of a `fuse` scope, which only a kernel call takes. Undefined for a count
- * that is no object with an `indirect` key, or whose `indirect` is no `Resident`: the check of the
- * call refuses those.
- *
- * @throws `TypeError` naming the entry and `workgroups.indirect`.
- */
 export function indirectOf(e: ComputeEntry, workgroups: unknown): ResidentArrayState | undefined {
   if (typeof workgroups !== 'object' || workgroups === null || !('indirect' in workgroups))
     return undefined;
@@ -175,38 +122,19 @@ export function indirectOf(e: ComputeEntry, workgroups: unknown): ResidentArrayS
   return s;
 }
 
-/** An indirect workgroup count, checked (change 0075): the `Resident<Uint32Array>` that holds it
- *  and the element its three counts start at. */
 export interface IndirectCount {
   readonly state: ResidentArrayState;
   readonly offset: number;
 }
 
-/** An entry call the call layer has checked (Rule 8.24): its Residents, its bindings with each
- *  Resident as its view, and the workgroups it dispatches: three counts, or the `Resident` that
- *  holds them (change 0075). Nothing has run or been uploaded. */
 export interface CheckedEntry {
-  /** The owner captured by an ordinary call; a recorded call uses its scope's owner. */
   readonly owner?: CallOwner;
-  /** A call on a resource, recorded and submitted later (change 0138, R2): on WebGL2 its
-   *  submission flushes and a `read()` of what it wrote waits on a fence (Amendment A5, default 6).
-   *  A call with plain data keeps today's meaning, and marks nothing. */
   readonly recorded?: boolean;
-  /** The `Resident` each binding stands for, by binding. */
   readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
   readonly checked: Checked;
   readonly wg: readonly [number, number, number] | IndirectCount;
 }
 
-/**
- * The workgroups of a call, checked (Rule 8.24): three counts, or an indirect count (change 0075)
- * whose array is a live `Resident<Uint32Array>` with three elements from the offset, and is no
- * binding the entry writes, since WebGPU refuses a buffer that one dispatch reads its counts from
- * and writes.
- *
- * @throws `TypeError` naming the entry and `workgroups`, `workgroups.indirect` or
- *   `workgroups.offset`.
- */
 function countsOf(
   e: ComputeEntry,
   workgroups: unknown,
@@ -238,14 +166,6 @@ function countsOf(
   return { state: s, offset };
 }
 
-/**
- * Check a call of an entry before anything runs (Rule 8.24): the number of arguments, each
- * `Resident` for a binding it may stand for, a `Resident` once per binding, and every value
- * against its binding. Uploads nothing. A `Resident` of numbers or vectors is checked by its
- * element type and its length alone, and none of its elements is read (#717).
- *
- * @throws `TypeError` naming the entry and the binding.
- */
 export function checkEntryCall(
   e: ComputeEntry,
   argc: number,
@@ -253,14 +173,12 @@ export function checkEntryCall(
   workgroups: unknown,
 ): CheckedEntry {
   const states = residentsOf(e, argc, bindings);
-  // A `Resident` stands for the array it holds.
   let view = bindings;
   if (typeof bindings === 'object' && bindings !== null && !Array.isArray(bindings)) {
     const o: Record<string, unknown> = { ...(bindings as Record<string, unknown>) };
     for (const [b, s] of states) o[b.name] = s.view();
     view = o;
   }
-  // Every value is checked before anything runs or is uploaded.
   const residents = new Set([...states.keys()].map((b) => b.name));
   return {
     states,
@@ -269,9 +187,6 @@ export function checkEntryCall(
   };
 }
 
-/** What a scope borrows of this file to record an entry call, settle its tier and run it
- *  (changes 0069 and 0118), so that `typeshade/fuse` does not import the tiers of an entry
- *  (WebGL2, the CPU) to hold the plan. */
 export const entryHost = {
   residentsOf,
   indirectOf,
@@ -281,7 +196,6 @@ export const entryHost = {
   entryInputs,
 };
 
-/** Incoming contents in binding order, followed by a device-held indirect count. */
 export function entryInputs(
   e: ComputeEntry,
   c: CheckedEntry,
@@ -296,21 +210,6 @@ export function entryInputs(
   return states;
 }
 
-/**
- * Call a `@compute` entry from host code (Rule 8.24): dispatch `workgroups` workgroups of it,
- * or the three counts a `Resident<Uint32Array>` holds (`{ indirect, offset? }`, change 0075),
- * with `bindings` on the first tier its selected owner allows that can run it (Rule 11.8),
- * and read every storage binding it writes back into the caller's
- * value in place, or leave it on the device in a `Resident`. Calls run one after another, in
- * the order they were made.
- *
- * @throws `TypeError` naming the entry and the binding for a value that does not fit, and for
- *   an entry the CPU tier cannot run (a barrier, a texture) where WebGPU does not run it, and
- *   for a scratch array of a `fuse` scope, which only the kernel calls in the body take;
- *   `Error` when no tier it may use can run it. A call made inside the body of `fuse()` is
- *   recorded and forms a group of its own in the scope's plan (Rule 11.13, change 0069); one
- *   there that takes a resource throws a `TypeError` at the call (change 0138, R4).
- */
 export function callCompute(
   cpu: GeneratedCpu,
   e: ComputeEntry,
@@ -327,8 +226,6 @@ export function callCompute(
     e = specializeEntry(e, options);
   } catch (err) {
     if (fuseSlot.active !== undefined) throw err;
-    // A queued call's written Residents must retain even a preparation error for read().
-    // Keep its place in the queue, without ever dispatching it.
     prepared = false;
     refusal = err;
   }
@@ -337,8 +234,6 @@ export function callCompute(
       ? e.bindings.filter((b) => isResource((bindings as Record<string, unknown>)[b.name]))
       : [];
   if (fuseSlot.active !== undefined) {
-    // Today's `fuse()` records a `Buffer` of scalars, as it recorded a `Resident` (change 0138,
-    // Amendment A10, slice 1); a `Buffer` of structs and a `Uniform` are milestone 4's `fuse(fn)`.
     const region =
       typeof bindings === 'object' && bindings !== null
         ? e.bindings.find((b) => isRegionResource((bindings as Record<string, unknown>)[b.name]))
@@ -358,15 +253,12 @@ export function callCompute(
       callSite(callCompute, 1),
     );
   }
-  // A call on a resource does not block (change 0138, R2).
   if (resources.length > 0) {
     if (!prepared) throw refusal;
-    // A use the check refuses fixes no open element (Amendment A12, D2).
     return tentatively(() =>
       recordCompute(cpu, e, argc, bindings as Record<string, unknown>, workgroups, reads),
     ) as never;
   }
-  // A recorded call that failed is thrown at the next call (Amendment A5, default 7).
   try {
     throwFailure();
   } catch (err) {
@@ -402,7 +294,6 @@ export function callCompute(
     checkIncoming(entryInputs(e, checked, reads));
     await runEntry(cpu, e, checked, undefined);
   });
-  // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
   call.then(
     () => written.forEach((s) => (s.error = undefined)),
     (err: unknown) => written.forEach((s) => (s.error = err)),
@@ -410,17 +301,6 @@ export function callCompute(
   return call;
 }
 
-/**
- * A call of a `@compute` entry whose bindings include a resource (change 0138, R2): checked now,
- * recorded with the values it sees, and run once it is submitted. It returns nothing; a call that
- * writes a plain array returns a promise and fills it when it has run (Amendment A11, Q7). A
- * uniform binding takes a `Uniform` (an exported binding among them) by its value at the call; a
- * storage array with no size takes a `Buffer` of its class, or of its scalars.
- *
- * @throws `TypeError` naming the entry and the binding, now: for a written binding that is no
- *   resource, and for a resource where the binding takes none; the error of an earlier recorded
- *   call that failed (Amendment A5, default 7).
- */
 function recordCompute(
   cpu: GeneratedCpu,
   e: ComputeEntry,
@@ -429,12 +309,9 @@ function recordCompute(
   workgroups: unknown,
   reads: IncomingReads,
 ): Promise<unknown> | undefined {
-  // The generated module calls `callCompute` of `core/host-entry-program.ts`, which calls this.
   const site = callSite(callCompute, 1);
   throwFailure();
   const mapped: Record<string, unknown> = { ...bindings };
-  // The device of the call, at the call (R3): the one its resources belong to, or with none of
-  // its own the device in use. A call that mixes devices is refused before anything is taken.
   const indirect =
     typeof workgroups === 'object' && workgroups !== null && 'indirect' in workgroups
       ? workgroups.indirect
@@ -451,12 +328,8 @@ function recordCompute(
     undefined,
     callDefault(),
   );
-  // A `Buffer<u32>` of counts that a failed call wrote throws its error at each later call that
-  // takes it, as a binding does (A7, decision b; Amendment A10, Q-I).
   const countsError = residentState(indirect)?.error;
   if (countsError !== undefined) throw countsError;
-  // An indirect count fixes an open element as `u32`, and a storage array with no size as its
-  // scalar (change 0138, Amendment A12, decision 3 and D3).
   decide(residentState(indirect), 'u32', `${e.name}(): "workgroups.indirect"`, site);
   for (const b of e.bindings)
     if (isBuffer(b) && b.layout.k === 'a' && b.layout.n === null)
@@ -466,7 +339,6 @@ function recordCompute(
         `${e.name}(): binding "${b.name}"`,
         site,
       );
-  // Each binding is taken with nothing changed yet; a refusal ends the check of what was taken.
   const taken: RecordedArgument[] = [];
   try {
     for (const b of e.bindings) {
@@ -489,15 +361,11 @@ function recordCompute(
     for (const t of taken) t.buffer?.done();
     throw err;
   }
-  // Every binding is checked at the call; only then are the values the call sees copied out (the
-  // review of #1236, B2 and S2).
   const { uploads } = commitArguments(taken, () => checkEntryCall(e, argc, mapped, workgroups));
   const written = e.bindings.flatMap((b) => {
     const s = isBuffer(b) && b.writes ? residentState(mapped[b.name]) : undefined;
     return s === undefined ? [] : [s];
   });
-  // A plain array the call writes makes it wait, and it is filled when the call has run
-  // (Amendment A10, A7's deferred question 4; Amendment A11, Q7).
   const waits = taken.some((t) => t.waits === true);
   const done = joinRecorded(
     `${e.name}()`,
@@ -514,24 +382,12 @@ function recordCompute(
   return waits ? done : undefined;
 }
 
-/** What one tier of the call layer makes of an entry call (Rule 11.8): the reason it cannot run
- *  the call, or what it runs the call with. */
 export type EntryTierFit =
   | { readonly why: string }
   | { readonly why?: undefined; readonly tier: 'webgpu'; readonly d: GpuDevice }
   | { readonly why?: undefined; readonly tier: 'webgl2'; readonly gl: WebGL2RenderingContext }
   | { readonly why?: undefined; readonly tier: 'cpu' };
 
-/**
- * Whether `tier` can run a call of the entry `e` for `owner` (Rule 11.8). It gives the WebGPU
- * device, the WebGL2 context, or the CPU tier. Otherwise it gives the reason in the words that the
- * `Error` of a call no tier can run gives the tier, after `webgpu: `, `webgl2: ` or `cpu: `.
- *
- * This is the one place that words the reason of each tier for an entry call. `runEntry` runs a
- * call on the first tier that can run it. The planner of a `fuse` scope settles the same tier
- * before anything runs, through `entryHost`, and a group that runs on a later tier than its
- * plan's says the reasons of the tiers before its own (Rule 11.13, change 0118).
- */
 export async function entryTierFit(
   e: ComputeEntry,
   owner: CallOwner,
@@ -552,15 +408,6 @@ export async function entryTierFit(
   return { tier: 'cpu' };
 }
 
-/**
- * Run a checked entry call on the first tier that can run it (Rule 11.8). Outside a scope
- * (`run` absent) the dispatch is its own submission. In the plan of a scope (`run`, change 0069)
- * the WebGPU dispatch joins the plan's batch, and a tier that reads the host first submits the
- * batch before it. Returns what the call wrote, in place.
- *
- * @throws `TypeError` for an entry the CPU tier cannot run and no other tier runs, naming what the
- *   entry reaches; `Error` naming each tier's reason otherwise.
- */
 export async function runEntry(
   cpu: GeneratedCpu,
   e: ComputeEntry,
@@ -592,8 +439,6 @@ export async function runEntry(
           b.name,
           s.bufferFor(d, b.layout, () => packed(b, s.host), b.writes),
         );
-      // An indirect count is read from the array's device buffer, which the dispatch only reads
-      // (change 0075): a newer host copy is uploaded, and a newer device copy stays.
       const grid: Workgroups =
         'state' in wg
           ? {
@@ -606,7 +451,6 @@ export async function runEntry(
               offset: 4 * wg.offset,
             }
           : wg;
-      // The owner's flavor of the emulated double picks the WGSL and the guard (change 0073).
       const ge = flavored(e, owner.fp64Flavor(d));
       if (run === undefined)
         return (entryPrograms.run?.gpu ?? onGpu)(d, ge, { ...checked, onDevice }, grid);
@@ -621,16 +465,10 @@ export async function runEntry(
       const grid = await gridOf(wg, owner, run);
       if (grid === undefined) return;
       await hostCopies(states, checked.values, run);
-      // The submission flushes the context, and a read() of what the call wrote waits on a fence
-      // (change 0138, Amendment A5, default 6).
-      // Only a recorded call: a plan of a scope keeps its own submission (Rule 11.13), and a call
-      // with plain data read its values back inside the call (S3 of the review of #1238).
       if (run === undefined && c.recorded === true) {
         usedGl(gl);
         for (const [b, s] of states) if (b.writes) s.fence = gl;
       }
-      // The program runtime's WebGL2 dispatch binds a `_fp64` guard of its own by that name, so an
-      // authored binding of that name runs as it did (change 0125).
       if (
         run === undefined &&
         entryPrograms.run !== undefined &&
@@ -653,36 +491,23 @@ export async function runEntry(
     onCpu(selected.cpu, selected.entry, checked.values, grid);
     return;
   }
-  // What the entry itself needs is the refusal the author can act on.
   if (noCpu !== undefined) throw new TypeError(`${e.name}() has no tier: ${why.join('; ')}.`);
   throw new Error(`${e.name}(): no tier it may use can run it (${why.join('; ')}).`);
 }
 
-/** The layout of the array of an indirect count: `u32`s, 4 bytes each (change 0075). */
 const COUNTS = { k: 'a', n: null, st: 4, e: { k: 's', t: 'u32' } } as const;
 
-/** The specification's default of `maxComputeWorkgroupsPerDimension`. */
 const MOST_WORKGROUPS = 65535;
 
-/**
- * The grid a tier that runs on the host runs (change 0075): the counts as written, or the three
- * elements of an indirect count's array, read from its host copy brought up to date when the call
- * runs. Undefined when the grid has a 0 in it, or a count past the owner's WebGPU device's
- * `maxComputeWorkgroupsPerDimension` (65535 without one): WebGPU's queue runs nothing for either
- * (D5). A read of the device counts as a submission in the plan of a scope.
- */
 async function gridOf(
   wg: readonly [number, number, number] | IndirectCount,
   owner: CallOwner,
   run: PlanRun | undefined,
 ): Promise<readonly [number, number, number] | undefined> {
   if (!('state' in wg)) return wg;
-  // The counts are only read: a copy equal to the device's keeps the buffer as it is.
   if ((await wg.state.sync(true)) && run !== undefined) run.counts.submissions++;
   const words = wg.state.host as Uint32Array;
   const grid = [words[wg.offset]!, words[wg.offset + 1]!, words[wg.offset + 2]!] as const;
-  // The selected owner's device limits. The default owner's are the configured runtime's or
-  // the call layer's once it is made, without requesting another device.
   const limits =
     owner === defaultOwner
       ? ((configuredRuntime()?.device as GpuDevice | undefined)?.limits ?? madeReport()?.limits)
@@ -691,26 +516,17 @@ async function gridOf(
   return grid.every((n) => n > 0 && n <= most) ? grid : undefined;
 }
 
-/** Bring each resident binding's host copy up to date for a tier that runs on the host, and give
- *  the call that copy: a zeroed array has none until now, and the check saw the zeros it would
- *  hold, so a call that writes the array writes the copy and not those zeros (change 0065). In the
- *  plan of a scope (`run`), a read of the device counts as a submission, as it does for a kernel
- *  call. */
 async function hostCopies(
   states: ReadonlyMap<EntryBinding, ResidentArrayState>,
   values: Record<string, unknown>,
   run: PlanRun | undefined,
 ): Promise<void> {
   for (const [b, s] of states) {
-    // A read of the device is a submission, which the report of a scope counts.
     if ((await s.sync()) && run !== undefined) run.counts.submissions++;
     values[b.name] = s.host;
   }
 }
 
-/** Run `e` on WebGL2: each storage binding packed to words, the uniforms as the host gave them,
- *  each image an `RGBA8` texture with its sampler's filter and address, and every storage
- *  binding the entry writes read back into the caller's value in place. */
 async function onGl(
   gl: WebGL2RenderingContext,
   e: ComputeEntry,
@@ -735,8 +551,6 @@ async function onGl(
         throw new TypeError(
           `${e.name}(): binding "${t.name}" is a Texture on the WebGPU device, which the WebGL2 tier does not read yet (Rule 8.24); pass an image source for a call that may fall back.`,
         );
-      // An unpaired texture is only loaded or measured, which no filter changes; a texture
-      // with no mipmaps still needs a filter that reads none.
       const s = (t.sampler !== null ? checked.samplers.get(t.sampler) : undefined) ?? {
         filter: 'nearest',
         address: 'clamp',
