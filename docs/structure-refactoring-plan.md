@@ -231,6 +231,13 @@ Decision D4: the naming rules below are enforced by a policy test (S0 item c). R
 A slice is one responsibility moved out of one file. One slice is one pull request.
 Do these steps in order. A slice of S1 to S13 starts only after S0 items a and b are merged (decision D1).
 
+0. Remove the banned comments of the file first, in a pull request of its own (decision D13, section 6.5). The tool of step 6 refuses a unit with banned comment lines.
+   1. `bun run comments:remove -- <file> --keep-invariants --dry-run` lists the review candidates and the lines.
+   2. `bun run comments:remove -- <file> --keep-invariants` writes the file. Without `--keep-invariants`, it also removes the candidates.
+   3. `bun run bake:comment-baseline`, then `bun run bake:file-size-baseline`.
+   4. Commit with `Change: none, comment removal without behaviour change` and the trailer `Move: comments`.
+   5. `bun run move:check --base origin/main --require` passes. It runs the comments mode.
+   6. The reviewing sub-agent reports on the candidates (decision D13). Merge, then start step 1.
 1. Pick one responsibility of one file of `scripts/file-size-baseline.json`.
 2. Check the open pull requests for the file (section 7.1). Pick another file if one edits it.
 3. Open a draft pull request with the slice's scope. Push the first commit at once.
@@ -241,7 +248,7 @@ Do these steps in order. A slice of S1 to S13 starts only after S0 items a and b
 8. Leave the test files unedited. The next pull request moves them (decision D2).
 9. Run `bun run bake:file-size-baseline`. The numbers go down and no number goes up.
 10. When a `KNOWN` edge of `src/layer-policy.test.ts` is gone, delete its line.
-11. Run `bun run bake:comment-baseline` only if a comment moved with the code.
+11. Run `bun run bake:comment-baseline` only if a comment moved with the code. After step 0 the units carry no banned comment, so it is normally not needed.
 12. Run the move-purity check of S0 item a (`bun run move:check --base origin/main --require`). It includes the module-surface check of S0 item f.
 13. Run the checks of section 8.
 14. Commit with `Change: none, internal move without behaviour change` and the trailer `Move: pure`. Add `Docs-Impact:` if the hook asks.
@@ -292,23 +299,24 @@ Each S0 item is its own pull request. An S0 item is not a pure move. Its commit 
 Proposal: S2 to S13 follow the order of the layers, from the bottom. A row is a series of slices, not a deadline.
 Status of each row: not started. Under decision D2, each series moves its sources first and its tests in the next pull request.
 
-| ID  | Status      | Files and responsibility                                                                                                                      | Exit condition                                                                  |
-| --- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| S0  | In progress | The tools and checks, items a to h below.                                                                                                     | Items a and b are merged; items c to h are merged or recorded as open.          |
-| S1  | Not started | The 11 importing files of the 32 `KNOWN` edges. `core/host-draw.ts`, `core/host-entry-program.ts` and `core/host-runtime.ts` move up (D3).    | `KNOWN` is empty; `core` imports no other directory.                            |
-| S2  | Not started | `core/ir`: `node.ts` and 3 more files above the limit, then the 1 test file.                                                                  | No file of `core/ir` is in the baseline.                                        |
-| S3  | Not started | `core/backends`: `glsl.ts`, `wgsl.ts`, then their 4 test files.                                                                               | No file of `core/backends` is in the baseline.                                  |
-| S4  | Not started | `core/passes`: 17 files, then 14 test files. The files include `kernel-lower.ts` (split in R5).                                               | No file of `core/passes` is in the baseline.                                    |
-| S5  | Not started | `core` root files (22, then 12 test files) and `core/coverage` (6 files), `core/testing`, `core/debug`, `core/spec-conformance`, `core/libm`. | No file of `core` is in the baseline.                                           |
-| S6  | Not started | `rhi`: 5 files, then 1 test file.                                                                                                             | No file of `rhi` is in the baseline.                                            |
-| S7  | Not started | `runtime`: 7 files, then 10 test files.                                                                                                       | No file of `runtime` is in the baseline.                                        |
-| S8  | Not started | `compiler/ts/lower`: 16 files, including `function.ts`, `statement.ts` and `expression-call.ts`.                                              | No file of `compiler/ts/lower` is in the baseline.                              |
-| S9  | Not started | `compiler/ts` (rest): 25 files, including `abstract-const.ts` and `structs.ts`.                                                               | No non-test file of `compiler/ts` is in the baseline.                           |
-| S10 | Not started | `language-service`: 7 files, then 11 test files. The files include `diagnostics.ts` and `service.ts`.                                         | No file of `language-service` is in the baseline.                               |
-| S11 | Not started | Test files of `compiler/ts` (58 files, 53,343 lines), after S8 and S9.                                                                        | No test file of `compiler/ts` is in the baseline.                               |
-| S12 | Not started | The 14 test files of `src` root, including `fuse.test.ts` (7,088 lines).                                                                      | No file of `src` root is in the baseline.                                       |
-| S13 | Not started | Facade removal, one pull request per directory, after the series of that directory.                                                           | No facade without a caller outside its directory; `docs:refs` and `build` pass. |
-| S14 | Not started | Cycles of `src/compiler/ts`: steps 1 to 10 of the structure analysis (section 6.4).                                                           | No cycle of emitted imports in `src/compiler/ts`.                               |
+| ID  | Status      | Files and responsibility                                                                                                                                      | Exit condition                                                                  |
+| --- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| S0  | In progress | The tools and checks, items a to h below.                                                                                                                     | Items a and b are merged; items c to h are merged or recorded as open.          |
+| S1  | Not started | The 11 importing files of the 32 `KNOWN` edges. `core/host-draw.ts`, `core/host-entry-program.ts` and `core/host-runtime.ts` move up (D3).                    | `KNOWN` is empty; `core` imports no other directory.                            |
+| S2  | Not started | `core/ir`: `node.ts` and 3 more files above the limit, then the 1 test file.                                                                                  | No file of `core/ir` is in the baseline.                                        |
+| S3  | Not started | `core/backends`: `glsl.ts`, `wgsl.ts`, then their 4 test files.                                                                                               | No file of `core/backends` is in the baseline.                                  |
+| S4  | Not started | `core/passes`: 17 files, then 14 test files. The files include `kernel-lower.ts` (split in R5).                                                               | No file of `core/passes` is in the baseline.                                    |
+| S5  | Not started | `core` root files (22, then 12 test files) and `core/coverage` (6 files), `core/testing`, `core/debug`, `core/spec-conformance`, `core/libm`.                 | No file of `core` is in the baseline.                                           |
+| S6  | Not started | `rhi`: 5 files, then 1 test file.                                                                                                                             | No file of `rhi` is in the baseline.                                            |
+| S7  | Not started | `runtime`: 7 files, then 10 test files.                                                                                                                       | No file of `runtime` is in the baseline.                                        |
+| S8  | Not started | `compiler/ts/lower`: 16 files, including `function.ts`, `statement.ts` and `expression-call.ts`.                                                              | No file of `compiler/ts/lower` is in the baseline.                              |
+| S9  | Not started | `compiler/ts` (rest): 25 files, including `abstract-const.ts` and `structs.ts`.                                                                               | No non-test file of `compiler/ts` is in the baseline.                           |
+| S10 | Not started | `language-service`: 7 files, then 11 test files. The files include `diagnostics.ts` and `service.ts`.                                                         | No file of `language-service` is in the baseline.                               |
+| S11 | Not started | Test files of `compiler/ts` (58 files, 53,343 lines), after S8 and S9.                                                                                        | No test file of `compiler/ts` is in the baseline.                               |
+| S12 | Not started | The 14 test files of `src` root, including `fuse.test.ts` (7,088 lines).                                                                                      | No file of `src` root is in the baseline.                                       |
+| S13 | Not started | Facade removal, one pull request per directory, after the series of that directory.                                                                           | No facade without a caller outside its directory; `docs:refs` and `build` pass. |
+| S14 | Not started | Cycles of `src/compiler/ts`: steps 1 to 10 of the structure analysis (section 6.4).                                                                           | No cycle of emitted imports in `src/compiler/ts`.                               |
+| S15 | Not started | Banned comments: the 41 clean oversized files of D12 first, then each directory in the order of S2 to S10, `Move: comments` pull requests (D13, section 6.5). | `scripts/comment-baseline.json` is empty.                                       |
 
 ### 6.1 Series S0, the tools and checks
 
@@ -475,6 +483,127 @@ Fact: the 10 + 9 + 1 + 1 + 1 + 2 + 2 + 5 + 2 + 3 + 3 + 2 rows add up to 41.
 The other 82 oversized non-test files are in a cycle (34) or hold an active unit and no cycle (48).
 Some of the 41 are large: `src/core/passes/kernel-lower.ts` has 2,094 lines and `src/compiler/ts/host-face.ts` has 2,006 lines.
 A clean file can still need a decomposition (decision D7) when one unit passes 400 lines.
+
+### 6.5 Series S15, the banned comments
+
+Fact: the tool `scripts/move-declarations.ts` refused all five clean oversized files that pull request #1525 tried.
+Each refusal named banned comment lines in the units to move: 33, 11, 62, 3 and 3 lines.
+A new file is not in `scripts/comment-baseline.json`, so `src/comment-policy.test.ts` fails a new file that carries a banned comment.
+So a file needs its comments removed before its declarations can move.
+
+Fact: `bun scripts/bake-comment-baseline.ts` measured on `HEAD` (`60e386b3`, 2026-11-24): the baseline holds 52,644 banned comment lines in 967 files.
+`src/comment-policy.test.ts` counts the same lines. The 41 files of D12 hold 5,908 of them.
+
+Decision D13: each file loses its banned comments before its declarations move.
+Authority: `CLAUDE.md`, Comments (the owner's rule of 2026-11-17: "99% 가까운 금지로"; an existing comment goes in a pull request for its directory; a test or an assert holds an invariant before its comment goes).
+
+1. A comment-removal pull request has the title `Move: ...` and a commit line `Move: comments`.
+   `bun scripts/move-purity.ts` runs the comments mode on it (section 8, item 9a).
+2. The orchestrating agent merges it under the conditions of D5, and one more.
+   The conditions of D5 are: the check passes on the merged head, every required check is green,
+   and the orchestrating agent ran the checker of `main` on the range.
+3. The added condition: an independent reviewing sub-agent read the removed comments of the review-candidate list
+   and reported that none states an invariant that no test or assert holds.
+4. A comment that does state one stays (`--keep-invariants`).
+   An ordinary pull request then adds the test or the assert first, and removes the comment (`CLAUDE.md`, Comments).
+
+Reason: the token comparison proves that the code did not change.
+Only the judgement about invariants is not mechanical.
+The review candidates are the comments with invariant-like words (`scripts/remove-comments/invariant-words.ts`).
+A comment without such a word is not proof that it states no invariant. The reviewing sub-agent reads the list and the diff.
+
+Proposal: S15 runs in this order.
+
+1. The 41 clean oversized files of D12, each before its slice. The banned lines of each are in the second table below.
+2. Then each directory in the order of S2 to S10: its sources, then its tests.
+3. Then the rest (`src/cli`, `src/random`, `src/core/coverage` and the other directories of the first table).
+
+A pull request can hold one file or one directory. The size of the diff is the banned lines of the table.
+`src/language-service/hover.ts` has 472 and `src/core/builtins/coredef.ts` has 1.
+
+Fact: the banned comment lines on `HEAD`, by the directories of the clean report (`directoryOf` of `scripts/move-purity/clean-report.ts`).
+
+| Directory                   | Files | Non-test lines | Test lines | Total  |
+| --------------------------- | ----- | -------------- | ---------- | ------ |
+| `src` (root files)          | 54    | 240            | 1663       | 1903   |
+| `src/cli`                   | 13    | 223            | 73         | 296    |
+| `src/compiler/ts`           | 327   | 11957          | 6443       | 18400  |
+| `src/core` (root files)     | 136   | 6299           | 1871       | 8170   |
+| `src/core/backends`         | 31    | 1771           | 1274       | 3045   |
+| `src/core/builtins`         | 5     | 95             | 0          | 95     |
+| `src/core/compute`          | 2     | 199            | 89         | 288    |
+| `src/core/coverage`         | 8     | 232            | 0          | 232    |
+| `src/core/debug`            | 18    | 732            | 388        | 1120   |
+| `src/core/diagnostics`      | 8     | 140            | 21         | 161    |
+| `src/core/fp64`             | 11    | 426            | 249        | 675    |
+| `src/core/ir`               | 58    | 916            | 535        | 1451   |
+| `src/core/libm`             | 6     | 18             | 222        | 240    |
+| `src/core/passes`           | 159   | 5826           | 2060       | 7886   |
+| `src/core/spec-conformance` | 9     | 59             | 674        | 733    |
+| `src/core/testing`          | 24    | 1095           | 258        | 1353   |
+| `src/language-service`      | 50    | 2320           | 1682       | 4002   |
+| `src/random`                | 1     | 5              | 0          | 5      |
+| `src/rhi`                   | 11    | 615            | 59         | 674    |
+| `src/runtime`               | 36    | 1144           | 771        | 1915   |
+| Total                       | 967   | 34,312         | 18,332     | 52,644 |
+
+Fact: the banned comment lines of the 41 clean oversized files of D12 (`HEAD`, 2026-11-24). The lines of the file follow the banned lines.
+
+| File                                  | Banned lines | Lines  |
+| ------------------------------------- | ------------ | ------ |
+| `src/compiler/ts/class-names.ts`      | 103          | 593    |
+| `src/compiler/ts/definite.ts`         | 37           | 402    |
+| `src/compiler/ts/entry-locations.ts`  | 69           | 445    |
+| `src/compiler/ts/host-face.ts`        | 224          | 2006   |
+| `src/compiler/ts/link.ts`             | 216          | 1574   |
+| `src/compiler/ts/loop-bound.ts`       | 269          | 1013   |
+| `src/compiler/ts/optional.ts`         | 99           | 579    |
+| `src/compiler/ts/program-refusals.ts` | 126          | 541    |
+| `src/compiler/ts/sequence.ts`         | 100          | 679    |
+| `src/compiler/ts/symbols.ts`          | 136          | 405    |
+| `src/core/backends/wgsl.ts`           | 203          | 632    |
+| `src/core/builtins/coredef.ts`        | 1            | 721    |
+| `src/core/compute/runner.ts`          | 199          | 698    |
+| `src/core/debug/interp.ts`            | 255          | 1077   |
+| `src/core/debug/session.ts`           | 64           | 679    |
+| `src/core/fuse-group.ts`              | 152          | 513    |
+| `src/core/fuse-plan.ts`               | 95           | 533    |
+| `src/core/gl-compute.ts`              | 159          | 1077   |
+| `src/core/host-compute.ts`            | 187          | 767    |
+| `src/core/host-entry-program.ts`      | 77           | 501    |
+| `src/core/host-values.ts`             | 96           | 452    |
+| `src/core/ir/nodes.ts`                | 10           | 945    |
+| `src/core/ir/types.ts`                | 44           | 1177   |
+| `src/core/oracle.ts`                  | 198          | 915    |
+| `src/core/passes/const-expr.ts`       | 177          | 554    |
+| `src/core/passes/kernel-lower-ir.ts`  | 201          | 858    |
+| `src/core/passes/kernel-lower.ts`     | 259          | 2094   |
+| `src/core/passes/parallel-loop.ts`    | 210          | 1411   |
+| `src/core/passes/uniform-layout.ts`   | 173          | 528    |
+| `src/core/reflect.ts`                 | 136          | 1130   |
+| `src/core/semantic-diff.ts`           | 74           | 593    |
+| `src/core/testing/fuse-chain.ts`      | 213          | 1336   |
+| `src/core/testing/libm-cases.ts`      | 115          | 857    |
+| `src/language-service/completions.ts` | 94           | 433    |
+| `src/language-service/hover.ts`       | 472          | 1539   |
+| `src/language-service/service.ts`     | 98           | 605    |
+| `src/rhi/cpu.ts`                      | 88           | 1251   |
+| `src/rhi/rhi.ts`                      | 117          | 442    |
+| `src/rhi/webgl2.ts`                   | 176          | 1768   |
+| `src/runtime/gl-draw.ts`              | 128          | 1207   |
+| `src/runtime/gl.ts`                   | 58           | 524    |
+| Total                                 | 5,908        | 36,054 |
+
+Fact: a first run of `bun scripts/remove-comments.ts` on three of these files (a scratch worktree, 2026-11-24):
+
+| File                            | Banned lines before | After with `--keep-invariants` | After without it | Review candidates |
+| ------------------------------- | ------------------- | ------------------------------ | ---------------- | ----------------- |
+| `src/runtime/gl-draw.ts`        | 128                 | 5                              | 0                | 3                 |
+| `src/core/reflect.ts`           | 136                 | 70                             | 0                | 10                |
+| `src/language-service/hover.ts` | 472                 | 189                            | 0                | 15                |
+
+Fact: the comments mode and the helper left the checks green on each of the three files (section 8, item 9a).
+After the removal on `src/runtime/gl-draw.ts`, `bun scripts/move-declarations.ts` moved `GlSamplerImpl` and `COMPARISONS` into a new file, and the pure check passed on that commit.
 
 ## 7. Parallel work and conflicts
 
@@ -688,6 +817,31 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
    - An unchanged file that gets another resolution of a specifier because a file appeared is not checked.
    - The check reads the base and the head only. It does not read the commits between them.
 
+9a. The comments mode of the same checker, for a range with the line `Move: comments` (decision D13):
+`bun run move:check --base origin/main --require`. It reads the files that changed and nothing else.
+
+What a pass proves:
+
+- Only tracked `.ts` files of `src/` changed, and `scripts/comment-baseline.json` and `scripts/file-size-baseline.json`, whose entries only shrank or went.
+  No file was added, deleted, renamed or given a new mode. No path of the checks, no shade file and no generated file changed.
+- The syntax tree of each changed file is the same: the node kinds, their depth and the text of each leaf. Comments are left out, JSDoc included.
+  A line break that a comment held and that cut a restricted production (`return` and its value) is a changed tree, so it fails.
+- The directive prologue, the shebang and the byte order mark are the same.
+- Each comment of the head exists in the base, in the same order, with the same text and at the same place among the code leaves.
+  So no comment was added, reworded or moved. The indentation of the lines of a block comment is not compared.
+- Each removed comment is one that `scripts/comment-policy.ts` counts as banned.
+  A marker, a `Why:` comment, the doc comment of a definition of `src/__api__/surface.md` and the protected comments
+  (`scripts/move-purity/protected-comments.ts`: `@vite-ignore`, `__PURE__`, `prettier-ignore`, `format:semicolons skip`, a triple-slash directive and the like) stay.
+  A comment that the policy does not see, such as one right after the `(` of a call, is no banned line. The comments mode accepts its removal unless it is a marker, a `Why:` comment or protected. The report counts those lines apart.
+
+What a pass does not prove:
+
+- It does not judge whether a removed comment mattered to a reader. The allowed kinds and the review of decision D13 cover that.
+- The check of a line break is a check of the tree. Prettier-clean code is assumed: a file that Prettier would reflow with a changed token (a comma, a parenthesis) fails.
+- A comment that stays is compared by text and by its place among the code leaves, so a swap of two comments fails. A comment that moves within the same two tokens passes.
+- The checks of the pure mode (evaluation order, import graph, test titles) do not run. They have nothing to read: no declaration moved.
+- The helper `scripts/remove-comments.ts` runs this comparison on its own result, so it proves the same thing and no more.
+
 Document audit. It is separate from the functional checks:
 
 1. `bun run docs:impact`
@@ -728,6 +882,8 @@ Run these steps from the repository:
 3. Merge only when the output says `pure`.
 
 The option `--repo <path>` runs the checker from another checkout against that repository.
+
+Decision D13 (section 6.5) adds a condition for a pull request with the line `Move: comments`: a reviewing sub-agent reads the removed review candidates first.
 
 Decision D11: moving tests is an ordinary reviewed change for now, in S11 and S12 too.
 The flag `--allow-test-moves` exists for local use, and CI does not pass it.

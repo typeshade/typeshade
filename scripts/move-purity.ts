@@ -1,16 +1,18 @@
 import { checkMove, type MoveReport } from './move-purity/check-move.js';
 import { cleanReport, formatCleanReport } from './move-purity/clean-report.js';
 import { formatReport } from './move-purity/format-report.js';
+import { formatCommentReport } from './move-purity/format-comment-report.js';
+import { checkCommentRange } from './move-purity/comment-range.js';
 import {
   commitCount,
-  declaresPureMove,
+  commitLines,
   diffEntries,
   diffPaths,
-  malformedMoveLines,
   mergeBase,
   readTexts,
   trackedPaths,
 } from './move-purity/git-range.js';
+import { declaredKinds, malformedLines } from './move-purity/move-kinds.js';
 
 export { checkMove, formatReport };
 export type { MoveReport };
@@ -56,6 +58,23 @@ function runCleanReport(args: string[], root: string): number {
   return 0;
 }
 
+function runCommentRange(
+  args: string[],
+  range: { root: string; baseRef: string; headRef: string; required: boolean },
+): number {
+  const { report, commits } = checkCommentRange(range.root, range.baseRef, range.headRef);
+  if (range.required && (commits === 0 || report.changedPaths === 0)) {
+    console.log(
+      `The range ${range.baseRef}..${range.headRef} has ${commits} commits and ${report.changedPaths} changed paths: nothing to check.`,
+    );
+    return 2;
+  }
+  console.log(
+    args.includes('--json') ? JSON.stringify(report, null, 2) : formatCommentReport(report),
+  );
+  return report.pure ? 0 : 1;
+}
+
 export function runCli(args: string[], cwd: string): number {
   const root = flagValue(args, '--repo') ?? cwd;
   if (args.includes('--clean-report')) return runCleanReport(args, root);
@@ -68,20 +87,37 @@ export function runCli(args: string[], cwd: string): number {
   }
   const headRef = flagValue(args, '--head') ?? 'HEAD';
   const base = mergeBase(root, baseRef, headRef);
-  const malformed = malformedMoveLines(root, base, headRef);
+  const lines = commitLines(root, base, headRef);
+  const malformed = malformedLines(lines);
   if (malformed.length > 0) {
-    for (const line of malformed) console.log(`Not a declaration of a pure move: "${line}"`);
-    console.log('Write exactly `Move: pure` on a line of its own, or remove the line.');
+    for (const line of malformed)
+      console.log(`Not a declaration of a pure move or a comment removal: "${line}"`);
+    console.log(
+      'Write exactly `Move: pure` or `Move: comments` on a line of its own, or remove the line.',
+    );
+    return 1;
+  }
+  const declared = declaredKinds(lines);
+  if (declared.length > 1) {
+    console.log('A range must not declare both `Move: pure` and `Move: comments`.');
     return 1;
   }
   const titled = /^\s*Move:/i.test(flagValue(args, '--title') ?? '');
+  if (titled && declared.length === 0) {
+    console.log(
+      'a Move: pull request declares pure or comments (a commit message line `Move: pure` or `Move: comments`).',
+    );
+    return 1;
+  }
   const required = args.includes('--require') || titled;
-  if (!declaresPureMove(root, base, headRef) && !required) {
+  if (declared.length === 0 && !required) {
     const message =
-      'This range declares no pure move (no commit message line `Move: pure`): the move-purity check did not run.';
+      'This range declares no pure move or comment removal (no commit message line `Move: pure` or `Move: comments`): the move-purity check did not run.';
     console.log(process.env.GITHUB_ACTIONS ? `::notice::${message}` : message);
     return 0;
   }
+  if (declared[0] === 'comments')
+    return runCommentRange(args, { root, baseRef, headRef, required });
   const { report, commits } = checkRange(
     root,
     baseRef,
