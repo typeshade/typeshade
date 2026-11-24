@@ -323,7 +323,6 @@
   "src/compiler/ts/swizzle-random.test.ts": 12,
   "src/compiler/ts/swizzle.ts": 5,
   "src/compiler/ts/symbols.test.ts": 15,
-  "src/compiler/ts/symbols.ts": 136,
   "src/compiler/ts/texture-dims.test.ts": 106,
   "src/compiler/ts/texture-multiple-samplers.test.ts": 7,
   "src/compiler/ts/texture-sampler.test.ts": 53,
