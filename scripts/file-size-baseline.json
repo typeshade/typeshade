@@ -140,7 +140,7 @@
   "src/core/ir/match-expr.test.ts": 524,
   "src/core/ir/node.ts": 2796,
   "src/core/ir/nodes.ts": 931,
-  "src/core/ir/types.ts": 1021,
+  "src/core/ir/types.ts": 873,
   "src/core/libm/explog.test.ts": 640,
   "src/core/libm/hyper.test.ts": 513,
   "src/core/libm/invtrig.test.ts": 867,
