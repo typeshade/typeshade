@@ -73,11 +73,8 @@ import { topLevelDeclarations } from './host-exports.js';
 import {
   type ClassExport,
   type ClassField,
-  type ClassMember,
   type FaceExport,
   type HostExport,
-  type MemberCall,
-  type Refused,
 } from './host-face-contracts.js';
 import { REASON } from './host-face-shared.js';
 import { moduleText } from './host-module.js';
@@ -108,6 +105,7 @@ import { wordBinding, wordBindings, heldVariant } from './host-face/kernel-words
 import { dispatched, bareArrays, reachedBy } from './host-face/kernel-facts.js';
 import { isFunctionType } from './host-face/type-nodes.js';
 import { classChain, memberCall, classMembers } from './host-face/class-members.js';
+import { classCalls, generatedClass } from './host-face/class-calls.js';
 export { bareArrays } from './host-face/kernel-facts.js';
 export { type HostExport } from './host-face-contracts.js';
 export { hostTypeOf } from './host-types.js';
@@ -1261,38 +1259,6 @@ function resourceLayouts(name: string, structs: ReadonlyMap<string, StructDecl>)
     ...('none' in u ? { un: u.none } : { u }),
     ...('none' in s ? { sn: s.none } : { s: s as Layout & { k: 'a' } }),
   };
-}
-
-function classCalls(e: ClassExport): MemberCall[] {
-  const out: MemberCall[] = [];
-  if (e.ctor !== undefined && 'fn' in e.ctor) out.push(e.ctor);
-  for (const m of e.members) {
-    if (e.abstract && !m.static) continue;
-    if (m.kind === 'method' && 'fn' in m.call) out.push(m.call);
-    if (m.kind === 'accessor') for (const h of [m.get, m.set]) if (h !== undefined) out.push(h);
-  }
-  return out;
-}
-
-function generatedClass(e: ClassExport, generated: (fn: string) => boolean): ClassExport {
-  const ok = <T extends MemberCall | Refused>(call: T): T | Refused =>
-    'fn' in call && !generated(call.fn) ? { reason: REASON.fallback } : call;
-  const members = e.members.map((m): ClassMember => {
-    if (m.kind === 'method') return { ...m, call: ok(m.call) };
-    const halves = [m.get, m.set].filter((h): h is MemberCall => h !== undefined);
-    const lost = halves.find((h) => !generated(h.fn));
-    return lost === undefined
-      ? m
-      : {
-          kind: 'accessor',
-          name: m.name,
-          static: m.static,
-          abstract: m.abstract,
-          reason: REASON.fallback,
-        };
-  });
-  const ctor = e.ctor === undefined || !('fn' in e.ctor) ? e.ctor : ok(e.ctor);
-  return { ...e, ...(ctor !== undefined ? { ctor } : {}), members };
 }
 
 export const hostViewPath = (path: string): string => path.replace(/\.ts$/, '.typeshade.ts');
