@@ -2,9 +2,9 @@ import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js';
-import { nodeAtPosition } from './positions.js';
 import { isGpuBrandedType } from './diagnostics.js';
 import type { TypeshadeCompletionItem, TypeshadeCompletionKind } from './types.js';
+import { enclosingStage } from './completions/builtin-stage.js';
 
 const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', readonly string[]>> = {
   vertex: ['vertex_index', 'instance_index'],
@@ -35,29 +35,6 @@ const VEC_SNIPPETS: readonly { readonly label: string; readonly insertText: stri
   { label: 'vec3', insertText: 'vec3(${1:x}, ${2:y}, ${3:z})' },
   { label: 'vec4', insertText: 'vec4(${1:x}, ${2:y}, ${3:z}, ${4:w})' },
 ];
-
-function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
-  if (ts.canHaveDecorators(node)) return ts.getDecorators(node) ?? [];
-  const modifiers = (node as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? [];
-  return modifiers.filter(ts.isDecorator);
-}
-
-function enclosingStage(
-  sourceFile: ts.SourceFile,
-  offset: number,
-): 'vertex' | 'fragment' | 'compute' | undefined {
-  let node: ts.Node | undefined = nodeAtPosition(sourceFile, offset);
-  while (node !== undefined && !ts.isParameter(node)) node = node.parent;
-  const fn = node?.parent;
-  if (fn === undefined || !ts.isFunctionDeclaration(fn)) return undefined;
-  for (const d of decoratorsOf(fn)) {
-    const text = d.getText(sourceFile);
-    if (/^@vertex\b/.test(text)) return 'vertex';
-    if (/^@fragment\b/.test(text)) return 'fragment';
-    if (/^@compute\b/.test(text)) return 'compute';
-  }
-  return undefined;
-}
 
 function attributeItem(name: string): TypeshadeCompletionItem {
   return {
