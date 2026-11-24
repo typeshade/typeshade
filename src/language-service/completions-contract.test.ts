@@ -12,7 +12,8 @@ function completionsAt(source: string, cursor: string, fromEnd = true) {
 }
 
 const labelsOf = (items: readonly { label: string }[]) => items.map((i) => i.label);
-const snippets = (items: readonly { kind: string }[]) => items.filter((i) => i.kind === 'snippet');
+const snippets = <T extends { kind: string }>(items: readonly T[]) =>
+  items.filter((i) => i.kind === 'snippet');
 
 describe('getCompletions: builtin ids by pipeline stage', () => {
   const stageSource = (stage: string) =>
