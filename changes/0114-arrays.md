@@ -1708,6 +1708,183 @@ not supported yet.` Open until the owner decides which sentence holds.
   implementing pull request for (2) and (3) is not started. Route 3: R3-Q1 to R3-Q3 decided; A16
   D1 closing pull request not started; S0 to S5 not started. `do ... while`: open deviation.
 
+### A18. Status and deviations of the slices merged on 2026-11-23 and 2026-11-24 (2026-11-24)
+
+- [fact] This amendment is written on `main` at `de7f742d`. It follows A17 in number only. It
+  records the status and the deviations of the pull requests that merged after A16 was written.
+  Each pull request body states its own deviations. The bodies and the merged code on `main` are
+  the sources.
+- [fact] No earlier amendment changes. Where an earlier status line is out of date, this
+  amendment says so under "Earlier status lines that are out of date".
+- [fact] A "bug fix" below is a pull request with `Change: none`. It implements no sentence of
+  this change. It is listed because it closes or opens a deviation of a pull request of this
+  change.
+
+**(a) S2c: a list of integer-written numbers (A3), pull requests #1474, #1477 and #1480.**
+
+- [fact] #1474 is done. Merge commit `229bf084`. It implements A3, stage S2c, items 1 to 4. Item 5
+  (the interim refusal) was already on `main`. `list-uses.ts` in
+  `src/compiler/ts/lower/expression-array/` decides the element type from the uses of the list.
+  Where no use decides, the type is `f32` (OD-7).
+- [fact] #1477 is done (bug fix). Merge commit `23f2f810`. The language service drops the
+  `TS2345` that it drew at an array parameter for a list with a conflict
+  (`repeatsRefusedListUses` in `src/language-service/diagnostics/refused-list.ts`).
+- [fact] #1480 is done. Merge commit `3eaa8282`. A module-scope `let` list takes its type as a
+  module `const` list does (`src/compiler/ts/module-vars/untyped-list.ts`).
+- [fact] #1480 closes a deviation. S2a (#1372) and S2c promised a module-scope `let` list in
+  surface section 18, and the code refused it with `TS8033`. No rule or surface text changed.
+
+Deviations of #1474.
+
+1. The conflict sentence is the sentence of a `let`:
+   `Cannot infer "a": its uses require i32 and u32. Write an explicit type annotation on "a" ...`.
+   A3, item 2 names the remedy
+   `const a: array<u32, 3> = [...]`. The sentence asks for an annotation but does not spell it.
+   Disposition: open. Next action (proposal):
+   the owner decides whether the sentence must spell the example.
+2. Where a whole use conflicts with another use, the editor showed one `TS2345` for each
+   `array<T, N>` parameter, beside the shared `TS8003`. `compile()` showed the `TS8003` only.
+   Disposition: closed by #1477 (merge commit `23f2f810`).
+3. `s += a[i]`, with a typed `u32` `s`, does not decide the element type and is refused with
+   `TS8003`. A `let` gives the same refusal (`let k = 1; s += k`). Disposition: open. Next action
+   (proposal): the owner decides whether to widen both forms in one change.
+4. A module-scope `as const` integer list takes its type from its uses (S2 already allowed that
+   form at module scope). A function-local `as const` list stays refused with `TS8099`.
+   Disposition: open. Next action (proposal):
+   the owner decides whether A3 states the module-scope case.
+
+Deviations of #1480.
+
+1. No deviation from the approved text. Disposition: closed.
+2. No test pins a hand-annotated module `let` list beside the untyped form in the editor. Four
+   forms of a module `let` list were probed with `compile()`: a spread, a vector element list, a
+   nested list and a length mismatch. Each one matches the module `const` form. No test covers
+   these. Disposition:
+   open. Next action: a test in a bug-fix pull request, when one of them fails.
+
+**(b) S3: inferred storage access (decisions D3 and D4), pull request #1476.**
+
+- [fact] #1476 is done. Merge commit `698af76f`. A bare `storage<T>` is `var<storage, read_write>`
+  when an entry writes it, and `var<storage, read>` otherwise. `storage-access.ts` in
+  `src/compiler/ts/` holds the inference. `storage<readonly T[]>` stays a promise of no write.
+- [fact] The decisions (1) to (3) of A17 (a) settle deviations 1 to 3 below. The implementing
+  pull request is #1494. It is open, in draft, and not merged.
+
+Deviations of #1476.
+
+1. Surface sections 9 and 23 were false after S3, and 0114 did not list them. Disposition: made
+   part of the approved text by A17 (a), decision (1). Closed when #1494 merges.
+2. A write in a helper that no entry reaches, to a bare binding, draws `TS8005`. Disposition:
+   settled by A17 (a), decision (2). Closed when #1494 merges.
+3. A vertex entry that only reads a binding declared `"read_write"` is accepted, as on `main`
+   before S3. WebGPU refuses that layout. Disposition: settled by A17 (a), decision (3). Closed
+   when #1494 merges.
+4. Surface section 7 did not list the sentence for the write of a vertex entry: "WebGPU allows no
+   writable storage buffer in the vertex stage, and the vertex entry ... writes ...". Disposition:
+   open. Next action: check the section at the merge of #1494.
+5. Decision D3 does not name the explicit `"read"` argument after S4. Disposition: open. Next
+   action (proposal): the owner decides, before S4.
+6. The `TS8005` remedy for a `"read"` binding names `storage<T, "read_write">`, a spelling that D3
+   removes in S4. Disposition: open. Next action: change the sentence in S4.
+7. A program with a bare binding that no entry writes lowers twice (a provisional `read_write`,
+   then `read`), inside the inference loop. Disposition: open, a cost of the design. Next action:
+   measure the compile time if a program shows a cost.
+
+- [fact] The layout cache of the runtime (`#layouts` in `src/runtime/program.ts`) keys a layout by
+  its entries, which hold `buffer.type`. A changed mode gives a new key. Only a layout that a host
+  built from an older `reflect()` can break. This is a cost of the design.
+
+**(c) Route 3 (A12, S5d slice 3), pull requests #1479 and #1481.**
+
+- [fact] #1479 is done. Merge commit `37439d9d`. It holds stages S0 and S1: the growing store on
+  the CPU tier (`src/core/host-kernel-made/growing.ts`, growth mode in `pushOnto` of
+  `src/core/pushed-index.ts`). No front-end code sets `growing`, so no author program changes.
+- [fact] #1481 is done. Merge commit `31394a93`. It holds stage S2. Shapes 1 to 4 of A12 take
+  Route 3. One shape is a `while`. One shape is a `for` that is no count. One shape is a loop under a `switch`. One shape is a loop under a branch inside a loop.
+  `routeOf` in `route.ts` decides the route in one place. The call runs on the
+  CPU tier only, and returns the elements pushed, in the order of a sequential run (OD-5).
+- [fact] #1481 adds a WebGPU journey for `inside` (a loop under a branch inside a loop, Route 2).
+  The `journeys/_host-import` cases are `inside`, `insideCpu` and `evens`.
+  `inside` on WebGPU equals the CPU tier and the reference. `insideCpu` is the CPU tier run of
+  `inside`. `evens` is Route 3 and runs on the CPU tier. A WebGPU-only runtime refuses `evens`
+  with `TS8070`.
+
+Deviations of #1479.
+
+1. The growing flag is a `WeakMap` of limits, not a plain flag, because the limit is per store.
+   Disposition: closed in #1479.
+2. The new files carry no `Implements:` or `Verifies:` marker, so `reqs/` is unchanged. Disposition:
+   open. Next action: add the markers with the first test that cites Rule 8.23 for Route 3.
+3. Route 1 equivalence is tested for the scalar element only. Disposition: open. Next action: a
+   test for a vector element, with Route 3 stage S3.
+4. The push-to-failure measurements of the design (Bun and V8) were not run. Disposition: open.
+   Next action: run them before stage S3 of Route 3.
+5. The bundle caps in `scripts/bundle-budget.json` were raised to the measured values (a few
+   hundred bytes). Disposition: closed, the values are the measured ones.
+
+Deviations of #1481.
+
+1. A pushing `do ... while` stays refused by the front end (`TS8099`). A12 section 1, item 4 gives
+   it to Route 3. Disposition: open. A17 (c) records the later stage, after Route 3 stage S3.
+2. A loop under a branch inside a loop that `countable` proves took `refusedNest` before. It now
+   takes Route 2 and keeps its WebGPU plan. Disposition: closed by the journey case `inside`. It
+   equals the CPU tier and the JavaScript reference for n = 0, 1, 3, 4 and 64.
+3. The remedy of the refusal of a push outside every loop changed. The old wording is
+   `Push onto it inside a for loop at the top level of "f".`. The new wording is
+   `Push onto it inside a loop of "f".`. Disposition:
+   open. Next action (proposal):
+   the owner decides whether the new wording is the approved wording.
+4. In `host-kernel-grown-elements.test.ts`, the case `overwrite` expects the reason of the proof
+   (`TS8070`). This follows the reason order of `cpuOnly`. The order is the proof, the growing
+   reason, then the access. Disposition: open. Next action
+   (proposal): the owner decides whether this order is the approved order.
+5. `while (i < xs[0])` takes Route 3. The counted `for` with the same bound stays `TS8099` until
+   change 0144, stage A3 (A12 item 5.4). Disposition: open. Next action: change 0144 stage A3.
+6. Three pre-existing defects were found and left unchanged. Item (d) below records them. Each
+   one is closed or open there.
+
+**(d) Bug fixes for the three defects of #1481, deviation 6.**
+
+- [fact] #1486 is done (bug fix). Merge commit `8b10cf07`. `pushOnto` stores a copy of a vector.
+  Before, a later write to the vector changed the element pushed, on the CPU tier. Disposition
+  of deviation 6, first defect: closed.
+- [fact] #1490 is done (bug fix). Merge commit `91cd7047`. A made array that holds a write at the
+  length counts these writes in `.length`. `lengthFromHost` reads `pushCount` for a grown array.
+  Disposition of deviation 6, second defect: closed.
+- [fact] #1491 is done (bug fix). Merge commit `de7f742d`. An access sentence quotes `out.length`,
+  not `pushCount(out)`, and quotes the checked index as the author wrote it. Disposition of
+  deviation 6, third defect: closed.
+- [fact] #1490 left one defect open. A write at the length outside every loop, after a loop that
+  wrote at the length, throws a `RangeError` for n >= 1. JavaScript returns n + 1 elements. The
+  throw is loud, not silent. Disposition: open. Next action: a bug-fix pull request with a test
+  that reads both halves.
+- [fact] #1489 (merge commit `9d45ef40`) corrected the comment baseline. It is no change of 0114.
+  It lets `src/comment-policy.test.ts` pass on `main` again, which #1490 and #1491 needed.
+
+**Earlier status lines that are out of date.**
+
+- A3, last line: "S2c: not started". S2c is done: #1474, with #1477 and #1480.
+- A17 (a), the Status line: "the implementing pull request for (2) and (3) is not started". The
+  pull request is #1494, open and in draft.
+- A17, last Status line: "A16 D1 closing pull request not started; S0 to S5 not started". The
+  pull request that closes A16 D1 is #1495, open and in draft. Route 3 S0 and S1 are done
+  (#1479). Route 3 S2 is done (#1481). Route 3 S3 to S5 are not started.
+- A2, S1 status: A16 (b) corrected it already. This amendment does not repeat it.
+
+**Open pull requests.**
+
+- #1494, in progress. It implements decisions (1) to (3) of A17 (a). It is not merged.
+- #1495, in progress. It implements R3-Q3 (A) and closes A16 D1. It waits for the owner's "merge".
+  It changes how an author's program is accepted: `repeated` goes from refused to accepted.
+
+- Affects: no front matter, rule number or code changes. The feature pull requests above
+  implement text already recorded. The bug fixes implement none.
+- Status: `status: accepted` does not change. S2c: done (#1474, #1477, #1480). S3: done (#1476);
+  decisions (1) to (3) in progress (#1494). Route 3: S0 and S1 done (#1479); S2 done (#1481); S3
+  to S5 not started; A16 D1 in progress (#1495). Open items: #1474 deviations 1, 3 and 4; #1476
+  deviations 4 to 7; #1479 deviations 2 to 4; #1480 deviation 2; #1481 deviations 1, 3, 4 and 5; the defect that
+  #1490 left; `do ... while`.
+
 ## What it owes downstream
 
 - **typeshade.github.io:** every page that spells `array<T>`, `array<T, N>(...)`, `fill<T, N>(v)`

@@ -140,4 +140,82 @@ describe('countable, the allow-list of a function that Route 2 may run twice (ch
     expect(countable([verdict(writing, [append])], fn([writing, { s: 'return' }]))).toBe(false);
     expect(countable([verdict(quiet, [append])], fn([quiet, { s: 'return' }]))).toBe(true);
   });
+
+  describe('a read at the counter of the loop that holds it (change 0114, A17)', () => {
+    const arr = (name: string): Expr => ({ op: 'param', type: arrayT, name });
+    const idx = (name: string, at: Expr): Expr => ({
+      op: 'index',
+      type: u32T,
+      base: arr(name),
+      idx: at,
+    });
+    const ref = (name: string): Expr => ({ op: 'varref', type: u32T, name });
+    const read = (array: string, at: Expr): Stmt => ({
+      s: 'let',
+      name: 'v',
+      expr: idx(array, at),
+    });
+    const withParams = (body: Stmt[]): FuncDecl => ({
+      ...fn(body),
+      params: [
+        { name: 'out', type: arrayT },
+        { name: 'w', type: arrayT },
+      ],
+    });
+    const run = (stmts: Stmt[], widen = true): boolean => {
+      const l = loop([push, ...stmts]);
+      return countable([verdict(l, [append])], withParams([l, { s: 'return' }]), () => widen);
+    };
+
+    it('accepts it when the host reads the loop range and the call can plan the function', () => {
+      expect(run([read('w', ref('i'))])).toBe(true);
+    });
+
+    it('refuses it unless the caller says the function has a plan', () => {
+      expect(run([read('w', ref('i'))], false)).toBe(false);
+    });
+
+    it('refuses an offset, a constant and a counter that no loop holds', () => {
+      const plus = { op: 'binop', type: u32T, bop: '+', a: ref('i'), b: lit(1) } as Expr;
+      expect(run([read('w', plus)])).toBe(false);
+      expect(run([read('w', lit(0))])).toBe(false);
+      expect(run([read('w', ref('k'))])).toBe(false);
+    });
+
+    it('refuses a read whose counter an inner loop shadows', () => {
+      const shadow = loop([read('w', ref('i'))]);
+      expect(run([shadow])).toBe(false);
+    });
+
+    it('refuses a loop that does not count by a constant step, and one that assigns its counter', () => {
+      const { counted: _c, ...rest } = loop([push, read('w', ref('i'))]);
+      const open: Stmt = { ...rest, counted: { name: 'i', op: 'mul', step: 2 } } as Stmt;
+      expect(
+        countable(
+          [verdict(open as never, [append])],
+          withParams([open, { s: 'return' }]),
+          () => true,
+        ),
+      ).toBe(false);
+      const assigning = loop([
+        push,
+        read('w', ref('i')),
+        { s: 'assign', target: ref('i'), expr: lit(0) },
+      ]);
+      expect(
+        countable(
+          [verdict(assigning, [append])],
+          withParams([assigning, { s: 'return' }]),
+          () => true,
+        ),
+      ).toBe(false);
+    });
+
+    it('refuses a loop whose range a statement before it makes the device hold', () => {
+      const l = loop([push, read('w', ref('i'))]);
+      const before: Stmt = { s: 'let', name: 'm', expr: idx('w', lit(0)) };
+      const f = withParams([before, l, { s: 'return' }]);
+      expect(countable([verdict(l, [append])], f, () => true)).toBe(false);
+    });
+  });
 });

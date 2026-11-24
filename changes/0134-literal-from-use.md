@@ -1296,11 +1296,12 @@ the owner chose, as the pull request or the issue records it. Each program below
   - Example (with `function gg() { return 5 | 0; }`, result `i32`):
     `let a = (-7|0); let z = gg() - 5; return i32(a / z);` was -2147483648 on `main` at
     `7513a9af`. It is 0 on `main` at `b9497706`, as TypeScript gives.
-  - Status: implemented by #1355. Open deviation, issue #1403: with operands of two integer
-    types the quotient is still computed through `f32`. With
+  - Status: implemented by #1355. The deviation of issue #1403 was open when this amendment was
+    written: with operands of two integer types the quotient was computed through `f32`. With
     `function pass(v: u32) { return v; }` and `vi = 3`,
-    `let a = (-7|0); let b = pass(vi); return u32(a / b);` (result `u32`) emits
-    `u32(f32(a) / f32(b))` and gives 0, where TypeScript gives 4294967294.
+    `let a = (-7|0); let b = pass(vi); return u32(a / b);` (result `u32`) emitted
+    `u32(f32(a) / f32(b))` and gave 0, where TypeScript gives 4294967294. Amendment A9 records
+    that #1465 (merged as `9c47626a`) implements it.
 - [decision, owner, 2026-11-17] The scope of the conversion (issue #1320, pull request #1355),
   recorded as "Only `i32()` and `u32()` convert a quotient across integer types". A declaration,
   a parameter or a result of the other integer type stays refused with its verified edit.
@@ -1308,7 +1309,8 @@ the owner chose, as the pull request or the issue records it. Each program below
     `7513a9af`, and is 4294967293, as TypeScript gives.
     `let a = (-7|0); let j: u32 = a / 2; return j;` stays refused, before and after, with
     `"a" is an integer by its bit operator, and no operand of "a / 2" has a declared type, so the "/" does not say which division it is. Write "u32(a) / 2" for the integer division.`
-  - Status: implemented by #1355. Open deviation, issue #1403, as for the decision above.
+  - Status: implemented by #1355. The deviation of issue #1403 is closed by #1465, as for the
+    decision above.
 - [decision, owner, 2026-11-17] A mask of low bits (issue #1307, pull request #1356). A result
   beside a typed `u32` keeps its two readings ("두 값 유지, 다르면 거부", Amendment A7). A mask
   of low bits makes the two readings agree, so the masked value is accepted:
@@ -1451,11 +1453,14 @@ the owner chose, as the pull request or the issue records it. Each program below
   masked-value rule can accept a wrong value.
 - [decision, owner, 2026-11-18] Fix the typed `i32` positions, issue #1380, after #1354, #1356
   and #1358 merge.
-- Disposition: made part of the approved text by this amendment, except five items that stay
+- Disposition: made part of the approved text by this amendment, except four items that stay
   open:
   - one decision that is not implemented: decision (e) (issue #1399);
-  - four open deviations: decision (a) (issue #1380), the numbers of a refusal sentence (issue
-    #1386), the decisions on #1320 (issue #1403), and the decision on #1363 (issue #1380).
+  - three open deviations: decision (a) (issue #1380), the numbers of a refusal sentence (issue
+    #1386), and the decision on #1363 (issue #1380).
+  - This amendment first counted a further open deviation, the decisions on #1320 (issue #1403).
+    Pull request #1465 closed it. Amendment A9 records the sibling reads that stay open as
+    issue #1467.
 - Affects: the front matter gains Rule 7.4 and surface §22. The decision "TypeScript 값으로"
   makes two sentences false for these quotients: Rule 7.4's rationale and surface §22 say that a
   divisor that is zero at run time gives WGSL's answer, `x / 0 = x`, on every target.
@@ -1463,6 +1468,153 @@ the owner chose, as the pull request or the issue records it. Each program below
   in a pull request of its own after this amendment merges. Rules 5.1 and 12.7 and surface §13,
   which the front matter declared before, carry the other readings. The sentences follow
   Rule 12.5.
+- Status: `status: accepted` does not change.
+
+### Amendment A9. The owner's decisions on four issues, and the status of #1403 (2026-11-23)
+
+The owner decided four open readings on 2026-11-23. Each is recorded in its issue body under
+"Owner decision (2026-11-23)". The owner answered by choosing an option. The English below is
+the agent's wording of that option, as each issue records it. A fifth issue, #1446,
+is recorded for a later decision. The status of each item is its status on `main` at `9e1cfef6`
+(pull request #1468). This amendment changes no code. Each program below is the body of
+`export function t(ii: i32, vi: u32, f: f32): f32` unless it names another result, with
+`ii = -3`, `vi = 3` and `f = 1.5`. A line "Before" is the behaviour on `main` at `9c47626a`.
+It was read in `compile()`, in the language service and on the CPU oracle at O0, O1 and O2. It is
+the same on `main` at `9e1cfef6`, except for the refusal words of issue #1300, which #1468 changed.
+
+- [decision, owner, 2026-11-23] The words of the refusal for an integer by inference (issue
+  #1300). The refusal names the real cause. Where the integer comes from a bit operator, the
+  sentence keeps "is an integer by its bit operator". Elsewhere it says "is an integer by
+  inference". The named edit stays the same. The tests that assert the old text change with it.
+  - Example: `let a = ii; a = a / 2; return f32(a);`
+    - Before: refused in both halves with
+      `"a" is an integer by its bit operator, and no operand of "a / 2" has a declared type, so the "/" does not say which division it is. Write "i32(a) / 2" for the integer division.`
+    - After: refused in both halves with
+      `"a" is an integer by inference, and no operand of "a / 2" has a declared type, so the "/" does not say which division it is. Write "i32(a) / 2" for the integer division.`
+  - Neighbours whose text changes in the same way, with no change of acceptance or edit: `a /= 2`
+    in place of `a = a / 2` (the edit is `let a: i32 = ii`), and `let n = xs.length; n = n / 2;`
+    over `declare const xs: storage<array<f32>>` (the edit is `u32(n) / 2`).
+  - Neighbours that keep their text: `let a = (5|0); a = a / 2;` has a bit operator, so it keeps
+    "is an integer by its bit operator". `let a = 5; a = a / 2; return a;` is accepted and is 2.5.
+  - [decision, owner, 2026-11-23, second] A subject that is itself a `|` or `&` expression over a
+    typed operand says "is an integer by inference". The typed operand decides the integer
+    type. Issue #1300 records it under "Owner decision (2026-11-23, second)".
+    - Example, with `ii: i32`: `let a = ii | 0; a = a / 2; return a;`
+      - Before (`main` at `9c47626a`): refused in both halves with `"a" is an integer by its bit operator, and no operand of "a / 2" has a declared type, so the "/" does not say which division it is. Write "i32(a) / 2" for the integer division.`
+      - After (`main` at `9e1cfef6`): refused in both halves with the sentence above, with "is an
+        integer by inference" in place of "is an integer by its bit operator".
+    - Neighbour that keeps its text: `let a = (5|0); a = a / 2;` has no typed operand.
+  - Status: implemented by #1468 (merged as `9e1cfef6`, 2026-11-23). Both halves read the new
+    sentence for each example above, with the edit unchanged.
+- [decision, owner, 2026-11-23] A `?:` or `select` arm in an `f32` position (issue #1301).
+  Rule 5.1 holds as written. In the arm of a `?:` and of `select`, the refusal of a tree of
+  written integers names the tree. It offers the verified edit `f32(...)`, as it does in the
+  other `f32` positions. The rule text does not change.
+  - Example, after `const K = 1 | 2;` at module level: `return f > 1.0 ? K : f;`
+    - Before: refused in both halves with `Ternary arm type mismatch: i32 vs f32.`
+    - After: refused in both halves with the sentence of the other `f32` positions, which names
+      the tree and the edit: `"K" is an integer by its bit operator, and this position takes an f32. Write "f32(K)" for the float value.`
+      The edit `f > 1.0 ? f32(K) : f` compiles. The implementing pull request records the exact
+      text.
+  - Neighbours whose text changes: `return f > 1.0 ? f : K;` (before: `Ternary arm type mismatch: f32 vs i32.`)
+    and `return select(f, K, f > 1.0);` (before: `select arm type mismatch: f32 vs i32.`).
+  - Neighbour that keeps its text: `return f + K;` is refused today with the sentence above.
+  - Status: decided. Implementing pull request #1493 is open and not merged.
+- [decision, owner, 2026-11-23] A flow-aware walk for a pair of values (issue #1308). A walk that
+  follows the flow accepts a program whose values cannot occur together on any path. A value the
+  walk still cannot prove is refused (Amendment A7).
+  - Example: `let a = (0xF0000000|0); let c = a; if (vi > 3) { a = 5; c = 5; } return f32(a - c);`
+    - Before: refused in both halves with
+      `The compiler cannot prove that the u32 bits and the TypeScript value of "a - c" agree, so the "f32()" does not say which value it means. Write "i32(a - c)" for the i32 value.`
+      `main` at `ae186570` accepted it and gave 0, which TypeScript also gives.
+    - After: accepted, and 0.
+  - Neighbour that stays refused: with `if (vi > 3) { a = 5; c = 6; }`, the pair `a - c` differs
+    on its two readings on a path that occurs, so the A7 sentence stays.
+  - Neighbour that the implementation must measure: with `if (vi > 3) { a = 5; }` and no store
+    to `c`, it is refused today. Whether the walk proves it is for the implementing pull request
+    to measure and to list.
+  - Status: decided, not implemented, and not yet merged. No pull request for it is open on
+    `main` at `9e1cfef6`.
+- [decision, owner, 2026-11-23] The conversion of a compiler-chosen `f32` (issue #1353). The compiler
+  chooses `f32` for a `let` when nothing decides its type. `u32()` and `i32()` of such a value
+  read it as the integer TypeScript holds. They wrap, as TypeScript does. This follows the
+  direction of the decision of 2026-11-17 on #1320 ("TypeScript 값으로"). This amendment is the
+  amendment that the issue says must come before or with the fix.
+  - Example, result `u32`: `let k = 5; k -= 8; return u32(k);`
+    - Before: 0 in WGSL, in the GLSL helpers and in the oracle (`f32ToU32Sat`). TypeScript
+      gives 4294967293.
+    - After: 4294967293.
+  - Neighbour whose value changes, with `k` an `f32` by choice:
+    `let k = 5; k *= 1000000000; k *= 5; return i32(k);` is 2147483520 before. With result
+    `u32`, `u32(k)` is 4294967040 before. The decision does not fix the value after.
+    TypeScript's ToInt32 and ToUint32 act on the exact 25000000000, and an `f32` `k` holds 24999999488. The implementing pull request #1492 measures and states the value.
+  - Neighbours that keep their value: `let k = 5; k -= 8; return i32(k);` is -3, and
+    `let k = 5; k += 3; return u32(k);` is 8.
+  - Neighbours that the agent reads as outside the decision, because the author wrote the
+    float: `return u32(f - 10.0);` is 0 and `return i32(f * 1.0e10);` is 2147483520, both
+    before and after. The implementing pull request confirms this reading or asks the owner.
+  - Status: decided. Implementing pull request #1492 is open and not merged. The differential
+    test that skips this class as "an open item of #1272" is to cover it with the fix.
+- [recorded for a later decision] Rule 1.3 against decision (c) for a comparison that reads a
+  truncated quotient (issue #1446). The owner chose on 2026-11-23 to record the issue and to
+  decide after the owner sees the before and after examples. This is not a decision.
+  - The two principles. Rule 1.3 (`docs/language-design.md`) says that an operand with a declared
+    integer type follows its type, so a typed `i32` `/` truncates as WGSL does. Decision (c) of
+    Amendment A8 (2026-11-18) says that an edit is named only where the edited program gives
+    TypeScript's value.
+  - Example, with `let c = (3000000000|0); let d = c;` and result `i32`:
+    `return d / 3 < -431655765 ? 1 : 0;` is refused with the edit `i32(d)`. The edited program
+    `i32(d) / 3 < -431655765 ? 1 : 0` compiles to 0 at O0, O1 and O2. TypeScript gives 1
+    (-431655765.33 is below -431655765). `return 7 / d < 0 ? 1 : 0;` names the same edit, and
+    its edited program gives 0, where TypeScript gives 1.
+  - Example, with `let a = 1 << 30; let b = a + a;`: `return b / ii > 238609294 ? 1 : 0;`
+    (#1427) names `i32(b)`. The edited program gives 0 with `ii = -9`, where TypeScript gives 1.
+  - A program with no refusal has the same value: `return ii / 3 < -431655765 ? 1 : 0;` with
+    `ii = -1294967296` gives 0, where TypeScript gives 1.
+  - The issue lists three readings. (1) Rule 1.3 holds and the difference is a recorded cost.
+    (2) Decision (c) holds, so no edit is named where a comparison reads a truncated quotient.
+    (3) A comparison over a typed `i32` quotient is refused. No reading is recommended here.
+  - Status: open question, with no owner decision. No code changes until the owner decides.
+- [status] Issue #1403, implemented by #1465 (merged as `9c47626a`, 2026-11-23). This closes the
+  open deviation of the two decisions on #1320 in Amendment A8. A quotient of an inferred `i32`
+  and an inferred `u32` operand is refused where `u32()` or `i32()` reads it.
+  - Example, with `function pass(v: u32) { return v; }`, `let a = (-7|0); let b = pass(vi);` and
+    result `u32`: `return u32(a / b);`
+    - Before (`main` at `b9497706`): emitted `u32(f32(a) / f32(b))` and gave 0. TypeScript gives 4294967294.
+    - After (`main` at `9c47626a`): refused in both halves with
+      `"a" is an integer by its bit operator, and no operand of "a / b" has a declared type, so the "/" does not say which division it is. Declare the type of the division's operands to choose it.`
+      It names no edit, because `i32(a) / i32(b)` is wrong for a `u32` operand of 2^31 or more.
+  - Neighbour: `return u32((a / b) | 0);` names `i32(a) / i32(b)`.
+- Open deviation, issue #1467, found by the review of #1465 and not closed by it. A refusal of a
+  mixed quotient that a binding, arithmetic or an index reads names an edit that gives a wrong
+  value. It was so before #1465. Decision (c) of Amendment A8 asks for no edit here. With the
+  setup of the example above:
+  - `let q = a / b; return u32(q);` names `f32(a) / f32(b)`. The edited program gives 0.
+    TypeScript gives 4294967294.
+  - `return u32(a / b + 1);` names the same float edit. The edited program gives 0. TypeScript
+    gives 4294967295.
+  - `return u32((a / b) | 0);` names `i32(a) / i32(b)`. `xs[a / b]` names it only over
+    `declare const xs: storage<array<f32>>`. With `vi = 3` the edited program of the first gives
+    4294967294, as TypeScript does. With `vi = 4294967295` it gives 7, where TypeScript gives 0.
+  - `let j: u32 = a / b; return j;` names `u32(a) / u32(b)`. The edited program gives 1431655763. TypeScript gives 4294967294. Issue #1467 does not list a typed declaration, so
+    this read is recorded as issue #1483.
+  - `return i32(a / b);` names `f32(a) / f32(b)` and that edit gives TypeScript's value.
+- Disposition: made part of the approved text by this amendment, except six items that stay
+  open:
+  - three decisions that are not implemented: issue #1301, issue #1308 and issue #1353. The
+    decision on issue #1300 is implemented by #1468;
+  - one question that the owner has not decided: issue #1446;
+  - two open deviations: issue #1467 and issue #1483.
+
+  Amendment A8 keeps four open items: one decision and three deviations. With the six items of
+  this amendment, ten items are open in all.
+
+- Affects: surface §13 and §22, and Rule 5.1, said that operands of two integer types are still
+  divided through an `f32` (an open deviation, #1403). The pull request of this amendment
+  rewrites those sentences, because #1465 made them false. The rule and surface text of the three
+  open decisions above changes in the implementing pull requests. The sentence of #1300 (delivered
+  by #1468) and the sentences of #1301 follow Rule 12.5. The front matter already declares Rules 5.1 and 12.7 and
+  surfaces 13 and 22.
 - Status: `status: accepted` does not change.
 
 ### Configuration and validation record

@@ -124,19 +124,81 @@ describe('a readonly value type is the promise that nothing writes the binding',
     );
   });
 
-  it('refuses a write in a helper no entry reaches, as a write to a read binding', () => {
-    const halves = bothHalves(
+  it('refuses a write in a helper no entry reaches when the type is readonly', () => {
+    bothRefuse(
       compute(
-        'declare const xs: storage<f32[]>;\ndeclare const out: storage<f32[]>;',
+        'declare const xs: storage<readonly f32[]>;\ndeclare const out: storage<f32[]>;',
         'out[gid.x] = xs[gid.x];',
         'function unused(i: u32) { xs[i] = 3.; }',
       ),
+      'TS8005',
+      'Cannot write to "xs" — its type "readonly f32[]" promises that nothing writes it. Write "declare const xs: storage<f32[]>" to write to it.',
     );
-    expect(halves.compiler).toHaveLength(1);
-    expect(halves.compiler[0]).toBe(
-      'typeshade TS8005: Cannot assign to "xs" — it is a read-only resource. Write "declare const xs: storage<array<f32>, "read_write">" to write to it.',
+  });
+
+  it('refuses a write in a helper no entry reaches when the binding is declared "read"', () => {
+    bothRefuse(
+      compute(
+        'declare const xs: storage<f32[], "read">;\ndeclare const out: storage<f32[]>;',
+        'out[gid.x] = xs[gid.x];',
+        'function unused(i: u32) { xs[i] = 3.; }',
+      ),
+      'TS8005',
+      'Cannot assign to "xs" — it is a read-only resource. Write "declare const xs: storage<array<f32>, "read_write">" to write to it.',
     );
-    expect(halves.editor).toEqual(halves.compiler);
+  });
+});
+
+describe('a write no entry reaches does not make a bare storage binding read_write (change 0114, S3)', () => {
+  const READS_ONLY = compute(
+    'declare const xs: storage<f32[]>;\ndeclare const out: storage<f32[]>;',
+    'out[gid.x] = xs[gid.x];',
+    'function unused(i: u32) { xs[i] = 3.; }',
+  );
+
+  it('is accepted by both halves, and the binding stays read', () => {
+    expect(accessOf(READS_ONLY)).toBe('read');
+    const wgsl = bothTake(READS_ONLY).result.wgsl!;
+    expect(wgsl).toContain('var<storage, read> xs');
+    expect(wgsl).not.toContain('unused');
+  });
+
+  it('is reported by reflect() as read-only', () => {
+    const found = reflect(bothTake(READS_ONLY).result.module).bindGroups.flatMap((g) => g.entries);
+    expect(found.find((b) => b.name === 'xs')?.access).toBe('read');
+  });
+
+  it('accepts a write in an unreachable closure and an unreachable method', () => {
+    const closure = compute(
+      'declare const xs: storage<f32[]>;\ndeclare const out: storage<f32[]>;',
+      'out[gid.x] = xs[gid.x];',
+      'const unused = (i: u32) => { xs[i] = 3.; };',
+    );
+    expect(accessOf(closure)).toBe('read');
+    const method = compute(
+      'declare const xs: storage<Acc[]>;\ndeclare const out: storage<f32[]>;',
+      'out[gid.x] = xs[gid.x].total;',
+      'class Acc { total: f32; add(v: f32) { this.total += v; } }\nfunction unused() { xs[0].add(1.); }',
+    );
+    expect(accessOf(method)).toBe('read');
+  });
+
+  it('still makes the binding read_write when a reachable function writes it', () => {
+    const source = compute(
+      'declare const xs: storage<f32[]>;',
+      'put(gid.x);',
+      'function put(i: u32) { xs[i] = 2.; }\nfunction unused(i: u32) { xs[i] = 3.; }',
+    );
+    expect(accessOf(source)).toBe('read_write');
+  });
+
+  it('keeps read when the writer is unreachable and a reachable helper only reads', () => {
+    const source = compute(
+      'declare const xs: storage<f32[]>;\ndeclare const out: storage<f32[]>;',
+      'out[gid.x] = peek(gid.x);',
+      'function peek(i: u32): f32 { return xs[i]; }\nfunction unused(i: u32) { xs[i] = 3.; }',
+    );
+    expect(accessOf(source)).toBe('read');
   });
 });
 
@@ -163,12 +225,62 @@ describe('a binding the module writes cannot be read by a vertex entry', () => {
   });
 });
 
+const vertexOnlyReading = (decl: string): string => `"use typeshade";
+${decl}
+@vertex
+export function vs(i: builtin<"vertex_index">): builtin<"position"> {
+  return vec4(xs[i], 0., 0., 1.);
+}
+`;
+
+describe('a binding declared "read_write" cannot be read by a vertex entry, written or not', () => {
+  it('is refused in both halves when no entry writes it', () => {
+    bothRefuse(
+      vertexOnlyReading('declare const xs: storage<f32[], "read_write">;'),
+      'TS8099',
+      'WebGPU allows no writable storage buffer in the vertex stage, and "xs" is declared "read_write" while the vertex entry "vs" reads it: remove the "read_write" argument from "xs", or give the vertex stage a separate binding.',
+    );
+  });
+
+  it('accepts an explicit "read" binding that a vertex entry reads', () => {
+    const halves = bothTake(vertexOnlyReading('declare const xs: storage<f32[], "read">;'));
+    expect(halves.result.wgsl).toContain('var<storage, read> xs');
+  });
+
+  it('accepts a bare binding that a vertex entry reads and nobody writes', () => {
+    expect(accessOf(vertexOnlyReading('declare const xs: storage<f32[]>;'))).toBe('read');
+  });
+});
+
 describe('a storage binding declared with let is refused, so no accepted program has one', () => {
   it('refuses declare let on a binding no entry writes in both halves', () => {
     bothRefuse(
       compute('declare let xs: storage<f32[]>;', 'const v = xs[gid.x]; if (v > 1.) { return; }'),
       'TS8099',
       '"xs" is a storage binding, and a binding is declared const: write "declare const xs: storage<f32[], "read">". A storage binding\'s access mode is its second type argument, not the declaration keyword.',
+    );
+  });
+});
+
+describe('a bare binding that an entry writes through a reference parameter is read_write', () => {
+  const cell = 'class Cell { v: f32; }\nfunction bump(p: Cell): void { p.v += 1.; }\n';
+
+  it('infers read_write when a compute entry hands the element to the writing function', () => {
+    const source = compute('declare const xs: storage<array<Cell>>;', 'bump(xs[gid.x]);', cell);
+    expect(accessOf(source)).toBe('read_write');
+    expect(bothTake(source).result.wgsl).toContain('var<storage, read_write> xs');
+  });
+
+  it('infers read_write when the program has no entry and a function writes it', () => {
+    const source = `"use typeshade";\n${cell}declare const xs: storage<array<Cell>>;\nexport function r(): f32 { bump(xs[0]); return 0.; }`;
+    expect(accessOf(source)).toBe('read_write');
+  });
+
+  it('keeps an explicit read binding read-only and refuses the write in both halves', () => {
+    bothRefuse(
+      compute('declare const xs: storage<array<Cell>, "read">;', 'bump(xs[gid.x]);', cell),
+      'TS8073',
+      '"bump" writes its parameter "p", the caller\'s object (p: Cell), and "xs" is a read-only resource. Write "declare const xs: storage<array<Cell>, "read_write">" to write to it.',
     );
   });
 });
