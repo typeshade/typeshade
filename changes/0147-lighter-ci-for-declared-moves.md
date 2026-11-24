@@ -1,7 +1,7 @@
 ---
 id: '0147'
 title: 'A pull request that declares and passes a comments-only or pure move runs fewer gates before the merge'
-status: draft
+status: accepted
 rules:
   - '13.4'
 surface: []
@@ -19,11 +19,11 @@ downstream: []
 
 | Field                         | Record                                                                                                                                                                                                                                                                |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0147`, `status: draft`. The front matter is the lifecycle authority. `0147` is the next number after `0146`.                                                                                                                                         |
-| Date and attribution          | Written 2026-11-24, UTC. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction (the owner's words are in section "Why"). Approval is not recorded: it does not yet apply.                             |
+| Identity and status           | Change proposal `0147`, `status: accepted`. The front matter is the lifecycle authority. `0147` is the next number after `0146`.                                                                                                                                      |
+| Date and attribution          | Written 2026-11-24, UTC. The date is the authoring context, not an approval. Drafted by the repository's coding agent at the owner's direction (the owner's words are in section "Why"). The owner's decision of 2026-11-24 is recorded in the approval record below. |
 | Applicability / Effectivity   | `docs/language-design.md` Rule 13.4 (second paragraph) and its Doorstop item `reqs/rules/RULE-1304.md`; the CI files of the unmerged commit `29f61c82` (branch `local/ci-scope`). No `src/` code, surface, export, diagnostic or example. Release version unassigned. |
 | Review baseline               | `origin/main` at `d14bebb4` (the merge of PR #1529).                                                                                                                                                                                                                  |
-| Review and revision authority | No pull request is assigned yet. Git records revisions. The pull request's review and merge will record the decision.                                                                                                                                                 |
+| Review and revision authority | Pull request PR-NUMBER-UNASSIGNED (the number is not assigned yet). Git records revisions. The owner's go-ahead in the conversation is the review (`CLAUDE.md`, Merging), and the merge of that pull request records the decision.                                    |
 
 ## What changes
 
@@ -98,7 +98,7 @@ request under `0055`. The required checks keep their names.
 ignoring; running such heavy jobs when no code changes is not cost-effective). The agent then
 proposed a lighter CI path for declared moves, not ignoring CI. The owner answered "좋은 방향으로
 그러면" (then go in a good direction). This is the owner's direction on the path. It is not an
-approval of this text: approval does not yet apply.
+approval of this text. The approval of the text is recorded in the approval record below.
 
 **Measured cost** (from `docs/structure-refactoring-plan.md`, section 8, item 10 in commit
 `29f61c82`, and the planning figures of that plan):
@@ -234,8 +234,8 @@ and unmerged. The remaining work is Rule 13.4's text, `bun run reqs:sync`, one p
 
 Compatibility: a merged slice passes fewer gates before the merge. The risks above are the cost.
 
-Decision for the owner before acceptance: whether the exceptions stay as listed. In particular,
-whether the render gate may stay skipped for a `Move: pure` range before the merge (risk 4).
+Decided on 2026-11-24 (see the approval record): the exceptions stay as listed, and the render
+gate stays skipped for a `Move: pure` range before the merge (risk 4).
 
 ### Independent review record
 
@@ -272,9 +272,21 @@ Notes:
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's actual decision, the review
-and merge reference of the pull request, the approved revision and scope, assigned
-responsibilities and agreed milestones. No approval is recorded here.
+- Decision. [decision, owner, 2026-11-24] The orchestrating agent showed the owner in the
+  conversation the before and after of Rule 13.4, the job table, the measured saving, the limits
+  and its recommendation. The limits shown were: failures of skipped gates first show on `main`;
+  a pull request runs its own checker; `Move: pure` skips the render gate before the merge; the
+  pre-merge unit run is a selection. The recommendation was to keep the proposal as written, with
+  the render gate skipped for `Move: pure`. The owner answered "추천대로 진행해주세요" (proceed as
+  recommended). The merge of the pull request with `status: accepted` is the agreement.
+- Render gate. The owner's answer keeps the render gate skipped for a `Move: pure` range before
+  the merge (risk 4). No other open decision remains.
+- Approved revision and scope. The revision of this file that the pull request merges. The scope
+  is the front matter: Rule 13.4. No surface section, export, code, example or name.
+- Independent review. It ran on 2026-11-24 (the record above). Its findings are answered there.
+- Responsibilities and milestones. Not assigned. No schedule is agreed.
+- Open at acceptance. The downstream search named under "What it touches" and the person's
+  `doorstop review RULE-1304` are pending. The implementation of `29f61c82` is not merged.
 
 ### Configuration and validation record
 
