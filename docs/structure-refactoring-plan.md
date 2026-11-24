@@ -317,6 +317,7 @@ Status of each row: not started. Under decision D2, each series moves its source
 | S13 | Not started | Facade removal, one pull request per directory, after the series of that directory.                                                                           | No facade without a caller outside its directory; `docs:refs` and `build` pass. |
 | S14 | Not started | Cycles of `src/compiler/ts`: steps 1 to 10 of the structure analysis (section 6.4).                                                                           | No cycle of emitted imports in `src/compiler/ts`.                               |
 | S15 | Not started | Banned comments: the 41 clean oversized files of D12 first, then each directory in the order of S2 to S10, `Move: comments` pull requests (D13, section 6.5). | `scripts/comment-baseline.json` is empty.                                       |
+| S16 | In progress | Evidence citations become symbol anchors: phases P1 to P4 of section 6.6.                                                                                     | No line citation into a `src/` product file; `cited by line path` never fires.  |
 
 ### 6.1 Series S0, the tools and checks
 
@@ -610,6 +611,25 @@ Fact: a first run of `bun scripts/remove-comments.ts` on three of these files (a
 
 Fact: the comments mode and the helper left the checks green on each of the three files (section 8, item 9a).
 After the removal on `src/runtime/gl-draw.ts`, `bun scripts/move-declarations.ts` moved `GlSamplerImpl` and `COMPARISONS` into a new file, and the pure check passed on that commit.
+
+### 6.6 Series S16, evidence citations become symbol anchors
+
+Fact: `bun scripts/move-purity.ts --clean-report` and a count of the evidence strings of `src/core/coverage/*.ts` on `origin/main` (`e735e635`, 2026-11-24) found 1,809 evidence segments that cite `path:line` or `path:line-line`.
+1,414 of them cite `src/` product files. Line citations block declared moves on 52 source files.
+A sample found that about half of the citations already point at the wrong line, because `checkEvidence` checks only that the file exists and the line is in range.
+
+Decision: an evidence segment may cite a declaration by symbol, so that a move does not shift it.
+The grammar is in `scripts/symbol-anchors/grammar.ts`. Forms: `path#Symbol`, `path#Class.method` (also `Interface.member`, `Enum.member`, and `CONST.key` for a top-level `const` with an object literal), and `path#Symbol~"needle"`, where the needle is a literal substring of the declaration text.
+Several anchors share one path and are joined by `|` (`path#A|B.c`). A `.test.ts` file takes one form only, a quoted title: `path#"title substring"`. A file that is not `.ts` keeps `path` or `path:line`.
+The resolver (`scripts/symbol-anchors/resolve.ts`) follows `export { X } from` and `export * from`. It does not guess when a file has become a directory.
+`scripts/move-purity/line-citations.ts` counts line citations only, so an anchor never blocks a move.
+
+| Phase | Content                                                                                    | Status      |
+| ----- | ------------------------------------------------------------------------------------------ | ----------- |
+| P1    | The resolver and a checker that accepts both forms. No row changes.                        | In progress |
+| P2    | A converter that turns each line citation into an anchor and writes a review queue.        | Not started |
+| P3    | Migrate the rows in batches. A person reads each batch of the queue.                       | Not started |
+| P4    | `checkEvidence` refuses a line citation into a `src/` product file. Test files keep lines. | Not started |
 
 ## 7. Parallel work and conflicts
 
