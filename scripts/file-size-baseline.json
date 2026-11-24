@@ -188,7 +188,7 @@
   "src/core/passes/opt/pass-skeleton-differential.test.ts": 433,
   "src/core/passes/opt/unroll.test.ts": 784,
   "src/core/passes/parallel-loop.test.ts": 933,
-  "src/core/passes/parallel-loop.ts": 1212,
+  "src/core/passes/parallel-loop.ts": 1138,
   "src/core/passes/phase-split.ts": 1039,
   "src/core/passes/spell-names.test.ts": 401,
   "src/core/passes/uniform-layout.ts": 528,
