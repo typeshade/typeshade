@@ -33,7 +33,7 @@
   "src/compiler/ts/host-draw.test.ts": 520,
   "src/compiler/ts/host-entry.test.ts": 859,
   "src/compiler/ts/host-face.test.ts": 2508,
-  "src/compiler/ts/host-face.ts": 1261,
+  "src/compiler/ts/host-face.ts": 1256,
   "src/compiler/ts/host-failed-input.test.ts": 733,
   "src/compiler/ts/host-kernel-collections.test.ts": 485,
   "src/compiler/ts/host-kernel-push.test.ts": 789,

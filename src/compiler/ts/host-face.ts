@@ -107,6 +107,7 @@ import { isFunctionType } from './host-face/type-nodes.js';
 import { classChain, memberCall, classMembers } from './host-face/class-members.js';
 import { classCalls, generatedClass } from './host-face/class-calls.js';
 import { never } from './host-face/never-export.js';
+import type { BindingRef } from './host-face/binding-ref.js';
 export { hostViewPath, isShaderModulePath, formatBuildErrors } from './host-face/build-paths.js';
 export { bareArrays } from './host-face/kernel-facts.js';
 export { type HostExport } from './host-face-contracts.js';
@@ -160,12 +161,6 @@ export interface HostFace {
   /** Every file the compile read, the module first: what a bundler watches, so an edit to a
    *  file the module imports rebuilds it. */
   readonly files: readonly string[];
-}
-
-interface BindingRef {
-  readonly kind: 'binding';
-  readonly name: string;
-  readonly binding: string;
 }
 
 function reported(e: FaceExport): HostExport {
