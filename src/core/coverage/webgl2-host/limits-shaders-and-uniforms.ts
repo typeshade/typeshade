@@ -11,7 +11,7 @@ export const LIMITS_SHADERS_AND_UNIFORMS_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.getShaderPrecisionFormat',
     ],
     evidence:
-      'changes/0051-device-limits.md:415-416 (WebGL2 left out); src/rhi/webgl2.ts#GlState.constructor~"MAX_COLOR_ATTACHMENTS" (the pass reads MAX_COLOR_ATTACHMENTS once for its own use, with no author-facing form)',
+      'changes/0051-device-limits.md:415-416 (WebGL2 left out); src/rhi/webgl2.ts#GlState.constructor~"MAX_COLOR_ATTACHMENTS"; src/rhi/webgl2.ts#GlDevice~"MAX_VIEWPORT_DIMS" (`GlState.constructor` reads MAX_COLOR_ATTACHMENTS once and `GlDevice.#limitsOf` reads MAX_VIEWPORT_DIMS, each for its own use, with no author-facing form)',
     note: 'rt.limits is drafted for WebGPU',
     webgpu: planned('0051', 'rt.limits is drafted for WebGPU'),
     webgl2: gap(

@@ -17,13 +17,13 @@ export const MAP_MODE_SHADER_STAGE_AND_TEXTURE_USAGE_ROWS: readonly Row[] = [
     name: '`GPUMapMode.WRITE`',
     covers: ['GPUMapMode.WRITE'],
     evidence:
-      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/core/host-entry.ts:656; src/runtime/gl-draw.ts#GlDrawing.uploaded',
+      'src/core/resident.ts:61; src/core/resident.ts:228-237; src/core/host-entry.ts:656; src/runtime/gl-draw.ts#GlDrawing.uploaded~"writeBuffer"; src/rhi/webgl2.ts#GlDevice.upload~"bufferData"',
     webgpu: raw(
       'GPUBuffer',
       'the host maps its own GPUBuffer for writing; the runtime maps for reading only (src/core/host-entry.ts:656)',
     ),
     webgl2: na(
-      'WebGL2 has no write mapping; a buffer is written with bufferSubData (the runtime uploads with bufferData, `GlDrawing.uploaded` of `src/runtime/gl-draw.ts`)',
+      'WebGL2 has no write mapping; a buffer is written with bufferSubData (`GlDrawing.uploaded` of `src/runtime/gl-draw.ts` calls `rhi.writeBuffer`, and `bufferData` runs inside `src/rhi/webgl2.ts`)',
     ),
   },
   {
