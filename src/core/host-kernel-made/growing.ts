@@ -3,6 +3,7 @@ import type { CpuValue } from '../cpu-runtime.js';
 import type { GeneratedCpu } from '../host-entry.js';
 import type { IncomingReads } from '../host-failure.js';
 import { callKernel, type KernelFace } from '../host-kernel.js';
+import { callDefault } from '../owner.js';
 import { fromShaderIn } from '../host-values.js';
 import type { KernelMade } from '../kernel-made-face.js';
 import { markGrowing, MOST_PUSHED, pushedLength } from '../push-count.js';
@@ -15,6 +16,26 @@ const ARRAYS = { f32: Float32Array, i32: Int32Array, u32: Uint32Array } as const
 
 function pastGrowth(k: KernelFace, made: KernelMade, e: PastGrowth): RangeError {
   return pastLimit(k, made, `${String(e.length)} or more`, String(e.length - 1), true);
+}
+
+const cpuFaces = new WeakMap<KernelFace, KernelFace>();
+
+export function cpuTierListed(): boolean {
+  return callDefault().tiers().includes('cpu');
+}
+
+export function onCpuTier(k: KernelFace, made: KernelMade): KernelFace {
+  let face = cpuFaces.get(k);
+  if (face === undefined) {
+    const own: Record<string, unknown> = { ...k };
+    for (const key of ['gpu', 'gl', 'noWebgl2']) delete own[key];
+    own.noGpu =
+      `its capacity for "${made.shown}" is more than the host can reserve, and only the CPU ` +
+      `tier grows an array while it runs`;
+    face = own as unknown as KernelFace;
+    cpuFaces.set(k, face);
+  }
+  return face;
 }
 
 export function growingRun(

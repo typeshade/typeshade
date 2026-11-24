@@ -68,23 +68,6 @@ describe('what change 0114, S5d, refuses as not supported yet (TS8099)', () => {
         'that pushes onto it.',
     ],
     [
-      'an element write that can append, in a loop inside a loop',
-      grows(
-        `${LOOP} for (let i: u32 = 0; i < n; i++) { for (let j: u32 = 0; j < n; j++) { out[j] = 2.; } }`,
-      ),
-      '"out[j]" writes an element of "out" inside a loop that is no for loop at the top level ' +
-        'of "f", at an index the compiler cannot prove is below its length, and that is not ' +
-        'supported yet. Index it by the counter of a loop up to out.length.',
-    ],
-    [
-      'an element write that can append, in a loop up to its length',
-      grows(`${LOOP} for (let j: u32 = 0; j < out.length; j++) { out[j + 1] = 2.; }`),
-      UNKNOWN('for (let j: u32 = 0; j < out.length; j++)').replace(
-        'pushes onto "out"',
-        'writes an element of "out" that can append to it',
-      ),
-    ],
-    [
       'a second name for it',
       grows('const o = out; for (let i: u32 = 0; i < n; i++) { out.push(1.); }'),
       [

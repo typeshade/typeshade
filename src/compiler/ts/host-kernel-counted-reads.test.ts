@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { hostFace } from './host-face.js';
 import { bothRefuse, bothTake } from '../../core/testing/both-halves.js';
+import { warningsOf } from './growing-load.js';
 import { madeOf } from '../../core/kernel-made-face.js';
 import type { KernelFace } from '../../core/host-kernel.js';
 
@@ -153,49 +154,62 @@ describe('an inner loop whose bound reads an element at the outer counter, Route
   });
 });
 
-describe('what the new form does not take (change 0114, A17)', () => {
-  const sentence = (header: string): string =>
-    `"${header}" pushes onto "out", and its start or bound reads a value the call does not know ` +
-    'before it runs. It reads the value parameters, their components and fields, module constants, ' +
-    'the length of an array parameter, number literals, u32, i32 and f32 of these, and top-level ' +
-    'consts of these, with +, -, *, /, %, min and max; any other operand is not supported yet.';
+describe('what Route 2 does not take runs on the CPU tier, with a warning (change 0114, A17, Route 3)', () => {
+  const warning = (header: string): string =>
+    `typeshade TS8070: "${header}" pushes onto "out", and its start or bound reads a value the ` +
+    'call does not know before it runs, so this function runs on the CPU, where the array ' +
+    'grows as it is pushed to.';
   const inner = 'for (let j: u32 = 0; j < counts[i]; j++) { out.push(xs[i]); }';
   const outer = (rest: string, bound = 'xs.length'): string =>
     `for (let i: u32 = 0; i < ${bound}; i++) { ${rest} }`;
   const innerHeader = 'for (let j: u32 = 0; j < counts[i]; j++)';
+  const grows = (source: string): void => {
+    const made = madeOf(faceSet(source).get('f')!)!;
+    expect(made).toMatchObject({ grown: true, growing: true });
+    expect(made).not.toHaveProperty('counted');
+    expect(made).not.toHaveProperty('capacity');
+  };
 
-  it('refuses a read at an offset of the counter', () => {
-    bothRefuse(
-      wrap(outer('for (let j: u32 = 0; j < counts[i + 1]; j++) { out.push(xs[i]); }')),
-      'TS8099',
-      sentence('for (let j: u32 = 0; j < counts[i + 1]; j++)'),
-    );
+  it('takes a read at an offset of the counter', () => {
+    const source = wrap(outer('for (let j: u32 = 0; j < counts[i + 1]; j++) { out.push(xs[i]); }'));
+    expect(warningsOf(source)).toEqual([warning('for (let j: u32 = 0; j < counts[i + 1]; j++)')]);
+    grows(source);
   });
 
-  it('refuses a read at the counter of an inner loop', () => {
-    bothRefuse(
-      wrap(
-        outer(
-          `for (let j: u32 = 0; j < counts[i]; j++) { for (let q: u32 = 0; q < counts[j]; q++) { out.push(xs[i]); } }`,
-        ),
+  it('takes a read at the counter of an inner loop', () => {
+    const source = wrap(
+      outer(
+        `for (let j: u32 = 0; j < counts[i]; j++) { for (let q: u32 = 0; q < counts[j]; q++) { out.push(xs[i]); } }`,
       ),
-      'TS8099',
-      sentence(innerHeader),
     );
+    expect(warningsOf(source)).toEqual([warning(innerHeader)]);
+    grows(source);
   });
 
-  it('refuses a loop whose range the device holds, whatever stands before it', () => {
-    bothRefuse(wrap(`let m: u32 = counts[0]; ${outer(inner)}`), 'TS8099', sentence(innerHeader));
+  it('takes a read in a statement before the loops with no new warning, and refuses a top-level range the device holds', () => {
+    const source = wrap(`let m: u32 = counts[0]; ${outer(inner)}`);
+    expect(warningsOf(source)).toEqual([]);
+    grows(source);
     bothRefuse(
       wrap(outer(inner, 'counts[0]')),
       'TS8099',
-      sentence('for (let i: u32 = 0; i < counts[0]; i++)'),
+      `"for (let i: u32 = 0; i < counts[0]; i++)" pushes onto "out", and its start or bound reads a value the call does not know before it runs. It reads the value parameters, their components and fields, module constants, the length of an array parameter, number literals, u32, i32 and f32 of these, and top-level consts of these, with +, -, *, /, %, min and max; any other operand is not supported yet.`,
     );
   });
 
-  it('refuses a function whose loops count with two types, which has no GPU plan', () => {
+  it('takes a function whose loops count with two types, which has no GPU plan, with no new warning', () => {
     const source = wrap(`${outer(inner)} for (let k: i32 = 0; k < 2; k++) { out.push(1.); }`);
-    bothRefuse(source, 'TS8099', sentence(innerHeader));
+    expect(warningsOf(source)).toEqual([]);
+    grows(source);
+  });
+
+  it('gives the elements of a JavaScript loop for the programs it takes', async () => {
+    const m = await load(
+      wrap(outer('for (let j: u32 = 0; j < counts[i + 1]; j++) { out.push(xs[i]); }')),
+    );
+    const xs = [1.5, 2.5];
+    const got = (await m.f!(new Float32Array(xs), new Uint32Array([9, 2, 1]))) as Float32Array;
+    expect([...got]).toEqual([1.5, 1.5, 2.5]);
   });
 
   it('keeps a read at a counter the loop does not bound by the array on Route 1', () => {
