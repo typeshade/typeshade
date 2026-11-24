@@ -6,7 +6,7 @@ export const TEXTURE_QUERY_AND_LOAD_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`tan`',
     covers: ['wgsl:builtinFunctions:tan'],
-    evidence: 'src/core/intrinsics.ts:1116; src/core/builtins/overlay.ts:81',
+    evidence: 'src/core/intrinsics.ts:1116; src/core/builtins/overlay.ts#MATH~"\'tan\'"',
     note: 'the same spelling in WGSL and GLSL ES 3.00; no INTRINSICS entry',
     webgpu: typed('src/core/intrinsic-coverage.test.ts'),
     webgl2: typed('src/core/intrinsic-coverage.test.ts'),
@@ -16,7 +16,7 @@ export const TEXTURE_QUERY_AND_LOAD_FUNCTIONS_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`tanh`',
     covers: ['wgsl:builtinFunctions:tanh'],
-    evidence: 'src/core/intrinsics.ts:1123; src/core/builtins/overlay.ts:82',
+    evidence: 'src/core/intrinsics.ts:1123; src/core/builtins/overlay.ts#MATH~"\'tanh\'"',
     note: 'the same spelling in WGSL and GLSL ES 3.00; no INTRINSICS entry',
     webgpu: typed('src/core/intrinsic-coverage.test.ts'),
     webgl2: typed('src/core/intrinsic-coverage.test.ts'),
@@ -47,7 +47,7 @@ export const TEXTURE_QUERY_AND_LOAD_FUNCTIONS_ROWS: readonly Row[] = [
     name: '`textureGather`',
     covers: ['wgsl:builtinFunctions:textureGather'],
     evidence:
-      'src/core/intrinsics.ts:206; src/core/intrinsics.ts:374; src/core/backends/wgsl.ts:237-241; docs/language-design.md:1151; src/core/spec-conformance/coredef-texture-overloads.test.ts:263',
+      'src/core/intrinsics.ts:206; src/core/intrinsics.ts:374; src/core/backends/wgsl.ts#WGSL_CAP_PROFILE.textureGather; docs/language-design.md:1151; src/core/spec-conformance/coredef-texture-overloads.test.ts:263',
     note: 'capability with no GLSL row',
     webgpu: andGap(
       typed('src/compiler/ts/texture-wgsl-only.test.ts'),
@@ -63,7 +63,7 @@ export const TEXTURE_QUERY_AND_LOAD_FUNCTIONS_ROWS: readonly Row[] = [
     name: '`textureGatherCompare`',
     covers: ['wgsl:builtinFunctions:textureGatherCompare'],
     evidence:
-      'src/core/intrinsics.ts#TEXTURE_GATHER_IDS; src/core/intrinsics.ts:374; src/core/backends/wgsl.ts:237-241; docs/language-design.md:1151; src/core/spec-conformance/coredef-texture-overloads.test.ts:263',
+      'src/core/intrinsics.ts#TEXTURE_GATHER_IDS; src/core/intrinsics.ts:374; src/core/backends/wgsl.ts#WGSL_CAP_PROFILE.textureGather; docs/language-design.md:1151; src/core/spec-conformance/coredef-texture-overloads.test.ts:263',
     note: 'capability with no GLSL row',
     webgpu: andGap(
       typed('src/compiler/ts/texture-wgsl-only.test.ts'),
@@ -110,7 +110,7 @@ export const TEXTURE_QUERY_AND_LOAD_FUNCTIONS_ROWS: readonly Row[] = [
     name: '`textureNumLevels`',
     covers: ['wgsl:builtinFunctions:textureNumLevels'],
     evidence:
-      'src/core/spec-conformance/coredef-texture-overloads.test.ts:264; src/compiler/ts/codes.ts:27',
+      'src/core/spec-conformance/coredef-texture-overloads.test.ts:264; src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN',
     webgpu: gap(
       9,
       'not spelled: the front end raises TS8004 (UNKNOWN_FN); roadmap 13c, docs/roadmap.md:229',

@@ -29,7 +29,7 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     name: '`textureProj`',
     covers: ['glsl:builtinFunctions:8.8:textureProj'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
     webgpu: gap(
       9,
       'no WGSL form; the author divides by w; refused today as TS8004 (measured with compile(), 2026-10-12)',
@@ -58,7 +58,7 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     name: '`textureOffset`',
     covers: ['glsl:builtinFunctions:8.8:textureOffset'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
     webgpu: gap(
       9,
       'refused by name as TS8004 (measured with compile(), 2026-10-12); WGSL textureSample with an offset is TS8019 (measured with compile(), 2026-10-12); roadmap 0.4 item 13c names the offsets (docs/roadmap.md:229); surface §36 defers them (docs/use-typeshade-surface.md:4505-4506)',
@@ -105,7 +105,7 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     name: '`textureProjOffset`',
     covers: ['glsl:builtinFunctions:8.8:textureProjOffset'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
     webgpu: gap(
       9,
       'no WGSL form; a projective offset overload; refused by name as TS8004 (measured with compile(), 2026-10-12); roadmap 0.4 item 13c names the offsets (docs/roadmap.md:229); surface §36 (docs/use-typeshade-surface.md:4505-4506)',
@@ -123,7 +123,7 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     name: '`textureLodOffset`',
     covers: ['glsl:builtinFunctions:8.8:textureLodOffset'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
     webgpu: gap(
       9,
       'offset overload of textureLod; refused by name as TS8004 (measured with compile(), 2026-10-12); roadmap 0.4 item 13c names the offsets (docs/roadmap.md:229); surface §36 defers them (docs/use-typeshade-surface.md:4505-4506)',
@@ -141,7 +141,7 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     name: '`textureProjLod`',
     covers: ['glsl:builtinFunctions:8.8:textureProjLod'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
     webgpu: gap(9, 'no WGSL form; the author divides by w', 640),
     webgl2: gap(9, 'no WGSL form; the author divides by w', 640),
   },
@@ -151,7 +151,7 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     name: '`textureProjLodOffset`',
     covers: ['glsl:builtinFunctions:8.8:textureProjLodOffset'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
     webgpu: gap(
       9,
       'no WGSL form; a projective offset overload; refused by name as TS8004 (measured with compile(), 2026-10-12); roadmap 0.4 item 13c names the offsets (docs/roadmap.md:229); surface §36 (docs/use-typeshade-surface.md:4505-4506)',
@@ -180,7 +180,7 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     name: '`textureGradOffset`',
     covers: ['glsl:builtinFunctions:8.8:textureGradOffset'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
     webgpu: gap(
       9,
       'offset overload of textureGrad; refused by name as TS8004 (measured with compile(), 2026-10-12); roadmap 0.4 item 13c names the offsets (docs/roadmap.md:229); surface §36 defers them (docs/use-typeshade-surface.md:4505-4506)',
@@ -198,7 +198,7 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     name: '`textureProjGrad`',
     covers: ['glsl:builtinFunctions:8.8:textureProjGrad'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
     webgpu: gap(9, 'no WGSL form; the author divides by w', 640),
     webgl2: gap(9, 'no WGSL form; the author divides by w', 640),
   },
@@ -208,7 +208,7 @@ export const TEXTURE_LOOKUPS_ROWS: readonly Row[] = [
     name: '`textureProjGradOffset`',
     covers: ['glsl:builtinFunctions:8.8:textureProjGradOffset'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal); docs/roadmap.md:229 (roadmap 0.4 item 13c); docs/use-typeshade-surface.md:4505-4506 (§36)',
     webgpu: gap(
       9,
       'no WGSL form; a projective offset overload; refused by name as TS8004 (measured with compile(), 2026-10-12); roadmap 0.4 item 13c names the offsets (docs/roadmap.md:229); surface §36 (docs/use-typeshade-surface.md:4505-4506)',

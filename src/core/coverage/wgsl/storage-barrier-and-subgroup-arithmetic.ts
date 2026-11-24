@@ -20,7 +20,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupAdd`',
     covers: ['wgsl:builtinFunctions:subgroupAdd'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -33,7 +34,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupAll`',
     covers: ['wgsl:builtinFunctions:subgroupAll'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -46,7 +48,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupAnd`',
     covers: ['wgsl:builtinFunctions:subgroupAnd'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -59,7 +62,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupAny`',
     covers: ['wgsl:builtinFunctions:subgroupAny'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -72,7 +76,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupBallot`',
     covers: ['wgsl:builtinFunctions:subgroupBallot'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -85,7 +90,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupBroadcast`',
     covers: ['wgsl:builtinFunctions:subgroupBroadcast'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"SUBGROUP_LANE_READS.has(name) && args.length === 2) {"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -98,7 +104,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupBroadcastFirst`',
     covers: ['wgsl:builtinFunctions:subgroupBroadcastFirst'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -111,7 +118,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupElect`',
     covers: ['wgsl:builtinFunctions:subgroupElect'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -124,7 +132,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupExclusiveAdd`',
     covers: ['wgsl:builtinFunctions:subgroupExclusiveAdd'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -137,7 +146,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupExclusiveMul`',
     covers: ['wgsl:builtinFunctions:subgroupExclusiveMul'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -150,7 +160,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupInclusiveAdd`',
     covers: ['wgsl:builtinFunctions:subgroupInclusiveAdd'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -163,7 +174,8 @@ export const STORAGE_BARRIER_AND_SUBGROUP_ARITHMETIC_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupInclusiveMul`',
     covers: ['wgsl:builtinFunctions:subgroupInclusiveMul'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(

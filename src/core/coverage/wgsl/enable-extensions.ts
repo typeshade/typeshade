@@ -15,7 +15,7 @@ export const ENABLE_EXTENSIONS_ROWS: readonly Row[] = [
     kind: 'WGSL enable extension',
     name: '`clip_distances`',
     covers: ['wgsl:enableExtensions:clip_distances'],
-    evidence: 'src/core/backends/wgsl.ts:245-260',
+    evidence: 'src/core/backends/wgsl.ts#WGSL_CAP_PROFILE.clipDistances',
     webgpu: typed('src/compiler/ts/builtin-values.test.ts', 'derived; surface §50'),
     webgl2: gap(10, 'WEBGL_clip_cull_distance', 641),
   },
@@ -66,7 +66,8 @@ export const ENABLE_EXTENSIONS_ROWS: readonly Row[] = [
     kind: 'WGSL enable extension',
     name: '`subgroups`',
     covers: ['wgsl:enableExtensions:subgroups'],
-    evidence: 'docs/use-typeshade-surface.md:5855-5858; src/compiler/ts/enables.ts:5-12',
+    evidence:
+      'docs/use-typeshade-surface.md:5855-5858; src/compiler/ts/enables.ts#collectEnables~"ENABLE_PREFIX.length"',
     note: 'change 0117: derived by the 21 subgroup functions and the four built-in values, or spelled as the string directive',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(

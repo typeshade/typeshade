@@ -87,7 +87,8 @@ export const PREDECLARED_TYPES_ROWS: readonly Row[] = [
     kind: 'WGSL predeclared type',
     name: '`texture_depth_cube_array`',
     covers: ['wgsl:predeclaredTypes:texture_depth_cube_array'],
-    evidence: 'docs/language-design.md:1532; src/core/passes/required-caps.ts:150',
+    evidence:
+      'docs/language-design.md:1532; src/core/passes/required-caps.ts#requiredCaps~"\'textureCubeArray\'"',
     note: 'textureCubeArray capability',
     webgpu: typed('src/compiler/ts/texture-wgsl-only.test.ts'),
     webgl2: refused('Rule 10.5', 'none: no WebGL2 lowering yet', '#135; the family #130 to #139'),
@@ -107,7 +108,7 @@ export const PREDECLARED_TYPES_ROWS: readonly Row[] = [
     name: '`texture_external`',
     covers: ['wgsl:predeclaredTypes:texture_external'],
     evidence:
-      'docs/language-design.md:1539; src/core/spec-conformance/coredef-texture-overloads.test.ts:268; src/compiler/ts/codes.ts:25',
+      'docs/language-design.md:1539; src/core/spec-conformance/coredef-texture-overloads.test.ts:268; src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_TYPE',
     webgpu: gap(
       12,
       'refused today with no rule number: TS8002, not spelled (Appendix A, docs/language-design.md:1539); roadmap 13c, docs/roadmap.md:229',

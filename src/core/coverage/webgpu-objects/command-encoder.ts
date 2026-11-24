@@ -144,12 +144,13 @@ export const COMMAND_ENCODER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPUCompilationInfo.messages`',
     covers: ['GPUCompilationInfo.messages'],
-    evidence: 'docs/language-design.md:1391-1395; src/core/gl-compute.ts:131',
+    evidence:
+      'docs/language-design.md:1391-1395; src/core/gl-compute.ts#compile~"getShaderInfoLog"',
     webgpu: na(
       'the front end diagnoses at the source (Rule 12.6); the compile gate holds the emit to Tint (Rule 1.1)',
     ),
     webgl2: na(
-      'WebGL2 reports shader errors through getShaderInfoLog, a string, not a list of messages (src/core/gl-compute.ts:131)',
+      'WebGL2 reports shader errors through getShaderInfoLog, a string, not a list of messages (`compile` of `src/core/gl-compute.ts`)',
     ),
   },
 ];

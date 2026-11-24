@@ -87,7 +87,7 @@ export const GEOMETRIC_AND_MATRIX_ROWS: readonly Row[] = [
     name: '`matrixCompMult`',
     covers: ['glsl:builtinFunctions:8.6:matrixCompMult'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
     webgpu: gap(9, 'no WGSL built-in; a §9.3 row would be needed (Rule 13.6)', 640),
     webgl2: gap(9, 'no WGSL built-in; written by hand per column', 640),
   },
@@ -97,7 +97,7 @@ export const GEOMETRIC_AND_MATRIX_ROWS: readonly Row[] = [
     name: '`outerProduct`',
     covers: ['glsl:builtinFunctions:8.6:outerProduct'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
     webgpu: gap(9, 'no WGSL built-in; a §9.3 row would be needed', 640),
     webgl2: gap(9, 'no WGSL built-in; written by hand', 640),
   },
@@ -127,7 +127,7 @@ export const GEOMETRIC_AND_MATRIX_ROWS: readonly Row[] = [
     name: '`inverse`',
     covers: ['glsl:builtinFunctions:8.6:inverse'],
     evidence:
-      'src/compiler/ts/codes.ts:27 (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
+      'src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN (TS8004); src/compiler/ts/lower/expression-call.ts:498 (the unknown-function refusal)',
     webgpu: gap(
       9,
       'no WGSL built-in; a §9.3 row would be needed; refused today as TS8004 (measured with compile(), 2026-10-12)',

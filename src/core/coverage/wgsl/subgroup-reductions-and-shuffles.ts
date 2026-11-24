@@ -6,7 +6,8 @@ export const SUBGROUP_REDUCTIONS_AND_SHUFFLES_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupMax`',
     covers: ['wgsl:builtinFunctions:subgroupMax'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -19,7 +20,8 @@ export const SUBGROUP_REDUCTIONS_AND_SHUFFLES_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupMin`',
     covers: ['wgsl:builtinFunctions:subgroupMin'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -32,7 +34,8 @@ export const SUBGROUP_REDUCTIONS_AND_SHUFFLES_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupMul`',
     covers: ['wgsl:builtinFunctions:subgroupMul'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -45,7 +48,8 @@ export const SUBGROUP_REDUCTIONS_AND_SHUFFLES_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupOr`',
     covers: ['wgsl:builtinFunctions:subgroupOr'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -58,7 +62,8 @@ export const SUBGROUP_REDUCTIONS_AND_SHUFFLES_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupShuffle`',
     covers: ['wgsl:builtinFunctions:subgroupShuffle'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"SUBGROUP_LANE_READS.has(name) && args.length === 2) {"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -71,7 +76,8 @@ export const SUBGROUP_REDUCTIONS_AND_SHUFFLES_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupShuffleDown`',
     covers: ['wgsl:builtinFunctions:subgroupShuffleDown'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"SUBGROUP_LANE_READS.has(name) && args.length === 2) {"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -84,7 +90,8 @@ export const SUBGROUP_REDUCTIONS_AND_SHUFFLES_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupShuffleUp`',
     covers: ['wgsl:builtinFunctions:subgroupShuffleUp'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"SUBGROUP_LANE_READS.has(name) && args.length === 2) {"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -97,7 +104,8 @@ export const SUBGROUP_REDUCTIONS_AND_SHUFFLES_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupShuffleXor`',
     covers: ['wgsl:builtinFunctions:subgroupShuffleXor'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"SUBGROUP_LANE_READS.has(name) && args.length === 2) {"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(
@@ -110,7 +118,8 @@ export const SUBGROUP_REDUCTIONS_AND_SHUFFLES_ROWS: readonly Row[] = [
     kind: 'WGSL built-in function',
     name: '`subgroupXor`',
     covers: ['wgsl:builtinFunctions:subgroupXor'],
-    evidence: 'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts:79',
+    evidence:
+      'src/core/intrinsics.ts:266; src/compiler/ts/lower/subgroups.ts#lowerSubgroupCall~"fn: name"',
     note: 'change 0117, surface §77: the call derives `enable subgroups;` and the host feature',
     webgpu: typed('src/compiler/ts/subgroups.test.ts'),
     webgl2: typed(

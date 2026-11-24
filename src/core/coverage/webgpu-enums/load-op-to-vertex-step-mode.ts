@@ -154,7 +154,7 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     name: '`GPUStorageTextureAccess`',
     covers: ['GPUStorageTextureAccess'],
     evidence:
-      'docs/language-design.md:1151-1154; src/core/ir/types.ts#READ_WRITE_STORAGE_FORMATS|WRITE_ONLY_STORAGE_FORMATS; src/core/reflect.ts:904',
+      'docs/language-design.md:1151-1154; src/core/ir/types.ts#READ_WRITE_STORAGE_FORMATS|WRITE_ONLY_STORAGE_FORMATS; src/core/reflect.ts#reflect~"storageAccess: storageTextureLayoutAccess"',
     note: '3 members. write, read, read_write (Rule 10.5)',
     webgpu: andGap(
       typed('src/compiler/ts/storage-textures.test.ts'),
@@ -165,7 +165,7 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     webgl2: andGap(
       typed(
         'src/core/passes/gl-compute.test.ts',
-        'compute only (Rule 10.5); WebGL2 has no bind group layout, and the access is the declared one (src/core/reflect.ts:904)',
+        'compute only (Rule 10.5); WebGL2 has no bind group layout, and the access is the declared one (`reflect` of `src/core/reflect.ts`)',
       ),
       6,
       'read_write beyond r32uint, r32sint and r32float is refused (TS8002); §14 row, docs/language-design.md:1504; roadmap 13b, docs/roadmap.md:228',
@@ -287,13 +287,13 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     webgpu: andGap(
       typed('src/compiler/ts/vertex-layout.test.ts'),
       2,
-      '8/16-bit, normalized, float16 and packed formats have no typed spelling (src/core/vertex-layout.ts:72-80)',
+      '8/16-bit, normalized, float16 and packed formats have no typed spelling (`vertexFormat` of `src/core/vertex-layout.ts`)',
       633,
     ),
     webgl2: andGap(
       typed('scripts/compile-gate.ts'),
       2,
-      '8/16-bit, normalized, float16 and packed formats have no typed spelling (src/core/vertex-layout.ts:72-80)',
+      '8/16-bit, normalized, float16 and packed formats have no typed spelling (`vertexFormat` of `src/core/vertex-layout.ts`)',
       633,
     ),
   },
@@ -307,12 +307,12 @@ export const LOAD_OP_TO_VERTEX_STEP_MODE_ROWS: readonly Row[] = [
     note: '2 members. vertex only',
     webgpu: gap(
       2,
-      'vertex only: no per-instance step mode is spelled (src/core/vertex-layout.ts:65)',
+      'vertex only: no per-instance step mode is spelled (`vertexLayoutOfEntry` of `src/core/vertex-layout.ts`)',
       633,
     ),
     webgl2: gap(
       2,
-      'vertex only: no per-instance attribute divisor is spelled (src/core/vertex-layout.ts:65)',
+      'vertex only: no per-instance attribute divisor is spelled (`vertexLayoutOfEntry` of `src/core/vertex-layout.ts`)',
       633,
     ),
   },

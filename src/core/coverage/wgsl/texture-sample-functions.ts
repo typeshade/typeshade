@@ -28,7 +28,7 @@ export const TEXTURE_SAMPLE_FUNCTIONS_ROWS: readonly Row[] = [
     name: '`textureSampleBaseClampToEdge`',
     covers: ['wgsl:builtinFunctions:textureSampleBaseClampToEdge'],
     evidence:
-      'src/core/spec-conformance/coredef-texture-overloads.test.ts:266; src/compiler/ts/codes.ts:27',
+      'src/core/spec-conformance/coredef-texture-overloads.test.ts:266; src/compiler/ts/codes.ts#TS_CODES.UNKNOWN_FN',
     webgpu: gap(
       9,
       'not spelled: the front end raises TS8004 (UNKNOWN_FN); roadmap 13c, docs/roadmap.md:229',
