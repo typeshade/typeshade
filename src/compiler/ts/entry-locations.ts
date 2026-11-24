@@ -6,34 +6,11 @@ import { checkLocationType } from './builtin-check.js';
 import { TS_CODES } from './codes.js';
 import { authorTypeText } from './context.js';
 import { makeDiagnostic, noteUse } from './diagnostic.js';
-import {
-  hasRefusedIoParam,
-  refuseF64EntryIo,
-  type F64IoPlace,
-} from './lower/function-signature.js';
+import { refuseF64EntryIo, type F64IoPlace } from './lower/function-signature.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { stageCallOf } from './stage-call.js';
 import { hasRefusedIoAttribute, type CollectedStruct } from './structs.js';
-
-type Param = FuncDecl['params'][number];
-
-const isAttributed = (p: Param): boolean =>
-  p.type.kind === 'struct' ||
-  p.builtin !== undefined ||
-  p.location !== undefined ||
-  hasRefusedIoParam(p);
-
-interface Demand {
-  readonly location: number;
-  readonly where: string;
-}
-
-function take(held: Set<number>): number {
-  let n = 0;
-  while (held.has(n)) n++;
-  held.add(n);
-  return n;
-}
+import { isAttributed, take, type Param, type Demand } from './entry-locations/numbering.js';
 
 export function entryNode(
   sourceFile: ts.SourceFile,
