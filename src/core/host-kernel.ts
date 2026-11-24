@@ -1558,7 +1558,7 @@ export async function tierFit(
   const unread = k.params.find((p, i) => p.k === 'texture' && !cpuReads(hosts[i]));
   if (unread !== undefined)
     return {
-      why: `parameter "${unread.name}" is a texture the CPU tier cannot read; it reads an ImageData and a texture a device on the CPU tier made`,
+      why: `parameter "${unread.name}" is a texture that is not supported yet on the CPU tier (Rule 11.8); the CPU tier reads an ImageData and a texture a device on the CPU tier made`,
     };
   return { tier: 'cpu' };
 }

@@ -166,8 +166,8 @@ export function usesBump(x: f32): f32 { let c = new Cell(); c.v = x; bump(c); re
     expect(k.usesBump).toBe('function');
     expect(k.readsBinding).toMatch(/^it reaches a resource binding/);
     expect(k.reachesBinding).toMatch(/^it reaches a resource binding/);
-    expect(k.derivative).toMatch(/^it reaches dpdx, which only a GPU computes/);
-    expect(k.sampled).toMatch(/resource binding|only a GPU computes/);
+    expect(k.derivative).toMatch(/^it reaches dpdx, which is not supported yet on the CPU tier/);
+    expect(k.sampled).toMatch(/resource binding|not supported yet on the CPU tier/);
     expect(k.fromTile).toMatch(/^it reaches a workgroup variable/);
     expect(k.fs).toMatch(/^parameter "uv" is what a vertex entry writes/);
     // Each refusal names the work that adds it, or says none does yet.

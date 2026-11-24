@@ -548,7 +548,7 @@ export async function entryTierFit(
   }
   if (e.barrier !== undefined)
     return { why: `it reaches ${e.barrier}, not supported yet on the CPU tier (Rule 8.24)` };
-  if (e.noCpu !== undefined) return { why: `${e.noCpu}, and the CPU tier cannot` };
+  if (e.noCpu !== undefined) return { why: e.noCpu };
   return { tier: 'cpu' };
 }
 

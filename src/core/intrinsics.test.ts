@@ -321,8 +321,8 @@ describe('every divergent spelling is asserted as text, not only as divergent', 
       wgsl: 'textureNumLayers(a, b, c, d, e, f, g)',
       glsl: 'uint(textureSize(a, 0).z)',
     },
-    // Refused rather than absent: a storage texture has no GLSL ES 3.00 spelling at all, and
-    // `null` here covers both ways of having none (see `spell` above).
+    // Refused rather than absent: the GLSL backend has no spelling for a storage texture yet
+    // (Rule 10.5), and `null` here covers both ways of having none (see `spell` above).
     textureNumLayersStorage: { wgsl: 'textureNumLayers(a, b, c, d, e, f, g)', glsl: null },
     textureNumSamples: { wgsl: 'textureNumSamples(a, b, c, d, e, f, g)', glsl: null },
     textureSample: { wgsl: 'textureSample(a, b, c, d, e, f, g)', glsl: 'texture(a, c)' },

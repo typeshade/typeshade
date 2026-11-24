@@ -211,9 +211,8 @@ export function lowerDepthTextureCall(
       node,
       `"${shown}" is read by comparison: textureSampleCompare(tex, smp, uv, ref) with a ` +
         `sampler_comparison yields how much of the footprint passed. A plain read of a depth ` +
-        `texture — ${id} — is not here yet: on GLSL ES 3.00 the texture and its sampler are one ` +
-        `object whose type the read decides, so a depth texture read both ways needs separate ` +
-        `samplers, which a later item adds.`,
+        `texture — ${id} — is not supported yet (Rule 10.5): the lowering of a depth texture read ` +
+        `both ways to GLSL ES 3.00 is deferred.`,
       TS_CODES.UNSUPPORTED,
     );
     return undefined;
