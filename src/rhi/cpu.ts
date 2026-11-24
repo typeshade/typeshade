@@ -38,25 +38,9 @@ import { CpuTexture, isContext2d, CpuCanvas, present } from './cpu/canvas.js';
 import { CpuView, CpuSampler, CpuModule, CpuBindLayout, CpuBindGroup } from './cpu/handles.js';
 import { argOf, fieldsOf, stageOf, type Stage } from './cpu/stage.js';
 import { boundOf, bindTo, writeBack } from './cpu/binding.js';
+import { CpuComputePipeline, CpuRenderPipeline } from './cpu/pipelines.js';
 export { holdValue } from './cpu/binding.js';
 export { decode, encode } from './cpu/codec.js';
-
-class CpuComputePipeline implements RhiComputePipeline {
-  readonly __rhi = 'computepipeline';
-  constructor(
-    readonly stage: Stage,
-    readonly layouts: readonly RhiBindGroupLayout[],
-  ) {}
-}
-
-class CpuRenderPipeline implements RhiRenderPipeline {
-  readonly __rhi = 'pipeline';
-  constructor(
-    readonly vertex: Stage,
-    readonly fragment: Stage | undefined,
-    readonly desc: RhiRenderPipelineDesc,
-  ) {}
-}
 
 function invoke(stage: Stage, args: readonly unknown[], invocation?: readonly number[]): unknown {
   const F = stage.code.F as Readonly<Record<string, ((...a: unknown[]) => unknown) | undefined>>;
