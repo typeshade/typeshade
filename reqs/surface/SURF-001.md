@@ -5,7 +5,7 @@ level: 1
 links:
 - RULE-0301: US52ORocEX4MP8jxev-M_GTs0RerZfC5J1QncEFIvss=
 - RULE-0601: VgpaCDSPQqzOBVdGSzqoaIRuhs_LVkEUPiA57O7iocI=
-- RULE-0602: M9sPOe3vpavU8DiKvcq2AkjP9ABwNyaMtJoYPojjYcw=
+- RULE-0602: AgRtAl6_SdOliRZ9l1LEeNLavAo9ZHhmvav-7UDpjVg=
 normative: true
 ref: ''
 reviewed: DKi_dkM4kt3OZBejhkJAUUqdii3g8s5ciLDZhxPnc0w=
