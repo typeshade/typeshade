@@ -84,6 +84,73 @@ describe('a flow-aware walk pairs only values that occur together (issue 1308, A
     expect(valuesAt(program(chain))).toEqual(at(0, 0, 0));
   });
 
+  it('takes an early return, a store of a alone, a copy inside a loop and a plain block', () => {
+    const cases: readonly (readonly [string, string, number[]])[] = [
+      ['if (vi > 3) { return 1.0; }\n  a = 5;\n  c = 5;', 'return f32(a - c);', [1, 0, 1]],
+      ['for (let i = 0; i < ii; i++) { a = 5; }', 'return f32(a - c);', [0, 268435456, 268435456]],
+      ['for (let i = 0; i < ii; i++) { c = a; a = 5; }', 'return f32(a - c);', [0, 0, 0]],
+      ['{ a = 5; c = a; }', 'return f32(a - c);', [0, 0, 0]],
+      ['{ a = 5; c = 5; }', 'return f32(a - c);', [0, 0, 0]],
+    ];
+    for (const [body, result, values] of cases) {
+      expect(valuesAt(sum(body, result))).toEqual(at(...values));
+    }
+  });
+
+  it('takes a store of one variable before an if that stores the other', () => {
+    expect(valuesAt(sum('a = 5;\n  if (vi > 3) { c = 5; }'))).toEqual(at(0, 268435456, 0));
+    expect(valuesAt(sum('c = 5;\n  if (vi > 3) { a = 5; }', 'return f32(c - a);'))).toEqual(
+      at(0, 268435456, 0),
+    );
+  });
+
+  it('takes an else-if chain, with and without the store of c in the last branch', () => {
+    const chain = 'if (vi > 8) { a = 5; c = 5; } else if (vi > 3) { a = 6; c = 6; }';
+    expect(valuesAt(sum(chain))).toEqual(at(0, 0, 0));
+    const alone = 'if (vi > 8) { a = 5; c = 5; } else if (vi > 3) { a = 6; }';
+    expect(valuesAt(sum(alone))).toEqual(at(268435456, 0, 0));
+  });
+
+  it('takes a store after the loop, a read inside the loop and a return in the else branch', () => {
+    const after = 'for (let i = 0; i < ii; i++) { a = 5; c = 5; }\n  a = 9;';
+    expect(valuesAt(sum(after))).toEqual(at(268435456, 4, 4));
+    const inside =
+      'let r = 0.0;\n  for (let i = 0; i < ii; i++) { r += f32(a - c); a = 5; c = 5; }';
+    expect(valuesAt(sum(inside, 'return r;'))).toEqual(at(0, 0, 0));
+    const early = 'if (vi > 3) { a = 5; c = 5; } else { return 2.0; }';
+    expect(valuesAt(sum(early))).toEqual(at(0, 2, 0));
+  });
+
+  it('takes the same shapes with u32 variables', () => {
+    const u32 = (body: string, result = 'return f32(a - c);'): string =>
+      program(`let a = 0xF0000000;\n  let c = a;\n  ${body}\n  ${result}`);
+    expect(valuesAt(u32('if (vi > 3) { return 1.0; }\n  a = 5;\n  c = 5;'))).toEqual(at(1, 0, 1));
+    expect(valuesAt(u32('for (let i = 0; i < ii; i++) { a = 5; }', 'return f32(c - a);'))).toEqual(
+      at(0, 4026531840, 4026531840),
+    );
+    expect(valuesAt(u32('{ a = 5; c = a; }'))).toEqual(at(0, 0, 0));
+    expect(valuesAt(u32('if (vi > 3) { a = 5; c = 5; } else { return 2.0; }'))).toEqual(
+      at(0, 2, 0),
+    );
+    expect(valuesAt(u32('if (vi > 3) { a = 5; c = 5; } else { c = 5; }'))).toEqual(
+      at(0, 4026531840, 0),
+    );
+  });
+
+  it('takes a copy that was read before the variable was stored again, in either order', () => {
+    const body = 'let a = 5;\n  let c = a;\n  a = (0xF0000000|0);\n  return f32(c - a);';
+    expect(valuesAt(program(body))).toEqual(at(268435456, 268435456, 268435456));
+  });
+
+  it('reports the do...while refusal alone, without a second refusal of the read', () => {
+    const sentence =
+      'do…while is not supported: the IR has one loop shape, a top-tested "for", and a do…while ' +
+      'runs its body before the first test. Write "while (c) { … }" with the body\'s first pass ' +
+      'unrolled above it, or a counted "for".';
+    const body = 'let i = 0;\n  do { a = 5; c = 5; i++; } while (i < ii);';
+    bothRefuse(sum(body), 'TS8099', sentence);
+  });
+
   it('refuses a pair that occurs on one path, with the approved sentence', () => {
     const cases: readonly (readonly [string, string, string])[] = [
       ['if (vi > 3) { a = 5; c = 6; }', 'return f32(a - c);', 'a - c'],
