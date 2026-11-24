@@ -20,6 +20,7 @@
 // handles: the backend has no compute pass. The call layer's entry call outside a `fuse` scope
 // dispatches through this tier (`runFrame`, change 0120, M4).
 
+// Why: Rule 11.11 (docs/language-design.md); the reqs/ item of Rule 11.11 reads this keyword in this file.
 import { describe, byteSize, Misfit, pack, readInto, type Layout } from '../core/host-entry.js';
 import { runGlCompute } from '../core/gl-compute.js';
 import { deviceInfo, type DeviceInfo } from '../core/device-info.js';
@@ -97,8 +98,7 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
     return this.rhi.native as WebGL2RenderingContext;
   }
 
-  /** The sampler a dispatch reads a texture paired with none through: nearest, clamped, which a
-   *  texture of integers needs to be complete at all. */
+  // Why: WebGL2 takes a texture of integers as complete only with a nearest, clamped sampler.
   get nearest(): RhiSampler {
     return (this.#nearest ??= this.rhi.createSampler({
       magFilter: 'nearest',
