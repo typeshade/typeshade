@@ -42,6 +42,7 @@ import type {
 } from './service/types.js';
 import { projected } from './service/projected.js';
 import { readers } from './service/import-hooks.js';
+import { byDocumentOrder } from './service/document-order.js';
 export { importHooksOf } from './service/import-hooks.js';
 export type {
   TypeshadeLanguageService,
@@ -64,14 +65,6 @@ interface DocumentCacheEntry {
   readonly key: string;
   readonly analysis: CompileTsSourceResult;
   diagnostics?: readonly TypeshadeDiagnostic[];
-}
-
-function byDocumentOrder(a: TypeshadeDiagnostic, b: TypeshadeDiagnostic): number {
-  return (
-    a.span.start - b.span.start ||
-    a.span.length - b.span.length ||
-    (a.source < b.source ? -1 : a.source > b.source ? 1 : 0)
-  );
 }
 /**
  * Creates a Typeshade language service (design doc §4). `host` configures the ambient lib and
