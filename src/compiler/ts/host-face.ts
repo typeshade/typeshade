@@ -10,7 +10,7 @@ import { emitGlslModule } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
 import type { ConsoleLog } from '../../core/console.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
-import { GPU_STUBS, zeroOf } from '../../core/cpu-runtime.js';
+import { zeroOf } from '../../core/cpu-runtime.js';
 import {
   type ComputeEntry,
   type DrawBinding,
@@ -121,6 +121,7 @@ import { staticConstName } from './module-const.js';
 import { compileTsProgram, type TsCompilerDiagnostic } from './source-file.js';
 import { emittedStructDecls, type CollectedStruct } from './structs.js';
 import type { FaceCtx } from './host-face/context.js';
+import { gpuOnlyCall, barrierIn } from './host-face/reach.js';
 export { type HostExport } from './host-face-contracts.js';
 export { hostTypeOf } from './host-types.js';
 
@@ -190,17 +191,6 @@ const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean =>
   (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some((m) => m.kind === kind) ??
   false;
 
-function gpuOnlyCall(f: FuncDecl, declared: ReadonlySet<string>): string | undefined {
-  let found: string | undefined;
-  const visit = (x: Expr): void => {
-    if (found !== undefined || x.op !== 'call' || declared.has(x.fn)) return;
-    if (isBarrierIntrinsic(x.fn) || isAtomicIntrinsic(x.fn) || GPU_STUBS[x.fn] !== undefined)
-      found = x.fn;
-  };
-  for (const s of f.body) eachStmtExpr(s, (e) => eachExpr(e, visit));
-  return found;
-}
-
 const COMPUTE_BUILTINS = new Set([
   'global_invocation_id',
   'local_invocation_id',
@@ -215,34 +205,6 @@ function spell(t: ShaderType): string {
     return t.size === undefined ? `array<${spell(t.elem)}>` : `array<${spell(t.elem)}, ${t.size}>`;
   if (t.kind === 'atomic') return `atomic<${t.elem}>`;
   return authorTypeText(t);
-}
-
-function barrierIn(
-  closure: ReadonlySet<string>,
-  byName: ReadonlyMap<string, FuncDecl>,
-  declared: ReadonlySet<string>,
-): string | undefined {
-  for (const g of closure) {
-    let found: string | undefined;
-    const visitStmt = (st: Stmt): void => {
-      if (found !== undefined) return;
-      eachStmtExpr(
-        st,
-        (e) =>
-          eachExpr(e, (x) => {
-            if (found !== undefined || x.op !== 'call' || declared.has(x.fn)) return;
-            if (!isBarrierIntrinsic(x.fn)) return;
-            const span = sourceSpanOf(st) ?? sourceSpanOf(x);
-            const file = span?.file.replace(/\\/g, '/').split('/').pop();
-            found = span ? `${x.fn}() at ${file}:${span.line + 1}` : `${x.fn}() in ${g}`;
-          }),
-        visitStmt,
-      );
-    };
-    for (const st of byName.get(g)!.body) visitStmt(st);
-    if (found !== undefined) return found;
-  }
-  return undefined;
 }
 
 /**
