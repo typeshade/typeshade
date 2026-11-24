@@ -106,6 +106,7 @@ import { dispatched, bareArrays, reachedBy } from './host-face/kernel-facts.js';
 import { isFunctionType } from './host-face/type-nodes.js';
 import { classChain, memberCall, classMembers } from './host-face/class-members.js';
 import { classCalls, generatedClass } from './host-face/class-calls.js';
+import { never } from './host-face/never-export.js';
 export { hostViewPath, isShaderModulePath, formatBuildErrors } from './host-face/build-paths.js';
 export { bareArrays } from './host-face/kernel-facts.js';
 export { type HostExport } from './host-face-contracts.js';
@@ -1062,9 +1063,6 @@ function kernelGl(
   }
   return { loops };
 }
-
-const never = (name: string, reason: string, typeOnly?: true): HostExport =>
-  typeOnly ? { kind: 'never', name, reason, typeOnly } : { kind: 'never', name, reason };
 
 function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
   const { name, decl } = ref;
