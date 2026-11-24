@@ -68,10 +68,10 @@ diagnostic has category `error`, `wgsl` and `glsl` are `undefined` and `run` thr
 that names the first error diagnostic. When there is no error, `wgsl` is always present and
 `glsl` is present whenever the GLSL ES 3.00 backend can emit the module, a single render
 stage included; a compute-only module has `wgsl` and no `glsl`, with no diagnostic, since
-GLSL ES 3.00 has no compute stage. A WGSL emitter that throws on a program the front end
+the GLSL backend writes render entries only (Rule 10.3), and WebGL2 runs a compute entry as its pass program (Rule 11.8). A WGSL emitter that throws on a program the front end
 accepted is reported as a `TS8015` error, not an exception. A GLSL emitter that throws on a
-module with a `@vertex` or `@fragment` entry (a storage binding the GLSL emulation cannot
-spell) is a `TS8015` warning: the module compiled, `wgsl` stays and only `glsl` is
+module with a `@vertex` or `@fragment` entry (a storage binding that a draw writes, which the GLSL
+backend does not support yet, Rules 10.3 and 10.5) is a `TS8015` warning: the module compiled, `wgsl` stays and only `glsl` is
 `undefined`. A `@compute` entry beside them runs on WebGL2 as its own pass program, so `glsl`
 holds the render entries' programs; a compute entry with no pass program (one that reaches a
 texture) is a `TS8015` warning that names it. `module` is always present,
