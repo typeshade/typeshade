@@ -9,7 +9,7 @@
 // list. Every use is a type node, an `extends`, or a `new`, and all three are syntactic.
 //
 // Every spelling below type-checks under `tsc` with the ambient lib as well as compiling here,
-// which is the lesson T8 taught; `examples/generic-class.shade.ts` carries the same surface and
+// which is the lesson T8 taught; `examples/gallery/generic-class/generic-class.shade.ts` carries the same surface and
 // `src/language-service/ambient.test.ts` runs tsc over it. What tsc will NOT take is arithmetic
 // on an unconstrained type parameter, so a generic class here holds, selects, indexes and
 // returns, and the arithmetic happens on what it gives back.

@@ -42,7 +42,7 @@ function runAll(src: string, args: unknown[] = [], fn = 'run'): unknown {
 }
 
 describe('the example', () => {
-  it('examples/class-syntax.shade.ts renders the two rings on every CPU path', async () => {
+  it('examples/gallery/class-syntax/class-syntax.shade.ts renders the two rings on every CPU path', async () => {
     const src = exampleSource('class-syntax');
     const input = { pos: [0, 0, 0, 1], uv: [0.5, 0] };
     expect(runAll(src, [input], 'fs')).toEqual({ color: [0.95, 0.74, 0.32, 1] });
@@ -51,7 +51,7 @@ describe('the example', () => {
     });
   });
 
-  it('examples/class-builder.shade.ts renders the three discs on every CPU path', async () => {
+  it('examples/gallery/class-builder/class-builder.shade.ts renders the three discs on every CPU path', async () => {
     const src = exampleSource('class-builder');
     const at = (uv: number[], color: number[]): void =>
       expectClose(runAll(src, [{ pos: [0, 0, 0, 1], uv }], 'fs'), { color });
@@ -61,7 +61,7 @@ describe('the example', () => {
     at([0.72, 0], [0.07, 0.08, 0.14, 1]);
   });
 
-  it('examples/class-parts.shade.ts renders the ring and the dot on every CPU path', async () => {
+  it('examples/gallery/class-parts/class-parts.shade.ts renders the ring and the dot on every CPU path', async () => {
     const src = exampleSource('class-parts');
     const at = (uv: number[], color: number[]): void =>
       expectClose(runAll(src, [{ pos: [0, 0, 0, 1], uv }], 'fs'), { color });

@@ -466,19 +466,19 @@ each comment in the moved body, not before the move. The same list is in the rec
 
 The fix workers listed these places. Each line is on `main` at `af0a3f8e`.
 
-| Place                                                         | Text                                                                                                                                                | Rounds that found it                    |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `examples/compute-sync.shade.ts:12` (and the blurb at line 6) | "GLSL ES 3.00 has no compute stage, so `compile()` emits no GLSL text"                                                                              | 3                                       |
-| `examples/array-length.shade.ts:6`                            | "a runtime-sized `read_write` storage array has no GLSL spelling"                                                                                   | 3, 4                                    |
-| `examples/msaa-resolve.shade.ts:6` and `:18`                  | "WGSL-only: GLSL ES 3.00 has no `sampler2DMS`"                                                                                                      | 3, 4                                    |
-| `examples/cube-array-gather.shade.ts:6` and `:17`             | "GLSL ES 3.00 has none of them, measured on a WebGL2 driver, so each derives ..."                                                                   | 3, 4                                    |
-| `examples/clip-planes.shade.ts:25`                            | "an extension WebGL2 does not expose, so the capability has no row"                                                                                 | 3                                       |
-| `examples/shadow-compare.shade.ts:29`                         | "on GLSL the combined sampler's type is decided by the read ..." (same sentence at `src/compiler/ts/depth-textures.test.ts:213` and in surface §34) | 3                                       |
-| `examples/compute-reduction.ts:9`                             | "ES 3.00 has no compute stage, so the GLSL backend emits no text for this module"                                                                   | 4 (owned by M4.3c)                      |
-| `examples/workgroup-tile-2d.shade.ts:23`                      | "GLSL ES 3.00 has no compute stage, so like `workgroup-scratch` ..."                                                                                | read for this record, no round named it |
+| Place                                                                              | Text                                                                                                                                                | Rounds that found it                    |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `examples/gallery/compute-sync/compute-sync.shade.ts:12` (and the blurb at line 6) | "GLSL ES 3.00 has no compute stage, so `compile()` emits no GLSL text"                                                                              | 3                                       |
+| `examples/gallery/array-length/array-length.shade.ts:6`                            | "a runtime-sized `read_write` storage array has no GLSL spelling"                                                                                   | 3, 4                                    |
+| `examples/gallery/msaa-resolve/msaa-resolve.shade.ts:6` and `:18`                  | "WGSL-only: GLSL ES 3.00 has no `sampler2DMS`"                                                                                                      | 3, 4                                    |
+| `examples/gallery/cube-array-gather/cube-array-gather.shade.ts:6` and `:17`        | "GLSL ES 3.00 has none of them, measured on a WebGL2 driver, so each derives ..."                                                                   | 3, 4                                    |
+| `examples/gallery/clip-planes/clip-planes.shade.ts:25`                             | "an extension WebGL2 does not expose, so the capability has no row"                                                                                 | 3                                       |
+| `examples/gallery/shadow-compare/shadow-compare.shade.ts:29`                       | "on GLSL the combined sampler's type is decided by the read ..." (same sentence at `src/compiler/ts/depth-textures.test.ts:213` and in surface §34) | 3                                       |
+| `examples/compute-reduction.ts:9`                                                  | "ES 3.00 has no compute stage, so the GLSL backend emits no text for this module"                                                                   | 4 (owned by M4.3c)                      |
+| `examples/gallery/workgroup-tile-2d/workgroup-tile-2d.shade.ts:23`                 | "GLSL ES 3.00 has no compute stage, so like `workgroup-scratch` ..."                                                                                | read for this record, no round named it |
 
-[fact] The fix workers also named `examples/packed-bytes.shade.ts`, `examples/storage-texture.shade.ts`
-and `examples/subgroup-reduce.shade.ts` among the modules that M4.3c moves. No line of those three
+[fact] The fix workers also named `examples/gallery/packed-bytes/packed-bytes.shade.ts`, `examples/gallery/storage-texture/storage-texture.shade.ts`
+and `examples/gallery/subgroup-reduce/subgroup-reduce.shade.ts` among the modules that M4.3c moves. No line of those three
 is in the skipped lists. [proposal] The M4.3c follow-up reads their bodies for the same pattern.
 The wording is the one that each worker proposed: "not supported yet" with the rule, and the API
 fact kept in a parenthesis (Rule 10.5, Rule 10.3, Rule 11.8).

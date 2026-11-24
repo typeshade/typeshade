@@ -122,7 +122,7 @@ WGSL's, and WGSL's `any` and `all` take a bool or a bool vector only.
 
 An author who wants the short name writes it as ordinary TypeScript, for example
 `const PI = Math.PI;`. A file's own declaration of a removed name stays the file's (Rule 9.5):
-`examples/capsule-corp-namek-class.shade.ts` declares `const PI` and
+`examples/gallery/capsule-corp-namek-class/capsule-corp-namek-class.shade.ts` declares `const PI` and
 `examples/loop-reduction.shade.ts` declares `function sum`, and neither changes.
 
 **Stays** (a case only this name carries):
@@ -289,7 +289,7 @@ section.
   in the Claude Code session ("추천대로 승인") before the review ran. Disposition: closed; the
   rules are on `main` at `6229368`.
 - 2026-11-02. Deviation: while #899 was open, `main` gained three files that use a removed
-  spelling, none named in "What it touches": `examples/subgroup-reduce.shade.ts` (#919,
+  spelling, none named in "What it touches": `examples/gallery/subgroup-reduce/subgroup-reduce.shade.ts` (#919,
   `arrayLength(src)`), `scripts/class-arm.ts` (#883, the generated twin's bounds guard) and
   `journeys/class-twins/units.shade.ts` (#883, three `arrayLength` calls). Each changed to
   `.length` in merge commit `c4fa59b`. Without the last, the class arm of `gate:differential`

@@ -1,0 +1,8 @@
+{
+  "title": "Block scope",
+  "blurb": "Two sequential loops over `i`, a `p` in a loop body beside a `p` in an `if` arm, and an inner `p` that shadows the outer one: the block scoping TypeScript has and the IR now follows, with the second declaration of each name emitted as `i_1`, `p_1` (#38). Also a float `%=` for GLSL ES 3.00 (#20) and a shift inside 0 to 31 (#71). Renders concentric rings.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

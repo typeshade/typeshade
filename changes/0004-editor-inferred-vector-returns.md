@@ -102,7 +102,7 @@ the compiler already knows, which is what #217 removed for a local.
 - **Prose outside the criteria, in the same change:**
   - the #162 section of `docs/language-service-api.md`;
   - the README's "Not covered" line;
-  - `examples/inferred-returns.shade.ts`, which returns a product directly and drops its #162
+  - `examples/gallery/inferred-returns/inferred-returns.shade.ts`, which returns a product directly and drops its #162
     note;
   - `examples/gallery/path-tracer/path-tracer.shade.ts`, whose #162 note has been untrue for its locals since #217,
     and whose runtime-bound note has been untrue since #209.

@@ -1,0 +1,8 @@
+{
+  "title": "Null, undefined and present values",
+  "blurb": "Nullable classes and members retain three states through optional chaining. The left band has no object (undefined), the middle has a null member, and the right has a present value. Strict tests choose red, green and blue respectively (Rule 7.10, change 0098).",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

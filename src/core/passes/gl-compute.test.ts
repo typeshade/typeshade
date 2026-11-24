@@ -423,7 +423,7 @@ function put(t: texture_storage_2d<"r32float", "write">, i: i32) {
       }
     }
     expect(built.length).toBeGreaterThanOrEqual(9);
-    expect(built).toContain('storage-texture.shade.ts:paint');
+    expect(built).toContain('gallery/storage-texture/storage-texture.shade.ts:paint');
   });
 });
 

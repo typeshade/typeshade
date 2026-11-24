@@ -1,0 +1,8 @@
+{
+  "title": "Optional values: T | undefined",
+  "blurb": "A function, a local and a callback hold `T | undefined`, and the compiler carries whether the value is there (§76). `root` returns `undefined` below zero and `sampleOr` tests it, `nearest` finds the closest of two optional distances with `??`, `offsetOf` reads a field of an optional struct through `?.`, and `fs` narrows a local by an assignment and an early return, and `halfOf`'s bare `return;` is the absent value, as TypeScript reads it. Each `T | undefined` lowers to a struct of the value and a `bool`, `__opt_f32`, on WGSL and GLSL ES 3.00 alike; nothing in it depends on NaN.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true
+}

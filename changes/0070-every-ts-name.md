@@ -192,7 +192,7 @@ A name that TypeScript accepts is therefore refused for a backend reason on some
 - **Exports:** `BindEntry`, `EntryInfo`, `EntryIoField`, `FieldLayout`, `OverrideInfo`, `StructLayout`, `VertexAttr`, `Pack`, `PackBinding` and `PackEntry` gain the emitted-name record (`src/__api__/surface.md` lists each). `Pack` also changes its `schema` literal (D2). `reflect()` and `packModule()` keep their signatures.
 - **Diagnostics:** `TS8068` changes (D1). Its reserved-name messages retire. Its strict-mode messages remain. No code is added or removed under this proposal unless D1 chooses to move strict mode to a new code.
 - **Codes:** none added. `TS8068` keeps its number under the recommended option (D1).
-- **Examples:** none. The examples set does not change. `examples/array-length.shade.ts` carries a field named `half` on a compute kernel. Its comment names the refusal rule, so the comment is checked for truth in the implementation.
+- **Examples:** none. The examples set does not change. `examples/gallery/array-length/array-length.shade.ts` carries a field named `half` on a compute kernel. Its comment names the refusal rule, so the comment is checked for truth in the implementation.
 - **Runtime (`typeshade/runtime`, `src/runtime/`):** the host calls each entry, binding, override and struct by the authored name, and the runtime translates it through the record. The runtime does not change its public calls.
 - **CPU oracle and debugger:** keep the authored names. No change except where a test pins a field name.
 - **Editor (`src/language-service/`):** stops reporting the reserved-name refusals. It keeps the strict-mode refusals (TS1215, TS1210, TS1100 under TS8068). The two halves agree under Rule 12.7 because both read the same front end.

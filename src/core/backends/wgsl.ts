@@ -258,7 +258,7 @@ const WGSL_CAP_PROFILE = {
   // refuses `enable clip_distances;` on a device that was not ASKED for the feature
   // (`extension 'clip_distances' is not allowed in the current environment`), which is what
   // `hostFeature` exists to prevent — the compile gate requests the corpus's features, and
-  // `examples/clip-planes.shade.ts` compiles there.
+  // `examples/gallery/clip-planes/clip-planes.shade.ts` compiles there.
   //
   // `directive` is measured on both rows. `hostFeature` is measured for `clip-distances`,
   // which the gate's adapter offers and a device accepts; `primitive-index` follows WGSL's

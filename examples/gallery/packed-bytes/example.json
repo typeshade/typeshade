@@ -1,0 +1,9 @@
+{
+  "title": "Packed 4x8 integer builtins",
+  "blurb": "The eight builtins that read a `u32` as four bytes or write four back (§47): both packed dot products, both unpacks and all four packs, truncating and saturating. These builtins are not supported yet by the GLSL backend (Rule 10.3), so this one is `renderable: false` and the gate runs its Tint half alone, which is exactly what the `packed4x8Dot` capability promises. The values it computes were dispatched on a real device and read back, and the CPU oracle returns the same ones.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": false,
+  "reason": "packed4x8Dot"
+}
