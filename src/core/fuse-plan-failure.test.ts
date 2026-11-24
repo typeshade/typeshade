@@ -90,7 +90,7 @@ function deviceThatRefusesShadersWith(word: string) {
     lost: new Promise<never>(() => undefined),
   };
   configure({ runtime: { device } as never });
-  return { submits: () => submits };
+  return { submits: () => submits, device };
 }
 
 it('discards the batch of a plan that fails before its dispatches are submitted', async () => {
@@ -108,4 +108,40 @@ it('discards the batch of a plan that fails before its dispatches are submitted'
   expect(discard).toHaveBeenCalledTimes(1);
   expect(flush).not.toHaveBeenCalled();
   expect(gpu.submits()).toBe(0);
+});
+
+function runtimeCountingDeviceReads() {
+  const gpu = deviceThatRefusesShadersWith('never-present');
+  const device = gpu.device;
+  let reads = 0;
+  configure({
+    runtime: {
+      get device() {
+        reads++;
+        return device;
+      },
+    } as never,
+  });
+  reads = 0;
+  return { reads: () => reads, submits: gpu.submits };
+}
+
+async function runTwoCallsOn(tiers: readonly ('webgpu' | 'cpu')[]) {
+  const reads = runtimeCountingDeviceReads();
+  configure({ prefer: tiers });
+  const m = await load();
+  const [x, y] = [array(Float32Array.of(1, 2)), array(new Float32Array(2))];
+  await fuse(() => {
+    void m.bump(x);
+    void m.relu(y, x);
+  });
+  return reads.reads();
+}
+
+it('reads no device for a plan whose tiers do not include webgpu', async () => {
+  expect(await runTwoCallsOn(['cpu'])).toBe(0);
+});
+
+it('reads the device for a plan whose tiers include webgpu', async () => {
+  expect(await runTwoCallsOn(['webgpu'])).toBeGreaterThan(0);
 });
