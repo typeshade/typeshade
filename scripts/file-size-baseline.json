@@ -186,7 +186,7 @@
   "src/core/passes/spell-names.test.ts": 401,
   "src/core/passes/uniform-layout.ts": 528,
   "src/core/passes/uniformity.test.ts": 2241,
-  "src/core/passes/uniformity.ts": 1578,
+  "src/core/passes/uniformity.ts": 1576,
   "src/core/reflect.test.ts": 619,
   "src/core/reflect.ts": 1130,
   "src/core/resident.ts": 1489,
