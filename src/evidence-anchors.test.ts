@@ -85,6 +85,20 @@ write(SUITE, SUITE_TEXT);
 write(NOTES, '# notes\n');
 write(file('src', 'split', 'part.ts'), 'export const part = 1;\n');
 
+const MOD = file('src', 'mod.ts');
+const MOD_DIR = file('src', 'mod');
+write(MOD, `export { shown } from '${spec('mod/shown')}';\nconst own = 1;\n`);
+write(
+  file(MOD_DIR, 'shown.ts'),
+  `export const shown = 1;\nconst hidden = 'inner';\nconst own = 2;\nconst viaStar = 3;\n`,
+);
+write(
+  file(MOD_DIR, 'tools.ts'),
+  `class Hidden {\n  run(): number {\n    return 42;\n  }\n}\nconst TABLE = { key: 1 };\nconst twin = 1;\nconst shown = 'directory copy';\n`,
+);
+write(file(MOD_DIR, 'deep', 'nested.ts'), `function nestedOnly(): void {}\nconst twin = 2;\n`);
+write(file(MOD_DIR, 'tools.test.ts'), `const onlyInTest = 1;\n`);
+
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const resolver = new AnchorResolver(root);
@@ -189,6 +203,51 @@ describe('the anchor resolver', () => {
     const found = resolve(SPLIT_OLD, 'part');
     expect(found).toMatchObject({ ok: false, kind: 'file-missing' });
     expect(found.ok ? '' : found.message).toContain(`${SPLIT_DIR}/ exists`);
+  });
+
+  it('follows a declaration into the directory named for the file', () => {
+    expect(resolve(MOD, 'hidden')).toMatchObject({
+      ok: true,
+      file: file(MOD_DIR, 'shown.ts'),
+      startLine: 2,
+    });
+    expect(resolve(MOD, 'Hidden.run')).toMatchObject({
+      ok: true,
+      file: file(MOD_DIR, 'tools.ts'),
+      startLine: 2,
+    });
+    expect(resolve(MOD, 'TABLE.key')).toMatchObject({ ok: true, file: file(MOD_DIR, 'tools.ts') });
+    expect(resolve(MOD, 'Hidden~"return 42"')).toMatchObject({ ok: true, needleLine: 3 });
+    expect(resolve(MOD, 'nestedOnly')).toMatchObject({
+      ok: true,
+      file: file(MOD_DIR, 'deep', 'nested.ts'),
+      startLine: 1,
+    });
+  });
+
+  it('refuses a name that two parts of the directory declare', () => {
+    const found = resolve(MOD, 'twin');
+    expect(found).toMatchObject({ ok: false, kind: 'symbol-ambiguous' });
+    expect(found.ok ? '' : found.message).toContain(file(MOD_DIR, 'deep', 'nested.ts'));
+    expect(found.ok ? '' : found.message).toContain(file(MOD_DIR, 'tools.ts'));
+  });
+
+  it('ignores a test file of the directory', () => {
+    expect(resolve(MOD, 'onlyInTest')).toMatchObject({ ok: false, kind: 'symbol-not-found' });
+  });
+
+  it('prefers the file itself, then a re-export, over the directory', () => {
+    expect(resolve(MOD, 'own')).toMatchObject({ ok: true, file: MOD, startLine: 2 });
+    expect(resolve(MOD, 'shown')).toMatchObject({
+      ok: true,
+      file: file(MOD_DIR, 'shown.ts'),
+      startLine: 1,
+    });
+  });
+
+  it('reports not found when the file has no directory', () => {
+    expect(resolve(MODEL, 'absent')).toMatchObject({ ok: false, kind: 'symbol-not-found' });
+    expect(resolve(MOD, 'absent')).toMatchObject({ ok: false, kind: 'symbol-not-found' });
   });
 
   it('follows a moved declaration', () => {
