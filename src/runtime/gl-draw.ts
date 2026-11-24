@@ -23,18 +23,13 @@ import {
 import { hostSite } from '../core/submission.js';
 import {
   at,
-  blendConstantOf,
   checkPassFit,
   depthStencilAttachmentOf,
   entryOf,
   passOf,
   planOf,
-  scissorOf,
-  stencilReferenceOf,
-  viewportOf,
   type Bindings,
   type Geometry,
-  type PassFit,
   type RenderPipeline,
   type RenderPlan,
   type RenderState,
@@ -57,6 +52,8 @@ import { glslNameOf } from './gl-draw/glsl-name.js';
 import { GlTextureImpl } from './gl-draw/texture.js';
 import type { Slot, Built, DrawRun } from './gl-draw/pipeline-types.js';
 import { textureOf, samplerOf } from './gl-draw/draw-handles.js';
+import { GlPass } from './gl-draw/pass.js';
+export { GlPass } from './gl-draw/pass.js';
 export { textureOf, samplerOf } from './gl-draw/draw-handles.js';
 export { GlSamplerImpl } from './gl-draw/sampler.js';
 export { GlTextureImpl } from './gl-draw/texture.js';
@@ -629,92 +626,6 @@ function packed(layout: Layout, v: unknown, name: string, where: string): Uint8A
   } catch (err) {
     if (err instanceof Misfit) throw new TypeError(`${where}: ${err.path} ${err.problem}.`);
     throw err;
-  }
-}
-
-export class GlPass implements RenderPass, PassFit {
-  readonly steps: DrawRun[] = [];
-  blend: readonly number[] = [0, 0, 0, 0];
-  declared = false;
-  range: [number, number] = [0, 1];
-  stencilReference = 0;
-
-  constructor(
-    private readonly info: {
-      readonly rhi: RhiDevice;
-      readonly width: number;
-      readonly height: number;
-      readonly depthFormat?: string;
-      readonly depthReadOnly: boolean;
-      readonly stencilReadOnly: boolean;
-      readonly depthTarget?: object;
-      readonly depthTexture?: RhiTexture;
-    },
-  ) {}
-
-  get raw(): object {
-    throw new TypeError('A pass on WebGL2 has no GPURenderPassEncoder.');
-  }
-
-  get depthFormat(): string | undefined {
-    return this.info.depthFormat;
-  }
-
-  get depthReadOnly(): boolean {
-    return this.info.depthReadOnly;
-  }
-
-  get stencilReadOnly(): boolean {
-    return this.info.stencilReadOnly;
-  }
-
-  readsOwnDepth(value: unknown, texture: RhiTexture): boolean {
-    const own = this.info.depthTexture;
-    return (
-      value === this.info.depthTarget ||
-      (own !== undefined && this.info.rhi.toNative(texture) === this.info.rhi.toNative(own))
-    );
-  }
-
-  setStencilReference(reference: number): void {
-    this.stencilReference = stencilReferenceOf(reference);
-  }
-
-  add(run: DrawRun): void {
-    this.steps.push(run);
-  }
-
-  draw<B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry): void {
-    pipeline.draw(this, bindings, geometry);
-  }
-
-  setViewport(
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    minDepth?: number,
-    maxDepth?: number,
-  ): void {
-    const limit = this.info.rhi.caps.limits.maxViewportDimension!;
-    const v = viewportOf(x, y, width, height, minDepth, maxDepth, limit);
-    this.range = [v.minDepth, v.maxDepth];
-    this.add({
-      residents: [],
-      run: (p) => p.setViewport(...v.rect, v.minDepth, v.maxDepth),
-    });
-  }
-
-  setScissorRect(x: number, y: number, width: number, height: number): void {
-    const r = scissorOf(x, y, width, height, { width: this.info.width, height: this.info.height });
-    this.add({ residents: [], run: (p) => p.setScissorRect(...r) });
-  }
-
-  setBlendConstant(color: ArrayLike<number>): void {
-    const c = blendConstantOf(color);
-    this.blend = c;
-    this.declared = false;
-    this.add({ residents: [], run: (p) => p.setBlendConstant(c) });
   }
 }
 
