@@ -194,4 +194,22 @@ describe('a flow-aware walk pairs only values that occur together (issue 1308, A
       '  for (let i = 0; i < ii; i++) { r += f32(a - c); c = a; a = 5; }\n  return r;';
     bothRefuse(program(u32), 'TS8003', refusal('a - c'));
   });
+
+  it('refuses a read after a store that the walk does not visit, in i32 and in u32', () => {
+    const stores: readonly string[] = [
+      'const g = () => { c = 6; };\n  g();',
+      'function g() { c = 6; }\n  g();',
+      '[c] = [6];',
+      'for (let k = 0; k < ii; c = 6) { k++; }',
+      'for (c = 6; ii < 0; ) { }',
+    ];
+    for (const store of stores) {
+      const header = 'if (vi > 3) { a = 5; c = 5; }\n  ';
+      bothRefuse(sum(`${header}${store}`), 'TS8003', refusal('a - c'));
+      const u32 = program(
+        `let a = 0xF0000000;\n  let c = a;\n  ${header}${store}\n  return f32(a - c);`,
+      );
+      bothRefuse(u32, 'TS8003', refusal('a - c'));
+    }
+  });
 });
