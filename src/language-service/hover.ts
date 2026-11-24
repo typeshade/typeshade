@@ -25,6 +25,7 @@ import type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js'
 import { spellShaderType, typesOf } from './hover/spell-type.js';
 import { resourceBindingLine, bindingLine } from './hover/binding-line.js';
 import { linkedFieldAt } from './hover/linked-field.js';
+import { ROLES, fieldLine, type FieldFacts } from './hover/field-line.js';
 export { spellShaderType } from './hover/spell-type.js';
 export type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
 
@@ -55,8 +56,6 @@ function isTypeName(node: ts.Node): node is ts.Identifier {
 
 const isRenderEntry = (f: FuncDecl): boolean => f.stage === 'vertex' || f.stage === 'fragment';
 
-const ROLES = ['vertex attribute', 'value between stages', 'render target'] as const;
-
 function rolesOfStruct(analysis: CompileTsSourceResult, struct: string): string[] {
   const is = (t: ShaderType): boolean => t.kind === 'struct' && t.name === struct;
   const entries = analysis.funcs.filter(isRenderEntry);
@@ -66,12 +65,6 @@ function rolesOfStruct(analysis: CompileTsSourceResult, struct: string): string[
   );
   const target = entries.some((f) => f.stage === 'fragment' && is(f.ret));
   return ROLES.filter((_, i) => [attribute, between, target][i]);
-}
-
-interface FieldFacts {
-  readonly roles: readonly string[];
-  readonly location: number | undefined;
-  readonly builtin?: boolean;
 }
 
 function fieldFacts(
@@ -88,12 +81,6 @@ function fieldFacts(
     location: attr.location,
     builtin: attr.builtin !== undefined,
   };
-}
-
-function fieldLine(facts: FieldFacts | undefined): string | undefined {
-  if (facts?.location === undefined) return undefined;
-  const what = facts.roles.length > 0 ? facts.roles.join(' and ') : 'user-defined input or output';
-  return `${what} at @location(${String(facts.location)})`;
 }
 
 function shownNames(uris: readonly string[]): ReadonlyMap<string, string> {
