@@ -12,7 +12,6 @@ import type {
   KernelParam,
 } from '../host-kernel.js';
 import type { FuncDecl, ModuleDecl, ShaderType } from '../ir/index.js';
-import { f32T } from '../ir/index.js';
 import { toPortable } from '../ir/portable.js';
 import { layoutOf, calleesOf, closureOf } from '../manifest.js';
 import { compileModule } from '../oracle.js';
@@ -26,10 +25,11 @@ import { authorTypeText } from '../../compiler/ts/context.js';
 import { bareArrays, hostTypeOf } from '../../compiler/ts/host-face.js';
 import { describeRead } from '../../compiler/ts/kernel-loops.js';
 import { copy, runKernelPlan, scheduleKernelPlan, tailOf } from './kernel-plan.js';
-import { type ChainAccess, type ChainArray, type ChainCorpus } from './random-ir.js';
+import { type ChainArray, type ChainCorpus } from './random-ir.js';
 import { callArgs, type Inputs } from './fuse-chain/inputs.js';
 import { outcomeOf, type Outcome } from './fuse-chain/apart.js';
 import type { Lowered, PlannedGroup, GroupFault, GroupStep, FusedRun } from './fuse-chain/types.js';
+import { accessOf, arrayOfN } from './fuse-chain/chain-parts.js';
 export { scratchStencil, contractAgainstFacts } from './fuse-chain/stencil.js';
 export type { Stencil } from './fuse-chain/stencil.js';
 export { groupCallsOf, planChain } from './fuse-chain/grouping.js';
@@ -441,20 +441,6 @@ export function runGrouped(
   }
   return outcomeOf(c, store, results);
 }
-
-const accessOf = (
-  param: string,
-  array: string,
-  reads: ChainAccess['reads'],
-  writes: ChainAccess['writes'],
-): ChainAccess => ({ param, array, reads, writes, conditional: false, measures: false });
-
-const arrayOfN = (id: string, o: { written: boolean; scratch: boolean }): ChainArray => ({
-  id,
-  elem: f32T,
-  length: { of: 'n', times: 1 },
-  ...o,
-});
 
 export function stencilChain(): ChainCorpus {
   const source = `"use typeshade";
