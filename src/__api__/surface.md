@@ -1464,18 +1464,18 @@ src/core/reflect.ts#EntryInfo  interface  { emitted: string; inputs: readonly st
 src/core/reflect.ts#EntryIo  interface  { inputs: readonly EntryIoField[]; outputs: readonly EntryIoField[] }
 src/core/reflect.ts#EntryIoField  interface  { builtin?: string; emitted: string; location?: number; name: string; type: string }
 src/core/reflect.ts#ExternRequirement  interface  { glsl: string; name: string; stage?: "compute" | "fragment" | "vertex"; type: string; wgsl: string }
-src/core/reflect.ts#FieldLayout  interface  { align: number; emitted: string; name: string; offset: number; size: number; type: string }
-src/core/reflect.ts#LayoutKind  type  "std140" | "std430"
 src/core/reflect.ts#OverrideInfo  interface  { default: boolean | number; emitted: string; emittedGlsl?: string; name: string; type: string }
 src/core/reflect.ts#ReflectOptions  interface  { console?: "cpu" | "gpu"; fp64Flavor?: Fp64Flavor }
 src/core/reflect.ts#Reflection  interface  { bindGroups: readonly BindGroup[]; entries: readonly EntryInfo[]; overrides: readonly OverrideInfo[]; requiredFeatures: readonly Capability[]; requiredLanguageFeatures: readonly LanguageFeature[]; requires: readonly ExternRequirement[]; storage: readonly StructLayout[]; uniforms: readonly StructLayout[]; vertex?: VertexLayout }
 src/core/reflect.ts#ResourceKind  type  "sampler" | "storage-buffer" | "storage-texture" | "texture" | "uniform-buffer"
-src/core/reflect.ts#StructLayout  interface  { align: number; emitted: string; fields: readonly FieldLayout[]; name: string; size: number }
 src/core/reflect.ts#VertexAttr  interface  { emitted: string; location: number; name: string; offset: number; type: string }
 src/core/reflect.ts#VertexLayout  interface  { arrayStride: number; attributes: readonly VertexAttr[] }
 src/core/reflect.ts#reflect  function  (m: ModuleDecl, opts?: ReflectOptions) => Reflection
-src/core/reflect.ts#typeLayout  function  (t: ShaderType, layout: LayoutKind, structs: ReadonlyMap<string, StructDecl>) => { size: number; align: number; }
-src/core/reflect.ts#wgslLayout  function  (struct: StructDecl, layout: LayoutKind, structs?: ReadonlyMap<string, StructDecl>) => StructLayout
+src/core/reflect/layout.ts#FieldLayout  interface  { align: number; emitted: string; name: string; offset: number; size: number; type: string }
+src/core/reflect/layout.ts#LayoutKind  type  "std140" | "std430"
+src/core/reflect/layout.ts#StructLayout  interface  { align: number; emitted: string; fields: readonly FieldLayout[]; name: string; size: number }
+src/core/reflect/layout.ts#typeLayout  function  (t: ShaderType, layout: LayoutKind, structs: ReadonlyMap<string, StructDecl>) => { size: number; align: number; }
+src/core/reflect/layout.ts#wgslLayout  function  (struct: StructDecl, layout: LayoutKind, structs?: ReadonlyMap<string, StructDecl>) => StructLayout
 src/core/registry.ts#BuildRegistryOptions  interface  { imports?: readonly string[]; order?: readonly string[]; recordName?: string; regenerateWith?: string; stamp?: string; typeName?: string; valueType?: string }
 src/core/registry.ts#BuiltRegistry  interface  { ids: readonly string[]; source: string }
 src/core/registry.ts#RegistryEntry  interface  { exportName: string; id: string; importPath: string }
