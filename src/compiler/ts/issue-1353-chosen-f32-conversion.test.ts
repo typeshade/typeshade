@@ -102,3 +102,60 @@ describe('u32() and i32() of a compiler-chosen f32 wrap as TypeScript does (issu
     expect(valuesAt(source)).toEqual(same(4294967293));
   });
 });
+
+type Row = readonly [result: string, body: string, value: number];
+
+const rows = (list: readonly Row[]): void => {
+  for (const [result, body, value] of list) {
+    expect(valuesAt(program(result, body)), body).toEqual(same(value));
+  }
+};
+
+describe('neighbours of the decision (issue 1353)', () => {
+  it('other origins of the chosen f32 wrap', () => {
+    rows([
+      ['u32', 'const xs = [5, 6];\n  xs[0] -= 8;\n  return u32(xs[0]);', 4294967293],
+      ['u32', 'let xs = [5, -6];\n  return u32(xs[1]);', 4294967290],
+      ['u32', 'let k = 5, m = 7;\n  m -= 20;\n  return u32(m);', 4294967283],
+      ['u32', 'let s = -5;\n  return u32(s);', 4294967291],
+      ['u32', 'let d = 5 - 8;\n  return u32(d);', 4294967293],
+      ['u32', 'let k = 5;\n  k++;\n  k -= 9;\n  return u32(k);', 4294967293],
+    ]);
+  });
+
+  it('a result that already wraps is used as an integer', () => {
+    const k = 'let k = 5;\n  k -= 8;\n  ';
+    rows([
+      ['u32', `${k}return u32(k) + 1;`, 4294967294],
+      ['u32', `${k}return u32(k) & 7;`, 5],
+      ['u32', `${k}return u32(k) % 10;`, 3],
+    ]);
+    expect(valuesAt(program('f32', `${k}return f32(u32(k)) + k;`))).toEqual(same(4294967296));
+  });
+
+  it('a float-written operand still leaves the value chosen', () => {
+    const k = 'let k = 5;\n  k -= 8;\n  ';
+    rows([
+      ['u32', `${k}return u32(k + 0.5);`, 4294967294],
+      ['u32', `${k}return u32(k * 0.5);`, 4294967295],
+      ['u32', `${k}return u32(k - 1e10);`, 2884901888],
+    ]);
+  });
+
+  it('a large f32 wraps and an infinity gives 0', () => {
+    rows([
+      ['u32', 'let k = 5;\n  k *= 1e10;\n  return u32(k);', 2755358720],
+      ['i32', 'let k = 5;\n  k *= 1e10;\n  return i32(k);', -1539608576],
+      ['u32', 'let k = 5;\n  k *= 1e19;\n  return u32(k);', 0],
+      ['u32', 'let k = 5;\n  k *= 1e30;\n  k *= 1e30;\n  return u32(k);', 0],
+      ['i32', 'let k = 5;\n  k *= 1e30;\n  k *= 1e30;\n  return i32(k);', 0],
+    ]);
+  });
+
+  it('a copy that is a second let, and a destructured name, stay saturating', () => {
+    rows([
+      ['u32', 'let [a, b] = [5, 6];\n  a -= 8;\n  return u32(a);', 0],
+      ['u32', 'let k = 5;\n  k -= 8;\n  let j = k;\n  j -= 1;\n  return u32(j);', 0],
+    ]);
+  });
+});
