@@ -1762,8 +1762,7 @@ const h = height([0.5, 0.5], [1, 0.5, 2, 0.25]) // a number
 For a complete compute example, read
 [`host-compute.shade.ts`](examples/hosts/host-compute/host-compute.shade.ts) and its
 [`host.ts`](examples/hosts/host-compute/host.ts). `run()` keeps the authored defaults.
-[`check.ts`](examples/hosts/host-compute/check.ts) is the check harness's file, not the reader's.
-Its `specialized()` selects `GAIN` in a direct call, then selects `WIDTH` in `device.fuse()`.
+The extra `runSpecialized()` selects `GAIN` in a direct call, then selects `WIDTH` in `device.fuse()`.
 It sizes the dispatch with `Math.ceil(n / width)` and checks bounds in the shader, so 259
 elements include a partly occupied last workgroup. On WebGPU its entry group reports
 `workgroupShapes: [[32, 1, 1]]`, one dispatch and one submission. A later `output.read()` is a

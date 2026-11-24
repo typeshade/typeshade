@@ -40,7 +40,7 @@ describe('the example.json schema', () => {
       tags: ['a', 'b'],
       tiers: ['webgpu'],
       tierNotes: { webgl2: 'not supported yet', cpu: 'Rule 8.24' },
-      extras: ['runWide'],
+      extras: ['runSpecialized'],
       demonstrates: 'A report.',
       twinOf: 'x',
       part: 'P',

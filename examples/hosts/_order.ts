@@ -18,9 +18,12 @@
 export const HOST_ORDER: readonly {
   readonly id: string;
   readonly tiers: readonly ('webgpu' | 'webgl2' | 'cpu')[];
+  /** Names of other exports of `host.ts` than `run`, as the manifest `extras` of change 0145 (A2,
+   *  the host form, item 4) lists them. A host has no `example.json` yet. */
+  readonly extras?: readonly string[];
 }[] = [
   { id: 'host-draw', tiers: ['webgpu', 'webgl2', 'cpu'] },
-  { id: 'host-compute', tiers: ['webgpu', 'webgl2', 'cpu'] },
+  { id: 'host-compute', tiers: ['webgpu', 'webgl2', 'cpu'], extras: ['runSpecialized'] },
   // Not WebGL2 yet: `peak` reduces, and the WebGL2 tier runs a kernel loop only when it writes one
   // array at exactly `i` (Rule 11.8). With WebGL2 alone the call is refused ("loop 1 reduces,
   // which the WebGL2 tier does not support yet (Rule 11.8)"). Where WebGPU is absent, `exposure`

@@ -76,6 +76,18 @@ describe('C4: each example runs twice on the CPU tier, equal and finite', () => 
     if (entry.check !== undefined) expect(await runCheck(entry.check, ran, 'cpu')).toBeUndefined();
   });
 
+  it.each(entries.filter((e) => e.extras.length > 0).map((e) => [key(e), e] as const))(
+    '%s: host.ts exports each listed extra, and no other export than run',
+    async (_name, entry) => {
+      const host = (await import(/* @vite-ignore */ join(entry.dir, 'host.ts'))) as Record<
+        string,
+        unknown
+      >;
+      expect(Object.keys(host).sort()).toEqual(['run', ...entry.extras].sort());
+      for (const x of entry.extras) expect(typeof host[x], x).toBe('function');
+    },
+  );
+
   it('runCheck() reports a failing check and a file with no check (the instrument is not blind)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'typeshade-check-'));
     try {

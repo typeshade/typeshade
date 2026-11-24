@@ -29,6 +29,8 @@ export interface Runnable {
   /** The group directory, such as `path`. */
   readonly group: string;
   readonly tiers: readonly Tier[];
+  /** The names of its `extras`: exports of `host.ts` other than `run`, which the driver runs too. */
+  readonly extras: readonly string[];
   /** The example's directory, absolute. */
   readonly dir: string;
   /** The absolute path of its `check.ts`, when it has one. */
@@ -54,7 +56,8 @@ export function runnables(): Runnable[] {
       if (manifest !== undefined && manifest.host !== 'run') continue;
       const tiers = manifest?.tiers ?? legacy?.tiers ?? ['webgpu', 'webgl2', 'cpu'];
       const check = join(dir, 'check.ts');
-      out.push({ id, group, tiers, dir, ...(existsSync(check) ? { check } : {}) });
+      const extras = manifest?.extras ?? legacy?.extras ?? [];
+      out.push({ id, group, tiers, extras, dir, ...(existsSync(check) ? { check } : {}) });
     }
   }
   return out;
