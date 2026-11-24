@@ -989,6 +989,7 @@ Decision D14: a rise of a budget of `scripts/bundle-budget.json` that a `Move: p
 The rise goes in a pull request of its own, since a `Move: pure` range cannot change that file.
 The conditions and the two limits are in `CLAUDE.md`, Merging: 0.2% for one pull request, and 1% above the number at `c4a12d3f`.
 The orchestrating session measures the rise and merges the budget pull request (`docs/structure-slice-playbook.md`, The bundle budget).
+The 1% limit is held by `src/bundle-ceiling-policy.test.ts`, which reads `scripts/bundle-ceiling.json`.
 Authority: the owner's answer of 2026-11-24 ("추천") to the rule that the conversation recommended.
 
 Fact, measured on 2026-11-24 with `bun scripts/bundle-boundary.ts`: `src/runtime/runtime.ts` loads `src/runtime/gl.ts` with a dynamic `import()`, and the check builds one chunk.

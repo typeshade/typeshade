@@ -304,6 +304,8 @@ through the owner's account can too, so the rule is written here:
     - Each new number is at most 0.2% above the number in the file on `origin/main`.
     - Each new number is at most 1% above the number in the file at
       `c4a12d3fa2d4847809eeba52a1278dbedee2346c`. A number that is absent there is not covered.
+      `src/bundle-ceiling-policy.test.ts` holds this limit: it reads `scripts/bundle-ceiling.json`,
+      which records each ceiling. Never raise a number of `scripts/bundle-ceiling.json`.
     - The split adds no module that the rules of File size do not ask for. The body lists the
       new modules, and says which shape of the split would avoid the rise or why none exists.
     - Before the merge, the merging agent runs the checker of `main` on the range of the moves

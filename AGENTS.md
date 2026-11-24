@@ -139,7 +139,9 @@ tier runs. Where no fallback exists, write "not supported yet" and cite the rule
   literal path to an included local JavaScript asset; remote, computed and missing targets fail.
   Planted faults prove the scan reads each asset to its end (Rules 11.7 and 11.13). CI's
   `typecheck + unit` job runs it. A rise of a budget waits for the owner, except the rise that a
-  `Move: pure` split causes (`CLAUDE.md`, Merging).
+  `Move: pure` split causes (`CLAUDE.md`, Merging). `src/bundle-ceiling-policy.test.ts` fails when a
+  number of the budget file is above its ceiling in `scripts/bundle-ceiling.json`, 1% above the
+  number at `c4a12d3f`. Never raise a number of `scripts/bundle-ceiling.json`.
 - `bun run gate:compile`: every registered example emitted and compiled, a function declared
   under every name a writer renames (change 0029), and a divisor or shift amount that is a float
   constant converted to an integer, which Tint refuses unless the writer settles it (#578), and an
