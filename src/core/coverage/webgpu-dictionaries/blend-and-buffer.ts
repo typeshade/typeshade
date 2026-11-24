@@ -199,7 +199,7 @@ export const BLEND_AND_BUFFER_ROWS: readonly Row[] = [
       'array() and plain host values make the buffers (Rules 8.21, 11.8)',
     ),
     webgl2: na(
-      'WebGL2 has no buffer usage flags; the runtime passes its own usage hint (`fresh` and `GlDrawing.uploaded` of `src/runtime/gl-draw.ts`)',
+      'WebGL2 has no buffer usage flags; the runtime lists a usage in `fresh` of `src/runtime/gl-draw.ts`, and `GlDrawing.uploaded` sets none',
     ),
   },
   {

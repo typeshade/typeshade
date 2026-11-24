@@ -88,8 +88,8 @@ export const CONTEXT_AND_EXTENSION_DISCOVERY_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.getSupportedExtensions',
     ],
     evidence:
-      'src/rhi/webgl2.ts#GlState.constructor~"EXT_color_buffer_float" (turns on three extensions)',
-    note: "the runtime turns on EXT_color_buffer_float, EXT_color_buffer_half_float and OES_texture_float_linear; every other extension is the host's",
+      'src/rhi/webgl2.ts#GlState.constructor~"EXT_color_buffer_float" (turns on three extensions); src/rhi/webgl2.ts#GlState.constructor~"WEBGL_provoking_vertex"; src/rhi/webgl2.ts#GlDevice.destroy~"WEBGL_lose_context"',
+    note: "the runtime turns on EXT_color_buffer_float, EXT_color_buffer_half_float and OES_texture_float_linear; `GlState.constructor` also requests EXT_polygon_offset_clamp and WEBGL_provoking_vertex, and `GlDevice.destroy` requests WEBGL_lose_context; every other extension is the host's",
     webgpu: typed(
       'src/compiler/ts/builtin-values.test.ts',
       'reflect().requiredFeatures, Rule 10.2',
