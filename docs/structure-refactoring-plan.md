@@ -165,6 +165,9 @@ The largest test files are `src/fuse.test.ts` (7,088), `src/runtime/runtime.test
 - The tree has 12 `index.ts` files. Every file name of `src/` is kebab-case.
   Two names are catch-all: `src/compiler/ts/growing-programs/common.ts` and `src/compiler/ts/optional/helpers.ts`.
 
+Fact: the import cycles, the load-time effects and a proposed module tree for `src/compiler/ts` are in
+[structure analysis](structure-analysis.md). It is the evidence for S0 item h and series S14 (sections 6.3 and 6.4).
+
 ### 2.4 Commands that produced the numbers
 
 1. `git rev-parse HEAD`
@@ -305,6 +308,7 @@ Status of each row: not started. Under decision D2, each series moves its source
 | S11 | Not started | Test files of `compiler/ts` (58 files, 53,343 lines), after S8 and S9.                                                                        | No test file of `compiler/ts` is in the baseline.                               |
 | S12 | Not started | The 14 test files of `src` root, including `fuse.test.ts` (7,088 lines).                                                                      | No file of `src` root is in the baseline.                                       |
 | S13 | Not started | Facade removal, one pull request per directory, after the series of that directory.                                                           | No facade without a caller outside its directory; `docs:refs` and `build` pass. |
+| S14 | Not started | Cycles of `src/compiler/ts`: steps 1 to 10 of the structure analysis (section 6.4).                                                           | No cycle of emitted imports in `src/compiler/ts`.                               |
 
 ### 6.1 Series S0, the tools and checks
 
@@ -319,7 +323,7 @@ Each item is its own pull request.
 | e    | Decision                  | A facade ratchet. A list names the facade files. A facade holds only re-exports. The list only shrinks after S13 begins. A file inside a module's directory never imports its own facade.                                                                                                                                                                                                                                                                                           |
 | f    | Part of item a            | A module-surface check for a slice. Item a carries it as rule 3 (P3). The set of symbols that files outside a module's directory import from it is the same before and after the slice.                                                                                                                                                                                                                                                                                             |
 | g    | Proposal                  | An extension of `MAY_IMPORT` inside `core`, for example `core/ir` below `core/passes` below `core/backends`, with its own `KNOWN` list. The exact order is fixed by measurement, in its own pull request.                                                                                                                                                                                                                                                                           |
-| h    | Placeholder               | Structure rules: no top-level effects outside named files, no import cycles, imports of a module only through its index, index holds re-exports only; each a ratchet. The orchestrator writes them in a later pull request.                                                                                                                                                                                                                                                         |                                                                     |
+| h    | Proposal                  | Four structure rules, R1 to R4, each a ratchet policy test that is not written yet (section 6.3).                                                                                                                                                                                                                                                                                                                                                                                   |                                                                     |
 
 Reasons for the order of S1 to S13 (Proposal):
 
@@ -410,6 +414,67 @@ The old paths stay as re-exports until S13.
 
 Open: the import cycles between `core`, `runtime` and `rhi` around these files are not measured yet.
 The slice measures them before the move, with the check of S0 item d, and records the result in its pull request.
+
+### 6.3 Series S0 item h, the structure rules
+
+Proposal: four rules. Each is a ratchet policy test, and none is written yet.
+Each test is its own pull request. A baseline only shrinks.
+The evidence is [structure analysis](structure-analysis.md), sections 4, 7 and 8.
+
+| Rule | Content                                                                                           |
+| ---- | ------------------------------------------------------------------------------------------------- |
+| R1   | No active top-level unit outside files named `register.ts`, entry files and data files.           |
+| R2   | No cycle of emitted imports (the edges that the JavaScript keeps, including side-effect imports). |
+| R3   | The files outside a module directory import it only through its `index.ts`.                       |
+| R4   | An `index.ts` holds re-exports only.                                                              |
+
+Proposal: a data file is a file whose active units are only table construction.
+The pull request of R1 fixes the exact rule.
+Reason: of the 638 active units that the analysis found, 393 are empty containers and literal tables, and they are harmless.
+The rule must not make a registry of caches a violation. It must still catch the 9 registrations by side effect.
+
+Fact: R2 overlaps S0 item d, which counts cycles of all imports with type-only edges apart.
+The pull request of R2 says which baseline it replaces or keeps.
+
+### 6.4 Series S14, the cycles of `src/compiler/ts`
+
+Proposal: S14 is the ten steps of [structure analysis](structure-analysis.md), section 9, one pull request for each.
+The status of each step is not started.
+
+- Steps 1 to 7 are mechanical moves of types and pure helpers.
+- A file in a cycle is not clean (P4). So these steps are ordinary reviewed changes outside D5, until the cycle is gone.
+- Step 7 moves module state with `classFunctionOf`.
+- Step 8 splits `lowerLValue`. Step 9 adds a port file for `lowerExpression` and `placeOf`.
+  Step 9 needs a design that the owner sees first (an import cycle becomes a load-order rule).
+- Step 10 waits for pull request #1498 (section 7.1).
+
+Decision D12: the 41 clean oversized non-test files are the first slices of S1 to S13.
+They run in parallel with S14. Reason: a clean file allows a pure move today (decision D10).
+Each slice follows section 4 and rule 10 of section 5. A slice does not touch a file that a step of S14 edits at the same time.
+
+Fact: the list is the intersection of `bun scripts/move-purity.ts --clean-report --json` (files with 0 active units and no cycle)
+with the non-test entries of `scripts/file-size-baseline.json`. It was measured on `1a864657` on 2026-11-24.
+The 41 files hold 36,054 lines.
+
+| Directory              | Files                                                                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/compiler/ts`      | `class-names.ts`, `definite.ts`, `entry-locations.ts`, `host-face.ts`, `link.ts`, `loop-bound.ts`, `optional.ts`, `program-refusals.ts`, `sequence.ts`, `symbols.ts` (10) |
+| `src/core` (root)      | `fuse-group.ts`, `fuse-plan.ts`, `gl-compute.ts`, `host-compute.ts`, `host-entry-program.ts`, `host-values.ts`, `oracle.ts`, `reflect.ts`, `semantic-diff.ts` (9)         |
+| `src/core/backends`    | `wgsl.ts` (1)                                                                                                                                                             |
+| `src/core/builtins`    | `coredef.ts` (1)                                                                                                                                                          |
+| `src/core/compute`     | `runner.ts` (1)                                                                                                                                                           |
+| `src/core/debug`       | `interp.ts`, `session.ts` (2)                                                                                                                                             |
+| `src/core/ir`          | `nodes.ts`, `types.ts` (2)                                                                                                                                                |
+| `src/core/passes`      | `const-expr.ts`, `kernel-lower-ir.ts`, `kernel-lower.ts`, `parallel-loop.ts`, `uniform-layout.ts` (5)                                                                     |
+| `src/core/testing`     | `fuse-chain.ts`, `libm-cases.ts` (2)                                                                                                                                      |
+| `src/language-service` | `completions.ts`, `hover.ts`, `service.ts` (3)                                                                                                                            |
+| `src/rhi`              | `cpu.ts`, `rhi.ts`, `webgl2.ts` (3)                                                                                                                                       |
+| `src/runtime`          | `gl-draw.ts`, `gl.ts` (2)                                                                                                                                                 |
+
+Fact: the 10 + 9 + 1 + 1 + 1 + 2 + 2 + 5 + 2 + 3 + 3 + 2 rows add up to 41.
+The other 82 oversized non-test files are in a cycle (34) or hold an active unit and no cycle (48).
+Some of the 41 are large: `src/core/passes/kernel-lower.ts` has 2,094 lines and `src/compiler/ts/host-face.ts` has 2,006 lines.
+A clean file can still need a decomposition (decision D7) when one unit passes 400 lines.
 
 ## 7. Parallel work and conflicts
 
