@@ -1,20 +1,3 @@
-// ═══ Shader DSL — pipeline REFLECTION (additive; layout engine shared with GLSL emit) ═══
-//
-// The IR already carries every binding/struct/entry fact, but emitModule discards
-// it into a string — so a host re-derives bind-group layouts + uniform byte offsets
-// BY HAND (and they drift; see runtime point-uniform-layout.test.ts). reflect(module)
-// recovers that metadata as a target-neutral `Reflection` object the host can consume
-// mechanically: bind-group entries, std140/std430 struct byte layouts, vertex
-// attributes, and entry-point signatures.
-//
-// PURE + ADDITIVE — scoped precisely (X-GIS #763 H2): `reflect()` itself is read-only over
-// the IR and sits on no emit path. The LAYOUT ENGINE in this file (typeLayout /
-// structLayout) does NOT share that invariant: the GLSL backend imports it to bake
-// std140 UBO / std430 storage offsets into emitted source (glsl.ts), so a layout-rule
-// change here CAN change emitted GLSL bytes (never WGSL — the WGSL backend derives
-// nothing from it). The std140/std430 offsets are anchored to the offsets the runtime
-// already ships (reflect.test.ts).
-//
 // Implements: Rule 4.8, Rule 6.8, Rule 11.10 (docs/language-design.md; traced in reqs/).
 
 import { withoutKernels } from './ir/kernels.js';
@@ -98,18 +81,10 @@ export function typeLayout(
   switch (t.kind) {
     case 'scalar':
       return { size: 4, align: 4 };
-    // An atomic<u32> / atomic<i32> occupies its integer's 4 bytes (WGSL §14.4.1).
     case 'atomic':
       return { size: 4, align: 4 };
-    // f64 (emulated double) occupies its lowered vec2<f32> slot — hi then lo,
-    // 8 bytes, 8-aligned — under BOTH layouts, so reflecting the authored module
-    // and the lowered module yield byte-identical offsets. Hosts pack with
-    // splitF64 (core/fp64/df64-lib.ts).
     case 'f64':
       return { size: 8, align: 8 };
-    // vec64 lowers to `struct { hi: vecN<f32>, lo: vecN<f32> }` — derive the
-    // layout from THAT struct through the same engine (single authority), so
-    // authored and lowered reflections agree byte-for-byte here too.
     case 'vec64': {
       const vecT: ShaderType = { kind: 'vec', n: t.n, elem: 'f32' };
       const sl = structLayout(
@@ -126,21 +101,13 @@ export function typeLayout(
       return { size: sl.size, align: sl.align };
     }
     case 'vec':
-      // vec2 → 8/8, vec3 → 12/16, vec4 → 16/16 (elem is always 4 bytes)
       return t.n === 2
         ? { size: 8, align: 8 }
         : t.n === 3
           ? { size: 12, align: 16 }
           : { size: 16, align: 16 };
     case 'mat': {
-      // mat64 (emulated double) lowers to `struct DF64MatN { c0..c(N-1): DF64VecN }`
-      // — derive the layout from THAT struct through the same engine (single
-      // authority), so authored and lowered reflections agree byte-for-byte.
       if (t.elem === 'f64') {
-        // The emulation is square-only. The front end refuses a non-square `matCxR<f64>` and
-        // `binResultType` refuses one built another way, but `matT(c, r, 'f64')` is public, so
-        // a hand-built one reaches here — and taking `cols` alone would report a mat2x3<f64>
-        // with a mat2x2<f64>'s size. Fail loud instead of answering a plausible wrong number.
         if (t.cols !== t.rows) {
           throw new Error(
             `wgslLayout: ${typeKey(t)} has no layout — the emulated-double matrices are square ` +
@@ -171,22 +138,9 @@ export function typeLayout(
         );
         return { size: sl.size, align: sl.align };
       }
-      // A TWO-ROW matrix in std140 diverges, and only a two-row one. Measured (#149): on a
-      // real WebGL2 context ANGLE reports UNIFORM_MATRIX_STRIDE 16 for every shape, because
-      // std140 rounds each column up to a vec4; WGSL's column stride is AlignOf(vecR<f32>),
-      // which is 8 for R = 2 and 16 for R = 3 and R = 4. So mat2x2, mat3x2 and mat4x2 lay
-      // out differently on the two targets and the other six agree byte for byte. The GLSL
-      // UBO emit declares this layout THE offset contract, so a two-row field would drift
-      // host bytes against GL for itself and every field after it.
-      //
-      // Refused rather than padded: padding would make the WGSL this module emits disagree
-      // with the offsets reflect() reports for it, which is the one thing this layer exists
-      // to prevent. (The earlier note here said "mat2", on the recorded ground that a 2×2 or
-      // 3×3 both diverge; the measurement says a 3×3 does not — X-GIS #763 P7.)
       if (layout === 'std140' && t.rows === 2) {
         throw new Error(`wgslLayout: ${twoRowStd140Reason(t.cols)}`);
       }
-      // matCxR<f32>: C columns of vecR; column stride = round(size, align) of the column vec.
       const col =
         t.rows === 2
           ? { size: 8, align: 8 }
@@ -208,7 +162,7 @@ export function typeLayout(
         stride = roundUp(stride, 16);
         align = roundUp(align, 16);
       }
-      const count = t.size ?? 0; // runtime-sized array → 0 (stride still defined)
+      const count = t.size ?? 0;
       return { size: count * stride, align };
     }
     default:
@@ -296,11 +250,8 @@ export function wgslLayout(
   return structLayout(struct, layout, structs.size ? structs : new Map([[struct.name, struct]]));
 }
 
-/** The spellings of no name: the authored names are the emitted ones (a derived layout with no plan). */
 const NO_NAMES: ReadonlyMap<string, string> = new Map();
 
-/** `emittedGlsl` of a record whose GLSL spelling differs from its WGSL spelling (Proposal 0070, D3).
- *  Absent when the two agree. */
 function glslOnly(
   name: string,
   wgsl: ReadonlyMap<string, string>,
@@ -316,8 +267,6 @@ function structLayout(
   structs: ReadonlyMap<string, StructDecl>,
   names?: TargetSpellings,
 ): StructLayout {
-  // Fieldless source classes have an internal u32 carrier on GPU (change 0035). The
-  // host object still has no fields, but nested values and arrays must advance its bytes.
   if (struct.fields.length === 0) {
     const size = layout === 'std140' ? 16 : 4;
     return {
@@ -776,9 +725,6 @@ export interface ExternRequirement {
   readonly stage?: 'vertex' | 'fragment' | 'compute';
 }
 
-/** An `ir/entry-io` field as the reflection publishes it: the `ShaderType` becomes its type
- *  KEY (the spelling every other reflected type uses), `interpolate` is dropped — it is an
- *  emit detail of how a varying is sampled, not part of which slot it occupies. */
 const ioField =
   (members: ReadonlyMap<string, string>) =>
   (f: IoField): EntryIoField => ({
@@ -790,30 +736,15 @@ const ioField =
   });
 
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
-  // A depth texture is a `texture` here (roadmap 0.4 item 11): the host builds it with the
-  // same `GPUBindGroupLayoutEntry.texture` member a sampled one takes, and only `sampleType`
-  // differs — which `textureDepth` carries. Likewise a comparison sampler is a `sampler` whose
-  // `type` is 'comparison', carried by `samplerComparison`. A storage texture is different: it
-  // needs another layout member altogether, so it IS its own kind below.
   t.kind === 'texture' || t.kind === 'depth-texture'
     ? 'texture'
-    : // Its OWN kind, not `texture` (roadmap 0.4 item 10): the two need different
-      // `GPUBindGroupLayoutEntry` members — `texture: { sampleType, viewDimension }` against
-      // `storageTexture: { access, format, viewDimension }` — so a host that could not tell
-      // them apart would build the wrong layout for one of them.
-      t.kind === 'storage-texture'
+    : t.kind === 'storage-texture'
       ? 'storage-texture'
       : t.kind === 'sampler' || t.kind === 'sampler-comparison'
         ? 'sampler'
         : space === 'storage'
           ? 'storage-buffer'
           : 'uniform-buffer';
-
-// String fallback ONLY (X-GIS #740 R3): fn()-authored decls carry structured
-// `stage`/`workgroupSize` — reflect reads those first; the attrs-string parse
-// survives solely for hand-built FuncDecl literals.
-// Stage / workgroup-size predicates live in core/ir (X-GIS #763 S1) — one shared helper
-// for reflect, the capability gate, GLSL entry classification, and fn-DCE roots.
 
 /** Options for {@link reflect}. */
 export interface ReflectOptions {
@@ -831,33 +762,6 @@ export interface ReflectOptions {
   readonly console?: 'cpu' | 'gpu';
 }
 
-/** The module's declared bindings, plus any a LOWERING injects that a host must still bind
- *  (X-GIS #1724).
- *
- *  `fp64Lower` auto-injects the `_fp64` guard texture into any module whose f64 helpers read
- *  it — authors declare nothing, which is the documented contract (`fp64/df64-lib.ts`: "Either
- *  way the binding shows up in reflect() … and the host MUST bind a 1x1 texture"). It runs
- *  inside emit, so before this the emitted source declared a binding the reflection did not
- *  report, and a host that built its bind group from the reflection never bound the guard the
- *  shader samples. On WebGPU that is a validation error; on WebGL2 there is no error at all —
- *  the sampler stays on its default unit and the guard silently reads a value that is not 1.0,
- *  so the anti-fast-math protection lapses without a symptom.
- *
- *  The decision is fp64Lower's and stays there: whether a guard is needed depends on WHICH
- *  helpers the lowering pulled in (comparison-only closures read no guard) and on the flavor,
- *  neither of which is cheap to re-derive — and a second copy of that rule is how the two
- *  authorities drifted in the first place. So this runs the pass and takes ONLY the bindings
- *  it added. Deliberately not "reflect the lowered module": that would also re-report every
- *  f64 type as its `vec2<f32>` emulation, which is a much larger change than the contract
- *  violation being fixed here.
- *
- *  Identity for every module without f64 — `fp64Lower` returns the same object, so the cost
- *  is one reference comparison.
- *
- *  The LOWERED module comes back alongside because `BindEntry.stages` must be walked over
- *  it, not over the authored one: nothing in the authored IR calls `f64Guard`, so `_fp64`
- *  is reachable only after the lowering that injected it — the same module the per-stage
- *  GLSL emit scopes over. */
 function bindingsIncludingInjected(
   m: ModuleDecl,
   flavor: Fp64Flavor | undefined,
@@ -872,10 +776,6 @@ function bindingsIncludingInjected(
   };
 }
 
-/** WebGPU's `sampleType` for a sampled texture (see {@link BindEntry.sampleType}): the element
- *  decides an integer one, and an `f32` one is `'float'` only where a call pairs it with a
- *  `sampler`. A multisampled one is never paired, since no sampler reads it, and WebGPU refuses it
- *  laid out `'float'` (#414). */
 const sampleTypeOf = (
   t: Extract<ShaderType, { kind: 'texture' }>,
   paired: boolean,
@@ -958,21 +858,14 @@ const sampleTypeOf = (
  *  @see {@link hostFeaturesFor} for turning `requiredFeatures` into one target's strings.
  */
 export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
-  // A kernel function is no entry and binds nothing: its arrays are the call's (Rule 8.23).
   m = inheritSpellings(withoutKernels(m), m);
-  // The spelling plan of this module (Proposal 0070): every `emitted` below reads it, so the record
-  // names what the writers emit. A module lowered from `m` inherits the same plan.
   const plan = spellingsOf(m);
   if (opts?.console === 'gpu')
     return reflect(inheritSpellings(consoleBuffer(m).module, m), { ...opts, console: 'cpu' });
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   const { bindings: allBindings, lowered } = bindingsIncludingInjected(m, opts?.fp64Flavor);
   const stages = bindingStages(lowered);
-  // The textures a call pairs with a `sampler`, which a host lays out `'float'`; over the same
-  // module the stages above are, so a helper the lowering injected is read too. `undefined` when
-  // a `raw` statement makes the module opaque: every texture is then taken as sampled.
   const sampled = sampledTextures(lowered);
-  // bind groups (sorted by group, then binding)
   const byGroup = new Map<number, BindEntry[]>();
   for (const b of allBindings) {
     const e: BindEntry = {
@@ -989,7 +882,6 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
         ? { glslSpelling: b.glsl ?? 'std140-block' }
         : {}),
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
-      // The struct's name in the emitted text, the block name a GLSL host looks up (Rule 11.10).
       ...(b.type.kind === 'struct'
         ? { structEmitted: emittedName(plan.wgsl.structs, b.type.name) }
         : {}),
@@ -1000,17 +892,10 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
             sampleType: sampleTypeOf(b.type, sampled === undefined || sampled.has(b.name)),
           }
         : {}),
-      // A depth texture has a view dimension and no element: WebGPU's `sampleType` for it is
-      // 'depth', which `textureDepth` says and `sampleType` repeats in WebGPU's word; a
-      // comparison sampler's `type` is 'comparison' (roadmap 0.4 item 11). Each always set on
-      // its kind, absent on every other.
       ...(b.type.kind === 'depth-texture'
         ? { textureDim: b.type.dim, textureDepth: true, sampleType: 'depth' as const }
         : {}),
       ...(b.type.kind === 'sampler-comparison' ? { samplerComparison: true } : {}),
-      // A storage texture carries `textureDim` too, since a host needs the view dimension for
-      // it exactly as it does for a sampled one; what it has instead of `textureElem` is the
-      // format, which decides the texel type on its own (roadmap 0.4 item 10).
       ...(b.type.kind === 'storage-texture'
         ? {
             textureDim: b.type.dim,
@@ -1018,7 +903,6 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
             storageAccess: storageTextureLayoutAccess(b.type.access),
           }
         : {}),
-      // The GLSL data texture's format, from the one function the GLSL backend uses (change 0046).
       ...(b.space === 'storage' && glslDataTextureOf(b.type, structs) !== undefined
         ? { glslDataTexture: glslDataTextureOf(b.type, structs)! }
         : {}),
@@ -1045,8 +929,6 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   for (const f of m.funcs) {
     const stage = stageOf(f);
     if (!stage) continue;
-    // X-GIS #1905 — the location/builtin view of the same signature, read through the GLSL
-    // backend's own attribute readers so the two cannot describe different interfaces.
     const io = entryIo(f, structs);
     const shape: WorkgroupShape | undefined =
       stage === 'compute' ? (workgroupShapeOf(f) ?? [64, 1, 1]) : undefined;
@@ -1060,8 +942,6 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
         : {}),
       inputs: f.params.map((p) => typeKey(p.type)),
       output: typeKey(f.ret),
-      // Present only when declared (X-GIS #1812) — an absent field, not `portable: false`, so the
-      // host reads "not portable" the same way it reads every other absent capability.
       ...(f.portable === true ? { portable: true as const } : {}),
       io: {
         inputs: io.inputs.map(ioField(plan.wgsl.members)),
@@ -1069,7 +949,6 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       },
     });
     if (stage === 'vertex' && !vertex) {
-      // The one vertex layout `packModule()` and the manifest carry (Rule 6.8).
       const layout = vertexLayoutOfEntry(f, m.structs);
       if (layout !== undefined)
         vertex = {
@@ -1085,8 +964,6 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
     }
   }
 
-  // X-GIS #923 — specialization constants, in declaration order (the host reads names +
-  // defaults straight from here to build the WGSL `constants` dict / GLSL define header).
   const overrides: OverrideInfo[] = (m.overrides ?? []).map((o) => ({
     name: o.name,
     emitted: emittedName(plan.wgsl.overrides, o.name),
@@ -1095,17 +972,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
     default: o.default,
   }));
 
-  // X-GIS #1670 — the caps the host must have active before pipeline creation. Same
-  // derivation the emit gate uses (requiredCaps: shape-derived + declared `enables`), so
-  // reflection and assertCaps can never disagree about what a module needs; sorted for a
-  // deterministic order. Always present, empty when the module needs nothing — the
-  // `overrides` model, so a consumer never distinguishes "needs nothing" from "old
-  // reflection shape".
   const requiredFeatures = requiredCaps(m).sort();
-  // The `requires` axis (#147, #152, §50) lives in `required-caps.ts`, which both this and the
-  // WGSL writer's preamble read: two lanes each grew a derivation of it — the storage-texture
-  // row here and the packed-4x8 row in the emit — and two copies of one answer is how
-  // reflection and emit come to disagree about what a module needs.
 
   return {
     bindGroups,
@@ -1115,9 +982,6 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
     entries,
     overrides,
     requiredFeatures,
-    // The `requires` axis (§50). Same derivation the WGSL writer's preamble uses, for the
-    // reason requiredFeatures shares one with assertCaps: reflection and emit must not be
-    // able to disagree about what a module needs.
     requiredLanguageFeatures: requiredLanguageFeatures(m),
     requires: (m.externs ?? []).map((e) => ({
       name: e.name,
