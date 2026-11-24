@@ -110,4 +110,24 @@ describe('the move-purity command over a git range', () => {
     expect(run()).toBe(1);
     expect(output.join('\n')).toContain('mode change');
   });
+
+  it('fails on a line that looks like a declaration and is not one', () => {
+    const lines = ['Move: pure-ish', '  Move: pure', '> Move: pure', 'move : pure.x'];
+    lines.forEach((line, index) => {
+      commit({ 'src/c.ts': `const C = ${index};\n` }, `Note\n\n${line}\n`);
+    });
+    expect(run()).toBe(1);
+    expect(output.join('\n')).toContain('Not a declaration of a pure move');
+  });
+
+  it('requires the check when the title starts with Move:', () => {
+    commit({ 'src/a.ts': 'const A = 1;\n' }, 'Change a body\n');
+    expect(run()).toBe(0);
+    expect(output.join('\n')).toContain('declares no pure move');
+    output = [];
+    expect(run('--title', 'Move: split a')).toBe(1);
+    expect(output.join('\n')).toContain('NOT pure');
+    output = [];
+    expect(run('--title', 'Fix a bug')).toBe(0);
+  });
 });

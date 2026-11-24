@@ -1,6 +1,6 @@
 import type { MoveReport } from './check-move.js';
 import type { UnitRef } from './compare-units.js';
-import { describeFinding } from './findings.js';
+import { describeFinding } from './finding.js';
 
 const named = (ref: UnitRef): string =>
   `${ref.path}:${ref.line} ${ref.names.join(', ') || '(unnamed)'}`;
@@ -11,7 +11,7 @@ export function formatReport(report: MoveReport): string {
     `Move purity: ${report.pure ? 'pure' : 'NOT pure'}. ${report.changedPaths} changed paths.`,
     `Units: ${units.changed.length} changed, ${units.appeared.length} appeared, ` +
       `${units.vanished.length} vanished, ${units.moved.length} moved, ${units.reordered.length} reordered.`,
-    `Findings: ${report.findings.length} (bindings, surface, inert moves, module evaluation, comments, preamble).`,
+    `Findings: ${report.findings.length} (bindings, surface, moved units, module evaluation, comments, preamble).`,
     `Test titles: ${titles.appeared.length} appeared, ${titles.vanished.length} vanished.`,
     `Directives: ${report.directives.length} differ.`,
     `Outside the move: ${report.outside.length}.`,

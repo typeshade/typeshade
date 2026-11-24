@@ -1,5 +1,5 @@
 import type { Keyer } from './binding-keys.js';
-import { finding, type Finding } from './findings.js';
+import { finding, type Finding } from './finding.js';
 import type { Side } from './side-program.js';
 
 export function surfaceFindings(

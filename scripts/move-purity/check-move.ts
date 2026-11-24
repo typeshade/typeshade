@@ -5,9 +5,13 @@ import { matchUnits, type UnitDiff } from './compare-units.js';
 import { directiveViolations, type DirectiveViolation } from './directives.js';
 import { surfaceFindings } from './export-surface.js';
 import { filePairs } from './file-pairs.js';
-import type { Finding } from './findings.js';
+import type { Finding } from './finding.js';
 import { freeCommentFindings, preambleFindings } from './free-comments.js';
-import { moduleEvaluationFindings } from './module-evaluation.js';
+import { linkFindings } from './module-evaluation.js';
+import { cycleReadFindings } from './cycle-reads.js';
+import { evaluationOrderFindings } from './evaluation-order.js';
+import { pathReferenceFindings } from './path-references.js';
+import { unresolvedImportFindings } from './unresolved-imports.js';
 import { createLinks } from './module-links.js';
 import {
   checkOutside,
@@ -17,7 +21,8 @@ import {
 } from './outside-move.js';
 import { createSide } from './side-program.js';
 import type { Title } from './titles.js';
-import { movedUnitFindings, reboundFindings } from './unit-rules.js';
+import { movedUnitFindings } from './moved-unit-findings.js';
+import { reboundFindings } from './rebound-findings.js';
 
 export interface MoveReport {
   readonly pure: boolean;
@@ -34,7 +39,6 @@ export interface MoveReport {
 export interface CheckOptions {
   readonly paths?: readonly string[];
   readonly entries?: readonly DiffEntry[];
-  readonly tracked?: ReadonlySet<string>;
   readonly root?: string;
 }
 
@@ -65,17 +69,10 @@ export function checkMove(
 ): MoveReport {
   const paths = options.paths ?? changedPaths(base, head);
   const sources = paths.filter(isComparedSource);
-  const tracked = options.tracked ?? new Set([...base.keys(), ...head.keys()]);
-  const { outside, knownEdgesRemoved, surfacePathChanges } = checkOutside(
-    base,
-    head,
-    paths,
-    options.entries ?? [],
-    tracked,
-  );
   let units = EMPTY_UNITS;
   let titles = { vanished: [] as Title[], appeared: [] as Title[] };
   let directives: DirectiveViolation[] = [];
+  let renames: ReadonlyMap<string, string> = new Map();
   const findings: Finding[] = [];
   if (sources.length > 0) {
     const root = options.root ?? FIXTURE_ROOT;
@@ -98,23 +95,30 @@ export function checkMove(
     titles = compareTitles(base, head, sources);
     directives = directiveViolations(baseSide, headSide, sources, match.diff.moved);
     const files = filePairs(baseSide, headSide, sources, match.moved);
+    renames = files.renames;
+    const baseLinks = createLinks(baseSide, baseKeyer);
+    const headLinks = createLinks(headSide, headKeyer);
+    const order = evaluationOrderFindings(baseSide, headSide, baseLinks, headLinks, files);
     findings.push(
       ...reboundFindings([...match.kept, ...match.moved], baseKeyer, headKeyer),
       ...movedUnitFindings(match.moved, baseSide, headSide),
+      ...cycleReadFindings(match.moved, headSide, order.headGraph),
+      ...order.findings,
       ...surfaceFindings(baseSide, headSide, baseKeyer, headKeyer),
-      ...moduleEvaluationFindings({
-        base: baseSide,
-        head: headSide,
-        baseLinks: createLinks(baseSide, baseKeyer),
-        headLinks: createLinks(headSide, headKeyer),
-        files,
-        kept: match.kept,
-        moved: match.moved,
-      }),
+      ...linkFindings({ baseLinks, headLinks, files }),
+      ...unresolvedImportFindings({ baseLinks, headLinks, files, moved: match.moved }),
+      ...pathReferenceFindings(headSide, head, files),
       ...freeCommentFindings(baseSide, headSide, files),
       ...preambleFindings(baseSide, headSide, files),
     );
   }
+  const { outside, knownEdgesRemoved, surfacePathChanges } = checkOutside(
+    base,
+    head,
+    paths,
+    options.entries ?? [],
+    renames,
+  );
   const pure =
     units.vanished.length === 0 &&
     units.appeared.length === 0 &&

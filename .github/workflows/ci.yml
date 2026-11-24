@@ -147,7 +147,9 @@ jobs:
         run: bun scripts/changes.ts --base "origin/${{ github.base_ref }}"
       - name: move purity
         if: github.event_name == 'pull_request'
-        run: bun scripts/move-purity.ts --base "origin/${{ github.base_ref }}"
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: bun scripts/move-purity.ts --base "origin/${{ github.base_ref }}" --title "$PR_TITLE"
       # Rule 13.1: a diff the proposal criteria catch cites a rule in the description.
       - name: rule citation (Rule 13.1)
         if: github.event_name == 'pull_request'

@@ -5,6 +5,7 @@ import {
   declaresPureMove,
   diffEntries,
   diffPaths,
+  malformedMoveLines,
   mergeBase,
   needsText,
   readTexts,
@@ -31,7 +32,6 @@ export function checkRange(root: string, baseRef: string, headRef: string): Rang
     {
       paths,
       entries: diffEntries(root, base, headRef),
-      tracked: new Set([...baseTracked, ...headTracked]),
       root,
     },
   );
@@ -47,13 +47,20 @@ export function runCli(args: string[], root: string): number {
   const baseRef = flagValue(args, '--base');
   if (baseRef === undefined) {
     console.error(
-      'Usage: bun scripts/move-purity.ts --base <ref> [--head <ref>] [--require] [--json]',
+      'Usage: bun scripts/move-purity.ts --base <ref> [--head <ref>] [--require] [--title <text>] [--json]',
     );
     return 2;
   }
   const headRef = flagValue(args, '--head') ?? 'HEAD';
   const base = mergeBase(root, baseRef, headRef);
-  const required = args.includes('--require');
+  const malformed = malformedMoveLines(root, base, headRef);
+  if (malformed.length > 0) {
+    for (const line of malformed) console.log(`Not a declaration of a pure move: "${line}"`);
+    console.log('Write exactly `Move: pure` on a line of its own, or remove the line.');
+    return 1;
+  }
+  const titled = /^\s*Move:/i.test(flagValue(args, '--title') ?? '');
+  const required = args.includes('--require') || titled;
   if (!declaresPureMove(root, base, headRef) && !required) {
     const message =
       'This range declares no pure move (no commit message line `Move: pure`): the move-purity check did not run.';

@@ -1,7 +1,7 @@
 import { fileComments, type FileComment } from './comments.js';
-import { finding, type Finding } from './findings.js';
+import { finding, type Finding } from './finding.js';
 import type { FilePairs } from './file-pairs.js';
-import { groupBy, matchGroups } from './multiset.js';
+import { groupBy, matchGroups } from './group-match.js';
 import type { Side } from './side-program.js';
 import { analyzeSource } from './units.js';
 
@@ -23,9 +23,11 @@ export function freeCommentFindings(base: Side, head: Side, files: FilePairs): F
     ...files.newFiles.map((p) => ({ before: undefined, after: p })),
     ...files.deletedFiles.map((p) => ({ before: p, after: undefined })),
   ];
+  const sequences: { was: FileComment[]; now: FileComment[]; path: string }[] = [];
   for (const { before, after } of sides) {
     const was = before === undefined ? [] : freeComments(base, before);
     const now = after === undefined ? [] : freeComments(head, after);
+    if (before !== undefined && after !== undefined) sequences.push({ was, now, path: after });
     const baseGroups = groupBy(was, (c) => c.text);
     const headGroups = groupBy(now, (c) => c.text);
     for (const text of new Set([...baseGroups.keys(), ...headGroups.keys()])) {
@@ -35,6 +37,13 @@ export function freeCommentFindings(base: Side, head: Side, files: FilePairs): F
       }
       for (const c of match.appeared) {
         findings.push(finding('free comment appeared', c.path, firstLine(c.text), c.line));
+      }
+    }
+  }
+  if (findings.length === 0) {
+    for (const { was, now, path } of sequences) {
+      if (was.map((c) => c.text).join('\0') !== now.map((c) => c.text).join('\0')) {
+        findings.push(finding('free comments reordered', path, ''));
       }
     }
   }

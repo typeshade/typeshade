@@ -1,14 +1,10 @@
 import ts from 'typescript';
 import { LAYER_POLICY_PATH, knownEdges } from './known-edges.js';
-import { pathOnlyMarkdown } from './markdown.js';
+import { renamedPaths, renamingOnlyMarkdown } from './markdown.js';
 
 export const SIZE_BASELINE = 'scripts/file-size-baseline.json';
 export const COMMENT_BASELINE = 'scripts/comment-baseline.json';
 export const SURFACE_PATH = 'src/__api__/surface.md';
-export const FREE_DOCUMENTS: readonly string[] = [
-  'docs/structure-refactoring-plan.md',
-  'docs/project-structure.md',
-];
 export const FORBIDDEN_PATHS: readonly string[] = ['docs/owner-decisions.md', 'CLAUDE.md'];
 
 export interface OutsideEntry {
@@ -37,11 +33,17 @@ function entriesOf(text: string | undefined): Record<string, number> {
 const sumOf = (record: Record<string, number>): number =>
   Object.values(record).reduce((a, b) => a + b, 0);
 
-function baselineGrowth(base: string | undefined, head: string | undefined): string | undefined {
+function baselineGrowth(
+  base: string | undefined,
+  head: string | undefined,
+  newEntriesAllowed: boolean,
+): string | undefined {
   const before = entriesOf(base);
   const after = entriesOf(head);
   if (sumOf(after) > sumOf(before)) return 'the sum of its numbers grew';
-  if (Object.keys(after).length > Object.keys(before).length) return 'it has more entries';
+  if (!newEntriesAllowed && Object.keys(after).length > Object.keys(before).length) {
+    return 'it has more entries';
+  }
   const grown = Object.keys(after).find((key) => key in before && after[key]! > before[key]!);
   return grown === undefined ? undefined : `the entry ${grown} grew`;
 }
@@ -88,8 +90,9 @@ export function checkOutside(
   head: ReadonlyMap<string, string>,
   paths: readonly string[],
   entries: readonly DiffEntry[],
-  tracked: ReadonlySet<string>,
+  renames: ReadonlyMap<string, string>,
 ): OutsideResult {
+  const renamed = renamedPaths(renames);
   const outside: OutsideEntry[] = [];
   const knownEdgesRemoved: string[] = [];
   let surfacePathChanges = 0;
@@ -101,7 +104,7 @@ export function checkOutside(
     if (FORBIDDEN_PATHS.includes(path)) {
       outside.push({ path, reason: 'a pure move never changes this file' });
     } else if (path === SIZE_BASELINE || path === COMMENT_BASELINE) {
-      const growth = baselineGrowth(base.get(path), head.get(path));
+      const growth = baselineGrowth(base.get(path), head.get(path), path === COMMENT_BASELINE);
       if (growth !== undefined) outside.push({ path, reason: `the baseline grew: ${growth}` });
     } else if (path === SURFACE_PATH) {
       const { same, changed } = surfaceCheck(base.get(path), head.get(path));
@@ -114,11 +117,11 @@ export function checkOutside(
       for (const edge of after) {
         if (!before.has(edge)) outside.push({ path, reason: `KNOWN edge added: ${edge}` });
       }
-    } else if (isComparedSource(path) || FREE_DOCUMENTS.includes(path)) {
+    } else if (isComparedSource(path)) {
       continue;
     } else if (path.endsWith('.md')) {
-      if (!pathOnlyMarkdown(base.get(path), head.get(path), tracked)) {
-        outside.push({ path, reason: 'a document may change repository paths only' });
+      if (!renamingOnlyMarkdown(base.get(path), head.get(path), renamed)) {
+        outside.push({ path, reason: 'a document may only follow a renamed path' });
       }
     } else {
       outside.push({ path, reason: 'a pure move may not change this file' });

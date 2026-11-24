@@ -1,5 +1,5 @@
-import { groupBy, matchGroups } from './multiset.js';
-import { orderViolations } from './order.js';
+import { groupBy, matchGroups } from './group-match.js';
+import { orderViolations } from './unit-order.js';
 import type { Side } from './side-program.js';
 import { analyzeSource, type Unit } from './units.js';
 

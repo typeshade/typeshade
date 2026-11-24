@@ -1,4 +1,4 @@
-import { groupBy } from './multiset.js';
+import { groupBy } from './group-match.js';
 import type { Unit } from './units.js';
 
 export function orderViolations(pairs: readonly (readonly [Unit, Unit])[]): Unit[] {

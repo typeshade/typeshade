@@ -314,7 +314,7 @@ Each item is its own pull request.
 | a    | Done in this pull request | `scripts/move-purity.ts` with a policy test. For a base and a head commit it compares the multiset of top-level declarations of `src/`, by a hash of their text from the TypeScript AST. Only `import` declarations, `export ... from` declarations and an added or removed `export` modifier may differ. It reports each declaration that changed, appeared or vanished. It also compares the multiset of test titles (the first-argument strings of `describe`, `it` and `test`). |                                                                     |
 | b    | Decision                  | `scripts/move-declarations.ts`. It takes a source file, a list of top-level symbol names and a target file. It moves the declarations verbatim with their leading comments. It fixes imports in both files and in the importers. It leaves a re-export in the source file when an importer outside the directory uses a moved symbol.                                                                                                                                               | <!-- doc-refs: skip — a tool that series S0 of this plan builds --> |
 | c    | Decision                  | A name policy test. No new file of `src/` is named `utils`, `helpers`, `common`, `misc`, `shared-stuff` or `part-N`, or has a bare numeric suffix. The two existing files (`src/compiler/ts/growing-programs/common.ts` and `src/compiler/ts/optional/helpers.ts`) are its baseline, which only shrinks.                                                                                                                                                                            |
-| d    | Decision                  | An import-cycle ratchet. The number of file-level import cycles has a baseline that only shrinks. A cycle is a strongly connected component of more than one file. Type-only imports are counted separately.                                                                                                                                                                                                                                                                        |
+| d    | Decision                  | An import-cycle ratchet. The number of file-level import cycles has a baseline that only shrinks. A cycle is a strongly connected component of more than one file. Type-only imports are counted separately. The move-purity check already refuses a slice that makes a harmful cycle: a moved declaration may not read across an import cycle.                                                                                                                                     |
 | e    | Decision                  | A facade ratchet. A list names the facade files. A facade holds only re-exports. The list only shrinks after S13 begins. A file inside a module's directory never imports its own facade.                                                                                                                                                                                                                                                                                           |
 | f    | Part of item a            | A module-surface check for a slice. Item a carries it as rule 3 (P3). The set of symbols that files outside a module's directory import from it is the same before and after the slice.                                                                                                                                                                                                                                                                                             |
 | g    | Proposal                  | An extension of `MAY_IMPORT` inside `core`, for example `core/ir` below `core/passes` below `core/backends`, with its own `KNOWN` list. The exact order is fixed by measurement, in its own pull request.                                                                                                                                                                                                                                                                           |
@@ -419,12 +419,17 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
 9. The move-purity check of S0 item a, over the base and the head commit of the pull request:
    `bun run move:check --base origin/main --require`.
 
-   Procedure for the trailer:
+   Procedure for a slice:
 
-   1. Add the line `Move: pure` to the message of a commit of the slice.
-   2. CI runs the check on a pull request when any line of any commit message in the range matches.
-   3. Without that line, the check prints a notice and exits 0. It did not run.
-   4. The flag `--require` runs the check anyway. An empty range then exits 2.
+   1. Start the pull request title with `Move:`.
+   2. Add the line `Move: pure` to the message of each commit of the slice.
+   3. CI runs the check when the title starts with `Move:` or any commit message line matches.
+   4. A commit message line that starts with `Move:` and is not exactly `Move: pure` fails the check.
+   5. Without a title and without the line, the check prints a notice and exits 0. It did not run.
+   6. The flag `--require` runs the check anyway. An empty range then exits 2.
+
+   Decision D5 applies only to a pull request that has both the title and the lines.
+   A slice that changes the plan puts that change in its own pull request.
 
    Promise. A range passes only when all of these hold:
 
@@ -433,30 +438,47 @@ Functional verification. Run each check that the slice can reach, from `AGENTS.m
    - P2. Every identifier in every declaration binds to the same declaration instance as before.
      Two declarations with equal text in two files are two instances.
    - P3. Every file that exists on both sides exports the same names, bound to the same declarations.
-   - P4. Only inert declarations change files.
-     An inert declaration runs no code when the module loads (rule list in `scripts/move-purity/inert.ts`).
-   - P5. Nothing that loads and runs at module evaluation is reduced or redirected.
-     The side-effect imports, the type-only flags and the value imports of a file are kept.
+   - P4. Only evaluation-free declarations change files.
+     An evaluation-free declaration does nothing observable when its module loads.
+     It also reads nothing that can differ by timing.
+     The rules are in `scripts/move-purity/evaluation-free.ts`.
+     A function, a type, an interface, a `declare` function or constant, a literal `const`, an
+     enum of literals, a class without decorators or static blocks, and a frozen literal are free.
+     A call, a `let`, a destructuring, a read through an object, a `declare module` and a
+     `declare global` are not.
+   - P5. The order of effectful modules is unchanged, and reads never cross a cycle.
+     A module is effectful when one of its top-level declarations is not evaluation-free.
+     From every module that exists on both sides, the depth-first evaluation order of the
+     effectful modules must be equal in the base and the head.
+     A moved declaration that reads a constant, a class or an enum from a module in the same
+     import cycle fails.
+     The type-only flags and the import attributes of a link are kept.
    - P6. The comments, the directive prologue, the preamble, the test titles and the file classes are kept.
+     The free comments of a file keep their order.
    - P7. Nothing else changed.
-     Only the two baselines (not growing), `src/__api__/surface.md` (paths only),
-     the `KNOWN` list (removals only) and documents (paths only) may differ.
+     No document is free.
+     A document may only follow a path that the range renamed.
+     The baselines may not grow (a new entry of the comment baseline may appear).
+     `src/__api__/surface.md` may change paths only, and the `KNOWN` list may lose lines only.
+     A removed or renamed file may not stay named in a string of a declaration or in a configuration file.
 
    Consequence of P4. A slice that must move an active statement is not a pure move.
    It goes through ordinary review.
    One exception holds for series S11 and S12. A top-level `describe`, `it` or `test` call may move
    between two files that vitest runs, when both are plain test files.
-   A plain test file has only inert declarations and such calls at the top level.
+   A plain test file has only evaluation-free declarations and such calls at the top level.
    A hook, a `vi.*` call or any other active statement in the source or the target file refuses the move.
    The source and the target file must also have the same `@vitest-` pragma comments.
+   A test file whose last test moves out changes the effectful set, and the check refuses it.
 
    Known gaps. The check does not cover these cases:
 
-   - The order in which modules load, when a unit moves to a file that loads at another time.
    - A package entry (`exports` of `package.json`) that points to a deleted file.
    - The program uses `noLib` and no ambient types. Global names bind by text.
-   - Comments in a moved declaration that were edited together with a rename of its text.
+   - A read through a constant that holds a frozen literal counts as active. That is a false refusal.
+   - An import of an external package that changes how that package loads.
    - A dynamic or computed access that the checker does not resolve to a declaration.
+   - The comment tools: a slice that moves a commented declaration must also pass `bun run bake:comment-baseline`.
 
 Document audit. It is separate from the functional checks:
 
@@ -484,7 +506,7 @@ The record of the whole plan is the status column of section 6, updated in the p
 
 ### 9.1 Merge of a slice
 
-Decision D5: a pull request of S1 to S13 is merged by the orchestrating agent without a separate "merge" from the owner when both hold.
+Decision D5: a pull request of S1 to S13 with the title `Move:` and the commit lines `Move: pure` is merged by the orchestrating agent without a separate "merge" from the owner when both hold.
 
 1. The move-purity check passes.
 2. Every required check is green on the current head of the pull request.

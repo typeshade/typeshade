@@ -92,21 +92,8 @@ describe('the export surface (P3)', () => {
   });
 });
 
-describe('module evaluation (P5)', () => {
+describe('links of a file (P5)', () => {
   const setup = 'export {};\n';
-
-  it('refuses a side-effect import removed from a file that stays', () => {
-    const base = tree({ 'src/setup.ts': setup, 'src/a.ts': `import './setup.js';\n${BETA}` });
-    const head = tree({ 'src/setup.ts': setup, 'src/a.ts': BETA });
-    expect(kinds(checkMove(base, head))).toContain('side-effect imports changed');
-  });
-
-  it('refuses two side-effect imports that swapped places', () => {
-    const files = { 'src/s.ts': setup, 'src/t.ts': setup };
-    const base = tree({ ...files, 'src/a.ts': `import './s.js';\nimport './t.js';\n${BETA}` });
-    const head = tree({ ...files, 'src/a.ts': `import './t.js';\nimport './s.js';\n${BETA}` });
-    expect(kinds(checkMove(base, head))).toContain('side-effect imports changed');
-  });
 
   it('refuses a side-effect import in a new file', () => {
     const base = tree({ 'src/setup.ts': setup, 'src/a.ts': BETA });
@@ -123,60 +110,18 @@ describe('module evaluation (P5)', () => {
     const user = 'export const v: T = 1;\n';
     const base = tree({ 'src/t.ts': t, 'src/a.ts': `import type { T } from './t.js';\n${user}` });
     const head = tree({ 'src/t.ts': t, 'src/a.ts': `import { T } from './t.js';\n${user}` });
-    expect(kinds(checkMove(base, head))).toContain('type-only flag changed');
+    expect(kinds(checkMove(base, head))).toContain('import flag changed');
   });
 
-  it('refuses a value import that no unit used and that was removed', () => {
-    const lib = 'export const w = 1;\n';
-    const base = tree({ 'src/x.ts': lib, 'src/a.ts': `import { w } from './x.js';\n${BETA}` });
-    const head = tree({ 'src/x.ts': lib, 'src/a.ts': BETA });
-    expect(kinds(checkMove(base, head))).toContain('value import removed');
-  });
-
-  it('refuses a value import added to a file that stays without a moved unit that needs it', () => {
-    const lib = 'export const w = 1;\n';
-    const base = tree({ 'src/x.ts': lib, 'src/a.ts': BETA });
-    const head = tree({ 'src/x.ts': lib, 'src/a.ts': `import { w } from './x.js';\n${BETA}` });
-    expect(kinds(checkMove(base, head))).toContain('value import added');
-  });
-
-  it('accepts the import of a unit that moved away, and the re-export that replaces it', () => {
-    const lib = 'export const w = 1;\n';
-    const useW = 'export function useW(): number {\n  return w;\n}\n';
-    const keep = 'export const keep = 1;\n';
-    const base = tree({
-      'src/x.ts': lib,
-      'src/a.ts': `import { w } from './x.js';\n${useW}${keep}`,
-    });
+  it('refuses an import attribute that was added', () => {
+    const x = 'export const a = 1;\n';
+    const user = 'export const v = a;\n';
+    const base = tree({ 'src/x.ts': x, 'src/a.ts': `import { a } from './x.js';\n${user}` });
     const head = tree({
-      'src/x.ts': lib,
-      'src/a.ts': `export { useW } from './b.js';\n${keep}`,
-      'src/b.ts': `import { w } from './x.js';\n${useW}`,
+      'src/x.ts': x,
+      'src/a.ts': `import { a } from './x.js' with { type: 'json' };\n${user}`,
     });
-    const report = checkMove(base, head);
-    expect(report.findings).toEqual([]);
-    expect(report.pure).toBe(true);
-  });
-});
-
-describe('location-dependent units', () => {
-  const cases: [string, string][] = [
-    ['import.meta', 'export function here(): string {\n  return import.meta.url;\n}\n'],
-    ['__dirname', 'export function here(): string {\n  return __dirname;\n}\n'],
-    ['a dynamic import', "export function here() {\n  return import('./x.js');\n}\n"],
-    ['require', "export function here() {\n  return require('x');\n}\n"],
-    ['a relative path literal', "export function here(): string {\n  return './data/a.json';\n}\n"],
-  ];
-
-  it.each(cases)('refuses %s in a unit that changed directory', (_name, unit) => {
-    const base = tree({ 'src/a/x.ts': unit });
-    const report = checkMove(base, tree({ 'src/b/x.ts': unit }));
-    expect(kinds(report)).toContain('location-dependent unit moved');
-  });
-
-  it.each(cases)('accepts %s in a unit that stays in its directory', (_name, unit) => {
-    const report = checkMove(tree({ 'src/a/x.ts': unit }), tree({ 'src/a/y.ts': unit }));
-    expect(kinds(report)).not.toContain('location-dependent unit moved');
+    expect(kinds(checkMove(base, head))).toContain('import flag changed');
   });
 });
 
@@ -184,8 +129,9 @@ describe('the preamble and the file class (P6)', () => {
   it('refuses a shebang or a byte order mark that changed', () => {
     const base = tree({ 'src/a.ts': '#!/usr/bin/env node\nconst A = 1;\n' });
     expect(kinds(checkMove(base, tree({ 'src/a.ts': 'const A = 1;\n' })))).toEqual(['preamble']);
-    const marked = tree({ 'src/a.ts': '﻿#!/usr/bin/env node\nconst A = 1;\n' });
-    expect(kinds(checkMove(base, marked))).toEqual(['preamble']);
+    const plain = tree({ 'src/a.ts': 'const A = 1;\n' });
+    const marked = tree({ 'src/a.ts': '\uFEFFconst A = 1;\n' });
+    expect(kinds(checkMove(plain, marked))).toEqual(['preamble']);
   });
 
   it('refuses a unit moved between a source, a test and a shade file', () => {

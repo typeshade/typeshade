@@ -18,8 +18,9 @@ describe('tests that move between test files (series S11 and S12)', () => {
   });
 
   it('accepts a test moved into an existing plain test file', () => {
-    const base = tree({ 'src/a.test.ts': header + one + two, 'src/b.test.ts': header });
-    const head = tree({ 'src/a.test.ts': header + one, 'src/b.test.ts': header + two });
+    const three = `describe('three', () => {\n  it('c', () => {});\n});\n`;
+    const base = tree({ 'src/a.test.ts': header + one + two, 'src/b.test.ts': header + three });
+    const head = tree({ 'src/a.test.ts': header + one, 'src/b.test.ts': header + three + two });
     expect(checkMove(base, head).pure).toBe(true);
   });
 
@@ -42,13 +43,14 @@ describe('tests that move between test files (series S11 and S12)', () => {
     const base = tree({ 'src/a.test.ts': pragma + header + one + two });
     const head = tree({ 'src/a.test.ts': pragma + header + one, 'src/b.test.ts': header + two });
     expect(kinds(checkMove(base, head))).toContain('test moved across a vitest pragma');
+    const three = `describe('three', () => {\n  it('c', () => {});\n});\n`;
     const both = tree({
       'src/a.test.ts': pragma + header + one + two,
-      'src/b.test.ts': pragma + header,
+      'src/b.test.ts': pragma + header + three,
     });
     const same = tree({
       'src/a.test.ts': pragma + header + one,
-      'src/b.test.ts': pragma + header + two,
+      'src/b.test.ts': pragma + header + three + two,
     });
     expect(checkMove(both, same).pure).toBe(true);
   });

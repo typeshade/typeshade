@@ -1,4 +1,4 @@
-import { groupBy, matchGroups } from './multiset.js';
+import { groupBy, matchGroups } from './group-match.js';
 import { isRunnableTest } from './runnable-tests.js';
 import { testTitles, type Title } from './titles.js';
 

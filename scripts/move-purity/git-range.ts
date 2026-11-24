@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { isConfigurationText } from './path-references.js';
 import type { DiffEntry } from './outside-move.js';
 import { COMMENT_BASELINE, SIZE_BASELINE, SURFACE_PATH, isComparedSource } from './outside-move.js';
 
@@ -40,6 +41,13 @@ export function declaresPureMove(root: string, from: string, to: string): boolea
     .some((line) => PURE_MOVE_LINE.test(line.replace(/\r$/, '')));
 }
 
+export function malformedMoveLines(root: string, from: string, to: string): string[] {
+  return git(root, ['log', '--format=%B', `${from}..${to}`])
+    .split('\n')
+    .map((line) => line.replace(/\r$/, ''))
+    .filter((line) => /^\s*>?\s*move\s*:/i.test(line) && !PURE_MOVE_LINE.test(line));
+}
+
 export function trackedPaths(root: string, ref: string): string[] {
   return git(root, ['ls-tree', '-r', '--name-only', '-z', ref])
     .split('\0')
@@ -49,7 +57,10 @@ export function trackedPaths(root: string, ref: string): string[] {
 const NEEDS_TEXT = new Set([SIZE_BASELINE, COMMENT_BASELINE, SURFACE_PATH]);
 
 export const needsText = (path: string): boolean =>
-  isComparedSource(path) || path.endsWith('.md') || NEEDS_TEXT.has(path);
+  isComparedSource(path) ||
+  path.endsWith('.md') ||
+  NEEDS_TEXT.has(path) ||
+  isConfigurationText(path);
 
 export function readTexts(
   root: string,

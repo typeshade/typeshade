@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BETA, tree } from './core/testing/move-purity-fixtures.js';
+import { ALPHA, BETA, exported, tree } from './core/testing/move-purity-fixtures.js';
 import { checkMove } from '../scripts/move-purity.js';
 
 const GUIDE = ['docs', 'guide' + '.md'].join('/');
@@ -26,34 +26,41 @@ describe('the files outside the declarations (P7)', () => {
   });
 
   describe('documents', () => {
-    it('lets the plan and the structure document change freely', () => {
+    it('lets no document change freely, the plan and the structure document included', () => {
       for (const path of ['docs/structure-refactoring-plan.md', 'docs/project-structure.md']) {
-        expect(checkMove(tree({ [path]: 'a' }), tree({ [path]: 'new text' })).pure).toBe(true);
+        const report = checkMove(tree({ [path]: 'a' }), tree({ [path]: 'new text' }));
+        expect(report.outside.map((o) => o.path)).toEqual([path]);
       }
     });
 
-    it('lets another document change repository paths only', () => {
-      const base = tree({
-        [GUIDE]: 'See src/a.ts and src/old/ for details.\nPlain line.\n',
-        'src/a.ts': BETA,
-        'src/old/x.ts': BETA,
-      });
-      const moved = tree({
-        [GUIDE]: 'See src/b.ts and src/new/ for details.\nPlain line.\n',
-        'src/b.ts': BETA,
-        'src/new/x.ts': BETA,
-      });
-      const report = checkMove(base, moved);
-      expect(report.outside).toEqual([]);
-    });
-
-    it('refuses prose edits and paths that no tracked file has', () => {
+    it('refuses a path swapped for another path that exists', () => {
       const files = { 'src/a.ts': BETA, 'src/b.ts': BETA };
       const base = tree({ ...files, [GUIDE]: 'See src/a.ts for details.\n' });
-      const prose = tree({ ...files, [GUIDE]: 'Read src/b.ts for details.\n' });
-      expect(checkMove(base, prose).outside.map((o) => o.path)).toEqual([GUIDE]);
-      const unknown = tree({ ...files, [GUIDE]: 'See src/zzz.ts for details.\n' });
-      expect(checkMove(base, unknown).outside).toHaveLength(1);
+      const head = tree({ ...files, [GUIDE]: 'See src/b.ts for details.\n' });
+      expect(checkMove(base, head).outside.map((o) => o.path)).toEqual([GUIDE]);
+    });
+
+    it('lets a document follow a renamed file and its directory', () => {
+      const lib = `${ALPHA}`;
+      const base = tree({
+        'src/old/a.ts': exported(lib),
+        [GUIDE]: 'See src/old/a.ts and src/old/ for details.\nPlain line.\n',
+      });
+      const head = tree({
+        'src/new/a.ts': exported(lib),
+        [GUIDE]: 'See src/new/a.ts and src/new/ for details.\nPlain line.\n',
+      });
+      expect(checkMove(base, head).outside).toEqual([]);
+    });
+
+    it('refuses a prose edit and a path that no rename explains', () => {
+      const base = tree({ [GUIDE]: 'See src/a.ts for details.\n' });
+      expect(
+        checkMove(base, tree({ [GUIDE]: 'Read src/a.ts for details.\n' })).outside,
+      ).toHaveLength(1);
+      expect(
+        checkMove(base, tree({ [GUIDE]: 'See src/zzz.ts for details.\n' })).outside,
+      ).toHaveLength(1);
     });
   });
 
@@ -113,6 +120,23 @@ describe('the files outside the declarations (P7)', () => {
       expect(checkMove(tree({ [path]: surface('src/a.ts') }), tree({ [path]: head })).pure).toBe(
         false,
       );
+    });
+  });
+
+  describe('the comment baseline', () => {
+    const path = 'scripts/comment-baseline.json';
+    const run = (before: object, after: object) =>
+      checkMove(tree({ [path]: JSON.stringify(before) }), tree({ [path]: JSON.stringify(after) }));
+
+    it('accepts a new entry when the sum does not grow', () => {
+      expect(run({ 'src/a.ts': 5 }, { 'src/a.ts': 2, 'src/b.ts': 3 }).pure).toBe(true);
+    });
+
+    it('refuses an entry that grew and a sum that grew', () => {
+      expect(run({ 'src/a.ts': 5, 'src/b.ts': 5 }, { 'src/a.ts': 6, 'src/b.ts': 1 }).pure).toBe(
+        false,
+      );
+      expect(run({ 'src/a.ts': 5 }, { 'src/a.ts': 5, 'src/b.ts': 1 }).pure).toBe(false);
     });
   });
 });

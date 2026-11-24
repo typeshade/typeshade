@@ -1,7 +1,8 @@
 import ts from 'typescript';
-import { finding, type Finding } from './findings.js';
+import { finding, type Finding } from './finding.js';
 import { freeComments } from './free-comments.js';
-import { isInertUnit } from './inert.js';
+import { contextOf } from './evaluation-context.js';
+import { evaluateUnit } from './evaluation-free.js';
 import { isRunnableTest } from './runnable-tests.js';
 import type { Side } from './side-program.js';
 import { isSuiteCallee } from './titles.js';
@@ -13,8 +14,12 @@ export const isTestCall = (statement: ts.Statement): boolean =>
   ts.isCallExpression(statement.expression) &&
   isSuiteCallee(statement.expression.expression);
 
-const isPlainTestFile = (side: Side, path: string): boolean =>
-  unitsOfPath(side, path).every((unit) => isInertUnit(unit.node) || isTestCall(unit.node));
+const isPlainTestFile = (side: Side, path: string): boolean => {
+  const ctx = contextOf(side);
+  return unitsOfPath(side, path).every(
+    (unit) => isTestCall(unit.node) || evaluateUnit(unit.node, ctx).reason === undefined,
+  );
+};
 
 const startsWithPragma = (text: string): boolean =>
   text
