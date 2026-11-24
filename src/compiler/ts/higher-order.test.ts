@@ -1021,7 +1021,7 @@ export function run(k: f32): f32 {
   });
 });
 
-describe('examples/higher-order.shade.ts', () => {
+describe('examples/gallery/higher-order/higher-order.shade.ts', () => {
   it('renders the disc, the petals, the glow and the rings on every CPU path', () => {
     const src = exampleSource('higher-order');
     const r = compile(src);

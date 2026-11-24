@@ -1,0 +1,9 @@
+{
+  "title": "Runtime array length",
+  "blurb": "The bounds guard every kernel over a runtime-sized storage array needs: `src.length` reads the bound buffer's length as WGSL `arrayLength(&src)`, a `u32`, so the guard is real where it once folded to `gid.x >= 0u` and returned every invocation (#46). `compile()` emits WGSL and no GLSL text for it: a runtime-sized `read_write` storage array is not supported yet by the GLSL backend (Rule 10.5), and the WebGL2 tier runs the compute entry as its pass program (Rule 11.8).",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}

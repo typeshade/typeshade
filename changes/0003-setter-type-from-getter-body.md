@@ -77,7 +77,7 @@ only place where a class written without annotations still stops.
   untrue since #195 and is corrected here.
 - **Codes.** None. `TS8002` stays for the refusals, and its message loses the getter half where
   there is no getter (Rule 12.5).
-- **Examples.** None are added. `examples/inferred-returns.shade.ts` gains the unannotated pair,
+- **Examples.** None are added. `examples/gallery/inferred-returns/inferred-returns.shade.ts` gains the unannotated pair,
   a content change the compile gate already covers.
 - **Tests.**
   - `src/compiler/ts/return-inference.test.ts`: its setter case compiles now. It is held to one
