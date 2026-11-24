@@ -198,7 +198,7 @@
   "src/core/spec-conformance/surface-names.test.ts": 795,
   "src/core/spelling-plan.test.ts": 442,
   "src/core/testing/draw-harness.ts": 431,
-  "src/core/testing/fuse-chain.ts": 805,
+  "src/core/testing/fuse-chain.ts": 762,
   "src/core/testing/gl-model.ts": 409,
   "src/core/testing/libm-cases.ts": 857,
   "src/core/testing/libm-reference.ts": 471,
