@@ -1,0 +1,18 @@
+"use typeshade";
+
+// Plain data with no field metadata, written as the type alias §2 of the surface document
+// illustrates for this very struct. A class, an interface and a type alias produce the same
+// `StructDecl`, so the spelling says what the shape is FOR rather than changing what it emits:
+// entry I/O carries `location<…>` and `builtin<…>` in its field types, which this does not
+// need.
+
+type Camera = {
+  view: mat4;
+  pos: vec3;
+};
+
+declare const camera: uniform<Camera>;
+
+export function origin(): vec3 {
+  return camera.pos;
+}

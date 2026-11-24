@@ -56,7 +56,7 @@ const emitOf = (source: string) => {
   return { wgsl: r.wgsl, glsl: r.glsl, reflect: JSON.stringify(reflect(r.module)) };
 };
 
-// The example of the proposal, `examples/hello-vsout.shade.ts`, in both spellings.
+// The example of the proposal, `examples/gallery/hello-vsout/hello-vsout.shade.ts`, in both spellings.
 const PROGRAM = (o: {
   uv: string;
   color: string;

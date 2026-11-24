@@ -173,12 +173,75 @@ const PEER_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
   ...[ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken],
 ]);
 
+const JOINED_BOTH: ReadonlySet<ts.SyntaxKind> = new Set([
+  ...[ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.AsteriskToken],
+  ...[ts.SyntaxKind.SlashToken, ts.SyntaxKind.PercentToken],
+  ...[ts.SyntaxKind.BarToken, ts.SyntaxKind.AmpersandToken, ts.SyntaxKind.CaretToken],
+]);
+
+const JOINED_LEFT: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.LessThanLessThanToken,
+  ts.SyntaxKind.GreaterThanGreaterThanToken,
+]);
+
+const STORE_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ...[ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.MinusEqualsToken],
+  ...[ts.SyntaxKind.AsteriskEqualsToken, ts.SyntaxKind.BarEqualsToken],
+  ...[ts.SyntaxKind.AmpersandEqualsToken, ts.SyntaxKind.CaretEqualsToken],
+]);
+
+function isSelectCall(n: ts.Node): n is ts.CallExpression {
+  return (
+    ts.isCallExpression(n) &&
+    ts.isIdentifier(n.expression) &&
+    n.expression.text === 'select' &&
+    n.arguments.length === 3
+  );
+}
+
+function joinedIdentifiers(e: ts.Expression): ts.Identifier[] {
+  const n = skipParenNodes(e);
+  if (ts.isIdentifier(n)) return [n];
+  if (
+    ts.isPrefixUnaryExpression(n) &&
+    (n.operator === ts.SyntaxKind.MinusToken || n.operator === ts.SyntaxKind.TildeToken)
+  ) {
+    return joinedIdentifiers(n.operand);
+  }
+  if (ts.isBinaryExpression(n)) {
+    const k = n.operatorToken.kind;
+    if (JOINED_LEFT.has(k)) return joinedIdentifiers(n.left);
+    return JOINED_BOTH.has(k) ? [...joinedIdentifiers(n.left), ...joinedIdentifiers(n.right)] : [];
+  }
+  if (ts.isConditionalExpression(n)) {
+    return [...joinedIdentifiers(n.whenTrue), ...joinedIdentifiers(n.whenFalse)];
+  }
+  return isSelectCall(n)
+    ? [...joinedIdentifiers(n.arguments[0]!), ...joinedIdentifiers(n.arguments[1]!)]
+    : [];
+}
+
 export function peerOperands(n: ts.Node): (readonly [ts.Identifier, ts.Expression])[] {
-  if (!ts.isBinaryExpression(n) || !PEER_OPERATORS.has(n.operatorToken.kind)) return [];
-  const [l, r] = [skipParenNodes(n.left), skipParenNodes(n.right)];
+  if (ts.isBinaryExpression(n) && STORE_OPERATORS.has(n.operatorToken.kind)) {
+    const target = skipParenNodes(n.left);
+    if (!ts.isIdentifier(target)) return [];
+    return joinedIdentifiers(n.right)
+      .filter((id) => id.text !== target.text)
+      .map((id) => [id, target] as const);
+  }
+  let sides: readonly [ts.Expression, ts.Expression] | undefined;
+  if (ts.isBinaryExpression(n) && PEER_OPERATORS.has(n.operatorToken.kind)) {
+    sides = [n.left, n.right];
+  } else if (ts.isConditionalExpression(n)) {
+    sides = [n.whenTrue, n.whenFalse];
+  } else if (isSelectCall(n)) {
+    sides = [n.arguments[0]!, n.arguments[1]!];
+  }
+  if (sides === undefined) return [];
+  const [l, r] = [skipParenNodes(sides[0]), skipParenNodes(sides[1])];
   return [
-    ...(ts.isIdentifier(l) && !ts.isNumericLiteral(r) ? [[l, r] as const] : []),
-    ...(ts.isIdentifier(r) && !ts.isNumericLiteral(l) ? [[r, l] as const] : []),
+    ...(ts.isNumericLiteral(r) ? [] : joinedIdentifiers(l).map((id) => [id, r] as const)),
+    ...(ts.isNumericLiteral(l) ? [] : joinedIdentifiers(r).map((id) => [id, l] as const)),
   ];
 }
 

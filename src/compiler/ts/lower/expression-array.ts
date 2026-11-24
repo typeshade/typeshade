@@ -212,7 +212,7 @@ export function lowerArrayLiteral(
       diagnostics,
       sourceFile,
       node,
-      `array<${authorTypeText(target.elem)}, ${target.size ?? node.elements.length}> is an array of arrays, which GLSL ES 3.00 does not have. Flatten it: one array<${authorTypeText(target.elem.elem)}, N> indexed by row * width + column.`,
+      `array<${authorTypeText(target.elem)}, ${target.size ?? node.elements.length}> is an array of arrays, which the compiler does not flatten yet. Flatten it: one array<${authorTypeText(target.elem.elem)}, N> indexed by row * width + column.`,
       TS_CODES.UNSUPPORTED,
     );
     return undefined;

@@ -114,7 +114,7 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
     checkManifest(program);
     if (options.console === true)
       throw new TypeError(
-        'load({ console: true }): the WebGL2 tier of the program runtime does not record console calls.',
+        'load({ console: true }): recording console calls is not supported yet on the WebGL2 tier of the program runtime (Rule 11.9).',
       );
     return new GlProgramImpl(this, program) as unknown as Program<E>;
   }
@@ -427,8 +427,8 @@ class GlComputePipelineImpl implements ComputePipeline {
 }
 
 /** A storage texture as a dispatch takes it (change 0054, fifth amendment): a texture of the
- *  runtime of the binding's format, taken now, with its size. WebGL2 cannot ask a `WebGLTexture`
- *  its size, and the dispatch needs it, so a host's own texture is refused with that reason. */
+ *  runtime of the binding's format, taken now, with its size. A host's own texture
+ *  is not supported yet. */
 function storageOf(
   v: unknown,
   b: PackBinding,
@@ -440,7 +440,7 @@ function storageOf(
     );
   if (!(v instanceof GlTextureImpl))
     throw new TypeError(
-      `${where} takes a Texture of the runtime, made with { format: '${b.resource.storageFormat ?? '?'}' }; got ${describe(v)}. WebGL2 cannot ask a WebGLTexture its size, which the dispatch needs.`,
+      `${where} takes a Texture of the runtime, made with { format: '${b.resource.storageFormat ?? '?'}' }; got ${describe(v)}. A host's own texture is not supported yet on the WebGL2 tier (Rule 11.8); the dispatch needs the size that a Texture of the runtime carries.`,
     );
   if (v.format !== b.resource.storageFormat)
     throw new TypeError(

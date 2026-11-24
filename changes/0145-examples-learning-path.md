@@ -2,8 +2,52 @@
 id: '0145'
 title: An author learns TypeShade from a path of 17 examples and finds the other examples in a gallery
 status: accepted
-rules: []
-surface: []
+rules:
+  - '4.3'
+  - '4.8'
+  - '6.9'
+  - '6.10'
+  - '7.5'
+  - '7.9'
+  - '7.10'
+  - '8.9'
+  - '8.10'
+  - '8.11'
+  - '8.12'
+  - '8.13'
+  - '8.16'
+  - '8.17'
+  - '8.18'
+  - '8.19'
+  - '8.25'
+surface:
+  - 3
+  - 16
+  - 17
+  - 22
+  - 26
+  - 28
+  - 30
+  - 31
+  - 32
+  - 33
+  - 34
+  - 35
+  - 36
+  - 37
+  - 39
+  - 44
+  - 45
+  - 47
+  - 48
+  - 50
+  - 51
+  - 53
+  - 54
+  - 62
+  - 66
+  - 76
+  - 77
 exports: []
 exports-removed: []
 codes: []
@@ -33,6 +77,10 @@ examples:
   - reaction-diffusion
   - path-tracer-progressive
   - fluid-2d
+  - kernel-array-methods
+  - kernel-image-invert
+  - kernel-push
+  - loop-struct-array
 names: []
 downstream:
   - repo: typeshade.github.io
@@ -125,7 +173,7 @@ come from `find examples -name '*.shade.ts'` and `examples/_order.ts`, run on 20
   site reads them at build time from `examples/index.ts`. 23 of the 102 `.shade.ts` files are
   twins of these (`twinOf`). The other 13 builder examples have no `.shade.ts` form.
 - 3 support modules, which are not examples: `examples/lib/noise.shade.ts` and
-  `examples/passes/blur-x.shade.ts` and `examples/passes/trail.shade.ts`. An example imports
+  `examples/passes/blur-x.shade.ts` and `trail.shade.ts` (it moved to `examples/gallery/feedback-trail/` in M4.3a). An example imports
   each of them (`imported-noise`, `separable-blur`, `feedback-trail`).
 
 Total: 114 `.shade.ts` files (102 + 9 + 3) and 36 builder files. They hold 147 examples
@@ -232,7 +280,7 @@ refuses a form it does not implement, and the diagnostic says so).
 CLAUDE.md asks for one example before and after for a change to how an author writes an
 example. The example is the smallest program that draws.
 
-**Before.** `examples/hello.shade.ts` is a triangle. It has no host. A reader who wants to see
+**Before.** `hello.shade.ts`, a top-level file of `examples/`, is a triangle. It has no host. A reader who wants to see
 it run copies `examples/hosts/host-draw/host.ts`, which is the closest host:
 
 ```ts
@@ -947,7 +995,7 @@ examples/
    A test fails when the two disagree. The directory holds one `example.json` beside the module. The nine hosts, the 93 other `.shade.ts` examples and the 3
    support modules move under `examples/gallery/`. A support module moves into the directory of the
    example that imports it (`lib/noise.shade.ts` to `imported-noise`, `passes/blur-x.shade.ts` and
-   `passes/trail.shade.ts` to `separable-blur` and `feedback-trail`, as 0145 says each is imported by one example).
+   `trail.shade.ts` to `feedback-trail` and `passes/blur-x.shade.ts` to `separable-blur`, as 0145 says each is imported by one example).
 2. **The manifest is a separate `example.json` in each example directory.** [decision, owner, O2]
    [fact] Today the `@example` block of a module holds its hand-written metadata
    (`examples/_shade.ts`, decision #65: two branches that add two examples touch two new files and no
@@ -1139,7 +1187,7 @@ The gallery has no lit cube. The deferred list of A1 names meshes as waiting for
 The example is `hello-vsout`, which has the shape that 81 modules share: a fragment entry that reads
 a vertex output.
 
-**Before.** One file, `examples/hello-vsout.shade.ts` (37 lines). It has no group, no host and no
+**Before.** One file, `hello-vsout.shade.ts` in `examples/` (37 lines). It has no group, no host and no
 tier list. Its header holds `title`, `blurb` and `"renderable": true`. A reader cannot run it.
 
 ```ts
@@ -1371,6 +1419,143 @@ O2 chose a separate `example.json`. The text above was revised to match. Each fo
 - Docs: `examples/README.md`, `examples/PORTING.md`, `AGENTS.md` (the example gates), `bun run docs:impact` lists the rest at each slice.
 - `downstream`: the site reads `groups.json` and the manifest fields; the Playground runs `run` with `image`, extras and the tier list; the editor
   skill's example list names the layout. Nothing is verified in those repositories here.
+
+### A3. The gallery move edits the paths in rules and surface sections (2026-11-23, status: accepted)
+
+- Status: accepted. [decision, owner, 2026-11-24] The owner said "병합 승인 및 추천안으로" (merge
+  approved, with the recommended answers). A3 is part of the approved text from the merge of its
+  pull request (#1485). No code and no example changes with that pull request.
+- Baseline: `main` at `9c47626a` for the scan. [fact] The M4.3a pull request (#1472, commit
+  `d42218f6`) merged into `main` on 2026-11-23 as `d31bfbff`.
+- A3 adds no author-facing name, no diagnostic code and no export. `exports`, `exports-removed`,
+  `codes` and `names` stay empty. A3 edits no meaning of a rule or of a surface section.
+
+#### Why A3 exists
+
+1. [fact] M4.3a moved 30 modules, `a` to `h`, to `examples/gallery/<id>/`. It left 18 modules of
+   `a` to `h` at the top level.
+2. [fact] `docs/language-design.md` and `docs/use-typeshade-surface.md` name each of those 18 by
+   its path, `examples/<id>.shade.ts`.
+3. [fact] A2 declares no rule and no surface section. `bun run precommit` refuses an edit of
+   those paths under `Change: 0145`.
+4. [fact] The same holds for the modules `i` to `z`. Of the 54 of them, 23 are named by a rule or
+   a section. M4.3c cannot move them without A3.
+5. [fact] Four modules of `i` to `z` that no rule names cannot move under A2 either:
+   `kernel-array-methods`, `kernel-image-invert`, `kernel-push` and `loop-struct-array`. Their
+   `@example` header is most of each file. Git pairs the old module with the new `example.json`
+   and reads the new module as an addition, so `scripts/changes.ts` counts the id as changed, and
+   `bun run precommit` refuses it under `Change: 0145`.
+6. [proposal] A3 declares the path edits and the four ids, so that M4.3c can move them.
+
+#### What A3 declares
+
+[fact] On `main` at `9c47626a`, 41 of the 102 top-level modules are named by a path in
+`docs/language-design.md`, `docs/use-typeshade-surface.md` or `reqs/`. A reader repeats the scan
+with `grep -n 'examples/[a-z0-9-]*\.shade\.ts'` on those three places. The table by id is not
+copied here.
+
+1. The edit is path-only. The text changes from `examples/<id>.shade.ts` to
+   `examples/gallery/<id>/<id>.shade.ts`, and from nothing else.
+2. No rule and no section changes its meaning. A reviewer checks this with `git diff --word-diff`:
+   each hunk shows one path and no other word.
+3. The edit reaches 17 rules: 4.3, 4.8, 6.9, 6.10, 7.5, 7.9, 7.10, 8.9, 8.10, 8.11, 8.12, 8.13,
+   8.16, 8.17, 8.18, 8.19 and 8.25.
+4. The edit reaches 27 surface sections: §3, §16, §17, §22, §26, §28, §30, §31, §32, §33, §34, §35,
+   §36, §37, §39, §44, §45, §47, §48, §50, §51, §53, §54, §62, §66, §76 and §77.
+5. The front matter `rules:` and `surface:` gain these lists. [fact] `scripts/changes.ts` reads
+   the declared lists from proposals that are `accepted` or `implemented` on the base branch. It
+   has no state for an amendment in draft. Proposal 0145 is `accepted`, so the lists count from
+   the merge of this pull request.
+6. The front matter `examples:` gains the four ids of item 5 of "Why A3 exists". The move
+   changes no shader text of theirs. Each moves with its `@example` header turned into an
+   `example.json`, as in M4.3a.
+7. [proposal] The plan below keeps M4.3c after the owner's "merge" of A3. The tool does not
+   enforce that order. The plan does.
+
+Which ids reach which rule and which section, grouped by the plan slice:
+
+| Slice | Modules named by a rule or a section                                                                                                                                                                                                                                                                                                                                                                                            | Count |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| M4.3c | `a` to `h`: `array-length`, `array-methods`, `block-scope`, `capsule-corp-namek-class`, `class-builder`, `class-parts`, `class-syntax`, `clip-planes`, `closures`, `compute-sync`, `cube-array-gather`, `cube-env`, `cutout`, `fp64-lane-stripes`, `generic-class`, `generic-helpers`, `gpu-console`, `higher-order`                                                                                                            | 18    |
+| M4.3c | `i` to `z`: `id-pick`, `inferred-returns`, `integer-math`, `loops-over-data`, `msaa-resolve`, `normal-matrix`, `null-values`, `optional-fields`, `optional-values`, `orbit-inout`, `packed-bytes`, `packing-bitcast`, `particle-step`, `pick-composite`, `reference-parameters`, `rng-method`, `sample-branch`, `shadow-compare`, `storage-texture`, `subgroup-reduce`, `tuple-and-brand`, `uniform-array`, `workgroup-tile-2d` | 23    |
+
+#### One line before and after
+
+Rule 4.3, the `Enforced by` line, `docs/language-design.md` line 356.
+
+Before:
+
+```text
+- Enforced by: `examples/tuple-and-brand.shade.ts` on both halves of the gate.
+```
+
+After:
+
+```text
+- Enforced by: `examples/gallery/tuple-and-brand/tuple-and-brand.shade.ts` on both halves of the gate.
+```
+
+[fact] The rule text above that line does not change.
+
+#### The reqs items
+
+1. [fact] `reqs/rules/RULE-*.md` items carry the rule text and the paths that they reference.
+   17 RULE items belong to the 17 rules above. A SURF item exists for 18 of the 27 sections:
+   §3, §16, §17, §22, §26, §28, §31, §33, §39, §44, §50, §51, §53, §54, §62, §66, §76 and §77.
+   The other nine sections (§30, §32, §34, §35, §36, §37, §45, §47 and §48) have no SURF item.
+2. [procedure] After each M4.3c commit that edits one of these files:
+   1. Run `bun run reqs:sync`.
+   2. Read the items that it flags.
+   3. Ask a person to run `doorstop review` for each changed RULE and SURF item.
+3. [fact] An agent does not run `doorstop review` or `doorstop clear`. A person reads the item
+   first, as `reqs/README.md` says.
+
+#### The plan
+
+1. M4.3a: 30 modules, `a` to `h`, in pull request #1472. It stays as it is. It left 18 modules
+   (D-9, below).
+2. M4.3b: 27 of the 31 modules `i` to `z` that no rule and no section names. No rule text
+   changes. It does not wait for A3. It waits for the owner's "merge", as A2's slice table and
+   CLAUDE.md (Merging) say for a change to how an author writes an example.
+3. M4.3c: every module in the table above, 41 in all, and the four modules of item 5 of "Why A3
+   exists". It waits for A3 to be accepted. It edits the 17 rules and 27 sections by path only.
+   It carries the reqs steps above.
+4. M4.4 and the slices after it do not change.
+
+[fact] 18 + 23 = 41, and 30 + 18 = 48 modules of `a` to `h`. 27 + 4 + 23 = 54 modules of `i` to
+`z`. [inference] After M4.3c no top-level
+`*.shade.ts` stays, so the scan reads one place.
+
+#### Deviations and open items
+
+| Deviation                                                                                                                                                       | Disposition                                                                               |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| D-9. M4.3a left 18 modules of `a` to `h` at the top level, because rules and surface sections name them by path and A2 declares no rule and no surface section. | Made part of the approved text by A3 (accepted 2026-11-24). Closed when M4.3c moves them. |
+
+| Item                                                    | Reason                                                 | Next action                                           |
+| ------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------- |
+| The doorstop review of each changed RULE and SURF item. | A person reads each item. An agent does not run it.    | A person runs it after `bun run reqs:sync`, in M4.3c. |
+| The order "M4.3c after A3".                             | `scripts/changes.ts` does not enforce it (see item 5). | The plan keeps it. A reviewer checks it.              |
+| Paths in other documents (`AGENTS.md`, `docs/*.md`).    | A3 names only the three places the scan covered.       | `bun run docs:impact` lists them at each slice.       |
+
+#### Questions for the owner, answered
+
+1. **A3-Q1. Does the owner accept a path-only edit of 17 rules and 27 surface sections?**
+   Recommended: yes. No meaning changes, and a reviewer sees one path in each hunk.
+   [decision, owner, 2026-11-24] Yes, with the recommended answer ("추천안으로").
+2. **A3-Q2. Does the owner accept the four ids in `examples:`?** Recommended: yes. Each id is
+   an example that already exists, and only its place and its header change.
+   [decision, owner, 2026-11-24] Yes, with the recommended answer ("추천안으로").
+
+#### What A3 touches
+
+- `rules`: the 17 rules above. `surface`: the 27 sections above. [proposal] Both lists join the
+  front matter.
+- `docs/language-design.md`, `docs/use-typeshade-surface.md`: the paths, in M4.3c.
+- `reqs/rules/`, `reqs/surface/`: the items that `bun run reqs:sync` changes, in M4.3c.
+- `examples`: four ids join the list (item 6 of "What A3 declares"). No example is added to or
+  removed from the tree.
+- `downstream`: no change. The site and the editor read rule numbers, not these paths.
 
 ## What it owes downstream
 

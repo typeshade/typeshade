@@ -10,7 +10,7 @@ export async function webgl2Backend(host, pack) {
     const lowered = pack.gl?.computes?.[name];
     if (lowered === undefined || 'none' in lowered)
       throw new Error(
-        `MNIST entry "${name}" cannot run on WebGL2: ${lowered?.none ?? 'no pass program'}`,
+        `MNIST entry "${name}" is not supported yet on the WebGL2 tier (Rule 11.8): ${lowered?.none ?? 'no pass program'}`,
       );
   }
 

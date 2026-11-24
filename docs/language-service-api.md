@@ -831,7 +831,7 @@ hand-written declarations (see the Playground audit): TS2304 (`builtin` not foun
   is a method or an accessor, and kept for a missing field.
 - A storage array is writable in the editor exactly as it is in the compiler: `ambient.ts`'s
   `array<T, N>` declares a plain `[index: number]: T`, not a `readonly` one. `out[idx] = value`
-  is the shape every compute kernel ends with (`examples/compute-reduction-twin.shade.ts`), and
+  is the shape every compute kernel ends with (`examples/gallery/compute-reduction-twin/compute-reduction-twin.shade.ts`), and
   the compiler lowers it to a storage store, so the `readonly` this type first carried made
   TS2542 ("Index signature in type 'array<f32, number>' only permits reading") a false positive
   on the Playground's own compute sample. The brand and `length` stay `readonly`: neither is
