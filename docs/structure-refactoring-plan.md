@@ -238,7 +238,7 @@ Do these steps in order. A slice of S1 to S13 starts only after S0 items a and b
    4. Commit with `Change: none, comment removal without behaviour change` and the trailer `Move: comments`.
    5. `bun run move:check --base origin/main --require` passes. It runs the comments mode.
    6. The reviewing sub-agent reports on the candidates (decision D13). Merge, then start step 1.
-1. Pick one responsibility of one file of `scripts/file-size-baseline.json`.
+1. Pick one responsibility of one file of `scripts/file-size-baseline.json`. Choose the group by the shape of the file (`CLAUDE.md`, File size): one class with the types and helpers only it uses; the types that several files use; or the functions of one responsibility. Prefer a group that makes a file of 200 lines or fewer. Do not cut a responsibility to reach the number.
 2. Check the open pull requests for the file (section 7.1). Pick another file if one edits it.
 3. Open a draft pull request with the slice's scope. Push the first commit at once.
 4. List the callers of the code to move. Use `trace_path` and `search_graph` of the code graph.
