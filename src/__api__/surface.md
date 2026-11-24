@@ -1481,14 +1481,14 @@ src/core/registry.ts#BuiltRegistry  interface  { ids: readonly string[]; source:
 src/core/registry.ts#RegistryEntry  interface  { exportName: string; id: string; importPath: string }
 src/core/registry.ts#buildRegistry  function  (entries: readonly RegistryEntry[], opts?: BuildRegistryOptions) => BuiltRegistry
 src/core/resident.ts#configure  function  (options: { readonly prefer?: readonly ("cpu" | "webgpu" | "webgl2")[]; readonly runtime?: { readonly device: object; }; readonly limits?: Readonly<Record<string, number>>; readonly features?: readonly string[]; readonly fp64Flavor?: Fp64Flavor | "auto"; }) => void
-src/core/semantic-diff.ts#ClassifiedSemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; explained: readonly ExplainedDiffEntry[]; interface: readonly string[]; resources: readonly string[] }
-src/core/semantic-diff.ts#ExplainedDiffEntry  interface  { bucket: keyof SemanticDiff; line: string; transform: string }
-src/core/semantic-diff.ts#SemanticAspect  type  "declOrder" | "names"
-src/core/semantic-diff.ts#SemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; interface: readonly string[]; resources: readonly string[] }
-src/core/semantic-diff.ts#SemanticDiffBucket  type  keyof SemanticDiff
-src/core/semantic-diff.ts#SemanticDiffOptions  interface  { ignore?: readonly SemanticAspect[]; transforms?: readonly EmitPlugin[] }
-src/core/semantic-diff.ts#isSemanticallyEqual  const  (d: SemanticDiff) => boolean
 src/core/semantic-diff.ts#semanticDiff  function  { (a: ModuleDecl, b: ModuleDecl, opts: SemanticDiffOptions & { readonly transforms: readonly EmitPlugin[]; }): ClassifiedSemanticDiff; (a: ModuleDecl, b: ModuleDecl, opts?: SemanticDiffOptions): SemanticDiff; }
+src/core/semantic-diff/result.ts#ClassifiedSemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; explained: readonly ExplainedDiffEntry[]; interface: readonly string[]; resources: readonly string[] }
+src/core/semantic-diff/result.ts#ExplainedDiffEntry  interface  { bucket: keyof SemanticDiff; line: string; transform: string }
+src/core/semantic-diff/result.ts#SemanticAspect  type  "declOrder" | "names"
+src/core/semantic-diff/result.ts#SemanticDiff  interface  { constants: readonly string[]; controlFlow: readonly string[]; interface: readonly string[]; resources: readonly string[] }
+src/core/semantic-diff/result.ts#SemanticDiffBucket  type  keyof SemanticDiff
+src/core/semantic-diff/result.ts#SemanticDiffOptions  interface  { ignore?: readonly SemanticAspect[]; transforms?: readonly EmitPlugin[] }
+src/core/semantic-diff/result.ts#isSemanticallyEqual  const  (d: SemanticDiff) => boolean
 src/core/sot.ts#ConstHandle  interface  { decl: ConstDecl; node: ReadonlyNode<KeyOf<T>> }
 src/core/sot.ts#FieldSpec  interface  { attr: string; builtin?: string; interpolate?: string; location?: number; type: T }
 src/core/sot.ts#FixedTypeBuiltinName  type  "frag_depth" | "front_facing" | "global_invocation_id" | "instance_index" | "local_invocation_id" | "local_invocation_index" | "num_subgroups" | "num_workgroups" | "position" | "primitive_index" | "sample_index" | "sample_mask" | "subgroup_id" | "subgroup_invocation_id" | "subgroup_size" | "vertex_index" | "workgroup_id"
