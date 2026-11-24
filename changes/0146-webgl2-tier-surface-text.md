@@ -3,9 +3,12 @@ id: '0146'
 title: The surface document and three rule texts say what the WebGL2 tier runs, and name its real gaps as not supported yet
 status: accepted
 rules:
+  - '8.20'
   - '8.24'
+  - '8.29'
   - '10.3'
   - '10.5'
+  - '11.8'
   - '11.11'
   - '12.3'
 surface:
@@ -16,7 +19,9 @@ surface:
   - 20
   - 23
   - 24
+  - 26
   - 33
+  - 34
   - 36
   - 37
   - 46
@@ -24,6 +29,7 @@ surface:
   - 48
   - 53
   - 62
+  - 64
   - 65
   - 66
   - 67
@@ -648,3 +654,138 @@ form is impossible where a rule says otherwise. Open question 1 of this proposal
 - Document audit: the table above is compared with the held patch. The documents and the
   records match the delivered patch. No independent review of A1 has run yet.
 - Deviations: none open.
+
+### A2. The fourth OD-11 audit's passages (2026-11-24, status: accepted)
+
+- Status: accepted. [decision, owner, 2026-11-24] The owner said "머지까지 직접 판단해주세요"
+  (decide up to the merge yourself), and the orchestrating agent merged pull request #1511 on its
+  green checks. A2 is part of the approved text from that merge. A2-Q1 was not answered and stays
+  open. Rows 1 to 14 of A1 stay approved and are not edited.
+- Baseline: `main` at `ab980642` for the audit. [fact] A1 was accepted by the merge of pull
+  request #1502, commit `388f97fb`. A2 is drafted on `main` at `af0a3f8e`.
+- A2 adds no author-facing name, no diagnostic code, no export and no example. `exports`,
+  `exports-removed`, `codes`, `examples` and `names` stay empty. [fact] No refusal changes. Only
+  the reason of each one changes.
+
+#### Why A2 exists
+
+1. [fact] The fourth OD-11 audit (2026-11-24) read `docs/language-design.md` and
+   `docs/use-typeshade-surface.md` on `main` at `ab980642`. It confirmed 14 passages.
+2. [fact] Ten of the 14 passages are covered by A1 rows already. A2 adds no row for them. They are
+   the Rule 12.3 rationale (A1 row 13), §62 (row 9), §18 (row 3), §53 line 7399 and line 7397
+   (row 8), §36 (row 5), §37 (row 6), §47 (row 7), the Rule 8.24 CPU clause (row 12) and the §2
+   line 240 comment (row 1).
+3. [fact] Four passages are new. They are rows A2-1 to A2-4 below.
+4. [fact] The first draft of these rows widened the accepted A1 in place. That was a deviation:
+   A1 is accepted, and a change does only what its record declares. [decision, agent] A1 stays as
+   merged. A2 carries the four rows.
+5. [decision, owner] The owner decided on 2026-11-24 ("추천대로"), as relayed by the orchestrating
+   session (`session_017fz53SGjwDwHVKa9RHKiEm`): the OD-11 audit stops after the fixes of the
+   fourth round. There is no fifth audit. The owner gave no wording approval for the rows. [status]
+   The rows stay a draft.
+
+#### What A2 declares
+
+[fact] The same term use as A1 applies: "the GLSL backend", "the WebGL2 tier", "the WebGPU tier"
+and "the CPU tier".
+
+| #    | Place                                                             | Current text (short)                                                                                                                                                                    | New wording, and the rule it cites                                                                                                                                                                                                                                                                                       |
+| ---- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A2-1 | Rule 8.20, text and rationale; mirror `RULE-0820`                 | "no builtin only a GPU computes (a derivative, a barrier, an atomic, an implicit-LOD texture sample)"; "the CPU tier, which has no device, so what it reaches must be computable there" | "no builtin that a host call does not run yet (...: not supported yet on the CPU tier of a host call, Rule 8.24, Rule 11.7)". The rationale says a function that reaches a binding, a workgroup variable or such a builtin "is not supported yet as a host call", and the host face lists what it reaches as the reason. |
+| A2-2 | Rule 8.29, rationale; mirror `RULE-0829`; Surface §26 and §64     | "a builtin only a GPU computes has no host call" (§64: "no builtin only a GPU computes")                                                                                                | "a builtin that a host call does not run yet has no host call yet" (Rule 8.20). §64 adds "(Rule 11.7)". The conditions of Rule 8.20 do not change.                                                                                                                                                                       |
+| A2-3 | Rule 11.8, the entry-call constants paragraph; mirror `RULE-1108` | "WebGL2 pins ordinary constants in its prebuilt program and refuses non-default workgroup shapes or workgroup-array lengths"                                                            | "WebGL2 pins ordinary constants in its prebuilt program. A non-default workgroup shape or workgroup-array length is not supported yet on the WebGL2 tier (change 0084)." The prebuilt program is a fact, and it is no longer the reason.                                                                                 |
+| A2-4 | Surface §34, "The CPU twins yield 1"                              | "The oracle has no texture memory"                                                                                                                                                      | "The CPU tier does not read a depth texture yet (not supported yet on the CPU tier, Rule 11.7)." Rule 11.7 keeps the stub contract for every texture builtin but the 2D load, store and size over a `CpuTexture`. The rest of the paragraph stays.                                                                       |
+
+1. [fact] The audit entry of the Rule 8.20 text and the entry of its rationale give row A2-1. The
+   Rule 8.20 text entry also names Rule 8.29, §26 and §64 (row A2-2).
+2. [fact] `docs/language-design.md` Rule 8.20 said "no builtin only a GPU computes". The third
+   audit named it only as a neighbour of A1 row 12, so A1 left it. The fourth audit named it, and
+   A2 edits it in rows A2-1 and A2-2.
+3. [fact] The audit and A1 rows 3 and 9 cite different rules. The audit cites Rule 12.6 and
+   Rule 13.3 for §18, and Rule 10.5 for §62. A1 row 3 cites Rule 1.2, and row 9 cites Rule 10.3.
+   A2 leaves rows 3 and 9 as approved. [proposal] The implementing pull request resolves the
+   difference.
+4. [fact] §33 has the sentence "The CPU oracle has no texture memory". §33 is a declared section.
+   Rule 11.7 says `textureStore` computes over a `CpuTexture`, so the sentence may be wrong. A2
+   does not edit it. See A2-Q1.
+5. [fact] §67 ("a barrier still has no CPU tier"; "supports only the declared default workgroup
+   shape") and the Rule 8.24 text ("needs a GPU tier") are neighbours of A1 row 12 and row A2-3. The
+   audit did not name §67. The OD-11 audit stops (decision of the owner above), so no later audit
+   reads it. [proposal] The implementing pull request reads §67 and reports what it finds. It
+   edits §67 only if a later amendment declares it.
+
+#### The lists A2 adds to the front matter
+
+1. `rules:` gains `'8.20'`, `'8.29'` and `'11.8'`.
+2. `surface:` gains 26, 34 and 64.
+3. [fact] The rows add no name, code, export or example.
+4. [fact] `scripts/changes.ts` reads the declared lists from proposals that are `accepted` on the
+   base branch. It has no state for an amendment in draft. The lists count from the merge of the A2
+   pull request. The owner merges it.
+
+#### The reqs items
+
+1. [fact] `bun run reqs:sync` on `main` at `388f97fb` with the held patch changes three RULE items:
+   RULE-0820, RULE-0829 and RULE-1108.
+2. [fact] It adds one SURF item, SURF-034, because §34 had no item. SURF-034 links RULE-1107.
+   SURF-026 and SURF-064 do not change.
+3. [fact] RULE-0820 and RULE-0829 change. So the link of SURF-026 to RULE-0829 becomes suspect. So
+   do the links of SURF-064, SURF-065, SURF-067, SURF-069, SURF-071 and SURF-072. These are the
+   SURF items that link RULE-0820 or RULE-1108, as `grep` finds them.
+4. [procedure] In the implementing pull request:
+   1. Run `bun run reqs:sync`.
+   2. Ask a person to read each item and run `doorstop review` for RULE-0820, RULE-0829,
+      RULE-1108 and SURF-034.
+   3. Ask the person to run `doorstop clear` for the suspect links.
+5. [fact] An agent does not run `doorstop review` or `doorstop clear`.
+
+#### The code comments
+
+[fact] Four code comments carry the old wording. `grep` finds them on `main` at `af0a3f8e`. No test
+asserts them. A2 edits none of them (A2 edits only this proposal).
+
+1. `src/compiler/ts/host-face.ts` lines 666 to 667: "it reaches a texture or a call only a GPU
+   computes".
+2. `src/compiler/ts/host-face.ts` lines 1702 to 1703: "no builtin only a GPU computes".
+3. `scripts/class-arm.ts` line 15: "no builtin only a GPU computes".
+4. `src/compiler/ts/depth-textures.test.ts` line 269: "The oracle has no texture memory".
+
+[procedure] The implementing pull request rewords each comment to the wording of rows A2-1 and
+A2-4, in the same commit as the documents.
+
+#### Held patch
+
+1. [fact] The held patch is `p0146a1.patch` (A1 rows 1 to 14 plus the A2 rows). It was made on
+   `main` at `388f97fb`. It touches 2 documents and 16 files of `reqs/`.
+2. [fact] `git apply --check` of the patch on `origin/main` at `af0a3f8e`, in a scratch detached
+   worktree, ran on 2026-11-24. It passed. The patch changes 18 files, with 148 insertions and
+   66 deletions.
+3. [fact] `bun run reqs:sync`, `prettier --check` and `bun run docs:refs` passed on the patch, on
+   `main` at `388f97fb`.
+4. [fact] The patch is not part of this pull request. The implementing pull request applies it.
+
+#### Questions for the owner
+
+1. A2-Q1. Rule 8.20 and §33. No rule says a derivative or an atomic is not computed by a host call
+   on the CPU tier. Rule 8.24 and §25 say a barrier is refused on the CPU tier through the entry
+   call, and `dispatch` of the oracle runs it. Rule 11.7 says `textureStore` computes over a
+   `CpuTexture`, but §33 says "the CPU oracle has no texture memory".
+   - [recommendation] Row A2-1 cites Rule 8.24 and Rule 11.7 for the whole parenthesis. Keep it.
+     The implementing pull request measures each of the four builtins on the CPU tier of a host
+     call and states which ones run. Leave §33 as it is until then.
+   - [answer, owner] Not given. The owner's decision of 2026-11-24 ("추천대로") is about the audit
+     round. It is not an answer to this question. The question stays open.
+
+[fact] Rows A2-2 to A2-4 need no question. Each says "not supported yet" with a rule, and none says
+a form is impossible where a rule says otherwise. Open questions 1 and 2 of A1 are not changed.
+
+#### Verification and audit record
+
+- Not run: the four required checks of CI. A2 changes no code.
+- Ran on 2026-11-24 on the held patch, on `main` at `388f97fb`: `bun run reqs:sync`,
+  `prettier --check docs reqs` and `bun run docs:refs` (0 dead references).
+- Ran on 2026-11-24 on `main` at `af0a3f8e`: `git apply --check` of the held patch (passed).
+- Document audit: the table above is compared with the audit entries. The code-comment lines are
+  checked against the tree at `af0a3f8e`. No independent review of A2 has run yet.
+- Deviations: one closed. The first draft widened the accepted A1 in place. A2 replaces it, and A1
+  is unchanged. No deviation is open.
