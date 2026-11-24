@@ -806,7 +806,6 @@
   "src/core/testing/gl-model.test.ts": 7,
   "src/core/testing/gl-model.ts": 29,
   "src/core/testing/kernel-plan.ts": 79,
-  "src/core/testing/libm-cases.ts": 115,
   "src/core/testing/libm-gate.ts": 51,
   "src/core/testing/libm-reference.ts": 82,
   "src/core/testing/random-chain.test.ts": 100,
