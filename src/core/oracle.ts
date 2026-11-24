@@ -216,7 +216,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return evalAtomic(e, env, ctx);
       // An `inout` argument that is a field or an element is resolved ONCE, as an atomic's
       // location is: the callee reads it there, and what the callee leaves in it goes back to
-      // the same place, whatever the call did to an index on the way (Rule 8.25).
+      // Implements: Rule 8.25
       const params = ctx.params.get(e.fn);
       const places: (Place | undefined)[] = [];
       const args = e.args.map((a, i) => {

@@ -597,7 +597,7 @@
   "src/core/optimizer-emit-invariants.test.ts": 24,
   "src/core/oracle-backend-parity.test.ts": 94,
   "src/core/oracle.test.ts": 17,
-  "src/core/oracle.ts": 154,
+  "src/core/oracle.ts": 153,
   "src/core/overrides.ts": 17,
   "src/core/owner.ts": 64,
   "src/core/passes/access.ts": 37,
