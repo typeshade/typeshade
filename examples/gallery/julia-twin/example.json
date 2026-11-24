@@ -1,0 +1,9 @@
+{
+  "title": "Julia set (source twin)",
+  "blurb": "`julia.ts` written in the source language: the escape-time iteration as a `for` loop with a `break`, and the orbiting constant handed over to the pointer through a `mix`.",
+  "group": "works",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": true,
+  "twinOf": "julia"
+}

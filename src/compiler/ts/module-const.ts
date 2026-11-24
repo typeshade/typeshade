@@ -39,6 +39,9 @@ import {
   retargetIntLitCtx,
 } from './lit-coerce.js';
 import { lowerUntypedList, untypedListOf } from './lower/expression-array/untyped-list.js';
+import { containsCall } from './expression-calls.js';
+import { listBinding } from './lower/expression-array/list-values.js';
+import { writtenTypeOf } from './lower/written-type.js';
 import { isConstEvaluableMathFn } from './math-alias.js';
 import { lowerExpression } from './lower/expression.js';
 import { lowerArrayLiteral, refuseListSpread } from './lower/expression-array.js';
@@ -639,7 +642,14 @@ function valueExprConst(
   // The initializer rides on the binding so a later const's divisor that names this one
   // (`A / -Z`) is folded componentwise where the division is lowered, with the sentence that
   // names the divisor (#68).
-  scope.define({ kind: 'module', name, type, mutable: false, valueExpr: init });
+  scope.define({
+    kind: 'module',
+    name,
+    type,
+    mutable: false,
+    valueExpr: init,
+    ...listBinding(init),
+  });
   // Recorded as the scalar arm below records its const, so the editor reads a vector or an array
   // const as the type the compiler gave it: a hover names it, and the program TypeScript reads
   // has it written in where TypeScript would type the arithmetic `number` (#162).
@@ -715,15 +725,16 @@ function lowerOne(
     return undefined;
   }
   const mapped = diagnostics.length;
-  const annotated = decl.type
-    ? mapTsTypeToShaderType(decl.type, sourceFile, diagnostics)
+  const writtenType = writtenTypeOf(decl, sourceFile);
+  const annotated = writtenType
+    ? mapTsTypeToShaderType(writtenType, sourceFile, diagnostics)
     : undefined;
   // A module constant may not hold an optional, nor a struct or an array that holds one (Rule
   // 7.10, changes 0088 and 0093).
   if (
     refuseOptionalAt(
       annotated,
-      decl.type ?? decl,
+      writtenType ?? decl,
       'a module constant',
       sourceFile,
       diagnostics,
@@ -735,7 +746,7 @@ function lowerOne(
     refuseModuleName(sourceFile, name);
     return undefined;
   }
-  if (decl.type !== undefined && annotated === undefined) {
+  if (writtenType !== undefined && annotated === undefined) {
     // A type the mapper refused (`Foo` that nothing declares) was said where it is written, and
     // the initializer lowered against no type would be refused again for it (Rule 12.4).
     if (diagnostics.length > mapped) {
@@ -1025,28 +1036,4 @@ function lowerOne(
   return called
     ? { name, type, wgslValue: value, cpuValue: value, valueExpr: init }
     : { name, type, wgslValue: value, cpuValue: value };
-}
-
-/** Whether an expression calls anything, at any depth. */
-function containsCall(e: Expr): boolean {
-  switch (e.op) {
-    case 'call':
-      return true;
-    case 'binop':
-    case 'compare':
-    case 'logical':
-      return containsCall(e.a) || containsCall(e.b);
-    case 'unop':
-      return containsCall(e.a);
-    case 'construct':
-      return e.args.some(containsCall);
-    case 'select':
-      return containsCall(e.cond) || containsCall(e.ifTrue) || containsCall(e.ifFalse);
-    case 'member':
-      return containsCall(e.base);
-    case 'index':
-      return containsCall(e.base) || containsCall(e.idx);
-    default:
-      return false;
-  }
 }

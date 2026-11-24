@@ -36,6 +36,7 @@ import {
   shadeExamples,
   SHADE_EXT,
   SHADE_FILES,
+  GALLERY_DIR,
   HOSTS_DIR,
   PATH_DIR,
   SHADE_REFUSALS,
@@ -65,6 +66,12 @@ const onDisk = [
   ...readdirSync(join(HERE, PATH_DIR), { recursive: true, encoding: 'utf8' })
     .filter((f) => f.endsWith(SHADE_EXT))
     .map((f) => f.split(/[\\/]/).pop()!),
+  // A gallery module (change 0145, amendment A2): `gallery/<id>/<id>.shade.ts`. A support module
+  // beside it is no example, so only the file named like its directory counts.
+  ...readdirSync(join(HERE, GALLERY_DIR), { recursive: true, encoding: 'utf8' })
+    .map((f) => f.split(/[\\/]/))
+    .filter(([dir, file]) => file === `${dir}${SHADE_EXT}`)
+    .map(([, file]) => file!),
 ]
   .map((f) => f.slice(0, -SHADE_EXT.length))
   .sort();
@@ -150,7 +157,9 @@ describe('"use typeshade" examples — the directory and the registry agree', ()
           ? `${HOSTS_DIR}/${ex.id}/${ex.id}${SHADE_EXT}`
           : SHADE_FILES.get(ex.id)?.startsWith(`${PATH_DIR}/`)
             ? `${PATH_DIR}/${ex.id}/${ex.id}${SHADE_EXT}`
-            : `${ex.id}${SHADE_EXT}`,
+            : SHADE_FILES.get(ex.id)?.startsWith(`${GALLERY_DIR}/`)
+              ? `${GALLERY_DIR}/${ex.id}/${ex.id}${SHADE_EXT}`
+              : `${ex.id}${SHADE_EXT}`,
       );
   });
 
@@ -195,14 +204,14 @@ describe('"use typeshade" examples — the renderable flag is checked, not trust
     }
   });
 
-  it('every non-renderable example is one the GLSL backend genuinely cannot serve', () => {
+  it('every non-renderable example is one the GLSL backend does not serve yet', () => {
     const opaque = shadeExamples.filter((e) => !e.renderable);
     expect(opaque.length).toBeGreaterThan(0);
     for (const ex of opaque) {
       // Two shapes of refusal, and the flag is honest under either: the backend THROWS for a
-      // construct it has no GLSL ES 3.00 form for (a loose scalar uniform has no std140
-      // block), or it emits a stage with no `main()` because the module declares no entry
-      // point. What must never happen is a clean, linkable pair hiding behind the flag —
+      // construct it does not lower yet (a loose scalar uniform: the emit writes only std140
+      // blocks), or it emits a stage with no `main()` because the module declares no render
+      // entry (a @compute entry runs as its pass program, Rule 11.8). What must never happen is a clean, linkable pair hiding behind the flag —
       // that would be an example opting out of the compile gate for free.
       const refused = (stage: 'vertex' | 'fragment'): boolean => {
         try {
@@ -247,12 +256,14 @@ describe('"use typeshade" examples — passes (change 0026)', () => {
     expect(withPasses.map((e) => e.id).sort()).toEqual(['feedback-trail', 'separable-blur']);
   });
 
-  it('every file under passes/ is a pass of exactly one example, and every pass has its file', () => {
-    const passFiles = readdirSync(join(HERE, 'passes'), { recursive: true })
-      .map(String)
-      .filter((f) => f.endsWith(SHADE_EXT))
-      .map((f) => `passes/${f.replaceAll('\\', '/')}`)
-      .sort();
+  it('every support file under gallery/ but the noise library is a pass of exactly one example, and every pass has its file', () => {
+    const passFiles = [
+      ...readdirSync(join(HERE, GALLERY_DIR), { recursive: true })
+        .map((f) => String(f).replaceAll('\\', '/').split('/'))
+        .filter(([dir, file]) => file?.endsWith(SHADE_EXT) && file !== `${dir}${SHADE_EXT}`)
+        .map((parts) => `${GALLERY_DIR}/${parts.join('/')}`)
+        .filter((f) => f !== `${GALLERY_DIR}/imported-noise/noise${SHADE_EXT}`),
+    ].sort();
     const named = withPasses.flatMap((e) => (e.passes ?? []).map((p) => p.file)).sort();
     expect(named).toEqual(passFiles);
   });
@@ -260,7 +271,7 @@ describe('"use typeshade" examples — passes (change 0026)', () => {
   it('records the passes in the order the block names them', () => {
     const trail = shadeExamples.find((e) => e.id === 'feedback-trail');
     expect(trail?.passes?.map((p) => [p.name, p.file])).toEqual([
-      ['trail', 'passes/trail.shade.ts'],
+      ['trail', 'gallery/feedback-trail/trail.shade.ts'],
     ]);
     expect(trail?.passes?.[0]?.module.bindings.some((b) => b.name === 'trail')).toBe(true);
   });
@@ -422,7 +433,7 @@ describe('"use typeshade" examples — the goldens and the refusals are both exa
   });
 
   it('refuses every non-renderable example FOR THE REASON its registration states', () => {
-    // The 'genuinely cannot serve' arm above accepts ANY refusal, so an example that lost
+    // The 'does not serve yet' arm above accepts ANY refusal, so an example that lost
     // its GLSL form for a new
     // reason — a capability it did not need before — keeps a flag that now means something
     // else. Naming the reason in the registry is what turns the flag into a claim.

@@ -358,8 +358,7 @@ function glStageOf(
       readonly data?: readonly string[];
     }
   | { none: string } {
-  // A read-only storage array is a data texture where the reader can upload one (`data`); the
-  // call layer's full-screen draw does not upload one yet, and a written one has no GLSL ES 3.00 form.
+  // A read-only storage array is a data texture where the reader can upload one (`data`).
   const storage = bindings.find(
     (b) => b.space === 'storage' && !(dataTextures?.has(b.name) ?? false),
   );

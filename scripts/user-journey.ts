@@ -327,8 +327,8 @@ async function hostImport(
   }
 
   // The GPU half (change 0016, Rule 8.24): the browser bundle of src/gpu.ts calls compute entries
-  // in a page with WebGPU. `blockSum` reaches a barrier, which has no CPU tier, so it answers only
-  // where WebGPU ran it. `markGroups` runs over a count `planGroups` wrote (change 0075), on WebGPU
+  // in a page with WebGPU. `blockSum` reaches a barrier, which the CPU tier of the call layer does not
+  // support yet (Rule 8.24), so it answers only where WebGPU ran it. `markGroups` runs over a count `planGroups` wrote (change 0075), on WebGPU
   // and again on the CPU tier.
   sh('npx', ['vite', 'build', '--config', 'vite.web.config.ts', '--logLevel', 'warn'], app);
   sh('npx', ['vite', 'build', '--config', 'vite.auto.config.ts', '--logLevel', 'warn'], app);
@@ -513,8 +513,10 @@ async function hostImport(
   const noCpu = drawn['tiled 2d'];
   check(
     typeof noCpu === 'string' &&
-      /TypeError: tiled\(\).*"image", which the CPU tier cannot read/.test(noCpu),
-    `a sampled texture has no CPU tier, and the draw says so (${String(noCpu)})`,
+      /TypeError: tiled\(\).*"image", which is not supported yet on the CPU tier \(Rule 8\.24\)/.test(
+        noCpu,
+      ),
+    `a sampled texture is not supported yet on the CPU tier, and the draw says so (${String(noCpu)})`,
   );
 
   // The particles and plasma journeys through the import (change 0016): `step` 20 frames on
@@ -594,6 +596,57 @@ async function hostImport(
       `the kernel function ${key}, called through the import, writes the reference (worst ${worst}${web.error ? `; ${web.error}` : ''})`,
     );
   }
+  const pairsGpu = web.loops?.['pairSearch'];
+  const pairsCpu = web.loops?.['pairSearchCpu'];
+  check(
+    typeof pairsGpu === 'object' &&
+      typeof pairsCpu === 'object' &&
+      pairsGpu.length > 0 &&
+      pairsGpu.length === pairsCpu.length &&
+      pairsGpu.every((v, i) => Object.is(v, pairsCpu[i])),
+    'pairSearch, a push in a nest that Route 2 counts first, returns on WebGPU the CPU tier bit for bit (change 0114, A12)',
+  );
+  const repeatedGpu = web.loops?.['repeatedRuns'];
+  const repeatedCpu = web.loops?.['repeatedRunsCpu'];
+  check(
+    typeof repeatedGpu === 'object' &&
+      typeof repeatedCpu === 'object' &&
+      repeatedGpu.length > 0 &&
+      repeatedGpu.length === repeatedCpu.length &&
+      repeatedGpu.every((v, i) => Object.is(v, repeatedCpu[i])),
+    'repeatedRuns and byNRuns, a push whose inner bound reads counts[i], return on WebGPU the CPU tier bit for bit (change 0114, A17)',
+  );
+  check(
+    web.loops?.['repeatedShort'] ===
+      'TypeError: repeatedRuns(): parameter "counts" holds 1 elements, and loop 1 reads it at indices 0 to 2.',
+    `repeatedRuns with a counts that is too short throws the call's TypeError on WebGPU before anything runs (${String(web.loops?.['repeatedShort'])})`,
+  );
+  const twiceGpu = web.loops?.['pairTwice'];
+  const twiceCpu = web.loops?.['pairTwiceCpu'];
+  check(
+    typeof twiceGpu === 'object' &&
+      typeof twiceCpu === 'object' &&
+      twiceGpu.length > 0 &&
+      twiceGpu.length === twiceCpu.length &&
+      twiceGpu.every((v, i) => Object.is(v, twiceCpu[i])),
+    'pairTwice, two pushing nests with a call that pushes nothing, returns on WebGPU the CPU tier bit for bit (change 0114, A12)',
+  );
+  const insideGpu = web.loops?.['inside'];
+  const insideCpu = web.loops?.['insideCpu'];
+  check(
+    typeof insideGpu === 'object' &&
+      typeof insideCpu === 'object' &&
+      insideGpu.length > 0 &&
+      insideGpu.length === insideCpu.length &&
+      insideGpu.every((v, i) => Object.is(v, insideCpu[i])),
+    'inside, a counted for with a branch and a counted for under it that pushes, returns on WebGPU the CPU tier bit for bit (change 0114, A12, Route 3 S2)',
+  );
+  check(
+    /a loop of it runs on the CPU \(TS8070\)|only the CPU tier grows an array while it runs/.test(
+      String(web.loops?.['evensReason']),
+    ),
+    `evens, a while that pushes (Route 3), names the proof's reason (TS8070) or the growing reason on a WebGPU-only runtime (${String(web.loops?.['evensReason'])})`,
+  );
   const scaledOnResource = web.loops?.['scaleMade'];
   const madeOnDevice = web.loops?.['renderMade'];
   check(
@@ -665,6 +718,8 @@ async function hostExamples(
     recursive: true,
     filter: (from) => !from.endsWith('tsconfig.json') && !from.endsWith('.shade.typeshade.ts'),
   });
+  // `hosts/_reference.ts` imports `../_compare.ts` (change 0145), which sits beside `hosts/`.
+  cpSync(join(REPO, 'examples', '_compare.ts'), join(app, '_compare.ts'));
   writeFileSync(
     join(app, 'vite.hosts.config.ts'),
     [

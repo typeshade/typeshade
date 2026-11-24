@@ -19,6 +19,7 @@ import {
   countMod,
   drift,
   histogram,
+  inside,
   LayoutItem,
   layoutRead,
   layoutMap,
@@ -30,6 +31,10 @@ import {
   fuseMark,
   fuseScale,
   odds,
+  pairSearch,
+  pairTwice,
+  repeatedRuns,
+  byNRuns,
   pushAbove,
   pushPairs,
   render,
@@ -45,6 +50,7 @@ import {
   stats,
   tally,
 } from './loops.shade.ts';
+import { evens } from './growing.shade.ts';
 import { OnePole, run as runFilters } from './filters.shade.ts';
 // Copied in by the journey from journeys/particles and journeys/plasma.
 import { step } from './particles.shade.ts';
@@ -463,6 +469,99 @@ export async function loops(): Promise<Record<string, number[] | string>> {
   // every iteration pushes, and then two rows of three push.
   configure({ prefer: ['webgpu'] });
   const pushed = await renderPushed([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
+  // The pair search (change 0114, A12 Example 2) on WebGPU, required: a count-only first run,
+  // then the store run, with the CPU tier's answer beside it.
+  const pairXs = Float32Array.from({ length: 400 }, (_, i) => (i * 37) % 101);
+  configure({ prefer: ['webgpu'] });
+  const pairs = await pairSearch(pairXs, 1.5).finally(() => configure({}));
+  configure({ prefer: ['cpu'] });
+  const pairsCpu = await pairSearch(pairXs, 1.5).finally(() => configure({}));
+  // Two pushing nests, a call that pushes nothing, a call of one element, and a mixed call: the
+  // count-only run carries the first nest's total into the second nest's scan.
+  const twiceCases: [number[], number][] = [
+    [[5], 0],
+    [[5], 100],
+    [Array.from({ length: 40 }, (_, i) => (i * 37) % 101), 60],
+  ];
+  const twiceOn = async (tier: 'webgpu' | 'cpu'): Promise<number[]> => {
+    const all: number[] = [];
+    for (const [xs, r] of twiceCases) {
+      configure({ prefer: [tier] });
+      const got = await pairTwice(Float32Array.from(xs), r).finally(() => configure({}));
+      all.push(...got);
+    }
+    return all;
+  };
+  const twiceGpu = await twiceOn('webgpu');
+  const twiceCpu = await twiceOn('cpu');
+  // An inner loop whose bound reads counts[i] (change 0114, A17): a long input with zeros, an
+  // all-zero input, a one-element input, a host-known outer bound, and a counts that is too short.
+  const repeatedCases: [number[], number[]][] = [
+    [
+      Array.from({ length: 300 }, (_, i) => i + 0.5),
+      Array.from({ length: 300 }, (_, i) => (i * 7) % 5),
+    ],
+    [
+      [1.5, 2.5, 3.5],
+      [0, 0, 0],
+    ],
+    [[4.5], [3]],
+  ];
+  const byNCases: [number[], number][] = [
+    [[2, 0, 3, 1], 4],
+    [[2, 0, 3, 1], 2],
+    [[0, 0], 2],
+  ];
+  const repeatedOn = async (tier: 'webgpu' | 'cpu'): Promise<number[]> => {
+    const all: number[] = [];
+    for (const [xs, counts] of repeatedCases) {
+      configure({ prefer: [tier] });
+      const got = await repeatedRuns(Float32Array.from(xs), Uint32Array.from(counts)).finally(() =>
+        configure({}),
+      );
+      all.push(...got);
+    }
+    for (const [counts, n] of byNCases) {
+      configure({ prefer: [tier] });
+      all.push(...(await byNRuns(Uint32Array.from(counts), n).finally(() => configure({}))));
+    }
+    return all;
+  };
+  const repeatedGpu = await repeatedOn('webgpu');
+  const repeatedCpu = await repeatedOn('cpu');
+  configure({ prefer: ['webgpu'] });
+  const repeatedShort = await repeatedRuns(
+    Float32Array.from([1, 2, 3]),
+    Uint32Array.from([1]),
+  ).then(
+    () => 'no error',
+    (e: unknown) => String(e),
+  );
+  configure({});
+  const insideNs = [0, 1, 3, 4, 64];
+  const insideOn = async (tier: 'webgpu' | 'cpu'): Promise<number[]> => {
+    const all: number[] = [];
+    for (const n of insideNs) {
+      configure({ prefer: [tier] });
+      all.push(...(await inside(n).finally(() => configure({}))));
+    }
+    return all;
+  };
+  const insideGpu = await insideOn('webgpu');
+  const insideCpu = await insideOn('cpu');
+  // Route 3: a while that pushes runs on the CPU tier although WebGPU comes first, and a runtime
+  // that lists WebGPU alone refuses it with the face's reason.
+  const evensOn: number[] = [];
+  for (const limit of [0, 1, 9, 64]) {
+    configure({ prefer: ['webgpu', 'cpu'] });
+    evensOn.push(...(await evens(limit).finally(() => configure({}))));
+  }
+  configure({ prefer: ['webgpu'] });
+  const evensReason = await evens(9).then(
+    () => 'no error',
+    (e: unknown) => String(e),
+  );
+  configure({});
   configure({ prefer: ['webgpu'] });
   const kept = await renderKept([1, 0.5, 2, 0.25], 64).finally(() => configure({}));
   // A kernel function that makes an array of vectors and one of structs (change 0114, S5,
@@ -623,6 +722,17 @@ export async function loops(): Promise<Record<string, number[] | string>> {
     scaleMade: [...madeOnResource],
     renderPushed: [...pushed],
     renderKept: [...kept],
+    pairSearch: [...pairs],
+    pairSearchCpu: [...pairsCpu],
+    pairTwice: twiceGpu,
+    repeatedRuns: repeatedGpu,
+    repeatedRunsCpu: repeatedCpu,
+    pairTwiceCpu: twiceCpu,
+    inside: insideGpu,
+    insideCpu,
+    evens: evensOn,
+    evensReason,
+    repeatedShort,
     shadeMade: [...shade],
     driftMade: drifted.flatMap((p) => [...p.pos, ...p.vel]),
     shareMade: [

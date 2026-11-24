@@ -286,6 +286,15 @@ export function loopReference() {
     renderMade: render,
     scaleMade: render,
     renderPushed: render,
+    pairSearch: pairReference(),
+    pairSearchCpu: pairReference(),
+    pairTwice: twiceCases.flatMap(([xs, r]) => twiceReference(xs, r)),
+    pairTwiceCpu: twiceCases.flatMap(([xs, r]) => twiceReference(xs, r)),
+    repeatedRuns: repeatedReference(),
+    repeatedRunsCpu: repeatedReference(),
+    inside: insideNs.flatMap(insideReference),
+    insideCpu: insideNs.flatMap(insideReference),
+    evens: [0, 1, 9, 64].flatMap(evensReference),
     renderKept: render.filter((_, i) => Math.floor(i / 64) % 3 !== 1),
     shadeMade: render.flatMap((h, i) => [h, i % 64, 1]),
     driftMade: drift,
@@ -343,6 +352,73 @@ function methodsReference() {
     methodFill: xs.filter((x) => x > f(9.5)),
     methodSearch: [...search(123), ...search(1000)],
   };
+}
+
+const twiceCases = [
+  [[5], 0],
+  [[5], 100],
+  [Array.from({ length: 40 }, (_, i) => (i * 37) % 101), 60],
+];
+
+const insideNs = [0, 1, 3, 4, 64];
+
+/** What `inside` pushes: integers. */
+function insideReference(n) {
+  const out = [];
+  for (let i = 0; i < n; i++) if (i > 2) for (let j = 0; j < i; j++) out.push(j);
+  return out;
+}
+
+/** What `evens` pushes. */
+function evensReference(limit) {
+  const out = [];
+  for (let k = 0; k < limit; k += 2) out.push(k);
+  return out;
+}
+
+/** What `pairTwice` pushes: integers, so f32 arithmetic is exact. */
+function twiceReference(xs, r) {
+  const out = [];
+  for (let i = 0; i < xs.length; i++)
+    for (let j = i + 1; j < xs.length; j++) if (xs[i] + xs[j] < r) out.push(i);
+  for (let i = 0; i < xs.length; i++)
+    for (let j = i; j < xs.length; j++)
+      for (let q = j; q < xs.length; q++) if (xs[i] + xs[q] < r) out.push(q);
+  return out;
+}
+
+/** What `repeatedRuns` and `byNRuns` push for the journey's cases, in the order of their loops. */
+function repeatedReference() {
+  const out = [];
+  const cases = [
+    [
+      Array.from({ length: 300 }, (_, i) => i + 0.5),
+      Array.from({ length: 300 }, (_, i) => (i * 7) % 5),
+    ],
+    [
+      [1.5, 2.5, 3.5],
+      [0, 0, 0],
+    ],
+    [[4.5], [3]],
+  ];
+  for (const [xs, counts] of cases)
+    for (let i = 0; i < xs.length; i++) for (let j = 0; j < counts[i]; j++) out.push(xs[i]);
+  for (const [counts, n] of [
+    [[2, 0, 3, 1], 4],
+    [[2, 0, 3, 1], 2],
+    [[0, 0], 2],
+  ])
+    for (let i = 0; i < n; i++) for (let j = 0; j < counts[i]; j++) out.push(i);
+  return out;
+}
+
+/** The pairs `pairSearch` finds, in the order of its loops: integers, so f32 arithmetic is exact. */
+function pairReference() {
+  const xs = Array.from({ length: 400 }, (_, i) => (i * 37) % 101);
+  const out = [];
+  for (let i = 0; i < xs.length; i++)
+    for (let j = i + 1; j < xs.length; j++) if (Math.abs(xs[i] - xs[j]) < 1.5) out.push(i, j);
+  return out;
 }
 
 /** What a sequential run of the journey's loops that push leaves (change 0078). */

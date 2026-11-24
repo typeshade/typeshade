@@ -1168,13 +1168,9 @@ describe('one mistake, one diagnostic, in compile() and in the editor', () => {
       [VAR, VAR],
     ],
     [
-      'a var of a list with no type, quoted as written',
-      shader('', '  var b = [1, 2];\n  return b[0] + a;'),
-      [
-        VAR,
-        'TS8002 "var b" is a list of integer-written numbers, whose element type its uses will ' +
-          'decide; that is not supported yet. Declare the type: let b: array<f32, 2> = [...].',
-      ],
+      'a var with no type and no value, quoted as written',
+      shader('', '  var b;\n  return a;'),
+      [VAR, 'TS8099 "var b" without an initializer needs a type annotation, e.g. let b: f32;'],
     ],
     // A generic interface in every position that can name it.
     [

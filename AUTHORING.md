@@ -1036,7 +1036,7 @@ written. `location<n, T>` states the number, with an optional third type argumen
 The decorated class field of earlier releases (`@location(0) uv: vec2`) stays accepted until
 the release after the migration release. An integer field gets `flat` without asking, because both
 targets require it for an integer varying. `"flat"` and `"perspective"` are the modes both
-targets support; `"linear"` has no GLSL ES 3.00 form, so a module that uses it has no GLSL.
+targets support; `"linear"` is not supported yet by the GLSL backend (Rule 10.3), so a module that uses it has no GLSL.
 
 ```ts
 "use typeshade";
@@ -1106,9 +1106,9 @@ of group 0, and `reflect()` reports it to the host. `uniform<T>` takes no access
 uniform buffer is read-only.
 
 A uniform may also hold one scalar or vector, `declare const mode: uniform<u32>`, on WGSL.
-GLSL ES 3.00 spells a uniform binding as a std140 block, so a module that targets WebGL2 puts
-the value in a struct; for a scalar uniform `compile()` keeps the WGSL and reports the GLSL
-half as a `TS8015` warning. The surface reference has every form and each refusal:
+That form is not supported yet by the GLSL backend (Rule 10.3). A module that targets WebGL2 puts
+the value in a struct, the std140 block GLSL ES 3.00 spells a uniform binding as; for a scalar
+uniform `compile()` keeps the WGSL and reports the GLSL half as a `TS8015` warning. The surface reference has every form and each refusal:
 `docs/use-typeshade-surface.md` §1.
 
 ### Plain structs
@@ -1180,8 +1180,8 @@ binding's `glslDataTexture` in `reflect()` (`'r32f'`, `'r32ui'` or `'r32i'`) ins
 tracking it separately.
 
 That lowering only gathers. A `"read_write"` binding that a vertex or fragment entry
-reaches therefore has no GLSL form: `compile()` keeps the WGSL, leaves `glsl` undefined and
-reports a `TS8015` warning. A compute entry writes one on WebGL2 through its pass program,
+reaches is not supported yet by the GLSL backend (Rule 10.5): `compile()` keeps the WGSL, leaves
+`glsl` undefined and reports a `TS8015` warning. A compute entry writes one on WebGL2 through its pass program,
 which [Portable compute kernels](#portable-compute-kernels) describes.
 
 ### Textures and samplers
@@ -1617,10 +1617,10 @@ for (let i = 0; i < gpuOut.length; i++) {
 }
 ```
 
-### Calls with no CPU meaning
+### Calls the CPU tier does not run yet
 
-Some calls throw when a call reaches them. The GPU-only intrinsics have nothing to compute
-from: the texture reads `textureSample`, `textureSampleLevel`, `textureLoad` and their array,
+Some calls throw when a call reaches them. They are not supported yet on the CPU tier.
+They are the texture reads `textureSample`, `textureSampleLevel`, `textureLoad` and their array,
 bias, grad, gather and depth-comparison forms, `textureStore`, the queries
 `textureDimensions` and `textureNumLayers`, and the derivatives `dpdx`, `dpdy` and `fwidth`
 with their coarse and fine forms. The full set is exported as `ORACLE_GPU_STUB_NAMES`. A
@@ -1630,8 +1630,8 @@ reads ([`docs/ir-builder.md`](docs/ir-builder.md)).
 A texture of the CPU tier's memory is the exception. `device.texture()` makes one on a device with
 no WebGPU device (change 0077). Bound with `setBinding`, it is read by `textureLoad` and
 `textureDimensions` and written by `textureStore`, in `compileModule` and in `compileModuleJs`
-alike, with or without `gpuStubs`. A sampled read (`textureSample` and its forms) keeps the stub
-contract, because filtering is no part of that memory.
+alike, with or without `gpuStubs`. A sampled read (`textureSample` and its forms) is not supported yet on the CPU tier
+(Rule 11.7). It keeps the stub contract.
 
 Compiling with `{ gpuStubs: true }` turns those intrinsics into placeholder values: opaque
 black for a texture read, zero for a derivative, a 1 by 1 size for `textureDimensions` and
@@ -1767,7 +1767,7 @@ It sizes the dispatch with `Math.ceil(n / width)` and checks bounds in the shade
 elements include a partly occupied last workgroup. On WebGPU its entry group reports
 `workgroupShapes: [[32, 1, 1]]`, one dispatch and one submission. A later `output.read()` is a
 separate readback. WebGL2 keeps the default width of 64 while still selecting ordinary constants.
-The CPU tier uses the selected shape and constants, but cannot execute a barrier.
+The CPU tier uses the selected shape and constants. A barrier is not supported yet on the CPU tier (Rule 8.24).
 
 Repeated normalized constants reuse the pipeline on the same device, entry and fp64 flavor.
 Choose among a small set of measured sizes rather than creating a new pipeline for every input
@@ -1897,7 +1897,7 @@ A call stands apart from the one before it, and runs as a dispatch of its own, w
 neighbour (`t[i - 1]`, `t[i ^ 1]`), writes at another index (`out[2 * i]`), writes what the call
 before it reads, runs over another count, or has a second loop, a `continue` or a scatter. It
 stands apart too when the group would bind more storage buffers than the device allows, when the
-module has no fusion facts (`fuse: false`, or older generated code), and on WebGL2 and the CPU tier, which never fuse. The
+module has no fusion facts (`fuse: false`, or older generated code), and on WebGL2 and the CPU tier, which run the calls apart. The
 arrays and the results are the same either way: fusing changes the dispatches and nothing else.
 
 The report says which calls fused and why the others did not, in your names. `report.groups`
@@ -2091,11 +2091,11 @@ try {
 }
 ```
 
-For a module whose varying is `location<n, T, { interpolate: "linear" }>`, which GLSL ES 3.00 has no form for,
+For a module whose varying is `location<n, T, { interpolate: "linear" }>`, which is not supported yet by the GLSL backend,
 the call throws an `UnsupportedFeatureError` with the code `SD0030` and this message:
 
 ```
-glsl-es300: @interpolate("linear") has no GLSL ES 3.00 form — that spec has smooth, flat and centroid, and linear (desktop `noperspective`) is none of them. Use "perspective", or keep the shader WGSL-only.
+glsl-es300: @interpolate("linear") is not supported yet by the GLSL backend (Rule 10.3) — GLSL ES 3.00 has smooth, flat and centroid, and linear (desktop `noperspective`) is none of them. Use "perspective", or keep the shader WGSL-only.
 ```
 
 `compile()` reports the same failure as a `TS8015` warning and keeps the WGSL.
@@ -2427,13 +2427,13 @@ A capability can need either half, both halves, or neither.
 | `float32Blend`       | host feature `EXT_float_blend`                                  | host feature `float32-blendable`                                         |
 | `float32Filterable`  | host feature `OES_texture_float_linear`                         | host feature `float32-filterable`                                        |
 | `multiview`          | directive `GL_OVR_multiview2` and host feature `OVR_multiview2` | unsupported, fails closed                                                |
-| `f16`                | unsupported, fails closed                                       | directive `f16` and host feature `shader-f16`                            |
+| `f16`                | not authorable yet (Rule 4.7), fails closed (Rule 10.3)         | directive `f16` and host feature `shader-f16`                            |
 | `subgroups`          | one invocation per subgroup (Rule 11.21), nothing to request    | directive `subgroups` and host feature `subgroups`                       |
-| `clipDistances`      | unsupported, fails closed                                       | directive `clip_distances` and host feature `clip-distances`             |
-| `primitiveIndex`     | unsupported, fails closed                                       | directive `primitive_index` and host feature `primitive-index`           |
-| `dualSourceBlending` | unsupported, fails closed                                       | directive `dual_source_blending` and host feature `dual-source-blending` |
-| `bgra8unormStorage`  | unsupported, fails closed                                       | host feature `bgra8unorm-storage`, derived                               |
-| `packed4x8Dot`       | unsupported, fails closed                                       | core, derived; a language feature to check                               |
+| `clipDistances`      | not supported yet, fails closed (Rule 10.3)                     | directive `clip_distances` and host feature `clip-distances`             |
+| `primitiveIndex`     | unsupported, fails closed (Rule 10.3)                           | directive `primitive_index` and host feature `primitive-index`           |
+| `dualSourceBlending` | not supported yet, fails closed (Rule 10.3)                     | directive `dual_source_blending` and host feature `dual-source-blending` |
+| `bgra8unormStorage`  | not supported yet, fails closed (Rule 10.3)                     | host feature `bgra8unorm-storage`, derived                               |
+| `packed4x8Dot`       | not supported yet, fails closed (Rule 10.3)                     | core, derived; a language feature to check                               |
 
 The bottom six rows are the ones nothing declares by hand. Writing
 `builtin<"clip_distances", T>`, `builtin<"primitive_index">`, `builtin<"subgroup_id">`
@@ -3183,7 +3183,7 @@ spelling to the page that explains it, and read the note for what changes.
 | GLSL construct                                 | `"use typeshade"` spelling                                                                     | WGSL result                                     | Notes                                                                                                                                                                  |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `uniform Block { … } name;`                    | [`declare const name: uniform<Block>`](/guide/authoring/layouts-and-resources/)                | `@group`/`@binding` `var<uniform>`              | the std140 layout comes from `reflect()`, so no offset is counted by hand                                                                                              |
-| a loose `uniform float u_x;`                   | a field of a uniform struct                                                                    | a field of a `var<uniform>` struct              | `declare const u_x: uniform<f32>` is WGSL-only, since GLSL ES 3.00 spells a uniform binding as a std140 block                                                          |
+| a loose `uniform float u_x;`                   | a field of a uniform struct                                                                    | a field of a `var<uniform>` struct              | `declare const u_x: uniform<f32>` is not supported yet by the GLSL backend (Rule 10.3); use a struct                                                                   |
 | a symbol or a block the host prelude declares  | none; the IR builder's `externVar`, `hostUniform` and `hostBlock`                              | the same reference, spelled per target          | [`docs/ir-builder.md`](docs/ir-builder.md) has them                                                                                                                    |
 | `in` / `out` / `inout` on a function parameter | none / [an object the function writes](#an-object-a-function-writes-and-a-value-it-gives-back) | a pointer parameter                             | an object is the caller's, a value is returned                                                                                                                         |
 | `#ifdef FEATURE` where this module decides     | [one file per variant](/guide/authoring/conditional-programs/)                                 | no preprocessor                                 | the variant that does not declare a binding never has it                                                                                                               |
@@ -3255,10 +3255,10 @@ Nothing on this page narrows what the GLSL writer can express. The neutral names
 spellings, and several of the rules behind them exist to make WebGL2 output more defined:
 `round` emits `roundEven`, and float `%` emits a trunc-mod that GLSL ES 3.00 compiles.
 
-A file that uses something only WGSL has, a scalar uniform, a `"read_write"` storage binding
-in a draw or `{ interpolate: "linear" }`, still compiles: `compile()` keeps the WGSL, leaves
+A file that uses a form the GLSL backend does not support yet, a scalar uniform, a `"read_write"`
+storage binding in a draw or `{ interpolate: "linear" }`, still compiles: `compile()` keeps the WGSL, leaves
 `glsl` undefined and says why in a `TS8015` warning. The reverse has no spelling. A GLSL
-construct the language does not model, `gl_PointSize` for one, cannot be written in a
+construct the language has no spelling for yet, `gl_PointSize` for one, is not supported yet in a
 `"use typeshade"` file. An engine that must emit one builds that statement with the IR
 builder's raw statements, which [`docs/ir-builder.md`](docs/ir-builder.md) describes, with
 what a raw statement costs the rest of the module.

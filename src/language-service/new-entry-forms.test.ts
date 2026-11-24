@@ -278,7 +278,7 @@ describe('the editor reads a stage attribute as an entry (change 0130)', () => {
       .sort();
     expect(files.length).toBeGreaterThan(100);
     expect(
-      files.some((f) => f.startsWith('hosts')) && files.some((f) => f.startsWith('passes')),
+      files.some((f) => f.startsWith('hosts')) && files.some((f) => f.startsWith('gallery')),
     ).toBe(true);
     const found: string[] = [];
     let attributes = 0;

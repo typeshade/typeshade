@@ -11,11 +11,9 @@
 // keeps WebGPU's row order with no copy turned over; only a pass into the canvas is turned over,
 // once, as it is copied to the screen.
 //
-// Buffers. WebGL2 runs no shader that writes a buffer here: a storage buffer is a data texture its
-// programs only read (change 0046), as X-GIS's `storage-data-texture.ts` makes one, with the
-// element type the buffer carries (`elem`). So each buffer keeps its bytes on the host, and the GL
-// object a command reads (an array buffer, a uniform block, a data texture) is made from them when
-// the command runs. A read of a buffer is a copy of those bytes.
+// Buffers. A storage buffer is a data texture the draw programs read (change 0046), as X-GIS's
+// `storage-data-texture.ts` makes one, with the element type the buffer carries
+// (`elem`). Each buffer keeps its bytes on the host.
 //
 // Immediate. WebGL2 has no command buffer, so the encoder runs each command when it is recorded
 // (`caps.immediate`), as X-GIS's WebGL2 encoder does. A pass is begun, drawn and ended at its
@@ -1467,9 +1465,11 @@ class GlDevice implements RhiDevice {
     if ((desc.dimension ?? '2d') !== '2d' || desc.size[2] !== 1)
       throw new TypeError('The WebGL2 backend makes 2D textures of one layer.');
     if ((desc.sampleCount ?? 1) !== 1)
-      throw new TypeError('The WebGL2 backend makes no multisampled texture.');
+      throw new TypeError(
+        'A multisampled texture is not supported yet on the WebGL2 tier (Rule 10.5, Rule 11.11).',
+      );
     const fmt = formatOf(gl, desc.format);
-    if (fmt === undefined) throw new TypeError(`WebGL2 has no ${desc.format} texture.`);
+    if (fmt === undefined) throw new TypeError(`${desc.format} is not supported yet on WebGL2.`);
     const [w, h] = desc.size;
     const t = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, t);
@@ -1620,7 +1620,7 @@ class GlDevice implements RhiDevice {
     const topology = desc.primitive.topology;
     if (flat && this.state().provokingVertex === null && /^line/.test(topology))
       throw new TypeError(
-        `${desc.label ?? 'A render pipeline'}: a flat interstage value on a ${topology} needs WEBGL_provoking_vertex on WebGL2, and this context lacks it. WebGPU takes a flat value from the first vertex of a line and GLSL ES 3.00 from the last, and a line turned round covers other pixels at its ends.`,
+        `${desc.label ?? 'A render pipeline'}: a flat interstage value on a ${topology} is not supported yet on the WebGL2 tier without WEBGL_provoking_vertex (Rule 11.11), and this context lacks it. WebGPU takes a flat value from the first vertex of a line and GLSL ES 3.00 from the last, and a line turned round covers other pixels at its ends.`,
       );
     const program = compile(gl, vertex, fragment, desc.label ?? 'a render pipeline');
     const slots = this.#slots(program, desc.layouts as readonly GlLayout[]);

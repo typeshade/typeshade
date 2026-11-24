@@ -1,7 +1,7 @@
 // Verifies: Rule 12.7, Rule 6.2 (docs/language-design.md; traced in reqs/).
 
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -13,6 +13,7 @@ import {
   STORAGE_BUFFER_ACCESS,
   WGSL_BUILTIN_NAMES,
 } from './ambient.js';
+import { exampleFile, SHADE_FILES } from '../../examples/_example-file.js';
 import { compile } from '../compiler/ts/compile.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';
 
@@ -23,7 +24,6 @@ const ambientService = () =>
   createTypeshadeLanguageServiceWith({}, analyzeSourceFile, { merge: false });
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXAMPLES_DIR = join(HERE, '..', '..', 'examples');
 const SOT_FILE = join(HERE, '..', 'core', 'sot.ts');
 const FUNCTION_FILE = join(HERE, '..', 'compiler', 'ts', 'lower', 'function.ts');
 const STRUCTS_FILE = join(HERE, '..', 'compiler', 'ts', 'structs.ts');
@@ -32,18 +32,17 @@ const STRUCTS_FILE = join(HERE, '..', 'compiler', 'ts', 'structs.ts');
 // place) — included here so this test still covers where `@builtin(...)` is actually parsed.
 const BUILTIN_CHECK_FILE = join(HERE, '..', 'compiler', 'ts', 'builtin-check.ts');
 
-/** Every `"use typeshade"` example, read from the directory rather than listed by hand so a new
- * one joins this corpus by existing. The corpus was the five `hello*` files, which are all
- * vertex and fragment shaders; `compute-reduction-twin.shade.ts` is what caught the ambient
- * `array`'s read-only index signature, since a compute kernel is the only program that writes
- * to a storage binding. */
-const SHADE_EXAMPLES = readdirSync(EXAMPLES_DIR)
-  .filter((name) => name.endsWith('.shade.ts'))
+/** Every `"use typeshade"` example, found by the scan of `examples/_example-file.ts` so a new one
+ * joins this corpus by existing. The corpus was the five `hello*` files, all vertex and fragment
+ * shaders; `compute-reduction-twin.shade.ts` caught the ambient `array`'s read-only index
+ * signature, since a compute kernel is the only program that writes to a storage binding. */
+const SHADE_EXAMPLES = [...SHADE_FILES.entries()]
+  .filter(([, f]) => !/^(?:hosts|path)\//.test(f))
+  .map(([id]) => `${id}.shade.ts`)
   .sort();
 
-/** The names this corpus must contain: a `readdirSync` that resolved nothing, or an examples
- * directory that lost its compute kernel, would otherwise leave the suite below green over
- * nothing at all. */
+/** The names this corpus must contain: a scan that found nothing, or a directory that lost its
+ * compute kernel, would leave the suite below green over nothing at all. */
 const REQUIRED_EXAMPLES = [
   'compute-reduction-twin.shade.ts',
   'hello-camera.shade.ts',
@@ -62,11 +61,11 @@ const REQUIRED_EXAMPLES = [
 const EXPECTED_WARNINGS: Readonly<Record<string, readonly string[]>> = {
   'loop-on-cpu.shade.ts': [
     'typeshade TS8070: This loop runs on the CPU because it is an open loop',
-    'typeshade TS8070: This loop runs on the CPU because line 32 returns from inside it',
-    'typeshade TS8070: This loop runs on the CPU because line 43 writes "nearest"',
-    'typeshade TS8070: This loop runs on the CPU because line 52 reads "out[i - 1]"',
-    'typeshade TS8070: This loop runs on the CPU because line 59 calls "tally"',
-    'typeshade TS8070: This loop runs on the CPU because line 66 calls console.log',
+    'typeshade TS8070: This loop runs on the CPU because line 23 returns from inside it',
+    'typeshade TS8070: This loop runs on the CPU because line 34 writes "nearest"',
+    'typeshade TS8070: This loop runs on the CPU because line 43 reads "out[i - 1]"',
+    'typeshade TS8070: This loop runs on the CPU because line 50 calls "tally"',
+    'typeshade TS8070: This loop runs on the CPU because line 57 calls console.log',
   ],
 };
 
@@ -78,17 +77,17 @@ describe('SHADE_DTS: every .shade.ts example produces zero diagnostics', () => {
   });
 
   // An example that imports another file reads it from the examples directory, as `compile()`
-  // does in `examples/_shade.ts`: `imported-noise.shade.ts` imports `lib/noise.shade.ts` (§68).
+  // does in `examples/_shade.ts`: `imported-noise.shade.ts` imports `noise.shade.ts` (§68).
   const readExample = (name: string): string | undefined => {
     try {
-      return readFileSync(join(EXAMPLES_DIR, name), 'utf8');
+      return readFileSync(join(dirname(exampleFile('imported-noise')), name), 'utf8');
     } catch {
       return undefined;
     }
   };
   for (const name of SHADE_EXAMPLES) {
     it(`${name}: zero TypeScript diagnostics and zero TypeShade diagnostics`, () => {
-      const text = readFileSync(join(EXAMPLES_DIR, name), 'utf8');
+      const text = readFileSync(exampleFile(name.replace('.shade.ts', '')), 'utf8');
       const service = createTypeshadeLanguageServiceWith(
         { readDocument: readExample },
         analyzeSourceFile,
@@ -168,7 +167,7 @@ ${head}
       .map((d) => `${d.code}: ${d.message}`);
   };
 
-  const READ = 'declare const src: storage<array<f32>>';
+  const READ = 'declare const src: storage<array<f32>, "read">';
   const WRITE = 'declare const dst: storage<array<f32>, "read_write">';
 
   it('src[0] = 1. on a read binding reports TS2542', () => {
@@ -228,12 +227,12 @@ ${WRITE}`,
   // struct's array field and an array's struct element are each a place in the same buffer.
   // Measured, a one-level view left both of these green while the compiler refused them.
   it('keeps the view deep: b.w[0] = 1. and xs[0].q = 1. on a read binding both report', () => {
-    const bundle = typescriptDiagnostics('declare const b: storage<Bundle>', 'b.w[0] = 1.');
+    const bundle = typescriptDiagnostics('declare const b: storage<Bundle, "read">', 'b.w[0] = 1.');
     expect(
       bundle.some((d) => d.startsWith('2542: ')),
       bundle.join('; '),
     ).toBe(true);
-    const items = typescriptDiagnostics('declare const xs: storage<array<Item>>', 'xs[0].q = 1.');
+    const items = typescriptDiagnostics('declare const x: storage<Item[], "read">', 'x[0].q = 1.');
     expect(
       items.some((d) => d.startsWith('2540: ')),
       items.join('; '),
@@ -297,7 +296,7 @@ ${WRITE}`,
   fov: f32 = 1.
   scaled(k: f32): f32 { return this.fov * k }
 }
-declare const cam: storage<Camera>
+declare const cam: storage<Camera, "read">
 ${WRITE}`;
     expect(typescriptDiagnostics(head, 'dst[gid.x] = cam.scaled(2.)')).toEqual([]);
     const write = typescriptDiagnostics(head, 'cam.fov = 1.');

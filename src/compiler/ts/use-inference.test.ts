@@ -2921,7 +2921,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
   );
 
   const DIV_1319 = (call: string): string =>
-    `TS8003: "${call}" is an integer by its bit operator, and no operand of "${call} / 2" has a ` +
+    `TS8003: "${call}" is an integer by inference, and no operand of "${call} / 2" has a ` +
     `declared type, so the "/" does not say which division it is. Write "f32(${call}) / 2" for ` +
     'the float division.';
   it.each([
@@ -3156,7 +3156,7 @@ describe('a bitwise operator over written integers takes an integer (issue 1261)
   // vector is a value type at every depth, so `.yx.x` states its type (B).
   const S_1319 = 'class S { v = 0; }\n';
   const DIVIDED = (x: string): string =>
-    `TS8003: "${x}" is an integer by its bit operator, and no operand of "${x} / 2" has a ` +
+    `TS8003: "${x}" is an integer by inference, and no operand of "${x} / 2" has a ` +
     `declared type, so the "/" does not say which division it is. Write "f32(${x}) / 2" for ` +
     'the float division.';
   it.each([

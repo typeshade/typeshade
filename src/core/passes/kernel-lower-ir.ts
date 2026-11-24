@@ -191,6 +191,7 @@ export interface LowerOptions {
    *  push onto, or whose length the stores after the loops read, has a word, so a function whose
    *  pushes start at 0 lowers to the module it always did. */
   readonly held?: boolean;
+  readonly exactTotal?: boolean;
 }
 
 /** How an entry of the function reads a parameter: a scalar as a field of the uniform, an array
@@ -777,9 +778,7 @@ export function rangeOf(
   return { start: loop.init.init, bound, cop, type: loop.init.type };
 }
 
-export function typeKey(t: ShaderType): string {
-  return t.kind === 'scalar' ? t.scalar : t.kind;
-}
+export const typeKey = (t: ShaderType): string => (t.kind === 'scalar' ? t.scalar : t.kind);
 
 /** `sts` with each statement `f` maps to the statements it gives, in nested bodies too. */
 export function mapBlock(sts: readonly Stmt[], f: (st: Stmt) => Stmt[] | undefined): Stmt[] {
@@ -832,10 +831,10 @@ export const isRuntimeArray = (t: ShaderType): boolean =>
 /**
  * Lower kernel function `f`'s loops for the WebGL2 tier, or say why it cannot run there.
  *
- * WebGL2 has no compute stage and no storage buffer; the fragment lowering the compute runner
- * uses takes a loop that writes one array of 4-byte elements (`f32`, `i32`, `u32`) at exactly
- * `i`, reads others as data textures, and takes its scalars as uniforms. Each such loop is one
- * program; every other shape goes to the next tier.
+ * The WebGL2 tier lowers a kernel loop to a fragment program (Rule 11.8). The lowering takes a
+ * loop that writes one array of 4-byte elements (`f32`, `i32`, `u32`) at exactly `i`, reads
+ * others as data textures, and takes its scalars as uniforms. Each such loop is one program.
+ * Any other shape is not supported yet (Rule 11.8), so the call goes to the next tier.
  */
 /** Whether a call in `loop` hands an element of `array` to a parameter its callee writes
  *  through, `bump(out[i])` to an object parameter it writes (change 0142). */

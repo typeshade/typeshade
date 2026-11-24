@@ -1,0 +1,9 @@
+{
+  "title": "A kernel that collects unique labels in a Set",
+  "blurb": "`labels` adds each nonzero pixel's label to a `Set<u32>` with `seen.add(...)` (change 0080), and `latest` keeps the last value set for each key in a `Map<u32, f32>`. The host passes JavaScript's own `Set` and `Map` by reference, and reads back the entries a sequential run leaves: each key once, in the order first added, the value set last. `lookup` reads the map in a later loop, where `last.has(k)` guards `last.get(k)!`. In this version the functions run on the CPU tier.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "no entry point"
+}

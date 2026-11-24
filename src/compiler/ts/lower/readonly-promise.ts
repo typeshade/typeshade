@@ -1,3 +1,4 @@
+// Implements: Rule 6.2, a write to a binding whose value type is readonly (docs/language-design.md; traced in reqs/).
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import { writeRules, type Binding, type LoweringScope } from '../context.js';
@@ -133,7 +134,7 @@ function writableLine(
   if (binding.kind !== 'binding') return writable;
   if (binding.space !== 'storage') return undefined;
   const declared = bindingDeclaration(binding.name, sourceFile);
-  const type = `storage<${writable}, "read_write">`;
+  const type = `storage<${writable}>`;
   if (declared === undefined || !ts.isCallExpression(declared)) {
     return `declare const ${binding.name}: ${type}`;
   }

@@ -147,7 +147,6 @@ describe('an element of the array a kernel function grows with push (change 0114
       ['readAt', 'reads', 'out[k]'],
       ['writeAt', 'writes', 'out[k]'],
       ['last', 'writes', 'out[0]'],
-      ['overwrite', 'writes', 'out[i]'],
     ] as const) {
       const face = k.get(fn)!;
       expect(face.gpu).toBeUndefined();
@@ -157,6 +156,12 @@ describe('an element of the array a kernel function grows with push (change 0114
           `below its length, and only the CPU tier checks such an index at the call`,
       );
     }
+  });
+
+  it('gives the reason of the proof before the reason of the access (change 0114, Route 3, S2)', () => {
+    const face = kernels().get('overwrite')!;
+    expect(face.gpu).toBeUndefined();
+    expect(face.noGpu).toBe('a loop of it runs on the CPU (TS8070)');
   });
 
   it('counts each write it cannot prove below the length as one push', () => {

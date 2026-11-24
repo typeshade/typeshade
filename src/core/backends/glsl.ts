@@ -131,11 +131,11 @@ const glslDepthSampler = (t: Extract<ShaderType, { kind: 'depth-texture' }>): st
       return 'samplerCubeShadow';
     case 'cube-array':
       throw new UnsupportedFeatureError(
-        'glsl-es300: texture_depth_cube_array has no GLSL ES 3.00 spelling (no cube-array samplers)',
+        'glsl-es300: texture_depth_cube_array is not supported yet by the GLSL backend (Rule 10.5); GLSL ES 3.00 has no cube-array samplers',
       );
     case '2d-ms':
       throw new UnsupportedFeatureError(
-        'glsl-es300: texture_depth_multisampled_2d has no GLSL ES 3.00 spelling (sampler2DMS is ES 3.10)',
+        'glsl-es300: texture_depth_multisampled_2d is not supported yet by the GLSL backend (Rule 10.5); GLSL ES 3.00 has no sampler2DMS (it is ES 3.10)',
       );
   }
 };
@@ -176,12 +176,11 @@ function glslType(t: ShaderType): string {
         );
       return `${glslType(t.elem)}[${t.size}]`;
     }
-    // GLSL ES 3.00 has no storage buffers and no atomic memory functions (those are ES 3.10);
-    // a module carrying one is refused by the storageBuffer capability first, and this arm
-    // fails closed for a hand-built module that reaches it another way.
+    // The GLSL lowering of atomics is deferred (Rule 10.5); a module carrying one is refused by
+    // the storageBuffer capability first, and this arm fails closed for a hand-built module.
     case 'atomic':
       throw new UnsupportedFeatureError(
-        `glsl-es300: atomic<${t.elem}> has no GLSL ES 3.00 spelling (no storage buffers, no atomics)`,
+        `glsl-es300: atomic<${t.elem}> is not supported yet in a GLSL ES 3.00 stage (Rule 10.5); a @compute entry that reaches no texture runs it on WebGL2 as its pass program (Rule 11.8)`,
       );
     // A storage texture is image load/store, which arrived in GLSL ES 3.10; ES 3.00 has neither
     // the `image2D` type nor a format layout qualifier for one. Measured on a WebGL2 driver, not
@@ -191,7 +190,7 @@ function glslType(t: ShaderType): string {
     // this arm fails closed for a hand-built module that reaches it another way.
     case 'storage-texture':
       throw new UnsupportedFeatureError(
-        `glsl-es300: ${typeKey(t)} has no GLSL ES 3.00 spelling (image load/store is ES 3.10)`,
+        `glsl-es300: ${typeKey(t)} is not supported yet by the GLSL backend (Rule 10.5); GLSL ES 3.00 has no image load/store (it is ES 3.10)`,
       );
     case 'texture': {
       // GLSL fuses texture+sampler into one combined sampler. '2d-array' (X-GIS #1651) is
@@ -222,7 +221,7 @@ function glslType(t: ShaderType): string {
         case '1d':
         case 'cube-array':
           throw new UnsupportedFeatureError(
-            `glsl-es300: ${typeKey(t)} has no GLSL ES 3.00 spelling (no 1d or cube-array samplers)`,
+            `glsl-es300: ${typeKey(t)} is not supported yet by the GLSL backend (Rule 10.5); GLSL ES 3.00 has no 1d or cube-array samplers`,
           );
         default:
           // Exhaustiveness on the ARM (X-GIS #1703) — see typeKey's twin: with the texture
@@ -764,7 +763,7 @@ export const glslEs300Backend: Backend = {
       return `uniform ${qualified(b)}${glslType(b.type)} ${b.name};`;
     if (b.space === 'storage')
       throw new UnsupportedFeatureError(
-        'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',
+        'glsl-es300: storage buffer (SSBO) — not supported yet by the GLSL backend (Rule 10.5); fail-closed',
       );
     throw new UnsupportedFeatureError(
       `glsl-es300: uniform struct binding '${b.name}' — std140 UBO is assembled by emitGlslModule (needs the struct map)`,
@@ -848,15 +847,15 @@ function glslInterpolation(interpolate: string | undefined, isInt: boolean): str
   const [type, sampling] = interpolate.split(/\s*,\s*/);
   if (type === 'linear') {
     throw new UnsupportedFeatureError(
-      'glsl-es300: @interpolate("linear") has no GLSL ES 3.00 form — that spec has smooth, ' +
+      'glsl-es300: @interpolate("linear") is not supported yet by the GLSL backend (Rule 10.3) — GLSL ES 3.00 has smooth, ' +
         'flat and centroid, and linear (desktop `noperspective`) is none of them. Use ' +
         '"perspective", or keep the shader WGSL-only.',
     );
   }
   if (sampling === 'sample') {
     throw new UnsupportedFeatureError(
-      'glsl-es300: @interpolate(..., "sample") has no GLSL ES 3.00 form — per-sample ' +
-        'interpolation is ES 3.2. Use "center" or "centroid".',
+      'glsl-es300: @interpolate(..., "sample") is not supported yet by the GLSL backend (Rule 10.3). ' +
+        'GLSL ES 3.00 has no per-sample interpolation; it is in ES 3.2. Use "center" or "centroid".',
     );
   }
   const head = type === 'flat' ? 'flat ' : 'smooth ';
@@ -1519,7 +1518,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     // read_write output is fine: lowerComputeToFragment strips it before this pass.
     if (b.access === 'read_write')
       throw new UnsupportedFeatureError(
-        `glsl-es300 storage-emul: storage binding '${b.name}' is read_write — the data-texture emulation is read-only (gather); a compute kernel's output lowers via the compute→fragment path instead (declare the kernel { stage: 'compute', portable: true } — X-GIS #1812 — or pass the legacy emitGlslModule({ emulateCompute: true }) opt-in), and WebGL2 has no storage-write form`,
+        `glsl-es300 storage-emul: storage binding '${b.name}' is read_write — the data-texture emulation is read-only (gather); a compute kernel's output lowers via the compute→fragment path instead (declare the kernel { stage: 'compute', portable: true } — X-GIS #1812 — or pass the legacy emitGlslModule({ emulateCompute: true }) opt-in); a storage write here is not supported yet on the WebGL2 tier (Rule 10.5)`,
       );
     if (b.type.kind !== 'array')
       throw new UnsupportedFeatureError(
@@ -2473,7 +2472,7 @@ function assembleGlslParts(
       /* fused into the texture's sampler2D / sampler2DShadow — skip */
     } else if (b.space === 'storage')
       throw new UnsupportedFeatureError(
-        'glsl-es300: storage buffer (SSBO) — GLSL ES 3.00 has no SSBO; fail-closed',
+        'glsl-es300: storage buffer (SSBO) — not supported yet by the GLSL backend (Rule 10.5); fail-closed',
       );
     else if (b.type.kind === 'struct')
       bindingLines.push(emitGlslUbo(b, structByName(structs, b.type.name), structs));

@@ -547,8 +547,8 @@ export async function entryTierFit(
     return gl === null ? { why: 'there is no WebGL2 context' } : { tier, gl };
   }
   if (e.barrier !== undefined)
-    return { why: `it reaches ${e.barrier}, and a barrier has no CPU tier` };
-  if (e.noCpu !== undefined) return { why: `${e.noCpu}, and the CPU tier cannot` };
+    return { why: `it reaches ${e.barrier}, not supported yet on the CPU tier (Rule 8.24)` };
+  if (e.noCpu !== undefined) return { why: e.noCpu };
   return { tier: 'cpu' };
 }
 
@@ -733,7 +733,7 @@ async function onGl(
       const img = checked.images.get(t.name)!;
       if (img.view !== undefined)
         throw new TypeError(
-          `${e.name}(): binding "${t.name}" is a Texture on the WebGPU device, which the WebGL2 tier cannot read; pass an image source for a call that may fall back.`,
+          `${e.name}(): binding "${t.name}" is a Texture on the WebGPU device, which the WebGL2 tier does not read yet (Rule 8.24); pass an image source for a call that may fall back.`,
         );
       // An unpaired texture is only loaded or measured, which no filter changes; a texture
       // with no mipmaps still needs a filter that reads none.

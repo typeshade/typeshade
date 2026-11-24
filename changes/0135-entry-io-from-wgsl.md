@@ -145,7 +145,7 @@ author drops the number on `B.n` too, `B.n` takes the location `n` has in the ve
 `A` the only one, that is 1. A program-wide number per name (decision D2.1b, rejected) would
 instead give one number to `n` everywhere, and a written `B.n` at 0 would collide with `A.uv`.
 
-### The example: `examples/hello-vsout.shade.ts`
+### The example: `examples/gallery/hello-vsout/hello-vsout.shade.ts`
 
 Before (0130's final form, today's I/O types):
 
@@ -496,7 +496,7 @@ Every row was measured on 2026-11-09 with Bun 1.4.4, on `main` at `2cc98b8f` unl
 | Fact              | A `VsOut` field `uv: vec2` used by a vertex and a fragment entry: two `TS8029` diagnostics, one per use, in both halves.                                                                                                                                                                                                                                       |
 | Fact              | Over 114 `examples/**/*.shade.ts`, every compile clean: 172 render entries; every written location equals its index in declaration order (0 of 226 entry I/O lists differ); 67 vertex and fragment pairs share one struct, 2 use a fragment struct that holds a subset (`clip-planes`, `capsule-corp-namek-class`).                                            |
 | Fact              | Highest written location in the examples: 1 (4 lines); 107 code lines write `location<0`.                                                                                                                                                                                                                                                                      |
-| Fact              | `examples/hello-vsin.shade.ts`: `reflect().vertex` is `{ attributes: [{ name: "position", location: 0, offset: 0 }, { name: "uv", location: 1, offset: 12 }], arrayStride: 20 }`, and `entries[].io` lists each input and output with `location` or `builtin`.                                                                                                 |
+| Fact              | `examples/gallery/hello-vsin/hello-vsin.shade.ts`: `reflect().vertex` is `{ attributes: [{ name: "position", location: 0, offset: 0 }, { name: "uv", location: 1, offset: 12 }], arrayStride: 20 }`, and `entries[].io` lists each input and output with `location` or `builtin`.                                                                              |
 | Fact              | GLSL ES 3.00 emit of `hello-vsin`: vertex attributes are `layout(location = N) in`, the varying is `out vec2 uv;` / `in vec2 uv;` with no location, and the colour is `layout(location = 0) out vec4 color;`.                                                                                                                                                  |
 | Fact              | A bare fragment result already takes `@location(0)` and a bare `vec4` vertex result `@builtin(position)` (`src/compiler/ts/lower/function.ts`, the entry signature): the compiler gives those attributes today.                                                                                                                                                |
 | Fact (`583891d2`) | `compute([64], function c(x: u32) {})`: no diagnostic; the WGSL has `fn c(x: u32) {`.                                                                                                                                                                                                                                                                          |
@@ -718,7 +718,7 @@ at `b5ff3963`, with `main` at `2efdff61` merged; the checks below ran again afte
 - Examples: 100 of the 114 `examples/**/*.shade.ts` files, 301 lines. `tshc migrate` rewrote the
   196 lines of item 1. A scratch script dropped 105 written locations of item 2, one at a time,
   and kept each only where `compile()` and `reflect()` gave the same result. One written location
-  stays without an option, `FsIn.uv` in `examples/twin-structs.shade.ts`: `FsIn` is the type of a
+  stays without an option, `FsIn.uv` in `examples/gallery/twin-structs/twin-structs.shade.ts`: `FsIn` is the type of a
   helper's parameter and no entry's, so only the written location puts `@location(0)` in its
   struct. `examples/id-pick.shade.ts` keeps the one location that carries an option.
 - `CHANGELOG.md`, `AUTHORING.md`, `docs/language-service-api.md`, `AGENTS.md`, `src/AGENTS.md`.

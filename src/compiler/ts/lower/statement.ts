@@ -40,20 +40,21 @@ import {
   twoReadingsOf,
 } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';
+import { writtenIntegerTree, writtenTypeOf } from './written-type.js';
+import { listValueOf } from './expression-array/list-values.js';
 import { foldIndexConst } from '../index-bound.js';
 import ts from 'typescript';
 import { isNewObject } from '../new-object.js';
 import { copyOfObject, secondNameOf } from './second-name.js';
 import { heldRefusal } from './pending-shares.js';
 import type { BinOp, Expr, Stmt } from '../../../core/ir/nodes.js';
-import type { ShaderType } from '../../../core/ir/types.js';
-import { f32T, isF64, isVec, isVec64, u32T } from '../../../core/ir/types.js';
-import { refusedDeclarationsOf } from '../context.js';
+import { f32T, isF64, isVec, isVec64, u32T, type ShaderType } from '../../../core/ir/types.js';
 import { resolveMathConst } from '../math-alias.js';
 import { mathDeclarationOf, type MathDeclaration } from '../math-binding.js';
 import type { TsCompilerDiagnostic } from '../source-file.js';
 import {
   LoweringScope,
+  refusedDeclarationsOf,
   authorTypeText,
   dropsRecoveredUse,
   irNameOf,
@@ -150,7 +151,7 @@ import { refusedBySemantics } from '../semantic.js';
 import { makeDiagnostic } from '../diagnostic.js';
 import { withSpan } from '../span.js';
 import { localNumericInference } from '../local-numeric-inference.js';
-import { foldNumericLit, isIntegerLiteralTree } from '../lit-coerce.js';
+import { foldNumericLit } from '../lit-coerce.js';
 import { constShiftAmountOutOfRange, foldConstComponents, foldConstValue } from '../loop-bound.js';
 import { TS_CODES, type TsCode } from '../codes.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
@@ -177,28 +178,6 @@ function undecidedTarget(
     ? (scope.resolve(inner.text)?.inferred ?? inferredOfExpr(target))
     : inferredOfExpr(target);
   return value !== undefined && value.type === undefined ? value : undefined;
-}
-
-/** Whether `node` is integer-written numbers, constants of no fixed type that are, and `+ - *`,
- *  `/` and a unary minus over them: the initializer of a `let` its uses type (change 0134). */
-function writtenIntegerTree(node: ts.Expression, scope: LoweringScope): boolean {
-  if (ts.isParenthesizedExpression(node)) return writtenIntegerTree(node.expression, scope);
-  if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
-    return writtenIntegerTree(node.operand, scope);
-  }
-  if (ts.isIdentifier(node)) return scope.resolve(node.text)?.abstract?.integerWritten === true;
-  if (ts.isBinaryExpression(node)) {
-    const k = node.operatorToken.kind;
-    return (
-      (k === ts.SyntaxKind.PlusToken ||
-        k === ts.SyntaxKind.MinusToken ||
-        k === ts.SyntaxKind.AsteriskToken ||
-        k === ts.SyntaxKind.SlashToken) &&
-      writtenIntegerTree(node.left, scope) &&
-      writtenIntegerTree(node.right, scope)
-    );
-  }
-  return isIntegerLiteralTree(node);
 }
 
 const ASSIGN_OP: Readonly<Record<number, BinOp>> = {
@@ -554,9 +533,9 @@ function lowerStatementKind(
       diagnostics,
       sourceFile,
       node,
-      `A labelled statement is not supported: neither WGSL nor GLSL ES 3.00 has a label, so ` +
-        `"${node.label.text}:" has nothing to name it for. Restructure with a flag, or hoist ` +
-        `the inner loop into a function and return from it.`,
+      `A labelled statement is not supported yet: the IR has no label, so the compiler does ` +
+        `not lower "${node.label.text}:". Restructure with a flag, or hoist the inner loop ` +
+        `into a function and return from it.`,
       TS_CODES.UNSUPPORTED,
     );
     return undefined;
@@ -741,6 +720,7 @@ function lowerDeclarationKind(
     return undefined;
   }
   const name = decl.name.text;
+  const writtenType = writtenTypeOf(decl, sourceFile);
   // A `var` is lowered as the `let` it would have been (semantic.ts refused it), and quoted as
   // the author wrote it; the remedies name `let`.
   const isVar =
@@ -765,7 +745,7 @@ function lowerDeclarationKind(
   // takes its own type, so the declared uses give the declaration none.
   const writtenConst =
     isConst &&
-    decl.type === undefined &&
+    writtenType === undefined &&
     decl.initializer !== undefined &&
     abstractTreeOf(decl.initializer) !== undefined;
   // A `let` of an integer-written literal, or of a constant of no fixed type that is one, takes
@@ -774,7 +754,7 @@ function lowerDeclarationKind(
   // (`use-inference.ts`). Undecided, it is the `f32` the compiler chooses, and each read records
   // what its use asks.
   let inferredValue: InferredValue | undefined;
-  if (decl.type === undefined && !writtenConst) {
+  if (writtenType === undefined && !writtenConst) {
     const inferred = localNumericInference(decl, sourceFile);
     annotated = inferred?.type;
     if (inferred?.conflict !== undefined) {
@@ -802,15 +782,21 @@ function lowerDeclarationKind(
       };
     }
   }
-  if (decl.type) {
-    annotated = mapTsTypeToShaderType(decl.type, sourceFile, diagnostics);
+  if (writtenType) {
+    annotated = mapTsTypeToShaderType(writtenType, sourceFile, diagnostics);
     if (!annotated) return undefined;
-    if (refuseAtomicDeclaration(annotated, decl.type, sourceFile, diagnostics, 'a local'))
+    if (refuseAtomicDeclaration(annotated, writtenType, sourceFile, diagnostics, 'a local'))
       return undefined;
     if (
       decl.initializer === undefined &&
-      refuseRuntimeArrayLocal(annotated, name, undefined, decl.type, sourceFile, diagnostics, (n) =>
-        scope.structByName(n),
+      refuseRuntimeArrayLocal(
+        annotated,
+        name,
+        undefined,
+        writtenType,
+        sourceFile,
+        diagnostics,
+        (n) => scope.structByName(n),
       )
     )
       return undefined;
@@ -999,7 +985,7 @@ function lowerDeclarationKind(
       sourceFile,
       decl,
       // The uses gave the type, so the sentence says so: the author wrote no integer here.
-      decl.type === undefined && inferredValue !== undefined
+      writtenType === undefined && inferredValue !== undefined
         ? `"${name}" is ${typeKey(annotated) === 'i32' ? 'an' : 'a'} ${typeKey(annotated)} by its ` +
             `uses, and its value "${inferredValue.written ?? ''}" is not one. Write the type, ` +
             `"let ${name}: ${authorTypeText(init.type)} = ${inferredValue.written ?? '...'}", ` +
@@ -1034,11 +1020,11 @@ function lowerDeclarationKind(
     aliasOf,
     decl.name,
     isConst ? foldIndexConst(init, scope) : undefined,
-    isConst && decl.type === undefined
+    isConst && writtenType === undefined
       ? abstractConstFor(name, decl.name, decl.initializer)
       : undefined,
     // `let y = k` has no declared type either: a `/` over `y` reaches `k` (Amendment A2).
-    decl.type === undefined
+    writtenType === undefined
       ? carriedBy(
           isConst ? 'const' : 'let',
           name,
@@ -1048,7 +1034,7 @@ function lowerDeclarationKind(
             scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
         )
       : undefined,
-    inferredValue,
+    inferredValue ?? listValueOf(init),
   );
   if (!bound) return undefined;
   // `let q = (1 | 2) / 2`: an integer position that reads `q` raises no second mistake.
@@ -1056,13 +1042,13 @@ function lowerDeclarationKind(
   if (refusedQuotient) markQuotientBinding(bound);
   // `let a = 3000000000 | 0` holds two readings, and so does `let b = a` (D2).
   // An annotation ends the origin (Rule 5.1): `let x: u32 = 3000000000 | 0` is a u32.
-  if (pendingKindlessRefusal(init) === undefined && decl.type === undefined) {
+  if (pendingKindlessRefusal(init) === undefined && writtenType === undefined) {
     markReadingsBinding(bound, init, (n) => scope.resolveIr(n));
   }
   // `let a = 1 | 2`: a `/` over `a` does not say which division it is (D-b, issue 1261). A
   // refused quotient is one mistake already.
   if (
-    decl.type === undefined &&
+    writtenType === undefined &&
     !refusedQuotient &&
     (kindlessOrigin(init, (n) => scope.resolveIr(n), sourceFile) === 'kindless' ||
       // A function's result, and a builtin, `?:` or `select` over one, carries the origin of
@@ -2355,6 +2341,7 @@ function lowerAssignOpTo(
     if (
       declared !== undefined &&
       !statesType(right) &&
+      !(value.op === 'lit' && !Number.isInteger(value.value) && isIntScalar(target.type)) &&
       (kindlessOrigin(value, (n) => scope.resolveIr(n), sourceFile) !== 'typed' ||
         !provenTyped(right))
     ) {
@@ -2394,13 +2381,12 @@ function lowerAssignOpTo(
     typeof value.value === 'number' &&
     isNumericScalar(target.type) &&
     // `a /= f32(2)`: a written conversion keeps its type (decision Q11 of change 0134).
-    !statesType(right)
+    !statesType(right) &&
+    (Number.isInteger(value.value) || !isIntScalar(target.type))
   ) {
     value = { op: 'lit', type: target.type, value: value.value };
   } else if (isVec(target.type) || isVec64(target.type) || isF64(target.type)) {
-    // `v *= 2` with an integer vector target types the literal as the element kind; a
-    // non-integer literal stays f32 and is diagnosed below instead of being truncated. A
-    // vec64 or f64 target makes the literal an f64 so the full double reaches the fp64 pass.
+    // `v *= 2` types the literal as the element kind, a fraction stays f32 (diagnosed below).
     value = retargetLit(value, right, target.type);
   }
   // `n += vi` gives a value its uses decide the type of what it adds (change 0134 item 1).

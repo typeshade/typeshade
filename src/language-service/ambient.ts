@@ -876,7 +876,7 @@ ${matTypeAliases}
 
 declare const arrayTag: unique symbol
 // The index signature is WRITABLE. \`out[gid.x] = value\` is the shape of every compute kernel
-// (examples/compute-reduction-twin.shade.ts), and the compiler lowers it to a storage store, so a
+// (examples/gallery/compute-reduction-twin/compute-reduction-twin.shade.ts), and the compiler lowers it to a storage store, so a
 // \`readonly\` here reported TS2542 ("Index signature ... only permits reading") on a program that
 // compiles. The tag and \`length\` stay readonly: neither is assignable in the source language.
 //
@@ -990,13 +990,13 @@ type ReadView<T> = T extends number | boolean
  * did before. */
 type uniform<T> = ReadView<T>
 /** A storage binding takes its access mode as a TYPE ARGUMENT, the way WGSL spells it:
- * \`storage<T>\` is \`var<storage, read>\` and \`storage<T, "read_write">\` is
+ * \`storage<T>\` is inferred from the program (change 0114, S3), and \`"read_write"\` keeps
  * \`var<storage, read_write>\`. The declaration keyword does not carry it, because a \`const\`
  * array in TypeScript forbids rebinding and permits \`arr[0] = 1\`, so \`declare let\` never meant
  * read_write to a reader. \`read_write\` hands back \`T\` itself, which is why \`out[gid.x] = 1.\`
  * in a compute kernel reports no TS2542 (ambient.test.ts, "a storage array is writable in the
  * editor, as it is in the compiler"). */
-type storage<T, A extends StorageBufferAccess = 'read'> = A extends 'read_write' ? T : ReadView<T>
+type storage<T, A extends StorageBufferAccess = 'read_write'> = A extends 'read_write' ? T : ReadView<T>
 /** THE SLOT THE CALL FORM MAY NAME. \`bindings.ts\` reads a bare number as the binding, two
  * numbers as the group and the binding, and an object literal as \`{ group, binding }\`; these
  * declarations took NO parameters, so every call form that named its slot was
@@ -1007,7 +1007,7 @@ type storage<T, A extends StorageBufferAccess = 'read'> = A extends 'read_write'
 ${renderJSDoc(FUNCTION_DOCS.uniform)}
 declare function uniform<T>(slot?: number | { group?: number; binding?: number }, binding?: number): ReadView<T>
 ${renderJSDoc(FUNCTION_DOCS.storage)}
-declare function storage<T, A extends StorageBufferAccess = 'read'>(slot?: number | { group?: number; binding?: number }, binding?: number): A extends 'read_write' ? T : ReadView<T>
+declare function storage<T, A extends StorageBufferAccess = 'read_write'>(slot?: number | { group?: number; binding?: number }, binding?: number): A extends 'read_write' ? T : ReadView<T>
 
 /** Specialization constants (#8 A7). TRANSPARENT, which \`uniform<T>\` no longer is: an
  * override's value arrives when the pipeline is built and a function body reads it as a plain

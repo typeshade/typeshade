@@ -39,6 +39,12 @@ type Spelling = {
 
 const join = (args: readonly string[]): string => args.join(', ');
 
+const glslGap = (what: string, where = 'on the WebGL2 tier', then = ''): Error =>
+  new Error(`glsl-es300: ${what} is not supported yet ${where} (Rule 10.5)${then}`);
+const IN_PASS =
+  '; a @compute entry that reaches no texture runs it on WebGL2 as its pass program (Rule 11.8)';
+const IN_STAGE = 'in a GLSL ES 3.00 stage';
+
 // The storage-emulation fetch, shared by the f32/u32/i32 ids below (X-GIS #1703). The 2D-tiled
 // index math is element-INDEPENDENT — only the sampler type the binding declares and the
 // component type it fetches change. One authority so the three ids cannot drift into
@@ -78,7 +84,9 @@ const storageFetchGlsl =
  *  nothing; the eight read-modify-write forms take a value and return the value the location
  *  held BEFORE the update. Every one takes its first argument as a LOCATION (`xs[i]`, a storage
  *  struct field, a bare atomic binding), which WGSL spells as a pointer, `&xs[i]`, and which the
- *  CPU backends resolve once and write back through. GLSL ES 3.00 has no atomics.
+ *  CPU backends resolve once and write back through. The GLSL lowering of an atomic is not
+ *  supported yet (Rule 10.5); a `@compute` entry that reaches no texture runs the atomics
+ *  other than `atomicCompareExchangeWeak` on WebGL2 as its pass program (Rule 11.8).
  *
  *  Exported from `typeshade`.
  */
@@ -113,9 +121,10 @@ export const ATOMIC_INTRINSICS: Readonly<
 
 /** The barriers (roadmap 0.2 item 5, #82): `workgroupBarrier()` and `storageBarrier()`,
  *  statements with no value that every invocation of a workgroup reaches before any runs on.
- *  WGSL spells them bare; GLSL ES 3.00 has no compute stage and no barrier. The CPU oracle runs
- *  them through `dispatch`, which holds each invocation of a workgroup at the barrier until
- *  all have arrived.
+ *  WGSL spells them bare. The GLSL lowering of a barrier is not supported yet (Rule 10.5); a
+ *  `@compute` entry that calls one runs on WebGL2 as its pass program (Rule 11.8) when it
+ *  reaches no texture. The CPU oracle runs them through `dispatch`, which holds each
+ *  invocation of a workgroup at the barrier until all have arrived.
  *
  *  Exported from `typeshade`.
  */
@@ -167,9 +176,7 @@ const atomicSpellings = (): Record<string, Spelling> =>
               ? `${name}(&${a[0]}, ${a[1]})`
               : `${name}(&${a[0]}, ${a[1]}, ${a[2]})`,
         glsl: () => {
-          throw new Error(
-            `glsl-es300: ${name} has no GLSL ES 3.00 spelling (no storage buffers, no atomics)`,
-          );
+          throw glslGap(name, IN_STAGE, name === 'atomicCompareExchangeWeak' ? '' : IN_PASS);
         },
       },
     ]),
@@ -190,9 +197,7 @@ function cubeArraySpellings(): Record<string, Spelling> {
     out[`${base}CubeArray`] = {
       wgsl: (a) => `${base}(${join(a)})`,
       glsl: () => {
-        throw new Error(
-          `glsl-es300: ${base} on a cube array has no GLSL ES 3.00 spelling (no samplerCubeArray)`,
-        );
+        throw glslGap(`${base} on a cube array`);
       },
     };
   }
@@ -246,9 +251,7 @@ function gatherSpellings(): Record<string, Spelling> {
     out[id] = {
       wgsl: (a) => `${wgslName}(${join(a)})`,
       glsl: () => {
-        throw new Error(
-          `glsl-es300: ${wgslName} has no GLSL ES 3.00 spelling (textureGather is ES 3.10)`,
-        );
+        throw glslGap(wgslName);
       },
     };
   }
@@ -809,9 +812,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   arrayLength: {
     wgsl: (a) => `arrayLength(&${a[0]})`,
     glsl: () => {
-      throw new Error(
-        'glsl-es300: arrayLength has no GLSL ES 3.00 spelling (no storage buffers, no runtime-sized arrays)',
-      );
+      throw glslGap('arrayLength');
     },
   },
   // atomicLoad(&x), atomicAdd(&x, v), ... — the location argument is a pointer on WGSL, and
@@ -874,42 +875,36 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   textureStore: {
     wgsl: (a) => `textureStore(${join(a)})`,
     glsl: () => {
-      throw new Error(
-        'glsl-es300: textureStore has no GLSL ES 3.00 spelling (image load/store is ES 3.10)',
-      );
+      throw glslGap('textureStore');
     },
   },
-  // The barriers take no argument and return nothing; GLSL ES 3.00 has no compute stage.
+  // The barriers take no argument and return nothing.
   workgroupBarrier: {
     wgsl: () => 'workgroupBarrier()',
     glsl: () => {
-      throw new Error(
-        'glsl-es300: workgroupBarrier has no GLSL ES 3.00 spelling (no compute stage)',
-      );
+      throw glslGap('workgroupBarrier', IN_STAGE, IN_PASS);
     },
   },
   storageBarrier: {
     wgsl: () => 'storageBarrier()',
     glsl: () => {
-      throw new Error('glsl-es300: storageBarrier has no GLSL ES 3.00 spelling (no compute stage)');
+      throw glslGap('storageBarrier', IN_STAGE, IN_PASS);
     },
   },
   textureBarrier: {
     wgsl: () => 'textureBarrier()',
     glsl: () => {
-      throw new Error('glsl-es300: textureBarrier has no GLSL ES 3.00 spelling (no compute stage)');
+      throw glslGap('textureBarrier', IN_STAGE);
     },
   },
   // `workgroupUniformLoad(&w)` (#152, wgsl.txt:26057): one value read from workgroup memory,
   // with a barrier on each side, so every invocation of the workgroup gets the same one. The
-  // argument is a POINTER on WGSL, spelled here the way the atomics' is. GLSL ES 3.00 has no
-  // compute stage and so no workgroup memory to read uniformly.
+  // argument is a POINTER on WGSL, spelled here the way the atomics' is. The GLSL lowering is
+  // deferred (Rule 10.5).
   workgroupUniformLoad: {
     wgsl: (a) => `workgroupUniformLoad(&${a[0]})`,
     glsl: () => {
-      throw new Error(
-        'glsl-es300: workgroupUniformLoad has no GLSL ES 3.00 spelling (no compute stage)',
-      );
+      throw glslGap('workgroupUniformLoad', IN_STAGE);
     },
   },
   textureDimensions: {
@@ -938,33 +933,25 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   textureLoadMs: {
     wgsl: (a) => `textureLoad(${join(a)})`,
     glsl: () => {
-      throw new Error(
-        'glsl-es300: a multisampled load has no GLSL ES 3.00 spelling (sampler2DMS is ES 3.10)',
-      );
+      throw glslGap('a multisampled load');
     },
   },
   textureLoadDepthMs: {
     wgsl: (a) => `textureLoad(${join(a)})`,
     glsl: () => {
-      throw new Error(
-        'glsl-es300: a multisampled depth load has no GLSL ES 3.00 spelling (sampler2DMS is ES 3.10)',
-      );
+      throw glslGap('a multisampled depth load');
     },
   },
   textureDimensionsMs: {
     wgsl: (a) => `textureDimensions(${join(a)})`,
     glsl: () => {
-      throw new Error(
-        'glsl-es300: textureDimensions on a multisampled texture has no GLSL ES 3.00 spelling',
-      );
+      throw glslGap('textureDimensions on a multisampled texture');
     },
   },
   textureNumSamples: {
     wgsl: (a) => `textureNumSamples(${join(a)})`,
     glsl: () => {
-      throw new Error(
-        'glsl-es300: textureNumSamples has no GLSL ES 3.00 spelling (textureSamples is ES 3.10)',
-      );
+      throw glslGap('textureNumSamples');
     },
   },
   // textureDimensions1d(t) — ONE wide, a `u32` (roadmap 0.4 item 12); its own id for the reason
@@ -972,7 +959,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   textureDimensions1d: {
     wgsl: (a) => `textureDimensions(${join(a)})`,
     glsl: () => {
-      throw new Error('glsl-es300: textureDimensions on a texture_1d has no GLSL ES 3.00 spelling');
+      throw glslGap('textureDimensions on a texture_1d');
     },
   },
   // textureNumLayers(t) — the layer COUNT of a 2d-array texture (X-GIS #1658), i.e. the
@@ -995,9 +982,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   textureNumLayersStorage: {
     wgsl: (a) => `textureNumLayers(${join(a)})`,
     glsl: () => {
-      throw new Error(
-        'glsl-es300: a storage texture has no GLSL ES 3.00 spelling (image load/store is ES 3.10)',
-      );
+      throw glslGap('a storage texture');
     },
   },
   // ── The packed 4x8 integer family (#152, wgsl.txt:21906/21920) ──

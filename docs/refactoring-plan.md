@@ -3,6 +3,7 @@
 This plan separates compiler responsibilities while preserving authored programs, diagnostics,
 emitted output and public APIs. File length alone does not justify a split.
 The [1.0 roadmap](roadmap.md) remains the product scope authority.
+The [second-phase structure plan](structure-refactoring-plan.md) continues this work.
 
 ## Baselines and authority
 

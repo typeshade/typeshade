@@ -59,7 +59,7 @@ import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { addsTo, colourOf } from './host-face/entry-shapes.js';
-import { grownChecked, madeFace } from './host-face/made.js';
+import { grownChecked, lowerKernelFor, madeFace } from './host-face/made.js';
 import { exportsOf, type ExportRef } from './host-face/exports.js';
 import { wgslLoweredOf } from './source-file/wgsl-lowered.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
@@ -76,7 +76,6 @@ import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.j
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
 import { buildGlCompute, type GlComputeProgram } from '../../core/passes/gl-compute.js';
 import {
-  lowerKernel,
   lowerKernelGl,
   type KernelLoopPlan,
   type KernelPlan,
@@ -684,17 +683,17 @@ function noCpuTier(
     (b) => (b.space === 'texture' || b.space === 'sampler') && !('guard' in b),
   );
   if (handle !== undefined)
-    return `it reaches the ${handle.s} "${handle.name}", which the CPU tier cannot read`;
+    return `it reaches the ${handle.s} "${handle.name}", which is not supported yet on the CPU tier (Rule 8.24)`;
   for (const g of closure)
     for (const n of [...(c.entry.reads.get(g) ?? []), ...(c.entry.writes.get(g) ?? [])]) {
       const b = c.entry.bindings.find((x) => x.name === n);
       if (b !== undefined && CPU_HANDLES.has(b.type.kind))
-        return `it reaches the ${spell(b.type)} "${b.name}", which the CPU tier cannot read`;
+        return `it reaches the ${spell(b.type)} "${b.name}", which is not supported yet on the CPU tier (Rule 8.24)`;
     }
   for (const g of closure) {
     const gpu = gpuOnlyCall(c.byName.get(g)!, c.entry.declared);
     if (gpu !== undefined && !isAtomicIntrinsic(gpu) && !isBarrierIntrinsic(gpu))
-      return `it reaches ${gpu}(), which only a GPU computes`;
+      return `it reaches ${gpu}(), which is not supported yet on the CPU tier (Rule 8.24)`;
   }
   return undefined;
 }
@@ -888,7 +887,7 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   if ('none' in result) return never(name, `its result: ${result.none}`);
   const face: KernelFace = { name, fn: f.name, params, result };
   const proof = proveKernels(m).find((p) => p.fn === f.name);
-  const plan = proof === undefined ? { noGpu: 'it was not proved' } : lowerKernel(f, m, proof);
+  const plan = proof === undefined ? { noGpu: 'it was not proved' } : lowerKernelFor(f, m, proof);
   if ('noGpu' in plan)
     return { kind: 'kernel', name, face: { ...face, noGpu: plan.noGpu }, ranges: [] };
   let wgsl: string;
@@ -1305,7 +1304,7 @@ function heldVariant(
   m: ModuleDecl,
   proof: KernelProof,
 ): NonNullable<NonNullable<KernelFace['gpu']>['held']> | undefined {
-  const plan = lowerKernel(f, m, proof, { held: true });
+  const plan = lowerKernelFor(f, m, proof, { held: true });
   if ('noGpu' in plan) return undefined;
   let wgsl: string;
   let wgslInteger: string | undefined;

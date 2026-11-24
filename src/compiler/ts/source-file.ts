@@ -8,7 +8,6 @@ import {
   beginUseInferencePass,
   callersSwitchedOff,
   endUseInferencePass,
-  settleUseInference,
   switchCallersOff,
   switchedOffCalls,
 } from './use-inference.js';
@@ -45,6 +44,7 @@ import { emitWgslKept } from './source-file/wgsl-lowered.js';
 import { kernelLoopDiagnostics } from './kernel-loops.js';
 import { findUseTypeshadeDirective, hasUseTypeshadeDirective, USE_TYPESHADE } from './directive.js';
 import { lowerSourceFunctions } from './lower/function.js';
+import { dropDeadStorageWriters, settleInference } from './storage-access.js';
 import { sequenceEffects } from './sequence.js';
 import { analyzeSemantics, carryRefusals, reportUndeclaredValues } from './semantic.js';
 import { collectModuleConsts } from './module-const.js';
@@ -285,7 +285,7 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
     } finally {
       endUseInferencePass(outer);
     }
-    if (!settleUseInference(sourceFile) || callersSwitchedOff(sourceFile)) {
+    if (!settleInference(sourceFile, compiled.result) || callersSwitchedOff(sourceFile)) {
       return callersSwitchedOff(sourceFile) ? withCapNotes(compiled, sourceFile) : compiled;
     }
     // The passes ran out with results that callers decide still moving: one more pass with
@@ -353,7 +353,6 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
     }
     return { result };
   }
-
   // A file TypeScript could not parse is not lowered. The tree it hands back is the parser's
   // recovery, not the author's program: lowering it produced a cascade of misleading TypeShade
   // diagnostics at best and, for `vec4(3.14`, a clean WGSL emit at worst. Its parse errors are
@@ -440,6 +439,7 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   // 0135). Before anything reads a location: the interstage check below, the writers and
   // `reflect()`.
   giveEntryLocations(sourceFile, diagnostics, structs, funcs);
+  dropDeadStorageWriters(sourceFile, funcs, bindings);
   // The optional structs the functions and the structs use (Rule 7.10, changes 0088 and
   // 0093): declared by no file, each placed before the first struct that holds it and after
   // the struct its `T` names (decision D11), and emitted as the ordinary structs they are.

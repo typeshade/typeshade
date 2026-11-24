@@ -9,7 +9,7 @@
 // dispatch, is checked in a browser by the import journey (`scripts/user-journey.ts`).
 
 import { afterAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -28,6 +28,7 @@ import { copy, runKernelPlan } from '../../core/testing/kernel-plan.js';
 import { tscDiagnostics } from '../../core/testing/tsc-diagnostics.js';
 import type { CpuValue } from '../../core/cpu-runtime.js';
 import { createTypeshadeLanguageService } from '../../language-service/service.js';
+import { exampleSource } from '../../../examples/_example-file.js';
 
 const RUNTIME = resolve(__dirname, '../../core/host-runtime.ts');
 // `array()` of `typeshade/runtime`, which makes a `Buffer` (change 0138, Amendment A10, Q-I).
@@ -1482,9 +1483,8 @@ export function scale(xs: array<f64>, k: f64) {
   it('holds on the shipped loop examples: as before without the option, and the IR is the WGSL with it', () => {
     // The kernel functions of these three leave no helper of their file unreached.
     for (const example of ['loop-kernel', 'loop-reduction', 'loop-struct-array']) {
-      const file = `${example}.shade.ts`;
-      const source = readFileSync(resolve(__dirname, '../../../examples', file), 'utf8');
-      const options = { fileName: `/app/${file}`, runtime: RUNTIME };
+      const source = exampleSource(example);
+      const options = { fileName: `/app/${example}.shade.ts`, runtime: RUNTIME };
       const off = hostFace(source, { ...options, fuse: false });
       const on = hostFace(source, { ...options, fuse: true });
       expect(off.code, example).not.toMatch(/"fuse"|"iteration"|"iterates"|"continues"/);

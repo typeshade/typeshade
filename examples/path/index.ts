@@ -182,7 +182,7 @@ export const pathExamples: readonly PathExample[] = [
     part: 'GPU compute',
     title: 'Histogram',
     blurb:
-      'Step 15 of the learning path. Many invocations count into the same bin at once. `bins[bin] = bins[bin] + 1` would lose counts, because two invocations read the same old value. `atomicAdd` is one indivisible step, so no count is lost. The host reads eight counts, and each count is the height of one bar. Atomics need a storage buffer, so this step lists WebGPU and the CPU tier.',
+      'Step 15 of the learning path. Many invocations count into the same bin at once. `bins[bin] = bins[bin] + 1` would lose counts, because two invocations read the same old value. `atomicAdd` is one indivisible step, so no count is lost. The host reads eight counts, and each count is the height of one bar. Atomics run on WebGPU, on WebGL2 as the pass program of Rule 11.8 and on the CPU tier, so this step lists all three.',
     shadeFile: 'path/histogram/histogram.shade.ts',
     shadeSource:
       '"use typeshade";\n\n// Step 15. A value from 0 to 1 lands in one of eight bins. The atomic add counts it without a lost update.\ndeclare const values: storage<array<f32>>;\ndeclare const bins: storage<array<atomic<u32>>, "read_write">;\n\n@compute([64])\nexport function histogram(gid: builtin<"global_invocation_id">) {\n  if (gid.x >= values.length) {\n    return;\n  }\n  const bin = u32(clamp(values[gid.x], 0.0, 0.999) * 8.0);\n  atomicAdd(bins[bin], 1);\n}\n',

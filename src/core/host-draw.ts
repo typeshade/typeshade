@@ -110,7 +110,6 @@ export interface FragmentEntry {
   };
   /** Why the WebGL2 tier cannot draw the entry, when it cannot. */
   readonly noGl?: string;
-  /** Why the CPU tier cannot draw the entry, when it cannot. */
   readonly noCpu?: string; /** As a compute entry's: whether the WGSL records `console.*` calls, and the log. */
   readonly console?: true;
   readonly log?: ConsoleLog;
@@ -232,10 +231,10 @@ const canvases = new WeakMap<object, CanvasState>();
  *
  * The promise resolves when the frame is submitted; nothing is read back.
  *
- * @throws `TypeError` naming the entry and the binding for a value that does not fit, and for an
- *   entry no tier can draw into this canvas, and for a call made inside the body of `fuse()`,
- *   which records no draw (change 0058), and for a scratch array of a `fuse` scope, which only
- *   the kernel calls in the body take.
+ * @throws `TypeError` naming the entry and the binding for a value that does not fit, for an
+ *   entry no tier can draw into this canvas, for a call made inside the body of `fuse()`, which
+ *   records no draw (change 0058), and for a scratch array of a `fuse` scope, which only the
+ *   kernel calls in the body take.
  */
 export function callDraw(
   cpu: GeneratedCpu,
@@ -343,10 +342,11 @@ async function painterFor(
     const c2d = canvas.getContext('2d', { alpha: false }) as Ctx2d | null;
     if (c2d !== null) return cpuPainter(c2d, canvas);
   }
+  const gap = (t: string, r: string) => `not supported yet on the ${t} tier (Rule 8.24): ${r}`;
   const why = [
     d === null ? 'there is no WebGPU' : 'the canvas hands out no webgpu context',
-    first.gl === undefined ? `no WebGL2 tier (${first.noGl ?? 'unknown'})` : 'no webgl2 context',
-    first.noCpu === undefined ? 'no 2d context' : `no CPU tier (${first.noCpu})`,
+    first.gl === undefined ? gap('WebGL2', first.noGl ?? 'unknown') : 'no webgl2 context',
+    first.noCpu === undefined ? 'no 2d context' : gap('CPU', first.noCpu),
   ];
   throw new TypeError(`${first.name}(): nothing can draw it into this canvas: ${why.join('; ')}.`);
 }
@@ -354,7 +354,7 @@ async function painterFor(
 /** Why `e` cannot draw on a tier, as a `TypeError` naming the tiers it has. */
 function noTier(e: FragmentEntry, tier: string, why: string | undefined): TypeError {
   return new TypeError(
-    `${e.name}(): this canvas draws on ${tier}, and ${e.name} has no ${tier} tier: ${why ?? 'unknown'}.`,
+    `${e.name}(): this canvas draws on ${tier}, and ${e.name} is not supported yet on the ${tier} tier (Rule 8.24): ${why ?? 'unknown'}.`,
   );
 }
 
@@ -362,11 +362,11 @@ function noTier(e: FragmentEntry, tier: string, why: string | undefined): TypeEr
 //
 // Each tier draws through the program runtime of `src/runtime/`: WebGPU and the CPU tier through
 // `RuntimeImpl` over the RHI device of the tier, WebGL2 through `GlRuntimeImpl` over the canvas's
-// context. A draw loads the entry's draw manifest (below) as a `Program`, takes its render
-// pipeline of the full-screen triangle and the entry, and records one pass into the canvas that
-// clears to opaque black and draws 3 vertices. The program, the pipeline and the bind group
-// layouts are made once for each entry on each device; a draw whose shapes repeat takes its
-// buffers from the runtime's pool and its bind groups from the runtime's cache.
+// context. A draw loads the entry's draw manifest (below) as a `Program`, takes its render pipeline
+// of the full-screen triangle and the entry, and records one pass into the canvas that clears to
+// opaque black and draws 3 vertices. The program, the pipeline and the bind group layouts are made
+// once for each entry on each device; a draw whose shapes repeat takes its buffers from the
+// runtime's pool and its bind groups from the runtime's cache.
 
 /** The name of the full-screen vertex entry a draw manifest adds. A WGSL identifier may not start
  *  with two underscores, so it is spelled in full; no emitted name of a module takes it. */
@@ -764,7 +764,7 @@ function programPainter(
           const img = f.images.get(b.name)!;
           if (img.view !== undefined)
             throw new TypeError(
-              `${e.name}(): binding "${b.name}" is a Texture on the WebGPU device, which the WebGL2 tier cannot read; pass an image source for a draw that may fall back.`,
+              `${e.name}(): binding "${b.name}" is a Texture on the WebGPU device, which the WebGL2 tier does not read yet (Rule 8.24); pass an image source for a draw that may fall back.`,
             );
           const texture = glImageTexture(rhi, img);
           textures.push(texture);

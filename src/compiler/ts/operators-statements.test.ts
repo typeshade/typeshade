@@ -481,7 +481,7 @@ export function g(x: f32): f32 { dst[0] = x; return x }
     [
       'a labelled statement',
       `export function f(): f32 { let a = 0.; outer: for (let i = 0; i < 3; i++) { break outer } return a }`,
-      /neither WGSL nor GLSL ES 3\.00 has a label/,
+      /the IR has no label/,
     ],
   ])('refuses %s with its own reason, not the catch-all', (_what, source, match) => {
     expect(diagnose(source).message).toMatch(match);

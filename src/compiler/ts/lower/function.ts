@@ -16,8 +16,7 @@ import type {
 } from '../../../core/ir/nodes.js';
 import { setParameterLocals } from '../../../core/ir/parameter-locals.js';
 import type { SourceSpan } from '../../../core/ir/span.js';
-import type { ShaderType } from '../../../core/ir/types.js';
-import { f32T, structT, voidT } from '../../../core/ir/types.js';
+import { f32T, structT, voidT, type ShaderType } from '../../../core/ir/types.js';
 import { guardKernelBody } from '../../../core/passes/kernel-stores.js';
 import { alwaysReturns } from '../../../core/passes/lint/rules/all-paths-return.js';
 import {
@@ -92,6 +91,7 @@ import type { TsCompilerDiagnostic } from '../source-file.js';
 import { spanOf, withSpan } from '../span.js';
 import { stageCallOf, stageCallOfDeclaration, stageDeclarationOf } from '../stage-call.js';
 import { checkEntryStageUses } from '../stage-restrictions.js';
+import { isInferredStorageAccess } from '../storage-access.js';
 import { type CollectedStruct } from '../structs.js';
 import {
   recordDeclaration,
@@ -123,6 +123,7 @@ import {
   type Receiver,
 } from './class-methods.js';
 import { closureUse, declarationOf } from './closures.js';
+import { valueExprBinding } from './expression-array/list-values.js';
 import { lowerExpression } from './expression.js';
 import { argumentSignature, capturesOfArgument, functionArgument } from './function-args.js';
 import {
@@ -2114,7 +2115,7 @@ export function lowerSourceFunctions(
       path.map((f) => nodeByName.get(f.name)),
     );
   }
-  checkEntryStageUses(funcs, vars, nodeByName, sourceFile, diagnostics);
+  checkEntryStageUses(funcs, vars, bindings, nodeByName, sourceFile, diagnostics);
   // A read before an assignment, on the source (Rule 7.6).
   checkDefiniteAssignment(sourceFile, diagnostics);
   // Two references to one place in one call, read off the lowered calls once every callee says
@@ -2350,7 +2351,7 @@ export function functionScope(
       ...(moduleAbstractConst(sourceFile, c.name) !== undefined
         ? { abstract: moduleAbstractConst(sourceFile, c.name) }
         : {}),
-      ...(c.type.kind !== 'scalar' && c.valueExpr !== undefined ? { valueExpr: c.valueExpr } : {}),
+      ...valueExprBinding(c),
     });
   }
   for (const b of bindings) {
@@ -2358,15 +2359,14 @@ export function functionScope(
       kind: 'binding',
       name: b.name,
       type: b.type,
-      mutable: b.access === 'read_write',
+      mutable: b.access === 'read_write' || isInferredStorageAccess(sourceFile, b.name),
       space: b.space,
     });
   }
   // An override reads as an `overrideref`, which no pass folds: its value arrives when the
   // pipeline is built, not when the module is compiled (#8 A7).
-  for (const o of overrides) {
+  for (const o of overrides)
     defineOnce({ kind: 'override', name: o.name, type: o.type, mutable: false });
-  }
   // A module variable (§24) reads and writes as a `varref`, like a binding; its space decides
   // what may hold an atomic and which stage may reach it.
   for (const v of vars) {
