@@ -48,6 +48,7 @@ import type { Slot, Built, DrawRun } from './gl-draw/pipeline-types.js';
 import { textureOf, samplerOf } from './gl-draw/draw-handles.js';
 import { GlPass } from './gl-draw/pass.js';
 import { checkState } from './gl-draw/state-check.js';
+import { refuseBias } from './gl-draw/depth-bias.js';
 export { recordPass } from './gl-draw/record-pass.js';
 export { GlPass } from './gl-draw/pass.js';
 export { textureOf, samplerOf } from './gl-draw/draw-handles.js';
@@ -55,29 +56,6 @@ export { GlSamplerImpl } from './gl-draw/sampler.js';
 export { GlTextureImpl } from './gl-draw/texture.js';
 export { glslNameOf } from './gl-draw/glsl-name.js';
 export { GlDrawing } from './gl-draw/drawing.js';
-
-const BIASED_FORMATS: readonly string[] = ['depth24plus', 'depth32float', 'depth24plus-stencil8'];
-
-function refuseBias(
-  prefix: string,
-  depth: NonNullable<RenderPlan['depth']>,
-  clampExtension: boolean,
-): void {
-  const b = depth.bias;
-  const biased = BIASED_FORMATS.includes(depth.format);
-  if (b.constant !== 0 && !biased)
-    throw new TypeError(
-      `${prefix} sets depth.bias.constant on ${depth.format}; the WebGL2 tier takes a bias on depth24plus, depth32float and depth24plus-stencil8 only.`,
-    );
-  if (b.slopeScale !== 0 && !biased)
-    throw new TypeError(
-      `${prefix} sets depth.bias.slopeScale to ${b.slopeScale} on ${depth.format}; the WebGL2 tier takes a bias on depth24plus, depth32float and depth24plus-stencil8 only.`,
-    );
-  if (b.clamp !== 0 && !clampExtension)
-    throw new TypeError(
-      `${prefix} sets depth.bias.clamp to ${b.clamp}; a non-zero clamp is not supported yet on the WebGL2 tier without EXT_polygon_offset_clamp (Rule 11.11), and this context lacks it.`,
-    );
-}
 
 export class GlRenderPrograms {
   readonly #pipelines = new Map<string, Promise<GlRenderPipelineImpl>>();
