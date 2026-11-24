@@ -33,7 +33,7 @@ downstream:
 | Date and attribution          | First drafted 2026-11-06 UTC by Codex, on pull request #1037 (draft, not merged). Rewritten 2026-11-24 UTC by a Claude agent for the orchestrating session. The date records authorship. The decision date is in the approval record.                                                                                                   |
 | Applicability / Effectivity   | `docs/language-design.md` Rules 11.7 and 11.8 and a new Rule 11.24; `docs/use-typeshade-surface.md` section 65; the package root exports; a new file of `src/core/cpu-codegen/`. The language and the shader vocabulary do not change. Release version unassigned (OD-6).                                                               |
 | Review baseline               | `typeshade/typeshade` `origin/main` at `be2e83de6ba5cdaddc2b8f19a74f98061bad78fe` (the merge of PR #1545). The old draft's baseline was `324251dfe7755f78041eb44a1bfe85e4294e12dd`. TypeAudio at `575b42baa13ee666cc050b25da1e63720dfbf6e4` and Web at `769f3e7818329e1cc936048afb56e8724f34a9d3` are the evidence the old draft cited. |
-| Review and revision authority | This revision supersedes pull request #1037. The number of the pull request that carries this revision is recorded in the approval record. Git records revisions. Review and merge records are the decision evidence.                                                                                                                   |
+| Review and revision authority | This revision supersedes pull request #1037. Pull request #1555 carries this revision. Git records revisions. Review and merge records are the decision evidence.                                                                                                                                                                       |
 
 ## What changes
 
@@ -255,10 +255,11 @@ Until then, this record is open.
 - Decision. [decision, owner, 2026-11-24] The owner said in the conversation, in Korean: "제대로 다시, 저의 의견이 사실 필요 없거든요" (do it properly again, my opinion is not actually needed). The owner thereby delegated the triage decisions to the orchestrating session. The session decided to accept the direction. Its ground: TypeAudio's rule says the compiler side decides how to meet a downstream need, and the compiler's work meets this one (OD-3).
 - Decisions D1 to D10. The orchestrating session adopted the recommended option of each (table in "Why"). The owner did not read the options or the before and after example before this record. This is a deviation from OD-4 and from `changes/README.md`. Its disposition is open: the owner can read the example in "What changes" before saying "merge".
 - Merge. `CLAUDE.md` (Merging) keeps a new proposal for the owner's word "merge". The owner's delegation of 2026-11-24 is recorded here. It is not that word.
+- Pull request. #1555 carries this revision.
 - Supersedes. Pull request #1037 (draft). It carried the earlier draft of 2026-11-06 with `emitCpuKernel`, `CpuKernelArtifact` and `CpuKernelOptions`, at baseline `324251df`. This revision drops `CpuKernelOptions` as an export (D2). It also drops the old list of refused forms in favour of the closure check (D5).
 - Approved revision and scope. The revision of this file that the pull request merges. The scope is the front matter: Rules 11.8 and 11.24, surface section 65, and the two exports.
 - Responsibilities and milestones. Not assigned. No schedule is agreed.
-- Open at acceptance: the independent review (above); the owner's reading of the example; the pull request number of this revision; the implementation; the downstream work below.
+- Open at acceptance: the independent review (above); the owner's reading of the example; the implementation; the downstream work below.
 
 ### Configuration and validation record
 
