@@ -49,9 +49,8 @@ import type {
   RhiTexture,
   RhiTextureDesc,
   RhiTextureView,
-  RhiVertexBufferLayout,
 } from './rhi.js';
-import type { GL, Slot, DrawState, Attachment } from './webgl2/types.js';
+import type { GL, Slot, Attachment } from './webgl2/types.js';
 import { formatOf } from './webgl2/format.js';
 import { GlState } from './webgl2/state.js';
 import { compareOf, drawStateOf, setState } from './webgl2/draw-state.js';
@@ -69,27 +68,13 @@ import {
   GlCanvas,
 } from './webgl2/handles.js';
 import { firstVertexLast } from './webgl2/provoking-vertex.js';
+import { GlPipeline } from './webgl2/pipeline.js';
+export { glReadBindings } from './webgl2/pipeline.js';
 export { firstVertexLast } from './webgl2/provoking-vertex.js';
 export { DATA_WIDTH } from './webgl2/data-texture.js';
 export { GL_TOPOLOGY, GL_BLEND_FACTOR, GL_BLEND_OPERATION } from './webgl2/draw-state.js';
 export { textureKindOf } from './webgl2/format.js';
 export type { GlTextureKind } from './webgl2/types.js';
-
-class GlPipeline implements RhiRenderPipeline {
-  readonly __rhi = 'pipeline' as const;
-  constructor(
-    readonly program: WebGLProgram,
-    readonly slots: readonly (readonly Slot[])[],
-    readonly state: DrawState,
-    readonly vao: WebGLVertexArrayObject,
-    readonly buffers: readonly RhiVertexBufferLayout[],
-    readonly flat: boolean,
-  ) {}
-}
-
-export function glReadBindings(pipeline: RhiRenderPipeline): readonly (readonly number[])[] {
-  return (pipeline as GlPipeline).slots.map((group) => group.map((s) => s.binding));
-}
 
 const NO_COLOUR = `#version 300 es
 precision highp float;
