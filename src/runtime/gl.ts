@@ -14,7 +14,6 @@ import {
 } from '../core/manifest-types.js';
 import {
   decide,
-  kernelQueue,
   layoutKind,
   residentState,
   tentatively,
@@ -50,6 +49,7 @@ import {
   textureOf,
 } from './gl-draw.js';
 import { storageOf, packWords, type Given, type GlPipelineOwner } from './gl/binding-values.js';
+import { GlFrameImpl } from './gl/frame.js';
 
 export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
   readonly info: DeviceInfo;
@@ -367,58 +367,3 @@ const GL_TARGET: Readonly<Record<string, string>> = {
   '3d': 'TEXTURE_3D',
   cube: 'TEXTURE_CUBE_MAP',
 };
-
-class GlFrameImpl implements Frame {
-  readonly #runs: (() => Promise<void> | void)[] = [];
-  readonly #written = new Set<ResidentArrayState>();
-  #submitted = false;
-
-  constructor(private readonly drawing: GlDrawing) {}
-
-  get encoder(): object {
-    throw new TypeError('A frame on WebGL2 has no GPUCommandEncoder.');
-  }
-
-  record(run: () => Promise<void> | void, written: readonly ResidentArrayState[]): void {
-    if (this.#submitted)
-      throw new TypeError('This frame was submitted already; make a new one with rt.frame().');
-    this.#runs.push(run);
-    for (const s of written) this.#written.add(s);
-  }
-
-  dispatch<B>(
-    pipeline: ComputePipeline<B>,
-    bindings: NoInfer<B>,
-    workgroups: number | readonly number[],
-  ): void {
-    pipeline.dispatch(this, bindings, workgroups);
-  }
-
-  pass(targets: PassTargets, record: (pass: RenderPass) => void): void {
-    this.record(recordPass(this.drawing, targets, record), []);
-  }
-
-  async runNow(): Promise<void> {
-    this.#submitted = true;
-    for (const run of this.#runs) await run();
-  }
-
-  submit(): ReturnType<Frame['submit']> {
-    if (this.#submitted)
-      return Promise.reject(
-        new TypeError('This frame was submitted already; make a new one with rt.frame().'),
-      );
-    this.#submitted = true;
-    const runs = this.#runs;
-    const written = [...this.#written];
-    const done = kernelQueue.run(async () => {
-      for (const run of runs) await run();
-      return { console: [] };
-    });
-    done.then(
-      () => written.forEach((s) => (s.error = undefined)),
-      (err: unknown) => written.forEach((s) => (s.error = err)),
-    );
-    return done;
-  }
-}
