@@ -285,24 +285,29 @@ through the owner's account can too, so the rule is written here:
     reads "pure". A pull request runs its own copy of the checker, so the run on `main` is the
     one that counts. The owner approved this on 2026-11-24: "승인".
   - a pull request that raises a budget of `scripts/bundle-budget.json` because a `Move: pure`
-    range adds modules to a bundle (`docs/structure-slice-playbook.md`, The bundle budget). The
-    owner approved this on 2026-11-24 with the word "추천". All of these conditions hold:
+    range adds modules to a bundle. The owner approved this on 2026-11-24 with the word "추천".
+    A number here is `bytes`, `split.initial` or `split.total` of one bundle in that file. All
+    of these conditions hold:
     - It changes only `scripts/bundle-budget.json` and the record of the rise in `CHANGELOG.md`.
-    - Its body names the pull request of the moves and the commit hash of their head.
-    - Its body gives the measured bytes of `origin/main` and of `origin/main` merged with that
-      commit.
-    - It changes only `bytes`, `split.initial` and `split.total`, and only where that merge is
-      over the budget. A floor never changes.
-    - Each new number is the measured number of that merge.
-    - It raises each number by at most 0.2% of that number's value on `origin/main`.
-    - No number goes more than 1% above its value at
-      `c4a12d3fa2d4847809eeba52a1278dbedee2346c`. A bundle without a budget at that commit is
-      not covered.
-    - No shape of the split that the rules of File size allow avoids the rise.
+    - It covers one pull request of moves. Its body names that pull request, the commit of its
+      head and the commit of `origin/main` that was measured.
+    - `bun scripts/bundle-boundary.ts` passes on that commit of `origin/main`. If it fails
+      there, the rise has another cause.
+    - It changes a number only where that commit of `origin/main`, merged with the head of the
+      moves, is over the budget. A floor never changes.
+    - Each new number is the number that the check measures on that merge.
+    - Each new number is at most 0.2% above the number in the file on `origin/main`.
+    - Each new number is at most 1% above the number in the file at
+      `c4a12d3fa2d4847809eeba52a1278dbedee2346c`. A number that is absent there is not covered.
+    - The split adds no module that the rules of File size do not ask for. The body lists the
+      new modules.
     - Before the merge, the merging agent runs the checker of `main` on the range of the moves
       and reads "pure".
-    - Before the merge, the merging agent measures the same merge again and gets the same
-      numbers.
+    - Before the merge, the merging agent measures again on the current `origin/main`. If a
+      number differs, the pull request takes the new number first.
+    - The agent that merges it merges the pull request of the moves next. If the moves do not
+      merge, its next pull request sets the numbers back, and that pull request is approved in
+      advance too.
 
     Past a limit, and for a rise from any other cause, the owner decides.
 
