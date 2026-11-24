@@ -49,7 +49,7 @@ import {
   samplerOf,
   textureOf,
 } from './gl-draw.js';
-import { storageOf, packWords, type Given } from './gl/binding-values.js';
+import { storageOf, packWords, type Given, type GlPipelineOwner } from './gl/binding-values.js';
 
 export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
   readonly info: DeviceInfo;
@@ -103,7 +103,7 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
   }
 
   frame(): Frame {
-    return new GlFrameImpl(this);
+    return new GlFrameImpl(this.drawing);
   }
 
   runPass(targets: PassTargets, record: (pass: RenderPass) => void): Promise<void> {
@@ -111,7 +111,7 @@ export class GlRuntimeImpl implements Runtime<WebGL2RenderingContext> {
   }
 
   async runFrame(record: (frame: Frame) => void): Promise<void> {
-    const frame = new GlFrameImpl(this);
+    const frame = new GlFrameImpl(this.drawing);
     record(frame);
     await frame.runNow();
   }
@@ -135,7 +135,7 @@ class GlProgramImpl implements Program {
   #render: GlRenderPrograms | undefined;
 
   constructor(
-    readonly rt: GlRuntimeImpl,
+    readonly rt: GlPipelineOwner['rt'],
     readonly manifest: Pack,
   ) {}
 
@@ -199,7 +199,7 @@ class GlProgramImpl implements Program {
 
 class GlComputePipelineImpl implements ComputePipeline {
   constructor(
-    private readonly program: GlProgramImpl,
+    private readonly program: GlPipelineOwner,
     private readonly e: PackEntry,
     private readonly gl: PackGlCompute,
     readonly workgroupShape: readonly [number, number, number],
@@ -373,7 +373,7 @@ class GlFrameImpl implements Frame {
   readonly #written = new Set<ResidentArrayState>();
   #submitted = false;
 
-  constructor(private readonly rt: GlRuntimeImpl) {}
+  constructor(private readonly drawing: GlDrawing) {}
 
   get encoder(): object {
     throw new TypeError('A frame on WebGL2 has no GPUCommandEncoder.');
@@ -395,7 +395,7 @@ class GlFrameImpl implements Frame {
   }
 
   pass(targets: PassTargets, record: (pass: RenderPass) => void): void {
-    this.record(recordPass(this.rt.drawing, targets, record), []);
+    this.record(recordPass(this.drawing, targets, record), []);
   }
 
   async runNow(): Promise<void> {
