@@ -18,7 +18,7 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   u32: '32-bit unsigned integer value.',
   bool: 'Boolean value.',
   workgroup:
-    "A module variable one workgroup shares, `let tile: workgroup<array<f32, 64>>`: zero at the start of each workgroup, read and written by every invocation of the workgroup, and a compute entry's alone. WGSL `var<workgroup>`; GLSL ES 3.00 has no form for it.",
+    "A module variable one workgroup shares, `let tile: workgroup<array<f32, 64>>`: zero at the start of each workgroup, read and written by every invocation of the workgroup, and a compute entry's alone. WGSL `var<workgroup>`; its GLSL lowering in a render entry is not supported yet (Rule 10.5), and a `@compute` entry that reaches no texture runs on WebGL2 as its pass program, which holds the workgroup memory as layers (Rule 8.24, Rule 11.8).",
   atomic:
     'An `atomic<u32>` or `atomic<i32>`: an integer location in a read-write storage binding that many invocations update at once through `atomicAdd`, `atomicLoad` and the other atomic builtins. It is never read or assigned directly, and it is declared only inside a storage binding, as `declare const bins: storage<array<atomic<u32>>, "read_write">`.',
   vec2: 'A two-component vector of `f32`.',
@@ -95,9 +95,9 @@ export const TYPE_DOCS: Readonly<Record<string, string>> = {
   texture_depth_multisampled_2d:
     'The depth attachment of a multisampled target, read one sample at a time with `textureLoad`. Declared bare as `declare const t: texture_depth_multisampled_2d`; it derives the `msaaTextureLoad` capability, whose GLSL lowering is not supported yet (Rule 10.5).',
   texture_storage_2d:
-    'A 2D storage texture, read and written by texel coordinate with `textureLoad` and `textureStore`, with no sampler. Its format and access mode are its type arguments, as in `declare const dst: texture_storage_2d<"rgba8unorm", "write">`; GLSL ES 3.00 has no form for it.',
+    'A 2D storage texture, read and written by texel coordinate with `textureLoad` and `textureStore`, with no sampler. Its format and access mode are its type arguments, as in `declare const dst: texture_storage_2d<"rgba8unorm", "write">`; in a render entry its GLSL lowering is not supported yet (Rule 10.5), and a `@compute` entry runs it on WebGL2 as its pass program (Rule 8.24, Rule 11.8).',
   texture_storage_2d_array:
-    'An array of 2D storage textures in one binding, read and written by texel coordinate and an integer layer. Declared with a format and an access mode, as in `declare const dst: texture_storage_2d_array<"rgba8unorm", "write">`; GLSL ES 3.00 has no form for it.',
+    'An array of 2D storage textures in one binding, read and written by texel coordinate and an integer layer. Declared with a format and an access mode, as in `declare const dst: texture_storage_2d_array<"rgba8unorm", "write">`; in a render entry its GLSL lowering is not supported yet (Rule 10.5), and a `@compute` entry runs it on WebGL2 as its pass program (Rule 8.24, Rule 11.8).',
 };
 
 /** One Markdown sentence per attribute name in `ATTRIBUTE_NAMES`. */
@@ -306,7 +306,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   bool: 'Converts a numeric scalar to `bool`: true where `x` is not zero, spelled as the compare `x != 0`. A `bool` argument is returned as it is.',
   f64: 'Widens an `f32` to the emulated double `f64`. A value that is already `f64` is returned as it is; cast an integer to `f32` first.',
   textureSample:
-    'Samples a float texture through the sampler `smp` with the implicit level of detail, in the fragment stage only: at `uv` on a `texture_2d`, by a `vec3` direction on a `texture_cube`, by a `vec3` coordinate on a `texture_3d`, by one `f32` on a `texture_1d`, and on an array texture the argument after the coordinate picks the layer. Compiles to `textureSample` on WGSL and `texture` on GLSL, where the layer is folded into a `vec3` coordinate; a `texture_1d` or a `texture_cube_array` has no GLSL ES 3.00 form, so a module using one emits WGSL alone.',
+    'Samples a float texture through the sampler `smp` with the implicit level of detail, in the fragment stage only: at `uv` on a `texture_2d`, by a `vec3` direction on a `texture_cube`, by a `vec3` coordinate on a `texture_3d`, by one `f32` on a `texture_1d`, and on an array texture the argument after the coordinate picks the layer. Compiles to `textureSample` on WGSL and `texture` on GLSL, where the layer is folded into a `vec3` coordinate; the GLSL lowering of a `texture_1d` or a `texture_cube_array` is not supported yet (Rule 10.5), so a module using one emits WGSL alone and is not supported yet on the WebGL2 tier.',
   textureGather:
     'Reads one channel from the four texels a linear filter would blend at the coordinate on mip level 0, through the sampler `smp`, and returns them as a `vec4` in the order (umin,vmax), (umax,vmax), (umax,vmin), (umin,vmin), in any stage. On a colour texture the first argument is the channel, a whole number from 0 to 3 written in the call; a depth texture has one channel and takes none; an array texture takes the layer after the coordinate. Compiles to `textureGather` on WGSL; its GLSL lowering is not supported yet (Rule 10.5), so a module using it emits WGSL alone.',
   textureGatherCompare:
@@ -326,7 +326,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   textureSampleCompareLevel:
     'Compares the reference depth `ref` against the shadow map at `uv` through the comparison sampler `smp` at mip level 0, in any stage; returns an `f32`, how much of the filter footprint passed. On a `texture_depth_2d_array` the layer comes before the reference, and on a `texture_depth_cube` the coordinate is a `vec3` direction. Compiles to `textureSampleCompareLevel` on WGSL and to `textureLod` at level zero on a `sampler2DShadow` on GLSL, where the reference folds into the coordinate.',
   textureStore:
-    'Writes one texel to a storage texture at the integer `coord`, on a binding declared `"write"` or `"read_write"`; returns nothing. The value is the texel the format decides: a `"…uint"` format stores a `vec4u`, a `"…sint"` one a `vec4i`, and every other one a `vec4`. Compiles to `textureStore` on WGSL; GLSL ES 3.00 has no image load/store, so a module using it emits WGSL alone and the CPU oracle, which has no texture memory, drops the write.',
+    'Writes one texel to a storage texture at the integer `coord`, on a binding declared `"write"` or `"read_write"`; returns nothing. The value is the texel the format decides: a `"…uint"` format stores a `vec4u`, a `"…sint"` one a `vec4i`, and every other one a `vec4`. Compiles to `textureStore` on WGSL; in a render entry its GLSL lowering is not supported yet (Rule 10.5), so a module using it emits WGSL alone, and on the CPU tier a store into a `CpuTexture` converts the value as the format decides while a store outside it, or into a texture not in that memory, is dropped (Rule 11.7).',
   textureDimensions:
     "Returns the size of the texture's base mip level: width and height as a `vec2u`, width, height and depth as a `vec3u` on a `texture_3d`, or the width alone as a `u32` on a `texture_1d`. On a cube texture it is the size of one face.",
   textureNumLayers:
@@ -334,23 +334,23 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   atomicLoad:
     'Reads the value of an `atomic<u32>` or `atomic<i32>` location in a read-write storage binding (`atomicLoad(bins[i])`). Compiles to `atomicLoad(&bins[i])` on WGSL; its GLSL lowering is not supported yet (Rule 10.5), so a module using it emits WGSL alone. The CPU oracle runs invocations in order and reads the location.',
   atomicStore:
-    'Writes `value` to an atomic location in a read-write storage binding (`atomicStore(bins[i], 0)`); returns nothing. Compiles to `atomicStore(&bins[i], v)` on WGSL only.',
+    'Writes `value` to an atomic location in a read-write storage binding (`atomicStore(bins[i], 0)`); returns nothing. Compiles to `atomicStore(&bins[i], v)` on WGSL; the GLSL lowering in a render entry is not supported yet (Rule 10.5), and a `@compute` entry that reaches no texture runs on WebGL2 as its pass program (Rule 8.24, Rule 11.8).',
   atomicAdd:
-    'Adds `value` to the atomic location as one indivisible step and returns the value it held before (`atomicAdd(bins[i], 1)`). Wraps at 32 bits. Compiles to `atomicAdd(&bins[i], v)` on WGSL only.',
+    'Adds `value` to the atomic location as one indivisible step and returns the value it held before (`atomicAdd(bins[i], 1)`). Wraps at 32 bits. Compiles to `atomicAdd(&bins[i], v)` on WGSL; the GLSL lowering in a render entry is not supported yet (Rule 10.5), and a `@compute` entry that reaches no texture runs on WebGL2 as its pass program (Rule 8.24, Rule 11.8).',
   atomicSub:
-    'Subtracts `value` from the atomic location as one indivisible step and returns the value it held before. Wraps at 32 bits. Compiles to `atomicSub(&bins[i], v)` on WGSL only.',
+    'Subtracts `value` from the atomic location as one indivisible step and returns the value it held before. Wraps at 32 bits. Compiles to `atomicSub(&bins[i], v)` on WGSL; the GLSL lowering in a render entry is not supported yet (Rule 10.5), and a `@compute` entry that reaches no texture runs on WebGL2 as its pass program (Rule 8.24, Rule 11.8).',
   atomicMin:
-    'Stores the smaller of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicMin(&bins[i], v)` on WGSL only.',
+    'Stores the smaller of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicMin(&bins[i], v)` on WGSL; the GLSL lowering in a render entry is not supported yet (Rule 10.5), and a `@compute` entry that reaches no texture runs on WebGL2 as its pass program (Rule 8.24, Rule 11.8).',
   atomicMax:
-    'Stores the larger of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicMax(&bins[i], v)` on WGSL only.',
+    'Stores the larger of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicMax(&bins[i], v)` on WGSL; the GLSL lowering in a render entry is not supported yet (Rule 10.5), and a `@compute` entry that reaches no texture runs on WebGL2 as its pass program (Rule 8.24, Rule 11.8).',
   atomicAnd:
-    'Stores the bitwise AND of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicAnd(&bins[i], v)` on WGSL only.',
+    'Stores the bitwise AND of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicAnd(&bins[i], v)` on WGSL; the GLSL lowering in a render entry is not supported yet (Rule 10.5), and a `@compute` entry that reaches no texture runs on WebGL2 as its pass program (Rule 8.24, Rule 11.8).',
   atomicOr:
-    'Stores the bitwise OR of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicOr(&bins[i], v)` on WGSL only.',
+    'Stores the bitwise OR of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicOr(&bins[i], v)` on WGSL; the GLSL lowering in a render entry is not supported yet (Rule 10.5), and a `@compute` entry that reaches no texture runs on WebGL2 as its pass program (Rule 8.24, Rule 11.8).',
   atomicXor:
-    'Stores the bitwise XOR of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicXor(&bins[i], v)` on WGSL only.',
+    'Stores the bitwise XOR of the atomic location and `value` as one indivisible step and returns the value it held before. Compiles to `atomicXor(&bins[i], v)` on WGSL; the GLSL lowering in a render entry is not supported yet (Rule 10.5), and a `@compute` entry that reaches no texture runs on WebGL2 as its pass program (Rule 8.24, Rule 11.8).',
   atomicExchange:
-    'Stores `value` in the atomic location as one indivisible step and returns the value it held before. Compiles to `atomicExchange(&bins[i], v)` on WGSL only.',
+    'Stores `value` in the atomic location as one indivisible step and returns the value it held before. Compiles to `atomicExchange(&bins[i], v)` on WGSL; the GLSL lowering in a render entry is not supported yet (Rule 10.5), and a `@compute` entry that reaches no texture runs on WebGL2 as its pass program (Rule 8.24, Rule 11.8).',
   workgroupBarrier:
     'Waits until every invocation of the workgroup has reached this line, and makes every write to workgroup memory before it visible to every invocation after it. A statement, in a compute entry or a helper and never inside an `if` or `switch`. On WebGL2 it cuts a phase of the pass program, when the entry reaches no texture (Rule 8.24); the CPU oracle runs the workgroup in lockstep through `dispatch`.',
   storageBarrier:

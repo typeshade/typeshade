@@ -55,8 +55,7 @@ export interface CpuEntry {
   readonly out?: CpuIo;
   /** A compute entry's `@workgroup_size`. */
   readonly workgroupSize?: readonly [number, number, number];
-  /** Why the CPU backend cannot run the entry, when it cannot: it reaches a texture, a sampler,
-   *  a derivative or another call only a GPU computes, or a barrier (change 0120, O6 (a)). */
+  /** Why the CPU tier does not run the entry yet (Rule 8.24, Rule 11.7), when it does not. */
   readonly noCpu?: string;
 }
 

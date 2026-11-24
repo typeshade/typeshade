@@ -260,11 +260,11 @@ ${FULL}
 
   it('refuses a topology, a depth test, multisampling and blending, each by name', async () => {
     const device = cpuDevice();
-    const at = 'The CPU backend cannot make the render pipeline of "vs" and "fs": ';
+    const inPipeline = ' yet in the render pipeline of "vs" and "fs" (Rule 11.7).';
     const cases: [object, string][] = [
       [
         { primitive: { topology: 'line-list', cullMode: 'none', frontFace: 'ccw' } },
-        'it draws a triangle-list, and the pipeline\'s topology is "line-list"',
+        'a "line-list" topology',
       ],
       [
         {
@@ -275,9 +275,9 @@ ${FULL}
             bias: { constant: 0, slopeScale: 0, clamp: 0 },
           },
         },
-        'it draws with no depth or stencil test',
+        'a depth or stencil test',
       ],
-      [{ multisample: { count: 4, mask: 0xffffffff } }, 'it draws with no multisampling'],
+      [{ multisample: { count: 4, mask: 0xffffffff } }, 'multisampling'],
       [
         {
           fragment: {
@@ -285,13 +285,13 @@ ${FULL}
             targets: [{ format: 'rgba8unorm', blend: { color: {}, alpha: {} } }],
           },
         },
-        'it draws with no blending',
+        'blending',
       ],
     ];
     for (const [extra, why] of cases)
       await expect(
         device.createRenderPipeline(pipelineDesc(device, plain, extra) as never),
-      ).rejects.toThrow(`${at}${why} (change 0120, item 4).`);
+      ).rejects.toThrow(`The CPU tier does not support ${why}${inPipeline}`);
     // The same description with none of them is made.
     await expect(
       device.createRenderPipeline(pipelineDesc(device, plain) as never),
@@ -311,7 +311,7 @@ ${FULL}
     await expect(
       device.createRenderPipeline(pipelineDesc(device, sampled) as never),
     ).rejects.toThrow(
-      'The CPU backend cannot run "fs": it reaches the texture "tex", which the CPU tier cannot read (change 0120, O6 (a)).',
+      'The CPU tier does not run "fs" yet: it reaches the texture "tex", which the CPU tier cannot read (change 0120, O6 (a)).',
     );
     const derivative = cpuProgramOf(`"use typeshade";
 ${FULL}
@@ -322,7 +322,7 @@ ${FULL}
     await expect(
       device.createRenderPipeline(pipelineDesc(device, derivative) as never),
     ).rejects.toThrow(
-      'The CPU backend cannot run "fs": it reaches dpdx(), which only a GPU computes (change 0120, O6 (a)).',
+      'The CPU tier does not run "fs" yet: it reaches dpdx(), which only a GPU computes (change 0120, O6 (a)).',
     );
     expect(() =>
       device.createBindGroupLayout([
@@ -334,7 +334,7 @@ ${FULL}
         },
       ]),
     ).toThrow(
-      'The CPU backend binds buffers only; binding 0 ("tex") is a texture or a sampler, which the CPU tier cannot read (change 0120, O6 (a)).',
+      'The CPU backend binds buffers only; binding 0 ("tex") is a texture or a sampler, which the CPU tier does not support yet (Rule 8.24, Rule 11.7).',
     );
   });
 });
