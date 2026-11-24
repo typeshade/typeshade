@@ -1,20 +1,6 @@
 import { pinOverrides, glslOverrideNames } from '../core/gl-overrides.js';
 export { pinOverrides, glslOverrideNames } from '../core/gl-overrides.js';
 
-// The program runtime's draws on WebGL2 (change 0054 decision 2, Rule 11.11): textures, samplers,
-// render pipelines and passes, from the vertex and fragment programs the manifest carries
-// (`Pack.gl.vertices`, `Pack.gl.draws`). It builds no program itself, so like the rest of the
-// runtime it imports no compiler.
-//
-// The render hardware interface (change 0120, M2). Every object and command goes through the
-// WebGL2 backend of `src/rhi/webgl2.ts`, which keeps WebGPU's conventions (row 0 at the top,
-// `position`, depth, `frontFace`) and turns a pass into the canvas over onto the screen. This file
-// checks what a host gives, binds it by name, and records; it calls no WebGL2 function.
-//
-// Order. A pass is recorded into a frame and runs at `submit()`, and a texture's `read()` runs
-// where it is called, each after every call, frame and read before it (`core/resident.ts`), so a
-// read reads what was submitted before it, as on WebGPU.
-
 import { byteSize, describe, Misfit, pack, type Layout } from '../core/host-entry.js';
 import {
   layoutFromPack,
@@ -85,21 +71,13 @@ import {
   type GlTextureKind,
 } from '../rhi/webgl2.js';
 
-// ─── overrides ───────────────────────────────────────────────────────────────────────────────
-
-/** The name the GLSL program declares a manifest binding under (Proposal 0070, C8). */
 export const glslNameOf = (b: {
   readonly emitted: string;
   readonly emittedGlsl?: string;
 }): string => b.emittedGlsl ?? b.emitted;
 
-// ─── the drawing state of one runtime ────────────────────────────────────────────────────────
-
-/** What every texture, pipeline and pass of one runtime shares: its device, and what a
- *  `Resident` uploaded last. */
 export class GlDrawing {
   #guard: RhiTextureView | undefined;
-  /** What a `Resident` uploaded last, by what it became: a vertex, index or storage buffer. */
   readonly uploads = new WeakMap<
     ResidentArrayState,
     Map<string, { buffer: RhiBuffer; version: number }>
@@ -107,7 +85,6 @@ export class GlDrawing {
 
   constructor(readonly rhi: RhiDevice) {}
 
-  /** The `_fp64` guard: a 1 × 1 texture that holds 1.0. */
   guard(): RhiTextureView {
     if (this.#guard === undefined) {
       const t = this.rhi.createTexture({
@@ -121,8 +98,6 @@ export class GlDrawing {
     return this.#guard;
   }
 
-  /** The buffer `state` was uploaded into as `as`, written again only when its host copy has
-   *  changed, and made again when its size has. */
   uploaded(
     state: ResidentArrayState,
     as: string,
@@ -144,9 +119,6 @@ export class GlDrawing {
   }
 }
 
-// ─── textures and samplers ───────────────────────────────────────────────────────────────────
-
-/** A texture of the WebGL2 tier: a sampled texture and a render target at once. */
 export class GlTextureImpl implements Texture {
   #tex: RhiTexture;
   #w: number;
@@ -176,8 +148,6 @@ export class GlTextureImpl implements Texture {
       throw new TypeError(
         'texture(): a multisampled texture is not supported yet on the WebGL2 tier (Rule 10.5, Rule 11.11).',
       );
-    // `storage: true` asks for nothing more here: a compute entry's storage texture is a memory
-    // root of its pass program, drawn back into this texture after the dispatch (change 0054).
     const kind = textureKindOf(o.format);
     if (kind === undefined)
       throw new TypeError(`texture(): ${o.format} is not supported yet on WebGL2 (Rule 11.11).`);
@@ -208,7 +178,6 @@ export class GlTextureImpl implements Texture {
   get texture(): object {
     return this.d.rhi.toNative(this.#tex);
   }
-  /** The device's texture now: a resize replaces it. */
   get handle(): RhiTexture {
     return this.#tex;
   }
@@ -218,7 +187,6 @@ export class GlTextureImpl implements Texture {
   get height(): number {
     return this.#h;
   }
-  /** How the texels are cleared and read. */
   get kind(): GlTextureKind {
     return this.#kind;
   }
@@ -229,7 +197,6 @@ export class GlTextureImpl implements Texture {
     this.#w = width;
     this.#h = height;
     this.#tex = this.#make();
-    // A frame submitted before the resize still draws into the texture it named.
     kernelQueue.whenIdle(() => this.d.rhi.destroyTexture(old));
   }
 
@@ -257,8 +224,6 @@ export class GlTextureImpl implements Texture {
     }
   }
 
-  /** The texels as the format's bytes, rows tightly packed, row 0 the top. The read is queued
-   *  where it is called, so it reads what was submitted before the call. */
   #read(who: string): Promise<Uint8Array> {
     const layout = layoutOf(this.format);
     if (layout === undefined || (this.#kind === 'depth' && this.format !== 'depth32float'))
@@ -279,7 +244,6 @@ export class GlTextureImpl implements Texture {
   }
 }
 
-/** The comparisons WebGPU names. Typed by CompareFunction: a new member is a compile error here. */
 const COMPARISONS: Record<CompareFunction, true> = {
   never: true,
   less: true,
@@ -291,7 +255,6 @@ const COMPARISONS: Record<CompareFunction, true> = {
   always: true,
 };
 
-/** A sampler of the WebGL2 tier. */
 export class GlSamplerImpl implements Sampler {
   readonly handle: RhiSampler;
   constructor(
@@ -304,7 +267,6 @@ export class GlSamplerImpl implements Sampler {
       return;
     }
     const o = (options ?? {}) as SamplerOptions;
-    // A name a sampler gives that is not a comparison is refused in WebGPU's sentence.
     if (o.compare !== undefined && !(o.compare in COMPARISONS))
       throw new TypeError(
         `"${String(o.compare)}" is not a comparison; WebGPU's are less, less-equal, greater, greater-equal, equal, not-equal, always and never.`,
@@ -331,12 +293,8 @@ export class GlSamplerImpl implements Sampler {
   }
 }
 
-/** The depth formats whose constant and slope bias the WebGL2 tier takes (A1). A format joins
- *  this set when its measure shows the same thresholds as `depth24plus` on both tiers. */
 const BIASED_FORMATS: readonly string[] = ['depth24plus', 'depth32float', 'depth24plus-stencil8'];
 
-/** A depth bias the WebGL2 tier refuses before anything is built: a constant or slope bias on a
- *  format it has not measured, and a non-zero clamp without `EXT_polygon_offset_clamp` (A1). */
 function refuseBias(
   prefix: string,
   depth: NonNullable<RenderPlan['depth']>,
@@ -358,38 +316,28 @@ function refuseBias(
     );
 }
 
-// ─── render pipelines ────────────────────────────────────────────────────────────────────────
-
 interface BlendComponent {
   readonly srcFactor?: string;
   readonly dstFactor?: string;
   readonly operation?: string;
 }
 
-/** One binding a pipeline's programs read: its manifest binding, its number in the pipeline's
- *  bind group, and how it is bound. */
 interface Slot {
   readonly binding: PackBinding;
-  /** Its entry in the pipeline's bind group layout. */
   readonly index: number;
   readonly kind: 'block' | 'texture' | 'data';
-  /** The sampler binding a texture is read with, by name and by its entry; none for none. */
   readonly sampler?: { readonly name: string; readonly index: number };
   readonly layout?: Layout;
 }
 
-/** A pipeline as the device made it: the bind group layout of its bindings, and the slots of the
- *  bindings its programs read, in the order of their units. */
 interface Built {
   readonly pipeline: RhiRenderPipeline;
   readonly layout: RhiBindGroupLayout;
   readonly slots: readonly Slot[];
 }
 
-/** The program of a load on WebGL2: its manifest's vertex and fragment programs. */
 export class GlRenderPrograms {
   readonly #pipelines = new Map<string, Promise<GlRenderPipelineImpl>>();
-  /** The built objects of each normalised state without its blend constant, by `gpuKey`. */
   readonly #built = new Map<string, Promise<Built>>();
   readonly #bindings: ReadonlyMap<string, PackBinding>;
 
@@ -400,14 +348,11 @@ export class GlRenderPrograms {
     this.#bindings = new Map(manifest.bindings.map((b) => [b.name, b]));
   }
 
-  /** The pipeline of `state`. A state the tier refuses throws before anything is built. */
   render(state: RenderState): Promise<RenderPipeline> {
     const m = this.manifest;
     const vs = entryOf(m, state.vertex, 'vertex');
     const fs =
       state.fragment === null ? undefined : entryOf(m, state.fragment ?? undefined, 'fragment');
-    // The checked state (proposal 0064, F1). Two levels, as on WebGPU: the wrapper by the whole
-    // state, the built objects by the state without `blendConstant`.
     const plan = planOf(m, vs, fs, state);
     const hit = this.#pipelines.get(plan.key);
     if (hit !== undefined) return hit;
@@ -415,7 +360,6 @@ export class GlRenderPrograms {
     if (built === undefined) {
       built = this.#build(vs, fs, plan);
       this.#built.set(plan.gpuKey, built);
-      // A pipeline the device refused is built again by the next state that asks for it.
       built.catch(() => this.#built.delete(plan.gpuKey));
     }
     const p = built.then(
@@ -438,8 +382,6 @@ export class GlRenderPrograms {
     return p;
   }
 
-  /** The pipeline of a normalised state: linked once for each `gpuKey`, so a state that differs
-   *  only in its blend constant builds nothing. Every refusal throws before the device is asked. */
   #build(vs: PackEntry, fs: PackEntry | undefined, plan: RenderPlan): Promise<Built> {
     const m = this.manifest;
     const rhi = this.d.rhi;
@@ -504,16 +446,11 @@ export class GlRenderPrograms {
         multisample: plan.multisample,
       })
       .then((pipeline) => {
-        // A uniform block the driver found inactive is read by no program, so no draw binds it.
         const read = new Set(glReadBindings(pipeline)[0]);
         return { pipeline, layout, slots: slots.filter((s) => read.has(s.index)) };
       });
   }
 
-  /** The bind group layout of the two programs' bindings: the uniform blocks by binding name, then
-   *  the textures and the data textures each by name, then the samplers a texture is read with.
-   *  The blocks take their binding points, and the textures and data textures their units, in
-   *  this order. */
   #layout(
     v: PackGlVertex,
     f: PackGlDraw | undefined,
@@ -539,7 +476,6 @@ export class GlRenderPrograms {
       slots.push({ binding: b, index, kind: 'block', ...layoutOfBinding(b) });
     }
     const textures = Object.keys(samplers).sort();
-    // The samplers follow the textures and the data textures, one entry for each.
     const samplerIndex = new Map<string, number>();
     for (const name of textures) {
       const sampler = samplers[name];
@@ -626,7 +562,6 @@ function checkState(plan: RenderPlan, vs: PackEntry, fs: PackEntry | undefined):
       throw new TypeError(`${where}: "${String(o)}" is not a blend operation.`);
 }
 
-/** A stage's program from the manifest, or a `TypeError` that gives why it has none. */
 function stageOf<T>(p: T | { readonly none: string } | undefined, e: PackEntry): T {
   if (p === undefined)
     throw new TypeError(
@@ -639,42 +574,30 @@ function stageOf<T>(p: T | { readonly none: string } | undefined, e: PackEntry):
   return p as T;
 }
 
-/** A draw as recorded: what it binds, ready to record into the pass when the pass runs, and the
- *  `Resident`s it reads, whose host copies the pass brings up to date first. */
 interface DrawRun {
   readonly run: (pass: RhiRenderPass) => void;
   readonly residents: readonly ResidentArrayState[];
 }
 
-/** One binding of a draw: its entry in the pipeline's bind group, and what it binds, made when the
- *  pass runs. A buffer made for this draw alone goes into `made`, destroyed after the draw. */
 interface Bind {
   readonly index: number;
   readonly resource: (made: RhiBuffer[]) => RhiBindResource;
 }
 
-/** The WebGL2 tier does not yet sample the depth attachment of the pass that writes it (Rule 11.11). */
 const SAMPLES_OWN_DEPTH =
   'Sampling the depth attachment of the pass that writes it is not supported yet on the WebGL2 tier (Rule 11.11); sample it in a later pass.';
 
-/** A render pipeline of the WebGL2 tier. */
 export class GlRenderPipelineImpl implements RenderPipeline {
   constructor(
     private readonly programs: GlRenderPrograms,
     private readonly vs: PackEntry,
     private readonly fs: PackEntry | undefined,
     private readonly built: Built,
-    /** The blend constant the pipeline declares, which a draw sets. */
     private readonly blendConstant: readonly [number, number, number, number] | undefined,
-    /** Whether the fragment writes `frag_depth`: WebGL2 refuses a depth range other than 0 to 1 for it. */
     private readonly writesFragDepth: boolean,
-    /** The depth state of the plan: its stencil test is checked against the pass's depth format. */
     private readonly depth: RenderPlan['depth'],
-    /** The reference the pipeline declares, or undefined: a draw uses it instead of the pass value. */
     private readonly stencilReference: number | undefined,
-    /** The sample mask: bit 0 keeps or drops each draw. */
     private readonly sampleMask: number,
-    /** What a draw writes: a read-only aspect of the pass refuses a pipeline that writes it. */
     private readonly writes: RenderPlan['writes'],
   ) {}
 
@@ -686,8 +609,6 @@ export class GlRenderPipelineImpl implements RenderPipeline {
   }
 
   draw(target: object, bindings: Bindings, geometry: Geometry): void {
-    // A draw the checks refuse, its geometry's among them, fixes no open element (change 0138,
-    // Amendment A12, D2).
     tentatively(() => this.#draw(target, bindings, geometry));
   }
 
@@ -706,34 +627,24 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       );
     // The pass must fit the pipeline's stencil (F6(a)), before anything is recorded.
     checkPassFit(entry.name, this.depth, this.writes, target);
-    // The depth range the pass has now, at the record of this draw (proposal 0064, O6).
     const [near, far] = target.range;
     if (this.writesFragDepth && (near !== 0 || far !== 1))
       throw new TypeError(
         `pass.draw: the pipeline of "${this.fs!.name}" writes frag_depth, and the depth range is ${near} to ${far}; the WebGL2 tier refuses this range.`,
       );
-    // R32: a declared constant is set for this draw, and the pass value again after a draw that set
-    // one. The pass value is copied now: a later setBlendConstant does not change this draw.
-    // The pass bookkeeping changes only after `#record` accepts the draw: a refused draw sets nothing.
     let blend: readonly [number, number, number, number] | undefined;
     if (this.blendConstant !== undefined) blend = this.blendConstant;
     else if (target.declared) blend = [...target.blend] as unknown as typeof blend;
-    // The reference is copied now: a later setStencilReference does not change this draw.
     const reference =
       this.depth?.stencil === undefined
         ? undefined
         : (this.stencilReference ?? target.stencilReference);
     const run = this.#record(entry, bindings, geometry, blend, reference, target);
-    // A mask whose bit 0 is 0 drops the draw. It was checked and recorded above, so no refusal
-    // changes, and a dropped draw sets no blend constant: the bookkeeping stays as it was.
     if ((this.sampleMask & 1) === 0) return;
     target.declared = this.blendConstant !== undefined;
     target.add(run);
   }
 
-  /** Check and take what the draw binds, now, as WebGPU's `writeBuffer` takes a plain value when
-   *  the draw is recorded; the device's objects are made when the pass runs. `blend` is the blend
-   *  constant the draw sets, and `reference` its stencil reference. */
   #record(
     entry: PackEntry,
     values: Bindings,
@@ -805,7 +716,6 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       if (state !== undefined) {
         if (state.destroyed)
           throw new TypeError('This Buffer was disposed; make a new one with array().');
-        // The binding fixes an open element as its scalar (Amendment A12, D-l).
         decide(state, layoutKind(layout), where, hostSite);
         residents.push(state);
         binds.push({
@@ -862,8 +772,6 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     return { run, residents };
   }
 
-  /** The vertex buffer of the draw, made when the pass runs; none for a vertex entry that reads no
-   *  attribute. */
   #vertices(geometry: Geometry, entry: PackEntry): ((made: RhiBuffer[]) => RhiBuffer) | undefined {
     if (this.vs.vertex === undefined) return undefined;
     const v = geometry.vertices;
@@ -874,7 +782,6 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     return bufferSource(this.programs.d, v, 'vertices', entry);
   }
 
-  /** The index buffer and its format, made when the pass runs; none for a draw with no indices. */
   #indices(
     geometry: Geometry,
     entry: PackEntry,
@@ -902,13 +809,11 @@ export class GlRenderPipelineImpl implements RenderPipeline {
   }
 }
 
-/** The element type of a storage binding's data texture, as the manifest gives its format. */
 const dataElemOf = (b: PackBinding): 'f32' | 'i32' | 'u32' => {
   const format = b.dataTexture?.format ?? 'r32float';
   return format === 'r32uint' ? 'u32' : format === 'r32sint' ? 'i32' : 'f32';
 };
 
-/** A buffer of `bytes` made for one draw, destroyed after it. */
 function fresh(
   rhi: RhiDevice,
   made: RhiBuffer[],
@@ -926,9 +831,6 @@ function fresh(
   return b;
 }
 
-/** Where a draw's vertices or indices come from: a typed array, copied now and made into a buffer
- *  when the draw runs; a `Resident`, uploaded when its host copy has changed; or the host's
- *  buffer. */
 function bufferSource(
   d: GlDrawing,
   v: unknown,
@@ -938,7 +840,6 @@ function bufferSource(
   const usage = field === 'indices' ? 'index' : 'vertex';
   const state = residentState(v);
   if (state !== undefined) {
-    // The geometry fixes an open element (change 0138, Amendment A12, D3).
     decide(
       state,
       geometryKind(field, entry.vertex?.attributes),
@@ -974,7 +875,6 @@ function bufferSource(
   );
 }
 
-/** `v` packed by `layout`, or a `TypeError` naming the binding. */
 function packed(layout: Layout, v: unknown, name: string, where: string): Uint8Array {
   try {
     const bytes = new ArrayBuffer(byteSize(layout, v, name));
@@ -986,8 +886,6 @@ function packed(layout: Layout, v: unknown, name: string, where: string): Uint8A
   }
 }
 
-/** The texture a binding names, taken now: the device's texture a resize after the draw does not
- *  move. */
 export function textureOf(rhi: RhiDevice, v: unknown, where: string): RhiTexture {
   if (v instanceof GlTextureImpl) return v.handle;
   const host = typeof v === 'object' && v !== null ? rhi.fromNative('texture', v) : undefined;
@@ -1006,20 +904,11 @@ export function samplerOf(rhi: RhiDevice, v: unknown, where: string): RhiSampler
   );
 }
 
-// ─── passes ──────────────────────────────────────────────────────────────────────────────────
-
-/** A render pass of a frame on WebGL2: the steps recorded into it, the state calls and the draws,
- *  in the order they were recorded (proposal 0064, PR-1). */
 export class GlPass implements RenderPass, PassFit {
-  /** The state calls and the draws, in the order they were recorded. */
   readonly steps: DrawRun[] = [];
-  /** The pass value of the blend constant: `[0, 0, 0, 0]` at the pass start. */
   blend: readonly number[] = [0, 0, 0, 0];
-  /** Whether the last draw recorded set a declared constant, and the pass value is not set since. */
   declared = false;
-  /** The depth range at the record of the draw being recorded: `[0, 1]` at the pass start. */
   range: [number, number] = [0, 1];
-  /** The pass value of the stencil reference: 0 at the pass start. */
   stencilReference = 0;
 
   constructor(
@@ -1027,15 +916,10 @@ export class GlPass implements RenderPass, PassFit {
       readonly rhi: RhiDevice;
       readonly width: number;
       readonly height: number;
-      /** The format of the depth attachment, or undefined when the pass has none. */
       readonly depthFormat?: string;
-      /** Whether the depth aspect is read-only. */
       readonly depthReadOnly: boolean;
-      /** Whether the stencil aspect is read-only. */
       readonly stencilReadOnly: boolean;
-      /** The depth attachment as the host named it. */
       readonly depthTarget?: object;
-      /** The device's texture of the depth attachment, taken when the pass is recorded. */
       readonly depthTexture?: RhiTexture;
     },
   ) {}
@@ -1044,23 +928,18 @@ export class GlPass implements RenderPass, PassFit {
     throw new TypeError('A pass on WebGL2 has no GPURenderPassEncoder.');
   }
 
-  /** The depth format of the pass, or undefined when it has no depth attachment. */
   get depthFormat(): string | undefined {
     return this.info.depthFormat;
   }
 
-  /** Whether the depth aspect is read-only. */
   get depthReadOnly(): boolean {
     return this.info.depthReadOnly;
   }
 
-  /** Whether the stencil aspect is read-only. */
   get stencilReadOnly(): boolean {
     return this.info.stencilReadOnly;
   }
 
-  /** Whether a binding of a draw is the depth attachment of this pass: the `Texture` the host gave,
-   *  or the `WebGLTexture` it holds. */
   readsOwnDepth(value: unknown, texture: RhiTexture): boolean {
     const own = this.info.depthTexture;
     return (
@@ -1069,7 +948,6 @@ export class GlPass implements RenderPass, PassFit {
     );
   }
 
-  /** Set the pass value. No step is recorded: each stencil draw passes it to its own call. */
   setStencilReference(reference: number): void {
     this.stencilReference = stencilReferenceOf(reference);
   }
@@ -1090,8 +968,6 @@ export class GlPass implements RenderPass, PassFit {
     minDepth?: number,
     maxDepth?: number,
   ): void {
-    // WebGL2's own limit, the smaller of `MAX_VIEWPORT_DIMS`, where WebGPU has
-    // `maxTextureDimension2D`.
     const limit = this.info.rhi.caps.limits.maxViewportDimension!;
     const v = viewportOf(x, y, width, height, minDepth, maxDepth, limit);
     this.range = [v.minDepth, v.maxDepth];
@@ -1114,15 +990,12 @@ export class GlPass implements RenderPass, PassFit {
   }
 }
 
-/** Record a pass: its attachments checked and taken now, its draws as `record` records them. The
- *  run records them into a pass of the device when the frame is submitted. */
 export function recordPass(
   d: GlDrawing,
   targets: PassTargets,
   record: (pass: RenderPass) => void,
 ): () => Promise<void> {
   const rhi = d.rhi;
-  // Check the targets first: a refused pass records nothing.
   const plan = passOf(targets, {
     isTexture: (t) => t instanceof GlTextureImpl,
     isCanvas: (t) => rhi.fromNative('canvas', t) !== undefined,
@@ -1190,8 +1063,6 @@ export function recordPass(
       ? undefined
       : depthStencilAttachmentOf(rhi.createView(depth.tex), pd);
   return async () => {
-    // A Resident a WebGPU call wrote is read back first, and a zeroed one that no host copy holds
-    // makes its zeros first: the draws read the host copy.
     for (const step of steps)
       for (const state of step.residents)
         if (state.fresh === 'device' || state.host === undefined) await state.sync();
