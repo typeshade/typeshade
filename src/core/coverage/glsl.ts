@@ -182,7 +182,7 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`exp`',
     covers: ['glsl:builtinFunctions:8.2:exp'],
-    evidence: 'src/core/intrinsics.ts:1127',
+    evidence: 'src/core/intrinsics.ts#spellIntrinsic',
     note: 'same WGSL name',
     webgpu: typed('src/core/intrinsic-coverage.test.ts'),
     webgl2: typed('src/core/intrinsic-coverage.test.ts'),
@@ -232,7 +232,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`inversesqrt`',
     covers: ['glsl:builtinFunctions:8.2:inversesqrt'],
-    evidence: 'src/compiler/ts/foreign-names.ts:55; src/core/ir/node.ts:1541',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.inversesqrt; src/core/ir/node.ts#inverseSqrt',
     note: 'spelled inverseSqrt (FOREIGN_NAMES remedy)',
     webgpu: typed('src/core/ir/stdlib-builtins.test.ts'),
     webgl2: typed('scripts/compile-gate.ts'),
@@ -282,7 +283,7 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`round`',
     covers: ['glsl:builtinFunctions:8.3:round'],
-    evidence: 'src/compiler/ts/math-alias.ts:28',
+    evidence: 'src/compiler/ts/math-alias.ts#MATH_FN_ALIAS.round',
     note: 'same WGSL name',
     webgpu: typed('src/core/intrinsic-coverage.test.ts'),
     webgl2: typed('src/core/intrinsic-coverage.test.ts'),
@@ -441,7 +442,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`floatBitsToInt`',
     covers: ['glsl:builtinFunctions:8.3:floatBitsToInt'],
     evidence:
-      'src/compiler/ts/foreign-names.ts:90; src/compiler/ts/lower/expression-call.ts:1342-1349, 1395 (the bitcast targets and the TS8003 site); docs/roadmap.md:185 (roadmap 0.2 item 8a)',
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.floatBitsToInt; src/compiler/ts/lower/expression-call.ts:1342-1349, 1395 (the bitcast targets and the TS8003 site); docs/roadmap.md:185 (roadmap 0.2 item 8a)',
     note: 'bitcast<i32>',
     webgpu: gap(
       9,
@@ -460,7 +461,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`floatBitsToUint`',
     covers: ['glsl:builtinFunctions:8.3:floatBitsToUint'],
     evidence:
-      'src/compiler/ts/foreign-names.ts:89; src/compiler/ts/lower/expression-call.ts:1342-1349',
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.floatBitsToUint; src/compiler/ts/lower/expression-call.ts:1342-1349',
     note: 'bitcast<u32>',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -471,7 +472,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`intBitsToFloat`',
     covers: ['glsl:builtinFunctions:8.3:intBitsToFloat'],
     evidence:
-      'src/compiler/ts/foreign-names.ts:92; src/compiler/ts/lower/expression-call.ts:1342-1349, 1404-1407 (the bitcast targets and the TS8003 site); docs/roadmap.md:185 (roadmap 0.2 item 8a)',
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.intBitsToFloat; src/compiler/ts/lower/expression-call.ts:1342-1349, 1404-1407 (the bitcast targets and the TS8003 site); docs/roadmap.md:185 (roadmap 0.2 item 8a)',
     note: 'bitcast<f32>',
     webgpu: gap(
       9,
@@ -490,7 +491,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`uintBitsToFloat`',
     covers: ['glsl:builtinFunctions:8.3:uintBitsToFloat'],
     evidence:
-      'src/compiler/ts/foreign-names.ts:91; src/compiler/ts/lower/expression-call.ts:1342-1349',
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.uintBitsToFloat; src/compiler/ts/lower/expression-call.ts:1342-1349',
     note: 'bitcast<f32>',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -500,7 +501,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`packSnorm2x16`',
     covers: ['glsl:builtinFunctions:8.4:packSnorm2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:103; src/compiler/ts/math-alias.ts:179',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.packSnorm2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'pack2x16snorm',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -510,7 +512,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`unpackSnorm2x16`',
     covers: ['glsl:builtinFunctions:8.4:unpackSnorm2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:104; src/compiler/ts/math-alias.ts:182',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.unpackSnorm2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'unpack2x16snorm',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('examples/shade-examples.test.ts'),
@@ -520,7 +523,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`packUnorm2x16`',
     covers: ['glsl:builtinFunctions:8.4:packUnorm2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:101; src/compiler/ts/math-alias.ts:178',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.packUnorm2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'pack2x16unorm',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -530,7 +534,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`unpackUnorm2x16`',
     covers: ['glsl:builtinFunctions:8.4:unpackUnorm2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:102; src/compiler/ts/math-alias.ts:181',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.unpackUnorm2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'unpack2x16unorm',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('examples/shade-examples.test.ts'),
@@ -540,7 +545,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`packHalf2x16`',
     covers: ['glsl:builtinFunctions:8.4:packHalf2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:99; src/compiler/ts/math-alias.ts:177',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.packHalf2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'pack2x16float',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -550,7 +556,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`unpackHalf2x16`',
     covers: ['glsl:builtinFunctions:8.4:unpackHalf2x16'],
-    evidence: 'src/compiler/ts/foreign-names.ts:100; src/compiler/ts/math-alias.ts:180',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.unpackHalf2x16; src/compiler/ts/math-alias.ts#BIT_BUILTIN_NAMES',
     note: 'unpack2x16float',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('examples/shade-examples.test.ts'),
@@ -610,7 +617,7 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`faceforward`',
     covers: ['glsl:builtinFunctions:8.5:faceforward'],
-    evidence: 'src/compiler/ts/math-alias.ts:126',
+    evidence: 'src/compiler/ts/math-alias.ts#BREADTH_BUILTINS',
     note: 'faceForward',
     webgpu: typed('src/compiler/ts/builtin-breadth.test.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -706,7 +713,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`lessThanEqual`',
     covers: ['glsl:builtinFunctions:8.7:lessThanEqual'],
     evidence:
-      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:651; src/compiler/ts/lower/operator-kinds.ts:38-45',
+      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:651; src/compiler/ts/lower/operator-kinds.ts#FAMILY',
     note: '`<=`',
     webgpu: gap(
       15,
@@ -732,7 +739,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`greaterThanEqual`',
     covers: ['glsl:builtinFunctions:8.7:greaterThanEqual'],
     evidence:
-      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:653; src/compiler/ts/lower/operator-kinds.ts:38-45',
+      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:653; src/compiler/ts/lower/operator-kinds.ts#FAMILY',
     note: '`>=`',
     webgpu: gap(
       15,
@@ -747,7 +754,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`equal`',
     covers: ['glsl:builtinFunctions:8.7:equal'],
     evidence:
-      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:654; src/compiler/ts/lower/operator-kinds.ts:38-45',
+      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:654; src/compiler/ts/lower/operator-kinds.ts#FAMILY',
     note: '`==`',
     webgpu: typed('src/compiler/ts/bool-vectors.test.ts'),
     webgl2: typed('src/compiler/ts/bool-vectors.test.ts'),
@@ -758,7 +765,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`notEqual`',
     covers: ['glsl:builtinFunctions:8.7:notEqual'],
     evidence:
-      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:655; src/compiler/ts/lower/operator-kinds.ts:38-45',
+      'docs/language-design.md:504 (Rule 7.1); src/core/backends/glsl.ts:655; src/compiler/ts/lower/operator-kinds.ts#FAMILY',
     note: '`!=`',
     webgpu: typed('src/compiler/ts/operators-statements.test.ts'),
     webgl2: typed('src/compiler/ts/bool-vectors.test.ts'),
@@ -778,7 +785,7 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`all`',
     covers: ['glsl:builtinFunctions:8.7:all'],
-    evidence: 'src/core/intrinsics.ts:1107',
+    evidence: 'src/core/intrinsics.ts#INTRINSIC_HELPERS',
     note: 'same WGSL name',
     webgpu: typed('src/compiler/ts/builtins.test.ts'),
     webgl2: typed('src/compiler/ts/builtins.test.ts'),
@@ -798,7 +805,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`textureSize`',
     covers: ['glsl:builtinFunctions:8.8:textureSize'],
-    evidence: 'src/compiler/ts/foreign-names.ts:76; src/compiler/ts/math-alias.ts:210',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.textureSize; src/compiler/ts/math-alias.ts#TEXTURE_BUILTIN_NAMES',
     note: 'textureDimensions',
     webgpu: typed('src/compiler/ts/texture-dims.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -808,7 +816,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`texture`',
     covers: ['glsl:builtinFunctions:8.8:texture'],
-    evidence: 'src/compiler/ts/foreign-names.ts:71; src/compiler/ts/math-alias.ts:200',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.texture; src/compiler/ts/math-alias.ts#TEXTURE_BUILTIN_NAMES',
     note: 'textureSample / textureSampleCompare',
     webgpu: typed('src/core/backends/glsl.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -836,7 +845,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`textureLod`',
     covers: ['glsl:builtinFunctions:8.8:textureLod'],
-    evidence: 'src/compiler/ts/foreign-names.ts:73; src/compiler/ts/math-alias.ts:201',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.textureLod; src/compiler/ts/math-alias.ts#TEXTURE_BUILTIN_NAMES',
     note: 'textureSampleLevel',
     webgpu: typed('src/core/backends/glsl.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -864,7 +874,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`texelFetch`',
     covers: ['glsl:builtinFunctions:8.8:texelFetch'],
-    evidence: 'src/compiler/ts/foreign-names.ts:75; src/compiler/ts/math-alias.ts:206',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.texelFetch; src/compiler/ts/math-alias.ts:206',
     note: 'textureLoad',
     webgpu: typed('src/core/backends/glsl.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -875,7 +886,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`texelFetchOffset`',
     covers: ['glsl:builtinFunctions:8.8:texelFetchOffset'],
     evidence:
-      'src/compiler/ts/foreign-names.ts:75 (texelFetch maps to textureLoad, the spelling the offset form uses)',
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.texelFetch (texelFetch maps to textureLoad, the spelling the offset form uses)',
     webgpu: gap(
       15,
       'typed in code; no test reads it on this target (Rule 11.18): no test reads the offset form textureLoad(t, coord + offset, level), the portable spelling (measured with compile(), 2026-10-12: it compiles on both targets); roadmap 0.4 item 13c names the offsets (docs/roadmap.md:229)',
@@ -956,7 +967,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`textureGrad`',
     covers: ['glsl:builtinFunctions:8.8:textureGrad'],
-    evidence: 'src/compiler/ts/foreign-names.ts:74; src/compiler/ts/math-alias.ts:203',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.textureGrad; src/compiler/ts/math-alias.ts#TEXTURE_BUILTIN_NAMES',
     note: 'textureSampleGrad',
     webgpu: typed('src/compiler/ts/texture-dims.test.ts'),
     webgl2: typed('src/compiler/ts/texture-dims.test.ts'),
@@ -1012,7 +1024,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`dFdx`',
     covers: ['glsl:builtinFunctions:8.9:dFdx'],
-    evidence: 'src/compiler/ts/foreign-names.ts:58; src/compiler/ts/math-alias.ts:245',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.dFdx; src/compiler/ts/math-alias.ts:245',
     note: 'dpdx',
     webgpu: typed('src/compiler/ts/builtins.test.ts'),
     webgl2: typed('src/compiler/ts/builtins.test.ts'),
@@ -1022,7 +1035,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in function',
     name: '`dFdy`',
     covers: ['glsl:builtinFunctions:8.9:dFdy'],
-    evidence: 'src/compiler/ts/foreign-names.ts:59; src/compiler/ts/math-alias.ts:246',
+    evidence:
+      'src/compiler/ts/foreign-names.ts#FOREIGN_NAMES.dFdy; src/compiler/ts/math-alias.ts:246',
     note: 'dpdy',
     webgpu: typed('scripts/compile-gate.ts'),
     webgl2: typed('src/compiler/ts/builtin-breadth.test.ts'),
@@ -1070,7 +1084,7 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in variable',
     name: '`gl_Position`',
     covers: ['glsl:builtinVariables:7.1:gl_Position'],
-    evidence: 'src/core/backends/glsl.ts:529',
+    evidence: 'src/core/backends/glsl.ts#BUILTIN_IN.front_facing',
     note: '@builtin("position") output (WGSL)',
     webgpu: typed('src/compiler/ts/entry-io.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -1081,7 +1095,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`gl_PointSize`',
     covers: ['glsl:builtinVariables:7.1:gl_PointSize'],
     evidence:
-      'src/core/backends/glsl.ts:528-531 (BUILTIN_OUT has no point_size); docs/HISTORY.md:122',
+      'src/core/backends/glsl.ts#BUILTIN_IN (BUILTIN_OUT has no point_size); docs/HISTORY.md:122',
     webgpu: na('WebGPU draws points one pixel wide; WGSL has no point-size built-in'),
     webgl2: gap(
       11,
@@ -1138,7 +1152,7 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL built-in variable',
     name: '`gl_FragDepth`',
     covers: ['glsl:builtinVariables:7.2:gl_FragDepth'],
-    evidence: 'src/core/backends/glsl.ts:530',
+    evidence: 'src/core/backends/glsl.ts#BUILTIN_IN',
     note: '@builtin("frag_depth") output (WGSL)',
     webgpu: gap(
       15,
@@ -1339,7 +1353,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL qualifier',
     name: '`centroid`',
     covers: ['glsl:qualifiers:4.3.4:centroid in', 'glsl:qualifiers:4.3.6:centroid out'],
-    evidence: 'docs/use-typeshade-surface.md:6290 (§53 table); src/core/backends/glsl.ts:826-849',
+    evidence:
+      'docs/use-typeshade-surface.md:6290 (§53 table); src/core/backends/glsl.ts#glslEs300Backend.modulePreamble|glslInterpolation',
     webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts'),
     webgl2: typed('src/compiler/ts/entry-io-attributes.test.ts'),
   },
@@ -1396,7 +1411,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL qualifier',
     name: '`smooth`',
     covers: ['glsl:qualifiers:4.3.9:smooth'],
-    evidence: 'docs/use-typeshade-surface.md:6290 (§53 table); src/core/backends/glsl.ts:848',
+    evidence:
+      'docs/use-typeshade-surface.md:6290 (§53 table); src/core/backends/glsl.ts#glslInterpolation',
     webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts', 'the default'),
     webgl2: typed('src/compiler/ts/entry-io-attributes.test.ts'),
   },
@@ -1405,7 +1421,8 @@ export const GLSL_ROWS: readonly Row[] = [
     kind: 'GLSL qualifier',
     name: '`flat`',
     covers: ['glsl:qualifiers:4.3.9:flat'],
-    evidence: 'docs/use-typeshade-surface.md:6289 (§53 table); src/core/backends/glsl.ts:848',
+    evidence:
+      'docs/use-typeshade-surface.md:6289 (§53 table); src/core/backends/glsl.ts#glslInterpolation',
     note: 'Rule 6.7',
     webgpu: typed('src/compiler/ts/entry-io-attributes.test.ts'),
     webgl2: typed('src/core/backends/glsl.test.ts'),
@@ -1431,7 +1448,7 @@ export const GLSL_ROWS: readonly Row[] = [
       'glsl:qualifiers:4.5.4:precision',
     ],
     evidence:
-      'src/core/backends/glsl.ts:1998-2024 (floatPrecision); src/core/backends/glsl.ts:2244-2262 (precision header)',
+      'src/core/backends/glsl.ts#GlslEmitOptions.emulateCompute|GlslEmitOptions.overrideValues (floatPrecision); src/core/backends/glsl.ts:2244-2262 (precision header)',
     webgpu: na('WGSL has one precision'),
     webgl2: gap(
       12,
@@ -1627,7 +1644,7 @@ export const GLSL_ROWS: readonly Row[] = [
     name: '`defined`',
     covers: ['glsl:preprocessor:3.5:defined'],
     evidence:
-      'src/core/variant-family.ts:140-166 (guardCondition writes the defined test and its negation); src/core/variant-family.ts:350 (the ladder head that carries it)',
+      'src/core/variant-family.ts#guardCondition (guardCondition writes the defined test and its negation); src/core/variant-family.ts:350 (the ladder head that carries it)',
     note: 'also: typed through the host export variantFamily().emitGuarded (src/core/variant-family.ts:140-166); test src/core/variant-family.test.ts reads the operator through selectGuardedArm',
     webgpu: na('WGSL has no preprocessor'),
     webgl2: na(
