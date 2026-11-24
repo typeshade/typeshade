@@ -147,6 +147,21 @@ describe('a Resident of the geometry', () => {
     },
   );
 
+  it('is uploaded once for two pipelines of one set of programs', async () => {
+    const { rec, d, target } = await setup(DRAW);
+    const programs = new GlRenderPrograms(d, DRAW);
+    const first = await programs.render({});
+    const second = await programs.render({ blendConstant: [1, 0, 0, 1] });
+    const resident = array(new Float32Array(6));
+    const geometry = { vertices: resident, count: 3 };
+    await recordPass(d, { color: [target] }, (pass) => {
+      pass.draw(first, { tint: tint() } as never, geometry as never);
+      pass.draw(second, { tint: tint() } as never, geometry as never);
+    })();
+    expect(rec.bufferDescs.filter((b) => b.usage.includes('vertex'))).toHaveLength(1);
+    expect(rec.writes.filter((w) => w.bytes.length === 24)).toHaveLength(1);
+  });
+
   it('is uploaded again only when the host copy of its data binding has changed', async () => {
     const { rec, draw } = await setup(IDS);
     const ids = array(new Uint32Array(3));
