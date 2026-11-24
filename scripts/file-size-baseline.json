@@ -200,7 +200,7 @@
   "src/core/testing/draw-harness.ts": 431,
   "src/core/testing/fuse-chain.ts": 1336,
   "src/core/testing/gl-model.ts": 409,
-  "src/core/testing/libm-cases.ts": 739,
+  "src/core/testing/libm-cases.ts": 724,
   "src/core/testing/libm-reference.ts": 471,
   "src/core/testing/random-chain.test.ts": 813,
   "src/core/testing/random-ir.ts": 1728,
