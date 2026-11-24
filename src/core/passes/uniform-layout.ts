@@ -1,53 +1,12 @@
-// ═══ The WGSL uniform layout rule: an array element is aligned to 16 bytes (§51) ═══
-//
-// WGSL's uniform address space requires every array element to start on a 16-byte boundary;
-// `array<f32, 4>` inside a `var<uniform>` is a shader-creation error unless the implementation
-// offers the optional `uniform_buffer_standard_layout` language feature, which relaxes exactly
-// that rule. Measured on Chromium 141 (`chromium_headless_shell-1194`), which does not:
-//
-//   'uniform' storage requires that array elements are aligned to 16 bytes, but array element
-//   of type 'f32' has a stride of 4 bytes. Consider using a vector or struct as the element
-//   type instead.
-//
-// Chromium 153 — what `gate:compile` launches with no `TYPESHADE_CHROMIUM`, and what CI
-// installs — DOES list that feature and accepts the unpadded module. So the reason to pad is
-// not "every driver refuses it". It is the two things true on both: the emit and `reflect()`
-// describe the same bytes, and the module runs where the relaxation is absent.
-//
-// TWO attributes fix two different things, and both were measured before either was chosen:
-//
-//   @size(16) inside a wrapper struct   the element STRIDE. `@align(16) @size(64)` on the
-//                                       MEMBER of a bare array is refused with the text above,
-//                                       because that rule is on the element and no member
-//                                       attribute reaches it.
-//   @align(16) on the member            the array's OFFSET. A struct's alignment comes from
-//                                       its members and `@size` does not raise it, so with the
-//                                       stride alone the array lands at offset 4 — which is
-//                                       also the offset `reflect()` does not report, and which
-//                                       Chromium 141 states outright: `the offset of a struct
-//                                       member of type 'array<_Pad16_f32, 3>' in address space
-//                                       'uniform' must be a multiple of 16 bytes, but 'xs' is
-//                                       currently at offset 4`.
-//
-// so a padded member reads
-//
-//   struct _Pad16_f32 { @size(16) v: f32, }
-//   struct U { k: f32, @align(16) xs: array<_Pad16_f32, 3>, }
-//   …  U.xs[1].v
-//
-// which is the memory `reflect()` already reports for that struct (its std140 arm rounds a
-// uniform array's stride and alignment to 16), so the emit and the reflection describe the
-// same bytes. Checked by hand against Tint's own layout note on nine struct shapes.
-//
-// WGSL-ONLY, and therefore a step of that backend's lowering alone. GLSL ES 3.00 needs
-// nothing: a std140 block gives `float[4]` a 16-byte stride natively, which is why the very
-// program Tint refuses links on WebGL2 — and the `.v` this pass introduces is not text an
-// ANGLE translator would accept.
-//
-// BEFORE the optimizer, not after. This is a lowering: it changes a struct's member types and
-// the reads that reach through them, and an optimizer that has not seen it hoists the
-// unlowered form — LICM lifted `U.weights` out of a loop as `let _licm0 = U.weights;`, leaving
-// no `member` node to rewrite, so `_licm0[i]` came out typed as the wrapper.
+// Why: WGSL's uniform address space requires every array element to start on a 16-byte
+// boundary, so `array<f32, 4>` in a `var<uniform>` is a shader-creation error unless the optional
+// `uniform_buffer_standard_layout` language feature is present. Chromium 141 refuses it with
+// `'uniform' storage requires that array elements are aligned to 16 bytes`; Chromium 153 accepts
+// it. The pass pads so that the emit and `reflect()` describe the same bytes on both.
+// `@size(16)` in a wrapper struct sets the element stride, because no member attribute reaches
+// the element. `@align(16)` on the member sets the array offset, because `@size` does not raise
+// a struct's alignment.
+// GLSL ES 3.00 needs no pass: a std140 block gives `float[4]` a 16-byte stride natively.
 
 import type { BindingDecl, Expr, ModuleDecl, Stmt, StructDecl } from '../ir/nodes.js';
 import { arrayT, structT, typeKey, type ShaderType } from '../ir/types.js';
@@ -164,9 +123,8 @@ function makeLayout(
 const wrapperName = (elem: ShaderType): string =>
   `_Pad16_${typeKey(elem).replace(/[^A-Za-z0-9]/g, '_')}`;
 
-/** A buffer binding in the uniform address space — the one place the 16-byte array rule
- *  applies. A texture or sampler carries `space: 'uniform'` too (it has no address space of
- *  its own) and holds no struct, so the type check is what separates them. */
+// Why: a texture or sampler binding carries `space: 'uniform'` too, because it has no address
+// space of its own. Only the type check separates it from a buffer binding.
 const isBufferBinding = (b: BindingDecl): boolean =>
   b.type.kind === 'struct' ||
   b.type.kind === 'array' ||
@@ -498,9 +456,9 @@ function orderWrappers(
       placed.add(w);
     }
   }
-  // A wrapper whose element struct is not in the list cannot arise — the element came from
-  // a field of one of these structs — but dropping a declaration would emit a module that
-  // names a type nothing declares, so an unplaced one leads rather than vanishing.
+  // Why: an unplaced wrapper cannot arise, because its element came from a field of one of
+  // these structs. Dropping it would emit a module that names a type nothing declares, so it
+  // leads instead.
   for (const list of after.values()) {
     for (const w of list) if (!placed.has(w)) out.unshift(w);
   }
