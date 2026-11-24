@@ -1,40 +1,3 @@
-// ═══ Shader DSL — the unified compute runner (X-GIS #1903) ═══
-//
-// One entry point for running a `portable: true` compute kernel, whichever backend the
-// host actually has. The kernel is already backend-neutral — the same `fn(…, { stage:
-// 'compute', portable: true })` emits native WGSL and, on GLSL ES 3.00, the
-// compute→fragment-GPGPU lowering. What was NOT neutral was the DISPATCH: WebGPU takes a
-// compute pass, WebGL2 takes a fullscreen draw into an R32UI target and a readback, and a
-// consumer had to write both. This module absorbs that difference.
-//
-// ─── WHY THIS LIVES IN shader-dsl ───
-// It executes, and shader-dsl is a compiler — but that boundary was already crossed, on
-// purpose: `compileModuleJs` (core/cpu-codegen.ts) emits a JS source string and
-// `new Function`s it, and map/ ships that in production. The line this package actually
-// holds is DEPENDENCIES, and this module keeps it: `WebGL2RenderingContext` comes from
-// `lib.dom`, the WebGPU surface is typed STRUCTURALLY below rather than pulled from
-// `@webgpu/types` (the package compiles with `types: []` so it can be vendored out of the
-// repo), and the whole thing is on its own subpath — an emit-only consumer that never
-// imports `typeshade/compute` bundles none of it.
-//
-// ─── THE THREE PROPERTIES THAT ARE NOT NEGOTIABLE ───
-// 1. ASYNC, because WebGPU readback genuinely is (`mapAsync`); CPU and WebGL2 resolve
-//    immediately. Unity hit the same wall and had to expose `AsyncGPUReadback` —
-//    `ComputeBuffer.GetData` does not work there. A synchronous common signature would be
-//    a lie on the one backend that most needs it.
-// 2. RESOLVED ONCE, at construction, not per `run()`. Same shape as Unity's Graphics API
-//    list: a declared order, tried once, and from then on you know what you have.
-// 3. OBSERVABLE, never silent. three.js's WebGPURenderer falls back to WebGL2
-//    automatically and its own docs warn that compute work "may not run when devices
-//    silently drop to the WebGL2 fallback" — a perf/correctness cliff the consumer cannot
-//    debug. `backend` says what won; `rejected` says why each earlier candidate did not.
-//
-// The tier CHECK is deliberately not here. A kernel outside the gather-only tier is
-// already red at authoring time via `SD0111` (passes/portable-kernel.ts, run by
-// `validate()` on BOTH writers), which beats every engine surveyed — Unity and Babylon
-// both report compute availability as a RUNTIME flag. This module only re-reads the
-// analyzer's facts to find the bindings; it never re-decides the shape.
-
 import { workgroupSizeOf, type ModuleDecl, type FuncDecl, type BindingDecl } from '../ir/index.js';
 import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js';
 import { compileModuleJs } from '../cpu-codegen.js';
@@ -54,31 +17,6 @@ export interface RejectedBackend {
   readonly reason: string;
 }
 
-// ── the WebGPU device, structurally ─────────────────────────────────────────────────
-//
-// Typed here rather than imported from `@webgpu/types`: this package compiles with
-// `types: []` so it stays vendorable outside the repo, and a typings dependency for a tier
-// most consumers never reach is the coupling the subpath split exists to avoid.
-//
-// TWO interfaces, on purpose, because they have opposite jobs.
-//
-// `GpuDeviceLike` is the PUBLIC one — what a caller must hand over. It names the five
-// factory methods and the queue and says NOTHING about their arguments, which is what
-// makes a real `GPUDevice` assignable with no cast and no `@webgpu/types` on either side.
-// Spelling the argument shapes here would REJECT a real device rather than describe it: a
-// method parameter is contravariant, so `module: unknown` reads as "must accept anything"
-// — which `createComputePipeline`, wanting a `GPUShaderModule`, does not — and
-// `layout: 'auto'` is NARROWER than the real `GPUPipelineLayout | 'auto'`. That is not
-// hypothetical: it is what the first version of this interface did, and
-// `tsc -p playground/e2e` rejected `GPUDevice` with exactly those two errors. The
-// conformance probe in `playground/e2e/_compute-runner-parity.ts` is that check, kept —
-// so "a real GPUDevice satisfies this" is decided by the compiler against the real
-// typings rather than asserted in a comment.
-//
-// `GpuDeviceApi` is the INTERNAL one: the precise shapes this module actually calls, so
-// the dispatch below is type-checked rather than stringly-typed. The single
-// `as GpuDeviceApi` cast at the tier boundary is where the two meet.
-
 /** A WebGPU device, as the runner requires one. A real `GPUDevice` satisfies this — see
  *  the note above for why the arguments are deliberately unspelled. */
 export interface GpuDeviceLike {
@@ -90,7 +28,6 @@ export interface GpuDeviceLike {
   readonly queue: object;
 }
 
-/** A GPU buffer, as this module uses one. */
 interface GpuBufferLike {
   mapAsync(mode: number): Promise<void>;
   getMappedRange(): ArrayBuffer;
@@ -98,7 +35,6 @@ interface GpuBufferLike {
   destroy(): void;
 }
 
-/** The compute pass encoder. */
 interface GpuComputePassLike {
   setPipeline(p: unknown): void;
   setBindGroup(index: number, group: unknown): void;
@@ -106,7 +42,6 @@ interface GpuComputePassLike {
   end(): void;
 }
 
-/** The command encoder. */
 interface GpuEncoderLike {
   beginComputePass(): GpuComputePassLike;
   copyBufferToBuffer(
@@ -119,13 +54,10 @@ interface GpuEncoderLike {
   finish(): unknown;
 }
 
-/** A compiled compute pipeline. `layout: 'auto'` derives the bind-group layout from the
- *  shader, which is why the runner can read it back rather than declaring one. */
 interface GpuPipelineLike {
   getBindGroupLayout(index: number): unknown;
 }
 
-/** The precise surface this module calls, behind the one cast in the resolution loop. */
 interface GpuDeviceApi {
   createShaderModule(d: { code: string }): unknown;
   createComputePipeline(d: {
@@ -197,12 +129,8 @@ export interface ComputeRunner {
 
 const DEFAULT_PREFER: readonly ComputeBackend[] = TIERS;
 
-/** The guaranteed WebGL2 `MAX_TEXTURE_SIZE` floor. Both the input data texture and the
- *  output grid wrap at this width, so a longer array spills across rows. */
 const MAX_W = 2048;
 
-/** The kernel facts every tier needs: which binding is the input, which is the output,
- *  which uniform carries the dispatch, and what the entry is called. */
 interface KernelPlan {
   readonly entry: FuncDecl;
   readonly readBindings: readonly BindingDecl[];
@@ -210,10 +138,6 @@ interface KernelPlan {
   readonly dispatchUniform: BindingDecl;
 }
 
-/** Read the tier analyzer's facts off `m`. Throws with the analyzer's own sentences when
- *  the module carries no portable entry or the entry is outside the tier — the same
- *  strings `SD0111` reports, so a consumer who reaches here without linting still gets the
- *  remedy rather than a shape error from three frames deeper. */
 function planKernel(m: ModuleDecl): KernelPlan {
   const entry = m.funcs.find(isPortableComputeEntry);
   if (!entry)
@@ -230,18 +154,6 @@ function planKernel(m: ModuleDecl): KernelPlan {
   };
 }
 
-// ── CPU tier ────────────────────────────────────────────────────────────────────────
-//
-// No dispatch abstraction needed at all: `compileModuleJs` walks the IR once, emits a JS
-// source string per fn and `new Function`s it, so running the kernel is calling a
-// function. Measured at 9.5 M invocations/sec on an 8-arm match paint kernel (6.6x the
-// tree-walk interpreter, bit-identical to it by construction).
-//
-// The CPU tier runs every kernel the portable tier accepts. This runner's WebGL2 arm lowers
-// only a gather-only kernel to a fragment program; a scatter kernel is not supported yet on
-// that arm (Rule 11.8). `planKernel` still gates on the tier here, deliberately: a runner
-// whose CPU arm accepted kernels its GPU arms reject would pass in development and throw the
-// first time it met a real device.
 function createCpuRunner(
   m: ModuleDecl,
   plan: KernelPlan,
@@ -257,12 +169,8 @@ function createCpuRunner(
       const n = invocations ?? input.length;
       const out = new Array<number>(n).fill(0);
       for (const b of plan.readBindings) cm.setBinding(b.name, Array.from(input));
-      // .y = W_out is the GLSL grid width and carries no meaning here; .x is the bounds
-      // guard the kernel itself reads, so it must be right.
       cm.setBinding(plan.dispatchUniform.name, [n, 0, 0, 0]);
       cm.setBinding(plan.outBinding.name, out);
-      // The gid array is hoisted: reusing it instead of minting `[i,0,0]` per invocation
-      // measured 12–24% across kernel shapes.
       for (let i = 0; i < n; i++) {
         gid[0] = i;
         entryFn(gid);
@@ -273,16 +181,6 @@ function createCpuRunner(
   };
 }
 
-// ── WebGL2 tier ─────────────────────────────────────────────────────────────────────
-//
-// The host contract for the compute→fragment lowering, as published on
-// /shader-dsl/webgl2-compute and proven against the CPU-f64 oracle on a real WebGL2
-// context. Three things here are load-bearing and each fails SILENTLY when omitted:
-// the texture parameters (the default NEAREST_MIPMAP_LINEAR leaves a mipmap-incomplete
-// texture whose every texelFetch returns 0 with no GL error), `disable(BLEND)` (blending
-// on an integer attachment is a GL error), and `clearBufferuiv` rather than `clearColor`.
-
-/** The fullscreen triangle: three vertices from `gl_VertexID`, no VBO, no attributes. */
 const FULLSCREEN_VS = `#version 300 es
 void main() {
   vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
@@ -320,11 +218,6 @@ function compileGlProgram(gl: WebGL2RenderingContext, vsSrc: string, fsSrc: stri
   return prog;
 }
 
-/** Upload `data` as the 2D-tiled data texture the emitted `_sfetch` reads: element i lives at
- *  texel (i % W, i / W), and the shader reads W back through `textureSize()` so there is no width
- *  constant for the two sides to disagree about. The texture's format is the one the GLSL backend
- *  declared the sampler for (change 0046): R32F, or R32UI / R32I, whose lanes are `data`'s own
- *  32 bits, unconverted. */
 function uploadDataTexture(
   gl: WebGL2RenderingContext,
   tex: WebGLTexture,
@@ -341,14 +234,10 @@ function uploadDataTexture(
         : [gl.R32F, gl.RED, gl.FLOAT];
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.texImage2D(gl.TEXTURE_2D, 0, internal, w, h, 0, fmt, type, null);
-  // REQUIRED — see the note above the tier.
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  // texSubImage2D must cover the whole texture, so a partial last row is zero-padded.
-  // The view honours the caller's window (byteOffset/length): a frame-arena subarray read
-  // from offset 0 would upload a neighbouring buffer's bytes, silently.
   let padded = data;
   if (data.length !== w * h) {
     padded = new Float32Array(w * h);
@@ -368,15 +257,10 @@ function createWebGl2Runner(
   m: ModuleDecl,
   plan: KernelPlan,
 ): Omit<ComputeRunner, 'backend' | 'rejected'> {
-  // No emit option: the kernel's own `portable` declaration routes the compute→fragment
-  // lowering. Emitted ONCE here, not per run — the rhi dispatchers cache the PIPELINE but
-  // key it on the emit OUTPUT, so they pay validate → lowering → the optimizer fixpoint on
-  // every dispatch. That is the bug this runner exists not to inherit.
   const program = compileGlProgram(gl, FULLSCREEN_VS, emitGlslModule(m, 'fragment'));
   const dataTex = gl.createTexture();
   if (!dataTex) throw new Error('createComputeRunner: gl.createTexture failed');
 
-  // The program declares each binding under its GLSL spelling (Proposal 0070, C8).
   const glslNames = spellingsOf(m).glsl.bindings;
   const glslName = (n: string): string => glslNames.get(n) ?? n;
   const samplerLoc = gl.getUniformLocation(program, glslName(plan.readBindings[0]?.name ?? ''));
@@ -390,38 +274,16 @@ function createWebGl2Runner(
     run(input: Float32Array, invocations?: number): Promise<Uint32Array> {
       if (disposed) throw new Error('createComputeRunner: runner has been disposed');
       const n = invocations ?? input.length;
-      // n === 0 is an ordinary steady state (a frame with nothing to dispatch), and the
-      // other two tiers already treat it as one — CPU runs its loop zero times, WebGPU
-      // clamps its buffer to 4 bytes and says so at the clamp. Here it is NOT survivable
-      // further down: `wOut` is clamped but `hOut = ceil(0 / 1)` is 0, and a 1x0 R32UI
-      // texture is not framebuffer-attachment-complete (GLES 3.0 §4.4.4.2), so the
-      // completeness check below throws. Short-circuit before any GL call so the three
-      // tiers agree on the documented `run` contract (X-GIS #2362).
       if (n === 0) return Promise.resolve(new Uint32Array(0));
       const wOut = Math.min(Math.max(1, n), MAX_W);
       const hOut = Math.ceil(n / wOut);
 
-      // Snapshot the HOST's global state, BEFORE the first GL call that overwrites it.
-      // `options.gl` is documented "A live WebGL2 context" — the caller's, not one this
-      // runner owns — so everything this dispatch touches has to come back. Only the
-      // viewport did (X-GIS #2355); BLEND, the current program and the TEXTURE0 binding did not,
-      // and on a shared context an unrestored `disable(BLEND)` silently composited the
-      // host's next alpha-blended draw as opaque.
-      //
-      // Placement is load-bearing twice over. `uploadDataTexture` below binds to the
-      // ACTIVE unit, so a snapshot taken any later records this runner's own texture rather
-      // than the host's. And `TEXTURE_BINDING_2D` is PER-UNIT, so it is read with TEXTURE0
-      // selected — the unit this pass clobbers — instead of off whichever unit the host left
-      // active, which would snapshot a unit that is never touched and restore the wrong one.
       const wasBlend = gl.isEnabled(gl.BLEND);
       const prevProgram = gl.getParameter(gl.CURRENT_PROGRAM) as WebGLProgram | null;
       const prevActiveTex = gl.getParameter(gl.ACTIVE_TEXTURE) as number;
       gl.activeTexture(gl.TEXTURE0);
       const prevTex0 = gl.getParameter(gl.TEXTURE_BINDING_2D) as WebGLTexture | null;
       gl.activeTexture(prevActiveTex);
-      /** Hand the borrowed state back. Idempotent, and used on BOTH exits — the
-       *  `createFramebuffer` failure below throws before the try/finally exists, and the
-       *  existing `deleteTexture` there shows that path is meant to clean up after itself. */
       const restoreHostState = (): void => {
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, prevTex0);
@@ -458,8 +320,6 @@ function createWebGl2Runner(
         restoreHostState();
         throw new Error('createComputeRunner: gl.createFramebuffer failed');
       }
-      // Snapshot the viewport: overriding it for the output grid without restoring leaves
-      // every later draw in the host's frame rendering at the compute pass's size.
       const vp = gl.getParameter(gl.VIEWPORT) as Int32Array;
       try {
         gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
@@ -478,8 +338,6 @@ function createWebGl2Runner(
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, dataTex);
         if (samplerLoc) gl.uniform1i(samplerLoc, 0);
-        // A BARE `uniform uvec4`, not a UBO — the GLSL backend spells the dispatch uniform
-        // loose so this path can set it directly. .x = invocation count, .y = W_out.
         if (dispatchLoc) gl.uniform4uiv(dispatchLoc, new Uint32Array([n, wOut, 0, 0]));
 
         gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -487,16 +345,12 @@ function createWebGl2Runner(
         gl.readBuffer(gl.COLOR_ATTACHMENT0);
         const grid = new Uint32Array(wOut * hOut);
         gl.readPixels(0, 0, wOut, hOut, gl.RED_INTEGER, gl.UNSIGNED_INT, grid);
-        // The tail of the grid is over-grid padding; those texels took the `discard` path.
         return Promise.resolve(grid.slice(0, n));
       } finally {
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.viewport(vp[0]!, vp[1]!, vp[2]!, vp[3]!);
         gl.deleteFramebuffer(fbo);
         gl.deleteTexture(outTex);
-        // After the deletes: `deleteTexture` unbinds whatever it removes, so restoring the
-        // host's binding last is what leaves TEXTURE0 holding the host's texture rather
-        // than nothing.
         restoreHostState();
       }
     },
@@ -509,49 +363,20 @@ function createWebGl2Runner(
   };
 }
 
-// ── WebGPU tier ─────────────────────────────────────────────────────────────────────
-//
-// The NATIVE tier, and the one with no rewrite in it at all: `emitWgslModule(m)` is the
-// same `@compute @workgroup_size(N)` source the kernel emits with no runner involved —
-// the portable declaration costs zero bytes here (X-GIS #1812). What this absorbs is only the
-// DISPATCH, which is where WebGPU and WebGL2 stop resembling each other: a pipeline, a
-// bind group at the DECLARED binding numbers, a compute pass, and a staging copy.
-//
-// The readback is why `run()` is async on every tier. WebGPU has no synchronous buffer
-// read — `mapAsync` is the only door — and Unity hit exactly this wall on its own compute
-// path (`ComputeBuffer.GetData` does not work on the web target; `AsyncGPUReadback` had to
-// be added). A synchronous common signature would have been a lie on the one backend that
-// most needs the escape hatch, so the CPU and WebGL2 tiers resolve an already-settled
-// promise instead.
-
 function createWebGpuRunner(
   device: GpuDeviceApi,
   m: ModuleDecl,
   plan: KernelPlan,
 ): Omit<ComputeRunner, 'backend' | 'rejected'> {
-  // Emitted, compiled and pipelined ONCE — `run` is the dispatch alone. The rhi
-  // dispatchers cache the pipeline but key it on the emit OUTPUT, so they re-run
-  // validate → lower → the optimizer fixpoint on every dispatch; that is the cost this
-  // runner exists not to inherit.
   const shader = device.createShaderModule({ code: emitWgslModule(m) });
   const pipeline = device.createComputePipeline({
     layout: 'auto',
-    // The WGSL declares the entry under its emitted name when WGSL cannot spell the authored one
-    // (Proposal 0070, D7).
     compute: {
       module: shader,
       entryPoint: emittedName(spellingsOf(m).wgsl.entries, plan.entry.name),
     },
   });
-  // `layout: 'auto'` derives the bind-group layout from the shader instead of declaring
-  // one, which is exactly why the resolution below refuses a kernel with a binding outside
-  // @group(0) rather than reaching for a group this handle cannot describe.
   const layout = pipeline.getBindGroupLayout(0);
-  // The kernel's OWN declaration decides the workgroup count, through the same accessor
-  // reflect() uses (`workgroupSizeOf(f) ?? 64`) — a second default here would let the
-  // dispatch and the reflection disagree about the grid.
-  // The x extent is the whole workgroup: planKernel's tier check refuses a portable
-  // kernel whose workgroup has a y or z other than 1.
   const wg = workgroupSizeOf(plan.entry) ?? 64;
   let disposed = false;
 
@@ -559,9 +384,6 @@ function createWebGpuRunner(
     async run(input: Float32Array, invocations?: number): Promise<Uint32Array> {
       if (disposed) throw new Error('createComputeRunner: runner has been disposed');
       const n = invocations ?? input.length;
-      // A zero-size buffer is a WebGPU validation error, and n === 0 is an ordinary steady
-      // state (a frame with nothing to dispatch), so clamp rather than throw. Four bytes
-      // is also the alignment floor for a mapped copy.
       const outBytes = Math.max(4, n * 4);
 
       const inBuf = device.createBuffer({
@@ -572,9 +394,6 @@ function createWebGpuRunner(
         size: outBytes,
         usage: GPU_USAGE.STORAGE | GPU_USAGE.COPY_SRC,
       });
-      // 16 bytes, not 4: the WebGPU minimum binding size for a uniform buffer. That floor
-      // is the whole reason the dispatch uniform is declared `vec4<u32>` rather than a
-      // bare u32, on every backend.
       const countBuf = device.createBuffer({
         size: 16,
         usage: GPU_USAGE.UNIFORM | GPU_USAGE.COPY_DST,
@@ -584,19 +403,11 @@ function createWebGpuRunner(
         usage: GPU_USAGE.MAP_READ | GPU_USAGE.COPY_DST,
       });
       try {
-        // `writeBuffer` honours the view's byteOffset/length, so a frame-arena SUBARRAY
-        // uploads its own window — reconstructing a view off `.buffer` is what uploaded a
-        // neighbouring renderer's bytes in the storage-upload rewrite.
         device.queue.writeBuffer(inBuf, 0, input);
-        // .y = W_out is the GLSL output-grid width and has no meaning on a compute pass;
-        // .x is the bounds guard the kernel itself reads, so it must be right.
         device.queue.writeBuffer(countBuf, 0, new Uint32Array([n, 0, 0, 0]));
 
         const bind = device.createBindGroup({
           layout,
-          // The DECLARED binding numbers — not a hardcoded 0/1/2. The module already says
-          // where each resource lives, and re-stating it here is a second authority that
-          // silently mis-binds the day a kernel numbers them differently.
           entries: [
             ...plan.readBindings.map((b) => ({ binding: b.binding, resource: { buffer: inBuf } })),
             { binding: plan.outBinding.binding, resource: { buffer: outBuf } },
@@ -614,8 +425,6 @@ function createWebGpuRunner(
         device.queue.submit([enc.finish()]);
 
         await stagingBuf.mapAsync(GPU_MAP_READ);
-        // COPY before `unmap`: it DETACHES the mapped ArrayBuffer, so a view held across
-        // the call reads a zero-length buffer rather than the result.
         const got = new Uint32Array(stagingBuf.getMappedRange().slice(0, n * 4));
         stagingBuf.unmap();
         return got;
@@ -627,15 +436,10 @@ function createWebGpuRunner(
       }
     },
     dispose(): void {
-      // The pipeline and shader module have no `destroy` in WebGPU — they are released
-      // with the last reference. Every buffer is already per-run, freed in the `finally`
-      // above, so all this owns is the closed flag.
       disposed = true;
     },
   };
 }
-
-// ── resolution ──────────────────────────────────────────────────────────────────────
 
 /** Build a runner for `m`, resolving the backend ONCE against `prefer`.
  *
@@ -661,11 +465,6 @@ export async function createComputeRunner(
         rejected.push({ backend, reason: 'no WebGPU device was passed (`device`)' });
         continue;
       }
-      // `layout: 'auto'` can only hand back the layout of a group the pipeline derived,
-      // and this tier reads group 0. A kernel that numbers its resources elsewhere is
-      // still fine on WebGL2 and CPU — both flatten groups away — so this is a REJECTION
-      // that falls through, not a throw: the consumer keeps a working runner and `rejected`
-      // says why the native tier was not it.
       const offGroup = [plan.outBinding, plan.dispatchUniform, ...plan.readBindings].find(
         (b) => b.group !== 0,
       );
