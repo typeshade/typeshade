@@ -41,6 +41,9 @@ import {
   type ChainCorpus,
 } from './random-ir.js';
 import { tripsOf, callArgs, type Sizes, type Inputs } from './fuse-chain/inputs.js';
+import { outcomeOf, type Outcome } from './fuse-chain/apart.js';
+export { runApart } from './fuse-chain/apart.js';
+export type { Outcome } from './fuse-chain/apart.js';
 export { lengthOf, tripsOf, inputsOf, withScratchContents, callArgs } from './fuse-chain/inputs.js';
 export type { Sizes, ScalarOf, Inputs } from './fuse-chain/inputs.js';
 
@@ -285,37 +288,6 @@ export function forgetsLength(low: Lowered): Lowered {
       fuse: { ...fuse, facts: fuse.facts.map(({ bare: _bare, ...f }) => f) },
     },
   };
-}
-
-export interface Outcome {
-  readonly arrays: Readonly<Record<string, CpuValue>>;
-  readonly results: Readonly<Record<string, CpuValue>>;
-}
-
-function outcomeOf(
-  c: ChainCorpus,
-  store: ReadonlyMap<string, CpuValue>,
-  results: Map<string, CpuValue>,
-): Outcome {
-  return {
-    arrays: Object.fromEntries(
-      c.arrays.filter((a) => a.written && !a.scratch).map((a) => [a.id, store.get(a.id)!]),
-    ),
-    results: Object.fromEntries(results),
-  };
-}
-
-export function runApart(c: ChainCorpus, inputs: Inputs, precision: 'f32' | 'f64'): Outcome {
-  const cpu = compileModule(c.module, { precision });
-  const store = new Map<string, CpuValue>(
-    [...inputs.arrays].map(([id, v]) => [id, copy(v as unknown as CpuValue)]),
-  );
-  const results = new Map<string, CpuValue>();
-  c.calls.forEach((call, j) => {
-    const r = cpu.fns[call.fn]!(...callArgs(c, j, inputs, store));
-    if (r !== undefined) results.set(call.fn, r);
-  });
-  return outcomeOf(c, store, results);
 }
 
 export function groupCallsOf(
