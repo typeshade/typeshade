@@ -230,7 +230,7 @@
   "src/runtime/gl-draw.test.ts": 1924,
   "src/runtime/gl-draw.ts": 1075,
   "src/runtime/gl-names.test.ts": 456,
-  "src/runtime/gl.ts": 467,
+  "src/runtime/gl.ts": 424,
   "src/runtime/program.ts": 2242,
   "src/runtime/render-state-parity.test.ts": 977,
   "src/runtime/resource-call.test.ts": 656,
