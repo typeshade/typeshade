@@ -13,7 +13,6 @@ import {
   matVecShaped,
   matTransposeShaped,
   matColumn,
-  setMatColumn,
   matMulShaped,
   vecMatShaped,
   f32ToU32Sat,
@@ -39,6 +38,7 @@ import { fnWrites } from '../passes/effects.js';
 import { treeCombine, type LoopReduction, type TreeLoop } from '../passes/parallel-loop.js';
 import type { StepFrame, StepCtx, Step, Signal } from './interp/types.js';
 import { rootName, whole, markStub } from './interp/stub-marks.js';
+import { setSlot, setColumn } from './interp/memory-writes.js';
 export type {
   StepFrame,
   StepEvent,
@@ -332,47 +332,6 @@ function isMemoryRoot(root: string | undefined, env: Map<string, CpuValue>, ctx:
     !(root in ctx.privates) &&
     (root in ctx.bindings || root in ctx.vars)
   );
-}
-
-function setSlot(
-  container: Record<string | number, CpuValue>,
-  key: string | number,
-  value: CpuValue,
-  ctx: StepCtx,
-  logged: boolean,
-): void {
-  if (ctx.journal !== undefined && logged) {
-    const before = container[key] as CpuValue;
-    const after = value;
-    ctx.journal.push({
-      undo: () => {
-        container[key] = before;
-      },
-      redo: () => {
-        container[key] = after;
-      },
-    });
-  }
-  container[key] = value;
-}
-
-function setColumn(
-  m: number[],
-  j: number,
-  rows: number,
-  v: number[],
-  ctx: StepCtx,
-  logged: boolean,
-): void {
-  if (ctx.journal !== undefined && logged) {
-    const before = matColumn(m, j, rows);
-    const after = [...v];
-    ctx.journal.push({
-      undo: () => setMatColumn(m, j, rows, before),
-      redo: () => setMatColumn(m, j, rows, after),
-    });
-  }
-  setMatColumn(m, j, rows, v);
 }
 
 function* refOf(

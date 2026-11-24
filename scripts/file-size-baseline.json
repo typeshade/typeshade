@@ -111,7 +111,7 @@
   "src/core/cpu-runtime.ts": 1331,
   "src/core/debug/config.test.ts": 923,
   "src/core/debug/config.ts": 757,
-  "src/core/debug/interp.ts": 739,
+  "src/core/debug/interp.ts": 698,
   "src/core/debug/step.test.ts": 891,
   "src/core/debug/watch.test.ts": 433,
   "src/core/dx-sweep.test.ts": 539,
