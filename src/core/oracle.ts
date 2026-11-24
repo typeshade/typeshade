@@ -556,12 +556,8 @@ type Signal =
   | { kind: 'discard' };
 const NORMAL: Signal = { kind: 'normal' };
 
-// One flat env per function call (no per-block child scope). This is safe
-// because the ONLY way to reference a binding is the Node returned by
-// b.let()/b.var()/forRange — the TS host already scopes those lexically, so a
-// `var` declared in one branch can't be read from another. (A future
-// "read a binding by name" API would expose the divergence from WGSL block
-// scoping; don't add one without per-block scopes here.)
+// Why: one flat env per call matches WGSL block scoping only while a binding is reached through
+// the Node b.let()/b.var()/forRange returns; a read of a binding by name would diverge from it.
 /** A value about to be STORED under a name — bound to a `let`/`var`, or assigned to an
  *  existing one: copied when it is an aggregate, so the store has the value semantics both
  *  GPU targets give it. A freshly built value would not need the copy, but telling those
