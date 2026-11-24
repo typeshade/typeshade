@@ -78,7 +78,6 @@ import {
 } from './host-face-contracts.js';
 import { REASON } from './host-face-shared.js';
 import { moduleText } from './host-module.js';
-import { hostResourceOf, type ResourceClassFacts } from './host-resource.js';
 import { hostTypeOf, kernelArrayLayout } from './host-types.js';
 import {
   bindingsTypes,
@@ -108,6 +107,7 @@ import { classChain, memberCall, classMembers } from './host-face/class-members.
 import { classCalls, generatedClass } from './host-face/class-calls.js';
 import { never } from './host-face/never-export.js';
 import type { BindingRef } from './host-face/binding-ref.js';
+import { resourceFaces } from './host-face/resource-faces.js';
 export { hostViewPath, isShaderModulePath, formatBuildErrors } from './host-face/build-paths.js';
 export { bareArrays } from './host-face/kernel-facts.js';
 export { type HostExport } from './host-face-contracts.js';
@@ -1149,34 +1149,6 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
 
   if (ts.isModuleDeclaration(decl)) return never(name, REASON.namespace);
   return never(name, REASON.unknown);
-}
-
-function resourceFaces(
-  faces: readonly (FaceExport | BindingRef)[],
-  bindings: readonly BindingDecl[],
-): FaceExport[] {
-  const classes = faces.filter((e): e is ClassExport => e.kind === 'class');
-  const classOf = (name: string, layout: 'u' | 's'): ResourceClassFacts | undefined => {
-    const cls = classes.find((e) => e.type.s === name);
-    if (cls === undefined) return undefined;
-    const why = layout === 'u' ? cls.layouts.un : cls.layouts.sn;
-    return {
-      name: cls.name,
-      abstract: cls.abstract,
-      ...(why !== undefined ? { layoutProblem: why } : {}),
-    };
-  };
-  return faces.map((e): FaceExport => {
-    if (e.kind !== 'binding') return e;
-    const b = bindings.find((x) => x.name === e.binding);
-    if (b === undefined || b.type === undefined) return never(e.name, REASON.bindingExport);
-    const r = hostResourceOf(b, classOf);
-    if (r.kind === 'other') return never(e.name, REASON.bindingExport);
-    if (r.kind === 'none') return never(e.name, REASON.bindingNoResource(r.why));
-    return r.length === undefined
-      ? { kind: 'resource', name: e.name, cls: r.cls }
-      : { kind: 'resource', name: e.name, cls: r.cls, length: r.length };
-  });
 }
 
 function classFace(
