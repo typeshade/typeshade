@@ -105,4 +105,22 @@ describe('a mixin field layout message reads the same in both halves (issue 1326
   it('takes a field written f32 against an untyped number with a fraction', () => {
     bothTake(mixins('v: f32;', 'v = 0.5;', ''));
   });
+
+  it('does not name a type for a field that has none, in an equal-typed pair', () => {
+    const pairs: ReadonlyArray<readonly [string, string]> = [
+      ['v = 1 + 2.;', 'v = 1.;'],
+      ['v = 1 + 2.;', 'v = f32(1);'],
+      ['v = 7 % 2;', 'v = 1.;'],
+      ['v = 1 / 2;', 'v = 1 << 2;'],
+      ['v = vec3<f32>(1);', 'v: vec3;'],
+      ['v = 1 + 2.;', 'v: i32;'],
+    ];
+    for (const [a, b] of pairs) {
+      const h = bothHalves(mixins(a, b, ''));
+      expect(twice(h.compiler), `${a} / ${b}`).toEqual([]);
+      expect(twice(h.editor), `${a} / ${b}`).toEqual([]);
+      expect(h.compiler.some((l) => l.includes('needs a type'))).toBe(true);
+      expect(h.editor.some((l) => l.includes('needs a type'))).toBe(true);
+    }
+  });
 });

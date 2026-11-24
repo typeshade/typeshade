@@ -313,7 +313,7 @@ function writtenType(member: ts.ClassElement, sourceFile: ts.SourceFile): string
   const named = isIntegerLiteralTree(member.initializer)
     ? (decidedType(sourceFile, member) ?? f32T)
     : initializerType(member.initializer, sourceFile);
-  return named === undefined ? '' : authorTypeText(named);
+  return named === undefined ? undefined : authorTypeText(named);
 }
 
 /** The members a class carries once its mixins are applied: each mixin's in the order the
