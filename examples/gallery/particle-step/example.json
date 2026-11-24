@@ -1,0 +1,9 @@
+{
+  "title": "Methods that change their object",
+  "blurb": "A `class Particle` whose `step`, `bounce` and `tick` assign to `this`, called on a storage element: each takes and returns the struct and the call statement writes the receiver back, `ps[gid.x] = Particle_tick(ps[gid.x], dt)` (§26). The WebGL2 tier runs the compute entry as a pass program, with read-write storage (Rule 11.8).",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}

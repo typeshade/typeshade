@@ -630,7 +630,7 @@ export function run(k: f32): f32 {
   });
 });
 
-describe('examples/closures.shade.ts', () => {
+describe('examples/gallery/closures/closures.shade.ts', () => {
   it('renders the rings, the dabs and the spots on every CPU path', () => {
     const src = exampleSource('closures');
     const r = compile(src);

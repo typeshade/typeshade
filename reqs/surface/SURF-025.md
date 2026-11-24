@@ -3,7 +3,7 @@ active: true
 derived: false
 level: 25
 links:
-- RULE-1005: vBMBez0hPB0tDJwtZXbAjaeQxMhBrHLzrPRMX2BmMpQ=
+- RULE-1005: uO9qcqOBG1eDeEpFHrEA3-uj-UmF0-zvNm_jqqHAmOI=
 normative: true
 ref: ''
 reviewed: Td2v09mlUFyKUdik8fgXzg4gW1_9BKfcoO_Qm9gib70=

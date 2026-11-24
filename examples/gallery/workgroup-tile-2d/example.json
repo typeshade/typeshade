@@ -1,0 +1,9 @@
+{
+  "title": "Two-dimensional workgroup",
+  "blurb": "`@compute([8, 8])` is WGSL's `@workgroup_size(8, 8)`: one invocation per pixel of an 8x8 tile, which loads the tile into workgroup memory, waits at a barrier, and blurs each pixel with its four neighbours inside the tile (§3, §24, §25). `compile()` emits WGSL and no GLSL text for it; on WebGL2 the entry runs as a pass program, with its barrier as a cut of the phased order (Rule 11.8).",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}

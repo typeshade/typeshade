@@ -449,7 +449,7 @@ validation step 7 measures one case.
 - **Surface §64** names the new types among the values with no host value.
 - **Surface §76** changes its title to name `null`, adds the representation, the narrowing table,
   the conversions and the refusals, and changes "What it does not change".
-- **Example `null-values`** (`examples/null-values.shade.ts`): a function that returns `T | null`
+- **Example `null-values`** (`examples/gallery/null-values/null-values.shade.ts`): a function that returns `T | null`
   and its caller's `??`; a `v == null` test on a `T | undefined`; a helper with `x?: f32 | null`
   called with a value, with `null` and with no argument, that tells the three apart with `===`.
   Include a nullable class value, a class with a nullable instance member, a constructor,
@@ -659,7 +659,7 @@ Additional red phases exposed result inference, strict absent equality, callback
 argument evaluation order, nullable optional element access and `??=` fallback effects.
 The final optional suite has 144 cases. The optional, generic-function, generic-class and
 example-golden suites passed 396 tests together; existing example golden files did not change.
-The new example is `examples/null-values.shade.ts`, with three new target golden files.
+The new example is `examples/gallery/null-values/null-values.shade.ts`, with three new target golden files.
 The implementation PR records the final full-suite, build and document checks against its head.
 
 The compile gate passed 187 examples on Tint, 130 GLSL programs on WebGL2 and 125 render

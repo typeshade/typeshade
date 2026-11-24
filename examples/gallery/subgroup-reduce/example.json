@@ -1,0 +1,9 @@
+{
+  "title": "Subgroup reduction before an atomic",
+  "blurb": "`subgroupAdd` folds each subgroup's values in one instruction and `subgroupElect` picks one lane to add the fold into the bin with `atomicAdd`: one atomic per subgroup instead of one per lane (§77, change 0117). The call derives `enable subgroups;` and the host feature. On WebGL2 and on the CPU oracle a subgroup is one invocation (Rule 11.21), so the fold is the lane's own value and the sum is the same; a compute entry with a storage buffer is WGSL-only on the gallery all the same.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0145 M4.7",
+  "renderable": false,
+  "reason": "missing capabilities: storageBuffer, compute"
+}

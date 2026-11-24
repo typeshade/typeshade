@@ -465,7 +465,7 @@ function storageTexturesAsRoots(
     const t = b.type as Extract<ShaderType, { kind: 'storage-texture' }>;
     if (t.access !== 'read' && t.format === 'rgba8snorm')
       throw new GlComputeError(
-        `it reaches the ${typeKey(t)} "${b.name}", whose format WebGL2 cannot render to`,
+        `it reaches the ${typeKey(t)} "${b.name}", a format that is not supported yet on the WebGL2 tier (Rule 10.5)`,
       );
     const elem = storageTexel(t.format);
     const texelT: ShaderType = { kind: 'vec', n: 4, elem };

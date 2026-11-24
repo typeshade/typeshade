@@ -13,16 +13,13 @@
 // the metamorphic gate the fp64 pass is designed around (`oracle(fp64Lower(m)) ≈ oracle(m)`).
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { exampleSource } from './_example-file.js';
 import { compile } from '../src/index.js';
 import { compileModule } from '../src/core/oracle.js';
 import { fp64Lower } from '../src/core/passes/fp64-lower.js';
 import { splitF64 } from '../src/core/fp64/df64-lib.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(join(HERE, 'fp64-lane-stripes.shade.ts'), 'utf8');
+const source = exampleSource('fp64-lane-stripes');
 const { diagnostics, module } = compile(source);
 
 /** hi + lo — the double a lowered f64 pair stands for. */

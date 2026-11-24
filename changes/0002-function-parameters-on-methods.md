@@ -130,7 +130,7 @@ Alternatives considered:
 - **Codes.** None are added or removed. `TS8020` still refuses the accessor and the entry point.
   The message for a method, a constructor and a local function goes away, and so does its
   pinned text (Rule 12.5).
-- **Examples.** None are added. `examples/higher-order.shade.ts` gains a method that takes a
+- **Examples.** None are added. `examples/gallery/higher-order/higher-order.shade.ts` gains a method that takes a
   function, a content change the compile gate already covers.
 - **Tests.** `src/compiler/ts/higher-order.test.ts` holds WGSL, GLSL ES 3.00, the CPU oracle,
   the codegen and the debugger to one value for:

@@ -7,7 +7,7 @@
 // what is pinned below is that derivation, the stage and type rules each id carries, the
 // author spelling for an extension no use in the file derives, and the `requires` axis.
 //
-// `examples/clip-planes.shade.ts` carries the clip_distances emit through the compile gate on
+// `examples/gallery/clip-planes/clip-planes.shade.ts` carries the clip_distances emit through the compile gate on
 // real Tint; `primitive_index` has no example, because the gate's adapter does not have that
 // feature, so its emit is pinned below.
 //

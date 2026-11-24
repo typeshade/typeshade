@@ -1,0 +1,9 @@
+{
+  "title": "A multisampled texture, resolved by hand",
+  "blurb": "An MSAA render target as a `texture_multisampled_2d<f32>` read one sample at a time with `textureLoad(t, coords, sampleIndex)` and averaged over `textureNumSamples`, and its depth attachment as a `texture_depth_multisampled_2d` (§37). A multisampled texture cannot be used with a sampler, so every sampling form is refused with the load named instead. A multisampled load is not supported yet by the GLSL backend (Rule 10.5), so the binding derives `msaaTextureLoad` and the Tint half of the gate alone runs it.",
+  "group": "feature",
+  "host": "pending",
+  "waitsFor": "0138 milestone 5",
+  "renderable": false,
+  "reason": "missing capabilities: msaaTextureLoad"
+}

@@ -337,7 +337,7 @@ export function fs(
   `ceil(n / extent)` workgroups per axis, using the selected pipeline's resolved `workgroupShape`.
   The CPU `dispatch`
   runs the same grid, with `global_invocation_id`, `local_invocation_id` and
-  `local_invocation_index` filled in per axis (§25). `examples/workgroup-tile-2d.shade.ts` is the
+  `local_invocation_index` filled in per axis (§25). `examples/gallery/workgroup-tile-2d/workgroup-tile-2d.shade.ts` is the
   gate's evidence.
 - A shape over WebGPU's default compute limits (`x` and `y` 256, `z` 64, 256 invocations in all)
   compiles with a warning (`TS8026`) naming the limit, since only a device requested with that
@@ -1775,9 +1775,10 @@ the end. Array rest, defaults, assignment patterns, parameter patterns and `for.
 remain unsupported. A vector is read by component, not an array pattern. Runtime-sized,
 specialization-sized, empty and mixed-layout arrays remain outside this form.
 
-Existing storage limits also apply: WebGL2 cannot copy a whole struct element from a storage
-array. Read its fields with a nested pattern, e.g. `const [{ x }] = xs`. A struct element of a
-local or uniform array can be copied into a local value.
+An existing limit also applies: this version does not copy a whole struct element from a
+storage array on the WebGL2 tier. Read its fields with a nested pattern, e.g.
+`const [{ x }] = xs`. A struct element of a local or uniform array can be copied into a local
+value.
 
 ### A default parameter value is filled in at the call site
 
@@ -2258,7 +2259,7 @@ fields are the literal's names, among every struct the program declares except a
 binding (`uniform<T>`, `storage<T>`), a module variable or workgroup memory holds. A struct the
 program names nowhere else is found too, so `return { color: … }` from a fragment entry builds
 the `Color` the file declares beside it, and a resource struct such as `Frame` in
-`examples/loops-over-data.shade.ts` is never an entry's result by inference. A literal that
+`examples/gallery/loops-over-data/loops-over-data.shade.ts` is never an entry's result by inference. A literal that
 matches no struct or several keeps `TS8022`, and its sentence names the remedy:
 `Object literal { a, b } matches "P" and "Q" alike, so the entry's result is not known: write the return type.`
 This wider table is for that one position. Every other position keeps the table of the structs
@@ -2524,7 +2525,7 @@ vector of numbers or a constant (`while (E.A)`) is told its type alone.
 
 The compiler does not check that a `while` body moves toward its exit. An open loop is the
 author's to end, as it is in WGSL, and one that spins on a GPU is ended by the device's watchdog,
-which loses the device. `examples/loops-over-data.shade.ts` holds all three loops, a
+which loses the device. `examples/gallery/loops-over-data/loops-over-data.shade.ts` holds all three loops, a
 uniform-bounded `for`, a stack walk and a converging `while (true)`, and the compile gate runs it
 on Tint and on WebGL2.
 
@@ -2884,9 +2885,10 @@ works: give the type a size, `array<f32, 3>`. A sized array's `.length` stays th
 array's hover keeps its literal, `length: 4`.
 
 **The CPU oracle** reads the bound buffer's length, so `compile().eval` and the debug stepper
-agree with the GPU. **GLSL ES 3.00 has no form**: it has no storage buffer and no runtime-sized
-array (`.length()` on one is GLSL ES 3.10), so a module with a runtime-sized storage array emits
-WGSL alone, as it did before this. The `array-length` example is registered WGSL-only for that
+agree with the GPU. **The GLSL ES 3.00 writer has no form of it**: GLSL ES 3.00 has no runtime-sized
+array (`.length()` on one is GLSL ES 3.10), so `compile()` emits no GLSL for a module with a
+runtime-sized storage array and emits WGSL alone, as it did before this. The WebGL2 tier runs a
+`@compute` entry that reaches it as the pass program of change 0054 (Rule 11.8). The `array-length` example is registered WGSL-only for that
 reason, like `compute-reduction-twin`.
 
 **A loop over such an array is written `for (…; i < src.length; …)`** since #203: §17 takes a
@@ -2997,7 +2999,7 @@ assignment wrote `x %= y;` and the driver refused it while the WGSL beside it wa
 componentwise `cell = (cell - 1.0 * trunc(cell / 1.0));`, since GLSL ES 3.00 has no float `%` for
 a vector either. An integer `%=` keeps the native operator on WGSL, and on GLSL ES 3.00 it takes
 the spelling its binary operator takes, `x = _irem(x, y);` for an `i32` (Rule 11.12).
-`examples/block-scope.shade.ts` carries a scalar and a vector `%=` and is the gate's
+`examples/gallery/block-scope/block-scope.shade.ts` carries a scalar and a vector `%=` and is the gate's
 evidence on both targets.
 
 ```ts
@@ -3074,9 +3076,11 @@ its next atomic operation, and the held operations are performed in invocation i
 workgroup by workgroup, before any invocation runs on: the first operation of every invocation
 of the dispatch, then the second (change 0054). That is one of the orders WGSL allows, and the
 one the WebGL2 tier's resolve pass gives, so an append buffer fills in the same order on both. The oracle, the CPU codegen and the debug stepper agree on every kernel in the
-tests, and a host reads the counts back from the arrays it bound. **GLSL ES 3.00**
-has no storage buffers and no atomics, so a module carrying one emits WGSL alone, like §20's; the
-`atomic-histogram` example is registered WGSL-only and the compile gate runs it on Tint.
+tests, and a host reads the counts back from the arrays it bound. The
+GLSL ES 3.00 writer has no form of an atomic, so a module carrying one emits WGSL alone, as in
+§20; the `atomic-histogram` example is registered WGSL-only and the compile gate runs it on
+Tint. A `@compute` entry that carries one and reaches no texture runs on the WebGL2 tier as its
+pass program, in the phased order above (change 0054, Rule 11.8).
 
 A function you declare with an atomic builtin's name keeps winning the call, the way the names
 §10 added do, so no program that compiled before this section compiles differently.
@@ -3538,7 +3542,7 @@ could write from inside an expression before any of this (§19, §23, §24). A `
 runs on every iteration, so nothing
 in it can move ahead of the loop: a call that writes may be one side of its comparison,
 `while (rng.next() < 0.9)`, and anything deeper is TS8006 with the remedy.
-`examples/rng-method.shade.ts` is the gate's evidence, on Tint and on a real WebGL2 driver.
+`examples/gallery/rng-method/rng-method.shade.ts` is the gate's evidence, on Tint and on a real WebGL2 driver.
 
 It returned nothing while the struct itself was what came back, and until this a method that
 wrote `this` and returned a value was TS8035 at the write, "A method that changes its object
@@ -3556,8 +3560,8 @@ This is what a method that changes its object looks like now. It took the struct
 it until the reference landed — `Particle_step(self_in: Particle, dt: f32) -> Particle` opening
 with `var self_ = self_in` and closing with `return self_` — and the call site read the
 receiver, called, and stored the result back: three copies of a struct for one method that moves
-a point. `examples/orbit-inout.shade.ts` is the gate's evidence for the render pair, on Tint and
-on a real WebGL2 driver; `examples/particle-step.shade.ts` for the compute one.
+a point. `examples/gallery/orbit-inout/orbit-inout.shade.ts` is the gate's evidence for the render pair, on Tint and
+on a real WebGL2 driver; `examples/gallery/particle-step/particle-step.shade.ts` for the compute one.
 
 **`this`.** Inside a method that reads, `this` is the read-only first parameter; inside a method
 that changes its object it is that parameter, written through; inside a constructor it is the
@@ -4699,7 +4703,7 @@ be the target's. Three of the five turned out not to be constraints at all.
 IS `array<f32, 2>`, the same type written the way a TypeScript developer writes a pair, named
 elements included. Both targets take it wherever the array goes, a return included: WGSL writes
 `fn bounds() -> array<f32, 2>` and GLSL ES 3.00 writes `float[2] bounds()`, which ESSL 300 has
-and ESSL 100 did not. `examples/tuple-and-brand.shade.ts` is the gate's evidence for the pair.
+and ESSL 100 did not. `examples/gallery/tuple-and-brand/tuple-and-brand.shade.ts` is the gate's evidence for the pair.
 
 ```ts
 function bounds(scale: f32): [near: f32, far: f32] {
@@ -4953,7 +4957,7 @@ fn pick_vec3(c: bool, a: vec3<f32>, b: vec3<f32>) -> vec3<f32> { … }
 
 Nothing called `pick` is emitted: a generic is not a function the module has, its instances are.
 Two calls at the same types reach one instance; a generic nothing calls emits nothing at all.
-`examples/generic-helpers.shade.ts` is the gate's evidence.
+`examples/gallery/generic-helpers/generic-helpers.shade.ts` is the gate's evidence.
 
 **A type parameter is a type wherever a type is written**: a parameter, a return, inside
 `array<T, N>`, and a local declaration in the body. It shadows a type of the same name, the way
@@ -5041,7 +5045,7 @@ a derivative, an implicit-LOD sample, a barrier, or a call of a function that re
 flow. A componentwise `select`, with a vector condition, keeps the operator. A conditional
 inside a loop body hoists inside that body, never out of it. The CPU backends read the IR,
 where the conditional is still a conditional, and need none of it.
-`examples/pick-composite.shade.ts` is the gate's evidence for the composite on both targets;
+`examples/gallery/pick-composite/pick-composite.shade.ts` is the gate's evidence for the composite on both targets;
 `src/core/passes/select-composite.test.ts` pins the cost rule, and the perf gate's `branch`
 case (`docs/performance.md`) measures it.
 
@@ -5092,7 +5096,7 @@ fn Slot_f32_new(a: f32, b: f32) -> Slot_f32 { … }
 ```
 
 Nothing called `Slot` is emitted, and a generic class nothing writes emits nothing at all.
-`examples/generic-class.shade.ts` is the gate's evidence on both targets.
+`examples/gallery/generic-class/generic-class.shade.ts` is the gate's evidence on both targets.
 
 **The instances are read off the source, not discovered as the lowering runs.** A struct has to
 exist before anything is lowered against it: its methods are functions of the module, its fields
@@ -5167,7 +5171,8 @@ textureStore(dst, at, vec4<f32>(uv.x, uv.y, 0.5, 1.0));
 ```
 
 **WGSL only.** GLSL ES 3.00 has no image load/store at all — that is ES 3.10 — so a module
-carrying one emits WGSL alone, as a storage buffer or an atomic does. Measured on a driver
+carrying one emits WGSL alone, as a storage buffer or an atomic does; `compile()` emits no GLSL
+text for it, and a storage texture on the WebGL2 tier is a runtime texture (§69, Rule 11.11). Measured on a driver
 rather than read off the spec: `layout(rgba8) uniform writeonly image2D` is `'rgba8' : invalid
 layout qualifier: not supported`, and asking for the extension that would bring it is
 `extension is not supported`.
@@ -5232,7 +5237,7 @@ pure call would drop every one and emit an entry whose body does nothing. It sit
 effectful set beside the atomics and the barriers, and it writes the binding at its first
 argument's root. The CPU oracle has no texture memory, so the write goes nowhere there — the
 same contract a texture read already keeps, where a load yields opaque black.
-`examples/storage-texture.shade.ts` is the gate's evidence on Tint.
+`examples/gallery/storage-texture/storage-texture.shade.ts` is the gate's evidence on Tint.
 
 ## 34. A shadow map, read by comparison
 
@@ -5321,7 +5326,7 @@ on every other, so a host never reads absence as "not depth" on a buffer.
 **The CPU twins yield 1.** The oracle has no texture memory. A comparison yields a *factor*, and
 the placeholder that leaves the rest of the shader alone is the identity for the multiply it
 feeds — where a texel read yields opaque black, because a texel has no identity and a factor
-does. `examples/shadow-compare.shade.ts` is the gate's evidence on both targets.
+does. `examples/gallery/shadow-compare/shadow-compare.shade.ts` is the gate's evidence on both targets.
 
 ## 35. Cube and 3D textures, bias and gradients
 
@@ -5408,7 +5413,7 @@ spelling, as before, so a new sampler type cannot declare itself without its lin
 the value `GPUTextureViewDescriptor.dimension` takes; a depth cube reflects with
 `textureDim: 'cube'` and `textureDepth: true`. The CPU twins keep their contracts: a bias or
 gradient sample yields opaque black, a cube comparison yields 1 (the identity for the lighting
-multiply, §34), and a 3D size yields 1×1×1. `examples/cube-env.shade.ts` is the gate's evidence
+multiply, §34), and a 3D size yields 1×1×1. `examples/gallery/cube-env/cube-env.shade.ts` is the gate's evidence
 on both targets.
 
 **The other half is §36.** `texture_cube_array`, `texture_1d` and `textureGather` are WGSL-only,
@@ -5493,7 +5498,7 @@ Gather takes no implicit derivative and is legal in any stage, which Tint confir
 **What the host is told.** `textureDim` gains `'1d'` and `'cube-array'`; a depth cube array
 reflects `textureDim: 'cube-array', textureDepth: true`. The CPU twins: a colour gather yields
 opaque black, a depth gather the far plane (four 1s — nothing occludes), a gather compare four
-1s (the identity for the multiply each feeds), a 1d size 1. `examples/cube-array-gather.shade.ts`
+1s (the identity for the multiply each feeds), a 1d size 1. `examples/gallery/cube-array-gather/cube-array-gather.shade.ts`
 is the gate's evidence on the Tint half.
 
 **Not here, by the audit's word.** The offset variants of every sampling builtin,
@@ -5548,7 +5553,7 @@ admitted; the separate-samplers capability the others need stays a later item.
 **What the host is told.** Both twins reflect `textureDim: '2d-ms'`, the depth one with
 `textureDepth: true`. The CPU twins: a sample is opaque black, a depth sample the far plane, the
 count 1 and the size 1×1, so a resolve that divides by the count stays finite.
-`examples/msaa-resolve.shade.ts` is the gate's evidence on the Tint half.
+`examples/gallery/msaa-resolve/msaa-resolve.shade.ts` is the gate's evidence on the Tint half.
 
 ## 38. What may differ by driver: the determinism report
 
@@ -5712,7 +5717,7 @@ same program as a JavaScript double, which *is* an IEEE binary64.
 
 What that buys is significand, not range: about 48 bits against `f32`'s 24. A world coordinate
 near 10⁷ has an `f32` ulp of 1, so `fract(x)` there is a constant and the detail is gone;
-the same expression on an `f64` keeps it. `examples/fp64-lane-stripes.shade.ts` draws both
+the same expression on an `f64` keeps it. `examples/gallery/fp64-lane-stripes/fp64-lane-stripes.shade.ts` draws both
 halves side by side.
 
 ```ts
@@ -6192,7 +6197,7 @@ always admitted it; the front end refused it, so the editor and the compiler dis
 program WGSL defines. It is now lowered to the argument itself rather than to a call — a
 one-component reduction is the value, and GLSL ES 3.00 has no `all(bool)` overload to emit.
 
-`examples/packing-bitcast.shade.ts` runs all of this on both halves of the gate.
+`examples/gallery/packing-bitcast/packing-bitcast.shade.ts` runs all of this on both halves of the gate.
 
 ## 45. The two portable spellings that were not, and the scalar conversions
 
@@ -6211,7 +6216,7 @@ So an unsigned `abs` is now the IDENTITY on GLSL — which is what it is, since 
 has no sign to take — and an integer `dot` becomes a `_idot` helper, one overload per vector
 type the module uses. A helper rather than an inline sum, because an inline would splice both
 arguments once per component, after every optimizer pass has run. The signed `abs` and the float
-`dot` are untouched. `examples/integer-math.shade.ts` is the gate witness: its GLSL half links
+`dot` are untouched. `examples/gallery/integer-math/integer-math.shade.ts` is the gate witness: its GLSL half links
 only because of this.
 
 The choice is ONE rule, asked by both authoring surfaces. `"use typeshade"` lowers `abs(x)` from
@@ -6348,7 +6353,7 @@ is refused like every other texture level.
 `textureNumLayers` on a `texture_storage_2d_array` answered `takes a sampled texture; … has no
 sampler`, which is the wrong answer and the wrong reason. It is a `u32` now, and a storage
 texture with no layers is told so in its own words. WGSL-only, like the rest of the storage
-family: GLSL ES 3.00 has no image load/store at all.
+family: `compile()` emits no GLSL text for an image load or store (§33).
 
 ### Either integer as a texel coordinate
 
@@ -6501,7 +6506,7 @@ matching overload for 'operator + (u32, i32)'".
 GLSL ES 3.00 has no dot product of packed bytes, no byte pack and no byte unpack, so a module
 using one of the eight derives the `packed4x8Dot` capability and fails closed on that target —
 the WGSL half still emits, and the GLSL half is absent with the capability named, the same shape
-the storage-texture rows use. `examples/packed-bytes.shade.ts` is registered `renderable: false`
+the storage-texture rows use. `examples/gallery/packed-bytes/packed-bytes.shade.ts` is registered `renderable: false`
 for that reason, and the gate runs its Tint half alone.
 
 On the WGSL side there is nothing to declare, and that is measured rather than assumed:
@@ -6528,9 +6533,11 @@ neither the capability nor the language feature, because it never reaches the bu
 
 ## 48. Compare-exchange, the uniform load and the texture barrier
 
-Three WGSL builtins, each an unknown name before, and all three WebGPU-only: GLSL ES 3.00 has no
-compute stage, so it has no workgroup memory, no atomic compare-exchange and no barrier of any
-kind. A module using one fails closed on that target.
+Three WGSL builtins, each an unknown name before. The GLSL ES 3.00 writer has no form of them, so
+a module using one fails closed on that target. The WebGL2 tier runs
+a `@compute` entry that reaches no texture as the pass program of change 0054 (Rule 11.8), and
+that program is not made by that writer. The rules do not say which of the three builtins the pass
+program gives a form, so this section does not say.
 
 ### `atomicCompareExchangeWeak`
 
@@ -6610,7 +6617,7 @@ needs. It belongs to the `readonly_and_readwrite_storage_textures` WGSL language
 `reflect().requiredLanguageFeatures` is what says so — the same field a readable storage texture
 reaches for.
 
-`examples/compute-sync.shade.ts` runs all three, registered `renderable: false`.
+`examples/gallery/compute-sync/compute-sync.shade.ts` runs all three, registered `renderable: false`.
 
 ### A reserved word is not the author's problem
 
@@ -7014,7 +7021,7 @@ is not allowed in the current environment` — which reads like a bad emit and i
 `scripts/compile-gate.ts` derives the features the corpus needs from the modules themselves
 (`hostFeaturesFor(wgslBackend, reflect(m).requiredFeatures)`), requests the ones the adapter
 has, and prints any it lacks rather than dropping them silently.
-`examples/clip-planes.shade.ts` is the evidence: it compiles on the gate's real Tint, on a
+`examples/gallery/clip-planes/clip-planes.shade.ts` is the evidence: it compiles on the gate's real Tint, on a
 device that was asked for `clip-distances`.
 
 `primitive_index` has no registered example, because `primitive-index` is not among that
@@ -7120,7 +7127,7 @@ sweeps both corpora for a uniform-reachable array that reaches WGSL with a strid
 **GLSL ES 3.00 needs none of it.** A std140 block gives `float[4]` a 16-byte stride natively,
 which is precisely why the unpadded program links on WebGL2 and dies on WebGPU. The padding is
 a WGSL-only lowering; the GLSL text is unchanged, and one host packing feeds both.
-`examples/uniform-array.shade.ts` runs on both halves of the gate.
+`examples/gallery/uniform-array/uniform-array.shade.ts` runs on both halves of the gate.
 
 **A padded array used as a VALUE is rebuilt, not leaked.** The member's element type changed,
 so `const w = U.weights` would hand a local the wrapper type and `w[1] * k` would multiply a
@@ -7389,7 +7396,7 @@ interface VsOut {
 }
 ```
 
-`examples/id-pick.shade.ts` is the gate's evidence, compiled on Tint and on ANGLE.
+`examples/gallery/id-pick/id-pick.shade.ts` is the gate's evidence, compiled on Tint and on ANGLE.
 
 **`interpolate`, `invariant` and `blend_src` are attributes an author writes.** Each is an
 option of `location<n, T, O>`, its third type argument, or of `builtin<"...", O>`, its second
@@ -7493,7 +7500,7 @@ it, and no rewrite applies to it either. **A `return` under a non-uniform condit
 everything after it non-uniform** — those invocations are gone. **A `discard` does not**: the
 invocation is demoted to a helper rather than ended, so it goes on contributing the neighbour a
 derivative differences against, which is why `discard` beside `fwidth` is the ordinary
-antialiased-cutout idiom and `examples/cutout.shade.ts` compiles.
+antialiased-cutout idiom and `examples/gallery/cutout/cutout.shade.ts` compiles.
 
 **A `break` or `continue` under a non-uniform condition makes the rest of its loop
 non-uniform**, the next iterations included: a barrier above the jump is refused as well as one
@@ -7802,11 +7809,11 @@ export function fs(v: VsOut): vec4 {
 }
 ```
 
-`examples/sample-branch.shade.ts` is the gate's evidence for the rewrite: two samples under a
+`examples/gallery/sample-branch/sample-branch.shade.ts` is the gate's evidence for the rewrite: two samples under a
 branch on a value between stages, `v.uv`, in two helpers, both rewritten to `textureSampleGrad`
 with the gradients computed before the `if`, and compiled on Tint and on ANGLE with no
 `diagnostic(...)` line. A sample under a `uniform` condition sits beside them, left as written.
-`examples/capsule-corp-namek-class.shade.ts` has six derivatives in `Terrain.shade`, under an
+`examples/gallery/capsule-corp-namek-class/capsule-corp-namek-class.shade.ts` has six derivatives in `Terrain.shade`, under an
 `else if` on a ray hit, which the rewrite reaches with one recompute of `dirt`.
 
 GLSL ES 3.00 has no refusal: an implicit derivative in non-uniform control flow is undefined
@@ -7950,7 +7957,7 @@ what a backend sees, so that is the name a target is asked to spell.
 
 **A target the module never reaches is not asked.** A compute kernel has no GLSL ES 3.00 form —
 that is the one stage the language does not have — so a field `half` keeps its name in every
-text the module emits. `examples/array-length.shade.ts` carries exactly that field, so Tint
+text the module emits. `examples/gallery/array-length/array-length.shade.ts` carries exactly that field, so Tint
 accepts the name on every gate run.
 
 **What is spelled.** WGSL spells afresh a keyword or reserved word, a name containing `$`, one
@@ -8272,10 +8279,11 @@ WGSL cannot record, and the call still reaches the sink on the CPU:
 - an argument has no fixed size or is not a value: a runtime-sized array, a texture, a sampler;
 - the stage already binds eight storage buffers, WebGPU's default limit.
 
-GLSL ES 3.00 has no storage buffer and records nothing, with no diagnostic. A discarded fragment
+A GLSL ES 3.00 program that `compile()` emits records nothing, with no diagnostic. Recording a
+console on the WebGL2 tier is not supported yet (§69, Rule 11.11). A discarded fragment
 writes nothing after its `discard`.
 
-`examples/gpu-console.shade.ts` is the kernel above with a helper that warns and a `console.table`
+`examples/gallery/gpu-console/gpu-console.shade.ts` is the kernel above with a helper that warns and a `console.table`
 of a matrix; the compile gate
 hands Tint its WGSL both ways, as written and under `console: 'gpu'`. The `console-log` journey
 runs its own kernel on WebGPU from the packed tarball, through `typeshade/runtime` (§69), and
@@ -9846,11 +9854,11 @@ const y = await out.read(); // one download, the first copy of the array
 **The facts a chain is fused from.** A chain of calls over `Buffer`s can run as one dispatch (§71), and the compiler records what that needs. By default, `typeshade()` and `hostFace()` generate the facts (§71). The generated module carries, for each loop of a kernel function that lowers and for each array the loop reaches by an element, whether the loop reads it, writes it or does both, and whether every access is at exactly `i`, as in `out[i]` and not in `out[i + 1]` or `t[i ^ 1]`. For the first access that is not, it carries your own words and its line, as `TS8070` gives them: `` `t[i - 1]` (line 9) ``. It also carries the arrays whose length the loop reads (`t.length`), whether the loop reduces, scatters or has a `continue` of its own, and the lowered module as portable IR. These are facts and refuse nothing: the proof accepts and refuses the loops it always did, and `TS8070` is as it was. `fuse: true` keeps this default; `fuse: false` omits the facts and portable IR. Ordinary-call input projection remains independent.
 
 **The tiers.** A call runs on the first of WebGPU, WebGL2 and the CPU tier that can run it.
-WebGL2 has no compute stage, so it takes a function whose every loop writes one array of `f32`,
-`i32` or `u32` at exactly `i` (`out[i] = …`) and whose scalars are numbers or vectors: each loop is
+WebGL2 takes a function whose every loop writes one array of `f32`, `i32` or `u32` at exactly
+`i` (`out[i] = …`) and whose scalars are numbers or vectors (Rule 11.8): each loop is
 one fragment program, one pixel per iteration, reading the other arrays as data textures; a
 `continue` leaves its element as it was. A reduction, a scatter, a struct array written, or a write
-anywhere but `i` goes on to the CPU tier. `configure({ prefer: ['webgpu'] })` changes the order, and a list of one tier makes it required: a
+anywhere but `i` is not supported yet on the WebGL2 tier, and goes on to the CPU tier. `configure({ prefer: ['webgpu'] })` changes the order, and a list of one tier makes it required: a
 call it cannot run on throws, naming why (`render(): no tier it may use can run it (webgpu: there
 is no WebGPU device).`).
 
@@ -10224,7 +10232,7 @@ runtime's `dispatch` (§69) takes no indirect count yet (#540).
 `configure({ runtime })` names (§69), or else one the call requests on first use, with the limits
 and features `configure({ limits, features })` names; `callDevice()` reports that device's limits
 and features (change 0051). Every later call and the default program runtime share it. Where there is none but there is a WebGL2
-context, it runs on WebGL2 (change 0054): WebGL2 has no compute stage, so the entry runs as a pass
+context, it runs on WebGL2 (change 0054): the entry runs as a pass
 program, its storage and workgroup memory as textures of 32-bit words, a pass at a time, with its
 barriers and atomic operations giving the results WGSL defines (§23, §25). Its storage bindings
 are uploaded and the written ones read back, as on WebGPU; a `Buffer` is the array it holds, as
@@ -10291,8 +10299,9 @@ requestAnimationFrame(frame);
   tier: the alpha a shader writes is not composited, and a discarded pixel is opaque black.
   A later owner must allow that tier. Switching owners on a WebGPU canvas reconfigures its context
   and rebuilds device-specific drawing resources.
-- **When a tier cannot draw it.** WebGL2 has no storage buffer, so an entry that reads one draws
-  on WebGPU or the CPU. A scalar, vector or supported matrix uniform uses a private WebGL2 block;
+- **When a tier cannot draw it.** The WebGL2 tier does not support a storage binding in a draw
+  yet (OD-11), so an entry that reads a storage buffer draws on WebGPU or the CPU. A scalar,
+  vector or supported matrix uniform uses a private WebGL2 block;
   the host still supplies the same number or tuple. Two-row uniform matrices remain refused,
   and bare arrays or other GLSL backend shortfalls leave the WebGL2 tier out. A texture has no CPU tier.
   When the canvas's tier cannot draw the entry,
@@ -10707,10 +10716,10 @@ await frame.submit(); // console lines print here
   3.00 sampler, and WebGL2 renders to no `rgba8snorm` texture the entry writes). A storage
   texture is a runtime texture of the binding's format, which `rt.texture({ storage: true })`
   makes on either tier: the dispatch reads its texels in before the first pass and draws them
-  back after the last (§33). WebGL2 cannot ask a `WebGLTexture` its size, so a host's own texture
-  is refused there, and so is a `texture_storage_2d_array`, since a runtime texture is 2D. The
-  WebGL2 tier
-  records no console (`load(m, { console: true })` is refused), and
+  back after the last (§33). A host's own `WebGLTexture` is not supported yet on the WebGL2 tier
+  (Rule 11.11), since the runtime has no way to learn its size, and so is a `texture_storage_2d_array`, since a runtime texture is 2D. The
+  WebGL2 tier does not support recording a console yet (Rule 11.11):
+  `load(m, { console: true })` is refused, and
   `configure({ runtime })` takes no WebGL2 runtime.
 
   A draw on WebGL2 links the vertex and fragment programs the manifest carries (`gl.vertices`,
@@ -10725,12 +10734,13 @@ await frame.submit(); // console lines print here
   storage array the data texture its binding names (`dataTexture`), a texture a runtime texture or
   a `WebGLTexture`, read with the sampler its calls pass it, and vertices and indices a typed
   array, a `Buffer`, uploaded again only when its host copy changes, or a `WebGLBuffer`. A
-  `TypeError` names what WebGL2 has no form of. Before creating a GL program, it refuses two
+  `TypeError` names what the WebGL2 tier does not support yet, or what only WebGPU has (Rule
+  11.11). Before creating a GL program, it refuses two
   selected stages that sample one texture binding with different samplers. A load-only stage
   adds no sampler requirement and keeps the other stage's sampler. For different sampler
   states, declare two texture bindings and bind the same host texture to both.
   It refuses a multisampled, layered or 3D texture.
-  It refuses targets that blend or mask apart, because WebGL2 has one blend state. It refuses a
+  It refuses targets that blend or mask apart: that is not supported yet on the WebGL2 tier (Rule 11.11). It refuses a
   depth range other than 0 to 1 under a fragment that writes `frag_depth`. It refuses a depth bias
   on a format other than `depth24plus`, `depth32float` and `depth24plus-stencil8`. It refuses a
   non-zero depth-bias clamp when the context lacks `EXT_polygon_offset_clamp`. It refuses a draw that
@@ -11785,7 +11795,7 @@ Three reasons are whole sentences, with no `a and b run as two dispatches becaus
 
 The last row is the fall-back. The runtime builds the entry of a group from the loop IR in the faces of its calls. When it cannot (the IR was written by another version of the compiler, one name is declared differently in two files, an iteration returns), the calls of the group run apart, and each call after the first says why.
 
-A group that has none of the reasons above, and ran on a later tier than the plan's `tier`, says why (change 0118): `b runs on the CPU, ` or `b runs on WebGL2, `, then the reason the call layer had for each tier of the owner's policy before its own, in that order, the reasons of two tiers joined by `; `. Each reason is the one the `Error` of a call that no tier can run gives that tier (§65), without the `webgpu: ` or `webgl2: ` before it, so the same call inside a scope and outside one gives one reason for one tier. With `configure({ prefer: ['webgl2', 'cpu'] })`, the scope `add(t, a, b); mul(u, t, c); total(u)` draws `add` and `mul` on WebGL2 and runs the reduction `total` on the CPU tier, and the group of `total` says `total runs on the CPU, it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. With the default tiers and no WebGPU device, the same group says `total runs on the CPU, there is no WebGPU device; it runs on the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. A group that ran on the first tier of the owner's policy has no tier before its own, and says nothing of it.
+A group that has none of the reasons above, and ran on a later tier than the plan's `tier`, says why (change 0118): `b runs on the CPU, ` or `b runs on WebGL2, `, then the reason the call layer had for each tier of the owner's policy before its own, in that order, the reasons of two tiers joined by `; `. Each reason is the one the `Error` of a call that no tier can run gives that tier (§65), without the `webgpu: ` or `webgl2: ` before it, so the same call inside a scope and outside one gives one reason for one tier. With `configure({ prefer: ['webgl2', 'cpu'] })`, the scope `add(t, a, b); mul(u, t, c); total(u)` draws `add` and `mul` on WebGL2 and runs the reduction `total` on the CPU tier, and the group of `total` says `total runs on the CPU, it runs on the CPU, loop 1 reduces, which the WebGL2 tier does not support yet (Rule 11.8)`. With the default tiers and no WebGPU device, the same group says `total runs on the CPU, there is no WebGPU device; it runs on the CPU, loop 1 reduces, which the WebGL2 tier does not support yet (Rule 11.8)`. A group that ran on the first tier of the owner's policy has no tier before its own, and says nothing of it.
 
 **The report.** `fuse` resolves to the report of what the plan did:
 
@@ -11970,7 +11980,7 @@ Each function writes every element of its output (Rule 8.23), so a pooled array 
 | Axis reductions  | `sumAxis`, `meanAxis`, `prodAxis`, `maxAxis`, `minAxis`, `argMaxAxis`, `argMinAxis` as `(out, x, axis: u32, inner: u32)`                                            | `x` is read as `[outer, axis, inner]`. One loop at `i` over `out`, each element a serial fold in ascending `k`. `argMaxAxis` and `argMinAxis` write the index as `f32`, the first maximum or minimum winning a tie.                                                                                                                         |
 | Scan             | `inclusiveScan(out, x, sums)`, `exclusiveScan(out, x, sums)` over `array<u32>`                                                                                       | Two loops of one kernel function, with no barrier (change 0072, Amendment 1): the first writes the sum of each block of `x` into `sums`, the caller's scratch of at least one element; the second writes each element's prefix within its block plus the sums of the blocks before it. The block is `ceil(x.length / sums.length)`, so a `sums` of about `sqrt(n)` elements costs about `2 n sqrt(n)` reads. Both loops run on WebGL2; their `x.length` and `sums.length` reads use element counts supplied by the call. |
 | Compaction       | `compact(out, x, flags: array<u32>, offsets: array<u32>)`                                                                                                           | The elements whose flag is 1, in their order, where `offsets` is the exclusive scan of `flags`; 0 past the count of kept elements. Written as a gather at `i`, the source found by a binary search over `offsets[k] + flags[k]`, since a scatter to `offsets[i]` runs on the CPU only (Rule 8.22, R3). It also runs on WebGL2, using the supplied element count for `x.length`. |
-| Histogram        | `histogram(bins: array<u32>, x, lo, hi)`                                                                                                                            | Adds the count of `x` in each of `bins.length` equal bins over `[lo, hi)` into `bins`, a value outside clamped to the edge bins. Each add is an atomic on WebGPU and a plain add in iteration order on the CPU tier; WebGL2 has no atomics, so the call falls to the next tier (Rule 11.8). The caller zeroes `bins`.                         |
+| Histogram        | `histogram(bins: array<u32>, x, lo, hi)`                                                                                                                            | Adds the count of `x` in each of `bins.length` equal bins over `[lo, hi)` into `bins`, a value outside clamped to the edge bins. Each add is an atomic on WebGPU and a plain add in iteration order on the CPU tier; the WebGL2 tier does not support a kernel function's atomic add yet, so the call falls to the next tier (Rule 11.8). The caller zeroes `bins`.                         |
 
 **The planner's facts.** Every map writes `out` at `i` and reads its inputs at `i`, so a chain of
 maps is one dispatch (F3), and a whole reduction joins a chain as its last call (F6). An axis
@@ -12113,8 +12123,8 @@ records to your `Map` or `Set` in that order. A loop that reads a `Map` or a `Se
 call uploads. A loop may read what an earlier loop of the same function added: the call applies
 that loop's records first, then uploads the collection. A loop that adds after one that reads, two
 loops that add to one, and an `add` inside a nested loop run the function on the CPU tier in this
-version, and the call says why. WebGL2 has no atomics, and runs no such function. A
-`fuse` plan runs the call in a group of its own (§71).
+version, and the call says why. The WebGL2 tier does not support such a function yet (change
+0080, Rule 11.8). A `fuse` plan runs the call in a group of its own (§71).
 
 Last updated: 2026-10-22
 
@@ -12262,7 +12272,7 @@ Two-state values widen to three states; they cannot silently become each other. 
 arguments require exact logical storage. `?:` joins the arms' states, while `??` retains only
 the fallback's absence. An optional chain gives undefined for an absent receiver and preserves
 the member for a present receiver. All conversion temporaries obey branch short circuit.
-`examples/null-values.shade.ts` demonstrates nullable class values and members on both targets.
+`examples/gallery/null-values/null-values.shade.ts` demonstrates nullable class values and members on both targets.
 The examples below also document the original undefined-only subset.
 
 An optional value is a value that may be absent, written the way TypeScript writes it (change
@@ -12598,10 +12608,10 @@ override, an enum member, a `Map` value or a `Record` value, and `x?: T` on an e
 a kernel function stay refused (change 0093); a host value for an optional is a later
 proposal. NaN keeps its meaning: a present `f32` may hold one.
 
-The complete examples are `examples/optional-values.shade.ts`, a function result, a local
+The complete examples are `examples/gallery/optional-values/optional-values.shade.ts`, a function result, a local
 declared absent and assigned on one path, a callback result through a function-typed parameter,
 `??` on two optionals, `?.` on an optional struct and an inferred result, and
-`examples/optional-fields.shade.ts` (change 0093), a struct with an optional field and an
+`examples/gallery/optional-fields/optional-fields.shade.ts` (change 0093), a struct with an optional field and an
 `f?: T` field built in a function and read through `??`, `?.` and a narrowed member path, an
 `array<f32 | undefined, 4>` filled on some indices and folded in a loop, and a helper with
 `limit?: f32` called with and without it; both are on the compile gate on Tint and WebGL2, with
@@ -12670,7 +12680,7 @@ call; a lane computed at run time is `subgroupShuffle`'s.
 the call without `enable subgroups;` (Tint: `cannot call built-in function 'subgroupAdd' without
 extension 'subgroups'`), so the use is the declaration. The WGSL writer emits the directive,
 `reflect().requiredFeatures` carries `subgroups`, and the compile gate requests the host feature
-from the modules themselves, which is how `examples/subgroup-reduce.shade.ts` compiles on its
+from the modules themselves, which is how `examples/gallery/subgroup-reduce/subgroup-reduce.shade.ts` compiles on its
 Tint. A function the file declares under one of the names is the file's own (Rule 9.5), is called
 as such and derives nothing. The string directive `"enable subgroups";` stays for a file that
 reads no subgroup value and calls no subgroup function.
@@ -12765,7 +12775,7 @@ four invocations of a fragment block, and a one-lane meaning for a swap says not
 the compiler emits on its own. `docs/performance.md` holds the measurement a proposal for the
 last would start from.
 
-`examples/subgroup-reduce.shade.ts` is the complete example: an integer fold before an atomic,
+`examples/gallery/subgroup-reduce/subgroup-reduce.shade.ts` is the complete example: an integer fold before an atomic,
 with `subgroup_id` and `num_subgroups` on the entry, on the compile gate on Tint; WGSL-only on the
 gallery, since it is a compute entry over storage buffers.
 
