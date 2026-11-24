@@ -1,41 +1,5 @@
-// ═══ Shader DSL — CPU (f64) tree-walk interpreter ═══
-//
-// The tree-walk interpreter over the SAME IR the WGSL backend emits. This is
-// the generated replacement for the hand-maintained projection-wgsl-mirror.ts:
-// it runs the identical operation tree in f64 with Math.* (no fround), so it
-// reproduces the mirror's numbers (AC2-spike (a): ≤1mm vs canonical).
-//
-// The CPU value model + operation library (the builtin / GPU-stub tables, the
-// scalar / vector / matrix op helpers, FIELD_IDX, zeroOf) lives in cpu-runtime.ts
-// — the SINGLE authority this interpreter shares with the perf-critical
-// js-source backend (cpu-codegen.ts / compileModuleJs). Both walk the same IR
-// and call the same op-library, so the `new Function` twin is BIT-IDENTICAL to
-// this tree-walk by construction (differential-gated in cpu-codegen.test.ts).
-//
-// Module-level consts use their cpuValue (full-precision Math.PI / Math.PI/180)
-// so the projection math matches the f64 mirror, while the WGSL backend emits
-// the truncated shader constants — the two-tolerance reality, structural.
-//
-// Vectors are number[] (mutable, by reference so `p.x = …` assigns in place).
-// ─── CAVEAT — this is an f64 ALGEBRA oracle, NOT an f32-precision oracle ───
-//
-// Every value here is a JS f64 evaluated with Math.* and NO `fround`. That makes
-// this backend structurally BLIND to the codebase's worst bug class: f32-precision
-// loss on the GPU. It validates that the IR's ALGEBRA is correct (the right ops in
-// the right order, matching the f64 mirror to ≤1mm), and nothing about what that
-// algebra does once it is rounded to 32-bit floats per-vertex on a real driver.
-//
-// Concretely, it CANNOT catch:
-//   • X-GIS #392 (polygon fill displaced from outline) — fill arm fed f32 abs-degree
-//     positions; the displacement is purely an f32-rounding artifact, invisible in f64.
-//   • X-GIS #360 (globe polar-cap black hole) — tail slot read as f32 garbage; the cull
-//     fires only under f32 truncation, never in this interpreter.
-// A CPU↔CPU pass here is therefore NOT evidence of GPU precision parity. The only
-// real f32 differential is a headless-GPU gate that runs the EXECUTED shader and
-// diffs it against this f64 result under an f32/truncated-const tolerance
-// (today: playground/_shader-math-parity.spec.ts, ~100m, requires a WebGPU adapter).
-// Treat this oracle as the ALGEBRA half of a two-oracle contract; the f32 half lives
-// on the GPU.
+// Why: this oracle is an f64 ALGEBRA oracle, not an f32-precision oracle. Its f32 mode rounds per
+// operation but is not an f32 hardware oracle; the GPU gates hold the f32 half of the contract.
 
 import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType, FuncDecl } from './ir/index.js';
 import { validate } from './passes/validate.js';
@@ -252,7 +216,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return evalAtomic(e, env, ctx);
       // An `inout` argument that is a field or an element is resolved ONCE, as an atomic's
       // location is: the callee reads it there, and what the callee leaves in it goes back to
-      // the same place, whatever the call did to an index on the way (Rule 8.25).
+      // Implements: Rule 8.25
       const params = ctx.params.get(e.fn);
       const places: (Place | undefined)[] = [];
       const args = e.args.map((a, i) => {

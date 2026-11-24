@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { wgslLayout, reflect } from './reflect.js';
+import { emitGlslModule } from './backends/glsl.js';
+import { twoRowStd140Reason } from './std140.js';
+import { uniformStruct } from './sot.js';
+import { fn, module, vec4 } from './ir/index.js';
 import {
   arrayT,
   atomicI32T,
@@ -174,5 +178,25 @@ describe('reflect — module facts', () => {
     const features = reflect(m).requiredFeatures;
     expect(features).toEqual([...features].sort());
     expect(features).toEqual(expect.arrayContaining(['f16', 'floatRenderTarget']));
+  });
+});
+
+describe('the GLSL uniform block is laid out by the reflect layout engine', () => {
+  const blockOf = (type: ShaderType) => {
+    const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, { m: type, k: f32T });
+    return module({
+      uses: [U],
+      funcs: [fn('fs', {}, () => vec4(U.field.k, 0.0, 0.0, 1.0), { stage: 'fragment' })],
+    });
+  };
+
+  it('emits a block for a matrix the engine admits', () => {
+    expect(emitGlslModule(blockOf(matT(3, 3)), 'fragment')).toContain('layout(std140) uniform U');
+  });
+
+  it('refuses a two-row matrix field with the reason of the layout engine', () => {
+    expect(() => emitGlslModule(blockOf(matT(2, 2)), 'fragment')).toThrow(
+      `wgslLayout: ${twoRowStd140Reason(2)}`,
+    );
   });
 });
