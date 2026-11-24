@@ -111,6 +111,7 @@
     "hooks:install": "bun scripts/install-hooks.ts",
     "changes:check": "bun scripts/changes.ts",
     "move:check": "bun scripts/move-purity.ts",
+    "move:declarations": "bun scripts/move-declarations.ts",
     "szz": "bun scripts/szz.ts",
     "scope": "bun scripts/scope.ts",
     "scope:backtest": "bun scripts/scope-backtest.ts",

@@ -26,7 +26,7 @@ function dynamicSpecifierReason(call: ts.CallExpression): string | undefined {
     : undefined;
 }
 
-function locationReason(node: ts.Node, directoryChanged: boolean): string | undefined {
+export function locationReason(node: ts.Node, directoryChanged: boolean): string | undefined {
   let reason: string | undefined;
   const visit = (current: ts.Node): void => {
     if (reason !== undefined) return;

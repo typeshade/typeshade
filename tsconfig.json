@@ -86,6 +86,7 @@
     "src/core/testing/tsc-diagnostics.ts",
     "src/core/testing/yield-between-tests.ts",
     "src/core/testing/move-purity-fixtures.ts",
+    "src/core/testing/move-declarations-fixtures.ts",
     "src/compiler/ts/remedy-lines/sites.ts",
     "src/compiler/ts/growing-load.ts",
     "examples/**/*.test.ts",
