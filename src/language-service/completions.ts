@@ -2,9 +2,9 @@ import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js';
-import { isGpuBrandedType } from './diagnostics.js';
 import type { TypeshadeCompletionItem, TypeshadeCompletionKind } from './types.js';
 import { enclosingStage } from './completions/builtin-stage.js';
+import { completesVectorMembers } from './completions/vector-members.js';
 
 const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', readonly string[]>> = {
   vertex: ['vertex_index', 'instance_index'],
@@ -94,28 +94,6 @@ const LISTED_SWIZZLES: ReadonlySet<string> = new Set([
   'rgba',
 ]);
 const SWIZZLE = /^(?:[xyzw]{1,4}|[rgba]{1,4})$/;
-
-function completesVectorMembers(
-  languageService: ts.LanguageService,
-  uri: string,
-  offset: number,
-): boolean {
-  const program = languageService.getProgram();
-  const sourceFile = program?.getSourceFile(uri);
-  if (program === undefined || sourceFile === undefined) return false;
-  let receiver: ts.Expression | undefined;
-  const visit = (node: ts.Node): void => {
-    if (node.getFullStart() > offset || node.getEnd() < offset) return;
-    if (ts.isPropertyAccessExpression(node) && node.expression.getEnd() < offset) {
-      receiver = node.expression;
-    }
-    node.forEachChild(visit);
-  };
-  visit(sourceFile);
-  return (
-    receiver !== undefined && isGpuBrandedType(program.getTypeChecker().getTypeAtLocation(receiver))
-  );
-}
 
 function tsCompletions(
   languageService: ts.LanguageService,
