@@ -15,7 +15,6 @@
   "src/compiler/ts/builtin-check.ts": 702,
   "src/compiler/ts/builtins.test.ts": 814,
   "src/compiler/ts/class-methods.test.ts": 819,
-  "src/compiler/ts/class-names.ts": 430,
   "src/compiler/ts/class-syntax.test.ts": 2081,
   "src/compiler/ts/closures.test.ts": 706,
   "src/compiler/ts/context.ts": 1425,
