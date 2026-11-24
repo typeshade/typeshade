@@ -143,7 +143,9 @@ describe('one array as two parameters of one call', () => {
     const k = faceOf(
       'twice',
       [arrayParam('p', true), arrayParam('q', false)],
-      loopOf([at('p', 'write'), at('q', 'read')], { bare: [{ param: 'q' }] }),
+      loopOf([at('p', 'write'), at('q', 'read')], {
+        bare: [{ param: 'q', first: { text: 'q.length' } }],
+      }),
     );
     const groups = groupCalls(
       [call(k, [t, t]), call(reader('next', true), [v, t])],
