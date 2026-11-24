@@ -1736,26 +1736,30 @@ not supported yet.` Open until the owner decides which sentence holds.
 
 Deviations of #1474.
 
-1. The conflict sentence is the sentence of a `let`: "Cannot infer \"a\": its uses require i32
-   and u32. Write an explicit type annotation on \"a\" ...". A3, item 2 names the remedy
+1. The conflict sentence is the sentence of a `let`:
+   `Cannot infer "a": its uses require i32 and u32. Write an explicit type annotation on "a" ...`.
+   A3, item 2 names the remedy
    `const a: array<u32, 3> = [...]`. The sentence asks for an annotation but does not spell it.
-   Disposition: open. Next action: the owner decides whether the sentence must spell the example.
+   Disposition: open. Next action (proposal):
+   the owner decides whether the sentence must spell the example.
 2. Where a whole use conflicts with another use, the editor showed one `TS2345` for each
    `array<T, N>` parameter, beside the shared `TS8003`. `compile()` showed the `TS8003` only.
    Disposition: closed by #1477 (merge commit `23f2f810`).
 3. `s += a[i]`, with a typed `u32` `s`, does not decide the element type and is refused with
-   `TS8003`. A `let` gives the same refusal (`let k = 1; s += k`). Disposition: open. Next action:
-   the owner decides whether to widen both forms in one change.
+   `TS8003`. A `let` gives the same refusal (`let k = 1; s += k`). Disposition: open. Next action
+   (proposal): the owner decides whether to widen both forms in one change.
 4. A module-scope `as const` integer list takes its type from its uses (S2 already allowed that
    form at module scope). A function-local `as const` list stays refused with `TS8099`.
-   Disposition: open. Next action: the owner decides whether A3 states the module-scope case.
+   Disposition: open. Next action (proposal):
+   the owner decides whether A3 states the module-scope case.
 
 Deviations of #1480.
 
 1. No deviation from the approved text. Disposition: closed.
-2. No test pins a hand-annotated module `let` list beside the untyped form in the editor. A
-   module `let` list with a spread, a vector element list, a nested list and a length mismatch was
-   probed with `compile()` and matches the module `const` forms. No test covers these. Disposition:
+2. No test pins a hand-annotated module `let` list beside the untyped form in the editor. Four
+   forms of a module `let` list were probed with `compile()`: a spread, a vector element list, a
+   nested list and a length mismatch. Each one matches the module `const` form. No test covers
+   these. Disposition:
    open. Next action: a test in a bug-fix pull request, when one of them fails.
 
 **(b) S3: inferred storage access (decisions D3 and D4), pull request #1476.**
@@ -1779,7 +1783,7 @@ Deviations of #1476.
    writable storage buffer in the vertex stage, and the vertex entry ... writes ...". Disposition:
    open. Next action: check the section at the merge of #1494.
 5. Decision D3 does not name the explicit `"read"` argument after S4. Disposition: open. Next
-   action: the owner decides, before S4.
+   action (proposal): the owner decides, before S4.
 6. The `TS8005` remedy for a `"read"` binding names `storage<T, "read_write">`, a spelling that D3
    removes in S4. Disposition: open. Next action: change the sentence in S4.
 7. A program with a bare binding that no entry writes lowers twice (a provisional `read_write`,
@@ -1796,11 +1800,14 @@ Deviations of #1476.
   the CPU tier (`src/core/host-kernel-made/growing.ts`, growth mode in `pushOnto` of
   `src/core/pushed-index.ts`). No front-end code sets `growing`, so no author program changes.
 - [fact] #1481 is done. Merge commit `31394a93`. It holds stage S2. Shapes 1 to 4 of A12 take
-  Route 3: a `while`, a `for` that is no count, and a loop under a `switch` or under a branch
-  inside a loop. `routeOf` in `route.ts` decides the route in one place. The call runs on the
+  Route 3. One shape is a `while`. One shape is a `for` that is no count. One shape is a loop under a `switch`. One shape is a loop under a branch inside a loop.
+  `routeOf` in `route.ts` decides the route in one place. The call runs on the
   CPU tier only, and returns the elements pushed, in the order of a sequential run (OD-5).
 - [fact] #1481 adds a WebGPU journey for `inside` (a loop under a branch inside a loop, Route 2).
-  The `journeys/_host-import` cases are `inside` and `evens`.
+  The `journeys/_host-import` cases are `inside`, `insideCpu` and `evens`.
+  `inside` on WebGPU equals the CPU tier and the reference. `insideCpu` is the CPU tier run of
+  `inside`. `evens` is Route 3 and runs on the CPU tier. A WebGPU-only runtime refuses `evens`
+  with `TS8070`.
 
 Deviations of #1479.
 
@@ -1822,12 +1829,15 @@ Deviations of #1481.
 2. A loop under a branch inside a loop that `countable` proves took `refusedNest` before. It now
    takes Route 2 and keeps its WebGPU plan. Disposition: closed by the journey case `inside`. It
    equals the CPU tier and the JavaScript reference for n = 0, 1, 3, 4 and 64.
-3. The remedy of the refusal of a push outside every loop changed from "Push onto it inside a
-   for loop at the top level of \"f\"." to "Push onto it inside a loop of \"f\".". Disposition:
-   open. Next action: the owner decides whether the new wording is the approved wording.
+3. The remedy of the refusal of a push outside every loop changed. The old wording is
+   `Push onto it inside a for loop at the top level of "f".`. The new wording is
+   `Push onto it inside a loop of "f".`. Disposition:
+   open. Next action (proposal):
+   the owner decides whether the new wording is the approved wording.
 4. In `host-kernel-grown-elements.test.ts`, the case `overwrite` expects the reason of the proof
-   (`TS8070`), by the reason order of `cpuOnly`: the proof, the growing reason, then the access.
-   Disposition: open. Next action: the owner decides whether this order is the approved order.
+   (`TS8070`). This follows the reason order of `cpuOnly`. The order is the proof, the growing
+   reason, then the access. Disposition: open. Next action
+   (proposal): the owner decides whether this order is the approved order.
 5. `while (i < xs[0])` takes Route 3. The counted `for` with the same bound stays `TS8099` until
    change 0144, stage A3 (A12 item 5.4). Disposition: open. Next action: change 0144 stage A3.
 6. Three pre-existing defects were found and left unchanged. Item (d) below records them. Each
@@ -1867,8 +1877,8 @@ Deviations of #1481.
 - #1495, in progress. It implements R3-Q3 (A) and closes A16 D1. It waits for the owner's "merge".
   It changes how an author's program is accepted: `repeated` goes from refused to accepted.
 
-- Affects: no front matter, rule number or code changes. The pull requests above implement
-  amendments already recorded.
+- Affects: no front matter, rule number or code changes. The feature pull requests above
+  implement text already recorded. The bug fixes implement none.
 - Status: `status: accepted` does not change. S2c: done (#1474, #1477, #1480). S3: done (#1476);
   decisions (1) to (3) in progress (#1494). Route 3: S0 and S1 done (#1479); S2 done (#1481); S3
   to S5 not started; A16 D1 in progress (#1495). Open items: #1474 deviations 1, 3 and 4; #1476
