@@ -21,7 +21,6 @@ import {
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
 import type {
   FuseArray,
-  FuseBare,
   FuseLoop,
   KernelFace,
   KernelFuse,
@@ -32,17 +31,13 @@ import type { HostType } from '../../core/host-values.js';
 import type {
   BindingDecl,
   ConstDecl,
-  Expr,
   FuncDecl,
   ModuleDecl,
-  Stmt,
   StructDecl,
 } from '../../core/ir/nodes.js';
 import { workgroupShapeOf } from '../../core/ir/nodes.js';
 import { toPortable } from '../../core/ir/portable.js';
-import { sourceSpanOf, type SourceSpan } from '../../core/ir/span.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { eachExpr, eachStmtExpr } from '../../core/ir/visit.js';
 import { addsTo, colourOf } from './host-face/entry-shapes.js';
 import { grownChecked, lowerKernelFor, madeFace } from './host-face/made.js';
 import { exportsOf, type ExportRef } from './host-face/exports.js';
@@ -56,14 +51,9 @@ import {
   reachOf,
   type BindingReach,
 } from '../../core/manifest/reach.js';
-import { callArgAccess } from '../../core/passes/access.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
-import {
-  lowerKernelGl,
-  type KernelLoopPlan,
-  type KernelPlan,
-} from '../../core/passes/kernel-lower.js';
+import { lowerKernelGl, type KernelPlan } from '../../core/passes/kernel-lower.js';
 import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
 import { typeLayout } from '../../core/reflect.js';
@@ -123,6 +113,8 @@ import { guardOf, guardBinding } from './host-face/guard.js';
 import { spell } from './host-face/spell.js';
 import { noCpuTier, wgslEntryPoint, glTier } from './host-face/entry-tier.js';
 import { wordBinding, wordBindings, heldVariant } from './host-face/kernel-words.js';
+import { dispatched, bareArrays, reachedBy } from './host-face/kernel-facts.js';
+export { bareArrays } from './host-face/kernel-facts.js';
 export { type HostExport } from './host-face-contracts.js';
 export { hostTypeOf } from './host-types.js';
 
@@ -997,15 +989,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   };
 }
 
-function dispatched({
-  iterates: _iterates,
-  iteration: _iteration,
-  continues: _continues,
-  ...loop
-}: KernelLoopPlan): Omit<KernelLoopPlan, 'iterates' | 'iteration' | 'continues'> {
-  return loop;
-}
-
 function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: string): KernelFuse {
   const arrayParams = f.params
     .filter((p) => p.type.kind === 'array' && p.type.size === undefined)
@@ -1042,50 +1025,6 @@ function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: s
     };
   });
   return { origin, facts, ir: toPortable(reachedBy(plan.module), VERSION) };
-}
-
-export function bareArrays(
-  f: FuncDecl,
-  plan: KernelPlan,
-  l: KernelLoopPlan,
-  params: readonly string[],
-): FuseBare[] {
-  const found = new Map<string, { place: Expr; at: SourceSpan | undefined }>();
-  const walk = (st: Stmt): void =>
-    eachStmtExpr(
-      st,
-      (e) =>
-        eachExpr(e, (x) => {
-          if (x.op !== 'call' || callArgAccess(x, 0) !== 'length') return;
-          const named = x.args[0];
-          if (named?.op !== 'varref' && named?.op !== 'param') return;
-          if (params.includes(named.name) && !found.has(named.name))
-            found.set(named.name, { place: x, at: sourceSpanOf(st) });
-        }),
-      walk,
-    );
-  plan.module.funcs
-    .find((g) => g.name === l.iterates)
-    ?.body.slice(l.iteration)
-    .forEach(walk);
-  return params.flatMap((param) => {
-    const first = describeRead(f, { first: found.get(param) });
-    return first === undefined ? [] : [{ param, first }];
-  });
-}
-
-function reachedBy(m: ModuleDecl): ModuleDecl {
-  const helpers = new Set(m.funcs.filter((g) => g.stage === undefined).map((g) => g.name));
-  const callees = new Map(m.funcs.map((g) => [g.name, calleesOf(g, helpers)]));
-  const keep = new Set<string>();
-  for (const g of m.funcs)
-    if (g.stage !== undefined) for (const name of closureOf(g.name, callees)) keep.add(name);
-  return {
-    ...m,
-    funcs: m.funcs
-      .filter((g) => keep.has(g.name))
-      .map(({ span: _span, nameSpan: _nameSpan, ...g }): FuncDecl => g),
-  };
 }
 
 function kernelGl(
