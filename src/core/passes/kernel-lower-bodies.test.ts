@@ -148,6 +148,17 @@ describe('an integer array a loop scatters into (change 0119, #348)', () => {
   ])('runs on the CPU tier when %s', (_label, body, message) => {
     expect(noGpu(body)).toBe(message);
   });
+
+  it('names a reserved array by its authored name in the refusal that reads it (Rule 3.3)', () => {
+    expect(
+      noGpu(`export function k(keys: array<u32>, filter: array<u32>, o: array<u32>) {
+  for (let i: u32 = 0; i < keys.length; i++) { filter[keys[i] % 4] += 1; }
+  for (let j: u32 = 0; j < keys.length; j++) { o[j] = filter[j % 4]; }
+}`),
+    ).toBe(
+      'a loop reads "filter", which a loop scatters into: an atomic is read only by an atomic',
+    );
+  });
 });
 
 describe('the result and the stores of a kernel function', () => {
@@ -202,7 +213,7 @@ describe('the result and the stores of a kernel function', () => {
 }`);
     const tail = plan.ranges.find((f) => f.name === plan.tail)!;
     expect(tail.params.map((p) => p.name)).toEqual(['xs', 'out', '_t0_push_out']);
-    expect(JSON.stringify(tail.body)).not.toContain('pushCount');
+    expect(tail.body).toMatchObject([{ s: 'return', expr: { op: 'param', name: '_t0_push_out' } }]);
   });
 
   it('keeps a store after the loops out of the result, and replays the scalar statements before it', () => {
@@ -213,8 +224,19 @@ describe('the result and the stores of a kernel function', () => {
   return s;
 }`);
     const tail = plan.ranges.find((f) => f.name === plan.tail)!;
-    expect(JSON.stringify(tail.body)).not.toContain('"index"');
+    expect(tail.body).toMatchObject([
+      { s: 'var', name: 's' },
+      { s: 'assign', target: { op: 'varref', name: 's' }, expr: { op: 'binop', bop: '+' } },
+      { s: 'return', expr: { op: 'varref', name: 's' } },
+    ]);
     const finish = plan.ranges.find((f) => f.name === plan.finish!.fn)!;
-    expect(JSON.stringify(finish.body)).toContain('"index"');
+    expect(finish.body).toMatchObject([
+      { s: 'var', name: 's' },
+      { s: 'assign', target: { op: 'varref', name: 's' } },
+      {
+        s: 'if',
+        arms: [{ body: [{ s: 'assign', target: { op: 'index', base: { name: 'out' } } }] }],
+      },
+    ]);
   });
 });

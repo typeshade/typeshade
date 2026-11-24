@@ -211,7 +211,13 @@ describe('the length word of an array that loops push onto (change 0094)', () =>
   return n;
 }`);
     expect(plan.words).toBeUndefined();
-    expect(plan.tail).toBeDefined();
+    expect(plan.tail).toBe('k__tail');
+    const tail = plan.ranges.find((f) => f.name === plan.tail)!;
+    expect(tail.params.map((x) => x.name)).toEqual(['xs', 'out', '_t0_push_out']);
+    expect(tail.body).toMatchObject([
+      { s: 'let', name: 'n', expr: { op: 'param', name: '_t0_push_out' } },
+      { s: 'return', expr: { op: 'varref', name: 'n' } },
+    ]);
   });
 
   it('has one for an array two loops push onto, listing the loops in order', () => {
@@ -249,72 +255,6 @@ describe('the length word of an array that loops push onto (change 0094)', () =>
       { param: 'a', binding: 'k_len0', field: '_off0', loops: [0] },
       { param: 'b', binding: 'k_len1', field: '_off1', loops: [1] },
     ]);
-  });
-});
-
-describe('a name the module already declares', () => {
-  const MAP = `export function k(xs: array<f32>, out: array<f32>) {
-  for (let i: u32 = 0; i < xs.length; i++) { out[i] = xs[i]; }
-}`;
-  const refused = (body: string): string => {
-    const module = bothTake(`"use typeshade";\n${body}\n`, { fileName: FILE }).result.module;
-    const proof = proveKernels(module).find((p) => p.fn === 'k')!;
-    const plan = lowerKernel(
-      module.funcs.find((f) => f.name === 'k')!,
-      module,
-      proof,
-    );
-    if (!('noGpu' in plan)) throw new Error('the function was lowered');
-    return plan.noGpu;
-  };
-
-  it.each([
-    [
-      'the uniform binding',
-      'function k_args(): u32 { return 0; }',
-      MAP,
-      'k_args',
-      "the name the call's uniform takes",
-    ],
-    [
-      'the uniform struct',
-      'function k_Args(): u32 { return 0; }',
-      MAP,
-      'k_args',
-      "the name the call's uniform takes",
-    ],
-    [
-      'a length word',
-      'function k_len0(): u32 { return 0; }',
-      `export function k(xs: array<f32>, out: array<f32>) {
-  for (let i: u32 = 0; i < xs.length; i++) { out.push(xs[i]); }
-  for (let j: u32 = 0; j < xs.length; j++) { out.push(xs[j]); }
-}`,
-      'k_len0',
-      'the name of the length word of "out"',
-    ],
-    [
-      'the trip buffer',
-      'function k_trips(): u32 { return 0; }',
-      `export function k(c: array<u32>, o2: array<f32>) {
-  for (let j: u32 = 0; j < c[0]; j++) { o2[j] = 1.; }
-}`,
-      'k_trips',
-      "the name of the call's trip buffer",
-    ],
-    [
-      'the read binding of the trip buffer',
-      'function k_tripsIn(): u32 { return 0; }',
-      `export function k(c: array<u32>, o2: array<f32>) {
-  for (let j: u32 = 0; j < c[0]; j++) { o2[j] = 1.; }
-}`,
-      'k_tripsIn',
-      "the name of the call's trip buffer",
-    ],
-  ])('runs on the CPU tier when it declares %s', (_label, declaration, body, name, role) => {
-    expect(refused(`${declaration}\n${body}`)).toBe(
-      `the module already declares "${name}", ${role}`,
-    );
   });
 });
 

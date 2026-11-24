@@ -113,7 +113,6 @@ import { pushEntries } from './kernel-push/push-entries.js';
 import { deviceRangeLoops, lastLoopOf, readsElements, storeAfterLoops } from './kernel-stores.js';
 import { mapExpr } from './opt/ir-transform.js';
 import { proveKernels, type KernelProof, type LoopReduction } from './parallel-loop.js';
-// Why: Rule 11.8 keeps the WebGL2 lowering entry point exported here; kernel-lower-gl.ts owns its implementation.
 export { GL_DISPATCH, GL_OUT, lowerKernelGl, type KernelGlLoopPlan } from './kernel-lower-gl.js';
 export {
   type KernelCollection,

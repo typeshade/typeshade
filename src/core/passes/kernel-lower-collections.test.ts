@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bothTake } from '../testing/both-halves.js';
+import { bothHalves, bothTake } from '../testing/both-halves.js';
 import { emitModule } from '../backends/wgsl.js';
 import { orderWord } from '../host-kernel.js';
 import { compileModule } from '../oracle.js';
@@ -18,6 +18,20 @@ function lower(body: string, name: string): KernelPlan {
   );
   if ('noGpu' in plan) throw new Error(plan.noGpu);
   return plan;
+}
+
+function refusal(body: string, name: string, editor: readonly string[] = []): string {
+  const halves = bothHalves(`"use typeshade";\n${body}\n`, { fileName: 'm.shade.ts' });
+  expect(halves.compiler).toEqual([]);
+  expect(halves.editor).toEqual(editor);
+  const module = halves.result.module;
+  const plan = lowerKernel(
+    module.funcs.find((f) => f.name === name)!,
+    module,
+    proveKernels(module).find((p) => p.fn === name)!,
+  );
+  if (!('noGpu' in plan)) throw new Error('the function was lowered');
+  return plan.noGpu;
 }
 
 const HAS = (
@@ -213,6 +227,43 @@ export function k(keys: array<u32>, seen: Set<u32>) {
   it('gives the keys and the search of a collection a name the module does not use', () => {
     const plan = lower(`function _m_keys(): u32 { return 0; }\n${LOOKUPS_FOR_NAMES}`, 'measured');
     expect(plan.lookups).toEqual([{ param: 'm', keys: '__m_keys', loop: 0 }]);
+  });
+});
+
+describe('a loop that reads a Set the call uploads once (change 0080)', () => {
+  it.each([
+    [
+      'a later loop adds to it',
+      `export function k(xs: array<u32>, out: array<u32>, seen: Set<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { out[i] = seen.has(xs[i]) ? 1 : 0; }
+  for (let j: u32 = 0; j < xs.length; j++) { seen.add(xs[j]); }
+}`,
+      'loop 2 adds to the Set "seen", which loop 1 reads before it, and the call uploads a collection once',
+    ],
+  ])('runs on the CPU tier when %s', (_label, body, message) => {
+    expect(refusal(body, 'k')).toBe(message);
+  });
+
+  it('runs on the CPU tier when the loop that reads it also adds to it', () => {
+    const body = `export function k(xs: array<u32>, out: array<u32>, seen: Set<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { out[i] = seen.has(xs[i]) ? 1 : 0; seen.add(xs[i]); }
+}`;
+    const warning =
+      'typeshade TS8070: This loop runs on the CPU because line 3 reads "seen", a Set the loop adds to, whose entries depend on the iterations before. Read it after the loop, or in a later loop that does not add to it.';
+    expect(refusal(body, 'k', [warning])).toBe(
+      'loop 1 adds to the Set "seen", which loop 1 reads before it, and the call uploads a collection once',
+    );
+  });
+
+  it('lowers when an earlier loop adds and a later loop reads', () => {
+    const plan = lower(
+      `export function k(xs: array<u32>, out: array<u32>, seen: Set<u32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { seen.add(xs[i]); }
+  for (let j: u32 = 0; j < xs.length; j++) { out[j] = seen.has(xs[j]) ? 1 : 0; }
+}`,
+      'k',
+    );
+    expect(plan.lookups).toEqual([{ param: 'seen', keys: '_seen_keys', loop: 1 }]);
   });
 });
 

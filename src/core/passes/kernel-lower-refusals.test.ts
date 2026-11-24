@@ -1,48 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { bothHalves, bothTake } from '../testing/both-halves.js';
-import type { ModuleDecl } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
-import { lowerKernel, type KernelPlan } from './kernel-lower.js';
-import { proveKernels, type KernelProof } from './parallel-loop.js';
-
-const FILE = 'm.shade.ts';
-
-interface Lowered {
-  readonly module: ModuleDecl;
-  readonly proof: KernelProof;
-  readonly plan: KernelPlan | { readonly noGpu: string };
-}
-
-function lowerFrom(module: ModuleDecl, name: string, proof: KernelProof): Lowered['plan'] {
-  return lowerKernel(
-    module.funcs.find((f) => f.name === name)!,
-    module,
-    proof,
-  );
-}
-
-function lowered(body: string, name = 'k'): Lowered {
-  const halves = bothTake(`"use typeshade";\n${body}\n`, { fileName: FILE });
-  const module = halves.result.module;
-  const proof = proveKernels(module).find((p) => p.fn === name)!;
-  return { module, proof, plan: lowerFrom(module, name, proof) };
-}
-
-function refusedByProof(body: string, name = 'k'): Lowered['plan'] {
-  const halves = bothHalves(`"use typeshade";\n${body}\n`, { fileName: FILE });
-  expect(halves.compiler).toEqual([]);
-  const module = halves.result.module;
-  return lowerFrom(
-    module,
-    name,
-    proveKernels(module).find((p) => p.fn === name)!,
-  );
-}
-
-const noGpu = (plan: Lowered['plan']): string => {
-  if (!('noGpu' in plan)) throw new Error('the function was lowered');
-  return plan.noGpu;
-};
+import { lowerKernel } from './kernel-lower.js';
+import { type KernelProof } from './parallel-loop.js';
+import {
+  lowered,
+  lowerFrom,
+  noGpu,
+  refusedByProof,
+  type Lowered,
+} from './kernel-lower-refusal-helpers.js';
 
 const MAP = 'for (let i: u32 = 0; i < xs.length; i++) { out[i] = xs[i]; }';
 
@@ -148,6 +114,13 @@ describe('a loop that pushes must run its counting step without writing', () => 
 }`,
       'loop 1 pushes onto "out" and "o2", and the call counts the pushes of one array a loop',
     ],
+    [
+      'reads back what it writes',
+      `export function k(xs: array<f32>, out: array<f32>, o2: array<f32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { o2[i] = xs[i]; const v = o2[i] * 2.; o2[i] = v; out.push(v); }
+}`,
+      'loop 1 pushes and reads back what it writes to "o2", which its counting step does not write',
+    ],
   ])('runs on the CPU tier when the loop %s', (_label, body, message) => {
     expect(noGpu(lowered(body).plan)).toBe(message);
   });
@@ -197,7 +170,7 @@ describe('the length of an array a loop pushes onto', () => {
     const plan = refusedByProof(`export function k(xs: array<f32>, out: array<f32>) {
   for (let i: u32 = 0; i < xs.length; i++) { out.push(xs[i]); const n = out.length; }
 }`);
-    expect(noGpu(plan)).toContain('runs on the CPU');
+    expect(noGpu(plan)).toBe('a loop of it runs on the CPU (TS8070)');
   });
 
   it.each([
@@ -358,5 +331,59 @@ describe('the type of a scalar parameter or of an array element the call packs',
       elem: { kind: 'scalar', scalar: 'bool' },
     } as ShaderType);
     expect(noGpu(plan)).toBe('parameter "out" holds a bool, which no buffer holds');
+  });
+});
+
+describe('a name the module already declares', () => {
+  const MAP = `export function k(xs: array<f32>, out: array<f32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { out[i] = xs[i]; }
+}`;
+  it.each([
+    [
+      'the uniform binding',
+      'function k_args(): u32 { return 0; }',
+      MAP,
+      'k_args',
+      "the name the call's uniform takes",
+    ],
+    [
+      'the uniform struct',
+      'function k_Args(): u32 { return 0; }',
+      MAP,
+      'k_args',
+      "the name the call's uniform takes",
+    ],
+    [
+      'a length word',
+      'function k_len0(): u32 { return 0; }',
+      `export function k(xs: array<f32>, out: array<f32>) {
+  for (let i: u32 = 0; i < xs.length; i++) { out.push(xs[i]); }
+  for (let j: u32 = 0; j < xs.length; j++) { out.push(xs[j]); }
+}`,
+      'k_len0',
+      'the name of the length word of "out"',
+    ],
+    [
+      'the trip buffer',
+      'function k_trips(): u32 { return 0; }',
+      `export function k(c: array<u32>, o2: array<f32>) {
+  for (let j: u32 = 0; j < c[0]; j++) { o2[j] = 1.; }
+}`,
+      'k_trips',
+      "the name of the call's trip buffer",
+    ],
+    [
+      'the read binding of the trip buffer',
+      'function k_tripsIn(): u32 { return 0; }',
+      `export function k(c: array<u32>, o2: array<f32>) {
+  for (let j: u32 = 0; j < c[0]; j++) { o2[j] = 1.; }
+}`,
+      'k_tripsIn',
+      "the name of the call's trip buffer",
+    ],
+  ])('runs on the CPU tier when it declares %s', (_label, declaration, body, name, role) => {
+    expect(noGpu(lowered(`${declaration}\n${body}`).plan)).toBe(
+      `the module already declares "${name}", ${role}`,
+    );
   });
 });
