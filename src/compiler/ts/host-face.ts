@@ -8,6 +8,7 @@
 import ts from 'typescript';
 import { emitGlslModule } from '../../core/backends/glsl.js';
 import { emitModule } from '../../core/backends/wgsl.js';
+import type { ClassLayouts } from '../../core/class-layouts.js';
 import type { ConsoleLog } from '../../core/console.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
@@ -36,7 +37,6 @@ import { lowerKernelGl } from '../../core/passes/kernel-lower.js';
 import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
 import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
-import type { ClassLayouts } from '../../runtime/resource.js';
 import {
   isPrivateName,
   isReadonlyMember,
