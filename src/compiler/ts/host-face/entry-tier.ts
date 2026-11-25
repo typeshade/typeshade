@@ -5,6 +5,7 @@ import type { ShaderType } from '../../../core/ir/types.js';
 import { buildGlCompute, type GlComputeProgram } from '../../../core/passes/gl-compute.js';
 import { spellingsOf } from '../../../core/spelling-plan.js';
 import type { FaceCtx } from './context.js';
+import { keyedUniforms } from './private-keys.js';
 import { gpuOnlyCall } from './reach.js';
 import { spell } from './spell.js';
 
@@ -47,7 +48,7 @@ export function wgslEntryPoint(f: FuncDecl, c: FaceCtx): { entryPoint?: string }
 
 export function glTier(f: FuncDecl, c: FaceCtx): { gl: GlComputeProgram } | { noGl: string } {
   try {
-    return { gl: buildGlCompute(c.entry.module, f.name) };
+    return { gl: keyedUniforms(buildGlCompute(c.entry.module, f.name), c.entry.bindings, c) };
   } catch (e) {
     return { noGl: e instanceof Error ? e.message : String(e) };
   }
