@@ -106,7 +106,7 @@
   "src/core/compute/runner.test.ts": 597,
   "src/core/cpu-codegen.test.ts": 1947,
   "src/core/cpu-codegen.ts": 2081,
-  "src/core/cpu-runtime.ts": 1331,
+  "src/core/cpu-runtime.ts": 1313,
   "src/core/debug/config.test.ts": 923,
   "src/core/debug/config.ts": 658,
   "src/core/debug/interp.ts": 665,
