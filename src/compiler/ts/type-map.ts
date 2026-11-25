@@ -80,10 +80,8 @@ const MAT_SHAPE: Readonly<Record<string, readonly [2 | 3 | 4, 2 | 3 | 4]>> = Obj
   ),
 );
 
-/** Every matrix name the surface spells, as the `matCxR` of wgsl.txt:4621 (C, R each 2, 3 or
- *  4) plus the `matN` shorthand both targets give a square one. GLSL ES 3.00 has all nine
- *  (glsl-es-300.txt:955-967), so the set is the same on both. `f32` is the default element;
- *  `mat3<f64>` and the rest go through the generic arm. */
+// Why: wgsl.txt:4621 and glsl-es-300.txt:955-967 give a matrix of 2, 3 or 4 columns and rows on
+// both targets.
 const MAT_TYPE_NAMES: Readonly<Record<string, ShaderType>> = Object.fromEntries([
   ...([2, 3, 4] as const).flatMap((cols) =>
     ([2, 3, 4] as const).flatMap((rows) => {
