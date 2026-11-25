@@ -1,29 +1,7 @@
-// ═══ A generated function drawn as a fragment program (#349, the GLSL arm) ═══
-//
-// The GPU differential (`scripts/gpu-differential.ts`) draws the functions that
-// `generateModule(seed, { exact: true })` builds on WebGL2, and holds what each pixel writes to
-// the function run on the f32 oracle. A generated function takes values and returns one, so it
-// needs an entry before it can be drawn. `drawnFunction` adds a `@fragment` entry: each pixel
-// reads its own arguments from a uniform table, calls the function, and writes the bits of what
-// it returns into a `vec4<u32>`, which an `RGBA32UI` target keeps as they are. The steps the entry
-// adds are exact on both targets: an index from the pixel's integer position, a bit cast, a
-// vector built from lanes. So a pixel that differs from the oracle differs in the function.
-//
-// GLSL ES 3.00 leaves some inputs undefined that WGSL settles:
-//   - an integer `/` or `%` by zero (§5.9 of that spec);
-//   - the least `i32` over -1, which may give the greatest (§4.1.3);
-//   - a `%` with a negative operand (§5.9);
-//   - a float's conversion to an integer that does not hold it, and a negative float's to `u32`
-//     (§5.4.1).
-// Rule 11.5 has the oracle follow WGSL there, and a GLSL driver answered otherwise with the bare
-// operator: on ANGLE over SwiftShader, `7 / 0` was -7, `-7 % 3` 2 and `i32(3e9)` the least `i32`
-// (#382). The GLSL writer now settles each such input the way WGSL does (Rule 11.12), and
-// `taintGlslUndefined` finds the runs that reach one, so the gate can show its corpus reaches
-// what the writer settles. It routes each of those operations through a helper that sets a
-// private flag when its operands are ones the bare operator leaves undefined, and adds a function
-// that runs a generated function and returns the flag.
-//
-// Test code only.
+// Why: GLSL ES 3.00 leaves undefined what WGSL settles: an integer `/` or `%` by zero (§5.9),
+// the least `i32` over -1 (§4.1.3), a `%` with a negative operand (§5.9), and a float's conversion
+// to an integer that does not hold it (§5.4.1). Rule 11.5 has the oracle follow WGSL. On ANGLE over
+// SwiftShader the bare operators answered otherwise (#382).
 
 import type { CpuValue } from '../cpu-runtime.js';
 import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt } from '../ir/index.js';

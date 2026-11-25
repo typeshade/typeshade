@@ -1,0 +1,30 @@
+const u32of = (x: number): number => Math.trunc(x) >>> 0;
+const H0 = 'function g() {\n  return 3000000000|0;\n}\n';
+export const FIXED: readonly (readonly [string, string, number, string?])[] = [
+  ['f32', 'let a = 1|2;\n  a /= f32(2);\n  return f32(a);', 1.5],
+  ['f32', 'return f32((5|0)/(f32(2)+1));', Math.fround(5 / 3)],
+  ['f32', 'return f32((0xF0000000|0)/(i32(2)+1));', Math.trunc((0xf0000000 | 0) / 3)],
+  ['f32', 'let a = 1|2;\n  a = a / 2;\n  return f32(a);', 1.5],
+  ['f32', 'let a = 1|2;\n  a = a / K;\n  return f32(a);', 0.75],
+  ['f32', 'let a = 1|2;\n  a /= K;\n  return f32(a);', 0.75],
+  ['f32', 'let a = abs(5|0);\n  a = a / 2;\n  return f32(a);', 2.5],
+  ['u32', 'return max((3000000000|0), vi);', u32of(Math.max(3000000000 | 0, 7))],
+  ['u32', 'return (3000000000|0) >> vi;', u32of((3000000000 | 0) >> 7)],
+  ['u32', 'let a = (3000000000|0);\n  let b = a;\n  return b / vi;', u32of((3000000000 | 0) / 7)],
+  ['u32', 'let a = (3000000000|0);\n  a %= vi;\n  return a;', u32of((3000000000 | 0) % 7)],
+  ['f32', 'return f32((0xF0000000|0));', 0xf0000000 | 0],
+  ['i32', 'let g = ii;\n  g *= (5|0)/2;\n  return g;', Math.trunc(-3 * 2.5)],
+  ['i32', 'let g = ii;\n  g += (5|0)/2;\n  return g;', Math.trunc(-3 + 2.5)],
+  ['f32', 'let g = ii;\n  g *= (1<<3)/3;\n  return f32(g);', Math.fround(-3 * (8 / 3))],
+  ['u32', 'let a = vi > 3 ? (3000000000|0) : vi;\n  return a / vi;', u32of((3000000000 | 0) / 7)],
+  ['u32', 'return select(vi, (3000000000|0), vi > 3) / vi;', u32of((3000000000 | 0) / 7)],
+  ['u32', 'return g() / vi;', u32of((3000000000 | 0) / 7), H0],
+  ['u32', 'return M / vi;', u32of((3000000000 | 0) / 7), 'let M = 3000000000|0;\n'],
+  [
+    'u32',
+    'let a = (3000000000|0);\n  let c = a + 0;\n  return c / vi;',
+    u32of((3000000000 | 0) / 7),
+  ],
+  ['f32', 'const k = (3000000000|0);\n  return f32(k | 1);', 3000000000 | 0 | 1],
+  ['f32', 'return f32(3 / (((vi < 2) ? 3 : 9) << 2));', Math.fround(3 / 36)],
+];

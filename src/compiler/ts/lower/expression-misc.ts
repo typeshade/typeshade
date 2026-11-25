@@ -334,7 +334,7 @@ export function lowerUserCall(
   let broken = false;
   const owner = scope.owner();
   // A call of a function-typed parameter whose type writes `x?: T` may omit `x`, whatever the
-  // function handed over declares (Rule 8.18, change 0093): the absent value is passed.
+  // Implements: Rule 8.18
   const handed = handedShapeOf(node, scope, sourceFile);
   for (let i = args.length; i < decl.params.length; i++) {
     const filled =

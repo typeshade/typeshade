@@ -1,7 +1,5 @@
-// === TypeShade source compiler entry point ===
-//
+// Implements: Rule 7.10
 // Implements: Rule 8.1 (docs/language-design.md; traced in reqs/): an entry point is a function
-// declaration with one stage attribute, which `lower/function.ts` reads (change 0130).
 
 import {
   beginUseInference,
@@ -222,45 +220,25 @@ export function compileTsSource(
   return compileTsProgram(source, options).result;
 }
 
-/** A compile that followed imports: the linked program, and the one source it was lowered as. */
 export interface LinkedCompile {
   readonly linked: LinkedProgram;
-  /** The linked source, parsed: what the front end lowered, whose names are the module's. */
   readonly sourceFile: ts.SourceFile;
-  /** What the front end declared in the linked source, in its offsets: the table the host face
-   *  reads the module's exports against, which `result.symbols` keeps only the entry's of. */
   readonly symbols: readonly DeclaredSymbol[];
 }
 
-/** What the linker made of each result of a linked compile, beside the result. The result's own
- *  shape stays the single-file one, so this is where a reader of the whole program finds it. */
 const linkedCompiles = new WeakMap<CompileTsSourceResult, LinkedCompile>();
 
-/** What the linker made of the program `result` is the compile of: its files, and the table of
- *  what the front end declared in every one of them. `undefined` for a source that imports
- *  nothing. The language service reads it to join a declaration in an imported file to the
- *  compiler's facts about it (Rule 12.7); nothing here is computed again. */
 export function linkedCompileOf(result: CompileTsSourceResult): LinkedCompile | undefined {
   return linkedCompiles.get(result);
 }
 
-/** `compileTsSource`, and for a source that imports another, what the linker made of it (the
- *  Vite plugin's host face reads the module's exports there). `roots` are more files to keep
- *  whole beside the source, which `compileTsSources` passes; with any, the source is linked
- *  whether it imports or not. */
 export function compileTsProgram(source: string, options: ProgramOptions = {}): ProgramCompile {
-  // A message names a struct as the author wrote it, `N.P` and `Slot<f32>`, for this compile's
-  // structs and no other's (see `useWrittenStructs`).
   return withWrittenStructs(() => compileOneSource(source, options));
 }
 
 type ProgramOptions = CompileTsSourceOptions & { readonly roots?: readonly LinkRoot[] };
 type ProgramCompile = { readonly result: CompileTsSourceResult; readonly linked?: LinkedCompile };
 
-/** The most passes the use inference of one compile takes (Rule 5.1, change 0134). Each pass
- *  but the last decides at least one value, so a chain of values that decide each other
- *  (`b += a` after `a += vi`) takes one pass a link. A longer chain keeps its undecided values
- *  as `f32`, and their integer uses are refused as before. */
 const MAX_INFERENCE_PASSES = 16;
 
 function compileOneSource(source: string, options: ProgramOptions): ProgramCompile {
@@ -273,9 +251,6 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
       true,
       ts.ScriptKind.TS,
     );
-  // A written number takes its type from its uses (Rule 5.1, change 0134 item 1): the module is
-  // lowered, the demands its uses made are settled into decisions, and it is lowered again
-  // with them until no decision is new (`use-inference.ts`). The last pass is the compile.
   beginUseInference(sourceFile);
   for (let pass = 1; ; pass++) {
     const outer = beginUseInferencePass(sourceFile);
@@ -288,15 +263,10 @@ function compileOneSource(source: string, options: ProgramOptions): ProgramCompi
     if (!settleInference(sourceFile, compiled.result) || callersSwitchedOff(sourceFile)) {
       return callersSwitchedOff(sourceFile) ? withCapNotes(compiled, sourceFile) : compiled;
     }
-    // The passes ran out with results that callers decide still moving: one more pass with
-    // every such result switched off, so no chain is left half decided (change 0134).
     if (pass >= MAX_INFERENCE_PASSES) switchCallersOff(sourceFile);
   }
 }
 
-/** After `switchCallersOff`, each error at a call of a function whose callers would decide its
- *  result says why the result is an `f32`, and what to write: one diagnostic for the mistake,
- *  with the remedy in it (Rules 12.4 and 12.5). */
 function withCapNotes(compiled: ProgramCompile, sourceFile: ts.SourceFile): ProgramCompile {
   const calls = [...switchedOffCalls(sourceFile)].map(([node, name]) => ({
     start: node.getStart(sourceFile),
@@ -353,18 +323,12 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
     }
     return { result };
   }
-  // A file TypeScript could not parse is not lowered. The tree it hands back is the parser's
-  // recovery, not the author's program: lowering it produced a cascade of misleading TypeShade
-  // diagnostics at best and, for `vec4(3.14`, a clean WGSL emit at worst. Its parse errors are
-  // the whole answer.
   const syntax = syntaxDiagnostics(sourceFile);
   if (syntax.length > 0) {
     diagnostics.push(...syntax);
     return { result: { ...empty, hasDirective: true } };
   }
 
-  // A source that imports another shader module is one program with the files it imports
-  // (Rule 3.9): linked into one source, lowered as one file, and mapped back.
   if (hasModuleReference(sourceFile) || (options.roots?.length ?? 0) > 0) {
     return compileLinked(sourceFile, options, diagnostics);
   }
@@ -373,21 +337,10 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   openExpressionTable(sourceFile);
   resetAbstractConsts(sourceFile);
   analyzeSemantics(sourceFile, diagnostics);
-  // The file's `"enable <extension>";` directives (§50), before anything that could emit.
   const enables = collectEnables(sourceFile, diagnostics);
-  // A stage call and `export default` on an entry are refused here, once each (Rules 6.7 and
-  // 8.1, changes 0130 and 0140). The call is still read as the entry it stood for, so nothing
-  // else is said about it (Rule 12.4).
   refuseStageCalls(sourceFile, diagnostics);
-  // The type a `builtin<N, …>` writes: the migration form warned, and `builtin<"clip_distances">`
-  // refused, once each (Rule 6.6, change 0135). Read before the structs and the bodies: a field
-  // refused here is withheld from its struct, and a name declared from a read of it binds
-  // nothing, so each use of that name finds this refusal standing and says nothing more
-  // (Rule 12.4, `refused-names.ts`, #1185).
   checkBuiltinTypeForms(sourceFile, diagnostics);
   const structs = collectStructs(sourceFile, diagnostics, symbols);
-  // The structs, so a buffer binding's host-shareable rules can be read through its struct
-  // type (§51) — collected first, which this order already guaranteed.
   const bindings = collectBindings(
     sourceFile,
     diagnostics,
@@ -396,14 +349,11 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
     emittedStructDecls(structs),
   );
   const consts = collectModuleConsts(sourceFile, diagnostics, symbols, emittedStructDecls(structs));
-  // The names the GLSL writer spells from this module, so an override cannot shadow one with
-  // its `#define`. Structs and bindings are collected above, which is why this order holds.
   const glslNames = new Set<string>([
     ...structs.flatMap((s) => s.decl.fields.map((f) => f.name)),
     ...bindings.map((b) => b.name),
   ]);
   const overrides = collectOverrides(sourceFile, diagnostics, symbols, glslNames);
-  // Module variables (§24) after the consts their initializers may name.
   let vars = collectModuleVars(
     sourceFile,
     diagnostics,
@@ -412,16 +362,8 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
     emittedStructDecls(structs),
     overrides,
   );
-  // A name claimed by two DIFFERENT collectors. Each reports its own repeats, and none can see
-  // the others, so `const q: f32 = 1.` beside `const q: override<f32> = 2.` passed all three and
-  // then met `scope.define`, which throws — an exception out of `compile()` and out of the
-  // language service's `getDiagnostics()`. Reported here, where all three lists exist.
   reportCrossDeclarationCollisions(sourceFile, diagnostics, consts, bindings, overrides, vars);
   vars = separateModuleVars(sourceFile, vars, [...consts, ...bindings, ...overrides]);
-  // The CollectedStructs whole, not their decls: #23's TS8029 names the spelling the author
-  // used (`class`, `interface` or `type`), which only the collected form carries.
-  // A method on a kernel function's array is written into the kernel function's body, and the
-  // function made for it is no function of the module (change 0079).
   const funcs = withoutKernelLoops(
     lowerSourceFunctions(
       sourceFile,
@@ -434,15 +376,8 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
       vars,
     ),
   );
-  // A user-defined input or output that writes no location takes it from the compiler, once
-  // every entry is read, since a fragment input reads the vertex results (Rule 6.6, change
-  // 0135). Before anything reads a location: the interstage check below, the writers and
-  // `reflect()`.
   giveEntryLocations(sourceFile, diagnostics, structs, funcs);
   dropDeadStorageWriters(sourceFile, funcs, bindings);
-  // The optional structs the functions and the structs use (Rule 7.10, changes 0088 and
-  // 0093): declared by no file, each placed before the first struct that holds it and after
-  // the struct its `T` names (decision D11), and emitted as the ordinary structs they are.
   funcs.unshift(...optionalHelpersOf(funcs));
   const optionals = usedOptionalDecls([
     ...typesOfFunctions(funcs),
@@ -457,9 +392,6 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
       spelling: 'interface' as const,
     })),
   );
-  // A call that writes, inside a larger expression, in the order the source evaluates it
-  // (Rule 7.9, §26). After every function is lowered, since what a helper writes is read off its
-  // body, and before anything reads the bodies, so every backend runs the one order.
   const builtIfs = sequenceEffects(
     {
       consts: [...consts],
@@ -472,11 +404,6 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
     sourceFile,
     diagnostics,
   );
-  // The interstage pair, once every entry is lowered: a `@location` a fragment reads must be
-  // produced by the vertex entry with the same type and the same interpolation (§53). The
-  // CORE lint rule answers the same question on the IR, so every authoring surface is covered
-  // at every emit; this runs the same function here because it can point at the fragment
-  // declaration the author wrote, and a backend throw cannot.
   for (const m of interstageMismatches(emittedStructDecls(structs), funcs, authorTypeText)) {
     diagnostics.push(
       makeDiagnostic(
@@ -487,18 +414,6 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
       ),
     );
   }
-  // Derivative uniformity, and the barriers that need the same property for a different
-  // reason (§54). Answered on the assembled module, because the walk follows a condition down
-  // through the statements a function holds, and reported here, where the IR's span can point
-  // at the call the author wrote.
-  //
-  // First the rewrite (change 0132, Rule 8.5): an implicit-LOD sample or a derivative in
-  // non-uniform control flow is recomputed before the branch and sampled with its gradients
-  // inside. It runs here, before the report, so `compile()` and the language service (which
-  // runs this with `emit: false`) report the same TS8052 (Rule 12.7), and the three consumers
-  // read the rewritten functions. No filter switches the rule off: change 0132 removed it, and
-  // a written one is refused (`TS8028`, `refuseStageCalls` and `builtin-check.ts`). An edited
-  // copy that a checked quotient edit compiles skips it: the edit changes a type, not a branch.
   if (!compilingCheckedEdit()) {
     const shape = (): ModuleDecl => ({
       consts: [...consts],
@@ -528,13 +443,8 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
       );
     }
   }
-  // The qualifiers `@inout` and `@out` are removed (change 0142), and so is their type form,
-  // `a: inout<f32>`, in every type position.
   refuseRemovedQualifiers(sourceFile, diagnostics);
   refuseQualifierTypes(sourceFile, diagnostics);
-  // A kernel function's loops run as dispatches when the proof accepts them, and on the CPU
-  // with a warning that names why when it does not (Rule 8.22, TS8070). After the functions,
-  // because the proof reads what each callee writes, and only on a module with no error.
   if (
     !compilingCheckedEdit() &&
     funcs.some((f) => f.kernel === true) &&
@@ -554,12 +464,7 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
       ),
     );
   }
-  // A name nothing declares in a body no call lowered, which the lowering never read (Rule 2.1).
   reportUndeclaredValues(sourceFile, diagnostics);
-  // A `/` over a constant of no fixed type that some read made an integer (change 0134,
-  // decisions Q10 and Q11), known only now that every read was lowered.
-  // The exported constants of the program (F5 of the fourteenth review of #1272), which an
-  // edited copy compiled on its own cannot tell from its text.
   const exported = exportedConstantNames(sourceFile);
   reportAbstractDivisions(sourceFile, diagnostics, (text, starts) => {
     const edited = ts.createSourceFile(
@@ -575,8 +480,6 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
       (d) => d.category === 'error',
     );
   });
-  // The decorated form of the migration release, read as written and warned once each
-  // (change 0111, milestone 4).
   warnDecoratedForm(sourceFile, diagnostics);
   dropRepeatedDiagnostics(diagnostics);
   sortDiagnosticsByPosition(diagnostics);
@@ -586,14 +489,10 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
     try {
       wgsl = emitWgslKept({ consts, structs, bindings, funcs, overrides, vars, enables });
     } catch (e) {
-      // No fallback to emitFuncs(funcs): it emits the functions without the consts, structs
-      // and bindings they reference, which is not this module's WGSL. The throw is the answer.
       diagnostics.push(backendDiagnostic(sourceFile, e));
     }
   }
 
-  // The constants of no fixed type and the type each read took, for the editor's hover (change
-  // 0134 item 4). The next lowering of this file resets the marks they are read from.
   recordAbstractConstTable(sourceFile, abstractConstFacts(sourceFile));
   return {
     result: {
@@ -614,20 +513,12 @@ function compileOnePass(options: ProgramOptions, sourceFile: ts.SourceFile): Pro
   };
 }
 
-/** The codes an unknown name is reported under, which a refused import already accounts for. */
 const UNKNOWN_NAME_CODES: ReadonlySet<string> = new Set([
   TS_CODES.UNKNOWN_FN,
   TS_CODES.UNKNOWN_TYPE,
   TS_CODES.UNKNOWN_NAME,
 ]);
 
-/**
- * The linked compile (Rule 3.9, `link.ts`): link `entry` with the shader files it imports, lower
- * the linked source through the single-file path, and map every position the result carries
- * back to the file and the offsets the author wrote. The result reads as the entry's own: its
- * `sourceFile` is `entry`, its `symbols` and `expressions` are the entry's, and a diagnostic
- * located in an imported file carries that file's name and offsets.
- */
 function compileLinked(
   entry: ts.SourceFile,
   options: ProgramOptions,
@@ -657,8 +548,6 @@ function compileLinked(
     expressions: [],
   };
   if (linked.fatal) return { result: empty };
-  // Rule 3.1 in each file the module keeps: the linked source opens with the directive, so a
-  // late one in any file is reported here, where the file is still the author's.
   for (const f of linked.files) {
     if (!f.kept) continue;
     const late = findUseTypeshadeDirective(f.sourceFile);
@@ -680,8 +569,6 @@ function compileLinked(
     linked,
     options.readDocument === undefined ? undefined : projectedReaderOf(options.readDocument),
   );
-  // A sentence names a declaration as its own file writes it, and says whether a name the
-  // linker joined was declared in the file the sentence is about or imported into it.
   const origin: LinkedOrigin = {
     sourceFile,
     files: linked.files.map((f) => f.name),
@@ -703,8 +590,6 @@ function compileLinked(
   );
 
   const entryFile = linked.files[0]!;
-  // What the semantic pass refused whole, on the entry's own nodes, where the editor's merged
-  // list reads it (Rule 12.4).
   carryRefusals(sourceFile, entry, (start, end) => {
     const m = linked.map(start, end);
     return m !== undefined && m.file.name === entryFile.name ? m : undefined;
@@ -741,7 +626,6 @@ function compileLinked(
       endCharacter: e.character + 1,
     };
   };
-  // Where each error of the program stands (#1186, `program-refusals.ts`).
   const located = locateProgramErrors({
     entry,
     linked,
@@ -759,7 +643,6 @@ function compileLinked(
       key === 'sourceFile' ||
       key === 'roots' ||
       key === 'fileName' ||
-      // An own program is compiled with `emit: false` whatever this compile emits.
       key === 'emit'
         ? undefined
         : value,
@@ -774,8 +657,6 @@ function compileLinked(
       }).result.diagnostics,
   });
   diagnostics.push(...located);
-  // Document order, as the editor lists them (Rules 12.5 and 12.7): a refusal that moved to its
-  // use stands among the entry file's own.
   sortFileDiagnosticsByPosition(diagnostics, entry.fileName);
   remapSpans(linked, [
     ...inner.funcs,
@@ -785,7 +666,6 @@ function compileLinked(
     ...inner.overrides,
     ...inner.vars,
   ]);
-  /** A span of the linked source that lands in the entry, in the entry's offsets. */
   const inEntry = (
     start: number,
     length: number,
@@ -806,8 +686,6 @@ function compileLinked(
     const at = inEntry(x.start, x.length);
     if (at !== undefined) expressions.push({ ...x, ...at });
   }
-  // The constants of no fixed type: every declaration in the file that wrote it, since a read in
-  // the entry can name one an imported file declares, and the entry's reads (change 0134 item 4).
   const table = abstractConstTableOf(sourceFile);
   if (table !== undefined) {
     recordAbstractConstTable(entry, {
@@ -823,8 +701,6 @@ function compileLinked(
       }),
     });
   }
-  // The calls of functions with copies, for the hover at a call in the entry of a function an
-  // imported file declares (change 0134 item 4).
   resetResultCopies(entry);
   mapResultCopies(sourceFile, entry, (offset) => inEntry(offset, 1)?.start);
   const result: CompileTsSourceResult = {
@@ -839,11 +715,6 @@ function compileLinked(
   return { result, linked: linkedCompile };
 }
 
-/** Carries the annotations the language service's projection wrote into the entry and into
- *  each file it imports (`: u32` after an untyped getter) to the linked source, so that the
- *  linked program reads them as no written type, as each file's own analysis does (Rule 12.7;
- *  the third review of #1304, B1). Each annotation's mark stands at its declaration's name end,
- *  or at the colon of a result type. */
 function markLinkedProjections(
   sourceFile: ts.SourceFile,
   entry: ts.SourceFile,
@@ -862,10 +733,6 @@ function markLinkedProjections(
     return startsOf.get(name);
   };
   if (projectedAnnotationStarts(entry) === undefined && projected === undefined) return;
-  // Each mark with the length of its insertion (`: T`, up to the end of the type), so that a
-  // named edit is checked without them, as `compile()` reads the files (issue 1319, A3: an
-  // import open in the editor left its projected `: f32` in the checked copy, which then
-  // refused the edit, and the editor dropped a remedy `compile()` names).
   const marks = new Map<number, number>();
   const consider = (at: number, end: number): void => {
     if (at < 0 || marks.has(at)) return;
@@ -892,9 +759,6 @@ function markLinkedProjections(
   }
 }
 
-/** Maps every `SourceSpan` the IR under `roots` carries from the linked source back to the file
- *  the author wrote it in. The IR holds no `ts.Node`, and a span object is replaced, not edited,
- *  so one shared between two nodes is mapped once for each. */
 function remapSpans(linked: LinkedProgram, roots: readonly object[]): void {
   const seen = new WeakSet<object>();
   const mapSpan = (span: SourceSpan): SourceSpan => {
@@ -940,10 +804,6 @@ const isSourceSpan = (v: unknown): v is SourceSpan =>
   typeof (v as SourceSpan).start === 'number' &&
   typeof (v as SourceSpan).length === 'number';
 
-/** Rule 3.1: `"use typeshade"` is the file's first statement (#200, proposal 0012). A comment
- *  before it is not a statement, so a licence header is fine; anything else, another string
- *  directive included, is `TS8069` on the directive. The file is still lowered, so the editor
- *  keeps its answers while the directive is out of place, and the error holds back the emit. */
 function reportMisplacedDirective(
   sourceFile: ts.SourceFile,
   directive: ts.ExpressionStatement,
@@ -962,7 +822,6 @@ function reportMisplacedDirective(
   );
 }
 
-/** The statement a late directive follows, in the words an author would use for it. */
 function describeStatement(stmt: ts.Statement): string {
   if (ts.isClassDeclaration(stmt)) return 'a class declaration';
   if (ts.isFunctionDeclaration(stmt)) return 'a function declaration';
@@ -981,13 +840,6 @@ export function isTypeshadeSource(source: string, fileName = 'check.ts'): boolea
   return hasUseTypeshadeDirective(sf);
 }
 
-/** Reports a module-scope name declared by more than one of the three collectors — a module
- *  const, a resource binding and an override each own a namespace they police alone.
- *
- *  Named in the order they are collected, so the message points at what the author most likely
- *  meant to keep. The declaration itself is not removed: the later `scope.define` is guarded,
- *  so one of the two wins silently rather than throwing, and the diagnostic is what stops the
- *  module being emitted. */
 export function reportCrossDeclarationCollisions(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
@@ -1019,10 +871,6 @@ export function reportCrossDeclarationCollisions(
   }
 }
 
-/** The `function <name>` statement an entry was lowered from, or the `const <name> = stage(…)`
- *  statement of a refused stage call (change 0140), so a whole-module diagnostic can anchor at the
- *  declaration rather than at the file's first line. `undefined` when the name names no
- *  top-level function, which {@link makeDiagnostic} already handles. */
 function entryDeclaration(sourceFile: ts.SourceFile, name: string): ts.Node | undefined {
   return sourceFile.statements.find(
     (st) =>
@@ -1031,12 +879,6 @@ function entryDeclaration(sourceFile: ts.SourceFile, name: string): ts.Node | un
   );
 }
 
-/** A call's callee as the author wrote it, for the uniformity walk to name a user function by
- *  (Rule 12.1): `Lim.hit` for the IR's `Lim_hit`, `done` for a closure's `main_done`,
- *  `Gate.open` for a namespace's `Gate_open`. Read off the call expression the IR call's span
- *  covers, or, for a call the source does not spell as one (a getter, `new`), off the name
- *  its function was declared with. Indexed once, on the first question: the walk asks for
- *  every user call it classifies, round after round. */
 function calleesAsWritten(
   sourceFile: ts.SourceFile,
   funcs: readonly FuncDecl[],

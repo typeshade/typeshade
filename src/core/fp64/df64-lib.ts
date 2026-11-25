@@ -46,8 +46,6 @@ import {
   type ShaderType,
 } from '../ir/index.js';
 
-// ── Host-side split (the packing twin of the shader emulation) ──
-
 /** Split a JavaScript double into the high and low f32 pair an {@link f64T} value carries on
  *  the GPU. `hi` is `Math.fround(x)` and `lo` is `Math.fround(x - hi)`, so `hi + lo`
  *  reconstructs `x` to about 48 significand bits.
@@ -80,8 +78,6 @@ export function splitF64(x: number): [hi: number, lo: number] {
   return [hi, lo];
 }
 
-// ── The anti-fast-math guard texture ──
-
 /** The fixed name (`'_fp64'`) of the guard texture binding that {@link fp64Lower} adds to
  *  every module whose lowered code calls a guarded df64 helper. A module whose only f64 work is
  *  comparisons, widening and narrowing, negation, or scaling by a power-of-two literal calls
@@ -98,7 +94,6 @@ export function splitF64(x: number): [hi: number, lo: number] {
  *  Exported from `typeshade`.
  */
 export const FP64_GUARD_NAME = '_fp64';
-/** The guard binding's type: a 1×1 2D texture whose only texel reads 1.0. */
 export const FP64_GUARD_TYPE: ShaderType = texture2dfT;
 
 /** The value {@link fp64Guard} returns: a binding declaration for the `_fp64` guard
@@ -171,33 +166,13 @@ export function fp64Guard(at: { group: number; binding: number }): Fp64GuardHand
       name: FP64_GUARD_NAME,
       space: 'uniform',
       type: FP64_GUARD_TYPE,
-      // Declared `uniform highp sampler2D _fp64;` on GLSL: the stage default is lowp.
       precision: 'highp',
     },
   };
 }
 
-/** The runtime-opaque 1.0 every helper body threads through its EFT terms —
- *  the `f64Guard` intrinsic (a texel fetch on the GPU, exactly 1 on the CPU
- *  oracle). It marks WHERE a guard goes, not where it is READ: fp64-lower replaces
- *  every `one` in a helper with an `_fp64_g` parameter, and the texel is read once,
- *  at the top of each function that calls a helper ("The guard" in fp64-lower).
- *  Read in the helper, it was one fetch per helper CALL — eight per `acc * k + c`
- *  in a loop, all of them inside the loop. */
 const one = f64GuardOne() as ReadonlyNode<'f32'>;
 
-// ── Error-free transformation primitives ──
-
-/** Knuth two-sum: s + e == a + b exactly, no magnitude precondition.
- *
- *  Four guard multiplies, not the six luma.gl's form carries. Its error term is
- *  `(a - (s - v) * ONE) * ONE * ONE * ONE`, and the last three multiply ONE value by ONE
- *  opaque factor in a row: once a value is a product with the runtime-opaque ONE, no
- *  compiler can prove it equal to anything it could fold, and multiplying it by the same
- *  factor again proves nothing more. `guard(guard(x))` is `guard(x)`, which is the rule
- *  {@link foldGuardChain} in fp64-lower enforces on every helper body, so a chain written
- *  here by mistake is folded before it reaches a target. The two multiplies in `v` are NOT
- *  a chain — the second guards `s * ONE - a`, a different value — and they stay. */
 const df64_twoSum = fn('df64_twoSum', { a: f32T, b: f32T }, (p) => {
   const s = Let(p.a.add(p.b));
   const v = Let(s.mul(one).sub(p.a).mul(one));
@@ -205,16 +180,12 @@ const df64_twoSum = fn('df64_twoSum', { a: f32T, b: f32T }, (p) => {
   return vec2(s, e);
 });
 
-/** Dekker fast-two-sum: requires |a| ≥ |b| (renormalization step). */
 const df64_quickTwoSum = fn('df64_quickTwoSum', { a: f32T, b: f32T }, (p) => {
   const s = Let(p.a.add(p.b).mul(one));
   const e = Let(p.b.sub(s.sub(p.a).mul(one)));
   return vec2(s, e);
 });
 
-/** Veltkamp split by 4097 = 2¹² + 1: a == hi + lo with 12-bit hi, 11-bit lo.
- *  The split constant reaches the shader as `4097 * one` so it can never be
- *  folded. Overflows for |a| > ~2¹¹⁵ (far beyond any input a shader would carry). */
 const df64_split = fn('df64_split', { a: f32T }, (p) => {
   const t = Let(p.a.mul(one.mul(4097.0)));
   const hi = Let(t.mul(one).sub(t.sub(p.a)));
@@ -222,7 +193,6 @@ const df64_split = fn('df64_split', { a: f32T }, (p) => {
   return vec2(hi, lo);
 });
 
-/** Split-based two-product: p + e == a * b exactly. (Not FMA-based — see header.) */
 const df64_twoProd = fn('df64_twoProd', { a: f32T, b: f32T }, (p) => {
   const prod = Let(p.a.mul(p.b));
   const aS = Let(df64_split({ a: p.a }));
@@ -233,14 +203,10 @@ const df64_twoProd = fn('df64_twoProd', { a: f32T, b: f32T }, (p) => {
   return vec2(prod, e);
 });
 
-/** Two-square: p + e == a * a exactly (the twoProd special case sqrt uses). */
 const df64_twoSqr = fn('df64_twoSqr', { a: f32T }, (p) => {
   const prod = Let(p.a.mul(p.a));
   const aS = Let(df64_split({ a: p.a }));
   const e = Let(
-    // One guard per error term. The form this mirrors wrote the cross term `* ONE * ONE` and
-    // the low-square term `* ONE * ONE * ONE`: chains of one factor, which guard nothing a
-    // single multiply does not (see df64_twoSum).
     aS.x
       .mul(aS.x)
       .sub(prod)
@@ -251,9 +217,6 @@ const df64_twoSqr = fn('df64_twoSqr', { a: f32T }, (p) => {
   return vec2(prod, e);
 });
 
-// ── df64 arithmetic ──
-
-/** a + b (Thall/QD-style accurate add: two twoSums + double renormalization). */
 const df64_add = fn('df64_add', { a: vec2fT, b: vec2fT }, (p) => {
   const s = Var(df64_twoSum({ a: p.a.x, b: p.b.x }));
   const t = Let(df64_twoSum({ a: p.a.y, b: p.b.y }));
@@ -264,26 +227,10 @@ const df64_add = fn('df64_add', { a: vec2fT, b: vec2fT }, (p) => {
   return s;
 });
 
-/** a − b == a + (−b); componentwise negation of a df64 pair is exact. */
 const df64_sub = fn('df64_sub', { a: vec2fT, b: vec2fT }, (p) =>
   df64_add({ a: p.a, b: p.b.neg() }),
 );
 
-/** a × b: twoProd of the hi words + cross terms + renormalize.
- *  Renormalizes (df64_quickTwoSum, which carries the `one` guard) AFTER EACH
- *  cross term — not once at the end as textbook QD does. The intermediate
- *  renorm is the luma.gl / donmccurdy Apple defense against a driver's
- *  fast-math factoring a cross term into the hi product it shares a factor
- *  with: `a.x·b.x + a.y·b.x` factored as `(a.x + a.y)·b.x` rounds a.x + a.y
- *  back to a.x and deletes the cross term (Apple Metal "optimizes away the
- *  calculation necessary for emulated fp64"). What the renorm protects is the
- *  SECOND cross term, a.y·b.x: by the time it is added, the first quickTwoSum
- *  has turned the hi word into `(…)·one`, a product with the runtime-opaque
- *  guard that no compiler can see as a multiple of b.x. The FIRST cross term,
- *  a.x·b.y, has no such barrier: it meets a.x·b.x inside that first
- *  quickTwoSum's `a + b`, before any guard (df64_sqr, below, relies on this
- *  reading). Merely threading `one` through the cross terms does NOT help: the
- *  common factor sits outside the guard. */
 const df64_mul = fn('df64_mul', { a: vec2fT, b: vec2fT }, (p) => {
   const prod = Var(df64_twoProd({ a: p.a.x, b: p.b.x }));
   prod.y.assign(prod.y.add(p.a.x.mul(p.b.y)));
@@ -292,49 +239,12 @@ const df64_mul = fn('df64_mul', { a: vec2fT, b: vec2fT }, (p) => {
   return df64_quickTwoSum({ a: prod.x, b: prod.y });
 });
 
-/** a²: {@link df64_mul} of a pair with itself, specialised. fp64-lower emits it for an f64
- *  `x * x` and an `x *= x` whose operand has no effect, for the lane squares of `length` and
- *  `distance`, and for the lanes of a `dot(v, v)` whose `v` has no effect.
- *
- *  Three things are cheaper than `df64_mul(a, a)`:
- *   - the hi product is {@link df64_twoSqr}, one Veltkamp split where twoProd runs two (the
- *     two splits of `a.x` are the same split), and exact all the same;
- *   - the two cross terms `a.x·a.y` and `a.y·a.x` are one product, doubled. The scale by 2
- *     moves the exponent and nothing else, so `(a.x·a.y)·2` is one rounding, exactly as
- *     `a.x·a.y` alone is (overflow needs |a.x·a.y| > 2¹²⁷, far beyond any input here);
- *   - one renormalization instead of two (below).
- *  As emitted on the float flavor: 26 f32 operations against df64_mul's 37. The accuracy is
- *  the multiply's: one rounded cross term added once where df64_mul adds two rounded halves.
- *  df64-property.test.ts sweeps both over the same pairs (seed 0x5a5a, 20,000 pairs in
- *  2^[-36, 60]: worst relative error 2^-46.15 for the square, 2^-46.41 for df64_mul(a, a)).
- *  Over 200,000 random pairs in [1, 2) the mean is 2^-49.4 against 2^-49.36, and the square is
- *  the closer one on about 27,000 pairs against about 15,300, the rest tying; the counts move
- *  by a few hundred with the seed and the sampler, and the means by 0.01.
- *
- *  WHY ONE RENORMALIZATION IS ENOUGH. df64_mul renormalizes after EACH cross term (its note:
- *  the luma.gl / donmccurdy Apple defense). Its two cross terms each share a factor with the hi
- *  product `a.x·b.x`: `a.x·b.y` shares `a.x`, `a.y·b.x` shares `b.x`. The intermediate
- *  quickTwoSum is what separates the SECOND one from the hi product: after it, the hi word is
- *  `(…) · ONE`, a product with the runtime-opaque guard that no compiler can see as a multiple
- *  of `b.x`, so `a.y·b.x` has nothing left to be factored against. The FIRST cross term has no
- *  such barrier in df64_mul either: it meets `a.x·b.x` inside the first quickTwoSum's `a + b`,
- *  before any guard. The square has one cross term, and it enters exactly where df64_mul's first
- *  one does — added to the twoSqr error word, then one guarded quickTwoSum. So df64_sqr is the
- *  first half of df64_mul with its cross term doubled: the exposure of df64_mul's first term and
- *  no second term for a second renormalization to protect. A second quickTwoSum would renormalize
- *  a pair nothing has been added to since the first, and for the (s, e) a quickTwoSum returns,
- *  fl(s + e) is s, so the second one is the identity: five operations that guard nothing.
- *
- *  The dropped `a.y²` term is the one df64_mul drops too (`a.y·b.y`, below 2⁻⁴⁸ relative).
- *  The integer flavor overrides df64_twoSqr and df64_quickTwoSum by name (df64-int.ts), and
- *  this composition binds to those unchanged, guard-free, as df64_mul does. */
 const df64_sqr = fn('df64_sqr', { a: vec2fT }, (p) => {
   const prod = Var(df64_twoSqr({ a: p.a.x }));
   prod.y.assign(prod.y.add(p.a.x.mul(p.a.y).mul(2.0)));
   return df64_quickTwoSum({ a: prod.x, b: prod.y });
 });
 
-/** a ÷ b: f32-reciprocal seed + one Newton-Raphson correction (luma.gl form). */
 const df64_div = fn('df64_div', { a: vec2fT, b: vec2fT }, (p) => {
   const xn = Let(one.div(p.b.x));
   const yn = Let(p.a.mul(xn));
@@ -343,8 +253,6 @@ const df64_div = fn('df64_div', { a: vec2fT, b: vec2fT }, (p) => {
   return df64_add({ a: yn, b: prod });
 });
 
-/** √a: f32 rsqrt seed + one Newton-Raphson correction; √0 = 0 exactly.
- *  a < 0 is a domain error (NaN/indeterminate, as with native sqrt). */
 const df64_sqrt = fn(
   'df64_sqrt',
   { a: vec2fT },
@@ -359,10 +267,6 @@ const df64_sqrt = fn(
   },
   { lintDisable: ['no-float-eq'] }, // exact ==0 zero-guard, not a tolerance bug
 );
-
-// ── Comparisons (lexicographic: hi decides, lo breaks ties) ──
-// The float `==` on the hi/lo words is EXACT pair comparison, not an epsilon
-// bug — hence the documented no-float-eq deviations.
 
 const df64_lt = fn(
   'df64_lt',
@@ -401,9 +305,6 @@ const df64_ne = fn(
   { lintDisable: ['no-float-eq'] },
 );
 
-// ── Componentwise / selection builtins ──
-
-/** |a| — sign decided by hi (a normalized pair with hi = 0 has lo = 0). */
 const df64_abs = fn('df64_abs', { a: vec2fT }, (p) => p.a.x.lt(0.0).select(p.a.neg(), p.a));
 
 const df64_min = fn('df64_min', { a: vec2fT, b: vec2fT }, (p) =>
@@ -413,12 +314,10 @@ const df64_max = fn('df64_max', { a: vec2fT, b: vec2fT }, (p) =>
   df64_gt({ a: p.a, b: p.b }).select(p.a, p.b),
 );
 
-/** mix(a, b, t) == a + (b − a)·t; the interpolant t stays f32 (widened exactly). */
 const df64_mix = fn('df64_mix', { a: vec2fT, b: vec2fT, t: f32T }, (p) =>
   df64_add({ a: p.a, b: df64_mul({ a: df64_sub({ a: p.b, b: p.a }), b: vec2(p.t, 0.0) }) }),
 );
 
-/** ⌊a⌋ — floor(hi); when hi is already integral the lo word decides. */
 const df64_floor = fn(
   'df64_floor',
   { a: vec2fT },
@@ -429,28 +328,12 @@ const df64_floor = fn(
   { lintDisable: ['no-float-eq'] }, // exact integrality test, not a tolerance bug
 );
 
-/** fract(a) == a − ⌊a⌋. */
 const df64_fract = fn('df64_fract', { a: vec2fT }, (p) =>
   df64_sub({ a: p.a, b: df64_floor({ a: p.a }) }),
 );
 
-/** The parity residue of an f32 that is already an integer: 0 when it is even, 1 when it is
- *  odd. `x/2` is exact for an integer (the exponent moves, the mantissa does not), so the
- *  floor and the doubling are exact too, and a negative x gives the same answer
- *  (floor(-1.5)·2 = -4, -3 − (-4) = 1). */
 const parityF32 = (x: ReadonlyNode<'f32'>): Node<'f32'> => x.sub(floor(x.mul(0.5)).mul(2.0));
 
-/** round(a) — the nearest integer with TIES TO THE EVEN one, which is what WGSL defines
- *  (`round`: "the integer k nearest to e, with ties going to the even integer") and what the
- *  CPU oracle answers (`roundTiesToEven`, cpu-runtime.ts). Deliberately NOT {@link df64_nint},
- *  whose ties go toward +∞ (`floor(x + 0.5)`) because the mod-2π reduction it serves is ported
- *  to that convention: the two disagree at every half-integer, so an f64 `round` built on nint
- *  would answer 1 where WGSL, GLSL and the oracle all answer 0 for `round(0.5)` (#151).
- *
- *  Composed from the verified helpers only — f = ⌊a⌋, d = a − f ∈ [0, 1), and d > ½ (or d == ½
- *  with f odd) takes f + 1. The parity of an integral df64 is the parity of hi plus the parity
- *  of lo: both words are integers when the pair is (every f32 of magnitude 2²⁴ or more is
- *  itself an even integer), and their residues sum to 1 exactly when the value is odd. */
 const df64_round = fn(
   'df64_round',
   { a: vec2fT },
@@ -466,32 +349,8 @@ const df64_round = fn(
   { lintDisable: ['no-float-eq'] }, // exact tie and parity tests, not tolerances
 );
 
-// ── Conversions ──
-
-/** The EXPLICIT precision-losing narrow: f64 → f32 as hi + lo. (The widen
- *  f32 → f64 needs no helper — fp64-lower emits `vec2<f32>(x, 0.0)`.) */
 const df64_narrow = fn('df64_narrow', { a: vec2fT }, (p) => p.a.x.add(p.a.y));
 
-// ── Transcendentals (sin / cos) — luma.gl fp64 port ──
-//
-// A 3-stage argument reduction (mod 2π → quadrant j·π/2 → index k·π/16) leaves a
-// residual |t| ≤ π/32 on which a short Taylor series is well-conditioned; a tabled
-// angle-addition (u = cos(kπ/16), v = sin(kπ/16)) plus the quadrant j swap/sign
-// reconstruct the full-range result. Every arithmetic step runs through the df64_*
-// helpers above (which thread the `one` guard) — the two reduction picks are the
-// only PLAIN-f32 arithmetic (`floor(x/step + 0.5)` selects a small integer, not a
-// df64 value, exactly as luma.gl authors them). Accuracy is the port's: the Taylor
-// truncation floors relative error at ~2^-36 for the transcendental itself, then it
-// degrades with argument magnitude through the reduction (the inherent large-arg
-// precision loss). Built on df64_mul, so — like df64_mul — correct only where the
-// multiply survives fast-math; Apple/Metal collapses it (see the df64_mul note and
-// AUTHORING §7). NOT a native builtin: the f32 `sin`/`cos` of a large angle are
-// noise (the f32 argument itself has lost the sub-ulp phase) — that is the gate.
-
-/** The df64 sin/cos constant VALUES (JS doubles). Each reaches the shader as a
- *  vec2<f32>(hi, lo) via splitF64 (hi = fround(v), lo = the fround residual);
- *  exported so df64-sincos.test.ts can pin that hi+lo round-trips v to df64
- *  precision (a mis-split — the luma.gl hand-typed-pair failure mode — trips it). */
 export const DF64_TRIG_CONSTANTS = {
   TWO_PI: 2 * Math.PI,
   PI_2: Math.PI / 2,
@@ -500,13 +359,10 @@ export const DF64_TRIG_CONSTANTS = {
   INV_FACT_4: 1 / 24,
   INV_FACT_5: 1 / 120,
   INV_FACT_6: 1 / 720,
-  // cos / sin of k·π/16 for k = 1..4 — the angle-addition tables, indexed |k|−1.
   COS_TABLE: [1, 2, 3, 4].map((k) => Math.cos((k * Math.PI) / 16)),
   SIN_TABLE: [1, 2, 3, 4].map((k) => Math.sin((k * Math.PI) / 16)),
 } as const;
 
-/** A df64 constant literal pair vec2<f32>(hi, lo). A plain INPUT — no `one` guard
- *  (the guard protects the EFT arithmetic these feed, never the literals). */
 const dfLit = (x: number): ReadonlyNode<'vec2<f32>'> =>
   vec2(...splitF64(x)) as ReadonlyNode<'vec2<f32>'>;
 
@@ -519,21 +375,11 @@ const INV_FACT_5 = dfLit(DF64_TRIG_CONSTANTS.INV_FACT_5);
 const INV_FACT_6 = dfLit(DF64_TRIG_CONSTANTS.INV_FACT_6);
 const COS_TABLE = DF64_TRIG_CONSTANTS.COS_TABLE.map(dfLit);
 const SIN_TABLE = DF64_TRIG_CONSTANTS.SIN_TABLE.map(dfLit);
-// The hi words of the two reduction steps — the plain-f32 quadrant/index picks
-// divide by these (matching luma.gl's `r.x / PI_2.x`, hi-word only).
 const PI_2_HI = Math.fround(DF64_TRIG_CONSTANTS.PI_2);
 const PI_16_HI = Math.fround(DF64_TRIG_CONSTANTS.PI_16);
 
-/** round-to-nearest-integer of an f32 — luma.gl's `nint`: `floor(x + 0.5)` (ties
- *  toward +∞, NOT away from zero). df64_nint's lo-word tie correction below is
- *  ported to THIS convention: the two disagree by 1 at a negative half-integer, so
- *  rounding ties away from zero here would double-count the correction and offset
- *  the mod-2π turn count z by 1 (r off by 2π → wrong quadrant → sign/swap inverted). */
 const nintF32 = (x: ReadonlyNode<'f32'>): ReadonlyNode<'f32'> => floor(x.add(0.5));
 
-/** Round a df64 to the nearest integer (as a df64) — the mod-2π reduction's turn
- *  count. When hi is already integral the lo word decides (round it too, then
- *  renormalize); otherwise round hi, using the lo word to break the x.5 tie. */
 const df64_nint = fn(
   'df64_nint',
   { a: vec2fT },
@@ -546,8 +392,6 @@ const df64_nint = fn(
   { lintDisable: ['no-float-eq'] }, // exact integrality / x.5-tie tests
 );
 
-/** sin(a) for |a| ≤ π/32 — Taylor a − a³/6 + a⁵/120 with x = −a² (r accumulates
- *  the odd powers, s the partial sum). Well-conditioned on the tiny residual. */
 const df64_sin_taylor = fn('df64_sin_taylor', { a: vec2fT }, (p) => {
   const x = Let(df64_mul({ a: p.a, b: p.a }).neg());
   const r1 = Let(df64_mul({ a: p.a, b: x }));
@@ -556,7 +400,6 @@ const df64_sin_taylor = fn('df64_sin_taylor', { a: vec2fT }, (p) => {
   return df64_add({ a: s1, b: df64_mul({ a: r2, b: INV_FACT_5 }) });
 });
 
-/** cos(a) for |a| ≤ π/32 — Taylor 1 − a²/2 + a⁴/24 − a⁶/720 with x = −a². */
 const df64_cos_taylor = fn('df64_cos_taylor', { a: vec2fT }, (p) => {
   const x = Let(df64_mul({ a: p.a, b: p.a }).neg());
   const s0 = Let(df64_add({ a: dfLit(1), b: df64_mul({ a: x, b: dfLit(0.5) }) }));
@@ -566,8 +409,6 @@ const df64_cos_taylor = fn('df64_cos_taylor', { a: vec2fT }, (p) => {
   return df64_add({ a: s1, b: df64_mul({ a: r2, b: INV_FACT_6 }) });
 });
 
-/** |k|-indexed angle-addition table pick (kk ∈ {0..4}); kk = 0 falls through to
- *  `zero` (cos 0 = 1 / sin 0 = 0), so the caller needs no k = 0 special case. */
 const pickByAbsK = (
   kk: ReadonlyNode<'f32'>,
   table: readonly ReadonlyNode<'vec2<f32>'>[],
@@ -582,12 +423,6 @@ const pickByAbsK = (
         .select(table[1]!, kk.eq(3.0).select(table[2]!, kk.eq(4.0).select(table[3]!, zero))),
     );
 
-/** The shared 3-stage reduction + tabled angle-addition. Returns the quadrant j
- *  (as an integer-valued f32) and (sin φ, cos φ) for φ = k·π/16 + t; df64_sin /
- *  df64_cos apply the j swap/sign. Emitted inline in BOTH (luma.gl authors
- *  sin_fp64 / cos_fp64 each with its own reduction) — the DRY lives in this TS
- *  builder, not a shared fn: a helper would need the multi-value return this IR
- *  has no scalar shape for. Called only inside the df64_sin / df64_cos bodies. */
 const reduceSinCos = (
   a: ReadonlyNode<'vec2<f32>'>,
 ): {
@@ -595,18 +430,14 @@ const reduceSinCos = (
   sinPhi: ReadonlyNode<'vec2<f32>'>;
   cosPhi: ReadonlyNode<'vec2<f32>'>;
 } => {
-  // 1) mod 2π: r = a − 2π·nint(a/2π) ∈ [−π, π].
   const z = Let(df64_nint({ a: df64_div({ a, b: TWO_PI }) }));
   const r = Let(df64_sub({ a, b: df64_mul({ a: TWO_PI, b: z }) }));
-  // 2) quadrant j ∈ [−2, 2]: t = r − (π/2)·j, |t| ≤ π/4.
   const qj = Let(floor(r.x.div(PI_2_HI).add(0.5)));
   const t1 = Let(df64_sub({ a: r, b: df64_mul({ a: PI_2, b: vec2(qj, 0.0) }) }));
-  // 3) index k ∈ [−4, 4]: t = t − (π/16)·k, |t| ≤ π/32.
   const qk = Let(floor(t1.x.div(PI_16_HI).add(0.5)));
   const t = Let(df64_sub({ a: t1, b: df64_mul({ a: PI_16, b: vec2(qk, 0.0) }) }));
   const sinT = Let(df64_sin_taylor({ a: t }));
   const cosT = Let(df64_cos_taylor({ a: t }));
-  // angle addition: sinφ = u·sinT + sgn(k)·v·cosT, cosφ = u·cosT − sgn(k)·v·sinT.
   const kk = Let(abs(qk));
   const u = Let(pickByAbsK(kk, COS_TABLE, dfLit(1)));
   const vAbs = Let(pickByAbsK(kk, SIN_TABLE, dfLit(0)));
@@ -616,8 +447,6 @@ const reduceSinCos = (
   return { qj, sinPhi, cosPhi };
 };
 
-/** sin(a), full range — 3-stage reduction + Taylor, then the quadrant j swap:
- *  j = 0 → sinφ, +1 → cosφ, −1 → −cosφ, ±2 → −sinφ. */
 const df64_sin = fn(
   'df64_sin',
   { a: vec2fT },
@@ -630,8 +459,6 @@ const df64_sin = fn(
   { lintDisable: ['no-float-eq'] }, // exact integer-quadrant tests
 );
 
-/** cos(a), full range — the same reduction with the cos quadrant swap:
- *  j = 0 → cosφ, +1 → −sinφ, −1 → sinφ, ±2 → −cosφ. */
 const df64_cos = fn(
   'df64_cos',
   { a: vec2fT },
@@ -644,21 +471,9 @@ const df64_cos = fn(
   { lintDisable: ['no-float-eq'] },
 );
 
-// ── Vectorized df64 (vecN<f64> — the DF64VecN hi/lo-plane form) ──
-//
-// The EFTs are valid PER LANE, so the vector arithmetic runs the exact scalar
-// formulas on whole vecN hi/lo planes (one twoSum for all lanes — no unroll).
-// A vecN<f64> value lowers to `struct DF64VecN { hi: vecN<f32>, lo: vecN<f32> }`;
-// these helpers take/return that struct, except the comparisons, which return
-// the vecN<bool> a vector comparison is. dot/length/distance are NOT here —
-// they need cross-lane accumulation and are composed from the SCALAR df64 fns
-// by the lowering pass (numerically the standard approach anyway).
-
 const VEC_F32_T = { 2: vec2fT, 3: vec3fT, 4: vec4fT } as const;
 const VEC_BOOL_T = { 2: vec2bT, 3: vec3bT, 4: vec4bT } as const;
 
-/** DF64VecN struct decls, keyed by lane count — injected by fp64-lower
- *  alongside the helpers whenever a module carries a vecN<f64>. */
 export const DF64_VEC_STRUCTS: ReadonlyMap<2 | 3 | 4, StructDecl> = new Map(
   ([2, 3, 4] as const).map((n) => [
     n,
@@ -675,20 +490,12 @@ export const DF64_VEC_STRUCTS: ReadonlyMap<2 | 3 | 4, StructDecl> = new Map(
 function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
   const vT: ShaderType = VEC_F32_T[n];
   const sT = structT(`DF64Vec${n}`);
-  // INTERNAL type-level pinning: the bodies are width-generic (every op is
-  // componentwise / a scalar broadcast), but a union-keyed node defeats the
-  // method overloads — pin the phantom key to one width; the RUNTIME type is
-  // always the true vT carried by the param/member exprs.
   type V = ReadonlyNode<'vec2<f32>'>;
   const asV = (x: ReadonlyNode): V => x as unknown as V;
-  // No `: Node` return annotation on these three: since X-GIS #2456 `construct` carries the
-  // struct key, and annotating widens it straight back to `Node<string>` — which is what
-  // the sibling fns' now-precise struct params reject.
   const pair = (hi: ReadonlyNode, lo: ReadonlyNode) => construct(sT, [hi, lo]);
   const hi = (x: ReadonlyNode): V => asV(member(x, 'hi', vT));
   const lo = (x: ReadonlyNode): V => asV(member(x, 'lo', vT));
 
-  // The scalar EFT formulas verbatim, on vecN operands (broadcast `* one`).
   const twoSum = fn(`df64_v${n}_twoSum`, { a: vT, b: vT }, (raw) => {
     const [a, b] = [asV(raw.a), asV(raw.b)];
     const s = Let(a.add(b));
@@ -736,8 +543,6 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
     add({ a: p.a, b: pair(hi(p.b).neg(), lo(p.b).neg()) }),
   );
   const mul = fn(`df64_v${n}_mul`, { a: sT, b: sT }, (p) => {
-    // Renormalize after each cross term (the luma.gl/donmccurdy Apple defense —
-    // see the scalar df64_mul note), not once at the end.
     const p0 = Let(twoProd({ a: hi(p.a), b: hi(p.b) }));
     const r1 = Let(quickTwoSum({ a: hi(p0), b: lo(p0).add(hi(p.a).mul(lo(p.b))) }));
     return quickTwoSum({ a: hi(r1), b: lo(r1).add(lo(p.a).mul(hi(p.b))) });
@@ -750,13 +555,6 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
     return add({ a: yn, b: prod });
   });
 
-  // ── Componentwise builtins with PER-LANE branching ──
-  // abs/min/max select a side per lane and floor's integrality test is per
-  // lane, so there is no whole-plane EFT form without a per-lane select
-  // (which neither WGSL-via-this-IR nor GLSL ES 3.00 gives us). Instead each
-  // helper composes the VERIFIED scalar df64 fns lane by lane INSIDE its own
-  // body: the struct argument is a param (evaluated once at the call), each
-  // lane result is Let-bound once, and the planes gather the components.
   const LANES = 'xyzw'.slice(0, n).split('');
   type P = ReadonlyNode<'vec2<f32>'>;
   const laneOf = (x: ReadonlyNode, c: string): P =>
@@ -800,8 +598,6 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
   const vCos = fn(`df64_v${n}_cos`, { a: sT }, (p) =>
     gather(LANES.map((c) => Let(df64_cos({ a: laneOf(p.a, c) })))),
   );
-  /** v / |v| — the length accumulates through the SCALAR df64 chain (the same
-   *  composition the lowering uses for length()), then each lane divides by it. */
   const vNormalize = fn(`df64_v${n}_normalize`, { a: sT }, (p) => {
     const ls = LANES.map((c) => Let(laneOf(p.a, c)));
     let sq = df64_mul({ a: ls[0]!, b: ls[0]! });
@@ -810,11 +606,6 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
     return gather(ls.map((l) => Let(df64_div({ a: l, b: len }))));
   });
 
-  // ── Componentwise comparisons ──
-  // `a < b` on two vecN<f64> is a vecN<bool> (§27): the verified scalar comparator on each
-  // lane, as the builtins above compose theirs. The comparators carry no error term and read
-  // no guard, so a module whose only f64 work is comparing vectors gets no `_fp64` binding,
-  // as one comparing scalars does not.
   const compareLanes = (name: string, lane: typeof df64_lt) =>
     fn(`df64_v${n}_${name}`, { a: sT, b: sT }, (p) =>
       construct(
@@ -857,16 +648,6 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
   ];
 }
 
-// ── Matrix df64 (matNxN<f64> — the DF64MatN column-struct form) ──
-//
-// A matNxN<f64> lowers to `struct DF64MatN { c0..c(N-1): DF64VecN }` (columns,
-// matching GPU column-major). mat·vec / matmul / transpose are the textbook
-// linear-algebra compositions of the SCALAR df64 EFTs — result lane i = Σⱼ
-// M[i][j] ⊗ v[j], each ⊗/⊕ a df64 twoProd/twoSum — the same extended-precision
-// accumulation dot()/length() use, so no new numerics, only new shapes.
-
-/** DF64MatN struct decls, keyed by dimension — injected by fp64-lower alongside
- *  the mat helpers (and the DF64VecN structs they nest). */
 export const DF64_MAT_STRUCTS: ReadonlyMap<2 | 3 | 4, StructDecl> = new Map(
   ([2, 3, 4] as const).map((n) => [
     n,
@@ -887,7 +668,6 @@ function defMatHelpers(n: 2 | 3 | 4): FuncDecl[] {
   const LANES = 'xyzw'.slice(0, n).split('');
   type P = ReadonlyNode<'vec2<f32>'>;
   const col = (m: ReadonlyNode, j: number) => member(m, `c${j}`, vT);
-  // lane c of a DF64VecN → the df64 scalar (hi.c, lo.c).
   const laneOf = (v: ReadonlyNode, c: string): P =>
     vec2(member(member(v, 'hi', vecFT), c, f32T), member(member(v, 'lo', vecFT), c, f32T)) as P;
   const gatherVec = (ls: readonly ReadonlyNode[]) =>
@@ -902,7 +682,6 @@ function defMatHelpers(n: 2 | 3 | 4): FuncDecl[] {
       ),
     ]);
 
-  // M·v : result lane i = Σⱼ (column j, lane i) ⊗ v[j], accumulated in df64.
   const matVec = fn(`df64_m${n}_matvec`, { m: mT, v: vT }, (p) => {
     const cols = LANES.map((_, j) => Let(col(p.m, j)));
     const vl = LANES.map((c) => Let(laneOf(p.v, c)));
@@ -914,14 +693,12 @@ function defMatHelpers(n: 2 | 3 | 4): FuncDecl[] {
     });
     return gatherVec(out);
   });
-  // A·B : each result column = A · (the matching column of B).
   const matMul = fn(`df64_m${n}_matmul`, { a: mT, b: mT }, (p) =>
     construct(
       mT,
       LANES.map((_, k) => Let(matVec({ m: p.a, v: col(p.b, k) }))),
     ),
   );
-  // Mᵀ : new column i gathers lane i of every old column.
   const transpose = fn(`df64_m${n}_transpose`, { m: mT }, (p) =>
     construct(
       mT,
@@ -931,12 +708,6 @@ function defMatHelpers(n: 2 | 3 | 4): FuncDecl[] {
   return [matVec.decl, matMul.decl, transpose.decl];
 }
 
-// ── Registry (the fp64-lower pass's injection SoT) ──
-
-/** Every emulation fn, in the FIXED dependency-first order they are appended
- *  to a lowered module — primitives first, then arithmetic, then the rest —
- *  so the emitted helper section is byte-stable across modules and GLSL's
- *  define-before-use holds without forward declarations. */
 export const DF64_ORDER: readonly FuncDecl[] = [
   df64_twoSum.decl,
   df64_quickTwoSum.decl,
@@ -976,13 +747,8 @@ export const DF64_ORDER: readonly FuncDecl[] = [
   ...defMatHelpers(4),
 ];
 
-/** name → FuncDecl for the lowering pass's used-set closure. */
 export const DF64_FNS: ReadonlyMap<string, FuncDecl> = new Map(DF64_ORDER.map((d) => [d.name, d]));
 
-/** Call handles for the scalar helpers, for the INTEGER flavor's twin bodies
- *  (df64-int.ts): its div/sqrt/vec-lane bodies re-emit the SAME by-name calls
- *  (df64_sub, df64_twoProd, …), which the integer registry then resolves to the
- *  integer primitives. Pure TS export — changes no emitted byte. */
 export const DF64_CALLS = {
   twoSum: df64_twoSum,
   quickTwoSum: df64_quickTwoSum,

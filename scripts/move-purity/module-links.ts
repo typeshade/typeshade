@@ -23,6 +23,8 @@ export interface Links {
 
 const NODE_MODULES = '/node_modules/';
 
+const transpiled = new Map<string, Map<string, number>>();
+
 export function createLinks(side: Side, keyer: Keyer): Links {
   const cache = new Map<string, string>();
   const targetOf = (source: ts.SourceFile, specifier: string): string => {
@@ -47,16 +49,17 @@ export function createLinks(side: Side, keyer: Keyer): Links {
     return target;
   };
 
-  const retained = new Map<string, Map<string, number>>();
   const retainedCounts = (path: string): Map<string, number> => {
-    const known = retained.get(path);
+    const text = side.texts.get(path) ?? '';
+    const key = `${path}\0${text}`;
+    const known = transpiled.get(key);
     if (known !== undefined) return known;
     const counts = new Map<string, number>();
     if (path.endsWith('.d.ts')) {
-      retained.set(path, counts);
+      transpiled.set(key, counts);
       return counts;
     }
-    const output = ts.transpileModule(side.texts.get(path) ?? '', {
+    const output = ts.transpileModule(text, {
       fileName: path,
       compilerOptions: {
         target: ts.ScriptTarget.ES2022,
@@ -71,7 +74,7 @@ export function createLinks(side: Side, keyer: Keyer): Links {
       const specifier = (statement.moduleSpecifier as ts.StringLiteral).text;
       counts.set(specifier, (counts.get(specifier) ?? 0) + 1);
     }
-    retained.set(path, counts);
+    transpiled.set(key, counts);
     return counts;
   };
 

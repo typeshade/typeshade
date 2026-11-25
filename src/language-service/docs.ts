@@ -292,7 +292,7 @@ export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
   all: 'Whether every component of a vector of bools is true: `all(a === b)`. A scalar bool passes through. Over an array, write `xs.every((x) => ...)`.',
   zip: 'A fixed-size array built from two of one length, element by element: `zip(xs, ys, (a, b) => a * b)`. Unrolled into one call per element; the function may read the variables around it.',
   select:
-    "Returns `trueValue` where `cond` is true and `falseValue` where it is false, in WGSL's argument order: the condition comes last. Compiles to the same code as a ternary over `cond`.",
+    "Returns `trueValue` where `cond` is true and `falseValue` where it is false, in WGSL's argument order: the condition comes last. A call: `falseValue`, `trueValue` and `cond` are all evaluated, in that order. Write `cond ? trueValue : falseValue` to evaluate one arm.",
   structuredClone:
     'A deep copy of a value, as in JavaScript: `const b = structuredClone(a)` gives a struct or an array whose fields and elements are its own, so a write to `b` does not change `a`. An instance of a class is not copied this way yet; build one with `new`.',
   bool: 'Converts a numeric scalar to `bool`: true where `x` is not zero, spelled as the compare `x != 0`. A `bool` argument is returned as it is.',
