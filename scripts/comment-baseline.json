@@ -327,7 +327,7 @@
   "src/compiler/ts/type-alias.test.ts": 19,
   "src/compiler/ts/type-claims.test.ts": 12,
   "src/compiler/ts/type-map.test.ts": 1,
-  "src/compiler/ts/type-map.ts": 291,
+  "src/compiler/ts/type-map.ts": 287,
   "src/compiler/ts/type-spelling.test.ts": 67,
   "src/compiler/ts/type-structs.test.ts": 34,
   "src/compiler/ts/typed-bindings.test.ts": 14,
