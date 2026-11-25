@@ -51,7 +51,7 @@ import type {
   RhiTextureDesc,
   RhiTextureView,
 } from './rhi.js';
-import type { GL, GlTextureKind } from './webgl2/types.js';
+import type { GL, GlEncoderHost, GlPassHost, GlTextureKind } from './webgl2/types.js';
 import { formatOf } from './webgl2/format.js';
 import { GlState } from './webgl2/state.js';
 import { compareOf, drawStateOf, setState } from './webgl2/draw-state.js';
@@ -117,7 +117,7 @@ class GlRenderPass implements RhiRenderPass {
   #provoking: number | undefined;
 
   constructor(
-    private readonly device: GlDevice,
+    private readonly device: GlPassHost,
     private readonly s: GlState,
     desc: RhiRenderPassDesc,
   ) {
@@ -367,7 +367,7 @@ const NO_COMPUTE =
   'The WebGL2 backend has no compute pass: a dispatch on WebGL2 runs as the pass program of change 0054 (caps.compute is fragment-emulated).';
 
 class GlEncoder implements RhiCommandEncoder {
-  constructor(private readonly device: GlDevice) {}
+  constructor(private readonly device: GlEncoderHost) {}
 
   beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
     return new GlRenderPass(this.device, this.device.state(), desc);
