@@ -1,40 +1,10 @@
 // Implements: Rule 8.24, Rule 11.8, Rule 11.13 (docs/language-design.md; traced in reqs/).
 
-import {
-  boxed,
-  checkBindings,
-  configuredRuntime,
-  describe,
-  flavored,
-  isBuffer,
-  isGuard,
-  madeReport,
-  onCpu,
-  onGpu,
-  packed,
-  readInto,
-  recordDispatches,
-  residentable,
-  workgroupsOf,
-  type Checked,
-  type ComputeEntry,
-  type EntryBinding,
-  type GeneratedCpu,
-  type GpuBuffer,
-  type GpuDevice,
-  type Workgroups,
-} from './host-entry.js';
-import { specializeEntry, checkEntryLimits, cpuSpecialization } from './host-overrides.js';
+import { isBuffer, type ComputeEntry, type GeneratedCpu } from './host-entry.js';
+import { specializeEntry } from './host-overrides.js';
 import { fuseSlot } from './fuse-scope.js';
 import { checkIncoming, type IncomingReads } from './host-failure.js';
-import {
-  callDefault,
-  defaultOwner,
-  inferOwner,
-  ownerOf,
-  resourceOwner,
-  type CallOwner,
-} from './owner.js';
+import { callDefault, inferOwner, resourceOwner, type CallOwner } from './owner.js';
 import {
   decide,
   kernelQueue,
@@ -53,139 +23,28 @@ import {
   recordArgument,
   type RecordedArgument,
 } from './host-record.js';
-import { throwFailure, usedGl } from './submission.js';
-import { glContext } from './gl-context.js';
-import { runGlCompute, type GlComputeReport } from './gl-compute.js';
-import type { PlanRun } from './host-kernel.js';
-import type { GlComputeProgram } from './passes/gl-compute.js';
-import type { Tier } from './tiers.js';
-import { uploadImage } from './gl-image.js';
-
-export interface EntryPrograms {
-  gpu(d: GpuDevice, e: ComputeEntry, checked: Checked, wg: Workgroups): Promise<void>;
-  gl(
-    gl: WebGL2RenderingContext,
-    e: ComputeEntry,
-    checked: Checked,
-    wg: readonly [number, number, number],
-  ): Promise<void>;
-  cpu(
-    cpu: GeneratedCpu,
-    e: ComputeEntry,
-    values: Record<string, unknown>,
-    wg: readonly [number, number, number],
-  ): Promise<void>;
-}
-
-export const entryPrograms: { run?: EntryPrograms } = {};
-
-function checkArity(e: ComputeEntry, argc: number): void {
-  if (argc !== 2 && argc !== 3)
-    throw new TypeError(
-      `${e.name}() takes 2 or 3 arguments, (bindings, workgroups, options?); got ${argc}.`,
-    );
-}
-
-export function residentsOf(
-  e: ComputeEntry,
-  argc: number,
-  bindings: unknown,
-): Map<EntryBinding, ResidentArrayState> {
-  checkArity(e, argc);
-  const states = new Map<EntryBinding, ResidentArrayState>();
-  if (typeof bindings === 'object' && bindings !== null && !Array.isArray(bindings))
-    for (const b of e.bindings) {
-      const s = residentState((bindings as Record<string, unknown>)[b.name]);
-      if (s === undefined || !isBuffer(b)) continue;
-      if (!residentable(b))
-        throw new TypeError(
-          `${e.name}(): binding "${b.name}" (${b.s}) takes no Buffer: only a storage array with no size does.`,
-        );
-      const refusal = s.outside?.(`${e.name}(): binding "${b.name}"`);
-      if (refusal !== undefined) throw refusal;
-      const twin = [...states].find(([, t]) => t === s);
-      if (twin !== undefined)
-        throw new TypeError(
-          `${e.name}(): binding "${b.name}" is the same Buffer as binding "${twin[0].name}".`,
-        );
-      states.set(b, s);
-    }
-  return states;
-}
-
-export function indirectOf(e: ComputeEntry, workgroups: unknown): ResidentArrayState | undefined {
-  if (typeof workgroups !== 'object' || workgroups === null || !('indirect' in workgroups))
-    return undefined;
-  const s = residentState(workgroups.indirect);
-  const refusal = s?.outside?.(`${e.name}(): "workgroups.indirect"`);
-  if (refusal !== undefined) throw refusal;
-  return s;
-}
-
-export interface IndirectCount {
-  readonly state: ResidentArrayState;
-  readonly offset: number;
-}
-
-export interface CheckedEntry {
-  readonly owner?: CallOwner;
-  readonly recorded?: boolean;
-  readonly states: ReadonlyMap<EntryBinding, ResidentArrayState>;
-  readonly checked: Checked;
-  readonly wg: readonly [number, number, number] | IndirectCount;
-}
-
-function countsOf(
-  e: ComputeEntry,
-  workgroups: unknown,
-  states: ReadonlyMap<EntryBinding, ResidentArrayState>,
-): readonly [number, number, number] | IndirectCount {
-  const wg = workgroupsOf(e, workgroups);
-  if (Array.isArray(wg)) return wg;
-  const { indirect, offset } = wg as { indirect: unknown; offset: number };
-  const at = `${e.name}(): "workgroups.indirect"`;
-  const s = indirectOf(e, workgroups);
-  if (s === undefined)
-    throw new TypeError(
-      `${at} is a Buffer<u32> that holds the workgroup counts; got ${describe(indirect)}.`,
-    );
-  if (s.destroyed)
-    throw new TypeError(`${at}: this Buffer was disposed; make a new one with array().`);
-  const view = s.view();
-  if (!(view instanceof Uint32Array))
-    throw new TypeError(`${at} is a Buffer<u32>; got a Buffer of ${describe(view)}.`);
-  if (offset + 3 > view.length)
-    throw new TypeError(
-      `${e.name}(): "workgroups.offset" is ${offset}, and the three counts from it need ${offset + 3} elements; the array holds ${view.length}.`,
-    );
-  for (const [b, t] of states)
-    if (t === s && (b.writes || b.rw === true))
-      throw new TypeError(
-        `${at} is also binding "${b.name}", which the entry ${b.writes ? 'writes' : 'binds read_write'}. WebGPU cannot read the counts from a buffer that the same dispatch writes, so pass another Buffer.`,
-      );
-  return { state: s, offset };
-}
-
-export function checkEntryCall(
-  e: ComputeEntry,
-  argc: number,
-  bindings: unknown,
-  workgroups: unknown,
-): CheckedEntry {
-  const states = residentsOf(e, argc, bindings);
-  let view = bindings;
-  if (typeof bindings === 'object' && bindings !== null && !Array.isArray(bindings)) {
-    const o: Record<string, unknown> = { ...(bindings as Record<string, unknown>) };
-    for (const [b, s] of states) o[b.name] = s.view();
-    view = o;
-  }
-  const residents = new Set([...states.keys()].map((b) => b.name));
-  return {
-    states,
-    checked: checkBindings(e, view, residents),
-    wg: countsOf(e, workgroups, states),
-  };
-}
+import { throwFailure } from './submission.js';
+import { entryTierFit } from './host-compute/tier-fit.js';
+export { entryTierFit } from './host-compute/tier-fit.js';
+export type { EntryTierFit } from './host-compute/tier-fit.js';
+import {
+  checkArity,
+  residentsOf,
+  indirectOf,
+  checkEntryCall,
+  entryInputs,
+} from './host-compute/checked-entry.js';
+import { runEntry } from './host-compute/run-entry.js';
+export { runEntry } from './host-compute/run-entry.js';
+export {
+  residentsOf,
+  indirectOf,
+  checkEntryCall,
+  entryInputs,
+} from './host-compute/checked-entry.js';
+export type { IndirectCount, CheckedEntry } from './host-compute/checked-entry.js';
+export { entryPrograms } from './host-compute/entry-programs.js';
+export type { EntryPrograms } from './host-compute/entry-programs.js';
 
 export const entryHost = {
   residentsOf,
@@ -195,20 +54,6 @@ export const entryHost = {
   runEntry,
   entryInputs,
 };
-
-export function entryInputs(
-  e: ComputeEntry,
-  c: CheckedEntry,
-  reads: IncomingReads,
-): ResidentArrayState[] {
-  const states = e.bindings.flatMap((b) => {
-    if (!isBuffer(b)) return [];
-    const s = c.states.get(b);
-    return s !== undefined && (reads === undefined || reads.includes(b.name)) ? [s] : [];
-  });
-  if ('state' in c.wg) states.push(c.wg.state);
-  return states;
-}
 
 export function callCompute(
   cpu: GeneratedCpu,
@@ -380,202 +225,4 @@ function recordCompute(
     waits,
   );
   return waits ? done : undefined;
-}
-
-export type EntryTierFit =
-  | { readonly why: string }
-  | { readonly why?: undefined; readonly tier: 'webgpu'; readonly d: GpuDevice }
-  | { readonly why?: undefined; readonly tier: 'webgl2'; readonly gl: WebGL2RenderingContext }
-  | { readonly why?: undefined; readonly tier: 'cpu' };
-
-export async function entryTierFit(
-  e: ComputeEntry,
-  owner: CallOwner,
-  tier: Tier,
-): Promise<EntryTierFit> {
-  if (tier === 'webgpu') {
-    const d = await owner.device();
-    return d === null ? { why: 'there is no WebGPU device' } : { tier, d };
-  }
-  if (tier === 'webgl2') {
-    if (e.gl === undefined) return { why: e.noGl ?? 'the entry has no WebGL2 program' };
-    const gl = glContext();
-    return gl === null ? { why: 'there is no WebGL2 context' } : { tier, gl };
-  }
-  if (e.barrier !== undefined)
-    return { why: `it reaches ${e.barrier}, not supported yet on the CPU tier (Rule 8.24)` };
-  if (e.noCpu !== undefined) return { why: e.noCpu };
-  return { tier: 'cpu' };
-}
-
-export async function runEntry(
-  cpu: GeneratedCpu,
-  e: ComputeEntry,
-  c: CheckedEntry,
-  run: PlanRun | undefined,
-): Promise<void> {
-  const { states, checked, wg } = c;
-  const why: string[] = [];
-  let noCpu: string | undefined;
-  const resources: [string, CallOwner | undefined][] = e.bindings.map((b) => [
-    `binding "${b.name}"`,
-    isBuffer(b) && states.has(b) ? ownerOf(states.get(b)!) : resourceOwner(checked.values[b.name]),
-  ]);
-  if ('state' in wg) resources.push(['"workgroups.indirect"', ownerOf(wg.state)]);
-  const owner = inferOwner(`${e.name}()`, resources, run?.owner ?? c.owner);
-  for (const tier of owner.tiers()) {
-    const fit = await entryTierFit(e, owner, tier);
-    if (fit.why !== undefined) {
-      why.push(`${tier}: ${fit.why}`);
-      if (tier === 'cpu') noCpu = fit.why;
-      continue;
-    }
-    if (fit.tier === 'webgpu') {
-      const { d } = fit;
-      checkEntryLimits(e, d.limits ?? {});
-      const onDevice = new Map<string, GpuBuffer>();
-      for (const [b, s] of states)
-        onDevice.set(
-          b.name,
-          s.bufferFor(d, b.layout, () => packed(b, s.host), b.writes),
-        );
-      const grid: Workgroups =
-        'state' in wg
-          ? {
-              buffer: wg.state.bufferFor(
-                d,
-                COUNTS,
-                () => (wg.state.host as Uint32Array).slice().buffer,
-                false,
-              ),
-              offset: 4 * wg.offset,
-            }
-          : wg;
-      const ge = flavored(e, owner.fp64Flavor(d));
-      if (run === undefined)
-        return (entryPrograms.run?.gpu ?? onGpu)(d, ge, { ...checked, onDevice }, grid);
-      run.tiers.add('webgpu');
-      await run.batchOn(d).add(ge, { ...checked, onDevice }, grid);
-      return;
-    }
-    if (fit.tier === 'webgl2') {
-      const { gl } = fit;
-      await run?.flush();
-      run?.tiers.add('webgl2');
-      const grid = await gridOf(wg, owner, run);
-      if (grid === undefined) return;
-      await hostCopies(states, checked.values, run);
-      if (run === undefined && c.recorded === true) {
-        usedGl(gl);
-        for (const [b, s] of states) if (b.writes) s.fence = gl;
-      }
-      if (
-        run === undefined &&
-        entryPrograms.run !== undefined &&
-        !e.bindings.some((b) => b.name === '_fp64' && !isGuard(b))
-      )
-        return entryPrograms.run.gl(gl, e, checked, grid);
-      const passes = await onGl(gl, e, e.gl!, checked, grid);
-      if (run !== undefined) recordDispatches(run.counts, run.group, passes);
-      return;
-    }
-    await run?.flush();
-    run?.tiers.add('cpu');
-    const grid = await gridOf(wg, owner, run);
-    if (grid === undefined) return;
-    await hostCopies(states, checked.values, run);
-    if (e.overrideValues !== undefined) checkEntryLimits(e);
-    const selected = cpuSpecialization(cpu, e);
-    if (run === undefined && entryPrograms.run !== undefined)
-      return entryPrograms.run.cpu(selected.cpu, selected.entry, checked.values, grid);
-    onCpu(selected.cpu, selected.entry, checked.values, grid);
-    return;
-  }
-  if (noCpu !== undefined) throw new TypeError(`${e.name}() has no tier: ${why.join('; ')}.`);
-  throw new Error(`${e.name}(): no tier it may use can run it (${why.join('; ')}).`);
-}
-
-const COUNTS = { k: 'a', n: null, st: 4, e: { k: 's', t: 'u32' } } as const;
-
-const MOST_WORKGROUPS = 65535;
-
-async function gridOf(
-  wg: readonly [number, number, number] | IndirectCount,
-  owner: CallOwner,
-  run: PlanRun | undefined,
-): Promise<readonly [number, number, number] | undefined> {
-  if (!('state' in wg)) return wg;
-  if ((await wg.state.sync(true)) && run !== undefined) run.counts.submissions++;
-  const words = wg.state.host as Uint32Array;
-  const grid = [words[wg.offset]!, words[wg.offset + 1]!, words[wg.offset + 2]!] as const;
-  const limits =
-    owner === defaultOwner
-      ? ((configuredRuntime()?.device as GpuDevice | undefined)?.limits ?? madeReport()?.limits)
-      : (await owner.device())?.limits;
-  const most = limits?.maxComputeWorkgroupsPerDimension ?? MOST_WORKGROUPS;
-  return grid.every((n) => n > 0 && n <= most) ? grid : undefined;
-}
-
-async function hostCopies(
-  states: ReadonlyMap<EntryBinding, ResidentArrayState>,
-  values: Record<string, unknown>,
-  run: PlanRun | undefined,
-): Promise<void> {
-  for (const [b, s] of states) {
-    if ((await s.sync()) && run !== undefined) run.counts.submissions++;
-    values[b.name] = s.host;
-  }
-}
-
-async function onGl(
-  gl: WebGL2RenderingContext,
-  e: ComputeEntry,
-  program: GlComputeProgram,
-  checked: Checked,
-  wg: readonly [number, number, number],
-): Promise<number> {
-  const values = checked.values;
-  const memory: Record<string, Uint32Array> = {};
-  const uniforms: Record<string, unknown> = {};
-  for (const b of e.bindings) {
-    if (!isBuffer(b)) continue;
-    if (b.space === 'uniform') uniforms[b.name] = values[b.name];
-    else memory[b.name] = new Uint32Array(packed(b, values[b.name]));
-  }
-  const textures: Record<string, { texture: WebGLTexture }> = {};
-  let report: GlComputeReport | undefined;
-  try {
-    for (const t of program.textures ?? []) {
-      const img = checked.images.get(t.name)!;
-      if (img.view !== undefined)
-        throw new TypeError(
-          `${e.name}(): binding "${t.name}" is a Texture on the WebGPU device, which the WebGL2 tier does not read yet (Rule 8.24); pass an image source for a call that may fall back.`,
-        );
-      const s = (t.sampler !== null ? checked.samplers.get(t.sampler) : undefined) ?? {
-        filter: 'nearest',
-        address: 'clamp',
-      };
-      const tex = gl.createTexture()!;
-      textures[t.name] = { texture: tex };
-      gl.bindTexture(gl.TEXTURE_2D, tex);
-      uploadImage(gl, img.source, s);
-    }
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    report = await runGlCompute(gl, program, { workgroups: wg, memory, uniforms, textures });
-  } finally {
-    for (const { texture } of Object.values(textures)) gl.deleteTexture(texture);
-  }
-  for (const b of e.bindings) {
-    if (!isBuffer(b) || b.space !== 'storage' || !b.writes) continue;
-    const dv = new DataView(memory[b.name]!.buffer);
-    if (boxed(b))
-      (values[b.name] as { [i: number]: number })[0] = readInto(
-        dv,
-        0,
-        b.layout,
-        undefined,
-      ) as number;
-    else readInto(dv, 0, b.layout, values[b.name]);
-  }
-  return report!.passes;
 }
