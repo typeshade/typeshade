@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { bothHalves, bothRefuse, bothTake } from '../../../core/testing/both-halves.js';
 import { keepHelpers } from '../../../core/testing/keep-helpers.js';
 
-const inFs = (body: string, pre = ''): string => `"use typeshade"
+const inFs = (body: string, pre = ''): string => `"use typeshade";
 ${pre}
 @fragment export function fs(): vec4 {
 ${body}
@@ -48,7 +48,7 @@ describe('a refused local function says its one sentence and nothing after it (R
 
   it('a refused local function handed to an array method adds no refusal of the hand-over', () => {
     const handed = (declaration: string): string =>
-      `"use typeshade"
+      `"use typeshade";
 const xs = array<f32, 2>(1., 2.);
 @fragment export function fs(): vec4 {
   ${declaration}
@@ -114,7 +114,7 @@ const xs = array<f32, 2>(1., 2.);
 describe('a local function with no written result type infers it (Rule 8.19, change 0134)', () => {
   it('a recursive one is the one TS8031 in both halves, as the editor writes no type of its own', () => {
     const body = (decl: string): string =>
-      `"use typeshade"\nexport function t(vi: u32): u32 {\n  ${decl}\n  return f(vi);\n}\n`;
+      `"use typeshade";\nexport function t(vi: u32): u32 {\n  ${decl}\n  return f(vi);\n}\n`;
     const sentence =
       'Recursive call: "t_f" -> "t_f". WGSL has no call stack, so a function must not take ' +
       'part in a call cycle.';
@@ -199,7 +199,7 @@ describe('what a local function captures is a parameter ahead of its own (Rule 8
     'the object of the method comes first, then each variable, and a local function that only hands it on takes it too',
     keepHelpers(() => {
       const r = bothTake(
-        `"use typeshade"
+        `"use typeshade";
 class A {
   v: f32 = 1.;
   get(): f32 {
@@ -237,7 +237,7 @@ class A {
       ).result;
       expect(signatures(taken.wgsl)).toContain('fn fs_f(x: f32, x_1: f32) -> f32');
       const own = bothTake(
-        `"use typeshade"
+        `"use typeshade";
 class A {
   v: f32 = 1.;
   get(): f32 {
@@ -293,7 +293,7 @@ class A {
 
   it('a number whose type its uses decide takes it from the uses inside the local function (Rule 5.1)', () => {
     const program = (body: string): string =>
-      `"use typeshade"\nexport function t(vi: u32): u32 {\n  let n = 0;\n${body}\n}\n`;
+      `"use typeshade";\nexport function t(vi: u32): u32 {\n  let n = 0;\n${body}\n}\n`;
     const sum = bothTake(program('  const f = (): u32 => n + vi;\n  return f();')).result;
     expect(sum.eval('t', [5])).toBe(5);
     const read = bothTake(program('  const f = (): u32 => n;\n  n = 3;\n  return f();')).result;
@@ -326,10 +326,9 @@ describe('a local function is declared in the body that writes it and in no body
 
 describe('a local function named like a value constructor is the function its name hands over (Rule 9.5)', () => {
   const read = (pre: string, body: string): number =>
-    bothTake(`"use typeshade"\n${pre}\nexport function t(k: f32): f32 {\n${body}\n}\n`).result.eval(
-      't',
-      [1],
-    ) as number;
+    bothTake(
+      `"use typeshade";\n${pre}\nexport function t(k: f32): f32 {\n${body}\n}\n`,
+    ).result.eval('t', [1]) as number;
 
   it('to an array method, to a function that takes a function, and to a fold', () => {
     expect(
