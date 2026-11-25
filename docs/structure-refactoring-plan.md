@@ -534,7 +534,7 @@ A cycle is a strongly connected component of more than one file of `src/` that i
 ### 6.2.2 The plan of S1
 
 Proposal: each step is its own pull request. Every step needs the step before it, unless a line says otherwise.
-A pull request that holds a moved file is not a pure move (section 6.2.1, item 5). The owner says "merge" for it, because no item of `CLAUDE.md`, Merging, approves it in advance.
+A pull request that holds a moved file is not a pure move (section 6.2.1, item 5). It is an internal cleanup (`CLAUDE.md`, Merging, the item "an internal cleanup", approved by the owner on 2026-11-25: "추천대로"). The session that orchestrates the structure refactoring reads the diff and merges it.
 
 1. Wait for #1670 (`ClassLayouts` down). Wait for the stage 1 code of proposal 0151, which edits `host-draw.ts` and `host-entry-program.ts`. Do not open a pull request for the branch `claude/slice2-stepC-host-entry-program`: step 5 replaces it.
    Check: `src/layer-policy.test.ts` lists 30 edges.
