@@ -18,20 +18,14 @@ import { ioAttrOf, retIoAttrOf } from '../core/ir/entry-io.js';
 import type { FuncDecl } from '../core/ir/nodes.js';
 import type { ShaderType } from '../core/ir/types.js';
 import { wgslType } from '../core/backends/wgsl.js';
-import { optionalInner, optionalAbsence } from '../compiler/ts/optional.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js';
 import { rangeForSpan, touchingNodeAtPosition, wordSpan } from './positions.js';
 import type { TypeshadeHover } from './types.js';
-import {
-  collectionKeyOf,
-  keysOf,
-  keyTypeText,
-  recordOf,
-  recordKeyText,
-} from '../compiler/ts/key-types.js';
 import { nodeAt } from './hover/node-at.js';
 import type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
+import { spellShaderType, typesOf, withDeclaredName } from './hover/spell-type.js';
+export { spellShaderType } from './hover/spell-type.js';
 export type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
 
 function isBuiltinStringLiteral(node: ts.Node): node is ts.StringLiteralLike {
@@ -275,46 +269,6 @@ function entryLocationLines(
   }
   return [];
 }
-
-// Why: `wgslType` throws SD0040 on `f64`, `vecN<f64>` and `matNxN<f64>`, which are pre-lowering types.
-
-export function spellShaderType(t: ShaderType, struct: StructNames = (name) => name): string {
-  const spell = (inner: ShaderType): string => spellShaderType(inner, struct);
-  const optional = optionalInner(t);
-  if (optional !== undefined)
-    return `${spell(optional)}${optionalAbsence(t)! & 2 ? ' | null' : ''}${optionalAbsence(t)! & 1 ? ' | undefined' : ''}`;
-  const keys = keysOf(t);
-  if (keys !== undefined) return keyTypeText(keys);
-  const rec = recordOf(t);
-  if (rec !== undefined && t.kind === 'array')
-    return `Record<${recordKeyText(rec)}, ${spell(t.elem)}>`;
-  if (t.kind === 'collection') {
-    const members = keysOf(collectionKeyOf(t));
-    const key = members === undefined ? t.key : keyTypeText(members);
-    return t.value === undefined ? `Set<${key}>` : `Map<${key}, ${spell(t.value)}>`;
-  }
-  switch (t.kind) {
-    case 'struct':
-      return struct(t.name);
-    case 'f64':
-      return 'f64';
-    case 'vec64':
-      return `vec${t.n}<f64>`;
-    case 'mat':
-      return t.elem === 'f64' ? `mat${t.cols}x${t.rows}<f64>` : wgslType(t);
-    case 'array':
-      return t.size !== undefined
-        ? `array<${spell(t.elem)}, ${t.size}>`
-        : `array<${spell(t.elem)}>`;
-    default:
-      return wgslType(t);
-  }
-}
-
-const typesOf = (symbol: DeclaredSymbol): string =>
-  [spellShaderType(symbol.type), ...(symbol.params ?? []).map((p) => spellShaderType(p.type))].join(
-    '|',
-  );
 
 interface OneSymbol {
   readonly symbol: DeclaredSymbol;
@@ -574,11 +528,6 @@ const importNames = new WeakMap<
   ts.TypeChecker,
   WeakMap<ts.SourceFile, Map<string, string | undefined>>
 >();
-
-function withDeclaredName(name: string, emitted: string, to: string): string {
-  if (name === emitted) return to;
-  return name.startsWith(`${emitted}_`) ? `${to}${name.slice(emitted.length)}` : name;
-}
 
 function structNamesOf(
   program: HoverProgram,
