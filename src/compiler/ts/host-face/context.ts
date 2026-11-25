@@ -14,6 +14,7 @@ export interface FaceCtx {
   readonly symbols: ReturnType<typeof compileTsSource>['symbols'];
   readonly byName: ReadonlyMap<string, FuncDecl>;
   readonly structs: ReadonlyMap<string, StructDecl>;
+  readonly cpuStructs: ReadonlyMap<string, StructDecl>;
   readonly collected: ReturnType<typeof compileTsSource>['structs'];
   readonly constsByName: ReadonlyMap<string, ConstDecl>;
   readonly bindingNames: ReadonlySet<string>;

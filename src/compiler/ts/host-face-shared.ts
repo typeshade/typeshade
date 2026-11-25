@@ -1,4 +1,5 @@
 // Host refusal wording and class identity shared by the analysis and output generators.
+import { shaderField } from '../../core/host-key.js';
 import { type ClassExport, type ClassMember, type FaceExport } from './host-face-contracts.js';
 
 /** Whether the view declares the member `never`, with the reason a host call throws (D3). */
@@ -68,3 +69,8 @@ export function baseClass(
   }
   return undefined;
 }
+
+export const sameField = (a: string, b: string): boolean => shaderField(a) === shaderField(b);
+
+export const propName = (key: string): string =>
+  /^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key);

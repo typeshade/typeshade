@@ -16,10 +16,10 @@
 //
 // It is runtime code: a module the Vite plugin generates imports it through `typeshade/runtime`,
 // with the type of every parameter written into that module as a `HostType` literal. It imports
-// only the list of resource probes (`resource-probe.ts`), so what an application ships for it is
-// this file and that list.
+// two leaves, `resource-probe.ts` and `host-key.ts`, so an application ships these three files.
 
 import type { CpuValue } from './cpu-runtime.js';
+import { missingField, shaderField } from './host-key.js';
 import { resourceProbes } from './resource-probe.js';
 
 /** A scalar a host value carries as a `number`. */
@@ -196,9 +196,9 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
         throw new Misfit(path, `got ${describe(v)}`);
       const o = v as Record<string, unknown>;
       const out: Record<string, CpuValue> = {};
-      for (const [name, ft] of t.f) {
-        if (!(name in o)) throw new Misfit(`${path}.${name}`, 'the field is missing');
-        out[name] = convertIn(ft, o[name], `${path}.${name}`);
+      for (const [key, ft] of t.f) {
+        if (!(key in o)) throw new Misfit(`${path}.${key}`, missingField(key));
+        out[shaderField(key)] = convertIn(ft, o[key], `${path}.${key}`);
       }
       return out as unknown as CpuValue;
     }
@@ -308,7 +308,7 @@ export function fromShader(t: HostType, v: CpuValue): unknown {
     case 'struct': {
       const o = v as unknown as Record<string, CpuValue>;
       const out: Record<string, unknown> = {};
-      for (const [name, ft] of t.f) out[name] = fromShader(ft, o[name]!);
+      for (const [key, ft] of t.f) out[key] = fromShader(ft, o[shaderField(key)]!);
       return out;
     }
   }
@@ -350,7 +350,7 @@ function assignFields(target: object, t: HostType, v: CpuValue, classes: HostCla
   if (t.k !== 'struct') return;
   const o = v as unknown as Record<string, CpuValue>;
   const out = target as Record<string, unknown>;
-  for (const [name, ft] of t.f) out[name] = fromShaderIn(ft, o[name]!, classes);
+  for (const [key, ft] of t.f) out[key] = fromShaderIn(ft, o[shaderField(key)]!, classes);
 }
 
 /** The generated module's CPU tier, as a member call reads it: its functions, and the values a
