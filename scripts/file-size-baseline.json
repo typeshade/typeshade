@@ -194,7 +194,7 @@
   "src/language-service/ambient.test.ts": 1639,
   "src/language-service/ambient.ts": 1399,
   "src/language-service/diagnostics.test.ts": 1512,
-  "src/language-service/diagnostics.ts": 3222,
+  "src/language-service/diagnostics.ts": 2472,
   "src/language-service/docs.ts": 560,
   "src/language-service/entry-location-hover-imports.test.ts": 852,
   "src/language-service/entry-location-hover.test.ts": 438,
