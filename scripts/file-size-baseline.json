@@ -53,7 +53,7 @@
   "src/compiler/ts/lower/class-access.ts": 1075,
   "src/compiler/ts/lower/class-methods.ts": 2268,
   "src/compiler/ts/lower/control.ts": 1378,
-  "src/compiler/ts/lower/expression-array.ts": 520,
+  "src/compiler/ts/lower/expression-array.ts": 515,
   "src/compiler/ts/lower/expression-call.ts": 2671,
   "src/compiler/ts/lower/expression-misc.ts": 549,
   "src/compiler/ts/lower/expression-prop.ts": 879,
