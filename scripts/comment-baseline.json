@@ -73,7 +73,7 @@
   "src/compiler/ts/console.test.ts": 5,
   "src/compiler/ts/const-call-domain.test.ts": 32,
   "src/compiler/ts/const-expr.test.ts": 31,
-  "src/compiler/ts/context.ts": 411,
+  "src/compiler/ts/context.ts": 406,
   "src/compiler/ts/control-flow.test.ts": 3,
   "src/compiler/ts/convert-ctor.test.ts": 59,
   "src/compiler/ts/counter-cast.test.ts": 19,
