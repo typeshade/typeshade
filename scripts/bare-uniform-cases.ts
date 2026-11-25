@@ -183,10 +183,7 @@ function blockProbe(
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, new Float32Array([1]));
-      const location = gl.getUniformLocation(
-        program,
-        guardBinding!.emittedGlsl ?? guardBinding!.emitted,
-      );
+      const location = gl.getUniformLocation(program, guardBinding!.emittedGlsl);
       if (location === null) throw new Error('float fp64 guard was not active');
       gl.uniform1i(location, 0);
     }

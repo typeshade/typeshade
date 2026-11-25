@@ -1,4 +1,5 @@
 import { callCompute as queuedCall, entryPrograms, type EntryPrograms } from './host-compute.js';
+import { CONSOLE_SLOT_NAMES } from './console-slot-names.js';
 import {
   boxed,
   fromCpu,
@@ -128,8 +129,7 @@ function callManifestOf(e: ComputeEntry, tier: CallTier, cpu?: GeneratedCpu): Pa
   let console: PackConsole | undefined;
   if (tier === 'webgpu' && e.log !== undefined) {
     const slot: PackBinding = {
-      name: '_console',
-      emitted: '_console',
+      ...CONSOLE_SLOT_NAMES,
       space: 'storage',
       group: e.log.group,
       binding: e.log.binding,

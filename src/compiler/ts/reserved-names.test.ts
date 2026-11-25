@@ -142,8 +142,6 @@ let discard: f32 = filter;
 });
 
 describe('GLSL ES 3.00 reserves the name, and the module has a GLSL form (#103)', () => {
-  // Since change 0070 such a name is no refusal: the GLSL writer spells it with a fresh GLSL
-  // spelling, `half_`, and the record names it beside the authored name (`emittedGlsl`).
   it('compiles a struct field named half, spelled half_ in the GLSL', () => {
     const src = `"use typeshade";
 interface V {

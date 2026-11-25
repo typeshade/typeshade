@@ -123,7 +123,7 @@ const bytes = readFileSync(file);
 const module = await import(pathToFileURL(file).href);
 const revision = module.lifecycleRevision();
 assert.equal(revision, Number(expected));
-assert.equal(module.default.schema, 2);
+assert.equal(module.default.schema, 3);
 assert.equal(typeof module.default.wgsl, 'string');
 assert(Object.keys(module).length > 2, 'The workload exports must survive the library build');
 const hash = (value) => createHash('sha256').update(value).digest('hex');
@@ -304,7 +304,7 @@ async function child(config) {
         timeOrigin: performance.timeOrigin,
       }));
       assert.equal(output.revision, revision);
-      assert.equal(output.schema, 2);
+      assert.equal(output.schema, 3);
       assert.equal(typeof output.wgsl, 'string');
       assert(output.exports.length > 2);
       assert.equal(output.timeOrigin, timeOrigin, 'HMR must keep the same document');

@@ -33,6 +33,7 @@
 // array of a `fuse` scope (change 0058) is no binding for a draw: the call is refused, and the
 // refusal names the array as scratch.
 
+import { CONSOLE_SLOT_NAMES } from './console-slot-names.js';
 import type { ConsoleLog } from './console.js';
 import {
   checkBindings,
@@ -440,7 +441,7 @@ export function packBindingOf(
   const at = {
     name,
     emitted: b.name,
-    ...(b.glsl !== undefined ? { emittedGlsl: b.glsl } : {}),
+    emittedGlsl: b.glsl ?? b.name,
     group: b.group,
     binding: b.binding,
     type: b.s,
@@ -549,8 +550,7 @@ function drawManifestOf(e: FragmentEntry, cpu: GeneratedCpu, tier: DrawTier): Pa
   let console: PackConsole | undefined;
   if (tier === 'webgpu' && e.log !== undefined) {
     const slot: PackBinding = {
-      name: '_console',
-      emitted: '_console',
+      ...CONSOLE_SLOT_NAMES,
       space: 'storage',
       group: e.log.group,
       binding: e.log.binding,

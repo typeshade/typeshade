@@ -65,9 +65,8 @@ describe('GLSL writer spells the names of the plan (Proposal 0070, C6)', () => {
     expect(binding?.emitted).toBe('buffer');
     expect(binding?.emittedGlsl).toBe('buffer_');
     const override = record.overrides.find((o) => o.name === 'shared');
-    // WGSL reserves `shared` too, so both targets spell it `shared_` and no GLSL spelling is recorded.
     expect(override?.emitted).toBe('shared_');
-    expect(override?.emittedGlsl).toBeUndefined();
+    expect(override?.emittedGlsl).toBe('shared_');
   });
 
   it('spells the entry named main, selected by its authored name, without a second main', () => {

@@ -34,6 +34,7 @@ const struct = (
   fields: [string, StructDecl['fields'][number]['type']][],
 ): StructDecl => ({ name, fields: fields.map(([n, t]) => ({ name: n, type: t })) });
 
+const named = (n: string) => ({ emitted: n, emittedGlsl: n });
 describe('wgslLayout — std140 / std430 offset engine', () => {
   it('anchors to the shipping point Uniforms offsets (mat4x4 + 5×vec4 = 144 bytes)', () => {
     // These offsets are the contract runtime/.../point-uniform-layout.test.ts asserts
@@ -160,7 +161,7 @@ describe('reflect — module metadata walker', () => {
             group: 0,
             binding: 0,
             name: 'u',
-            emitted: 'u',
+            ...named('u'),
             space: 'uniform',
             resourceKind: 'uniform-buffer',
             owner: 'module',
@@ -241,7 +242,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 0,
         name: 'flat_tex',
-        emitted: 'flat_tex',
+        ...named('flat_tex'),
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -254,7 +255,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 1,
         name: 'atlas',
-        emitted: 'atlas',
+        ...named('atlas'),
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -267,7 +268,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 2,
         name: 'ms_tex',
-        emitted: 'ms_tex',
+        ...named('ms_tex'),
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -281,7 +282,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 3,
         name: 'samp',
-        emitted: 'samp',
+        ...named('samp'),
         space: 'uniform',
         resourceKind: 'sampler',
         owner: 'module',
@@ -293,7 +294,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 4,
         name: 'ids',
-        emitted: 'ids',
+        ...named('ids'),
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -306,7 +307,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 5,
         name: 'deltas',
-        emitted: 'deltas',
+        ...named('deltas'),
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -319,7 +320,7 @@ describe('reflect — texture bind entries carry their dim (X-GIS #1651), elemen
         group: 0,
         binding: 6,
         name: 'id_atlas',
-        emitted: 'id_atlas',
+        ...named('id_atlas'),
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
@@ -451,16 +452,8 @@ describe('reflect — every handle kind the IR can hold', () => {
       funcs: [],
     } as unknown as ModuleDecl;
     const entry = reflect(m).bindGroups[0]?.entries[0] as unknown as Record<string, unknown>;
-    const { group, binding, name, emitted, space, owner, stages, ...rest } = entry;
-    // The seven `void`s satisfy `noUnusedLocals`: the destructure exists to REMOVE those keys
-    // from `rest`, not to read them, and the rest element is the only part used.
-    void group;
-    void emitted;
-    void binding;
-    void name;
-    void space;
-    void owner;
-    void stages;
+    const { group, binding, name, space, owner, stages, emitted, emittedGlsl, ...rest } = entry;
+    void [group, binding, name, space, owner, stages, emitted, emittedGlsl];
     return rest;
   };
 

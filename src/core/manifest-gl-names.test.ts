@@ -62,11 +62,11 @@ const pack = () => {
   return packModule(m);
 };
 
-/** The GLSL spelling of a binding, as the manifest records it (`emittedGlsl`, else `emitted`). */
+/** The GLSL spelling of a binding, as the manifest records it (`emittedGlsl`). */
 const glslNameOf = (p: ReturnType<typeof pack>, name: string): string => {
   const b = p.bindings.find((x) => x.name === name);
   if (b === undefined) throw new Error(`no binding "${name}"`);
-  return b.emittedGlsl ?? b.emitted;
+  return b.emittedGlsl;
 };
 
 describe('the manifest records GLSL names of the WebGL2 maps (Proposal 0070, C7)', () => {
