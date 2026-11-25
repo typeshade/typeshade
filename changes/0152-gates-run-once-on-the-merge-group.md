@@ -190,7 +190,7 @@ Files of the implementation. None is changed by this proposal.
 - `.github/workflows/ci.yml`, in implementing pull request 1 (Phase 2, step 2):
   - The trigger `merge_group` with `types: [checks_requested]`.
   - The job `change scope` lists `contents: read` and `actions: read`.
-  - A new output `tested` of `change scope`. It is true on a push to `main` when a successful `ci` run of the event `merge_group` exists for `github.sha`. A failed lookup sets it to false.
+  - A new output `tested` of `change scope`. It is true only when `github.event_name == 'push' && github.ref == 'refs/heads/main'` and a `ci` run of the event `merge_group` with `status=completed` and `conclusion=success` exists for `github.sha`. A failed lookup sets it to false. The event test matters: under `workflow_dispatch` and `workflow_call` the event, ref and SHA are the caller's, and a dispatch from `main` on a tested commit must still run every gate. The runs list has no `head_sha` filter, so the lookup matches `head_sha` itself.
   - Every job except `change scope` gets `tested != 'true'` in its `if`. This includes the aggregators `check` (`typecheck + unit`), `typescript5` and `typescript6`, and `traceability`. Reason: `check` and the two others run under `always()` and fail when a need is `skipped` (`test "$QUALITY" = success`). Without the condition, every queue merge makes a red run on `main`.
   - A push run on `main` then shows every job skipped except `change scope`. No required check applies to a push, so a skipped job blocks nothing.
   - The `LINT.IfChange` block of `ci.yml` names `AGENTS.md`, so `AGENTS.md` changes with it.
@@ -203,7 +203,9 @@ Files of the implementation. None is changed by this proposal.
 
 `docs/structure-slice-playbook.md` is not in this list. The tooling session owns it.
 
-Verification of pull request 1 for `publish.yml`: dispatch `publish.yml` with `dry_run: true` (the default) from the branch of pull request 1, and read that `verify` starts. This costs one full `ci` run. It is not done by this proposal.
+Verification of pull request 1 for `publish.yml`: dispatch `publish.yml` with `dry_run: true` (the default) from the branch of pull request 1, and read that `verify` starts. Then dispatch `publish.yml` and `ci.yml` from `main` on a commit that a merge group tested, and read that every job runs. Each dispatch costs one full `ci` run. This proposal does none of them.
+
+Pull request 1 also adds a test that fails when `ci.yml` has no `merge_group` trigger under `on:`. Without it, a later pull request can remove the trigger that the ruleset needs. The guard of script 3 reads `main` only once.
 
 ## Phase 1, the trial
 
@@ -234,24 +236,24 @@ Verification of pull request 1 for `publish.yml`: dispatch `publish.yml` with `d
 **What the trial shows.** Each result has its decisive read and its time limit in the table below.
 
 - T0. A `merge_group` run starts and reads the `ci.yml` of `ci-trial`, not that of `main`.
-- T1. A ready trial pull request runs the light scope and enters the merge queue. The merge group run reports the four required checks.
-- T2. The commit of `ci-trial` after a merge queue merge has the SHA of the merge group. The push run takes the `tested` path: every job skipped except `change scope`.
+- T1. A ready trial pull request runs the documents scope that `ci.yml` has today, and enters the merge queue. The light scope of a code pull request is in pull request 2, not in the trial. The merge group run reports the four required checks.
+- T2. The commit of `ci-trial` after a merge queue merge has the SHA of the merge group. The push run takes the `tested` path: every job skipped except `change scope`. The queue may merge while a job that is not required (`perf-gate`, `render-gate`, `typescript5`, `typescript6`) still runs. The merge group run is then `in_progress` at push time, `tested` is false, and the push runs a full `ci`. The direction is safe, and it costs 67 runner minutes. T2 records the status of the merge group run at the time of the push.
 - T3. `enable_pr_auto_merge` of the MCP tools, with the repository setting `allow_auto_merge` as it is. The session tries it on a pull request that is clean and on one that is not clean.
 - T4. A merge group that fails (the file `trial-fail` is present) removes its pull request. `ci-trial` does not move.
 - T5. Two trial pull requests enqueued together form one merge group. The branch gets one push event. `tested` is looked up for the head only. The first push run is not cancelled.
 - T6. A `pull_request` run starts for a base other than `main`.
-- T7. The session calls the REST `merge_pull_request` as a bypass actor on a trial pull request that needs a Code Owner review. The result is one of: refused, queued, or merged past the queue. The result also shows whether a pull request that needs a Code Owner review can enter the queue. Agents pass the review today only by bypass.
+- T7. The session calls the REST `merge_pull_request` as a bypass actor on a trial pull request that needs a Code Owner review. The result is one of: refused, queued, or merged past the queue. The MCP tool may return text only, not a status code. The session then records the text and the pull request state. The result also shows whether a pull request that needs a Code Owner review can enter the queue. Agents pass the review today only by bypass.
 
-| Result | Decisive read (tools of the session)                                                                                                        | Time limit                                                                                                                                         |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| T0     | `actions_list` `list_workflow_runs` with `event: merge_group`, then `list_workflow_jobs`: the probe step exists only in the `ci-trial` file | 10 minutes after the enqueue. If no such run appears, the owner removes the entry in the web UI. The session has no tool to dequeue (not checked). |
-| T1     | `list_workflow_jobs` of the merge group run: the four required job names with `conclusion: success`                                         | 60 minutes                                                                                                                                         |
-| T2     | `list_commits` on `ci-trial` against `head_sha` of the merge group run, then `list_workflow_runs` with `event: push`, `list_workflow_jobs`  | 15 minutes after the merge                                                                                                                         |
-| T3     | The return of `enable_pr_auto_merge`, then `pull_request_read` (state, merged)                                                              | 20 minutes                                                                                                                                         |
-| T4     | The conclusion of the merge group run, `pull_request_read` (still open), `list_commits` (unchanged)                                         | 15 minutes                                                                                                                                         |
-| T5     | `list_workflow_runs` with `event: push` (one run for the head), `list_commits`                                                              | 40 minutes                                                                                                                                         |
-| T6     | `list_workflow_runs` with `event: pull_request` for the trial pull request                                                                  | 5 minutes                                                                                                                                          |
-| T7     | The status code and body of `merge_pull_request`, then `pull_request_read`                                                                  | Immediate                                                                                                                                          |
+| Result | Decisive read (tools of the session)                                                                                                                                                                                                              | Time limit                                                                                                                                         |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T0     | `actions_list` `list_workflow_runs` with `event: merge_group`, then `list_workflow_jobs`: the job `change scope` fails with the probe (a job conclusion, which is readable; a step name may not be returned by `list_workflow_jobs`, not checked) | 10 minutes after the enqueue. If no such run appears, the owner removes the entry in the web UI. The session has no tool to dequeue (not checked). |
+| T1     | `list_workflow_jobs` of the merge group run: the four required job names with `conclusion: success`                                                                                                                                               | 60 minutes                                                                                                                                         |
+| T2     | `list_commits` on `ci-trial` against `head_sha` of the merge group run, then `list_workflow_runs` with `event: push`, `list_workflow_jobs`                                                                                                        | 15 minutes after the merge                                                                                                                         |
+| T3     | The return of `enable_pr_auto_merge`, then `pull_request_read` (state, merged)                                                                                                                                                                    | 20 minutes                                                                                                                                         |
+| T4     | The conclusion of the merge group run, `pull_request_read` (still open), `list_commits` (unchanged)                                                                                                                                               | 15 minutes                                                                                                                                         |
+| T5     | `list_workflow_runs` with `event: push` (one run for the head), `list_commits`                                                                                                                                                                    | 40 minutes                                                                                                                                         |
+| T6     | `list_workflow_runs` with `event: pull_request` for the trial pull request                                                                                                                                                                        | 5 minutes                                                                                                                                          |
+| T7     | The status code and body of `merge_pull_request`, then `pull_request_read`                                                                                                                                                                        | Immediate                                                                                                                                          |
 
 The session has no GraphQL tool. The pull request object of the REST API may have no queue field, and GraphQL `mergeQueueEntry` may be needed. Not checked. The session infers the queue state from runs and the pull request state.
 
@@ -311,7 +313,7 @@ Each item is a future result, not a completed one.
 
 **Nobody ran these scripts.** No `pwsh` is installed in the sessions that wrote and reviewed them, and the orchestrating session's permission classifier refused to run a downloaded PowerShell. Reviewers read them line by line. The scripts target Windows PowerShell 5.1 and later.
 
-How to run a block: paste it into a PowerShell console. A saved `.ps1` file may meet the execution policy of Windows PowerShell 5.1. This is an inference and not checked. Run `gh auth login` once. Never paste a token in the conversation.
+How to run a block: paste it into a PowerShell console, not the ISE. In the ISE a native command that writes to stderr (a `404` from `gh api --silent`) may end the script before `$LASTEXITCODE` is read. This is not checked. A saved `.ps1` file may meet the execution policy of Windows PowerShell 5.1. This is an inference and not checked. Run `gh auth login` once. Never paste a token in the conversation.
 
 The scripts use these `gh api` calls:
 
@@ -319,7 +321,7 @@ The scripts use these `gh api` calls:
 - Update: `PUT /repos/{owner}/{repo}/rulesets/{id}`. Delete: `DELETE /repos/{owner}/{repo}/rulesets/{id}`. The page read for them was a summary. Not checked.
 - The permission that creates a ruleset is not stated on the pages that were read. An administrator has it today (inference).
 
-The guard of script 1 checks every ruleset of the repository, disabled ones included. It stops when a ruleset includes `~ALL`, includes the name `refs/heads/ci-trial`, or has a pattern with `*`, `?` or `[`. It does not check classic branch protection rules.
+The guard of script 1 checks every ruleset that the list call returns, disabled ones included. It ignores `exclude` and does not read rulesets of an organization or of a tag target. It stops when a ruleset includes `~ALL`, includes the name `refs/heads/ci-trial`, or has a pattern with `*`, `?` or `[`. It does not check classic branch protection rules.
 
 ### Script 1. Create the trial ruleset (Phase 1, D1)
 
@@ -490,6 +492,8 @@ The field names and limits of `merge_queue` come from https://docs.github.com/en
 - The state of the merge queue through the tools of the session (risk in the table of results).
 - `downstream` and `package compatibility` times from creation to the last job: not computed.
 - The live settings quoted under "Facts that shape it": not read by the author.
+- The `main` path of script 3: the guard, the read of `ci.yml`, the queue add and the stop on an existing `merge_queue`. The rehearsal on `ci-trial` does not reach them. The `POST` of script 1 uses the same schema.
+- Whether `list_workflow_jobs` returns step names.
 - All three scripts: not run.
 
 ### Draft impact estimate
