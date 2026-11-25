@@ -24,9 +24,7 @@ import {
 } from './host-resource.js';
 import { twoRowStd140Reason } from '../../core/std140.js';
 
-/** The two access modes a storage BUFFER may take, WGSL's own words for
- *  `var<storage, read>` and `var<storage, read_write>`. A storage buffer has no write-only
- *  mode: `write` is a storage TEXTURE's, and `StorageTextureAccess` carries that set.
+/** Why: WGSL gives a storage buffer read and read_write only; `write` is a storage texture's.
  *
  *  This is the one list. `ambient.ts` re-exports it (the way it re-exports `ATTRIBUTE_NAMES`
  *  from `builtin-check.ts`) and generates the library's `StorageBufferAccess` union from it, so
