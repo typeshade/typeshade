@@ -201,13 +201,8 @@ export function lowerArrayLiteral(
     return undefined;
   }
   if (target.elem.kind === 'array') {
-    // An array OF arrays, refused for the reason `module-const.ts` already refuses one: the
-    // GLSL ES 3.00 writer spells the element type inline and ANGLE answers "arrays of arrays
-    // supported in GLSL ES 3.10 and above only", while Tint accepts the WGSL. Measured through
-    // the compile gate on both spellings of the same program: `[[1., 2.], [3., 4.]]` and
-    // `array<array<f32, 2>, 2>(...)` each pass Tint and each fail the WebGL2 context, so
-    // accepting the list here would ship a declaration that compiles on one target and not the
-    // other. The call form is refused nowhere yet and is a separate gap.
+    // Why: ANGLE refuses an array of arrays in GLSL ES 3.00 ("supported in GLSL ES 3.10 and above
+    // only") while Tint accepts the WGSL; both spellings fail the WebGL2 context.
     pushDiag(
       diagnostics,
       sourceFile,
