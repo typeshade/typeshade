@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as ir from './index.js';
 import {
   param,
@@ -28,7 +28,6 @@ import {
   i32,
   u32,
   textureLoad,
-  installStmtSink,
   type Node,
   type ReadonlyNode,
   type ScalarKey,
@@ -215,22 +214,46 @@ describe('matchExpr arms', () => {
 });
 
 describe('compound assignment sinks', () => {
-  it('uses assignOp when the sink has it', () => {
+  const globals = globalThis as Record<symbol, unknown>;
+  const SCOPE_STACK = Symbol.for('typeshade.scopeStack');
+  const INSTANCE_LOADED = Symbol.for('typeshade.instanceLoaded');
+  const FN_AUTO_ID = Symbol.for('typeshade.fnAutoId');
+  const saved = {
+    stack: globals[SCOPE_STACK],
+    loaded: globals[INSTANCE_LOADED],
+    autoId: globals[FN_AUTO_ID],
+  };
+  afterEach(() => {
+    globals[SCOPE_STACK] = saved.stack;
+    globals[INSTANCE_LOADED] = saved.loaded;
+    globals[FN_AUTO_ID] = saved.autoId;
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+  const loadCopy = async (): Promise<typeof import('./index.js')> => {
+    vi.resetModules();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    return import('./index.js');
+  };
+
+  it('uses assignOp when the sink has it', async () => {
+    const copy = await loadCopy();
     const calls: string[] = [];
-    installStmtSink({
+    copy.installStmtSink({
       assign: () => calls.push('assign'),
       assignOp: () => calls.push('assignOp'),
     });
-    p(f32T).addAssign(2);
+    (copy.param('p', f32T) as Node<'f32'>).addAssign(2);
     expect(calls).toEqual(['assignOp']);
   });
 
-  it('falls back to assign with a binop of the promoted type when it lacks assignOp', () => {
+  it('falls back to assign with a binop of the promoted type when it lacks assignOp', async () => {
+    const copy = await loadCopy();
     const seen: Array<ReadonlyNode<string>> = [];
-    installStmtSink({
+    copy.installStmtSink({
       assign: (_target, value) => seen.push(value as ReadonlyNode<string>),
     });
-    p(i32T).addAssign(p(f32T));
+    (copy.param('p', i32T) as Node<'i32'>).addAssign(copy.param('q', f32T) as never);
     expect(seen).toHaveLength(1);
     expect(exprOf(seen[0]!)).toMatchObject({ op: 'binop', bop: '+' });
     expect(keyOf(seen[0]!)).toBe('f32');
@@ -250,14 +273,13 @@ describe('type-level pairing', () => {
     const cond = p(boolT) as Node<'bool'>;
     const pinned: Node<'f32'> = f.sub(cond.select(0, 1));
     expect([broadcast, widened, widenedMul, pinned]).toHaveLength(4);
-    expect(() => {
-      // @ts-expect-error a mixed scalar pair is a tsc error
-      f.add(i);
-      // @ts-expect-error a vec2 against a vec3 is a tsc error
-      v3.add(v2);
-      // @ts-expect-error a float receiver takes no bit operand
-      f.bitAnd(f);
-    }).toThrow();
+    // @ts-expect-error a mixed scalar pair is a tsc error
+    const mixed = f.add(i);
+    expect(keyOf(mixed)).toBe('f32');
+    // @ts-expect-error a vec2 against a vec3 is a tsc error
+    expect(() => v3.add(v2)).toThrow(/SD0002/);
+    // @ts-expect-error a float receiver takes no bit operand
+    expect(() => f.bitAnd(f)).toThrow();
     const widenedKey: ReadonlyNode<string> = d;
     const vecKey: ReadonlyNode<string> = v3;
     const scalarKey: ReadonlyNode<ScalarKey> = i;
