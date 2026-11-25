@@ -1,16 +1,6 @@
-// ═══ Shader DSL — IR node + declaration interfaces ═══
-//
-// The pure data shapes of the IR: expression nodes (Expr), statement nodes
-// (Stmt), and module-level declarations. No Node class, no runtime helpers —
-// just the structural types the authoring layer (node.ts/builder.ts) builds and
-// the backends consume. Imports only types.ts, span.ts and derived-capabilities.ts (all
-// type-only).
-
 import type { ShaderType } from './types.js';
 import type { SourceSpan } from './span.js';
 import type { DerivedCapability } from './derived-capabilities.js';
-
-// ── Expression nodes ──
 
 /** The operator tag on `Expr.binop`: arithmetic (`+ - * /`), remainder (`%`) and
  *  bitwise (`& | ^ << >>`). Each is spelled the same way in WGSL and GLSL and evaluated
@@ -183,8 +173,6 @@ export type Expr =
       readonly cases: ReadonlyArray<readonly [number, Expr]>;
       readonly default: Expr;
     };
-
-// ── Statement nodes ──
 
 /** Every statement shape the IR can hold: the ordered `readonly Stmt[]` that makes up a
  *  `FuncDecl.body`. Like {@link Expr}, it is a discriminated union (on `s`) with no class
@@ -361,8 +349,6 @@ export type RawStmt = Extract<Stmt, { s: 'raw' }>;
 export type RawPayload =
   | { readonly wgsl: string; readonly glsl?: string }
   | { readonly wgsl?: string; readonly glsl: string };
-
-// ── Module-level declarations ──
 
 /** A `ModuleDecl.consts` entry: a module-scope constant. For a scalar, write a plain
  *  object literal with one value per precision, for example
