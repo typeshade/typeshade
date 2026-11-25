@@ -1,19 +1,3 @@
-// ═══ A local function (roadmap 0.3 item T7, #92) ═══
-//
-// `const f = (x: f32): f32 => x * 2.` is how a TypeScript developer writes a helper they only
-// need in one place, and `const f = function (x: f32): f32 { ... }` is the older spelling of
-// it. Both were "TS8099 Unsupported expression", and the call after them "Unknown function".
-//
-// Neither target has a function value, so a local function is a FUNCTION OF THE MODULE, named
-// after the body that declares it: `f` inside `fs` emits `fn fs_f`. The name is what makes two
-// helpers called `f` in two functions not collide, and the call site resolves through an alias
-// the scope carries, so the body still writes `f(x)`.
-//
-// A local function reads the variables of the function around it as TypeScript's closure does:
-// each is a parameter the emitted function takes and every call passes, by value, or by
-// reference once the body writes it (closures.ts, Rule 8.17). A `function` declaration written
-// in a body is one too, callable anywhere in its block, as TypeScript hoists it.
-
 import { hasNoWrittenResult } from '../abstract-const.js';
 import ts from 'typescript';
 import type { Expr, FuncDecl } from '../../../core/ir/nodes.js';
@@ -41,8 +25,6 @@ import { functionParams, functionTypeOf } from './function-types.js';
 import { recordParamDefaults } from './param-defaults.js';
 import { eachExpr, eachStmtExpr } from '../../../core/ir/visit.js';
 
-/** Whether `decl` declares a function a body calls by name: a local function, or a parameter
- *  of function type, whose name stands for the function a call handed over (Rule 8.18). */
 export function declaresFunction(decl: ts.Node): boolean {
   if (ts.isVariableDeclaration(decl) || ts.isFunctionDeclaration(decl)) {
     return localFunctionOf(decl) !== undefined;
@@ -50,9 +32,6 @@ export function declaresFunction(decl: ts.Node): boolean {
   return ts.isParameter(decl) && functionTypeOf(decl.type) !== undefined;
 }
 
-/** Whether the identifier `id` names a function its own body declares, a local function or a
- *  parameter of function type, and not one of the file: TypeScript's lookup finds the first
- *  before any global and before a function of the module (Rule 9.5). */
 export function namesLocalFunction(id: ts.Identifier): boolean {
   const declared = declarationOf(id);
   return (
@@ -60,39 +39,23 @@ export function namesLocalFunction(id: ts.Identifier): boolean {
   );
 }
 
-/** The spellings of a local function: a function written as a value, and a `function`
- *  declaration inside a body. */
 export type LocalFunctionNode = ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration;
 
-/** What declares a local function: the `const` that holds it, or the declaration itself. */
 export type LocalFunctionDecl = ts.VariableDeclaration | ts.FunctionDeclaration;
 
-/** One local function, ready to have its body filled like any other. */
 export interface LocalFunction {
   readonly node: LocalFunctionNode;
   readonly stub: FuncDecl;
-  /** The name the source calls it by, inside the body that declares it. */
   readonly localName: string;
-  /** The function whose body declares it, by its emitted name, or '' at the module top level. */
   readonly ownerName: string;
-  /** The declaration, to anchor a diagnostic and to know which statement to drop. */
   readonly decl: LocalFunctionDecl;
-  /** Whether it writes no return type, which its body then says (Rule 8.19). */
   readonly infers: boolean;
-  /** The parameters that take a function, when some do: then it is compiled once for each set
-   *  of functions its calls hand it, and its stub, whose parameters are the others, is only the
-   *  pattern each copy is made from (Rule 8.18). */
   readonly takesFunctions?: ReadonlySet<number>;
 }
 
-/** The emitted name of a local function: `fs_f` for `f` inside `fs`, and `f` at the top level,
- *  where it is a module function already. */
 export const localFnName = (owner: string, local: string): string =>
   owner === '' ? local : `${owner}_${local}`;
 
-/** Whether `decl` is declared in the body of a function, a method or an arrow function, as
- *  opposed to the top level of the file or of a namespace, where a `const f = ...` is a function
- *  of the module already and keeps the name the namespace gives it (T4, #92). */
 export function declaredInFunction(decl: ts.Node): boolean {
   for (let at: ts.Node | undefined = decl.parent; at !== undefined; at = at.parent) {
     if (ts.isModuleDeclaration(at) || ts.isSourceFile(at)) return false;
@@ -101,8 +64,6 @@ export function declaredInFunction(decl: ts.Node): boolean {
   return false;
 }
 
-/** The function a `const f = ...` declares, or a `function f() {}` is, or undefined when the
- *  declaration holds no function. */
 export function localFunctionOf(decl: LocalFunctionDecl): LocalFunctionNode | undefined {
   if (ts.isFunctionDeclaration(decl)) return decl.body !== undefined ? decl : undefined;
   const init = decl.initializer;
@@ -111,20 +72,12 @@ export function localFunctionOf(decl: LocalFunctionDecl): LocalFunctionNode | un
   return undefined;
 }
 
-/** Every local function declared directly in `body`'s statements, with its signature parsed.
- *  Nested ones are found too, since a local function's own body is walked as an owner in turn.
- *
- *  `ownerName` is the emitted name of the body being walked, which is what the local functions
- *  in it are named after. */
 export function collectLocalFunctions(
   decls: readonly LocalFunctionDecl[],
   ownerName: string,
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
-  /** The file's refused-declaration set (roadmap 0.3 item T10, #92), which each refusal below
-   *  adds its emitted name to, so a call to it in the same body says nothing on top of the
-   *  reason this function already gave. */
   refused?: Set<string>,
 ): LocalFunction[] {
   const out: LocalFunction[] = [];
@@ -137,8 +90,6 @@ export function collectLocalFunctions(
     const refuse = (): void => {
       refused?.add(localFnName(ownerName, local));
     };
-    // A `var` is refused already, TS8013 in a body and TS8014 at the top level or in a
-    // namespace, and that one sentence is the declaration's (Rule 12.4).
     if (ts.isVariableDeclaration(decl) && isVar(decl)) {
       refuse();
       continue;
@@ -167,15 +118,11 @@ export function collectLocalFunctions(
       refuse();
       continue;
     }
-    // An async function or a generator is semantic.ts's to refuse, wherever it stands and once
-    // (Rule 12.4): TS8013 on a declaration, TS8020 on a function written as a value.
     if (isAsyncOrGenerator(node)) {
       refuse();
       continue;
     }
     const name = localFnName(ownerName, local);
-    // A parameter of function type makes it a pattern for copies, one for each set of functions
-    // its calls hand it (Rule 8.18); the other parameters are its own.
     const fnAt = functionParams(node);
     const params = parseParams(
       node.parameters.filter((_, i) => !fnAt.has(i)),
@@ -189,9 +136,6 @@ export function collectLocalFunctions(
       refuse();
       continue;
     }
-    // With no return type written, the body says it (Rule 8.19): `void` until it is lowered. A
-    // result type the editor's projection wrote is not the author's (change 0134): the function
-    // infers, as `compile()` reads it, so a call reads the origin its body returns.
     const infers = hasNoWrittenResult(node, sourceFile);
     const ret = parseReturnType(
       infers ? undefined : node.type,
@@ -207,12 +151,8 @@ export function collectLocalFunctions(
     const stub: FuncDecl = { name, params, ret, body: [] };
     (stub as { span?: unknown }).span = spanOf(sourceFile, node);
     (stub as { nameSpan?: unknown }).nameSpan = spanOf(sourceFile, decl.name);
-    // The module emits it as `fs_f`; a message names it as it is declared (#987). A namespace's
-    // `const f = …` is the function `Ns_f`, which a message names `Ns.f` as it does the namespace's
-    // `function f` (#1004); at the top level it is `f` already and has nothing to record.
     if (declaredInFunction(decl)) recordLocalFunction(stub, local);
     else recordNamespaceFunction(stub, decl);
-    // An optional parameter takes the absent value where a call omits it (change 0093).
     if (fnAt.size === 0) recordParamDefaults(stub, node.parameters, 0, true);
     out.push({
       node,
@@ -227,8 +167,6 @@ export function collectLocalFunctions(
   return out;
 }
 
-/** True for a node that owns its own body, and so its own local functions and bound names:
- *  the walks below stop at one rather than reading its insides as this body's. */
 function ownsItsBody(n: ts.Node): boolean {
   return (
     ts.isArrowFunction(n) ||
@@ -241,8 +179,6 @@ function ownsItsBody(n: ts.Node): boolean {
   );
 }
 
-/** Every variable declaration and `function` declaration written directly in `body`, without
- *  descending into anything that owns its own body: those belong to it, as its own owner. */
 export function declarationsIn(body: ts.Node): LocalFunctionDecl[] {
   const out: LocalFunctionDecl[] = [];
   const walk = (n: ts.Node): void => {
@@ -281,67 +217,43 @@ function push(
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }
 
-/** A local function, with where it stands: the function whose body declares it and each one
- *  around that, by node, to the stub each is emitted as, and whose `this` it sees. */
 export interface Lifted {
   readonly fn: LocalFunction;
   readonly around: ReadonlyMap<ts.Node, FuncDecl>;
   readonly self: LiftedThis | undefined;
-  /** Where its body's diagnostics go when not to the file's list: those of a body a class
-   *  inherits, which the class that declared it has said once already (Rule 12.4). */
   readonly said?: TsCompilerDiagnostic[];
 }
 
-/** What `this` is in a local function inside a class's function. */
 export interface LiftedThis {
-  /** The object of the method around it. */
   readonly receiver?: {
     readonly type: ShaderType;
     readonly mode: 'param' | 'inout';
     readonly superMethods?: ReadonlyMap<string, string>;
   };
-  /** The class a static member around it runs for (Rule 8.13). */
   readonly staticOwner?: string;
   readonly staticSuper?: ReadonlyMap<string, string>;
-  /** Whether `this` in its own body is that one: an arrow function, out to the method. */
   readonly bindsThis: boolean;
-  /** How messages name the class's function around it. */
   readonly shown: string;
 }
 
-/** One parameter a local function takes for what it captures, as its body binds it. */
 export interface CaptureBinding {
   readonly key: CaptureKey;
   readonly binding: Binding;
-  /** Whether the body reads it under the variable's own name, which it does unless one of the
-   *  function's own parameters takes that name first. */
   readonly byName: boolean;
 }
 
-/** The name a captured declaration is read under. */
 export function capturedName(key: ts.Node): string {
   const n = (key as { name?: ts.Node }).name;
   return n !== undefined && ts.isIdentifier(n) ? n.text : '?';
 }
 
-/** The variables each local function captures, found for all of them at once (closures.ts),
- *  and the parameters it takes for them, ahead of its own: `self_` for the method's object,
- *  then each variable under its own name. A local function that calls another passes the
- *  callee's captures on, so it captures them too, to a fixed point. A parameter's type is the
- *  variable's, known once the body that declares the variable is lowered; until then it is
- *  `void`, which no variable has (Rule 8.17). */
 export function liftCaptures(
   lifted: readonly Lifted[],
   callees: ReadonlyMap<string, FuncDecl>,
   file: FileFunctions,
-  /** In an instance of a function that takes a function (Rule 8.18), the function each such
-   *  parameter was handed, by the parameter's declaration: a local function that calls it
-   *  passes what it captures, so captures that too. */
   handed: ReadonlyMap<ts.Node, FuncDecl> = new Map(),
 ): void {
   const isLocalFunction = declaresFunction;
-  // Each local function by its declaration, under the function whose body declares it: a body
-  // a class inherits is lowered once per class, and so is every local function in it.
   const at = new Map<FuncDecl, Map<ts.Node, Lifted>>();
   for (const l of lifted) {
     const owner = callees.get(l.fn.ownerName);
@@ -380,8 +292,6 @@ export function liftCaptures(
         for (const k of theirs) {
           if (mine.includes(k)) continue;
           if (k === THIS_CAPTURE) {
-            // A method's object handed on: through the method's own, or through what the
-            // instance around it was handed (Rule 8.18).
             if (l.self?.receiver === undefined && handed.size === 0) continue;
             mine.unshift(k);
           } else {
@@ -400,8 +310,6 @@ export function liftCaptures(
     taken.add('self_');
     const hidden: FuncDecl['params'][number][] = mine.map((k) => {
       if (k === THIS_CAPTURE) {
-        // Typed from the method around it, or, inside an instance that was handed a function
-        // that captures one, when the body declaring it is lowered (`captureBindings`).
         const r = l.self?.receiver;
         if (r === undefined) return { name: 'self_', type: voidT };
         return {
@@ -421,11 +329,6 @@ export function liftCaptures(
   }
 }
 
-/** How the body of `l` binds what it captures: a parameter for each variable, judged on a write
- *  by the variable's own binding and made a reference by the first write through it
- *  (`Binding.capture`), and the method's object, `this` in an arrow function and a value to
- *  hand on in any other. Undefined when the body that declares a variable did not lower it,
- *  which has said why. */
 export function captureBindings(
   l: Lifted,
   file: FileFunctions,
@@ -436,8 +339,6 @@ export function captureBindings(
   for (const [i, k] of keys.entries()) {
     const param = l.fn.stub.params[i]!;
     if (k === THIS_CAPTURE && l.self?.receiver === undefined) {
-      // Inside an instance of a function that takes a function (Rule 8.18): the object the
-      // function it was handed captures, which the instance holds and this one hands on.
       const around = functionAround(l.fn.node);
       const owner = around === undefined ? undefined : l.around.get(around);
       const of = owner === undefined ? undefined : file.declared.get(owner)?.get(k);
@@ -473,9 +374,6 @@ export function captureBindings(
     const around = functionAround(k);
     const declaring = around === undefined ? undefined : l.around.get(around);
     if (declaring === undefined) {
-      // Not a variable of a function around this one: one a function handed to the instance
-      // around it captures (Rule 8.18), which that instance holds and this one only hands on,
-      // since no name in its body can reach it.
       const here = functionAround(l.fn.node);
       const owner = here === undefined ? undefined : l.around.get(here);
       const held = owner === undefined ? undefined : file.declared.get(owner)?.get(k);
@@ -501,19 +399,14 @@ export function captureBindings(
     captures.push({
       key: k,
       byName: true,
-      // The variable's own mutability and constant, so a `const` read in a loop bound still
-      // counts the loop (Rule 7.5); a write is judged by `of` (`writeRules`).
       binding: {
         kind: 'param',
         name: capturedName(k),
         type: of.type,
         mutable: of.mutable,
         ...(of.constValue !== undefined ? { constValue: of.constValue } : {}),
-        // A captured constant of no fixed type is still one in the local function (change 0134).
         ...(of.abstract !== undefined ? { abstract: of.abstract } : {}),
         ...(of.inferred !== undefined ? { inferred: of.inferred } : {}),
-        // A captured variable that carries a constant's origin carries it in the local
-        // function too (Amendment A3, "보수적 추적 규칙": every binding).
         ...(of.carries !== undefined ? { carries: of.carries } : {}),
         irName: param.name,
         capture: {
@@ -528,11 +421,6 @@ export function captureBindings(
   return { captures, receiver };
 }
 
-/** What a call of the local function `callee`, written `written`, passes ahead of its written
- *  arguments: each variable it captures, as the calling body holds it (Rule 8.17), the type of
- *  the parameter taking it settled if nothing had yet. Undefined, having said why, when one is
- *  not declared yet where the call stands, where TypeScript throws; undefined and silent when
- *  its declaration stands before the call and did not lower, which said why there. */
 export function captureArguments(
   callee: FuncDecl,
   written: string,
@@ -561,9 +449,6 @@ export function captureArguments(
       );
       return undefined;
     }
-    // An object parameter that its function writes is passed as any other variable: a value while the local function
-    // only reads it, and the pointer or `inout` parameter itself once it writes it, so the write
-    // reaches the place the parameter names (Rules 8.17 and 8.25).
     const param = callee.params[i]!;
     if (param.type.kind === 'void') (param as { type: ShaderType }).type = b.type;
     out.push({ op: b.kind === 'param' ? 'param' : 'varref', type: b.type, name: irNameOf(b) });
@@ -571,10 +456,6 @@ export function captureArguments(
   return out;
 }
 
-/** Make each parameter a local function takes for a capture a reference when a call it makes
- *  hands that parameter to one a callee writes through: the variable is the caller's to write
- *  back, so the caller must hold it by reference too. To a fixed point, since the chain of
- *  calls may be any length (Rule 8.17). */
 export function propagateCaptureRefs(
   stubs: readonly FuncDecl[],
   callees: ReadonlyMap<string, FuncDecl>,

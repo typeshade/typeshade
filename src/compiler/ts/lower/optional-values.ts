@@ -1,22 +1,3 @@
-// ═══ Lowering an optional value, `T | undefined` (Rule 7.10, change 0088) ═══
-//
-// The type and its struct are `../optional.ts`; the flow walk that narrows a read is
-// `../narrowing.ts`. This file is the lowering of each form an author writes with one:
-//
-//   undefined                  the absent value, where a `T | undefined` is expected
-//   v                          `v.value` where the flow says `v` is present; refused where it
-//                              does not and a `T` is needed (TS8003, in TypeScript's TS18048 place)
-//   v === undefined            `!v.present`; `v !== undefined` is `v.present`
-//   v === x, v === w           `v.present && v.value == x`; both absent compare equal
-//   v ?? d                     `select(d, v.value, v.present)`, `d` evaluated only when absent
-//                              once the Rule 7.9 pass sequences a `d` that writes
-//   o?.f, o?.xy, o?.[i]        `{ value: o.value.f, present: o.present }`
-//   v ??= d                    `if (!v.present) { v = d; }`
-//   v!, o?.m(), if (v)         refused, each with the test to write instead
-//
-// A value read twice (`f(x) ?? d` reads the flag and the value) is bound to a temporary ahead of
-// the statement, since a call runs once; a name or a member of one needs no temporary.
-//
 // Implements: Rule 7.10 (docs/language-design.md; traced in reqs/).
 
 import { peekingReads } from '../abstract-const.js';
@@ -68,15 +49,9 @@ const skipParens = (e: ts.Expression): ts.Expression => {
   return x;
 };
 
-// ─── What each lowered expression gave, before any wrapping (the narrowing's `from`) ───
-
-/** The type each expression lowered to, as written: `1.` is an `f32` even where the position
- *  wrapped it as a present `f32 | undefined`. The flow walk records that `v = e` ran last, and
- *  what `e` gave says whether `v` is present (a `T`) or unknown (an optional). */
 const valueTypes = new WeakMap<ts.Node, ShaderType>();
 const valueTypeTrials: Map<ts.Node, ShaderType>[] = [];
 
-/** Keep an initializer trial from publishing narrowing facts until it is selected (0123). */
 export function captureValueTypes<T>(lower: () => T): { value: T; commit: () => void } {
   const trial = new Map<ts.Node, ShaderType>();
   valueTypeTrials.push(trial);
@@ -108,7 +83,6 @@ export function recordedValueType(node: ts.Node): ShaderType | undefined {
   return valueTypes.get(node);
 }
 
-/** The binding `node` reads when it is a bare name bound to an optional local or parameter. */
 export function optionalBindingOf(node: ts.Expression, scope: LoweringScope): Binding | undefined {
   const x = skipParens(node);
   if (!ts.isIdentifier(x)) return undefined;
@@ -117,8 +91,6 @@ export function optionalBindingOf(node: ts.Expression, scope: LoweringScope): Bi
   return isOptional(b.type) ? b : undefined;
 }
 
-/** Whether `e` is a member path rooted at a name, `h.n` or `h.a.n`, through parentheses and
- *  with no `?.`: what the flow walk narrows beside a name (change 0093, decision D2). */
 export function isMemberPath(e: ts.Expression): e is ts.PropertyAccessExpression {
   const x = skipParens(e);
   if (!ts.isPropertyAccessExpression(x) || x.questionDotToken !== undefined) return false;
@@ -129,9 +101,6 @@ export function isMemberPath(e: ts.Expression): e is ts.PropertyAccessExpression
   return ts.isIdentifier(base);
 }
 
-/** The optional `node` reads as a name or a member path, with its type, lowered once with no
- *  diagnostics; undefined for any other expression or for a value that is no optional. The
- *  refusals that name the test to write use it (`v!`, `if (v)`). */
 export function optionalPathOf(
   node: ts.Expression,
   scope: LoweringScope,
@@ -145,8 +114,6 @@ export function optionalPathOf(
   return { type: value.type, text: node.getText(sourceFile) };
 }
 
-/** What the flow says of the optional `id` reads, a name or a member path: present, absent, or
- *  nothing it can say. */
 export function narrowedStateOf(
   sourceFile: ts.SourceFile,
   id: ts.Identifier | ts.PropertyAccessExpression,
@@ -167,15 +134,11 @@ export function narrowedStateOf(
   return 'present';
 }
 
-/** A read of the optional binding `b` as the IR spells it. */
 export const rawRead = (b: Binding): Expr =>
   b.kind === 'param'
     ? { op: 'param', type: b.type, name: irNameOf(b) }
     : { op: 'varref', type: b.type, name: irNameOf(b) };
 
-// ─── The un-narrowed read ───
-
-/** What the position around `node` takes, for the sentence about an un-narrowed read. */
 function positionPhrase(node: ts.Node, sourceFile: ts.SourceFile): string {
   let at: ts.Node = node;
   while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
@@ -205,8 +168,6 @@ function positionPhrase(node: ts.Node, sourceFile: ts.SourceFile): string {
   return 'this position takes';
 }
 
-/** The TS8003 sentence for an optional read where a `T` is needed, in TypeScript's TS18048
- *  place: the value, the type, what the position takes, and the two edits that work. */
 export function unnarrowedReadSentence(
   node: ts.Node,
   type: ShaderType,
@@ -217,8 +178,6 @@ export function unnarrowedReadSentence(
   const x = skipParens(node as ts.Expression);
   const zero = absentRemedyValue(inner, authorTypeText);
   const head = `"${written}" is "${authorTypeText(type)}" here, and ${positionPhrase(node, sourceFile)} ${anOf(authorTypeText(inner))}.`;
-  // An element access is not narrowed (change 0093, decision D2, a recorded divergence): the
-  // test is written on a copy.
   if (ts.isElementAccessExpression(x)) {
     return (
       `${head} Take it in a const first, "const x = ${written}; if (${presenceTest('x', type)})", or give ` +
@@ -232,10 +191,6 @@ export function unnarrowedReadSentence(
   );
 }
 
-/** Refuse an optional `value` lowered where the position wants its `T` (`contextual`), with
- *  the sentence above on the statement TypeScript reports its TS2322 on; true when refused. A
- *  name reports itself (`lowerIdentifier`); this covers a member path, an element, a call and
- *  any other expression that gives an optional. */
 export function refuseOptionalWhereInnerWanted(
   value: Expr | undefined,
   node: ts.Expression,
@@ -256,9 +211,6 @@ export function refuseOptionalWhereInnerWanted(
   return true;
 }
 
-/** The read of an optional struct field `node`, lowered to `member` (change 0093): its value
- *  where the flow says the path is present, and the optional itself otherwise, for the
- *  position to take or refuse. */
 export function lowerOptionalMember(
   node: ts.PropertyAccessExpression,
   member: Expr,
@@ -271,12 +223,8 @@ export function lowerOptionalMember(
     : narrowOptional(member, narrowingAt(sourceFile, node));
 }
 
-/** `an f32`, `an i32`, `an array<…>`, `a u32`, `a vec2`: the article as the name is read aloud. */
 const anOf = (t: string): string => (/^[aeiofAEIOF]/.test(t) ? `an ${t}` : `a ${t}`);
 
-/** Refuse `value` where a `T` is needed when it is an optional nothing narrowed; true when
- *  refused. The identifier read reports itself (`lowerIdentifier`); this covers a call, a
- *  member read through `?.` and any other expression that gives an optional. */
 export function refuseOptionalUse(
   value: Expr | undefined,
   node: ts.Expression,
@@ -288,9 +236,6 @@ export function refuseOptionalUse(
   return true;
 }
 
-/** The read of an optional local or parameter `b` at `id`, where `contextual` is what the
- *  position declares: the narrowed `v.value` where the flow says `v` is present; the value
- *  itself where an optional is expected; refused otherwise, with the sentence above. */
 export function lowerOptionalRead(
   id: ts.Identifier,
   b: Binding,
@@ -304,15 +249,10 @@ export function lowerOptionalRead(
   const narrowed = narrowOptional(rawRead(b), narrowingAt(sourceFile, id));
   if (isOptional(contextual) && typeKey(optionalInner(contextual)!) === typeKey(inner))
     return narrowed;
-  // On the statement for a `return v;`, where TypeScript puts its TS2322 (Rule 12.4).
   pushDiag(diagnostics, sourceFile, placeOf(id), unnarrowedReadSentence(id, b.type, sourceFile));
   return undefined;
 }
 
-// ─── `undefined` as a value ───
-
-/** `undefined` written as a value: the absent value where an optional is expected, and
- *  refused anywhere else, since it is no value of any other type. */
 export function lowerUndefinedValue(
   node: ts.Expression,
   contextual: ShaderType | undefined,
@@ -333,7 +273,6 @@ export function lowerUndefinedValue(
     );
     return undefined;
   }
-  // On the statement for a `return undefined;`, where TypeScript puts its TS2322 (Rule 12.4).
   pushDiag(
     diagnostics,
     sourceFile,
@@ -345,10 +284,6 @@ export function lowerUndefinedValue(
   return undefined;
 }
 
-// ─── An operand that may be optional, read as it is ───
-
-/** `node` lowered as the value it is, an optional included: a name bound to an optional reads
- *  as the whole value, which `lowerIdentifier` would otherwise refuse as un-narrowed. */
 export function lowerOptionalOperand(
   node: ts.Expression,
   sourceFile: ts.SourceFile,
@@ -360,9 +295,6 @@ export function lowerOptionalOperand(
   return lowerExpression(node, sourceFile, scope, diagnostics);
 }
 
-/** `value`, read more than once: as it is when reading it twice is reading a name or a member
- *  of one, else bound to a temporary ahead of the statement. Undefined, having said why,
- *  where no statement can take the temporary (a loop's condition, a module constant). */
 function once(
   value: Expr,
   node: ts.Expression,
@@ -392,8 +324,6 @@ const readsOnce = (e: Expr): boolean =>
   (e.op === 'member' && readsOnce(e.base)) ||
   (e.op === 'index' && readsOnce(e.base) && readsOnce(e.idx));
 
-// ─── `v === undefined` and `v === x` ───
-
 const EQUALITY: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.EqualsEqualsEqualsToken,
   ts.SyntaxKind.EqualsEqualsToken,
@@ -404,9 +334,6 @@ const EQUALITY: ReadonlySet<ts.SyntaxKind> = new Set([
 const isEqualsOp = (k: ts.SyntaxKind): boolean =>
   k === ts.SyntaxKind.EqualsEqualsEqualsToken || k === ts.SyntaxKind.EqualsEqualsToken;
 
-/** `v === undefined` and its three spellings, in either order: the flag, or its negation.
- *  Loose `v == null` and `v != null` use the same presence flag (change 0098, D4).
- *  'not-a-test' when the comparison is not a supported presence test. */
 export function lowerUndefinedTest(
   node: ts.BinaryExpression,
   sourceFile: ts.SourceFile,
@@ -458,8 +385,6 @@ export function lowerUndefinedTest(
       );
 }
 
-/** `v === x` where one or both operands are optional (Rule 7.10): ECMAScript's result. Two
- *  absent values are equal; an absent value equals no `T`. 'not-optional' when neither is. */
 export function lowerOptionalEquality(
   node: ts.BinaryExpression,
   left: Expr,
@@ -511,12 +436,10 @@ export function lowerOptionalEquality(
   const rv = ro !== undefined ? valueOf(r, inner) : r;
   const sameValue: Expr =
     inner.kind === 'vec'
-      ? // Componentwise, as `===` on two vectors is (§27): a vector of bools picked by the flag.
-        { op: 'compare', type: { kind: 'vec', n: inner.n, elem: 'bool' }, cop: '==', a: lv, b: rv }
+      ? { op: 'compare', type: { kind: 'vec', n: inner.n, elem: 'bool' }, cop: '==', a: lv, b: rv }
       : { op: 'compare', type: boolT, cop: '==', a: lv, b: rv };
   let both: Expr;
   if (lo !== undefined && ro !== undefined) {
-    // Equal flags, and equal values when both are there.
     const flags: Expr = {
       op: 'compare',
       type: boolT,
@@ -612,11 +535,6 @@ const notVec = (m: Expr): Expr => {
   };
 };
 
-// ─── `v ?? d` ───
-
-/** `v ?? d`: `v.value` when `v` is present, `d` otherwise. The Rule 7.9 pass makes an `if` of
- *  the `select` when `d` writes, so `d` runs only when `v` is absent. A `v` that is no
- *  optional is itself, as ECMAScript reads it; `d` is still checked. */
 export function lowerNullish(
   node: ts.BinaryExpression,
   sourceFile: ts.SourceFile,
@@ -628,13 +546,9 @@ export function lowerNullish(
   if (left === undefined) return undefined;
   const inner = optionalInner(left.type);
   if (inner === undefined) {
-    // Never absent: the left operand is the value. TypeScript accepts the form and so does
-    // this; the right operand is lowered for its own mistakes and dropped.
     lowerExpression(node.right, sourceFile, scope, [], left.type);
     return left;
   }
-  // The right operand takes the left's own type as its context, so `v ?? 1` takes an i32's
-  // literal and `v ?? w` with an optional `w` keeps the result optional.
   const v = once(left, node.left, sourceFile, scope, diagnostics);
   if (v === undefined) return undefined;
   const rightMark = scope.hoistMark();
@@ -652,8 +566,7 @@ export function lowerNullish(
       'present'
       ? rawRead(rightName)
       : isMemberPath(node.right)
-        ? // A member path reads as it is, `a ?? h.k`: an optional keeps the result optional.
-          lowerExpression(node.right, sourceFile, scope, diagnostics)
+        ? lowerExpression(node.right, sourceFile, scope, diagnostics)
         : lowerExpression(node.right, sourceFile, scope, diagnostics, rightCtx);
   const rightSetup = scope.takeHoisted(rightMark);
   if (right === undefined) return undefined;
@@ -676,7 +589,6 @@ export function lowerNullish(
   return undefined;
 }
 
-/** `v ??= d` as a statement: `if (!v.present) { v = d; }`. */
 export function lowerNullishAssign(
   node: ts.BinaryExpression,
   sourceFile: ts.SourceFile,
@@ -685,7 +597,6 @@ export function lowerNullishAssign(
 ): Stmt | undefined {
   const b = optionalBindingOf(node.left, scope);
   if (b === undefined) {
-    // `h.k ??= d` on an optional field (change 0093): the place, as an assignment takes it.
     const place = isMemberPath(node.left)
       ? lowerLValue(node.left, sourceFile, scope, diagnostics)
       : lowerOptionalOperand(node.left, sourceFile, scope, diagnostics);
@@ -759,11 +670,6 @@ export function lowerNullishAssign(
   };
 }
 
-// ─── `o?.f`, `o?.xy`, `o?.[i]` ───
-
-/** Whether `e` continues an optional chain, `o?.a` of `o?.a.b` (ECMAScript: the `?.` short-
- *  circuits the whole chain, so `.b` reads a member of a present `o?.a`). Parentheses end a
- *  chain, as they do in ECMAScript. */
 export function continuesOptionalChain(e: ts.Expression): boolean {
   let x: ts.Expression = e;
   for (;;) {
@@ -781,8 +687,6 @@ export function continuesOptionalChain(e: ts.Expression): boolean {
   }
 }
 
-/** A member, a swizzle or an element of a present `o`, as an optional of its type. `read`
- *  lowers the access as if `o` were the value it holds; this binds `o` once and wraps it. */
 export function lowerOptionalChain(
   node: ts.PropertyAccessExpression | ts.ElementAccessExpression,
   sourceFile: ts.SourceFile,
@@ -794,7 +698,6 @@ export function lowerOptionalChain(
   if (obj === undefined) return undefined;
   const inner = optionalInner(obj.type);
   if (inner === undefined) {
-    // `?.` on a value that is always there reads as `.`, as TypeScript reads it.
     scope.setChainAlias(node.expression, () => obj);
     return read();
   }
@@ -816,15 +719,9 @@ export function lowerOptionalChain(
       ifFalse: absentOf(out, memberInner, (n) => scope.structByName(n), 1),
     };
   }
-  // `{ value: o.value.f, present: o.present }`: an absent `o` holds its zero, so the member
-  // read is harmless and the flag alone says what the result is.
   return { op: 'construct', type: optionalT(member.type), args: [member, presentFlagOf(o)] };
 }
 
-// ─── The refusals ───
-
-/** The sentence for an optional where a condition is read (`if (v)`, `v && …`): a condition
- *  is a bool, and the test to write names the flag. */
 export function optionalConditionSentence(
   node: ts.Expression,
   scope: LoweringScope,
@@ -841,7 +738,6 @@ export function optionalConditionSentence(
   return `A condition is a bool, and "${name}" is "${authorTypeText(b.type)}". Write ${remedy}.`;
 }
 
-/** `v!` on an optional: refused, since a shader cannot check the assertion (decision D6). */
 export function refuseNonNull(
   node: ts.NonNullExpression,
   scope: LoweringScope,
@@ -863,8 +759,6 @@ export function refuseNonNull(
   return true;
 }
 
-/** `o?.m()` and `f?.()`: refused. A call has effects, and a shader has no function value to
- *  test. */
 export function refuseOptionalCall(
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
@@ -891,12 +785,6 @@ export function refuseOptionalCall(
   return true;
 }
 
-/** Whether a function that writes no result type returns `T | undefined` (Rule 8.19), read
- *  from its body before it is lowered: it has a `return undefined;` (change 0088), or it has a
- *  `return` with a value beside a bare `return;` or beside a path that ends the body without a
- *  `return` (change 0099), which TypeScript reads as `undefined` too. A body whose returns are
- *  all bare returns nothing, as today. Closures are not read, since each has a result of its
- *  own. */
 export function bodyReturnsAbsence(body: ts.Block): number {
   let absence = 0;
   let bare = false;
@@ -915,11 +803,6 @@ export function bodyReturnsAbsence(body: ts.Block): number {
   return absence | ((valued || absence !== 0) && (bare || !blockAlwaysReturns(body)) ? 1 : 0);
 }
 
-/** Whether every path through `block` ends in a `return` or a `discard`, read on the syntax
- *  tree with the same rules the IR lint `all-paths-return` applies to the lowered body: the
- *  last statement is a `return`, a `discard`, a block that always returns, an `if` whose arms
- *  and `else` all do, or a `switch` whose clauses and `default` all do. A loop is read as
- *  falling through, as the lint reads it. */
 function blockAlwaysReturns(block: ts.Block): boolean {
   return statementsAlwaysReturn(block.statements);
 }
@@ -950,10 +833,6 @@ function statementTerminates(s: ts.Statement): boolean {
   return false;
 }
 
-/** The initializer of a declaration that writes no type, when it is an optional local or
- *  parameter (Rule 7.10): its value where the flow says it is present, as TypeScript types
- *  `const w = v` there, and the whole optional otherwise, so `w` is one too. Undefined when the
- *  initializer is anything else, which lowers as usual. */
 export function lowerOptionalInitializer(
   init: ts.Expression,
   sourceFile: ts.SourceFile,
@@ -971,8 +850,6 @@ export function lowerOptionalInitializer(
   return value;
 }
 
-/** Convert a proven partial narrowing to its remaining optional type. Reads here are stable
- * local/member paths, so the flag and value can be read without repeating a call. */
 function narrowOptional(value: Expr, state: ReturnType<typeof narrowingAt>): Expr {
   const old = optionalAbsence(value.type)!;
   if (typeof state !== 'number' || old !== 3) return value;
@@ -985,8 +862,6 @@ function narrowOptional(value: Expr, state: ReturnType<typeof narrowingAt>): Exp
   };
 }
 
-/** Widen an optional representation at an expression boundary. Reference parameters do not
- * use this conversion: their storage must have exactly the declared logical type. */
 export function convertOptional(
   value: Expr,
   target: ShaderType,
