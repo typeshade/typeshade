@@ -65,6 +65,8 @@ export const MOCKS = [
   'src/compiler/ts/host-face-subgroup.test.ts',
   'src/runtime/gl-compute-host.test.ts',
   'src/runtime/gl-compute-textures.test.ts',
+  'src/move-declarations-placement.test.ts',
+  'src/language-service/hover-definition-queries.test.ts',
 ];
 
 // This file ran slower after other tests in the shared-worker measurements.
