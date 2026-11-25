@@ -8,32 +8,6 @@
 // Input is a ModuleDecl, never emitted text: the whole point is to compare ABOVE the
 // noise the backends and optimizer passes introduce. Byte-level comparison already
 // has an owner (examples/emit-goldens.test.ts).
-//
-// NO `target` OPTION, deliberately. X-GIS #1714 proposed one, for a cross-backend arm
-// asserting "the GLSL emit and the WGSL emit agree". That arm is vacuous as written:
-// reflect() takes a ModuleDecl and never a backend (reflect.ts), so both sides of
-// that comparison are the same value and it can never go red. The real cross-backend
-// question — does each backend's emitted SOURCE agree with the reflection describing
-// it — needs to read emitted text and is tracked separately on that issue.
-//
-// `ignore` carries 'names' and 'declOrder' and NOT the proposed 'temporaries'. An
-// optimizer-introduced temporary is either just a local name (already covered by
-// 'names') or a real change to the statement tree — and a knob that discards the
-// latter would hide exactly the regressions this exists to catch. A flag that cannot
-// distinguish the states it claims to control is the §12 "assertion that failed
-// either way" at the API layer, so it is absent rather than accepted-and-ignored.
-//
-// `transforms` (X-GIS #1806) classifies BY CONSTRUCTION, never by pattern. A consumer's
-// dev↔prod comparison is dominated by the transforms its own build declares
-// (`inline()` rewrites call sites and duplicates literals), and X-GIS #1806's ask is that
-// those stop spending the same regression budget as a backend or interface error —
-// WITHOUT a blind ignore. So the declared plugin list — the same array the production
-// emit call takes — is applied to the reference side step by step, and a diff line is
-// reclassified as `explained` only when the actual pass output accounts for it;
-// whatever survives every declared transform stays in the four fail-able buckets. The
-// rejected alternative was a category matcher ("this difference looks like inlining"):
-// a resemblance test cannot distinguish an intentional inline from a regression that
-// happens to resemble one, which is the 'temporaries' knob above wearing a new name.
 
 import { typeKey, type ShaderType } from './ir/types.js';
 import {
@@ -505,6 +479,9 @@ function resolvedLines(prev: readonly string[], next: readonly string[]): string
   return out;
 }
 
+// Why: no `target` option, because X-GIS #1714's cross-backend arm was vacuous (reflect() takes no backend).
+// `ignore` has no 'temporaries': it could not tell a temporary's name from a changed statement tree.
+// `transforms` classify by construction, never by pattern: a resemblance test would pass a regression.
 /** Compare two modules at the IR and reflection layer. A textual diff of emitted source is
  *  hard to read once the optimizer and the production plugins have run; this comparison
  *  works above that noise.

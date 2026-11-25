@@ -4,6 +4,12 @@ import type { DeclarableCapability } from './nodes/capabilities.js';
 import type { BinOp, CmpOp, LogOp } from './nodes/operators.js';
 import type { StructDecl } from './nodes/struct-decl.js';
 import type { OverrideDecl, BindingDecl, ExternVarDecl } from './nodes/host-interface-decls.js';
+import type { DiagnosticDirective, WorkgroupShape } from './nodes/entry-and-directive.js';
+export type {
+  DiagnosticDirective,
+  WorkgroupShape,
+  EntryParam,
+} from './nodes/entry-and-directive.js';
 export type {
   OverrideDecl,
   AddressSpace,
@@ -584,12 +590,6 @@ export interface ModuleDecl {
   readonly diagnostics?: readonly DiagnosticDirective[];
 }
 
-/** One WGSL `diagnostic(severity, rule);` directive. */
-export interface DiagnosticDirective {
-  readonly severity: 'off' | 'info' | 'warning' | 'error';
-  readonly rule: string;
-}
-
 /** The stage of a function declaration: `'vertex'`, `'fragment'` or `'compute'` for an
  *  entry point, `undefined` for a helper. It reads the structured `stage` field first and
  *  falls back to the `attrs` strings for a hand-built `FuncDecl` literal. Every stage
@@ -607,11 +607,6 @@ export const stageOf = (
       : f.attrs?.some((a) => a.startsWith('@compute'))
         ? 'compute'
         : undefined);
-
-/** The `x`, `y` and `z` extents of a compute entry's workgroup, WGSL's `@workgroup_size(x, y, z)`.
- *
- *  Exported from `typeshade`, `typeshade/core/ir`. */
-export type WorkgroupShape = readonly [number, number, number];
 
 /** The `x` workgroup size of a compute entry: the structured `workgroupSize` field first,
  *  then the `@workgroup_size(n)` attribute string; `undefined` when neither is present. A
@@ -639,11 +634,3 @@ export const workgroupShapeOf = (
     .find(Boolean);
   return m ? [Number(m[1]), Number(m[2] ?? 1), Number(m[3] ?? 1)] : undefined;
 };
-
-/** An entry-point parameter: it carries a `@builtin(...)` or a `@location(n)`. */
-export interface EntryParam {
-  readonly name: string;
-  readonly type: ShaderType;
-  readonly builtin?: string;
-  readonly location?: number;
-}
