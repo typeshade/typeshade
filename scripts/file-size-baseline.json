@@ -64,7 +64,7 @@
   "src/compiler/ts/lower/new-target.ts": 522,
   "src/compiler/ts/lower/optional-values.ts": 1024,
   "src/compiler/ts/lower/statement.ts": 2912,
-  "src/compiler/ts/module-const.ts": 1031,
+  "src/compiler/ts/module-const.ts": 827,
   "src/compiler/ts/module-vars.test.ts": 617,
   "src/compiler/ts/module-vars.ts": 787,
   "src/compiler/ts/narrowing.ts": 818,
