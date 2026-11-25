@@ -43,7 +43,7 @@ Facts, read at `main` `49a41425`:
 - Rule 7.9 (`docs/language-design.md`, lines 715 and 716): "An expression must be evaluated left to right, as TypeScript and WGSL both evaluate it, and a call that writes … inside a larger expression must take effect in that order on every target." Line 716 adds: "a call TypeScript evaluates conditionally, in an arm of `?:` or the right operand of `&&` or `||`, keeps its condition as an `if`." The rule does not name `select`. The rule's own sources include WGSL's "Function call argument values are evaluated. The relative order of evaluation is left-to-right." (`docs/language-design.md`, Rule 7.9, Derives from).
 - The surface (`docs/use-typeshade-surface.md`, line 840, §10): "`select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds; a vector-of-bools `c` picks per component (§27)".
 - The editor's text (`src/language-service/docs.ts`, line 303, `FUNCTION_DOCS.select`): "… Compiles to the same code as a ternary over `cond`."
-- The doc comment above `lowerSelectCall` (`src/compiler/ts/lower/expression-call.ts`, lines 1396 to 1401) says the same: "It lowers to the `select` Expr op, the very node `cond ? trueValue : falseValue` already lowers to, so the two spellings are one IR". The comment sits above `lowerStructuredClone`, not above `lowerSelectCall` (line 1465).
+- The doc comment above `lowerSelectCall` (`src/compiler/ts/lower/expression-call.ts`, lines 1396 to 1401) says the same: "It lowers to the `select` Expr op, the very node `cond ? trueValue : falseValue` already lowers to, so the two spellings are one IR". The comment at `sequence.ts` lines 468 and 469 says both arms are evaluated "in the order they are written", which is false for a vector condition today. The implementation removes it or makes it true. The comment of `expression-call.ts` sits above `lowerStructuredClone`, not above `lowerSelectCall` (line 1465).
 
 TypeScript evaluates every argument of a call, left to right. The WGSL specification (section 11.2) says the same of a function call, and `select` is a builtin function there (section 17.3.3). The surface says `select` is the ternary. The ternary evaluates one arm. The two texts give an author two different programs.
 
@@ -98,7 +98,7 @@ An author who wants the old behaviour, one call, writes `const v = uv.y > 0.5 ? 
 
 ### Probes of the other programs
 
-All values below were probed on 2026-11-25 at `49a41425` with `r.eval('fs', [[0.5, uv.y]])`. They match the table that the orchestrating session gave. The WGSL emit of B and D2 was read. The GLSL emit was not read for these programs, so "the three outputs agree" is not re-checked here.
+All values below were probed on 2026-11-25 at `49a41425` with `r.eval('fs', [[0.5, uv.y]])`. The WGSL emit of B and D2 was read. The GLSL emit was not read for these programs, so "the three outputs agree" is not re-checked here.
 
 | Program                                                                                                | Today                                                                               | Left to right, all three evaluated           |
 | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- | -------------------------------------------- |
@@ -116,30 +116,36 @@ Facts about today's code:
 - `lowerSelectCall` (`src/compiler/ts/lower/expression-call.ts`, line 1465) lowers each argument, checks the types and returns `{ op: 'select', type, cond, ifTrue, ifFalse }` (line 1548).
 - `c ? t : f` lowers to the same IR op (`src/compiler/ts/lower/expression.ts`, line 382, and `scope.selectWithSetup` in `src/compiler/ts/context.ts`, line 1126, which builds a branch when an arm needs setup). The `??` lowering, the index lowering and the array-method lowerings build the same op too.
 - `sequenceEffects` (`src/compiler/ts/sequence.ts`) runs on the IR that the front end built. Its header says "every consumer sees the one order: both writers, the CPU oracle, the codegen and the debugger". Its `select` case (lines 467 to 495) cannot tell the spellings apart. For a vector condition it sequences `cond`, `ifTrue`, `ifFalse` (that is not the written order `f`, `t`, `c`). For a scalar condition with an arm that writes, it emits `var t; if (cond) { t = ifTrue } else { t = ifFalse }`.
-- A vector condition cannot come from `?:`, because `?:` takes a `bool`. So the vector branch serves explicit `select` calls alone.
+- Inference, not proved by a grep: a vector condition does not come from `?:`, because TypeScript's `?:` takes one `bool`. The vector branch then serves explicit `select` calls alone. The implementation confirms it in `lowerSelect`.
 - The write sets of a callee (`writesOf`, `callWrites`) are computed inside `sequence.ts`, over the whole module. The lowering of one call does not have them (inference from the code read).
 
 #### Design 1: a marker on the IR node, read by `sequence.ts` (proposed)
 
-`lowerSelectCall` sets an optional field on the node, for example `ordered: true`. `sequence.ts` reads it. For a marked node it sequences the three children with `seqList` in the order `ifFalse`, `ifTrue`, `cond`, with no `if`, and it returns an unmarked `select` node. An unmarked node keeps the code of today.
+The design in three steps (proposal):
+
+1. `lowerSelectCall` sets an optional field on the node, for example `ordered: true`.
+2. The `select` case of `sequence.ts` reads the field. For a marked node it calls `seqList` on `ifFalse`, `ifTrue`, `cond`, in that order, and builds no `if`.
+3. A strip step removes the field from every marked node after sequencing, including a node with no call that writes.
+
+Step 3 is needed. `seqExpr` returns early when an expression holds no call that writes (`sequence.ts`, line 392: `if (!hasWrite(e, fn)) return e;`), so a pure `select(0., 1., hit)` never reaches the `select` case. Without step 3 its marker would reach every pass and backend. An unmarked node keeps the code of today.
 
 - Cost for the IR: one optional field of `Expr` in `src/core/ir/nodes.ts`. A consumer that does not read it is unchanged.
-- Cost for the backends and the CPU oracle: none. `sequenceEffects` removes the marker, so the WGSL writer, the GLSL writer, the CPU oracle, the codegen and the debugger see an ordinary `select` whose arms hold no call that writes (each such call is a `let` ahead of the statement). This relies on the header claim quoted above, which the implementation must test, with the debugger and the codegen included.
-- Cost for the other producers of `select` (`??`, index select, array methods, `?:`): none. They do not set the marker, so `v ?? d` keeps its `if` when `d` writes (Rule 7.9).
+- Cost for the backends and the CPU oracle: none. After step 3 the WGSL writer, the GLSL writer, the CPU oracle, the codegen and the debugger see an ordinary `select`. Its arms hold no call that writes: each such call is a `let` ahead of the statement. This rests on the header claim quoted above (inference). `sequenceEffects` is called at `src/compiler/ts/source-file.ts`, line 463, after every function is lowered. The implementation must test it with the debugger and the codegen. It must also list the front-end passes that read the node before that line, such as the uniformity analysis of Rule 8.5.
+- Cost for the other producers of `select` (`??`, index select, array methods, `?:`): none. Every constructor of `select` other than `lowerSelectCall` leaves the field unset (25 sites by `grep -rn "op: 'select'" src`). So `v ?? d` keeps its `if` when `d` writes (Rule 7.9). A pass that copies a node with `...e` would copy a marker, which is one more reason for step 3.
 - A `select` without a call that writes in any argument emits the same text as today. The implementation holds this with the emit goldens of `examples/__emit-goldens__/` (`bool-select.wgsl`, `tile-pattern.wgsl` and the others that contain `select(`): the goldens must not change.
 
 #### Design 2: bind each argument in the lowering
 
 `lowerSelectCall` binds each argument that needs it to a temporary, in source order, with `scope.hoistTemp`, and then builds the plain node.
 
-- Cost: the lowering must know which arguments write. That knowledge is in `sequence.ts`, so the lowering would copy it or run it. `hoistTemp` is allowed only where `canHoist()` is true (`src/compiler/ts/context.ts`, line 1092), and some positions are not hoistable, so the proposal would need a second path for those.
+- Cost: the lowering must know which arguments write. That knowledge is in `sequence.ts`, so the lowering would copy it or run it. `hoistTemp` is allowed only where `canHoist()` is true (`src/compiler/ts/context.ts`, line 1106). Some positions may not be hoistable (inference), and then a second path is needed.
 - Benefit: no new IR field. It spreads the order rule over two files.
 
 #### Design 3: a separate IR node (`selectAll`)
 
-- Cost: `case 'select'` appears in about 45 places across the IR visitors, the passes, the CPU oracle, the codegen, the debugger, the fp64 pass and both writers (`grep -rn "case 'select'" src`). Each needs a twin or a shared branch, or `sequence.ts` rewrites the node first, which is Design 1 with a larger type change.
+- Cost: `case 'select'` appears in 45 matches (tests included) across the IR visitors, the passes, the CPU oracle, the codegen, the debugger, the fp64 pass and both writers (`grep -rn "case 'select'" src`). Each needs a twin or a shared branch, or `sequence.ts` rewrites the node first, which is Design 1 with a larger type change.
 
-**Proposal: Design 1.** It has the smallest change to shared code. It puts the order rule in the one file that holds Rule 7.9 (`sequence.ts`), and it hands every backend and the CPU oracle the IR it takes today. A leftover marker is a risk: the implementation must test that no marker survives `sequenceEffects`.
+**Proposal: Design 1.** It changes shared code least. It keeps the order rule in `sequence.ts`, the one file that holds Rule 7.9. It hands every backend and the CPU oracle the IR they take today. A leftover marker is a risk. The implementation must test that no marker survives.
 
 ### The text of Rule 7.9
 
@@ -161,12 +167,12 @@ Read and kept, because each stays true (the sentence names the operator that `?:
 
 - §13, lines 1403 and 1450 (`select` in a list of places a value keeps its origin).
 - §19, line 2778 (a `select` as a statement is refused).
-- §31, lines 5040 to 5058 (the cost rule and the hoisting of a costly arm). These sentences describe `?:`. A pure, costly arm of an explicit `select` may still be skipped by the optimizer, because no program can observe it. A call that writes is never skipped (inference from `select-composite.ts` and `sequence.ts`; the implementation must test it).
+- §31, line 5034 and lines 5040 to 5058 (the cost rule and the hoisting of a costly arm). These sentences describe `?:`. A pure, costly arm of an explicit `select` may still be skipped by the optimizer, because no program can observe it. A call that writes is never skipped (inference from `select-composite.ts` and `sequence.ts`; the implementation must test it).
 - §49, lines 6657 to 6666 (what the editor accepts).
 - §54, lines 7502 and 7536 to 7538 ("A `?:` that picks a scalar or a vector is `select`, which evaluates both arms"). With Design 1 an explicit `select` evaluates all arms in the source too, so the sentence stays true.
 - §76, lines 12590 and 12598 (the lowering of `??` and of optional comparisons).
 
-`docs/ir-builder.md` (lines 136 and 137) describes the IR builder's free `select(cond, a, b)`, a different surface with the condition first. It is not changed.
+`docs/ir-builder.md` (line 134, the `cond.select(a, b)` row, and lines 136 and 137) describes the IR builder's free `select(cond, a, b)`, a different surface with the condition first. It is not changed.
 
 ### The editor's text
 
@@ -183,7 +189,7 @@ The implementation adds one test file next to `src/compiler/ts/sequence.test.ts`
 1. Programs A, B, C and D2 with `bothTake`, and the values of the table above through `agree`-style checks of the oracle, the codegen and the debugger (the shape of `agree` in `sequence.test.ts`). B asserts two `Rng_next` calls in the WGSL and in the GLSL.
 2. The control: the test "an arm of ?: runs only when it is chosen, which select would not do" (`sequence.test.ts`, line 96) stays and passes unchanged.
 3. A pure-argument control: `select(0., 1., hit)` (`sequence.test.ts`, lines 113 and 122) still compiles to the text of today.
-4. A test that no `ordered` marker is left in the IR after `sequenceEffects`, for each program.
+4. A test that no `ordered` marker is left in the IR after sequencing, for each program and for a pure `select(0., 1., hit)`.
 5. A hover test: `bothTake(...).hover('select')` contains "all evaluated, in that order".
 6. A test of `??` with a call that writes in `d`: it stays an `if`.
 
@@ -211,7 +217,7 @@ This proposal reverses no entry. The decision of 2026-11-25, recorded above, is 
 
 ## Why the compiler cannot do it
 
-Not applicable: this proposal adds no author-facing name, rule, diagnostic code or surface form. It changes the meaning of an existing rule's reading for one builtin, and the compiler cannot choose it for the author. Whether an arm runs is visible in the program's result (program B), so the owner decides it, and did.
+Not applicable: this proposal adds no author-facing name, rule, diagnostic code or surface form. It fixes the reading of one builtin. The compiler cannot choose that reading for the author. Whether an arm runs is visible in the program's result (program B), so the owner decides it, and did.
 
 ## What it touches
 
@@ -242,7 +248,7 @@ This record does not yet apply. Delivery will require the implementing pull requ
 
 ## Open items and out of scope
 
-- Other builtins: `mix`, `clamp` and `step` evaluate their arguments left to right today (probed above), and `sequence.ts` gives no builtin call other than `select` a special case among the cases of `seqExpr`: `call`, `binop`, `compare`, `unop`, `construct`, `member`, `index`, `logical` and `select` (`src/compiler/ts/sequence.ts`, lines 380 to 495). The proposal does not widen to them.
+- Other builtins: `mix`, `clamp` and `step` evaluate their arguments left to right today (probed above), and `sequence.ts` gives no builtin call other than `select` a special case among the cases of `seqExpr`: `call`, `binop`, `compare`, `unop`, `construct`, `member`, `index`, `logical` and `select` (`src/compiler/ts/sequence.ts`, `seqNode`, lines 405 to 495). The proposal does not widen to them.
 - The producers of `select` that are not an explicit call (`??`, index select, array methods) keep their behaviour. Whether the marker is better named by what it says (`ordered`) or by what it forbids is an implementation choice.
 - The editor does not report a call that writes inside an argument of `select`. No diagnostic is proposed.
 
