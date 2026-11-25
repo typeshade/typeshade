@@ -1,100 +1,49 @@
 // Implements: Rule 6.6, Rule 7.10 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
-import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
-import { relatedSitesOf } from '../compiler/ts/diagnostic.js';
 import { entryNode } from '../compiler/ts/entry-locations.js';
-import { referenceOf } from '../compiler/ts/lower/references.js';
 import { linkedCompileOf, type CompileTsSourceResult } from '../compiler/ts/source-file.js';
 import {
   abstractConstTableOf,
-  copyCallAt,
-  copyCallParamsAt,
   hasResultCopies,
-  resultCopiesAt,
   type DeclaredSymbol,
 } from '../compiler/ts/symbols.js';
 import { ioAttrOf, retIoAttrOf } from '../core/ir/entry-io.js';
 import type { FuncDecl } from '../core/ir/nodes.js';
 import type { ShaderType } from '../core/ir/types.js';
-import { wgslType } from '../core/backends/wgsl.js';
-import { optionalInner, optionalAbsence } from '../compiler/ts/optional.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
 import { ATTRIBUTE_DOCS, BUILTIN_DOCS, TYPE_DOCS } from './docs.js';
 import { rangeForSpan, touchingNodeAtPosition, wordSpan } from './positions.js';
 import type { TypeshadeHover } from './types.js';
+import { nodeAt } from './hover/node-at.js';
+import type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
+import { spellShaderType, typesOf, withDeclaredName } from './hover/spell-type.js';
+import { resourceBindingLine, bindingLine } from './hover/binding-line.js';
+import { linkedFieldAt } from './hover/linked-field.js';
+import { ROLES, fieldLine, type FieldFacts } from './hover/field-line.js';
+import { shownNames } from './hover/shown-names.js';
+import { refusalCode } from './hover/refusal-code.js';
 import {
-  collectionKeyOf,
-  keysOf,
-  keyTypeText,
-  recordOf,
-  recordKeyText,
-} from '../compiler/ts/key-types.js';
-
-function isBuiltinStringLiteral(node: ts.Node): node is ts.StringLiteralLike {
-  if (!ts.isStringLiteralLike(node)) return false;
-  if (isBuiltinTypeLiteral(node)) return true;
-  const call = node.parent;
-  return (
-    ts.isCallExpression(call) &&
-    ts.isIdentifier(call.expression) &&
-    call.expression.text === 'builtin' &&
-    call.arguments[0] === node
-  );
-}
-
-function isAttributeName(node: ts.Node): node is ts.Identifier {
-  if (!ts.isIdentifier(node)) return false;
-  const parent = node.parent;
-  if (ts.isDecorator(parent) && parent.expression === node) return true;
-  return ts.isCallExpression(parent) && parent.expression === node && ts.isDecorator(parent.parent);
-}
-
-function isTypeName(node: ts.Node): node is ts.Identifier {
-  return (
-    ts.isIdentifier(node) && ts.isTypeReferenceNode(node.parent) && node.parent.typeName === node
-  );
-}
-
-function topLevelVariableNamed(
-  sourceFile: ts.SourceFile,
-  name: string,
-): ts.VariableDeclaration | undefined {
-  for (const stmt of sourceFile.statements) {
-    if (!ts.isVariableStatement(stmt)) continue;
-    for (const decl of stmt.declarationList.declarations) {
-      if (ts.isIdentifier(decl.name) && decl.name.text === name) return decl;
-    }
-  }
-  return undefined;
-}
-
-function resourceBindingLine(
-  analysis: CompileTsSourceResult,
-  sourceFile: ts.SourceFile,
-  uri: string,
-  defs: readonly ts.DefinitionInfo[],
-  node: ts.Node,
-): string | undefined {
-  if (!ts.isIdentifier(node)) return undefined;
-  const binding = analysis.bindings.find((b) => b.name === node.text);
-  if (binding === undefined) return undefined;
-  const decl = topLevelVariableNamed(sourceFile, node.text);
-  if (decl === undefined) return undefined;
-  const declStart = decl.name.getStart(sourceFile);
-  if (!defs.some((d) => d.fileName === uri && d.textSpan.start === declStart)) return undefined;
-  return bindingLine(binding);
-}
-
-function bindingLine(binding: CompileTsSourceResult['bindings'][number]): string {
-  const mode = binding.space === 'storage' ? `${binding.access ?? 'read'} ` : '';
-  const slot = `@group(${binding.group}) @binding(${binding.binding})`;
-  return `${mode}${binding.space} resource at ${slot}`;
-}
+  isReferenceParam,
+  referenceLine,
+  ownerOf,
+  declarationLine,
+} from './hover/declaration-line.js';
+import { resultCopiesLine, importedCallLine } from './hover/result-copies-line.js';
+import { abstractConstLine } from './hover/abstract-const-line.js';
+import {
+  oneOf,
+  declaredSymbolAt,
+  readsFromCompiler,
+  unlinkedSymbolAt,
+  implementationsOf,
+  type ImportedSymbol,
+} from './hover/symbol-lookup.js';
+import { isBuiltinStringLiteral, isAttributeName, isTypeName } from './hover/syntax-kinds.js';
+export { spellShaderType } from './hover/spell-type.js';
+export type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
 
 const isRenderEntry = (f: FuncDecl): boolean => f.stage === 'vertex' || f.stage === 'fragment';
-
-const ROLES = ['vertex attribute', 'value between stages', 'render target'] as const;
 
 function rolesOfStruct(analysis: CompileTsSourceResult, struct: string): string[] {
   const is = (t: ShaderType): boolean => t.kind === 'struct' && t.name === struct;
@@ -105,12 +54,6 @@ function rolesOfStruct(analysis: CompileTsSourceResult, struct: string): string[
   );
   const target = entries.some((f) => f.stage === 'fragment' && is(f.ret));
   return ROLES.filter((_, i) => [attribute, between, target][i]);
-}
-
-interface FieldFacts {
-  readonly roles: readonly string[];
-  readonly location: number | undefined;
-  readonly builtin?: boolean;
 }
 
 function fieldFacts(
@@ -127,40 +70,6 @@ function fieldFacts(
     location: attr.location,
     builtin: attr.builtin !== undefined,
   };
-}
-
-function fieldLine(facts: FieldFacts | undefined): string | undefined {
-  if (facts?.location === undefined) return undefined;
-  const what = facts.roles.length > 0 ? facts.roles.join(' and ') : 'user-defined input or output';
-  return `${what} at @location(${String(facts.location)})`;
-}
-
-function linkedFieldAt(
-  analysis: CompileTsSourceResult,
-  fileName: string,
-  start: number,
-): DeclaredSymbol | undefined {
-  const linked = linkedCompileOf(analysis);
-  if (linked === undefined) return undefined;
-  for (const symbol of linked.symbols) {
-    if (symbol.kind !== 'field') continue;
-    const written = linked.linked.map(symbol.start, symbol.start + symbol.length);
-    if (written?.file.name === fileName && written.start === start) return symbol;
-  }
-  return undefined;
-}
-
-function shownNames(uris: readonly string[]): ReadonlyMap<string, string> {
-  const segments = new Map(uris.map((uri) => [uri, uri.split(/[\\/]/).filter((s) => s !== '')]));
-  const tail = (uri: string, n: number): string => segments.get(uri)!.slice(-n).join('/');
-  const out = new Map<string, string>();
-  for (const uri of uris) {
-    const own = segments.get(uri)!;
-    let n = 1;
-    while (n < own.length && uris.some((u) => u !== uri && tail(u, n) === tail(uri, n))) n++;
-    out.set(uri, n < own.length ? tail(uri, n) : uri);
-  }
-  return out;
 }
 
 function fieldLinesAcross(
@@ -204,20 +113,6 @@ function fieldLinesAcross(
       ? `${fieldLine(f.facts)!} in ${names.get(f.uri)!}`
       : `no location in ${names.get(f.uri)!} (${f.refusal!})`,
   );
-}
-
-function refusalCode(
-  analysis: CompileTsSourceResult,
-  facts: FieldFacts,
-  fileName: string,
-  start: number,
-): string | undefined {
-  if (facts.location !== undefined || facts.builtin === true) return undefined;
-  const covers = (at: { fileName: string; start: number; length: number }): boolean =>
-    at.fileName === fileName && at.start <= start && start < at.start + at.length;
-  return analysis.diagnostics.find(
-    (d) => d.category === 'error' && (covers(d) || relatedSitesOf(d).some(covers)),
-  )?.code;
 }
 
 function locationLine(
@@ -273,108 +168,6 @@ function entryLocationLines(
   return [];
 }
 
-export interface HoverProgram {
-  readonly uri: string;
-  readonly analysis: CompileTsSourceResult;
-}
-
-export interface HoverPrograms {
-  linking(declaringUri: string): readonly HoverProgram[];
-  of(uri: string): HoverProgram | undefined;
-}
-
-export type StructNames = (emitted: string) => string;
-
-// Why: `wgslType` throws SD0040 on `f64`, `vecN<f64>` and `matNxN<f64>`, which are pre-lowering types.
-
-export function spellShaderType(t: ShaderType, struct: StructNames = (name) => name): string {
-  const spell = (inner: ShaderType): string => spellShaderType(inner, struct);
-  const optional = optionalInner(t);
-  if (optional !== undefined)
-    return `${spell(optional)}${optionalAbsence(t)! & 2 ? ' | null' : ''}${optionalAbsence(t)! & 1 ? ' | undefined' : ''}`;
-  const keys = keysOf(t);
-  if (keys !== undefined) return keyTypeText(keys);
-  const rec = recordOf(t);
-  if (rec !== undefined && t.kind === 'array')
-    return `Record<${recordKeyText(rec)}, ${spell(t.elem)}>`;
-  if (t.kind === 'collection') {
-    const members = keysOf(collectionKeyOf(t));
-    const key = members === undefined ? t.key : keyTypeText(members);
-    return t.value === undefined ? `Set<${key}>` : `Map<${key}, ${spell(t.value)}>`;
-  }
-  switch (t.kind) {
-    case 'struct':
-      return struct(t.name);
-    case 'f64':
-      return 'f64';
-    case 'vec64':
-      return `vec${t.n}<f64>`;
-    case 'mat':
-      return t.elem === 'f64' ? `mat${t.cols}x${t.rows}<f64>` : wgslType(t);
-    case 'array':
-      return t.size !== undefined
-        ? `array<${spell(t.elem)}, ${t.size}>`
-        : `array<${spell(t.elem)}>`;
-    default:
-      return wgslType(t);
-  }
-}
-
-const typesOf = (symbol: DeclaredSymbol): string =>
-  [spellShaderType(symbol.type), ...(symbol.params ?? []).map((p) => spellShaderType(p.type))].join(
-    '|',
-  );
-
-interface OneSymbol {
-  readonly symbol: DeclaredSymbol;
-  readonly oneOwner: boolean;
-}
-
-function oneOf(at: readonly DeclaredSymbol[], field: boolean): OneSymbol | undefined {
-  const ofKind = at.filter((s) => (s.kind === 'field') === field);
-  const among = ofKind.length > 0 ? ofKind : at;
-  const first = among[0];
-  if (first === undefined) return undefined;
-  if (!among.every((s) => s.kind === first.kind && typesOf(s) === typesOf(first))) return undefined;
-  return { symbol: first, oneOwner: among.every((s) => s.struct === first.struct) };
-}
-
-function declaredSymbolAt(
-  analysis: CompileTsSourceResult,
-  uri: string,
-  defs: readonly ts.DefinitionInfo[],
-  field: boolean,
-): OneSymbol | undefined {
-  for (const def of defs) {
-    if (def.fileName !== uri) continue;
-    const at = analysis.symbols.filter((s) => s.start === def.textSpan.start);
-    if (at.length > 0) return oneOf(at, field);
-  }
-  return undefined;
-}
-
-interface ImportedSymbol extends OneSymbol {
-  readonly sourceFile: ts.SourceFile;
-  readonly start: number;
-  readonly moduleVar: boolean;
-  readonly program: HoverProgram;
-  readonly binding: CompileTsSourceResult['bindings'][number] | undefined;
-}
-
-function readsFromCompiler(kind: DeclaredSymbol['kind'], name: ts.Node): boolean {
-  const decl = name.parent;
-  if (kind === 'field') return true;
-  if (kind === 'function') return ts.isFunctionDeclaration(decl) && ts.isSourceFile(decl.parent);
-  if (kind === 'const' || kind === 'binding' || kind === 'override')
-    return (
-      ts.isVariableDeclaration(decl) &&
-      ts.isVariableDeclarationList(decl.parent) &&
-      ts.isVariableStatement(decl.parent.parent) &&
-      ts.isSourceFile(decl.parent.parent.parent)
-    );
-  return false;
-}
-
 function importedSymbolAt(
   program: HoverProgram,
   defs: readonly ts.DefinitionInfo[],
@@ -407,62 +200,6 @@ function importedSymbolAt(
     };
   }
   return undefined;
-}
-
-function unlinkedSymbolAt(
-  defs: readonly ts.DefinitionInfo[],
-  uri: string,
-  programs: HoverPrograms,
-  sourceFileOf: (fileName: string) => ts.SourceFile | undefined,
-  field: boolean,
-): ImportedSymbol | undefined {
-  for (const def of defs) {
-    if (def.fileName === uri) continue;
-    const declaring = programs.of(def.fileName);
-    const sourceFile = sourceFileOf(def.fileName);
-    if (declaring === undefined || sourceFile === undefined) continue;
-    const one = declaredSymbolAt(declaring.analysis, def.fileName, [def], field);
-    const name = nodeAt(sourceFile, def.textSpan.start);
-    if (one === undefined || name === undefined || !ts.isIdentifier(name)) continue;
-    const { symbol } = one;
-    return {
-      ...one,
-      sourceFile,
-      start: def.textSpan.start,
-      moduleVar: declaring.analysis.vars.some((v) => v.name === symbol.name),
-      program: declaring,
-      binding: undefined,
-    };
-  }
-  return undefined;
-}
-
-function implementationsOf(
-  defs: readonly ts.DefinitionInfo[],
-  sourceFileOf: (fileName: string) => ts.SourceFile | undefined,
-): readonly ts.DefinitionInfo[] {
-  return defs.map((def) => {
-    const sourceFile = sourceFileOf(def.fileName);
-    const name = sourceFile && nodeAt(sourceFile, def.textSpan.start);
-    const decl = name?.parent;
-    if (
-      name === undefined ||
-      !ts.isIdentifier(name) ||
-      decl === undefined ||
-      !ts.isFunctionDeclaration(decl) ||
-      decl.body !== undefined
-    )
-      return def;
-    const container = decl.parent;
-    const statements: readonly ts.Statement[] =
-      ts.isSourceFile(container) || ts.isModuleBlock(container) ? container.statements : [];
-    const body = statements
-      .filter(ts.isFunctionDeclaration)
-      .find((st) => st.body !== undefined && st.name?.text === name.text);
-    if (body?.name === undefined) return def;
-    const start = body.name.getStart(sourceFile);
-    return { ...def, textSpan: { start, length: body.name.getWidth(sourceFile) } };
-  });
 }
 
 const placeKey = (fileName: string, start: number): string => `${fileName}\0${String(start)}`;
@@ -584,11 +321,6 @@ const importNames = new WeakMap<
   WeakMap<ts.SourceFile, Map<string, string | undefined>>
 >();
 
-function withDeclaredName(name: string, emitted: string, to: string): string {
-  if (name === emitted) return to;
-  return name.startsWith(`${emitted}_`) ? `${to}${name.slice(emitted.length)}` : name;
-}
-
 function structNamesOf(
   program: HoverProgram,
   sourceFile: ts.SourceFile,
@@ -621,292 +353,6 @@ function writtenParams(
   if (kept.length !== types.length)
     return (fn.params ?? []).map((p, i) => `${p.name}: ${types[i]!}`);
   return kept.map((p, i) => `${(p.name as ts.Identifier).text}: ${types[i]!}`);
-}
-
-function isReferenceParam(sourceFile: ts.SourceFile, param: DeclaredSymbol): boolean {
-  let node: ts.Node | undefined = nodeAt(sourceFile, param.start);
-  while (node !== undefined && !ts.isParameter(node)) node = node.parent;
-  return (
-    node !== undefined &&
-    ts.isFunctionDeclaration(node.parent) &&
-    referenceOf(node, sourceFile) !== undefined
-  );
-}
-
-function nodeAt(sourceFile: ts.SourceFile, pos: number): ts.Node | undefined {
-  const holds = (n: ts.Node): boolean => n.getStart(sourceFile) <= pos && pos < n.getEnd();
-  let found: ts.Node | undefined;
-  let current: ts.Node | undefined = holds(sourceFile) ? sourceFile : undefined;
-  // Why: children do not overlap and stand in source order, so a binary search on the ends finds the one child that holds `pos`.
-  while (current !== undefined) {
-    found = current;
-    let next: ts.Node | undefined;
-    ts.forEachChild(
-      current,
-      (child) => {
-        if (child.pos > pos) return true;
-        if (holds(child)) {
-          next = child;
-          return true;
-        }
-        return undefined;
-      },
-      (children) => {
-        let lo = 0;
-        let hi = children.length;
-        while (lo < hi) {
-          const mid = (lo + hi) >> 1;
-          if (children[mid]!.getEnd() <= pos) lo = mid + 1;
-          else hi = mid;
-        }
-        const child = children[lo];
-        if (child === undefined) return undefined;
-        if (holds(child)) next = child;
-        return child.pos > pos || next !== undefined ? true : undefined;
-      },
-    );
-    current = next;
-  }
-  return found;
-}
-
-function referenceLine(param: DeclaredSymbol): string {
-  return (
-    `The caller's object: this function writes it. Assigning to a field or an element of ` +
-    `\`${param.name}\` changes the object the caller passed. WGSL takes it as a pointer, ` +
-    `\`ptr<function, ${wgslType(param.type)}>\` for a local; GLSL ES 3.00 as an \`inout\` parameter.`
-  );
-}
-
-function ownerOf(quickInfo: ts.QuickInfo): string | undefined {
-  const parts = quickInfo.displayParts ?? [];
-  const name = parts.map((p) => p.kind).lastIndexOf('propertyName');
-  const space = parts.findIndex((p) => p.kind === 'space');
-  if (name < 2 || space < 0 || space >= name || parts[name - 1]?.text !== '.') return undefined;
-  return ts.displayPartsToString(parts.slice(space + 1, name - 1));
-}
-
-function declarationLine(
-  symbol: DeclaredSymbol,
-  moduleVar: boolean,
-  struct: StructNames,
-  params: readonly string[],
-  owner: string | undefined,
-): string | undefined {
-  const type = spellShaderType(symbol.type, struct);
-  switch (symbol.kind) {
-    case 'local':
-      return `${symbol.mutable === false ? 'const' : 'let'} ${symbol.name}: ${type}`;
-    case 'param':
-      return `(parameter) ${symbol.name}: ${type}`;
-    case 'const':
-      return `const ${symbol.name}: ${type}`;
-    case 'override':
-      return `const ${symbol.name}: ${type}`;
-    case 'binding':
-      return `${moduleVar ? 'let' : 'const'} ${symbol.name}: ${type}`;
-    case 'function':
-      return `function ${symbol.name}(${params.join(', ')}): ${type}`;
-    case 'field':
-      return `(property) ${owner ?? struct(symbol.struct ?? '')}.${symbol.name}: ${type}`;
-    case 'struct':
-      return undefined;
-  }
-}
-
-function typesInWords(types: readonly ShaderType[], struct: StructNames): string {
-  const order = ['i32', 'u32', 'f32', 'f64'];
-  const rank = (t: string): number => (order.includes(t) ? order.indexOf(t) : order.length);
-  const spelled = [...new Set(types.map((t) => spellShaderType(t, struct)))].sort(
-    (a, b) => rank(a) - rank(b),
-  );
-  return spelled.length <= 1
-    ? (spelled[0] ?? '')
-    : `${spelled.slice(0, -1).join(', ')} or ${spelled[spelled.length - 1]!}`;
-}
-
-function resultCopiesLine(
-  node: ts.Node,
-  defs: readonly ts.DefinitionInfo[],
-  uri: string,
-  sourceFile: ts.SourceFile,
-  analysis: CompileTsSourceResult,
-  struct: StructNames,
-): string | undefined {
-  if (!ts.isIdentifier(node)) return undefined;
-  const def = defs.find((d) => d.fileName === uri);
-  if (def === undefined) return undefined;
-  const table = analysis.sourceFile;
-  const at = def.textSpan.start;
-  const fn = resultCopiesAt(table, at);
-  const call = copyCallAt(table, node.getStart(sourceFile));
-  const named = nodeAt(sourceFile, at);
-  const decl = named?.parent;
-  const generic =
-    decl !== undefined &&
-    ts.isFunctionLike(decl) &&
-    ((decl as ts.SignatureDeclaration).typeParameters?.length ?? 0) > 0;
-  if (fn !== undefined || (call !== undefined && generic)) {
-    const fnNode =
-      decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined
-        ? decl.initializer
-        : decl;
-    const instance = generic ? copyCallParamsAt(table, node.getStart(sourceFile)) : undefined;
-    const written = fnNode !== undefined && ts.isFunctionLike(fnNode) ? fnNode.parameters : [];
-    const params =
-      instance !== undefined
-        ? written
-            .map((p, i) => {
-              const t = instance[instance.length - written.length + i];
-              return `${p.name.getText(sourceFile)}: ${t === undefined ? '?' : spellShaderType(t, struct)}`;
-            })
-            .join(', ')
-        : written.map((p) => p.getText(sourceFile).replace(/\s+/g, ' ')).join(', ');
-    const callNode = node.parent;
-    const typeArgs =
-      generic && ts.isCallExpression(callNode) && callNode.typeArguments !== undefined
-        ? `<${callNode.typeArguments.map((a) => a.getText(sourceFile)).join(', ')}>`
-        : '';
-    const owner =
-      decl !== undefined && ts.isClassElement(decl) && ts.isClassLike(decl.parent)
-        ? `${decl.parent.name?.text ?? ''}.`
-        : '';
-    const one = fn !== undefined && fn.types.length === 1 ? fn.types[0] : undefined;
-    const fixed = call ?? one;
-    const result = fixed !== undefined ? spellShaderType(fixed, struct) : undefined;
-    const words = `${typesInWords(fn?.types ?? [], struct)} where it is called`;
-    if (decl !== undefined && ts.isGetAccessorDeclaration(decl)) {
-      return `(getter) ${owner}${node.text}${result !== undefined ? `: ${result}` : ` (${words})`}`;
-    }
-    if (decl !== undefined && ts.isVariableDeclaration(decl)) {
-      return `const ${node.text}: (${params}) => ${result ?? `(${words})`}`;
-    }
-    const head =
-      decl !== undefined && ts.isMethodDeclaration(decl)
-        ? `(method) ${owner}${node.text}(${params})`
-        : decl !== undefined &&
-            ts.isFunctionDeclaration(decl) &&
-            !ts.isSourceFile(decl.parent) &&
-            !ts.isModuleBlock(decl.parent)
-          ? `(local function) ${node.text}(${params})`
-          : `function ${node.text}${typeArgs}(${params})`;
-    return result !== undefined ? `${head}: ${result}` : `${head} (${words})`;
-  }
-  const local = analysis.symbols.filter((s) => s.start === at && s.kind === 'local');
-  if (local.length < 2 || local.every((s) => typesOf(s) === typesOf(local[0]!))) return undefined;
-  let around: ts.Node | undefined = nodeAt(sourceFile, at);
-  let copies: ReturnType<typeof resultCopiesAt>;
-  for (; around !== undefined && copies === undefined; around = around.parent) {
-    if (!ts.isFunctionLike(around)) continue;
-    const name =
-      (around as { name?: ts.Node }).name ??
-      (ts.isVariableDeclaration(around.parent) ? around.parent.name : undefined);
-    if (name !== undefined) copies = resultCopiesAt(table, name.getStart(sourceFile));
-  }
-  if (copies === undefined) return undefined;
-  return (
-    `${local[0]!.mutable === false ? 'const' : 'let'} ${node.text} ` +
-    `(${typesInWords(
-      local.map((s) => s.type),
-      struct,
-    )} where "${copies.name}" is called)`
-  );
-}
-
-function importedCallLine(
-  node: ts.Node,
-  declared: string | undefined,
-  quickInfo: string,
-  defs: readonly ts.DefinitionInfo[],
-  uri: string,
-  analysis: CompileTsSourceResult,
-  sourceFile: ts.SourceFile,
-  struct: StructNames,
-): string | undefined {
-  if (!ts.isIdentifier(node) || defs.length === 0 || defs.some((d) => d.fileName === uri)) {
-    return undefined;
-  }
-  const access = ts.isPropertyAccessExpression(node.parent) && node.parent.name === node;
-  const call = access ? node.parent.parent : node.parent;
-  if (!ts.isCallExpression(call) || call.expression !== (access ? node.parent : node)) {
-    return undefined;
-  }
-  const at = [node.getStart(sourceFile), call.expression.getStart(sourceFile)];
-  const type = at.map((o) => copyCallAt(analysis.sourceFile, o)).find((t) => t !== undefined);
-  if (type === undefined) return undefined;
-  const result = spellShaderType(type, struct);
-  const base = declared ?? quickInfo;
-  const typeArgs =
-    call.typeArguments === undefined
-      ? ''
-      : `<${call.typeArguments.map((a) => a.getText(sourceFile)).join(', ')}>`;
-  if (/=> [^()]*$/.test(base)) return base.replace(/=> [^()]*$/, `=> ${result}`);
-  if (!/\): [^()]*$/.test(base)) return undefined;
-  const withArgs =
-    typeArgs === '' || base.includes(`${node.text}<`)
-      ? base
-      : base.replace(new RegExp(`(^|[ .])${node.text}\\(`), `$1${node.text}${typeArgs}(`);
-  return withArgs.replace(/\): [^()]*$/, `): ${result}`);
-}
-
-function abstractConstLine(
-  node: ts.Node,
-  defs: readonly ts.DefinitionInfo[],
-  uri: string,
-  sourceFile: ts.SourceFile,
-  analysis: CompileTsSourceResult,
-  checker: () => ts.TypeChecker | undefined,
-  declaring: CompileTsSourceResult | undefined,
-): string | undefined {
-  if (!ts.isIdentifier(node) || defs.length === 0) return undefined;
-  const declaredIn = (result: CompileTsSourceResult | undefined) =>
-    (result === undefined ? undefined : abstractConstTableOf(result.sourceFile))?.decls.find((d) =>
-      defs.some((def) => def.fileName === d.fileName && def.textSpan.start === d.start),
-    );
-  const table = abstractConstTableOf(analysis.sourceFile);
-  const decl = declaredIn(analysis) ?? declaredIn(declaring);
-  if (decl === undefined) return undefined;
-  const name = node.text;
-  const start = node.getStart(sourceFile);
-  const access =
-    ts.isPropertyAccessExpression(node.parent) && node.parent.name === node
-      ? node.parent
-      : undefined;
-  if (decl.fileName !== uri || start !== decl.start) {
-    const spans = [node, ...(access !== undefined ? [access] : [])].map((n) => {
-      const at = n.getStart(sourceFile);
-      return { start: at, length: n.getEnd() - at };
-    });
-    const read = table?.reads.find((r) =>
-      spans.some((s) => s.start === r.start && s.length === r.length),
-    );
-    if (read?.type != null) {
-      const type = spellShaderType(read.type);
-      const left = access?.expression;
-      const viaImport =
-        left !== undefined &&
-        (checker()
-          ?.getSymbolAtLocation(left)
-          ?.declarations?.some((d) => ts.isNamespaceImport(d)) ??
-          false);
-      const owner =
-        left === undefined || viaImport
-          ? undefined
-          : ts.isPropertyAccessExpression(left)
-            ? left.name.text
-            : left.getText(sourceFile);
-      if (decl.keyword === 'const')
-        return owner === undefined ? `const ${name}: ${type}` : `const ${owner}.${name}: ${type}`;
-      return owner === undefined
-        ? `(property) ${name}: ${type}`
-        : `(property) ${owner}.${name}: ${type}`;
-    }
-  }
-  const types = decl.integerWritten ? 'i32, u32, f32 or f64' : 'f32 or f64';
-  const parent = node.parent;
-  const alias =
-    (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)) && parent.name === node;
-  return `${alias ? '(alias) ' : ''}${decl.keyword} ${name} = ${decl.written} (${types} where it is read)`;
 }
 
 export function getHover(
