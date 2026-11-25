@@ -1,5 +1,5 @@
 // ═══ The derivative rewrite: an implicit-LOD sample or a derivative in non-uniform control flow ═══
-//
+// Implements: Rule 8.5 (docs/language-design.md; traced in reqs/).
 // Change 0132, item 3; Rule 8.5. WGSL refuses `textureSample`, `textureSampleBias`,
 // `textureSampleCompare` and the screen-space derivatives in non-uniform control flow, and
 // `uniformity.ts` finds each such call. This pass rewrites the calls it can reach, so that the
