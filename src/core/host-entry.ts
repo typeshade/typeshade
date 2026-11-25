@@ -34,6 +34,10 @@ import { copyLimits, isMinimumLimit } from './device-limits.js';
 import { probeSubgroups } from './subgroup-probe.js';
 import { retainAdapter } from './device-info.js';
 import { printConsole, printDropped } from './console-print.js';
+import { missingField, shaderField } from './host-key.js';
+import { ProjectedInputView, projectionOf } from './host-input-projection.js';
+
+export { projectInputLayout } from './host-input-projection.js';
 
 // ─── what the generated module carries ───────────────────────────────────────────────────────
 
@@ -443,7 +447,7 @@ export function pack(
         throw new Misfit(path, `got ${describe(v)}`);
       const o = v as Record<string, unknown>;
       for (const [name, off, fl] of l.f) {
-        if (!(name in o)) throw new Misfit(`${path}.${name}`, 'the field is missing');
+        if (!(name in o)) throw new Misfit(`${path}.${name}`, missingField(name));
         pack(dv, at + off, fl, o[name], `${path}.${name}`);
       }
       return;
@@ -620,7 +624,7 @@ export function toCpu(l: Layout, v: unknown, box: boolean): CpuValue {
     case 'o': {
       const o = v as Record<string, unknown>;
       const out: Record<string, CpuValue> = {};
-      for (const [name, , fl] of l.f) out[name] = toCpu(fl, o[name], false);
+      for (const [name, , fl] of l.f) out[shaderField(name)] = toCpu(fl, o[name], false);
       return out as unknown as CpuValue;
     }
   }
@@ -662,7 +666,8 @@ export function fromCpu(l: Layout, c: CpuValue, target: unknown, box: boolean): 
     case 'o': {
       const o = target as Record<string, unknown>;
       const src = c as unknown as Record<string, CpuValue>;
-      for (const [name, , fl] of l.f) o[name] = fromCpu(fl, src[name]!, o[name], false);
+      for (const [name, , fl] of l.f)
+        o[name] = fromCpu(fl, src[shaderField(name)]!, o[name], false);
       return o;
     }
   }
@@ -1454,53 +1459,13 @@ export function checkBindings(
 /** A written storage binding whose type is one scalar is passed boxed. */
 export const boxed = (b: EntryBinding): boolean => b.writes && b.layout.k === 's';
 
-const inputProjections = new WeakMap<Layout, { logical: Layout & { k: 'a' }; offsets: number[] }>();
-
-/** Register a private scalar-field projection. Authored and resident layouts never register. */
-export function projectInputLayout(logical: Layout & { k: 'a' }, physical: Layout): void {
-  if (logical.e.k !== 'o' || physical.k !== 'a' || physical.e.k !== 'o') return;
-  const fields = new Map(physical.e.f.map(([name, offset]) => [name, offset]));
-  const offsets = new Array<number>(logical.st / 4).fill(-1);
-  for (const [name, offset] of logical.e.f) offsets[offset / 4] = fields.get(name) ?? -1;
-  inputProjections.set(physical, { logical, offsets });
-}
-
-/** The logical pack still reads and checks every field; only live writes reach the buffer. */
-// Fix the base signature across TypeScript's non-generic and generic DataView constructors.
-class ProjectedInputView extends (DataView as new (buffer: ArrayBuffer) => DataView) {
-  constructor(
-    bytes: ArrayBuffer,
-    private readonly stride: number,
-    private readonly physicalStride: number,
-    private readonly offsets: readonly number[],
-  ) {
-    super(bytes);
-  }
-  private at(offset: number): number {
-    const field = this.offsets[(offset % this.stride) / 4]!;
-    return field < 0 ? -1 : Math.floor(offset / this.stride) * this.physicalStride + field;
-  }
-  override setFloat32(offset: number, value: number, littleEndian?: boolean): void {
-    const at = this.at(offset);
-    if (at >= 0) super.setFloat32(at, value, littleEndian);
-  }
-  override setInt32(offset: number, value: number, littleEndian?: boolean): void {
-    const at = this.at(offset);
-    if (at >= 0) super.setInt32(at, value, littleEndian);
-  }
-  override setUint32(offset: number, value: number, littleEndian?: boolean): void {
-    const at = this.at(offset);
-    if (at >= 0) super.setUint32(at, value, littleEndian);
-  }
-}
-
 /** A buffer binding's bytes, packed by its layout. A uniform's are padded to a multiple of 16.
  *  A storage binding's are its data and no more: the buffer is made at their size and bound
  *  whole, and WGSL's `arrayLength` is the bound size over the stride, so five `u32`s padded to
  *  32 bytes were an array of 8 to the kernel (#367). Every element size is a multiple of 4, as
  *  a storage binding's size must be, and `byteSize` refuses an empty array. */
 export function packed(b: EntryBinding, v: unknown): ArrayBuffer {
-  const projection = inputProjections.get(b.layout);
+  const projection = projectionOf(b.layout);
   if (projection !== undefined && b.layout.k === 'a') {
     const logicalBytes = byteSize(projection.logical, v, '');
     const bytes = new ArrayBuffer((logicalBytes / projection.logical.st) * b.layout.st);

@@ -1,7 +1,8 @@
 import { describe, byteSize, pack, type Layout } from '../../core/host-entry.js';
-import type { PackBinding } from '../../core/manifest-types.js';
+import type { Pack, PackBinding } from '../../core/manifest-types.js';
+import type { RhiDevice, RhiSampler } from '../../rhi/rhi.js';
 import type { ResidentArrayState } from '../../core/resident.js';
-import { GlTextureImpl } from '../gl-draw.js';
+import { GlTextureImpl, type GlDrawing } from '../gl-draw.js';
 
 export type Given =
   | { readonly kind: 'words'; readonly words: Uint32Array; readonly inPlace?: true }
@@ -20,6 +21,18 @@ export type Given =
       readonly layout: Layout;
       readonly writes: boolean;
     };
+
+export interface GlRuntimeParts {
+  readonly rhi: RhiDevice;
+  readonly drawing: GlDrawing;
+  readonly nearest: RhiSampler;
+  readonly device: WebGL2RenderingContext;
+}
+
+export interface GlPipelineOwner {
+  readonly rt: GlRuntimeParts;
+  readonly manifest: Pack;
+}
 
 export function storageOf(
   v: unknown,
