@@ -51,6 +51,7 @@ import {
   type KernelCollection,
   type KernelLookup,
   type KernelLoopPlan,
+  type KernelLowering,
   type KernelPlan,
   type LoopCtx,
   type LowerOptions,
@@ -108,7 +109,7 @@ export function lowerKernel(
     return {
       noGpu: `it takes the ${collection.type.kind === 'collection' && collection.type.value === undefined ? 'Set' : 'Map'} "${collection.name}", and loop ${[...device][0]! + 1} reads its trip count from an array`,
     };
-  if (collection !== undefined) return lowerCollections(f, m);
+  if (collection !== undefined) return lowerCollections(f, m, lowerKernel);
   const loops = f.body.filter((s): s is ForStmt => s.s === 'for');
   if (loops.length === 0 && stores.length === 0) return { noGpu: 'it has no loop to dispatch' };
   for (const v of proof.loops) {
@@ -786,7 +787,7 @@ function readsCollection(sts: readonly Stmt[], name: string): boolean {
   return found;
 }
 
-function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly noGpu: string } {
+function lowerCollections(f: FuncDecl, m: ModuleDecl, lower: KernelLowering) {
   const loops = f.body.filter((st): st is ForStmt => st.s === 'for');
   const taken = declaredNames(m);
   const structs: StructDecl[] = [];
@@ -933,7 +934,7 @@ function lowerCollections(f: FuncDecl, m: ModuleDecl): KernelPlan | { readonly n
   const proof2 = proveKernels(m2).find((x) => x.fn === f.name);
   if (proof2 === undefined) return { noGpu: 'its records were not proved' };
   if (proof2.loops.some((l) => !l.ok)) return { noGpu: 'a loop of it runs on the CPU (TS8070)' };
-  const plan = lowerKernel(lowered, m2, proof2);
+  const plan = lower(lowered, m2, proof2);
   if ('noGpu' in plan) return plan;
   const own = (fn: FuncDecl): FuncDecl => ({
     ...fn,
