@@ -18,8 +18,6 @@ const MAY_IMPORT: Readonly<Record<string, readonly string[]>> = {
 };
 
 const KNOWN: readonly string[] = [
-  'compiler/ts/host-face-contracts.ts -> runtime/resource.ts',
-  'compiler/ts/host-face.ts -> runtime/resource.ts',
   'core/cpu-entries.ts -> rhi/cpu-program.ts',
   'core/debug/watch.ts -> compiler/ts/source-file.ts',
   'core/host-draw.ts -> rhi/cpu-program.ts',

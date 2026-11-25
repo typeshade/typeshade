@@ -15,10 +15,10 @@ import { type EntryBinding, type HandleBinding, type Layout } from '../../core/h
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
 import type { KernelFace, KernelLoop, KernelParam } from '../../core/host-kernel.js';
 import type { HostType } from '../../core/host-values.js';
-import type { ConstDecl, FuncDecl, ModuleDecl, StructDecl } from '../../core/ir/nodes.js';
+import type { ConstDecl, FuncDecl, ModuleDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { addsTo } from './host-face/entry-shapes.js';
-import { keyedStructsOf, writtenName } from './host-face/private-keys.js';
+import { keyedStructsOf } from './host-face/private-keys.js';
 import { grownChecked, lowerKernelFor, madeFace } from './host-face/made.js';
 import { exportsOf, type ExportRef } from './host-face/exports.js';
 import { wgslLoweredOf } from './source-file/wgsl-lowered.js';
@@ -36,33 +36,21 @@ import { lowerKernelGl } from '../../core/passes/kernel-lower.js';
 import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
 import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
-import type { ClassLayouts } from '../../runtime/resource.js';
-import {
-  isPrivateName,
-  isReadonlyMember,
-  keywordAccessOf,
-  memberDeclarationInChain,
-} from './class-names.js';
 import { authorTypeText } from './context.js';
 import { hostContentReads } from './host-content-access.js';
 import { exportDocs, type ExportDocs } from './host-docs.js';
 import { topLevelDeclarations } from './host-exports.js';
-import {
-  type ClassExport,
-  type ClassField,
-  type FaceExport,
-  type HostExport,
-} from './host-face-contracts.js';
+import { type FaceExport, type HostExport } from './host-face-contracts.js';
 import { REASON } from './host-face-shared.js';
 import { moduleText } from './host-module.js';
 import { hostTypeOf, kernelArrayLayout } from './host-types.js';
 import { structNames, viewText, type Naming, type ViewTypes } from './host-view.js';
 import { collectionKeyOf, keyTypeText, keysOf } from './key-types.js';
-import { ctorFnName } from './lower/class-methods.js';
 import { pushedParams } from './lower/kernel-push.js';
+import { classFace } from './host-face/class-face.js';
 import { staticConstName } from './module-const.js';
 import { compileTsProgram } from './source-file.js';
-import { emittedStructDecls, type CollectedStruct } from './structs.js';
+import { emittedStructDecls } from './structs.js';
 import type { FaceCtx } from './host-face/context.js';
 import { gpuOnlyCall } from './host-face/reach.js';
 import { guardOf } from './host-face/guard.js';
@@ -70,7 +58,6 @@ import { spell } from './host-face/spell.js';
 import { wordBinding, wordBindings, heldVariant } from './host-face/kernel-words.js';
 import { dispatched } from './host-face/kernel-facts.js';
 import { isFunctionType } from './host-face/type-nodes.js';
-import { classChain, memberCall, classMembers } from './host-face/class-members.js';
 import { classCalls, generatedClass } from './host-face/class-calls.js';
 import { never } from './host-face/never-export.js';
 import type { BindingRef } from './host-face/binding-ref.js';
@@ -852,76 +839,4 @@ function faceOf(ref: ExportRef, c: FaceCtx): FaceExport | BindingRef {
 
   if (ts.isModuleDeclaration(decl)) return never(name, REASON.namespace);
   return never(name, REASON.unknown);
-}
-
-function classFace(
-  name: string,
-  decl: ts.ClassDeclaration,
-  struct: CollectedStruct,
-  c: FaceCtx,
-): FaceExport {
-  const local = struct.decl.name;
-  const t: HostType | { readonly none: string } =
-    struct.namespace === true
-      ? { k: 'struct', f: [], s: local }
-      : hostTypeOf({ kind: 'struct', name: local }, c.structs);
-  if ('none' in t) {
-    const fields = struct.decl.fields.map((f): readonly [string, HostType | undefined] => {
-      const ft = hostTypeOf(f.type, c.structs);
-      return [f.name, 'none' in ft ? undefined : ft];
-    });
-    return { kind: 'shape', name, reason: t.none, fields };
-  }
-  const type = t as HostType & { k: 'struct' };
-  const fields = type.f.map(([key, ft]): ClassField => {
-    const written = writtenName(struct, key);
-    const at = memberDeclarationInChain(decl, written, false);
-    const access = isPrivateName(written) || at === undefined ? undefined : keywordAccessOf(at);
-    return {
-      name: key,
-      type: ft,
-      ...(access !== undefined ? { access } : {}),
-      readonly: at !== undefined && isReadonlyMember(at),
-    };
-  });
-  const bases: string[] = [];
-  for (
-    let at = struct.bases?.[0];
-    at !== undefined && at !== local && !bases.includes(at);
-    at = c.collected.find((x) => x.decl.name === at)?.bases?.[0]
-  )
-    bases.push(at);
-  const abstract = struct.abstract === true;
-  let ctor: ClassExport['ctor'];
-  if (!abstract) {
-    const written = classChain(decl)
-      .flatMap((k) => k.members.filter(ts.isConstructorDeclaration))
-      .find((k) => k.body !== undefined);
-    const fn = ctorFnName(local);
-    ctor =
-      written === undefined && !c.byName.has(fn)
-        ? { zero: zeroOf({ kind: 'struct', name: local }, c.cpuStructs) }
-        : memberCall(fn, written, false, false, c);
-  }
-  return {
-    kind: 'class',
-    name,
-    type,
-    abstract,
-    bases,
-    fields,
-    layouts: abstract ? { a: 1 } : resourceLayouts(local, c.structs),
-    ...(ctor !== undefined ? { ctor } : {}),
-    members: classMembers(name, decl, struct, c),
-  };
-}
-
-function resourceLayouts(name: string, structs: ReadonlyMap<string, StructDecl>): ClassLayouts {
-  const t: ShaderType = { kind: 'struct', name };
-  const u = layoutOf(t, 'std140', structs, authorTypeText);
-  const s = layoutOf({ kind: 'array', elem: t }, 'std430', structs, authorTypeText);
-  return {
-    ...('none' in u ? { un: u.none } : { u }),
-    ...('none' in s ? { sn: s.none } : { s: s as Layout & { k: 'a' } }),
-  };
 }
