@@ -15,13 +15,13 @@ downstream: []
 
 **Document control**
 
-| Field                         | Record                                                                                                                                                                                                                                                                                                                                                  |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity and status           | Change proposal `0152`, `status: draft`. The front matter is the lifecycle authority. `0152` is the next free number after `0151` on `origin/main`. No open pull request claims it (checked 2026-11-25 in the list of open pull requests).                                                                                                              |
-| Date and attribution          | Written 2026-11-25, UTC. The date is the authoring context, not an approval. Drafted by the repository's coding agent in a session started by the orchestrating session. The measurements were read by Haiku sub-agents, and the orchestrating agent checked the key numbers (section "Measurements").                                                  |
-| Applicability / Effectivity   | `docs/language-design.md` Rule 13.4 (second paragraph, as proposal `0147` amends it) and its Doorstop item `reqs/rules/RULE-1304.md`. `.github/workflows/ci.yml`, `downstream.yml`, `package-smoke.yml` and the repository ruleset of `main`. No `src/` code, surface, export, diagnostic or example. Release version unassigned.                       |
-| Review baseline               | `origin/main` at `d28e833af4d5a7c5784abae6bef561abc1dc4b9b` (the merge of PR #1661, 2026-11-25).                                                                                                                                                                                                                                                        |
-| Review and revision authority | The draft pull request that carries this file. Git records revisions. The owner's go-ahead in the conversation is the review (`CLAUDE.md`, Merging), and the merge of that pull request with `status: accepted` records the decision. This proposal changes approved text of `0147`, so only the owner decides it (`CLAUDE.md`, The owner's decisions). |
+| Field                         | Record                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Identity and status           | Change proposal `0152`, `status: draft`. The front matter is the lifecycle authority. `0152` is the next free number after `0151` on `origin/main`. No open pull request claims it (checked 2026-11-25 in the list of open pull requests).                                                                                                                                           |
+| Date and attribution          | Written 2026-11-25, UTC. The date is the authoring context, not an approval. Drafted by the repository's coding agent in a session started by the orchestrating session. The measurements were read by Haiku sub-agents, and the orchestrating agent checked the key numbers (section "Measurements").                                                                               |
+| Applicability / Effectivity   | `docs/language-design.md` Rule 13.4 (second paragraph, as proposal `0147` amended it; `0147` is `accepted` and its text is in the rule) and its Doorstop item `reqs/rules/RULE-1304.md`. `.github/workflows/ci.yml`, `downstream.yml`, `package-smoke.yml` and the repository ruleset of `main`. No `src/` code, surface, export, diagnostic or example. Release version unassigned. |
+| Review baseline               | `origin/main` at `d28e833af4d5a7c5784abae6bef561abc1dc4b9b` (the merge of PR #1661, 2026-11-25).                                                                                                                                                                                                                                                                                     |
+| Review and revision authority | The draft pull request that carries this file. Git records revisions. The owner's go-ahead in the conversation is the review (`CLAUDE.md`, Merging), and the merge of that pull request with `status: accepted` records the decision. This proposal changes approved text of `0147`, so only the owner decides it (`CLAUDE.md`, The owner's decisions).                              |
 
 ## What changes
 
@@ -40,27 +40,27 @@ The rule that a run on `main` is never cancelled (`0147`) stays. A run on `main`
 Each skipped gate runs on `main` after the merge, and a run on `main` is never cancelled by a later push. A push to `main`, a manual dispatch and a release run every gate. A range that the checker refuses is an ordinary change.
 ```
 
-**After** (the proposed last paragraph, and one new paragraph before it):
+**After** (the proposed last paragraph, and one new paragraph before it). The first sentence of the paragraph, "a push to `main` and a release run every gate" (`0055`), changes too: it reads "a push to `main` that no merge group tested, and a release", as the new text says. The implementing pull request edits that sentence with the rest.
 
 ```text
 A pull request that is ready for review runs the source and policy checks, the unit shards of the pinned TypeScript version and the traceability check. The other gates run on the merge group that the merge queue builds, before the merge, and every gate runs there whatever the pull request declared (change `0152`).
 A run on `main` is never cancelled by a later push. A push to `main` whose commit a merge group already tested with every gate reports that result and runs no gate again. A push to `main` that no merge group tested, a manual dispatch and a release run every gate. A range that the checker refuses is an ordinary change.
 ```
 
-A `Move: comments` or `Move: pure` pull request keeps its smaller pre-queue run (`0147`). Its skipped gates run on the merge group before the merge. They no longer wait for the push to `main`. This strengthens the guarantee of `0147`, and it changes the place where the gates run.
+Effect on the limits of `0147`: its limit 2 (a failure of a skipped gate shows first on `main`) and its limit 4 (a stale base shows only on `main`) change under option A. The merge group shows both before the merge. Its limits 1, 3 and 8 stay. A `Move: comments` or `Move: pure` pull request keeps its smaller pre-queue run (`0147`). Its skipped gates run on the merge group before the merge. They no longer wait for the push to `main`. This strengthens the guarantee of `0147`, and it changes the place where the gates run.
 
 Example of what an agent that merges sees.
 
-- Before: the agent waits for four green required checks on the pull request head, then calls `merge_pull_request`. `main` receives a merge commit. Its tree is not the tree that the pull request run tested (section "Measurements", finding 5). Three workflows then run on `main`.
+- Before: the agent waits for four green required checks on the pull request head, then calls `merge_pull_request`. `main` receives a merge commit. Inference from the unequal trees: its tree is not the tree that the pull request run tested (section "Measurements", finding 5). Three workflows then run on `main`.
 - After: the agent waits for the light checks, then enables auto-merge (`enable_pr_auto_merge`) or presses "Merge when ready". The queue builds a merge group, runs every gate on it and merges it. The push to `main` runs `change scope` and the two short workflows.
 
 No author-facing name, form or example changes. No author of a `"use typeshade"` program sees a difference.
 
 ## Measurements
 
-**Configuration.** Read on 2026-11-25 between 08:10Z and 08:35Z, with the GitHub Actions API (MCP tools `actions_list` and `actions_get`) and `git` on `origin/main` at `d28e833a`. The 40 merge commits are the first-parent chain of `origin/main`, from `921c9de6` (04:01Z) to `d28e833a` (07:46Z). The span is 3.76 hours, so the rate is 10.4 merges an hour. All 40 are merge commits of pull requests (`Merge pull request #N`).
+**Configuration.** Read on 2026-11-25 between 08:10Z and 08:35Z, with the GitHub Actions API (MCP tools `actions_list` and `actions_get`) and `git` on `origin/main` at `d28e833a`. The 40 merge commits are the first-parent chain of `origin/main`, from `921c9de6` (04:01Z) to `d28e833a` (07:46Z). The span is 3.76 hours and holds 39 intervals between the 40 merges, so the rate is 10.4 merges an hour (40 merges in the span would give 10.6). All 40 are merge commits of pull requests (`Merge pull request #N`).
 
-**How the data were collected.** Haiku sub-agents read the runs and the jobs. Three of them used `gh api` GET calls for the job lists, which is read-only and outside the guidance of the session ("`gh` for search only"). That is a deviation, and it is closed here by this record. Two files hold job times that a sub-agent typed by hand from tool output: the jobs of `downstream.yml` on `main`, and the pull request runs of `downstream.yml` and `package-smoke.yml`. The orchestrating agent compared one of them with the API (run `45566696071`, both jobs). The times matched within one second. The other rows are not compared. Runner minutes are the sum of `completed_at - started_at` of the jobs that did not end `skipped`, for completed runs only. Cancelled, re-run and earlier runs of a pull request are not counted.
+**How the data were collected.** Haiku sub-agents read the runs and the jobs. Three of them used `gh api` GET calls for the job lists, which is read-only and outside the guidance of the session ("`gh` for search only"). That is a deviation, and it is closed here by this record. Three files hold job times that a sub-agent typed by hand from tool output: `downstream-main.json` (the jobs of `downstream.yml` on `main`), `downstream-pr.json` and `smoke-pr.json` (the pull request runs). The orchestrating agent compared one run of `downstream-pr.json` with the API (run `45566696071`, both jobs). The times matched within one second. No other row of the three files is compared. The group `ci` of option A uses 66.7 (the mean of the 27 full pull request runs). The run on `main` uses 66.3 (the mean of 23 runs). The two means are different samples of the same job set. Runner minutes are the sum of `completed_at - started_at` of the jobs that did not end `skipped`, for completed runs only. Cancelled, re-run and earlier runs of a pull request are not counted.
 
 | Workflow (runs on `main`) | Completed / found | Jobs per run | Runner minutes per run, mean (min–max) | Wait from creation to first job, mean (max) | Created to last job done, mean (max) |
 | ------------------------- | ----------------- | ------------ | -------------------------------------- | ------------------------------------------- | ------------------------------------ |
@@ -79,10 +79,10 @@ Seventeen `ci` runs on `main` (the 17 newest merges) were still queued at the ti
 Findings.
 
 1. One merge costs 127.9 runner minutes: 55.3 on the pull request head (`51.0 + 1.3×37/40 + 3.3×38/40`) and 72.6 on `main` (`66.3 + 1.7 + 4.6`). The `ci` run on `main` is 91% of the cost on `main`.
-2. The largest number of jobs in progress at one time was 20 (04:38Z, across all runs read). It was 20 in the runs on `main` alone as well. The table of job limits gives 20 concurrent jobs for the Free plan, 40 for Pro and 60 for Team (https://docs.github.com/en/actions/reference/limits). The observed ceiling equals the Free value. Inference: the account runs at 20. The plan was not checked.
-3. The jobs that start in each hour sum to about 1000 runner minutes an hour (hours 04Z to 07Z: 960, 1023, 1093, 975). The capacity at 20 jobs is 1200 an hour. The model `127.9 × 10.4` gives 1330 an hour, above capacity. The runs that are not in this data (cancelled runs, re-runs, pushes to a pull request, draft `change scope` runs) add to the demand. Inference: the queue grows because demand is above capacity. The growth fits the data: the wait of a `ci` run on `main` rises from 2 minutes (04:01Z) to 48 minutes (04:36Z), and 17 runs were queued at 08:19Z.
-4. Jobs that take the most runner minutes in `ci` on `main` (total over 23 runs): the three pinned unit shards (166, 126 and 109), the three TypeScript 6 shards (158, 122 and 116), the three TypeScript 5 shards (155, 120 and 120), the compile gate (150) and the user journeys (93). The two shards `unit shard 3` are the longest single jobs (7.2, 6.9 and 6.7 minutes). `render gate` and `perf gate` are not in the first twelve.
-5. Of the 40 merge commits, 0 have the same tree as the head of their pull request (`git rev-parse <merge>^{tree}` against `<merge>^2^{tree}`). Every merge was made on a base that had moved. The run on `main` tests a tree that no pull request run tested.
+2. The largest number of jobs in progress at one time was 20 (04:38Z, across all runs read). It was 20 in the runs on `main` alone as well, from 06:14Z. The table of job limits gives 20 concurrent jobs for the Free plan, 40 for Pro and 60 for Team (https://docs.github.com/en/actions/reference/limits). The observed ceiling equals the Free value. Inference: the account runs at 20. The plan was not checked.
+3. The jobs that start in each hour sum to about 1000 runner minutes an hour (hours 04Z to 07Z: 960, 1023, 1093, 975). The capacity at 20 jobs is 1200 an hour. The model `127.9 × 10.4` gives 1330 an hour, above capacity. The runs that are not in this data (cancelled runs, re-runs, pushes to a pull request, draft `change scope` runs) add to the demand. Inference: the queue grows because demand is above capacity. The growth fits the data: the wait of a `ci` run on `main` rises from 2 minutes (04:01Z) to 48 minutes (the run created at 04:30Z), and 17 runs were queued at 08:19Z.
+4. Jobs that take the most runner minutes in `ci` on `main` (total over 23 runs): the three pinned unit shards (166, 126 and 109), the three TypeScript 6 shards (158, 122 and 116), the three TypeScript 5 shards (155, 120 and 120), the compile gate (150) and the user journeys (93). The three shards `unit shard 3` are the longest single jobs (7.2, 6.9 and 6.7 minutes). `render gate` and `perf gate` are not in the first twelve.
+5. Of the 40 merge commits, 0 have the same tree as the head of their pull request (`git rev-parse <merge>^{tree}` against `<merge>^2^{tree}`). Inference: every merge was made on a base that had moved. The run on `main` tests a tree that no pull request run tested.
 6. Of the 40 pull requests, 11 declared `Move: comments` in a commit message, none declared `Move: pure`, and 2 edited documents only (no file outside `*.md` and `reqs/`). 27 are ordinary code changes. The scope of the run of a pull request follows the checker, not the declaration, and the data do not tell which of the 11 the checker accepted. The 13 pull request runs with 15 jobs are the light scope (18.3 runner minutes).
 
 ## Why
@@ -100,11 +100,11 @@ Numbers: model values from the measurements above, in runner minutes for one mer
 | Option                                                | Runs for one merge                                                                                                   | Runner minutes for one merge                                                                                             | W at 10.4 merges an hour                               | Expected wait at 10 merges an hour                                                                                                                                                                                                                                                                                                      |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Today                                                 | 3 workflows on the pull request, 3 on `main`                                                                         | 127.9                                                                                                                    | 111% (above capacity)                                  | The queue grows. Measured: 43 minutes mean on the pull request, 136 on `main`, 17 `ci` runs queued.                                                                                                                                                                                                                                     |
-| A, merge queue, group size N=1                        | light `ci` and 2 workflows on the pull request; one full `ci` on the group; `change scope` and 2 workflows on `main` | 96.6 (`22.6 + 66.7 + 1 + 6.3`)                                                                                           | 84%                                                    | Enqueue to merge: about one `ci` wall time. The unloaded median wall time is 30.5 minutes (pull request runs). Inference: 35 to 45 minutes. Close to capacity, so it may still queue.                                                                                                                                                   |
-| A, N=3                                                | as above, one full `ci` for three merges                                                                             | 52.2 (`22.6 + 66.7/3 + 1 + 6.3`)                                                                                         | 45%                                                    | Up to the wait for the group (set at most 10 minutes) plus 35 to 45 minutes. Inference: stable.                                                                                                                                                                                                                                         |
+| A, merge queue, group size N=1                        | light `ci` and 2 workflows on the pull request; one full `ci` on the group; `change scope` and 2 workflows on `main` | 96.6 (`22.6 + 66.7 + 1 + 6.3`)                                                                                           | 84%                                                    | Enqueue to merge: about one `ci` wall time. The unloaded median wall time of a full `ci` run is 32.5 minutes (27 pull request runs with 19 jobs; the 13 light runs have a median of 21.0). Inference: 35 to 45 minutes. Close to capacity, so it may still queue.                                                                       |
+| A, N=3                                                | as above, one full `ci` for three merges                                                                             | 52.1 (`22.6 + 66.7/3 + 1 + 6.3`)                                                                                         | 45%                                                    | Up to the wait for the group (set at most 10 minutes) plus 35 to 45 minutes. Inference: stable.                                                                                                                                                                                                                                         |
 | A, N=4                                                | as above                                                                                                             | 46.6                                                                                                                     | 40%                                                    | As N=3.                                                                                                                                                                                                                                                                                                                                 |
 | B, skip on `main` when the tree equals the head tree  | unchanged                                                                                                            | 127.9, saving 0                                                                                                          | 111%                                                   | Unchanged. The condition held for 0 of 40 merges (finding 5). It holds only if each pull request is up to date with `main` at the merge, which a merge queue gives, and which "require branches to be up to date" gives at the price that each merge forces every other pull request to update and run again (inference, not measured). |
-| C, one waiting run on `main`, default `queue: single` | one running and one pending `ci` run on `main`. A newer pending run replaces the older one.                          | about 73 (`55.3 + 11.3 + 6`), where 11.3 is 66.3 times 0.17 runs per merge (about 1.8 runs an hour from a 33-minute run) | about 63%                                              | Pull requests wait about their own wall time (median 30.5 minutes). About 8 of 10 commits on `main` get no run of their own.                                                                                                                                                                                                            |
+| C, one waiting run on `main`, default `queue: single` | one running and one pending `ci` run on `main`. A newer pending run replaces the older one.                          | about 73 (`55.3 + 11.3 + 6`), where 11.3 is 66.3 times 0.17 runs per merge (about 1.8 runs an hour from a 33-minute run) | about 63%                                              | Pull requests wait about their own wall time (median 32.5 minutes). About 8 of 10 commits on `main` get no run of their own.                                                                                                                                                                                                            |
 | C with `queue: max`                                   | every commit queues, runs serially                                                                                   | 73, but the line is serial                                                                                               | not applicable                                         | 1.8 runs an hour against 10.4 arrivals: the queue grows by about 8.6 runs an hour. Worse than today.                                                                                                                                                                                                                                    |
 | D, batches of k pull requests                         | unchanged per merge                                                                                                  | 127.9 per merge, fewer merges                                                                                            | k=2: 55% (5.2 merges an hour). k=3: 37% (3.5 an hour). | k=2 is the smallest batch under 70%. Inference: the queue drains at k=2 and above.                                                                                                                                                                                                                                                      |
 
@@ -153,7 +153,7 @@ These are the limits of option A.
 
 ## Owner's decisions
 
-This proposal rests on no entry of `docs/owner-decisions.md` and touches none. A check of OD-1 to OD-11 on 2026-11-25 found no entry about CI, gates or merging. OD-1, OD-2, OD-3, OD-5, OD-7, OD-8, OD-9, OD-10 and OD-11 are about the language and do not apply. The proposal reverses no entry. OD-4 applies to the handling: the owner sees the options with their costs before deciding.
+This proposal rests on no entry of `docs/owner-decisions.md` and touches none. A check of OD-1 to OD-11 on 2026-11-25 found no entry about CI, gates or merging. OD-1, OD-2, OD-3, OD-5, OD-7, OD-8, OD-9, OD-10 and OD-11 are about the language and do not apply. OD-6 (nothing is released) does not apply: no release or published build depends on this change. The proposal reverses no entry. OD-4 applies to the handling: the owner sees the options with their costs before deciding.
 
 ### Decisions for the owner
 
@@ -195,22 +195,25 @@ Required evidence for the implementation. Each item is a future result, not a co
 
 ### Script for the owner (PowerShell, GitHub CLI)
 
-This script changes the repository ruleset. It is the owner's to run, and an agent does not run it. It has two steps that cannot be undone by this text alone: the PUT replaces the ruleset. The script saves the old ruleset first, and step 6 restores it.
+This script changes the repository ruleset. It is the owner's to run, and an agent does not run it. It has two steps that cannot be undone by this text alone: the PUT replaces the ruleset. The script saves the old ruleset first, and the second block restores it.
 
 1. Run `gh auth login` once. Never paste a token in the conversation.
 2. Run the script.
 3. Open Settings > Rules > Rulesets > `main` and read the new rule.
 4. Open a documents-only pull request and read the trials T1 to T4 above.
 5. If the queue is not available for the repository, the PUT fails with an error. Send the error text to the agent.
-6. To roll back, run the last two lines of the script.
+6. To roll back, run the second block, which restores the saved file `ruleset-main-backup.json`.
 
 ```powershell
+$ErrorActionPreference = 'Stop'
 $repo = 'typeshade/typeshade'
 $sets = gh api "repos/$repo/rulesets" | ConvertFrom-Json
 $id = ($sets | Where-Object { $_.name -eq 'main' } | Select-Object -First 1).id
 if (-not $id) { throw 'No ruleset named main. Read the names: gh api repos/typeshade/typeshade/rulesets' }
-gh api "repos/$repo/rulesets/$id" | Out-File -Encoding utf8 "ruleset-main-backup.json"
-$rs = Get-Content "ruleset-main-backup.json" -Raw | ConvertFrom-Json
+$raw = gh api "repos/$repo/rulesets/$id"
+if ($LASTEXITCODE -ne 0) { throw 'Cannot read the ruleset.' }
+[IO.File]::WriteAllText("$PWD\ruleset-main-backup.json", ($raw -join "`n"), (New-Object Text.UTF8Encoding($false)))
+$rs = ($raw -join "`n") | ConvertFrom-Json
 $queue = @{
   type = 'merge_queue'
   parameters = @{
@@ -233,19 +236,28 @@ $body = @{
   rules         = $rules
 } | ConvertTo-Json -Depth 20
 $body | gh api -X PUT "repos/$repo/rulesets/$id" --input -
-# Rollback: put the saved ruleset back.
+if ($LASTEXITCODE -ne 0) { throw 'The PUT failed. The ruleset is unchanged. Send the error text to the agent.' }
+```
+
+The rollback is a second block. Run it only when step 6 says so.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$repo = 'typeshade/typeshade'
+$id = ((gh api "repos/$repo/rulesets" | ConvertFrom-Json) | Where-Object { $_.name -eq 'main' } | Select-Object -First 1).id
 $old = Get-Content "ruleset-main-backup.json" -Raw | ConvertFrom-Json
 @{ name=$old.name; target=$old.target; enforcement=$old.enforcement; conditions=$old.conditions; bypass_actors=$old.bypass_actors; rules=$old.rules } | ConvertTo-Json -Depth 20 | gh api -X PUT "repos/$repo/rulesets/$id" --input -
 ```
 
-The field names and limits of `merge_queue` come from https://docs.github.com/en/rest/repos/rules: `check_response_timeout_minutes` 1 to 360, `grouping_strategy` `ALLGREEN` or `HEADGREEN`, `max_entries_to_build` 0 to 100, `max_entries_to_merge` 0 to 100, `merge_method` `MERGE`, `SQUASH` or `REBASE`, `min_entries_to_merge` 0 to 100, `min_entries_to_merge_wait_minutes` 0 to 360. The page gives no default. The values in the script are starting values chosen from the measurements: a group of at most 4 gives at most 2.6 groups an hour at 10.4 merges, and the wall time of one `ci` run is 30 to 45 minutes. The script was not run. The `GET` response may hold fields that the `PUT` body does not accept (for example an `id` inside `rules`). Not checked: if the `PUT` is refused, remove the named field and run again. The script is untested.
+The field names and limits of `merge_queue` come from https://docs.github.com/en/rest/repos/rules: `check_response_timeout_minutes` 1 to 360, `grouping_strategy` `ALLGREEN` or `HEADGREEN`, `max_entries_to_build` 0 to 100, `max_entries_to_merge` 0 to 100, `merge_method` `MERGE`, `SQUASH` or `REBASE`, `min_entries_to_merge` 0 to 100, `min_entries_to_merge_wait_minutes` 0 to 360. The page gives no default. The values in the script are starting values chosen from the measurements: a group of at most 4 gives at most 2.6 groups an hour at 10.4 merges, and the wall time of one `ci` run is 30 to 45 minutes. The script was not run, and no `pwsh` was available to parse it. It targets Windows PowerShell 5.1 and later. The `GET` response may hold fields that the `PUT` body does not accept (for example an `id` inside `rules`). Not checked: if the `PUT` is refused, remove the named field and run again. The script is untested.
 
 ### What was not checked
 
 - The plan of the account and whether the queue is available. The concurrent-job ceiling of 20 is observed, and the Free value is from the documentation.
 - The push to `main` after a queue merge: its SHA, and whether `push` workflows run (the two pages do not say).
 - Whether a bypass actor skips the queue, and whether `enable_pr_auto_merge` enters the queue.
-- Whether `github.base_ref` is empty on `merge_group`. The `ci.yml` of `d28e833a` does not use it in the paths of a merge group that were read, and the events page was not read for this field.
+- Whether a merge group that the queue rebuilds can be cancelled. A `merge_group` ref is not `refs/heads/main`, so `cancel-in-progress` is `true` for it in the `concurrency` of `ci.yml`. The behaviour of a rebuilt group was not checked.
+- Closed by reading the YAML: `github.base_ref` is used only on a `pull_request` in the step `diff` (`ci.yml`) and in `ci-unit.yml`. A merge group runs the full unit suite there, as a push to `main` does.
 - Whether the minutes cost money. The repository is public. Public repositories have no charge for standard runners; this was not checked on a GitHub page. The limit that binds is the number of concurrent jobs.
 - The run time of a pull request of a larger batch (option D).
 - The speculative re-builds of a queue with `max_entries_to_build` above 1.
@@ -257,7 +269,26 @@ Known work: a `merge_group` trigger, one new output of `change scope`, one condi
 
 ### Independent review record
 
-Not yet done. A sub-agent that did not write this proposal reviews it against `changes/README.md` and the measurements. The record then holds the reviewer, the date, the revision and each finding with the answer.
+Date: 2026-11-25. Revision reviewed: commit `4be76d44` of this file. Reviewer: a Sonnet sub-agent that did not write the proposal. It recomputed the tables from the data files and read the three workflow files. Findings and answers:
+
+1. The rate: 40 merges in 3.76 hours is 10.6, and 10.4 counts 39 intervals. Fixed: the text says so. The model keeps 10.4.
+2. The option A, N=3 cost is 52.1, not 52.2. Fixed.
+3. "The two shards" named three. Fixed.
+4. The 48-minute wait belongs to the run created at 04:30Z, not 04:36Z. Fixed.
+5. The 20-job maximum on `main` alone holds only from 06:14Z. Fixed.
+6. The unloaded wall time mixed light and full runs. Fixed: 32.5 minutes for the full run, 21.0 for the light one.
+7. The group `ci` uses 66.7 and the run on `main` uses 66.3. Fixed: the text names the two samples.
+8. The `github.base_ref` item can be closed, and `ci-unit.yml` was missing. Fixed.
+9. `concurrency` of a `merge_group` ref cancels in progress. Fixed: added to "What was not checked".
+10. The first paragraph of Rule 13.4 conflicts with the new text. Fixed: the After block names it.
+11. The limits 2 and 4 of `0147` change under option A. Fixed: stated in "What changes". The effectivity line says that `0147` is accepted.
+12. OD-6 was not named. Fixed.
+13. `CLAUDE.md` Merging is affected. Kept: decision D3 and the list of files cover it. The reviewer found no silent reversal.
+14. Terms vary ("merge group" and "queue", "light scope" and "pre-queue run", "pull request head" and "head"). Open: the next revision unifies them.
+15. Two inferences were unlabelled. Fixed.
+16. STE: about 20 sentences exceed 25 words. Open: the next revision splits them.
+17. The rollback ran at once after the PUT, a failing `gh` call did not stop the script, and `Out-File` writes a BOM in Windows PowerShell 5.1. Fixed: the rollback is a second block, `$ErrorActionPreference` is `Stop`, the exit code is checked and the backup is written without a BOM.
+18. The reviewer could not check the documentation claims, the plan limit, the typed times beyond one row, and the script by running it. These stay in "What was not checked".
 
 ### Approval and plan record
 
