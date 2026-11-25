@@ -708,7 +708,7 @@
   "src/core/passes/opt/unroll.test.ts": 85,
   "src/core/passes/outline-regions.ts": 6,
   "src/core/passes/parallel-loop.test.ts": 35,
-  "src/core/passes/phase-split.ts": 111,
+  "src/core/passes/phase-split.ts": 105,
   "src/core/passes/portable-kernel.test.ts": 53,
   "src/core/passes/portable-kernel.ts": 101,
   "src/core/passes/precision.test.ts": 31,
