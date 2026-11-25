@@ -51,6 +51,7 @@ import { derivePublishManifest } from './publish-manifest.js';
 import { stampBuildInfo } from './build-info.js';
 import { automaticFusion } from './automatic-fuse-journey.js';
 import { initializedProject } from './project-init-journey.js';
+import { consoleVariants } from './console-variant-journey.js';
 import {
   gateBrowserSettings,
   verifyGateGpu,
@@ -196,6 +197,8 @@ async function main(): Promise<number> {
       },
     });
     if ((run.status ?? 1) !== 0) return run.status ?? 1;
+
+    if (await consoleVariants({ repo: REPO, app, browserSettings })) return 1;
 
     // 4. Explicit setup from a clean Vite project, then the manually configured import path.
     const setup = await initializedProject({
