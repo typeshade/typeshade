@@ -11292,7 +11292,8 @@ const program = rt.load(brick, { console: true });
 
 `packModule(m, { console: 'never' })` and `typeshade({ console: 'never' })` explicitly strip that
 variant. Boolean pack options keep enabled (`true`) and disabled (`false`) defaults.
-Schema 2 is retained: an older reader ignores `variants` and runs the ordinary shader.
+Adding `variants` kept schema 2: a schema-2 reader ignored it and ran the ordinary shader. A
+schema-2 reader refuses a schema-3 manifest, as every reader refuses a schema it does not know.
 Selecting a variant changes neither the manifest nor the next load's default.
 
 **The load-time emitter.** A stripped or historical manifest can instead retain portable IR.
