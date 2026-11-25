@@ -1,7 +1,7 @@
 ---
 id: '0150'
 title: An explicit select(f, t, c) evaluates its three arguments, left to right
-status: accepted
+status: implemented
 rules:
   - '7.9'
 surface:
@@ -25,7 +25,7 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                         |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0150, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                   |
+| Identity and status           | Proposal 0150, `status: implemented`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                |
 | Date and attribution          | 2026-11-25, UTC (the drafting date). An AI agent (Claude Code) drafted it on the owner's decision of the same date, recorded below. The approval is recorded in the Approval and plan record below. This table row is attribution, not approval.                               |
 | Applicability / Effectivity   | `src/compiler/ts/lower/expression-call.ts` (`lowerSelectCall`), `src/compiler/ts/sequence.ts`, `src/core/ir/nodes.ts`, `src/language-service/docs.ts`, `docs/language-design.md` Rule 7.9 and `docs/use-typeshade-surface.md` §10, §26 and §27. No release is assigned (OD-6). |
 | Review baseline               | `main` at `49a41425ef40ef6eafa665c5d0c5dd7186081268`. Every "today" claim below was probed with `compile()` at this commit on 2026-11-25.                                                                                                                                      |
@@ -269,7 +269,15 @@ Reviewer: a Sonnet sub-agent that did not write this proposal, on 2026-11-25. Re
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the implementing pull requests with `Change: 0150`, the functional validation (the tests above, the emit goldens, the compile gate) and the document validation (`bun run docs:refs`, `bun run reqs:sync`, `python scripts/doorstop-check.py -C`), each with its date and configuration.
+Delivered by pull request #1621 (`Change: 0150`), with the pure move #1626 (merge commit `226f47561001a38c21897784ff0db59ae34bca4e`) that made room in `src/core/ir/nodes.ts` before the design changed. Amendment A1 is `c1168a6a953eb2c7287f0f1cd0e0007f2fb232fd` (#1643). The implementing session is `session_017fz53TKADmmzDGUZF8WKiC`; the orchestrating session `session_017fz53SGjwDwHVKa9RHKiEm` recorded the Doorstop reviews (the owner's decision of 2026-11-25).
+
+Delivered configuration: the front end marks the node that `lowerSelectCall` builds with the property `__orderedSelect` (`src/compiler/ts/sequence/ordered-select.ts`). The `select` case of `sequenceEffects` reads it and takes the ordered path (`f`, `t`, `c`, no `if`), and the same path for any `select` with a vector condition. `stripOrdered` deletes the property before the module leaves the front end. `src/core/ir/nodes.ts` and `src/__api__/surface.md` do not change. Rule 7.9, surface §10, §19, §26 and §27, `FUNCTION_DOCS.select` and the prose check of `src/language-service/docs.test.ts` carry the approved texts.
+
+Functional validation, 2026-11-25, on head `0decf9cfc` of the pull request (the tree of this record differs only by this file): `bunx tsc --noEmit -p tsconfig.json` and `-p tsconfig.tests.json`: clean. `bun run lint`, `bun run format:check`, `bun run docs:refs` (0 dead references): pass. `bun scripts/bundle-boundary.ts`: no FAIL line. `bun scripts/changes.ts --base origin/main`: Rule 7.9 and surface §10, §19, §26, §27, no export. `bunx vitest run` of `src/compiler/ts/sequence-select.test.ts` (22 tests), `sequence.test.ts`, `src/language-service/docs.test.ts`, `src/api-surface.test.ts`, the file-size, comment, layer and both-halves policy tests, `src/reqs.test.ts` and `examples/emit-goldens.test.ts`: 164 pass, the emit goldens unchanged. A run of `src/*.test.ts`, `src/compiler/ts`, `src/language-service`, `src/core/ir` and three example tests on an earlier tree: 535 of 540 files pass; the failures are the 11 tests of `src/affected-tests.test.ts`, `src/doc-test-selection.test.ts` and `src/publish-manifest.test.ts`, which fail the same way on `origin/main` in this container, and the `?` check of `docs.test.ts`, fixed afterwards. Mutations that fail the new tests: the marker not set, `stripOrdered` not called, the vector guard of the `select` case removed, the hover text changed, the code-span exemption of `docs.test.ts` removed. The compile gate (`bun run gate:compile`) did not run in this container (no Playwright browser); CI runs it.
+
+Document validation: `bun run reqs:sync` changes nothing at the head; `python3 scripts/doorstop-check.py -C -e -F` prints no warning.
+
+Deviations, all closed by Amendment A1: the marker is the property `__orderedSelect` and not a field of `Expr`, because a field changes an export that this proposal does not declare and a symbol key is lost by `cloneIr` (reproduced with `for (let i = 0; i < 3; i++, s = select(rng.next(), rng.next(), uv.y > 0.5))`); the prose check of `docs.test.ts` exempts a `?` in a code span; the files `src/compiler/ts/sequence/ordered-select.ts`, `src/language-service/docs.test.ts` and the two baselines changed beyond the first touch list. Pending outside this repository: the texts of the site (`typeshade/web`) and the compiler-changes records of the downstream repositories, as the sections above list.
 
 ## Open items and out of scope
 
