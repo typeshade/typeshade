@@ -1,4 +1,4 @@
-// === Hover: TypeScript quick info for user symbols, TypeShade docs for the vocabulary (§5) ===
+// Implements: Rule 6.6, Rule 7.10 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
@@ -406,21 +406,8 @@ export interface HoverPrograms {
 /** How a hover names a struct, from the name the compiler's types carry (`structNamesOf`). */
 export type StructNames = (emitted: string) => string;
 
-/**
- * How a `ShaderType` is spelled in a hover: the WGSL spelling for everything a backend can
- * write, and the source spelling for the emulated-double types it cannot.
- *
- * `wgslType` alone is not enough. `f64`, `vecN<f64>` and `matNxN<f64>` are PRE-LOWERING types,
- * rewritten into `f32` pairs before any backend spells a type, so `wgslType` deliberately
- * throws SD0040 on them rather than emitting an invalid WGSL type. A hover still has to name
- * them, and the source spelling is the only one they have, so those three arms are spelled here,
- * with the array arm recursing through this function so `array<vec3<f64>, 4>` reaches them.
- * Key types, Record and collections retain their front-end spelling (change 0081).
- * Every other kind takes the WGSL spelling from `wgslType`, which is what the rest of the editor
- * already shows: a `vec3` hovers as `vec3<f32>` and a `mat4` as `mat4x4<f32>`, not as the
- * ambient alias the author typed. So there is exactly one place a GPU type is spelled for the
- * editor.
- */
+// Why: `wgslType` throws SD0040 on `f64`, `vecN<f64>` and `matNxN<f64>`, which are pre-lowering types.
+
 export function spellShaderType(t: ShaderType, struct: StructNames = (name) => name): string {
   const spell = (inner: ShaderType): string => spellShaderType(inner, struct);
   // An optional value is spelled as TypeScript spells it (Rule 7.10, change 0088).
@@ -932,9 +919,7 @@ function nodeAt(sourceFile: ts.SourceFile, pos: number): ts.Node | undefined {
   const holds = (n: ts.Node): boolean => n.getStart(sourceFile) <= pos && pos < n.getEnd();
   let found: ts.Node | undefined;
   let current: ts.Node | undefined = holds(sourceFile) ? sourceFile : undefined;
-  // Children do not overlap and stand in source order, so the descent goes into the one child
-  // that holds `pos`, found in a list by a binary search on the ends: a lookup costs the depth
-  // of the node and the logarithm of each list, not the size of the file.
+  // Why: children do not overlap and stand in source order, so a binary search on the ends finds the one child that holds `pos`.
   while (current !== undefined) {
     found = current;
     let next: ts.Node | undefined;
