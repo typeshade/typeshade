@@ -60,24 +60,9 @@ import type { PlanRun } from './host-kernel.js';
 import type { GlComputeProgram } from './passes/gl-compute.js';
 import type { Tier } from './tiers.js';
 import { uploadImage } from './gl-image.js';
-
-export interface EntryPrograms {
-  gpu(d: GpuDevice, e: ComputeEntry, checked: Checked, wg: Workgroups): Promise<void>;
-  gl(
-    gl: WebGL2RenderingContext,
-    e: ComputeEntry,
-    checked: Checked,
-    wg: readonly [number, number, number],
-  ): Promise<void>;
-  cpu(
-    cpu: GeneratedCpu,
-    e: ComputeEntry,
-    values: Record<string, unknown>,
-    wg: readonly [number, number, number],
-  ): Promise<void>;
-}
-
-export const entryPrograms: { run?: EntryPrograms } = {};
+import { entryPrograms } from './host-compute/entry-programs.js';
+export { entryPrograms } from './host-compute/entry-programs.js';
+export type { EntryPrograms } from './host-compute/entry-programs.js';
 
 function checkArity(e: ComputeEntry, argc: number): void {
   if (argc !== 2 && argc !== 3)
