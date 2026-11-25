@@ -28,6 +28,7 @@ import { spellShaderType, typesOf, withDeclaredName } from './hover/spell-type.j
 import { resourceBindingLine, bindingLine } from './hover/binding-line.js';
 import { linkedFieldAt } from './hover/linked-field.js';
 import { ROLES, fieldLine, type FieldFacts } from './hover/field-line.js';
+import { shownNames } from './hover/shown-names.js';
 export { spellShaderType } from './hover/spell-type.js';
 export type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
 
@@ -83,19 +84,6 @@ function fieldFacts(
     location: attr.location,
     builtin: attr.builtin !== undefined,
   };
-}
-
-function shownNames(uris: readonly string[]): ReadonlyMap<string, string> {
-  const segments = new Map(uris.map((uri) => [uri, uri.split(/[\\/]/).filter((s) => s !== '')]));
-  const tail = (uri: string, n: number): string => segments.get(uri)!.slice(-n).join('/');
-  const out = new Map<string, string>();
-  for (const uri of uris) {
-    const own = segments.get(uri)!;
-    let n = 1;
-    while (n < own.length && uris.some((u) => u !== uri && tail(u, n) === tail(uri, n))) n++;
-    out.set(uri, n < own.length ? tail(uri, n) : uri);
-  }
-  return out;
 }
 
 function fieldLinesAcross(
