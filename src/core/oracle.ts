@@ -173,10 +173,7 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
           e.b.type.cols,
         );
       }
-      // vecR * matCxR — the ROW-vector product (wgsl.txt:9960-9995), which is
-      // `transpose(m) * v`. It used to throw here, on the ground that the front end had no
-      // arm for it; now that `binResultType` types it, the oracle has to evaluate it or the
-      // three backends disagree (#149).
+      // Why: a row vector times a matrix is `transpose(m) * v` (wgsl.txt:9960-9995).
       if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
         return vecMatShaped(av as number[], bv as number[], e.b.type.cols, e.b.type.rows);
       }
@@ -686,10 +683,7 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         const chosen = hit ? hit.body : s.defaultBody;
         if (chosen) {
           const r = execBody(chosen, env, ctx);
-          // A `break` in a case body exits the SWITCH only (WGSL and GLSL alike), so it
-          // is consumed here. Everything else propagates to the statement that owns it —
-          // `return`, `discard`, and a `continue` aimed at an enclosing loop (X-GIS #2275: it
-          // used to be dropped, so the loop body ran to completion on that iteration).
+          // Why: a `break` in a case body exits the SWITCH only, in WGSL and GLSL alike.
           if (r.kind !== 'normal' && r.kind !== 'break') return r;
         }
         break;

@@ -1,5 +1,5 @@
 // === The text TypeScript sees: the document, with the types TypeScript cannot infer written in ===
-//
+// Implements: Rule 12.7
 // TypeScript has no operator overloading, so the checker types every arithmetic result as
 // `number`. On an operand that is a vector or a matrix the diagnostics filter already drops the
 // operator's own complaint (TS2362, TS2363, TS2365). What it could not reach was the local the
