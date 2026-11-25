@@ -1,5 +1,3 @@
-// === Completions: TypeScript user symbols/keywords merged with TypeShade context items (§5) ===
-
 import ts from 'typescript';
 import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
@@ -8,11 +6,6 @@ import { nodeAtPosition } from './positions.js';
 import { isGpuBrandedType } from './diagnostics.js';
 import type { TypeshadeCompletionItem, TypeshadeCompletionKind } from './types.js';
 
-/** The `@builtin(...)` names valid for a parameter of a function decorated with each stage.
- * `clip_distances` is a vertex OUTPUT (§50), so it has no parameter position in any of the
- * three stages and only ever appears via the unfiltered fallback (an unknown enclosing
- * stage). The subgroup pair does have one, on compute and on fragment, which is the stage
- * rule `builtin-check.ts` enforces. */
 const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', readonly string[]>> = {
   vertex: ['vertex_index', 'instance_index'],
   fragment: [
@@ -43,20 +36,12 @@ const VEC_SNIPPETS: readonly { readonly label: string; readonly insertText: stri
   { label: 'vec4', insertText: 'vec4(${1:x}, ${2:y}, ${3:z}, ${4:w})' },
 ];
 
-/** `ts.canHaveDecorators` reflects the *syntactically valid* decorator targets, and a plain
- * function declaration is not one of them — but the parser still attaches `@vertex` etc. to
- * its `modifiers` array (that mismatch is exactly why TS1206 fires; see `diagnostics.ts`), so
- * a decorator on a function or its parameters must be read straight off `modifiers` instead of
- * through the `canHaveDecorators`-gated helper. */
 function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
   if (ts.canHaveDecorators(node)) return ts.getDecorators(node) ?? [];
   const modifiers = (node as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? [];
   return modifiers.filter(ts.isDecorator);
 }
 
-/** The pipeline stage of the function declaration enclosing `offset`, mirroring the compiler's
- * own `parseStage` (`lower/function.ts`) closely enough to filter completions — `undefined`
- * when `offset` is not inside a stage-decorated function's parameter list. */
 function enclosingStage(
   sourceFile: ts.SourceFile,
   offset: number,
@@ -115,10 +100,6 @@ function kindOfTsCompletion(kind: ts.ScriptElementKind): TypeshadeCompletionKind
   return 'variable';
 }
 
-/** The members a vector's completion lists: its components and the prefix swizzles. The
- *  ambient library declares every swizzle the compiler accepts (Rule 12.7), which is 680 names
- *  on a `vec4`; the list keeps the ones an author starts from, and any other is still accepted
- *  where it is written. */
 const LISTED_SWIZZLES: ReadonlySet<string> = new Set([
   'x',
   'y',
@@ -137,8 +118,6 @@ const LISTED_SWIZZLES: ReadonlySet<string> = new Set([
 ]);
 const SWIZZLE = /^(?:[xyzw]{1,4}|[rgba]{1,4})$/;
 
-/** Whether the completion at `offset` lists the members of a vector: the receiver of the
- *  member access being written is one of the ambient library's GPU types. */
 function completesVectorMembers(
   languageService: ts.LanguageService,
   uri: string,
@@ -178,14 +157,11 @@ function tsCompletions(
     }));
 }
 
-/** What the syntax tree says about the position a completion was requested at. */
 type CompletionContext =
   | { readonly kind: 'comment' }
   | { readonly kind: 'string'; readonly literal: ts.LiteralLikeNode }
   | { readonly kind: 'code'; readonly slot: ts.Node };
 
-/** The last node reached by following each node's last child (`forEachChild` order, which is
- * source order): the rightmost leaf of `node`. */
 function rightmostLeaf(node: ts.Node): ts.Node {
   for (;;) {
     let last: ts.Node | undefined;
@@ -197,13 +173,10 @@ function rightmostLeaf(node: ts.Node): ts.Node {
   }
 }
 
-/** Whether `text` between `start` and `end` is whitespace and comments only, read with a
- * scanner that reports trivia as tokens (the public counterpart of the compiler's internal
- * `skipTrivia`). */
 function isTriviaOnly(text: string, start: number, end: number): boolean {
   const scanner = ts.createScanner(
     ts.ScriptTarget.Latest,
-    /* skipTrivia */ false,
+    false,
     ts.LanguageVariant.Standard,
     text,
     undefined,
@@ -216,12 +189,6 @@ function isTriviaOnly(text: string, start: number, end: number): boolean {
   return true;
 }
 
-/**
- * Whether `node` ends in a zero-width node the parser inserted for something missing at its
- * very end (the type after `let x:` or `a:` that has not been written yet), with nothing but
- * trivia between that end and `pos`. Such a node marks the slot the cursor at `pos` is filling,
- * even when the parser has already attached the tokens after the cursor to the next sibling.
- */
 function endsInMissingNodeBefore(node: ts.Node, sourceFile: ts.SourceFile, pos: number): boolean {
   const end = node.getEnd();
   if (end > pos) return false;
@@ -230,21 +197,6 @@ function endsInMissingNodeBefore(node: ts.Node, sourceFile: ts.SourceFile, pos: 
   return isTriviaOnly(sourceFile.text, end, pos);
 }
 
-/**
- * The innermost node whose full span (`getFullStart()`, leading trivia included, through
- * `getEnd()`) holds `pos`, under the editor convention that a cursor touches the token before
- * it: at each level the child the cursor is strictly inside or at the end of wins; then the
- * last child with content before the cursor, when it ends in a zero-width node the parser
- * inserted for something missing (`endsInMissingNodeBefore`: the type after a `:` not yet
- * written), which marks the
- * slot the cursor is filling even when the parser has attached what follows the cursor to the
- * next sibling (`pos: |` on the line before `@location(1) uv: vec2` used to resolve to that
- * decorator's name); then the child whose leading trivia (or first character) the cursor sits
- * in; then a zero-width last child (the identifier of a `@` still being typed). Unlike
- * `nodeAtPosition`, which anchors a hover to a token, this never skips trivia, so a position
- * inside a comment resolves to the node around the comment and is then recognised as such by
- * `contextAt`.
- */
 function slotAt(sourceFile: ts.SourceFile, pos: number): ts.Node {
   let node: ts.Node = sourceFile;
   for (;;) {
@@ -271,9 +223,6 @@ function slotAt(sourceFile: ts.SourceFile, pos: number): ts.Node {
   }
 }
 
-/** Whether `pos` is inside one of the comments in the trivia that starts at `triviaStart` (the
- * end of the previous token). A cursor at the very end of a `//` comment is still inside it,
- * since that is where one types; a cursor right after a closing `*\/` is not. */
 function isInCommentAt(text: string, triviaStart: number, pos: number): boolean {
   const ranges = [
     ...(ts.getLeadingCommentRanges(text, triviaStart) ?? []),
@@ -287,23 +236,12 @@ function isInCommentAt(text: string, triviaStart: number, pos: number): boolean 
   });
 }
 
-/**
- * Where the trivia that holds `pos` begins within `slot`: the end of the last token of `slot`
- * that ends at or before `pos` (tokens included through `getChildren`, descending into the
- * child, a `SyntaxList` of arguments say, whose span holds the cursor), or the slot's own full
- * start when the cursor is in its leading trivia. Every comment lies in trivia, and every run
- * of trivia starts at the end of the token before it, so scanning comments from here finds the
- * one holding `pos` wherever it sits: before a statement, after the last statement of a block,
- * between two arguments, before a closing `)` or `}`, on the line of the token before it.
- */
 function triviaStartAt(slot: ts.Node, sourceFile: ts.SourceFile, pos: number): number {
   let start = slot.getFullStart();
   let node = slot;
   for (;;) {
     let holder: ts.Node | undefined;
     for (const child of node.getChildren(sourceFile)) {
-      // A JSDoc comment is exposed as a child node of its declaration, but it is trivia: the
-      // scan from the token before it must see it as a comment, not as tokens to walk into.
       if (ts.isJSDoc(child)) continue;
       if (child.getEnd() <= pos) start = child.getEnd();
       else if (child.getFullStart() <= pos) {
@@ -316,15 +254,6 @@ function triviaStartAt(slot: ts.Node, sourceFile: ts.SourceFile, pos: number): n
   }
 }
 
-/**
- * Classifies `offset` in `sourceFile` from the tree: inside a comment, inside a string,
- * template or regular expression literal (an unterminated one included, since that is what
- * `@builtin("ver` is while it is being typed), or in code at some slot. The TypeShade triggers
- * used to be regexes over the raw text before the cursor, which fired on `@ver` in a comment
- * and `"vec"` in a string alike; the comment check then only looked at the leading trivia of
- * the slot, which missed a comment after the last statement of a body, before a closing
- * bracket, or on the line of the token before it.
- */
 function contextAt(sourceFile: ts.SourceFile, offset: number): CompletionContext {
   const slot = slotAt(sourceFile, offset);
   if (isInCommentAt(sourceFile.text, triviaStartAt(slot, sourceFile, offset), offset)) {
@@ -343,10 +272,7 @@ function contextAt(sourceFile: ts.SourceFile, offset: number): CompletionContext
   return { kind: 'code', slot };
 }
 
-/** Whether `literal` is the id argument of a `builtin(...)` call: the one string position where
- * completions are offered, since `WgslBuiltinName` is a closed vocabulary. */
 function isBuiltinIdLiteral(literal: ts.Node): boolean {
-  // The id of a `builtin<"…", T>` type (change 0111), as the decorator's argument.
   if (isBuiltinTypeLiteral(literal)) return true;
   const call = literal.parent;
   return (
@@ -359,8 +285,6 @@ function isBuiltinIdLiteral(literal: ts.Node): boolean {
   );
 }
 
-/** Whether `slot` is the name of a decorator being typed: `@ver|`, a bare `@|` (the parser
- * leaves a zero-width identifier there), or the callee of a decorator factory, `@buil|(...)`. */
 function isAttributeSlot(slot: ts.Node): boolean {
   if (ts.isDecorator(slot)) return true;
   if (!ts.isIdentifier(slot)) return false;
@@ -369,13 +293,6 @@ function isAttributeSlot(slot: ts.Node): boolean {
   return ts.isCallExpression(parent) && parent.expression === slot && ts.isDecorator(parent.parent);
 }
 
-/**
- * Whether a value expression can start at `slot`: not inside a type (`let x: vec|`,
- * `f(): vec|`, `uniform<Cam|>`), a decorator, an import or export clause, or a class body's
- * member list; not a declaration's own name (`const vec|`), a property access member
- * (`a.vec|`), or a literal already there. Everything else, including the whitespace after
- * `return` or at the start of a statement, is where a `vec4(...)` snippet makes sense.
- */
 function isExpressionSlot(slot: ts.Node): boolean {
   if (ts.isLiteralExpression(slot) || ts.isTemplateLiteralToken(slot)) return false;
   if (ts.isClassLike(slot) || ts.isInterfaceDeclaration(slot) || ts.isTypeLiteralNode(slot))
@@ -393,17 +310,6 @@ function isExpressionSlot(slot: ts.Node): boolean {
   return true;
 }
 
-/**
- * Completions at `offset` in `uri`, decided by `contextAt` (§5): inside a comment, TypeScript's
- * own answer and nothing TypeShade-specific; inside a string literal nothing at all, except the
- * `WgslBuiltinName` list (filtered to the enclosing function's stage when known) inside
- * `@builtin("`; the attribute list when the cursor is on a decorator's name; and otherwise
- * TypeScript's user-symbol and keyword completions, with snippet-enabled entries for
- * `vec2`/`vec3`/`vec4` replacing the plain TypeScript entry of the same name only where a value
- * expression can start (`isExpressionSlot`), never in a type position or after `@`. Deduped by
- * `label`, last write wins, so a TypeShade item always wins over the TypeScript entry it
- * enriches.
- */
 export function getCompletions(
   languageService: ts.LanguageService,
   sourceFile: ts.SourceFile,
