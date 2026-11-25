@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { compile } from '../compiler/ts/compile.js';
+import { bothHalves } from './testing/both-halves.js';
 import { compileModule } from './oracle.js';
 import type { CpuValue } from './cpu-runtime.js';
 
 const compiled = (body: string) => {
-  const r = compile(`"use typeshade";\n${body}\n`, { fileName: 'm.shade.ts' });
-  expect(r.diagnostics.filter((d) => d.category === 'error')).toEqual([]);
-  return compileModule(r.module);
+  const halves = bothHalves(`"use typeshade";\n${body}\n`);
+  expect(halves.compiler).toEqual([]);
+  expect(halves.editor.filter((d) => !d.startsWith('typeshade TS8070'))).toEqual([]);
+  return compileModule(halves.result.module);
 };
 
 const asArgs = (...xs: number[][]): CpuValue[] => xs as unknown as CpuValue[];

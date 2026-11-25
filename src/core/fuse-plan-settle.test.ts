@@ -117,7 +117,7 @@ describe('a group whose fused entry cannot be built', () => {
 });
 
 describe('a call that no tier it may use can run', () => {
-  it('fails with each reason, and is not fused with the call beside it', async () => {
+  it('fails with the reason of each tier it may use', async () => {
     configure({ prefer: ['webgpu', 'webgl2'] });
     const ops = await load(OPS, 'ops');
     const [t, out] = [array(new Float32Array(2)), array(new Float32Array(2))];
