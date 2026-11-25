@@ -50,7 +50,7 @@
   "src/compiler/ts/lit-coerce.ts": 1014,
   "src/compiler/ts/loop-shapes.test.ts": 834,
   "src/compiler/ts/lower/array-methods.ts": 1053,
-  "src/compiler/ts/lower/class-access.ts": 1075,
+  "src/compiler/ts/lower/class-access.ts": 1067,
   "src/compiler/ts/lower/class-methods.ts": 2268,
   "src/compiler/ts/lower/control.ts": 1378,
   "src/compiler/ts/lower/expression-array.ts": 520,
