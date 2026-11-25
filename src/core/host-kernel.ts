@@ -724,7 +724,7 @@ export function callKernel(
   } catch (err) {
     return Promise.reject(err);
   }
-  // What the call writes keeps its error: each written array, and a held length's word.
+  // Why: a call nobody awaits keeps its error on what it writes; no unit test holds a Resident here.
   const written = k.params.flatMap((p, i) => {
     if (p.k !== 'array') return [];
     const held = heldArgument(args[i]);
@@ -1671,14 +1671,13 @@ export async function runChecked(
         if (r.n > 0) drawn++;
         onWebgl2(gl, loop, arrays, uniforms, r.start, face.step, r.n);
       });
-      // The stores after the loops run on the CPU tier over the host copies the draws wrote
-      // (change 0094, Rule 11.8).
+      // Why: WebGL2 has no store entry, so the CPU tier runs the stores over the draws' host copies;
+      // only a real WebGL2 context reaches this.
       if (k.gpu!.finish !== undefined) finishOnHost(cpu, k, live, values);
       if (run !== undefined) recordDispatches(run.counts, run.group, drawn);
-      // The submission flushes the context, and a read() of what the call wrote waits on a fence
-      // (change 0138, Amendment A5, default 6).
-      // Only a recorded call: a plan of a scope keeps its own submission (Rule 11.13), and a call
-      // with plain data read its values back inside the call (S3 of the review of #1238).
+      // Why: a recorded call's read() waits on a WebGL2 fence of the flushed context; a plan keeps its
+      // own submission (Rule 11.13) and a plain call reads back inside the call. Only a real WebGL2
+      // context holds a fence, so no unit test does.
       if (run === undefined && c.recorded === true) {
         usedGl(gl);
         k.params.forEach((p, i) => {
@@ -2095,7 +2094,7 @@ function glRange(
   const n = tripsOf(loop, start, bound);
   const out = k.gl!.loops[j]!.out;
   const length = (live[k.params.findIndex((p) => p.name === out)] as ArrayLike<unknown>).length;
-  // The iterations `t` from `lo` to `hi` are the ones whose `start + t * step` is in the array.
+  // Why: WebGL2 draws only the iterations `t` in `lo..hi` whose `start + t * step` lies in the array; only a WebGL2 context runs this.
   const step = loop.step;
   const lo =
     step > 0
@@ -2300,8 +2299,8 @@ async function onDevice(
     // (change 0094): slot 0 then holds the length after the loop, which the result reads.
     const word = variant.words.some((w) => w.loops.includes(j));
     if (n === 0 && !word) {
-      // No iteration: the variable is combined with the identity, which leaves it, and a loop
-      // that pushes pushed nothing.
+      // Why: with no iteration a variable folds to its identity and a push loop pushed nothing; the
+      // device path of this needs a real WebGPU device, which no unit test has.
       const identities = vars.map((v) => identityValue(v.op, v.scalar, v.n));
       if (loop.push !== undefined) identities.push(0 as CpuValue);
       folds.push(async () => identities);

@@ -127,7 +127,7 @@
   "src/core/host-draw.ts": 886,
   "src/core/host-entry-program.ts": 420,
   "src/core/host-entry.ts": 2029,
-  "src/core/host-kernel.ts": 2590,
+  "src/core/host-kernel.ts": 2589,
   "src/core/host-values.test.ts": 401,
   "src/core/host-values.ts": 452,
   "src/core/intrinsic-coverage.test.ts": 497,
