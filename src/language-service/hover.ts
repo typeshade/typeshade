@@ -30,6 +30,7 @@ import {
 } from './hover/declaration-line.js';
 import { resultCopiesLine, importedCallLine } from './hover/result-copies-line.js';
 import { abstractConstLine } from './hover/abstract-const-line.js';
+import { withDeclaredName } from './hover/struct-name.js';
 export { spellShaderType } from './hover/spell-type.js';
 export type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
 
@@ -441,11 +442,6 @@ const importNames = new WeakMap<
   ts.TypeChecker,
   WeakMap<ts.SourceFile, Map<string, string | undefined>>
 >();
-
-function withDeclaredName(name: string, emitted: string, to: string): string {
-  if (name === emitted) return to;
-  return name.startsWith(`${emitted}_`) ? `${to}${name.slice(emitted.length)}` : name;
-}
 
 function structNamesOf(
   program: HoverProgram,
