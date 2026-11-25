@@ -1,19 +1,3 @@
-// ═══ Shader DSL: one launch configuration, three carriers (docs/debugging.md §4) ═══
-//
-// The same object describes a debug run whether it arrives as a `launch.json` entry in an
-// IDE, a form in the Playground, or an argument to a headless test. It is defined here, with
-// the resolver beside it, so the extension's `launch.json` contribution and the Playground's
-// form cannot drift from each other or from the engine: both hand this module the object and
-// take back a started session.
-//
-// THE INVOCATION IS KEYED BY WGSL BUILTIN ID, not by three per-stage shapes. The grammar
-// (`docs/use-typeshade-surface.md` §3) already makes a stage input an explicit parameter
-// carrying `@builtin(...)` or `@location(n)`, and `reflect()` reports them that way. Keying
-// the configuration the same way means the resolver validates it against the entry's own
-// declarations rather than against a hand-written table per stage, so an unknown key is an
-// error naming the builtins the entry actually declares, and a new builtin needs no change
-// here.
-
 import type { CpuValue } from '../cpu-runtime.js';
 import type { ConsoleSink } from '../console.js';
 import type { FuncDecl, ModuleDecl, StructDecl } from '../ir/nodes.js';
@@ -145,12 +129,8 @@ export class DebugConfigError extends Error {
   }
 }
 
-/** The WGSL compute builtins this resolver derives from `global_invocation_id`. */
 const DERIVED = ['workgroup_id', 'local_invocation_id', 'local_invocation_index'] as const;
 
-/** Every key {@link DebugLaunchConfig} has. Kept beside the interface on purpose: a field
- *  added there without a line here is refused at runtime, which is a loud failure rather than
- *  a quiet one, and `config.test.ts` checks the two against each other. */
 const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'type',
   'request',
@@ -214,9 +194,6 @@ export function startDebugSessionFromConfig(
   hooks?: { readonly consoleSink?: ConsoleSink },
 ): DebugSession {
   const problems: string[] = [];
-  // A misspelled top-level key used to be ignored in silence, so `stopOnentry: false` or
-  // `breakPoints: [...]` read as the default and the session behaved in a way the file did not
-  // describe. The schema refuses one too; this is the half that runs.
   for (const key of Object.keys(config)) {
     if (!CONFIG_KEYS.has(key)) {
       problems.push(
@@ -280,9 +257,6 @@ export function resolveInvocation(
 ): CpuValue[] {
   const declared = declaredBuiltins(decl, structs);
   const supplied = { ...invocation };
-  // Neither is a builtin id, so neither belongs in the scan below. `inputs` carries the
-  // `@location` values; `dispatch` says how many workgroups there are, which is a property of
-  // the dispatch rather than of this invocation.
   delete (supplied as Record<string, unknown>).inputs;
   const dispatch = invocation.dispatch;
   delete (supplied as Record<string, unknown>).dispatch;
@@ -296,8 +270,6 @@ export function resolveInvocation(
     if (bad) problems.push(`"dispatch" ${bad}`);
   }
 
-  // A misspelled builtin is the failure this catches: `globalInvocationId` would otherwise
-  // sit in the object doing nothing while the shader read zeros.
   for (const key of Object.keys(supplied)) {
     if (!declared.has(key)) {
       const list = [...declared.keys()].sort().join(', ');
@@ -365,22 +337,6 @@ export function resolveInvocation(
   });
 }
 
-/** What an omitted builtin reads as, which is the zero of its type except where zero is a
- *  value no invocation could have had.
- *
- *  Two of those, both fragment inputs, and both from `docs/debugging.md` §4.2:
- *
- *  - `position` is `[0, 0, 0, 1]`. Its `w` is the perspective divisor, and the zero of a
- *    `vec4` puts a 0 there, so the default fragment run divided by zero and every
- *    perspective-divided value came back `NaN`. A reader would blame the shader.
- *  - `front_facing` is `true`. `false` is a back-facing fragment, which for a single-sided
- *    draw is the case that never runs, so a default run would be debugging the branch the GPU
- *    does not take.
- *
- *  Keyed by builtin id rather than by stage, so a struct field carrying `@builtin("position")`
- *  gets the same value as a loose parameter does. Everything else is the zero of its type,
- *  including the four builtins §4.2's table does not name.
- */
 function builtinDefault(
   id: string,
   type: ShaderType,
@@ -391,15 +347,6 @@ function builtinDefault(
   return zeroValueOf(type, structs);
 }
 
-/** The compute builtins that are not supplied directly: the three derived from
- *  `global_invocation_id` and the entry's workgroup size, and `num_workgroups`, which comes
- *  from `dispatch` because nothing about one invocation implies how many there are.
- *
- *  A value the caller gave always wins. A value the caller gave that CONTRADICTS what would
- *  have been derived is a problem rather than a silent pick, because a wrong invocation id
- *  makes a whole session lie. A default cannot contradict anything, so an omitted `dispatch`
- *  never argues with a supplied `num_workgroups`.
- */
 function deriveComputeIds(
   decl: FuncDecl,
   declared: ReadonlyMap<string, ShaderType>,
@@ -409,8 +356,6 @@ function deriveComputeIds(
 ): void {
   if (stageOf(decl) !== 'compute') return;
 
-  // `num_workgroups` first, since it does not need `global_invocation_id` and must be seeded
-  // even for a kernel that reads only it.
   if (declared.has('num_workgroups')) {
     const fromDispatch = [...(dispatch ?? [1, 1, 1])];
     const given = resolved.get('num_workgroups');
@@ -425,9 +370,6 @@ function deriveComputeIds(
 
   const gid = resolved.get('global_invocation_id');
   if (gid === undefined) return;
-  // The front end accepts `@builtin("global_invocation_id") gid: u32` as well as a `vec3u`, and
-  // a scalar has no `.map`. Guarding here rather than letting it throw is the difference
-  // between a problem naming the declaration and a raw TypeError out of the resolver.
   if (!Array.isArray(gid)) {
     problems.push(
       `"global_invocation_id" is declared ` +
@@ -439,9 +381,6 @@ function deriveComputeIds(
   const ids = gid as number[];
 
   const size = workgroupShapeOf(decl) ?? [64, 1, 1];
-  // A hand-built `@workgroup_size(0)` has no invocations, and dividing by it gives NaN ids
-  // that no one would read as wrong. Naming it is the only honest answer: a workgroup of no
-  // invocations has no invocation to debug.
   if (size.some((n) => n <= 0)) {
     problems.push(
       `${decl.name} is @compute([${size.join(', ')}]), which has no invocations to derive an id from`,
@@ -450,7 +389,6 @@ function deriveComputeIds(
   }
   const local = ids.map((v, i) => ((v % size[i]!) + size[i]!) % size[i]!);
   const group = ids.map((v, i) => Math.floor(v / size[i]!));
-  // WGSL's own formula, `x + y*wx + z*wx*wy`.
   const index = local[0]! + local[1]! * size[0]! + local[2]! * size[0]! * size[1]!;
   const derivation: Record<(typeof DERIVED)[number], CpuValue> = {
     workgroup_id: group,
@@ -479,14 +417,8 @@ const sameValue = (a: CpuValue, b: CpuValue): boolean =>
     ? a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
     : Object.is(a, b);
 
-/** Namespaced so a `@location` input named `position` cannot collide with the builtin.
- *
- *  `@` because it cannot appear in a WGSL builtin id, which is what makes the namespace real.
- *  It was a literal NUL byte until a review pointed out that one NUL makes `grep` and
- *  `ripgrep` treat the whole file as binary and skip it silently. */
 const inputKey = (name: string): string => `@in:${name}`;
 
-/** Every `@builtin(...)` this entry reads, by WGSL id, with the type it is declared at. */
 function declaredBuiltins(
   decl: FuncDecl,
   structs: ReadonlyMap<string, StructDecl>,
@@ -506,24 +438,10 @@ function declaredBuiltins(
   return out;
 }
 
-/** Every non-builtin stage input, by the name an invocation spells it under.
- *
- *  The keys written here are the keys `resolveInvocation` reads back: `inputKey(param)` for a
- *  bare `@location` parameter and `inputKey(param.field)` for a field of a struct parameter. */
 function declaredInputs(
   decl: FuncDecl,
   structs: ReadonlyMap<string, StructDecl>,
 ): ReadonlyMap<string, InputSlot> {
-  // A bare `@location` parameter is spelled by its own name and nothing else. Parameter names
-  // are distinct, so that spelling is always unambiguous; it used to be keyed `uv.uv` (owner
-  // and field both the parameter's name), which the run never read back, so a documented
-  // `"inputs": { "uv": [0.5, 0.25] }` was accepted and then dropped.
-  //
-  // A struct field gets a QUALIFIED spelling, `param.field`, which is always unambiguous. The
-  // bare field name is offered as well, and only when exactly one struct parameter declares it
-  // and no parameter already has that name: two entry structs each with a `v` used to share
-  // the bare key, so one supplied `v` was checked against whichever type won the map and then
-  // written into BOTH parameters.
   const out = new Map<string, InputSlot>();
   const fields: { owner: string; field: string; type: ShaderType }[] = [];
   for (const p of decl.params) {
@@ -543,7 +461,7 @@ function declaredInputs(
     const key = inputKey(`${f.owner}.${f.field}`);
     out.set(`${f.owner}.${f.field}`, { key, type: f.type });
     if (decl.params.some((p) => !p.builtin && p.type.kind !== 'struct' && p.name === f.field))
-      continue; // the bare name is that parameter's own spelling
+      continue;
     const sharing = owners.get(f.field)!;
     if (sharing.length === 1) out.set(f.field, { key, type: f.type });
     else out.set(f.field, { key, type: f.type, ambiguous: sharing });
@@ -551,9 +469,6 @@ function declaredInputs(
   return out;
 }
 
-/** One writable input position, and the spellings that reach it. `ambiguous` is set when the
- *  bare field name is declared by more than one parameter, which makes that spelling a
- *  question rather than an answer. */
 interface InputSlot {
   readonly key: string;
   readonly type: ShaderType;
@@ -639,14 +554,6 @@ export function resolveBindings(
   return out;
 }
 
-/** Which of `names` the entry reads, following the calls it makes.
- *
- *  Since #18 a binding read lowers to a `varref` like any other name, so a name that is both
- *  declared as a binding and referenced somewhere reachable is a read of it. A local can
- *  shadow the name, which would make this over-report: over-reporting costs a zero value
- *  nobody looks at, while under-reporting would drop a binding the run then cannot resolve, so
- *  the conservative direction is the safe one here as elsewhere.
- */
 function bindingsReachedBy(
   m: ModuleDecl,
   entry: FuncDecl,
@@ -687,9 +594,6 @@ export const DEBUG_LAUNCH_SCHEMA: Readonly<Record<string, unknown>> = Object.fre
   $schema: 'http://json-schema.org/draft-07/schema#',
   type: 'object',
   required: ['entry'],
-  // An unknown key is a typo, and `launch.json` is hand-written, so the editor should say so
-  // rather than accept it silently. The resolver reports the same, which is what keeps the
-  // file a user edits and the object the engine takes from drifting apart.
   additionalProperties: false,
   properties: {
     type: { type: 'string', const: 'typeshade', description: 'The debug type.' },
@@ -732,9 +636,6 @@ export const DEBUG_LAUNCH_SCHEMA: Readonly<Record<string, unknown>> = Object.fre
           description: 'Workgroups in the dispatch, [x, y, z]. What num_workgroups reads.',
         },
       },
-      // Not `false` here: every other key is a WGSL builtin id, and the set of those is the
-      // language's, not this schema's. The resolver checks a key against the entry's own
-      // declarations, which is the check that can actually be right.
       additionalProperties: true,
     },
     bindings: {
