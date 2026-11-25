@@ -120,6 +120,23 @@ describe('reflect — module facts', () => {
     expect(formatOf(arrayT(structT('P')), [fieldsOf('P', f32T)])).toBe('r32f');
   });
 
+  it('sorts bind groups by group and the entries of each group by binding', () => {
+    const uniform = (group: number, binding: number): BindingDecl => ({
+      group,
+      binding,
+      name: `u_${group}_${binding}`,
+      space: 'uniform',
+      type: f32T,
+    });
+    const m = moduleOf({
+      bindings: [uniform(1, 2), uniform(0, 3), uniform(1, 0), uniform(0, 1), uniform(0, 2)],
+    });
+    expect(reflect(m).bindGroups.map((g) => [g.group, g.entries.map((e) => e.binding)])).toEqual([
+      [0, [1, 2, 3]],
+      [1, [0, 2]],
+    ]);
+  });
+
   it('reports no data texture format on a uniform binding', () => {
     const m = moduleOf({
       structs: [fieldsOf('U', f32T)],

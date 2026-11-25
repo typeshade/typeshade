@@ -3,7 +3,7 @@ export { pinOverrides, glslOverrideNames } from '../core/gl-overrides.js';
 
 // Implements: Rule 11.11
 
-import { byteSize, describe, Misfit, pack, type Layout } from '../core/host-entry.js';
+import { describe, type Layout } from '../core/host-entry.js';
 import {
   layoutFromPack,
   type Pack,
@@ -14,8 +14,6 @@ import {
 } from '../core/manifest-types.js';
 import {
   decide,
-  geometryKind,
-  kernelQueue,
   layoutKind,
   residentState,
   tentatively,
@@ -24,319 +22,39 @@ import {
 import { hostSite } from '../core/submission.js';
 import {
   at,
-  blendConstantOf,
   checkPassFit,
-  depthStencilAttachmentOf,
   entryOf,
-  passOf,
   planOf,
-  scissorOf,
-  stencilReferenceOf,
-  viewportOf,
   type Bindings,
-  type CompareFunction,
   type Geometry,
-  type PassFit,
   type RenderPipeline,
   type RenderPlan,
   type RenderState,
 } from './program.js';
 import {
-  layoutOf,
-  type Sampler,
-  type SamplerOptions,
-  type Texture,
-  type TextureOptions,
-} from './resources.js';
-import type { PassTargets, RenderPass } from './runtime.js';
-import {
   STAGE,
-  type RhiBindGroupLayout,
   type RhiBindLayoutEntry,
   type RhiBindResource,
   type RhiBuffer,
-  type RhiColorAttachment,
   type RhiColorTarget,
-  type RhiDevice,
   type RhiRenderPass,
-  type RhiRenderPipeline,
-  type RhiSampler,
-  type RhiTexture,
-  type RhiTextureView,
 } from '../rhi/rhi.js';
-import {
-  GL_BLEND_FACTOR,
-  GL_BLEND_OPERATION,
-  GL_TOPOLOGY,
-  glReadBindings,
-  textureKindOf,
-  type GlTextureKind,
-} from '../rhi/webgl2.js';
-
-export const glslNameOf = (b: {
-  readonly emitted: string;
-  readonly emittedGlsl?: string;
-}): string => b.emittedGlsl ?? b.emitted;
-
-export class GlDrawing {
-  #guard: RhiTextureView | undefined;
-  readonly uploads = new WeakMap<
-    ResidentArrayState,
-    Map<string, { buffer: RhiBuffer; version: number }>
-  >();
-
-  constructor(readonly rhi: RhiDevice) {}
-
-  guard(): RhiTextureView {
-    if (this.#guard === undefined) {
-      const t = this.rhi.createTexture({
-        size: [1, 1, 1],
-        format: 'rgba8unorm',
-        usage: ['sampled', 'copy-dst'],
-      });
-      this.rhi.writeTexture(t, new Uint8Array([255, 255, 255, 255]), 4, 1, 1);
-      this.#guard = this.rhi.createView(t);
-    }
-    return this.#guard;
-  }
-
-  uploaded(
-    state: ResidentArrayState,
-    as: string,
-    bytes: ArrayBufferView,
-    make: (size: number) => RhiBuffer,
-  ): RhiBuffer {
-    let byKind = this.uploads.get(state);
-    if (byKind === undefined) this.uploads.set(state, (byKind = new Map()));
-    const hit = byKind.get(as);
-    if (hit !== undefined && hit.version === state.version) return hit.buffer;
-    let buffer = hit?.buffer;
-    if (buffer === undefined || buffer.size !== bytes.byteLength) {
-      if (buffer !== undefined) this.rhi.destroyBuffer(buffer);
-      buffer = make(bytes.byteLength);
-    }
-    this.rhi.writeBuffer(buffer, 0, bytes);
-    byKind.set(as, { buffer, version: state.version });
-    return buffer;
-  }
-}
-
-export class GlTextureImpl implements Texture {
-  #tex: RhiTexture;
-  #w: number;
-  #h: number;
-  readonly #kind: GlTextureKind;
-  readonly #storage: boolean;
-
-  constructor(
-    private readonly d: GlDrawing,
-    options: TextureOptions | object,
-  ) {
-    const o = options as TextureOptions;
-    if (
-      typeof o !== 'object' ||
-      o === null ||
-      !Array.isArray(o.size) ||
-      typeof o.format !== 'string'
-    )
-      throw new TypeError(
-        `texture() on WebGL2 takes { size, format }; got ${describe(options)}. A host's own texture is bound as it is, not wrapped.`,
-      );
-    if ((o.dimension ?? '2d') !== '2d' || (o.size[2] ?? 1) !== 1)
-      throw new TypeError(
-        'texture(): the WebGL2 tier makes 2D textures of one layer; an array or a 3D texture is not here yet.',
-      );
-    if ((o.sampleCount ?? 1) !== 1)
-      throw new TypeError(
-        'texture(): a multisampled texture is not supported yet on the WebGL2 tier (Rule 10.5, Rule 11.11).',
-      );
-    const kind = textureKindOf(o.format);
-    if (kind === undefined)
-      throw new TypeError(`texture(): ${o.format} is not supported yet on WebGL2 (Rule 11.11).`);
-    this.format = o.format;
-    this.#kind = kind;
-    this.#storage = o.storage === true;
-    this.#w = o.size[0];
-    this.#h = o.size[1];
-    this.#tex = this.#make();
-  }
-
-  readonly format: string;
-
-  #make(): RhiTexture {
-    return this.d.rhi.createTexture({
-      size: [this.#w, this.#h, 1],
-      format: this.format,
-      usage: [
-        'render',
-        'sampled',
-        'copy-src',
-        'copy-dst',
-        ...(this.#storage ? ['storage' as const] : []),
-      ],
-    });
-  }
-
-  get texture(): object {
-    return this.d.rhi.toNative(this.#tex);
-  }
-  get handle(): RhiTexture {
-    return this.#tex;
-  }
-  get width(): number {
-    return this.#w;
-  }
-  get height(): number {
-    return this.#h;
-  }
-  get kind(): GlTextureKind {
-    return this.#kind;
-  }
-
-  resize(width: number, height: number): void {
-    if (width === this.#w && height === this.#h) return;
-    const old = this.#tex;
-    this.#w = width;
-    this.#h = height;
-    this.#tex = this.#make();
-    kernelQueue.whenIdle(() => this.d.rhi.destroyTexture(old));
-  }
-
-  read(): Promise<Uint8Array> {
-    try {
-      return this.#read('read');
-    } catch (err) {
-      return Promise.reject(err as Error);
-    }
-  }
-
-  readFloats(): Promise<Float32Array> {
-    try {
-      const layout = layoutOf(this.format);
-      if (layout?.floats === undefined)
-        throw new TypeError(
-          layout === undefined
-            ? `readFloats() cannot copy a ${this.format} texture back; it copies every uncompressed colour format and depth32float.`
-            : `readFloats() takes a float, unorm or snorm format and depth32float; a ${this.format} texture holds integers, which read() gives as bytes.`,
-        );
-      const floats = layout.floats;
-      return this.#read('readFloats').then((bytes) => floats(bytes));
-    } catch (err) {
-      return Promise.reject(err as Error);
-    }
-  }
-
-  #read(who: string): Promise<Uint8Array> {
-    const layout = layoutOf(this.format);
-    if (layout === undefined || (this.#kind === 'depth' && this.format !== 'depth32float'))
-      throw new TypeError(
-        `${who}() cannot copy a ${this.format} texture back; it copies every uncompressed colour format and depth32float.`,
-      );
-    if (/snorm$/.test(this.format))
-      throw new TypeError(
-        `${who}(): a ${this.format} texture is not supported yet on the WebGL2 tier, as a target or as a read-back (Rule 11.11).`,
-      );
-    const tex = this.#tex;
-    return kernelQueue.run(() => this.d.rhi.readTexture(tex, layout.bytes));
-  }
-
-  destroy(): void {
-    const t = this.#tex;
-    kernelQueue.whenIdle(() => this.d.rhi.destroyTexture(t));
-  }
-}
-
-const COMPARISONS: Record<CompareFunction, true> = {
-  never: true,
-  less: true,
-  equal: true,
-  'less-equal': true,
-  greater: true,
-  'not-equal': true,
-  'greater-equal': true,
-  always: true,
-};
-
-export class GlSamplerImpl implements Sampler {
-  readonly handle: RhiSampler;
-  constructor(
-    private readonly rhi: RhiDevice,
-    options: SamplerOptions | object | undefined,
-  ) {
-    const host = options === undefined ? undefined : rhi.fromNative('sampler', options);
-    if (host !== undefined) {
-      this.handle = host;
-      return;
-    }
-    const o = (options ?? {}) as SamplerOptions;
-    if (o.compare !== undefined && !(o.compare in COMPARISONS))
-      throw new TypeError(
-        `"${String(o.compare)}" is not a comparison; WebGPU's are less, less-equal, greater, greater-equal, equal, not-equal, always and never.`,
-      );
-    const filter = (o.filter ?? 'linear') === 'nearest' ? 'nearest' : 'linear';
-    const address =
-      o.address === 'repeat'
-        ? 'repeat'
-        : o.address === 'mirror'
-          ? 'mirror-repeat'
-          : 'clamp-to-edge';
-    this.handle = rhi.createSampler({
-      magFilter: filter,
-      minFilter: filter,
-      mipmapFilter: filter,
-      addressModeU: address,
-      addressModeV: address,
-      addressModeW: address,
-      ...(o.compare !== undefined ? { compare: o.compare } : {}),
-    });
-  }
-  get sampler(): object {
-    return this.rhi.toNative(this.handle);
-  }
-}
-
-const BIASED_FORMATS: readonly string[] = ['depth24plus', 'depth32float', 'depth24plus-stencil8'];
-
-function refuseBias(
-  prefix: string,
-  depth: NonNullable<RenderPlan['depth']>,
-  clampExtension: boolean,
-): void {
-  const b = depth.bias;
-  const biased = BIASED_FORMATS.includes(depth.format);
-  if (b.constant !== 0 && !biased)
-    throw new TypeError(
-      `${prefix} sets depth.bias.constant on ${depth.format}; the WebGL2 tier takes a bias on depth24plus, depth32float and depth24plus-stencil8 only.`,
-    );
-  if (b.slopeScale !== 0 && !biased)
-    throw new TypeError(
-      `${prefix} sets depth.bias.slopeScale to ${b.slopeScale} on ${depth.format}; the WebGL2 tier takes a bias on depth24plus, depth32float and depth24plus-stencil8 only.`,
-    );
-  if (b.clamp !== 0 && !clampExtension)
-    throw new TypeError(
-      `${prefix} sets depth.bias.clamp to ${b.clamp}; a non-zero clamp is not supported yet on the WebGL2 tier without EXT_polygon_offset_clamp (Rule 11.11), and this context lacks it.`,
-    );
-}
-
-interface BlendComponent {
-  readonly srcFactor?: string;
-  readonly dstFactor?: string;
-  readonly operation?: string;
-}
-
-interface Slot {
-  readonly binding: PackBinding;
-  readonly index: number;
-  readonly kind: 'block' | 'texture' | 'data';
-  readonly sampler?: { readonly name: string; readonly index: number };
-  readonly layout?: Layout;
-}
-
-interface Built {
-  readonly pipeline: RhiRenderPipeline;
-  readonly layout: RhiBindGroupLayout;
-  readonly slots: readonly Slot[];
-}
+import { glReadBindings } from '../rhi/webgl2.js';
+import type { GlDrawing } from './gl-draw/drawing.js';
+import { glslNameOf } from './gl-draw/glsl-name.js';
+import type { Slot, Built, DrawRun } from './gl-draw/pipeline-types.js';
+import { textureOf, samplerOf } from './gl-draw/draw-handles.js';
+import { GlPass } from './gl-draw/pass.js';
+import { checkState } from './gl-draw/state-check.js';
+import { refuseBias } from './gl-draw/depth-bias.js';
+import { dataElemOf, fresh, bufferSource, packed } from './gl-draw/buffer-data.js';
+export { recordPass } from './gl-draw/record-pass.js';
+export { GlPass } from './gl-draw/pass.js';
+export { textureOf, samplerOf } from './gl-draw/draw-handles.js';
+export { GlSamplerImpl } from './gl-draw/sampler.js';
+export { GlTextureImpl } from './gl-draw/texture.js';
+export { glslNameOf } from './gl-draw/glsl-name.js';
+export { GlDrawing } from './gl-draw/drawing.js';
 
 export class GlRenderPrograms {
   readonly #pipelines = new Map<string, Promise<GlRenderPipelineImpl>>();
@@ -367,7 +85,7 @@ export class GlRenderPrograms {
     const p = built.then(
       (b) =>
         new GlRenderPipelineImpl(
-          this,
+          this.d,
           vs,
           fs,
           b,
@@ -529,37 +247,6 @@ export class GlRenderPrograms {
   }
 }
 
-function checkState(plan: RenderPlan, vs: PackEntry, fs: PackEntry | undefined): void {
-  const where = `The render pipeline of "${(fs ?? vs).name}"`;
-  if (GL_TOPOLOGY[plan.primitive.topology] === undefined)
-    throw new TypeError(
-      `${where}: "${String(plan.primitive.topology)}" is not a topology; WebGPU's are ${Object.keys(GL_TOPOLOGY).join(', ')}.`,
-    );
-  const targets = plan.targets;
-  const first = targets[0];
-  for (const t of targets.slice(1))
-    if (
-      JSON.stringify(t.blend) !== JSON.stringify(first?.blend) ||
-      (t.writeMask ?? 15) !== (first?.writeMask ?? 15)
-    )
-      throw new TypeError(
-        `${where}: targets that blend or mask apart are not supported yet on the WebGL2 tier (Rule 11.11); give its targets one blend and one writeMask.`,
-      );
-  const blend = first?.blend as { color?: BlendComponent; alpha?: BlendComponent } | undefined;
-  if (blend === undefined) return;
-  for (const [f, d] of [
-    [blend.color?.srcFactor, 'one'],
-    [blend.alpha?.srcFactor, 'one'],
-    [blend.color?.dstFactor, 'zero'],
-    [blend.alpha?.dstFactor, 'zero'],
-  ] as const)
-    if (GL_BLEND_FACTOR[f ?? d] === undefined)
-      throw new TypeError(`${where}: "${String(f)}" is not a blend factor.`);
-  for (const o of [blend.color?.operation, blend.alpha?.operation])
-    if (GL_BLEND_OPERATION[o ?? 'add'] === undefined)
-      throw new TypeError(`${where}: "${String(o)}" is not a blend operation.`);
-}
-
 function stageOf<T>(p: T | { readonly none: string } | undefined, e: PackEntry): T {
   if (p === undefined)
     throw new TypeError(
@@ -572,11 +259,6 @@ function stageOf<T>(p: T | { readonly none: string } | undefined, e: PackEntry):
   return p as T;
 }
 
-interface DrawRun {
-  readonly run: (pass: RhiRenderPass) => void;
-  readonly residents: readonly ResidentArrayState[];
-}
-
 interface Bind {
   readonly index: number;
   readonly resource: (made: RhiBuffer[]) => RhiBindResource;
@@ -587,7 +269,7 @@ const SAMPLES_OWN_DEPTH =
 
 export class GlRenderPipelineImpl implements RenderPipeline {
   constructor(
-    private readonly programs: GlRenderPrograms,
+    private readonly d: GlDrawing,
     private readonly vs: PackEntry,
     private readonly fs: PackEntry | undefined,
     private readonly built: Built,
@@ -654,7 +336,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       throw new TypeError(
         `"${entry.name}"${at(entry)}: the bindings are ${describe(values)}, not an object.`,
       );
-    const d = this.programs.d;
+    const d = this.d;
     const rhi = d.rhi;
     const reached = new Set<string>();
     for (const e of [this.vs, this.fs]) for (const b of e?.bindings ?? []) reached.add(b.name);
@@ -776,7 +458,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
       throw new TypeError(
         `"${this.vs.name}"${at(this.vs)} reads vertex attributes; the geometry gives no vertices.`,
       );
-    return bufferSource(this.programs.d, v, 'vertices', entry);
+    return bufferSource(this.d, v, 'vertices', entry);
   }
 
   #indices(
@@ -785,7 +467,7 @@ export class GlRenderPipelineImpl implements RenderPipeline {
   ): ((made: RhiBuffer[]) => { buffer: RhiBuffer; format: 'uint16' | 'uint32' }) | undefined {
     const idx = geometry.indices;
     if (idx === undefined) return undefined;
-    const d = this.programs.d;
+    const d = this.d;
     if (residentState(idx) !== undefined || ArrayBuffer.isView(idx)) {
       const format =
         residentState(idx) !== undefined || idx instanceof Uint32Array ? 'uint32' : 'uint16';
@@ -804,272 +486,4 @@ export class GlRenderPipelineImpl implements RenderPipeline {
     const format = host.format === 'uint32' ? 'uint32' : 'uint16';
     return () => ({ buffer, format });
   }
-}
-
-const dataElemOf = (b: PackBinding): 'f32' | 'i32' | 'u32' => {
-  const format = b.dataTexture?.format ?? 'r32float';
-  return format === 'r32uint' ? 'u32' : format === 'r32sint' ? 'i32' : 'f32';
-};
-
-function fresh(
-  rhi: RhiDevice,
-  made: RhiBuffer[],
-  kind: 'uniform' | 'storage' | 'vertex' | 'index',
-  bytes: ArrayBufferView,
-  elem?: 'f32' | 'i32' | 'u32',
-): RhiBuffer {
-  const b = rhi.createBuffer({
-    size: bytes.byteLength,
-    usage: [kind, 'copy-dst'],
-    ...(kind === 'storage' && elem !== undefined ? { elem } : {}),
-  });
-  made.push(b);
-  rhi.writeBuffer(b, 0, bytes);
-  return b;
-}
-
-function bufferSource(
-  d: GlDrawing,
-  v: unknown,
-  field: 'vertices' | 'indices',
-  entry: PackEntry,
-): (made: RhiBuffer[]) => RhiBuffer {
-  const usage = field === 'indices' ? 'index' : 'vertex';
-  const state = residentState(v);
-  if (state !== undefined) {
-    decide(
-      state,
-      geometryKind(field, entry.vertex?.attributes),
-      `"${entry.name}"${at(entry)}: the geometry's ${field}`,
-      hostSite,
-    );
-    const host = state.view();
-    const takes =
-      field === 'indices'
-        ? host instanceof Uint32Array
-        : host instanceof Float32Array || host instanceof Int32Array || host instanceof Uint32Array;
-    if (!takes)
-      throw new TypeError(
-        `"${entry.name}"${at(entry)}: the geometry's ${field} is a Buffer of ${describe(host)}; ${
-          field === 'indices'
-            ? 'indices take a Buffer<u32>'
-            : 'vertices take a Buffer<f32>, a Buffer<i32> or a Buffer<u32>'
-        }.`,
-      );
-    return () =>
-      d.uploaded(state, field, state.host as ArrayBufferView, (size) =>
-        d.rhi.createBuffer({ size, usage: [usage, 'copy-dst'] }),
-      );
-  }
-  if (ArrayBuffer.isView(v)) {
-    const copy = new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
-    return (made) => fresh(d.rhi, made, usage, copy);
-  }
-  const host = typeof v === 'object' && v !== null ? d.rhi.fromNative('buffer', v) : undefined;
-  if (host !== undefined) return () => host;
-  throw new TypeError(
-    `"${entry.name}"${at(entry)}: the geometry's ${field} on WebGL2 take a typed array, a Buffer or a WebGLBuffer; got ${describe(v)}.`,
-  );
-}
-
-function packed(layout: Layout, v: unknown, name: string, where: string): Uint8Array {
-  try {
-    const bytes = new ArrayBuffer(byteSize(layout, v, name));
-    pack(new DataView(bytes), 0, layout, v, name);
-    return new Uint8Array(bytes);
-  } catch (err) {
-    if (err instanceof Misfit) throw new TypeError(`${where}: ${err.path} ${err.problem}.`);
-    throw err;
-  }
-}
-
-export function textureOf(rhi: RhiDevice, v: unknown, where: string): RhiTexture {
-  if (v instanceof GlTextureImpl) return v.handle;
-  const host = typeof v === 'object' && v !== null ? rhi.fromNative('texture', v) : undefined;
-  if (host !== undefined) return host;
-  throw new TypeError(
-    `${where} takes a Texture of the runtime or a WebGLTexture; got ${describe(v)}.`,
-  );
-}
-
-export function samplerOf(rhi: RhiDevice, v: unknown, where: string): RhiSampler {
-  if (v instanceof GlSamplerImpl) return v.handle;
-  const host = typeof v === 'object' && v !== null ? rhi.fromNative('sampler', v) : undefined;
-  if (host !== undefined) return host;
-  throw new TypeError(
-    `${where} takes a Sampler of the runtime or a WebGLSampler; got ${describe(v)}.`,
-  );
-}
-
-export class GlPass implements RenderPass, PassFit {
-  readonly steps: DrawRun[] = [];
-  blend: readonly number[] = [0, 0, 0, 0];
-  declared = false;
-  range: [number, number] = [0, 1];
-  stencilReference = 0;
-
-  constructor(
-    private readonly info: {
-      readonly rhi: RhiDevice;
-      readonly width: number;
-      readonly height: number;
-      readonly depthFormat?: string;
-      readonly depthReadOnly: boolean;
-      readonly stencilReadOnly: boolean;
-      readonly depthTarget?: object;
-      readonly depthTexture?: RhiTexture;
-    },
-  ) {}
-
-  get raw(): object {
-    throw new TypeError('A pass on WebGL2 has no GPURenderPassEncoder.');
-  }
-
-  get depthFormat(): string | undefined {
-    return this.info.depthFormat;
-  }
-
-  get depthReadOnly(): boolean {
-    return this.info.depthReadOnly;
-  }
-
-  get stencilReadOnly(): boolean {
-    return this.info.stencilReadOnly;
-  }
-
-  readsOwnDepth(value: unknown, texture: RhiTexture): boolean {
-    const own = this.info.depthTexture;
-    return (
-      value === this.info.depthTarget ||
-      (own !== undefined && this.info.rhi.toNative(texture) === this.info.rhi.toNative(own))
-    );
-  }
-
-  setStencilReference(reference: number): void {
-    this.stencilReference = stencilReferenceOf(reference);
-  }
-
-  add(run: DrawRun): void {
-    this.steps.push(run);
-  }
-
-  draw<B>(pipeline: RenderPipeline<B>, bindings: NoInfer<B>, geometry: Geometry): void {
-    pipeline.draw(this, bindings, geometry);
-  }
-
-  setViewport(
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    minDepth?: number,
-    maxDepth?: number,
-  ): void {
-    const limit = this.info.rhi.caps.limits.maxViewportDimension!;
-    const v = viewportOf(x, y, width, height, minDepth, maxDepth, limit);
-    this.range = [v.minDepth, v.maxDepth];
-    this.add({
-      residents: [],
-      run: (p) => p.setViewport(...v.rect, v.minDepth, v.maxDepth),
-    });
-  }
-
-  setScissorRect(x: number, y: number, width: number, height: number): void {
-    const r = scissorOf(x, y, width, height, { width: this.info.width, height: this.info.height });
-    this.add({ residents: [], run: (p) => p.setScissorRect(...r) });
-  }
-
-  setBlendConstant(color: ArrayLike<number>): void {
-    const c = blendConstantOf(color);
-    this.blend = c;
-    this.declared = false;
-    this.add({ residents: [], run: (p) => p.setBlendConstant(c) });
-  }
-}
-
-export function recordPass(
-  d: GlDrawing,
-  targets: PassTargets,
-  record: (pass: RenderPass) => void,
-): () => Promise<void> {
-  const rhi = d.rhi;
-  const plan = passOf(targets, {
-    isTexture: (t) => t instanceof GlTextureImpl,
-    isCanvas: (t) => rhi.fromNative('canvas', t) !== undefined,
-    formatOf: (t) => (t instanceof GlTextureImpl ? t.format : undefined),
-  });
-  const colour: { attachment: RhiColorAttachment; w: number; h: number }[] = plan.color.map(
-    (c, i) => {
-      const t = c.target;
-      const common = { clearValue: c.clear, loadOp: c.load, storeOp: c.store } as const;
-      if (t instanceof GlTextureImpl) {
-        if (t.kind === 'depth')
-          throw new TypeError(
-            `pass(): colour target ${i} is a ${t.format} texture, which holds depth.`,
-          );
-        return {
-          attachment: { view: rhi.createView(t.handle), ...common },
-          w: t.width,
-          h: t.height,
-        };
-      }
-      const canvas = rhi.fromNative('canvas', t);
-      if (canvas !== undefined) {
-        const screen = rhi.currentTexture(canvas);
-        return {
-          attachment: { view: rhi.createView(screen), ...common },
-          w: screen.width,
-          h: screen.height,
-        };
-      }
-      throw new TypeError(
-        `pass(): a colour target on WebGL2 is a Texture of the runtime, or its context for the canvas; got ${describe(t)}.`,
-      );
-    },
-  );
-  const pd = plan.depth;
-  let depth: { tex: RhiTexture; target: object; w: number; h: number } | undefined;
-  if (pd !== undefined) {
-    const t = pd.target;
-    if (!(t instanceof GlTextureImpl) || t.kind !== 'depth')
-      throw new TypeError(
-        `pass(): the depth target on WebGL2 is a depth Texture of the runtime; got ${describe(t)}.`,
-      );
-    depth = { tex: t.handle, target: t, w: t.width, h: t.height };
-  }
-  const sizes = [...colour, ...(depth === undefined ? [] : [depth])];
-  const w = sizes[0]?.w ?? 0;
-  const h = sizes[0]?.h ?? 0;
-  if (sizes.some((a) => a.w !== w || a.h !== h))
-    throw new TypeError('pass(): every attachment of a pass has one size.');
-  const pass = new GlPass({
-    rhi,
-    width: w,
-    height: h,
-    depthFormat: pd?.format,
-    depthReadOnly: pd?.depth.readOnly ?? false,
-    stencilReadOnly: pd?.stencil?.readOnly ?? false,
-    depthTarget: depth?.target,
-    depthTexture: depth?.tex,
-  });
-  record(pass);
-  const steps = pass.steps;
-  const colorAttachments = colour.map((c) => c.attachment);
-  const depthStencilAttachment =
-    pd === undefined || depth === undefined
-      ? undefined
-      : depthStencilAttachmentOf(rhi.createView(depth.tex), pd);
-  return async () => {
-    for (const step of steps)
-      for (const state of step.residents)
-        if (state.fresh === 'device' || state.host === undefined) await state.sync();
-    const encoder = rhi.createCommandEncoder();
-    const p = encoder.beginRenderPass({
-      colorAttachments,
-      ...(depthStencilAttachment !== undefined ? { depthStencilAttachment } : {}),
-    });
-    for (const step of steps) step.run(p);
-    p.end();
-    await rhi.submit([encoder]);
-  };
 }

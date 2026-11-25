@@ -989,6 +989,7 @@ Decision D14: a rise of a budget of `scripts/bundle-budget.json` that a `Move: p
 The rise goes in a pull request of its own, since a `Move: pure` range cannot change that file.
 The conditions and the two limits are in `CLAUDE.md`, Merging: 0.2% for one pull request, and 1% above the number at `c4a12d3f`.
 The orchestrating session measures the rise and merges the budget pull request (`docs/structure-slice-playbook.md`, The bundle budget).
+The 1% limit is held by `src/bundle-ceiling-policy.test.ts`, which reads `scripts/bundle-ceiling.json`.
 Authority: the owner's answer of 2026-11-24 ("추천") to the rule that the conversation recommended.
 
 Fact, measured on 2026-11-24 with `bun scripts/bundle-boundary.ts`: `src/runtime/runtime.ts` loads `src/runtime/gl.ts` with a dynamic `import()`, and the check builds one chunk.
@@ -997,7 +998,16 @@ A wrapper costs 10 to 25 gzip bytes of `typeshade/runtime`. The split build did 
 The split of `src/rhi/webgl2.ts` (#1578) raised the single-file size from 178,681 to 178,749 bytes, over the budget of 178,698 by 51.
 A local branch with seventeen new files from `src/runtime/gl.ts` and `src/runtime/gl-draw.ts` measured 178,897 on `48df2cc9`, a rise of 216.
 
-Cost of D14: a budget set to the measured size has no headroom. The next rise from any cause needs a budget pull request or the owner.
+Cost of D14: a budget set to the measured size has no headroom. The next rise needs a budget pull request under D14 or D15, or the owner.
+
+Decision D15: two more kinds of budget rise merge without a separate "merge" from the owner, and a test holds the limit of every rise.
+Kind (a): a pull request that implements a proposal already `accepted` on `main` raises its own budget to the measured numbers, inside the same pull request, as before D14.
+Kind (b): a pull request that sets the budget to the measured size of a `main` that a race put over the budget is approved in advance.
+The limit: the 1% ceiling test of #1597 (`src/bundle-ceiling-policy.test.ts`) holds the total for D14 and D15. Past a ceiling of `scripts/bundle-ceiling.json`, the owner decides.
+Any other rise waits for the owner. The conditions are in `CLAUDE.md`, Merging.
+Authority: the owner's answer of 2026-11-25 ("추천안대로") to the recommendation of the orchestrating session.
+Reason: on 2026-11-24 two pull requests each passed alone (#1590, a feature; #1578, a move) and together put `main` over the budget.
+Every pull request was red until #1599 (`ee00c9f0`) merged on the owner's word.
 
 Decision D11: moving tests is an ordinary reviewed change for now, in S11 and S12 too.
 The flag `--allow-test-moves` exists for local use, and CI does not pass it.
