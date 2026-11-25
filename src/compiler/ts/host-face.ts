@@ -35,7 +35,7 @@ import { fnReads, fnWrites } from '../../core/passes/effects.js';
 import { lowerKernelGl } from '../../core/passes/kernel-lower.js';
 import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
-import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
+import { emittedName, inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
 import { authorTypeText } from './context.js';
 import { hostContentReads } from './host-content-access.js';
 import { exportDocs, type ExportDocs } from './host-docs.js';
@@ -724,19 +724,17 @@ function kernelGl(
       outScalar: l.outScalar,
       reads: l.reads.map((r) => {
         const p = params.find((x) => x.name === r.param) as KernelParam & { k: 'array' };
-        const glsl = spellingsOf(l.module).glsl.bindings.get(r.name);
         return {
           param: r.param,
           name: r.name,
-          ...(glsl !== undefined ? { glsl } : {}),
+          glsl: emittedName(spellingsOf(l.module).glsl.bindings, r.name),
           layout: p.layout,
         };
       }),
       uniforms: l.uniforms.map((u) => {
-        const glsl = spellingsOf(l.module).glsl.bindings.get(u.name);
         return {
           name: u.name,
-          ...(glsl !== undefined ? { glsl } : {}),
+          glsl: emittedName(spellingsOf(l.module).glsl.bindings, u.name),
           scalar: (u.type.kind === 'vec'
             ? u.type.elem
             : (u.type as { scalar: string }).scalar) as 'f32',
