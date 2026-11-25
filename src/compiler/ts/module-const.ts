@@ -1,5 +1,3 @@
-// Top-level `const` → ModuleDecl.consts (foldable scalars).
-//
 // Implements: Rule 6.3, Rule 7.4 (docs/language-design.md; traced in reqs/).
 
 import { exportedConstant } from './abstract-const.js';
@@ -66,16 +64,8 @@ import {
   writtenStaticFields,
 } from './class-names.js';
 
-/** The module-constant name a class's static field or an enum's member takes: `K.PI` is
- *  `K_PI` and `Mode.Shaded` is `Mode_Shaded`, the same joining a method takes (`K_half`), so
- *  one owner's members share one prefix in the emitted text. */
 export const staticConstName = (owner: string, member: string): string => `${owner}_${member}`;
 
-/** What the source calls each module constant the module emits under another name, by the name it
- *  emits: `Ns.K` for the `Ns_K` of a namespace's constant, `A.B.K` for `A_B_K`, and `Mode.B` for the
- *  `Mode_B` of an enum's member. A constant of the top level is emitted as written and has no row,
- *  and a class's static field is class-names.ts's. A namespace's `const f = (…) => …` is a function
- *  of the module, so it has none. */
 export function writtenConstNames(sourceFile: ts.SourceFile): [string, string][] {
   const out: [string, string][] = [];
   eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt, prefix) => {
@@ -108,7 +98,6 @@ export function declaredCallIn(
   let found: ts.CallExpression | ts.NewExpression | undefined;
   const walk = (n: ts.Node): void => {
     if (found !== undefined) return;
-    // A function written in the initializer has a body of its own, which is not folded here.
     if (ts.isArrowFunction(n) || ts.isFunctionExpression(n) || ts.isClassExpression(n)) return;
     if (ts.isCallExpression(n) && callsDeclared(n.expression)) {
       found = n;
@@ -128,9 +117,6 @@ export function declaredCallIn(
   return found;
 }
 
-/** Whether a callee names a function of the module: a function the file declares or imports, a
- *  top-level `const` that holds one, or a static function or a namespace's function reached
- *  through its owner, `this` in a static initializer included. */
 function callsDeclared(callee: ts.Expression): boolean {
   let root = callee;
   while (ts.isParenthesizedExpression(root)) root = root.expression;
@@ -138,7 +124,6 @@ function callsDeclared(callee: ts.Expression): boolean {
   while (ts.isPropertyAccessExpression(root) || ts.isParenthesizedExpression(root)) {
     root = root.expression;
   }
-  // `static K = this.f()`: `this` in a static initializer is the class (Rule 8.13).
   if (root.kind === ts.SyntaxKind.ThisKeyword) return dotted && staticThisClass(root) !== undefined;
   if (!ts.isIdentifier(root)) return false;
   const decl = declarationOf(root);
@@ -150,13 +135,10 @@ function callsDeclared(callee: ts.Expression): boolean {
   );
 }
 
-/** A module-scope declaration's name as the author wrote it: `K`, `N.K` inside a namespace, and
- *  `S.K` for a static field, never the `N_K` and `S_K` the module emits (Rule 12.1). */
 export function writtenModuleName(
   decl: ts.VariableDeclaration | ts.PropertyDeclaration,
   sourceFile: ts.SourceFile,
 ): string {
-  // `writtenName`: not the `b_K` a linked program emits for a `K` two of its files declare.
   const own = ts.isIdentifier(decl.name) ? writtenName(decl.name) : decl.name.getText(sourceFile);
   if (ts.isPropertyDeclaration(decl) && ts.isClassDeclaration(decl.parent)) {
     return [...qualifiedParts(decl.parent), own].join('.');
@@ -168,8 +150,6 @@ export function writtenModuleName(
   return parts.join('.');
 }
 
-/** How a sentence about a module constant names it: `Module const "K"`, or `Static field "S.K"`
- *  for a static field no code writes, which is one. */
 const constantShown = (
   decl: ts.VariableDeclaration | ts.PropertyDeclaration,
   sourceFile: ts.SourceFile,
@@ -177,15 +157,11 @@ const constantShown = (
   `${ts.isPropertyDeclaration(decl) ? 'Static field' : 'Module const'} ` +
   `"${writtenModuleName(decl, sourceFile)}"`;
 
-/** The sentence for a module constant, or a static field no code writes, whose initializer
- *  calls a function or builds a class of the module ({@link declaredCallIn}). */
 function declaredCallMessage(
   decl: ts.VariableDeclaration | ts.PropertyDeclaration,
   call: ts.CallExpression | ts.NewExpression,
   sourceFile: ts.SourceFile,
 ): string {
-  // A program's files are linked into one source (Rule 3.9), where what another file declares
-  // is declared too; which file declared it is what the sentence says.
   const root = call.expression;
   const declared = ts.isIdentifier(root) ? declarationOf(root) : undefined;
   const imported =
@@ -204,16 +180,6 @@ function declaredCallMessage(
   );
 }
 
-/** One `enum`'s members, as the module constants they are (T1, #92).
- *
- *  A numeric member takes its initializer's value, or one more than the member before it, or
- *  zero when it is the first: TypeScript's own rule, computed here so the emitted constants
- *  carry the same numbers the editor shows. The values are `i32`, which is the type the enum's
- *  name has wherever a type stands.
- *
- *  What is refused says why: a string member has no GPU representation, and a member whose
- *  initializer this cannot fold to an integer has no constant to emit. A `declare enum` has no
- *  members to emit at all. */
 function collectEnum(
   stmt: ts.EnumDeclaration,
   sourceFile: ts.SourceFile,
@@ -234,9 +200,6 @@ function collectEnum(
     return;
   }
   let next = 0;
-  // The values so far, under their BARE names, which is how TypeScript lets a member name one
-  // declared before it (`B = A * 3`). They are defined in a frame of their own for the fold
-  // and popped again, so a bare `A` means nothing outside the enum body, as in TypeScript.
   const seen = new Map<string, number>();
   for (const member of stmt.members) {
     if (!ts.isIdentifier(member.name)) {
@@ -267,7 +230,6 @@ function collectEnum(
         );
         continue;
       }
-      // A function or a class of the file has nothing to call yet where an enum is folded.
       if (declaredCallIn(member.initializer, sourceFile) !== undefined) {
         diagnostics.push(
           makeDiagnostic(
@@ -341,47 +303,27 @@ export function collectModuleConsts(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   symbols?: DeclaredSymbolSink,
-  /** The file's structs, so a const of a struct type can resolve the object literal its
-   *  annotation names (roadmap 0.3 item T7, #92). Without them this scope had no struct
-   *  table at all, and `const O: P = { x: 0., y: 0. }` was "does not match a known struct"
-   *  even though the annotation said which one. */
   structs: readonly StructDecl[] = [],
 ): ConstDecl[] {
   const scope = new LoweringScope(undefined, symbols);
   scope.setStructs(structs);
   scope.markModuleConstants();
   const out: ConstDecl[] = [];
-  // The value EXPRESSION of each non-scalar const declared so far, by name. A scalar const's
-  // value reaches `foldConstNumber` through the scope binding, but a vector or array one is
-  // carried by `valueExpr` alone and defines its binding WITHOUT a constValue — so without
-  // this map a later `A / Z` could not see the zero component inside `Z`.
   const valueExprs = new Map<string, Expr>();
-  // Every statement of the file and of every namespace, with the prefix its members take
-  // (T4, #92): a const inside `namespace Palette` is `Palette_WARM`. The walk reports nothing
-  // itself; `lower/function.ts` owns the refusal of a statement a namespace cannot hold, so
-  // this one passes over what is not its own.
   const sites: { stmt: ts.Statement; prefix: string }[] = [];
   eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt, prefix) => {
     sites.push({ stmt, prefix });
   });
   for (const { stmt, prefix } of sites) {
-    // A class's `static` fields are module constants named `Cls_Field` (T3, #92): ordinary
-    // TypeScript for "a constant that belongs to this class", and the shape a developer
-    // writes before reaching for a top-level const. Collected in source order with the
-    // top-level ones, so either may name the other by the rules already in force here.
     if (ts.isClassDeclaration(stmt) && stmt.name) {
       const written = writtenStaticFields(sourceFile);
       const shadowed = shadowedStaticFields(stmt);
       for (const member of stmt.members) {
         if (!ts.isPropertyDeclaration(member) || !isStaticMember(member)) continue;
-        // A static field that holds a function is a static method, and structs.ts says so.
         if (holdsFunction(member)) continue;
         if (shadowed.has(member)) continue;
-        // `static #SCALE = 2.` is the constant `Cls_SCALE`: a private name is emitted without
-        // its `#`, and only the class's own body may read it (Rule 8.12).
         const name = writtenMemberName(member.name);
         if (name === undefined) continue;
-        // A static field the file writes is a module variable, module-vars.ts's (Rule 8.13).
         if (written.has(`${stmt.name.text}.${name}`)) continue;
         if (!member.initializer) {
           diagnostics.push(
@@ -395,7 +337,6 @@ export function collectModuleConsts(
           );
           continue;
         }
-        // `this` in a static initializer is the class (Rule 8.13): `static B = this.A * 2.`.
         const previousClass = scope.staticClass();
         scope.setStaticClass(stmt.name.text);
         let c: ConstDecl | undefined;
@@ -417,9 +358,6 @@ export function collectModuleConsts(
       }
       continue;
     }
-    // A numeric `enum` is a set of named integer constants (roadmap 0.3 item T1, #92): each
-    // member is the module constant `Enum_Member`, an i32, and `Mode.Shaded` reads it through
-    // the same constref a top-level const does.
     if (ts.isEnumDeclaration(stmt)) {
       collectEnum(stmt, sourceFile, scope, diagnostics, out);
       continue;
@@ -427,13 +365,7 @@ export function collectModuleConsts(
     if (!isTopLevelConst(stmt)) continue;
     if (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue;
     for (const decl of stmt.declarationList.declarations) {
-      // `const q: override<f32> = 1.` is a specialization constant, not a module constant:
-      // its value is the DEFAULT a pipeline may replace, so overrides.ts owns it and folding
-      // it here would bake in a value the pipeline is allowed to change (#8 A7).
       if (isOverrideType(decl.type)) continue;
-      // `const { sqrt, PI } = Math` and `const s = Math.sqrt` bind aliases of `Math` members and
-      // declare no module constant (Rule 6.3, change 0113); the shapes over `Math` that have no
-      // form are refused here, and so is an export of one (open point O2).
       const overMath = mathDeclarationOf(decl, sourceFile);
       if (overMath !== undefined) {
         const exported = stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
@@ -458,18 +390,9 @@ export function collectModuleConsts(
         }
         continue;
       }
-      // A `const` with a module-variable wrapper is module-vars.ts's to refuse, with the fix
-      // (`let`), not this collector's to fold.
       if (moduleVarSpace(decl.type) !== undefined) continue;
-      // `const f = (x: f32): f32 => ...` at the top level is a FUNCTION of the module, which
-      // local-functions.ts collects (roadmap 0.3 item T7, #92), not a constant to fold.
       if (localFunctionOf(decl) !== undefined) continue;
-      // `const vs = vertex(function vs(…) { … })` is a refused stage call (changes 0130 and
-      // 0140), which `refuseStageCalls` reports; nothing here folds.
       if (decl.initializer !== undefined && isStageCall(decl.initializer)) continue;
-      // `const AgedParticle = Aged(Particle)` names a mixin APPLICATION (T8, #92): a class,
-      // decided when the file is compiled, not a value to fold. structs.ts reads it where a
-      // class extends it.
       if (isMixinApplication(decl, sourceFile)) continue;
       const c = lowerOne(
         decl,
@@ -489,22 +412,6 @@ export function collectModuleConsts(
   return out;
 }
 
-/** The shapes {@link ConstDecl.valueExpr} documents as constant-foldable: a literal, a
- *  WHOLE constant declared earlier in the file, a constructor over those, and arithmetic
- *  over those. Anything reading a binding, a parameter or a runtime input is not one, and
- *  neither is a call, a swizzle, a member, an index or a conditional — a module constant is
- *  folded once at emit, not evaluated.
- *
- *  Division is the one arm that looks at a value rather than a shape. The scalar path gets
- *  that for free — `foldConstNumber` returns `undefined` for `/ 0`, so `const K: f32 = 1. / 0.`
- *  never becomes a constant — but this path only asked whether the operands were foldable, so
- *  `const Y = vec3(1. / ZERO, 0., 0.)` compiled with no diagnostic at all: Tint refuses the
- *  WGSL it produces, and GLSL and the CPU oracle disagree about the value. A divisor this can
- *  prove is zero is refused here instead. */
-/** Whether `e` is a constant by the measure a non-scalar module const is held to: literals,
- *  module consts, constructors, arithmetic and const-evaluable math over those, with a divisor
- *  this can prove is zero refused. What a module variable's array or struct initializer has to
- *  be (§24), since the componentwise folder stops at vectors. */
 export function isFoldableConstExpr(e: Expr, scope: LoweringScope): boolean {
   return isFoldableValueExpr(e, scope, new Map());
 }
@@ -527,9 +434,6 @@ function isFoldableValueExpr(
       );
     case 'construct':
       return e.args.every((a) => isFoldableValueExpr(a, scope, valueExprs));
-    // A math builtin over constant arguments (issue #73): `normalize(vec3(1., 1., 0.))`. Not
-    // a declared function of the same name, and not a derivative, which has no value outside
-    // a fragment invocation. The call is emitted as written, so the GPU computes it.
     case 'call':
       return (
         e.declRef === undefined &&
@@ -541,42 +445,21 @@ function isFoldableValueExpr(
   }
 }
 
-/** Whether `e` is a divisor this can PROVE is zero: a scalar that folds to 0, or a vector
- *  constructor with a component that does (`v / vec3(1., 0., 1.)` divides componentwise, so
- *  one zero is enough). A divisor that does not fold is not proven anything and passes — the
- *  point is to refuse what is certainly undefined, not to demand a proof of safety. */
 function foldsToZero(
   e: Expr,
   scope: LoweringScope,
   valueExprs: ReadonlyMap<string, Expr>,
 ): boolean {
-  // The componentwise folder (loop-bound.ts) follows a reference to an earlier vector const
-  // through `valueExprs` (`const Z = vec3(1., 0., 1.); const Y = A / Z`), negates (`A / -Z`) and
-  // folds vector arithmetic (`const STEP = SIZE * 0.5; X / STEP`), the three shapes #68 found
-  // the earlier construct-or-scalar walk missing. One zero component is enough: the division
-  // is componentwise, and Tint refuses the module for the one component it cannot represent.
   const parts = foldConstComponents(e, scope, valueExprs);
   return parts !== undefined && parts.some((v) => v === 0);
 }
 
-/** The kinds a `valueExpr` constant may have, as {@link ConstDecl.valueExpr} documents them.
- *  `struct` and `mat` are listed because the field carries them and every backend emits them,
- *  but neither is reachable from this surface today — a module-scope object literal has no
- *  struct table to match against here, and there is no matrix constructor — so the diagnostic
- *  below names only the vector and the array. A vec64 is not listed either, and there is no
- *  way to build one at module scope to test the refusal with: `vec3f64(...)` is not a
- *  constructor this surface has, so the exclusion is a statement of intent, not a live arm. */
 function isValueExprType(t: ShaderType): boolean {
   // Why: ANGLE does not accept the nested array type that the GLSL ES 3.00 writer spells inline.
   if (t.kind === 'array') return t.elem.kind !== 'array';
   return t.kind === 'vec' || t.kind === 'struct' || t.kind === 'mat';
 }
 
-/** `const UP = vec3(0., 1., 0.)` and friends: a module constant whose value is a whole
- *  vector, array, struct or matrix rather than a scalar. It is emitted from
- *  {@link ConstDecl.valueExpr}, the field the EDSL's `constExpr(name, type, node)` fills, so
- *  the two surfaces produce the same declaration and the WGSL writer, the GLSL writer and
- *  both CPU backends all take the path they already had for it. */
 function valueExprConst(
   name: string,
   decl: ConstSite,
@@ -599,10 +482,6 @@ function valueExprConst(
     );
     return undefined;
   }
-  // Constant-ness first, TYPE second. The other order answered `const K: f32 = sin(1.)` with
-  // "f32 is neither a foldable scalar nor a whole vector or array", which is untrue of f32 —
-  // the problem was never the type. Now the type message fires only for a value that IS
-  // constant and whose type this surface cannot carry.
   if (!isFoldableValueExpr(init, scope, valueExprs)) {
     diagnostics.push(
       makeDiagnostic(
@@ -615,7 +494,6 @@ function valueExprConst(
         TS_CODES.TYPE_MISMATCH,
       ),
     );
-    // Refused, not unknown: a read of it adds nothing (Rule 12.4).
     refusedDeclarationsOf(scope.calleeTable()).add(name);
     refuseModuleName(sourceFile, name);
     return undefined;
@@ -632,9 +510,6 @@ function valueExprConst(
     );
     return undefined;
   }
-  // The initializer rides on the binding so a later const's divisor that names this one
-  // (`A / -Z`) is folded componentwise where the division is lowered, with the sentence that
-  // names the divisor (#68).
   scope.define({
     kind: 'module',
     name,
@@ -643,16 +518,10 @@ function valueExprConst(
     valueExpr: init,
     ...listBinding(init),
   });
-  // Recorded as the scalar arm below records its const, so the editor reads a vector or an array
-  // const as the type the compiler gave it: a hover names it, and the program TypeScript reads
-  // has it written in where TypeScript would type the arithmetic `number` (#162).
   scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'const', type });
   return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: init };
 }
 
-/** A declaration this collector folds: a top-level `const`, or a class's `static` field,
- *  which is the module constant `Cls_Field` (roadmap 0.3 item T3, #92). Both carry the three
- *  things folding needs: a name, an optional annotation and an initializer. */
 type ConstSite = ts.VariableDeclaration | ts.PropertyDeclaration;
 
 function lowerOne(
@@ -661,12 +530,8 @@ function lowerOne(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
   valueExprs: ReadonlyMap<string, Expr>,
-  /** The name the constant takes in the IR when it is not the name it was written under: a
-   *  static field `PI` of a class `K` is the module constant `K_PI`. */
   irName?: string,
 ): ConstDecl | undefined {
-  // A static field's private name is the one other name a constant may take here; it arrives
-  // with the name it is emitted as (Rule 8.12).
   if (!ts.isIdentifier(decl.name) && !(ts.isPrivateIdentifier(decl.name) && irName !== undefined)) {
     diagnostics.push(
       makeDiagnostic(
@@ -712,7 +577,6 @@ function lowerOne(
         TS_CODES.TYPE_MISMATCH,
       ),
     );
-    // Refused, not unknown: a later constant or a function that reads it adds nothing.
     refusedDeclarationsOf(scope.calleeTable()).add(name);
     refuseModuleName(sourceFile, name);
     return undefined;
@@ -722,8 +586,6 @@ function lowerOne(
   const annotated = writtenType
     ? mapTsTypeToShaderType(writtenType, sourceFile, diagnostics)
     : undefined;
-  // A module constant may not hold an optional, nor a struct or an array that holds one (Rule
-  // 7.10, changes 0088 and 0093).
   if (
     refuseOptionalAt(
       annotated,
@@ -740,37 +602,21 @@ function lowerOne(
     return undefined;
   }
   if (writtenType !== undefined && annotated === undefined) {
-    // A type the mapper refused (`Foo` that nothing declares) was said where it is written, and
-    // the initializer lowered against no type would be refused again for it (Rule 12.4).
     if (diagnostics.length > mapped) {
       refusedDeclarationsOf(scope.calleeTable()).add(name);
       refuseModuleName(sourceFile, name);
     }
-    // One that maps to nothing and says nothing names a declaration refused where it is written
-    // (a generic interface, a contract), which said why; the constant builds nothing either way.
     return undefined;
   }
-  // A list is lowered AGAINST the annotation, at module scope as in a function body (#8 A16),
-  // or takes its type from its elements (change 0114, S2). The node it produces is the array
-  // `construct` that `array<f32, 3>(...)` already produced here, which `valueExprConst` has
-  // carried since #8 A9, so this reaches no new path. Without it the list fell through to the
-  // generic "a list is only an initializer" refusal and then a second `Unknown identifier` for
-  // a name that never got defined, neither of which says what to write.
   let init: Expr | undefined;
   const list = untypedListOf(decl.initializer, annotated === undefined);
   if (list !== undefined) {
-    // A spread is the list's one sentence, said before the annotation it would otherwise be
-    // asked for; the name's uses then say nothing more (refused-names.ts, Rule 12.4).
     if (refuseListSpread(list, sourceFile, scope, diagnostics)) return undefined;
     const declared = { said: `Module const "${name}"`, head: `const ${name}`, at: decl };
     init = annotated
       ? lowerArrayLiteral(list, annotated, sourceFile, scope, diagnostics)
       : lowerUntypedList(list, declared, { sourceFile, scope, diagnostics });
   } else {
-    // The annotation is the contextual type, which is how a body's `const p: P = { ... }`
-    // already knows which struct the object literal builds (§16). Before this a module const
-    // of a struct type was "Object literal { x, y } does not match a known struct" whenever
-    // the field names alone did not name one (roadmap 0.3 item T7, #92).
     const initializer = decl.initializer;
     const lower = (into = diagnostics): Expr | undefined =>
       lowerExpression(initializer, sourceFile, scope, into, annotated);
@@ -796,11 +642,8 @@ function lowerOne(
       };
       const ordinary = trial(false);
       if (ordinary.value?.type.kind === 'f64') {
-        // The first pass discovers an inferred double; only its preserved tree is published.
         init = scope.withF64ConstPrecision(() => lower());
       } else if (ordinary.value === undefined && ordinary.messages.length > 0) {
-        // An unrounded proof can refuse an inferred double before its type is known: the
-        // divisor in f64(1 / ((A + .5) - A - .5)), A:f32=16777216, is -.5, not zero.
         const typed = trial(true);
         const selected = typed.value?.type.kind === 'f64' ? typed : ordinary;
         selected.commit();
@@ -812,20 +655,12 @@ function lowerOne(
     }
   }
   if (!init) {
-    // The initializer's own refusal, or a silent read of an already refused declaration, is
-    // the cause. A later constant must not add an unknown-name error for this one (Rule 12.4).
     if (diagnostics.some((d) => d.category === 'error')) {
       refusedDeclarationsOf(scope.calleeTable()).add(name);
       refuseModuleName(sourceFile, name);
     }
     return undefined;
   }
-  // A tree of written integers refused at its root (`const K = (1 << 30) * 4`) is the one
-  // mistake: the constant is refused with it, and a read of it adds nothing (Rule 12.4).
-  // An exported constant is read by its importers as the `f32` the export keeps (Amendment A5),
-  // as an exported function's result is: a refused quotient there leaves the constant an `f32`,
-  // and an importer's own mismatch is the importer's mistake (F5 of the fourteenth review of
-  // #1272). Its refusal stands in its own file.
   const exportedQuotient =
     pendingKindlessRefusal(init) === 'quotient' &&
     annotated === undefined &&
@@ -837,8 +672,6 @@ function lowerOne(
     refuseModuleName(sourceFile, name);
     return undefined;
   }
-  // `const K = 1 << 4`: a `/` over a read of `K` is refused as a `/` over `1 << 4` is (D-b of
-  // #1272, issue 1261).
   if (
     annotated === undefined &&
     kindlessOrigin(init, (n) => scope.resolveIr(n), sourceFile) === 'kindless'
@@ -867,8 +700,6 @@ function lowerOne(
             : `Change the annotation to ${authorTypeText(init.type)}.`),
       );
     }
-    // A literal-only expression in a declared f64 position keeps the double. Written f32
-    // conversions are still calls here, so neither this retype nor a literal fold crosses one.
     init = retargetIntLitCtx(init, decl.initializer, f64T);
     const value = foldF64ModuleConst(init, scope);
     if (value === undefined) {
@@ -889,29 +720,17 @@ function lowerOne(
     }
     scope.define({ kind: 'module', name, type: f64T, mutable: false, constValue: value });
     scope.recordDeclaration(sourceFile, decl.name, { name, kind: 'const', type: f64T });
-    // In particular, never retain a builtin valueExpr: it would lower to a module-scope
-    // df64 helper call, which is not a shader constant expression.
     return { name, type: f64T, wgslValue: value, cpuValue: value };
   }
-  // `const J: u32 = K;` reads a constant of no fixed type as that integer (change 0134 item 2).
   if (annotated !== undefined && (typeKey(annotated) === 'i32' || typeKey(annotated) === 'u32')) {
     noteIntegerRead(decl.initializer, typeKey(annotated) === 'u32' ? 'u32' : 'i32');
   }
   const folded = foldConstValue(init, scope);
   if (typeof folded !== 'number' && typeof folded !== 'boolean') {
-    // A non-scalar constant — a vector, an array, a struct, a matrix — is carried by
-    // ConstDecl.valueExpr instead of the wgslValue/cpuValue pair, which is what the EDSL's
-    // constExpr fills: both writers emit the expression and the CPU backend evaluates it.
     return valueExprConst(name, decl, init, annotated, sourceFile, scope, diagnostics, valueExprs);
   }
   const type = annotated ?? init.type;
   const k = typeKey(type);
-  // A scalar whose initializer calls a math builtin (issue #73): its value is known here, so
-  // it can bound a loop, but the emit carries the CALL as `valueExpr` and the GPU computes
-  // it, the way `const K: f32 = sin(1.0);` is a constant expression in WGSL and in GLSL ES
-  // 3.00. Folding it here instead would spell a JS `Math.sin` where the driver's own `sin`
-  // was written. The annotation has to agree with the call's type, since the emitted line
-  // carries both: `const K: i32 = floor(2.7);` is not a program.
   const called = containsCall(init);
   if (called && annotated && typeKey(init.type) !== k) {
     diagnostics.push(
@@ -920,12 +739,6 @@ function lowerOne(
         decl,
         `Module const "${name}" is ${authorTypeText(type)}, but its initializer is ` +
           `${authorTypeText(init.type)}. ` +
-          // A conversion of the call is a module const, and so is a splat of it into a vector of
-          // its own element when it folds as a vector's component does (`vec3i(countOneBits(5))`,
-          // `vec3(f32(floor(2.)))`). Other calls here have no such form (`A(...)`, `bool(...)`
-          // and `vec3u(u32(floor(2.)))`, whose conversion no vector const takes); scalar f64
-          // initializers were already handled by their own typed evaluator above,
-          // so the annotation is what changes (Rule 12.1).
           ((type.kind === 'scalar' && type.scalar !== 'bool') ||
           (type.kind === 'vec' &&
             typeKey(init.type) === type.elem &&
@@ -949,12 +762,6 @@ function lowerOne(
     return undefined;
   }
   const numeric = typeof folded === 'boolean' ? (folded ? 1 : 0) : folded;
-  // An integer const is range- and integrality-checked HERE rather than left to the
-  // backend's `intLit`. Two reasons. Truncating silently (`const K: i32 = 1.5` became 1) hid
-  // an author error; and once `emitConst` spells an integer const through `intLit`, an
-  // out-of-range value throws SD0017 from inside `emitModule` — which the caller cannot
-  // attribute to a line, and which leaves `compile()` reporting no diagnostic at all. A
-  // diagnostic here keeps `wgsl` undefined and names the cause.
   if (k === 'i32' || k === 'u32') {
     const lo = k === 'i32' ? -2147483648 : 0;
     const hi = k === 'i32' ? 2147483647 : 4294967295;
@@ -981,14 +788,6 @@ function lowerOne(
       return undefined;
     }
   }
-  // A bool const is checked here for the same reason (#64). `true`, `false`, `1` and `0` all
-  // spell; anything else reached the fail-closed bool arm of each writer's `literal`
-  // (`wgsl.ts`, `glsl.ts`) as SD0017 thrown from inside `emitModule`, which `source-file.ts`
-  // wraps as TS8015 anchored on the file's `"use typeshade"` directive — the one line that has
-  // nothing to do with the declaration. This arm costs the same spurious TS8022 per use the
-  // integer arms above already cost, since the binding is never defined; the anchor on the
-  // declaration is what the author needs first, and the writers' arms stay for the `fn()`
-  // EDSL surface, where a hand-built ConstDecl can carry anything.
   if (k === 'bool' && numeric !== 0 && numeric !== 1) {
     diagnostics.push(
       makeDiagnostic(
@@ -1001,9 +800,6 @@ function lowerOne(
     return undefined;
   }
   const value = k === 'f32' ? numeric : k === 'bool' ? numeric : Math.trunc(numeric);
-  // An unannotated constant of written numbers has no fixed type: each read takes the type the
-  // written number would take there (Rules 5.1 and 5.2, change 0134 item 2). Its declaration
-  // stays the `f32` one, which an `f32` read names.
   const abstract =
     hasNoWrittenType(decl, sourceFile) && k === 'f32'
       ? abstractConstFor(
