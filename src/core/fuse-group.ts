@@ -1,31 +1,10 @@
 // Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
 
-import type { FuseArray, FuseLoop, KernelFace } from './host-kernel.js';
+import type { FuseArray, FuseLoop } from './host-kernel.js';
 import type { Tier } from './tiers.js';
 import { KERNEL_TREE, KERNEL_WORKGROUP } from './kernel-tree.js';
-
-export interface GroupCall {
-  readonly k: KernelFace;
-  readonly arrays: readonly (object | undefined)[];
-  readonly range: { readonly start: number; readonly n: number } | undefined;
-  readonly tier: Tier;
-  readonly held?: true;
-}
-
-export interface EntryCall {
-  readonly entry: string;
-  readonly tier: Tier;
-}
-
-export type PlannedCall = GroupCall | EntryCall;
-
-export interface Group {
-  readonly calls: readonly number[];
-  readonly fused: boolean;
-  readonly why?: string;
-  readonly workgroupSize?: number;
-  readonly contracted: readonly object[];
-}
+import type { GroupCall, EntryCall, PlannedCall, Group } from './fuse-group/types.js';
+export type { GroupCall, EntryCall, PlannedCall, Group } from './fuse-group/types.js';
 
 export const WEBGL2_APART = 'WebGL2 runs the calls apart';
 
