@@ -5,6 +5,7 @@ import {
   breadthOf,
   summariseBreadth,
 } from '../scripts/code-shape/breadth.js';
+import { AREA_DEFINITION } from '../scripts/code-shape/areas.js';
 import { createContextFromSources } from '../scripts/code-shape/context.js';
 
 const leaf = (name: string): string => `export const ${name} = 1;\n`;
@@ -65,7 +66,8 @@ describe('the breadth signal', () => {
     expect(BREADTH_REPORT_FROM).toBe(4);
     expect(find('src/core/wide.ts')).toMatchObject({
       signal: 'breadth',
-      remedy: 'split along the components',
+      remedy: 'none (report)',
+      kind: 'wide-imports',
       evidence: {
         valueAreas: 4,
         typeAreas: 0,
@@ -104,15 +106,32 @@ describe('the breadth signal', () => {
     expect(same).toBeUndefined();
   });
 
-  it('counts a file of core as another area for a file of core/ir', () => {
+  it('does not count the parent area or a child area as another area', () => {
     const inside = breadthOf(ctx).find((entry) => ctx.rel(entry.file) === 'src/core/ir/inside.ts');
-    expect(inside?.valueAreas).toEqual(['core']);
-    expect(inside?.modules).toEqual(['src/core/wide.ts']);
+    expect(inside?.valueAreas).toEqual([]);
+    expect(inside?.modules).toEqual([]);
+    const parent = breadthOf(ctx).find((entry) => ctx.rel(entry.file) === 'src/core/same.ts');
+    expect(parent?.valueAreas).toEqual(['rhi']);
+  });
+
+  it('counts a sibling area as another area', () => {
+    const sibling = breadthOf(
+      createContextFromSources({
+        'src/core/debug/d.ts': leaf('d'),
+        'src/core/ir/i.ts': `import { d } from '../debug/d.js';\nexport const i = d;\n`,
+      }),
+    ).find((entry) => entry.file.fileName.endsWith('ir/i.ts'));
+    expect(sibling?.valueAreas).toEqual(['core/debug']);
+  });
+
+  it('states the rule for nested areas in the definition', () => {
+    expect(AREA_DEFINITION).toContain('A parent area and a child area are not other areas');
   });
 
   it('summarises the files that are narrow and the widest file', () => {
     const lines = summariseBreadth(ctx, findings);
     expect(lines.join('\n')).toContain('Widest by modules');
     expect(lines[1]).toContain('2 files import from 4 or more other areas');
+    expect(lines.join('\n')).toContain('read signal 4 (cohesion)');
   });
 });

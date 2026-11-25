@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { breadth, summariseBreadth } from './code-shape/breadth.js';
 import { cohesion, summariseCohesion } from './code-shape/cohesion.js';
 import { createContext, relativeToRoot } from './code-shape/context.js';
@@ -62,7 +63,7 @@ export function runCli(args: string[], cwd: string): number {
     console.error(USAGE);
     return 2;
   }
-  const root = options.repo ?? cwd;
+  const root = resolve(cwd, options.repo ?? cwd);
   const files =
     options.files.length === 0
       ? undefined
@@ -76,6 +77,7 @@ export function runCli(args: string[], cwd: string): number {
     allFiles: ctx.all.length,
     analysedFiles: ctx.analysed.length,
     skipped: ctx.skipped,
+    unmatchedFiles: [...ctx.unmatched],
     signals,
   };
   console.log(options.json ? formatJson(report) : formatMarkdown(report));

@@ -6,6 +6,7 @@ export interface ImportEdge {
   specifier: string;
   line: number;
   typeOnly: boolean;
+  dynamic: boolean;
 }
 
 function importIsTypeOnly(node: ts.ImportDeclaration): boolean {
@@ -30,7 +31,10 @@ function targetOf(checker: ts.TypeChecker, specifier: ts.Expression): ts.SourceF
   return symbol?.declarations?.find(ts.isSourceFile);
 }
 
-export function importEdges(checker: ts.TypeChecker, source: ts.SourceFile): ImportEdge[] {
+const lineIn = (source: ts.SourceFile, node: ts.Node): number =>
+  source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+
+function staticEdges(checker: ts.TypeChecker, source: ts.SourceFile): ImportEdge[] {
   const edges: ImportEdge[] = [];
   for (const statement of source.statements) {
     const isImport = ts.isImportDeclaration(statement);
@@ -43,9 +47,75 @@ export function importEdges(checker: ts.TypeChecker, source: ts.SourceFile): Imp
       from: source,
       target,
       specifier: specifier.text,
-      line: source.getLineAndCharacterOfPosition(statement.getStart(source)).line + 1,
+      line: lineIn(source, statement),
       typeOnly: isImport ? importIsTypeOnly(statement) : exportIsTypeOnly(statement),
+      dynamic: false,
     });
   }
   return edges;
+}
+
+function dynamicSpecifier(
+  node: ts.Node,
+): { literal: ts.StringLiteral; typeOnly: boolean } | undefined {
+  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    const [argument] = node.arguments;
+    return argument !== undefined && ts.isStringLiteral(argument)
+      ? { literal: argument, typeOnly: false }
+      : undefined;
+  }
+  if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+    const literal = node.argument.literal;
+    return ts.isStringLiteral(literal) ? { literal, typeOnly: true } : undefined;
+  }
+  return undefined;
+}
+
+function dynamicEdges(checker: ts.TypeChecker, source: ts.SourceFile): ImportEdge[] {
+  const edges: ImportEdge[] = [];
+  const visit = (node: ts.Node): void => {
+    const found = dynamicSpecifier(node);
+    const target = found === undefined ? undefined : targetOf(checker, found.literal);
+    if (found !== undefined && target !== undefined) {
+      edges.push({
+        from: source,
+        target,
+        specifier: found.literal.text,
+        line: lineIn(source, node),
+        typeOnly: found.typeOnly,
+        dynamic: true,
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return edges;
+}
+
+const cache = new WeakMap<ts.SourceFile, ImportEdge[]>();
+
+export function importEdges(checker: ts.TypeChecker, source: ts.SourceFile): ImportEdge[] {
+  const cached = cache.get(source);
+  if (cached !== undefined) return cached;
+  const edges = [...staticEdges(checker, source), ...dynamicEdges(checker, source)];
+  cache.set(source, edges);
+  return edges;
+}
+
+export function edgesByTarget(edges: readonly ImportEdge[]): ImportEdge[] {
+  const merged = new Map<ts.SourceFile, ImportEdge>();
+  for (const edge of edges) {
+    const known = merged.get(edge.target);
+    merged.set(
+      edge.target,
+      known === undefined
+        ? edge
+        : {
+            ...known,
+            line: Math.min(known.line, edge.line),
+            typeOnly: known.typeOnly && edge.typeOnly,
+          },
+    );
+  }
+  return [...merged.values()];
 }

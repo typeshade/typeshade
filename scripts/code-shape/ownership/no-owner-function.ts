@@ -58,6 +58,7 @@ export function noOwnerFunctions(ctx: ShapeContext): Finding[] {
       const members = membersReadOnly(ctx.checker, node, parameter);
       if (members === undefined) continue;
       const declared = declaredTypeOf(ctx, type);
+      if (declared?.external === true) continue;
       findings.push({
         signal: 'ownership',
         file: ctx.rel(source),

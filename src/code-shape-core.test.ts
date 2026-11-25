@@ -59,6 +59,49 @@ describe('createContextFromSources', () => {
     expect(ctx.analysed.map(ctx.rel)).toEqual(['src/rhi/b.ts']);
     expect(ctx.all).toHaveLength(7);
   });
+
+  it('keeps the product files apart: all minus the skipped files', () => {
+    const ctx = createContextFromSources(sources);
+    expect(ctx.product.map(ctx.rel).sort()).toEqual(['src/core/a.ts', 'src/rhi/b.ts']);
+    const narrow = createContextFromSources(sources, ['src/rhi/b.ts']);
+    expect(narrow.product.map(narrow.rel).sort()).toEqual(['src/core/a.ts', 'src/rhi/b.ts']);
+  });
+
+  it('names a wanted file that no analysed file matched', () => {
+    const ctx = createContextFromSources(sources, [
+      'src/rhi/b.ts',
+      'src/core/a.test.ts',
+      'src/missing.ts',
+    ]);
+    expect(ctx.unmatched).toEqual(['src/core/a.test.ts', 'src/missing.ts']);
+    expect(createContextFromSources(sources).unmatched).toEqual([]);
+  });
+});
+
+describe('importEdges of dynamic imports', () => {
+  const ctx = createContextFromSources({
+    'src/a.ts': [
+      `export const load = () => import('./b.js');`,
+      `export type Loaded = typeof import('./c.js');`,
+      `export type Alone = import('./d.js').D;`,
+      `export const text = import(name);`,
+      '',
+    ].join('\n'),
+    'src/b.ts': `export const b = 1;\n`,
+    'src/c.ts': `export const c = 1;\n`,
+    'src/d.ts': `export type D = 1;\n`,
+  });
+  const edges = importEdges(ctx.checker, ctx.program.getSourceFile('/virtual/src/a.ts')!);
+
+  it('reads import() calls and import types with a string literal as edges', () => {
+    expect(
+      edges.map((edge) => [ctx.rel(edge.target), edge.line, edge.typeOnly, edge.dynamic]),
+    ).toEqual([
+      ['src/b.ts', 1, false, true],
+      ['src/c.ts', 2, true, true],
+      ['src/d.ts', 3, true, true],
+    ]);
+  });
 });
 
 describe('importEdges', () => {

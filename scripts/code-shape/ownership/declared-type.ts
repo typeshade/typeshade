@@ -5,6 +5,7 @@ export interface DeclaredType {
   name: string;
   at: string;
   anonymous: boolean;
+  external: boolean;
 }
 
 const ANONYMOUS_SYMBOL_NAMES = new Set(['__type', '__object']);
@@ -33,7 +34,9 @@ export function declaredTypeOf(ctx: ShapeContext, type: ts.Type): DeclaredType |
   const declaration = symbol?.declarations?.[0];
   if (symbol === undefined || declaration === undefined) return undefined;
   const anonymous = ANONYMOUS_SYMBOL_NAMES.has(symbol.name);
+  const declaredIn = declaration.getSourceFile();
   return {
+    external: declaredIn.isDeclarationFile || !ctx.rel(declaredIn).startsWith('src/'),
     name: anonymous ? '(anonymous)' : symbol.name,
     at: `${ctx.rel(declaration.getSourceFile())}:${lineOf(declaration)}`,
     anonymous,

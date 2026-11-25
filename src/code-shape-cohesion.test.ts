@@ -3,6 +3,7 @@ import { analyseFile } from '../scripts/code-shape/cohesion/components.js';
 import {
   cohesion,
   GIANT_SHARE,
+  HUB_MIN_DECLARATIONS,
   HUB_SHARE,
   MIN_COMPONENT_LINES,
   MIN_DECLARATIONS,
@@ -31,9 +32,16 @@ const run = (sources: Record<string, string>) => {
 
 const PUSH = `export function pushDiag(): number {\n  return 1;\n}\n`;
 
+const PADS = ['pad1', 'pad2', 'pad3'];
+
+const padSource = PADS.map((name) => `export function ${name}(): number {\n  return 1;\n}\n`).join(
+  '\n',
+);
+
 const cutSource = [
   PUSH,
-  fn('alpha', 45, ['pushDiag', 'alphaHelper']),
+  padSource,
+  fn('alpha', 45, ['pushDiag', 'alphaHelper', ...PADS]),
   fn('alphaHelper', 5, ['pushDiag']),
   fn('beta', 45, ['pushDiag', 'betaHelper']),
   fn('betaHelper', 5, ['pushDiag']),
@@ -45,6 +53,7 @@ describe('the cohesion signal', () => {
     expect(MIN_COMPONENT_LINES).toBe(40);
     expect(GIANT_SHARE).toBe(0.5);
     expect(MIN_DECLARATIONS).toBe(4);
+    expect(HUB_MIN_DECLARATIONS).toBe(8);
   });
 
   it('reports a cut-line for two groups that share only a hub', () => {
@@ -98,6 +107,22 @@ describe('the cohesion signal', () => {
     expect(entry.hubs.map((at) => entry.declarations[at]!.name)).toEqual(['pushDiag']);
   });
 
+  it('finds no hub in a file of fewer than 8 declarations', () => {
+    const ctx = createContextFromSources({
+      'src/core/few.ts': [
+        PUSH,
+        fn('alpha', 45, ['pushDiag', 'alphaHelper']),
+        fn('alphaHelper', 5, ['pushDiag']),
+        fn('beta', 45, ['pushDiag', 'betaHelper']),
+        fn('betaHelper', 5, ['pushDiag']),
+      ].join('\n'),
+    });
+    const entry = analyseFile(ctx.checker, ctx.analysed[0]!)!;
+    expect(entry.declarations).toHaveLength(5);
+    expect(entry.hubs).toEqual([]);
+    expect(cohesion(ctx)).toEqual([]);
+  });
+
   it('does not report two groups that call each other', () => {
     const { findings } = run({
       'src/core/merged.ts': [
@@ -125,7 +150,9 @@ describe('the cohesion signal', () => {
       evidence: { declaration: 'giant', references: 3 },
     });
     expect(Number(findings[0]!.evidence.giantShare)).toBeGreaterThanOrEqual(0.5);
-    expect(String(findings[0]!.evidence.note)).toContain('a split by moving declarations');
+    expect(String(findings[0]!.evidence.note)).toBe(
+      'a split by moving declarations does not separate this declaration; a cut would be inside it',
+    );
   });
 
   it('does not report a giant declaration in a file under 200 lines', () => {
@@ -182,5 +209,7 @@ describe('the cohesion signal', () => {
     const text = summariseCohesion(ctx, findings).join('\n');
     expect(text).toContain('1 files have a cut-line');
     expect(text).toContain('0 files have a giant declaration');
+    expect(text).toContain('files have 4 or more declarations; 1 of them are one component');
+    expect(text).toContain('after the hubs (if any) are removed');
   });
 });

@@ -119,12 +119,16 @@ function assemble(
     return false;
   });
   const wanted = only === undefined ? undefined : new Set(only);
+  const keptNames = new Set(kept.map(rel));
   return {
     root,
     program,
     checker: program.getTypeChecker(),
     analysed: wanted === undefined ? kept : kept.filter((sf) => wanted.has(rel(sf))),
     all,
+    product: kept,
+    wanted,
+    unmatched: only === undefined ? [] : only.filter((path) => !keptNames.has(path)),
     rel,
     skipped,
   };

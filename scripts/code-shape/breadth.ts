@@ -1,4 +1,4 @@
-import { areaOf } from './areas.js';
+import { areaOf, areasNest } from './areas.js';
 import { importEdges } from './imports.js';
 import type { Finding, ShapeContext, Signal } from './types.js';
 import type ts from 'typescript';
@@ -22,7 +22,7 @@ export function breadthOf(ctx: ShapeContext): Breadth[] {
       const targetRel = ctx.rel(edge.target);
       if (!targetRel.startsWith('src/')) continue;
       const area = areaOf(targetRel);
-      if (area === own) continue;
+      if (areasNest(area, own)) continue;
       modules.add(targetRel);
       (edge.typeOnly ? type : value).add(area);
     }
@@ -52,7 +52,7 @@ export const breadth: Signal = (ctx) => {
         modules: entry.modules.length,
         areaList,
       },
-      remedy: 'split along the components',
+      remedy: 'none (report)',
     });
   }
   return findings;

@@ -3,6 +3,8 @@ import type { Declaration } from './declarations.js';
 
 export const HUB_SHARE = 0.3;
 
+export const HUB_MIN_DECLARATIONS = 8;
+
 export interface ReferenceGraph {
   references: Set<number>[];
   imports: Set<string>[];
@@ -56,11 +58,12 @@ export function referenceGraph(
 
 export function hubsOf(graph: ReferenceGraph): Set<number> {
   const count = graph.references.length;
+  const hubs = new Set<number>();
+  if (count < HUB_MIN_DECLARATIONS) return hubs;
   const referencedBy = new Array<number>(count).fill(0);
   for (const targets of graph.references) {
     for (const target of targets) referencedBy[target] = (referencedBy[target] ?? 0) + 1;
   }
-  const hubs = new Set<number>();
   referencedBy.forEach((total, at) => {
     if (total / (count - 1) > HUB_SHARE) hubs.add(at);
   });

@@ -108,6 +108,30 @@ describe('ownership: no-owner-function', () => {
   });
 });
 
+describe('ownership: no-owner-function and declared outside src', () => {
+  const LIB = [
+    'interface Map<K, V> { size: number; get(key: K): V | undefined }',
+    'type Pick<T, K extends keyof T> = { [P in K]: T[P] };',
+    '',
+  ].join('\n');
+
+  it('keeps out a parameter whose type is declared in a library declaration file', () => {
+    const { findings } = run({
+      'lib.d.ts': LIB,
+      'src/lib-user.ts': [
+        `export function sizeOf(map: Map<string, number>): number {`,
+        `  return map.size;`,
+        `}`,
+        `export function firstOf(picked: Pick<{ a: number; b: number }, 'a'>): number {`,
+        `  return picked.a;`,
+        `}`,
+        '',
+      ].join('\n'),
+    });
+    expect(ofKind(findings, 'no-owner-function')).toEqual([]);
+  });
+});
+
 describe('ownership: repeated-choice', () => {
   const choice = (name: string, variable: string, body: string): string =>
     [
@@ -151,6 +175,43 @@ describe('ownership: repeated-choice', () => {
     expect(ofKind(findings, 'repeated-choice')).toHaveLength(1);
   });
 
+  it('does not count a logical-or choice between two boolean members', () => {
+    const flags = [
+      'export interface Flags {',
+      '  left: boolean;',
+      '  right: boolean;',
+      '}',
+      '',
+    ].join('\n');
+    const user = (name: string): string =>
+      [
+        `import type { Flags } from './flags.js';`,
+        `export const ${name} = (flags: Flags, other: number): number => (flags.left || flags.right ? other : 0);`,
+        '',
+      ].join('\n');
+    const { findings } = run({
+      'src/flags.ts': flags,
+      'src/one.ts': user('one'),
+      'src/two.ts': user('two'),
+    });
+    expect(ofKind(findings, 'repeated-choice')).toEqual([]);
+  });
+
+  it('reports a repeated choice on an anonymous type under its own kind and no remedy', () => {
+    const use = (name: string): string =>
+      `export const ${name} = (o: { x?: string; y: string }): string => o.x ?? o.y;\n`;
+    const { findings, ctx } = run({ 'src/one.ts': use('one'), 'src/two.ts': use('two') });
+    expect(ofKind(findings, 'repeated-choice')).toEqual([]);
+    const [hit] = ofKind(findings, 'repeated-choice-anonymous');
+    expect(hit).toMatchObject({
+      remedy: 'none (report)',
+      evidence: { type: '(anonymous)', siteCount: 2 },
+    });
+    expect(summariseOwnership(ctx, findings).join('\n')).toContain(
+      '1 of them on an anonymous type',
+    );
+  });
+
   it('keeps a single-site choice out of the findings and counts it in the summary', () => {
     const { findings, ctx } = run({
       'src/sym.ts': SYMBOL,
@@ -186,7 +247,52 @@ describe('ownership: tiny-file', () => {
     expect(hits).toHaveLength(1);
     expect(hits[0]).toMatchObject({
       file: 'src/tiny.ts',
-      evidence: { lines: 1, declaration: 'ANSWER', importer: 'src/user.ts' },
+      evidence: {
+        lines: 1,
+        declaration: 'ANSWER',
+        importer: 'src/user.ts',
+        importerIsFacade: false,
+        importerIsParent: false,
+      },
+    });
+  });
+
+  it('does not count a test file or a testing helper as an importer', () => {
+    const { findings } = run({
+      'src/tiny.ts': `export const ANSWER = 42;\n`,
+      'src/user.ts': `import { ANSWER } from './tiny.js';\nexport const twice = ANSWER * 2;\n`,
+      'src/user.test.ts': `import { ANSWER } from './tiny.js';\nexport const t = ANSWER;\n`,
+      'src/testing/helper.ts': `import { ANSWER } from '../tiny.js';\nexport const h = ANSWER;\n`,
+    });
+    const hits = ofKind(findings, 'tiny-file');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.evidence.importer).toBe('src/user.ts');
+  });
+
+  it('keeps out a tiny file that only a test file imports', () => {
+    const { findings } = run({
+      'src/tiny.ts': `export const ANSWER = 42;\n`,
+      'src/user.test.ts': `import { ANSWER } from './tiny.js';\nexport const t = ANSWER;\n`,
+    });
+    expect(ofKind(findings, 'tiny-file')).toEqual([]);
+  });
+
+  it('names an importer that is a facade or the parent file of its module directory', () => {
+    const { findings } = run({
+      'src/tiny.ts': `export const ANSWER = 42;\n`,
+      'src/facade.ts': `import { ANSWER } from './tiny.js';\nexport { ANSWER };\nexport { other } from './other.js';\n`,
+      'src/other.ts': `export const other = 1;\nexport const more = 2;\nexport const third = 3;\nexport const fourth = 4;\nexport const fifth = 5;\nexport const sixth = 6;\nexport const seventh = 7;\nexport const eighth = 8;\nexport const ninth = 9;\nexport const tenth = 10;\nexport const eleventh = 11;\nexport const twelfth = 12;\nexport const thirteenth = 13;\n`,
+      'src/parent.ts': `import { PART } from './parent/part.js';\nexport const parent = PART * 2;\n`,
+      'src/parent/part.ts': `export const PART = 1;\n`,
+    });
+    const byFile = new Map(ofKind(findings, 'tiny-file').map((f) => [f.file, f]));
+    expect(byFile.get('src/tiny.ts')!.evidence).toMatchObject({
+      importerIsFacade: true,
+      importerIsParent: false,
+    });
+    expect(byFile.get('src/parent/part.ts')!.evidence).toMatchObject({
+      importerIsFacade: false,
+      importerIsParent: true,
     });
   });
 

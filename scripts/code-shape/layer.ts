@@ -1,3 +1,4 @@
+import type ts from 'typescript';
 import { importEdges } from './imports.js';
 import { LAYER_POLICY_PATH, parseLayerPolicy, type LayerPolicy } from './layer-policy.js';
 import type { Finding, ShapeContext, Signal } from './types.js';
@@ -5,6 +6,15 @@ import type { Finding, ShapeContext, Signal } from './types.js';
 export function layerOf(rel: string): string | undefined {
   const parts = rel.split('/');
   return parts[0] === 'src' && parts.length > 2 ? parts[1] : undefined;
+}
+
+export const isLayerSource = (rel: string): boolean => !rel.endsWith('.test.ts');
+
+export function layerSources(ctx: ShapeContext): ts.SourceFile[] {
+  return ctx.all.filter((source) => {
+    const rel = ctx.rel(source);
+    return isLayerSource(rel) && (ctx.wanted === undefined || ctx.wanted.has(rel));
+  });
 }
 
 export function policyOf(ctx: ShapeContext): LayerPolicy | undefined {
@@ -16,13 +26,14 @@ export function layerSignal(policy: LayerPolicy | undefined): Signal {
   return (ctx) => {
     if (policy === undefined) return [];
     const findings: Finding[] = [];
-    for (const source of ctx.analysed) {
+    for (const source of layerSources(ctx)) {
       const fromRel = ctx.rel(source);
       const from = layerOf(fromRel);
       const allowed = from === undefined ? undefined : policy.mayImport[from];
       if (from === undefined || allowed === undefined) continue;
       const first = new Map<string, { line: number; typeOnly: boolean }>();
       for (const edge of importEdges(ctx.checker, source)) {
+        if (edge.dynamic) continue;
         const targetRel = ctx.rel(edge.target);
         const to = layerOf(targetRel);
         if (to === undefined || to === from || allowed.includes(to)) continue;
@@ -40,7 +51,7 @@ export function layerSignal(policy: LayerPolicy | undefined): Signal {
         signal: 'layer',
         file: fromRel,
         line: Math.min(...[...first.values()].map((entry) => entry.line)),
-        kind: 'layer-break',
+        kind: 'layer-edge',
         evidence: {
           edges: keys.length,
           targets: keys.map((key) => key.split(' -> ')[1]!),
@@ -71,5 +82,6 @@ export function summariseLayer(ctx: ShapeContext, findings: readonly Finding[]):
     `${edges} edges against MAY_IMPORT, from ${findings.length} files.`,
     `${known} of them are in KNOWN, ${edges - known} are not.`,
     `${sum(findings, 'typeOnlyEdges')} of the edges are type-only imports.`,
+    `Files read: every file of src/ except *.test.ts, the same set as ${LAYER_POLICY_PATH} (a testing/ file and a generated file count). Only static import and export-from statements count.`,
   ];
 }

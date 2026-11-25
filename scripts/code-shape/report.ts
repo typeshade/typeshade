@@ -12,6 +12,7 @@ export interface ReportInput {
   allFiles: number;
   analysedFiles: number;
   skipped: Readonly<Record<string, number>>;
+  unmatchedFiles: string[];
   signals: SignalReport[];
 }
 
@@ -53,6 +54,9 @@ export function formatMarkdown(input: ReportInput): string {
     ...SKIP_RULES.map(
       (rule) => `  - ${rule.name}: ${input.skipped[rule.name] ?? 0}. ${rule.reason}.`,
     ),
+    ...input.unmatchedFiles.map(
+      (path) => `- No analysed file matches ${path} (skipped or missing).`,
+    ),
     '',
   ];
   for (const report of input.signals) lines.push(...signalSection(report));
@@ -72,6 +76,7 @@ export function formatJson(input: ReportInput): string {
       },
       allFiles: input.allFiles,
       analysedFiles: input.analysedFiles,
+      unmatchedFiles: input.unmatchedFiles,
       signals: input.signals.map((report) => ({
         name: report.name,
         summary: report.summary,

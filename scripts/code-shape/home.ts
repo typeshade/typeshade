@@ -49,14 +49,14 @@ export const home: Signal = (ctx) =>
     signal: 'home',
     file: ctx.rel(entry.file),
     line: entry.firstImportLine,
-    kind: 'wrong-directory',
+    kind: 'directory-coupling',
     evidence: {
       ownDirectoryWeight: entry.ownDirectoryWeight,
       topDirectory: entry.topDirectory,
       topDirectoryWeight: entry.topDirectoryWeight,
       totalWeight: entry.totalWeight,
-      imports: entry.importWeight,
-      importers: entry.importerWeight,
+      importWeight: entry.importWeight,
+      importerWeight: entry.importerWeight,
       typeOnlyShare: share(entry),
     },
     remedy: 'move the file',
@@ -66,10 +66,10 @@ export function summariseHome(ctx: ShapeContext, findings: readonly Finding[]): 
   const { removed } = analyse(ctx);
   return [
     `${findings.length} files couple more to one other directory than to their own directory.`,
-    `Coupling of a file = its resolved imports plus its importers, counted by the directory of the other end. A value edge weighs 1 and a type-only edge weighs ${TYPE_ONLY_WEIGHT} (TYPE_ONLY_WEIGHT).`,
+    `Coupling of a file = the files it imports plus the files that import it, counted by the directory of the other end. Only product files count at either end (no skipped file). Each pair of files is one edge, whatever the number of import statements. A value edge weighs 1 and a pair with value and type-only imports is a value edge. A type-only edge weighs ${TYPE_ONLY_WEIGHT} (TYPE_ONLY_WEIGHT).`,
     `A file is reported when the top other directory outweighs its own directory and weighs at least ${HOME_MIN_WEIGHT} (reporting threshold, not a check).`,
-    `Rule 1 (removed ${removed['entry name']} files): a file named ${ENTRY_NAMES.join(' or ')} lists other files, so it is not reported.`,
+    `Rule 1 (removed ${removed['entry name']} files): a file with an entry name (${ENTRY_NAMES.join(' or ')}) is not reported.`,
     `Rule 2 (removed ${removed['parent of its module directory']} files): the parent file of its own module directory (x.ts beside x/) is expected to couple toward x/.`,
-    `Rule 3 (removed ${removed.facade} files): a facade or registry, where at least ${FACADE_SHARE * 100}% of the top-level statements are import or export-from statements with an export, is not reported.`,
+    `Rule 3 (removed ${removed.facade} files): a facade, where at least ${FACADE_SHARE * 100}% of the top-level statements are import or export-from statements with an export, is not reported.`,
   ];
 }

@@ -31,7 +31,7 @@ function giantFinding(file: string, entry: FileCohesion): Finding | undefined {
       fileLines: entry.fileLines,
       giantShare: round(share),
       references: entry.graph.references[entry.largest]!.size,
-      note: 'a split by moving declarations cannot help; the cut is inside the declaration, a design change',
+      note: 'a split by moving declarations does not separate this declaration; a cut would be inside it',
     },
     remedy: 'design change inside a declaration',
   };

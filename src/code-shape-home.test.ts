@@ -74,8 +74,8 @@ describe('the home signal', () => {
       topDirectory: 'src/b',
       topDirectoryWeight: 8,
       totalWeight: 8,
-      imports: 4,
-      importers: 4,
+      importWeight: 4,
+      importerWeight: 4,
       typeOnlyShare: 0,
     });
     expect(finding!.line).toBe(1);
@@ -101,18 +101,72 @@ describe('the home signal', () => {
     const finding = byFile.get('src/g/types.ts');
     expect(finding).toBeUndefined();
     const heavier = createContextFromSources({
-      ...bLeaves,
+      ...Object.fromEntries([1, 2, 3, 4, 5, 6].map((at) => [`src/b/leaf${at}.ts`, leaf(`l${at}`)])),
       'src/g/types.ts':
         [1, 2, 3, 4, 5, 6]
-          .map(
-            (at) => `import type { l${at % 4 || 4} as t${at} } from '../b/leaf${at % 4 || 4}.js';`,
-          )
+          .map((at) => `import type { l${at} as t${at} } from '../b/leaf${at}.js';`)
           .join('\n') + '\nexport type T = [typeof t1];\n',
     });
     const entry = home(heavier).find((item) => item.file === 'src/g/types.ts');
     expect(entry!.evidence).toMatchObject({
       topDirectoryWeight: 6 * TYPE_ONLY_WEIGHT,
       typeOnlyShare: 1,
+    });
+  });
+
+  it('names the kind of a finding for what it measures', () => {
+    expect(byFile.get('src/a/m.ts')!.kind).toBe('directory-coupling');
+  });
+
+  it('does not count a test file or a generated file as an importer', () => {
+    const extra = createContextFromSources({
+      ...bLeaves,
+      'src/k/n.ts': leaf('n'),
+      'src/b/one.test.ts': `import { n } from '../k/n.js';\nexport const a = n;\n`,
+      'src/b/two.test.ts': `import { n } from '../k/n.js';\nexport const b = n;\n`,
+      'src/b/three.generated.ts': `import { n } from '../k/n.js';\nexport const c = n;\n`,
+    });
+    expect(home(extra).map((finding) => finding.file)).not.toContain('src/k/n.ts');
+  });
+
+  it('does not count an import of a skipped file as an import of the file', () => {
+    const extra = createContextFromSources({
+      ...bLeaves,
+      'src/b/testing/one.ts': leaf('one'),
+      'src/b/testing/two.ts': leaf('two'),
+      'src/b/testing/three.ts': leaf('three'),
+      'src/k/n.ts':
+        [1, 2, 3]
+          .map(
+            (at) =>
+              `import { ${['one', 'two', 'three'][at - 1]} } from '../b/testing/${['one', 'two', 'three'][at - 1]}.js';`,
+          )
+          .join('\n') + '\nexport const n = [one, two, three];\n',
+    });
+    expect(home(extra).map((finding) => finding.file)).not.toContain('src/k/n.ts');
+  });
+
+  it('counts the edges to one target once, and a value edge wins over a type-only edge', () => {
+    const merged = createContextFromSources({
+      ...bLeaves,
+      'src/g/x.ts': [
+        `import { l1 } from '../b/leaf1.js';`,
+        `import { l1 as again } from '../b/leaf1.js';`,
+        `import type { l1 as typed } from '../b/leaf1.js';`,
+        `import { l2 } from '../b/leaf2.js';`,
+        `import { l4 } from '../b/leaf4.js';`,
+        `import type { l3 } from '../b/leaf3.js';`,
+        `import type { l3 as typedAgain } from '../b/leaf3.js';`,
+        `export const x = [l1, again, l2, l4];`,
+        `export type T = [typeof typed, typeof l3, typeof typedAgain];`,
+        '',
+      ].join('\n'),
+    });
+    const entry = home(merged).find((item) => item.file === 'src/g/x.ts');
+    expect(entry!.evidence).toMatchObject({
+      importWeight: 3 + TYPE_ONLY_WEIGHT,
+      topDirectoryWeight: 3 + TYPE_ONLY_WEIGHT,
+      typeOnlyShare: 0.14,
     });
   });
 

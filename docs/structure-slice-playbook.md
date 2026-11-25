@@ -32,6 +32,16 @@ The opening prompt of the session lists them. Do them one at a time, smallest fi
   its results weak or wrong, and a review of a sample missed most of them: review all, not a sample.
 - If one file of a batch fails its review or a check, take that file out of the batch and go on.
 
+Rate of pull requests (decided by the orchestrating session on 2026-11-25; the measurement of 2026-11-25 in section Measurements of draft proposal 0152, pull request #1681; the proposal is a draft and not accepted):
+
+1. One pull request carries at least three slices, and more when they are ready.
+2. Never put a `Move: pure` range, a `Move: comments` range and an ordinary change in one pull request. Batch within the kind.
+3. Keep one ready pull request for each session. Keep the next one a draft until the one before it has merged.
+4. Merge at most once in 90 minutes for each session.
+5. Mark a pull request ready once. After that, push only to fix a check that is red for the change, or to resolve a real conflict.
+
+Reason: one merge costs about 128 runner minutes, and the account runs 20 jobs at a time. More than about nine merges an hour make the queue grow. Three and a half merges an hour keep it short.
+
 ## The three steps, one pull request for each step, in this order
 
 Before step A — the shape report (it changes no file).

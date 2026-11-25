@@ -1,6 +1,6 @@
 import { posix } from 'node:path';
 import type ts from 'typescript';
-import { importEdges, type ImportEdge } from '../imports.js';
+import { edgesByTarget, importEdges, type ImportEdge } from '../imports.js';
 import type { ShapeContext } from '../types.js';
 
 export const TYPE_ONLY_WEIGHT = 0.5;
@@ -28,8 +28,13 @@ export function couplingOf(ctx: ShapeContext): Coupling[] {
   if (cached !== undefined) return cached;
   const incoming = new Map<ts.SourceFile, ImportEdge[]>();
   const outgoing = new Map<ts.SourceFile, ImportEdge[]>();
-  for (const source of ctx.all) {
-    const edges = importEdges(ctx.checker, source).filter((edge) => edge.target !== source);
+  const inProduct = new Set(ctx.product);
+  for (const source of ctx.product) {
+    const edges = edgesByTarget(
+      importEdges(ctx.checker, source).filter(
+        (edge) => edge.target !== source && inProduct.has(edge.target),
+      ),
+    );
     outgoing.set(source, edges);
     for (const edge of edges) {
       incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge]);

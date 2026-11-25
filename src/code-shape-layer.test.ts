@@ -27,6 +27,7 @@ describe('the layer signal', () => {
       signal: 'layer',
       line: 1,
       remedy: 'move the file',
+      kind: 'layer-edge',
       evidence: { edges: 3, knownEdges: 1, newEdges: 2, typeOnlyEdges: 1 },
     });
   });
@@ -48,6 +49,32 @@ describe('the layer signal', () => {
     expect(files).not.toContain('src/rhi/ok.ts');
     expect(files).not.toContain('src/runtime/up.ts');
     expect(files).not.toContain('src/index.ts');
+  });
+
+  it('reads every file the policy test reads: a testing helper counts, a test file does not', () => {
+    const more = createContextFromSources({
+      ...SOURCES,
+      'src/core/testing/helper.ts': `import { r } from '../../rhi/known.js';\nexport const h = r;\n`,
+      'src/core/low.test.ts': `import { r } from '../rhi/known.js';\nexport const t = r;\n`,
+      'src/core/fixtures/input.ts': `import { r } from '../../rhi/known.js';\nexport const f = r;\n`,
+      'src/core/dynamic.ts': `export const d = import('../rhi/known.js');\n`,
+    });
+    const files = layerSignal(POLICY)(more).map((finding) => finding.file);
+    expect(files.sort()).toEqual([
+      'src/core/fixtures/input.ts',
+      'src/core/low.ts',
+      'src/core/testing/helper.ts',
+    ]);
+  });
+
+  it('states which files the signal reads', () => {
+    const withPolicy = createContextFromSources({
+      ...SOURCES,
+      'src/layer-policy.test.ts': `const MAY_IMPORT = { core: [] };\nconst KNOWN = [];\n`,
+    });
+    expect(summariseLayer(withPolicy, []).join('\n')).toContain(
+      'every file of src/ except *.test.ts',
+    );
   });
 
   it('reports nothing without a policy', () => {

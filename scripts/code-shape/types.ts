@@ -26,6 +26,9 @@ export interface ShapeContext {
   checker: ts.TypeChecker;
   analysed: readonly ts.SourceFile[];
   all: readonly ts.SourceFile[];
+  product: readonly ts.SourceFile[];
+  wanted: ReadonlySet<string> | undefined;
+  unmatched: readonly string[];
   rel(sf: ts.SourceFile): string;
   skipped: Readonly<Record<string, number>>;
 }

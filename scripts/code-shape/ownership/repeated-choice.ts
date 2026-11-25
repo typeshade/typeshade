@@ -38,14 +38,21 @@ const isAbsent = (expression: ts.Expression): boolean =>
   (ts.isIdentifier(expression) && expression.text === 'undefined') ||
   expression.kind === ts.SyntaxKind.NullKeyword;
 
-function fromBinary(node: ts.BinaryExpression): Choice | undefined {
+function isBooleanLike(checker: ts.TypeChecker, expression: ts.Expression): boolean {
+  const type = checker.getNonNullableType(checker.getTypeAtLocation(expression));
+  const parts = type.isUnion() ? type.types : [type];
+  return parts.some((part) => (part.flags & ts.TypeFlags.BooleanLike) !== 0);
+}
+
+function fromBinary(checker: ts.TypeChecker, node: ts.BinaryExpression): Choice | undefined {
   const kind = node.operatorToken.kind;
-  if (kind !== ts.SyntaxKind.QuestionQuestionToken && kind !== ts.SyntaxKind.BarBarToken) {
-    return undefined;
-  }
+  const nullish = kind === ts.SyntaxKind.QuestionQuestionToken;
+  if (!nullish && kind !== ts.SyntaxKind.BarBarToken) return undefined;
   const first = memberOf(node.left);
   const second = memberOf(node.right);
-  return first === undefined || second === undefined ? undefined : [first, second];
+  if (first === undefined || second === undefined) return undefined;
+  const boolean = isBooleanLike(checker, node.left) || isBooleanLike(checker, node.right);
+  return !nullish && boolean ? undefined : [first, second];
 }
 
 function fromConditional(node: ts.ConditionalExpression): Choice | undefined {
@@ -66,8 +73,8 @@ function fromConditional(node: ts.ConditionalExpression): Choice | undefined {
   return kept.getText() === test.left.getText() ? [keptMember, other] : undefined;
 }
 
-function choiceOf(node: ts.Node): Choice | undefined {
-  if (ts.isBinaryExpression(node)) return fromBinary(node);
+function choiceOf(checker: ts.TypeChecker, node: ts.Node): Choice | undefined {
+  if (ts.isBinaryExpression(node)) return fromBinary(checker, node);
   if (ts.isConditionalExpression(node)) return fromConditional(node);
   return undefined;
 }
@@ -98,9 +105,9 @@ function record(
 
 export function choicePairs(ctx: ShapeContext): Map<string, ChoicePair> {
   const pairs = new Map<string, ChoicePair>();
-  for (const source of ctx.analysed) {
+  for (const source of ctx.product) {
     const visit = (node: ts.Node): void => {
-      const choice = choiceOf(node);
+      const choice = choiceOf(ctx.checker, node);
       if (
         choice !== undefined &&
         choice[0].objectText === choice[1].objectText &&
@@ -112,7 +119,9 @@ export function choicePairs(ctx: ShapeContext): Map<string, ChoicePair> {
     };
     visit(source);
   }
-  return pairs;
+  if (ctx.wanted === undefined) return pairs;
+  const wanted = ctx.wanted;
+  return new Map([...pairs].filter(([, pair]) => [...pair.files].some((file) => wanted.has(file))));
 }
 
 export function repeatedChoices(ctx: ShapeContext): Finding[] {
@@ -120,11 +129,12 @@ export function repeatedChoices(ctx: ShapeContext): Finding[] {
   for (const pair of choicePairs(ctx).values()) {
     if (pair.sites.length < 2) continue;
     const [file, line] = pair.sites[0]!.split(/:(?=\d+$)/);
+    const anonymous = pair.declaredAt === undefined;
     findings.push({
       signal: 'ownership',
       file: file!,
       line: Number(line),
-      kind: 'repeated-choice',
+      kind: anonymous ? 'repeated-choice-anonymous' : 'repeated-choice',
       evidence: {
         type: pair.typeName,
         declaredAt: pair.declaredAt ?? 'anonymous type: member names only',
@@ -134,7 +144,7 @@ export function repeatedChoices(ctx: ShapeContext): Finding[] {
         files: pair.files.size,
         sites: pair.sites,
       },
-      remedy: 'give the rule to its owner',
+      remedy: anonymous ? 'none (report)' : 'give the rule to its owner',
     });
   }
   return findings;

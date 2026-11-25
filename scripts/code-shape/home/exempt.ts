@@ -25,9 +25,12 @@ export function isFacade(source: ts.SourceFile): boolean {
   return hasExport && listing / total >= FACADE_SHARE;
 }
 
+export const moduleDirectoryOf = (rel: string): string =>
+  posix.join(posix.dirname(rel), posix.basename(rel, '.ts'));
+
 export function ownsModuleDirectory(ctx: ShapeContext, rel: string): boolean {
-  const directory = posix.join(posix.dirname(rel), posix.basename(rel, '.ts'));
-  return ctx.all.some((other) => ctx.rel(other).startsWith(`${directory}/`));
+  const directory = moduleDirectoryOf(rel);
+  return ctx.product.some((other) => ctx.rel(other).startsWith(`${directory}/`));
 }
 
 export function exemptRuleOf(ctx: ShapeContext, source: ts.SourceFile): ExemptRule | undefined {
