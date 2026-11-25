@@ -348,7 +348,7 @@ export function* evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: StepCtx): St
       // is holding a stand-in. Without it a `dpdx` result crossing a call boundary would go
       // unmarked for the whole of the callee's frame.
       const argStubbed: boolean[] = [];
-      // An `inout` argument that is a field or an element is resolved ONCE, read there and
+      // Why: an `inout` argument that is a field or an element is resolved once, read there and
       // written back there, as the oracle's `storeBack` does (Rule 8.25).
       const inoutOf = ctx.decls.get(e.fn)?.params;
       const places: ({ readonly set: (v: CpuValue) => void } | undefined)[] = [];
