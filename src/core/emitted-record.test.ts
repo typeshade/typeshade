@@ -41,11 +41,14 @@ const moduleOf = () => {
 
 describe('the emitted-name record (Rule 11.10)', () => {
   it('pins the schema the manifest carries and the runtime reads', () => {
-    expect(PACK_SCHEMA).toBe(2);
+    expect(PACK_SCHEMA).toBe(3);
     const m = packModule(moduleOf());
-    expect(m.schema).toBe(2);
+    expect(m.schema).toBe(3);
     expect(() => checkManifest(m)).not.toThrow();
     expect(() => checkManifest({ ...m, schema: 1 })).toThrow(/schema 1/);
+    expect(() => checkManifest({ ...m, schema: 2 })).toThrow(
+      /This manifest is schema 2 \(written by typeshade .*\); this runtime \(typeshade .*\) reads schema 3\./,
+    );
   });
 
   it('pairs each reflected name with its emitted name', () => {
@@ -110,12 +113,12 @@ describe('the spelling record reads the plan (Proposal 0070, C4)', () => {
     expect(code).toMatch(new RegExp(`\\bfn ${entry.emitted}\\(`));
   });
 
-  it('carries emittedGlsl only where the GLSL spelling differs from the WGSL one', () => {
+  it('carries emittedGlsl on every binding, equal to emitted where the spellings agree', () => {
     const r = reflect(allKindsModule({ binding: 'texture', field: 'half' }, 'graphics'));
     const tex = r.bindGroups.flatMap((g) => g.entries).find((b) => b.name === 'texture')!;
     expect(tex.emitted).toBe('texture');
     expect(tex.emittedGlsl).toBe('texture_');
     const dst = r.bindGroups.flatMap((g) => g.entries).find((b) => b.name !== 'texture')!;
-    expect(dst.emittedGlsl).toBeUndefined();
+    expect(dst.emittedGlsl).toBe(dst.emitted);
   });
 });
