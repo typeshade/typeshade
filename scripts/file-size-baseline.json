@@ -9,7 +9,7 @@
   "src/compiler/ts/array-methods.test.ts": 614,
   "src/compiler/ts/atomics.test.ts": 529,
   "src/compiler/ts/barriers.test.ts": 946,
-  "src/compiler/ts/bindings.ts": 875,
+  "src/compiler/ts/bindings.ts": 870,
   "src/compiler/ts/broadcast.test.ts": 428,
   "src/compiler/ts/builtin-breadth.test.ts": 660,
   "src/compiler/ts/builtin-check.ts": 702,
