@@ -1,5 +1,4 @@
 // Implements: Rule 6.2, the remedy a read-only resource names (docs/language-design.md; traced in reqs/).
-// === Lowering context / symbol table ===
 
 import type { AbstractConst, Carried } from './abstract-const.js';
 import type { InferredValue } from './use-inference.js';
@@ -16,7 +15,6 @@ import { recordDeclaration, type DeclaredSymbol, type DeclaredSymbolSink } from 
 import type { FunctionShape } from './lower/function-types.js';
 import type { ClassFunction } from './lower/class-methods.js';
 
-// Preserve internal imports while source-spelling state has its own owner.
 export {
   authorTypeText,
   classOfStruct,
@@ -31,30 +29,14 @@ export {
 } from './written-context.js';
 export type { LinkedOrigin, StructOrigin } from './written-context.js';
 
-/** Which fields of each struct are private, by struct and then by the member they are emitted
- *  as (Rule 8.12). */
 export type PrivateFieldTable = ReadonlyMap<string, ReadonlyMap<string, PrivateField>>;
 
-/** The members each struct's class declared and the struct does not carry, by struct: a read
- *  of one was already explained where it was declared (Rule 12.4). */
 export type WithheldTable = ReadonlyMap<string, ReadonlySet<string>>;
 
-/** The `readonly` fields of each struct, with the class whose constructor may assign each. */
 export type ReadonlyFieldTable = ReadonlyMap<string, ReadonlyMap<string, ts.ClassLikeDeclaration>>;
 
-/** The `private` and `protected` fields of each struct (Rule 8.15). */
 export type RestrictedFieldTable = ReadonlyMap<string, ReadonlyMap<string, RestrictedField>>;
 
-/** The names a file declares as functions and could not lower, one set per callee table
- *  (roadmap 0.3 item T10, #92). It hangs off the table instead of being threaded through every
- *  scope factory because it is the other half of the same thing: what this file's calls
- *  resolve against. A call to a name in here reports nothing — the declaration said why. */
-/** How one instance of a generic function is made (roadmap 0.3 item T9, #92), or of a function
- *  that takes a function (Rule 8.18). `argTypes` are the call's arguments as they lowered, which
- *  is what the type arguments are read off when the call site writes none, with a hole where a
- *  parameter takes a function; `scope` is the calling body's, which the functions a call hands
- *  over are resolved in, an arrow function written there lifted out of, and what each captures
- *  read from. */
 export type Instantiator = (
   name: string,
   node: ts.CallExpression,
@@ -64,10 +46,6 @@ export type Instantiator = (
   scope: LoweringScope,
 ) => FuncDecl | undefined;
 
-/** How a call of a method, a static method or a constructor that takes a function finds its copy
- *  for the functions it hands over (Rule 8.18): the copy, and whether it takes its object by
- *  reference, which it does when the method writes it or a function handed over writes the
- *  variable `on` names. `on` is the object the call is on, undefined for a static or `new`. */
 export type MemberInstantiator = (
   cf: ClassFunction,
   node: ts.CallExpression | ts.NewExpression,
@@ -77,9 +55,6 @@ export type MemberInstantiator = (
   scope: LoweringScope,
 ) => { readonly decl: FuncDecl; readonly writes: boolean } | undefined;
 
-/** How an arrow function or a function expression written as an argument becomes a function of
- *  the module (Rule 8.18): named after the body it is written in and `hint`, typed by `shape`
- *  where it writes no types of its own, and taking what it captures there (Rule 8.17). */
 export type ArgumentLifter = (
   node: ts.ArrowFunction | ts.FunctionExpression,
   shape: FunctionShape,
@@ -89,11 +64,6 @@ export type ArgumentLifter = (
   diagnostics: TsCompilerDiagnostic[],
 ) => FuncDecl | undefined;
 
-/** How a function the front end builds itself joins the module: an array's method, one for
- *  each array type and function a call hands it (Rule 8.18, surface §63). `key` says which two
- *  calls may share one; `base` is the name it is made under, fresh; `shown` is how a message
- *  names it; `captures` are the variables its first parameters stand for, which a call passes
- *  as it passes a local function's (Rule 8.17). `build` makes it under the name it is given. */
 export type FunctionBuilder = (
   key: string,
   base: string,
@@ -102,11 +72,6 @@ export type FunctionBuilder = (
   build: (name: string) => FuncDecl,
 ) => FuncDecl;
 
-/** Whether a call of `decl` at `at` can be lowered now (Rule 8.19). A function that writes no
- *  return type says it in its body, so the first call that needs it before the body's turn
- *  lowers that body first. False, having said why or leaving it to the check that will, when
- *  the call closes a cycle through a body still being lowered, or the body said nothing it
- *  returns because it did not lower. */
 export type BodyFiller = (
   decl: FuncDecl,
   at: ts.Node,
@@ -114,50 +79,25 @@ export type BodyFiller = (
   diagnostics: TsCompilerDiagnostic[],
 ) => boolean;
 
-/** What a file's lowering knows about its own functions, beyond the callee table itself: the
- *  names it could not lower (T10, #92) and the generic ones, with the hook that makes an
- *  instance of one (T9, #92).
- *
- *  It hangs off the callee table instead of being threaded through every scope factory because
- *  it is the rest of the same thing: what this file's calls resolve against. Every scope built
- *  from one table reads one record. */
 export interface FileFunctions {
-  /** A call to a name in here reports nothing — its declaration already said why. */
   readonly refused: Set<string>;
-  /** The generic functions, and those that take a function (Rule 8.18), under the emitted name
-   *  a call resolves to: each is made once per set of type and function arguments. */
   readonly generics: Set<string>;
   instantiate: Instantiator | undefined;
-  /** Makes the copy of a class's function that takes a function (Rule 8.18). */
   instantiateMember: MemberInstantiator | undefined;
-  /** For each function in {@link generics} that takes a function, which parameters do. */
   readonly fnParams: Map<string, ReadonlySet<number>>;
   lift: ArgumentLifter | undefined;
-  /** Adds a function the front end builds itself to the module (surface §63). */
   build: FunctionBuilder | undefined;
-  /** Lowers the body of a function whose return type the body says, when a call needs it
-   *  first (Rule 8.19); undefined where every function writes its return type. */
   ensure: BodyFiller | undefined;
-  /** Each function's declarations as lowered so far, by the node that declares them (a `let`, a
-   *  `const`, a parameter, and {@link THIS_CAPTURE} for its object), to the binding each made
-   *  there. What a call to a local function passes for a variable the function captures (Rule
-   *  8.17), and the type the function's parameter for it takes. */
   readonly declared: Map<FuncDecl, Map<CaptureKey, Binding>>;
-  /** The variables each local function captures, by its emitted name, in the order of the
-   *  parameters it takes for them, which lead its own (Rule 8.17). */
   readonly captures: Map<string, readonly CaptureKey[]>;
 }
 
-/** What a local function captures: the declaration of a variable, or the object of the method
- *  around it, `this` (Rule 8.17). */
 export type CaptureKey = ts.Node | typeof THIS_CAPTURE;
 
-/** The key {@link FileFunctions.declared} holds a method's object under. */
 export const THIS_CAPTURE = 'this' as const;
 
 const FILE_FUNCTIONS = new WeakMap<Map<string, FuncDecl>, FileFunctions>();
 
-/** The record belonging to `callees`, created on first ask. */
 export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
   const found = FILE_FUNCTIONS.get(callees);
   if (found !== undefined) return found;
@@ -177,47 +117,22 @@ export function fileFunctionsOf(callees: Map<string, FuncDecl>): FileFunctions {
   return made;
 }
 
-/** The refused-declaration set belonging to `callees`. */
 export const refusedDeclarationsOf = (callees: Map<string, FuncDecl>): Set<string> =>
   fileFunctionsOf(callees).refused;
 
-/** The module-scope names of a file whose declaration was refused before any function existed:
- *  a module constant, a module variable, a static field or an enum member whose initializer calls
- *  a function or builds a class the file declares. Every function's scope takes them as refused
- *  declarations, so a use of one adds nothing to the sentence its declaration got (Rule 12.4). */
 const REFUSED_MODULE_NAMES = new WeakMap<ts.SourceFile, Set<string>>();
 
-/** Records `name`, as the module emits it (`K`, `S_K`, `E_A`), as refused in `sourceFile`. */
 export function refuseModuleName(sourceFile: ts.SourceFile, name: string): void {
   const names = REFUSED_MODULE_NAMES.get(sourceFile) ?? new Set<string>();
   names.add(name);
   REFUSED_MODULE_NAMES.set(sourceFile, names);
 }
 
-/** The names {@link refuseModuleName} recorded for `sourceFile`. */
 export const refusedModuleNames = (sourceFile: ts.SourceFile): ReadonlySet<string> =>
   REFUSED_MODULE_NAMES.get(sourceFile) ?? new Set();
 
-/** What a name in scope refers to.
- *
- *  `module` and `binding` were one kind until #14, and conflating them is what broke stage
- *  reachability: a resource binding lowered to `Expr.constref`, the shape the IR reserves for
- *  a module-scope CONSTANT, and every consumer that asks "which bindings does this stage
- *  reach" looks for `Expr.varref`. So no stage reached any binding in a source-compiled
- *  module — the GLSL writer dropped the uniform block while keeping the uses, and
- *  `reflect()` reported no stages for anything. A binding is a module-scope `var`, not a
- *  const, and it now says so. */
 export type BindingKind = 'param' | 'local' | 'module' | 'binding' | 'override' | 'modvar';
 
-/** How a "cannot assign" diagnostic names what the target is. One helper because the three
- *  sites that raise it disagreed: two said "declared with const" for a resource binding, which
- *  is not what a `declare const input: storage<…>` is.
- *
- *  The parameter is a `BindingKind`, not `BindingKind | undefined`. An absent binding is not a
- *  read-only one — it is an unknown name, a different diagnostic — and while this accepted
- *  `undefined` it answered "declared with const" for a name that was never declared at all.
- *  Every caller now resolves that case first. The switch is exhaustive so that a NEW kind is a
- *  type error here rather than silently taking a default phrase that may not describe it. */
 export function readOnlyPhrase(kind: BindingKind): string {
   switch (kind) {
     case 'binding':
@@ -226,7 +141,6 @@ export function readOnlyPhrase(kind: BindingKind): string {
       return 'a module const';
     case 'override':
       return 'an override constant, set by the pipeline';
-    // Never read-only; the arm keeps the switch exhaustive.
     case 'modvar':
       return 'a module variable';
     case 'param':
@@ -239,21 +153,8 @@ export function readOnlyPhrase(kind: BindingKind): string {
   }
 }
 
-/** The resource bindings a file wrote in the CALL form (`const xs = storage<T>(…)`) rather
- *  than as a `declare const`. A remedy that names a declaration has to name the one the author
- *  wrote: measured, pasting `declare const xs: storage<…>` into a file that already binds `xs`
- *  by a call is `TS8023 Duplicate resource` on top of the refusal it was meant to close.
- *
- *  A WeakMap keyed by the source file, for the reason {@link fileFunctionsOf} is one: the
- *  declaration FORM is a fact about the TypeScript source, not about the resource, so it does
- *  not belong on `BindingDecl`, which is IR the EDSL builds too. */
 const CALL_FORM_BINDINGS = new WeakMap<ts.SourceFile, Map<string, string>>();
 
-/** Records that `name` was bound by a call in this file, with the argument list as the author
- *  wrote it (`({ binding: 3 })`, `(0, 1)`, `()`). The arguments ride along because they carry
- *  the slot: a remedy that dropped them would move the binding while it made it writable.
- *  Called by `bindings.ts` as it collects, which is the one place that has read the
- *  declaration's shape. */
 export function recordCallFormBinding(
   sourceFile: ts.SourceFile,
   name: string,
@@ -264,72 +165,32 @@ export function recordCallFormBinding(
   else CALL_FORM_BINDINGS.set(sourceFile, new Map([[name, argsText]]));
 }
 
-/** The bindings whose declared value type the compiler could NOT read, and recovered. A
- *  remedy is a line to paste, and a line built from a type that was already refused is not one:
- *  `storage<mat2x3<f64>>` recovers as `mat2x3` (the fp64 pass carries square matrices only) and
- *  was answered with `Write "declare const mnd: storage<mat2x3, \"read_write\">"`, which drops
- *  the `<f64>` the author wrote and is refused again the moment it is pasted; `storage<array<
- *  vec2h>>` recovers as `struct:array` and was answered with `storage<array, "read_write">`,
- *  which drops the type argument entirely. In both the FIRST sentence already names the mistake
- *  the author has to fix, and a second sentence about a type the compiler could not read is
- *  noise — so {@link writableRemedy} says nothing for these.
- *
- *  Recorded rather than derived, for the reason {@link CALL_FORM_BINDINGS} is: whether the
- *  declaration READ is a fact about this TypeScript source, and the recovered `ShaderType` that
- *  reaches the IR carries no trace of it. */
 const RECOVERED_BINDINGS = new WeakMap<ts.SourceFile, Set<string>>();
 
-/** Records that `name`'s declared value type drew a refusal and was recovered. Called by
- *  `bindings.ts`, the one place that maps a binding's declared type. */
 export function recordRecoveredBinding(sourceFile: ts.SourceFile, name: string): void {
   const found = RECOVERED_BINDINGS.get(sourceFile);
   if (found) found.add(name);
   else RECOVERED_BINDINGS.set(sourceFile, new Set([name]));
 }
 
-/** Whether `name`'s declared value type drew a refusal and was recovered: what the binding
- *  holds is then a placeholder the mapper made (`storage<mat2x3<f64>>` holds a struct called
- *  `mat2x3`), and a sentence about it would name a type the author never declared. */
 export function isRecoveredBinding(sourceFile: ts.SourceFile, name: string): boolean {
   return RECOVERED_BINDINGS.get(sourceFile)?.has(name) ?? false;
 }
 
-/** How many reads and writes of a recovered binding the lowering has dropped without a word.
- *  Only ever compared with itself, so it is never reset. */
 let recoveredUsesDropped = 0;
 
-/** Whether a read or a write of `binding` is dropped without a word, because its declared type
- *  was refused and a sentence about the placeholder would name a type the author never wrote
- *  (Rule 12.4); counts the drop. A body that dropped one did not lower, as a body whose own
- *  statement was refused did not, and {@link recoveredUsesDroppedSoFar} is how the function
- *  lowering tells: a function that says its return type in its body and never got to say it
- *  would otherwise return `void` to its callers, `cannot assign void to f32`. */
 export function dropsRecoveredUse(sourceFile: ts.SourceFile, binding: Binding): boolean {
   if (binding.kind !== 'binding' || !isRecoveredBinding(sourceFile, binding.name)) return false;
   recoveredUsesDropped++;
   return true;
 }
 
-/** The count {@link dropsRecoveredUse} keeps: a body lowered between two reads of it dropped a
- *  use when they differ. */
 export function recoveredUsesDroppedSoFar(): number {
   return recoveredUsesDropped;
 }
 
-/** The second sentence of a "cannot assign" refusal: the declaration that WOULD permit the
- *  write, or `''` where there is none. Design rule 6.2 puts a storage binding's access mode in
- *  its second type argument, so the remedy names the TYPE and never the declaration keyword.
- *  Empty for everything else on purpose: a uniform buffer is read-only in WGSL, a module const
- *  and an override are fixed before the shader runs, and naming a keyword for any of them was
- *  the stale advice this replaces.
- *
- *  It names the form the author WROTE, `declare const x: storage<T, "read_write">` or
- *  `const x = storage<T, "read_write">()`, because a remedy is a line to paste into the file
- *  it is about and the two forms do not substitute for each other.
- */
 export function writableRemedy(binding: Binding, sourceFile?: ts.SourceFile): string {
   if (binding.kind !== 'binding' || binding.space !== 'storage') return '';
-  // Nothing to say about a type the compiler could not read: see {@link RECOVERED_BINDINGS}.
   if (sourceFile && isRecoveredBinding(sourceFile, binding.name)) return '';
   const type = `storage<${authorTypeText(binding.type)}, \"read_write\">`;
   const args = sourceFile && CALL_FORM_BINDINGS.get(sourceFile)?.get(binding.name);
@@ -340,11 +201,7 @@ export function writableRemedy(binding: Binding, sourceFile?: ts.SourceFile): st
   return ` Write "${line}" to write to it.`;
 }
 
-/** The base constructor a `super(...)` runs, and the fields it decides (roadmap 0.3 item T5,
- *  #92). Declared here, where both the collector that fills it and the statement lowering that
- *  reads it can see it without either importing the other. */
 export interface SuperCtor {
-  /** The emitted name of the base's constructor function, `Base_new`. */
   readonly fn: string;
   readonly type: ShaderType;
   readonly fields: readonly StructField[];
@@ -356,65 +213,23 @@ export interface Binding {
   readonly type: ShaderType;
   readonly mutable: boolean;
   readonly constValue?: number | boolean;
-  /** For a constant of no fixed type (Rules 5.1 and 5.2, change 0134 item 2): its record, which
-   *  each read of the name is marked with (`abstract-const.ts`). */
   readonly abstract?: AbstractConst;
-  /** For a value whose type its uses decide (Rule 5.1, change 0134 item 1): its record, which
-   *  each read of the name is marked with (`use-inference.ts`). */
   readonly inferred?: InferredValue;
-  /** For a `let` with no annotation that was initialized from constants of no fixed type
-   *  (`let y = k`): those constants, which a `/` over the variable reaches (Amendment A2 of
-   *  change 0134). */
   readonly carries?: Carried;
-  /** Integer-only proof for bounds checks, derived from the emitted initializer. Unlike
-   * constValue, this never approximates an f32 subtree with the CPU's double precision. */
   readonly indexConstValue?: number;
-  /** The address space, for `kind: 'binding'` only. Carried because a diagnostic about a
-   *  runtime-sized array has to say something different for `storage` than for `uniform`:
-   *  `arrayLength(&x)` is spelled `ptr<storage, array<E>, AM>` and exists for nothing else,
-   *  so pointing a `uniform<array<f32>>` author at it sends them to an intrinsic Tint would
-   *  refuse on their program (#46). Absent for a local, a param or a module const. */
   readonly space?: AddressSpace | 'workgroup' | 'private';
-  /** For a `kind: 'local'` bound to a bare name, the name it copies: `const a = src` records
-   *  `aliasOf: 'src'`, so a question about what `a` denotes (is it a storage array, for
-   *  `arrayLength`) follows the chain to the binding instead of stopping at the local (#46). */
   readonly aliasOf?: string;
-  /** For a local `const` whose initializer built a value nothing else holds (Rule 6.10): makes
-   *  the declaration a `var` and the name writable through, the first time something writes
-   *  into what it holds. The name itself is never assigned again. */
   readonly toVar?: () => void;
-  /** For a `kind: 'module'` const whose value is not a scalar (a vector, an array), the
-   *  initializer as lowered, so a division inside a function body can be proven zero
-   *  componentwise the way a module const's own initializer is (#68). A scalar const carries
-   *  its value in `constValue` instead and has no need of this. */
   readonly valueExpr?: Expr;
-  /** The name the IR knows this binding by, when it is not the source name. The IR identifies
-   *  a local by name alone within a function, and TypeScript lets two lexically disjoint
-   *  blocks, or an inner block and the block around it, declare one name; `define` gives the
-   *  second and later declarations of a name in a function `p_1`, `p_2`, ... so no two
-   *  bindings share an IR name (#38). Absent for a first declaration, whose IR name is its
-   *  source name. */
   readonly irName?: string;
-  /** For the parameter a local function takes for a variable it captures (Rule 8.17): `of`,
-   *  the binding the variable has where it is declared, whose rules a write through this one
-   *  keeps (a `let` is written, a `const` only through what it holds, a parameter never), and
-   *  `byRef`, which makes the parameter a reference to the variable, the way a closure writes
-   *  the variable itself, the first time something writes it. */
   readonly capture?: { readonly of: Binding; readonly byRef: () => void };
   readonly reference?: boolean;
 }
 
-/** The binding whose rules a write to `b` keeps: the variable's own, for a local function's
- *  parameter that captures it (Rule 8.17), and `b` itself otherwise. */
 export const writeRules = (b: Binding): Binding => b.capture?.of ?? b;
 
-/** The name an IR node for `b` carries: its {@link Binding.irName} when the source name was
- *  already taken in the function, its source name otherwise. Every site that builds a
- *  `varref` or `param` from a binding spells the name through this. */
 export const irNameOf = (b: Binding): string => b.irName ?? b.name;
 
-/** A copy of an IR node, sharing only what is shared by identity: a type, a span, and the
- *  declaration a call refers to. */
 export function cloneIr<T>(value: T): T {
   if (Array.isArray(value)) return value.map((v) => cloneIr(v)) as T;
   if (value === null || typeof value !== 'object') return value;
@@ -427,9 +242,6 @@ export function cloneIr<T>(value: T): T {
 
 export class LoweringScope {
   private readonly frames: Map<string, Binding>[] = [new Map()];
-  /** Every IR name a `define` in this scope has handed out, module-level names included: a
-   *  local that shadows a resource binding would otherwise be `varref dst` beside the
-   *  binding's own `varref dst`, one name to every pass. */
   private readonly takenIr = new Set<string>();
   private readonly byIr = new Map<string, Binding>();
   private ownerDecl: FuncDecl | undefined;
@@ -447,15 +259,9 @@ export class LoweringScope {
   private readonly refusedDecls: Set<string>;
   private readonly structs = new Map<string, StructDecl>();
   private classStructs: readonly CollectedStruct[] = [];
-  /** The names the file declares as an `enum` (roadmap 0.3 item T1, #92). Its members are
-   *  module constants named `Enum_Member`, so the only thing the lowering needs the name for
-   *  is telling a mistyped member from an unknown identifier. */
   private readonly enums = new Set<string>();
-  /** The names the file declares as a `namespace` (roadmap 0.3 item T4, #92). */
   private readonly namespaces = new Set<string>();
   private namespacePrefix: string | undefined;
-  /** The class whose static member's body is being lowered, which is what `this` names there
-   *  (Rule 8.13); undefined everywhere else. */
   private staticOwner: string | undefined;
   private constantF32Conversions = false;
   private privates: PrivateFieldTable = new Map();
@@ -479,19 +285,10 @@ export class LoweringScope {
     this.refusedDecls = this.fns.refused;
   }
 
-  /** Whether this file declares `name` as a function and the declaration was refused, so its
-   *  body was never lowered and no callee exists (roadmap 0.3 item T10, #92). A call to it
-   *  would otherwise say "Unknown function", which is untrue: the function is right there,
-   *  and why it names no callee was already said on its own declaration. */
-  /** Whether this file declares `name` as a generic function, which is what tells the call
-   *  lowering to read type arguments before it looks for a callee (roadmap 0.3 item T9, #92).
-   *  A name may be reached through a namespace, the same spellings `resolveCallee` tries. */
   isGenericFunction(name: string): boolean {
     return this.genericName(name) !== undefined;
   }
 
-  /** Whether the FILE declares a generic function `name`, at module scope or in the namespace
-   *  being lowered: {@link resolveFileCallee}'s question for a generic function. */
   isFileGenericFunction(name: string): boolean {
     if (this.fns.generics.has(name)) return true;
     for (const qualified of this.qualifiedNames(name)) {
@@ -500,11 +297,6 @@ export class LoweringScope {
     return false;
   }
 
-  /** Make, or find, the instance of the generic function `name` this call needs. The hook is
-   *  set by `lowerSourceFunctions`, which owns the declarations; it is called from the call
-   *  lowering, which is where an instantiation is discovered. That indirection is what lets the
-   *  two talk without `expression-call.ts` importing `function.ts`. Returns undefined when the
-   *  instantiation was refused, having said why. */
   instantiateGeneric(
     name: string,
     node: ts.CallExpression,
@@ -517,8 +309,6 @@ export class LoweringScope {
     return this.fns.instantiate?.(written, node, argTypes, sourceFile, diagnostics, this);
   }
 
-  /** The copy of the class's function `cf`, which takes a function, for the functions the call
-   *  `node` on `on` hands it (Rule 8.18); undefined, having said why, when it cannot be made. */
   instantiateMember(
     cf: ClassFunction,
     node: ts.CallExpression | ts.NewExpression,
@@ -529,15 +319,11 @@ export class LoweringScope {
     return this.fns.instantiateMember?.(cf, node, on, sourceFile, diagnostics, this);
   }
 
-  /** Which parameters of the function `name` take a function (Rule 8.18), or undefined when
-   *  none does: those arguments are resolved as functions rather than lowered as values. */
   functionParamsOf(name: string): ReadonlySet<number> | undefined {
     const written = this.genericName(name);
     return written === undefined ? undefined : this.fns.fnParams.get(written);
   }
 
-  /** The function an arrow function or a function expression written as an argument stands
-   *  for (Rule 8.18), lifted out of this body; undefined, having said why, when it cannot be. */
   liftArgument(
     node: ts.ArrowFunction | ts.FunctionExpression,
     shape: FunctionShape,
@@ -548,8 +334,6 @@ export class LoweringScope {
     return this.fns.lift?.(node, shape, hint, this, sourceFile, diagnostics);
   }
 
-  /** The function the front end builds for `key` (an array's method, surface §63), made the
-   *  first time a call asks for it; undefined outside the lowering of a file's functions. */
   buildFunction(
     key: string,
     base: string,
@@ -560,9 +344,6 @@ export class LoweringScope {
     return this.fns.build?.(key, base, shown, captures, build);
   }
 
-  /** Whether the call of `decl` at `at` can be lowered now: a function whose body says its
-   *  return type has that body lowered first (Rule 8.19). False, having said why or leaving it
-   *  to the recursion check, for a call back into a body still being lowered. */
   calleeReady(
     decl: FuncDecl,
     at: ts.Node,
@@ -573,7 +354,6 @@ export class LoweringScope {
   }
 
   private genericName(name: string): string | undefined {
-    // A local function that takes a function, named by the body that declares it (Rule 8.18).
     const local = this.localFns?.get(name);
     if (local !== undefined && this.fns.generics.has(local)) return local;
     if (this.fns.generics.has(name)) return name;
@@ -587,10 +367,6 @@ export class LoweringScope {
     if (this.refusedDecls.has(name)) return true;
     const local = this.localFns?.get(name);
     if (local !== undefined && this.refusedDecls.has(local)) return true;
-    // A local function refused before it was registered has no entry above, and its emitted
-    // name is the owner's and its own: `scale` inside `fs` is `fs_scale`. Read through the
-    // owner rather than by the written name alone, so a call to an unknown `scale` in another
-    // body still says so.
     const owner = this.ownerDecl?.name;
     if (owner !== undefined && this.refusedDecls.has(`${owner}_${name}`)) return true;
     for (const qualified of this.qualifiedNames(name)) {
@@ -599,10 +375,6 @@ export class LoweringScope {
     return false;
   }
 
-  /** Record one declaration this scope just defined into the caller's symbol table, spanning
-   *  `nameNode` (see `symbols.ts`). A no-op when the caller asked for no symbols. Deliberately
-   *  separate from `define`: a function's scope also defines the module consts and the bindings
-   *  it can see, and those are recorded once where they are collected, not once per function. */
   recordDeclaration(
     sourceFile: ts.SourceFile,
     nameNode: ts.Node,
@@ -619,8 +391,6 @@ export class LoweringScope {
     this.loopDepth = Math.max(0, this.loopDepth - 1);
   }
 
-  /** The stage of the entry whose body is being lowered, `undefined` for a helper function
-   *  and outside a body. Workgroup memory is a compute entry's alone (§24). */
   setStage(s: 'vertex' | 'fragment' | 'compute' | undefined): void {
     this.stage = s;
   }
@@ -629,8 +399,6 @@ export class LoweringScope {
     return this.stage;
   }
 
-  /** Raised while an atomic builtin's location argument is lowered: the one position in which
-   *  an expression of atomic type may stand (lower/atomics.ts, rule 2). */
   enterAtomicOperand(): void {
     this.atomicOperandDepth++;
   }
@@ -647,11 +415,6 @@ export class LoweringScope {
     return this.loopDepth > 0;
   }
 
-  // ─── A result inferred as `T | undefined` (Rule 8.19, change 0088) ───
-  //
-  // A function that writes no result type, with `return undefined;` beside `return v;`, returns
-  // `T | undefined`. A `return undefined;` lowered before the first `return` with a value has
-  // no `T` yet: it is emitted with a placeholder the first valued `return` fills in.
   private returnsAbsenceMask = 0;
   private readonly absentReturns: { stmt: { expr?: Expr }; absence: 1 | 2 }[] = [];
 
@@ -663,35 +426,24 @@ export class LoweringScope {
     return this.returnsAbsenceMask;
   }
 
-  /** A `return undefined;` lowered before the result type is known; filled by {@link fillAbsentReturns}. */
   deferAbsentReturn(stmt: { expr?: Expr }, absence: 1 | 2): void {
     this.absentReturns.push({ stmt, absence });
   }
 
-  /** Give each deferred `return undefined;` the absent value `make` builds, now that the result
-   *  type is known. */
   fillAbsentReturns(make: (absence: 1 | 2) => Expr): void {
     for (const r of this.absentReturns) r.stmt.expr = make(r.absence);
     this.absentReturns.length = 0;
   }
 
-  /** The deferred `return undefined;` statements no valued `return` filled. */
   pendingAbsentReturns(): number {
     return this.absentReturns.length;
   }
 
-  /** Make each deferred `return undefined;` a bare `return`, once its refusal is reported, so
-   *  the body says nothing more about them (Rule 12.4). */
   dropAbsentReturns(): void {
     for (const r of this.absentReturns) delete r.stmt.expr;
     this.absentReturns.length = 0;
   }
 
-  /** The declared return type of the function whose body is being lowered, so a `return` can
-   *  be checked and typed against it: `return 0` takes it (#8 A3) and `return { … }` takes the
-   *  struct it names (#8 A11). Undefined outside a function body — at module-constant
-   *  collection, for instance — and, in a function that writes no return type, until its first
-   *  `return` with a value says it (Rule 8.19, {@link setInferredReturn}). */
   setReturnType(t: ShaderType | undefined): void {
     this.retType = t;
   }
@@ -700,9 +452,6 @@ export class LoweringScope {
     return this.retType;
   }
 
-  /** For a function that writes no return type (Rule 8.19), the stub whose return type its
-   *  first `return` with a value says: the later ones are then typed against it, as against a
-   *  written one. The return type stays undefined until that `return`. */
   setInferredReturn(stub: FuncDecl | undefined): void {
     this.inferInto = stub;
     if (stub !== undefined) this.retType = undefined;
@@ -720,9 +469,6 @@ export class LoweringScope {
     this.switchDepth = Math.max(0, this.switchDepth - 1);
   }
 
-  /** Whether a `break` here would leave a `switch`. Tracked apart from {@link inLoop}
-   *  because `continue` is a loop statement only: a `switch` that is not inside a loop
-   *  takes the one and refuses the other. */
   inSwitch(): boolean {
     return this.switchDepth > 0;
   }
@@ -749,9 +495,6 @@ export class LoweringScope {
     for (const n of names) this.namespaces.add(n);
   }
 
-  /** Whether `name` is a `namespace` the file declares (roadmap 0.3 item T4, #92). Its members
-   *  are flattened to `Ns_member`, so this is what tells `Palette.warm()` from a call on a
-   *  value. */
   isNamespace(name: string): boolean {
     return this.namespaces.has(name);
   }
@@ -760,65 +503,48 @@ export class LoweringScope {
     return this.structByName(structName)?.fields.find((f) => f.name === field)?.type;
   }
 
-  /** Which fields of each struct are private (Rule 8.12). */
   setPrivateFields(table: PrivateFieldTable): void {
     this.privates = table;
   }
 
-  /** The private field `field` of `structName` is, by the member it is emitted as, or undefined
-   *  for a field every body may name. */
   privateField(structName: string, field: string): PrivateField | undefined {
     return this.privates.get(structName)?.get(field);
   }
 
-  /** Whether `structName` has a field only its class may name, which an object literal cannot
-   *  write and a spread does not copy (Rule 8.12). */
   hasPrivateFields(structName: string): boolean {
     return (this.privates.get(structName)?.size ?? 0) > 0;
   }
 
-  /** The members each class declared that its struct does not carry (Rule 12.4). */
   setWithheldFields(table: WithheldTable): void {
     this.withheldMembers = table;
   }
 
-  /** Whether `field` is a member `structName`'s class declared and was refused, whose every
-   *  read is already explained. */
   isWithheld(structName: string, field: string): boolean {
     return this.withheldMembers.get(structName)?.has(field) ?? false;
   }
 
-  /** The `readonly` fields of each struct (Rule 8.14). */
   setReadonlyFields(table: ReadonlyFieldTable): void {
     this.readonlyMembers = table;
   }
 
-  /** The class whose constructor alone may assign `field` of `structName`, when it is
-   *  `readonly`; undefined for a field any body may assign. */
   readonlyField(structName: string, field: string): ts.ClassLikeDeclaration | undefined {
     return this.readonlyMembers.get(structName)?.get(field);
   }
 
-  /** The `private` and `protected` fields of each struct (Rule 8.15). */
   setRestrictedFields(table: RestrictedFieldTable): void {
     this.restrictedMembers = table;
   }
 
-  /** How `field` of `structName` is restricted, when it is declared `private` or `protected`. */
   restrictedField(structName: string, field: string): RestrictedField | undefined {
     return this.restrictedMembers.get(structName)?.get(field);
   }
 
-  /** Whether `structName` has a field only its class, or its class and the ones that extend
-   *  it, may name: `#x`, `private`, `protected`. An object literal cannot build one. */
   hasHiddenFields(structName: string): boolean {
     return (
       this.hasPrivateFields(structName) || (this.restrictedMembers.get(structName)?.size ?? 0) > 0
     );
   }
 
-  /** The first field of `structName` an object literal cannot set, with how it is hidden:
-   *  a `#` name, or a `private` or `protected` one. */
   hiddenFieldOf(
     structName: string,
   ): { readonly written: string; readonly access: 'private' | 'protected' } | undefined {
@@ -831,7 +557,6 @@ export class LoweringScope {
     return undefined;
   }
 
-  /** The class whose static member's body is being lowered: `this.K` there is `Cls.K`. */
   setStaticClass(name: string | undefined): void {
     this.staticOwner = name;
   }
@@ -840,8 +565,6 @@ export class LoweringScope {
     return this.staticOwner;
   }
 
-  /** Preserve written f32 conversions while lowering one f64 module initializer (0123).
-   *  Other declarations and function bodies retain their ordinary literal folding. */
   withF64ConstPrecision<T>(lower: () => T): T {
     const previous = this.constantF32Conversions;
     this.constantF32Conversions = true;
@@ -856,17 +579,10 @@ export class LoweringScope {
     return this.constantF32Conversions;
   }
 
-  /** The collected struct with this name, or undefined. The lookup a CONTEXTUAL type needs:
-   *  a declared `vec4`-shaped `VsOut` names its struct outright, where {@link matchStruct} can
-   *  only guess from the field names and cannot answer at all when two structs share a shape
-   *  (#8 A11). */
   structByName(name: string): StructDecl | undefined {
-    // An optional's struct is the compiler's own, declared by no file and in scope wherever an
-    // optional is (change 0088).
     return this.structs.get(name) ?? optionalDeclOf(name);
   }
 
-  /** Class origins used to prove a read-only derived-to-base conversion (Rule 8.9). */
   setClassStructs(structs: readonly CollectedStruct[]): void {
     this.classStructs = structs;
   }
@@ -875,25 +591,14 @@ export class LoweringScope {
     return this.classStructs;
   }
 
-  /** Includes generated and inherited class functions, without requiring their bodies yet. */
   allCallees(): readonly FuncDecl[] {
     return [...this.callees.values()];
   }
 
-  /** The structs a binding, a module variable or workgroup memory holds, by name: a resource
-   *  struct is never an entry's result by inference (Rule 8.19, change 0136). */
   setResourceStructs(names: ReadonlySet<string>): void {
     this.resourceStructs = names;
   }
 
-  /**
-   * The structs an object literal an entry returns may build when the entry writes no return
-   * type (Rule 8.19, surface §16, change 0136): every struct the program declares whose fields
-   * are the literal's names, except a resource struct and a struct with a private field. The
-   * collector adds the declared structs whose fields an entry's literal names, so one used
-   * nowhere else is here too (`structs.ts`). Unlike {@link matchStruct}, which reads the
-   * structs the program uses, this lists every match, and a caller takes exactly one.
-   */
   entryResultMatches(fieldNames: readonly string[]): StructDecl[] {
     const set = new Set(fieldNames);
     const out: StructDecl[] = [];
@@ -911,8 +616,6 @@ export class LoweringScope {
     const set = new Set(fieldNames);
     let hit: StructDecl | undefined;
     for (const s of this.structs.values()) {
-      // A struct with a private field is never the one a bare literal means: its literal would
-      // have to name the `#` field, which no literal can (Rule 8.12).
       if (this.hasHiddenFields(s.name)) continue;
       if (s.fields.length !== set.size) continue;
       if (!s.fields.every((f) => set.has(f.name))) continue;
@@ -922,8 +625,6 @@ export class LoweringScope {
     return hit;
   }
 
-  /** What `super(...)` calls in the constructor body being lowered (roadmap 0.3 item T5, #92),
-   *  or undefined anywhere else, where a `super` is refused. */
   setSuperCtor(info: SuperCtor | undefined): void {
     this.superCtorInfo = info;
   }
@@ -932,15 +633,11 @@ export class LoweringScope {
     return this.superCtorInfo;
   }
 
-  /** What the constructor being lowered runs right after its `super(...)` returns, lowered
-   *  before its body (Rule 8.14); undefined in any other body. */
   setAfterSuper(stmts: readonly Stmt[] | undefined): void {
     this.afterSuperStmts = stmts;
     this.afterSuperTaken = false;
   }
 
-  /** The statements one `super(...)` is followed by: those lowered, and a copy of them for a
-   *  second `super(...)` on another path, so no two places in the IR share a node. */
   takeAfterSuper(): Stmt[] {
     const stmts = this.afterSuperStmts ?? [];
     const out = this.afterSuperTaken ? stmts.map((st) => cloneIr(st)) : [...stmts];
@@ -948,21 +645,14 @@ export class LoweringScope {
     return out;
   }
 
-  /** Whether the statements of {@link setAfterSuper} are still to be placed: a body with no
-   *  `super(...)` that lowered puts them first. */
   afterSuperPending(): boolean {
     return !this.afterSuperTaken && (this.afterSuperStmts?.length ?? 0) > 0;
   }
 
-  /** Which structs extend which (roadmap 0.3 item T5, #92), so a type mismatch between two
-   *  that are related can explain a base view that was not proved read-only and equivalent. */
   setBases(bases: ReadonlyMap<string, readonly string[]>): void {
     this.baseNames = bases;
   }
 
-  /** The classes declared `abstract`, which are bases and never values. The semantic pass
-   *  already refuses a `new` on one, with the reason; this is what keeps the lowering from
-   *  saying it a second time in weaker words. */
   setAbstractStructs(names: ReadonlySet<string>): void {
     this.abstractNames = names;
   }
@@ -971,8 +661,6 @@ export class LoweringScope {
     return this.abstractNames.has(name);
   }
 
-  /** The chain above `name`, nearest first: what a static a base declares is reached through
-   *  (Rule 8.13). */
   ancestorsOf(name: string): string[] {
     const out: string[] = [];
     const seen = new Set<string>([name]);
@@ -987,18 +675,14 @@ export class LoweringScope {
     return out;
   }
 
-  /** For a generic class's instance, the name its statics are emitted under (T9, #92). */
   setStaticHolders(holders: ReadonlyMap<string, string>): void {
     this.staticHolders = holders;
   }
 
-  /** The name the statics of `name` are emitted under: a generic class's own for one of its
-   *  instances, `Pair` for `Pair_f32`, and `name` itself for every other class. */
   staticHolderOf(name: string): string {
     return this.staticHolders.get(name) ?? name;
   }
 
-  /** True when `derived` extends `base`, at any depth. */
   extendsStruct(derived: string, base: string): boolean {
     const seen = new Set<string>();
     const queue = [...(this.baseNames.get(derived) ?? [])];
@@ -1012,8 +696,6 @@ export class LoweringScope {
     return false;
   }
 
-  /** The sentence a mismatch between two related structs adds, or '' when they are not
-   *  related. `want` is the type the place has, `got` the type of the value. */
   inheritanceNote(want: ShaderType, got: ShaderType): string {
     if (want.kind !== 'struct' || got.kind !== 'struct') return '';
     const [w, g] = [authorTypeText(want), authorTypeText(got)];
@@ -1030,9 +712,6 @@ export class LoweringScope {
     return '';
   }
 
-  /** `super.m(...)` in the body being lowered, to the function that carries the base's body
-   *  (roadmap 0.3 item T5, #92). The collector decides it, because which base declares the
-   *  method depends on the class that WROTE the body, not on the one it is lowered for. */
   setSuperMethods(map: ReadonlyMap<string, string> | undefined): void {
     this.superMethodMap = map;
   }
@@ -1041,10 +720,6 @@ export class LoweringScope {
     return this.superMethodMap;
   }
 
-  /** The function whose BODY is being lowered, or undefined while a signature's default is
-   *  (roadmap 0.3 item T7, #92). A default filled into a call is spliced into the body that
-   *  wrote the call, so the calls it carries are that body's for the recursion check; a call
-   *  inside a default being lowered belongs to no body yet. */
   setOwner(decl: FuncDecl | undefined): void {
     this.ownerDecl = decl;
   }
@@ -1053,8 +728,6 @@ export class LoweringScope {
     return this.ownerDecl;
   }
 
-  /** Whether this scope lowers the file's module constants (`collectModuleConsts`), each of
-   *  which is folded to its number before a target reads it (§12), rather than a body. */
   private moduleConstants = false;
 
   markModuleConstants(): void {
@@ -1065,8 +738,6 @@ export class LoweringScope {
     return this.moduleConstants;
   }
 
-  /** The declaration whose body this scope lowers, when it is written in the source: what a
-   *  call of a parameter of function type is checked against (Rule 8.18, change 0088). */
   setOwnerNode(node: ts.SignatureDeclaration | undefined): void {
     this.ownerNodeDecl = node;
   }
@@ -1075,21 +746,9 @@ export class LoweringScope {
     return this.ownerNodeDecl;
   }
 
-  // ─── Statements an expression hoists ahead of the statement it is in (change 0088) ───
-  //
-  // `f(x) ?? d` reads the value `f(x)` gives twice, its flag and its value, and `o?.f` reads
-  // `o` twice. A call runs once, so the lowering binds it to a temporary ahead of the statement
-  // the expression is in. The temporaries are collected here and `lowerStatement` emits them
-  // before the statement it lowered; a loop's condition, which runs on every trip, may not
-  // hoist one, and an initializer lowered outside any statement (a module constant, a parameter
-  // default) has no statement to hoist ahead of.
-
-  /** Whether an expression lowered now may hoist a statement: inside a statement, and not in
-   *  a loop's condition. */
   private hoistable = false;
   private readonly hoisted: Stmt[] = [];
 
-  /** Run `f` with hoisting `allowed`, and restore what was in force before. */
   withHoisting<R>(allowed: boolean, f: () => R): R {
     const saved = this.hoistable;
     this.hoistable = allowed;
@@ -1104,8 +763,6 @@ export class LoweringScope {
     return this.hoistable;
   }
 
-  /** Bind `init` to a fresh temporary of its type ahead of the statement being lowered, and
-   *  return a read of it. Only where {@link canHoist} says so. */
   hoistTemp(prefix: string, init: Expr): Expr {
     const name = this.defineTemp(prefix, init.type);
     this.hoisted.push({ s: 'let', name, expr: init });
@@ -1118,8 +775,6 @@ export class LoweringScope {
     return { op: 'varref', type: init.type, name };
   }
 
-  /** Keep expression temporaries inside the branch that evaluates them. With no setup,
-   * retain the ordinary select so existing programs keep their emitted representation. */
   selectWithSetup(
     cond: Expr,
     ifTrue: Expr,
@@ -1142,19 +797,14 @@ export class LoweringScope {
     return target;
   }
 
-  /** How many statements are hoisted so far: the mark a statement takes before lowering, so it
-   *  emits exactly the ones its own expressions hoisted. */
   hoistMark(): number {
     return this.hoisted.length;
   }
 
-  /** The statements hoisted since `mark`, removed from the list. */
   takeHoisted(mark: number): Stmt[] {
     return this.hoisted.splice(mark);
   }
 
-  /** Record the binding `node` made in this function's body, a `let`, a `const` or a
-   *  parameter, for a local function that captures it (Rule 8.17). */
   bindDeclaration(node: CaptureKey, binding: Binding): void {
     if (this.ownerDecl === undefined) return;
     const file = fileFunctionsOf(this.callees);
@@ -1166,14 +816,11 @@ export class LoweringScope {
     mine.set(node, binding);
   }
 
-  /** The binding `node` made in this function, or undefined when nothing lowered so far made
-   *  one here: a variable read before its declaration, which TypeScript throws on (Rule 8.17). */
   bindingOfDeclaration(node: CaptureKey): Binding | undefined {
     if (this.ownerDecl === undefined) return undefined;
     return fileFunctionsOf(this.callees).declared.get(this.ownerDecl)?.get(node);
   }
 
-  /** The variables the local function `fn` captures, which a call to it passes first. */
   capturesOf(fn: string): readonly CaptureKey[] {
     return fileFunctionsOf(this.callees).captures.get(fn) ?? [];
   }
@@ -1182,8 +829,6 @@ export class LoweringScope {
     this.callees.set(fn.name, fn);
   }
 
-  /** A local function declared in the body being lowered, from the name it is written under to
-   *  the name the module emits it as (roadmap 0.3 item T7, #92): `f` inside `fs` is `fs_f`. */
   setLocalFunctions(map: ReadonlyMap<string, string> | undefined): void {
     this.localFns = map;
   }
@@ -1192,10 +837,6 @@ export class LoweringScope {
     return this.localFns;
   }
 
-  /** The function the FILE declares or imports under `name`: at module scope, or as a member of
-   *  the namespace being lowered. Never a local function of the body, which `resolveCallee` finds
-   *  first: `localFns` holds every local function of the body whatever block declares it, and a
-   *  call outside that block is not the local function's (Rule 9.5, change 0029). */
   resolveFileCallee(name: string): FuncDecl | undefined {
     const direct = this.callees.get(name);
     if (direct !== undefined) return direct;
@@ -1221,10 +862,6 @@ export class LoweringScope {
     return undefined;
   }
 
-  /** The name being lowered inside `namespace A { namespace B { ... } }` is `A_B`, and a name
-   *  written inside that body may be a member of `A_B`, of `A`, or of the file (roadmap 0.3
-   *  item T4, #92). This yields the qualified spellings to try, innermost first, which is
-   *  TypeScript's own lookup rule for a namespace body. */
   private *qualifiedNames(name: string): Generator<string> {
     let prefix = this.namespacePrefix;
     while (prefix !== undefined && prefix !== '') {
@@ -1234,8 +871,6 @@ export class LoweringScope {
     }
   }
 
-  /** The namespace whose body is being lowered, flattened (`A_B`), or undefined at the top
-   *  level of the file. */
   setNamespacePrefix(prefix: string | undefined): void {
     this.namespacePrefix = prefix;
   }
@@ -1244,8 +879,6 @@ export class LoweringScope {
     return this.namespacePrefix;
   }
 
-  /** The struct a written name means: itself when the file declares it, else the first
-   *  namespace-qualified spelling that it does, so `P` inside `namespace N` is `N_P` (#107). */
   qualifiedStruct(name: string): string | undefined {
     if (this.structByName(name) !== undefined) return name;
     for (const qualified of this.qualifiedNames(name)) {
@@ -1254,8 +887,6 @@ export class LoweringScope {
     return undefined;
   }
 
-  /** `name` itself when the file declares it as a namespace, else the first
-   *  namespace-qualified spelling that it does: inside `namespace A`, `B` is `A_B`. */
   qualifiedNamespace(name: string): string | undefined {
     if (this.namespaces.has(name)) return name;
     for (const qualified of this.qualifiedNames(name)) {
@@ -1268,20 +899,11 @@ export class LoweringScope {
     return this.callees;
   }
 
-  /** Bind `binding.name` in the current frame and return the binding as stored, which carries
-   *  an {@link Binding.irName} when the name was already taken anywhere in this function.
-   *  Throws on a repeat within the current frame, TypeScript's own rule; the callers that can
-   *  reach that turn it into a TS8023 on the declaration. */
   define(binding: Binding, reserveModuleNames = false, fixedInputName = false): Binding {
     const top = this.frames[this.frames.length - 1]!;
     if (top.has(binding.name)) {
       throw new Error(`Duplicate binding "${binding.name}" in current scope frame`);
     }
-    // A binding may ask for an IR name other than its own: `this` reads as `self_` in the
-    // emitted function, since `this` and `self` are reserved words in WGSL (#86).
-    // A parameter's input name is fixed by its function signature. It may shadow a module
-    // value: param nodes distinguish it from that value's varref/constref. Locals still need
-    // fresh names, including mutable parameter copies and locals that shadow resources.
     const ir =
       binding.kind === 'param' || fixedInputName
         ? (binding.irName ?? binding.name)
@@ -1296,46 +918,28 @@ export class LoweringScope {
     return stored;
   }
 
-  /** What each IR name this scope declared was written as in the source: `i_1` for the second
-   *  `i`, `_i` for a `for…of`'s counter. A refusal that the IR proves names the author's. */
   sourceNames(): Map<string, string> {
     return new Map([...this.byIr].map(([ir, b]) => [ir, b.name]));
   }
 
-  /** Bind `name` in the current frame to an existing binding, so the name resolves to it and
-   *  emits its IR name: `const a = src` for a storage array with no size, which no local can
-   *  hold (Rule 12.6). Throws on a name the frame already binds, as {@link define} does. */
   defineAlias(name: string, target: Binding): void {
     const top = this.frames[this.frames.length - 1]!;
     if (top.has(name)) throw new Error(`Duplicate binding "${name}" in current scope frame`);
     top.set(name, target);
   }
 
-  /** An internal local the lowering needs and the source never named: the value a
-   *  destructuring declaration reads from, lowered once (roadmap 0.3 item T7, #92). It takes an
-   *  IR name no other local can take and binds no source name, so two of them in one block do
-   *  not collide with each other and neither collides with a name the program declares. Nor is
-   *  it the name of a function or a struct of the module: a loop's counter named `_w` hid the
-   *  author's `function _w` from the loop's body, and Tint refused the call to it. Returns the
-   *  IR name to write into the statement. */
   defineTemp(prefix: string, type: ShaderType, mutable = false): string {
     const ir = this.allocIrName(prefix, (n) => this.namesModuleDecl(n));
     this.byIr.set(ir, { kind: 'local', name: ir, type, mutable });
     return ir;
   }
 
-  /** Whether the module emits a function or a struct as `name`. The module's constants,
-   *  bindings, overrides and variables are in {@link takenIr} already, defined in each
-   *  function's scope; these are not, since a source name reaches them by a call or a type. */
   private namesModuleDecl(name: string): boolean {
     if (this.structs.has(name) || this.callees.has(name)) return true;
     for (const fn of this.callees.values()) if (fn.name === name) return true;
     return false;
   }
 
-  /** What an expression node stands for once a chain has run the calls before it (Rule 8.10):
-   *  `v.setX(1.)` in `v.setX(1.).setY(2.)` is `v` itself, the call having run as a statement of
-   *  its own. Each read of it builds its lowering anew, so no IR node is shared. */
   setChainAlias(node: ts.Node, make: () => Expr): void {
     this.chainAliases.set(node, make);
   }
@@ -1344,8 +948,6 @@ export class LoweringScope {
     return this.chainAliases.get(node);
   }
 
-  /** `name`, or the first of `name_1`, `name_2`, ... that no `define` has handed out and
-   *  `reserved` does not hold, marked taken. */
   private allocIrName(name: string, reserved: (n: string) => boolean = () => false): string {
     const free = (n: string): boolean => !this.takenIr.has(n) && !reserved(n);
     if (free(name)) {
@@ -1366,9 +968,6 @@ export class LoweringScope {
       const hit = this.frames[i]!.get(name);
       if (hit) return hit;
     }
-    // Inside a namespace body a bare name may be one of its members, which the module holds
-    // under the flattened name (roadmap 0.3 item T4, #92). Tried after the frames, so a local
-    // and a parameter still win, which is TypeScript's order too.
     for (const qualified of this.qualifiedNames(name)) {
       for (let i = this.frames.length - 1; i >= 0; i--) {
         const hit = this.frames[i]!.get(qualified);
@@ -1378,8 +977,6 @@ export class LoweringScope {
     return undefined;
   }
 
-  /** {@link resolve} over the module's values alone: the consts, bindings, overrides and variables
-   *  that `functionScope` defines before the frame of the parameters and the locals. */
   resolveModuleValue(name: string): Binding | undefined {
     const module = this.frames[0]!;
     const direct = module.get(name);
@@ -1391,10 +988,6 @@ export class LoweringScope {
     return undefined;
   }
 
-  /** The binding an already-lowered IR node names. {@link resolve} answers for a SOURCE name
-   *  at the point of lowering; a reader holding a `varref` has the IR name, which after a
-   *  rename is no source name at all, or the source name of a different local. The map is
-   *  function-wide and never popped, because an IR name is unique in the function. */
   resolveIr(name: string): Binding | undefined {
     return this.byIr.get(name);
   }
