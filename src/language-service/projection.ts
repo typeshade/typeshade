@@ -1,3 +1,5 @@
+// Implements: Rule 12.7
+
 import ts from 'typescript';
 import type { ShaderType } from '../core/ir/types.js';
 import { compileTsSource } from '../compiler/ts/source-file.js';

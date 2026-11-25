@@ -34,89 +34,24 @@ import {
 import { getSignatureHelp } from './signature.js';
 import { getSemanticTokens } from './semantic-tokens.js';
 import { offsetAt, positionAt } from './positions.js';
-import { mapToOriginal, type ProjectionLookup } from './projection.js';
+import type { TypeshadeDiagnostic, TypeshadePosition } from './types.js';
 import type {
-  TypeshadeCompiledOutput,
-  TypeshadeCompletionItem,
-  TypeshadeDiagnostic,
-  TypeshadeDocumentSymbol,
-  TypeshadeHover,
-  TypeshadeLocation,
-  TypeshadePosition,
-  TypeshadeRange,
-  TypeshadeSemanticToken,
-  TypeshadeSignatureHelp,
-  TypeshadeTextEdit,
-} from './types.js';
+  TypeshadeLanguageService,
+  AnalyzeSourceFile,
+  TypeshadeLanguageServiceTestOptions,
+} from './service/types.js';
+import { projected } from './service/projected.js';
+import { readers } from './service/import-hooks.js';
+import { byDocumentOrder } from './service/document-order.js';
+export { importHooksOf } from './service/import-hooks.js';
+export type {
+  TypeshadeLanguageService,
+  AnalyzeSourceFile,
+  TypeshadeLanguageServiceTestOptions,
+} from './service/types.js';
 
 export type { TypeshadeLanguageServiceHost } from './host.js';
 export { AMBIENT_LIB_URI } from './host.js';
-
-/**
- * The full editor-neutral, document-based Typeshade language service surface (design doc §4).
- * One instance owns one `ts.LanguageService` over its own document store; adapters (Monaco,
- * LSP) send text and positions and read back data — nothing here is asynchronous, and
- * cancellation of a stale request is the adapter's own concern (§8).
- */
-export interface TypeshadeLanguageService {
-  /** Opens a document, or replaces it if already open. */
-  openDocument(uri: string, text: string, version?: number): void;
-  /** Updates an open document's text. */
-  updateDocument(uri: string, text: string, version?: number): void;
-  /** Closes a document; it is dropped from the underlying TypeScript program. */
-  closeDocument(uri: string): void;
-
-  /** TypeScript and TypeShade diagnostics for `uri`, merged (§5, §6) and in document order: by
-   *  span start, then span length, then source. Empty when `uri` is not open. */
-  getDiagnostics(uri: string): readonly TypeshadeDiagnostic[];
-  /** Completion items at `position` in `uri` (§5). */
-  getCompletions(uri: string, position: TypeshadePosition): readonly TypeshadeCompletionItem[];
-  /** Hover documentation at `position` in `uri`, or `undefined` when there is none (§5). */
-  getHover(uri: string, position: TypeshadePosition): TypeshadeHover | undefined;
-
-  /** Every location `position` in `uri` is defined at. */
-  getDefinition(uri: string, position: TypeshadePosition): readonly TypeshadeLocation[];
-  /** Every reference to the symbol at `position` in `uri`. */
-  getReferences(
-    uri: string,
-    position: TypeshadePosition,
-    options?: { includeDeclaration?: boolean },
-  ): readonly TypeshadeLocation[];
-  /** The outline of `uri`: its structs, entries, functions, resources and constants. */
-  getDocumentSymbols(uri: string): readonly TypeshadeDocumentSymbol[];
-  /** Signature help for the call expression at `position` in `uri`. */
-  getSignatureHelp(uri: string, position: TypeshadePosition): TypeshadeSignatureHelp | undefined;
-  /** Whether the symbol at `position` in `uri` can be renamed, and its current display range. */
-  prepareRename(
-    uri: string,
-    position: TypeshadePosition,
-  ): { range: TypeshadeRange; placeholder: string } | undefined;
-  /** Every edit, across every affected document, to rename the symbol at `position` to `newName`. */
-  rename(
-    uri: string,
-    position: TypeshadePosition,
-    newName: string,
-  ): Readonly<Record<string, readonly TypeshadeTextEdit[]>>;
-  /** Semantic tokens for `uri`, optionally restricted to `range`. */
-  getSemanticTokens(uri: string, range?: TypeshadeRange): readonly TypeshadeSemanticToken[];
-
-  /** Compiles `uri` on demand for an output pane. Never called per keystroke by the service
-   * itself (§7, §8). `undefined` when `uri` is not open. */
-  getCompiledOutput(
-    uri: string,
-    target: TypeshadeCompiledOutput['target'],
-  ): TypeshadeCompiledOutput | undefined;
-
-  /** Converts a UTF-16 offset into `uri`'s document into a zero-based editor position. */
-  positionAt(uri: string, offset: number): TypeshadePosition;
-  /** Converts a zero-based editor position in `uri`'s document into a UTF-16 offset. */
-  offsetAt(uri: string, position: TypeshadePosition): number;
-}
-
-export type AnalyzeSourceFile = (
-  sourceFile: ts.SourceFile,
-  imports?: ImportHooks,
-) => CompileTsSourceResult;
 
 export const analyzeSourceFile: AnalyzeSourceFile = (sourceFile, imports) =>
   compileTsSource(sourceFile.text, {
@@ -131,14 +66,6 @@ interface DocumentCacheEntry {
   readonly analysis: CompileTsSourceResult;
   diagnostics?: readonly TypeshadeDiagnostic[];
 }
-
-function byDocumentOrder(a: TypeshadeDiagnostic, b: TypeshadeDiagnostic): number {
-  return (
-    a.span.start - b.span.start ||
-    a.span.length - b.span.length ||
-    (a.source < b.source ? -1 : a.source > b.source ? 1 : 0)
-  );
-}
 /**
  * Creates a Typeshade language service (design doc §4). `host` configures the ambient lib and
  * multi-file import resolution (`TypeshadeLanguageServiceHost`, defined in `host.ts`); omit it
@@ -148,10 +75,6 @@ export function createTypeshadeLanguageService(
   host: TypeshadeLanguageServiceHost = {},
 ): TypeshadeLanguageService {
   return createTypeshadeLanguageServiceWith(host, analyzeSourceFile);
-}
-
-export interface TypeshadeLanguageServiceTestOptions {
-  readonly merge?: boolean;
 }
 
 export function createTypeshadeLanguageServiceWith(
@@ -455,52 +378,4 @@ export function createTypeshadeLanguageServiceWith(
     resolveImport: (fromUri, specifier) => tsHost.resolveImportUri(fromUri, specifier),
   });
   return service;
-}
-
-const readers = new WeakMap<TypeshadeLanguageService, ImportHooks>();
-
-export function importHooksOf(service: TypeshadeLanguageService): ImportHooks {
-  return readers.get(service) ?? {};
-}
-
-function projected(
-  inner: TypeshadeLanguageService,
-  lookup: ProjectionLookup,
-): TypeshadeLanguageService {
-  const into = (uri: string, position: TypeshadePosition): TypeshadePosition =>
-    lookup(uri)?.toProjectedPosition(position) ?? position;
-  const back = <T>(uri: string, value: T): T => mapToOriginal(value, uri, lookup);
-  return {
-    openDocument: (uri, text, version) => inner.openDocument(uri, text, version),
-    updateDocument: (uri, text, version) => inner.updateDocument(uri, text, version),
-    closeDocument: (uri) => inner.closeDocument(uri),
-    getDiagnostics: (uri) => back(uri, inner.getDiagnostics(uri)),
-    getCompletions: (uri, position) => back(uri, inner.getCompletions(uri, into(uri, position))),
-    getHover: (uri, position) => back(uri, inner.getHover(uri, into(uri, position))),
-    getDefinition: (uri, position) => back(uri, inner.getDefinition(uri, into(uri, position))),
-    getReferences: (uri, position, options) =>
-      back(uri, inner.getReferences(uri, into(uri, position), options)),
-    getDocumentSymbols: (uri) => back(uri, inner.getDocumentSymbols(uri)),
-    getSignatureHelp: (uri, position) =>
-      back(uri, inner.getSignatureHelp(uri, into(uri, position))),
-    prepareRename: (uri, position) => back(uri, inner.prepareRename(uri, into(uri, position))),
-    rename: (uri, position, newName) => {
-      const edits = inner.rename(uri, into(uri, position), newName);
-      return Object.fromEntries(Object.entries(edits).map(([u, list]) => [u, back(u, list)]));
-    },
-    getSemanticTokens: (uri, range) => {
-      const tokens = inner.getSemanticTokens(
-        uri,
-        range && { start: into(uri, range.start), end: into(uri, range.end) },
-      );
-      const projection = lookup(uri);
-      const written = projection ? tokens.filter((t) => !projection.isInserted(t)) : tokens;
-      return back(uri, written);
-    },
-    getCompiledOutput: (uri, target) => back(uri, inner.getCompiledOutput(uri, target)),
-    positionAt: (uri, offset) =>
-      lookup(uri)?.originalPositionAt(offset) ?? inner.positionAt(uri, offset),
-    offsetAt: (uri, position) =>
-      lookup(uri)?.originalOffsetAt(position) ?? inner.offsetAt(uri, position),
-  };
 }
