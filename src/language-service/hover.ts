@@ -26,6 +26,7 @@ import { nodeAt } from './hover/node-at.js';
 import type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
 import { spellShaderType, typesOf, withDeclaredName } from './hover/spell-type.js';
 import { resourceBindingLine, bindingLine } from './hover/binding-line.js';
+import { linkedFieldAt } from './hover/linked-field.js';
 export { spellShaderType } from './hover/spell-type.js';
 export type { HoverProgram, HoverPrograms, StructNames } from './hover/types.js';
 
@@ -95,21 +96,6 @@ function fieldLine(facts: FieldFacts | undefined): string | undefined {
   if (facts?.location === undefined) return undefined;
   const what = facts.roles.length > 0 ? facts.roles.join(' and ') : 'user-defined input or output';
   return `${what} at @location(${String(facts.location)})`;
-}
-
-function linkedFieldAt(
-  analysis: CompileTsSourceResult,
-  fileName: string,
-  start: number,
-): DeclaredSymbol | undefined {
-  const linked = linkedCompileOf(analysis);
-  if (linked === undefined) return undefined;
-  for (const symbol of linked.symbols) {
-    if (symbol.kind !== 'field') continue;
-    const written = linked.linked.map(symbol.start, symbol.start + symbol.length);
-    if (written?.file.name === fileName && written.start === start) return symbol;
-  }
-  return undefined;
 }
 
 function shownNames(uris: readonly string[]): ReadonlyMap<string, string> {
