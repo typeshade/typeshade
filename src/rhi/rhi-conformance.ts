@@ -1,27 +1,5 @@
-// The conformance suite of the render hardware interface (change 0120, milestone M2): the same
-// buffers, textures, passes and dispatches recorded on each backend, each read back and held to an
-// answer this file computes in plain JavaScript. A backend conforms when it gives every answer.
-//
-// It runs where a device is: the compile gate runs it on WebGPU and on WebGL2 in headless Chromium
-// (`scripts/rhi-conformance-page.ts`), and `cpu.test.ts` runs it on the CPU backend of milestone M3
-// in plain Vitest. `rhi-conformance.test.ts` holds the suite itself (that it reaches every member
-// of the interface, and that its comparison can fail).
-//
-// Each case is written once against the interface. Its programs come in each language a backend
-// takes (`caps.shaderLanguage`): WGSL; GLSL ES 3.00 in WebGPU's conventions (a position in
-// WebGPU's clip space, the bindings by name), which the WebGL2 backend keeps (row 0 at the top,
-// depth 0 to 1, `frontFace`); and a `"use typeshade"` source, whose CPU program the CPU backend
-// runs (the CPU leg compiles it, so this file imports no compiler). Every value a case draws is
-// exactly representable in an 8-bit unorm texel, or is at least 0.03 of a step from a rounding
-// boundary, so each answer is exact.
-//
-// A case the CPU tier does not support yet names the refusal (`refusedOnCpu`, change 0120, item 4
-// and O6 (a)): on that backend the case must throw an error that says it, and is then reported as skipped.
-
 import { STAGE, type RhiBindLayoutEntry, type RhiDevice, type RhiTexture } from './rhi.js';
 
-/** A case's outcome on one device: the numbers it read back and the answer, or why it did not
- *  run there. */
 export interface CaseResult {
   readonly name: string;
   readonly got?: readonly number[];
@@ -29,14 +7,9 @@ export interface CaseResult {
   readonly skipped?: string;
 }
 
-/** One case: what it reaches of the interface, and how it runs. `run` resolves to the numbers it
- *  read back and the answer they must equal, or to a reason the device cannot run it. */
 export interface ConformanceCase {
   readonly name: string;
-  /** The members of `RhiDevice`, `RhiCommandEncoder`, `RhiRenderPass` and `RhiComputePass` the
-   *  case calls. */
   readonly covers: readonly string[];
-  /** What the CPU backend's refusal of the case says, when it refuses it. */
   readonly refusedOnCpu?: string;
   run(device: RhiDevice): Promise<{ got: number[]; want: number[] } | { skipped: string }>;
 }
@@ -58,8 +31,6 @@ void main() {
 }
 `;
 
-/** The programs of a case in each language: one WGSL module, a GLSL vertex and fragment, or the
- *  `"use typeshade"` source whose CPU program the CPU backend runs. */
 interface Programs {
   readonly wgsl: string;
   readonly vertex: string;
@@ -67,7 +38,6 @@ interface Programs {
   readonly shade: string;
 }
 
-/** The program `device` takes of `programs`: the GLSL vertex, the WGSL, or the source. */
 const programOf = (device: RhiDevice, programs: Programs): string =>
   device.caps.shaderLanguage === 'glsl-es300'
     ? programs.vertex
@@ -75,7 +45,6 @@ const programOf = (device: RhiDevice, programs: Programs): string =>
       ? programs.shade
       : programs.wgsl;
 
-/** A render pipeline of `programs` into one `rgba8unorm` target, with `entries` in group 0. */
 async function pipelineOf(
   device: RhiDevice,
   programs: Programs,
@@ -85,9 +54,7 @@ async function pipelineOf(
     readonly depth?: boolean;
     readonly blend?: object;
     readonly cullMode?: 'none' | 'front' | 'back';
-    /** The topology, `triangle-list` when absent. */
     readonly topology?: string;
-    /** A stencil test on a `depth24plus-stencil8` attachment, both faces alike, depth always. */
     readonly stencil?: {
       readonly compare: 'always' | 'equal';
       readonly passOp: 'keep' | 'replace';
@@ -148,7 +115,6 @@ async function pipelineOf(
   return { pipeline, layout };
 }
 
-/** An `rgba8unorm` target of `w` × `h` that a pass draws into and a read copies back. */
 const target = (device: RhiDevice, w: number, h: number): RhiTexture =>
   device.createTexture({
     size: [w, h, 1],
@@ -156,21 +122,18 @@ const target = (device: RhiDevice, w: number, h: number): RhiTexture =>
     usage: ['render', 'sampled', 'copy-src', 'copy-dst'],
   });
 
-/** A uniform buffer of `floats`. */
 function uniform(device: RhiDevice, floats: readonly number[]) {
   const b = device.createBuffer({ size: floats.length * 4, usage: ['uniform', 'copy-dst'] });
   device.writeBuffer(b, 0, new Float32Array(floats));
   return b;
 }
 
-/** The bytes of a `w` × `h` image whose texel at `(x, y)`, row 0 the top, is `texel(x, y)`. */
 function image(w: number, h: number, texel: (x: number, y: number) => readonly number[]): number[] {
   const out: number[] = [];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) out.push(...texel(x, y));
   return out;
 }
 
-/** The 8-bit unorm byte of `v`, as WebGPU converts a colour to an `rgba8unorm` texel. */
 const unorm8 = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) * 255);
 
 const UNIFORM_COLOUR: Programs = {
@@ -205,7 +168,6 @@ const UNIFORM_ENTRY: RhiBindLayoutEntry = {
   buffer: { type: 'uniform' },
 };
 
-/** A vertex from a buffer's `vec2` at location 0, coloured from the uniform `U`. */
 const VERTEX_Q: Programs = {
   wgsl: `struct U { c: vec4f }
 @group(0) @binding(0) var<uniform> u: U;
@@ -230,10 +192,6 @@ declare const u: uniform<U>;
 `,
 };
 
-/** A vertex from a buffer's clip position at location 0 and three numbers at location 1, which
- *  reach the fragment interpolated `perspective`, `linear` and `flat`, as red, green and blue.
- *  GLSL ES 3.00 has no `noperspective`; its program takes the linear number as `b * w` over `w`,
- *  both interpolated perspective-correct, which is the number interpolated in screen space. */
 const INTERPOLATED: Programs = {
   wgsl: `struct V {
   @builtin(position) p: vec4f,
@@ -277,18 +235,10 @@ interface V {
 `,
 };
 
-/** The numbers each vertex of the interpolation cases carries: the same number interpolated
- *  `perspective` and `linear`, and a third `flat`. Chosen so that every pixel's answer is at least
- *  0.03 of an 8-bit step from a rounding boundary. */
 const NUMBERS = [0.8671875, 0.42578125, 0.01953125] as const;
-/** The flat numbers of the flat case: the first vertex's reaches every pixel. */
 const FLAT = [0.6, 0.2, 1] as const;
-/** The flat numbers of the other cases, alike at every vertex, so that no provoking vertex shows. */
 const SAME = [0.6, 0.6, 0.6] as const;
 
-/** One triangle of `INTERPOLATED` into an 8 × 8 target cleared to opaque black: the vertices at
- *  `ndc` in normalized device coordinates, each with its `w` and its depth `z(y)` in normalized
- *  device coordinates. */
 async function interpolatedFrame(
   device: RhiDevice,
   w: readonly [number, number, number],
@@ -338,9 +288,6 @@ async function interpolatedFrame(
   return [...(await device.readTexture(t, 4))];
 }
 
-/** The answer of {@link interpolatedFrame} at pixel `(x, y)` of the 8 × 8 target: the triangle's
- *  screen-space weights at the pixel's centre, the perspective-correct number from them and the
- *  `w`s, the linear number, and the first vertex's flat number. */
 function interpolatedTexel(w: readonly number[], x: number, y: number): number[] {
   const nx = (x + 0.5) / 4 - 1;
   const ny = 1 - (y + 0.5) / 4;
@@ -353,13 +300,8 @@ function interpolatedTexel(w: readonly number[], x: number, y: number): number[]
   return [unorm8(perspective), unorm8(linear), unorm8(SAME[0]), 255];
 }
 
-/** The flat numbers of the four vertices of {@link flatQuadFrame}. */
 const QUAD_FLAT = [0.6, 0.2, 1, 0.4] as const;
 
-/** Two triangles of `INTERPOLATED` that share an edge and cover an 8 × 8 target cleared to opaque
- *  black, each vertex with a flat number of its own (`QUAD_FLAT`): vertices 0, 1 and 2 make the
- *  triangle below the edge, and 1, 2 and 3 the one above it. The edge passes between the pixel
- *  centres. `indices` draws them as an indexed list; without it they are a strip of four. */
 async function flatQuadFrame(device: RhiDevice, indices?: readonly number[]): Promise<number[]> {
   const ndc = [
     [-1, -1],
@@ -404,8 +346,6 @@ async function flatQuadFrame(device: RhiDevice, indices?: readonly number[]): Pr
   return [...(await device.readTexture(t, 4))];
 }
 
-/** The answer of {@link flatQuadFrame}: the flat number `below` in the triangle below the shared
- *  edge, where pixel `(x, y)` has `x - y` under 0.5, and `above` in the other. */
 const flatQuadImage = (below: number, above: number): number[] =>
   image(8, 8, (x, y) => [
     unorm8(NUMBERS[0]),
@@ -645,8 +585,6 @@ interface Out {
         elem: 'f32',
       });
       device.writeBuffer(storage, 0, new Float32Array(colours));
-      // The quad covers x from -1 to 0 and the top half of clip space, y from 0 to 1, which is
-      // framebuffer rows 0 and 1; the second instance moves it to x from 0 to 1.
       const vertices = device.createBuffer({ size: 32, usage: ['vertex', 'copy-dst'] });
       device.writeBuffer(vertices, 0, new Float32Array([-1, 0, 0, 0, 0, 1, -1, 1]));
       const indices = device.createBuffer({ size: 12, usage: ['index', 'copy-dst'] });
@@ -879,7 +817,6 @@ declare const u: uniform<U>;
         0,
         device.createBindGroup(layout, [{ binding: 0, resource: { buffer: u } }]),
       );
-      // The viewport is the top-left quadrant, the scissor its left half and two rows below it.
       pass.setViewport(0, 0, 4, 4, 0, 1);
       pass.setScissorRect(0, 1, 2, 7);
       pass.draw(3);
@@ -934,7 +871,6 @@ declare const u: uniform<U>;
     covers: ['createRenderPipeline'],
     async run(device) {
       const t = target(device, 4, 4);
-      // Two triangles, one in each half: the left counter-clockwise (front), the right clockwise.
       const { pipeline, layout } = await pipelineOf(
         device,
         {
@@ -975,8 +911,6 @@ declare const u: uniform<U>;
       pass.end();
       await device.submit([encoder]);
       const got = [...(await device.readTexture(t, 4))];
-      // The left triangle covers the pixel centres below its edge from (0, -1) to (-1, 1): in
-      // framebuffer coordinates, y > 2x.
       const want = image(4, 4, (x, y) =>
         y + 0.5 > 2 * (x + 0.5) ? [255, 255, 255, 255] : [0, 0, 0, 255],
       );
@@ -1022,7 +956,6 @@ declare const u: uniform<U>;
           stencilClearValue: 0,
         },
       });
-      // 5 into the stencil of the top row, then white where the stencil equals 5.
       pass.setPipeline(write.pipeline);
       pass.setBindGroup(
         0,
@@ -1151,7 +1084,6 @@ declare const d: storage<array<u32>, "read_write">;
       const data = device.createBuffer({ size: 32, usage: ['storage', 'copy-src', 'copy-dst'] });
       const values = [1, 2, 3, 5, 8, 13, 21, 34];
       device.writeBuffer(data, 0, new Uint32Array(values));
-      // Three workgroups in x from byte 4; the word before them is no count.
       const counts = device.createBuffer({ size: 16, usage: ['indirect', 'copy-dst'] });
       device.writeBuffer(counts, 0, new Uint32Array([7, 3, 1, 1]));
       const read = device.createBuffer({ size: 32, usage: ['map-read', 'copy-dst'] });
@@ -1167,7 +1099,6 @@ declare const d: storage<array<u32>, "read_write">;
       encoder.copyBufferToBuffer(data, 0, read, 0, 32);
       await device.submit([encoder]);
       const got = [...new Uint32Array(await device.readBuffer(read))];
-      // Three workgroups of two invocations: the first six words.
       return { got, want: values.map((v, i) => (i < 6 ? v + 100 : v)) };
     },
   },
@@ -1193,7 +1124,6 @@ declare const d: storage<array<u32>, "read_write">;
     name: 'interpolation: flat on an indexed list, from the first index of each triangle',
     covers: ['drawIndexed'],
     async run(device) {
-      // The second triangle starts at vertex 2, which the first one ends with.
       const got = await flatQuadFrame(device, [0, 1, 2, 2, 1, 3]);
       return { got, want: flatQuadImage(QUAD_FLAT[0], QUAD_FLAT[2]) };
     },
@@ -1203,7 +1133,6 @@ declare const d: storage<array<u32>, "read_write">;
     covers: ['draw'],
     refusedOnCpu: 'topology',
     async run(device) {
-      // The strip's second triangle starts at vertex 1.
       const got = await flatQuadFrame(device);
       return { got, want: flatQuadImage(QUAD_FLAT[0], QUAD_FLAT[1]) };
     },
@@ -1212,8 +1141,6 @@ declare const d: storage<array<u32>, "read_write">;
     name: 'clipping: a triangle cut by the near and the far plane keeps the values between them',
     covers: ['draw'],
     async run(device) {
-      // The depth runs from 1.5 at the bottom to -2.5 at the top: it is inside 0 to 1 only for
-      // y from -0.5 to 0.5, framebuffer rows 2 to 5. The values there are the uncut triangle's.
       const w = [1, 2, 1] as const;
       const got = await interpolatedFrame(device, w, (y) => 0.5 - y);
       const want = image(8, 8, (x, y) =>
@@ -1226,10 +1153,6 @@ declare const d: storage<array<u32>, "read_write">;
     name: 'the fill rule: two triangles that share an edge through pixel centres cover each once',
     covers: ['draw'],
     async run(device) {
-      // In framebuffer pixels: red (0.5, 0.5), (2.5, 0.5), (0.5, 2.5), then green (2.5, 0.5),
-      // (2.5, 2.5), (0.5, 2.5). Every edge runs through pixel centres. A centre on an edge is
-      // covered when the edge is a top or a left edge of the triangle: red's top and left edges,
-      // and green's shared diagonal, which is its left edge.
       const t = target(device, 4, 4);
       const { pipeline, layout } = await pipelineOf(device, VERTEX_Q, [UNIFORM_ENTRY], {
         buffers: [
@@ -1261,8 +1184,6 @@ declare const d: storage<array<u32>, "read_write">;
       );
       pass.draw(3);
       pass.end();
-      // The second triangle is the second three vertices: a draw of six with the first three
-      // made degenerate would also do, but a buffer of its own keeps each draw plain.
       const second = device.createBuffer({ size: 24, usage: ['vertex', 'copy-dst'] });
       device.writeBuffer(second, 0, new Float32Array(ndc.slice(6)));
       const pass2 = encoder.beginRenderPass({
@@ -1333,7 +1254,6 @@ void main() { o = gl_FrontFacing ? vec4(1.0) : vec4(0.4, 0.4, 0.4, 1.0); }
           ],
         },
       );
-      // The culling case's two triangles: the left counter-clockwise, the right clockwise.
       const vertices = device.createBuffer({ size: 48, usage: ['vertex', 'copy-dst'] });
       device.writeBuffer(vertices, 0, new Float32Array([-1, -1, 0, -1, -1, 1, 0, -1, 0, 1, 1, -1]));
       const encoder = device.createCommandEncoder();
@@ -1354,8 +1274,6 @@ void main() { o = gl_FrontFacing ? vec4(1.0) : vec4(0.4, 0.4, 0.4, 1.0); }
       pass.end();
       await device.submit([encoder]);
       const got = [...(await device.readTexture(t, 4))];
-      // The left triangle covers the centres with y > 2x, in pixels from the top left; the right
-      // one, from (2, 4), (2, 0) and (4, 4), the centres with x >= 2 and x < 2 + y / 2.
       const want = image(4, 4, (x, y) => {
         const cx = x + 0.5;
         const cy = y + 0.5;
@@ -1368,15 +1286,12 @@ void main() { o = gl_FrontFacing ? vec4(1.0) : vec4(0.4, 0.4, 0.4, 1.0); }
   },
 ];
 
-/** The members of the interface no case calls, each with where it is held instead. */
 export const NOT_REACHED: Readonly<Record<string, string>> = {
   currentTexture:
     "a canvas is the host's: the compile gate draws the program runtime into a WebGPU and a WebGL2 canvas",
   destroy: 'it ends the device the suite runs on; createRuntime() and rt.destroy() hold it',
 };
 
-/** Every case of the suite on `device`, in order. A case that throws is a result whose `got` is
- *  absent and whose `skipped` is undefined: a failure, with the error as its name's suffix. */
 export async function runConformance(device: RhiDevice): Promise<CaseResult[]> {
   const out: CaseResult[] = [];
   const cpu = device.caps.shaderLanguage === 'cpu';
@@ -1401,7 +1316,6 @@ export async function runConformance(device: RhiDevice): Promise<CaseResult[]> {
   return out;
 }
 
-/** The differences of one result: none for a skipped case or an exact answer. */
 export function differences(r: CaseResult): string[] {
   if (r.skipped !== undefined) return [];
   if (r.got === undefined || r.want === undefined) return [`${r.name}: no answer`];
