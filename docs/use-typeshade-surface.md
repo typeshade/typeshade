@@ -837,7 +837,7 @@ carries. Beyond the set that was already there (`sin` … `clamp`, `mix`, `smoot
 | `fwidth(x)`, `dpdx(x)`, `dpdy(x)` | screen-space derivatives (`dFdx` / `dFdy` in GLSL) |
 | `fma(a, b, c)` | `a·b + c`; GLSL ES 3.00 has no `fma`, so it is inlined there |
 | `atan(y, x)` | the two-argument arctangent (`atan2` in WGSL); `atan(x)` is still one argument |
-| `select(f, t, c)` | `c ? t : f`. **WGSL's order: the condition is last.** The same IR the ternary builds; a vector-of-bools `c` picks per component (§27) |
+| `select(f, t, c)` | the value of `t` where `c` is true and of `f` elsewhere. **WGSL's order: the condition is last.** A call: `f`, `t` and `c` are all evaluated, in that order (Rule 7.9). Write `c ? t : f` to run one arm. A vector-of-bools `c` picks per component (§27) |
 | `a ** b` | WGSL's `pow(a, b)`, the one spelling of it (change 0112). Both operands must have one type; splat a scalar exponent |
 | `reflect(i, n)`, `refract(i, n, eta)`, `faceForward(n, i, nref)` | the geometry three; `faceforward` in GLSL. `eta` is a scalar |
 | `transpose(m)`, `determinant(m)` | on a `mat4`; `determinant` is an `f32` |
@@ -2776,7 +2776,9 @@ codegen and the debug stepper evaluate the call for its effect.
 **A value-returning builtin may stand alone**, as it may in TypeScript (`Math.max(a, b);` is
 legal), and the optimizer drops it as the nothing it computes. **A value that is not a call
 may not**: `vec3(1., 2., 3.)`, a `select`, an array fold build a value and drop it, and the
-statement is refused (TS8099) with the two ways out, assign the value or remove the line.
+statement is refused (TS8099) with the two ways out, assign the value or remove the line. An
+explicit `select(f, t, c)` is a call for the order of its arguments (Rule 7.9); as a statement it
+is still refused, because it builds a value and drops it.
 
 **`_ = f(x)` says the drop in WGSL's words** (§52) and lowers to the same `call` statement; a
 right-hand side that is not a call is refused (TS8099), as the bare statement is. The editor
@@ -3538,7 +3540,8 @@ last, on both targets. An operand evaluated before such a call that reads what t
 is bound ahead of it, so `rng.state + rng.next()` adds the state from before the draw. A call
 TypeScript runs conditionally keeps its condition: an arm of `?:` is an `if` rather than WGSL's
 `select`, which would evaluate both arms, and the right operand of `&&` or `||` is an `if` on the
-left one. A call that is the whole of its statement (`const a = rng.next()`, the value of an
+left one. `select(f, t, c)` is a call, so it runs `f`, `t` and `c` in that order and keeps no
+condition: a call that writes in `f` or in `t` runs whatever `c` is. A call that is the whole of its statement (`const a = rng.next()`, the value of an
 assignment or a `return`, a condition, a selector, a call statement) stays where it is. This is
 the same for a helper that writes a storage binding or a module variable and for an atomic, which
 could write from inside an expression before any of this (§19, §23, §24). A `while` condition
@@ -4558,7 +4561,8 @@ _ret = vec4(c, float(any(equal(m, bvec3(false, false, false)))));
   function the file declares, a local one included, which hands each call what it captures
   (Rule 8.17), or an arrow function written in the call (Rule 8.18, §14).
 - **`select(f, t, m)`** with a vector-of-bools condition picks per component, and the arms are
-  vectors of the mask's size (TS8003 otherwise). WGSL's `select` takes the mask as is; GLSL ES
+  vectors of the mask's size (TS8003 otherwise). The three arguments are evaluated in the order `f`,
+  `t`, `m` (Rule 7.9). WGSL's `select` takes the mask as is; GLSL ES
   3.00 spells `mix(f, t, m)` for float vectors and a componentwise ternary through the vector's
   constructor for integer and bool ones, since its `mix` with a `bvec` selector exists for
   floats alone.

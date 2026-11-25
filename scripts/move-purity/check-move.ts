@@ -15,14 +15,16 @@ import { typeReexportFindings } from './type-exports.js';
 import { evaluationOrderFindings } from './evaluation-order.js';
 import { pathReferenceFindings } from './path-references.js';
 import { unresolvedImportFindings } from './unresolved-imports.js';
-import { createLinks } from './module-links.js';
+import { createLinks, type Links } from './module-links.js';
+import type { FilePairs } from './file-pairs.js';
+import type { ImportGraph } from './import-graph.js';
 import {
   checkOutside,
   isComparedSource,
   type DiffEntry,
   type OutsideEntry,
 } from './outside-move.js';
-import { createSide } from './side-program.js';
+import { createSide, type Side } from './side-program.js';
 import type { Title } from './titles.js';
 import { movedUnitFindings } from './moved-unit-findings.js';
 import { reboundFindings } from './rebound-findings.js';
@@ -40,7 +42,18 @@ export interface MoveReport {
   readonly surfacePathChanges: number;
 }
 
+export interface OrderEvidence {
+  readonly baseSide: Side;
+  readonly headSide: Side;
+  readonly baseLinks: Links;
+  readonly headLinks: Links;
+  readonly baseGraph: ImportGraph;
+  readonly headGraph: ImportGraph;
+  readonly files: FilePairs;
+}
+
 interface CheckOptions {
+  readonly observe?: (evidence: OrderEvidence) => void;
   readonly paths?: readonly string[];
   readonly entries?: readonly DiffEntry[];
   readonly root?: string;
@@ -117,6 +130,15 @@ export function checkMove(
     const baseLinks = createLinks(baseSide, baseKeyer);
     const headLinks = createLinks(headSide, headKeyer);
     const order = evaluationOrderFindings(baseSide, headSide, baseLinks, headLinks, files);
+    options.observe?.({
+      baseSide,
+      headSide,
+      baseLinks,
+      headLinks,
+      baseGraph: order.baseGraph,
+      headGraph: order.headGraph,
+      files,
+    });
     findings.push(
       ...reboundFindings([...match.kept, ...match.moved], baseKeyer, headKeyer),
       ...movedUnitFindings(

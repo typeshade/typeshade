@@ -1,33 +1,3 @@
-// ═══ A `@compute` entry's call as a program-runtime pipeline and pass (change 0120, D2) ═══
-//
-// `entry(bindings, workgroups)` outside a `fuse` scope runs here once `core/host-compute.ts` has
-// checked it, put it in its place in the call queue and chosen its tier (Rules 8.24 and 11.8).
-// Each tier runs it through the program runtime of `src/runtime/`, as a full-screen draw runs
-// (`core/host-draw.ts`, the owner's decision of 2026-11-09, "Program 객체까지 통일"):
-//
-//   - WebGPU: a `ProgramImpl` of `RuntimeImpl` over the owner's device, its compute pipeline, and
-//     one compute pass in one submission. Each buffer binding is packed at the call into a buffer
-//     of the runtime's pool, bound with the size it holds; a `Resident` is bound as its device
-//     buffer, and an indirect count is dispatched from its buffer. What the entry wrote is copied
-//     to staging buffers of the pool in the same submission and read back into the caller's value
-//     in place. A module's entries share one shader module on each device.
-//   - WebGL2: a `Program` of `GlRuntimeImpl` over the call layer's context, its compute pipeline
-//     (the pass program the entry record carries, change 0054), and one dispatch in a frame run
-//     at once, in the call's place in the queue. Each storage binding is its packed words, which
-//     the dispatch runs on in place and the call reads back.
-//   - The CPU tier: a `ProgramImpl` of `RuntimeImpl` over the CPU backend, with the entry's CPU
-//     program, and one compute pass. Each buffer holds the CPU tier's value `toCpu` makes of the
-//     host's value, and the call reads back the value the code left (`holdValue`), so the code
-//     computes on the host's numbers as the CPU tier always did (Rule 11.7).
-//
-// The manifest a call loads is made from the entry record the generated module writes, one for
-// each entry and tier, as a draw's is: the call layer carries no compiler (Rules 11.10, 11.11).
-// The call layer's checks and refusals stay its own: the pipeline checks no limit, and a device
-// error is the call's "WebGPU refused the call".
-//
-// The host face installs this file in `entryPrograms` at its first call (`callCompute` below),
-// so `typeshade/fuse`, which borrows `core/host-compute.ts`, reaches no program runtime.
-
 import { callCompute as queuedCall, entryPrograms, type EntryPrograms } from './host-compute.js';
 import {
   boxed,
@@ -80,10 +50,6 @@ import {
 import type { RuntimeImpl } from '../runtime/runtime.js';
 import type { GlRuntimeImpl } from '../runtime/gl.js';
 
-/**
- * Call a `@compute` entry from host code (Rule 8.24), as `callCompute` of `core/host-compute.ts`
- * does, with a call outside a `fuse` scope run as a program-runtime pipeline and pass.
- */
 export function callCompute(
   cpu: GeneratedCpu,
   e: ComputeEntry,
@@ -97,17 +63,10 @@ export function callCompute(
   return queuedCall(cpu, e, argc, bindings, workgroups, options, reads);
 }
 
-// ─── the manifest of an entry call ───────────────────────────────────────────────────────────
-
-/** The tier a call's manifest is made for: each binds a little differently. One of `TIERS`
- *  (`./tiers.ts`), so the names are written there only. */
 type CallTier = Tier;
 
-/** Each entry's call manifest, by tier. */
 const manifests = new WeakMap<ComputeEntry, Map<CallTier, Pack>>();
 
-/** The handle bindings the entry's WebGL2 pass program reads: each texture it samples or loads,
- *  and the sampler each is paired with. */
 function glHandles(e: ComputeEntry): Set<string> {
   const out = new Set<string>();
   for (const t of e.gl?.textures ?? []) {
@@ -117,8 +76,6 @@ function glHandles(e: ComputeEntry): Set<string> {
   return out;
 }
 
-/** The CPU program of an entry call: the module's generated code, the entry's builtins and
- *  workgroup size, each buffer binding, and the workgroup variables' zeros. */
 function callCpuProgram(e: ComputeEntry, cpu: GeneratedCpu): CpuProgram {
   return {
     code: cpu as unknown as CpuCode,
@@ -144,13 +101,6 @@ function callCpuProgram(e: ComputeEntry, cpu: GeneratedCpu): CpuProgram {
   };
 }
 
-/**
- * The manifest a call of `e` loads on `tier`, one for each entry and tier: the module's WGSL, the
- * entry, each binding it reaches, the recorded console variant where the WGSL records, the
- * WebGL2 pass program, and on the CPU tier the CPU program under `CPU_PROGRAM` (O2 (a)). A
- * WebGPU or CPU binding is named as a draw's is (`slotOf`); a WebGL2 binding keeps its own name,
- * by which the pass program reads it, and a uniform its layout, by which the dispatch packs it.
- */
 function callManifestOf(e: ComputeEntry, tier: CallTier, cpu?: GeneratedCpu): Pack {
   let byTier = manifests.get(e);
   if (byTier === undefined) manifests.set(e, (byTier = new Map()));
@@ -208,19 +158,13 @@ function callManifestOf(e: ComputeEntry, tier: CallTier, cpu?: GeneratedCpu): Pa
   return m;
 }
 
-// ─── programs and pipelines ──────────────────────────────────────────────────────────────────
-
-/** The program of each call manifest on each runtime, loaded once. */
 const programs = new WeakMap<object, WeakMap<Pack, ProgramImpl | Program>>();
 
-/** A shader module of one WGSL text on one runtime, with the errors its compilation reported:
- *  the entries of a module share it, as the call layer's pipelines always did. */
 const modules = new WeakMap<
   RuntimeImpl,
   Map<string, { module: RhiShaderModule; errors: Promise<string> }>
 >();
 
-/** The part of a WebGPU shader module that reports how its WGSL compiled. */
 interface CompilationInfo {
   getCompilationInfo?(): Promise<{
     messages: readonly { type: string; lineNum: number; linePos: number; message: string }[];
@@ -256,8 +200,6 @@ function programOn(rt: RuntimeImpl, m: Pack, module?: RhiShaderModule): ProgramI
   return p;
 }
 
-/** The compute pipeline of each entry on each runtime: made once, and a refusal kept, as the call
- *  layer's pipeline was. */
 const pipelines = new WeakMap<object, WeakMap<ComputeEntry, Promise<ComputePipelineImpl>>>();
 
 function pipelineOn(
@@ -272,8 +214,6 @@ function pipelineOn(
   return p;
 }
 
-/** The WebGPU pipeline of `e`: its module's WGSL refused is the call's refusal, before anything
- *  is uploaded. */
 function gpuPipeline(rt: RuntimeImpl, e: ComputeEntry): Promise<ComputePipelineImpl> {
   return pipelineOn(rt, e, async () => {
     const m = callManifestOf(e, 'webgpu');
@@ -284,20 +224,14 @@ function gpuPipeline(rt: RuntimeImpl, e: ComputeEntry): Promise<ComputePipelineI
   });
 }
 
-// ─── the three tiers ─────────────────────────────────────────────────────────────────────────
-
-/** What the program runtime makes of an entry call on each tier. */
 const PROGRAMS: EntryPrograms = { gpu: onGpuProgram, gl: onGlProgram, cpu: onCpuProgram };
 
-/** A written storage binding's bytes, read back into the caller's value in place. */
 function readBack(b: EntryBinding, dv: DataView, values: Record<string, unknown>): void {
   if (boxed(b))
     (values[b.name] as { [i: number]: number })[0] = readInto(dv, 0, b.layout, undefined) as number;
   else readInto(dv, 0, b.layout, values[b.name]);
 }
 
-/** Dispatch the entry once on WebGPU, reading each storage binding it writes back into the
- *  caller's value in place; a binding in `checked.onDevice` is bound as it is. */
 async function onGpuProgram(
   d: GpuDevice,
   e: ComputeEntry,
@@ -314,13 +248,10 @@ async function onGpuProgram(
   let printed: (() => Promise<unknown>) | undefined;
   let done: Promise<void>;
   let error: Promise<string | null>;
-  // From here to the submit nothing awaits: the buffers this call takes from the pool go back
-  // together, once what it reads is read.
   rhi.pushValidationScope();
   const encoder = rhi.createCommandEncoder();
   try {
     for (const b of e.bindings) {
-      // The `_fp64` guard is the runtime's.
       if (isGuard(b)) continue;
       if (!isBuffer(b)) {
         values[slotOf(b)] = gpuHandle(
@@ -345,8 +276,6 @@ async function onGpuProgram(
       values[slotOf(b)] = new CallBuffer(buffer, bytes.byteLength);
       if (b.space === 'storage' && b.writes) written.push({ b, buffer, size: bytes.byteLength });
     }
-    // A pooled array given out again as zeros is cleared here, before the pass that binds it or
-    // reads its counts, in the call's own submission (change 0071).
     const native = rhi.toNative(encoder) as { clearBuffer?(b: object): void };
     for (const buffer of [
       ...(checked.onDevice?.values() ?? []),
@@ -375,8 +304,6 @@ async function onGpuProgram(
     done = rhi.submit([encoder]);
     error = rhi.popValidationScope();
   } catch (err) {
-    // Close the scope on the way out, so that the next call's errors are its own, and hand the
-    // pool back what this call took and a console buffer it may have recorded.
     rt.takeConsole(encoder);
     void rhi.popValidationScope().catch(() => undefined);
     rt.pool.release(Promise.resolve());
@@ -400,9 +327,6 @@ async function onGpuProgram(
   }
 }
 
-/** Run the entry's pass program on WebGL2: each storage binding its packed words, the uniforms as
- *  the host gave them, each image an `RGBA8` texture with its sampler's filter and address, and
- *  every storage binding the entry writes read back into the caller's value in place. */
 async function onGlProgram(
   gl: WebGL2RenderingContext,
   e: ComputeEntry,
@@ -454,8 +378,6 @@ async function onGlProgram(
     if (b.writes) readBack(b, new DataView(w.buffer, w.byteOffset, w.byteLength), checked.values);
 }
 
-/** Run every invocation of every workgroup on the CPU tier, reading each storage binding it
- *  writes back into the caller's value in place. */
 async function onCpuProgram(
   cpu: GeneratedCpu,
   e: ComputeEntry,
@@ -486,7 +408,6 @@ async function onCpuProgram(
   } catch (err) {
     done = Promise.reject(err as Error);
   }
-  // The buffers bind their bytes again before the pool can give them to anything else.
   const unhold = (): void => held.forEach((h) => holdValue(h.buffer, undefined));
   const settled = done.then(unhold, (err: unknown) => {
     unhold();
@@ -494,8 +415,6 @@ async function onCpuProgram(
   });
   rt.pool.release(settled);
   await settled;
-  // What the entry wrote goes back into the caller's values; a written binding is always one
-  // that can be updated in place (a boxed scalar, an array, a typed array or an object).
   for (const { b, slot } of held)
     if (b.writes) fromCpu(b.layout, slot.value as CpuValue, values[b.name], boxed(b));
 }

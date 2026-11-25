@@ -1,14 +1,3 @@
-// ═══ Shader DSL — the Backend plugin contract ═══
-//
-// A Backend is a target writer (WGSL, GLSL ES 3.00, later SPIR-V/MSL). The emit
-// driver is generic; it calls into the backend for every target-specific
-// decision. The IR carries no target lexemes — all spelling lives here.
-//
-// S1 scope: the type + literal spelling surface + a capability model. The
-// intrinsic-spelling surface (`intrinsic`) and the IO/resource lowering are
-// threaded in later steps; until then the WGSL writer keeps its inline spelling
-// and remains byte-identical.
-
 import type {
   ShaderType,
   ConstDecl,
@@ -25,10 +14,6 @@ import { DERIVED_CAPABILITIES } from './ir/derived-capabilities.js';
 import type { ModuleVarDecl, CmpOp, BinOp, Expr } from './ir/nodes.js';
 import { TypeShadeError } from './diagnostics/error.js';
 import type { ParenMode } from './emit.js';
-
-// The `Capability` vocabulary lives with the IR data shapes (ir/nodes.ts) — a module
-// DECLARES the caps it needs there (surfaced publicly via the ir barrel). This file is
-// the BACKEND side: which caps a target HAS (Capabilities), consuming the type only.
 
 /** What one capability costs on one target: the row of a backend's `capProfile`. Both
  *  fields are optional and mean different things.
@@ -76,9 +61,6 @@ export class Capabilities {
   /** The capabilities a `capProfile` declares, read from its keys. Build coverage this way
    *  so that profile membership and capability coverage stay one fact. */
   static fromProfile(profile: CapProfile): Capabilities {
-    // Filter explicitly-undefined rows: `exactOptionalPropertyTypes` is OFF in this
-    // repo, so `{ f16: undefined }` typechecks as a CapProfile and its key would
-    // otherwise count as support for a cap the target cannot spell.
     return new Capabilities(
       new Set(
         Object.entries(profile)
@@ -195,11 +177,6 @@ export interface Backend {
    *  through. Calls to user-defined functions also arrive here and pass through unchanged. */
   intrinsic(name: string, args: string[]): string;
 
-  // ── Divergent statement/declaration fragments ──
-  // The control-flow walk (if/for/switch/return/assign/…) is shared in
-  // core/emit.ts; only these fragments differ between targets. Each returns the
-  // fragment WITHOUT leading indentation or trailing `;` (the walk adds those),
-  // except constDecl which is a full line.
   /** `let n = init` (WGSL, type inferred) vs `T n = init` (GLSL). */
   localLet(name: string, type: ShaderType, init: string): string;
   /** `var n: T[= init]` (WGSL) vs `T n[= init]` (GLSL). */
@@ -278,11 +255,6 @@ export interface Backend {
    *  every case, so the GLSL backend omits this. */
   readonly phonyAssign?: string;
 
-  // ── Module-level declaration surface ──
-  // The module assembly walk (validate → assertCaps → autoVars → lowerModule →
-  // optimize → assemble) is shared in core/emit.ts (`emitModule`); only these
-  // per-declaration spellings differ between targets. A backend that does not
-  // support a declaration (e.g. GLSL ES bindings/structs) fails closed here.
   /** A module-level const declaration line, incl. trailing `;`. */
   emitConst(c: ConstDecl): string;
   /** Optional. A module-level specialization constant declaration. The WGSL writer emits
@@ -378,8 +350,6 @@ export class UnsupportedFeatureError extends TypeShadeError {
   }
 }
 
-// ── Capability × backend matrix (X-GIS #1717) ──────────────────────────────────────
-
 /** How one backend supports one capability.
  *  - `'native'`: supported, with nothing to emit and nothing for the host to turn on.
  *  - `'directive'`: supported, and the emitted source declares it (`enable f16;`,
@@ -471,7 +441,4 @@ export function capabilityMatrix(backends: readonly Backend[]): readonly Capabil
   }));
 }
 
-/** The derived capabilities as a set, read from the one list `DeclarableCapability` is
- *  defined against (`ir/derived-capabilities.ts`), so the `declarable` column and the type
- *  `enables` takes cannot drift apart (X-GIS #1681 A2). */
 const DERIVED_CAPABILITY_SET: ReadonlySet<Capability> = new Set(DERIVED_CAPABILITIES);

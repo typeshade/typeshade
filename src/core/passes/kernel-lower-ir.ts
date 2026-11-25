@@ -32,6 +32,7 @@ export { boolT, kRef, liveRef } from './kernel-lower-ir/refs.js';
 export type {
   ForStmt,
   KernelLoopPlan,
+  KernelLowering,
   KernelPlan,
   PushWord,
   KernelCollection,

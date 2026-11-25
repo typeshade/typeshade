@@ -1,44 +1,4 @@
-// ═══ The derivative rewrite: an implicit-LOD sample or a derivative in non-uniform control flow ═══
-//
-// Change 0132, item 3; Rule 8.5. WGSL refuses `textureSample`, `textureSampleBias`,
-// `textureSampleCompare` and the screen-space derivatives in non-uniform control flow, and
-// `uniformity.ts` finds each such call. This pass rewrites the calls it can reach, so that the
-// author does not have to: RECOMPUTE, THEN DERIVE.
-//
-//   • The hoist point. The uniformity walk records the class of the control flow at each
-//     statement. The hoist point is the latest statement before the call, on the path that
-//     reaches it, where that class is `uniform`. When no statement of the call's function
-//     qualifies (the function is called under non-uniform control flow), the walk climbs to a
-//     call site that is not uniform and looks there, so a helper's call is hoisted in its caller.
-//   • The slice. The backward slice of the call's operand (the coordinate of a sample, the
-//     argument of a derivative, every argument of a call with no gradient form), from the call
-//     back to the hoist point, across the helpers between them. It is emitted again at the
-//     hoist point with fresh names. The original statements stay where they are, so the branch
-//     computes what it computed before.
-//   • The derivative. At the hoist point: `dpdx` and `dpdy` of the recomputed coordinate, the
-//     recomputed derivative, or the recomputed call.
-//   • The use. Inside the branch: `textureSampleGrad` with those gradients (`textureGrad` on
-//     GLSL ES 3.00, from the same IR), the value computed at the hoist point for a derivative,
-//     and for a call with no gradient form (a `textureSampleCompare`, a `texture_1d` sample).
-//     `textureSampleBias` multiplies both gradients by `exp2(clamp(bias, -16.0, 15.99))`.
-//   • Helpers. A helper between the hoist point and the call is SPECIALIZED: a copy of it takes
-//     the gradients as extra parameters, and the call site that needed them calls the copy. The
-//     original stays, for its other callers and for the host code that may call an exported
-//     one; a copy the rewrite made and then left uncalled leaves the module.
-//
-// The rewrite cannot reach a call whose slice cannot be recomputed at the hoist point. The
-// reasons (change 0132, item 4), which `TS8052` names:
-//
-//   1. A read of memory the module writes (`read_write` storage, `workgroup` or `private`
-//      memory), an atomic operation, or a loop whose trip count is not a constant.
-//   2. A call with no gradient form whose arguments fail reason 1.
-//   3. An operand that changes from one iteration of a loop on the path to the next.
-//
-// and one more, for what the proposal does not list: a value the compiler cannot recompute at
-// all (a `raw` statement, a write through an `inout` parameter, a call with an effect).
-//
-// Not here: a barrier and a subgroup call are never rewritten. No author filter switches the
-// rule off: change 0132 removed it, and the front end refuses a written one (`TS8028`).
+// Implements: Rule 8.5 (docs/language-design.md; traced in reqs/).
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import type { ShaderType } from '../ir/types.js';
@@ -56,7 +16,6 @@ import {
 
 type Call = Extract<Expr, { op: 'call' }>;
 
-/** Why the rewrite could not reach a call: the reason `TS8052` names. */
 export type DerivativeRewriteReason =
   | { readonly kind: 'memory'; readonly name: string }
   | { readonly kind: 'atomic' }
@@ -65,23 +24,16 @@ export type DerivativeRewriteReason =
   | { readonly kind: 'loop-variant' }
   | { readonly kind: 'other' };
 
-/** What the rewrite made of a module. */
 export interface DerivativeRewrite {
-  /** The module with every reached call rewritten; the input itself when it rewrote none. */
   readonly module: ModuleDecl;
-  /** `source.builtIfs`, with the statements the rewrite rebuilt or copied added. */
   readonly builtIfs: ReadonlyMap<Stmt, 'short-circuit' | 'conditional'>;
-  /** Why each call the rewrite could not reach was not reached, keyed by {@link reasonKey}. */
   readonly unreached: ReadonlyMap<string, DerivativeRewriteReason>;
 }
 
-/** The key {@link DerivativeRewrite.unreached} holds a violation's reason under: its callee and
- *  where it was written. A copy of a helper keeps its calls' spans, so the key outlives it. */
 export function reasonKey(v: Pick<UniformityViolation, 'callee' | 'span'>): string {
   return `${v.callee}@${v.span === undefined ? '-' : `${v.span.start}:${v.span.length}`}`;
 }
 
-/** A refusal on its way out of the slice walk. */
 class Refusal extends Error {
   constructor(readonly reason: DerivativeRewriteReason) {
     super(`derivative rewrite refused: ${reason.kind}`);
@@ -92,21 +44,16 @@ const refuse = (reason: DerivativeRewriteReason): never => {
   throw new Refusal(reason);
 };
 
-// ── What a target becomes ──
-
 type TargetPlan =
   | { readonly kind: 'derivative' }
   | {
       readonly kind: 'grad';
       readonly gradFn: string;
-      /** The index of the layer argument the array forms take after the coordinate. */
       readonly layered: boolean;
-      /** The index of a bias argument, for `textureSampleBias…`. */
       readonly bias?: number;
     }
   | { readonly kind: 'whole'; readonly what: 'depth' | '1d' };
 
-/** How the call `c` is rewritten, or `undefined` for one this pass has no form for. */
 function planOf(c: Call): TargetPlan | undefined {
   if (/^(dpdx|dpdy|fwidth)/.test(c.fn)) return { kind: 'derivative' };
   const tex = c.args[0]?.type;
@@ -132,7 +79,6 @@ function planOf(c: Call): TargetPlan | undefined {
   }
 }
 
-/** The operands a target's slice recomputes. */
 function operandsOf(c: Call, plan: TargetPlan): readonly Expr[] {
   switch (plan.kind) {
     case 'derivative':
@@ -144,7 +90,6 @@ function operandsOf(c: Call, plan: TargetPlan): readonly Expr[] {
   }
 }
 
-/** The values the hoist point hands a target, with their types, in parameter order. */
 function handleTypes(c: Call, plan: TargetPlan): { base: string; type: ShaderType }[] {
   switch (plan.kind) {
     case 'derivative':
@@ -164,7 +109,6 @@ function handleTypes(c: Call, plan: TargetPlan): { base: string; type: ShaderTyp
 const f32: ShaderType = { kind: 'scalar', scalar: 'f32' };
 const lit = (value: number): Expr => ({ op: 'lit', type: f32, value });
 
-/** The call that takes the place of `c`, given the values the hoist point computed. */
 function replacementOf(c: Call, plan: TargetPlan, handles: readonly Expr[]): Expr {
   switch (plan.kind) {
     case 'derivative':
@@ -196,10 +140,6 @@ function replacementOf(c: Call, plan: TargetPlan, handles: readonly Expr[]): Exp
   }
 }
 
-// ── Where a call sits ──
-
-/** One block on the path to a call: the block, and the index of the statement in it that holds
- *  the call or the next block. */
 interface Frame {
   readonly block: readonly Stmt[];
   readonly index: number;
@@ -207,7 +147,6 @@ interface Frame {
 
 interface Site {
   readonly frames: readonly Frame[];
-  /** The call is in the condition or the update of the `for` the last frame points at. */
   readonly inLoopHeader: boolean;
 }
 
@@ -219,8 +158,6 @@ const contains = (e: Expr, target: Expr): boolean => {
   return hit;
 };
 
-/** Whether `s` holds `target` in its own expressions: `direct`, or `header` for the iterated
- *  part of a `for` (its condition and its update). */
 function holds(s: Stmt, target: Expr): 'direct' | 'header' | undefined {
   switch (s.s) {
     case 'let':
@@ -248,7 +185,6 @@ function holds(s: Stmt, target: Expr): 'direct' | 'header' | undefined {
   }
 }
 
-/** The blocks a statement holds. */
 function blocksOf(s: Stmt): readonly (readonly Stmt[])[] {
   switch (s.s) {
     case 'if':
@@ -277,37 +213,26 @@ function findSite(block: readonly Stmt[], target: Expr, frames: Frame[] = []): S
   return undefined;
 }
 
-// ── The walk's facts about names ──
-
-/** The root a write lands on, when it is a local or a parameter. */
 function rootName(e: Expr): string | undefined {
   if (e.op === 'varref' || e.op === 'param') return e.name;
   if (e.op === 'member' || e.op === 'index') return rootName(e.base);
   return undefined;
 }
 
-/** The index expressions a write's target evaluates. */
 function targetIndices(e: Expr): Expr[] {
   if (e.op === 'index') return [e.idx, ...targetIndices(e.base)];
   if (e.op === 'member') return targetIndices(e.base);
   return [];
 }
 
-// ── The rewrite ──
-
-/** The most rewrites one module takes; a bound, not a measured need. */
 const MAX_ROUNDS = 256;
 
-/** Rewrites every implicit-LOD sample and derivative of `m` that `uniformityViolations` finds in
- *  non-uniform control flow and this pass can reach; see the header. `source` is what the walk
- *  reads beside the IR, as for `uniformityViolations`. */
 export function rewriteDerivatives(
   m: ModuleDecl,
   source: UniformitySource = {},
 ): DerivativeRewrite {
   const builtIfs = new Map(source.builtIfs ?? []);
   const unreached = new Map<string, DerivativeRewriteReason>();
-  /** The calls the rewrite gave up on, so a round does not try them again. */
   const given = new Set<string>();
   const clones = new Set<string>();
   let cur = m;
@@ -334,7 +259,6 @@ export function rewriteDerivatives(
   return { module: withoutDeadCopies(cur, clones), builtIfs, unreached };
 }
 
-/** Every function name a call in `m` names. */
 function calledNames(m: ModuleDecl): Set<string> {
   const out = new Set<string>();
   const byName = new Set(m.funcs.map((f) => f.name));
@@ -346,7 +270,6 @@ function calledNames(m: ModuleDecl): Set<string> {
   return out;
 }
 
-/** Visits every expression of `stmts`, at any depth. */
 function walkExprs(stmts: readonly Stmt[], visit: (e: Expr) => void): void {
   const stmt = (s: Stmt): void => {
     switch (s.s) {
@@ -392,8 +315,6 @@ function walkExprs(stmts: readonly Stmt[], visit: (e: Expr) => void): void {
   stmts.forEach(stmt);
 }
 
-/** `m` without the copies the rewrite made and then left uncalled (a copy of a copy replaces
- *  it when a later round specializes it again). Every function of the input stays. */
 function withoutDeadCopies(m: ModuleDecl, clones: ReadonlySet<string>): ModuleDecl {
   let funcs = m.funcs;
   for (;;) {
@@ -405,20 +326,14 @@ function withoutDeadCopies(m: ModuleDecl, clones: ReadonlySet<string>): ModuleDe
   return funcs === m.funcs ? m : { ...m, funcs };
 }
 
-/** One call site on the way from the hoist point to the target: the function it sits in and the
- *  call (of the next function, or the target itself) it leads to. */
 interface Level {
   readonly fn: FuncDecl;
   readonly site: Site;
-  /** The frame and the statement the region starts at: the hoist point at level 0, the top of
-   *  the function below it. */
   readonly startFrame: number;
   readonly startIndex: number;
-  /** The call this level leads to: the next level's call site, or the target. */
   readonly call: Call;
 }
 
-/** The levels from the hoist point down to `target` in `fn`, or a refusal. */
 function chainOf(
   m: ModuleDecl,
   fn: FuncDecl,
@@ -439,7 +354,6 @@ function chainOf(
       ];
     }
     below.unshift({ fn: f, site: site!, startFrame: 0, startIndex: 0, call });
-    // No statement of `f` runs under uniform control flow: climb to a call site that does not.
     const name = f.name;
     let up: { fn: FuncDecl; call: Call } | undefined;
     for (const g of m.funcs) {
@@ -458,7 +372,6 @@ function chainOf(
   return refuse({ kind: 'other' });
 }
 
-/** The latest statement on the path to the call whose control flow is uniform. */
 function hoistOf(
   site: Site,
   observe: UniformityObservation,
@@ -472,8 +385,6 @@ function hoistOf(
   return undefined;
 }
 
-/** The statements a level's region holds, in the order they run, and where a loop on the path
- *  begins among them. */
 interface Region {
   readonly items: readonly Stmt[];
   readonly loops: readonly { readonly at: number; readonly loop: Extract<Stmt, { s: 'for' }> }[];
@@ -493,14 +404,12 @@ function regionOf(level: Level): Region {
       owner.s === 'for' &&
       (last ? level.site.inLoopHeader : frames[k + 1]!.block === owner.body)
     ) {
-      // The hoist point sits before this loop only when it is the owner itself or above it.
       if (k > level.startFrame || index >= from) loops.push({ at: items.length, loop: owner });
     }
   }
   return { items, loops };
 }
 
-/** Rewrites `v`, with every other violation of `found` that shares its chain, or says why not. */
 function rewriteOne(
   m: ModuleDecl,
   v: UniformityViolation,
@@ -522,8 +431,6 @@ function rewriteOne(
     if (e instanceof Refusal) return { reason: e.reason };
     throw e;
   }
-  // The others that share the chain, in the same function, at a point the first one's region
-  // runs through: one recompute serves them all.
   const group: { call: Call; plan: TargetPlan; site: Site }[] = [
     { call: v.call, plan, site: chain[chain.length - 1]!.site },
   ];
@@ -548,8 +455,6 @@ function rewriteOne(
     } catch (e) {
       if (!(e instanceof Refusal)) throw e;
       if (attempt.length === 1) {
-        // A call with no gradient form names the texture it could not recompute, unless the
-        // trouble was the loop it sits in.
         const reason =
           plan.kind === 'whole' && e.reason.kind !== 'loop-variant'
             ? {
@@ -582,8 +487,6 @@ function sameChain(a: readonly Level[], b: readonly Level[]): boolean {
   });
 }
 
-/** The group's targets in the order they run, each one's region a prefix of the next one's and
- *  ending at a statement the next one's region holds; the first target and those that fit. */
 function linearGroup(
   chain: readonly Level[],
   group: readonly { call: Call; plan: TargetPlan; site: Site }[],
@@ -603,7 +506,6 @@ function linearGroup(
     if (fits) out.push(w);
   }
   const keep = out.map((o) => o.g);
-  // The first target must be in the group; without it, the group is just the first target.
   return keep.includes(group[0]!) ? keep : [group[0]!];
 }
 
@@ -612,15 +514,10 @@ const holder = (site: Site): Stmt => {
   return f.block[f.index]!;
 };
 
-// ── The slice ──
-
-/** What the slice walk knows about the module, computed once per rewrite. */
 interface ModuleFacts {
   readonly m: ModuleDecl;
   readonly byName: ReadonlyMap<string, FuncDecl>;
-  /** Module-scope names a read of which is memory: bindings and module variables. */
   readonly memory: ReadonlySet<string>;
-  /** Module-scope names some function of the module writes. */
   readonly written: ReadonlySet<string>;
   readonly pure: Map<string, DerivativeRewriteReason | null>;
 }
@@ -641,16 +538,13 @@ function factsOf(m: ModuleDecl): ModuleFacts {
 const isUserCall = (facts: ModuleFacts, c: Call): boolean =>
   c.declRef !== undefined || (facts.byName.has(c.fn) && !isKnownIntrinsic(c.fn));
 
-/** Refuses a read of module memory some function writes. */
 function checkMemory(facts: ModuleFacts, name: string): void {
   if (!facts.memory.has(name) || !facts.written.has(name)) return;
   const b = facts.m.bindings.find((x) => x.name === name);
-  // A binding nothing writes, a texture and a sampler included, reads the same value anywhere.
   if (b !== undefined && b.space !== 'storage') return;
   refuse({ kind: 'memory', name });
 }
 
-/** Refuses a call of a user function that cannot run again at the hoist point. */
 function checkPureCall(facts: ModuleFacts, name: string): void {
   const known = facts.pure.get(name);
   if (known === null) return;
@@ -690,8 +584,6 @@ function checkIntrinsic(fn: string): void {
   if (EFFECTFUL_INTRINSICS.has(fn)) refuse({ kind: 'other' });
 }
 
-/** The local names a statement list writes or declares, at any depth, and the roots of the
- *  arguments a call hands an `inout` parameter. */
 function localWrites(facts: ModuleFacts, stmts: readonly Stmt[]): Set<string> {
   const out = new Set<string>();
   const stmt = (s: Stmt): void => {
@@ -719,17 +611,12 @@ function localWrites(facts: ModuleFacts, stmts: readonly Stmt[]): Set<string> {
   return out;
 }
 
-/** What one level's backward walk needs and found. */
 interface Needs {
-  /** Local names the slice reads that the walk has not yet found the definition of. */
   readonly locals: Set<string>;
-  /** The type of each local name read, for a copy the slice makes of it. */
   readonly types: Map<string, ShaderType>;
-  /** Parameters the slice reads. */
   readonly params: Set<string>;
 }
 
-/** Adds what `e` reads to `needs`, refusing what cannot be read again at the hoist point. */
 function addReads(facts: ModuleFacts, e: Expr, needs: Needs): void {
   const visit = (x: Expr): void => {
     switch (x.op) {
@@ -747,7 +634,6 @@ function addReads(facts: ModuleFacts, e: Expr, needs: Needs): void {
         if (isUserCall(facts, x)) checkPureCall(facts, x.fn);
         else checkIntrinsic(x.fn);
         x.args.forEach((a, i) => {
-          // `arrayLength(&xs)` reads the size the host bound, not an element.
           if (!isUserCall(facts, x) && argAccess(x.fn, i) === 'length') {
             const r = rootName(a);
             if (r !== undefined && !facts.memory.has(r)) needs.locals.add(r);
@@ -766,8 +652,6 @@ function addReads(facts: ModuleFacts, e: Expr, needs: Needs): void {
   visit(e);
 }
 
-/** The backward slice of one statement against `needs`: the statement with only what the slice
- *  reads kept, or `undefined` when it adds nothing. */
 function sliceStmt(facts: ModuleFacts, s: Stmt, needs: Needs): Stmt | undefined {
   switch (s.s) {
     case 'let':
@@ -845,12 +729,8 @@ function sliceStmt(facts: ModuleFacts, s: Stmt, needs: Needs): Stmt | undefined 
     case 'for': {
       const writes = localWrites(facts, [s]);
       if (![...needs.locals].some((n) => writes.has(n))) return undefined;
-      // A loop the slice runs again must end where it ended before: a constant trip count
-      // (Rule 7.5's counted form) and no jump out of it.
       if (s.counted?.trips === undefined || hasJump(s.body)) refuse({ kind: 'loop-trips' });
       const counter = s.init.s === 'var' || s.init.s === 'let' ? s.init.name : undefined;
-      // What the body needs at its end is what the loop needs after it and what the next
-      // iteration needs at its start: a fixpoint.
       let atEnd = new Set([...needs.locals, ...(counter === undefined ? [] : [counter])]);
       let body: Stmt[] = [];
       for (let i = 0; i < 64; i++) {
@@ -899,16 +779,12 @@ function sliceBlock(facts: ModuleFacts, stmts: readonly Stmt[], needs: Needs): S
   return out;
 }
 
-/** A target of the level the slice ends at, and where in its region it is reached. */
 interface Tap {
   readonly at: number;
   readonly call: Call;
   readonly plan: TargetPlan;
 }
 
-/** The backward walk of one level's region: the statements kept, by index, and what is still
- *  needed at its start. `seed` adds what the level's end reads (`at` is the region index the
- *  read happens at, the region's length for its own call). */
 function sliceRegion(
   facts: ModuleFacts,
   region: Region,
@@ -930,9 +806,6 @@ function sliceRegion(
   return { kept, needs };
 }
 
-// ── Emission ──
-
-/** Fresh names for one function. */
 class Names {
   private n = 0;
   constructor(private readonly used: Set<string>) {}
@@ -969,8 +842,6 @@ function namesOf(m: ModuleDecl, f: FuncDecl): Set<string> {
   return used;
 }
 
-/** Whether an expression may be written twice in place of a `let`: a leaf, or a value of a type
- *  no `let` holds (a texture, a sampler). */
 const duplicable = (e: Expr): boolean =>
   e.op === 'lit' ||
   e.op === 'constref' ||
@@ -983,7 +854,6 @@ const duplicable = (e: Expr): boolean =>
   e.type.kind === 'sampler' ||
   e.type.kind === 'sampler-comparison';
 
-/** Renames the locals and parameters of one level as it is emitted at the hoist point. */
 class Renamer {
   constructor(
     readonly locals: Map<string, Expr>,
@@ -1001,7 +871,6 @@ class Renamer {
 
 const varref = (name: string, type: ShaderType): Expr => ({ op: 'varref', type, name });
 
-/** `s` emitted at the hoist point: every local it declares under a fresh name. */
 function emitStmt(s: Stmt, r: Renamer, names: Names): Stmt {
   switch (s.s) {
     case 'let': {
@@ -1073,7 +942,6 @@ function emitBlock(stmts: readonly Stmt[], r: Renamer, names: Names): Stmt[] {
   return stmts.map((s) => emitStmt(s, r, names));
 }
 
-/** Applies the rewrite of `targets`, all reached through `chain`, or throws a {@link Refusal}. */
 function applyRewrite(
   m: ModuleDecl,
   chain: readonly Level[],
@@ -1084,8 +952,6 @@ function applyRewrite(
   const facts = factsOf(m);
   const k = chain.length - 1;
   const lastLevel = chain[k]!;
-  // The region and the taps of the level the targets sit in: the longest target region holds
-  // the others, each tapped where its own region ends.
   const regions = targets.map((t) => regionOf({ ...lastLevel, site: t.site }));
   const longest = regions.reduce((a, b) => (b.items.length > a.items.length ? b : a));
   const taps: Tap[] = targets.map((t, i) => ({
@@ -1094,8 +960,6 @@ function applyRewrite(
     plan: t.plan,
   }));
 
-  // Backward, from the targets to the hoist point: each level's needed parameters become reads
-  // of the arguments of the call that leads into it.
   const slices: { kept: Map<number, Stmt>; needs: Needs; region: Region }[] = [];
   let paramSeed: Set<string> = new Set();
   for (let i = k; i >= 0; i--) {
@@ -1123,14 +987,11 @@ function applyRewrite(
             },
           ];
     const s = sliceRegion(facts, region, seeds);
-    // Above the hoist level, nothing local is defined before the region: it is the whole
-    // function's prefix, so a name still needed is one this walk could not find.
     if (i > 0 && s.needs.locals.size > 0) refuse({ kind: 'other' });
     slices[i] = { ...s, region };
     paramSeed = s.needs.params;
   }
 
-  // Forward, at the hoist point.
   const f0 = chain[0]!.fn;
   const names = new Names(namesOf(m, f0));
   const hoisted: Stmt[] = [];
@@ -1140,8 +1001,6 @@ function applyRewrite(
     const level = chain[i]!;
     const { kept, needs, region } = slices[i]!;
     if (i === 0) {
-      // A name defined before the hoist point that the slice writes is copied first, so the
-      // original keeps its value.
       const written = localWrites(facts, [...kept.values()]);
       for (const n of needs.locals) {
         if (!written.has(n)) continue;
@@ -1151,7 +1010,6 @@ function applyRewrite(
         renamer.locals.set(n, varref(name, type));
       }
     } else {
-      // The parameters this level reads are the arguments of the call that leads into it.
       const params = new Map<string, Expr>();
       const into = chain[i - 1]!.call;
       level.fn.params.forEach((p, pos) => {
@@ -1176,8 +1034,6 @@ function applyRewrite(
     }
   }
 
-  // The use: in the hoist function when the targets are there, else through copies of the
-  // helpers between, each taking the values as extra parameters.
   const hoistStmt = chain[0]!.site.frames[chain[0]!.startFrame]!.block[chain[0]!.startIndex]!;
   const funcs = [...m.funcs];
   if (k === 0) {
@@ -1188,7 +1044,6 @@ function applyRewrite(
     funcs[funcs.indexOf(f0)] = { ...f0, body };
     return { ...m, funcs };
   }
-  // Extra parameters, in target order, the same for every copy.
   const extras = targets.flatMap((t) => handleTypes(t.call, t.plan).map((h) => ({ ...h, t })));
   let nextCall: { name: string; extraNames: string[] } | undefined;
   const copies: { of: FuncDecl; copy: FuncDecl }[] = [];
@@ -1230,7 +1085,6 @@ function applyRewrite(
     ...f0,
     body: rebuild(f0.body, replace, hoistStmt, hoisted, builtIfs),
   };
-  // Each copy right after the function it copies, which is before every caller of it on GLSL.
   for (const { of, copy } of copies) {
     const at = funcs.findIndex((f) => f.name === of.name);
     funcs.splice(at + 1, 0, copy);
@@ -1251,7 +1105,6 @@ function freshFunctionName(m: ModuleDecl, funcs: readonly FuncDecl[], base: stri
   }
 }
 
-/** The statements a target's values are computed by at the hoist point; returns the values. */
 function emitTap(t: Tap, r: Renamer, names: Names, out: Stmt[]): Expr[] {
   const bind = (base: string, expr: Expr): Expr => {
     const name = names.fresh(base);
@@ -1283,7 +1136,6 @@ function emitTap(t: Tap, r: Renamer, names: Names, out: Stmt[]): Expr[] {
   }
 }
 
-/** `e` with every expression `replace` names replaced, identity kept where nothing changed. */
 function replaceExpr(e: Expr, replace: ReadonlyMap<Expr, Expr>): Expr {
   const hit = replace.get(e);
   if (hit !== undefined) return hit;
@@ -1296,8 +1148,6 @@ function replaceExpr(e: Expr, replace: ReadonlyMap<Expr, Expr>): Expr {
   return changed ? out : e;
 }
 
-/** `stmts` with `replace` applied and `inserted` placed before `before`, identity kept for what
- *  did not change; a rebuilt `if` keeps the operator `builtIfs` named it for. */
 function rebuild(
   stmts: readonly Stmt[],
   replace: ReadonlyMap<Expr, Expr>,
@@ -1397,8 +1247,6 @@ function rebuildStmt(
   return out;
 }
 
-/** A copy of `stmts` that shares no node with them, with `replace` applied (looked up on the
- *  original nodes); a copied `if` keeps the operator `builtIfs` named it for. */
 function deepCopy(
   stmts: readonly Stmt[],
   replace: ReadonlyMap<Expr, Expr>,

@@ -139,6 +139,15 @@ describe('ambient lib JSDoc', () => {
     }
   });
 
+  const hasQuestionMarkOutsideCode = (doc: string): boolean =>
+    doc.replace(/`[^`]*`/g, '').includes('?');
+
+  it('a question mark counts outside a code span only', () => {
+    expect(hasQuestionMarkOutsideCode('Is it set?')).toBe(true);
+    expect(hasQuestionMarkOutsideCode('Write `a ? b : c` to pick one.')).toBe(false);
+    expect(hasQuestionMarkOutsideCode('Write `a ? b : c` to pick one?')).toBe(true);
+  });
+
   it('JSDoc text ends with a period, is at most three sentences, has no em/en dash', () => {
     const allDocs = [
       ...Object.values(FUNCTION_DOCS),
@@ -162,7 +171,10 @@ describe('ambient lib JSDoc', () => {
       expect(!doc.includes('*/'), `Doc should not contain '*/': "${doc}"`).toBe(true);
 
       // Check no question marks
-      expect(!doc.includes('?'), `Doc should not contain question mark: "${doc}"`).toBe(true);
+      expect(
+        !hasQuestionMarkOutsideCode(doc),
+        `Doc should not contain question mark: "${doc}"`,
+      ).toBe(true);
 
       // Count sentences (roughly by periods)
       const sentenceCount = doc.split('. ').length;
