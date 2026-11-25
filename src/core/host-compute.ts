@@ -52,10 +52,11 @@ import {
   type RecordedArgument,
 } from './host-record.js';
 import { throwFailure, usedGl } from './submission.js';
-import { glContext } from './gl-context.js';
 import type { PlanRun } from './host-kernel.js';
-import type { Tier } from './tiers.js';
 import { entryPrograms } from './host-compute/entry-programs.js';
+import { entryTierFit } from './host-compute/tier-fit.js';
+export { entryTierFit } from './host-compute/tier-fit.js';
+export type { EntryTierFit } from './host-compute/tier-fit.js';
 import { onGl } from './host-compute/gl-run.js';
 export { entryPrograms } from './host-compute/entry-programs.js';
 export type { EntryPrograms } from './host-compute/entry-programs.js';
@@ -361,32 +362,6 @@ function recordCompute(
     waits,
   );
   return waits ? done : undefined;
-}
-
-export type EntryTierFit =
-  | { readonly why: string }
-  | { readonly why?: undefined; readonly tier: 'webgpu'; readonly d: GpuDevice }
-  | { readonly why?: undefined; readonly tier: 'webgl2'; readonly gl: WebGL2RenderingContext }
-  | { readonly why?: undefined; readonly tier: 'cpu' };
-
-export async function entryTierFit(
-  e: ComputeEntry,
-  owner: CallOwner,
-  tier: Tier,
-): Promise<EntryTierFit> {
-  if (tier === 'webgpu') {
-    const d = await owner.device();
-    return d === null ? { why: 'there is no WebGPU device' } : { tier, d };
-  }
-  if (tier === 'webgl2') {
-    if (e.gl === undefined) return { why: e.noGl ?? 'the entry has no WebGL2 program' };
-    const gl = glContext();
-    return gl === null ? { why: 'there is no WebGL2 context' } : { tier, gl };
-  }
-  if (e.barrier !== undefined)
-    return { why: `it reaches ${e.barrier}, not supported yet on the CPU tier (Rule 8.24)` };
-  if (e.noCpu !== undefined) return { why: e.noCpu };
-  return { tier: 'cpu' };
 }
 
 export async function runEntry(
