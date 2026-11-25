@@ -1,12 +1,3 @@
-// ═══ Shader DSL: a stepped run of one shader invocation (docs/debugging.md §2.1) ═══
-//
-// The editor-neutral half of the debugger. It takes a module, an entry point and one
-// invocation's inputs, and hands back an object that stops at statement boundaries and can be
-// stepped. It knows nothing about the Debug Adapter Protocol, VS Code or the DOM: a DAP
-// server in `typeshade/vscode-typeshade` and a "Step on the CPU" panel in the Playground are
-// both adapters over this, which is the same split `docs/language-service-api.md` §1 makes
-// for the language service.
-
 import type { CpuValue } from '../cpu-runtime.js';
 import { consoleInvocation, type ConsoleSink } from '../console.js';
 import { zeroOf } from '../cpu-runtime.js';
@@ -333,8 +324,6 @@ export function startDebugSession(
   args: readonly CpuValue[] = [],
   opts?: DebugSessionOptions,
 ): DebugSession {
-  // The oracle's own preparation, in the oracle's own order: reject what the GPU writers
-  // reject, materialise auto-vars so the assignable lvalues match, then round if asked.
   validate(m);
   const unrounded = autoVars(m);
   const precision: CpuPrecision = opts?.precision ?? 'f32';
@@ -348,17 +337,11 @@ export function startDebugSession(
   const invocation = sink && consoleInvocation(decl, filled, prepared.structs);
   const ctx: ReturnType<typeof makeCtx> = {
     ...makeCtx(prepared, opts?.gpuStubs ?? false),
-    // A kernel function's reduction loop is folded in the tree order (Rule 7.2), as `compileModule`
-    // folds it: the proof reads the module before it is rounded, and the loops it accepts are
-    // named in the module the run walks.
     trees: treeLoops(unrounded, prepared),
     f32: precision === 'f32',
     ...(sink ? { consoleSink: sink } : {}),
     ...(invocation ? { invocation } : {}),
   };
-  // A name the module does not declare is a typo, not a value: storing it silently means the
-  // real binding stays unsupplied and the run fails later, naming the binding the caller
-  // thought they had just supplied. `ctx.bindingNames` is the declared set.
   const declared = new Set(m.bindings.map((b) => b.name));
   for (const [name, value] of Object.entries(opts?.bindings ?? {})) {
     if (!declared.has(name)) {
@@ -381,8 +364,6 @@ export function startDebugSession(
   );
 }
 
-/** Positional arguments, with anything missing standing in as the zero of its type, whatever
- *  `zeroOf` makes of it: `{}` for a struct, which is the gap `startDebugSession`'s JSDoc names. */
 function fillArgs(decl: FuncDecl, args: readonly CpuValue[]): CpuValue[] {
   return decl.params.map((p, i) => (args[i] === undefined ? zeroOf(p.type) : args[i]!));
 }
@@ -396,10 +377,7 @@ class Session implements DebugSession {
   private paused: DebugPause | undefined;
   private finished = false;
   private signal: Signal | undefined;
-  /** The module as the run prepared it, for a watch to redeclare structs and helpers from. */
   private readonly prepared: ModuleDecl;
-  /** Compiled watches, by text and frame shape. Stepping with a watch box open re-asks the
-   *  same question at every stop, and the answer changes while the lowering does not. */
   private readonly watches = new Map<string, CompiledWatch>();
   private readonly maxSteps: number | undefined;
   private steps = 0;
@@ -422,13 +400,6 @@ class Session implements DebugSession {
     this.breakpoints = breakpoints;
     this.maxSteps = maxSteps;
     this.run = runFunction(decl, args, undefined, ctx);
-    // `'entry'` is the reason only when nothing else claims the stop. A breakpoint on the
-    // entry's FIRST statement used to be invisible: the constructor consumed that statement
-    // as the entry pause, so a later `continue()` resumed past it and the breakpoint never
-    // reported. `advance` now prefers `'breakpoint'` whenever one matches, here as on every
-    // other move, which is what makes the `stopOnEntry: false` arm below honest too: it runs
-    // to the first breakpoint, and the entry's own first statement is one of the statements
-    // that can carry one.
     if (stopOnEntry) this.advance('entry', () => true);
     else this.advance('breakpoint', () => false);
   }
@@ -465,8 +436,6 @@ class Session implements DebugSession {
       );
     }
 
-    // A local shadows a binding of the same name, which is the order the interpreter itself
-    // resolves in (`evalExpr` checks the environment before the bindings).
     const scope = new Map<string, ShaderType>(this.bindingTypes);
     for (const [name, type] of frame.localTypes) scope.set(name, type);
 
@@ -482,18 +451,12 @@ class Session implements DebugSession {
       if (frame.locals.has(name)) env.set(name, frame.locals.get(name) as CpuValue);
       else if (pause.bindings.has(name)) env.set(name, pause.bindings.get(name) as CpuValue);
       else {
-        // Declared further down the body, so the frame has a TYPE for it and no value. Saying
-        // so beats evaluating `undefined` into a NaN that reads like an answer.
         throw new Error(
           `typeshade/debug: "${name}" is declared in ${frame.fnName} but not yet assigned at this pause`,
         );
       }
     }
 
-    // A watch is evaluated on the frame it is asked about: pushing one carrying that frame's
-    // stub marks is what makes a watch over a stand-in report itself as one, and it is what a
-    // call inside the watch unwinds back to. The run's own generator is suspended throughout,
-    // so nothing else is looking at this stack, and the `finally` puts it back either way.
     const before = this.ctx.stubHits;
     this.ctx.frames.push({
       fnName: frame.fnName,
@@ -507,8 +470,6 @@ class Session implements DebugSession {
     try {
       const walk = evalExpr(compiled.expr, env, this.ctx);
       let step = walk.next();
-      // A watch never pauses: its statement boundaries are inside helpers it called, and a
-      // watch box asking a question is not a place to stop.
       while (!step.done) step = walk.next();
       return { value: step.value, type: compiled.type, stubbed: this.ctx.stubHits > before };
     } finally {
@@ -516,14 +477,6 @@ class Session implements DebugSession {
     }
   }
 
-  /** The watch expression rounded the way this run's arithmetic is rounded.
-   *
-   *  Without it a watch would answer a different question from the statement beside it: the run
-   *  is `froundF32`-wrapped at `'f32'` and a freshly compiled expression is not, so
-   *  `a * 0.1` in the watch box would be the f64 product while `const b = a * 0.1` one line
-   *  down is the f32 one. `froundF32` takes a module, so the expression rides in a throwaway
-   *  one rather than this file re-implementing the wrapping rule.
-   */
   private atPrecision(w: CompiledWatch): CompiledWatch {
     if (this.precision !== 'f32') return w;
     const wrapped = froundF32({
@@ -552,9 +505,6 @@ class Session implements DebugSession {
 
   stepOut(): DebugPause | undefined {
     const depth = this.depth();
-    // The post-call arm is what makes this §2.1's step-out rather than "run until the stack is
-    // shallower": it stops the moment this frame's caller has it back, still on the statement
-    // that made the call, so a following `stepIn` enters that statement's next call.
     return this.advance(
       'step',
       (d) => d < depth,
@@ -566,7 +516,6 @@ class Session implements DebugSession {
     return this.advance('breakpoint', () => false);
   }
 
-  /** How deep the stack is at the current pause; 1 is the entry frame. */
   private depth(): number {
     return this.paused?.frames.length ?? 0;
   }
@@ -577,19 +526,6 @@ class Session implements DebugSession {
     );
   }
 
-  /** Pull events out of the walk until one is worth stopping at, or the run finishes.
-   *
-   *  Three rules, and each is a decision rather than a detail:
-   *
-   *  - **A statement with no span is never a stop.** It still executes; it just has no line to
-   *    show, so stopping there would put an editor's caret nowhere. The counter a `while`
-   *    lowers to is the case that exists today (`docs/debugging.md` §3.4). This is why
-   *    `DebugPause.span` is not optional.
-   *  - **A breakpoint stops any move**, not only `continue`. A breakpoint inside a helper that
-   *    a stepped-over statement calls has to fire, which is what DAP's `next`, `stepIn` and
-   *    `stepOut` all report.
-   *  - **A post-call event is a stop only for `stepOut`.** See {@link StepEvent.afterCall}.
-   */
   private advance(
     reason: DebugPause['reason'],
     want: (depth: number, span: SourceSpan) => boolean,
@@ -635,7 +571,6 @@ class Session implements DebugSession {
   }
 }
 
-/** Copy the live frame stack into the shape a caller reads, innermost first. */
 function snapshot(
   reason: DebugPause['reason'],
   stmt: Stmt,
