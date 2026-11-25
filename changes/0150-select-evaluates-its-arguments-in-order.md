@@ -1,7 +1,7 @@
 ---
 id: '0150'
 title: An explicit select(f, t, c) evaluates its three arguments, left to right
-status: draft
+status: accepted
 rules:
   - '7.9'
 surface:
@@ -24,11 +24,11 @@ downstream:
 
 | Field                         | Record                                                                                                                                                                                                                                                                         |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity and status           | Proposal 0150, `status: draft`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                      |
-| Date and attribution          | 2026-11-25, UTC (the drafting date). An AI agent (Claude Code) drafted it on the owner's decision of the same date, recorded below. This is attribution, not approval.                                                                                                         |
+| Identity and status           | Proposal 0150, `status: accepted`. The front matter is the identity and lifecycle authority.                                                                                                                                                                                   |
+| Date and attribution          | 2026-11-25, UTC (the drafting date). An AI agent (Claude Code) drafted it on the owner's decision of the same date, recorded below. The approval is recorded in the Approval and plan record below. This table row is attribution, not approval.                               |
 | Applicability / Effectivity   | `src/compiler/ts/lower/expression-call.ts` (`lowerSelectCall`), `src/compiler/ts/sequence.ts`, `src/core/ir/nodes.ts`, `src/language-service/docs.ts`, `docs/language-design.md` Rule 7.9 and `docs/use-typeshade-surface.md` §10, §26 and §27. No release is assigned (OD-6). |
 | Review baseline               | `main` at `49a41425ef40ef6eafa665c5d0c5dd7186081268`. Every "today" claim below was probed with `compile()` at this commit on 2026-11-25.                                                                                                                                      |
-| Review and revision authority | The pull request that adds this file. Git records revisions. PR review and merge records establish decisions. At drafting, no PR number is assigned.                                                                                                                           |
+| Review and revision authority | The pull request that adds this file. Git records revisions. PR review and merge records establish decisions. The pull request is #1615.                                                                                                                                       |
 
 ## What changes
 
@@ -237,11 +237,16 @@ Known: one optional IR field, one `case` of `sequence.ts`, one line of `lowerSel
 
 ### Independent review record
 
-Not yet done. A reviewer that did not write this proposal reviews it before the owner decides (`changes/README.md`, Independent review). The record of the reviewer, the date, the revision, each finding and the answer belongs here.
+Reviewer: a Sonnet sub-agent that did not write this proposal, on 2026-11-25. Revision reviewed: `d2cc74059926f17c9093d1037e2d1a69985cffcc`. It checked quotations against file and line, missed `select` and ternary text, design claims against the code and the writing rules. It gave 15 findings. Answer: all fixed in the later commits of this pull request (one finding, the marker left on a pure `select`, changed the design to its three steps). The findings are not listed one by one here. Git holds the reviewed text and the fixes.
 
 ### Approval and plan record
 
-This record does not yet apply. Acceptance will require the owner's "merge" on the pull request, the approved revision, the assigned responsibilities and the agreed milestones.
+- Decision: the owner approved the proposal in the conversation of the orchestrating session on 2026-11-25, after reading the example before and after, the Rule 7.9 sentence, the hover text, the design and the downstream facts. The owner's words: "머지 승인" (English: merge approved). The orchestrating session relayed the decision to this session.
+- Earlier decision, same date: the choice of `select` as a function call, recorded under "The owner's decision (2026-11-25)" above.
+- Approved revision: the text at head `1c7a9057b5d06e9daf1f3bd31e429c6484cd304b` of pull request #1615. The commit that sets `status: accepted` changes this file's status, the document-control rows and this record, and nothing else.
+- Responsibilities: unassigned. The implementation pull requests are not yet assigned to an actor.
+- Milestones: not agreed. No schedule is set.
+- Required validation: stated in the tests section and in the next record.
 
 ### Configuration and validation record
 
