@@ -128,6 +128,17 @@ What the owner must change in the settings, and what changes for an agent that m
 
 ## Recommendation
 
+### Status: Phase 1 on hold
+
+[decision, orchestrating session, 2026-11-25] Phase 1 is on hold. Two review rounds of the trial and the scripts found 21 and then 25 standing defects. One more revision would not close them. Phase 0 stands. It costs the owner nothing, and the orchestrating session measures its effect ("Phase 0, observed", to be added). The owner is asked for nothing now.
+
+**Open item 1 (structural).** `.github/CODEOWNERS` makes `@Seungup` the owner of every path (`*`). `CLAUDE.md` (Merging) says that `main` needs a Code Owner review, that the owner cannot approve their own pull request, and that the owner's go-ahead is the review. Every agent works through the owner's account. So, as the repository files say, every merge passes the review rule by a bypass of the administrator role, and I read that from `CLAUDE.md` and `CODEOWNERS`. A merge queue takes a pull request whose rules are met. On `main` a pull request therefore enters the queue only in one of two cases:
+
+- (a) The review rule of `main` changes. This is a decision of the owner about the ruleset.
+- (b) A merge by a bypass actor enters the queue instead of passing it. The documentation does not say this.
+
+The same holds for the trial once it copies the `pull_request` rule: T1 to T5 stall at "review required". Until (a) is decided or (b) is observed, option A cannot deliver its gain on this repository. The review rule and the review record below carry the other open items.
+
 Three phases, in this order. Each phase ends before the next one starts.
 
 **Phase 0. Larger batches (option D). Decided, no approval needed.** It changes no approved text and no setting. This is a decision of the orchestrating session of 2026-11-25. It is not an entry of the owner. A batch is at least three slices in one pull request. Each session has one ready pull request at a time and at most one merge in 90 minutes. The text of `docs/structure-slice-playbook.md` belongs to the tooling session (`session_017fz53QE4PQaF3JDLrqDKWC`). This proposal does not edit it. At 3 slices a batch the rate is at most 3.5 merges an hour, which is 37% of capacity (model, section "Options").
@@ -144,7 +155,7 @@ Option B alone saves nothing today. Option C reverses an approved rule of `0147`
 
 These are the limits of option A.
 
-1. Whether the `merge_queue` rule type is available for this repository is open. The page "Managing a merge queue" gives no plan or ownership requirement (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue). The page on rulesets says that rulesets are for "GitHub Team and GitHub Enterprise plans" (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets; one fetch, not confirmed). The orchestrating session read the live repository on 2026-11-25: the owner type is `Organization`, the repository is public, and the ruleset `main` exists. I did not read these. The `POST` of script 1 answers the open point at no cost.
+1. Whether the `merge_queue` rule type is available for this repository is open. The orchestrating session reports that merge queues are available in public repositories owned by an organization, and that the repository owner type is `Organization`. I read four documentation pages for such a sentence and found none (the page "Managing a merge queue", the plans page, the page on merging with a merge queue, and the page on Advanced Security). Not checked. The page on rulesets says that rulesets are for "GitHub Team and GitHub Enterprise plans" (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets; one fetch, not confirmed). The `POST` of script 1 would answer the open point at no cost, but Phase 1 is on hold.
 2. Every required check must report on the `merge_group` event. Otherwise the merge fails, because the check never reports (the same page, and https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows). A workflow that a branch filter skips leaves its checks "Pending". A pull request that requires them cannot merge (https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax). `ci.yml` has no `merge_group` trigger today. So the trigger must reach `main` before the rule does (Phase 2). The four required checks are `typecheck + unit`, `traceability (Doorstop)`, `compile gate (Tint + WebGL2)` and `user journeys (packed tarball, WebGPU)`. They keep their names.
 3. The documentation does not say which file a `merge_group` run reads. The events page gives `GITHUB_SHA` as "SHA of the merge group" and says nothing about the workflow file. It does not say it for `pull_request` either. Not checked. Trial result T0 observes it.
 4. How the jobs behave on `merge_group`. Read from `ci.yml` at `d28e833a`, not from a run. The step `diff` of `change scope` sets `code=true` for every event except `pull_request`. The step `move` runs only on a `pull_request`, so `move` is `none`. The `draft` output reads `github.event.pull_request.draft`. It is empty on `merge_group`, so it is `false`. Result: every job runs on a merge group, as on a push to `main`.
@@ -168,10 +179,15 @@ This proposal rests on no entry of `docs/owner-decisions.md` and touches none. A
 
 ### Decisions for the owner
 
-- D1. Approve the trial of Phase 1. The owner actions of Phase 1 are listed in one place in section "Phase 1, the trial": the go-ahead for a workflow push to `ci-trial`, the setting `allow_auto_merge` if T3 needs it, script 1, a removal of a queue entry if T0 times out, and script 2.
-- D2. After the trial: amend the sentence of `0147` "Each skipped gate runs on `main` after the merge", as the text above says.
-- D3. After the trial: how an agent merges under the merge queue. Choose auto-merge on the owner's go-ahead. Or choose a direct merge by a bypass actor, if the first merge of Phase 2 shows that it skips the merge queue. The second choice goes beyond `CLAUDE.md` (Merging), which allows a bypass of the review requirement only. It needs a change of `CLAUDE.md`. D3 is decided after step 4 of Phase 2.
-- D4. Whether a merge group of documents only runs a light scope. Recommendation: no, in the first version. Every gate runs, as on a push to `main`.
+None is asked now. Phase 1 is on hold (section "Recommendation").
+
+The owner must answer one question before Phase 1 can restart. Does the owner want to change the review rule of `main` for a merge queue? If yes, what replaces "the owner's go-ahead is the review" of `CLAUDE.md` (Merging)? Or is the trial limited to observing case (b), a merge by a bypass actor that enters the queue?
+
+The decisions D2 to D4 of the earlier text wait for that answer:
+
+- D2. Amend the sentence of `0147` "Each skipped gate runs on `main` after the merge", as the text above says.
+- D3. How an agent merges under the merge queue.
+- D4. Whether a merge group of documents only runs a light scope. Recommendation: no, in the first version.
 
 Phase 0 is not a decision of the owner. The orchestrating session decided it (section "Recommendation").
 
@@ -498,7 +514,7 @@ The field names and limits of `merge_queue` come from https://docs.github.com/en
 
 ### Draft impact estimate
 
-Known work: a trial branch and a trial ruleset (about 430 runner minutes). A `merge_group` trigger. One new output of `change scope`. One condition on each gate job. Text in Rule 13.4, `AGENTS.md` and `CLAUDE.md`. The regeneration of one Doorstop item. Duration and cost of that work: unknown. Compatibility: a merge goes through a merge queue, and an agent changes how it merges. The decisions D1 to D4 must be resolved before acceptance.
+Known work: a trial branch and a trial ruleset (about 530 runner minutes in the model, up to 830 in the reviewers' worst case; the derivation is in the cost paragraph of section "Phase 1, the trial"). A `merge_group` trigger. One new output of `change scope`. One condition on each gate job. Text in Rule 13.4, `AGENTS.md` and `CLAUDE.md`. The regeneration of one Doorstop item. Duration and cost of that work: unknown. Compatibility: a merge goes through a merge queue, and an agent changes how it merges. The decisions D1 to D4 must be resolved before acceptance.
 
 ### Independent review record
 
@@ -554,6 +570,40 @@ Round 3. Date: 2026-11-25. Revision reviewed: commit `ea0635cb`. Reviewers: four
 - K (minor). Fixed: how to run a block, the wording after a timeout, what the guard checks, the probe step in `change scope`, the skipped checks of a documents-only pull request, and an absolute path for the backup.
 - Refuted, no action: printing the new ruleset id, deleting `gh-readonly-queue/ci-trial/*` branches, and the claim that T3 cannot run while `allow_auto_merge` is false.
 - Not checked: the live facts of the work order (I did not read them), and all three scripts (nobody ran them).
+
+Review round 2, open items. Date: 2026-11-25. Revision reviewed: commit `0e7666b3`. Reviewers: the orchestrating session's four Sonnet reviewers and one skeptic for each defect above minor. The session reported 25 standing defects (3 "breaks or harms", 2 "wrong result", 9 "misleads", 11 "gap in the trial"), 4 uncertain, 1 refuted and 11 minor. I did not verify the items below, except the structural one, which I checked in `CODEOWNERS` and `CLAUDE.md`. The scripts are not rewritten. Phase 1 is on hold, so these items stay open.
+
+- Structure.
+  - The Code Owner review and the single account (open item 1 in "Recommendation").
+  - How a pull request enters the merge queue when the session has no GraphQL tool. `enable_pr_auto_merge` is the only enqueue, and it is the thing that T3 tests. `allow_auto_merge` is repository-wide, and it leaks to pull requests of `main` while it is on. The documentation says that the setting does not apply to a queue branch. For the mutation behind the MCP tool, not checked.
+  - A bypass actor with `always` may push directly to `ci-trial`. So the claim in "Order" and the reading of T1, T3 and T7 depend on which token the session has.
+- Script 1.
+  - The branch check reports "does not exist" for any `gh` failure (login, 403, network).
+  - The guard text is wrong in both directions. `includes_parents` defaults to true, so organization rulesets are read. `target` is never read, so a tag ruleset stops the script.
+  - A block pasted line by line may run on after a `throw`. Uncertain: wrap it.
+- Script 3 and the rollback.
+  - The backup is written and printed before the guards, so a second run prints the backup of the changed ruleset.
+  - The rollback finds its target by the typed `$name` (default `ci-trial`), not by the id inside the backup.
+  - The read-back compares rule types and bypass actors only. It does not compare rule parameters, conditions or enforcement.
+  - The rehearsal on `ci-trial` is a round trip with no change, and it skips the whole `main` block. The risky part stays untested.
+  - `required_linear_history` is not the only conflict, and only the ruleset named `main` is read. The documentation says that a wildcard branch protection pattern also blocks a merge queue.
+  - `check_response_timeout_minutes` 90 against a `ci` run that took up to 157 minutes under backlog. Uncertain how the timeout counts queue time.
+  - `max_entries_to_build` 2 with 19 jobs for each group against the 20-job limit.
+- Script 2: leftover `gh-readonly-queue/ci-trial/*` branches and open queue entries. Uncertain.
+- Trial.
+  - The probe file `trial-fail` has no extension, so its pull request is a code pull request with the full scope.
+  - T0 cannot tell the base tip from the merge group commit, because no trial pull request edits `ci.yml`.
+  - T5 needs two pull requests green within the wait of two minutes. The light runs do not give that.
+  - The list of `ci.yml` edits for `ci-trial` omits the permission `actions: read`, the token, the lookup step and the `tested` conditions.
+  - The decisive read of T3 does not show that a pull request is in the queue.
+  - Non-required jobs that still run at merge time make `tested` false. Kept as a limit of the gain.
+- Phase 2.
+  - The message to the sessions says "merge as the trial found", and step 4 exists because that is not known.
+  - The rollback is slow, because it is a script on the owner's machine after the harm. A removal of the one rule in the web UI is faster, with a WARNING not to disable the whole ruleset.
+  - The rollback trigger should be one refused merge, not two.
+- Text.
+  - Risk 1: the orchestrating session asked me to close it with a documentation note. I found no page that says it, so it stays open (risk 1).
+  - The cost had two numbers (430 and 530 to 830). Fixed: the impact estimate points to the cost paragraph.
 
 ### Approval and plan record
 
