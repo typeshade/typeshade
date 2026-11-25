@@ -138,8 +138,10 @@ tier runs. Where no fallback exists, write "not supported yet" and cite the rule
   Every asset is scanned for `new Function`, `Function` and `eval`. A split import must be a
   literal path to an included local JavaScript asset; remote, computed and missing targets fail.
   Planted faults prove the scan reads each asset to its end (Rules 11.7 and 11.13). CI's
-  `typecheck + unit` job runs it. A rise of a budget waits for the owner, except the rise that a
-  `Move: pure` split causes (`CLAUDE.md`, Merging). `src/bundle-ceiling-policy.test.ts` fails when a
+  `typecheck + unit` job runs it. `CLAUDE.md` (Merging) names the rises of a budget that merge
+  without the owner: the rise that a `Move: pure` split causes, the rise inside a pull request that
+  implements an accepted proposal, and the fix of a `main` that merged pull requests put over the
+  budget. Any other rise waits for the owner. `src/bundle-ceiling-policy.test.ts` fails when a
   number of the budget file is above its ceiling in `scripts/bundle-ceiling.json`, 1% above the
   number at `c4a12d3f`. Never raise a number of `scripts/bundle-ceiling.json`.
 - `bun run gate:compile`: every registered example emitted and compiled, a function declared
