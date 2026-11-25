@@ -66,7 +66,7 @@
   "src/compiler/ts/lower/statement.ts": 2912,
   "src/compiler/ts/module-const.ts": 1039,
   "src/compiler/ts/module-vars.test.ts": 617,
-  "src/compiler/ts/module-vars.ts": 787,
+  "src/compiler/ts/module-vars.ts": 647,
   "src/compiler/ts/narrowing.ts": 732,
   "src/compiler/ts/new-expression.test.ts": 845,
   "src/compiler/ts/operators-statements.test.ts": 820,

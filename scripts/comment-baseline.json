@@ -241,7 +241,6 @@
   "src/compiler/ts/module-var-names.ts": 4,
   "src/compiler/ts/module-vars-atomic.test.ts": 5,
   "src/compiler/ts/module-vars.test.ts": 63,
-  "src/compiler/ts/module-vars.ts": 140,
   "src/compiler/ts/module.test.ts": 30,
   "src/compiler/ts/module.ts": 27,
   "src/compiler/ts/msaa-load.test.ts": 14,
