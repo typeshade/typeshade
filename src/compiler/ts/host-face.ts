@@ -110,6 +110,11 @@ import { never } from './host-face/never-export.js';
 import type { BindingRef } from './host-face/binding-ref.js';
 import { resourceFaces } from './host-face/resource-faces.js';
 import type { HostFaceOptions, HostFace } from './host-face/contracts.js';
+import {
+  COMPUTE_BUILTINS,
+  STORAGE_ACCESS,
+  FRAGMENT_BUILTINS,
+} from './host-face/entry-vocabulary.js';
 export type { HostFaceOptions, HostFace } from './host-face/contracts.js';
 export { hostViewPath, isShaderModulePath, formatBuildErrors } from './host-face/build-paths.js';
 export { bareArrays } from './host-face/kernel-facts.js';
@@ -121,14 +126,6 @@ function reported(e: FaceExport): HostExport {
   if (e.kind === 'shape') return { kind: 'never', name: e.name, reason: e.reason, typeOnly: true };
   return e;
 }
-
-const COMPUTE_BUILTINS = new Set([
-  'global_invocation_id',
-  'local_invocation_id',
-  'local_invocation_index',
-  'workgroup_id',
-  'num_workgroups',
-]);
 
 /**
  * Compute the host face of one shader module: which exports a host can call (Rule 8.20), their
@@ -433,12 +430,6 @@ function namedBindings(
   };
 }
 
-const STORAGE_ACCESS = {
-  read: 'read-only',
-  write: 'write-only',
-  read_write: 'read-write',
-} as const;
-
 function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const x = c.entry;
   for (const p of f.params)
@@ -501,8 +492,6 @@ function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
       : {}),
   };
 }
-
-const FRAGMENT_BUILTINS = new Set(['position', 'front_facing']);
 
 function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   const x = c.entry;
