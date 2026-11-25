@@ -344,8 +344,11 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   52095, split total 180803 to 180857. #1590 and #1578 each passed the check alone, `main`
   measured more with both, and #1599 sets the three numbers to the measured size.
   #1565 (a feature) set the single-file number to 179038, and #1606 sets it to 179087 for the
-  moves of #1605.
-  Budget pull requests: #1580, #1599, #1594, #1606. Pull requests of the moves: #1578, #1593, #1605.
+  moves of #1605. For the moves of #1607: `typeshade/runtime` single file 179087 to 179118 and
+  split total 181044 to 181081; `typeshade/emit` 124657 to 124662 for all three numbers;
+  `typeshade/fuse` single file 123212 to 123237 and split total 123962 to 123969.
+  Budget pull requests: #1580, #1599, #1594, #1606. Pull requests of the moves: #1578, #1593, #1605,
+  #1607.
 - **The `typescript` peer range starts at the lowest version CI checks** (#922). It reads
   `>=5.6.3 <7`, where it read `>=5.0.0 <7`. TypeScript 5.0.4 crashed with `Maximum call stack size
 exceeded` while checking `src/core/sot.ts` and `src/core/ir/builder.ts`, and no CI leg ran below

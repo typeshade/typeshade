@@ -6,7 +6,7 @@
 import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
 import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
 
-// Re-export these tables so `ambient.ts` can import from `docs.ts` without an import cycle.
+// Why: re-exported so `ambient.ts` can import them from `docs.ts` without an import cycle.
 export const ATTRIBUTE_NAMES = COMPILER_ATTRIBUTE_NAMES;
 export const WGSL_BUILTIN_NAMES = SOT_WGSL_BUILTIN_NAMES;
 
