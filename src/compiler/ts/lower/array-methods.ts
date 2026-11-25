@@ -929,8 +929,8 @@ function lowerValueMethod(
         body,
         ...(kernel ? { counted: { name: counter, op: 'add' as const, step: 1, start: 0 } } : {}),
       });
-      // `===` for `indexOf`, and SameValueZero for `includes`, where a NaN finds a NaN. A NaN is
-      // told by its bits, which every tier keeps (change 0045), and not by `x != x`.
+      // Why: a NaN is told by its bits, which every tier keeps (change 0045), and not by
+      // `x != x`.
       const isNaN = (x: Expr): Expr => ({
         op: 'compare',
         type: boolT,
