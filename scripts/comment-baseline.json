@@ -307,7 +307,7 @@
   "src/compiler/ts/storage-textures.test.ts": 110,
   "src/compiler/ts/struct-cycle.test.ts": 52,
   "src/compiler/ts/structs.test.ts": 1,
-  "src/compiler/ts/structs.ts": 537,
+  "src/compiler/ts/structs.ts": 495,
   "src/compiler/ts/subgroups.test.ts": 31,
   "src/compiler/ts/super-constructor-diagnostics.test.ts": 1,
   "src/compiler/ts/switch-array.test.ts": 5,
