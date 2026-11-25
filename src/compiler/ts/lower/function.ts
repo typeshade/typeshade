@@ -2755,7 +2755,7 @@ function fillFunctionBodyNow(
       return;
     }
     parameterNames.add(p.name);
-    // A kernel function's array is the caller's storage, read and written in place (Rule 8.23).
+    // Implements: Rule 8.23
     const storage = stub.kernel === true && p.type.kind === 'array' && p.type.size === undefined;
     // An object parameter that its function writes names the caller's object (change 0142): bound as the object of a
     // method that changes it is, a local the body writes under the parameter's own IR name,
@@ -2866,7 +2866,7 @@ function fillFunctionBodyNow(
     );
   }
   // A path that ends a function with an optional result without a `return` is the absent
-  // value, as TypeScript reads the end of the body (Rule 7.10, change 0099): the return is
+  // Implements: Rule 7.10
   // appended here, with the same value `return undefined;` lowers to. A plain function's
   // fall-through stays the IR lint's (`all-paths-return`).
   if (
@@ -2951,7 +2951,7 @@ function fillFunctionBodyNow(
   }
   (stub as { body: readonly Stmt[] }).body = body;
   // A kernel function's loops are proved on its IR, and a refusal names the author's names
-  // (Rule 8.22): keep what each IR name was written as, the functions it calls and the static
+  // Implements: Rule 8.22
   // fields it reaches among them. The scope names a module-level name as itself, which is why a
   // value of the module has a table of its own: a parameter that shares its IR name is a `param`,
   // and reads the scope's table (#988).

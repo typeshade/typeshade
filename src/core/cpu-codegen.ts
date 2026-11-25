@@ -33,12 +33,12 @@
 //     a `discard` returns nothing, an element read past an array's end is
 //     `undefined`): the helper takes it as a scalar, as the interpreter does, where a
 //     component read would throw. `analyseAbsence` decides which operands those are,
-//     once per module, from the IR alone. The helpers are what they were before #410,
-//     so the few that read such a value as an array (a vector constructor's spread, a
-//     negation, a vector comparison or select, a swizzle) still answer otherwise than
-//     the interpreter does, or throw. And per-component code computes no component
-//     nothing reads, so an error the interpreter raises in one (a field read of an
-//     element past an array's end) is not raised;
+//     once per module, from the IR alone.
+
+// Why: a vector operation on a value the IR types as a vector but the module made missing is
+// left to the runtime helper; a few helpers still differ from the interpreter there, and no
+// error is raised for a component nothing reads.
+
 //   • it keeps the interpreter's evaluation order: an operand with an effect, or
 //     one evaluated before one, is evaluated once, in order, into a temporary,
 //     and its components read afterwards, as the helper reads them (`isPure`);
