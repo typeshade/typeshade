@@ -17,7 +17,7 @@ import { toPortable } from '../ir/portable.js';
 import { layoutOf, calleesOf, closureOf } from '../manifest.js';
 import { compileModule } from '../oracle.js';
 import { fnWrites } from '../passes/effects.js';
-import { lowerKernelPruned as lowerKernel, type KernelPlan } from '../passes/kernel-prune.js';
+import { lowerKernelPruned as lowerKernel } from '../passes/kernel-prune.js';
 import { proveKernels } from '../passes/parallel-loop.js';
 import type { OptLevel } from '../passes/opt/optimize.js';
 import { VERSION } from '../version.js';
@@ -25,18 +25,13 @@ import { compile } from '../../compiler/ts/compile.js';
 import { authorTypeText } from '../../compiler/ts/context.js';
 import { bareArrays, hostTypeOf } from '../../compiler/ts/host-face.js';
 import { describeRead } from '../../compiler/ts/kernel-loops.js';
-import {
-  copy,
-  runKernelPlan,
-  scheduleKernelPlan,
-  tailOf,
-  type PlanFold,
-  type PlanSchedule,
-} from './kernel-plan.js';
+import { copy, runKernelPlan, scheduleKernelPlan, tailOf } from './kernel-plan.js';
 import { type ChainAccess, type ChainArray, type ChainCorpus } from './random-ir.js';
 import { callArgs, type Inputs } from './fuse-chain/inputs.js';
 import { outcomeOf, type Outcome } from './fuse-chain/apart.js';
 import type { ModelGroup } from './fuse-chain/model.js';
+import type { Lowered, PlannedGroup, GroupFault, GroupStep, FusedRun } from './fuse-chain/types.js';
+export type { Lowered, PlannedGroup, GroupFault, GroupStep, FusedRun } from './fuse-chain/types.js';
 export {
   modelGroups,
   reasonOf,
@@ -50,13 +45,6 @@ export { runApart } from './fuse-chain/apart.js';
 export type { Outcome } from './fuse-chain/apart.js';
 export { lengthOf, tripsOf, inputsOf, withScratchContents, callArgs } from './fuse-chain/inputs.js';
 export type { Sizes, ScalarOf, Inputs } from './fuse-chain/inputs.js';
-
-export interface Lowered {
-  readonly face: KernelFace;
-  readonly m: ModuleDecl;
-  readonly fn: string;
-  readonly plan: KernelPlan;
-}
 
 function spell(t: ShaderType): string {
   if (t.kind === 'struct') return t.name;
@@ -319,11 +307,6 @@ export function planChain(c: ChainCorpus, calls: readonly GroupCall[], limit: nu
   return groupCalls(calls, limit, new Set(c.arrays.filter((a) => a.scratch)));
 }
 
-export interface PlannedGroup {
-  readonly calls: readonly number[];
-  readonly contracted?: readonly object[];
-}
-
 export function fuseGroup(
   lows: readonly Lowered[],
   calls: readonly GroupCall[],
@@ -337,9 +320,6 @@ export function fuseGroup(
   );
   return 'none' in fused ? fused : { fused, arrays };
 }
-
-export type GroupFault =
-  'skip-first-iteration' | 'drop-last-level' | 'zero-partials' | 'local-starts-at-one';
 
 export function localsStartingAtOne(wgsl: string, locals: number): string {
   let n = 0;
@@ -374,20 +354,6 @@ export function fusedUniform(
     }),
   );
   return { values, n: calls[idx[0]!]!.range!.n - (skip ? 1 : 0) };
-}
-
-export type GroupStep =
-  | {
-      readonly entry: string;
-      readonly wg: readonly [number, number, number];
-      readonly values: Record<string, unknown>;
-    }
-  | { readonly clear: readonly string[] };
-
-export interface FusedRun {
-  readonly steps: readonly GroupStep[];
-  readonly partials: PlanSchedule['partials'];
-  readonly folds: readonly PlanFold[];
 }
 
 export function fusedRun(
