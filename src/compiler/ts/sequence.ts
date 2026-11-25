@@ -467,7 +467,7 @@ function seqNode(e: Expr, out: Stmt[], whole: boolean, fn: Fn): Expr {
       return t;
     }
     case 'select': {
-      if (isOrderedSelect(e)) {
+      if (isOrderedSelect(e) || e.cond.type.kind === 'vec') {
         const [ifFalse, ifTrue, cond] = seqList(
           [{ expr: e.ifFalse }, { expr: e.ifTrue }, { expr: e.cond }],
           out,

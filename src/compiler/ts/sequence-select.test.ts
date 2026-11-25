@@ -6,7 +6,10 @@ import { mapChildren } from '../../core/ir/visit.js';
 import type { Expr } from '../../core/ir/nodes.js';
 import { f32T, boolT } from '../../core/ir/types.js';
 import { bothRefuse, bothTake } from '../../core/testing/both-halves.js';
+import ts from 'typescript';
+import type { ModuleDecl, Stmt } from '../../core/ir/nodes.js';
 import { cloneIr } from './context.js';
+import { sequenceEffects } from './sequence.js';
 import { isOrderedSelect, markOrderedSelect } from './sequence/ordered-select.js';
 
 const RNG = `"use typeshade";
@@ -234,6 +237,41 @@ describe('the ordered marker of a select', () => {
     };
     expect(isOrderedSelect(plain)).toBe(false);
     expect(markedSelects({ body: [plain] })).toBe(0);
+  });
+});
+
+describe('a select with a vector condition and no marker', () => {
+  it('never becomes an if on its condition, and its call is bound ahead', () => {
+    const f32v2 = { kind: 'vec', n: 2, elem: 'f32' } as const;
+    const boolv2 = { kind: 'vec', n: 2, elem: 'bool' } as const;
+    const writes = {
+      op: 'call',
+      type: f32T,
+      fn: 'atomicAdd',
+      args: [
+        { op: 'varref', type: f32T, name: 'g' },
+        { op: 'lit', type: f32T, value: 1 },
+      ],
+    };
+    const arm = (e: unknown): unknown => ({ op: 'construct', type: f32v2, args: [e, e] });
+    const pick = {
+      op: 'select',
+      type: f32v2,
+      cond: { op: 'varref', type: boolv2, name: 'm' },
+      ifTrue: arm({ op: 'lit', type: f32T, value: 0 }),
+      ifFalse: arm(writes),
+    };
+    const m = {
+      funcs: [{ name: 'f', params: [], body: [{ s: 'let', name: 'x', type: f32v2, expr: pick }] }],
+      consts: [],
+      bindings: [],
+      structs: [],
+    } as unknown as ModuleDecl;
+    sequenceEffects(m, ts.createSourceFile('a.ts', '', ts.ScriptTarget.Latest), []);
+    const body: readonly Stmt[] = m.funcs[0]!.body;
+    expect(body.some((s) => s.s === 'if')).toBe(false);
+    expect(body[0]!.s).toBe('let');
+    expect(body).toHaveLength(2);
   });
 });
 
