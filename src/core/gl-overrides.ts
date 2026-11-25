@@ -1,5 +1,5 @@
 // Pin the same normalized override values in every WebGL2 host path (0057, 0084).
-import { Emitted } from './spelling-plan.js';
+import { Emitted } from './emitted.js';
 import type { Pack } from './manifest-types.js';
 
 /** `source` with each override named in `values` pinned: GLSL ES 3.00 has no specialization

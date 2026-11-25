@@ -1,4 +1,4 @@
-import { Emitted } from '../../core/spelling-plan.js';
+import { Emitted } from '../../core/emitted.js';
 import { pinOverrides, glslOverrideNames } from '../../core/gl-overrides.js';
 import type { Layout } from '../../core/host-entry.js';
 import {

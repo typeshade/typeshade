@@ -14,7 +14,8 @@ import { withoutKernels } from './ir/kernels.js';
 // manifest, the load-time emitter included (change 0025, section 5). The byte layouts are the
 // ones the emitted WGSL assumes, the same `reflect()` reports (Rule 6.8).
 
-import { Emitted, emittedName, inheritSpellings, spellingsOf } from './spelling-plan.js';
+import { emittedName, inheritSpellings, spellingsOf } from './spelling-plan.js';
+import { Emitted } from './emitted.js';
 import {
   stageOf,
   type BindingDecl,
@@ -58,7 +59,6 @@ import { toPortable } from './ir/portable.js';
 import type { DrawBinding, Layout } from './host-entry.js';
 import { vertexLayoutOf, vertexLayoutOfEntry } from './vertex-layout.js';
 import { VERSION } from './version.js';
-
 export {
   PACK_SCHEMA,
   layoutFromPack,
