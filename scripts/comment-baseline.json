@@ -285,7 +285,6 @@
   "src/compiler/ts/sequence.ts": 98,
   "src/compiler/ts/shift-amount.test.ts": 21,
   "src/compiler/ts/source-file.test.ts": 3,
-  "src/compiler/ts/source-file.ts": 158,
   "src/compiler/ts/span.test.ts": 85,
   "src/compiler/ts/span.ts": 24,
   "src/compiler/ts/specifier.test.ts": 18,
