@@ -652,10 +652,7 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
     const stmt = (st: ts.Statement, s: State, label?: string): State => {
       if (s === null) return null;
       if (ts.isVariableStatement(st)) return declareList(st.declarationList, s);
-      // A bare `discard;` ends the invocation (Rule 7.7), but TypeScript's flow does not know
-      // it: a read after `if (v === undefined) { discard; }` is TS18048 to the editor. The walk
-      // follows TypeScript (Rule 12.7), so both halves say one thing; the author writes the
-      // read inside an `else`, or gives the absent case a value.
+      // Why: TypeScript's flow reads a bare `discard;` as no exit, so the walk does too (Rule 12.7).
       if (ts.isExpressionStatement(st)) return expr(st.expression, s);
       if (ts.isBlock(st)) return block(st.statements, s);
       if (ts.isIfStatement(st)) {
