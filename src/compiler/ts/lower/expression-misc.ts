@@ -47,8 +47,6 @@ import { absentLiteral, absentOf, isOptional, optionalInner, presentOf } from '.
 import { convertOptional, lowerOptionalInitializer, refuseOptionalUse } from './optional-values.js';
 import { functionTypeOf, shapeOf, type FunctionShape } from './function-types.js';
 
-/** The zero each scalar constructor builds with no arguments. `f64` is absent: its zero is the
- *  pair the fp64 pass assembles, which is why `vec3f64()` has no zero form either. */
 const SCALAR_ZERO: Readonly<Record<string, Expr | undefined>> = {
   f32: { op: 'lit', type: f32T, value: 0 },
   i32: { op: 'lit', type: i32T, value: 0 },
@@ -63,10 +61,6 @@ export function lowerScalarCastCall(
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  // `f32()`, `i32()`, `u32()`, `bool()` are the ZERO-value constructors WGSL spells beside the
-  // vector ones (wgsl.txt:20015-20030, core.def `ctor i32() -> i32`): the scalar's zero, and
-  // `false` for a bool. The vector form landed with #150; this is the scalar half of the same
-  // row, and both targets write the literal rather than a call.
   if (node.arguments.length === 0) {
     const zero = SCALAR_ZERO[name];
     if (zero) return zero;
@@ -85,11 +79,9 @@ export function lowerScalarCastCall(
   }
   let lowered = lowerExpression(node.arguments[0]!, sourceFile, scope, diagnostics);
   if (!lowered) return undefined;
-  // `f32()` of a tree whose `u32` bits and TypeScript value differ gives two values (D2).
   if (name === 'f32') {
     const arg = node.arguments[0]!;
     const readings = readingsOf(lowered, (n) => scope.resolveIr(n)) ?? twoReadingsOf(arg);
-    // A tree refused already (a `>>` root's two readings) is that one mistake (Rule 12.4).
     if (readings !== undefined && pendingKindlessRefusal(lowered) === undefined) {
       refuseTwoReadings(sourceFile, diagnostics, {
         node: arg,
@@ -106,19 +98,10 @@ export function lowerScalarCastCall(
     if (read.wrapped !== undefined) return read.wrapped;
     lowered = read.arg;
   }
-  // A cast is a read of a constant of no fixed type: `u32(K)` converts the written number, as
-  // `u32(3)` does, at its exact value (change 0134 item 2). `f32(K)` keeps the name: the
-  // constant is an `f32` there.
   const arg = name === 'f32' || name === 'bool' ? lowered : (abstractLiteralOf(lowered) ?? lowered);
-  // `i32(K)` and `u32(K)` read the constant as an integer, as an argument of that type does,
-  // and so does a conversion of arithmetic over it (`u32(K + 1)`), so a `/` over `K` and
-  // written numbers elsewhere is refused (the owner's decision of 2026-11-10). `f32(K)` and
-  // `f64(K)` do not, and a float-written constant is never read as an integer (`u32(C)`
-  // converts 7.5).
   if ((name === 'i32' || name === 'u32') && arg !== lowered) {
     noteIntegerRead(node.arguments[0]!, name);
   }
-  // The editor's hover names the type the read took in the conversion (change 0134 item 4).
   if (arg !== lowered) noteCastRead(node.arguments[0]!, name);
   const out = lowerScalarCast(
     name,
@@ -135,9 +118,6 @@ export function lowerScalarCastCall(
   return out;
 }
 
-/** Whether evaluating `e` twice could do something once more than the author wrote: a call of a
- *  function the file declares, or of a builtin that is not a known pure one (an atomic, a
- *  barrier, `textureStore`). A read, a literal and a pure builtin give the same value twice. */
 function mayHaveEffect(e: Expr): boolean {
   let effect = false;
   eachExpr(e, (x) => {
@@ -156,7 +136,6 @@ export function lowerExpandCall(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-  /** Says whether the arguments are refused, and has pushed the diagnostic if so (Rule 9.4). */
   refuse: (args: readonly Expr[]) => boolean = () => false,
 ): Expr | undefined {
   const id = resolveMathExpand(name);
@@ -168,9 +147,6 @@ export function lowerExpandCall(
     args.push(lowered);
   }
   if (refuse(args)) return undefined;
-  // `cbrt` reads its argument twice (math-expand.ts). An argument that may have an effect (a
-  // call of a function of the file, or of an atomic) is evaluated once, by passing it to a
-  // function the front end builds with the expansion as its body (#614).
   if (id === 'cbrt' && args.length === 1 && typeKey(args[0]!.type) === 'f32') {
     const x = args[0]!;
     if (mayHaveEffect(x)) {
@@ -227,9 +203,6 @@ export function lowerRandomCall(
   return hashed;
 }
 
-/** A call of a function the file declares. `opts.leading` are arguments already lowered
- *  ahead of the written ones (a method's object, #86), and `opts.shown` is how messages name
- *  the callee when the emitted name is not what the writer wrote (`Ray.at`, `new Ray`). */
 export function lowerUserCall(
   node: ts.CallExpression | ts.NewExpression,
   decl: FuncDecl,
@@ -239,21 +212,12 @@ export function lowerUserCall(
   opts: {
     readonly leading?: readonly Expr[];
     readonly shown?: string;
-    /** The written arguments, already lowered. A generic call lowers them before the callee
-     *  exists, to read the type arguments off them (T9, #92); lowering them again here would
-     *  report every diagnostic in them twice. */
     readonly lowered?: readonly Expr[];
-    /** The written arguments `lowered` came from, when they are not all of the call's: a call
-     *  of a function that takes a function hands those over and lowers the rest (Rule 8.18). */
     readonly written?: readonly ts.Expression[];
   } = {},
 ): Expr | undefined {
   const leading = opts.leading ?? [];
   const shown = opts.shown ?? decl.name;
-  // An entry point may not be called (§52). WGSL says so outright, and the emitted call was
-  // accepted here with zero diagnostics — the pipeline invokes an entry, nothing else may.
-  // Named on the call, since that is the line to change: the body goes in a helper both the
-  // entry and this caller use.
   const stage = stageOf(decl);
   if (stage !== undefined) {
     pushDiag(
@@ -266,8 +230,6 @@ export function lowerUserCall(
     );
     return undefined;
   }
-  // A kernel function is the host's to call (Rule 8.6): its arrays are the caller's storage,
-  // which a shader has no way to hand over, and its loops are dispatches.
   if (decl.kernel === true) {
     pushDiag(
       diagnostics,
@@ -280,8 +242,6 @@ export function lowerUserCall(
     );
     return undefined;
   }
-  // A function that writes no return type says it in its body, which is lowered now if it has
-  // not been yet (Rule 8.19); a call back into a body still being lowered closes a cycle.
   if (!scope.calleeReady(decl, node, sourceFile, diagnostics)) return undefined;
   const written = opts.written ?? node.arguments ?? [];
   const args: Expr[] = [...leading];
@@ -300,9 +260,6 @@ export function lowerUserCall(
     }
   } else {
     for (const [i, arg] of written.entries()) {
-      // An object parameter that its function writes takes the place its argument names, unmarked
-      // (change 0142). Only a function of the file has such a parameter: a kernel
-      // function's arrays are too, and no function calls one (above).
       const param = decl.params[leading.length + i];
       if (param?.mode === 'inout') {
         const place = lowerReferenceArgument(arg, param, shown, sourceFile, scope, diagnostics);
@@ -310,9 +267,6 @@ export function lowerUserCall(
         args.push(place);
         continue;
       }
-      // The parameter's type is the context for `g({ a: 1., b: 2. })` (#8 A11). Read by index
-      // before the arity check below, so a call with too many arguments still lowers each one
-      // and reports the arity rather than a cascade.
       const lowered = lowerExpression(
         arg,
         sourceFile,
@@ -324,17 +278,10 @@ export function lowerUserCall(
       args.push(lowered);
     }
   }
-  // A parameter with a default fills itself in here (roadmap 0.3 item T7, #92): WGSL has no
-  // default arguments, so the emitted call passes every one. The fill stops at the first
-  // parameter without a default, so a call missing a required argument still reports the
-  // arity rather than a type mismatch on the wrong argument. A filled argument was lowered
-  // and type-checked against its parameter where the default was written, so the loop below
-  // stops at `supplied`: there is no written node to retarget an integer literal against.
   const supplied = args.length;
   let broken = false;
   const owner = scope.owner();
-  // A call of a function-typed parameter whose type writes `x?: T` may omit `x`, whatever the
-  // function handed over declares (Rule 8.18, change 0093): the absent value is passed.
+  // Implements: Rule 8.18
   const handed = handedShapeOf(node, scope, sourceFile);
   for (let i = args.length; i < decl.params.length; i++) {
     const filled =
@@ -349,16 +296,12 @@ export function lowerUserCall(
       break;
     }
     args.push(filled);
-    // The default is spliced into the body that wrote this call, so the calls inside it are
-    // that body's as far as the call graph is concerned.
     if (owner) {
       eachExpr(filled, (e) => {
         if (e.op === 'call' && e.declRef !== undefined) noteFilledCall(owner, e.fn, node);
       });
     }
   }
-  // A default that did not lower has already been reported at the declaration; the call is
-  // not what is wrong with the program, so it adds nothing.
   if (broken) return undefined;
   if (args.length !== decl.params.length) {
     const total = decl.params.length - leading.length;
@@ -375,23 +318,17 @@ export function lowerUserCall(
     return undefined;
   }
   for (let i = leading.length; i < supplied; i++) {
-    // `g(1)` takes the parameter's type when it is i32 or u32 (#8 A3).
     const argNode = written[i - leading.length]!;
     const want = decl.params[i]!.type;
     args[i] = retargetIntLitCtx(args[i]!, argNode, want);
     args[i] = readonlyClassUpcast(args[i]!, want, scope, sourceFile);
     args[i] = reportIntLitRange(args[i]!, argNode, want, sourceFile, diagnostics) ?? args[i]!;
-    // An optional nothing narrowed, handed to a parameter that takes its `T`, names the test
-    // to write (Rule 7.10, change 0088).
     if (!isOptional(want) && refuseOptionalUse(args[i], argNode, sourceFile, diagnostics))
       return undefined;
     if (typeKey(args[i]!.type) !== typeKey(decl.params[i]!.type)) {
       const got = args[i]!.type;
       const note = scope.inheritanceNote(want, got);
       const nth = `Argument ${i + 1 - leading.length} of "${shown}"`;
-      // Two unrelated structs are named: TypeScript takes one for the other when their fields
-      // match, so the editor is silent, and the sentence is the only place that says why
-      // (`N.f(new P())` where `N.f` takes the namespace's own `P`).
       pushDiag(
         diagnostics,
         sourceFile,
@@ -406,14 +343,10 @@ export function lowerUserCall(
       return undefined;
     }
   }
-  // A function whose callers decide its result: this call takes the copy its own use decided
-  // (Rule 8.19, change 0134 item 1).
   const call = userCallExpr(decl, args, node, sourceFile);
   return wrapHandedResult(call, node, scope, sourceFile, diagnostics);
 }
 
-/** A call of a parameter of function type whose result is `T | undefined`, in the copy made
- *  for a function that returns `T` (Rule 8.18, change 0088): the function's result, present. */
 function wrapHandedResult(
   call: Expr,
   node: ts.CallExpression | ts.NewExpression,
@@ -429,8 +362,6 @@ function wrapHandedResult(
   return typeKey(inner) === typeKey(call.type) ? presentOf(shape.ret!, call) : call;
 }
 
-/** The function type of the parameter `node` calls, when its callee names a parameter of the
- *  function being lowered that takes a function (Rule 8.18); undefined for any other call. */
 function handedShapeOf(
   node: ts.CallExpression | ts.NewExpression,
   scope: LoweringScope,
@@ -448,25 +379,14 @@ function handedShapeOf(
 }
 
 export function mathResultType(fn: string, args: readonly Expr[]): ShaderType {
-  // A SUPPORTED row of Tint's overload table types the call (0017): `dot(vec3u, vec3u)` is a
-  // `u32` because the row `dot<N, T>(vec<N, T>, vec<N, T>) -> T` says so, and the editor's
-  // declaration is generated from the same row. The branches below are what the table has no
-  // row form for yet: an emulated double, and a matrix.
   const fromTable = builtinResultType(
     fn,
     args.map((a) => a.type),
   );
   if (fromTable !== undefined) return fromTable;
   const first = args[0]!.type;
-  // The reductions of an emulated-double vector are an f64. The fp64 pass composes each from
-  // the SCALAR df64 error-free transforms and hands back the (hi, lo) pair
-  // (passes/fp64-lower.ts, the dot/length/distance arm), and the fn() EDSL types it f64
-  // (ir/node.ts); typing it f32 here was a lie the pass then contradicted, so `const l =
-  // length(v64)` could not be returned from a function declared `f64` (#151 F64-01).
   if ((fn === 'length' || fn === 'distance' || fn === 'dot') && first.kind === 'vec64') return f64T;
   if (fn === 'length' || fn === 'distance' || fn === 'dot' || fn === 'determinant') return f32T;
-  // transpose(matCxR) -> matRxC (wgsl.txt:23397, "transpose any shape"). Identity on a square
-  // matrix, which is why it read as `first` while mat4x4 was the only float matrix.
   if (fn === 'transpose' && first.kind === 'mat') {
     return { kind: 'mat', cols: first.rows, rows: first.cols, elem: first.elem };
   }
@@ -483,21 +403,14 @@ function pushDiag(
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }
 
-/** Lower a call to a generic function: lower its arguments, ask the file's lowering for the
- *  instance those types name, then check the call against it the way any other call is checked
- *  (roadmap 0.3 item T9, #92). The arguments are lowered ONCE and handed on, since lowering
- *  them again inside `lowerUserCall` would report every diagnostic in them twice. */
 export function lowerGenericCall(
   node: ts.CallExpression,
   name: string,
-  /** How messages name the function: `N.pick` for the namespace's `N_pick`. */
   shown: string,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  // An argument for a parameter that takes a function is the function it hands over, which
-  // the instantiation resolves; it is no value to lower (Rule 8.18).
   const takesFunction = scope.functionParamsOf(name) ?? new Set<number>();
   const lowered: (Expr | undefined)[] = [];
   const written: ts.Expression[] = [];
@@ -507,9 +420,6 @@ export function lowerGenericCall(
       argTypes.push(undefined);
       continue;
     }
-    // No contextual type: the parameter's is what the instantiation is about to decide. A bare
-    // integer literal therefore lowers as f32 and reads T as f32; `pick<i32>(…)` is how a call
-    // says otherwise.
     const deferred = absentLiteral(arg) !== undefined;
     const one = deferred
       ? undefined
@@ -522,8 +432,6 @@ export function lowerGenericCall(
   }
   const decl = scope.instantiateGeneric(name, node, argTypes, sourceFile, diagnostics);
   if (!decl) return undefined;
-  // What the functions it was handed capture, which the instance takes ahead of its own
-  // parameters (Rules 8.17, 8.18).
   const leading = captureArguments(decl, shown, node, sourceFile, scope, diagnostics);
   if (leading === undefined) return undefined;
   const values: Expr[] = [];

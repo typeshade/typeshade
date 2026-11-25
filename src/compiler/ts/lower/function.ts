@@ -1,5 +1,3 @@
-// === Function lowering: two-pass signatures then bodies ===
-//
 // Implements: Rule 2.3, Rule 8.3 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
@@ -184,17 +182,6 @@ export {
   refuseF64EntryIo,
 } from './function-signature.js';
 
-/** What the source calls each function, each static field and each constant of a namespace or an
- *  enum of the module that the module emits under another name: `Voice.tally` for a class's
- *  `Voice_tally`, `Ns.f` for a namespace's `Ns_f`, `pick` for the instance `pick_u32` of a generic
- *  function, `bump` for the local function `count_bump`, `Voice.count` for the module variable
- *  `Voice_count` of a static field the file writes, `Voice.OFFSET` for the module constant
- *  `Voice_OFFSET` of one it does not, `Ns.K` for the `Ns_K` of a namespace's constant and `Mode.B`
- *  for the `Mode_B` of an enum's member. A name declared at the top level is emitted as written and
- *  has no row. The functions are read from the callee table, which holds every function of the file
- *  before any body is lowered, and the instances and the copies made by the calls lowered so far.
- *  The rows are in two tables, since a call reads a function and a `varref` or a `constref` a value,
- *  and neither reads a parameter's name (`KernelNames`, #988). */
 function writtenModuleNames(
   scope: LoweringScope,
   sourceFile: ts.SourceFile,
@@ -206,7 +193,6 @@ function writtenModuleNames(
     if (written !== undefined && written !== emitted) functions.set(emitted, written);
   }
   for (const [field, decl] of staticFieldDeclarations(sourceFile)) {
-    // A static field that holds a function is a function of the module, named above.
     if (holdsFunction(decl)) continue;
     const dot = field.indexOf('.');
     const member = emittedMemberName(field.slice(dot + 1));
@@ -217,8 +203,6 @@ function writtenModuleNames(
   return { values, functions };
 }
 
-/** What `this` is to an arrow function inside the class function `cf`: the method's object, or
- *  inside a static member the class the call names (Rule 8.13). */
 function classSelf(cf: ClassFunction): LiftedThis | undefined {
   return cf.receiver !== undefined
     ? {
@@ -250,14 +234,8 @@ export function lowerSourceFunctions(
   overrides: readonly OverrideDecl[] = [],
   vars: readonly ModuleVarDecl[] = [],
 ): FuncDecl[] {
-  // Every function the file declares, at the top level and inside a namespace, with the
-  // emitted name each takes (T4, #92): a top-level `warm` is `warm`, and the same function
-  // inside `namespace Palette` is `Palette_warm`.
   const decls: { node: ts.FunctionDeclaration; irName: string | undefined; prefix: string }[] = [];
   eachNamespaceStatement(sourceFile.statements, sourceFile, diagnostics, (stmt, prefix) => {
-    // A stage call, `const vs = vertex(function vs(…) { … })`, is refused (`refuseStageCalls`,
-    // changes 0130 and 0140). It is still read as the function it wraps, under the constant's
-    // name, so that refusal is the one diagnostic for it (Rule 12.4).
     const sc = stageCallOf(stmt);
     if (sc !== undefined) {
       const node = stageDeclarationOf(sc);
@@ -269,12 +247,6 @@ export function lowerSourceFunctions(
       return;
     }
     if (!ts.isFunctionDeclaration(stmt)) {
-      // A namespace holds functions, constants, classes and namespaces. The consts are
-      // module-const.ts's and the classes are structs.ts's, under the same flattened name
-      // (#107); the rest has no flattened form. Only the namespace's own statements are refused
-      // here, since a top-level statement of any kind is semantic.ts's to judge. An interface
-      // and an object-type alias are structs.ts's too, which refuses one here itself, and a
-      // `var` is semantic.ts's, in a namespace as anywhere else.
       if (
         prefix !== '' &&
         !isNamespaceConst(stmt) &&
@@ -287,9 +259,6 @@ export function lowerSourceFunctions(
       }
       return;
     }
-    // A mixin is a function whose body is one `return class … { … }` (T8, #92). It runs when
-    // the file is compiled, in structs.ts, and emits no function of its own: a class
-    // expression is no GPU value, and there is nothing for a call to it to mean at run time.
     if (isMixinDeclaration(stmt)) return;
     decls.push({
       node: stmt,
@@ -297,12 +266,6 @@ export function lowerSourceFunctions(
       prefix,
     });
   });
-  // An overload signature is a declaration of the same function with no body, above the one
-  // that has it (roadmap 0.3 item T6, #92). WGSL has no overloading and TypeScript's own rule
-  // makes the implementation signature the one every call is checked against, so the
-  // signatures are skipped and the implementation is lowered. A body-less declaration with no
-  // implementation, and an ambient `declare function`, keep the error they had: neither names
-  // a function this module can emit.
   const implemented = new Set<string>();
   for (const { node, irName } of decls) {
     if (node.body && node.name) implemented.add(irName ?? node.name.text);
@@ -310,9 +273,6 @@ export function lowerSourceFunctions(
   const isAmbient = (node: ts.FunctionDeclaration): boolean =>
     node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) ?? false;
   const callees = new Map<string, FuncDecl>();
-  // What this file knows about its own functions beside the callee table: the names it could
-  // not lower, so a call to one says nothing instead of "Unknown function" (T10, #92), and the
-  // generic ones with the hook that makes an instance (T9, #92).
   const fns = fileFunctionsOf(callees);
   const refused = fns.refused;
   const generics = new Map<string, { node: ts.FunctionDeclaration; prefix: string }>();
@@ -326,18 +286,10 @@ export function lowerSourceFunctions(
     ) {
       continue;
     }
-    // An async function or a generator is semantic.ts's refusal, and its body is that one
-    // mistake: it is not lowered, and a call to it, `h(a)` or `N.h(a)`, says nothing more
-    // (Rule 12.4).
     if (isAsyncOrGenerator(stmt)) {
       refused.add(irName ?? stmt.name?.text ?? '');
       continue;
     }
-    // A generic function is compiled once per set of argument types the file calls it with
-    // (roadmap 0.3 item T9, #92), so it has no signature of its own: `pick<T>` is not a
-    // function the module emits, `pick_f32` and `pick_vec3` are. Held aside for the
-    // instantiator below, which a call site reaches through the scope. So is one that takes a
-    // function, once per set of functions a call hands it (Rule 8.18): `apply_sq`.
     const fnAt = functionParams(stmt);
     if (
       ((stmt.typeParameters?.length ?? 0) > 0 || fnAt.size > 0) &&
@@ -346,8 +298,6 @@ export function lowerSourceFunctions(
     ) {
       const base = irName ?? stmt.name.text;
       const isEntry = decoratorsOf(stmt).length > 0 || stageCallOfDeclaration(stmt) !== undefined;
-      // An entry is compiled once, as the pipeline calls it, with no type arguments, so a generic
-      // one has no instance to compile, and nothing would say so (Rule 8.9).
       if (isEntry && (stmt.typeParameters?.length ?? 0) > 0) {
         pushDiag(
           diagnostics,
@@ -362,8 +312,6 @@ export function lowerSourceFunctions(
         continue;
       }
       if (fnAt.size > 0 && isEntry) {
-        // An entry's parameters come from the pipeline, and no call hands it anything. A stage
-        // call's function is an entry as a decorated one is (change 0111).
         pushDiag(
           diagnostics,
           sourceFile,
@@ -423,9 +371,6 @@ export function lowerSourceFunctions(
     if (prefix !== '') recordNamespaceFunction(stub, stmt);
     ready.push({ node: stmt, stub, prefix });
   }
-  // A class's methods, static functions and constructor are functions of the module (#86),
-  // registered before any body is lowered so a call in either direction resolves. The emitted
-  // name is `Struct_member`; a top-level function of that name is a clash, said on both.
   const classFns = collectClassFunctions(structs, sourceFile, diagnostics, refused).filter((cf) => {
     const taken = callees.get(cf.stub.name);
     if (taken !== undefined) {
@@ -443,14 +388,8 @@ export function lowerSourceFunctions(
     callees.set(cf.stub.name, cf.stub);
     return true;
   });
-  // A local function is a function of the module, named after the body that declares it
-  // (roadmap 0.3 item T7, #92). Collected before any body is lowered, so a call to one
-  // resolves; the alias from the written name to the emitted one rides on the scope, which is
-  // what lets two bodies each declare an `f`. A body sees its own local functions and those of
-  // every body around it, as TypeScript's scopes do, so a helper may call its sibling.
   const lifted: Lifted[] = [];
   const aliasesOf = new Map<string, Map<string, string>>();
-  // The local functions that take a function, by emitted name: each call makes a copy.
   const localTemplates = new Map<string, { fn: LocalFunction; self: LiftedThis | undefined }>();
   const seeLocals = (
     decls: readonly LocalFunctionDecl[],
@@ -465,8 +404,6 @@ export function lowerSourceFunctions(
     const alias = new Map(outer);
     const kept: LocalFunction[] = [];
     for (const fn of found) {
-      // One that takes a function is a pattern a call copies (Rule 8.18): named in its body, and
-      // made where a call hands it its functions, with its own local functions per copy.
       if (fn.takesFunctions !== undefined) {
         alias.set(fn.localName, fn.stub.name);
         fns.generics.add(fn.stub.name);
@@ -495,14 +432,11 @@ export function lowerSourceFunctions(
     }
     aliasesOf.set(ownerName, alias);
     for (const fn of kept) {
-      // An arrow function's `this` is the one around it; any other function's is its own,
-      // though it may still hand the method's object on to an arrow it calls.
       const selfHere =
         self === undefined
           ? undefined
           : { ...self, bindsThis: self.bindsThis && ts.isArrowFunction(fn.node) };
       into.push({ fn, around, self: selfHere, ...(said !== diagnostics ? { said } : {}) });
-      // A local function's own body is an owner in turn, so a helper inside a helper works.
       if (fn.node.body !== undefined) {
         seeLocals(
           declarationsIn(fn.node.body),
@@ -516,9 +450,6 @@ export function lowerSourceFunctions(
       }
     }
   };
-  // The module top level, and each namespace body, where a `const f = (…) => …` is already a
-  // module function: it takes the namespace's flattened name (`N_f`), which is how a call to it
-  // inside that namespace resolves with no alias at all (T4, #92).
   const topDecls = new Map<string, ts.VariableDeclaration[]>();
   eachNamespaceStatement(sourceFile.statements, sourceFile, [], (stmt, prefix) => {
     if (!ts.isVariableStatement(stmt)) return;
@@ -538,8 +469,6 @@ export function lowerSourceFunctions(
       );
     }
   }
-  // What a body a class inherits says goes to a list of its own, which `sayInherited` reads once
-  // every body is lowered; its local functions' diagnostics go there too.
   const inheritedSaid: { cf: ClassFunction; said: TsCompilerDiagnostic[] }[] = [];
   const saidOf = new Map<ClassFunction, TsCompilerDiagnostic[]>();
   const saidFor = (cf: ClassFunction): TsCompilerDiagnostic[] => {
@@ -553,11 +482,7 @@ export function lowerSourceFunctions(
     return said;
   };
   for (const cf of classFns) {
-    // A class's function that takes a function is lowered once for each copy a call makes, and
-    // its local functions with it (Rule 8.18).
     if (cf.node?.body && cf.takesFunctions === undefined) {
-      // Inside a method, an arrow function's `this` is the method's object, and inside a static
-      // member the class the call names (Rule 8.13).
       const self = classSelf(cf);
       seeLocals(
         declarationsIn(cf.node.body),
@@ -574,35 +499,17 @@ export function lowerSourceFunctions(
   liftCaptures(lifted, callees, file);
   const funcs: FuncDecl[] = [];
   const nodeByName = new Map<string, FunctionNode>();
-  // The name each instance's author wrote: `pick` for `pick_f32`.
   const writtenAs = new Map<string, string>();
-  // ═══ A return type the body says (Rule 8.19) ═══
-  //
-  // A function that writes no return type has one once its body is lowered, and a call may
-  // need it before the body's turn: that call lowers the body first (`fns.ensure`). Each such
-  // function waits in `pendingFill` with what lowers its body, until a call or its turn comes.
-  // `inferring` holds the ones whose body is being lowered, whose return type is not known
-  // yet, and `filling` every body being lowered, innermost last: a call back into one of them
-  // closes the cycle `filling` holds from it up.
   const pendingFill = new Map<FuncDecl, () => boolean>();
   const inferring = new Set<FuncDecl>();
   const filling: FuncDecl[] = [];
-  // The ones whose body did not lower, and so says nothing it returns: a call of one adds
-  // nothing to what the body said. So is one a call cycle runs through, whose return type
-  // waits on itself.
   const unsaid = new Set<FuncDecl>();
   const cyclic = new Set<FuncDecl>();
-  // Each call a cycle closes at, said once however many paths reach it.
   const cycleAt = new Set<ts.Node>();
-  // The cycles said above with the functions they run through, to record the declarations of.
   const cycleNotes: { diagnostic: TsCompilerDiagnostic; path: readonly FuncDecl[] }[] = [];
-  // A default is lowered before any body (below), so it cannot wait on one.
   let bodiesOpen = false;
   const shownOf = (f: FuncDecl): string =>
     writtenAs.get(f.name) ?? classFns.find((cf) => cf.stub === f)?.shown ?? f.name;
-  /** Lower a body with `stub` on the stack of those being lowered; `infers` when its return
-   *  type is the body's to say. `node` is the function written, which may hold a refusal
-   *  semantic.ts said, at which its lowering stopped and added nothing. */
   const track = (
     stub: FuncDecl,
     infers: boolean,
@@ -628,15 +535,10 @@ export function lowerSourceFunctions(
     ) {
       unsaid.add(stub);
     }
-    // A body that dropped a use of a binding whose declared type was refused did not lower
-    // either, and its refusal was said at the declaration (`dropsRecoveredUse`). It never got to
-    // the `return` that says its type, so its callers would be told it returns `void` (Rule 12.4).
     if (infers && typeKey(stub.ret) === 'void' && recoveredUsesDroppedSoFar() > droppedBefore) {
       unsaid.add(stub);
     }
   };
-  /** Lower the body `stub` waits on, if it still waits. False when it cannot be lowered yet:
-   *  a variable it captures is not lowered where it is declared. */
   const runPending = (stub: FuncDecl): boolean => {
     const fill = pendingFill.get(stub);
     if (fill === undefined) return true;
@@ -645,15 +547,8 @@ export function lowerSourceFunctions(
     pendingFill.set(stub, fill);
     return false;
   };
-  /** The call graph `checkRecursion` walks: the functions the file and its classes declare. In
-   *  a single file a function is called by the name it is declared under, so the graph key and
-   *  the resolver are both just `callees`. A method called through its object (`r.at(t)`) is
-   *  not an identifier call and is not in this graph; the lowered calls are where its cycle
-   *  shows. */
   const recursionGraph = (): RecursionNode[] => [
     ...ready.map(({ node, stub }) => ({
-      // The EMITTED name, which for a namespace's function is the flattened one (T4, #92):
-      // the graph's keys and the call resolver are both `callees`, which is keyed by it.
       name: stub.name,
       decl: node,
       sourceFile,
@@ -689,9 +584,6 @@ export function lowerSourceFunctions(
         return false;
       }
       if (!runPending(decl)) {
-        // It captures a variable its declaration did not lower, which said why there. A call
-        // dropped without a word anywhere would be a program that compiles wrong, so a file
-        // with no error yet hears what this one stands on.
         if (![...diagnostics, ...diags].some((d) => d.category === 'error')) {
           pushDiag(
             diags,
@@ -707,9 +599,6 @@ export function lowerSourceFunctions(
     }
     if (unsaid.has(decl)) return false;
     if (!inferring.has(decl)) return true;
-    // A call back into a body still being lowered, whose return type is not known yet: a call
-    // cycle, which WGSL refuses anyway (Rule 8.4). One every hop of which the syntactic check
-    // follows is that check's to name, at the call it closes on; the rest are named here.
     const path = [...filling.slice(filling.lastIndexOf(decl)), decl];
     for (const f of path) if (inferring.has(f)) cyclic.add(f);
     if (!cycleAt.has(at)) {
@@ -725,8 +614,6 @@ export function lowerSourceFunctions(
             `call stack, so a function must not take part in a call cycle.`,
           TS_CODES.RECURSION,
         );
-        // The declarations are known once every body is lowered, and a local function is
-        // added to `nodeByName` after its body.
         cycleNotes.push({ diagnostic: diags[diags.length - 1]!, path });
       }
     }
@@ -760,22 +647,8 @@ export function lowerSourceFunctions(
       nodeByName.set(r.stub.name, r.node);
     });
   };
-  // ═══ A result its callers decide (Rule 8.19, change 0134 item 1) ═══
-  //
-  // A function, a method, a getter, a local or arrow function, or an instance of a generic
-  // function, that writes no result type and whose first `return` is a written integer or a value
-  // no use has decided (`noteCallerDecided`), takes its result from its calls. Each call records
-  // the type its own use asks (`callerDecidedCall`), and the next pass reads what the calls asked
-  // (`askedOf`): where they asked one type, the function returns it; where they asked two or
-  // more, or the function is one the host calls (an export), the function keeps the `f32` result
-  // under its own name, and a call that asks another type takes a copy named as an instance is
-  // (`g_u32`, Rule 8.9), made the first time a call asks for it (Amendment A5 of change 0134,
-  // "작성자 기본값 유지"; "export는 f32 유지"). Each copy infers its own locals (Amendment A1,
-  // "사본마다 추론"): its body is lowered under its own key (`inCopy`).
-  /** The functions whose result the calls fixed for this pass: lowered as if it were written. */
   const decidedByCallers = new Set<FuncDecl>();
   const copiesOf = new Map<FuncDecl, Map<string, FuncDecl>>();
-  /** Plans `o.stub`; true when its calls fixed its result, so its body is lowered against it. */
   const planResult = (o: {
     readonly stub: FuncDecl;
     readonly node: ts.Node;
@@ -802,12 +675,8 @@ export function lowerSourceFunctions(
     (o.stub as { ret: ShaderType }).ret = ret;
     decidedByCallers.add(o.stub);
     setHomeTag(o.stub, `${o.stub.name}:${typeKey(ret)}`);
-    // The hover names each result type at the declaration (item 4 of change 0134); the host
-    // calls an exported function at the `f32` it keeps.
     const listed = new Map(asked);
     if (o.exported) listed.set('f32', f32T);
-    // One type is recorded too: a method, a getter or a local or arrow function its calls fixed
-    // hovers as that type, as a function of the file does (Rule 12.7).
     if (o.nameNode !== undefined && o.generic !== true) {
       recordResultCopies(
         sourceFile,
@@ -832,8 +701,6 @@ export function lowerSourceFunctions(
     const had = byType.get(typeKey(t));
     if (had !== undefined) return had;
     const base = instanceName(o.stub.name, [t]);
-    // The copy's local functions are named after it (`g_u32_inc`), so a name is free only when
-    // no function of the module begins with it either, where the body declares any.
     const body = (o.node as { body?: ts.Node }).body;
     const hasLocals =
       body !== undefined && ts.isBlock(body) && declarationsIn(body).some(declaresFunction);
@@ -858,8 +725,6 @@ export function lowerSourceFunctions(
     inCopy(name, () => o.refill(copy));
     return copy;
   };
-  /** The local functions of a copy's body, its own (`g_u32_inc`): what they capture has the
-   *  copy's types. Lowered after the copy's body with `fillLifted`. */
   const localsOfCopy = (
     fnNode: ts.Node,
     copy: FuncDecl,
@@ -909,13 +774,11 @@ export function lowerSourceFunctions(
   for (const r of ready) {
     if (!hasNoWrittenResult(r.node, sourceFile) || r.stub.stage !== undefined) continue;
     if (decidedByCallers.has(r.stub)) continue;
-    // Lowered outside any instance of a generic function, wherever the call that asks is.
     pendingFill.set(r.stub, () => {
       withTypeArguments(undefined, () => fillReady(r, true));
       return true;
     });
   }
-  // A method, an accessor half or a constructor, into the list its class's body says things to.
   const fillClassFunction = (
     cf: ClassFunction,
     node: NonNullable<ClassFunction['node']>,
@@ -947,9 +810,6 @@ export function lowerSourceFunctions(
         infers,
       ),
     );
-    // What the body of a generic class's instance says is true of the places that write the
-    // instance, `Box<P>`: a program that imports the class reports it at the first of them its
-    // entry file writes (#1186). The last recorded use is the first one read.
     const made = instanceUsesOf(sourceFile, cf.struct.decl.name);
     if (made.length > 0) {
       for (const d of said.slice(saidBefore))
@@ -961,8 +821,6 @@ export function lowerSourceFunctions(
   for (const cf of classFns) {
     if (cf.infers !== true || cf.node === undefined || cf.takesFunctions !== undefined) continue;
     const node = cf.node;
-    // A method, a getter or a static function its calls decide (Rule 8.19, change 0134): a
-    // member of an exported class is one the host calls.
     if (
       !ts.isConstructorDeclaration(node) &&
       !ts.isSetAccessorDeclaration(node) &&
@@ -987,11 +845,6 @@ export function lowerSourceFunctions(
       return true;
     });
   }
-  // A setter whose value writes no type beside a getter that writes none takes what the
-  // getter's body returns, as TypeScript types it (Rule 8.19). Its turn, or an assignment that
-  // needs the type first, lowers the getter's body first. With no getter, or beside one that
-  // returns nothing, the value has no type (TypeScript's implicit `any`, TS7006), which is
-  // refused where the value is declared and nowhere else (Rule 12.4).
   for (const cf of classFns) {
     const node = cf.node;
     if (cf.valueFromGetter !== true || node === undefined || !ts.isSetAccessorDeclaration(node)) {
@@ -1043,8 +896,6 @@ export function lowerSourceFunctions(
       return true;
     });
   }
-  // A local function's body, once the body that declares it has lowered what it captures. False
-  // when that is not yet so.
   const fillOneLifted = (l: Lifted, sf: ts.SourceFile, said: TsCompilerDiagnostic[]): boolean => {
     const fn = l.fn;
     const bound = captureBindings(l, file);
@@ -1078,8 +929,6 @@ export function lowerSourceFunctions(
     });
     return true;
   };
-  /** Hold each local function of `list` that writes no return type until a call needs its body
-   *  or its turn comes, to be lowered under the type arguments in force here (Rule 8.19). */
   const holdLifted = (
     list: readonly Lifted[],
     sf: ts.SourceFile,
@@ -1088,8 +937,6 @@ export function lowerSourceFunctions(
     const typeArgs = currentTypeArguments();
     for (const l of list) {
       if (!l.fn.infers) continue;
-      // A local or arrow function its calls decide (Rule 8.19, change 0134); one at the top level
-      // that the file exports is one the host calls.
       const named = (l.fn.decl as { name?: ts.Node }).name ?? l.fn.node.name;
       if (
         planResult({
@@ -1121,15 +968,6 @@ export function lowerSourceFunctions(
     }
   };
   holdLifted(lifted, sourceFile, diagnostics);
-  // Every default, lowered before any body, since a body may call a function declared after it
-  // and the call needs the default already in hand (roadmap 0.3 item T7, #92). The scope is the
-  // module's, with no parameters in it, which is why a default that reads one was refused at
-  // the signature.
-  //
-  // To a fixed point, because one default may be `g()` where `g` itself has a default to fill
-  // in, in either declaration order. Every pass but the last writes its diagnostics to a
-  // scratch list and throws them away: a default that could not be lowered yet is not yet an
-  // error. The pass that adds nothing runs once more into the real list, this time saying so.
   const defaulted = [...ready, ...classFns.map((cf) => ({ stub: cf.stub, prefix: '' }))];
   const lowerAll = (into: TsCompilerDiagnostic[], final: boolean): boolean => {
     let progressed = false;
@@ -1155,9 +993,6 @@ export function lowerSourceFunctions(
   while (lowerAll([], false));
   lowerAll(diagnostics, true);
   bodiesOpen = true;
-  // Each local function's body after the bodies around it, whose declarations say what each
-  // variable it captures is (Rule 8.17); then a capture handed on to a local function that
-  // writes it is made the caller's to write back.
   const fillLifted = (
     list: readonly Lifted[],
     sf: ts.SourceFile,
@@ -1175,18 +1010,8 @@ export function lowerSourceFunctions(
       file,
     );
   };
-  // One instance of a generic function per set of argument types (roadmap 0.3 item T9, #92).
-  // Made where a call asks for it rather than in a pass of its own, because a call is the only
-  // thing that says which types: `pick(1., 2.)` is what decides that `pick_f32` exists.
-  //
-  // The instance is pushed into `funcs` as it is made, which puts it ahead of the body that
-  // asked for it — WGSL wants a function declared before it is called, and the bodies below
-  // push themselves only after they are filled.
   const instances = new Map<string, FuncDecl>();
-  // The functions whose instance is being made, innermost last: one asked for again while its
-  // instance is made, for other function arguments, would be made again without end (Rule 8.4).
   const making: string[] = [];
-  /** A name no function of the module has yet: `base`, or `base_1`, `base_2` and so on. */
   const freshName = (base: string): string => {
     let name = base;
     for (let n = 1; callees.has(name) || refused.has(name); n++) name = `${base}_${String(n)}`;
@@ -1200,8 +1025,6 @@ export function lowerSourceFunctions(
     }
     const fnAt = fns.fnParams.get(name) ?? new Set<number>();
     const order = (generic.node.typeParameters ?? []).map((p) => p.name.text);
-    // A function handed over by its name says what the type parameters in its parameter's type
-    // are, as an argument's value does for its own.
     const named = new Map<number, { params: readonly ShaderType[]; ret: ShaderType }>();
     for (const i of fnAt) {
       const arg = node.arguments[i];
@@ -1209,9 +1032,6 @@ export function lowerSourceFunctions(
       if (x === undefined || !ts.isIdentifier(x)) continue;
       const decl = scope.resolveCallee(x.text);
       if (decl === undefined) continue;
-      // What it returns, which one that writes no return type says once its body is lowered
-      // (Rule 8.19); one that captures a variable not declared yet here is `functionArgument`'s
-      // to refuse, below.
       if (captureArguments(decl, x.text, x, sf, scope, []) === undefined) continue;
       if (!scope.calleeReady(decl, x, sf, diags)) continue;
       const captured = file.captures.get(decl.name)?.length ?? 0;
@@ -1220,7 +1040,6 @@ export function lowerSourceFunctions(
     const bound = typeArgumentsFor(generic.node, order, node, argTypes, sf, diags, named);
     if (bound === undefined) return undefined;
     return withTypeArguments(bound, (): FuncDecl | undefined => {
-      // Each function argument, as the function of the module it stands for (Rule 8.18).
       const targets: { param: ts.ParameterDeclaration; fn: FuncDecl }[] = [];
       for (const i of [...fnAt].sort((a, b) => a - b)) {
         const param = generic.node.parameters[i]!;
@@ -1237,7 +1056,6 @@ export function lowerSourceFunctions(
         name,
         order.map((n) => bound.get(n)!),
       );
-      // `|` joins the key, which no name holds, so `both(a_b, c)` and `both(a, b_c)` are two.
       const key = [typed, ...targets.map((t) => t.fn.name)].join('|');
       const had = instances.get(key);
       if (had !== undefined) return had;
@@ -1262,14 +1080,7 @@ export function lowerSourceFunctions(
         refused.add(name);
         return undefined;
       }
-      // An instance or a copy is named as the author wrote its template where a message says which
-      // function it is: `pick` for the instance `pick_u32` and `apply` for the copy `apply_inc`,
-      // and `Ns.pick` for `Ns_pick_u32` and `Ns.apply` for `Ns_apply_count_f` in a namespace. Its
-      // stub is made here, not where the template is declared, so this is where the name is
-      // recorded (Rule 8.22).
       recordTemplateInstance(stub, generic.node);
-      // What the functions handed over capture (Rule 8.17), which this instance takes ahead of
-      // its own parameters and hands on to them: typed as the calling body holds each.
       const keys: CaptureKey[] = [];
       for (const t of targets) {
         for (const k of file.captures.get(t.fn.name) ?? []) {
@@ -1301,23 +1112,16 @@ export function lowerSourceFunctions(
       });
       (stub as { params: FuncDecl['params'] }).params = [...hidden, ...stub.params];
       if (keys.length > 0) file.captures.set(emitted, keys);
-      // Registered BEFORE the body is lowered, so a generic that calls itself at the same types
-      // finds this instance rather than making another one forever.
       instances.set(key, stub);
       callees.set(emitted, stub);
       writtenAs.set(emitted, name);
       making.push(name);
-      // What the body says of this instance is true of the call that asked for it: a program
-      // that imports the function reports it at that call (#1186).
       const saidBefore = diags.length;
       try {
-        // In the body, a parameter of function type names the function handed over.
         const handed = new Map<string, string>();
         for (const t of targets) {
           if (ts.isIdentifier(t.param.name)) handed.set(t.param.name.text, t.fn.name);
         }
-        // The instance's own local functions, whose types may name the type parameters: one set
-        // per instance, as the body around them is (`pick_f32_sw`).
         const mine: Lifted[] = [];
         if (generic.node.body !== undefined) {
           seeLocals(
@@ -1366,9 +1170,6 @@ export function lowerSourceFunctions(
               inferring,
             ),
           );
-        // With no return type written, the body says it (Rule 8.19), or this instance's calls
-        // do (change 0134): its copies are this instance's (Rule 8.9). A result type the
-        // editor's projection wrote is not the author's, as for any function (#1277).
         const infers =
           hasNoWrittenResult(generic.node, sf) &&
           !planResult({
@@ -1406,10 +1207,6 @@ export function lowerSourceFunctions(
       return stub;
     });
   };
-  // A local function that takes a function (Rule 8.18): one copy for each set of functions its
-  // calls hand it, lifted into the body the call is in as an arrow function written as an
-  // argument is. It takes what its own body captures there, by reference once it writes it, and
-  // what the functions handed over capture, which it only hands on.
   const localCopies = new Map<string, FuncDecl>();
   const copyLocal = (
     name: string,
@@ -1447,8 +1244,6 @@ export function lowerSourceFunctions(
       );
       return undefined;
     }
-    // What its body reads from the functions around it, `this` in an arrow function inside a
-    // method, and what the local functions it calls capture; not a call of its own parameters.
     const use = closureUse(fn.node, declaresFunction);
     const mine: CaptureKey[] = use.captures.map((c) => c.decl);
     const add = (list: CaptureKey[], k: CaptureKey): void => {
@@ -1489,8 +1284,6 @@ export function lowerSourceFunctions(
           ? (scope.bindingOfDeclaration(k) ?? scope.resolve('this'))
           : scope.bindingOfDeclaration(k);
       if (held === undefined) {
-        // A captured local declared above the call may be absent because its initializer was
-        // refused. Keep that cause, rather than claiming the declaration is below this call.
         if (
           k !== THIS_CAPTURE &&
           k.getSourceFile() === sf &&
@@ -1498,7 +1291,6 @@ export function lowerSourceFunctions(
           variableRefused(k, sf, [...diagnostics, ...diags])
         )
           return undefined;
-        // Read before its declaration, where TypeScript throws: the call runs the function now.
         pushDiag(
           diags,
           sf,
@@ -1532,7 +1324,6 @@ export function lowerSourceFunctions(
       const param: FuncDecl['params'][number] = { name: pname, type: held.type };
       hidden.push(param);
       if (!mine.includes(k)) {
-        // Captured by a function handed over and named nowhere in this body: handed on.
         captures.push({
           key: k,
           byName: false,
@@ -1562,17 +1353,13 @@ export function lowerSourceFunctions(
     }
     (stub as { params: FuncDecl['params'] }).params = [...hidden, ...stub.params];
     if (keys.length > 0) file.captures.set(emitted, keys);
-    // Registered BEFORE the body is lowered, so a copy that calls itself with the same functions
-    // finds this one rather than making another forever.
     localCopies.set(key, stub);
     callees.set(emitted, stub);
     writtenAs.set(emitted, fn.localName);
-    // To the author a copy is the one local function it is made from (#987).
     const declared = writtenFunctionOf(fn.stub);
     if (declared !== undefined) recordLocalFunction(stub, declared);
     making.push(name);
     try {
-      // In the body, a parameter of function type names the function handed over.
       const handed = new Map<string, string>();
       for (const x of targets) {
         if (ts.isIdentifier(x.param.name)) handed.set(x.param.name.text, x.fn.name);
@@ -1625,31 +1412,16 @@ export function lowerSourceFunctions(
     }
     return stub;
   };
-  // A method, a static method or a constructor that takes a function (Rule 8.18): one copy for
-  // each set of functions its calls hand it, as a function of the file is, and made where a
-  // call asks for it. The copy takes what the functions handed over capture ahead of its own
-  // parameters, then its object, then the rest.
-  //
-  // One variable, one reference. When a function handed over captures the very variable the
-  // call is on (`this.each((i) => { this.total += … })`, `g.each(() => g.n++)`), TypeScript
-  // has one object where the copy would have two: the copy's object stands for that capture
-  // too, by reference when the caller may write it, so the method reads what the function
-  // wrote. A capture of the variable that HOLDS the object, through a field or an element of it,
-  // would be a second reference into one variable, which WGSL refuses when either is written
-  // (Alias Analysis); that call is refused first (Rule 12.6).
   const memberCopies = new Map<string, { decl: FuncDecl; writes: boolean }>();
   const makingMembers: string[] = [];
-  /** The capture key of the variable `e` names: `this` in a method, or a local or a parameter. */
   const placeKey = (e: ts.Expression, scope: LoweringScope): CaptureKey | undefined => {
     let x = e;
     while (ts.isParenthesizedExpression(x)) x = x.expression;
-    // `super.m(...)` runs on this body's own object.
     if (x.kind === ts.SyntaxKind.ThisKeyword || x.kind === ts.SyntaxKind.SuperKeyword) {
       return scope.resolve('this') !== undefined ? THIS_CAPTURE : undefined;
     }
     return ts.isIdentifier(x) ? declarationOf(x) : undefined;
   };
-  /** The capture key of the variable a field or element path `e` starts from. */
   const rootKey = (e: ts.Expression, scope: LoweringScope): CaptureKey | undefined => {
     let x = e;
     for (;;) {
@@ -1683,7 +1455,6 @@ export function lowerSourceFunctions(
       if (fn === undefined) return undefined;
       targets.push({ param, fn });
     }
-    // What the functions handed over capture, once each, in the order they are met.
     const keys: CaptureKey[] = [];
     for (const t of targets) {
       for (const k of file.captures.get(t.fn.name) ?? []) if (!keys.includes(k)) keys.push(k);
@@ -1734,13 +1505,11 @@ export function lowerSourceFunctions(
     const emitted = freshName([cf.stub.name, ...targets.map((t) => t.fn.name)].join('_'));
     const receiverParams = cf.kind === 'method' ? cf.stub.params.slice(0, 1) : [];
     const ownParams = cf.stub.params.slice(receiverParams.length);
-    // A method's object and a constructor's object under construction are both `self_`.
     const taken = new Set(ownParams.map((p) => p.name));
     if (cf.kind !== 'static') taken.add('self_');
     const captures: CaptureBinding[] = [];
     const hidden = own.map((k): FuncDecl['params'][number] => {
       const type = holderOf(k)?.type ?? voidT;
-      // `this` of the calling body, which is not the copy's own object: a name of its own.
       const base = k === THIS_CAPTURE ? (cf.kind === 'static' ? 'self_' : 'this_') : keyName(k);
       let pname = base;
       for (let n = 1; taken.has(pname); n++) pname = `${base}_${String(n)}`;
@@ -1769,8 +1538,6 @@ export function lowerSourceFunctions(
     (stub as { span?: SourceSpan }).span = spanOf(sf, member);
     if (own.length > 0) file.captures.set(emitted, own);
     const made = { decl: stub, writes };
-    // Registered BEFORE the body is lowered, so a copy that calls itself with the same functions
-    // finds this one rather than making another forever.
     memberCopies.set(key, made);
     callees.set(emitted, stub);
     writtenAs.set(emitted, cf.shown);
@@ -1782,12 +1549,10 @@ export function lowerSourceFunctions(
     const said = saidFor(cf);
     makingMembers.push(cf.stub.name);
     try {
-      // In the body, a parameter of function type names the function handed over.
       const handed = new Map<string, string>();
       for (const t of targets) {
         if (ts.isIdentifier(t.param.name)) handed.set(t.param.name.text, t.fn.name);
       }
-      // Its own local functions, one set per copy, as the body around them is.
       const self: LiftedThis | undefined =
         receiver !== undefined
           ? {
@@ -1855,12 +1620,6 @@ export function lowerSourceFunctions(
     }
     return made;
   };
-  // An arrow function or a function expression written as an argument (Rule 8.18): a local
-  // function of the body the call is in, lifted where the call is lowered, once for each body
-  // lowered, since its captures are that body's.
-  // A function the front end builds itself (surface §63): an array's method, made for the array
-  // type and the function a call hands it the first time a call asks for it. What it captures
-  // is the function's, which a call passes ahead of the rest (Rule 8.17).
   const built = new Map<string, FuncDecl>();
   fns.build = (key, base, shown, captures, build): FuncDecl => {
     const had = built.get(key);
@@ -1905,10 +1664,8 @@ export function lowerSourceFunctions(
       body: [],
     };
     (stub as { span?: unknown }).span = spanOf(sf, node);
-    // `(x?: f32) => …` takes the absent value where a call omits `x` (change 0093, D6).
     recordParamDefaults(stub, node.parameters, 0, true);
     callees.set(name, stub);
-    // What it captures, read from the body it is written in (Rule 8.17).
     const keys = capturesOfArgument(node, scope);
     const taken = new Set(stub.params.map((p) => p.name));
     taken.add('self_');
@@ -1921,7 +1678,6 @@ export function lowerSourceFunctions(
           ? (scope.bindingOfDeclaration(k) ?? scope.resolve('this'))
           : scope.bindingOfDeclaration(k);
       if (held === undefined) {
-        // Read before its declaration, where TypeScript throws: the call runs the function now.
         const shownName = k === THIS_CAPTURE ? 'this' : capturedName(k);
         pushDiag(
           diags,
@@ -1980,7 +1736,6 @@ export function lowerSourceFunctions(
     }
     (stub as { params: FuncDecl['params'] }).params = [...hidden, ...stub.params];
     if (keys.length > 0) file.captures.set(name, keys);
-    // Its own local functions, which see the ones of the body it is written in.
     const outer = scope.localFunctions() ?? new Map<string, string>();
     const mine: Lifted[] = [];
     seeLocals(
@@ -2025,16 +1780,8 @@ export function lowerSourceFunctions(
     fillLifted(mine, sf, diags);
     return stub;
   };
-  // A body lowered for a class that inherits it says what it says into a list of its own. What
-  // it shares with the body the declaring class lowered was said there, once (Rule 12.4); a
-  // static that fails only for the inheriting class, where `this` is that class, is an error
-  // where something calls it and nothing where nothing does (Rule 8.13), which is decided once
-  // every body is lowered and the calls are known.
   for (const cf of classFns) {
-    // One that takes a function has no body of its own: each call made the copy it needs.
     if (cf.takesFunctions !== undefined) continue;
-    // One whose body says its return type, or a setter whose value takes its getter's, and that
-    // a call lowered already, is not lowered again.
     if (decidedByCallers.has(cf.stub) && cf.node !== undefined) {
       fillClassFunction(cf, cf.node, false);
       continue;
@@ -2048,8 +1795,6 @@ export function lowerSourceFunctions(
       continue;
     }
     if (cf.receiver !== undefined) {
-      // A class with no constructor still answers `new P()`: the zero struct with its field
-      // initializers, and nothing else.
       const scope = functionScope(
         cf.stub,
         callees,
@@ -2068,8 +1813,6 @@ export function lowerSourceFunctions(
     }
     funcs.push(cf.stub);
   }
-  // Each function the file declares, in order; one whose body says its return type and a call
-  // lowered already is not lowered again.
   for (const r of ready) {
     if (pendingFill.has(r.stub)) runPending(r.stub);
     // A result its callers decided is lowered as one the author wrote.
@@ -2084,8 +1827,6 @@ export function lowerSourceFunctions(
       );
   }
   fillLifted(lifted, sourceFile, diagnostics);
-  // Once every body is lowered, the instances and the functions written as arguments among
-  // them: a capture handed on to one that writes it is the caller's to write back (Rule 8.17).
   propagateCaptureRefs(
     [...file.captures.keys()].flatMap((n) => {
       const f = callees.get(n);
@@ -2095,12 +1836,8 @@ export function lowerSourceFunctions(
     file,
   );
   sayInherited(inheritedSaid, funcs, new Set(classFns.map((cf) => cf.stub)), diagnostics);
-  // Before the bodies are handed on: a call cycle emits WGSL Tint refuses (#48), and no gate
-  // downstream of here was looking for one.
   const graph = recursionGraph();
   checkRecursion(graph, diagnostics);
-  // A cycle through a call on a value (`this.g(n)`, `o.m()`), a getter, a setter or `new`, none
-  // of which names a function in its text: read off the calls the bodies lowered to (Rule 8.4).
   checkLoweredRecursion(
     graph,
     funcs,
@@ -2116,10 +1853,7 @@ export function lowerSourceFunctions(
     );
   }
   checkEntryStageUses(funcs, vars, bindings, nodeByName, sourceFile, diagnostics);
-  // A read before an assignment, on the source (Rule 7.6).
   checkDefiniteAssignment(sourceFile, diagnostics);
-  // Two references to one place in one call, read off the lowered calls once every callee says
-  // what it reads and writes (Rule 8.25).
   const shownAs = new Map([
     ...writtenAs,
     ...classFns.map((cf) => [cf.stub.name, cf.shown] as const),
@@ -2133,7 +1867,6 @@ export function lowerSourceFunctions(
     sourceFile,
     diagnostics,
   );
-  // The refusals that rule 6 may drop, now that every body says which types it writes.
   resolvePendingShares(
     funcs,
     new Set(classFns.filter((cf) => cf.kind === 'ctor').map((cf) => cf.stub)),
@@ -2143,20 +1876,6 @@ export function lowerSourceFunctions(
   return funcs;
 }
 
-/** What the bodies lowered for an inheriting class said, now that every call is known. A
- *  diagnostic the file already carries at the same place is left out (Rule 12.4).
- *
- *  A body lowered again for a class that inherits it can fail for that class alone: `this.#k`
- *  in a static `Derived` inherits, `weigh(this)` where `weigh` takes the base. Such a copy is
- *  refused where a call reaches it and dropped where none does, as TypeScript, which lowers
- *  nothing per class, has nothing to say about a body no one runs that way. What reaches it is
- *  a function that is not a class's own (an entry, a top-level function), through any chain of
- *  calls; a class's function that nothing so reaches and that calls a dropped copy is dropped
- *  with it, so no call is left without its function. A copy of an `abstract` class's method is
- *  the only lowering its body gets, so what it says is said whether or not anything calls it;
- *  so is a copy of its static that builds its value with `new this()` (0020), which the abstract
- *  class itself has no lowering of. Identical missing-field reports in those copies name
- *  the affected classes together; different source spans or remedies stay separate. */
 function sayInherited(
   inherited: readonly { cf: ClassFunction; said: readonly TsCompilerDiagnostic[] }[],
   funcs: FuncDecl[],
@@ -2207,8 +1926,6 @@ function sayInherited(
     for (const d of own) {
       if (said.has(key(d))) continue;
       said.add(key(d));
-      // Only the receiver's name varies in this sentence. Do not erase other type names or
-      // a different suggested field: those can identify a failure specific to one class.
       const prefix = d.message.match(/^Unknown field "[^"]+" on /)?.[0];
       const name = authorTypeText(structT(cf.struct.decl.name));
       if (
@@ -2253,14 +1970,10 @@ export function lowerFunctionDeclaration(
   return stub;
 }
 
-/** Whether a statement inside a namespace is a `const`, which `module-const.ts` collects as
- *  the flattened constant `Ns_NAME` and this walk therefore leaves alone. */
 function isNamespaceConst(stmt: ts.Statement): boolean {
   return ts.isVariableStatement(stmt) && (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
 }
 
-/** Every namespace name the file declares, flattened: `namespace A { export namespace B {} }`
- *  yields `A` and `A_B`, which is what `A.f()` and `A.B.f()` resolve against. */
 function namespaceNamesOf(sourceFile: ts.SourceFile): string[] {
   const out: string[] = [];
   const walk = (statements: readonly ts.Statement[], prefix: string): void => {
@@ -2279,9 +1992,6 @@ function namespaceNamesOf(sourceFile: ts.SourceFile): string[] {
   return out;
 }
 
-/** The scope a function body is lowered in: the module's consts, bindings, overrides and
- *  variables defined once each, the struct table, the stage and the return type. Shared by
- *  {@link fillFunctionBody} and the constructor a class without one gets (#86). */
 export function functionScope(
   stub: FuncDecl,
   callees: Map<string, FuncDecl>,
@@ -2292,11 +2002,9 @@ export function functionScope(
   overrides: readonly OverrideDecl[],
   vars: readonly ModuleVarDecl[],
   sourceFile?: ts.SourceFile,
-  /** The namespace whose body this function belongs to, flattened (T4, #92). */
   nsPrefix?: string,
 ): LoweringScope {
   const scope = new LoweringScope(callees, symbols);
-  // A module-scope declaration refused before any function existed stays refused in every body.
   if (sourceFile) {
     for (const name of refusedModuleNames(sourceFile)) refusedDeclarationsOf(callees).add(name);
   }
@@ -2316,24 +2024,14 @@ export function functionScope(
         .map((s) => [s.decl.name, s.staticHolder!] as const),
     ),
   );
-  // The enum names, so a mistyped member reads as one rather than as an unknown identifier
-  // (T1, #92); the members themselves are module constants and resolve through the scope.
   if (sourceFile) {
     scope.setEnums(sourceFile.statements.filter(ts.isEnumDeclaration).map((e) => e.name.text));
     scope.setNamespaces(namespaceNamesOf(sourceFile));
   }
   scope.setStage(stub.stage);
   scope.setResourceStructs(resourceStructsOf(bindings, vars));
-  // `return 0` in a function declared i32/u32 types the literal from the signature (#8 A3),
-  // and `return { … }` knows which struct it builds (#8 A11). One field, two readers.
   scope.setReturnType(stub.ret);
 
-  // Every module-scope define is guarded, because `scope.define` THROWS on a repeat and this
-  // is the last place a collision between two collectors can land. Each collector reports its
-  // own duplicates, so a name arriving twice here has already been diagnosed — an override
-  // beside a module const of the same name, say — and the second define would turn that
-  // diagnostic into an exception out of `compile()` and out of the language service's
-  // `getDiagnostics()`, where a squiggle belongs.
   const defineOnce = (b: Parameters<LoweringScope['define']>[0]): void => {
     if (!scope.hasInCurrent(b.name)) scope.define(b);
   };
@@ -2343,9 +2041,6 @@ export function functionScope(
       name: c.name,
       type: c.type,
       mutable: false,
-      // A non-scalar const's `cpuValue` is the 0 the collector writes as a placeholder beside
-      // its `valueExpr`, not a value; taking it as one made `v / Z` for any vector const `Z`
-      // a division by zero to the constant folder (#68). The initializer rides along instead.
       constValue: c.type.kind === 'scalar' ? c.cpuValue : undefined,
       indexConstValue: moduleIndexConst(c, scope),
       ...(moduleAbstractConst(sourceFile, c.name) !== undefined
@@ -2363,12 +2058,8 @@ export function functionScope(
       space: b.space,
     });
   }
-  // An override reads as an `overrideref`, which no pass folds: its value arrives when the
-  // pipeline is built, not when the module is compiled (#8 A7).
   for (const o of overrides)
     defineOnce({ kind: 'override', name: o.name, type: o.type, mutable: false });
-  // A module variable (§24) reads and writes as a `varref`, like a binding; its space decides
-  // what may hold an atomic and which stage may reach it.
   for (const v of vars) {
     const inferred = inferredModuleVar(v);
     defineOnce({
@@ -2381,15 +2072,10 @@ export function functionScope(
       ...(inferred !== undefined ? { inferred } : {}),
     });
   }
-  // Module values live outside the parameters and body locals, as in TypeScript (#429).
   scope.push();
   return scope;
 }
 
-/** An arrow function's expression body when nothing says what it returns (Rules 8.18, 8.19):
- *  its value, whose type the function's return type becomes. An assignment, `++` or `--`, and a
- *  call of a function that returns nothing, run as a statement, and the function returns
- *  nothing. */
 function inferredArrowValue(
   expr: ts.Expression,
   stub: FuncDecl,
@@ -2412,8 +2098,6 @@ function inferredArrowValue(
   }
   const lowered = lowerExpression(expr, sourceFile, scope, diagnostics);
   if (!lowered) return [];
-  // An expression body of a written integer, or of a value no use has decided, is a result its
-  // callers decide (Rule 8.19, change 0134 item 1), as such a first `return` is.
   if (
     ts.isArrowFunction(expr.parent) &&
     (isIntegerLiteralTree(expr) || isIntegerWrittenRead(expr) || readsUndecided(lowered))
@@ -2427,8 +2111,6 @@ function inferredArrowValue(
   return [withSpan({ s: 'return', expr: lowered }, sourceFile, expr)];
 }
 
-/** Whether `call` names a function of the file that returns nothing, its body lowered first
- *  when that is what says so (Rule 8.19). */
 function callsVoidFunction(
   call: ts.CallExpression,
   sourceFile: ts.SourceFile,
@@ -2438,7 +2120,6 @@ function callsVoidFunction(
   const callee = skipParens(call.expression);
   if (!ts.isIdentifier(callee)) return false;
   const decl = scope.resolveCallee(callee.text);
-  // A barrier is a statement and nothing else (§25), where no function of the file takes its name.
   if (decl === undefined) return isBarrierIntrinsic(callee.text);
   if (!scope.calleeReady(decl, call, sourceFile, diagnostics)) return false;
   return typeKey(decl.ret) === 'void';
@@ -2458,13 +2139,6 @@ function lowerArrowValue(
   return [withSpan({ s: 'return', expr: ret }, sourceFile, expr)];
 }
 
-/** Lower every default `stub`'s signature writes, in the module's scope (roadmap 0.3 item T7,
- *  #92). The result is spliced at each call that omits the argument, so it is lowered here,
- *  once, rather than at every call site: the two would be the same expression, and one
- *  diagnostic about a default belongs where the default is written.
- *
- *  A default that does not lower, or whose type is not its parameter's, keeps none; the call
- *  site then reports the arity it always did, after the reason has been said here. */
 export function lowerParamDefaults(
   stub: FuncDecl,
   sourceFile: ts.SourceFile,
@@ -2477,8 +2151,6 @@ export function lowerParamDefaults(
   overrides: readonly OverrideDecl[],
   vars: readonly ModuleVarDecl[],
   nsPrefix?: string,
-  /** The last pass: report a default that still has no value, rather than leave it for the
-   *  next one. */
   final = false,
 ): boolean {
   const nodes = paramDefaultNodes(stub);
@@ -2501,9 +2173,6 @@ export function lowerParamDefaults(
     const before = diagnostics.length;
     const lowered = lowerExpression(node, sourceFile, scope, diagnostics, want);
     if (!lowered) {
-      // A call that omits an argument whose default has no value yet lowers to nothing and
-      // says nothing, because on an earlier pass that is not an error. On the last pass it is
-      // the one shape this cannot fill: a default that waits on itself.
       if (final && diagnostics.length === before && !refusalWithin(node)) {
         pushDiag(
           diagnostics,
@@ -2534,18 +2203,9 @@ export function lowerParamDefaults(
   return progressed;
 }
 
-/** Lower `node`'s body into `stub`. For a class method or constructor (#86) `receiver` says
- *  what `this` is: the struct-typed first parameter of a method, read as `self_`, or the local
- *  `self_` a constructor starts from the zero struct and returns.
- *
- *  A body is lowered once and kept (a generic instance is cached where it is first called), so
- *  a lookahead lowering that reaches it records the reads of the body for the hover
- *  (`unpeekedReads`, change 0134 item 4). */
 export function fillFunctionBody(
   ...args: Parameters<typeof fillFunctionBodyNow>
 ): ReturnType<typeof fillFunctionBodyNow> {
-  // A function whose calls fixed its result lowers its body under a key of that result
-  // (`setHomeTag`, change 0134).
   const home = homeTagOf(args[1]);
   const fill = (): void => unpeekedReads(() => fillFunctionBodyNow(...args));
   if (home === undefined) fill();
@@ -2553,9 +2213,6 @@ export function fillFunctionBody(
   settleMadeArray(args[1], args[2], args[3]);
 }
 
-/** The statements of a body that would make two names of one object, each refused once (change
- *  0142): a body lowered again for another copy of its function reads each store by the types of
- *  that copy, and says nothing a copy said already. */
 function reportSharedObjects(
   node: FunctionNode,
   sourceFile: ts.SourceFile,
@@ -2572,7 +2229,6 @@ function reportSharedObjects(
     const key = `${at.getStart(sourceFile)}:${message}`;
     if (reported.has(key)) return;
     reported.add(key);
-    // A store waits until every body says which types are written (rule 6).
     if (store !== undefined)
       deferRefusal(diagnostics, { sourceFile, node: at, message, code, type: store.type });
     else pushDiag(diagnostics, sourceFile, at, message, code);
@@ -2618,25 +2274,12 @@ function fillFunctionBodyNow(
   receiver?: Receiver,
   shown?: string,
   nsPrefix?: string,
-  /** The local functions this body declares, from the written name to the emitted one
-   *  (roadmap 0.3 item T7, #92). */
   localFunctions?: ReadonlyMap<string, string>,
-  /** For a static member, the class it is emitted for: what `this` names (Rule 8.13). */
   staticOwner?: string,
-  /** For a static member, what `super` names in its body (Rule 8.13). */
   staticSuper?: ReadonlyMap<string, string>,
-  /** For a local function, the parameters it takes for what it captures (Rule 8.17). */
   captures?: readonly CaptureBinding[],
-  /** The declarations of the stub's own parameters when they are not the node's: a function
-   *  that takes a function has none for those (Rule 8.18), and a function written as an
-   *  argument none for a parameter it leaves off, whose entry is undefined. */
   written?: readonly (ts.ParameterDeclaration | undefined)[],
-  /** Whether the stub's return type is the body's to say: a function written as an argument
-   *  where nothing says what it returns (Rule 8.18). An expression body returns its value, and
-   *  a block what its `return`s do. */
   inferRet?: boolean,
-  /** The variables the body's object stands for as well as `this`: in the copy of a method a
-   *  call made on one, the capture of it a function handed over takes (Rule 8.18). */
   receiverKeys?: readonly CaptureKey[],
 ): void {
   const errorsBefore = errorsOf(diagnostics);
@@ -2652,27 +2295,16 @@ function fillFunctionBodyNow(
     sourceFile,
     nsPrefix,
   );
-  // The body's calls are this function's, including any a filled-in default brings in
-  // (roadmap 0.3 item T7, #92).
   scope.setOwner(stub);
   scope.setOwnerNode(node);
-  // What `super.m(...)` names in this body (roadmap 0.3 item T5, #92).
   scope.setSuperMethods(receiver?.superMethods ?? staticSuper);
   scope.setLocalFunctions(localFunctions);
   scope.setStaticClass(staticOwner);
-  // With no return type written, the body's first `return` with a value says it (Rule 8.19);
-  // with a `return undefined;`, a bare `return;` or a path that ends the body beside it, the
-  // result is `T | undefined` (changes 0088 and 0099).
   if (inferRet === true && node.body !== undefined && ts.isBlock(node.body)) {
     scope.setInferredReturn(stub);
     scope.setReturnsAbsence(bodyReturnsAbsence(node.body));
   }
-  // `this` is defined first, so the IR name `self_` is free for it: the stub's own parameter
-  // and the receiver read the same name. A user parameter called `self_` was refused at the
-  // signature (TS8035), and a local called `self_` is renamed as any shadowing local is.
   const prologue: Stmt[] = [];
-  // A constructor a class inherits runs the initializers of the classes below the one that
-  // declared it when its body returns (Rule 8.14).
   const afterBody: Stmt[] = [];
   if (receiver !== undefined) {
     if (receiver.mode === 'param') {
@@ -2684,7 +2316,6 @@ function fillFunctionBodyNow(
         irName: 'self_',
       });
     } else {
-      // `super(...)` is a statement of this body and nowhere else (roadmap 0.3 item T5, #92).
       if (receiver.mode === 'ctor') scope.setSuperCtor(receiver.superCtor);
       const parts = ctorParts(receiver, scope, sourceFile, diagnostics);
       prologue.push(...parts.prologue);
@@ -2692,12 +2323,9 @@ function fillFunctionBodyNow(
       afterBody.push(...parts.afterBody);
     }
   }
-  // A method's stub carries `self_` ahead of the declared parameters; a constructor's carries
-  // exactly the declared ones.
   const declaredParams: readonly (ts.ParameterDeclaration | undefined)[] =
     written ?? node.parameters;
   // Verifies: Rule 8.8. A whole write rebinds a value local, never the caller's argument.
-  // Declaration identity keeps shadowing separate and lets a closure share this local.
   const rebound = new Set<ts.Node>();
   const seeTarget = (target: ts.Expression): void => {
     target = skipParens(target);
@@ -2729,11 +2357,9 @@ function fillFunctionBodyNow(
   const copied: { declared: ts.ParameterDeclaration; param: FuncDecl['params'][number] }[] = [];
   const offset = stub.params.length - declaredParams.length;
   const parameterNames = new Set<string>();
-  // Parameters and top-level body locals share a frame, inside the module's frame.
   stub.params.forEach((p, i) => {
     if (i < offset) return;
     const declared = declaredParams[i - offset];
-    // A parameter a function written as an argument left off: taken, and named nowhere.
     if (declared === undefined) {
       scope.define({
         kind: 'param',
@@ -2755,12 +2381,8 @@ function fillFunctionBodyNow(
       return;
     }
     parameterNames.add(p.name);
-    // A kernel function's array is the caller's storage, read and written in place (Rule 8.23).
+    // Implements: Rule 8.23
     const storage = stub.kernel === true && p.type.kind === 'array' && p.type.size === undefined;
-    // An object parameter that its function writes names the caller's object (change 0142): bound as the object of a
-    // method that changes it is, a local the body writes under the parameter's own IR name,
-    // which the targets spell as the pointer or the `inout` parameter. A whole write lands on
-    // the caller's place, so it takes no local copy (Rule 8.8).
     if (p.mode === 'inout' && !storage) {
       const place = scope.define(
         { kind: 'local', name: p.name, type: p.type, mutable: true, reference: true },
@@ -2780,12 +2402,9 @@ function fillFunctionBodyNow(
       mutable: true,
       ...(storage ? { space: 'storage' as const } : {}),
     });
-    // What a local function in this body that captures the parameter passes for it (Rule 8.17).
     scope.bindDeclaration(declared, stored);
     if (copy) copied.push({ declared, param: p });
   });
-  // Reserve all inputs first, so a parameter `a_1` is not stolen by the copy of `a`.
-  // Signatures and reflection retain the authored names; only the body's local is fresh.
   const localNames = new Map<string, string>();
   for (const { declared, param } of copied) {
     const local = scope.define(
@@ -2802,10 +2421,6 @@ function fillFunctionBodyNow(
     });
   }
   setParameterLocals(stub, localNames);
-  // The method's object, which an arrow function in this body captures as `this`, and what a
-  // local function takes for each variable it captures (Rule 8.17): under the variable's own
-  // name, unless one of its own parameters took that name first. One the body does not read by
-  // name is bound under a name no source can write, `#n`, and reached through its declaration.
   const self = scope.resolve('this');
   if (self !== undefined) {
     scope.bindDeclaration(THIS_CAPTURE, self);
@@ -2817,12 +2432,8 @@ function fillFunctionBodyNow(
     const stored = scope.define(named ? c.binding : { ...c.binding, name: `#${ir}`, irName: ir });
     scope.bindDeclaration(c.key, stored);
   }
-  // What a hover on the function's name shows: its return type, which a function that writes
-  // none has only once its body is lowered.
   const recordName = (): void => {
     if (node.name === undefined || !ts.isIdentifier(node.name)) return;
-    // A copy of a function its calls decide (change 0134) is not what its name declares: the
-    // function itself is, with the `f32` the host reads (Amendment A5, "export는 f32 유지").
     if (currentCopy() === stub.name) return;
     recordDeclaration(symbols, sourceFile, node.name, {
       name: shown ?? stub.name,
@@ -2832,18 +2443,12 @@ function fillFunctionBodyNow(
     });
   };
   if (inferRet !== true) recordName();
-  // The stub's parameters and the declaration's are one to one and in order: `parseSignature`
-  // pushes one entry per parameter and bails out on the first it cannot accept, so it returns a
-  // stub only when it accepted them all.
   stub.params.forEach((p, i) => {
     if (i < offset) return;
     const nameNode = declaredParams[i - offset]?.name;
     if (nameNode === undefined || !ts.isIdentifier(nameNode)) return;
     recordDeclaration(symbols, sourceFile, nameNode, { name: p.name, kind: 'param', type: p.type });
   });
-  // An arrow with an expression body is the one return it stands for (T7, #92); every other
-  // shape carries a block.
-  // One that returns nothing is the expression as a statement, whose value TypeScript drops.
   let body =
     inferRet === true && ts.isArrowFunction(node) && !ts.isBlock(node.body)
       ? inferredArrowValue(node.body, stub, sourceFile, scope, diagnostics)
@@ -2852,11 +2457,8 @@ function fillFunctionBodyNow(
           ? lowerVoidArrowBody(node.body, sourceFile, scope, diagnostics)
           : lowerArrowValue(node.body, stub, sourceFile, scope, diagnostics)
         : lowerStatements((node.body as ts.Block).statements, sourceFile, scope, diagnostics);
-  // Every expression of the body is lowered, so each store is read by the type it lowered to.
   reportSharedObjects(node, sourceFile, diagnostics);
   if (inferRet === true) recordName();
-  // An expression body is the function's one `return`: a value that comes from a constant of no
-  // fixed type hands its origin to each call (Amendment A3 of change 0134), as a `return` does.
   if (ts.isArrowFunction(node) && !ts.isBlock(node.body) && hasNoWrittenResult(node, sourceFile)) {
     noteCarriedReturn(
       sourceFile,
@@ -2865,10 +2467,7 @@ function fillFunctionBodyNow(
       (callee) => scope.resolveCallee(callee) === undefined && scope.resolve(callee) === undefined,
     );
   }
-  // A path that ends a function with an optional result without a `return` is the absent
-  // value, as TypeScript reads the end of the body (Rule 7.10, change 0099): the return is
-  // appended here, with the same value `return undefined;` lowers to. A plain function's
-  // fall-through stays the IR lint's (`all-paths-return`).
+  // Implements: Rule 7.10
   if (
     isOptional(stub.ret) &&
     node.body !== undefined &&
@@ -2882,7 +2481,6 @@ function fillFunctionBodyNow(
       { s: 'return', expr: absentOf(stub.ret, inner, (n) => scope.structByName(n)) },
     ];
   }
-  // A `return undefined;` that no `return` with a value followed says what `T` is nowhere.
   if (scope.pendingAbsentReturns() > 0) {
     pushDiag(
       diagnostics,
@@ -2895,9 +2493,6 @@ function fillFunctionBodyNow(
     scope.dropAbsentReturns();
   }
   if (receiver !== undefined && receiver.mode === 'ctor') {
-    // A constructor returns the struct it built: a bare `return` inside it returns `self_`,
-    // and one more closes the body. A method that CHANGES its object returns nothing — it
-    // writes through its receiver — so its bare returns stay bare.
     const self = selfRef(receiver.type, scope);
     const early = collectReturns(body);
     if (afterBody.length > 0 && early.length > 0) {
@@ -2913,18 +2508,14 @@ function fillFunctionBodyNow(
       );
     }
     for (const r of early) if (!r.expr) (r as { expr?: Expr }).expr = self;
-    // A body whose `super(...)` did not lower still runs what follows it, first.
     const pending = scope.afterSuperPending() ? scope.takeAfterSuper() : [];
     body = [...prologue, ...pending, ...body, ...afterBody, { s: 'return', expr: self }];
   } else if (receiver !== undefined && receiver.mode === 'inout') {
     body = [...prologue, ...body];
   }
   body = [...parameterLocals, ...body];
-  // An array a kernel function pushes onto measures the count pushed (change 0078).
-  // The names a method on a kernel function's array makes, as the author wrote them.
   const kernelMethodNames = new Map<string, string>();
   if (stub.kernel === true) {
-    // A method on its array is a loop of its body (change 0079).
     const gaps: KernelInlineGap[] = [];
     body = inlineKernelMethods(
       body,
@@ -2945,28 +2536,16 @@ function fillFunctionBodyNow(
       );
     }
     body = countPushedLengths(body, pushedParams(body));
-    // A store after the last loop, and a store of a loop whose range the device holds, is dropped
-    // past the array's end on every tier (change 0094, decision D2).
     body = guardKernelBody({ params: stub.params, body });
   }
   (stub as { body: readonly Stmt[] }).body = body;
-  // A kernel function's loops are proved on its IR, and a refusal names the author's names
-  // (Rule 8.22): keep what each IR name was written as, the functions it calls and the static
-  // fields it reaches among them. The scope names a module-level name as itself, which is why a
-  // value of the module has a table of its own: a parameter that shares its IR name is a `param`,
-  // and reads the scope's table (#988).
+  // Implements: Rule 8.22
   if (stub.kernel === true)
     kernelSourceNames.set(stub, {
       locals: new Map([...scope.sourceNames(), ...kernelMethodNames]),
       ...writtenModuleNames(scope, sourceFile),
     });
-  // The type a function that writes none returns, which the language service writes into the
-  // text TypeScript reads when its return does vector arithmetic (#162, `projection.ts`), and
-  // for an entry whatever its return does (change 0136).
   if (node.type === undefined) recordInferredReturn(sourceFile, node, stub.ret);
-  // An entry that writes no return type returns what its body says (Rule 8.19, change 0136): its
-  // output takes the attribute its stage gives that type, as a written one does.
-  // An annotation the projection wrote is not the author's (`hasNoWrittenResult`, Rule 12.7).
   if (hasNoWrittenResult(node, sourceFile) && stub.stage !== undefined) {
     settleInferredEntryResult(
       stub,
@@ -2979,10 +2558,6 @@ function fillFunctionBodyNow(
     if (typeKey(stub.ret) === 'void') return;
   }
   if (typeKey(stub.ret) === 'void') {
-    // A function that says it returns nothing, in its signature or as an entry's written
-    // `: void`, cannot return a value: WGSL refuses a `return` with a value in a function with
-    // no return type (Rule 1.1), so the front end says it where TypeScript's TS2322 says it, on
-    // the `return` (Rules 12.6, 12.7), under the code TS2322 reads as (Rule 12.4) (#212).
     for (const r of collectReturns(body)) {
       if (!r.expr) continue;
       diagnostics.push(
@@ -2999,11 +2574,6 @@ function fillFunctionBodyNow(
     }
     return;
   }
-  // Each report sits on the `return` it is about (Rule 12.1: the offending thing), which is the
-  // span `lowerStatement` stamped on it; with two returns, the name of the function would not
-  // say which. It is also where TypeScript reports the same mistake (TS2322 and the codes it
-  // reads as TS2322), so the editor's merged list reads it once (Rule 12.4). A return a pass
-  // synthesised has no span, and falls back to the function's name.
   for (const r of collectReturns(body)) {
     if (!r.expr) {
       diagnostics.push(
@@ -3036,8 +2606,7 @@ function fillFunctionBodyNow(
             ? `Function "${shown ?? stub.name}" returns ${authorTypeText(stub.ret)} at its first ` +
                 `"return" and ${authorTypeText(r.expr.type)} at another; a function returns one type ` +
                 `(Rule 8.19): make them agree, or write the return type.`
-            : // A result its calls decided (change 0134) was not declared: say whose it is.
-              ts.isFunctionLike(node) && hasNoWrittenResult(node, sourceFile)
+            : ts.isFunctionLike(node) && hasNoWrittenResult(node, sourceFile)
               ? decidedResultMismatch(node, shown, stub, r, captures, sourceFile)
               : `Function "${shown ?? stub.name}" return type mismatch: declared ${authorTypeText(stub.ret)}, got ${authorTypeText(r.expr.type)}.`,
           TS_CODES.TYPE_MISMATCH,
@@ -3047,13 +2616,10 @@ function fillFunctionBodyNow(
   }
 }
 
-/** How many errors `diagnostics` holds. */
 function errorsOf(diagnostics: readonly TsCompilerDiagnostic[]): number {
   return diagnostics.filter((d) => d.category === 'error').length;
 }
 
-/** The structs a binding, a module variable or workgroup memory holds, through arrays: none of
- *  them is an entry's result by inference (Rule 8.19, change 0136). */
 function resourceStructsOf(
   bindings: readonly BindingDecl[],
   vars: readonly ModuleVarDecl[],

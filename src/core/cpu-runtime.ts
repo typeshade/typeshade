@@ -644,12 +644,8 @@ export const BUILTINS: Record<string, Builtin> = {
     const n = (u as number) >>> 0;
     return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) => b / 255);
   },
-  // `workgroupUniformLoad(w)` (#152): the VALUE workgroup memory holds. The builtin is a read
-  // between two barriers, and the oracle models the read and not the barriers: it is an
-  // EXPRESSION, and `dispatch` synchronises barrier STATEMENTS. That is a real limitation and
-  // not a fiction — an invocation that reads a value another was mid-way through writing gets
-  // a different answer here than on a device. The oracle is an algebra oracle; a race is not
-  // algebra, and the same caveat already covers every other unsynchronised read it performs.
+  // Why: the oracle runs this read without its two barriers, so a value another invocation is
+  // still writing differs from a device's.
   workgroupUniformLoad: (x) => x,
   // ── The packed 4x8 integer family (#152) ──
   //
@@ -723,12 +719,9 @@ export const BUILTINS: Record<string, Builtin> = {
   // end is not the same function: a component product past 2^53 is rounded before the wrap, and
   // `dot(vec2i(2147483647, 1), vec2i(2147483647, 1))` came out 0 here against 2 on Tint AND 2
   // on a WebGL2 driver. `Math.imul` is the 32-bit multiply.
-  //
-  // The two signednesses are backed differently, and the difference is worth naming. WGSL
-  // MANDATES the wrap for `i32` and for `u32` alike, and GLSL ES 3.00 mandates it for `uint`;
-  // for `int` it leaves overflow UNDEFINED (§4.1.3). So `dotU` is spec-backed on both targets,
-  // and `dotI` matches WGSL's rule and the driver measured above rather than a guarantee GLSL
-  // gives. The determinism report is where that asymmetry is recorded for an author.
+
+  // Why: GLSL ES 3.00 leaves int overflow undefined (§4.1.3), so dotI follows WGSL and the
+  // measured driver, not a GLSL guarantee.
   dotI: (a, b) => {
     const xs = a as number[];
     const ys = b as number[];
@@ -996,23 +989,12 @@ export const GPU_STUBS: Record<string, Builtin> = {
 };
 
 // ── WGSL's SATURATING float→integer conversions ──
-//
-// f32→u32/i32 conversion CLAMPS to the target range in WGSL (Tint polyfills it on every
-// driver), and leaves a NaN source indeterminate: the mirror takes it as 0, as the GLSL
-// writer's helpers do, where WebGPU on SwiftShader gave i32(NaN) the least i32 and
-// u32(NaN) 0 (#382). GLSL ES 3.00 leaves out-of-range float→int
-// UNDEFINED, so the GLSL writer spells the same clamp (`_f2i`/`_f2u`, Rule 11.12), and
-// the mirror follows WGSL (the pipeline it exists to mirror). The plain-`Math.trunc`
-// forms the BUILTINS table keeps are the INTEGER-source semantics (two's-complement
-// wrapping: u32 of i32(-1) IS 0xFFFFFFFF); a value alone cannot distinguish
-// f32(-1.0) from i32(-1), so the two CPU backends branch on the ARG's STATIC type
-// at the call site and route float sources here.
-// The clamp BOUNDS are the largest target-range integers exactly representable in
-// f32 — what Tint's saturating-conversion polyfill clamps against (measured on-GPU
-// by the _dsl-builtin-gate saturation lanes: u32 of an above-range float came back
-// 4294967040, not 4294967295). The mathematical 2^32−1 / 2^31−1 are NOT
-// f32-representable, so a float source can never produce them on the GPU; the
-// lower i32 bound −2^31 IS representable and stays exact.
+
+// Why: WGSL leaves a NaN source indeterminate (SwiftShader gives i32 the least i32); 0 matches
+// the GLSL writer's helpers.
+
+// Why: Tint's polyfill clamps to the largest f32-representable value; 2^32-1 and 2^31-1 are
+// not f32 values (measured, _dsl-builtin-gate).
 /** A value type that is held as a MUTABLE JavaScript object here — a vector, a matrix and an
  *  emulated-double vector are `number[]`, an array is an array, a struct is a plain object.
  *  A scalar and a bool are immutable JS primitives and never need copying. */

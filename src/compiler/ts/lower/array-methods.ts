@@ -72,9 +72,7 @@ export const isArrayMethod = (name: string): boolean =>
 /** The greatest `i32`, the identity of a `min` of an index (change 0079). */
 const I32_MAX = 2147483647;
 
-/** The functions made for a method on a kernel function's array (change 0079). Each reads the
- *  kernel function's own parameter, so it is no function of the module: `lower/kernel-methods.ts`
- *  writes it into the kernel function's body, where its loop is a candidate loop (Rule 8.22). */
+// Implements: Rule 8.22
 export const KERNEL_LOOPS = new WeakSet<FuncDecl>();
 
 /** The sentence for a method of `Array.prototype` an array does not have here. */
@@ -929,8 +927,8 @@ function lowerValueMethod(
         body,
         ...(kernel ? { counted: { name: counter, op: 'add' as const, step: 1, start: 0 } } : {}),
       });
-      // `===` for `indexOf`, and SameValueZero for `includes`, where a NaN finds a NaN. A NaN is
-      // told by its bits, which every tier keeps (change 0045), and not by `x != x`.
+      // Why: a NaN is told by its bits, which every tier keeps (change 0045), and not by
+      // `x != x`.
       const isNaN = (x: Expr): Expr => ({
         op: 'compare',
         type: boolT,
