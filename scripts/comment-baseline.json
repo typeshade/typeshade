@@ -842,7 +842,7 @@
   "src/language-service/diagnostics.test.ts": 213,
   "src/language-service/diagnostics.ts": 757,
   "src/language-service/docs.test.ts": 31,
-  "src/language-service/docs.ts": 17,
+  "src/language-service/docs.ts": 16,
   "src/language-service/editor-parity.test.ts": 19,
   "src/language-service/entry-location-hover-imports.test.ts": 80,
   "src/language-service/entry-location-hover.test.ts": 28,
