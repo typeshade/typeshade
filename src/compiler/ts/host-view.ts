@@ -24,7 +24,7 @@ import {
   type HostExport,
   type MemberCall,
 } from './host-face-contracts.js';
-import { baseClass, header } from './host-face-shared.js';
+import { baseClass, header, propName, sameField } from './host-face-shared.js';
 import { madeView, TYPED_NAME } from './host-face/made.js';
 import { bufferArgument } from './host-view/buffer-argument.js';
 import { hostTypeOf } from './host-types.js';
@@ -71,7 +71,7 @@ function argType(t: HostType, named: ReadonlyMap<string, string>): string {
     case 'struct':
       return (
         named.get(t.s) ??
-        `{ ${t.f.map(([n, ft]) => `readonly ${n}: ${argType(ft, named)}`).join('; ')} }`
+        `{ ${t.f.map(([n, ft]) => `readonly ${propName(n)}: ${argType(ft, named)}`).join('; ')} }`
       );
   }
 }
@@ -118,10 +118,10 @@ function fieldsBody(
   fieldDocs?: ReadonlyMap<string, readonly DocBlock[]>,
 ): string {
   if (fieldDocs === undefined || !fields.some(([n]) => fieldDocs.has(n)))
-    return `{ ${fields.map(([n, t]) => `${n}: ${t}`).join('; ')} }`;
+    return `{ ${fields.map(([n, t]) => `${propName(n)}: ${t}`).join('; ')} }`;
   const lines = fields.flatMap(([n, t]) => [
     ...commentLines(fieldDocs.get(n) ?? [], undefined, '  '),
-    `  ${n}: ${t};`,
+    `  ${propName(n)}: ${t};`,
   ]);
   return `{\n${lines.join('\n')}\n}`;
 }
@@ -191,7 +191,7 @@ const fieldType = (
   naming: Naming | undefined,
 ): ShaderType | undefined =>
   t?.kind === 'struct'
-    ? naming?.structs.get(t.name)?.fields.find((f) => f.name === name)?.type
+    ? naming?.structs.get(t.name)?.fields.find((f) => sameField(f.name, name))?.type
     : undefined;
 
 /** The TypeScript type of a binding's host value in the bindings object, spelled with the host
@@ -224,7 +224,7 @@ function bindingTsType(
     case 'o':
       return (
         boundName(t, naming) ??
-        `{ ${l.f.map(([n, , fl]) => `${ro}${n}: ${bindingTsType(fl, writes, false, fieldType(t, n, naming), naming)}`).join('; ')} }`
+        `{ ${l.f.map(([n, , fl]) => `${ro}${propName(n)}: ${bindingTsType(fl, writes, false, fieldType(t, n, naming), naming)}`).join('; ')} }`
       );
   }
 }
@@ -427,7 +427,7 @@ function packHostType(l: PackLayout, t?: ShaderType, naming?: Naming): string {
       return `array<${packHostType(e, te, naming)}, ${l.length}>`;
     }
     case 'struct': {
-      const packed = `{ ${l.fields.map((f) => `readonly ${f.name}: ${packHostType(f.layout, fieldType(t, f.name, naming), naming)}`).join('; ')} }`;
+      const packed = `{ ${l.fields.map((f) => `readonly ${propName(f.name)}: ${packHostType(f.layout, fieldType(t, f.name, naming), naming)}`).join('; ')} }`;
       const name = boundName(t, naming);
       return name === undefined ? packed : `${name} | ${packed}`;
     }
