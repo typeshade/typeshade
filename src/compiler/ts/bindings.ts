@@ -24,13 +24,7 @@ import {
 } from './host-resource.js';
 import { twoRowStd140Reason } from '../../core/std140.js';
 
-/** Why: WGSL gives a storage buffer read and read_write only; `write` is a storage texture's.
- *
- *  This is the one list. `ambient.ts` re-exports it (the way it re-exports `ATTRIBUTE_NAMES`
- *  from `builtin-check.ts`) and generates the library's `StorageBufferAccess` union from it, so
- *  the words the editor accepts and the words this file reads out of a declaration cannot
- *  drift. An export is not an author-facing name; the DECLARED name is the union in `SHADE_DTS`.
- */
+// Why: WGSL gives a storage buffer read and read_write only; `write` is a storage texture's.
 export const STORAGE_BUFFER_ACCESS = ['read', 'read_write'] as const;
 
 /** An access mode as it is written and as {@link BindingDecl.access} carries it. */
@@ -755,7 +749,8 @@ function checkHostShareable(
       return;
     }
     if (t.kind === 'mat' && t.elem === 'f32' && t.rows === 2 && space === 'uniform') {
-      // Rule 4.8: a two-row matrix in a uniform block is refused with the remedy. It reached
+      // Implements: Rule 4.8
+      // A two-row matrix in a uniform block is refused with the remedy. It reached
       // the author as a TS8015 WARNING from the GLSL writer's layout, with the WGSL kept, so a
       // render module shipped a uniform the two targets lay out at different offsets.
       diagnostics.push(
