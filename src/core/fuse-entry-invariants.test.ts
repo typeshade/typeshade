@@ -190,6 +190,13 @@ describe('an edge between two calls', () => {
     expect(f.match(/if \(_live\)/g)).toHaveLength(2);
   });
 
+  it('keeps the read at another index on the array, which the group then races on', () => {
+    const f = wgsl({ k: 'copy', slots: [1, 0] }, { k: 'shift', slots: [2, 1] });
+    expect(f).toMatch(/_fr1\[_fc0_i\] = _fr0\[_fc0_i\];/);
+    expect(f).toMatch(/_fr2\[_fc1_i\] = _fr1\[\(\(_fc1_i \+ 1u\) % arrayLength\(&_fr1\)\)\];/);
+    expect(f).not.toMatch(/_fe\d/);
+  });
+
   it('leaves the reads of the writer itself on the array', () => {
     const f = wgsl({ k: 'copy', slots: [0, 0] }, { k: 'copy', slots: [1, 0] });
     expect(f).toMatch(/_fr0\[_fc0_i\] = _fr0\[_fc0_i\];/);
