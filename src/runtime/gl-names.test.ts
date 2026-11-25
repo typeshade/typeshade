@@ -17,7 +17,7 @@ import {
   type Stmt,
 } from '../core/ir/index.js';
 import { allKindsModule } from '../core/testing/all-kinds-module.js';
-import { GlDrawing, GlRenderPrograms, glslNameOf, pinOverrides } from './gl-draw.js';
+import { GlDrawing, GlRenderPrograms, pinOverrides } from './gl-draw.js';
 import { webgl2Device } from '../rhi/webgl2.js';
 import { createRuntime } from './runtime.js';
 import { compile } from '../compiler/ts/compile.js';
@@ -137,8 +137,6 @@ describe('the WebGL2 host pins and binds by the GLSL names (Proposal 0070, C8)',
   it('binds the uniform block, the sampler and the override by the names the GLSL declares', () => {
     const pack = packModule(graphics());
     const draw = pack.gl!.draws!.fe as { fragment: string; blocks: Record<string, string> };
-    const texture = pack.bindings.find((b) => b.name === 'texture')!;
-    const override = pack.overrides.find((o) => o.name === 'shared')!;
     const block = draw.blocks.buffer!;
     const { gl, calls } = recordingGl();
     const drawing = new GlDrawing(webgl2Device(gl));
@@ -151,12 +149,12 @@ describe('the WebGL2 host pins and binds by the GLSL names (Proposal 0070, C8)',
     // The block is looked up by its block type name in the text.
     expect(calls).toContainEqual(['getUniformBlockIndex', [expect.anything(), block]]);
     // The sampler is located by its GLSL name, which is not the authored one.
-    const at = glslNameOf(texture);
+    const at = /uniform sampler2D (\w+);/u.exec(draw.fragment)![1]!;
     expect(at).not.toBe('texture');
     expect(calls).toContainEqual(['getUniformLocation', [expect.anything(), at]]);
     expect(calls).not.toContainEqual(['getUniformLocation', [expect.anything(), 'texture']]);
     // The override is pinned under its GLSL define, with the value the host supplied.
-    const spelled = override.emittedGlsl ?? override.emitted;
+    const spelled = /#ifndef (shared\w*)/u.exec(draw.fragment)![1]!;
     expect(spelled).not.toBe('shared');
     const pinned = calls.filter(([n]) => n === 'shaderSource').map(([, a]) => String(a[1]));
     expect(pinned.some((s) => s.includes(`#define ${spelled} 3.0\n`))).toBe(true);
@@ -346,8 +344,7 @@ describe('a binding whose GLSL and WGSL spellings agree binds by the GLSL name (
     const pack = packModule(graphicsWithBinding('class'));
     const record = pack.bindings.find((b) => b.name === 'class')!;
     expect(record.emittedGlsl).toBeUndefined();
-    expect(glslNameOf(record)).toBe(record.emitted);
-    expect(glslNameOf(record)).not.toBe('class');
+    expect(record.emitted).not.toBe('class');
     const { gl, calls } = recordingGl();
     new GlRenderPrograms(new GlDrawing(webgl2Device(gl)), pack).render({
       vertex: 'e',
@@ -453,4 +450,49 @@ declare const V: uniform<f32>;
       await expect(async () => draw(gl, { U: 0.25 })).rejects.toThrow(/V/);
     });
   }
+});
+
+describe('the bind layout names each texture and data entry by the GLSL spelling of its binding', () => {
+  const layoutEntries = (
+    pack: ReturnType<typeof packModule>,
+  ): readonly { label?: string; name?: string }[] => {
+    const { gl } = recordingGl();
+    const device = webgl2Device(gl);
+    const seen: { label?: string; name?: string }[][] = [];
+    const create = device.createBindGroupLayout.bind(device);
+    device.createBindGroupLayout = (entries) => {
+      seen.push([...entries]);
+      return create(entries);
+    };
+    new GlRenderPrograms(new GlDrawing(device), pack).render({ vertex: 'e', fragment: 'fe' });
+    return seen.flat();
+  };
+  const withData = (pack: ReturnType<typeof packModule>, dropGlsl: boolean) => {
+    const fe = pack.gl!.draws!.fe as { data?: string[] };
+    return {
+      ...pack,
+      bindings: pack.bindings.map((b) => {
+        if (!dropGlsl) return b;
+        const { emittedGlsl: _dropped, ...rest } = b;
+        return rest;
+      }),
+      gl: { ...pack.gl, draws: { ...pack.gl!.draws, fe: { ...fe, data: ['buffer'] } } },
+    } as ReturnType<typeof packModule>;
+  };
+  const pack = packModule(graphicsWithBinding('buffer'));
+
+  it('uses the GLSL spelling of a texture and of a data binding when the record gives one', () => {
+    const entries = layoutEntries(withData(pack, false));
+    const glslOf = (n: string) => pack.bindings.find((b) => b.name === n)!;
+    expect(glslOf('texture').emittedGlsl).toBe('texture_');
+    expect(entries.find((e) => e.label === 'texture')?.name).toBe('texture_');
+    expect(glslOf('buffer').emittedGlsl).toBe('buffer_');
+    expect(entries.filter((e) => e.label === 'buffer').map((e) => e.name)).toContain('buffer_');
+  });
+
+  it('uses the WGSL spelling of a texture and of a data binding when the record gives none', () => {
+    const entries = layoutEntries(withData(pack, true));
+    expect(entries.find((e) => e.label === 'texture')?.name).toBe('texture');
+    expect(entries.filter((e) => e.label === 'buffer').map((e) => e.name)).toContain('buffer');
+  });
 });

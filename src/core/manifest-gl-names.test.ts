@@ -62,13 +62,6 @@ const pack = () => {
   return packModule(m);
 };
 
-/** The GLSL spelling of a binding, as the manifest records it (`emittedGlsl`, else `emitted`). */
-const glslNameOf = (p: ReturnType<typeof pack>, name: string): string => {
-  const b = p.bindings.find((x) => x.name === name);
-  if (b === undefined) throw new Error(`no binding "${name}"`);
-  return b.emittedGlsl ?? b.emitted;
-};
-
 describe('the manifest records GLSL names of the WebGL2 maps (Proposal 0070, C7)', () => {
   const p = pack();
   const draw = p.gl!.draws!.fe as {
@@ -78,7 +71,7 @@ describe('the manifest records GLSL names of the WebGL2 maps (Proposal 0070, C7)
   };
 
   it('keys each map by the authored name and values it by the GLSL spelling', () => {
-    expect(glslNameOf(p, 'buffer')).not.toBe('buffer');
+    expect(draw.blocks.buffer).not.toBe('buffer');
     expect(Object.keys(draw.blocks)).toEqual(['buffer']);
     expect(Object.keys(draw.samplers)).toEqual(['texture']);
   });
@@ -91,9 +84,10 @@ describe('the manifest records GLSL names of the WebGL2 maps (Proposal 0070, C7)
   });
 
   it('declares each sampled texture under its GLSL name, and no other sampler', () => {
-    const name = glslNameOf(p, 'texture');
+    const name = /uniform sampler2D (\w+);/u.exec(draw.fragment)?.[1];
+    expect(name).toBeDefined();
     expect(name).not.toBe('texture');
-    expect(draw.fragment).toMatch(new RegExp(`uniform sampler2D ${name};`, 'u'));
+    expect(name).toBe(p.bindings.find((b) => b.name === 'texture')!.emittedGlsl);
     // The fused sampler is no uniform of its own in GLSL ES 3.00.
     expect(draw.fragment).not.toMatch(/textureSampler/u);
     expect(draw.samplers.texture).toBe('textureSampler');
