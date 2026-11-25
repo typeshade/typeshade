@@ -340,9 +340,11 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 - **Bundle budgets follow the file splits of the structure refactoring.** No behaviour changes.
   A split adds modules, and the single-file build of a bundle carries a lazy-init wrapper for a
   module below a dynamic import. Measured budgets (`scripts/bundle-budget.json`, gzip bytes)
-  since `c4a12d3f`: `typeshade/runtime` single file 178698 to 178923, split initial 52043 to
+  since `c4a12d3f`: `typeshade/runtime` single file 178698 to 178879, split initial 52043 to
   52095, split total 180803 to 180857. #1590 and #1578 each passed the check alone, `main`
   measured more with both, and #1599 sets the three numbers to the measured size.
+  #1565 (a feature) set the single-file number to 179038, and #1606 sets it to 179087 for the
+  moves of #1605.
   Budget pull requests: #1580, #1599, #1594, #1606. Pull requests of the moves: #1578, #1593, #1605.
 - **The `typescript` peer range starts at the lowest version CI checks** (#922). It reads
   `>=5.6.3 <7`, where it read `>=5.0.0 <7`. TypeScript 5.0.4 crashed with `Maximum call stack size
@@ -2712,6 +2714,31 @@ capabilities: storageBuffer, compute`). A compute entry with no pass program (on
 
 ### Fixed
 
+- **The host view declares a private name as itself, and an instance holds the field under the
+  key `"#n"` (change 0109, Amendment 2; Rule 8.21, surface §26 and §64; #971).** A class that
+  pairs a private field with an accessor or a method of its name, `#n: u32` beside `get n(): u32`,
+  is the ordinary pairing of §26, and `compile()` and the language service took it. The host view
+  declared the field `private n: u32;` beside `get n(): u32;`, which `tsc` read as TS2300, so a host
+  file that imported the module did not type-check. The generated class assigned the field as the
+  own property `n` of the instance, and `new Counter()` threw a `TypeError` against the getter on
+  the prototype; a setter there would have been called instead. The view now declares the field as
+  itself, `#n: u32;`, with its comment, and a host cannot name it. An instance holds the field as
+  its own property under the string key `"#n"`, so `c.n` reaches the accessor. Every conversion of
+  a host value reads and writes that key: the parameter and the result of a helper, a constant, an
+  element of a kernel function's array, a binding of an entry (the uniform of a WebGL2 pass
+  program among them) and an element of a `Resident`. A plain object of the fields has no such
+  key, and the call refuses it with a `TypeError` that names the key and says to build the value
+  with `new`. A field written with the keyword (`private n`) is declared as before, and the
+  emitted WGSL and GLSL do not change. TypeScript reads `#n` in a view for a `target` of ES2015 or
+  later. The manifest is built from the IR alone (Rule 11.10) and still names the field `n`, so
+  the program runtime packs a binding by that name; the record of change 0109 lists what that
+  means for an instance as a binding value of the program runtime. The budgets of
+  `scripts/bundle-budget.json` take the sizes measured with Bun 1.4.4 on this change merged with
+  `ad2c3954` (gzip bytes, budget on `main` to new budget, under each ceiling of
+  `scripts/bundle-ceiling.json`): `typeshade/runtime` 178879 to 179038, split initial 52095 to
+  52237, split total 180857 to 181044; `typeshade/fuse` 123067 to 123212, split initial 17604 to
+  17763, split total 123652 to 123962; `typeshade/algorithms` 71164 to 71246, split initial and
+  total 70143 to 70266; `typeshade/random` 52741 to 52771, split initial and total 51835 to 51885.
 - **An entry binds only what its emitted program reads** (#1337, a regression from #839). Since
   #839 the default emit specializes a call at module scope, so `shade(uv, false)` loses the
   branch that reads a texture. The manifest still listed that texture for the entry, from the
