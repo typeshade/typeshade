@@ -160,7 +160,7 @@
   "src/core/passes/grad.test.ts": 583,
   "src/core/passes/grad.ts": 774,
   "src/core/passes/inline-linear.test.ts": 517,
-  "src/core/passes/kernel-lower.ts": 948,
+  "src/core/passes/kernel-lower.ts": 767,
   "src/core/passes/memory-words.ts": 581,
   "src/core/passes/opt/dce.test.ts": 743,
   "src/core/passes/opt/gvn.test.ts": 1202,
