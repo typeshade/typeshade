@@ -1,4 +1,3 @@
-// Function signatures and entry IO, read before bodies and checked again after inferred results.
 import ts from 'typescript';
 import type {
   Expr,
@@ -42,8 +41,6 @@ import { madeCandidate, refuseResultArray, type MadeResult } from './made-array/
 import { markMadeResult } from './made-array/lower.js';
 import { pushDiag } from './push-diag.js';
 
-/** The declarations a body is lowered from: a top-level function, a class method or a class
- *  constructor (#86). All three carry `parameters`, an optional `type` and a `body`. */
 export type FunctionNode =
   | ts.FunctionDeclaration
   | ts.MethodDeclaration
@@ -56,11 +53,6 @@ export type FunctionNode =
   | ts.ArrowFunction
   | ts.FunctionExpression;
 
-/** The parameters of a signature, each with its type, `@builtin` and `@location`, checked
- *  against `stage` when the function is an entry. Returns `undefined` after the first
- *  parameter it cannot accept, having said why. `owner` names the function in messages;
- *  `forbidSelf` refuses a parameter named `self_`, the name a method's object takes in the
- *  emitted function (#86). */
 export function parseParams(
   parameters: readonly ts.ParameterDeclaration[],
   sourceFile: ts.SourceFile,
@@ -71,22 +63,13 @@ export function parseParams(
     readonly owner?: string;
     readonly forbidSelf?: boolean;
     readonly fnName?: string;
-    /** An exported function that is not an entry, whose array parameter with no size makes it
-     *  a kernel function (Rule 8.22) rather than a refusal. */
     readonly mayBeKernel?: boolean;
-    /** A function declared at the top of the file or of a namespace, the one kind whose object
-     *  parameter is the caller's object when it writes it (change 0142). Every other caller
-     *  leaves it unset. */
     readonly references?: boolean;
   } = {},
 ): FuncDecl['params'][number][] | undefined {
   const params: FuncDecl['params'][number][] = [];
-  // `@location` slot → the parameter already holding it, for the collision rule below.
   const paramLocations = new Map<number, string>();
   const fnName = opts.fnName ?? opts.owner ?? 'this entry';
-  // A function that is not an entry has no IO: WGSL refuses `@builtin` and `@location` on its
-  // parameter (Tint: "not valid for non-entry point function parameters"), so each is refused
-  // at the decorator and not read.
   const site = stage ? 'a parameter' : 'a parameter of a function that is not an entry';
   for (const p of parameters) {
     let unknownAttribute = false;
@@ -102,12 +85,6 @@ export function parseParams(
       );
       return undefined;
     }
-    // An optional parameter `x?: T` is `x: T | undefined`, and a call may omit it (Rule 7.10,
-    // change 0093, decision D5). An entry's parameters come from the pipeline, so none is
-    // optional; a kernel function's come from the host, which `parseSignature` refuses once
-    // it knows the function is one. TypeScript's own grammar applies through Rule 12.7: one
-    // parameter has one filler (TS1015), and a required parameter follows no optional one
-    // (TS1016), each said here in the compiler's sentence since no checker runs.
     if (p.questionToken) {
       if (stage) {
         pushDiag(
@@ -160,8 +137,6 @@ export function parseParams(
       );
       return undefined;
     }
-    // A default is filled in where the function is called (roadmap 0.3 item T7, #92), so the
-    // two shapes that have nothing to fill in from are refused here rather than at a call.
     if (p.initializer !== undefined) {
       if (stage) {
         pushDiag(
@@ -176,8 +151,6 @@ export function parseParams(
       }
       if (refuseDefaultReadingAParameter(p, parameters, sourceFile, diagnostics)) return undefined;
     }
-    // `self_` only: `self_in` was the second name a method that changed its object used, for
-    // the copy it worked on, and there is no copy now — the object is written through.
     if (opts.forbidSelf && p.name.text === 'self_') {
       pushDiag(
         diagnostics,
@@ -189,9 +162,6 @@ export function parseParams(
       );
       return undefined;
     }
-    // A function, a method, a constructor and a local function that take a function are copied
-    // for each function a call hands them (Rule 8.18), and skip that parameter before here. What
-    // is left is a setter's value, which an assignment gives it: no call hands it a function.
     if (functionTypeOf(p.type) !== undefined) {
       pushDiag(
         diagnostics,
@@ -204,10 +174,6 @@ export function parseParams(
       );
       return undefined;
     }
-    // The annotation is read first so that a missing one, which has no span of its own to
-    // point at, is the parameter's complaint and everything else is the annotation's. Before,
-    // both were pushed: a parameter written `x: f32 | vec3` said why the union names no type
-    // AND that the parameter "requires a TypeShade type annotation", which it has (T10, #92).
     if (p.type === undefined) {
       pushDiag(
         diagnostics,
@@ -218,20 +184,14 @@ export function parseParams(
       );
       return undefined;
     }
-    // A written `@inout` or `@out` is refused once, at the decorator (`TS8073`,
-    // `refuseRemovedQualifiers`), and the parameter is read as if it carried none (change 0142).
-    // An object parameter that its function writes names the caller's object with no qualifier
-    // (change 0142, stage 1).
     const referenced = opts.references === true ? referenceOf(p, sourceFile) : undefined;
     const written = p.type;
-    // A Map or a Set is a kernel function's parameter (change 0080), taken as it is written.
     const pMapped =
       opts.mayBeKernel === true && referenced === undefined
         ? withCollections(() => mapTsTypeToShaderType(written, sourceFile, diagnostics))
         : mapTsTypeToShaderType(written, sourceFile, diagnostics);
     if (refuseAtomicDeclaration(pMapped, written, sourceFile, diagnostics, 'a parameter'))
       return undefined;
-    // `x?: T` is `x: T | undefined` (change 0093).
     const pType = optionalDeclaredType(
       pMapped,
       p.questionToken,
@@ -241,9 +201,6 @@ export function parseParams(
       authorTypeText,
     );
     if (!pType) return undefined;
-    // An entry's input has no interstage form for the flag, and a kernel function's parameter
-    // comes from the host (Rule 7.10, changes 0088 and 0093): neither holds an optional, in a
-    // struct's field or an array's element either.
     const structOf = (n: string): StructDecl | undefined =>
       structs.find((c) => c.decl.name === n)?.decl;
     if (
@@ -273,9 +230,6 @@ export function parseParams(
       )
     )
       return undefined;
-    // An array with no size is a kernel function's parameter, the caller's storage (Rule 8.23),
-    // and nothing else's (Rule 12.6). A struct that holds one is not. It is the caller's array,
-    // written in place (change 0142).
     const kernelArray =
       opts.mayBeKernel === true && pType.kind === 'array' && pType.size === undefined;
     if (
@@ -291,7 +245,6 @@ export function parseParams(
     )
       return undefined;
     const io = stage ? readIoAttributes(diagnostics, sourceFile, decoratorsOf(p)) : undefined;
-    // Validate independent option arguments even when the IO argument itself is malformed.
     const interpolateAttr = stage
       ? interpolateDecoratorArg(diagnostics, sourceFile, decoratorsOf(p))
       : undefined;
@@ -324,10 +277,6 @@ export function parseParams(
       checkStructBuiltinFields(diagnostics, sourceFile, p, pType.name, structs, stage, 'input');
     }
     const location = io?.location;
-    // A compute entry has no user-defined input (WGSL), so a parameter that is no built-in
-    // value and no struct of them is refused here: `c(x: u32)` was emitted as `fn c(x: u32)`,
-    // which Tint refuses, with nothing said (Rule 6.6, change 0135). One written at a
-    // `location<…>` is refused below, in the sentence that names the location.
     if (stage === 'compute' && builtinArg === undefined && location === undefined) {
       if (pType.kind !== 'struct') {
         pushDiag(
@@ -340,9 +289,6 @@ export function parseParams(
         );
       }
     }
-    // An emulated double on the entry's IO boundary (#151 F64-09). A FRAGMENT @location input
-    // is interpolated; a VERTEX one is a buffer read, which carries a scalar f64's pair in one
-    // slot but cannot carry a vec64's two.
     if (
       stage !== undefined &&
       location !== undefined &&
@@ -357,11 +303,6 @@ export function parseParams(
     ) {
       return undefined;
     }
-    // `@interpolate` on a BARE parameter, the spelling a fragment entry uses when it takes one
-    // varying and declares no struct. It was read on a struct field and nowhere else, so the
-    // attribute an author wrote here was dropped with no diagnostic and reached neither
-    // target (§53). The whole argument list is kept, as the struct path keeps it: the GLSL
-    // writer needs the sampling as well as the type.
     if (interpolateAttr !== undefined && location === undefined) {
       pushDiag(
         diagnostics,
@@ -377,9 +318,6 @@ export function parseParams(
         ? interpolateAttr.slice('@interpolate('.length, -1)
         : undefined;
     if (location !== undefined) {
-      // WGSL: a compute entry point has no user-defined IO at all — its inputs are the
-      // builtin invocation ids and its resources. `@location(0) x: f32` on one was emitted
-      // and refused at the driver (§53).
       if (stage === 'compute') {
         pushDiag(
           diagnostics,
@@ -391,9 +329,6 @@ export function parseParams(
         );
       }
       checkLocationType(diagnostics, sourceFile, p, p.name.text, pType, interpolate);
-      // The slot rule the struct path has, for the parameter list: two parameters at one
-      // `@location` is `'@location(0)' appears multiple times` on Tint, and was emitted here
-      // with no diagnostic.
       const prior = paramLocations.get(location);
       if (prior !== undefined) {
         pushDiag(
@@ -414,14 +349,8 @@ export function parseParams(
       ...(interpolate !== undefined
         ? { interpolate, attr: `@location(${String(location)}) ${interpolateAttr!}` }
         : {}),
-      // The caller's storage, passed by reference (Rule 8.23): no copy is made on the way in. An
-      // object parameter that its function writes is the caller's object the same way (change
-      // 0142).
       ...(kernelArray || referenced !== undefined ? { mode: 'inout' as const } : {}),
     };
-    // An attribute the front end refused, an unknown built-in name or an unknown attribute,
-    // leaves the parameter with none. That is a consequence of the refusal and no second
-    // mistake, so the parameter takes no location (Rule 12.4, `entry-locations.ts`).
     if (builtin === undefined && location === undefined && (builtinArg || unknownAttribute))
       refusedIoParams.add(param);
     params.push(param);
@@ -431,20 +360,10 @@ export function parseParams(
 
 const refusedIoParams = new WeakSet<FuncDecl['params'][number]>();
 
-/** Whether the front end refused the entry I/O attribute `param` wrote, so that the parameter
- *  carries none: the refusal is the one diagnostic, and nothing gives it a location. */
 export function hasRefusedIoParam(param: FuncDecl['params'][number]): boolean {
   return refusedIoParams.has(param);
 }
 
-/** Refuse a default that reads one of the function's own parameters, or `this`, and say why
- *  (roadmap 0.3 item T7, #92). A default is filled in at the call site, where the argument for
- *  an earlier parameter is an expression and not a value; splicing it in would emit that
- *  expression a second time and run whatever it calls twice. TypeScript's own meaning needs a
- *  binding for the argument, and a call is an expression with nowhere to put one.
- *
- *  Returns true when it reported. The walk skips a name in a position where it is a field and
- *  not a read: `p.k`, `{ k: 1. }`, so a parameter called `k` does not match either. */
 function refuseDefaultReadingAParameter(
   p: ts.ParameterDeclaration,
   parameters: readonly ts.ParameterDeclaration[],
@@ -490,10 +409,6 @@ function refuseDefaultReadingAParameter(
   return true;
 }
 
-/** The return type a signature declares: the mapped type, checked against `stage` for an entry's
- *  output struct, or `void` where none is written, which a function's body then says (Rule
- *  8.19) and an entry's body is checked against. Returns `undefined` after saying what it
- *  could not map. */
 export function parseReturnType(
   typeNode: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
@@ -519,11 +434,7 @@ export function parseReturnType(
       )
     )
       return undefined;
-    // The annotation said why it names no type, on its own span. "Unsupported return type
-    // for f" repeated that on the same span and named nothing the first one had not (T10).
     if (!mapped) return undefined;
-    // An entry's output has no interstage form for the flag (Rule 7.10, changes 0088 and 0093),
-    // in a struct's field either.
     if (
       stage !== undefined &&
       refuseOptionalAt(
@@ -545,7 +456,6 @@ export function parseReturnType(
   return ret;
 }
 
-/** Whether a function declaration carries `export`. */
 function isExported(node: ts.FunctionDeclaration): boolean {
   return (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0;
 }
@@ -555,18 +465,12 @@ export function parseSignature(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[] = [],
-  /** The name the function takes in the IR when it is not the one it was written under: a
-   *  function inside `namespace Palette` is `Palette_warm` (roadmap 0.3 item T4, #92). */
   irName?: string,
-  /** The parameters that take a function (Rule 8.18), which an instance has none of: each is
-   *  the function the call handed over. */
   skip?: ReadonlySet<number>,
   consts: readonly ScopedConst[] = [],
   overrides: readonly OverrideDecl[] = [],
 ): FuncDecl | undefined {
   if (!node.name || !ts.isIdentifier(node.name)) {
-    // `@fragment export default function (…) { … }` has no name because `default` lets it have
-    // none, and `default` on an entry is refused where it is written (Rule 8.1).
     if (
       decoratorsOf(node).length > 0 &&
       node.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) === true
@@ -592,9 +496,6 @@ export function parseSignature(
     return undefined;
   }
   const name = irName ?? node.name.text;
-  // Computed up front (rather than after the return type, as before) so the builtin/stage
-  // checks below, for both a direct parameter builtin and a struct-typed parameter's fields,
-  // know the entry stage they are validating against.
   const stageInfo = parseStage(node, sourceFile, diagnostics, consts, overrides);
   const made = madeCandidate(node, stageInfo.stage === undefined && isExported(node));
   const params = parseParams(
@@ -606,17 +507,10 @@ export function parseSignature(
     {
       fnName: name,
       mayBeKernel: stageInfo.stage === undefined && isExported(node),
-      // A function of the file or of a namespace takes a reference (Rule 8.25); an entry's
-      // parameters come from the pipeline, and a generic function's instance is made from
-      // argument values, which a reference is not.
       references: stageInfo.stage === undefined && node.typeParameters === undefined,
     },
   );
   if (!params) return undefined;
-  // A function that writes no return type says it in its body (Rule 8.19); an entry's is its
-  // output, which its signature declares.
-  // A result type the editor's projection wrote is not the author's (change 0134): the
-  // function infers it, as `compile()` reads the same text.
   const ret = parseReturnType(
     stageInfo.stage === undefined && hasNoWrittenResult(node, sourceFile) ? undefined : node.type,
     sourceFile,
@@ -626,7 +520,6 @@ export function parseSignature(
     made?.kind,
   );
   if (!ret) return undefined;
-  // A stage output of an emulated double is a varying or a render-target write (#151 F64-09).
   if (
     stageInfo.stage !== undefined &&
     refuseF64EntryIo(
@@ -641,9 +534,6 @@ export function parseSignature(
     return undefined;
   }
   const decl: FuncDecl = { name, params, ret, body: [] };
-  // An array with no size, or a 2D storage texture, makes an exported function a kernel function
-  // (Rule 8.22, change 0077). A sampled texture alone does not: a helper that reads one stays a
-  // helper an entry calls (0077, Amendment 1).
   if (
     params.some(
       (p) =>
@@ -657,8 +547,6 @@ export function parseSignature(
   )
     (decl as { kernel?: boolean }).kernel = true;
   if (made?.kind === 'kernel' && ret.kind === 'array') markMadeResult(decl, made.decl);
-  // A kernel function's parameters come from the host, so none is optional (Rule 7.10, change
-  // 0093, decision D5).
   const optionalOnKernel =
     decl.kernel === true ? node.parameters.find((p) => p.questionToken !== undefined) : undefined;
   if (optionalOnKernel !== undefined && ts.isIdentifier(optionalOnKernel.name)) {
@@ -672,8 +560,6 @@ export function parseSignature(
     );
     return undefined;
   }
-  // A kernel function's result crosses to the host, which has no value for an optional (Rule
-  // 7.10, Rule 8.21), in a struct's field or an array's element either (#792).
   if (
     decl.kernel === true &&
     refuseOptionalAt(
@@ -690,7 +576,6 @@ export function parseSignature(
     )
   )
     return undefined;
-  // A kernel function's `@workgroup_size` sets the workgroup of each loop it lowers (proposal 0067).
   if (stageInfo.kernelWorkgroup !== undefined) {
     const size = settleKernelWorkgroup(
       stageInfo.kernelWorkgroup,
@@ -702,16 +587,12 @@ export function parseSignature(
     if (size !== undefined) kernelWorkgroups.set(decl, size);
   }
   recordParamDefaults(decl, node.parameters);
-  // `node.getStart(sourceFile)` is the first decorator or the `export` keyword, so an entry
-  // function's span covers its `@fragment` line; `nameSpan` is just the identifier, for a
-  // stack frame that highlights the name rather than the whole body.
   (decl as { span?: SourceSpan }).span = spanOf(sourceFile, node);
   (decl as { nameSpan?: SourceSpan }).nameSpan = spanOf(sourceFile, node.name);
   if (stageInfo.stage) (decl as { stage?: FuncDecl['stage'] }).stage = stageInfo.stage;
   const shape = stageInfo.workgroupShape;
   if (shape !== undefined) {
     (decl as { workgroupSize?: number }).workgroupSize = shape[0];
-    // An absent shape reads as `[workgroupSize, 1, 1]`, so only a y or z other than 1 is kept.
     if (shape[1] !== 1 || shape[2] !== 1)
       (decl as { workgroupShape?: WorkgroupShape }).workgroupShape = shape;
     if (stageInfo.workgroupSizeOverrides !== undefined)
@@ -731,10 +612,6 @@ export function parseSignature(
     (decl as { retAttr?: string }).retAttr = '@builtin(position)';
     (decl as { retBuiltin?: string }).retBuiltin = 'position';
   }
-  // A fragment entry's output takes `@location(0)` whatever its width: `f32`, `vec2` and
-  // `vec3` are as valid a draw-buffer format as `vec4`, and only the `vec4` case used to get
-  // the attribute, so the other three emitted WGSL Tint refuses ("missing entry point IO
-  // attribute on return type") with nothing said here.
   if (
     stageInfo.stage === 'fragment' &&
     (ret.kind === 'scalar' || ret.kind === 'vec') &&
@@ -742,32 +619,13 @@ export function parseSignature(
   ) {
     (decl as { retAttr?: string }).retAttr = '@location(0)';
   }
-  // A vertex entry has to produce a position, and nothing here can invent one: WGSL says "a
-  // vertex shader must include the 'position' builtin in its return type", and before this the
-  // three ways to leave it out compiled clean and were refused by Tint instead.
-  // An entry that writes no return type is checked once its body has said it (Rule 8.19,
-  // `settleInferredEntryResult`).
   if (stageInfo.stage === 'vertex' && node.type !== undefined) {
     refuseVertexWithoutPosition(ret, node, name, sourceFile, diagnostics, structs);
   }
   return decl;
 }
 
-/** True, having reported it, when an emulated double sits on an entry's IO boundary.
- *
- *  A `@location` varying is INTERPOLATED, and interpolating a (hi, lo) pair word by word is
- *  not the interpolation of the double it encodes: the low word is the part f32 could not
- *  hold, and a hardware blend of it carries no meaning. The fp64 pass refuses it as SD0044,
- *  and a `vec64` vertex ATTRIBUTE as SD0041 (it would need two slots), both at emit, with no
- *  source span. Said here instead, at the parameter, the field or the return type that has
- *  it, naming the bridge an author can write (#151 F64-09).
- *
- *  A SCALAR `f64` vertex attribute is not refused: a vertex `@location` input is a buffer
- *  read, not a varying, and one `vec2<f32>` slot carries the pair exactly — which is what the
- *  pass accepts. */
 export type F64IoPlace =
-  /** A `@location` that is INTERPOLATED between the stages: a fragment input, any entry
-   *  output. The pair's two words would be blended one at a time. */
   | 'varying'
   /** A bare vertex `@location` parameter, which is a buffer read. A scalar double's pair
    *  rides the one slot it already has; anything wider needs more than one. */
@@ -785,13 +643,7 @@ export function refuseF64EntryIo(
   diagnostics: TsCompilerDiagnostic[],
 ): boolean {
   if (!containsF64Type(type)) return false;
-  // The one f64 an entry CAN carry, and the only place it can: see 'attribute' above.
   if (place === 'attribute' && type.kind === 'f64') return false;
-  // The remedy is an ORDINARY one, deliberately: there is no author-facing helper for
-  // splitting a double into its words and no plan for one, because the words are the
-  // emulation's business and not the language's (§39). A uniform or storage binding carries
-  // an f64 and is visible from every stage, so a double that two stages need is read where
-  // it is needed rather than handed across.
   const bridge =
     `Narrow it with f32(x), or compute the double in the stage that needs it — a uniform or ` +
     `storage binding carries an f64 and every stage can read one.`;
@@ -817,10 +669,6 @@ export function refuseF64EntryIo(
   return true;
 }
 
-/** Whether `t` carries an emulated double anywhere — the scalar, a vector of them, a matrix of
- *  them, or an array or struct field of any of those. The fp64 pass's own `containsF64`, in
- *  the front end's terms; a struct is taken by NAME there and its fields are checked where the
- *  struct is validated, so the recursion here stops at one. */
 function containsF64Type(t: ShaderType): boolean {
   if (t.kind === 'f64' || t.kind === 'vec64') return true;
   if (t.kind === 'mat') return t.elem === 'f64';
@@ -828,8 +676,6 @@ function containsF64Type(t: ShaderType): boolean {
   return false;
 }
 
-/** True, having reported it, when a `@vertex` entry's return carries no `@builtin(position)`:
- *  a struct without such a field, or any bare type that is not the `vec4` the position is. */
 function refuseVertexWithoutPosition(
   ret: ShaderType,
   node: ts.Node,
@@ -841,7 +687,6 @@ function refuseVertexWithoutPosition(
   if (typeKey(ret).startsWith('vec4')) return;
   if (ret.kind === 'struct') {
     const decl = structs.find((s) => s.decl.name === ret.name);
-    // An unknown struct was reported where it was named; do not pile on.
     if (decl === undefined) return;
     if (decl.decl.fields.some((f) => f.builtin === 'position' || hasRefusedIoAttribute(f))) return;
     pushDiag(
@@ -865,8 +710,6 @@ function refuseVertexWithoutPosition(
   );
 }
 
-/** What a function's scope needs of a module const. `wgslValue` and `valueExpr` also supply
- *  conservative integer index proofs; a CPU value alone does not prove the emitted value. */
 export interface ScopedConst {
   readonly name: string;
   readonly type: ShaderType;
@@ -875,21 +718,12 @@ export interface ScopedConst {
   readonly valueExpr?: Expr;
 }
 
-/** A `@workgroup_size` on a function that is not an entry (proposal 0067): the decorator, and the
- *  extent its argument names, when the argument is one positive whole number. Whether the
- *  function is a kernel function, which takes it, is known once its parameters are read. */
 export interface KernelWorkgroupAttr {
-  /** The `@workgroup_size` decorator, or the `workgroup_size([…], f)` call (change 0111). */
   readonly anchor: ts.Decorator | ts.CallExpression;
-  /** The extent, or undefined when the argument is not one positive whole number. */
   readonly size?: number;
-  /** Each `@workgroup_size` written after the first on the same function (Rule 8.22). */
   readonly further?: readonly ts.Decorator[];
 }
 
-/** Reads the argument of a kernel function's `@workgroup_size` (Rule 8.7's grammar, one extent):
- *  an array literal of one positive integer literal or one `i32` or `u32` module constant. An
- *  override is not one (decision D2). */
 function kernelWorkgroupOf(
   d: ts.Decorator | ts.CallExpression,
   consts: readonly ScopedConst[],
@@ -904,7 +738,6 @@ function kernelWorkgroupOf(
       out = out.expression;
     return out;
   };
-  // The decorator's one argument, or a refused stage call's first.
   const args = ts.isDecorator(d)
     ? ts.isCallExpression(d.expression)
       ? d.expression.arguments
@@ -933,12 +766,6 @@ function kernelWorkgroupOf(
   return { anchor: d };
 }
 
-/**
- * Settles the `@workgroup_size` of a function that is not an entry (proposal 0067, Rule 8.22): a
- * kernel function takes one extent and sets its loops' workgroup, and any other function refuses
- * the decorator (`TS8028`). A bad argument is `TS8037`, and an extent over WebGPU's default limit
- * the `TS8026` warning. Returns the extent a kernel function takes.
- */
 function settleKernelWorkgroup(
   attr: KernelWorkgroupAttr,
   node: ts.FunctionDeclaration,
@@ -948,8 +775,6 @@ function settleKernelWorkgroup(
 ): number | undefined {
   const d = attr.anchor;
   const call = ts.isCallExpression(d);
-  // A generic function is lowered once per instance, and each pass reads its decorators again: one
-  // decorator is one refusal (Rule 12.4).
   const once = (
     message: string,
     code: TsCode,
@@ -960,12 +785,8 @@ function settleKernelWorkgroup(
     if (diagnostics.some((x) => x.start === start && x.message === message)) return;
     diagnostics.push(makeDiagnostic(sourceFile, at, message, code, category));
   };
-  // Each `@workgroup_size` written after the first (change 0130, amendment A1).
   const further = attr.further ?? [];
-  // Each message names the attribute, the form an author writes (change 0130), whichever form
-  // was written.
   if (!kernel || !isExported(node)) {
-    // The function takes none, so each one written is refused for that, at its own attribute.
     for (const at of [d, ...further])
       once(
         `"workgroup_size" applies to a kernel function only: an exported function that takes an array with no size (Rule 8.22). Declare "${node.name?.text ?? 'this function'}" without it.`,
@@ -975,9 +796,6 @@ function settleKernelWorkgroup(
       );
     return undefined;
   }
-  // A function takes at most one `@workgroup_size([n])` (Rule 8.22, change 0130, amendment A1):
-  // each further one is refused at its own attribute, as a second stage attribute is, and the
-  // first one sets the size. The text names what to delete (Rule 12.5).
   for (const second of further) {
     const written = second.getText(sourceFile);
     once(
@@ -990,7 +808,6 @@ function settleKernelWorkgroup(
     );
   }
   if (attr.size === undefined) {
-    // The argument as written: the call's first, or the decorator's list.
     const args = call
       ? d.arguments.slice(0, 1)
       : ts.isCallExpression(d.expression)
@@ -1015,14 +832,6 @@ function settleKernelWorkgroup(
   return attr.size;
 }
 
-/**
- * The output of an entry that writes no return type, once its body has said it (Rule 8.19,
- * change 0136): the attribute its stage gives the type, and the checks a written return type
- * gets (`parseSignature`, `parseReturnType`). A bare `vec4` vertex result is the position, a bare
- * scalar or vector fragment result is `@location(0)`, and a struct result carries its fields'
- * attributes. A compute entry returns nothing, so a value it returns is refused. `failed` says
- * that an error in the body already explains a result that is missing.
- */
 export function settleInferredEntryResult(
   stub: FuncDecl,
   node: FunctionNode,
@@ -1115,7 +924,6 @@ function parseStage(
   workgroupShape?: WorkgroupShape;
   workgroupSizeOverrides?: readonly [string | undefined, string | undefined, string | undefined];
   workgroupSizeExpressions?: readonly [string | undefined, string | undefined, string | undefined];
-  /** A `@workgroup_size` on a function that is not an entry, settled by the caller. */
   kernelWorkgroup?: KernelWorkgroupAttr;
 } {
   const decos = decoratorsOf(node);
@@ -1127,11 +935,6 @@ function parseStage(
     [string | undefined, string | undefined, string | undefined] | undefined;
   let workgroupSizeExpressions:
     [string | undefined, string | undefined, string | undefined] | undefined;
-  // Read the workgroup argument's AST, not its text (#118). No argument takes the default;
-  // dimensions may be positive integer literals, module constants or overrides. Anything else
-  // used to fall through to 64 with no diagnostic — `@compute({ workgroup: [8, 8, 1] })`,
-  // `@compute(128)`, `@compute(SIZE)` — so the author asked for one size and dispatched against
-  // another. It is reported now, at the argument.
   const readCompute = (args: readonly ts.Expression[], anchor: ts.Node): void => {
     stage = 'compute';
     workgroupShape = [64, 1, 1];
@@ -1196,7 +999,6 @@ function parseStage(
           diagnostics,
           sourceFile,
           args[0]!,
-          // The attribute's spelling, whichever form was written (Rule 8.7, change 0130).
           `compute takes an array of one to three whole numbers, "@compute([64, 1, 1])"; ` +
             `"${written}" is not a workgroup shape.`,
           TS_CODES.WORKGROUP_ARG,
@@ -1222,16 +1024,12 @@ function parseStage(
       }
     }
   };
-  // A refused stage call (changes 0130 and 0140) says the stage, or a kernel function's
-  // workgroup, with no decorator.
   const sc = stageCallOfDeclaration(node);
   if (sc !== undefined) {
     if (sc.callee === 'workgroup_size') kernelWorkgroup = kernelWorkgroupOf(sc.call, consts);
     else if (sc.callee === 'compute') readCompute(sc.size === undefined ? [] : [sc.size], sc.call);
     else stage = sc.callee;
   }
-  // An entry has exactly one stage attribute (Rule 8.1, change 0130): a second one is refused at
-  // its own decorator, once, and the first one decides the stage.
   let firstStage: string | undefined;
   for (const d of decos) {
     const name = /^@(vertex|fragment|compute)\b/.exec(d.getText(sourceFile))?.[1];
@@ -1248,16 +1046,11 @@ function parseStage(
     if (!diagnostics.some((x) => x.start === start && x.message === message))
       diagnostics.push(makeDiagnostic(sourceFile, d, message, TS_CODES.ATTRIBUTE_NAME));
   }
-  // One refusal of a stage attribute or `@workgroup_size` as written, on the attribute. The
-  // signature pass and the body pass both read the attributes: one attribute is one refusal
-  // (Rule 12.4).
   const refuseAttribute = (d: ts.Decorator, message: string): void => {
     const start = d.getStart(sourceFile);
     if (!diagnostics.some((x) => x.start === start && x.message === message))
       diagnostics.push(makeDiagnostic(sourceFile, d, message, TS_CODES.ATTRIBUTE_NAME));
   };
-  // `@name<T>(…)` is neither `@name` nor `@name(…)` (Rule 6.7): the type argument is read by
-  // nothing, so the attribute is refused as `@name<T>` is. Returns whether it refused.
   const refuseTypeArguments = (d: ts.Decorator): boolean => {
     if (!ts.isCallExpression(d.expression) || d.expression.typeArguments === undefined)
       return false;
@@ -1268,15 +1061,9 @@ function parseStage(
     );
     return true;
   };
-  // `@vertex` and `@fragment` take no argument list (Rule 8.1, change 0130, amendment A1): an
-  // argument written on one is read by nothing, so it is refused and not dropped, and the empty
-  // list, `@vertex()`, is refused with it, since a stage has one spelling. `@compute()` is not:
-  // its empty list means the default size (Rule 8.7). The stage is still read, so nothing else
-  // is said about the entry (Rule 12.4).
   const refuseArguments = (d: ts.Decorator, name: 'vertex' | 'fragment'): void => {
     if (!ts.isCallExpression(d.expression)) return;
     const args = d.expression.arguments;
-    // The arguments as written; the empty list is named as `()`.
     const written =
       args.length === 0
         ? ''
@@ -1291,13 +1078,8 @@ function parseStage(
     const stageName = /^@(vertex|fragment|compute)\b/.exec(d.getText(sourceFile))?.[1];
     if (stageName !== undefined && stageName !== firstStage) continue;
     if (stageName !== undefined && stage !== undefined) continue;
-    // A function that is not an entry may be a kernel function, which takes one extent of
-    // `@workgroup_size` (Rule 8.22). Whether it is one is known once its parameters are read.
     if (!isEntry && /^@workgroup_size\b/.test(d.getText(sourceFile))) {
       const typed = refuseTypeArguments(d);
-      // The first one sets the size. Each further one is kept for `settleKernelWorkgroup`, which
-      // refuses it on a kernel function (Rule 8.22, change 0130, amendment A1); one that a type
-      // argument already refused is not refused twice (Rule 12.4).
       if (kernelWorkgroup === undefined) kernelWorkgroup = kernelWorkgroupOf(d, consts);
       else if (!typed && ts.isDecorator(kernelWorkgroup.anchor)) furtherWorkgroups.push(d);
       continue;
@@ -1332,8 +1114,6 @@ function parseStage(
   };
 }
 
-/** WebGPU's default compute limits, the ones every adapter supports and `requestDevice()`
- *  grants when no `requiredLimits` raise them. */
 const DEFAULT_WORKGROUP_LIMITS = {
   maxComputeWorkgroupSizeX: 256,
   maxComputeWorkgroupSizeY: 256,
@@ -1341,8 +1121,6 @@ const DEFAULT_WORKGROUP_LIMITS = {
   maxComputeInvocationsPerWorkgroup: 256,
 } as const;
 
-/** The first default limit a workgroup shape exceeds, as a clause naming it; `undefined` when
- *  the shape fits a device with the default limits. */
 function overDefaultWorkgroupLimit(shape: WorkgroupShape): string | undefined {
   const [x, y, z] = shape;
   const L = DEFAULT_WORKGROUP_LIMITS;
@@ -1358,21 +1136,10 @@ function overDefaultWorkgroupLimit(shape: WorkgroupShape): string | undefined {
   return undefined;
 }
 
-/** The decorators `node` carries, with those its attribute type stands for (change 0111). */
 export function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
   return attributeDecoratorsOf(node);
 }
 
-/** Validates every field of the struct named `structName` (a parameter's or a return type's
- *  struct) against `stage`/`direction`: a `builtin<…>` field is checked with
- *  `checkBuiltinStage`, and a field of a compute entry's struct that is no built-in value is
- *  `STRUCT_FIELD_MISSING_ATTR`, since a compute entry has no user-defined input. A field with
- *  no attribute on a vertex or a fragment entry is a user-defined input or output, and the
- *  compiler gives it its location once every entry is read (`entry-locations.ts`, Rule 6.6,
- *  change 0135), where its type and an emulated double are checked too. Every diagnostic
- *  anchors at `node` (the parameter or the return type annotation) since a `StructField`
- *  carries no source position of its own; see `structs.ts`'s `collectStructs`, which already
- *  validated each field's builtin name and type independently of how the struct ends up used. */
 function checkStructBuiltinFields(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
@@ -1384,18 +1151,9 @@ function checkStructBuiltinFields(
 ): void {
   const collected = structs.find((s) => s.decl.name === structName);
   if (!collected) return;
-  // The struct as the author wrote it, `N.VOut` for the `N_VOut` a namespace's class emits as.
   const shown = authorTypeText(structT(structName));
-  // The slot-collision and varying-type rules read the struct alone and live in `structs.ts`,
-  // which sees each declaration once: raised here they printed one mistake twice, because a
-  // vertex output and a fragment input are the SAME struct. What is left below reads the
-  // stage, which is genuinely different between the two uses.
   for (const field of collected.decl.fields) {
     if (hasRefusedIoAttribute(field)) continue;
-    // A user-defined value on a COMPUTE entry, reached through a struct parameter, with a
-    // `location<…>` or with no attribute at all. Tint answers `'@location' cannot be used by
-    // compute shaders`, and a member with no attribute is refused there too. Stage-dependent,
-    // so it belongs here rather than in the struct collector, which sees no stage.
     if (stage === 'compute' && !field.builtin) {
       pushDiag(
         diagnostics,

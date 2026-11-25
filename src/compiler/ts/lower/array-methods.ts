@@ -1,25 +1,3 @@
-// ═══ An array's methods: map, forEach, some, every and reduce (Rule 8.18, surface §63) ═══
-//
-// `xs.map(f)` is ECMAScript's own method, and a shader has no function value to hand it. It
-// needs none: every call names the function it hands over, by its name or as an arrow function
-// written there, as a call of a function that takes a function does (Rule 8.18). So each call
-// becomes a call of a function of the module, made for the array's type and that function: a
-// counted loop over the indices that calls it (Rule 7.5), `array_map_sq(xs)`. A method call is
-// an expression and a loop is a statement; a call stands wherever a call may, in an argument,
-// on the right of `&&` or in a loop's condition, where a loop written in place could not. Every
-// target and the CPU oracle run such a function already, and the IR gains no node.
-//
-// THE ARRAY IS READ AS IT GOES, as TypeScript reads it:
-//
-//   - a module variable, a module constant or a binding is read in place;
-//   - a variable the function handed over captures is read through the parameter the loop takes
-//     for it, which is the one the function writes through when it writes it: one variable, one
-//     reference (Rule 8.18);
-//   - any other array is passed by value, since nothing can write it while the loop runs.
-//
-// An index on the way to the array (`cells[k].xs`) is read once, before the loop, as TypeScript
-// reads the receiver once.
-
 import { logicalTypeKey as typeKey } from '../optional.js';
 import ts from 'typescript';
 import type { Expr, FuncDecl, Stmt } from '../../../core/ir/nodes.js';
@@ -49,8 +27,6 @@ import { searchElementRefusal, sharedFillRefusal } from './array-methods/value-r
 
 type Method = 'map' | 'forEach' | 'some' | 'every' | 'reduce' | 'findIndex' | 'findLastIndex';
 
-/** The methods of `Array.prototype` an array has here that take a function, and the name the
- *  function each one is handed is lifted under when it is written in the call: `fs_f`, `fs_p`. */
 const METHODS: ReadonlyMap<string, string> = new Map([
   ['map', 'f'],
   ['forEach', 'f'],
@@ -61,21 +37,17 @@ const METHODS: ReadonlyMap<string, string> = new Map([
   ['findLastIndex', 'p'],
 ]);
 
-/** The methods that take a value (change 0079): `fill(v)` and the searches for one. */
 type ValueMethod = 'fill' | 'indexOf' | 'lastIndexOf' | 'includes';
 const VALUE_METHODS: ReadonlySet<string> = new Set(['fill', 'indexOf', 'lastIndexOf', 'includes']);
 
-/** Whether `name` is one of the methods an array has (surface §63). */
 export const isArrayMethod = (name: string): boolean =>
   METHODS.has(name) || VALUE_METHODS.has(name);
 
-/** The greatest `i32`, the identity of a `min` of an index (change 0079). */
 const I32_MAX = 2147483647;
 
 // Implements: Rule 8.22
 export const KERNEL_LOOPS = new WeakSet<FuncDecl>();
 
-/** The sentence for a method of `Array.prototype` an array does not have here. */
 export const otherArrayMethod = (name: string): string =>
   `".${name}" is not one of an array's methods here, which are map, forEach, some, every, ` +
   `reduce, fill, findIndex, findLastIndex, indexOf, lastIndexOf, includes and slice() with no ` +
@@ -93,15 +65,12 @@ export function push(
   return undefined;
 }
 
-/** `e` without the parentheses around it. */
 function bare(e: ts.Expression): ts.Expression {
   let x = e;
   while (ts.isParenthesizedExpression(x)) x = x.expression;
   return x;
 }
 
-/** The variable a field or element path starts from in the source, as a capture names it:
- *  `this` in a method, or the declaration of a local or a parameter. */
 function rootKey(e: ts.Expression, scope: LoweringScope): CaptureKey | undefined {
   let x = bare(e);
   while (ts.isPropertyAccessExpression(x) || ts.isElementAccessExpression(x)) {
@@ -113,8 +82,6 @@ function rootKey(e: ts.Expression, scope: LoweringScope): CaptureKey | undefined
   return ts.isIdentifier(x) ? declarationOf(x) : undefined;
 }
 
-/** The name, a field or element path to one, that `e` reads: its root, or undefined when `e`
- *  is any other expression. */
 function pathRoot(e: Expr): Expr | undefined {
   switch (e.op) {
     case 'varref':
@@ -129,8 +96,6 @@ function pathRoot(e: Expr): Expr | undefined {
   }
 }
 
-/** `e`, a path, with its root replaced by `root` and each index that is not a literal by a
- *  parameter, recorded in `hoisted` in the order TypeScript reads them. */
 function rebase(
   e: Expr,
   root: Expr,
@@ -152,12 +117,6 @@ function rebase(
   }
 }
 
-/**
- * `xs.map(f)`, `xs.forEach(f)`, `xs.some(p)`, `xs.every(p)` and `xs.reduce(f, init)` on an
- * array (Rule 8.18, surface §63): a call of the function of the module made for the array's
- * type and the function handed over. `recv` is the receiver, lowered once by the caller.
- * Undefined, having said why, for a call this cannot make.
- */
 export function lowerArrayMethod(
   node: ts.CallExpression,
   callee: ts.PropertyAccessExpression,
@@ -229,8 +188,6 @@ export function lowerArrayMethod(
     );
   }
   const init = method === 'reduce' ? args[1] : undefined;
-  // An `array<T, N>` has one element or more (type-map.ts refuses `N` of 0), so only an array
-  // with no size may be empty.
   if (method === 'reduce' && init === undefined && size === undefined) {
     return push(
       diagnostics,
@@ -253,8 +210,6 @@ export function lowerArrayMethod(
     );
   }
 
-  // ── What the function is handed: the value, its index and the array, and for `reduce` the
-  //    running value first. `index` is an i32, the type an unannotated counter has (Rule 7.5).
   const fixed = size !== undefined;
   const full: ShaderType[] = [elem, i32T, ...(fixed ? [arrayType] : [])];
   const names = ['value', 'index', 'array'];
@@ -263,8 +218,6 @@ export function lowerArrayMethod(
   const fnNode = bare(args[0]!);
   const arrow = ts.isArrowFunction(fnNode) || ts.isFunctionExpression(fnNode) ? fnNode : undefined;
   if (method === 'reduce') {
-    // The running value's type: what the function's first parameter says where it says it, then
-    // what the value to start from is, then the element's.
     const firstParam = arrow?.parameters[0];
     if (firstParam?.type !== undefined) {
       acc = mapTsTypeToShaderType(firstParam.type, sourceFile, diagnostics);
@@ -294,8 +247,6 @@ export function lowerArrayMethod(
     full.unshift(acc);
     names.unshift('acc');
   }
-  // What the function handed over returns: a predicate's `bool` for `some`, `every` and the
-  // `find` methods.
   const ret: ShaderType | undefined =
     method === 'findIndex' || method === 'findLastIndex' || method === 'some' || method === 'every'
       ? boolT
@@ -315,7 +266,6 @@ export function lowerArrayMethod(
     text: text(n),
   });
 
-  // ── The function handed over.
   let f: FuncDecl | undefined;
   if (arrow !== undefined) {
     const n = arrow.parameters.length;
@@ -329,9 +279,7 @@ export function lowerArrayMethod(
         TS_CODES.UNSUPPORTED,
       );
     }
-    // As many of the arguments as it takes: one it leaves off is one the loop does not pass.
     f = liftWritten(arrow, shapeOf(Math.min(n, full.length)), hint, scope, sourceFile, diagnostics);
-    // One whose body did not lower says nothing it returns, and said why already (Rule 12.4).
     if (f === undefined || !scope.calleeReady(f, arrow, sourceFile, diagnostics)) return undefined;
   } else if (ts.isIdentifier(fnNode)) {
     f = namedFunction(
@@ -371,10 +319,7 @@ export function lowerArrayMethod(
     );
   }
 
-  // ── How the loop reads the array.
   const root = pathRoot(recv);
-  // A `const` that copies a binding by its bare name (`const a = data`) is the binding, in
-  // TypeScript and in what the front end reads through it (#46): the loop reads the binding.
   let rootBinding =
     root !== undefined && root.op === 'varref' ? scope.resolveIr(root.name) : undefined;
   let globalRoot = root;
@@ -386,15 +331,12 @@ export function lowerArrayMethod(
   }
   const isGlobal = (b: typeof rootBinding): boolean =>
     b?.kind === 'binding' || b?.kind === 'modvar' || b?.kind === 'module';
-  // A kernel function's array parameter (change 0079): the loop reads it in place, as the body of
-  // the kernel function, into which `lower/kernel-methods.ts` writes the loop.
   const kernelArray = !fixed && recv.op === 'param';
   const global =
     root !== undefined && (root.op === 'constref' || isGlobal(rootBinding) || kernelArray);
   const key = root !== undefined && !global ? rootKey(callee.expression, scope) : undefined;
   const sharedAt = key === undefined ? -1 : keys.indexOf(key);
   if (!fixed && !global) {
-    // A runtime-sized array is a binding's, or a local that copies one, and is read in place.
     return push(
       diagnostics,
       sourceFile,
@@ -405,8 +347,6 @@ export function lowerArrayMethod(
     );
   }
 
-  // On a kernel function's array a predicate runs for every element, where ECMAScript stops at
-  // the first that decides: one that writes what it captures would see more calls (change 0079).
   if (kernelArray && method !== 'forEach' && method !== 'reduce' && method !== 'map') {
     const through = f.params.slice(0, keys.length).find((p) => p.mode === 'inout');
     if (through !== undefined)
@@ -503,7 +443,6 @@ export function lowerArrayMethod(
   };
 }
 
-/** What a path reads, for the key of the function made for it: `data`, `cells[?].xs`. */
 function pathKey(e: Expr): string {
   switch (e.op) {
     case 'varref':
@@ -519,7 +458,6 @@ function pathKey(e: Expr): string {
   }
 }
 
-/** The loop a method's call runs: the function of the module made for it. */
 function loopFunction(
   name: string,
   method: Method,
@@ -536,8 +474,6 @@ function loopFunction(
     readonly counter: string;
     readonly outName: string | undefined;
     readonly accName: string | undefined;
-    /** A kernel function's array (change 0079): the loop counts with a `u32`, as a kernel loop
-     *  does, says it is counted, and stops at no element, so the proof may run it on the GPU. */
     readonly kernel?: boolean;
   },
 ): FuncDecl {
@@ -545,7 +481,6 @@ function loopFunction(
   const lit = (type: ShaderType, value: number | boolean): Expr => ({ op: 'lit', type, value });
   const counterT = o.kernel === true ? u32T : i32T;
   const i: Expr = { op: 'varref', type: counterT, name: o.counter };
-  // The index the function is handed is an `i32` on every array (Rule 7.5, change 0079).
   const index: Expr = o.kernel === true ? (lowerScalarCast('i32', i) as Expr) : i;
   const length: Expr = { op: 'call', type: u32T, fn: 'arrayLength', args: [arrayIn] };
   const bound: Expr =
@@ -609,8 +544,6 @@ function loopFunction(
       const fails: Expr = { op: 'compare', type: boolT, cop: '==', a: test, b: lit(boolT, false) };
       ret = boolT;
       if (o.kernel === true) {
-        // On a kernel function's array, an `|` or an `&` over every element, as a `u32`: the
-        // answer the first element that decides gives, with no loop that stops (change 0079).
         const r: Expr = { op: 'varref', type: u32T, name: o.accName! };
         body = [
           { s: 'var', name: o.accName!, type: u32T, init: lit(u32T, some ? 0 : 1) },
@@ -636,7 +569,6 @@ function loopFunction(
         ];
         break;
       }
-      // `some` stops at the first element that passes, `every` at the first that fails.
       body = [
         loop(0, [
           {
@@ -653,8 +585,6 @@ function loopFunction(
       const last = method === 'findLastIndex';
       ret = i32T;
       if (o.kernel === true) {
-        // A `min` of the index where it holds, or a `max` for the last, over every element: the
-        // index ECMAScript's first match gives, in any order (change 0079).
         const r: Expr = { op: 'varref', type: i32T, name: o.accName! };
         const empty = last ? -1 : I32_MAX;
         body = [
@@ -691,7 +621,6 @@ function loopFunction(
         ];
         break;
       }
-      // The first index where it holds, from the front or from the back, as ECMAScript stops.
       const k: Expr = last
         ? {
             op: 'binop',
@@ -738,13 +667,6 @@ function loopFunction(
   };
 }
 
-/**
- * `xs.fill(v)`, `xs.indexOf(v)`, `xs.lastIndexOf(v)` and `xs.includes(v)` (change 0079): a call
- * of a function of the module made for the array's type, a counted loop over the indices, as the
- * methods that take a function are. On a kernel function's array the loop is written into the
- * kernel function's body (`kernel-methods.ts`), and each search is a `min` or a `max` of an index
- * over every element, so the proof may run it on the GPU.
- */
 function lowerValueMethod(
   node: ts.CallExpression,
   callee: ts.PropertyAccessExpression,
@@ -812,8 +734,6 @@ function lowerValueMethod(
     );
   }
 
-  // ── How the loop reaches the array: as the methods that take a function do, and for `fill`,
-  //    where it can write it.
   const root = pathRoot(recv);
   let rootBinding =
     root !== undefined && root.op === 'varref' ? scope.resolveIr(root.name) : undefined;
@@ -842,8 +762,6 @@ function lowerValueMethod(
       TS_CODES.UNSUPPORTED,
     );
   }
-  // `fill` writes: a binding the shader may write, a kernel function's array, or a local array
-  // variable by its name, which the loop writes through.
   let through: string | undefined;
   if (method === 'fill' && !kernelArray) {
     const local = recv.op === 'varref' ? scope.resolveIr(recv.name) : undefined;
@@ -961,8 +879,6 @@ function lowerValueMethod(
         ret = voidT;
         body = [loop([{ s: 'assign', target: at(i), expr: v }])];
       } else if (kernel) {
-        // A `min` or a `max` of the index where it matches, or an `|` for `includes`, over every
-        // element (change 0079).
         const includes = method === 'includes';
         const rt = includes ? u32T : i32T;
         const r: Expr = { op: 'varref', type: rt, name: accName };
@@ -994,7 +910,6 @@ function lowerValueMethod(
           },
         ];
       } else {
-        // The first match, from the front or from the back, as ECMAScript stops at it.
         const k: Expr = last
           ? {
               op: 'binop',

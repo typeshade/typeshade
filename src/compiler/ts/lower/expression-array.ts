@@ -27,18 +27,12 @@ export function lowerArrayCtor(
 ): Expr | undefined {
   const typeArgs = node.typeArguments;
   if (!typeArgs || typeArgs.length < 1) {
-    // `array(1., 2., 3.)` INFERS both type arguments from the elements, as WGSL does
-    // (wgsl.txt:20133: "the element type and count are inferred"). The elements must agree —
-    // an array has one element type — and there must be at least one to read it from.
     return inferredArray(node, node.arguments, sourceFile, scope, diagnostics);
   }
   const fakeRef = ts.factory.createTypeReferenceNode('array', [...typeArgs]);
   const mapped = mapTsTypeToShaderType(fakeRef, sourceFile, diagnostics);
   if (!mapped || mapped.kind !== 'array') return undefined;
   const n = mapped.size;
-  // `array<T, N>()` is WGSL's zero value of the array (§17.1.1, change 0047), written out one
-  // element at a time as `vec3()` and `matCxR()` are, so every backend and the oracle see an
-  // ordinary constructor. An array with no size has no zero value in WGSL.
   if (node.arguments.length === 0) {
     const written = node.getText(sourceFile);
     if (n === undefined) {
@@ -68,14 +62,8 @@ export function lowerArrayCtor(
   }
   const args: Expr[] = [];
   for (const arg of node.arguments) {
-    // `mapped.elem` is the position each element sits in, so an object-literal element knows
-    // which struct it builds: `array<A, 2>({ … }, { … })` is two DECLARED positions, spelled
-    // in the constructor's own type argument rather than on a variable (#8 A11).
     const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, mapped.elem);
     if (!lowered) return undefined;
-    // Each argument takes the element type by the rule the list form uses, so the two
-    // spellings stay one program: `array<i32, 3>(1, 2, 3)` emitted `(1.0, 2.0, 3.0)` before
-    // this, which neither target accepts, while `array<i32, 3> = [1, 2, 3]` emitted integers.
     const typed = typeArrayElement(
       arg,
       lowered,
@@ -101,13 +89,6 @@ export function lowerArrayCtor(
   return { op: 'construct', type: mapped, args };
 }
 
-/** `array(e1, e2, …)` with no type arguments (#150): the element type and the count come from
- *  the elements themselves. Refused when they disagree, because an array has ONE element type
- *  and guessing which one the author meant would move the emit of a program silently; the
- *  message names the explicit form, which settles it.
- *
- *  A bare integer literal is left alone here. It lowers to an `f32` on this surface, so
- *  `array(1, 2, 3)` infers `array<f32, 3>` — the same type `const x = 1` gives (Rule 5.1). */
 function inferredArray(
   node: ts.Node,
   elements: readonly ts.Expression[],
@@ -149,8 +130,6 @@ function inferredArray(
   return { op: 'construct', type: { kind: 'array', elem, size: args.length }, args };
 }
 
-/** A list infers an array only as the source of an array binding (change 0086).
- *  Share the constructor's homogeneous element inference and its f32 literal default. */
 export function lowerInferredBindingArray(
   node: ts.ArrayLiteralExpression,
   sourceFile: ts.SourceFile,
@@ -173,16 +152,6 @@ export function lowerInferredBindingArray(
   return inferredArray(node, node.elements, sourceFile, scope, diagnostics);
 }
 
-/** `[a, b, c]` written where an `array<T, N>` is declared, e.g.
- *  `const xs: array<f32, 3> = [1., 2., 3.]` (#8 A16). It builds the SAME `construct` node the
- *  `array<f32, 3>(1., 2., 3.)` call builds, so the two spellings are one program — pinned by a
- *  test that compares the two bodies. The list form carries no type of its own, which is why it
- *  is only accepted where one is declared and why `target` is passed in rather than inferred.
- *
- *  Each element is checked against `target`'s element type by {@link typeArrayElement}, the
- *  helper the call form shares. A bare numeric literal is retyped to the element type first — the same retarget the
- *  scalar declaration does for `const x: i32 = 1` — so `array<i32, 3> = [1, 2, 3]` emits
- *  `array<i32, 3>(1, 2, 3)` rather than the float literals an i32 array cannot take. */
 export function lowerArrayLiteral(
   node: ts.ArrayLiteralExpression,
   target: ShaderType,
@@ -225,8 +194,6 @@ export function lowerArrayLiteral(
     );
     return undefined;
   }
-  // Checked before the count: `[...xs]` is one element syntactically, so counting it first
-  // would report an arity the author never wrote.
   if (refuseListSpread(node, sourceFile, scope, diagnostics)) return undefined;
   for (const element of node.elements) {
     if (ts.isOmittedExpression(element)) {
@@ -252,10 +219,6 @@ export function lowerArrayLiteral(
   }
   const args: Expr[] = [];
   for (const [i, element] of node.elements.entries()) {
-    // A list as an ELEMENT is named here rather than left to the generic "a list is only an
-    // initializer" refusal, which reads as if the declaration were missing when it is the
-    // element type that does not take one. The only element type that could take a list is
-    // another array, and that is refused above, so this arm says which type is wanted.
     if (ts.isArrayLiteralExpression(element)) {
       pushDiag(
         diagnostics,
@@ -283,12 +246,6 @@ export function lowerArrayLiteral(
   return { op: 'construct', type: target, args };
 }
 
-/** `[...a, 3.]`: a spread in a list, which a shader array does not do, since its length is its
- *  type's. semantic.ts refuses each one wherever it is written (TS8013); here, where the operand's
- *  type is known, the sentence is given the elements to write in its place, `a[0], a[1]`. A
- *  position that holds a list asks this first, before the count or the annotation it would
- *  otherwise ask for, so the spread is the list's one sentence (Rule 12.4). Returns whether the
- *  list holds a spread. */
 export function refuseListSpread(
   node: ts.ArrayLiteralExpression,
   sourceFile: ts.SourceFile,
@@ -302,16 +259,12 @@ export function refuseListSpread(
   return spreads.length > 0;
 }
 
-/** The elements a spread's operand stands for, as an author writes them: `a[0], a[1]` for a
- *  sized array, `v.x, v.y, v.z` for a vector. Undefined for anything else, a struct, a scalar or
- *  a name nothing declares, which has no elements to name. */
 function spreadElements(
   spread: ts.SpreadElement,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
 ): string | undefined {
   const operand = spread.expression;
-  // Only its type is read; what the operand itself may be refused for is not this mistake.
   const type = peekingReads(() => lowerExpression(operand, sourceFile, scope, []))?.type;
   const written = operand.getText(sourceFile);
   const shown =
@@ -378,8 +331,6 @@ export function lowerFill(
     );
     return undefined;
   }
-  // The value takes the element type by the rule `array<T, N>(…)` gives each element (#498):
-  // `fill<u32, 4>(0)` emitted four `0.0` into an `array<u32, 4>`, which Tint refuses.
   const arg = node.arguments[0]!;
   const lowered = lowerExpression(arg, sourceFile, scope, diagnostics, mapped.elem);
   if (!lowered) return undefined;
@@ -400,12 +351,8 @@ export function lowerArrayFold(
   }
   const args: Expr[] = [];
   const predDecls: FuncDecl[] = [];
-  // What each call of the function passes ahead of its own arguments: the variables a local
-  // function captures (Rule 8.17).
   let leading: Expr[] = [];
   for (const arg of node.arguments) {
-    // An arrow function written as the callback (Rule 8.18): a local function of this body,
-    // typed by the arrays before it, `any(xs, (x) => x > k)`.
     if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) {
       const shape = foldCallbackShape(name, args);
       if (shape !== undefined) {
@@ -420,15 +367,8 @@ export function lowerArrayFold(
     }
     if (ts.isIdentifier(arg)) {
       const decl = scope.resolveCallee(arg.text);
-      // A local function or a parameter that takes a function, which the body declares, is
-      // what its name means there, whatever builtin shares it (Rule 9.5).
       const local = namesLocalFunction(arg);
       if (decl && !local && isValueConstructor(arg.text)) {
-        // The precedence `lowerCall` applies, applied here too (Rule 9.5): a callback follows the
-        // call, and a call of a value constructor's name builds the value even when the file
-        // declares a function of that name. There is no constructor-valued callback in a fold, so
-        // the honest answer is a diagnostic that names the rule; a builtin function's name, which
-        // a declaration wins over, hands the declaration over as any other function is.
         pushDiag(
           diagnostics,
           sourceFile,
@@ -441,7 +381,6 @@ export function lowerArrayFold(
       if (decl) {
         const captured = captureArguments(decl, arg.text, arg, sourceFile, scope, diagnostics);
         if (captured === undefined) return undefined;
-        // What it returns, which its body says when it writes no return type (Rule 8.19).
         if (!scope.calleeReady(decl, arg, sourceFile, diagnostics)) return undefined;
         predDecls.push(decl);
         leading = captured;
@@ -483,10 +422,6 @@ export function lowerArrayFold(
   return 'fallback';
 }
 
-/** What the function a fold is handed takes and returns, read off the arrays lowered ahead of
- *  it: an element for a predicate, which answers a bool, and one of each for `zip`, whose
- *  function's return is its own to say. Undefined for a fold that takes no function, or when
- *  the arrays are not there yet. */
 function foldCallbackShape(name: string, arrays: readonly Expr[]): FunctionShape | undefined {
   const elem = (e: Expr | undefined): ShaderType | undefined =>
     e !== undefined && e.type.kind === 'array' ? e.type.elem : undefined;

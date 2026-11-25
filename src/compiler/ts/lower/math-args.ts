@@ -1,24 +1,3 @@
-// === Argument checks for the free math builtins (roadmap 0.2 item 9, #57, §10) ===
-//
-// The math builtins were lowered by arity alone: `dot(a, b)` with a `vec3` and a `vec2`, or
-// `clamp(v, 0., 1.)` with a vector `v`, drew no diagnostic and emitted a call Tint refuses with
-// "no matching call to 'dot(vec3<f32>, vec2<f32>)'". The editor's ambient signatures caught
-// the first shape but not one whose arguments TypeScript had already typed `number`
-// (`dot(a * s, b * s)`), and `compile()` caught neither. This file is the check WGSL applies,
-// written once per signature shape: the componentwise builtins take arguments of one type,
-// `mix` alone blends by a scalar of the vectors' element kind, `refract` takes a scalar eta,
-// `ldexp` an integer exponent of its `x`'s shape, `extractBits` and `insertBits` a `u32` offset
-// and count, `cross` two `vec3<f32>`, `transpose` and `determinant` a matrix, and `mod` a
-// vector against a scalar of its kind as its floor-mod spelling does. Each rule names the
-// offending argument and, where one exists, the fix: splat the scalar, cast one side, or give
-// the vectors one size. An emulated double (`f64`, a `vec64`) is left to the fp64 pass, which
-// has its own lifting rules.
-//
-// Which kinds and shapes a call takes is Tint's overload table's to say, not this file's: for a
-// name whose `core.def` rows are SUPPORTED (0017), `derivedSpec` reads the rule off those rows,
-// the rows the editor's declarations are generated from. What stays here is how a refusal is
-// SAID: the argument it names, and the fix (splat, cast, one size), which no table carries.
-//
 // Implements: Rule 9.2 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
@@ -36,8 +15,6 @@ import { MATH_FN_ARITY } from '../math-alias.js';
 
 type Elem = 'f32' | 'i32' | 'u32' | 'bool' | 'f64';
 
-/** A scalar (`n` 1) or vector of a numeric or bool element kind; a matrix, struct, array,
- *  texture or sampler has no shape here. */
 interface Shape {
   readonly elem: Elem;
   readonly n: 1 | 2 | 3 | 4;
@@ -61,12 +38,9 @@ function shapeOf(t: ShaderType): Shape | undefined {
 const FLOAT: readonly Elem[] = ['f32', 'f64'];
 const INT: readonly Elem[] = ['i32', 'u32'];
 const NUMERIC: readonly Elem[] = ['f32', 'f64', 'i32', 'u32'];
-/** `sign` is defined for floats and signed integers; a `u32` has no sign to take. */
 const SIGNED: readonly Elem[] = ['f32', 'f64', 'i32'];
 
-/** What an argument after the first must be, measured against the first. */
 type Role =
-  /** The first argument's type exactly (`min(a, b)`, `clamp(x, lo, hi)`). */
   | 'same'
   /** The first argument's type, or a scalar of its element kind (`mix`'s factor, `mod`'s divisor). */
   | 'sameOrScalar'
@@ -78,36 +52,20 @@ type Role =
   | 'u32';
 
 interface Spec {
-  /** The element kinds the first argument may have. */
   readonly elems: readonly Elem[];
-  /** The first argument must be a vector. */
   readonly vector?: true;
-  /** The first argument must be a `vec3` (`cross`). */
   readonly vec3?: true;
-  /** The role of each later argument; `same` when not listed. */
   readonly roles?: Readonly<Record<number, Role>>;
 }
 
-/** The builtins that take a matrix, checked apart from the shapes above. */
 const MATRIX_FNS: ReadonlySet<string> = new Set(['transpose', 'determinant']);
 
-/** The rule of the one math name `core.def` has no row for: `mod`, whose floor-mod is a
- *  TypeShade spelling, written on WGSL as `x - y * floor(x / y)`. Every other name's rule is
- *  derived from its SUPPORTED rows (0017). */
 const UNDERIVED_SPECS: Readonly<Record<string, Spec>> = {
-  // TypeShade's componentwise surface broadcasts a scalar over a vector for these two
-  // operations. The WGSL backend receives an explicit vector splat during lowering; keeping
-  // the rule here lets the authoring language express the same operation as the EDSL/CPU tier.
   min: { elems: NUMERIC, roles: { 1: 'sameOrScalar' } },
   max: { elems: NUMERIC, roles: { 1: 'sameOrScalar' } },
-  // `mod(x, y)` takes a scalar `y` against a vector `x`, which its floor-mod spelling on WGSL
-  // and GLSL's `mod(vec, float)` both accept.
   mod: { elems: FLOAT, roles: { 1: 'sameOrScalar' } },
 };
 
-/** The element kinds a set of `core.def` scalars stands for, as the canonical lists the
- *  messages name (`classWord` knows these four by identity). An emulated double rides with the
- *  float kinds, since an `f64` takes the signatures of the `f32` it stands in for (Rule 9.2). */
 function canonicalElems(found: ReadonlySet<string>): readonly Elem[] {
   const key = ['f32', 'i32', 'u32'].filter((e) => found.has(e)).join(',');
   const canon: Readonly<Record<string, readonly Elem[]>> = {
@@ -121,22 +79,6 @@ function canonicalElems(found: ReadonlySet<string>): readonly Elem[] {
   return elems;
 }
 
-/**
- * The argument rule of the builtin `name`, derived from its SUPPORTED `core.def` rows (0017):
- * the element kinds its first argument may have, whether that argument must be a vector (every
- * row takes one) or a `vec3` (every row fixes the length at 3), and what each later argument is
- * measured against, read row by row:
- *
- *   same          the row writes it as the first argument's own type in every row
- *   sameOrScalar  the first argument's type in some rows, its element scalar in others (`mix`)
- *   scalar        the element scalar of a vector first argument in every row (`refract`'s eta)
- *   i32Of         an `i32` of the first argument's shape, through a parameter of its own
- *                 (`ldexp`'s exponent, `I: ia_i32`)
- *   u32           a `u32` scalar in every row
- *
- * Undefined for a name with no SUPPORTED rows. A relation that is none of these throws: a
- * re-bake that brings one has to be read before it is checked.
- */
 function derivedSpec(name: string): Spec | undefined {
   const rows = supportedRows(name)
     .map((row) => ({ row, types: valueRowTypes(row)! }))
@@ -191,17 +133,6 @@ function derivedSpec(name: string): Spec | undefined {
   };
 }
 
-/** The free math builtins the surface lowers as a `call`, and the WGSL rule each call is checked
- *  against; `f32` (a cast), `select`, `any` and `all` are lowered elsewhere and are not here. A
- *  name without an entry is checked by arity alone, as before.
- *
- *  A name with SUPPORTED `core.def` rows takes its rule from them (`derivedSpec`, 0017); the
- *  rest are `UNDERIVED_SPECS`. The rows are the ones the editor's declarations are generated
- *  from, so the compiler refuses the argument the editor's signature refuses.
- *
- *  Exported for `math-args.test.ts`, which iterates it: the table is the contract, so the suite
- *  that pins the contract must be driven BY the table rather than by a second hand list beside
- *  it. Not on the public barrel. */
 export const MATH_ARG_SPECS: Readonly<Record<string, Spec>> = (() => {
   const out: Record<string, Spec> = { ...UNDERIVED_SPECS };
   for (const name of Object.keys(MATH_FN_ARITY)) {
@@ -212,8 +143,6 @@ export const MATH_ARG_SPECS: Readonly<Record<string, Spec>> = (() => {
   return out;
 })();
 
-/** Whether the builtin `fn` has a form on the element kind `elem`: `min` on an i32, yes; `pow`,
- *  no. A name without a spec is taken to have one, as before the check existed. */
 export function mathTakesElem(fn: string, elem: string): boolean {
   const spec = MATH_ARG_SPECS[fn];
   return spec === undefined || (spec.elems as readonly string[]).includes(elem);
@@ -224,12 +153,9 @@ const VEC_SUFFIX: Readonly<Record<string, string>> = {
   i32: 'i',
   u32: 'u',
   bool: 'b',
-  // Without this an emulated-double vector printed as `vecN`, so the "cast one side" fix
-  // offered the same spelling twice ("Cast one side: vec3(x) or vec3(x)").
   f64: 'f64',
 };
 
-/** How the surface writes `t`'s vector of `n` (`vec3`, `vec2i`, `vec4u`), for a fix. */
 function vectorSpelling(elem: Elem, n: number): string {
   return `vec${n}${VEC_SUFFIX[elem] ?? ''}`;
 }
@@ -241,15 +167,6 @@ function classWord(elems: readonly Elem[]): string {
   return 'a number, or a vector of them';
 }
 
-/** The fix for two shapes that had to agree, or an empty string where none is short enough
- *  to say: a scalar beside a vector of its kind is splatted, two kinds of one shape are cast,
- *  two vector sizes are a rewrite.
- *
- *  A cast is offered only to a kind the builtin takes (`elems`). `pow(x, n)` with an `f32` `x`
- *  and an `i32` `n` used to offer `f32(x) or i32(x)`, and `pow(i32(x), n)` drew the next
- *  refusal, since `pow` has no integer form on either target (#616, Rule 12.5). The first
- *  argument's kind is always one the builtin takes (it is checked first), so when the other's
- *  is not, the one fix is to cast this argument, `arg` as written, to the first's kind. */
 function sameFix(first: Shape, other: Shape, elems: readonly Elem[], arg: string): string {
   if (first.elem === other.elem) {
     if (first.n !== 1 && other.n === 1) {
@@ -272,20 +189,6 @@ function sameFix(first: Shape, other: Shape, elems: readonly Elem[], arg: string
   return '';
 }
 
-/** The emulated-double arm of {@link checkMathArgs}.
- *
- *  An `f64` is not a native scalar: the fp64 lowering pass rewrites it into a pair of `f32`
- *  words and a `df64_*` call, and it has a body for the ten builtins in
- *  {@link F64_SCALAR_TWINS} and no others. Everything else used to be accepted here and
- *  refused by the backend as SD0041 — a diagnostic with no source span on a call the author
- *  had already written and forgotten. This says it at the call, with the list, and names the
- *  narrow that makes the program legal (#151 F64-08).
- *
- *  What the pass DOES accept is admitted as it is: an `f32` beside a scalar `f64` (the pass
- *  widens it exactly as `vec2<f32>(x, 0.0)`, the rule `binResultType` already applies in the
- *  fn() EDSL), a SCALAR operand broadcast across a `vec64` by a componentwise twin, and
- *  `mix`'s interpolant, which stays an `f32` on both shapes because the df64 body blends by a
- *  plain float. A wider f32 operand is NOT that broadcast and is refused — see the loop. */
 function checkF64Args(
   fn: string,
   display: string,
@@ -298,9 +201,6 @@ function checkF64Args(
   const vec = head.n > 1;
   const twins = vec ? F64_VEC_TWINS : F64_SCALAR_TWINS;
   if (!twins.includes(fn)) {
-    // The narrow NAMED here has to be one that lowers. `f32(v)` on a vec64 does not: the pass
-    // raises SD0041 for it, which is the spanless failure this refusal exists to replace. The
-    // vector narrow is `vecN(v)`, per lane (§39).
     const narrow = vec ? `vec${head.n}(v)` : 'f32(x)';
     return refuse(
       0,
@@ -309,13 +209,9 @@ function checkF64Args(
         `narrow first, e.g. ${display}(${narrow}).`,
     );
   }
-  // A reduction (dot, length, distance) takes vectors; a componentwise twin takes the head's
-  // own shape. Either way an f32 operand beside the f64 one is the pass's exact widen.
   for (let i = 1; i < args.length; i++) {
     const shape = shapes[i];
     const got = authorTypeText(args[i]!.type);
-    // mix(a, b, t): the interpolant is a plain f32 on both the scalar and the vector body
-    // (fp64-lower.ts raises SD0041 for an f64 t), so it is checked here and not as an operand.
     if (fn === 'mix' && i === 2) {
       if (shape !== undefined && shape.elem === 'f32' && shape.n === 1) continue;
       return refuse(
@@ -324,11 +220,6 @@ function checkF64Args(
           `Write f32(t).`,
       );
     }
-    // A CROSS-LANE reduction (dot, distance) needs two vectors of one width: the pass slices
-    // lane i out of each operand, and a scalar pair or an f32 vector sliced that way reads
-    // `.hi` off something that has no such field. `dot(v64, vec3)` compiled clean and emitted
-    // `w.hi` on a `vec3<f32>` — Tint refuses it and the lowered oracle answers NaN where the
-    // double oracle answers a number.
     if (F64_VEC_REDUCTIONS.includes(fn)) {
       if (shape !== undefined && shape.elem === 'f64' && shape.n === head.n) continue;
       return refuse(
@@ -337,9 +228,6 @@ function checkF64Args(
           `${authorTypeText(args[0]!.type)}, this one ${got}.`,
       );
     }
-    // A componentwise twin takes the head's own shape, or a SCALAR the pass broadcasts across
-    // the lanes (`vecOperand`) and widens exactly if it is an f32. A WIDER f32 operand is not
-    // that broadcast and is refused: the pass would walk it as if it were a DF64VecN.
     if (shape !== undefined && shape.elem === 'f64' && shape.n === head.n) continue;
     if (shape !== undefined && shape.n === 1 && (shape.elem === 'f64' || shape.elem === 'f32'))
       continue;
@@ -356,19 +244,12 @@ function checkF64Args(
   return true;
 }
 
-/** "abs, cos, floor and sin" — the twin list of a refusal, in the house's prose form. */
 function listOf(names: readonly string[]): string {
   return names.length < 2
     ? (names[0] ?? '')
     : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]!}`;
 }
 
-/** Checks the arguments of the math builtin `fn` (already at its arity) against its
- *  signature, pushing one diagnostic on the first argument that does not fit.
- *
- *  @param fn The canonical builtin id (`atan2`, not the `atan` it was written as).
- *  @param display The name as written, for the message (`Math.min`, `atan`).
- *  @returns `true` when the call is well formed. */
 export function checkMathArgs(
   fn: string,
   display: string,
@@ -383,7 +264,6 @@ export function checkMathArgs(
     );
     return false;
   };
-  /** The argument at `index` as the author wrote it, for a fix that names it. */
   const argText = (index: number): string => node.arguments[index]?.getText(sourceFile) ?? 'x';
   const first = args[0];
   if (first === undefined) return true;
@@ -391,11 +271,6 @@ export function checkMathArgs(
     if (first.type.kind !== 'mat') {
       return refuse(0, `${display} takes a matrix; got ${authorTypeText(first.type)}.`);
     }
-    // `transpose` on an emulated-double matrix is a reshuffle of the lanes the fp64 pass
-    // lowers (df64_mN_transpose); a DETERMINANT has no df64 body at all, so it would compile
-    // here and raise SD0041 from the backend after the call span is gone (#151).
-    // `determinant` is defined for a SQUARE matrix only (wgsl.txt:21842, `mat<N, N, T>`), and
-    // GLSL ES 3.00 likewise; a non-square one has no determinant to take.
     if (fn === 'determinant' && first.type.cols !== first.type.rows) {
       return refuse(
         0,
@@ -416,10 +291,6 @@ export function checkMathArgs(
   const spec = MATH_ARG_SPECS[fn];
   if (spec === undefined) return true;
   const shapes = args.map((a) => shapeOf(a.type));
-  // An emulated double as the FIRST argument decides the call: the fp64 pass, not the WGSL
-  // signature table, says what it can be. An f64 anywhere else — `mix(vec3, vec3, t64)` — is
-  // an ordinary operand mismatch against a native first argument and keeps the message the
-  // integer and wrong-width factors get, since the fix is the same one (#151 F64-08).
   if (shapes[0]?.elem === 'f64') {
     return checkF64Args(fn, display, args, shapes, refuse);
   }
