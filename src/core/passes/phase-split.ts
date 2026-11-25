@@ -523,7 +523,7 @@ class Builder {
       }
       case 'assign':
       case 'assignOp': {
-        // The value first, then the place, in the order the CPU backends evaluate them.
+        // Why: the CPU backends evaluate the value first, then the place.
         const value = this.hoist(s.expr, t);
         const target = this.hoistPlace(s.target, t);
         if (
@@ -696,8 +696,8 @@ class Builder {
       src = varref(tmp, type);
     }
     if (type.kind === 'vec64') {
-      // A vector is stored as hi and lo planes. Each scalar write is one pair; the memory
-      // pass maps its two words to those planes before fp64 lowering sees these places.
+      // Why: the memory pass maps the two words of each scalar write to the hi and lo planes of a vector,
+      // and it must do so before fp64 lowering sees these places.
       for (const field of 'xyzw'.slice(0, type.n)) {
         this.writePieces(
           { op: 'member', type: f64T, base: target, field },
@@ -750,7 +750,7 @@ class Builder {
       return undefined;
     }
     if (e.declRef === undefined && e.fn === 'workgroupUniformLoad') {
-      // A read with a barrier on each side (wgsl.txt:26057).
+      // Why: WGSL defines workgroupUniformLoad as a read with a barrier on each side (wgsl.txt:26057).
       const loc = this.hoist(e.args[0]!, t);
       const barrier: PhaseCut = { kind: 'barrier', fn: e.fn, stmt };
       this.cutTo(barrier);
@@ -821,8 +821,8 @@ class Builder {
     };
     this.lowerBody(callee.body, inner);
     this.end({ t: 'goto', to: after }, after);
-    // Copied in and copied out: WGSL lets no other name reach a place a pointer argument names
-    // (aliasing, wgsl.txt "Alias Analysis"), so the callee sees what a pointer would show it.
+    // Why: copied in and copied out. WGSL lets no other name reach a place a pointer argument
+    // names (aliasing, wgsl.txt "Alias Analysis"), so the callee sees what a pointer would show.
     for (const o of outs)
       this.emitStmt({ s: 'assign', target: o.place, expr: varref(o.name, o.type) });
     return wantValue && value !== undefined ? varref(value, callee.ret) : undefined;
