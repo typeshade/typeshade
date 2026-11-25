@@ -918,7 +918,7 @@
   "src/runtime/resource-device.test.ts": 22,
   "src/runtime/resource-state.ts": 96,
   "src/runtime/resource.test.ts": 20,
-  "src/runtime/resource.ts": 257,
+  "src/runtime/resource.ts": 249,
   "src/runtime/resources.ts": 23,
   "src/runtime/runtime-rhi.test.ts": 14,
   "src/runtime/runtime.test.ts": 277,
