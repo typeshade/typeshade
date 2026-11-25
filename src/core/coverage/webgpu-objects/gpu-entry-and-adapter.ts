@@ -32,10 +32,11 @@ export const GPU_ENTRY_AND_ADAPTER_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`GPU.getPreferredCanvasFormat()`',
     covers: ['GPU.getPreferredCanvasFormat'],
-    evidence: 'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:728-730',
+    evidence:
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts#webgpuPainter~"getPreferredCanvasFormat"',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test reads the format it returns; the call layer takes it for a canvas it configures (src/core/host-draw.ts:728-730)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test reads the format it returns; the call layer takes it for a canvas it configures (src/core/host-draw.ts#webgpuPainter~"getPreferredCanvasFormat")',
       645,
     ),
     webgl2: na('the WebGPU canvas format query; WebGL2 has no GPU object'),

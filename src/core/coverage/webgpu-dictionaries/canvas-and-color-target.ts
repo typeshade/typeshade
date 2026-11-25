@@ -7,7 +7,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.device`',
     covers: ['GPUCanvasConfiguration.device'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:315, 731; src/runtime/runtime.ts#RuntimeOptions',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts#painterFor~"as GpuCanvasContext"|webgpuPainter~"ctx.configure("; src/runtime/runtime.ts#RuntimeOptions',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -20,7 +20,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.format`',
     covers: ['GPUCanvasConfiguration.format'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:315, 731; src/runtime/runtime.ts:51-58',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts#painterFor~"as GpuCanvasContext"|webgpuPainter~"ctx.configure("; src/runtime/runtime.ts:51-58',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -33,7 +33,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.usage`',
     covers: ['GPUCanvasConfiguration.usage'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:315, 731; src/runtime/runtime.ts:51-58',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts#painterFor~"as GpuCanvasContext"|webgpuPainter~"ctx.configure("; src/runtime/runtime.ts:51-58',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -46,7 +46,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.viewFormats`',
     covers: ['GPUCanvasConfiguration.viewFormats'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:315, 731; src/runtime/runtime.ts:51-58',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts#painterFor~"as GpuCanvasContext"|webgpuPainter~"ctx.configure("; src/runtime/runtime.ts:51-58',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -59,7 +59,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.colorSpace`',
     covers: ['GPUCanvasConfiguration.colorSpace'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:315, 731; src/runtime/runtime.ts:609-616; src/runtime/gl-draw.ts#recordPass~"currentTexture"',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts#painterFor~"as GpuCanvasContext"|webgpuPainter~"ctx.configure("; src/runtime/runtime.ts:609-616; src/runtime/gl-draw.ts#recordPass~"currentTexture"',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -77,7 +77,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.toneMapping`',
     covers: ['GPUCanvasConfiguration.toneMapping'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:315, 731; src/runtime/runtime.ts:51-58',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts#painterFor~"as GpuCanvasContext"|webgpuPainter~"ctx.configure("; src/runtime/runtime.ts:51-58',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',
@@ -90,7 +90,7 @@ export const CANVAS_AND_COLOR_TARGET_ROWS: readonly Row[] = [
     name: '`GPUCanvasConfiguration.alphaMode`',
     covers: ['GPUCanvasConfiguration.alphaMode'],
     evidence:
-      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts:315, 731; src/runtime/runtime.ts:609-616; src/runtime/gl-draw.ts#recordPass~"currentTexture"',
+      'src/runtime/runtime.ts:105-170; src/core/host-draw.ts#painterFor~"as GpuCanvasContext"|webgpuPainter~"ctx.configure("; src/runtime/runtime.ts:609-616; src/runtime/gl-draw.ts#recordPass~"currentTexture"',
     webgpu: raw(
       'createRuntime({ device })',
       'the host configures its context; the call layer configures an opaque one (Rule 8.24)',

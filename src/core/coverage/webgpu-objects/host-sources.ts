@@ -6,14 +6,15 @@ export const HOST_SOURCES_ROWS: readonly Row[] = [
     kind: 'WebGPU interface member',
     name: '`HTMLCanvasElement.getContext()`',
     covers: ['HTMLCanvasElement.getContext'],
-    evidence: 'src/runtime/runtime.ts#RuntimeOptions; src/core/host-draw.ts:315-331',
+    evidence:
+      'src/runtime/runtime.ts#RuntimeOptions; src/core/host-draw.ts#painterFor~"as GpuCanvasContext"|painterFor~"webgl2Painter(gl)"',
     webgpu: typed(
       'scripts/compile-gate.ts',
-      'the call layer calls getContext("webgpu") on a canvas a host call passes (src/core/host-draw.ts:315-316; Rule 8.24)',
+      'the call layer calls getContext("webgpu") on a canvas a host call passes (src/core/host-draw.ts#painterFor~"as GpuCanvasContext"; Rule 8.24)',
     ),
     webgl2: typed(
       'scripts/user-journey.ts',
-      'the call layer calls getContext("webgl2") on a canvas a host call passes (src/core/host-draw.ts:319; Rule 8.24)',
+      'the call layer calls getContext("webgl2") on a canvas a host call passes (src/core/host-draw.ts#painterFor~"webgl2Painter(gl)"; Rule 8.24)',
     ),
   },
   {
@@ -22,15 +23,15 @@ export const HOST_SOURCES_ROWS: readonly Row[] = [
     name: '`OffscreenCanvas.getContext()`',
     covers: ['OffscreenCanvas.getContext'],
     evidence:
-      'src/runtime/runtime.ts#RuntimeOptions; docs/language-design.md:905; src/core/host-draw.ts#hostResidents; src/core/host-draw.ts:315-331',
+      'src/runtime/runtime.ts#RuntimeOptions; docs/language-design.md:905; src/core/host-draw.ts#hostResidents; src/core/host-draw.ts#painterFor~"as GpuCanvasContext"|painterFor~"webgl2Painter(gl)"',
     webgpu: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): no test draws into an OffscreenCanvas on WebGPU; the call layer takes an OffscreenCanvas as a draw target and calls getContext("webgpu") on it (src/core/host-draw.ts:184, 315-316; Rule 8.24)',
+      'typed in code; no test reads it on this target (Rule 11.18): no test draws into an OffscreenCanvas on WebGPU; the call layer takes an OffscreenCanvas as a draw target and calls getContext("webgpu") on it (src/core/host-draw.ts#Canvas.getContext|painterFor~"as GpuCanvasContext"; Rule 8.24)',
       645,
     ),
     webgl2: gap(
       15,
-      'typed in code; no test reads it on this target (Rule 11.18): the tests that ask an OffscreenCanvas stand-in for a WebGL2 context get none back (`src/compiler/ts/host-draw.test.ts`, `src/fuse.test.ts:2028`, `examples/host-examples.test.ts:72`), so the WebGL2 painter is never entered; the call layer calls getContext("webgl2") on an OffscreenCanvas draw target (src/core/host-draw.ts:184, 319)',
+      'typed in code; no test reads it on this target (Rule 11.18): the tests that ask an OffscreenCanvas stand-in for a WebGL2 context get none back (`src/compiler/ts/host-draw.test.ts`, `src/fuse.test.ts:2028`, `examples/host-examples.test.ts:72`), so the WebGL2 painter is never entered; the call layer calls getContext("webgl2") on an OffscreenCanvas draw target (src/core/host-draw.ts#Canvas.getContext|painterFor~"webgl2Painter(gl)")',
       645,
     ),
   },

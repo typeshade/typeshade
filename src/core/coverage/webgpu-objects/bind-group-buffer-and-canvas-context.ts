@@ -130,10 +130,10 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.configure()`',
     covers: ['GPUCanvasContext.configure'],
     evidence:
-      'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:728-731',
+      'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:105-170; src/core/host-draw.ts#webgpuPainter~"getPreferredCanvasFormat"|webgpuPainter~"ctx.configure("',
     webgpu: raw(
       'createRuntime({ device })',
-      'the call layer configures a context it makes, with the preferred format and an opaque alpha mode (src/core/host-draw.ts:728-731); the host configures its own context with the device it passes in',
+      'the call layer configures a context it makes, with the preferred format and an opaque alpha mode (src/core/host-draw.ts#webgpuPainter~"getPreferredCanvasFormat"|webgpuPainter~"ctx.configure("); the host configures its own context with the device it passes in',
     ),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no GPUCanvasContext; a WebGL2 context is made with its attributes (WebGLContextAttributes)',
@@ -145,10 +145,10 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.unconfigure()`',
     covers: ['GPUCanvasContext.unconfigure'],
     evidence:
-      'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:731',
+      'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:105-170; src/core/host-draw.ts#webgpuPainter~"ctx.configure("',
     webgpu: raw(
       'createRuntime({ device })',
-      'the host unconfigures its own context; the call layer never does (src/core/host-draw.ts:731)',
+      'the host unconfigures its own context; the call layer never does (src/core/host-draw.ts#webgpuPainter~"ctx.configure(")',
     ),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no GPUCanvasContext; a WebGL2 context is made with its attributes (WebGLContextAttributes)',
@@ -160,10 +160,10 @@ export const BIND_GROUP_BUFFER_AND_CANVAS_CONTEXT_ROWS: readonly Row[] = [
     name: '`GPUCanvasContext.getConfiguration()`',
     covers: ['GPUCanvasContext.getConfiguration'],
     evidence:
-      'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:105-170; src/core/host-draw.ts:731',
+      'src/runtime/runtime.ts#RuntimeOptions; src/runtime/runtime.ts:105-170; src/core/host-draw.ts#webgpuPainter~"ctx.configure("',
     webgpu: raw(
       'createRuntime({ device })',
-      'the host reads the configuration of its own context; the call layer never does (src/core/host-draw.ts:731)',
+      'the host reads the configuration of its own context; the call layer never does (src/core/host-draw.ts#webgpuPainter~"ctx.configure(")',
     ),
     webgl2: na(
       'WebGPU-only concept: WebGL2 has no GPUCanvasContext; a WebGL2 context is made with its attributes (WebGLContextAttributes)',
