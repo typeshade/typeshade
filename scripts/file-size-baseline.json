@@ -173,7 +173,6 @@
   "src/core/reflect.test.ts": 619,
   "src/core/reflect.ts": 997,
   "src/core/resident.ts": 1489,
-  "src/core/semantic-diff.ts": 460,
   "src/core/sot.ts": 1144,
   "src/core/spec-conformance/capability-coverage.test.ts": 1527,
   "src/core/spec-conformance/coredef-texture-overloads.test.ts": 569,
