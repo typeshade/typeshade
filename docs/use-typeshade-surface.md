@@ -7962,8 +7962,8 @@ interface Vertex {
 ```
 
 **The host still binds by the name written.** Reflection and the manifest record each emitted
-spelling beside the authored name: `emitted` is the WGSL spelling, and `emittedGlsl` is present
-where the GLSL one differs (§69). The runtime looks up a binding, an override and an entry by the
+spelling beside the authored name: `emitted` is the WGSL spelling, and `emittedGlsl` is always present
+and equals `emitted` where the two agree (§69). The runtime looks up a binding, an override and an entry by the
 authored name and uses the emitted one with the target. A host-owned binding and the fields of
 its struct keep their names, since the host names them; one its target cannot spell is refused
 with a clear error.
@@ -10661,7 +10661,7 @@ writes it to disk, a worker posts it and a cache stores it unchanged.
 import { compile, packModule } from 'typeshade';
 
 const program = packModule(compile(source).module, { console: true });
-program.schema; // 2: a reader refuses a schema it does not know
+program.schema; // 3: a reader refuses a schema it does not know
 program.wgsl; // the shader module's code
 program.bindings; // each slot: group, binding, resource, the stages that reach it, its layout
 program.entries; // each entry: stage, workgroup size, inputs, outputs, the bindings it reaches
