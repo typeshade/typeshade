@@ -139,6 +139,14 @@ describe('one array as two parameters of one call', () => {
     );
   });
 
+  it('writes it when the first parameter writes it and the second reads it', () => {
+    const k = twice(at('p', 'write'), at('q', 'read'));
+    const next = reader('next', false);
+    expect(whyOf(k, next)).toBe(
+      'twice and next run as two dispatches because next reads `x[i - 1]` (line 4)',
+    );
+  });
+
   it('reads it when either parameter reads it, in either order of the parameters', () => {
     const [readsFirst, readsSecond] = [
       faceOf('twice', [arrayParam('p', false), arrayParam('q', false)], loopOf([at('p', 'read')])),
@@ -174,6 +182,23 @@ describe('one array as two parameters of one call', () => {
     );
     const next = reader('next', true);
     expect(whyOf(k, next)).toBe(
+      'twice and next run as two dispatches because twice writes `t[i + 1]` (line 7)',
+    );
+  });
+});
+
+describe('one array as two parameters when the first one is away from the counter', () => {
+  it('is away from the counter though the second parameter is at it', () => {
+    const k = faceOf(
+      'twice',
+      [arrayParam('p', true), arrayParam('q', true)],
+      loopOf([
+        at('p', 'write', { atI: false, first: { text: 't[i + 1]', line: 7 } }),
+        at('q', 'write'),
+      ]),
+    );
+    const groups = groupCalls([call(k, [t, t]), call(reader('next', true), [v, t])], 8);
+    expect(groups.map((g) => g.why)[1]).toBe(
       'twice and next run as two dispatches because twice writes `t[i + 1]` (line 7)',
     );
   });
