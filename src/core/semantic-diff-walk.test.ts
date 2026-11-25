@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { boolT, f32T, i32T, vec4fT } from './ir/index.js';
-import type { Expr, FuncDecl, ModuleDecl, Stmt } from './ir/index.js';
+import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt } from './ir/index.js';
 import { semanticDiff } from './semantic-diff.js';
 
 const num = (value: number): Expr => ({ op: 'lit', type: f32T, value });
 const flag = (value: boolean): Expr => ({ op: 'lit', type: boolT, value });
 const index = (value: number): Expr => ({ op: 'lit', type: i32T, value });
-const named = (op: 'varref' | 'param', name: string, type = f32T): Expr => ({ op, type, name });
+const named = (op: 'varref' | 'param', name: string, type: ShaderType = f32T): Expr => ({
+  op,
+  type,
+  name,
+});
 
 const helperOf = (body: readonly Stmt[], params: FuncDecl['params'] = []): FuncDecl => ({
   name: 'helper',

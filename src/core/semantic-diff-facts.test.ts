@@ -257,7 +257,7 @@ describe('semanticDiff — the spelling of constants', () => {
       ],
       overrides: [{ name: 'N', type: f32T, default: 3 }],
     });
-    expect(semanticDiff(m, moduleOf([]), { ignore: [] }).constants.sort()).toEqual(
+    expect([...semanticDiff(m, moduleOf([]), { ignore: [] }).constants].sort()).toEqual(
       [
         '-@0 override N f32 = 3',
         '-@1 const A f32 wgsl=1.5 cpu=2.5',
