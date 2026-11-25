@@ -172,7 +172,6 @@
   "src/core/passes/uniformity.test.ts": 2241,
   "src/core/passes/uniformity.ts": 1576,
   "src/core/reflect.test.ts": 619,
-  "src/core/reflect.ts": 997,
   "src/core/resident.ts": 1489,
   "src/core/semantic-diff.ts": 570,
   "src/core/sot.ts": 1144,
