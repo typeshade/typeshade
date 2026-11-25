@@ -337,6 +337,20 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **The manifest and `reflect()` carry `emittedGlsl` on every binding and override** (change 0151,
+  stage 1, Rules 3.4 and 11.10). `emittedGlsl` equals `emitted` where the two targets spell the
+  name alike, and its type is `string`. A WebGL2 host reads `emittedGlsl` and picks nothing:
+  `glslNameOf` and its file are gone. `PACK_SCHEMA` is 3: a runtime refuses a schema-2 manifest, so
+  a host regenerates a stored manifest. Cost to a host: a manifest grows by 0.24% plain and 0.26%
+  gzip over the 121 packable examples (measured by the proposal). A host that reads
+  `emittedGlsl ?? emitted` keeps working on a schema-3 manifest. Baked again:
+  `src/random/face.ts`, `src/algorithms/face.ts` and `src/__api__/surface.md`. Measured bundle
+  budgets move (`scripts/bundle-budget.json`, gzip bytes), measured on `origin/main` at
+  `0e7cecf`: `typeshade/runtime` split initial 52237 to 52246 and split total 181081 to 181082.
+  The runtime single bundle falls from 179118 to 179111 and `typeshade/emit` from 124662 to 124622,
+  so those budgets stay. The records of the draw, handle and kernel loop that read `glsl ?? name`
+  follow in stage 2.
+
 - **An explicit `select` evaluates its three arguments left to right** (change 0150, Rule 7.9).
   `select(f, t, c)` is a call: `f`, `t` and `c` are all evaluated, in that order, on every target,
   whichever value `c` picks. A call that writes in `f` or `t` takes effect in that order; before,

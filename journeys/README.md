@@ -138,7 +138,7 @@ A sixth kind, `kind: 'limits'` (change 0051), is a host that runs one program on
 ## The import path
 
 `journeys/_console-variants/` is run separately by `scripts/console-variant-journey.ts` from
-the packed consumer. Its shader is read by both compiler and editor. Twenty checks execute
+the packed consumer. Its shader is read by both compiler and editor. Twenty-one checks execute
 the new manifest on WebGPU with the installed runtime and the actual schema-2 reader at
 `fe7e105e842ee33ce44ba1818bf9fe9a67002d4a`. The old reader and the new default stay quiet;
 explicit recording yields independent expected output, decoded events and submit counts.

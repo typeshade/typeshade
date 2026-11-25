@@ -15,8 +15,8 @@ async function run() {
     checks.push(name);
   };
   check(
-    manifest.schema === 2 && !manifest.console && !manifest.ir && !!manifest.variants?.console,
-    'schema 2 retains an optional variant without IR or default recording',
+    manifest.schema === 3 && !manifest.console && !manifest.ir && !!manifest.variants?.console,
+    'schema 3 retains an optional variant without IR or default recording',
   );
   for (const [label, make, options, records] of [
     ['old reader default', baselineRuntime, undefined, false],
@@ -26,7 +26,17 @@ async function run() {
   ]) {
     const events = [];
     const rt = await make({ device, console: (e) => events.push(e), consoleBytes: 256 });
-    const program = rt.load(manifest, options);
+    const old = make === baselineRuntime;
+    if (old) {
+      let refusedBySchema = false;
+      try {
+        rt.load(manifest, options);
+      } catch (e) {
+        refusedBySchema = e instanceof TypeError && e.message.includes('is schema 3');
+      }
+      check(refusedBySchema, `${label}: the schema-2 reader refuses a schema-3 manifest`);
+    }
+    const program = rt.load(old ? { ...manifest, schema: 2 } : manifest, options);
     check(program.recording === records, `${label}: recording policy`);
     const output = device.createBuffer({
       size: 4,

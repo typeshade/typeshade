@@ -1,7 +1,6 @@
 // The derivation of the limits a program needs (change 0051, part 1, Rule 11.11). The helpers the
 // device's limits need are in `core/device-limits.ts`.
 
-import { CONSOLE_SLOT_NAMES } from '../core/console-slot-names.js';
 import type { Pack, PackBinding, PackEntry } from '../core/manifest-types.js';
 import { checkLimitValues, copyLimits, isMinimumLimit } from '../core/device-limits.js';
 import { STAGE } from '../rhi/rhi.js';
@@ -55,7 +54,9 @@ export function bindingsOf(program: Pack, records: boolean): Map<string, PackBin
     if (b.group === 0 && b.name !== '_fp64') top = Math.max(top, b.binding);
   const slot = top + 1;
   bindings.set('_console', {
-    ...CONSOLE_SLOT_NAMES,
+    name: '_console',
+    emitted: '_console',
+    emittedGlsl: '_console',
     space: 'storage',
     group: 0,
     binding: slot,

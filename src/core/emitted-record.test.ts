@@ -1,6 +1,6 @@
 // The emitted-name record (Rule 11.10, proposal 0070 D2 and D3): every named record of
 // `reflect()` and of the manifest carries the authored name beside the name the emitted text
-// declares it under, and the manifest carries the schema that holds the record (schema 2).
+// declares it under, and the manifest carries the schema that holds the record (schema 3).
 // Commit one of 0070 adds the fields; the names are still the authored ones, so each pair is
 // equal. The later commits make a pair differ, and these tests show the record follows.
 //
