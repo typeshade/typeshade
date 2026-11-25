@@ -174,7 +174,6 @@
   "src/compiler/ts/key-types.ts": 28,
   "src/compiler/ts/libm-source.ts": 8,
   "src/compiler/ts/link.test.ts": 105,
-  "src/compiler/ts/lit-coerce.ts": 252,
   "src/compiler/ts/local-call-diagnostic-names.test.ts": 1,
   "src/compiler/ts/local-functions.test.ts": 8,
   "src/compiler/ts/local-numeric-inference.test.ts": 9,
