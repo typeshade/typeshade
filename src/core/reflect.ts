@@ -790,18 +790,11 @@ const ioField =
   });
 
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
-  // A depth texture is a `texture` here (roadmap 0.4 item 11): the host builds it with the
-  // same `GPUBindGroupLayoutEntry.texture` member a sampled one takes, and only `sampleType`
-  // differs — which `textureDepth` carries. Likewise a comparison sampler is a `sampler` whose
-  // `type` is 'comparison', carried by `samplerComparison`. A storage texture is different: it
-  // needs another layout member altogether, so it IS its own kind below.
+  // Why: WebGPU takes `texture`, `storageTexture` and `sampler` as different
+  // GPUBindGroupLayoutEntry members, so a host must tell the three kinds apart.
   t.kind === 'texture' || t.kind === 'depth-texture'
     ? 'texture'
-    : // Its OWN kind, not `texture` (roadmap 0.4 item 10): the two need different
-      // `GPUBindGroupLayoutEntry` members — `texture: { sampleType, viewDimension }` against
-      // `storageTexture: { access, format, viewDimension }` — so a host that could not tell
-      // them apart would build the wrong layout for one of them.
-      t.kind === 'storage-texture'
+    : t.kind === 'storage-texture'
       ? 'storage-texture'
       : t.kind === 'sampler' || t.kind === 'sampler-comparison'
         ? 'sampler'
@@ -880,6 +873,7 @@ const sampleTypeOf = (
   t: Extract<ShaderType, { kind: 'texture' }>,
   paired: boolean,
 ): 'float' | 'unfilterable-float' | 'sint' | 'uint' =>
+  // Why: no sampler reads a multisampled texture, and WebGPU refuses one laid out 'float' (#414).
   t.elem === 'u32'
     ? 'uint'
     : t.elem === 'i32'
