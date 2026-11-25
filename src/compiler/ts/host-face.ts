@@ -11,40 +11,18 @@ import { emitModule } from '../../core/backends/wgsl.js';
 import type { ConsoleLog } from '../../core/console.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
-import {
-  type ComputeEntry,
-  type DrawBinding,
-  type EntryBinding,
-  type HandleBinding,
-  type Layout,
-} from '../../core/host-entry.js';
+import { type EntryBinding, type HandleBinding, type Layout } from '../../core/host-entry.js';
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
-import type {
-  FuseArray,
-  FuseLoop,
-  KernelFace,
-  KernelFuse,
-  KernelLoop,
-  KernelParam,
-} from '../../core/host-kernel.js';
+import type { KernelFace, KernelLoop, KernelParam } from '../../core/host-kernel.js';
 import type { HostType } from '../../core/host-values.js';
-import type {
-  BindingDecl,
-  ConstDecl,
-  FuncDecl,
-  ModuleDecl,
-  StructDecl,
-} from '../../core/ir/nodes.js';
-import { workgroupShapeOf } from '../../core/ir/nodes.js';
-import { toPortable } from '../../core/ir/portable.js';
+import type { ConstDecl, FuncDecl, ModuleDecl, StructDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { addsTo, colourOf } from './host-face/entry-shapes.js';
+import { addsTo } from './host-face/entry-shapes.js';
 import { keyedStructsOf, writtenName } from './host-face/private-keys.js';
 import { grownChecked, lowerKernelFor, madeFace } from './host-face/made.js';
 import { exportsOf, type ExportRef } from './host-face/exports.js';
 import { wgslLoweredOf } from './source-file/wgsl-lowered.js';
-import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
-import { buildManifest, glDrawOf, layoutOf } from '../../core/manifest.js';
+import { buildManifest, layoutOf } from '../../core/manifest.js';
 import {
   calleesOf,
   closureOf,
@@ -54,12 +32,10 @@ import {
 } from '../../core/manifest/reach.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
-import { lowerKernelGl, type KernelPlan } from '../../core/passes/kernel-lower.js';
+import { lowerKernelGl } from '../../core/passes/kernel-lower.js';
 import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
-import { typeLayout } from '../../core/reflect.js';
 import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
-import { VERSION } from '../../core/version.js';
 import type { ClassLayouts } from '../../runtime/resource.js';
 import {
   isPrivateName,
@@ -80,103 +56,43 @@ import {
 import { REASON } from './host-face-shared.js';
 import { moduleText } from './host-module.js';
 import { hostTypeOf, kernelArrayLayout } from './host-types.js';
-import {
-  bindingsTypes,
-  isBufferBinding,
-  objectType,
-  structNames,
-  viewText,
-  type Naming,
-  type ViewTypes,
-} from './host-view.js';
-import { describeRead } from './kernel-loops.js';
+import { structNames, viewText, type Naming, type ViewTypes } from './host-view.js';
 import { collectionKeyOf, keyTypeText, keysOf } from './key-types.js';
 import { ctorFnName } from './lower/class-methods.js';
 import { pushedParams } from './lower/kernel-push.js';
 import { staticConstName } from './module-const.js';
-import { compileTsProgram, type TsCompilerDiagnostic } from './source-file.js';
+import { compileTsProgram } from './source-file.js';
 import { emittedStructDecls, type CollectedStruct } from './structs.js';
 import type { FaceCtx } from './host-face/context.js';
-import { gpuOnlyCall, barrierIn } from './host-face/reach.js';
-import { guardOf, guardBinding } from './host-face/guard.js';
+import { gpuOnlyCall } from './host-face/reach.js';
+import { guardOf } from './host-face/guard.js';
 import { spell } from './host-face/spell.js';
-import { noCpuTier, wgslEntryPoint, glTier } from './host-face/entry-tier.js';
 import { wordBinding, wordBindings, heldVariant } from './host-face/kernel-words.js';
-import { dispatched, bareArrays, reachedBy } from './host-face/kernel-facts.js';
+import { dispatched } from './host-face/kernel-facts.js';
 import { isFunctionType } from './host-face/type-nodes.js';
 import { classChain, memberCall, classMembers } from './host-face/class-members.js';
 import { classCalls, generatedClass } from './host-face/class-calls.js';
 import { never } from './host-face/never-export.js';
 import type { BindingRef } from './host-face/binding-ref.js';
 import { resourceFaces } from './host-face/resource-faces.js';
+import type { HostFaceOptions, HostFace } from './host-face/contracts.js';
+import { STORAGE_ACCESS } from './host-face/entry-vocabulary.js';
+import { typeOfBinding, namedBindings } from './host-face/entry-bindings.js';
+import { computeFace, fragmentFace } from './host-face/stage-faces.js';
+import { fuseRecord } from './host-face/kernel-fuse.js';
+export { fuseRecord } from './host-face/kernel-fuse.js';
+export { typeOfBinding } from './host-face/entry-bindings.js';
+export type { HostFaceOptions, HostFace } from './host-face/contracts.js';
 export { hostViewPath, isShaderModulePath, formatBuildErrors } from './host-face/build-paths.js';
 export { bareArrays } from './host-face/kernel-facts.js';
 export { type HostExport } from './host-face-contracts.js';
 export { hostTypeOf } from './host-types.js';
-
-/** How {@link hostFace} is called. */
-export interface HostFaceOptions {
-  /** The shader module's path, carried into the diagnostics and named in the generated files. */
-  readonly fileName: string;
-  /** The exact identity of this module's fusion records (change 0122). Defaults to `fileName`;
-   *  an empty string is an explicit identity. Distinct modules that can share a fusion scope
-   *  need distinct identities. This does not change source paths, imports, diagnostics or
-   *  views, and has no effect with `fuse: false`. */
-  readonly origin?: string;
-  /** The specifier the generated module imports its runtime from. Defaults to
-   *  `typeshade/runtime/internal`; a test points it at the source file. A tool that runs the
-   *  generated module without a bundler (change 0062) maps `typeshade/runtime/internal` to the
-   *  package's own copy, as a bundler does: it is what a generated module imports, not API for
-   *  a host to import. */
-  readonly runtime?: string;
-  /** `'gpu'` records each `console.*` call a GPU entry reaches into the `_console` buffer
-   *  (change 0014). The Vite plugin sets it in `vite dev`. Production retains an optional
-   *  manifest variant without recording; `'never'` omits that variant too. */
-  readonly console?: 'gpu' | 'never';
-  /** Put the program's portable IR in the manifest, the default export, so the load-time
-   *  emitter (`typeshade/emit`) can emit it again (change 0025). */
-  readonly ir?: boolean;
-  /** Write into the face of each kernel function that lowers the facts of its loops and the
-   *  lowered module they name as portable IR, which the planner of `typeshade/fuse` fuses a
-   *  chain of its calls from (change 0058). Enabled by default (change 0085); `false` omits
-   *  these facts to reduce generated size. Ordinary input projection remains independent. */
-  readonly fuse?: boolean;
-  /** Reads a shader file the module imports (Rule 3.9), and a package's `package.json`: the
-   *  module and what it imports are one program, and its face is the module's own exports and
-   *  re-exports. The Vite plugin reads from disk. */
-  readonly readDocument?: (fileName: string) => string | undefined;
-  /** The file a specifier written in `fromFile` names; defaults to the rule `compile()` uses. */
-  readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
-}
-
-/** The host face of one shader module. */
-export interface HostFace {
-  /** The module's own diagnostics. When one is an error, the module does not compile and
-   *  `exports`, `view` and `code` are absent: a build fails with these. */
-  readonly diagnostics: readonly TsCompilerDiagnostic[];
-  readonly exports?: readonly HostExport[];
-  /** The host view's text (`name.shade.typeshade.ts`). */
-  readonly view?: string;
-  /** The generated module's JavaScript. */
-  readonly code?: string;
-  /** Every file the compile read, the module first: what a bundler watches, so an edit to a
-   *  file the module imports rebuilds it. */
-  readonly files: readonly string[];
-}
 
 function reported(e: FaceExport): HostExport {
   if (e.kind === 'class') return { kind: 'struct', name: e.name, type: e.type };
   if (e.kind === 'shape') return { kind: 'never', name: e.name, reason: e.reason, typeOnly: true };
   return e;
 }
-
-const COMPUTE_BUILTINS = new Set([
-  'global_invocation_id',
-  'local_invocation_id',
-  'local_invocation_index',
-  'workgroup_id',
-  'num_workgroups',
-]);
 
 /**
  * Compute the host face of one shader module: which exports a host can call (Rule 8.20), their
@@ -404,184 +320,6 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       log,
     ),
     files,
-  };
-}
-
-function entryBindings(
-  f: FuncDecl,
-  c: FaceCtx,
-):
-  | {
-      bindings: DrawBinding[];
-      types: string[];
-      draw: string[];
-      queued: string[];
-      waiting: string[];
-      closure: ReadonlySet<string>;
-    }
-  | { none: string } {
-  const x = c.entry;
-  const closure = closureOf(f.name, x.callees);
-  const { touched, written } = x.reach(f.name);
-  const bindings: DrawBinding[] = [];
-  for (const b of x.bindings) {
-    if (!touched.has(b.name)) continue;
-    const glsl = spellingsOf(x.module).glsl.bindings.get(b.name);
-    const at = {
-      name: b.name,
-      group: b.group,
-      binding: b.binding,
-      s: spell(b.type),
-      ...(glsl !== undefined ? { glsl } : {}),
-    };
-    if (b.type.kind === 'texture' && b.type.dim === '2d' && b.type.elem === 'f32') {
-      bindings.push({ ...at, space: 'texture' });
-      continue;
-    }
-    if (b.type.kind === 'sampler') {
-      bindings.push({ ...at, space: 'sampler' });
-      continue;
-    }
-    const handle = ['texture', 'storage-texture', 'depth-texture', 'sampler-comparison'];
-    const space = b.space === 'storage' ? 'storage' : 'uniform';
-    if (handle.includes(b.type.kind))
-      return {
-        none: `binding "${b.name}" is a ${spell(b.type)}, which has no host value yet; #204, the rendering design, adds it`,
-      };
-    const layout = layoutOf(
-      b.type,
-      space === 'uniform' ? 'std140' : 'std430',
-      c.structs,
-      authorTypeText,
-    );
-    if ('none' in layout) return { none: `binding "${b.name}": ${layout.none}` };
-    const writes = f.stage === 'compute' && space === 'storage' && written.has(b.name);
-    const rw = space === 'storage' && b.access === 'read_write';
-    bindings.push({ ...at, space, writes, ...(rw ? { rw: true as const } : {}), layout });
-  }
-  return { bindings, ...bindingsTypes(bindings, (n) => typeOfBinding(x.bindings, n)), closure };
-}
-
-const typeOfBinding = (bindings: readonly BindingDecl[], name: string): ShaderType | undefined =>
-  bindings.find((b) => b.name === name)?.type;
-
-function namedBindings(
-  e: HostExport & { kind: 'compute' | 'fragment' },
-  typeOf: (name: string) => ShaderType | undefined,
-  naming: Naming,
-): HostExport {
-  const { types, draw, queued, waiting } = bindingsTypes(e.entry.bindings, typeOf, naming);
-  if (e.kind === 'fragment') return { ...e, bindingsType: objectType(draw) };
-  return {
-    ...e,
-    bindingsType: objectType(types),
-    ...(e.queuedType !== undefined
-      ? { queuedType: objectType(queued), waitingType: objectType(waiting) }
-      : {}),
-  };
-}
-
-const STORAGE_ACCESS = {
-  read: 'read-only',
-  write: 'write-only',
-  read_write: 'read-write',
-} as const;
-
-function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
-  const x = c.entry;
-  for (const p of f.params)
-    if (p.builtin === undefined || !COMPUTE_BUILTINS.has(p.builtin))
-      return never(name, `parameter "${p.name}" is not a builtin the call can fill in`);
-  const reached = entryBindings(f, c);
-  if ('none' in reached) return never(name, reached.none);
-  const { bindings, types, queued, waiting, closure } = reached;
-  if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
-  const barrier = barrierIn(closure, c.byName, x.declared);
-  const noCpu = noCpuTier(closure, bindings, c);
-  const gl = glTier(f, c);
-  const touched = new Set([...(x.reads.get(f.name) ?? []), ...(x.writes.get(f.name) ?? [])]);
-  const workgroupVars = (x.module.vars ?? []).filter(
-    (v) => v.space === 'workgroup' && touched.has(v.name),
-  );
-  return {
-    kind: 'compute',
-    name,
-    entry: {
-      name,
-      fn: f.name,
-      ...wgslEntryPoint(f, c),
-      wg: workgroupShapeOf(f) ?? [64, 1, 1],
-      ...(f.workgroupSizeOverrides === undefined
-        ? {}
-        : {
-            workgroupSizeOverrides: f.workgroupSizeOverrides.map((n) => n ?? null) as [
-              string | null,
-              string | null,
-              string | null,
-            ],
-          }),
-      ...(workgroupVars.length === 0
-        ? {}
-        : {
-            workgroupVars: workgroupVars.map((v) => ({
-              name: v.name,
-              size: typeLayout(v.type, 'std430', c.structs).size,
-              ...(v.type.kind === 'array' && v.type.sizeOverride !== undefined
-                ? { override: v.type.sizeOverride }
-                : {}),
-            })),
-          }),
-      params: f.params.map((p) => p.builtin!),
-      bindings,
-      workgroupZero: Object.fromEntries(
-        workgroupVars.map((v) => [v.name, x.workgroupZero[v.name]]),
-      ) as ComputeEntry['workgroupZero'],
-      ...(barrier !== undefined ? { barrier } : {}),
-      ...(noCpu !== undefined ? { noCpu } : {}),
-      ...gl,
-    },
-    bindingsType: objectType(types),
-    ...(bindings.some((b) => isBufferBinding(b) && b.writes) &&
-    bindings.every(
-      (b) => !isBufferBinding(b) || !b.writes || (b.layout.k === 'a' && b.layout.n === null),
-    )
-      ? { queuedType: objectType(queued), waitingType: objectType(waiting) }
-      : {}),
-  };
-}
-
-const FRAGMENT_BUILTINS = new Set(['position', 'front_facing']);
-
-function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
-  const x = c.entry;
-  for (const p of f.params)
-    if (p.builtin === undefined || !FRAGMENT_BUILTINS.has(p.builtin))
-      return never(name, REASON.fragmentInput(p.name));
-  const out = colourOf(f, c.structs);
-  if (out === undefined) return never(name, REASON.fragmentOutput);
-  const reached = entryBindings(f, c);
-  if ('none' in reached) return never(name, reached.none);
-  const { bindings, draw: drawTypes, closure } = reached;
-  if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
-  const draw = glDrawOf(x.module, f, bindings, closure, c.byName, x.declared);
-  const gl =
-    'none' in draw ? draw : { frag: draw.fragment, blocks: draw.blocks, samplers: draw.samplers };
-  const noCpu = noCpuTier(closure, bindings, c);
-  return {
-    kind: 'fragment',
-    name,
-    entry: {
-      name,
-      fn: f.name,
-      ...wgslEntryPoint(f, c),
-      params: f.params.map((p) => p.builtin!),
-      out,
-      bindings,
-      ...('none' in gl ? { noGl: gl.none } : { gl }),
-      ...(noCpu !== undefined ? { noCpu } : {}),
-      ...gl,
-    },
-    bindingsType: objectType(drawTypes),
   };
 }
 
@@ -975,44 +713,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     },
     ranges: plan.ranges,
   };
-}
-
-function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: string): KernelFuse {
-  const arrayParams = f.params
-    .filter((p) => p.type.kind === 'array' && p.type.size === undefined)
-    .map((p) => p.name);
-  const facts = plan.loops.map((l, j): FuseLoop => {
-    const v = proof.loops[j]!;
-    if (!v.ok) throw new Error(`${f.name}: loop ${j + 1} lowered without an accepted proof`);
-    const arrays: FuseArray[] = [];
-    for (const param of arrayParams) {
-      const store = v.stores.find((x) => x.name === param);
-      const fact = store ?? v.reads.find((x) => x.name === param);
-      if (fact === undefined) continue;
-      const first = describeRead(f, fact);
-      arrays.push({
-        param,
-        access: store === undefined ? 'read' : store.readBack ? 'readwrite' : 'write',
-        atI: fact.atI,
-        ...(first !== undefined ? { first } : {}),
-      });
-    }
-    const bare = bareArrays(f, plan, l, arrayParams);
-    return {
-      entry: l.entry,
-      ...(l.reduce !== undefined ? { fold: l.reduce.entry } : {}),
-      wg: l.wg,
-      ...(kernelWorkgroups.has(f) ? { declared: true } : {}),
-      arrays,
-      ...(bare.length > 0 ? { bare } : {}),
-      reduces: l.reduce !== undefined,
-      scatters: v.writes.some((w) => w.kind === 'scatter'),
-      continues: l.continues,
-      iterates: l.iterates,
-      iteration: l.iteration,
-    };
-  });
-  return { origin, facts, ir: toPortable(reachedBy(plan.module), VERSION) };
 }
 
 function kernelGl(
