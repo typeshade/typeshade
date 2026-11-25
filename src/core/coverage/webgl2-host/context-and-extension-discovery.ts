@@ -17,7 +17,7 @@ export const CONTEXT_AND_EXTENSION_DISCOVERY_ROWS: readonly Row[] = [
       'webgl:WebGLRenderingContextBase.getContextAttributes',
     ],
     evidence:
-      'src/runtime/runtime.ts#RuntimeOptions; src/core/gl-context.ts#makeGlContext; src/core/host-draw.ts:319-325',
+      'src/runtime/runtime.ts#RuntimeOptions; src/core/gl-context.ts#makeGlContext; src/core/host-draw.ts#painterFor~"const gl = canvas.getContext("|painterFor~"antialias: false"',
     note: "the runtime makes a plain context, or takes the host's context through createRuntime({ device }); the call layer makes an opaque, non-antialiased one",
     webgpu: andGap(
       raw(
