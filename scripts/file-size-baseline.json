@@ -129,7 +129,6 @@
   "src/core/host-entry.ts": 2029,
   "src/core/host-kernel.ts": 2589,
   "src/core/host-values.test.ts": 401,
-  "src/core/host-values.ts": 452,
   "src/core/intrinsic-coverage.test.ts": 497,
   "src/core/intrinsics.test.ts": 474,
   "src/core/intrinsics.ts": 1295,

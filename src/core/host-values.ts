@@ -1,32 +1,11 @@
-// ═══ Host values: what a host call passes and gets back (Rule 8.21) ═══
 // Implements: Rule 8.21
-// A host file that imports a `.shade.ts` calls its functions with plain JavaScript values, and
-// the CPU tier (Rule 11.7) runs on the representation the oracle already has (`cpu-runtime.ts`):
-// a scalar is a `number` or a `boolean`, a vector an array of its components, a matrix a flat
-// column-major array, an `array<T, N>` an array, and a struct an object of its fields. This file
-// is the boundary between the two. Each argument is checked against the parameter's type and
-// copied into a fresh value, and each result is copied out again, so the call neither reads a
-// value that does not fit nor hands back one that aliases an argument (Rule 8.8).
-//
-// An exported class (change 0109) is a JavaScript class of the generated module whose instances
-// are such objects: its fields are their own properties, and its constructor and methods run the
-// CPU tier's functions through {@link callMember}. A struct result whose class is exported is an
-// instance of it, built without its constructor (D1), through {@link fromShaderIn}, which a
-// module with no class never calls.
-//
-// It is runtime code: a module the Vite plugin generates imports it through `typeshade/runtime`,
-// with the type of every parameter written into that module as a `HostType` literal. It imports
-// two leaves, `resource-probe.ts` and `host-key.ts`, so an application ships these three files.
 
 import type { CpuValue } from './cpu-runtime.js';
 import { missingField, shaderField } from './host-key.js';
 import { resourceProbes } from './resource-probe.js';
 
-/** A scalar a host value carries as a `number`. */
 export type HostNumber = 'f32' | 'f64' | 'i32' | 'u32';
 
-/** The type of one parameter, one result, one field or one constant of a host call, as the
- *  generated module writes it. `s` is the TypeShade spelling, which a refusal names. */
 export type HostType =
   | { readonly k: 'num'; readonly t: HostNumber; readonly s: string }
   | { readonly k: 'bool'; readonly s: string }
@@ -67,7 +46,6 @@ const RANGE: Record<'i32' | 'u32', readonly [number, number]> = {
   u32: [0, 0xffffffff],
 };
 
-/** Why `v` is not a number of kind `t`, or undefined when it is one. */
 function numberProblem(t: HostNumber, v: unknown): string | undefined {
   if (typeof v !== 'number') return `got ${describe(v)}`;
   if (t === 'f32' || t === 'f64') return undefined;
@@ -77,7 +55,6 @@ function numberProblem(t: HostNumber, v: unknown): string | undefined {
   return undefined;
 }
 
-/** A short description of a value that did not fit, for the refusal. */
 function describe(v: unknown): string {
   if (v === null) return 'null';
   if (Array.isArray(v)) return `an array of length ${v.length}`;
@@ -87,7 +64,6 @@ function describe(v: unknown): string {
   return `${typeof v} ${String(v)}`;
 }
 
-/** An `ArrayLike` of length `n`, or why `v` is not one. */
 function listOf(v: unknown, n: number): ArrayLike<unknown> | string {
   if (typeof v !== 'object' || v === null || typeof (v as { length?: unknown }).length !== 'number')
     return `got ${describe(v)}`;
@@ -97,8 +73,6 @@ function listOf(v: unknown, n: number): ArrayLike<unknown> | string {
   return xs;
 }
 
-/** A refusal: thrown out of {@link toShader} and unwound to the call, which names the function
- *  and the parameter. `path` is where inside the value it went wrong (`.pos[1]`). */
 class Misfit {
   constructor(
     readonly path: string,
@@ -106,12 +80,6 @@ class Misfit {
   ) {}
 }
 
-/** The `n` elements of `xs`, the components of a vector or a matrix, as a new array of scalars
- *  of kind `e`: each is read once, in order, and the first that does not fit is refused, with the
- *  reason the descent gives for a scalar. The kind is decided once, before the loop (#410), and
- *  the loops differ in nothing else, so what is read of `xs` is the same for every kind, and an
- *  accessor that changes `xs` as it is read, or a `Proxy` that reports its reads, is served as
- *  it was. */
 function copyList(
   xs: ArrayLike<unknown>,
   n: number,
@@ -147,7 +115,6 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
     case 'num': {
       const p = numberProblem(t.t, v);
       if (p !== undefined) throw new Misfit(path, p);
-      // A buffer write of an `f32` rounds; so does the argument (Rule 8.21).
       return t.t === 'f32' ? Math.fround(v as number) : (v as number);
     }
     case 'bool':
@@ -205,8 +172,6 @@ function convertIn(t: HostType, v: unknown, path: string): CpuValue {
   }
 }
 
-/** Whether `x` is a scalar of kind `e` as {@link convertIn} takes one: a boolean for `bool`, a
- *  number for a float, a whole number in range for an integer. */
 function scalarFits(e: HostNumber | 'bool', x: unknown): boolean {
   if (e === 'bool') return typeof x === 'boolean';
   if (typeof x !== 'number') return false;
@@ -215,11 +180,6 @@ function scalarFits(e: HostNumber | 'bool', x: unknown): boolean {
   return Number.isInteger(x) && x >= lo && x <= hi;
 }
 
-/** {@link convertIn}'s value for a scalar that fits, computed without its descent; undefined for
- *  any other value, which the descent then checks, converts or refuses (#410). A scalar has no
- *  property to read, so what the descent does is all that is done. An array does not come here:
- *  a host may hand over one that changes as it is read, or answers a `Proxy`'s traps, and a
- *  second reading of it, by the descent, after this one declined, would be seen. */
 function convertQuick(t: HostType, v: unknown): CpuValue | undefined {
   switch (t.k) {
     case 'num':
@@ -241,9 +201,6 @@ function resourceKind(v: unknown): 'Buffer' | 'Uniform' | undefined {
   return undefined;
 }
 
-/** The refusal of a resource given to a parameter that takes plain data only, as a call with
- *  plain data checks it (Rule 12.5): it names what was given and says what to pass. A call on a
- *  resource refuses the same in `placeholderOf` (`core/host-kernel.ts`). */
 function resourceRefusal(
   fn: string,
   param: string,
@@ -256,14 +213,6 @@ function resourceRefusal(
     : `${head} (change 0138, R2; Amendment A10, Q-C).`;
 }
 
-/**
- * Check one argument of a host call against its parameter's type and copy it into the value
- * the CPU tier runs on (Rule 8.21). An `ArrayLike` of the right length (a `Float32Array`, an
- * array) becomes a fresh array, and an `f32` is rounded as a buffer write rounds it.
- *
- * @throws `TypeError` naming the function, the parameter and its TypeShade type, when the
- *   value does not fit.
- */
 export function toShader(fn: string, param: string, t: HostType, v: unknown): CpuValue {
   const quick = convertQuick(t, v);
   if (quick !== undefined) return quick;
@@ -278,8 +227,6 @@ export function toShader(fn: string, param: string, t: HostType, v: unknown): Cp
   }
 }
 
-/** Copy a result of the CPU tier out to the host: a fresh array or object at every level, so
- *  it aliases no argument and nothing the module keeps (Rule 8.21). */
 export function fromShader(t: HostType, v: CpuValue): unknown {
   switch (t.k) {
     case 'num':
@@ -292,7 +239,6 @@ export function fromShader(t: HostType, v: CpuValue): unknown {
     case 'vec':
     case 'mat': {
       if (!Array.isArray(v)) return Array.from(v as unknown as ArrayLike<number | boolean>);
-      // What `Array.from` makes of an array, element by element, without its iterator.
       const out = new Array<unknown>(v.length);
       for (let i = 0; i < v.length; i++) out[i] = v[i];
       return out;
@@ -314,14 +260,8 @@ export function fromShader(t: HostType, v: CpuValue): unknown {
   }
 }
 
-/** The prototype of each exported class by its struct's name (change 0109): a struct a result
- *  holds is an instance of its class, built without running the constructor (D1). */
 export type HostClasses = ReadonlyMap<string, object>;
 
-/** {@link fromShader} in a module that exports a class (change 0109): a struct whose class
- *  `classes` names is an instance of that class, its fields its own properties and its
- *  constructor not run (D1), at every level. Apart from `fromShader`, so that what an
- *  application ships for a module with no class is what it was. */
 export function fromShaderIn(t: HostType, v: CpuValue, classes: HostClasses): unknown {
   switch (t.k) {
     case 'arr':
@@ -343,9 +283,6 @@ export function fromShaderIn(t: HostType, v: CpuValue, classes: HostClasses): un
   }
 }
 
-/** Write a struct value of the CPU tier into `target`'s own properties, one host value for each
- *  field `t` declares, fresh at every level (change 0109): the fields of an instance a
- *  constructor built, or that a method which changes its object changed (Rule 8.10). */
 function assignFields(target: object, t: HostType, v: CpuValue, classes: HostClasses): void {
   if (t.k !== 'struct') return;
   const o = v as unknown as Record<string, CpuValue>;
@@ -353,48 +290,23 @@ function assignFields(target: object, t: HostType, v: CpuValue, classes: HostCla
   for (const [key, ft] of t.f) out[key] = fromShaderIn(ft, o[shaderField(key)]!, classes);
 }
 
-/** The generated module's CPU tier, as a member call reads it: its functions, and the values a
- *  function with an `inout` parameter publishes as it returns (`$.inout`, cpu-runtime.ts). */
 interface ClassCpu {
   readonly F: Readonly<Record<string, ((...a: CpuValue[]) => CpuValue) | undefined>>;
   readonly $: { readonly inout: { readonly values: readonly CpuValue[] } };
 }
 
-/** One constructor, method, accessor half or static function of an exported class (change
- *  0109), as the generated module writes it. */
 export interface MemberSpec {
-  /** How a refusal names it: `new OnePole`, `OnePole.tick`. */
   readonly n: string;
-  /** The CPU tier's function it runs; absent for a constructor with none, which builds `z`. */
   readonly fn?: string;
-  /** Its parameters, as a host call has them. */
   readonly p: readonly (readonly [string, HostType])[];
-  /** Its result. */
   readonly r?: HostType;
-  /** The instance's struct: an instance member passes the instance as the function's object,
-   *  and a constructor writes what it built into the instance. */
   readonly o?: HostType;
-  /** A constructor. */
   readonly c?: 1;
-  /** Takes its object by reference (Rule 8.10): the call writes the instance's fields back. */
   readonly w?: 1;
-  /** Every `return` is `return this` (Rule 8.10): the call returns the instance itself. */
   readonly s?: 1;
-  /** The zero struct a constructor with no function builds, as `new` gives it (surface §26). */
   readonly z?: CpuValue;
 }
 
-/**
- * Run one member of an exported class on the CPU tier (change 0109): check and convert each
- * argument as a host call does (Rule 8.21), and the instance as the function's object, start
- * the module's private variables over, run the function, write the instance's fields back when
- * the member changes its object, and return its result as a host value, the instance itself for
- * a member that returns `this`. A constructor writes what the function built, or the zero
- * struct, into the instance.
- *
- * @throws `TypeError` naming the member, the parameter and its TypeShade type, when a value does
- *   not fit, as {@link toShader} does; `this` names the instance.
- */
 export function callMember(
   m: ClassCpu,
   classes: HostClasses,
@@ -421,8 +333,6 @@ export function callMember(
   return spec.r === undefined ? undefined : fromShaderIn(spec.r, result, classes);
 }
 
-/** A module constant as a host value: a copy, frozen at every level, so the host cannot write
- *  the value the module's own functions read. */
 export function constantOf(t: HostType, v: CpuValue): unknown {
   const deepFreeze = (x: unknown): unknown => {
     if (typeof x === 'object' && x !== null) {
@@ -434,7 +344,6 @@ export function constantOf(t: HostType, v: CpuValue): unknown {
   return deepFreeze(fromShader(t, v));
 }
 
-/** Refuse a call with the wrong number of arguments, which a JavaScript caller can make. */
 export function arity(fn: string, expected: number, got: number): void {
   if (got !== expected)
     throw new TypeError(
@@ -442,9 +351,6 @@ export function arity(fn: string, expected: number, got: number): void {
     );
 }
 
-/** The value of an export that has no host face (Rule 8.20): the host view declares it `never`,
- *  so a call is a type error at the host's own line, and this refuses one that `tsc` did not
- *  see with the same reason. */
 export function notCallable(name: string, reason: string): () => never {
   return () => {
     throw new TypeError(`${name} cannot be called from host code: ${reason}`);
