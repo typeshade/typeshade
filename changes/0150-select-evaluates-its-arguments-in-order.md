@@ -255,8 +255,48 @@ This record does not yet apply. Delivery will require the implementing pull requ
 
 ## What it owes downstream
 
-The compiler repository is the only repository that this session could search. The downstream repositories (`DOWNSTREAM_REPOS` in `scripts/changes.ts`: `typeshade.github.io`, `vscode-typeshade`, `radiance`, `typenn`, `typecv`, `typeaudio`) were not searched: this session's GitHub scope is `typeshade/typeshade`. A downstream repository that pins the compiler with this proposal records `0150` in its `compiler-changes.md`.
+This session searched no downstream repository itself. The orchestrating session searched local checkouts on 2026-11-25 and reported the facts below. This session did not re-run the search (reported fact).
 
-- `typeshade.github.io`: search its pages (en and ko) for "select(", "the ternary" and "WGSL's order". Each page that quotes §10, §26 or §27 follows the new text. Pending.
-- `vscode-typeshade`: search its skill and fixtures for "same code as a ternary" and for `select(` with a call in an argument. Pending.
-- `radiance`, `typenn`, `typecv`, `typeaudio`: not searched. A `select(` with a call that writes in an argument is the only program whose result changes. Pending, and unknown until each repository is searched.
+### Search of downstream sources
+
+Each HEAD equals `origin/main` of its repository after `git fetch origin main`. The command, for each repository `$d`, from the parent directory of the checkouts:
+
+1. `grep -rl --include=*.ts -e '"use typeshade"' -e "'use typeshade'" $d --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git`
+2. `grep -nE -A3 '\bselect\(' <those files>`
+3. A reader read the first two arguments of every site.
+
+| Repository            | Commit                                     | Files with the directive | Lines with a `select(` call                                                  | Sites with a call that may write in the first or second argument |
+| --------------------- | ------------------------------------------ | ------------------------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `typeshade/typeaudio` | `714ecbf7e4307f73f7942bbef46db543c7234f1c` | 59                       | 4                                                                            | 0                                                                |
+| `typeshade/typecv`    | `3df1921bdc1c86f9e24de80bff244500436f2c5d` | 42                       | 65 (67 calls: two lines nest a `select`)                                     | 0                                                                |
+| `typeshade/typenn`    | `794aa4679630fa3f1d889ab29e30ef6a03cfbcf3` | 10                       | 17                                                                           | 0                                                                |
+| `typeshade/typeplot`  | `e8a0eb97a0ffa6e32aec124557db859b8f584bf5` | 16                       | 0                                                                            | 0                                                                |
+| `typeshade/web`       | `7a8d29265cdcbaa25a02f2908bdcd59591d49242` | 45                       | 12 (6 are TypeShade calls; the rest are host calls such as `input.select()`) | 0                                                                |
+
+The calls found in a first or second argument are builtins and constructors only: `max`, `min`, `abs`, `sqrt`, `f32`, `u32`, `vec2`, `bitcast` and a nested `select`. The one user function near a `select` is in the third argument (`typeaudio` `study.ts:264`, `uniform(hash32(...))`, both pure). The change does not move a third argument.
+
+No downstream source changes its result under this proposal. The site owes text, below.
+
+Not searched:
+
+- `node_modules` and `dist`.
+- Compiler-emitted WGSL and GLSL inside generated manifests (`typeplot/examples/generated/*.js`, `web/apps/typeshade/public/benchmarks/artifacts/*.js`).
+- TypeShade source that a host builds at run time by string interpolation (`typeaudio` `src/graph/compiler/emitGraphSource.ts` and the `study.ts` templates), beyond the literal `select(` text in them.
+- Radiance, and any repository outside the five above.
+
+### What the site owes
+
+The site (`typeshade/web` at `7a8d2926`, the repository that holds `typeshade.github.io`'s content) changes in its own pull request after its pin moves. These are the texts that the change makes false or incomplete (reported fact):
+
+- `apps/typeshade/content/guide/ko/values-and-mutation.md:105` says that `select(f, t, c)` is the same as `c ? t : f`. After this proposal that holds only when no argument writes. The page follows the new text.
+- `apps/typeshade/src/i18n/en.ts:3839` and `apps/typeshade/src/i18n/ko.ts:3988` say "A scalar choice is the ternary here and `select` on WGSL, so one name serves both". The implementation reads it against the new text and records whether it stays true. It is open.
+- `apps/typeshade/content/guide/ko/control-flow.md:107` says that the ternary computes both branches and then picks one, "like WGSL's `select`". That sentence is about `?:`. It is already imprecise against Rule 7.9 today. This proposal does not cause it and does not own the fix. It is an observation.
+- `typecv` `docs/audits/2026-10-27-typescript-surface-gaps.md:128` and `:465` record that `select(f, t, c)` and `c ? t : f` emit identical WGSL and GLSL at that pin (row Q63, 66 calls). That stays true for those 66 calls, because no argument writes. The audit is a dated record and owes nothing.
+- `apps/typeshade/content/api/ko/select.json` describes the builder function `select(cond, ifTrue, ifFalse)` of `ReadonlyNode`, which is another surface with the condition first. This proposal does not touch it: the builder builds the IR node (`src/core/ir/node.ts`, line 792) without the marker, so its behaviour stays as it is.
+
+### Per repository
+
+- `typeshade.github.io` (content in `typeshade/web`): the pages above follow the new text. Pending.
+- `vscode-typeshade`: not searched. Its skill and fixtures may say that `select` compiles to the same code as a ternary. Pending.
+- `typenn`, `typecv`, `typeaudio`: no source change. Each records `0150` in its `compiler-changes.md` when its pin moves. Pending.
+- `radiance`: not searched. Pending, and unknown.
